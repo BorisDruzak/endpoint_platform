@@ -1,0 +1,41 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "device_id": {
+      "format": "uuid",
+      "title": "Device Id",
+      "type": "string"
+    },
+    "enrollment_receipt": {
+      "maxLength": 256,
+      "minLength": 1,
+      "title": "Enrollment Receipt",
+      "type": "string"
+    },
+    "issued_at": {
+      "format": "date-time",
+      "title": "Issued At",
+      "type": "string"
+    },
+    "policy_id": {
+      "maxLength": 256,
+      "minLength": 1,
+      "title": "Policy Id",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "enrollment_response_v1",
+      "title": "Schema Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema_version",
+    "device_id",
+    "policy_id",
+    "enrollment_receipt",
+    "issued_at"
+  ],
+  "title": "EnrollmentResponseV1",
+  "type": "object"
+}

@@ -1,0 +1,43 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "agent_version": {
+      "maxLength": 128,
+      "minLength": 1,
+      "title": "Agent Version",
+      "type": "string"
+    },
+    "device_id": {
+      "format": "uuid",
+      "title": "Device Id",
+      "type": "string"
+    },
+    "platform": {
+      "enum": [
+        "linux",
+        "windows"
+      ],
+      "title": "Platform",
+      "type": "string"
+    },
+    "reported_at": {
+      "format": "date-time",
+      "title": "Reported At",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "agent_heartbeat_v1",
+      "title": "Schema Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema_version",
+    "device_id",
+    "platform",
+    "agent_version",
+    "reported_at"
+  ],
+  "title": "AgentHeartbeatV1",
+  "type": "object"
+}

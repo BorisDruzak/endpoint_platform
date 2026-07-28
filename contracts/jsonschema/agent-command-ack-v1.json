@@ -1,0 +1,61 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "acknowledged_at": {
+      "format": "date-time",
+      "title": "Acknowledged At",
+      "type": "string"
+    },
+    "command_id": {
+      "format": "uuid",
+      "title": "Command Id",
+      "type": "string"
+    },
+    "device_id": {
+      "format": "uuid",
+      "title": "Device Id",
+      "type": "string"
+    },
+    "message": {
+      "anyOf": [
+        {
+          "maxLength": 4096,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Message"
+    },
+    "schema_version": {
+      "const": "agent_command_ack_v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "status": {
+      "enum": [
+        "queued",
+        "delivered",
+        "acknowledged",
+        "running",
+        "succeeded",
+        "failed",
+        "canceled",
+        "expired"
+      ],
+      "title": "Status",
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema_version",
+    "command_id",
+    "device_id",
+    "status",
+    "acknowledged_at"
+  ],
+  "title": "AgentCommandAckV1",
+  "type": "object"
+}

@@ -1,0 +1,72 @@
+{
+  "$defs": {
+    "JsonValue": {}
+  },
+  "additionalProperties": false,
+  "properties": {
+    "command_id": {
+      "format": "uuid",
+      "title": "Command Id",
+      "type": "string"
+    },
+    "completed_at": {
+      "format": "date-time",
+      "title": "Completed At",
+      "type": "string"
+    },
+    "device_id": {
+      "format": "uuid",
+      "title": "Device Id",
+      "type": "string"
+    },
+    "message": {
+      "anyOf": [
+        {
+          "maxLength": 4096,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Message"
+    },
+    "result_items": {
+      "items": {
+        "$ref": "#/$defs/JsonValue"
+      },
+      "maxItems": 32,
+      "title": "Result Items",
+      "type": "array"
+    },
+    "schema_version": {
+      "const": "agent_result_v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "status": {
+      "enum": [
+        "queued",
+        "delivered",
+        "acknowledged",
+        "running",
+        "succeeded",
+        "failed",
+        "canceled",
+        "expired"
+      ],
+      "title": "Status",
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema_version",
+    "command_id",
+    "device_id",
+    "status",
+    "completed_at"
+  ],
+  "title": "AgentResultV1",
+  "type": "object"
+}

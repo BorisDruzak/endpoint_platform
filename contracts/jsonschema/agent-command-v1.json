@@ -1,0 +1,111 @@
+{
+  "$defs": {
+    "CommandCorrelationV1": {
+      "additionalProperties": false,
+      "properties": {
+        "parent_command_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Parent Command Id"
+        },
+        "request_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Request Id"
+        },
+        "schema_version": {
+          "const": "command_correlation_v1",
+          "default": "command_correlation_v1",
+          "title": "Schema Version",
+          "type": "string"
+        }
+      },
+      "title": "CommandCorrelationV1",
+      "type": "object"
+    },
+    "JsonValue": {}
+  },
+  "additionalProperties": false,
+  "properties": {
+    "capability": {
+      "pattern": "^[a-z][a-z0-9_.-]{2,95}$",
+      "title": "Capability",
+      "type": "string"
+    },
+    "command_id": {
+      "format": "uuid",
+      "title": "Command Id",
+      "type": "string"
+    },
+    "correlation": {
+      "$ref": "#/$defs/CommandCorrelationV1"
+    },
+    "created_at": {
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
+    },
+    "deadline_at": {
+      "format": "date-time",
+      "title": "Deadline At",
+      "type": "string"
+    },
+    "device_id": {
+      "format": "uuid",
+      "title": "Device Id",
+      "type": "string"
+    },
+    "idempotency_key": {
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$",
+      "title": "Idempotency Key",
+      "type": "string"
+    },
+    "parameters": {
+      "additionalProperties": {
+        "$ref": "#/$defs/JsonValue"
+      },
+      "maxProperties": 32,
+      "title": "Parameters",
+      "type": "object"
+    },
+    "requested_by_service": {
+      "maxLength": 96,
+      "minLength": 3,
+      "title": "Requested By Service",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "agent_command_v1",
+      "title": "Schema Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema_version",
+    "command_id",
+    "device_id",
+    "capability",
+    "requested_by_service",
+    "idempotency_key",
+    "created_at",
+    "deadline_at"
+  ],
+  "title": "AgentCommandV1",
+  "type": "object"
+}

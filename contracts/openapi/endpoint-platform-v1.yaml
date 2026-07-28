@@ -1,0 +1,424 @@
+openapi: "3.1.0"
+info:
+  title: "Endpoint Platform Gateway API"
+  version: "v1"
+paths: {}
+components:
+  schemas:
+    DeviceIdentityV1:
+      additionalProperties: false
+      properties:
+        schema_version:
+          const: "device_identity_v1"
+          title: "Schema Version"
+          type: "string"
+        device_id:
+          format: "uuid"
+          title: "Device Id"
+          type: "string"
+        platform:
+          enum:
+            - "linux"
+            - "windows"
+          title: "Platform"
+          type: "string"
+        hardware_fingerprint:
+          maxLength: 256
+          minLength: 8
+          title: "Hardware Fingerprint"
+          type: "string"
+      required:
+        - "schema_version"
+        - "device_id"
+        - "platform"
+        - "hardware_fingerprint"
+      title: "DeviceIdentityV1"
+      type: "object"
+    AgentSessionV1:
+      additionalProperties: false
+      properties:
+        schema_version:
+          const: "agent_session_v1"
+          title: "Schema Version"
+          type: "string"
+        device_id:
+          format: "uuid"
+          title: "Device Id"
+          type: "string"
+        session_id:
+          format: "uuid"
+          title: "Session Id"
+          type: "string"
+        issued_at:
+          format: "date-time"
+          title: "Issued At"
+          type: "string"
+        expires_at:
+          format: "date-time"
+          title: "Expires At"
+          type: "string"
+      required:
+        - "schema_version"
+        - "device_id"
+        - "session_id"
+        - "issued_at"
+        - "expires_at"
+      title: "AgentSessionV1"
+      type: "object"
+    EnrollmentRequestV1:
+      additionalProperties: false
+      properties:
+        schema_version:
+          const: "enrollment_request_v1"
+          title: "Schema Version"
+          type: "string"
+        platform:
+          enum:
+            - "linux"
+            - "windows"
+          title: "Platform"
+          type: "string"
+        hardware_fingerprint:
+          maxLength: 256
+          minLength: 8
+          title: "Hardware Fingerprint"
+          type: "string"
+        installation_id:
+          maxLength: 256
+          minLength: 1
+          title: "Installation Id"
+          type: "string"
+        requested_at:
+          format: "date-time"
+          title: "Requested At"
+          type: "string"
+      required:
+        - "schema_version"
+        - "platform"
+        - "hardware_fingerprint"
+        - "installation_id"
+        - "requested_at"
+      title: "EnrollmentRequestV1"
+      type: "object"
+    EnrollmentResponseV1:
+      additionalProperties: false
+      properties:
+        schema_version:
+          const: "enrollment_response_v1"
+          title: "Schema Version"
+          type: "string"
+        device_id:
+          format: "uuid"
+          title: "Device Id"
+          type: "string"
+        policy_id:
+          maxLength: 256
+          minLength: 1
+          title: "Policy Id"
+          type: "string"
+        enrollment_receipt:
+          maxLength: 256
+          minLength: 1
+          title: "Enrollment Receipt"
+          type: "string"
+        issued_at:
+          format: "date-time"
+          title: "Issued At"
+          type: "string"
+      required:
+        - "schema_version"
+        - "device_id"
+        - "policy_id"
+        - "enrollment_receipt"
+        - "issued_at"
+      title: "EnrollmentResponseV1"
+      type: "object"
+    AgentCommandV1:
+      "$defs":
+        CommandCorrelationV1:
+          additionalProperties: false
+          properties:
+            schema_version:
+              const: "command_correlation_v1"
+              default: "command_correlation_v1"
+              title: "Schema Version"
+              type: "string"
+            request_id:
+              anyOf:
+                -
+                  format: "uuid"
+                  type: "string"
+                -
+                  type: "null"
+              default: null
+              title: "Request Id"
+            parent_command_id:
+              anyOf:
+                -
+                  format: "uuid"
+                  type: "string"
+                -
+                  type: "null"
+              default: null
+              title: "Parent Command Id"
+          title: "CommandCorrelationV1"
+          type: "object"
+        JsonValue: {}
+      additionalProperties: false
+      properties:
+        schema_version:
+          const: "agent_command_v1"
+          title: "Schema Version"
+          type: "string"
+        command_id:
+          format: "uuid"
+          title: "Command Id"
+          type: "string"
+        device_id:
+          format: "uuid"
+          title: "Device Id"
+          type: "string"
+        capability:
+          pattern: "^[a-z][a-z0-9_.-]{2,95}$"
+          title: "Capability"
+          type: "string"
+        parameters:
+          additionalProperties:
+            "$ref": "#/$defs/JsonValue"
+          maxProperties: 32
+          title: "Parameters"
+          type: "object"
+        requested_by_service:
+          maxLength: 96
+          minLength: 3
+          title: "Requested By Service"
+          type: "string"
+        idempotency_key:
+          pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$"
+          title: "Idempotency Key"
+          type: "string"
+        created_at:
+          format: "date-time"
+          title: "Created At"
+          type: "string"
+        deadline_at:
+          format: "date-time"
+          title: "Deadline At"
+          type: "string"
+        correlation:
+          "$ref": "#/$defs/CommandCorrelationV1"
+      required:
+        - "schema_version"
+        - "command_id"
+        - "device_id"
+        - "capability"
+        - "requested_by_service"
+        - "idempotency_key"
+        - "created_at"
+        - "deadline_at"
+      title: "AgentCommandV1"
+      type: "object"
+    AgentCommandAckV1:
+      additionalProperties: false
+      properties:
+        schema_version:
+          const: "agent_command_ack_v1"
+          title: "Schema Version"
+          type: "string"
+        command_id:
+          format: "uuid"
+          title: "Command Id"
+          type: "string"
+        device_id:
+          format: "uuid"
+          title: "Device Id"
+          type: "string"
+        status:
+          enum:
+            - "queued"
+            - "delivered"
+            - "acknowledged"
+            - "running"
+            - "succeeded"
+            - "failed"
+            - "canceled"
+            - "expired"
+          title: "Status"
+          type: "string"
+        acknowledged_at:
+          format: "date-time"
+          title: "Acknowledged At"
+          type: "string"
+        message:
+          anyOf:
+            -
+              maxLength: 4096
+              type: "string"
+            -
+              type: "null"
+          default: null
+          title: "Message"
+      required:
+        - "schema_version"
+        - "command_id"
+        - "device_id"
+        - "status"
+        - "acknowledged_at"
+      title: "AgentCommandAckV1"
+      type: "object"
+    AgentResultV1:
+      "$defs":
+        JsonValue: {}
+      additionalProperties: false
+      properties:
+        schema_version:
+          const: "agent_result_v1"
+          title: "Schema Version"
+          type: "string"
+        command_id:
+          format: "uuid"
+          title: "Command Id"
+          type: "string"
+        device_id:
+          format: "uuid"
+          title: "Device Id"
+          type: "string"
+        status:
+          enum:
+            - "queued"
+            - "delivered"
+            - "acknowledged"
+            - "running"
+            - "succeeded"
+            - "failed"
+            - "canceled"
+            - "expired"
+          title: "Status"
+          type: "string"
+        result_items:
+          items:
+            "$ref": "#/$defs/JsonValue"
+          maxItems: 32
+          title: "Result Items"
+          type: "array"
+        message:
+          anyOf:
+            -
+              maxLength: 4096
+              type: "string"
+            -
+              type: "null"
+          default: null
+          title: "Message"
+        completed_at:
+          format: "date-time"
+          title: "Completed At"
+          type: "string"
+      required:
+        - "schema_version"
+        - "command_id"
+        - "device_id"
+        - "status"
+        - "completed_at"
+      title: "AgentResultV1"
+      type: "object"
+    AgentHeartbeatV1:
+      additionalProperties: false
+      properties:
+        schema_version:
+          const: "agent_heartbeat_v1"
+          title: "Schema Version"
+          type: "string"
+        device_id:
+          format: "uuid"
+          title: "Device Id"
+          type: "string"
+        platform:
+          enum:
+            - "linux"
+            - "windows"
+          title: "Platform"
+          type: "string"
+        agent_version:
+          maxLength: 128
+          minLength: 1
+          title: "Agent Version"
+          type: "string"
+        reported_at:
+          format: "date-time"
+          title: "Reported At"
+          type: "string"
+      required:
+        - "schema_version"
+        - "device_id"
+        - "platform"
+        - "agent_version"
+        - "reported_at"
+      title: "AgentHeartbeatV1"
+      type: "object"
+    AgentBuildRecommendationV1:
+      additionalProperties: false
+      properties:
+        schema_version:
+          const: "agent_build_recommendation_v1"
+          title: "Schema Version"
+          type: "string"
+        version:
+          maxLength: 128
+          minLength: 1
+          title: "Version"
+          type: "string"
+        platform:
+          enum:
+            - "linux"
+            - "windows"
+          title: "Platform"
+          type: "string"
+        artifact_path:
+          maxLength: 512
+          minLength: 1
+          title: "Artifact Path"
+          type: "string"
+        artifact_size_bytes:
+          minimum: 1
+          title: "Artifact Size Bytes"
+          type: "integer"
+        sha256:
+          pattern: "^[a-fA-F0-9]{64}$"
+          title: "Sha256"
+          type: "string"
+        minimum_launcher_version:
+          maxLength: 128
+          minLength: 1
+          title: "Minimum Launcher Version"
+          type: "string"
+        channel:
+          enum:
+            - "stable"
+            - "beta"
+            - "canary"
+          title: "Channel"
+          type: "string"
+        archive_type:
+          enum:
+            - "zip"
+            - "tar.gz"
+          title: "Archive Type"
+          type: "string"
+        issued_at:
+          format: "date-time"
+          title: "Issued At"
+          type: "string"
+      required:
+        - "schema_version"
+        - "version"
+        - "platform"
+        - "artifact_path"
+        - "artifact_size_bytes"
+        - "sha256"
+        - "minimum_launcher_version"
+        - "channel"
+        - "archive_type"
+        - "issued_at"
+      title: "AgentBuildRecommendationV1"
+      type: "object"

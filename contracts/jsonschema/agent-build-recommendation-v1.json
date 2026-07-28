@@ -1,0 +1,82 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "archive_type": {
+      "enum": [
+        "zip",
+        "tar.gz"
+      ],
+      "title": "Archive Type",
+      "type": "string"
+    },
+    "artifact_path": {
+      "maxLength": 512,
+      "minLength": 1,
+      "title": "Artifact Path",
+      "type": "string"
+    },
+    "artifact_size_bytes": {
+      "minimum": 1,
+      "title": "Artifact Size Bytes",
+      "type": "integer"
+    },
+    "channel": {
+      "enum": [
+        "stable",
+        "beta",
+        "canary"
+      ],
+      "title": "Channel",
+      "type": "string"
+    },
+    "issued_at": {
+      "format": "date-time",
+      "title": "Issued At",
+      "type": "string"
+    },
+    "minimum_launcher_version": {
+      "maxLength": 128,
+      "minLength": 1,
+      "title": "Minimum Launcher Version",
+      "type": "string"
+    },
+    "platform": {
+      "enum": [
+        "linux",
+        "windows"
+      ],
+      "title": "Platform",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "agent_build_recommendation_v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "sha256": {
+      "pattern": "^[a-fA-F0-9]{64}$",
+      "title": "Sha256",
+      "type": "string"
+    },
+    "version": {
+      "maxLength": 128,
+      "minLength": 1,
+      "title": "Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema_version",
+    "version",
+    "platform",
+    "artifact_path",
+    "artifact_size_bytes",
+    "sha256",
+    "minimum_launcher_version",
+    "channel",
+    "archive_type",
+    "issued_at"
+  ],
+  "title": "AgentBuildRecommendationV1",
+  "type": "object"
+}

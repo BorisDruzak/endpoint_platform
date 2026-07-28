@@ -1,0 +1,37 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "device_id": {
+      "format": "uuid",
+      "title": "Device Id",
+      "type": "string"
+    },
+    "hardware_fingerprint": {
+      "maxLength": 256,
+      "minLength": 8,
+      "title": "Hardware Fingerprint",
+      "type": "string"
+    },
+    "platform": {
+      "enum": [
+        "linux",
+        "windows"
+      ],
+      "title": "Platform",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "device_identity_v1",
+      "title": "Schema Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema_version",
+    "device_id",
+    "platform",
+    "hardware_fingerprint"
+  ],
+  "title": "DeviceIdentityV1",
+  "type": "object"
+}

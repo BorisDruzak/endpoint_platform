@@ -1,0 +1,12 @@
+{
+  "archive_type": "tar.gz",
+  "artifact_path": "agent/linux/endpoint-agent-1.2.3-fixture.tar.gz",
+  "artifact_size_bytes": 1024,
+  "channel": "stable",
+  "issued_at": "2026-07-28T12:00:00Z",
+  "minimum_launcher_version": "1.0.0",
+  "platform": "linux",
+  "schema_version": "agent_build_recommendation_v1",
+  "sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+  "version": "1.2.3-fixture"
+}
