@@ -26,6 +26,17 @@ def valid_agent_command() -> dict[str, object]:
     }
 
 
+def valid_agent_result() -> dict[str, object]:
+    return {
+        "schema_version": "agent_result_v1",
+        "command_id": "22222222-2222-4222-8222-222222222222",
+        "device_id": "11111111-1111-4111-8111-111111111111",
+        "status": "succeeded",
+        "result_items": [],
+        "completed_at": "2026-07-28T12:01:00Z",
+    }
+
+
 def test_command_rejects_deadline_not_after_creation() -> None:
     payload = valid_agent_command()
     payload["deadline_at"] = "2026-07-28T12:00:00Z"
@@ -66,6 +77,60 @@ def test_command_rejects_non_finite_json_parameter_value() -> None:
         AgentCommandV1.model_validate(payload)
 
 
+def test_command_rejects_oversized_nested_json_string() -> None:
+    payload = valid_agent_command()
+    payload["parameters"] = {"details": {"message": "x" * 4097}}
+
+    with pytest.raises(ValidationError):
+        AgentCommandV1.model_validate(payload)
+
+
+def test_command_rejects_oversized_nested_json_list() -> None:
+    payload = valid_agent_command()
+    payload["parameters"] = {"details": {"items": list(range(33))}}
+
+    with pytest.raises(ValidationError):
+        AgentCommandV1.model_validate(payload)
+
+
+def test_command_rejects_deeply_nested_json_list() -> None:
+    value: object = "leaf"
+    for _ in range(9):
+        value = [value]
+
+    payload = valid_agent_command()
+    payload["parameters"] = {"details": value}
+
+    with pytest.raises(ValidationError):
+        AgentCommandV1.model_validate(payload)
+
+
+def test_command_rejects_oversized_nested_json_map() -> None:
+    payload = valid_agent_command()
+    payload["parameters"] = {"details": {f"key-{index}": index for index in range(33)}}
+
+    with pytest.raises(ValidationError):
+        AgentCommandV1.model_validate(payload)
+
+
+def test_command_rejects_oversized_serialized_json() -> None:
+    payload = valid_agent_command()
+    payload["parameters"] = {f"key-{index}": "x" * 4096 for index in range(16)}
+
+    with pytest.raises(ValidationError):
+        AgentCommandV1.model_validate(payload)
+
+
+def test_command_rejects_oversized_json_structure() -> None:
+    payload = valid_agent_command()
+    payload["parameters"] = {
+        f"key-{index}": list(range(32)) for index in range(32)
+    }
+
+    with pytest.raises(ValidationError):
+        AgentCommandV1.model_validate(payload)
+
+
 def test_result_rejects_more_than_32_items() -> None:
     with pytest.raises(ValidationError):
         AgentResultV1.model_validate(
@@ -78,6 +143,50 @@ def test_result_rejects_more_than_32_items() -> None:
                 "completed_at": "2026-07-28T12:01:00Z",
             }
         )
+
+
+def test_result_rejects_oversized_nested_json_string() -> None:
+    payload = valid_agent_result()
+    payload["result_items"] = [{"message": "x" * 4097}]
+
+    with pytest.raises(ValidationError):
+        AgentResultV1.model_validate(payload)
+
+
+def test_result_rejects_oversized_nested_json_list() -> None:
+    payload = valid_agent_result()
+    payload["result_items"] = [{"items": list(range(33))}]
+
+    with pytest.raises(ValidationError):
+        AgentResultV1.model_validate(payload)
+
+
+def test_result_rejects_deeply_nested_json_list() -> None:
+    value: object = "leaf"
+    for _ in range(9):
+        value = [value]
+
+    payload = valid_agent_result()
+    payload["result_items"] = [value]
+
+    with pytest.raises(ValidationError):
+        AgentResultV1.model_validate(payload)
+
+
+def test_result_rejects_oversized_nested_json_map() -> None:
+    payload = valid_agent_result()
+    payload["result_items"] = [{f"key-{index}": index for index in range(33)}]
+
+    with pytest.raises(ValidationError):
+        AgentResultV1.model_validate(payload)
+
+
+def test_result_rejects_non_finite_json_number() -> None:
+    payload = valid_agent_result()
+    payload["result_items"] = [float("inf")]
+
+    with pytest.raises(ValidationError):
+        AgentResultV1.model_validate(payload)
 
 
 def test_acknowledgement_rejects_unknown_status() -> None:

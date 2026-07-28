@@ -1,3 +1,4 @@
+import json
 from math import isfinite
 from typing import Annotated, Literal
 from uuid import UUID
@@ -17,15 +18,56 @@ CommandStatusV1 = Literal[
     "expired",
 ]
 
+MAX_JSON_DEPTH = 8
+MAX_JSON_STRING_LENGTH = 4096
+MAX_JSON_LIST_ITEMS = 32
+MAX_JSON_MAP_ITEMS = 32
+MAX_JSON_NODES = 1024
+MAX_JSON_SERIALIZED_BYTES = 65536
 
-def _contains_non_finite_number(value: JsonValue) -> bool:
+
+def _validate_bounded_json(value: JsonValue, *, depth: int, node_count: list[int]) -> None:
+    if depth > MAX_JSON_DEPTH:
+        raise ValueError("JSON value exceeds maximum nesting depth")
+
+    node_count[0] += 1
+    if node_count[0] > MAX_JSON_NODES:
+        raise ValueError("JSON value exceeds maximum structural size")
+
+    if isinstance(value, str):
+        if len(value) > MAX_JSON_STRING_LENGTH:
+            raise ValueError("JSON string exceeds maximum length")
+        return
     if isinstance(value, float):
-        return not isfinite(value)
+        if not isfinite(value):
+            raise ValueError("JSON numbers must be finite")
+        return
     if isinstance(value, dict):
-        return any(_contains_non_finite_number(item) for item in value.values())
+        if len(value) > MAX_JSON_MAP_ITEMS:
+            raise ValueError("JSON map exceeds maximum size")
+        for key, item in value.items():
+            if not isinstance(key, str):
+                raise ValueError("JSON map keys must be strings")
+            _validate_bounded_json(key, depth=depth + 1, node_count=node_count)
+            _validate_bounded_json(item, depth=depth + 1, node_count=node_count)
+        return
     if isinstance(value, list):
-        return any(_contains_non_finite_number(item) for item in value)
-    return False
+        if len(value) > MAX_JSON_LIST_ITEMS:
+            raise ValueError("JSON list exceeds maximum size")
+        for item in value:
+            _validate_bounded_json(item, depth=depth + 1, node_count=node_count)
+
+
+def validate_bounded_json(value: JsonValue) -> None:
+    _validate_bounded_json(value, depth=0, node_count=[0])
+    serialized = json.dumps(
+        value,
+        allow_nan=False,
+        ensure_ascii=False,
+        separators=(",", ":"),
+    )
+    if len(serialized.encode("utf-8")) > MAX_JSON_SERIALIZED_BYTES:
+        raise ValueError("JSON value exceeds maximum serialized size")
 
 
 class CommandCorrelationV1(ContractModelV1):
@@ -53,8 +95,7 @@ class AgentCommandV1(ContractModelV1):
     def validate_deadline(self) -> "AgentCommandV1":
         if self.deadline_at <= self.created_at:
             raise ValueError("deadline_at must be after created_at")
-        if _contains_non_finite_number(self.parameters):
-            raise ValueError("parameters must contain only finite JSON numbers")
+        validate_bounded_json(self.parameters)
         return self
 
 
@@ -75,3 +116,8 @@ class AgentResultV1(ContractModelV1):
     result_items: list[JsonValue] = Field(default_factory=list, max_length=32)
     message: Annotated[str | None, Field(max_length=4096)] = None
     completed_at: AwareDatetime
+
+    @model_validator(mode="after")
+    def validate_result_items(self) -> "AgentResultV1":
+        validate_bounded_json(self.result_items)
+        return self
