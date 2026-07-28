@@ -5,6 +5,7 @@ import sys
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
+from urllib.parse import parse_qsl, urlparse
 
 import pytest
 import yaml
@@ -35,6 +36,13 @@ SYNTHETIC_UUIDS = {
     "44444444-4444-4444-8444-444444444444",
 }
 DEVICE_DATA_MARKERS = ("device", "hardware", "host", "machine")
+DEVICE_DATA_FIELDS = {
+    "serial_number",
+    "mac_address",
+    "asset_tag",
+    "bios_uuid",
+    "fqdn",
+}
 
 
 def _walk_json(value: Any, path: tuple[str, ...] = ()) -> Iterator[tuple[tuple[str, ...], Any]]:
@@ -50,6 +58,15 @@ def _walk_json(value: Any, path: tuple[str, ...] = ()) -> Iterator[tuple[tuple[s
             yield from _walk_json(child, child_path)
 
 
+def _contains_url_credentials(value: str) -> bool:
+    parsed = urlparse(value)
+    return (
+        parsed.username is not None
+        or parsed.password is not None
+        or any(SENSITIVE_KEY_PATTERN.search(key) for key, _ in parse_qsl(parsed.query))
+    )
+
+
 def _assert_synthetic_fixture(value: Any) -> None:
     for path, child in _walk_json(value):
         field_name = path[-1]
@@ -58,11 +75,15 @@ def _assert_synthetic_fixture(value: Any) -> None:
             continue
         assert not SENSITIVE_VALUE_PATTERN.search(child), path
         assert not ABSOLUTE_PATH_PATTERN.search(child), path
+        assert not _contains_url_credentials(child), path
         if UUID_PATTERN.fullmatch(child):
             assert child in SYNTHETIC_UUIDS, path
         elif field_name != "sha256":
             assert not OPAQUE_VALUE_PATTERN.fullmatch(child), path
-        if any(marker in field_name.lower() for marker in DEVICE_DATA_MARKERS):
+        if (
+            field_name.lower() in DEVICE_DATA_FIELDS
+            or any(marker in field_name.lower() for marker in DEVICE_DATA_MARKERS)
+        ):
             assert child in SYNTHETIC_UUIDS or "fixture" in child.lower(), path
 
 
@@ -190,8 +211,15 @@ def test_fixture_is_synthetic_and_contains_no_sensitive_values(filename: str) ->
         {"metadata": {"value": "A" * 32}},
         {"metadata": {"path": "/var/lib/endpoint/device.json"}},
         {"metadata": {"path": r"C:\\endpoint\\device.json"}},
+        {"metadata": {"url": "https://fixture-user:fixture-pass@example.test/artifact"}},
+        {"metadata": {"url": "https://example.test/artifact?access_token=fixture-value"}},
         {"device_id": "99999999-9999-4999-8999-999999999999"},
         {"hardware_fingerprint": "prod-host-fingerprint"},
+        {"serial_number": "ABC123"},
+        {"mac_address": "00:11:22:33:44:55"},
+        {"asset_tag": "RACK-7"},
+        {"bios_uuid": "55555555-5555-4555-8555-555555555555"},
+        {"fqdn": "workstation.example.test"},
     ],
 )
 def test_synthetic_fixture_policy_rejects_sensitive_or_production_data(
