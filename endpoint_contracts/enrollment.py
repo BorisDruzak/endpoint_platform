@@ -15,6 +15,7 @@ class EnrollmentRequestV1(ContractModelV1):
 
 
 class EnrollmentResponseV1(ContractModelV1):
+    schema_version: Literal["enrollment_response_v1"]
     device_id: UUID
     policy_id: Annotated[str, Field(min_length=1, max_length=256)]
     enrollment_receipt: Annotated[str, Field(min_length=1, max_length=256)]
