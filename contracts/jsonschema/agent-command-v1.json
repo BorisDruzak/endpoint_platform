@@ -390,11 +390,13 @@
       "$ref": "#/$defs/CommandCorrelationV1"
     },
     "created_at": {
+      "$comment": "model-only UTC normalization: timezone-aware values are normalized to UTC.",
       "format": "date-time",
       "title": "Created At",
       "type": "string"
     },
     "deadline_at": {
+      "$comment": "model-only UTC normalization: timezone-aware values are normalized to UTC.",
       "format": "date-time",
       "title": "Deadline At",
       "type": "string"

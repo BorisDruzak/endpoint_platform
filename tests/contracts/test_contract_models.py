@@ -426,6 +426,24 @@ def test_build_recommendation_rejects_absolute_artifact_path() -> None:
         )
 
 
+def test_build_recommendation_rejects_artifact_path_with_trailing_newline() -> None:
+    with pytest.raises(ValidationError):
+        AgentBuildRecommendationV1.model_validate(
+            {
+                "schema_version": "agent_build_recommendation_v1",
+                "version": "1.2.3",
+                "platform": "windows",
+                "artifact_path": "agent/agent.zip\n",
+                "artifact_size_bytes": 1024,
+                "sha256": "a" * 64,
+                "minimum_launcher_version": "1.0.0",
+                "channel": "stable",
+                "archive_type": "zip",
+                "issued_at": "2026-07-28T12:01:00Z",
+            }
+        )
+
+
 def test_device_identity_rejects_unknown_fields() -> None:
     with pytest.raises(ValidationError, match="extra_forbidden"):
         DeviceIdentityV1.model_validate(

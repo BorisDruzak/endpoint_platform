@@ -53,10 +53,12 @@ components:
           format: "date-time"
           title: "Issued At"
           type: "string"
+          "$comment": "model-only UTC normalization: timezone-aware values are normalized to UTC."
         expires_at:
           format: "date-time"
           title: "Expires At"
           type: "string"
+          "$comment": "model-only UTC normalization: timezone-aware values are normalized to UTC."
       required:
         - "schema_version"
         - "device_id"
@@ -92,6 +94,7 @@ components:
           format: "date-time"
           title: "Requested At"
           type: "string"
+          "$comment": "model-only UTC normalization: timezone-aware values are normalized to UTC."
       required:
         - "schema_version"
         - "platform"
@@ -125,6 +128,7 @@ components:
           format: "date-time"
           title: "Issued At"
           type: "string"
+          "$comment": "model-only UTC normalization: timezone-aware values are normalized to UTC."
       required:
         - "schema_version"
         - "device_id"
@@ -177,10 +181,12 @@ components:
           format: "date-time"
           title: "Created At"
           type: "string"
+          "$comment": "model-only UTC normalization: timezone-aware values are normalized to UTC."
         deadline_at:
           format: "date-time"
           title: "Deadline At"
           type: "string"
+          "$comment": "model-only UTC normalization: timezone-aware values are normalized to UTC."
         correlation:
           "$ref": "#/components/schemas/AgentCommandV1__CommandCorrelationV1"
       required:
@@ -475,6 +481,7 @@ components:
           format: "date-time"
           title: "Acknowledged At"
           type: "string"
+          "$comment": "model-only UTC normalization: timezone-aware values are normalized to UTC."
         message:
           anyOf:
             -
@@ -539,6 +546,7 @@ components:
           format: "date-time"
           title: "Completed At"
           type: "string"
+          "$comment": "model-only UTC normalization: timezone-aware values are normalized to UTC."
       required:
         - "schema_version"
         - "command_id"
@@ -795,6 +803,7 @@ components:
           format: "date-time"
           title: "Reported At"
           type: "string"
+          "$comment": "model-only UTC normalization: timezone-aware values are normalized to UTC."
       required:
         - "schema_version"
         - "device_id"
@@ -824,7 +833,7 @@ components:
         artifact_path:
           maxLength: 512
           minLength: 1
-          pattern: "^(?:[A-Za-z0-9_-][A-Za-z0-9._-]*|\\.[A-Za-z0-9_-][A-Za-z0-9._-]*)(?:/(?:[A-Za-z0-9_-][A-Za-z0-9._-]*|\\.[A-Za-z0-9_-][A-Za-z0-9._-]*))*$"
+          pattern: "^(?:[A-Za-z0-9_-][A-Za-z0-9._-]*|\\.[A-Za-z0-9_-][A-Za-z0-9._-]*)(?:/(?:[A-Za-z0-9_-][A-Za-z0-9._-]*|\\.[A-Za-z0-9_-][A-Za-z0-9._-]*))*\\Z"
           title: "Artifact Path"
           type: "string"
         artifact_size_bytes:
@@ -857,6 +866,7 @@ components:
           format: "date-time"
           title: "Issued At"
           type: "string"
+          "$comment": "model-only UTC normalization: timezone-aware values are normalized to UTC."
       required:
         - "schema_version"
         - "version"

@@ -12,7 +12,7 @@
     "artifact_path": {
       "maxLength": 512,
       "minLength": 1,
-      "pattern": "^(?:[A-Za-z0-9_-][A-Za-z0-9._-]*|\\.[A-Za-z0-9_-][A-Za-z0-9._-]*)(?:/(?:[A-Za-z0-9_-][A-Za-z0-9._-]*|\\.[A-Za-z0-9_-][A-Za-z0-9._-]*))*$",
+      "pattern": "^(?:[A-Za-z0-9_-][A-Za-z0-9._-]*|\\.[A-Za-z0-9_-][A-Za-z0-9._-]*)(?:/(?:[A-Za-z0-9_-][A-Za-z0-9._-]*|\\.[A-Za-z0-9_-][A-Za-z0-9._-]*))*\\Z",
       "title": "Artifact Path",
       "type": "string"
     },
@@ -31,6 +31,7 @@
       "type": "string"
     },
     "issued_at": {
+      "$comment": "model-only UTC normalization: timezone-aware values are normalized to UTC.",
       "format": "date-time",
       "title": "Issued At",
       "type": "string"

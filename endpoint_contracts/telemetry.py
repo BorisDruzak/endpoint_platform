@@ -9,7 +9,11 @@ PlatformV1 = Literal["linux", "windows"]
 ArchiveTypeV1 = Literal["zip", "tar.gz"]
 RELATIVE_ARTIFACT_PATH_PATTERN = (
     r"^(?:[A-Za-z0-9_-][A-Za-z0-9._-]*|\.[A-Za-z0-9_-][A-Za-z0-9._-]*)"
-    r"(?:/(?:[A-Za-z0-9_-][A-Za-z0-9._-]*|\.[A-Za-z0-9_-][A-Za-z0-9._-]*))*$"
+    r"(?:/(?:[A-Za-z0-9_-][A-Za-z0-9._-]*|\.[A-Za-z0-9_-][A-Za-z0-9._-]*))*\z"
+)
+RELATIVE_ARTIFACT_PATH_JSON_SCHEMA_PATTERN = (
+    r"^(?:[A-Za-z0-9_-][A-Za-z0-9._-]*|\.[A-Za-z0-9_-][A-Za-z0-9._-]*)"
+    r"(?:/(?:[A-Za-z0-9_-][A-Za-z0-9._-]*|\.[A-Za-z0-9_-][A-Za-z0-9._-]*))*\Z"
 )
 
 
@@ -31,6 +35,7 @@ class AgentBuildRecommendationV1(ContractModelV1):
             min_length=1,
             max_length=512,
             pattern=RELATIVE_ARTIFACT_PATH_PATTERN,
+            json_schema_extra={"pattern": RELATIVE_ARTIFACT_PATH_JSON_SCHEMA_PATTERN},
         ),
     ]
     artifact_size_bytes: Annotated[int, Field(ge=1)]

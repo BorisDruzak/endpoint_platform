@@ -13,6 +13,7 @@
       "type": "string"
     },
     "issued_at": {
+      "$comment": "model-only UTC normalization: timezone-aware values are normalized to UTC.",
       "format": "date-time",
       "title": "Issued At",
       "type": "string"

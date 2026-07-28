@@ -208,6 +208,7 @@ def test_agent_command_schema_rejects_json_beyond_maximum_depth() -> None:
         r"C:\endpoint\agent.zip",
         "../agent/agent.tar.gz",
         "agent/../agent.tar.gz",
+        "agent/agent.zip\n",
     ],
 )
 def test_build_recommendation_schema_rejects_non_relative_artifact_paths(
@@ -218,6 +219,20 @@ def test_build_recommendation_schema_rejects_non_relative_artifact_paths(
 
     with pytest.raises(JsonSchemaValidationError):
         _schema_validator("agent-build-recommendation-v1.json").validate(fixture)
+
+
+def test_every_generated_timestamp_schema_documents_utc_normalization() -> None:
+    for filename in PUBLIC_MODELS:
+        schema = json.loads(
+            (Path("contracts/jsonschema") / filename).read_text(encoding="utf-8")
+        )
+        timestamps = [
+            value
+            for _, value in _walk_json(schema)
+            if isinstance(value, dict) and value.get("format") == "date-time"
+        ]
+        for timestamp in timestamps:
+            assert "model-only UTC normalization" in timestamp["$comment"]
 
 
 def test_agent_command_schema_documents_model_only_aggregate_rules() -> None:

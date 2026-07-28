@@ -126,6 +126,9 @@ GENERATED_ARTIFACT_DIRECTORIES = (
 )
 
 _PLAIN_YAML_KEY = re.compile(r"^[A-Za-z_][A-Za-z0-9_-]*$")
+UTC_NORMALIZATION_COMMENT = (
+    "model-only UTC normalization: timezone-aware values are normalized to UTC."
+)
 
 
 def _json_document(value: object) -> str:
@@ -204,6 +207,20 @@ def _rewrite_local_definition_references(
     return value
 
 
+def _annotate_model_only_timestamp_normalization(value: object) -> object:
+    if isinstance(value, dict):
+        annotated = {
+            key: _annotate_model_only_timestamp_normalization(child)
+            for key, child in value.items()
+        }
+        if annotated.get("format") == "date-time":
+            annotated["$comment"] = UTC_NORMALIZATION_COMMENT
+        return annotated
+    if isinstance(value, list):
+        return [_annotate_model_only_timestamp_normalization(child) for child in value]
+    return value
+
+
 def _openapi_component_schemas(
     schemas: Mapping[str, dict[str, Any]],
 ) -> dict[str, object]:
@@ -233,7 +250,7 @@ def render_artifacts(output_root: Path) -> dict[Path, str]:
     _ = output_root
     rendered: dict[Path, str] = {}
     schemas = {
-        filename: model.model_json_schema()
+        filename: _annotate_model_only_timestamp_normalization(model.model_json_schema())
         for filename, model in PUBLIC_MODELS.items()
     }
     for filename, schema in schemas.items():
