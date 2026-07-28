@@ -59,7 +59,10 @@ def _walk_json(value: Any, path: tuple[str, ...] = ()) -> Iterator[tuple[tuple[s
 
 
 def _contains_url_credentials(value: str) -> bool:
-    parsed = urlparse(value)
+    try:
+        parsed = urlparse(value)
+    except ValueError:
+        return True
     return (
         parsed.username is not None
         or parsed.password is not None
@@ -213,6 +216,7 @@ def test_fixture_is_synthetic_and_contains_no_sensitive_values(filename: str) ->
         {"metadata": {"path": r"C:\\endpoint\\device.json"}},
         {"metadata": {"url": "https://fixture-user:fixture-pass@example.test/artifact"}},
         {"metadata": {"url": "https://example.test/artifact?access_token=fixture-value"}},
+        {"metadata": {"url": "https://["}},
         {"device_id": "99999999-9999-4999-8999-999999999999"},
         {"hardware_fingerprint": "prod-host-fingerprint"},
         {"serial_number": "ABC123"},
