@@ -1,0 +1,14 @@
+# Canonical self-hosted CI environment for pc_client.
+
+-r pc_agent/requirements.txt
+
+aiohttp
+alembic
+asyncpg
+python-dateutil
+python-dotenv
+SQLAlchemy>=2.0
+jsonschema
+
+pytest
+pytest-asyncio

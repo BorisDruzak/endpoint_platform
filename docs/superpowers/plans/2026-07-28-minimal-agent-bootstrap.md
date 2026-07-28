@@ -149,10 +149,10 @@ Run:
 ```bash
 python tools/extraction/check_retained_tree.py
 python -m compileall -q pc_agent shared
-git diff --check
+git diff --cached --check -- . ':(exclude)pc_agent/**'
 ```
 
-Expected: all commands exit `0` and no excluded top-level directory exists.
+Expected: all commands exit `0` and no excluded top-level directory exists. The pinned `pc_agent` source is intentionally excluded from the whitespace check because its pre-existing trailing whitespace must not be reformatted during behavior-preserving bootstrap.
 
 - [ ] **Step 7: Commit the source boundary**
 

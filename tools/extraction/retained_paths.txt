@@ -1,0 +1,7 @@
+pc_agent
+shared/tool_contracts.py
+shared/builtin_tool_descriptors.py
+shared/redaction.py
+pytest.ini
+requirements-ci.txt
+docs/AGENT_CAPABILITIES_AND_REQUIREMENTS.md
