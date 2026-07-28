@@ -54,7 +54,7 @@ def run_baseline(python_executable: str, output_path: Path) -> int:
             exit_code, stdout, stderr = 127, "", str(error)
         results.append(
             {
-                "command": command,
+                "command": [redact_text(part) for part in command],
                 "exit_code": exit_code,
                 "elapsed_seconds": round(time.monotonic() - started, 3),
                 "stdout": redact_text(stdout),

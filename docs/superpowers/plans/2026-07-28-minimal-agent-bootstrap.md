@@ -387,7 +387,7 @@ Expected: `~/endpoint-platform-baseline` contains only tracked bootstrap files a
 Run through the existing passwordless SSH profile:
 
 ```bash
-ssh test-agent "sudo -n apt-get update && sudo -n apt-get install -y python3-venv ffmpeg"
+ssh test-agent "sudo -n apt-get update && sudo -n apt-get install -y ffmpeg kernel-headers-6.12"
 ssh test-agent "python3 -m venv ~/endpoint-platform-venv && ~/endpoint-platform-venv/bin/python -m pip install --upgrade pip && ~/endpoint-platform-venv/bin/python -m pip install -r ~/endpoint-platform-baseline/requirements-ci.txt"
 ```
 

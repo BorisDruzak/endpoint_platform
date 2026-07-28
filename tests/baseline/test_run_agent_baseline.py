@@ -1,6 +1,7 @@
 import json
 from pathlib import Path
 
+from tools.baseline import run_agent_baseline as baseline_module
 from tools.baseline.run_agent_baseline import build_commands, redact_text, run_baseline
 
 
@@ -39,3 +40,26 @@ def test_run_baseline_records_a_sanitized_missing_python_failure(tmp_path: Path)
     assert payload["overall_exit_code"] == 1
     assert [result["exit_code"] for result in payload["commands"]] == [127, 127, 127]
     assert str(tmp_path) not in json.dumps(payload)
+
+
+def test_run_baseline_redacts_absolute_command_paths(monkeypatch, tmp_path: Path) -> None:
+    """The persisted command inventory must not leak a test-host home path."""
+    monkeypatch.setattr(
+        baseline_module,
+        "build_commands",
+        lambda _python: [["/home/test-agent-lin/endpoint-platform-venv/bin/python", "-V"]],
+    )
+    output = tmp_path / "baseline.json"
+
+    run_baseline("ignored", output)
+
+    payload = json.loads(output.read_text(encoding="utf-8"))
+    assert payload["commands"][0]["command"] == ["[REDACTED_PATH]", "-V"]
+
+
+def test_baseline_summary_matches_recorded_result() -> None:
+    payload = json.loads(Path("artifacts/baseline/test-agent.json").read_text(encoding="utf-8"))
+    summary = Path("artifacts/baseline/test-agent-summary.md").read_text(encoding="utf-8")
+
+    assert f"Overall exit code: `{payload['overall_exit_code']}`" in summary
+    assert payload["schema_version"] == "agent_baseline_v1"
