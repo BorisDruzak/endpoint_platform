@@ -13,7 +13,7 @@ RELATIVE_ARTIFACT_PATH_PATTERN = (
 )
 RELATIVE_ARTIFACT_PATH_JSON_SCHEMA_PATTERN = (
     r"^(?:[A-Za-z0-9_-][A-Za-z0-9._-]*|\.[A-Za-z0-9_-][A-Za-z0-9._-]*)"
-    r"(?:/(?:[A-Za-z0-9_-][A-Za-z0-9._-]*|\.[A-Za-z0-9_-][A-Za-z0-9._-]*))*\Z"
+    r"(?:/(?:[A-Za-z0-9_-][A-Za-z0-9._-]*|\.[A-Za-z0-9_-][A-Za-z0-9._-]*))*(?![\s\S])"
 )
 
 

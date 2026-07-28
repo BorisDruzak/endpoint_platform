@@ -221,6 +221,27 @@ def test_build_recommendation_schema_rejects_non_relative_artifact_paths(
         _schema_validator("agent-build-recommendation-v1.json").validate(fixture)
 
 
+def test_build_recommendation_schema_uses_ecma_strict_end_anchor() -> None:
+    schema = json.loads(
+        Path("contracts/jsonschema/agent-build-recommendation-v1.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    pattern = schema["properties"]["artifact_path"]["pattern"]
+    validator = _schema_validator("agent-build-recommendation-v1.json")
+
+    assert pattern.endswith(r"(?![\s\S])")
+
+    valid_fixture = dict(FIXTURES["agent-build-recommendation-v1.json"])
+    valid_fixture["artifact_path"] = "releases/agent.tar.gz"
+    validator.validate(valid_fixture)
+
+    invalid_fixture = dict(valid_fixture)
+    invalid_fixture["artifact_path"] = "releases/agent.tar.gz\n"
+    with pytest.raises(JsonSchemaValidationError):
+        validator.validate(invalid_fixture)
+
+
 def test_every_generated_timestamp_schema_documents_utc_normalization() -> None:
     for filename in PUBLIC_MODELS:
         schema = json.loads(
