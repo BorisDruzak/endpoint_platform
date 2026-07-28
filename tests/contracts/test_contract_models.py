@@ -1,3 +1,5 @@
+from datetime import datetime, timezone
+
 import pytest
 from pydantic import ValidationError
 
@@ -5,7 +7,9 @@ from endpoint_contracts import (
     AgentBuildRecommendationV1,
     AgentCommandAckV1,
     AgentCommandV1,
+    AgentHeartbeatV1,
     AgentResultV1,
+    AgentSessionV1,
     DeviceIdentityV1,
     EnrollmentRequestV1,
     EnrollmentResponseV1,
@@ -51,6 +55,190 @@ def test_command_rejects_unknown_shell_field() -> None:
 
     with pytest.raises(ValidationError, match="extra_forbidden"):
         AgentCommandV1.model_validate(payload)
+
+
+@pytest.mark.parametrize("capability", ["agent.status.read", "gateway.echo"])
+def test_command_accepts_only_documented_safe_v1_capabilities(
+    capability: str,
+) -> None:
+    payload = valid_agent_command()
+    payload["capability"] = capability
+
+    command = AgentCommandV1.model_validate(payload)
+
+    assert command.capability == capability
+
+
+@pytest.mark.parametrize(
+    "capability",
+    [
+        "shell.execute",
+        "python",
+        "powershell",
+        "routeros",
+        "scheme",
+        "custom.action",
+    ],
+)
+def test_command_rejects_executable_or_unallowlisted_capabilities(
+    capability: str,
+) -> None:
+    payload = valid_agent_command()
+    payload["capability"] = capability
+
+    with pytest.raises(ValidationError):
+        AgentCommandV1.model_validate(payload)
+
+
+@pytest.mark.parametrize(
+    ("model", "payload", "field_name", "offset_value", "expected"),
+    [
+        (
+            AgentSessionV1,
+            {
+                "schema_version": "agent_session_v1",
+                "device_id": "11111111-1111-4111-8111-111111111111",
+                "session_id": "22222222-2222-4222-8222-222222222222",
+                "issued_at": "2026-07-28T17:00:00+05:00",
+                "expires_at": "2026-07-28T17:05:00+05:00",
+            },
+            "issued_at",
+            "2026-07-28T17:00:00+05:00",
+            datetime(2026, 7, 28, 12, 0, tzinfo=timezone.utc),
+        ),
+        (
+            AgentSessionV1,
+            {
+                "schema_version": "agent_session_v1",
+                "device_id": "11111111-1111-4111-8111-111111111111",
+                "session_id": "22222222-2222-4222-8222-222222222222",
+                "issued_at": "2026-07-28T17:00:00+05:00",
+                "expires_at": "2026-07-28T17:05:00+05:00",
+            },
+            "expires_at",
+            "2026-07-28T17:05:00+05:00",
+            datetime(2026, 7, 28, 12, 5, tzinfo=timezone.utc),
+        ),
+        (
+            EnrollmentRequestV1,
+            {
+                "schema_version": "enrollment_request_v1",
+                "platform": "linux",
+                "hardware_fingerprint": "sha256:fixture",
+                "installation_id": "install-fixture-01",
+                "requested_at": "2026-07-28T17:00:00+05:00",
+            },
+            "requested_at",
+            "2026-07-28T17:00:00+05:00",
+            datetime(2026, 7, 28, 12, 0, tzinfo=timezone.utc),
+        ),
+        (
+            EnrollmentResponseV1,
+            {
+                "schema_version": "enrollment_response_v1",
+                "device_id": "11111111-1111-4111-8111-111111111111",
+                "policy_id": "policy-fixture-01",
+                "enrollment_receipt": "receipt-fixture-01",
+                "issued_at": "2026-07-28T17:00:00+05:00",
+            },
+            "issued_at",
+            "2026-07-28T17:00:00+05:00",
+            datetime(2026, 7, 28, 12, 0, tzinfo=timezone.utc),
+        ),
+        (
+            AgentCommandV1,
+            {
+                **valid_agent_command(),
+                "created_at": "2026-07-28T17:00:00+05:00",
+                "deadline_at": "2026-07-28T17:05:00+05:00",
+            },
+            "created_at",
+            "2026-07-28T17:00:00+05:00",
+            datetime(2026, 7, 28, 12, 0, tzinfo=timezone.utc),
+        ),
+        (
+            AgentCommandV1,
+            {
+                **valid_agent_command(),
+                "created_at": "2026-07-28T17:00:00+05:00",
+                "deadline_at": "2026-07-28T17:05:00+05:00",
+            },
+            "deadline_at",
+            "2026-07-28T17:05:00+05:00",
+            datetime(2026, 7, 28, 12, 5, tzinfo=timezone.utc),
+        ),
+        (
+            AgentCommandAckV1,
+            {
+                "schema_version": "agent_command_ack_v1",
+                "command_id": "22222222-2222-4222-8222-222222222222",
+                "device_id": "11111111-1111-4111-8111-111111111111",
+                "status": "acknowledged",
+                "acknowledged_at": "2026-07-28T17:00:00+05:00",
+            },
+            "acknowledged_at",
+            "2026-07-28T17:00:00+05:00",
+            datetime(2026, 7, 28, 12, 0, tzinfo=timezone.utc),
+        ),
+        (
+            AgentResultV1,
+            {
+                **valid_agent_result(),
+                "completed_at": "2026-07-28T17:00:00+05:00",
+            },
+            "completed_at",
+            "2026-07-28T17:00:00+05:00",
+            datetime(2026, 7, 28, 12, 0, tzinfo=timezone.utc),
+        ),
+        (
+            AgentHeartbeatV1,
+            {
+                "schema_version": "agent_heartbeat_v1",
+                "device_id": "11111111-1111-4111-8111-111111111111",
+                "platform": "linux",
+                "agent_version": "1.2.3",
+                "reported_at": "2026-07-28T17:00:00+05:00",
+            },
+            "reported_at",
+            "2026-07-28T17:00:00+05:00",
+            datetime(2026, 7, 28, 12, 0, tzinfo=timezone.utc),
+        ),
+        (
+            AgentBuildRecommendationV1,
+            {
+                "schema_version": "agent_build_recommendation_v1",
+                "version": "1.2.3",
+                "platform": "linux",
+                "artifact_path": "agent/linux/agent-1.2.3.tar.gz",
+                "artifact_size_bytes": 1024,
+                "sha256": "a" * 64,
+                "minimum_launcher_version": "1.0.0",
+                "channel": "stable",
+                "archive_type": "tar.gz",
+                "issued_at": "2026-07-28T17:00:00+05:00",
+            },
+            "issued_at",
+            "2026-07-28T17:00:00+05:00",
+            datetime(2026, 7, 28, 12, 0, tzinfo=timezone.utc),
+        ),
+    ],
+)
+def test_protocol_datetimes_normalize_non_utc_offsets_to_utc(
+    model: type,
+    payload: dict[str, object],
+    field_name: str,
+    offset_value: str,
+    expected: datetime,
+) -> None:
+    assert payload[field_name] == offset_value
+
+    contract = model.model_validate(payload)
+
+    assert getattr(contract, field_name) == expected
+    assert getattr(contract, field_name).tzinfo is timezone.utc
+    assert contract.model_dump(mode="json")[field_name] == expected.isoformat().replace(
+        "+00:00", "Z"
+    )
 
 
 def test_command_rejects_invalid_idempotency_key() -> None:

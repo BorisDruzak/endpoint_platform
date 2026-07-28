@@ -91,6 +91,14 @@ for each public message. Tests validate them both through Pydantic and their
 committed schemas. Fixtures use fixed UUIDs and UTC timestamps only; they have
 no host paths, real device data, credentials, or token-like values.
 
+Generated JSON Schema and OpenAPI components enforce every applicable
+single-field and structural rule, including the V1 capability allowlist,
+recursive JSON depth/container/string bounds, and relative artifact paths.
+Rules JSON Schema cannot express remain model-only: UTC normalization,
+cross-field deadline ordering, aggregate JSON node count, and serialized byte
+size. Generated `$comment` annotations identify those gaps; tests do not claim
+model/schema rejection parity for them.
+
 The initial compatibility policy is additive-only inside V1: a new required
 field, changed field type, removed value, or changed schema version requires a
 new schema version and a new compatibility decision. Adding optional fields is

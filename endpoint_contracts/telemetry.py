@@ -7,6 +7,10 @@ from .base import ContractModelV1
 
 PlatformV1 = Literal["linux", "windows"]
 ArchiveTypeV1 = Literal["zip", "tar.gz"]
+RELATIVE_ARTIFACT_PATH_PATTERN = (
+    r"^(?:[A-Za-z0-9_-][A-Za-z0-9._-]*|\.[A-Za-z0-9_-][A-Za-z0-9._-]*)"
+    r"(?:/(?:[A-Za-z0-9_-][A-Za-z0-9._-]*|\.[A-Za-z0-9_-][A-Za-z0-9._-]*))*$"
+)
 
 
 class AgentHeartbeatV1(ContractModelV1):
@@ -21,7 +25,14 @@ class AgentBuildRecommendationV1(ContractModelV1):
     schema_version: Literal["agent_build_recommendation_v1"]
     version: Annotated[str, Field(min_length=1, max_length=128)]
     platform: PlatformV1
-    artifact_path: Annotated[str, Field(min_length=1, max_length=512)]
+    artifact_path: Annotated[
+        str,
+        Field(
+            min_length=1,
+            max_length=512,
+            pattern=RELATIVE_ARTIFACT_PATH_PATTERN,
+        ),
+    ]
     artifact_size_bytes: Annotated[int, Field(ge=1)]
     sha256: Annotated[str, Field(pattern=r"^[a-fA-F0-9]{64}$")]
     minimum_launcher_version: Annotated[str, Field(min_length=1, max_length=128)]

@@ -1,11 +1,14 @@
-import json
-from math import isfinite
 from typing import Annotated, Literal
 from uuid import UUID
 
-from pydantic import AwareDatetime, Field, JsonValue, model_validator
+from pydantic import AwareDatetime, ConfigDict, Field, model_validator
 
 from .base import ContractModelV1
+from .json_types import (
+    BoundedJsonKeyV1,
+    BoundedJsonValueV1,
+    validate_bounded_json,
+)
 
 CommandStatusV1 = Literal[
     "queued",
@@ -17,57 +20,7 @@ CommandStatusV1 = Literal[
     "canceled",
     "expired",
 ]
-
-MAX_JSON_DEPTH = 8
-MAX_JSON_STRING_LENGTH = 4096
-MAX_JSON_LIST_ITEMS = 32
-MAX_JSON_MAP_ITEMS = 32
-MAX_JSON_NODES = 1024
-MAX_JSON_SERIALIZED_BYTES = 65536
-
-
-def _validate_bounded_json(value: JsonValue, *, depth: int, node_count: list[int]) -> None:
-    if depth > MAX_JSON_DEPTH:
-        raise ValueError("JSON value exceeds maximum nesting depth")
-
-    node_count[0] += 1
-    if node_count[0] > MAX_JSON_NODES:
-        raise ValueError("JSON value exceeds maximum structural size")
-
-    if isinstance(value, str):
-        if len(value) > MAX_JSON_STRING_LENGTH:
-            raise ValueError("JSON string exceeds maximum length")
-        return
-    if isinstance(value, float):
-        if not isfinite(value):
-            raise ValueError("JSON numbers must be finite")
-        return
-    if isinstance(value, dict):
-        if len(value) > MAX_JSON_MAP_ITEMS:
-            raise ValueError("JSON map exceeds maximum size")
-        for key, item in value.items():
-            if not isinstance(key, str):
-                raise ValueError("JSON map keys must be strings")
-            _validate_bounded_json(key, depth=depth + 1, node_count=node_count)
-            _validate_bounded_json(item, depth=depth + 1, node_count=node_count)
-        return
-    if isinstance(value, list):
-        if len(value) > MAX_JSON_LIST_ITEMS:
-            raise ValueError("JSON list exceeds maximum size")
-        for item in value:
-            _validate_bounded_json(item, depth=depth + 1, node_count=node_count)
-
-
-def validate_bounded_json(value: JsonValue) -> None:
-    _validate_bounded_json(value, depth=0, node_count=[0])
-    serialized = json.dumps(
-        value,
-        allow_nan=False,
-        ensure_ascii=False,
-        separators=(",", ":"),
-    )
-    if len(serialized.encode("utf-8")) > MAX_JSON_SERIALIZED_BYTES:
-        raise ValueError("JSON value exceeds maximum serialized size")
+AgentCapabilityV1 = Literal["agent.status.read", "gateway.echo"]
 
 
 class CommandCorrelationV1(ContractModelV1):
@@ -77,11 +30,29 @@ class CommandCorrelationV1(ContractModelV1):
 
 
 class AgentCommandV1(ContractModelV1):
+    model_config = ConfigDict(
+        json_schema_extra={
+            "$comment": (
+                "deadline_at must be after created_at; this cross-field ordering "
+                "rule is enforced by the Pydantic model only."
+            )
+        }
+    )
+
     schema_version: Literal["agent_command_v1"]
     command_id: UUID
     device_id: UUID
-    capability: Annotated[str, Field(pattern=r"^[a-z][a-z0-9_.-]{2,95}$")]
-    parameters: dict[str, JsonValue] = Field(default_factory=dict, max_length=32)
+    capability: AgentCapabilityV1
+    parameters: dict[BoundedJsonKeyV1, BoundedJsonValueV1] = Field(
+        default_factory=dict,
+        max_length=32,
+        json_schema_extra={
+            "$comment": (
+                "Aggregate node count and serialized byte size are enforced by "
+                "the Pydantic model only; JSON Schema enforces per-node bounds."
+            )
+        },
+    )
     requested_by_service: Annotated[str, Field(min_length=3, max_length=96)]
     idempotency_key: Annotated[
         str,
@@ -113,7 +84,16 @@ class AgentResultV1(ContractModelV1):
     command_id: UUID
     device_id: UUID
     status: CommandStatusV1
-    result_items: list[JsonValue] = Field(default_factory=list, max_length=32)
+    result_items: list[BoundedJsonValueV1] = Field(
+        default_factory=list,
+        max_length=32,
+        json_schema_extra={
+            "$comment": (
+                "Aggregate node count and serialized byte size are enforced by "
+                "the Pydantic model only; JSON Schema enforces per-node bounds."
+            )
+        },
+    )
     message: Annotated[str | None, Field(max_length=4096)] = None
     completed_at: AwareDatetime
 

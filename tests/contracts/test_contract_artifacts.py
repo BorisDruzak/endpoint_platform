@@ -9,9 +9,15 @@ from urllib.parse import parse_qsl, urlparse
 
 import pytest
 import yaml
-from jsonschema import Draft202012Validator
+from jsonschema import Draft202012Validator, ValidationError as JsonSchemaValidationError
+from pydantic import ValidationError as PydanticValidationError
 
-from tools.contracts.generate_contract_artifacts import PUBLIC_MODELS, render_artifacts
+from endpoint_contracts import AgentCommandV1
+from tools.contracts.generate_contract_artifacts import (
+    FIXTURES,
+    PUBLIC_MODELS,
+    render_artifacts,
+)
 
 
 SENSITIVE_KEY_PATTERN = re.compile(
@@ -109,6 +115,33 @@ def _resolve_json_pointer(document: dict[str, Any], reference: str) -> object:
     return value
 
 
+def _schema_validator(filename: str) -> Draft202012Validator:
+    schema = json.loads(
+        (Path("contracts/jsonschema") / filename).read_text(encoding="utf-8")
+    )
+    return Draft202012Validator(
+        schema,
+        format_checker=Draft202012Validator.FORMAT_CHECKER,
+    )
+
+
+def _openapi_component_validator(component_name: str) -> Draft202012Validator:
+    openapi = yaml.safe_load(
+        Path("contracts/openapi/endpoint-platform-v1.yaml").read_text(
+            encoding="utf-8"
+        )
+    )
+    schema = {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$ref": f"#/components/schemas/{component_name}",
+        "components": openapi["components"],
+    }
+    return Draft202012Validator(
+        schema,
+        format_checker=Draft202012Validator.FORMAT_CHECKER,
+    )
+
+
 @pytest.mark.parametrize("filename", PUBLIC_MODELS)
 def test_fixture_validates_against_model_and_schema(filename: str) -> None:
     fixture = json.loads(
@@ -119,7 +152,119 @@ def test_fixture_validates_against_model_and_schema(filename: str) -> None:
     )
 
     PUBLIC_MODELS[filename].model_validate(fixture)
+    Draft202012Validator(
+        schema,
+        format_checker=Draft202012Validator.FORMAT_CHECKER,
+    ).validate(fixture)
+
+
+@pytest.mark.parametrize(
+    "capability",
+    ["shell.execute", "python", "powershell", "routeros", "scheme", "custom.action"],
+)
+def test_agent_command_schema_rejects_unallowlisted_capabilities(
+    capability: str,
+) -> None:
+    fixture = dict(FIXTURES["agent-command-v1.json"])
+    fixture["capability"] = capability
+
+    with pytest.raises(JsonSchemaValidationError):
+        _schema_validator("agent-command-v1.json").validate(fixture)
+
+
+@pytest.mark.parametrize(
+    "parameters",
+    [
+        {"nested": {"message": "x" * 4097}},
+        {"nested": {"items": list(range(33))}},
+        {"nested": {f"key-{index}": index for index in range(33)}},
+    ],
+)
+def test_agent_command_schema_rejects_nested_json_container_bounds(
+    parameters: dict[str, object],
+) -> None:
+    fixture = dict(FIXTURES["agent-command-v1.json"])
+    fixture["parameters"] = parameters
+
+    with pytest.raises(JsonSchemaValidationError):
+        _schema_validator("agent-command-v1.json").validate(fixture)
+
+
+def test_agent_command_schema_rejects_json_beyond_maximum_depth() -> None:
+    nested: object = "leaf"
+    for _ in range(9):
+        nested = [nested]
+    fixture = dict(FIXTURES["agent-command-v1.json"])
+    fixture["parameters"] = {"nested": nested}
+
+    with pytest.raises(JsonSchemaValidationError):
+        _schema_validator("agent-command-v1.json").validate(fixture)
+
+
+@pytest.mark.parametrize(
+    "artifact_path",
+    [
+        "/var/lib/endpoint/agent.tar.gz",
+        r"C:\endpoint\agent.zip",
+        "../agent/agent.tar.gz",
+        "agent/../agent.tar.gz",
+    ],
+)
+def test_build_recommendation_schema_rejects_non_relative_artifact_paths(
+    artifact_path: str,
+) -> None:
+    fixture = dict(FIXTURES["agent-build-recommendation-v1.json"])
+    fixture["artifact_path"] = artifact_path
+
+    with pytest.raises(JsonSchemaValidationError):
+        _schema_validator("agent-build-recommendation-v1.json").validate(fixture)
+
+
+def test_agent_command_schema_documents_model_only_aggregate_rules() -> None:
+    schema = json.loads(
+        Path("contracts/jsonschema/agent-command-v1.json").read_text(encoding="utf-8")
+    )
+    fixture = dict(FIXTURES["agent-command-v1.json"])
+    fixture["deadline_at"] = fixture["created_at"]
+
     Draft202012Validator(schema).validate(fixture)
+    with pytest.raises(PydanticValidationError):
+        AgentCommandV1.model_validate(fixture)
+
+    assert "deadline_at" in schema["$comment"]
+    assert "node count" in schema["properties"]["parameters"]["$comment"]
+    assert "serialized byte size" in schema["properties"]["parameters"]["$comment"]
+
+
+@pytest.mark.parametrize(
+    ("component_name", "fixture_name", "overrides"),
+    [
+        (
+            "AgentCommandV1",
+            "agent-command-v1.json",
+            {"capability": "shell.execute"},
+        ),
+        (
+            "AgentCommandV1",
+            "agent-command-v1.json",
+            {"parameters": {"nested": {"message": "x" * 4097}}},
+        ),
+        (
+            "AgentBuildRecommendationV1",
+            "agent-build-recommendation-v1.json",
+            {"artifact_path": "../agent/agent.zip"},
+        ),
+    ],
+)
+def test_openapi_components_enforce_expressible_contract_constraints(
+    component_name: str,
+    fixture_name: str,
+    overrides: dict[str, object],
+) -> None:
+    fixture = {**FIXTURES[fixture_name], **overrides}
+
+    with pytest.raises(JsonSchemaValidationError):
+        _openapi_component_validator(component_name).validate(fixture)
 
 
 def test_committed_contract_artifacts_match_renderer_without_mutation(tmp_path: Path) -> None:

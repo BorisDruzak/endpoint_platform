@@ -1,6 +1,335 @@
 {
   "$defs": {
-    "JsonValue": {}
+    "BoundedJsonValueDepth1": {
+      "anyOf": [
+        {
+          "maxLength": 4096,
+          "type": "string"
+        },
+        {
+          "type": "integer"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "items": {
+            "$ref": "#/$defs/BoundedJsonValueDepth2"
+          },
+          "maxItems": 32,
+          "type": "array"
+        },
+        {
+          "additionalProperties": {
+            "$ref": "#/$defs/BoundedJsonValueDepth2"
+          },
+          "maxProperties": 32,
+          "propertyNames": {
+            "maxLength": 4096
+          },
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "BoundedJsonValueDepth2": {
+      "anyOf": [
+        {
+          "maxLength": 4096,
+          "type": "string"
+        },
+        {
+          "type": "integer"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "items": {
+            "$ref": "#/$defs/BoundedJsonValueDepth3"
+          },
+          "maxItems": 32,
+          "type": "array"
+        },
+        {
+          "additionalProperties": {
+            "$ref": "#/$defs/BoundedJsonValueDepth3"
+          },
+          "maxProperties": 32,
+          "propertyNames": {
+            "maxLength": 4096
+          },
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "BoundedJsonValueDepth3": {
+      "anyOf": [
+        {
+          "maxLength": 4096,
+          "type": "string"
+        },
+        {
+          "type": "integer"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "items": {
+            "$ref": "#/$defs/BoundedJsonValueDepth4"
+          },
+          "maxItems": 32,
+          "type": "array"
+        },
+        {
+          "additionalProperties": {
+            "$ref": "#/$defs/BoundedJsonValueDepth4"
+          },
+          "maxProperties": 32,
+          "propertyNames": {
+            "maxLength": 4096
+          },
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "BoundedJsonValueDepth4": {
+      "anyOf": [
+        {
+          "maxLength": 4096,
+          "type": "string"
+        },
+        {
+          "type": "integer"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "items": {
+            "$ref": "#/$defs/BoundedJsonValueDepth5"
+          },
+          "maxItems": 32,
+          "type": "array"
+        },
+        {
+          "additionalProperties": {
+            "$ref": "#/$defs/BoundedJsonValueDepth5"
+          },
+          "maxProperties": 32,
+          "propertyNames": {
+            "maxLength": 4096
+          },
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "BoundedJsonValueDepth5": {
+      "anyOf": [
+        {
+          "maxLength": 4096,
+          "type": "string"
+        },
+        {
+          "type": "integer"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "items": {
+            "$ref": "#/$defs/BoundedJsonValueDepth6"
+          },
+          "maxItems": 32,
+          "type": "array"
+        },
+        {
+          "additionalProperties": {
+            "$ref": "#/$defs/BoundedJsonValueDepth6"
+          },
+          "maxProperties": 32,
+          "propertyNames": {
+            "maxLength": 4096
+          },
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "BoundedJsonValueDepth6": {
+      "anyOf": [
+        {
+          "maxLength": 4096,
+          "type": "string"
+        },
+        {
+          "type": "integer"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "items": {
+            "$ref": "#/$defs/BoundedJsonValueDepth7"
+          },
+          "maxItems": 32,
+          "type": "array"
+        },
+        {
+          "additionalProperties": {
+            "$ref": "#/$defs/BoundedJsonValueDepth7"
+          },
+          "maxProperties": 32,
+          "propertyNames": {
+            "maxLength": 4096
+          },
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "BoundedJsonValueDepth7": {
+      "anyOf": [
+        {
+          "maxLength": 4096,
+          "type": "string"
+        },
+        {
+          "type": "integer"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "items": {
+            "$ref": "#/$defs/BoundedJsonValueDepth8"
+          },
+          "maxItems": 32,
+          "type": "array"
+        },
+        {
+          "additionalProperties": {
+            "$ref": "#/$defs/BoundedJsonValueDepth8"
+          },
+          "maxProperties": 32,
+          "propertyNames": {
+            "maxLength": 4096
+          },
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "BoundedJsonValueDepth8": {
+      "anyOf": [
+        {
+          "maxLength": 4096,
+          "type": "string"
+        },
+        {
+          "type": "integer"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "items": {
+            "anyOf": [
+              {
+                "maxLength": 4096,
+                "type": "string"
+              },
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "maxItems": 0,
+          "type": "array"
+        },
+        {
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "maxLength": 4096,
+                "type": "string"
+              },
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "maxProperties": 0,
+          "propertyNames": {
+            "maxLength": 4096
+          },
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
   },
   "additionalProperties": false,
   "properties": {
@@ -33,8 +362,9 @@
       "title": "Message"
     },
     "result_items": {
+      "$comment": "Aggregate node count and serialized byte size are enforced by the Pydantic model only; JSON Schema enforces per-node bounds.",
       "items": {
-        "$ref": "#/$defs/JsonValue"
+        "$ref": "#/$defs/BoundedJsonValueDepth1"
       },
       "maxItems": 32,
       "title": "Result Items",

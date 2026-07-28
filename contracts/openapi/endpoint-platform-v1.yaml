@@ -134,6 +134,7 @@ components:
       title: "EnrollmentResponseV1"
       type: "object"
     AgentCommandV1:
+      "$comment": "deadline_at must be after created_at; this cross-field ordering rule is enforced by the Pydantic model only."
       additionalProperties: false
       properties:
         schema_version:
@@ -149,13 +150,18 @@ components:
           title: "Device Id"
           type: "string"
         capability:
-          pattern: "^[a-z][a-z0-9_.-]{2,95}$"
+          enum:
+            - "agent.status.read"
+            - "gateway.echo"
           title: "Capability"
           type: "string"
         parameters:
+          "$comment": "Aggregate node count and serialized byte size are enforced by the Pydantic model only; JSON Schema enforces per-node bounds."
           additionalProperties:
-            "$ref": "#/components/schemas/AgentCommandV1__JsonValue"
+            "$ref": "#/components/schemas/AgentCommandV1__BoundedJsonValueDepth1"
           maxProperties: 32
+          propertyNames:
+            maxLength: 4096
           title: "Parameters"
           type: "object"
         requested_by_service:
@@ -188,6 +194,228 @@ components:
         - "deadline_at"
       title: "AgentCommandV1"
       type: "object"
+    AgentCommandV1__BoundedJsonValueDepth1:
+      anyOf:
+        -
+          maxLength: 4096
+          type: "string"
+        -
+          type: "integer"
+        -
+          type: "number"
+        -
+          type: "boolean"
+        -
+          items:
+            "$ref": "#/components/schemas/AgentCommandV1__BoundedJsonValueDepth2"
+          maxItems: 32
+          type: "array"
+        -
+          additionalProperties:
+            "$ref": "#/components/schemas/AgentCommandV1__BoundedJsonValueDepth2"
+          maxProperties: 32
+          propertyNames:
+            maxLength: 4096
+          type: "object"
+        -
+          type: "null"
+    AgentCommandV1__BoundedJsonValueDepth2:
+      anyOf:
+        -
+          maxLength: 4096
+          type: "string"
+        -
+          type: "integer"
+        -
+          type: "number"
+        -
+          type: "boolean"
+        -
+          items:
+            "$ref": "#/components/schemas/AgentCommandV1__BoundedJsonValueDepth3"
+          maxItems: 32
+          type: "array"
+        -
+          additionalProperties:
+            "$ref": "#/components/schemas/AgentCommandV1__BoundedJsonValueDepth3"
+          maxProperties: 32
+          propertyNames:
+            maxLength: 4096
+          type: "object"
+        -
+          type: "null"
+    AgentCommandV1__BoundedJsonValueDepth3:
+      anyOf:
+        -
+          maxLength: 4096
+          type: "string"
+        -
+          type: "integer"
+        -
+          type: "number"
+        -
+          type: "boolean"
+        -
+          items:
+            "$ref": "#/components/schemas/AgentCommandV1__BoundedJsonValueDepth4"
+          maxItems: 32
+          type: "array"
+        -
+          additionalProperties:
+            "$ref": "#/components/schemas/AgentCommandV1__BoundedJsonValueDepth4"
+          maxProperties: 32
+          propertyNames:
+            maxLength: 4096
+          type: "object"
+        -
+          type: "null"
+    AgentCommandV1__BoundedJsonValueDepth4:
+      anyOf:
+        -
+          maxLength: 4096
+          type: "string"
+        -
+          type: "integer"
+        -
+          type: "number"
+        -
+          type: "boolean"
+        -
+          items:
+            "$ref": "#/components/schemas/AgentCommandV1__BoundedJsonValueDepth5"
+          maxItems: 32
+          type: "array"
+        -
+          additionalProperties:
+            "$ref": "#/components/schemas/AgentCommandV1__BoundedJsonValueDepth5"
+          maxProperties: 32
+          propertyNames:
+            maxLength: 4096
+          type: "object"
+        -
+          type: "null"
+    AgentCommandV1__BoundedJsonValueDepth5:
+      anyOf:
+        -
+          maxLength: 4096
+          type: "string"
+        -
+          type: "integer"
+        -
+          type: "number"
+        -
+          type: "boolean"
+        -
+          items:
+            "$ref": "#/components/schemas/AgentCommandV1__BoundedJsonValueDepth6"
+          maxItems: 32
+          type: "array"
+        -
+          additionalProperties:
+            "$ref": "#/components/schemas/AgentCommandV1__BoundedJsonValueDepth6"
+          maxProperties: 32
+          propertyNames:
+            maxLength: 4096
+          type: "object"
+        -
+          type: "null"
+    AgentCommandV1__BoundedJsonValueDepth6:
+      anyOf:
+        -
+          maxLength: 4096
+          type: "string"
+        -
+          type: "integer"
+        -
+          type: "number"
+        -
+          type: "boolean"
+        -
+          items:
+            "$ref": "#/components/schemas/AgentCommandV1__BoundedJsonValueDepth7"
+          maxItems: 32
+          type: "array"
+        -
+          additionalProperties:
+            "$ref": "#/components/schemas/AgentCommandV1__BoundedJsonValueDepth7"
+          maxProperties: 32
+          propertyNames:
+            maxLength: 4096
+          type: "object"
+        -
+          type: "null"
+    AgentCommandV1__BoundedJsonValueDepth7:
+      anyOf:
+        -
+          maxLength: 4096
+          type: "string"
+        -
+          type: "integer"
+        -
+          type: "number"
+        -
+          type: "boolean"
+        -
+          items:
+            "$ref": "#/components/schemas/AgentCommandV1__BoundedJsonValueDepth8"
+          maxItems: 32
+          type: "array"
+        -
+          additionalProperties:
+            "$ref": "#/components/schemas/AgentCommandV1__BoundedJsonValueDepth8"
+          maxProperties: 32
+          propertyNames:
+            maxLength: 4096
+          type: "object"
+        -
+          type: "null"
+    AgentCommandV1__BoundedJsonValueDepth8:
+      anyOf:
+        -
+          maxLength: 4096
+          type: "string"
+        -
+          type: "integer"
+        -
+          type: "number"
+        -
+          type: "boolean"
+        -
+          items:
+            anyOf:
+              -
+                maxLength: 4096
+                type: "string"
+              -
+                type: "integer"
+              -
+                type: "number"
+              -
+                type: "boolean"
+              -
+                type: "null"
+          maxItems: 0
+          type: "array"
+        -
+          additionalProperties:
+            anyOf:
+              -
+                maxLength: 4096
+                type: "string"
+              -
+                type: "integer"
+              -
+                type: "number"
+              -
+                type: "boolean"
+              -
+                type: "null"
+          maxProperties: 0
+          propertyNames:
+            maxLength: 4096
+          type: "object"
+        -
+          type: "null"
     AgentCommandV1__CommandCorrelationV1:
       additionalProperties: false
       properties:
@@ -216,7 +444,6 @@ components:
           title: "Parent Command Id"
       title: "CommandCorrelationV1"
       type: "object"
-    AgentCommandV1__JsonValue: {}
     AgentCommandAckV1:
       additionalProperties: false
       properties:
@@ -293,8 +520,9 @@ components:
           title: "Status"
           type: "string"
         result_items:
+          "$comment": "Aggregate node count and serialized byte size are enforced by the Pydantic model only; JSON Schema enforces per-node bounds."
           items:
-            "$ref": "#/components/schemas/AgentResultV1__JsonValue"
+            "$ref": "#/components/schemas/AgentResultV1__BoundedJsonValueDepth1"
           maxItems: 32
           title: "Result Items"
           type: "array"
@@ -319,7 +547,228 @@ components:
         - "completed_at"
       title: "AgentResultV1"
       type: "object"
-    AgentResultV1__JsonValue: {}
+    AgentResultV1__BoundedJsonValueDepth1:
+      anyOf:
+        -
+          maxLength: 4096
+          type: "string"
+        -
+          type: "integer"
+        -
+          type: "number"
+        -
+          type: "boolean"
+        -
+          items:
+            "$ref": "#/components/schemas/AgentResultV1__BoundedJsonValueDepth2"
+          maxItems: 32
+          type: "array"
+        -
+          additionalProperties:
+            "$ref": "#/components/schemas/AgentResultV1__BoundedJsonValueDepth2"
+          maxProperties: 32
+          propertyNames:
+            maxLength: 4096
+          type: "object"
+        -
+          type: "null"
+    AgentResultV1__BoundedJsonValueDepth2:
+      anyOf:
+        -
+          maxLength: 4096
+          type: "string"
+        -
+          type: "integer"
+        -
+          type: "number"
+        -
+          type: "boolean"
+        -
+          items:
+            "$ref": "#/components/schemas/AgentResultV1__BoundedJsonValueDepth3"
+          maxItems: 32
+          type: "array"
+        -
+          additionalProperties:
+            "$ref": "#/components/schemas/AgentResultV1__BoundedJsonValueDepth3"
+          maxProperties: 32
+          propertyNames:
+            maxLength: 4096
+          type: "object"
+        -
+          type: "null"
+    AgentResultV1__BoundedJsonValueDepth3:
+      anyOf:
+        -
+          maxLength: 4096
+          type: "string"
+        -
+          type: "integer"
+        -
+          type: "number"
+        -
+          type: "boolean"
+        -
+          items:
+            "$ref": "#/components/schemas/AgentResultV1__BoundedJsonValueDepth4"
+          maxItems: 32
+          type: "array"
+        -
+          additionalProperties:
+            "$ref": "#/components/schemas/AgentResultV1__BoundedJsonValueDepth4"
+          maxProperties: 32
+          propertyNames:
+            maxLength: 4096
+          type: "object"
+        -
+          type: "null"
+    AgentResultV1__BoundedJsonValueDepth4:
+      anyOf:
+        -
+          maxLength: 4096
+          type: "string"
+        -
+          type: "integer"
+        -
+          type: "number"
+        -
+          type: "boolean"
+        -
+          items:
+            "$ref": "#/components/schemas/AgentResultV1__BoundedJsonValueDepth5"
+          maxItems: 32
+          type: "array"
+        -
+          additionalProperties:
+            "$ref": "#/components/schemas/AgentResultV1__BoundedJsonValueDepth5"
+          maxProperties: 32
+          propertyNames:
+            maxLength: 4096
+          type: "object"
+        -
+          type: "null"
+    AgentResultV1__BoundedJsonValueDepth5:
+      anyOf:
+        -
+          maxLength: 4096
+          type: "string"
+        -
+          type: "integer"
+        -
+          type: "number"
+        -
+          type: "boolean"
+        -
+          items:
+            "$ref": "#/components/schemas/AgentResultV1__BoundedJsonValueDepth6"
+          maxItems: 32
+          type: "array"
+        -
+          additionalProperties:
+            "$ref": "#/components/schemas/AgentResultV1__BoundedJsonValueDepth6"
+          maxProperties: 32
+          propertyNames:
+            maxLength: 4096
+          type: "object"
+        -
+          type: "null"
+    AgentResultV1__BoundedJsonValueDepth6:
+      anyOf:
+        -
+          maxLength: 4096
+          type: "string"
+        -
+          type: "integer"
+        -
+          type: "number"
+        -
+          type: "boolean"
+        -
+          items:
+            "$ref": "#/components/schemas/AgentResultV1__BoundedJsonValueDepth7"
+          maxItems: 32
+          type: "array"
+        -
+          additionalProperties:
+            "$ref": "#/components/schemas/AgentResultV1__BoundedJsonValueDepth7"
+          maxProperties: 32
+          propertyNames:
+            maxLength: 4096
+          type: "object"
+        -
+          type: "null"
+    AgentResultV1__BoundedJsonValueDepth7:
+      anyOf:
+        -
+          maxLength: 4096
+          type: "string"
+        -
+          type: "integer"
+        -
+          type: "number"
+        -
+          type: "boolean"
+        -
+          items:
+            "$ref": "#/components/schemas/AgentResultV1__BoundedJsonValueDepth8"
+          maxItems: 32
+          type: "array"
+        -
+          additionalProperties:
+            "$ref": "#/components/schemas/AgentResultV1__BoundedJsonValueDepth8"
+          maxProperties: 32
+          propertyNames:
+            maxLength: 4096
+          type: "object"
+        -
+          type: "null"
+    AgentResultV1__BoundedJsonValueDepth8:
+      anyOf:
+        -
+          maxLength: 4096
+          type: "string"
+        -
+          type: "integer"
+        -
+          type: "number"
+        -
+          type: "boolean"
+        -
+          items:
+            anyOf:
+              -
+                maxLength: 4096
+                type: "string"
+              -
+                type: "integer"
+              -
+                type: "number"
+              -
+                type: "boolean"
+              -
+                type: "null"
+          maxItems: 0
+          type: "array"
+        -
+          additionalProperties:
+            anyOf:
+              -
+                maxLength: 4096
+                type: "string"
+              -
+                type: "integer"
+              -
+                type: "number"
+              -
+                type: "boolean"
+              -
+                type: "null"
+          maxProperties: 0
+          propertyNames:
+            maxLength: 4096
+          type: "object"
+        -
+          type: "null"
     AgentHeartbeatV1:
       additionalProperties: false
       properties:
@@ -375,6 +824,7 @@ components:
         artifact_path:
           maxLength: 512
           minLength: 1
+          pattern: "^(?:[A-Za-z0-9_-][A-Za-z0-9._-]*|\\.[A-Za-z0-9_-][A-Za-z0-9._-]*)(?:/(?:[A-Za-z0-9_-][A-Za-z0-9._-]*|\\.[A-Za-z0-9_-][A-Za-z0-9._-]*))*$"
           title: "Artifact Path"
           type: "string"
         artifact_size_bytes:
