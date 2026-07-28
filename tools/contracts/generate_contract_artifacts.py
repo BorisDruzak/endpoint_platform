@@ -119,6 +119,12 @@ FIXTURES: dict[str, dict[str, Any]] = {
     },
 }
 
+GENERATED_ARTIFACT_DIRECTORIES = (
+    Path("contracts/jsonschema"),
+    Path("contracts/openapi"),
+    Path("tests/fixtures/contracts"),
+)
+
 _PLAIN_YAML_KEY = re.compile(r"^[A-Za-z_][A-Za-z0-9_-]*$")
 
 
@@ -180,6 +186,48 @@ def _yaml_document(value: object, *, indent: int = 0) -> str:
     return f"{prefix}{_yaml_scalar(value)}\n"
 
 
+def _rewrite_local_definition_references(
+    value: object, reference_map: Mapping[str, str]
+) -> object:
+    if isinstance(value, dict):
+        return {
+            key: reference_map.get(child, child)
+            if key == "$ref" and isinstance(child, str)
+            else _rewrite_local_definition_references(child, reference_map)
+            for key, child in value.items()
+        }
+    if isinstance(value, list):
+        return [
+            _rewrite_local_definition_references(child, reference_map)
+            for child in value
+        ]
+    return value
+
+
+def _openapi_component_schemas(
+    schemas: Mapping[str, dict[str, Any]],
+) -> dict[str, object]:
+    components: dict[str, object] = {}
+    for filename, model in PUBLIC_MODELS.items():
+        component_name = model.__name__
+        schema = json.loads(json.dumps(schemas[filename]))
+        definitions = schema.pop("$defs", {})
+        reference_map = {
+            f"#/$defs/{definition_name}": (
+                f"#/components/schemas/{component_name}__{definition_name}"
+            )
+            for definition_name in definitions
+        }
+        components[component_name] = _rewrite_local_definition_references(
+            schema, reference_map
+        )
+        for definition_name, definition in definitions.items():
+            components[f"{component_name}__{definition_name}"] = (
+                _rewrite_local_definition_references(definition, reference_map)
+            )
+    return components
+
+
 def render_artifacts(output_root: Path) -> dict[Path, str]:
     """Return every generated artifact without writing to *output_root*."""
     _ = output_root
@@ -196,10 +244,7 @@ def render_artifacts(output_root: Path) -> dict[Path, str]:
         "info": {"title": "Endpoint Platform Gateway API", "version": "v1"},
         "paths": {},
         "components": {
-            "schemas": {
-                model.__name__: schemas[filename]
-                for filename, model in PUBLIC_MODELS.items()
-            }
+            "schemas": _openapi_component_schemas(schemas)
         },
     }
     rendered[Path("contracts/openapi/endpoint-platform-v1.yaml")] = _yaml_document(openapi)
@@ -224,6 +269,22 @@ def _check_artifacts(output_root: Path, artifacts: Mapping[Path, str]) -> bool:
         if actual != expected:
             print(
                 f"outdated generated artifact: {relative_path.as_posix()}",
+                file=sys.stderr,
+            )
+            matches = False
+    expected_paths = set(artifacts)
+    for artifact_directory in GENERATED_ARTIFACT_DIRECTORIES:
+        directory = output_root / artifact_directory
+        if not directory.exists():
+            continue
+        for destination in directory.rglob("*"):
+            if not destination.is_file():
+                continue
+            relative_path = destination.relative_to(output_root)
+            if relative_path in expected_paths:
+                continue
+            print(
+                f"unexpected generated artifact: {relative_path.as_posix()}",
                 file=sys.stderr,
             )
             matches = False

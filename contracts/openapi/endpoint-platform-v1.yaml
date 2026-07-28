@@ -134,36 +134,6 @@ components:
       title: "EnrollmentResponseV1"
       type: "object"
     AgentCommandV1:
-      "$defs":
-        CommandCorrelationV1:
-          additionalProperties: false
-          properties:
-            schema_version:
-              const: "command_correlation_v1"
-              default: "command_correlation_v1"
-              title: "Schema Version"
-              type: "string"
-            request_id:
-              anyOf:
-                -
-                  format: "uuid"
-                  type: "string"
-                -
-                  type: "null"
-              default: null
-              title: "Request Id"
-            parent_command_id:
-              anyOf:
-                -
-                  format: "uuid"
-                  type: "string"
-                -
-                  type: "null"
-              default: null
-              title: "Parent Command Id"
-          title: "CommandCorrelationV1"
-          type: "object"
-        JsonValue: {}
       additionalProperties: false
       properties:
         schema_version:
@@ -184,7 +154,7 @@ components:
           type: "string"
         parameters:
           additionalProperties:
-            "$ref": "#/$defs/JsonValue"
+            "$ref": "#/components/schemas/AgentCommandV1__JsonValue"
           maxProperties: 32
           title: "Parameters"
           type: "object"
@@ -206,7 +176,7 @@ components:
           title: "Deadline At"
           type: "string"
         correlation:
-          "$ref": "#/$defs/CommandCorrelationV1"
+          "$ref": "#/components/schemas/AgentCommandV1__CommandCorrelationV1"
       required:
         - "schema_version"
         - "command_id"
@@ -218,6 +188,35 @@ components:
         - "deadline_at"
       title: "AgentCommandV1"
       type: "object"
+    AgentCommandV1__CommandCorrelationV1:
+      additionalProperties: false
+      properties:
+        schema_version:
+          const: "command_correlation_v1"
+          default: "command_correlation_v1"
+          title: "Schema Version"
+          type: "string"
+        request_id:
+          anyOf:
+            -
+              format: "uuid"
+              type: "string"
+            -
+              type: "null"
+          default: null
+          title: "Request Id"
+        parent_command_id:
+          anyOf:
+            -
+              format: "uuid"
+              type: "string"
+            -
+              type: "null"
+          default: null
+          title: "Parent Command Id"
+      title: "CommandCorrelationV1"
+      type: "object"
+    AgentCommandV1__JsonValue: {}
     AgentCommandAckV1:
       additionalProperties: false
       properties:
@@ -267,8 +266,6 @@ components:
       title: "AgentCommandAckV1"
       type: "object"
     AgentResultV1:
-      "$defs":
-        JsonValue: {}
       additionalProperties: false
       properties:
         schema_version:
@@ -297,7 +294,7 @@ components:
           type: "string"
         result_items:
           items:
-            "$ref": "#/$defs/JsonValue"
+            "$ref": "#/components/schemas/AgentResultV1__JsonValue"
           maxItems: 32
           title: "Result Items"
           type: "array"
@@ -322,6 +319,7 @@ components:
         - "completed_at"
       title: "AgentResultV1"
       type: "object"
+    AgentResultV1__JsonValue: {}
     AgentHeartbeatV1:
       additionalProperties: false
       properties:
