@@ -40,3 +40,12 @@ def test_load_retained_paths_normalizes_windows_separators(tmp_path: Path) -> No
     path.write_text("pc_agent\nshared\\redaction.py\n", encoding="utf-8")
 
     assert load_retained_paths(path) == {"pc_agent", "shared/redaction.py"}
+
+
+def test_pytest_configuration_excludes_removed_helpdesk_server() -> None:
+    """The standalone test run must not discover a removed server test path."""
+    pytest_ini = Path("pytest.ini").read_text(encoding="utf-8")
+
+    assert "server/tests" not in pytest_ini
+    assert "pc_agent/tests" in pytest_ini
+    assert "tests" in pytest_ini
