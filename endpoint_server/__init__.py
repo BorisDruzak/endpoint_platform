@@ -1,0 +1,1 @@
+"""Endpoint Platform server foundation."""
