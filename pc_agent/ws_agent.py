@@ -39,7 +39,12 @@ if project_root_str not in sys.path:
     sys.path.insert(0, project_root_str)
 # Legacy managed modules still get their own import path from the module loader.
 from pc_agent.core.database import DatabaseManager
-from pc_agent.core.orchestrator import AgentOrchestrator, execute_context_agent_command
+from pc_agent.core.orchestrator import (
+    AgentOrchestrator,
+    context_command_identity_from_in_progress,
+    execute_context_agent_command,
+    typed_context_terminal_payload,
+)
 from pc_agent.context_profiles.probe import SystemProbe
 from endpoint_contracts.commands import AgentCommandV1, AgentResultV1
 from pc_agent.core.tool_response import ToolMeta
@@ -2295,12 +2300,129 @@ class WSAgent:
 
     def _should_run_command_in_background(self, command: Optional[str]) -> bool:
         """Commands that can take noticeable time should not block the WS receive loop."""
-        return command in {
+        return command in CONTEXT_COLLECTION_COMMANDS or command in {
             "run_tool",
             "call_tool",
             "run_recipe",
             "remote_assist.request",
         }
+
+    @staticmethod
+    def _context_in_progress_result_json(command: str, device_id: Optional[str]) -> str:
+        return jsonlib.dumps(
+            {
+                "meta": {
+                    "context_command": {
+                        "capability": command,
+                        "device_id": device_id,
+                    }
+                }
+            }
+        )
+
+    @staticmethod
+    def _context_identity(command: str, device_id: Optional[str]) -> Dict[str, str]:
+        return {"capability": command, "device_id": str(device_id)}
+
+    def _context_terminal_payload(
+        self,
+        *,
+        command: str,
+        command_id: str,
+        device_id: Optional[str],
+        result_status: str,
+        error_code: str,
+        error_message: str,
+    ) -> Dict[str, Any]:
+        try:
+            return typed_context_terminal_payload(
+                command_id,
+                identity=self._context_identity(command, device_id),
+                result_status=result_status,
+                error_code=error_code,
+                error_message=error_message,
+            )
+        except (TypeError, ValueError):
+            return {
+                "status": "error",
+                "data": {},
+                "error": {
+                    "code": "CONTEXT_COMMAND_INVALID",
+                    "message": "Invalid Device Context command identity",
+                },
+                "meta": {"command": command, "request_id": command_id},
+            }
+
+    async def _execute_context_collection(
+        self,
+        *,
+        command: str,
+        params: Dict[str, Any],
+        request_id: str,
+        device_id: Optional[str],
+    ) -> Dict[str, Any]:
+        now = datetime.now(timezone.utc)
+        context_command = AgentCommandV1(
+            schema_version="agent_command_v1",
+            command_id=request_id,
+            device_id=device_id,
+            capability=command,
+            parameters=params,
+            requested_by_service="endpoint-platform",
+            idempotency_key=f"context:{request_id}",
+            created_at=now,
+            deadline_at=now + timedelta(minutes=5),
+        )
+        result = await asyncio.to_thread(
+            execute_context_agent_command,
+            context_command,
+            probe=SystemProbe(),
+        )
+        return _context_result_transport_payload(
+            result, command=command, request_id=request_id
+        )
+
+    async def _send_pre_start_context_cancellation_if_needed(
+        self,
+        ws: ClientWebSocketResponse,
+        *,
+        cancel_request_id: str,
+        params: Dict[str, Any],
+        trace_id: Optional[str],
+        ticket_id: Optional[str],
+        job_id: Optional[str],
+        actor_role: Optional[str],
+    ) -> None:
+        """Publish the target terminal result created before its task started."""
+        if not self.db_manager:
+            return
+        target_command_id = params.get("target_operation_id")
+        if not isinstance(target_command_id, str):
+            return
+        cached = await self.db_manager.get_command_result(target_command_id)
+        if not cached or cached.get("status") != "canceled":
+            return
+        try:
+            payload = jsonlib.loads(cached.get("result_json") or "{}")
+        except (TypeError, jsonlib.JSONDecodeError):
+            return
+        if (
+            payload.get("meta", {}).get("canceled_by_request_id")
+            != cancel_request_id
+        ):
+            return
+        if payload.get("meta", {}).get("command") not in CONTEXT_COLLECTION_COMMANDS:
+            return
+        await self.send_envelope(
+            ws,
+            "command_result",
+            target_command_id,
+            payload,
+            trace_id=trace_id,
+            ticket_id=ticket_id,
+            job_id=job_id,
+            actor_role=actor_role,
+        )
 
     async def _execute_command_and_send_result(
         self,
@@ -2320,6 +2442,10 @@ class WSAgent:
         """Executes a command, persists idempotency, and sends command_result."""
         command_result_payload: Optional[Dict[str, Any]] = None
         try:
+            if command in CONTEXT_COLLECTION_COMMANDS and self.orchestrator:
+                current_task = asyncio.current_task()
+                if current_task is not None:
+                    self.orchestrator.running_tasks[command_id] = current_task
             cached_canceled: Optional[dict] = None
             if self.db_manager:
                 cached_result = await self.db_manager.get_command_result(command_id)
@@ -2337,19 +2463,37 @@ class WSAgent:
                 command_result_payload.setdefault("meta", {})
                 command_result_payload["meta"]["cached"] = True
             else:
-                tool_response = await self.execute_command(
-                    command,
-                    params,
-                    request_id=request_id,
-                    device_id=device_id,
-                    actor_role=actor_role,
-                )
-                command_result_payload = {
-                    "status": tool_response.get("status", "error"),
-                    "data": tool_response.get("data", {}),
-                    "error": tool_response.get("error"),
-                    "meta": tool_response.get("meta", {}),
-                }
+                if command in CONTEXT_COLLECTION_COMMANDS:
+                    command_result_payload = await self._execute_context_collection(
+                        command=command,
+                        params=params,
+                        request_id=request_id,
+                        device_id=device_id,
+                    )
+                else:
+                    tool_response = await self.execute_command(
+                        command,
+                        params,
+                        request_id=request_id,
+                        device_id=device_id,
+                        actor_role=actor_role,
+                    )
+                    command_result_payload = {
+                        "status": tool_response.get("status", "error"),
+                        "data": tool_response.get("data", {}),
+                        "error": tool_response.get("error"),
+                        "meta": tool_response.get("meta", {}),
+                    }
+                if command == "cancel_operation":
+                    await self._send_pre_start_context_cancellation_if_needed(
+                        ws,
+                        cancel_request_id=request_id,
+                        params=params,
+                        trace_id=trace_id,
+                        ticket_id=ticket_id_ctx,
+                        job_id=job_id_ctx,
+                        actor_role=actor_role_meta,
+                    )
             if self.db_manager and not cached_canceled:
                 status = command_result_payload["status"]
                 if status not in {"success", "canceled"}:
@@ -2360,19 +2504,24 @@ class WSAgent:
                     status=status,
                     result_json=result_json,
                 )
-                await self.db_manager.enqueue_pending_command_result(
-                    command_id=command_id,
-                    payload=command_result_payload,
-                    trace_id=trace_id,
-                    ticket_id=ticket_id_ctx,
-                    job_id=job_id_ctx,
-                    actor_role=actor_role_meta,
-                )
                 if was_updated:
+                    await self.db_manager.enqueue_pending_command_result(
+                        command_id=command_id,
+                        payload=command_result_payload,
+                        trace_id=trace_id,
+                        ticket_id=ticket_id_ctx,
+                        job_id=job_id_ctx,
+                        actor_role=actor_role_meta,
+                    )
                     logger.debug(
                         f"✅ Команда {command_id} сохранена в seen_commands (status={status})"
                     )
                 else:
+                    current_result = await self.db_manager.get_command_result(command_id)
+                    if current_result and current_result.get("result_json"):
+                        command_result_payload = jsonlib.loads(
+                            current_result["result_json"]
+                        )
                     logger.debug(
                         f"⚠️  Команда {command_id} уже была success, не перезаписали"
                     )
@@ -2394,6 +2543,15 @@ class WSAgent:
                     "command": command,
                 },
             }
+            if command in CONTEXT_COLLECTION_COMMANDS:
+                command_result_payload = self._context_terminal_payload(
+                    command=command,
+                    command_id=command_id,
+                    device_id=device_id,
+                    result_status="canceled",
+                    error_code="OPERATION_CANCELED",
+                    error_message="Device Context collection was canceled",
+                )
             if self.db_manager:
                 result_json = jsonlib.dumps(command_result_payload, ensure_ascii=False)
                 was_updated = await self.db_manager.mark_command_seen(
@@ -2401,19 +2559,24 @@ class WSAgent:
                     status="canceled",
                     result_json=result_json,
                 )
-                await self.db_manager.enqueue_pending_command_result(
-                    command_id=command_id,
-                    payload=command_result_payload,
-                    trace_id=trace_id,
-                    ticket_id=ticket_id_ctx,
-                    job_id=job_id_ctx,
-                    actor_role=actor_role_meta,
-                )
                 if was_updated:
+                    await self.db_manager.enqueue_pending_command_result(
+                        command_id=command_id,
+                        payload=command_result_payload,
+                        trace_id=trace_id,
+                        ticket_id=ticket_id_ctx,
+                        job_id=job_id_ctx,
+                        actor_role=actor_role_meta,
+                    )
                     logger.debug(
                         f"✅ Команда {command_id} сохранена в seen_commands (status=canceled)"
                     )
                 else:
+                    current_result = await self.db_manager.get_command_result(command_id)
+                    if current_result and current_result.get("result_json"):
+                        command_result_payload = jsonlib.loads(
+                            current_result["result_json"]
+                        )
                     logger.debug(
                         f"⚠️  Команда {command_id} уже была terminal, не перезаписали"
                     )
@@ -2425,7 +2588,20 @@ class WSAgent:
                 "error": {"message": str(e)},
                 "meta": {},
             }
+            if command in CONTEXT_COLLECTION_COMMANDS:
+                command_result_payload = self._context_terminal_payload(
+                    command=command,
+                    command_id=command_id,
+                    device_id=device_id,
+                    result_status="failed",
+                    error_code="CONTEXT_COLLECTION_FAILED",
+                    error_message="Device Context collection failed",
+                )
         finally:
+            if command in CONTEXT_COLLECTION_COMMANDS and self.orchestrator:
+                current_task = asyncio.current_task()
+                if self.orchestrator.running_tasks.get(command_id) is current_task:
+                    self.orchestrator.running_tasks.pop(command_id, None)
             future = self._running_commands.pop(command_id, None)
             if future and not future.done():
                 future.set_result(
@@ -2535,18 +2711,52 @@ class WSAgent:
     async def recover_in_progress_commands_on_startup(
         self, ws: ClientWebSocketResponse
     ) -> List[Dict[str, Any]]:
-        if not self.db_manager:
-            return []
-        recovered = await self.db_manager.recover_in_progress_commands_on_startup(
-            current_owner_instance_id=self._session_id,
-            reason_code="AGENT_RESTARTED",
-        )
+        recovered = await self._recover_in_progress_commands()
         if recovered:
             logger.warning(
                 "[command_restart_recovery] finalized stale in_progress commands: "
                 f"count={len(recovered)}"
             )
         await self.replay_pending_command_results(ws)
+        return recovered
+
+    async def _recover_in_progress_commands(
+        self, *, target_command_id: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        if not self.db_manager:
+            return []
+        recovered = await self.db_manager.recover_in_progress_commands_on_startup(
+            current_owner_instance_id=self._session_id,
+            reason_code="AGENT_RESTARTED",
+            target_command_id=target_command_id,
+        )
+        for item in recovered:
+            identity = context_command_identity_from_in_progress(
+                item.get("in_progress_result_json")
+            )
+            if not identity:
+                continue
+            payload = typed_context_terminal_payload(
+                item["command_id"],
+                identity=identity,
+                result_status="failed",
+                error_code="AGENT_RESTARTED",
+                error_message="Device Context collection was interrupted because the agent restarted",
+                extra_meta={
+                    "recovery": True,
+                    "previous_owner_instance_id": item["previous_owner_instance_id"],
+                    "current_owner_instance_id": self._session_id,
+                },
+            )
+            await self.db_manager.mark_command_seen(
+                command_id=item["command_id"],
+                status="error",
+                result_json=jsonlib.dumps(payload, ensure_ascii=False),
+            )
+            await self.db_manager.enqueue_pending_command_result(
+                command_id=item["command_id"], payload=payload
+            )
+            item["payload"] = payload
         return recovered
 
     async def handle_message(self, ws: ClientWebSocketResponse, message: str) -> None:
@@ -3006,10 +3216,8 @@ class WSAgent:
                             # Команда в процессе: либо ждём тот же execution, либо разрешаем повтор по TTL
                             previous_owner = cached_result.get("owner_instance_id")
                             if previous_owner != self._session_id:
-                                recovered = await self.db_manager.recover_in_progress_commands_on_startup(
-                                    current_owner_instance_id=self._session_id,
-                                    reason_code="AGENT_RESTARTED",
-                                    target_command_id=command_id,
+                                recovered = await self._recover_in_progress_commands(
+                                    target_command_id=command_id
                                 )
                                 if recovered:
                                     recovery_payload = recovered[0]["payload"]
@@ -3140,6 +3348,13 @@ class WSAgent:
                     await self.db_manager.mark_command_started(
                         command_id,
                         owner_instance_id=self._session_id,
+                        in_progress_result_json=(
+                            self._context_in_progress_result_json(
+                                command, envelope.get("device_id")
+                            )
+                            if command in CONTEXT_COLLECTION_COMMANDS
+                            else None
+                        ),
                     )
 
                 # КРИТИЧНО: Отправляем command_ack ПОСЛЕ seen_commands проверки и минимальной валидации,

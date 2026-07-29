@@ -88,6 +88,58 @@ except (
         sys.path.insert(0, repo_root)
     from shared.tool_contracts import ToolExecutionEnvelope, ToolExecutionMetrics
 
+
+def context_command_identity_from_in_progress(
+    result_json: Optional[str],
+) -> Optional[Dict[str, str]]:
+    """Return the fixed context identity saved before durable dispatch."""
+    if not result_json:
+        return None
+    try:
+        metadata = json.loads(result_json)
+        identity = metadata.get("meta", {}).get("context_command", {})
+        capability = identity.get("capability")
+        device_id = identity.get("device_id")
+        if capability not in CONTEXT_COLLECTION_CAPABILITIES:
+            return None
+        uuid.UUID(str(device_id))
+        return {"capability": capability, "device_id": str(device_id)}
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return None
+
+
+def typed_context_terminal_payload(
+    command_id: str,
+    *,
+    identity: Dict[str, str],
+    result_status: Literal["canceled", "failed"],
+    error_code: str,
+    error_message: str,
+    extra_meta: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """Map a fixed context terminal state to the public AgentResultV1 transport."""
+    result = AgentResultV1(
+        schema_version="agent_result_v1",
+        command_id=uuid.UUID(command_id),
+        device_id=uuid.UUID(identity["device_id"]),
+        status=result_status,
+        result_items=[],
+        message=error_code,
+        completed_at=datetime.now(timezone.utc),
+    )
+    payload: Dict[str, Any] = {
+        "status": "canceled" if result_status == "canceled" else "error",
+        "data": result.model_dump(mode="json"),
+        "error": {"code": error_code, "message": error_message},
+        "meta": {
+            "request_id": command_id,
+            "command": identity["capability"],
+        },
+    }
+    if extra_meta:
+        payload["meta"].update(extra_meta)
+    return payload
+
 # Импорт ValidationError из pydantic (опционально)
 try:
     from pydantic import ValidationError
@@ -1763,6 +1815,7 @@ class AgentOrchestrator:
         if not cached or cached.get("status") != "in_progress":
             return False
 
+        identity = context_command_identity_from_in_progress(cached.get("result_json"))
         payload = {
             "status": "canceled",
             "data": {
@@ -1781,10 +1834,23 @@ class AgentOrchestrator:
                 "canceled_by_request_id": meta.request_id,
             },
         }
+        if identity:
+            payload = typed_context_terminal_payload(
+                target_operation_id,
+                identity=identity,
+                result_status="canceled",
+                error_code="OPERATION_CANCELED",
+                error_message="Device Context collection was canceled before execution started",
+                extra_meta={"canceled_by_request_id": meta.request_id},
+            )
         await self.db_manager.mark_command_seen(
             command_id=target_operation_id,
             status="canceled",
             result_json=json.dumps(payload, ensure_ascii=False),
+        )
+        await self.db_manager.enqueue_pending_command_result(
+            command_id=target_operation_id,
+            payload=payload,
         )
         logger.info(
             f"[cancel_operation] Finalized pre-running command as canceled: "

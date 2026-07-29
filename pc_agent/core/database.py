@@ -2016,6 +2016,7 @@ class DatabaseManager:
         *,
         owner_instance_id: Optional[str] = None,
         stale_retry: bool = False,
+        in_progress_result_json: Optional[str] = None,
     ) -> None:
         """
         Помечает команду как начатую (для отслеживания in_progress).
@@ -2028,10 +2029,16 @@ class DatabaseManager:
             await db.execute(
                 """
                 INSERT OR IGNORE INTO seen_commands 
-                (command_id, status, completed_at, started_at, stale_retry_count, owner_instance_id)
-                VALUES (?, 'in_progress', ?, ?, 0, ?)
+                (command_id, status, result_json, completed_at, started_at, stale_retry_count, owner_instance_id)
+                VALUES (?, 'in_progress', ?, ?, ?, 0, ?)
                 """,
-                (command_id, int(time.time()), int(time.time()), owner_instance_id)
+                (
+                    command_id,
+                    in_progress_result_json,
+                    int(time.time()),
+                    int(time.time()),
+                    owner_instance_id,
+                ),
             )
             if stale_retry:
                 await db.execute(
@@ -2087,7 +2094,7 @@ class DatabaseManager:
                 )
                 row = await cursor.fetchone()
                 
-                if row and row[0] == "success":
+                if row and row[0] in {"success", "canceled"}:
                     # Уже есть success - не затираем
                     await db.rollback()
                     return False
@@ -2249,7 +2256,7 @@ class DatabaseManager:
                 ) if target_command_id else (current_owner_instance_id,)
                 cursor = await db.execute(
                     f"""
-                    SELECT command_id, owner_instance_id
+                    SELECT command_id, owner_instance_id, result_json
                     FROM seen_commands
                     WHERE status='in_progress'
                       AND (owner_instance_id IS NULL OR owner_instance_id != ?)
@@ -2259,7 +2266,7 @@ class DatabaseManager:
                     params,
                 )
                 rows = await cursor.fetchall()
-                for command_id, previous_owner in rows:
+                for command_id, previous_owner, in_progress_result_json in rows:
                     payload = {
                         "status": "error",
                         "data": {
@@ -2313,6 +2320,7 @@ class DatabaseManager:
                             "command_id": command_id,
                             "payload": payload,
                             "previous_owner_instance_id": previous_owner,
+                            "in_progress_result_json": in_progress_result_json,
                         }
                     )
                 await db.commit()
