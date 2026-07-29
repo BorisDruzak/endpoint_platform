@@ -151,6 +151,47 @@ async def _authenticate_device(session, request: Request) -> DevicePrincipal:
     return DevicePrincipal(device=device, credential=credential)
 
 
+async def _revalidate_device_principal(
+    session,
+    request: Request,
+    principal: DevicePrincipal,
+) -> None:
+    """Lock and recheck one bearer only after update domain state is locked."""
+    _require_agent_source(request)
+    token = _bearer_token(request)
+    pepper = request.app.state.settings.device_token_pepper
+    device = await session.scalar(
+        select(Device)
+        .where(
+            Device.id == principal.device.id,
+            Device.retired_at.is_(None),
+        )
+        .execution_options(populate_existing=True)
+        .with_for_update()
+    )
+    credential = await session.scalar(
+        select(DeviceCredential)
+        .where(
+            DeviceCredential.id == principal.credential.id,
+            DeviceCredential.device_id == principal.device.id,
+        )
+        .execution_options(populate_existing=True)
+        .with_for_update()
+    )
+    checked_at = datetime.now(UTC)
+    if (
+        device is None
+        or credential is None
+        or not device_credential_accepts_token(
+            credential,
+            token,
+            pepper,
+            now=checked_at,
+        )
+    ):
+        raise _invalid_credential()
+
+
 def _agent_error(error: UpdateError) -> HTTPException:
     if isinstance(error, UpdateConflict):
         return HTTPException(
@@ -202,12 +243,17 @@ async def acknowledge_update(
     async with request.app.state.session_provider() as session:
         try:
             principal = await _authenticate_device(session, request)
+
+            async def revalidate_authorization() -> None:
+                await _revalidate_device_principal(session, request, principal)
+
             await record_ack(
                 session,
                 device_id=principal.device.id,
                 operation_id=operation_id,
                 acknowledgement=body,
                 request_id=audit_request_id(request),
+                authorization_revalidator=revalidate_authorization,
             )
             await session.commit()
         except HTTPException:
@@ -236,12 +282,17 @@ async def report_update_outcome(
     async with request.app.state.session_provider() as session:
         try:
             principal = await _authenticate_device(session, request)
+
+            async def revalidate_authorization() -> None:
+                await _revalidate_device_principal(session, request, principal)
+
             await record_report(
                 session,
                 device_id=principal.device.id,
                 operation_id=operation_id,
                 report=body,
                 request_id=audit_request_id(request),
+                authorization_revalidator=revalidate_authorization,
             )
             await session.commit()
         except HTTPException:

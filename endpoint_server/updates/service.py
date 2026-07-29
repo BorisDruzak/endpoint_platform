@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Mapping, Sequence
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
@@ -805,6 +805,7 @@ async def record_ack(
     acknowledgement: AgentUpdateAcknowledgementV1 | Mapping[str, object],
     request_id: str,
     now: datetime | None = None,
+    authorization_revalidator: Callable[[], Awaitable[None]] | None = None,
 ) -> UpdateTarget:
     """Advance one device target through requested and scheduled acknowledgements."""
     validated = _acknowledgement(acknowledgement)
@@ -813,6 +814,8 @@ async def record_ack(
         device_id,
         operation_id,
     )
+    if authorization_revalidator is not None:
+        await authorization_revalidator()
     if rollout.status != "active":
         raise UpdateStateError("update rollout is not active")
     desired = validated.status
@@ -865,6 +868,7 @@ async def record_report(
     report: AgentUpdateReportV1 | Mapping[str, object],
     request_id: str,
     now: datetime | None = None,
+    authorization_revalidator: Callable[[], Awaitable[None]] | None = None,
 ) -> UpdateReport:
     """Persist one terminal report idempotently and advance its locked target."""
     validated = _report(report)
@@ -873,6 +877,8 @@ async def record_report(
         device_id,
         operation_id,
     )
+    if authorization_revalidator is not None:
+        await authorization_revalidator()
     existing = await session.scalar(
         select(UpdateReport)
         .where(

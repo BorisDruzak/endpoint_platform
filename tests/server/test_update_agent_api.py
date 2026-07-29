@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import ipaddress
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime, timedelta
@@ -32,6 +33,7 @@ from endpoint_server.db.models import (
 from endpoint_server.enrollment.credentials import device_token_digest
 from endpoint_server.main import create_app
 from endpoint_server.updates.service import create_rollout, register_build
+import endpoint_server.updates.agent_routes as update_agent_routes
 
 
 NOW = datetime.now(UTC)
@@ -539,3 +541,89 @@ async def test_ambiguous_current_and_pending_digest_fails_closed(
 
     assert response.status_code == 401
     assert token not in response.text
+
+
+@pytest.mark.asyncio
+async def test_old_token_report_cannot_commit_after_pending_credential_activation(
+    session_provider: async_sessionmaker[AsyncSession],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A report authenticated before activation must revalidate before mutation."""
+    old_token = "report-old-token"
+    pending_token = "report-pending-token"
+    async with session_provider() as session:
+        device = await _seed_device(session, suffix="rotation-report", token=old_token)
+        _, target = await _seed_assignment(
+            session,
+            device=device,
+            suffix="rotation-report",
+        )
+        await session.commit()
+
+    report_paused_after_authentication = asyncio.Event()
+    allow_report_to_lock_domain = asyncio.Event()
+    original_record_report = update_agent_routes.record_report
+
+    async def pause_report_after_authentication(*args: object, **kwargs: object) -> object:
+        report_paused_after_authentication.set()
+        await allow_report_to_lock_domain.wait()
+        return await original_record_report(*args, **kwargs)
+
+    monkeypatch.setattr(update_agent_routes, "record_report", pause_report_after_authentication)
+    app = create_app(_settings(), session_provider)
+    report_body = {
+        "schema_version": "agent_update_report_v1",
+        "report_key": "post-rotation-report",
+        "status": "failed",
+        "reported_version": "2.0.0",
+        "safe_code": "update.failed",
+    }
+    async with _client(app) as client:
+        initial_authentication = await client.get(
+            "/agent/v1/updates/recommendation",
+            params={"platform": "linux_amd64", "channel": "stable"},
+            headers={"Authorization": f"Bearer {old_token}"},
+        )
+        assert initial_authentication.status_code == 200
+        report_task = asyncio.create_task(
+            client.post(
+                f"/agent/v1/updates/{target.operation_id}/reports",
+                json=report_body,
+                headers={"Authorization": f"Bearer {old_token}"},
+            )
+        )
+        await asyncio.sleep(0)
+        if report_task.done():
+            early_response = report_task.result()
+            pytest.fail(
+                "report must reach the post-authentication race point; "
+                f"got {early_response.status_code}: {early_response.text}"
+        )
+        await asyncio.wait_for(report_paused_after_authentication.wait(), timeout=2)
+        async with session_provider() as session:
+            credential = await session.scalar(
+                select(DeviceCredential).where(DeviceCredential.device_id == device.id)
+            )
+            assert credential is not None
+            credential.pending_token_digest = device_token_digest(
+                pending_token,
+                b"device-pepper",
+            )
+            credential.rotation_overlap_expires_at = datetime.now(UTC) + timedelta(
+                minutes=10
+            )
+            await session.commit()
+        activated = await client.post(
+            "/agent/v1/credentials/activate",
+            headers={"Authorization": f"Bearer {pending_token}"},
+        )
+        allow_report_to_lock_domain.set()
+        rejected = await asyncio.wait_for(report_task, timeout=2)
+
+    assert activated.status_code == 204
+    assert rejected.status_code == 401
+    async with session_provider() as session:
+        persisted_target = await session.get(UpdateTarget, target.id)
+        assert persisted_target is not None
+        assert persisted_target.status == "assigned"
+        assert await session.scalar(select(func.count()).select_from(UpdateReport)) == 0

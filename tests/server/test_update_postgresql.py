@@ -6,7 +6,7 @@ import asyncio
 import ipaddress
 import os
 from collections.abc import AsyncIterator, Iterator
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 from uuid import uuid4
@@ -831,3 +831,141 @@ async def test_concurrent_report_replay_and_rollback_routes_complete_without_dea
 
     assert report_response.status_code == 200
     assert rollback_response.status_code == 201
+
+
+@pytest.mark.asyncio
+async def test_old_token_report_fails_after_pending_credential_activation(
+    update_service_provider: AsyncSessionProvider,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A pre-authenticated old bearer cannot commit after rotation activation."""
+    now = datetime.now(UTC)
+    old_token = "postgres-old-report-token"
+    pending_token = "postgres-pending-report-token"
+    device = Device(
+        id=uuid4(),
+        device_identifier=f"route-rotation-{uuid4().hex}",
+        display_name="Update route rotation race",
+        retired_at=None,
+    )
+    async with update_service_provider() as session:
+        build = await register_build(
+            session,
+            _postgres_manifest(
+                build_identifier=f"route-rotation-build-{uuid4().hex}",
+                version="2.0.0",
+                channel="stable",
+                digest_character="8",
+            ),
+            "postgres-admin",
+            f"route-rotation-build-{uuid4().hex}",
+            now=now,
+        )
+        session.add(device)
+        session.add(
+            DeviceCredential(
+                id=uuid4(),
+                device_id=device.id,
+                credential_identifier=f"route-rotation-credential-{uuid4().hex}",
+                token_digest=device_token_digest(old_token, b"device-pepper"),
+                pending_token_digest=None,
+                rotation_overlap_expires_at=None,
+                expires_at=None,
+                revoked_at=None,
+            )
+        )
+        await session.flush()
+        rollout = await create_rollout(
+            session,
+            build.id,
+            "canary",
+            [device.id],
+            "route rotation assignment",
+            "postgres-admin",
+            f"route-rotation-rollout-{uuid4().hex}",
+            now=now,
+        )
+        target = await session.scalar(
+            select(UpdateTarget).where(UpdateTarget.rollout_id == rollout.id)
+        )
+        assert target is not None
+        await session.commit()
+
+    report_paused_after_authentication = asyncio.Event()
+    allow_report_to_lock_domain = asyncio.Event()
+    original_record_report = update_agent_routes.record_report
+
+    async def pause_report_after_authentication(*args: object, **kwargs: object) -> object:
+        report_paused_after_authentication.set()
+        await allow_report_to_lock_domain.wait()
+        return await original_record_report(*args, **kwargs)
+
+    monkeypatch.setattr(update_agent_routes, "record_report", pause_report_after_authentication)
+    app = create_app(
+        Settings(
+            database_url="postgresql+asyncpg://test",
+            public_base_url="https://endpoint.sosnadmin.local",
+            device_token_pepper=b"device-pepper",
+            service_token_pepper=b"service-pepper",
+            session_secret=b"request-correlation-secret",
+            allowed_agent_cidrs=(ipaddress.ip_network("127.0.0.0/8"),),
+            allowed_admin_cidrs=(ipaddress.ip_network("127.0.0.0/8"),),
+            artifact_root=Path("artifacts"),
+        ),
+        update_service_provider,
+    )
+    report_body = {
+        "schema_version": "agent_update_report_v1",
+        "report_key": "post-rotation-report",
+        "status": "failed",
+        "reported_version": "2.0.0",
+        "safe_code": "update.failed",
+    }
+    transport = httpx.ASGITransport(app=app, client=("127.0.0.1", 12345))
+    async with httpx.AsyncClient(
+        transport=transport,
+        base_url="https://endpoint.sosnadmin.local",
+    ) as client:
+        report_task = asyncio.create_task(
+            client.post(
+                f"/agent/v1/updates/{target.operation_id}/reports",
+                json=report_body,
+                headers={"Authorization": f"Bearer {old_token}"},
+            )
+        )
+        await asyncio.wait_for(report_paused_after_authentication.wait(), timeout=2)
+        async with update_service_provider() as session:
+            credential = await session.scalar(
+                select(DeviceCredential).where(DeviceCredential.device_id == device.id)
+            )
+            assert credential is not None
+            credential.pending_token_digest = device_token_digest(
+                pending_token,
+                b"device-pepper",
+            )
+            credential.rotation_overlap_expires_at = datetime.now(UTC) + timedelta(
+                minutes=10
+            )
+            await session.commit()
+        activated = await client.post(
+            "/agent/v1/credentials/activate",
+            headers={"Authorization": f"Bearer {pending_token}"},
+        )
+        allow_report_to_lock_domain.set()
+        rejected = await asyncio.wait_for(report_task, timeout=2)
+
+    assert activated.status_code == 204
+    assert rejected.status_code == 401
+    async with update_service_provider() as session:
+        persisted_target = await session.get(UpdateTarget, target.id)
+        assert persisted_target is not None
+        assert persisted_target.status == "assigned"
+        assert await session.scalar(select(func.count()).select_from(UpdateReport)) == 0
+        assert (
+            await session.scalar(
+                select(func.count())
+                .select_from(AuditEvent)
+                .where(AuditEvent.action == "updates.target_reported")
+            )
+            == 0
+        )
