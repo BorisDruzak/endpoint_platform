@@ -36,6 +36,10 @@ class DeviceCredential(OwnershipRecord, Base):
     )
     credential_identifier: Mapped[str] = mapped_column(String(128), nullable=False)
     token_digest: Mapped[str] = mapped_column(String(256), nullable=False, unique=True)
+    pending_token_digest: Mapped[str | None] = mapped_column(String(256), unique=True)
+    rotation_overlap_expires_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
@@ -70,5 +74,7 @@ class DeviceSession(OwnershipRecord, Base):
     session_identifier: Mapped[str] = mapped_column(
         String(128), nullable=False, unique=True
     )
-    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
     closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

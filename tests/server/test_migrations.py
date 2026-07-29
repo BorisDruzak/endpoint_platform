@@ -31,6 +31,7 @@ APPLICATION_TABLES = {
     "enrollment_campaigns",
     "enrollment_claims",
     "enrollment_events",
+    "enrollment_retry_envelopes",
     "service_clients",
     "service_credentials",
     "update_builds",
@@ -115,7 +116,7 @@ def test_migration_history_has_exactly_one_head() -> None:
         _alembic_config("postgresql+asyncpg://unused@127.0.0.1/unused")
     )
 
-    assert script.get_heads() == ["0003_immutable_audit"]
+    assert script.get_heads() == ["0004_device_credentials"]
 
 
 def test_initial_revision_upgrades_and_downgrades_empty_postgresql(
@@ -186,7 +187,7 @@ def test_initial_revision_upgrades_and_downgrades_empty_postgresql(
     revision_rows = asyncio.run(
         _fetch(plain_url, "SELECT version_num FROM alembic_version")
     )
-    assert [row["version_num"] for row in revision_rows] == ["0003_immutable_audit"]
+    assert [row["version_num"] for row in revision_rows] == ["0004_device_credentials"]
 
     column_rows = asyncio.run(
         _fetch(
@@ -217,12 +218,22 @@ def test_initial_revision_upgrades_and_downgrades_empty_postgresql(
     for table_name, digest_columns in CREDENTIAL_TABLE_COLUMNS.items():
         assert digest_columns <= columns_by_table[table_name].keys()
 
-    assert {"token_prefix", "scopes"} <= columns_by_table[
-        "service_credentials"
-    ].keys()
+    assert {"token_prefix", "scopes"} <= columns_by_table["service_credentials"].keys()
     assert columns_by_table["service_credentials"]["scopes"]["data_type"] == "ARRAY"
     assert {"request_id", "details"} <= columns_by_table["audit_events"].keys()
     assert columns_by_table["audit_events"]["details"]["data_type"] == "jsonb"
+    assert {
+        "pending_token_digest",
+        "rotation_overlap_expires_at",
+    } <= columns_by_table["device_credentials"].keys()
+    assert {
+        "device_credential_id",
+        "receipt_digest",
+        "fingerprint_digest",
+        "encrypted_token",
+        "encryption_nonce",
+        "expires_at",
+    } <= columns_by_table["enrollment_retry_envelopes"].keys()
 
     for statement in (
         f"UPDATE audit_events SET action = 'changed' WHERE id = '{audit_id}'",

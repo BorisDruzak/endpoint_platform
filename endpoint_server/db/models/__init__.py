@@ -9,7 +9,12 @@ from .administration import (
 )
 from .commands import Command, CommandDelivery, CommandResult
 from .devices import Device, DeviceCredential, DeviceInstance, DeviceSession
-from .enrollment import EnrollmentCampaign, EnrollmentClaim, EnrollmentEvent
+from .enrollment import (
+    EnrollmentCampaign,
+    EnrollmentClaim,
+    EnrollmentEvent,
+    EnrollmentRetryEnvelope,
+)
 from .updates import UpdateBuild, UpdateReport, UpdateRollout, UpdateTarget
 
 __all__ = [
@@ -26,6 +31,7 @@ __all__ = [
     "EnrollmentCampaign",
     "EnrollmentClaim",
     "EnrollmentEvent",
+    "EnrollmentRetryEnvelope",
     "ServiceClient",
     "ServiceCredential",
     "UpdateBuild",
