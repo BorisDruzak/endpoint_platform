@@ -137,3 +137,48 @@ def test_bounded_command_kills_a_child_that_ignores_sigterm_within_grace_period(
         probe_module._execute_bounded_command((sys.executable, "-c", script), 0.05, 128)
 
     assert time.monotonic() - started < 0.6
+
+
+@pytest.mark.skipif(os.name == "nt", reason="process-group cleanup is exercised on POSIX")
+def test_bounded_command_times_out_without_waiting_for_descendant_holding_pipes() -> None:
+    """A descendant retaining inherited pipes must not extend the caller deadline."""
+    script = (
+        "import subprocess, sys, time; "
+        "subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(3)']); "
+        "time.sleep(3)"
+    )
+    started = time.monotonic()
+
+    with pytest.raises(subprocess.TimeoutExpired):
+        probe_module._execute_bounded_command((sys.executable, "-c", script), 0.05, 128)
+
+    assert time.monotonic() - started < 1.0
+
+
+@pytest.mark.parametrize("failure_stage", ("terminate", "kill"))
+def test_bounded_command_normalizes_cleanup_oserrors(failure_stage: str, monkeypatch) -> None:
+    """OS cleanup failures surface as the probe timeout result, never raw errors."""
+
+    class CleanupFailureProcess:
+        def __init__(self) -> None:
+            self.stdout = BytesIO()
+            self.stderr = BytesIO()
+
+        def poll(self):
+            return None
+
+        def terminate(self) -> None:
+            if failure_stage == "terminate":
+                raise PermissionError("terminate denied")
+
+        def kill(self) -> None:
+            if failure_stage == "kill":
+                raise PermissionError("kill denied")
+
+        def wait(self, timeout: float | None = None) -> int:
+            raise subprocess.TimeoutExpired(cmd="probe", timeout=timeout)
+
+    monkeypatch.setattr(probe_module.subprocess, "Popen", lambda *args, **kwargs: CleanupFailureProcess())
+
+    with pytest.raises(subprocess.TimeoutExpired):
+        probe_module._execute_bounded_command(("probe",), 0.01, 128)

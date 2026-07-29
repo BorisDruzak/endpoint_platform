@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+import os
 from pathlib import Path
 import shutil
+import signal
 import subprocess
 import threading
 import time
@@ -70,12 +72,14 @@ def _bounded_limit(max_bytes: int) -> int:
 
 def _execute_bounded_command(command: tuple[str, ...], timeout_seconds: float, limit: int) -> bytes:
     """Capture local command output without materializing unbounded pipe streams."""
-    process = subprocess.Popen(
-        command,
-        stdin=subprocess.DEVNULL,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
+    popen_options: dict[str, object] = {
+        "stdin": subprocess.DEVNULL,
+        "stdout": subprocess.PIPE,
+        "stderr": subprocess.PIPE,
+    }
+    if os.name == "posix":
+        popen_options["start_new_session"] = True
+    process = subprocess.Popen(command, **popen_options)
     assert process.stdout is not None
     assert process.stderr is not None
     stdout = _BoundedDrain(process.stdout, limit)
@@ -100,8 +104,6 @@ def _execute_bounded_command(command: tuple[str, ...], timeout_seconds: float, l
             cleanup_failed = not _terminate_and_reap(process) or cleanup_failed
         elif not cleanup_attempted and not _wait_for_exit(process):
             cleanup_failed = True
-        process.stdout.close()
-        process.stderr.close()
         stdout.join(_DRAIN_JOIN_GRACE_SECONDS)
         stderr.join(_DRAIN_JOIN_GRACE_SECONDS)
 
@@ -114,23 +116,43 @@ def _terminate_and_reap(process: subprocess.Popen[bytes]) -> bool:
     """Stop a child without letting a hung exit path block a collector."""
     if process.poll() is not None:
         return _wait_for_exit(process)
-    try:
-        process.terminate()
-    except ProcessLookupError:
+    if not _signal_process(process, terminate=True):
         return _wait_for_exit(process)
     if _wait_for_exit(process):
         return True
-    try:
-        process.kill()
-    except ProcessLookupError:
+    if not _signal_process(process, terminate=False):
         return _wait_for_exit(process)
     return _wait_for_exit(process)
+
+
+def _signal_process(process: subprocess.Popen[bytes], *, terminate: bool) -> bool:
+    """Signal a process group where supported, without leaking OS cleanup errors."""
+    if os.name == "posix":
+        try:
+            os.killpg(process.pid, signal.SIGTERM if terminate else signal.SIGKILL)
+        except AttributeError:
+            pass
+        except ProcessLookupError:
+            return False
+        except OSError:
+            return False
+        else:
+            return True
+
+    try:
+        if terminate:
+            process.terminate()
+        else:
+            process.kill()
+    except (OSError, ProcessLookupError):
+        return False
+    return True
 
 
 def _wait_for_exit(process: subprocess.Popen[bytes]) -> bool:
     try:
         process.wait(timeout=TERMINATION_GRACE_SECONDS)
-    except subprocess.TimeoutExpired:
+    except (OSError, subprocess.TimeoutExpired):
         return False
     return True
 
@@ -159,3 +181,8 @@ class _BoundedDrain:
             self.full.set()
         except (OSError, ValueError):
             return
+        finally:
+            try:
+                self._stream.close()
+            except (OSError, ValueError):
+                pass
