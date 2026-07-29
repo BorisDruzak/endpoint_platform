@@ -3,10 +3,11 @@
 from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import DateTime, ForeignKey, String, UniqueConstraint
-from sqlalchemy.dialects.postgresql import ARRAY
+from sqlalchemy import JSON, DateTime, ForeignKey, String, UniqueConstraint, event
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
+from endpoint_server.audit.errors import AuditMutationError
 from endpoint_server.db.base import Base
 
 from .common import OwnershipRecord
@@ -76,3 +77,14 @@ class AuditEvent(OwnershipRecord, Base):
     action: Mapped[str] = mapped_column(String(128), nullable=False)
     object_kind: Mapped[str] = mapped_column(String(64), nullable=False)
     object_identifier: Mapped[str | None] = mapped_column(String(128))
+    request_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    details: Mapped[dict[str, object]] = mapped_column(
+        JSON().with_variant(JSONB(), "postgresql"),
+        nullable=False,
+    )
+
+
+@event.listens_for(AuditEvent, "before_update")
+@event.listens_for(AuditEvent, "before_delete")
+def _reject_audit_mutation(*_: object) -> None:
+    raise AuditMutationError("audit events are append-only")

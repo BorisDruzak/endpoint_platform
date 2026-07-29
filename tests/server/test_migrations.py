@@ -115,21 +115,63 @@ def test_migration_history_has_exactly_one_head() -> None:
         _alembic_config("postgresql+asyncpg://unused@127.0.0.1/unused")
     )
 
-    assert script.get_heads() == ["0002_service_credentials"]
+    assert script.get_heads() == ["0003_immutable_audit"]
 
 
 def test_initial_revision_upgrades_and_downgrades_empty_postgresql(
     empty_database_url: str,
 ) -> None:
     config = _alembic_config(empty_database_url)
-
-    command.upgrade(config, "head")
-
     plain_url = (
         make_url(empty_database_url)
         .set(drivername="postgresql")
         .render_as_string(hide_password=False)
     )
+    client_id = uuid4()
+    credential_id = uuid4()
+    audit_id = uuid4()
+
+    command.upgrade(config, "0001_initial")
+    asyncio.run(
+        _execute(
+            plain_url,
+            "INSERT INTO service_clients "
+            "(id, client_identifier, display_name) "
+            f"VALUES ('{client_id}', 'legacy-client', 'Legacy client'); "
+            "INSERT INTO service_credentials "
+            "(id, service_client_id, credential_identifier, secret_digest) "
+            f"VALUES ('{credential_id}', '{client_id}', "
+            "'legacy-credential', 'legacy-digest'); "
+            "INSERT INTO audit_events "
+            "(id, actor_kind, action, object_kind) "
+            f"VALUES ('{audit_id}', 'system', 'legacy.created', 'legacy')",
+        )
+    )
+
+    command.upgrade(config, "0002_service_credentials")
+    credential_rows = asyncio.run(
+        _fetch(
+            plain_url,
+            "SELECT token_prefix, scopes FROM service_credentials "
+            f"WHERE id = '{credential_id}'",
+        )
+    )
+    assert len(credential_rows) == 1
+    assert credential_rows[0]["token_prefix"] == (f"svc_migrated_{credential_id.hex}")
+    assert credential_rows[0]["scopes"] == []
+
+    command.upgrade(config, "head")
+    audit_rows = asyncio.run(
+        _fetch(
+            plain_url,
+            "SELECT request_id, details::text AS details FROM audit_events "
+            f"WHERE id = '{audit_id}'",
+        )
+    )
+    assert len(audit_rows) == 1
+    assert audit_rows[0]["request_id"] == f"legacy-{audit_id.hex}"
+    assert audit_rows[0]["details"] == "{}"
+
     rows = asyncio.run(
         _fetch(
             plain_url,
@@ -144,9 +186,7 @@ def test_initial_revision_upgrades_and_downgrades_empty_postgresql(
     revision_rows = asyncio.run(
         _fetch(plain_url, "SELECT version_num FROM alembic_version")
     )
-    assert [row["version_num"] for row in revision_rows] == [
-        "0002_service_credentials"
-    ]
+    assert [row["version_num"] for row in revision_rows] == ["0003_immutable_audit"]
 
     column_rows = asyncio.run(
         _fetch(
@@ -181,6 +221,16 @@ def test_initial_revision_upgrades_and_downgrades_empty_postgresql(
         "service_credentials"
     ].keys()
     assert columns_by_table["service_credentials"]["scopes"]["data_type"] == "ARRAY"
+    assert {"request_id", "details"} <= columns_by_table["audit_events"].keys()
+    assert columns_by_table["audit_events"]["details"]["data_type"] == "jsonb"
+
+    for statement in (
+        f"UPDATE audit_events SET action = 'changed' WHERE id = '{audit_id}'",
+        f"DELETE FROM audit_events WHERE id = '{audit_id}'",
+    ):
+        with pytest.raises(asyncpg.PostgresError, match="append-only") as rejected:
+            asyncio.run(_execute(plain_url, statement))
+        assert rejected.value.sqlstate == "55000"
 
     command.downgrade(config, "base")
 

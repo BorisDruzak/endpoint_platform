@@ -57,7 +57,10 @@ def _normalize_scopes(scopes: Iterable[str]) -> list[str]:
             or scope != scope.strip()
             or not scope.isascii()
             or len(scope) > 128
-            or any(character.isspace() or ord(character) < 32 for character in scope)
+            or any(
+                character.isspace() or not 32 <= ord(character) <= 126
+                for character in scope
+            )
         ):
             raise ValueError("service scopes must be non-empty printable ASCII")
         normalized.append(scope)

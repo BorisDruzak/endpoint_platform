@@ -118,6 +118,12 @@ def _decode_urlsafe(value: str) -> bytes:
     return base64.urlsafe_b64decode(value + "=" * (-len(value) % 4))
 
 
+def _assert_sensitive_value_absent(value: str, *representations: str) -> None:
+    """Fail without reflecting credential material into pytest assertion output."""
+    if any(value in representation for representation in representations):
+        pytest.fail("sensitive credential material was exposed", pytrace=False)
+
+
 @pytest.mark.asyncio
 async def test_creation_shows_token_once_and_persists_only_prefix_hmac_and_scopes(
     caplog: pytest.LogCaptureFixture,
@@ -158,16 +164,18 @@ async def test_creation_shows_token_once_and_persists_only_prefix_hmac_and_scope
     assert summary.scopes == ("commands:create", "devices:read")
     assert not hasattr(summary, "token")
     assert not hasattr(summary, "secret_digest")
-    assert issued.token not in repr(issued)
-    assert issued.token not in repr(issued.record)
-    assert issued.token not in repr(summary)
-    assert issued.token not in caplog.text
     persisted_text = " ".join(
         str(value) for value in vars(issued.record).values()
     )
-    assert issued.token not in persisted_text
-    assert raw_material not in persisted_text
-    assert raw_material not in caplog.text
+    _assert_sensitive_value_absent(
+        issued.token,
+        repr(issued),
+        repr(issued.record),
+        repr(summary),
+        caplog.text,
+        persisted_text,
+    )
+    _assert_sensitive_value_absent(raw_material, persisted_text, caplog.text)
 
 
 @pytest.mark.asyncio
@@ -189,7 +197,10 @@ async def test_random_material_and_public_identifier_change_per_credential() -> 
         scopes=("devices:read",),
     )
 
-    assert first.token != second.token
+    if hmac.compare_digest(first.token, second.token):
+        pytest.fail(
+            "credential issuance reused sensitive token material", pytrace=False
+        )
     assert first.record.credential_identifier != second.record.credential_identifier
     assert first.record.token_prefix != second.record.token_prefix
     assert first.record.secret_digest != second.record.secret_digest
@@ -206,6 +217,20 @@ async def test_creation_rejects_a_string_in_place_of_a_scope_collection() -> Non
             client.id,
             secrets.token_bytes(32),
             scopes="devices:read",
+        )
+
+
+@pytest.mark.asyncio
+async def test_creation_rejects_ascii_delete_in_scope() -> None:
+    """ASCII DEL is non-printing and must not survive scope normalization."""
+    client = _service_client()
+
+    with pytest.raises(ValueError, match="printable ASCII"):
+        await create_service_credential(
+            _ServiceAuthSession(client=client),
+            client.id,
+            secrets.token_bytes(32),
+            scopes=("devices:read\x7f",),
         )
 
 
