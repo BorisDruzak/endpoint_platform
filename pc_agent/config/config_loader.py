@@ -84,35 +84,63 @@ class PathsConfig(BaseModel):
 
 class LoggingConfig(BaseModel):
     """Конфигурация логирования."""
+
     level: str = Field(default="INFO", description="Уровень логирования")
     file: str = Field(default="logs/agent.log", description="Файл логов")
-    console_level: str = Field(default="INFO", description="Уровень логирования в консоли")
+    console_level: str = Field(
+        default="INFO", description="Уровень логирования в консоли"
+    )
     rotation: str = Field(default="20 MB", description="Ротация файла логов")
-    retention: str = Field(default="14 days", description="Срок хранения архивных логов")
+    retention: str = Field(
+        default="14 days", description="Срок хранения архивных логов"
+    )
     compression: str = Field(default="zip", description="Сжатие архивных логов")
     enqueue: bool = Field(default=True, description="Асинхронная запись логов")
-    
-    @field_validator('level')
+
+    @field_validator("level")
     @classmethod
     def validate_level(cls, v: str) -> str:
         """Валидация уровня логирования."""
-        allowed_levels = ["TRACE", "DEBUG", "INFO", "SUCCESS", "WARNING", "ERROR", "CRITICAL"]
+        allowed_levels = [
+            "TRACE",
+            "DEBUG",
+            "INFO",
+            "SUCCESS",
+            "WARNING",
+            "ERROR",
+            "CRITICAL",
+        ]
         v_upper = v.upper()
         if v_upper not in allowed_levels:
-            raise ValueError(f"Недопустимый уровень логирования: {v}. Разрешены: {', '.join(allowed_levels)}")
+            raise ValueError(
+                f"Недопустимый уровень логирования: {v}. Разрешены: {', '.join(allowed_levels)}"
+            )
         return v_upper
 
 
 class UiConfig(BaseModel):
     """Конфигурация UI."""
+
     enabled: bool = Field(default=False, description="Включен ли GUI")
     host: str = Field(default="127.0.0.1", description="Хост для UI API сервера")
-    port: int = Field(default=8765, ge=1, le=65535, description="Порт для UI API сервера")
-    autostart_gui: bool = Field(default=False, description="Автоматически запускать GUI при старте")
-    tray_enabled: bool = Field(default=True, description="Включить system tray для always-on режима")
-    minimize_to_tray: bool = Field(default=True, description="При закрытии окна сворачивать его в tray")
-    start_hidden: bool = Field(default=False, description="Запускать GUI скрытым в tray")
-    notifications_enabled: bool = Field(default=True, description="Показывать tray-уведомления")
+    port: int = Field(
+        default=8765, ge=1, le=65535, description="Порт для UI API сервера"
+    )
+    autostart_gui: bool = Field(
+        default=False, description="Автоматически запускать GUI при старте"
+    )
+    tray_enabled: bool = Field(
+        default=True, description="Включить system tray для always-on режима"
+    )
+    minimize_to_tray: bool = Field(
+        default=True, description="При закрытии окна сворачивать его в tray"
+    )
+    start_hidden: bool = Field(
+        default=False, description="Запускать GUI скрытым в tray"
+    )
+    notifications_enabled: bool = Field(
+        default=True, description="Показывать tray-уведомления"
+    )
     theme_mode: str = Field(default="light", description="Тема GUI: light или dark")
 
     @field_validator("theme_mode")
@@ -126,18 +154,27 @@ class UiConfig(BaseModel):
 
 class ModulesConfig(BaseModel):
     """Конфигурация модулей."""
-    extra_paths: List[str] = Field(default_factory=list, description="Дополнительные пути для загрузки модулей")
+
+    extra_paths: List[str] = Field(
+        default_factory=list, description="Дополнительные пути для загрузки модулей"
+    )
 
 
 class Settings(BaseModel):
     """Корневая модель конфигурации."""
+
     server: ServerConfig = Field(default_factory=ServerConfig)
     security: SecurityConfig = Field(default_factory=SecurityConfig)
     paths: PathsConfig = Field(default_factory=PathsConfig)
     logging: LoggingConfig = Field(default_factory=LoggingConfig)
-    enabled_modules: List[str] = Field(default_factory=lambda: list(CORE_ENABLED_MODULES), description="Список включенных модулей (базовая комплектация: system, screen, diag_logs, inventory, presence)")
+    enabled_modules: List[str] = Field(
+        default_factory=lambda: list(CORE_ENABLED_MODULES),
+        description="Список включенных модулей (базовая комплектация: system, screen, diag_logs, inventory, presence)",
+    )
     ui: UiConfig = Field(default_factory=UiConfig, description="Конфигурация UI")
-    modules: ModulesConfig = Field(default_factory=ModulesConfig, description="Конфигурация модулей")
+    modules: ModulesConfig = Field(
+        default_factory=ModulesConfig, description="Конфигурация модулей"
+    )
 
     @field_validator("enabled_modules", mode="before")
     @classmethod
@@ -148,25 +185,25 @@ class Settings(BaseModel):
 class ConfigLoader:
     """
     Класс-синглтон для загрузки конфигурации из YAML файла.
-    
+
     Функционал:
     - Загрузка и валидация YAML конфигурации
     - Автоматическое создание необходимых директорий
     - Синглтон паттерн для единственного экземпляра
     """
-    
-    _instance: Optional['ConfigLoader'] = None
+
+    _instance: Optional["ConfigLoader"] = None
     _config: Optional[Settings] = None
-    
+
     def __new__(cls):
         """Реализация паттерна Singleton."""
         if cls._instance is None:
             cls._instance = super(ConfigLoader, cls).__new__(cls)
         return cls._instance
-    
+
     def __init__(self):
         """Инициализация загрузчика."""
-        if not hasattr(self, '_initialized'):
+        if not hasattr(self, "_initialized"):
             self.config_path: Optional[Path] = None
             self._initialized = True
 
@@ -197,7 +234,11 @@ class ConfigLoader:
             config_data = yaml.safe_load(f)
         self._config = Settings(**(config_data or {}))
         self._config = self._config.model_copy(
-            update={"enabled_modules": _normalize_enabled_modules(self._config.enabled_modules)}
+            update={
+                "enabled_modules": _normalize_enabled_modules(
+                    self._config.enabled_modules
+                )
+            }
         )
         # Переопределение из env (для E2E: локальный сервер без правки settings.yaml)
         ws_url = os.environ.get("PC_AGENT_WS_URL", "").strip()
@@ -212,14 +253,18 @@ class ConfigLoader:
                 self._config = self._config.model_copy(
                     update={"server": self._config.server.model_copy(update=updates)}
                 )
-                logger.debug(f"   Server URL overridden from env: ws_url={self._config.server.ws_url!r}")
+                logger.debug(
+                    f"   Server URL overridden from env: ws_url={self._config.server.ws_url!r}"
+                )
         ui_port_str = os.environ.get("PC_AGENT_UI_PORT", "").strip()
         if ui_port_str:
             try:
                 ui_port = int(ui_port_str)
                 if 1 <= ui_port <= 65535:
                     self._config = self._config.model_copy(
-                        update={"ui": self._config.ui.model_copy(update={"port": ui_port})}
+                        update={
+                            "ui": self._config.ui.model_copy(update={"port": ui_port})
+                        }
                     )
                     logger.debug(f"   UI port overridden from env: port={ui_port}")
             except ValueError:
@@ -298,7 +343,9 @@ def init_config(data_root: Path, config_override: Optional[Path] = None) -> Sett
     data_root = data_root.resolve()
     data_root.mkdir(parents=True, exist_ok=True)
     _config_base = data_root
-    config_path = config_override if config_override is not None else data_root / "settings.yaml"
+    config_path = (
+        config_override if config_override is not None else data_root / "settings.yaml"
+    )
     config_path = config_path.resolve()
     if not config_path.exists() and DEFAULT_SETTINGS_TEMPLATE.exists():
         shutil.copy2(DEFAULT_SETTINGS_TEMPLATE, config_path)

@@ -1791,9 +1791,7 @@ def test_endpoint_correlated_history_omits_raw_launcher_message(tmp_path):
         ),
         encoding="utf-8",
     )
-    agent = WSAgent(
-        data_root=tmp_path / "data", install_root=tmp_path / "install"
-    )
+    agent = WSAgent(data_root=tmp_path / "data", install_root=tmp_path / "install")
 
     confirmation = agent._get_latest_update_handshake_payload()
 
