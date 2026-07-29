@@ -960,12 +960,22 @@ async def test_old_token_report_fails_after_pending_credential_activation(
         persisted_target = await session.get(UpdateTarget, target.id)
         assert persisted_target is not None
         assert persisted_target.status == "assigned"
-        assert await session.scalar(select(func.count()).select_from(UpdateReport)) == 0
+        assert (
+            await session.scalar(
+                select(func.count())
+                .select_from(UpdateReport)
+                .where(UpdateReport.update_target_id == target.id)
+            )
+            == 0
+        )
         assert (
             await session.scalar(
                 select(func.count())
                 .select_from(AuditEvent)
-                .where(AuditEvent.action == "updates.target_reported")
+                .where(
+                    AuditEvent.action == "updates.target_reported",
+                    AuditEvent.object_identifier == str(target.id),
+                )
             )
             == 0
         )
