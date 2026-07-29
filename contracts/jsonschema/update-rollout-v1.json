@@ -1,0 +1,58 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "build_identifier": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}(?![\\s\\S])",
+      "title": "Build Identifier",
+      "type": "string"
+    },
+    "device_ids": {
+      "items": {
+        "format": "uuid",
+        "type": "string"
+      },
+      "maxItems": 10000,
+      "minItems": 1,
+      "title": "Device Ids",
+      "type": "array"
+    },
+    "mode": {
+      "enum": [
+        "canary",
+        "bulk",
+        "rollback"
+      ],
+      "title": "Mode",
+      "type": "string"
+    },
+    "reason": {
+      "anyOf": [
+        {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Reason"
+    },
+    "schema_version": {
+      "const": "update_rollout_v1",
+      "title": "Schema Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema_version",
+    "build_identifier",
+    "mode",
+    "device_ids"
+  ],
+  "title": "UpdateRolloutCreateV1",
+  "type": "object"
+}

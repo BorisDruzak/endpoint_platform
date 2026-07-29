@@ -26,6 +26,11 @@ from endpoint_contracts import (  # noqa: E402
     EnrollmentDeliveryProofV1,
     EnrollmentRequestV1,
     EnrollmentResponseV1,
+    AgentUpdateAcknowledgementV1,
+    AgentUpdateRecommendationV1,
+    AgentUpdateReportV1,
+    UpdateBuildManifestV1,
+    UpdateRolloutCreateV1,
 )
 from endpoint_contracts.base import ContractModelV1  # noqa: E402
 
@@ -44,6 +49,11 @@ PUBLIC_MODELS: dict[str, type[ContractModelV1]] = {
     "agent-result-v1.json": AgentResultV1,
     "agent-heartbeat-v1.json": AgentHeartbeatV1,
     "agent-build-recommendation-v1.json": AgentBuildRecommendationV1,
+    "update-build-manifest-v1.json": UpdateBuildManifestV1,
+    "update-rollout-v1.json": UpdateRolloutCreateV1,
+    "agent-update-recommendation-v1.json": AgentUpdateRecommendationV1,
+    "agent-update-ack-v1.json": AgentUpdateAcknowledgementV1,
+    "agent-update-report-v1.json": AgentUpdateReportV1,
 }
 
 FIXTURES: dict[str, dict[str, Any]] = {
@@ -124,6 +134,52 @@ FIXTURES: dict[str, dict[str, Any]] = {
         "channel": "stable",
         "archive_type": "tar.gz",
         "issued_at": "2026-07-28T12:00:00Z",
+    },
+    "update-build-manifest-v1.json": {
+        "schema_version": "update_build_manifest_v1",
+        "build_identifier": "endpoint-agent-linux-1.2.3",
+        "version": "1.2.3",
+        "platform": "linux_amd64",
+        "channel": "stable",
+        "artifact_url": "https://releases.example.test/endpoint-agent-1.2.3.tar.gz",
+        "artifact_name": "endpoint-agent-1.2.3.tar.gz",
+        "archive_type": "tar.gz",
+        "sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+        "size": 1024,
+        "release_notes": "Fixture release notes.",
+    },
+    "update-rollout-v1.json": {
+        "schema_version": "update_rollout_v1",
+        "build_identifier": "endpoint-agent-linux-1.2.3",
+        "mode": "canary",
+        "device_ids": ["11111111-1111-4111-8111-111111111111"],
+        "reason": "Fixture canary rollout.",
+    },
+    "agent-update-recommendation-v1.json": {
+        "schema_version": "agent_update_recommendation_v1",
+        "operation_id": "44444444-4444-4444-8444-444444444444",
+        "build_identifier": "endpoint-agent-linux-1.2.3",
+        "version": "1.2.3",
+        "platform": "linux_amd64",
+        "channel": "stable",
+        "artifact_url": "https://releases.example.test/endpoint-agent-1.2.3.tar.gz",
+        "artifact_name": "endpoint-agent-1.2.3.tar.gz",
+        "archive_type": "tar.gz",
+        "sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+        "size": 1024,
+        "reason": "Fixture canary rollout.",
+    },
+    "agent-update-ack-v1.json": {
+        "schema_version": "agent_update_ack_v1",
+        "status": "scheduled",
+    },
+    "agent-update-report-v1.json": {
+        "schema_version": "agent_update_report_v1",
+        "report_key": "report-fixture-01",
+        "status": "applied",
+        "reported_version": "1.2.3",
+        "safe_code": "post_restart_handshake",
+        "safe_message": "Fixture post-restart handshake completed.",
     },
 }
 
@@ -339,6 +395,56 @@ def _agent_http_paths() -> dict[str, object]:
             "post": {
                 "security": bearer_security,
                 "responses": {"204": {"description": "Pending credential activated"}},
+            }
+        },
+        "/agent/v1/updates/recommendation": {
+            "get": {
+                "security": bearer_security,
+                "responses": {
+                    "200": {
+                        "description": "Active update recommendation",
+                        "content": _json_content("AgentUpdateRecommendationV1"),
+                    },
+                    "204": {"description": "No active update assignment"},
+                },
+            }
+        },
+        "/agent/v1/updates/{operation_id}/ack": {
+            "post": {
+                "security": bearer_security,
+                "parameters": [
+                    {
+                        "name": "operation_id",
+                        "in": "path",
+                        "required": True,
+                        "schema": {"type": "string", "format": "uuid"},
+                    }
+                ],
+                "requestBody": {
+                    "required": True,
+                    "content": _json_content("AgentUpdateAcknowledgementV1"),
+                },
+                "responses": {
+                    "204": {"description": "Update acknowledgement recorded"}
+                },
+            }
+        },
+        "/agent/v1/updates/{operation_id}/reports": {
+            "post": {
+                "security": bearer_security,
+                "parameters": [
+                    {
+                        "name": "operation_id",
+                        "in": "path",
+                        "required": True,
+                        "schema": {"type": "string", "format": "uuid"},
+                    }
+                ],
+                "requestBody": {
+                    "required": True,
+                    "content": _json_content("AgentUpdateReportV1"),
+                },
+                "responses": {"200": {"description": "Update report recorded"}},
             }
         },
     }

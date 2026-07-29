@@ -73,6 +73,64 @@ paths:
       responses:
         "204":
           description: "Pending credential activated"
+  "/agent/v1/updates/recommendation":
+    get:
+      security:
+        -
+          AgentBearer: []
+      responses:
+        "200":
+          description: "Active update recommendation"
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/AgentUpdateRecommendationV1"
+        "204":
+          description: "No active update assignment"
+  "/agent/v1/updates/{operation_id}/ack":
+    post:
+      security:
+        -
+          AgentBearer: []
+      parameters:
+        -
+          name: "operation_id"
+          in: "path"
+          required: true
+          schema:
+            type: "string"
+            format: "uuid"
+      requestBody:
+        required: true
+        content:
+          "application/json":
+            schema:
+              "$ref": "#/components/schemas/AgentUpdateAcknowledgementV1"
+      responses:
+        "204":
+          description: "Update acknowledgement recorded"
+  "/agent/v1/updates/{operation_id}/reports":
+    post:
+      security:
+        -
+          AgentBearer: []
+      parameters:
+        -
+          name: "operation_id"
+          in: "path"
+          required: true
+          schema:
+            type: "string"
+            format: "uuid"
+      requestBody:
+        required: true
+        content:
+          "application/json":
+            schema:
+              "$ref": "#/components/schemas/AgentUpdateReportV1"
+      responses:
+        "200":
+          description: "Update report recorded"
 components:
   schemas:
     DeviceIdentityV1:
@@ -1314,6 +1372,293 @@ components:
         - "archive_type"
         - "issued_at"
       title: "AgentBuildRecommendationV1"
+      type: "object"
+    UpdateBuildManifestV1:
+      additionalProperties: false
+      properties:
+        build_identifier:
+          maxLength: 128
+          minLength: 1
+          pattern: "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}(?![\\s\\S])"
+          title: "Build Identifier"
+          type: "string"
+        version:
+          maxLength: 128
+          minLength: 5
+          pattern: "^(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)(?:-[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?(?![\\s\\S])"
+          title: "Version"
+          type: "string"
+        platform:
+          enum:
+            - "linux_amd64"
+            - "windows_amd64"
+          title: "Platform"
+          type: "string"
+        channel:
+          enum:
+            - "stable"
+            - "canary"
+          title: "Channel"
+          type: "string"
+        artifact_url:
+          format: "uri"
+          minLength: 1
+          title: "Artifact Url"
+          type: "string"
+        artifact_name:
+          maxLength: 256
+          minLength: 1
+          pattern: "^[A-Za-z0-9][A-Za-z0-9._-]{0,255}(?![\\s\\S])"
+          title: "Artifact Name"
+          type: "string"
+        archive_type:
+          enum:
+            - "zip"
+            - "tar.gz"
+          title: "Archive Type"
+          type: "string"
+        sha256:
+          maxLength: 64
+          minLength: 64
+          pattern: "^[0-9a-f]{64}(?![\\s\\S])"
+          title: "Sha256"
+          type: "string"
+        size:
+          exclusiveMinimum: 0
+          maximum: 9223372036854775807
+          title: "Size"
+          type: "integer"
+        schema_version:
+          const: "update_build_manifest_v1"
+          title: "Schema Version"
+          type: "string"
+        release_notes:
+          anyOf:
+            -
+              maxLength: 4096
+              minLength: 1
+              type: "string"
+            -
+              type: "null"
+          default: null
+          title: "Release Notes"
+      required:
+        - "build_identifier"
+        - "version"
+        - "platform"
+        - "channel"
+        - "artifact_url"
+        - "artifact_name"
+        - "archive_type"
+        - "sha256"
+        - "size"
+        - "schema_version"
+      title: "UpdateBuildManifestV1"
+      type: "object"
+    UpdateRolloutCreateV1:
+      additionalProperties: false
+      properties:
+        schema_version:
+          const: "update_rollout_v1"
+          title: "Schema Version"
+          type: "string"
+        build_identifier:
+          maxLength: 128
+          minLength: 1
+          pattern: "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}(?![\\s\\S])"
+          title: "Build Identifier"
+          type: "string"
+        mode:
+          enum:
+            - "canary"
+            - "bulk"
+            - "rollback"
+          title: "Mode"
+          type: "string"
+        device_ids:
+          items:
+            format: "uuid"
+            type: "string"
+          maxItems: 10000
+          minItems: 1
+          title: "Device Ids"
+          type: "array"
+        reason:
+          anyOf:
+            -
+              maxLength: 512
+              minLength: 1
+              type: "string"
+            -
+              type: "null"
+          default: null
+          title: "Reason"
+      required:
+        - "schema_version"
+        - "build_identifier"
+        - "mode"
+        - "device_ids"
+      title: "UpdateRolloutCreateV1"
+      type: "object"
+    AgentUpdateRecommendationV1:
+      additionalProperties: false
+      properties:
+        build_identifier:
+          maxLength: 128
+          minLength: 1
+          pattern: "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}(?![\\s\\S])"
+          title: "Build Identifier"
+          type: "string"
+        version:
+          maxLength: 128
+          minLength: 5
+          pattern: "^(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)(?:-[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?(?![\\s\\S])"
+          title: "Version"
+          type: "string"
+        platform:
+          enum:
+            - "linux_amd64"
+            - "windows_amd64"
+          title: "Platform"
+          type: "string"
+        channel:
+          enum:
+            - "stable"
+            - "canary"
+          title: "Channel"
+          type: "string"
+        artifact_url:
+          format: "uri"
+          minLength: 1
+          title: "Artifact Url"
+          type: "string"
+        artifact_name:
+          maxLength: 256
+          minLength: 1
+          pattern: "^[A-Za-z0-9][A-Za-z0-9._-]{0,255}(?![\\s\\S])"
+          title: "Artifact Name"
+          type: "string"
+        archive_type:
+          enum:
+            - "zip"
+            - "tar.gz"
+          title: "Archive Type"
+          type: "string"
+        sha256:
+          maxLength: 64
+          minLength: 64
+          pattern: "^[0-9a-f]{64}(?![\\s\\S])"
+          title: "Sha256"
+          type: "string"
+        size:
+          exclusiveMinimum: 0
+          maximum: 9223372036854775807
+          title: "Size"
+          type: "integer"
+        schema_version:
+          const: "agent_update_recommendation_v1"
+          title: "Schema Version"
+          type: "string"
+        operation_id:
+          format: "uuid"
+          title: "Operation Id"
+          type: "string"
+        reason:
+          anyOf:
+            -
+              maxLength: 512
+              minLength: 1
+              type: "string"
+            -
+              type: "null"
+          default: null
+          title: "Reason"
+      required:
+        - "build_identifier"
+        - "version"
+        - "platform"
+        - "channel"
+        - "artifact_url"
+        - "artifact_name"
+        - "archive_type"
+        - "sha256"
+        - "size"
+        - "schema_version"
+        - "operation_id"
+      title: "AgentUpdateRecommendationV1"
+      type: "object"
+    AgentUpdateAcknowledgementV1:
+      additionalProperties: false
+      properties:
+        schema_version:
+          const: "agent_update_ack_v1"
+          title: "Schema Version"
+          type: "string"
+        status:
+          enum:
+            - "requested"
+            - "scheduled"
+          title: "Status"
+          type: "string"
+      required:
+        - "schema_version"
+        - "status"
+      title: "AgentUpdateAcknowledgementV1"
+      type: "object"
+    AgentUpdateReportV1:
+      additionalProperties: false
+      properties:
+        schema_version:
+          const: "agent_update_report_v1"
+          title: "Schema Version"
+          type: "string"
+        report_key:
+          maxLength: 128
+          minLength: 1
+          pattern: "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}(?![\\s\\S])"
+          title: "Report Key"
+          type: "string"
+        status:
+          enum:
+            - "applied"
+            - "failed"
+            - "rolled_back"
+          title: "Status"
+          type: "string"
+        reported_version:
+          maxLength: 128
+          minLength: 5
+          pattern: "^(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)(?:-[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?(?![\\s\\S])"
+          title: "Reported Version"
+          type: "string"
+        safe_code:
+          anyOf:
+            -
+              maxLength: 128
+              minLength: 1
+              pattern: "^[a-z][a-z0-9._-]{0,127}(?![\\s\\S])"
+              type: "string"
+            -
+              type: "null"
+          default: null
+          title: "Safe Code"
+        safe_message:
+          anyOf:
+            -
+              maxLength: 512
+              minLength: 1
+              pattern: "^[^\\r\\n]{1,512}(?![\\s\\S])"
+              type: "string"
+            -
+              type: "null"
+          default: null
+          title: "Safe Message"
+      required:
+        - "schema_version"
+        - "report_key"
+        - "status"
+        - "reported_version"
+      title: "AgentUpdateReportV1"
       type: "object"
   securitySchemes:
     AgentBearer:

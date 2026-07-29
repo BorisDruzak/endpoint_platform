@@ -1,0 +1,13 @@
+{
+  "archive_type": "tar.gz",
+  "artifact_name": "endpoint-agent-1.2.3.tar.gz",
+  "artifact_url": "https://releases.example.test/endpoint-agent-1.2.3.tar.gz",
+  "build_identifier": "endpoint-agent-linux-1.2.3",
+  "channel": "stable",
+  "platform": "linux_amd64",
+  "release_notes": "Fixture release notes.",
+  "schema_version": "update_build_manifest_v1",
+  "sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+  "size": 1024,
+  "version": "1.2.3"
+}

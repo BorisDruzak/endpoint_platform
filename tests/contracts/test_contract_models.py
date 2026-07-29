@@ -4,6 +4,9 @@ import pytest
 from pydantic import ValidationError
 
 from endpoint_contracts import (
+    AgentUpdateAcknowledgementV1,
+    AgentUpdateRecommendationV1,
+    AgentUpdateReportV1,
     AgentBuildRecommendationV1,
     AgentCommandAckV1,
     AgentCommandV1,
@@ -17,7 +20,30 @@ from endpoint_contracts import (
     EnrollmentDeliveryProofV1,
     EnrollmentRequestV1,
     EnrollmentResponseV1,
+    UpdateBuildManifestV1,
+    UpdateRolloutCreateV1,
 )
+
+
+VALID_UPDATE_BUILD = {
+    "schema_version": "update_build_manifest_v1",
+    "build_identifier": "endpoint-agent-linux-1.2.3",
+    "version": "1.2.3",
+    "platform": "linux_amd64",
+    "channel": "stable",
+    "artifact_url": "https://releases.example.test/endpoint-agent-1.2.3.tar.gz",
+    "artifact_name": "endpoint-agent-1.2.3.tar.gz",
+    "archive_type": "tar.gz",
+    "sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+    "size": 1024,
+}
+
+VALID_UPDATE_REPORT = {
+    "schema_version": "agent_update_report_v1",
+    "report_key": "report-fixture-01",
+    "status": "applied",
+    "reported_version": "1.2.3",
+}
 
 
 def valid_agent_command() -> dict[str, object]:
@@ -43,6 +69,115 @@ def valid_agent_result() -> dict[str, object]:
         "result_items": [],
         "completed_at": "2026-07-28T12:01:00Z",
     }
+
+
+def test_update_build_manifest_rejects_non_https_and_bad_digest() -> None:
+    """Reject a manifest that could bypass verified artifact delivery."""
+    with pytest.raises(ValidationError):
+        UpdateBuildManifestV1.model_validate(
+            {**VALID_UPDATE_BUILD, "artifact_url": "http://bad.example.test/agent"}
+        )
+    with pytest.raises(ValidationError):
+        UpdateBuildManifestV1.model_validate({**VALID_UPDATE_BUILD, "sha256": "ABC"})
+
+
+def test_update_build_manifest_rejects_unknown_or_unsafe_artifact_fields() -> None:
+    """Reject raw local paths and unrecognised manifest extensions."""
+    with pytest.raises(ValidationError):
+        UpdateBuildManifestV1.model_validate(
+            {**VALID_UPDATE_BUILD, "archive_path": r"C:\\releases\\agent.zip"}
+        )
+    with pytest.raises(ValidationError):
+        UpdateBuildManifestV1.model_validate(
+            {
+                **VALID_UPDATE_BUILD,
+                "artifact_url": "https://user:pass@example.test/agent",
+            }
+        )
+
+
+def test_update_rollout_requires_deduplicated_explicit_device_targets() -> None:
+    """Reject duplicate device assignments before a rollout is persisted."""
+    payload = {
+        "schema_version": "update_rollout_v1",
+        "build_identifier": "endpoint-agent-linux-1.2.3",
+        "mode": "canary",
+        "device_ids": [
+            "11111111-1111-4111-8111-111111111111",
+            "11111111-1111-4111-8111-111111111111",
+        ],
+    }
+
+    with pytest.raises(ValidationError):
+        UpdateRolloutCreateV1.model_validate(payload)
+
+
+def test_agent_update_recommendation_exposes_only_verified_manifest_metadata() -> None:
+    """Keep recommendation payloads free of device credentials and local paths."""
+    recommendation = AgentUpdateRecommendationV1.model_validate(
+        {
+            "schema_version": "agent_update_recommendation_v1",
+            "operation_id": "55555555-5555-4555-8555-555555555555",
+            **{
+                key: value
+                for key, value in VALID_UPDATE_BUILD.items()
+                if key != "schema_version"
+            },
+            "reason": "canary rollout",
+        }
+    )
+
+    assert str(recommendation.operation_id) == "55555555-5555-4555-8555-555555555555"
+    with pytest.raises(ValidationError):
+        AgentUpdateRecommendationV1.model_validate(
+            {
+                **recommendation.model_dump(mode="json"),
+                "device_token": "secret-device-token",
+            }
+        )
+
+
+def test_agent_update_acknowledgement_accepts_only_nonterminal_progress() -> None:
+    """Prevent an acknowledgement from claiming a launcher outcome."""
+    accepted = AgentUpdateAcknowledgementV1.model_validate(
+        {"schema_version": "agent_update_ack_v1", "status": "scheduled"}
+    )
+
+    assert accepted.status == "scheduled"
+    with pytest.raises(ValidationError):
+        AgentUpdateAcknowledgementV1.model_validate(
+            {"schema_version": "agent_update_ack_v1", "status": "applied"}
+        )
+
+
+def test_agent_update_report_excludes_raw_diagnostics() -> None:
+    """Reject traceback/log fields so opaque diagnostics cannot reach storage."""
+    with pytest.raises(ValidationError):
+        AgentUpdateReportV1.model_validate(
+            {**VALID_UPDATE_REPORT, "traceback": "secret"}
+        )
+
+
+def test_agent_update_report_bounds_safe_details_and_terminal_statuses() -> None:
+    """Reject unbounded messages and nonterminal state reports."""
+    report = AgentUpdateReportV1.model_validate(
+        {
+            **VALID_UPDATE_REPORT,
+            "status": "rolled_back",
+            "safe_code": "launcher_verify_failed",
+            "safe_message": "Version verification failed after restart.",
+        }
+    )
+
+    assert report.status == "rolled_back"
+    with pytest.raises(ValidationError):
+        AgentUpdateReportV1.model_validate(
+            {**VALID_UPDATE_REPORT, "status": "scheduled"}
+        )
+    with pytest.raises(ValidationError):
+        AgentUpdateReportV1.model_validate(
+            {**VALID_UPDATE_REPORT, "safe_message": "x" * 513}
+        )
 
 
 def test_command_rejects_deadline_not_after_creation() -> None:

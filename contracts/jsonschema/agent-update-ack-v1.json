@@ -1,0 +1,24 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": "agent_update_ack_v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "status": {
+      "enum": [
+        "requested",
+        "scheduled"
+      ],
+      "title": "Status",
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema_version",
+    "status"
+  ],
+  "title": "AgentUpdateAcknowledgementV1",
+  "type": "object"
+}

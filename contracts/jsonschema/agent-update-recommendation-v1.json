@@ -1,0 +1,108 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "archive_type": {
+      "enum": [
+        "zip",
+        "tar.gz"
+      ],
+      "title": "Archive Type",
+      "type": "string"
+    },
+    "artifact_name": {
+      "maxLength": 256,
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,255}(?![\\s\\S])",
+      "title": "Artifact Name",
+      "type": "string"
+    },
+    "artifact_url": {
+      "format": "uri",
+      "minLength": 1,
+      "title": "Artifact Url",
+      "type": "string"
+    },
+    "build_identifier": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}(?![\\s\\S])",
+      "title": "Build Identifier",
+      "type": "string"
+    },
+    "channel": {
+      "enum": [
+        "stable",
+        "canary"
+      ],
+      "title": "Channel",
+      "type": "string"
+    },
+    "operation_id": {
+      "format": "uuid",
+      "title": "Operation Id",
+      "type": "string"
+    },
+    "platform": {
+      "enum": [
+        "linux_amd64",
+        "windows_amd64"
+      ],
+      "title": "Platform",
+      "type": "string"
+    },
+    "reason": {
+      "anyOf": [
+        {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Reason"
+    },
+    "schema_version": {
+      "const": "agent_update_recommendation_v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "sha256": {
+      "maxLength": 64,
+      "minLength": 64,
+      "pattern": "^[0-9a-f]{64}(?![\\s\\S])",
+      "title": "Sha256",
+      "type": "string"
+    },
+    "size": {
+      "exclusiveMinimum": 0,
+      "maximum": 9223372036854775807,
+      "title": "Size",
+      "type": "integer"
+    },
+    "version": {
+      "maxLength": 128,
+      "minLength": 5,
+      "pattern": "^(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)(?:-[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?(?![\\s\\S])",
+      "title": "Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "build_identifier",
+    "version",
+    "platform",
+    "channel",
+    "artifact_url",
+    "artifact_name",
+    "archive_type",
+    "sha256",
+    "size",
+    "schema_version",
+    "operation_id"
+  ],
+  "title": "AgentUpdateRecommendationV1",
+  "type": "object"
+}

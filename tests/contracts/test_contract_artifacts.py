@@ -15,7 +15,14 @@ from jsonschema import (
 )
 from pydantic import ValidationError as PydanticValidationError
 
-from endpoint_contracts import AgentCommandV1
+from endpoint_contracts import (
+    AgentCommandV1,
+    AgentUpdateAcknowledgementV1,
+    AgentUpdateRecommendationV1,
+    AgentUpdateReportV1,
+    UpdateBuildManifestV1,
+    UpdateRolloutCreateV1,
+)
 from tools.contracts.generate_contract_artifacts import (
     FIXTURES,
     PUBLIC_MODELS,
@@ -447,6 +454,49 @@ def test_agent_response_schemas_require_every_canonical_wire_field() -> None:
         "device_token",
         "overlap_expires_at",
     }
+
+
+def test_update_contract_artifacts_publish_strict_safe_control_plane_schemas() -> None:
+    """Generated update schemas preserve immutable metadata and omit diagnostics."""
+    expected_models = {
+        "update-build-manifest-v1.json": UpdateBuildManifestV1,
+        "update-rollout-v1.json": UpdateRolloutCreateV1,
+        "agent-update-recommendation-v1.json": AgentUpdateRecommendationV1,
+        "agent-update-ack-v1.json": AgentUpdateAcknowledgementV1,
+        "agent-update-report-v1.json": AgentUpdateReportV1,
+    }
+    report_schema = json.loads(
+        Path("contracts/jsonschema/agent-update-report-v1.json").read_text(
+            encoding="utf-8"
+        )
+    )
+
+    assert {name: PUBLIC_MODELS[name] for name in expected_models} == expected_models
+    assert set(report_schema["required"]) == {
+        "schema_version",
+        "report_key",
+        "status",
+        "reported_version",
+    }
+    assert "traceback" not in report_schema["properties"]
+    assert "logs" not in report_schema["properties"]
+
+    manifest_schema = json.loads(
+        Path("contracts/jsonschema/update-build-manifest-v1.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert manifest_schema["properties"]["sha256"]["pattern"].endswith(r"(?![\s\S])")
+    assert report_schema["properties"]["report_key"]["pattern"].endswith(r"(?![\s\S])")
+
+    openapi = yaml.safe_load(
+        Path("contracts/openapi/endpoint-platform-v1.yaml").read_text(encoding="utf-8")
+    )
+    assert {
+        "/agent/v1/updates/recommendation",
+        "/agent/v1/updates/{operation_id}/ack",
+        "/agent/v1/updates/{operation_id}/reports",
+    } <= set(openapi["paths"])
 
 
 @pytest.mark.parametrize("filename", FIXTURES)

@@ -1,0 +1,14 @@
+{
+  "archive_type": "tar.gz",
+  "artifact_name": "endpoint-agent-1.2.3.tar.gz",
+  "artifact_url": "https://releases.example.test/endpoint-agent-1.2.3.tar.gz",
+  "build_identifier": "endpoint-agent-linux-1.2.3",
+  "channel": "stable",
+  "operation_id": "44444444-4444-4444-8444-444444444444",
+  "platform": "linux_amd64",
+  "reason": "Fixture canary rollout.",
+  "schema_version": "agent_update_recommendation_v1",
+  "sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+  "size": 1024,
+  "version": "1.2.3"
+}
