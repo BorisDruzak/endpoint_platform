@@ -5,9 +5,15 @@
 The primary agent recommendation request is handled by
 `pc_agent/update_adapter.py`; existing scheduling and launcher verification
 remain the execution path. It consumes only a strict, credential-free
-`agent_update_recommendation_v1` manifest. Diagnostics and API-safe results
-must not contain a bearer token, artifact URL, raw pending payload, local path,
-or traceback.
+`agent_update_recommendation_v1` manifest. New Endpoint-specific diagnostics
+and API-safe results must not contain a bearer token, artifact URL, raw pending
+payload, local path, or traceback. The legacy scheduler and launcher keep their
+existing local path-oriented action traces; the Endpoint-specific claim does
+not describe those pre-existing records.
+
+Select assignments with `server.update_channel: stable|canary` in the agent
+`settings.yaml`; invalid values fail configuration validation and `stable` is
+the default.
 
 ### Compatibility decision matrix
 
@@ -25,11 +31,14 @@ out-of-band rollback endpoint.
 
 ### Endpoint lifecycle evidence
 
-The adapter can acknowledge the primary endpoint at `requested` and
-`scheduled`. `scheduled` is strictly the launcher handoff after controlled
-shutdown; it is not evidence of installation. `applied` is valid only after
-the restarted agent completes its post-restart handshake. The terminal report
-states are `applied`, `failed`, and `rolled_back`.
+The adapter acknowledges `requested` before scheduling. After the existing
+schedule succeeds it persists a credential-free correlation record in
+`updates/endpoint_update_state.json`, then attempts `scheduled`. A lost or
+non-204 response is retried after restart and must be delivered before the
+terminal outcome. `scheduled` is strictly the launcher handoff after
+controlled shutdown; it is not evidence of installation. `applied` is valid
+only after the restarted agent processes the matching `handshake_ack`. The
+terminal report states are `applied`, `failed`, and `rolled_back`.
 
 Terminal reports persist an opaque `report_key` in
 `updates/endpoint_update_reports.json` before delivery, allowing a retry to

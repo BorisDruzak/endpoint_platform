@@ -1,5 +1,6 @@
 import json
 import io
+import hashlib
 import sys
 import tarfile
 import zipfile
@@ -9,6 +10,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+import aiohttp
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -1174,7 +1176,11 @@ async def test_endpoint_assignment_acks_requested_before_scheduling(
             return Response(204)
 
     class Orchestrator:
-        async def _handle_update(self, command, meta):
+        async def _handle_update(self, command, meta, **kwargs):
+            assert kwargs == {
+                "download_auth_mode": "none",
+                "safe_diagnostics": True,
+            }
             events.append("schedule")
             scheduled.append(command)
             return SimpleNamespace(status="success")
@@ -1255,7 +1261,11 @@ async def test_endpoint_scheduler_failure_does_not_ack_scheduled(tmp_path, monke
         return False
 
     class Orchestrator:
-        async def _handle_update(self, command, meta):
+        async def _handle_update(self, command, meta, **kwargs):
+            assert kwargs == {
+                "download_auth_mode": "none",
+                "safe_diagnostics": True,
+            }
             events.append("schedule")
             return SimpleNamespace(status="error")
 
@@ -1276,3 +1286,719 @@ async def test_endpoint_scheduler_failure_does_not_ack_scheduled(tmp_path, monke
     with pytest.raises(RuntimeError, match="scheduling failed"):
         await agent.trigger_recommended_update()
     assert events == ["requested", "schedule"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.no_db
+async def test_endpoint_download_mode_omits_device_bearer_and_token_trace(
+    tmp_path, monkeypatch
+):
+    ConfigLoader._instance = None
+    ConfigLoader._config = None
+    init_config(tmp_path)
+    orchestrator = AgentOrchestrator(enabled_modules=[], data_root=tmp_path)
+    await orchestrator.initialize()
+    orchestrator.identity_manager = SimpleNamespace(
+        has_token=True, token="device-bearer-secret"
+    )
+    captured_headers = []
+    debug_messages = []
+    body = b"strict-primary-artifact"
+
+    class Content:
+        async def iter_chunked(self, _chunk_size):
+            yield body
+
+    class Response:
+        status = 200
+        headers = {"Content-Length": str(len(body))}
+        content = Content()
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return False
+
+    class Session:
+        def __init__(self, **_kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return False
+
+        def get(self, _url, *, headers):
+            captured_headers.append(headers)
+            return Response()
+
+    monkeypatch.setattr("pc_agent.core.orchestrator.aiohttp.ClientSession", Session)
+    monkeypatch.setattr(
+        "pc_agent.core.orchestrator.logger.debug",
+        lambda message: debug_messages.append(str(message)),
+    )
+
+    await orchestrator._download_file_to_path(
+        url="https://artifacts.example.test/agent.zip",
+        dest_path=tmp_path / "agent.zip",
+        expected_sha256=hashlib.sha256(body).hexdigest(),
+        expected_size=len(body),
+        auth_mode="none",
+    )
+
+    assert captured_headers == [{}]
+    assert "device-bearer-secret" not in "\n".join(debug_messages)
+    assert "device-b" not in "\n".join(debug_messages)
+
+
+@pytest.mark.asyncio
+@pytest.mark.no_db
+async def test_legacy_download_mode_keeps_device_bearer_without_logging_prefix(
+    tmp_path, monkeypatch
+):
+    ConfigLoader._instance = None
+    ConfigLoader._config = None
+    init_config(tmp_path)
+    orchestrator = AgentOrchestrator(enabled_modules=[], data_root=tmp_path)
+    await orchestrator.initialize()
+    orchestrator.identity_manager = SimpleNamespace(
+        has_token=True, token="legacy-device-bearer"
+    )
+    captured_headers = []
+    debug_messages = []
+    body = b"legacy-artifact"
+
+    class Content:
+        async def iter_chunked(self, _chunk_size):
+            yield body
+
+    class Response:
+        status = 200
+        headers = {"Content-Length": str(len(body))}
+        content = Content()
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return False
+
+    class Session:
+        def __init__(self, **_kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return False
+
+        def get(self, _url, *, headers):
+            captured_headers.append(headers)
+            return Response()
+
+    monkeypatch.setattr("pc_agent.core.orchestrator.aiohttp.ClientSession", Session)
+    monkeypatch.setattr(
+        "pc_agent.core.orchestrator.logger.debug",
+        lambda message: debug_messages.append(str(message)),
+    )
+
+    await orchestrator._download_file_to_path(
+        url="https://legacy.example.test/agent.zip",
+        dest_path=tmp_path / "legacy.zip",
+        expected_sha256=hashlib.sha256(body).hexdigest(),
+        expected_size=len(body),
+    )
+
+    assert captured_headers == [{"Authorization": "Bearer legacy-device-bearer"}]
+    assert "legacy-device-bearer" not in "\n".join(debug_messages)
+    assert "legacy-de" not in "\n".join(debug_messages)
+
+
+@pytest.mark.asyncio
+@pytest.mark.no_db
+async def test_endpoint_schedule_uses_safe_no_auth_diagnostics(tmp_path, monkeypatch):
+    ConfigLoader._instance = None
+    ConfigLoader._config = None
+    init_config(tmp_path)
+    data_root = tmp_path / "data"
+    recorder = configure_action_trace(data_root)
+    orchestrator = AgentOrchestrator(enabled_modules=[], data_root=data_root)
+    await orchestrator.initialize()
+    body = b"strict-primary-artifact"
+    download_calls = []
+
+    async def fake_download_file_to_path(**kwargs):
+        download_calls.append(kwargs)
+        kwargs["dest_path"].parent.mkdir(parents=True, exist_ok=True)
+        kwargs["dest_path"].write_bytes(body)
+        return hashlib.sha256(body).hexdigest(), len(body)
+
+    async def fake_schedule_update_exit(_payload):
+        return {"status": "ok", "scheduled": True}
+
+    monkeypatch.setattr(
+        orchestrator, "_download_file_to_path", fake_download_file_to_path
+    )
+    orchestrator.schedule_update_exit = fake_schedule_update_exit
+    operation_id = "caa31a48-bf2f-4f1c-8b77-d1be77e12b4e"
+
+    result = await orchestrator._handle_update(
+        {
+            "actor_role": "agent",
+            "version": "2.0.0",
+            "target": "windows_amd64",
+            "channel": "stable",
+            "download_url": "https://artifacts.example.test/agent.zip",
+            "sha256": hashlib.sha256(body).hexdigest(),
+            "size": len(body),
+            "archive_type": "zip",
+        },
+        _update_meta().model_copy(update={"request_id": operation_id}),
+        download_auth_mode="none",
+        safe_diagnostics=True,
+    )
+
+    assert result.status == "success"
+    assert download_calls[0]["auth_mode"] == "none"
+    trace_json = json.dumps(
+        recorder.search(operation_id=operation_id, limit=50), ensure_ascii=False
+    )
+    assert "https://artifacts.example.test" not in trace_json
+    assert str(data_root) not in trace_json
+    assert "artifact_path" not in trace_json
+    assert "pending_path" not in trace_json
+
+
+@pytest.mark.asyncio
+async def test_endpoint_scheduled_ack_failure_does_not_strand_local_handoff(
+    tmp_path, monkeypatch
+):
+    operation_id = "caa31a48-bf2f-4f1c-8b77-d1be77e12b4e"
+    payload = {
+        "schema_version": "agent_update_recommendation_v1",
+        "operation_id": operation_id,
+        "build_identifier": "agent-2.0.0",
+        "version": "2.0.0",
+        "platform": "windows_amd64",
+        "channel": "stable",
+        "artifact_url": "https://updates.example.test/agent-2.0.0.zip",
+        "artifact_name": "agent-2.0.0.zip",
+        "archive_type": "zip",
+        "sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+        "size": 123,
+    }
+    events = []
+
+    class Response:
+        def __init__(self, status, body=""):
+            self.status, self.body = status, body
+
+        async def text(self):
+            return self.body
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return False
+
+    class Session:
+        closed = False
+
+        def get(self, _url, headers=None):
+            return Response(200, json.dumps(payload))
+
+        def post(self, _url, headers=None, json=None):
+            events.append(json["status"])
+            return Response(204 if json["status"] == "requested" else 500)
+
+    class Orchestrator:
+        async def _handle_update(self, command, meta, **kwargs):
+            events.append("schedule")
+            assert kwargs == {
+                "download_auth_mode": "none",
+                "safe_diagnostics": True,
+            }
+            return SimpleNamespace(status="success")
+
+    agent = WSAgent(data_root=tmp_path / "data", install_root=tmp_path / "install")
+    agent.auth_token, agent.device_id, agent._http_session, agent.orchestrator = (
+        "token",
+        "device",
+        Session(),
+        Orchestrator(),
+    )
+    monkeypatch.setattr(
+        "pc_agent.ws_agent.get_config",
+        lambda: SimpleNamespace(
+            server=SimpleNamespace(
+                api_url="https://endpoint.example.test", update_channel="stable"
+            )
+        ),
+    )
+
+    await agent._fetch_update_status(force=True)
+    result = await agent.trigger_recommended_update()
+
+    assert result["status"] == "scheduled"
+    assert events == ["requested", "schedule", "scheduled"]
+    state = json.loads(
+        (tmp_path / "data" / "updates" / "endpoint_update_state.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert state[0]["operation_id"] == operation_id
+    assert state[0]["scheduled_ack_delivered_at"] is None
+
+
+@pytest.mark.asyncio
+async def test_sent_update_confirmation_waits_for_matching_handshake_ack(
+    tmp_path, monkeypatch
+):
+    operation_id = "caa31a48-bf2f-4f1c-8b77-d1be77e12b4e"
+    first_session_events = []
+
+    class Response:
+        def __init__(self, status):
+            self.status = status
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return False
+
+    class FirstSession:
+        def post(self, _url, *, headers, json):
+            first_session_events.append(json["status"])
+            return Response(500)
+
+    from pc_agent.update_adapter import EndpointUpdateAdapter
+
+    first_adapter = EndpointUpdateAdapter(
+        api_url="https://endpoint.example.test",
+        bearer_token=lambda: "token",
+        session=FirstSession(),
+        data_root=tmp_path / "data",
+    )
+    assert (
+        await first_adapter.record_scheduled_handoff(
+            operation_id,
+            assigned_version="2.0.0",
+            rollback_version="1.9.0",
+        )
+        is False
+    )
+    assert first_session_events == ["scheduled"]
+
+    events = []
+
+    class RestartedSession:
+        closed = False
+
+        def post(self, url, *, headers, json):
+            if url.endswith("/ack"):
+                events.append(json["status"])
+                return Response(204)
+            events.append(json["status"])
+            return Response(200)
+
+    agent = WSAgent(data_root=tmp_path / "data", install_root=tmp_path / "install")
+    agent.auth_token = "token"
+    agent._http_session = RestartedSession()
+
+    async def publish_connection_state(_state, _detail):
+        events.append("ack_processed")
+
+    monkeypatch.setattr(agent, "_publish_connection_state", publish_connection_state)
+    monkeypatch.setattr(
+        "pc_agent.ws_agent.get_config",
+        lambda: SimpleNamespace(
+            server=SimpleNamespace(
+                api_url="https://endpoint.example.test", update_channel="stable"
+            )
+        ),
+    )
+    confirmation = {
+        "applied_update_version": "2.0.0",
+        "last_update_operation_id": operation_id,
+    }
+
+    class WebSocket:
+        def __init__(self):
+            self.sent = []
+
+        async def send_json(self, message):
+            self.sent.append(message)
+
+    ws = WebSocket()
+    await agent._send_handshake_with_update_confirmation(
+        ws,
+        {"type": "handshake", "request_id": "handshake-1", "payload": {}},
+        confirmation,
+    )
+    assert ws.sent == [
+        {"type": "handshake", "request_id": "handshake-1", "payload": {}}
+    ]
+    assert events == []
+    await agent.handle_message(
+        SimpleNamespace(),
+        json.dumps(
+            {
+                "type": "handshake_ack",
+                "request_id": "other-handshake",
+                "payload": {},
+            }
+        ),
+    )
+    assert events == ["ack_processed"]
+    events.clear()
+    await agent.handle_message(
+        SimpleNamespace(),
+        json.dumps(
+            {
+                "type": "handshake_ack",
+                "request_id": "handshake-1",
+                "payload": {},
+            }
+        ),
+    )
+
+    assert events == ["ack_processed", "scheduled", "applied"]
+
+
+def test_launcher_crash_history_without_operation_id_uses_safe_endpoint_state(
+    tmp_path,
+):
+    operation_id = "caa31a48-bf2f-4f1c-8b77-d1be77e12b4e"
+    updates_dir = tmp_path / "data" / "updates"
+    updates_dir.mkdir(parents=True)
+    (updates_dir / "endpoint_update_state.json").write_text(
+        json.dumps(
+            [
+                {
+                    "operation_id": operation_id,
+                    "assigned_version": "2.0.0",
+                    "rollback_version": "1.9.0",
+                    "scheduled_ack_delivered_at": "2026-07-29T10:00:00+00:00",
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+    (updates_dir / "update_history.json").write_text(
+        json.dumps(
+            [
+                {
+                    "version": "2.0.0",
+                    "success": False,
+                    "at": "2026-07-29T10:01:00+00:00",
+                    "reason": "startup_crash_rollback",
+                    "previous_version": "1.9.0",
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    agent = WSAgent(data_root=tmp_path / "data", install_root=tmp_path / "install")
+
+    assert agent._get_latest_update_handshake_payload() == {
+        "failed_update_version": "2.0.0",
+        "failed_update_operation_id": operation_id,
+        "failed_update_reason": "startup_crash_rollback",
+        "failed_update_at": "2026-07-29T10:01:00+00:00",
+        "rollback_update_version": "1.9.0",
+    }
+
+
+def test_launcher_failure_history_without_operation_id_uses_assigned_version(
+    tmp_path,
+):
+    operation_id = "caa31a48-bf2f-4f1c-8b77-d1be77e12b4e"
+    updates_dir = tmp_path / "data" / "updates"
+    updates_dir.mkdir(parents=True)
+    (updates_dir / "endpoint_update_state.json").write_text(
+        json.dumps(
+            [
+                {
+                    "operation_id": operation_id,
+                    "assigned_version": "2.0.0",
+                    "rollback_version": "1.9.0",
+                    "scheduled_ack_delivered_at": None,
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+    (updates_dir / "update_history.json").write_text(
+        json.dumps(
+            [
+                {
+                    "version": "2.0.0",
+                    "success": False,
+                    "at": "2026-07-29T10:01:00+00:00",
+                    "reason": "startup_crash",
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+    agent = WSAgent(data_root=tmp_path / "data", install_root=tmp_path / "install")
+
+    assert agent._get_latest_update_handshake_payload() == {
+        "failed_update_version": "2.0.0",
+        "failed_update_operation_id": operation_id,
+        "failed_update_reason": "startup_crash",
+        "failed_update_at": "2026-07-29T10:01:00+00:00",
+    }
+
+
+def test_endpoint_correlated_history_omits_raw_launcher_message(tmp_path):
+    operation_id = "caa31a48-bf2f-4f1c-8b77-d1be77e12b4e"
+    updates_dir = tmp_path / "data" / "updates"
+    updates_dir.mkdir(parents=True)
+    (updates_dir / "endpoint_update_state.json").write_text(
+        json.dumps(
+            [
+                {
+                    "operation_id": operation_id,
+                    "assigned_version": "2.0.0",
+                    "rollback_version": "1.9.0",
+                    "scheduled_ack_delivered_at": None,
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+    (updates_dir / "update_history.json").write_text(
+        json.dumps(
+            [
+                {
+                    "version": "2.0.0",
+                    "success": False,
+                    "at": "2026-07-29T10:01:00+00:00",
+                    "operation_id": operation_id,
+                    "reason": "verify_failed",
+                    "message": (
+                        "C:\\private\\agent.zip https://artifacts.example.test/raw"
+                    ),
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+    agent = WSAgent(
+        data_root=tmp_path / "data", install_root=tmp_path / "install"
+    )
+
+    confirmation = agent._get_latest_update_handshake_payload()
+
+    assert confirmation is not None
+    assert confirmation["failed_update_operation_id"] == operation_id
+    assert confirmation["failed_update_reason"] == "verify_failed"
+    assert "failed_update_message" not in confirmation
+
+
+@pytest.mark.asyncio
+async def test_rolled_back_report_uses_persisted_rollback_version(
+    tmp_path, monkeypatch
+):
+    operation_id = "caa31a48-bf2f-4f1c-8b77-d1be77e12b4e"
+    agent = WSAgent(data_root=tmp_path / "data", install_root=tmp_path / "install")
+    reported = []
+
+    class Adapter:
+        async def retry_scheduled_acknowledgement(self, value):
+            assert value == operation_id
+            return True
+
+        async def report_terminal(self, value, **kwargs):
+            reported.append((value, kwargs))
+            return True
+
+    agent._http_session = SimpleNamespace(closed=False)
+    monkeypatch.setattr(agent, "_endpoint_update_adapter", lambda _session: Adapter())
+
+    await agent._report_endpoint_terminal_observation(
+        {
+            "failed_update_version": "2.0.0",
+            "failed_update_operation_id": operation_id,
+            "failed_update_reason": "startup_crash_rollback",
+            "rollback_update_version": "1.9.0",
+        }
+    )
+
+    assert reported == [
+        (
+            operation_id,
+            {
+                "status": "rolled_back",
+                "reported_version": "1.9.0",
+                "safe_code": "launcher_rolled_back",
+            },
+        )
+    ]
+
+
+@pytest.mark.asyncio
+async def test_canary_config_selects_canary_recommendation_query(tmp_path, monkeypatch):
+    requests = []
+    payload = {
+        "schema_version": "agent_update_recommendation_v1",
+        "operation_id": "caa31a48-bf2f-4f1c-8b77-d1be77e12b4e",
+        "build_identifier": "agent-2.0.0-rc.1",
+        "version": "2.0.0-rc.1",
+        "platform": "windows_amd64",
+        "channel": "canary",
+        "artifact_url": "https://updates.example.test/agent-2.0.0-rc.1.zip",
+        "artifact_name": "agent-2.0.0-rc.1.zip",
+        "archive_type": "zip",
+        "sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+        "size": 123,
+    }
+
+    class Response:
+        status = 200
+
+        async def text(self):
+            return json.dumps(payload)
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return False
+
+    class Session:
+        closed = False
+
+        def get(self, url, headers=None):
+            requests.append(url)
+            return Response()
+
+    agent = WSAgent(data_root=tmp_path / "data", install_root=tmp_path / "install")
+    agent.auth_token = "token"
+    agent.device_id = "device"
+    agent._http_session = Session()
+    monkeypatch.setattr("pc_agent.ws_agent.platform.system", lambda: "Windows")
+    monkeypatch.setattr(
+        "pc_agent.ws_agent.get_config",
+        lambda: SimpleNamespace(
+            server=SimpleNamespace(
+                api_url="https://endpoint.example.test", update_channel="canary"
+            )
+        ),
+    )
+
+    status = await agent._fetch_update_status(force=True)
+
+    assert status["recommended_channel"] == "canary"
+    assert requests == [
+        "https://endpoint.example.test/agent/v1/updates/recommendation"
+        "?platform=windows_amd64&channel=canary"
+    ]
+
+
+@pytest.mark.asyncio
+async def test_payload_error_returns_safe_status_without_legacy_or_raise(
+    tmp_path, monkeypatch
+):
+    legacy_calls = 0
+
+    class Response:
+        status = 200
+
+        async def text(self):
+            raise aiohttp.ClientPayloadError("raw body details")
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return False
+
+    class Session:
+        closed = False
+
+        def get(self, _url, headers=None):
+            return Response()
+
+    agent = WSAgent(data_root=tmp_path / "data", install_root=tmp_path / "install")
+    agent.auth_token = "token"
+    agent.device_id = "device"
+    agent._http_session = Session()
+
+    async def legacy_fetch():
+        nonlocal legacy_calls
+        legacy_calls += 1
+        return {}
+
+    monkeypatch.setattr(agent, "_legacy_fetch_update_status", legacy_fetch)
+    monkeypatch.setattr("pc_agent.ws_agent.platform.system", lambda: "Windows")
+    monkeypatch.setattr(
+        "pc_agent.ws_agent.get_config",
+        lambda: SimpleNamespace(
+            server=SimpleNamespace(
+                api_url="https://endpoint.example.test", update_channel="stable"
+            )
+        ),
+    )
+
+    status = await agent._fetch_update_status(force=True)
+
+    assert status["update_available"] is False
+    assert status["update_status_error"] == "endpoint_unavailable"
+    assert legacy_calls == 0
+
+
+@pytest.mark.asyncio
+async def test_malformed_endpoint_contract_never_schedules_or_persists_pending(
+    tmp_path, monkeypatch
+):
+    class Response:
+        status = 200
+
+        async def text(self):
+            return '{"schema_version":"wrong"}'
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return False
+
+    class Session:
+        closed = False
+
+        def get(self, _url, headers=None):
+            return Response()
+
+    class Orchestrator:
+        async def _handle_update(self, *_args, **_kwargs):
+            raise AssertionError("malformed contract must never be scheduled")
+
+    agent = WSAgent(data_root=tmp_path / "data", install_root=tmp_path / "install")
+    agent.auth_token = "token"
+    agent.device_id = "device"
+    agent._http_session = Session()
+    agent.orchestrator = Orchestrator()
+    monkeypatch.setattr("pc_agent.ws_agent.platform.system", lambda: "Windows")
+    monkeypatch.setattr(
+        "pc_agent.ws_agent.get_config",
+        lambda: SimpleNamespace(
+            server=SimpleNamespace(
+                api_url="https://endpoint.example.test", update_channel="stable"
+            )
+        ),
+    )
+
+    status = await agent._fetch_update_status(force=True)
+    result = await agent.trigger_recommended_update()
+
+    assert status["update_status_error"] == "endpoint_contract_invalid"
+    assert result["status"] == "ok"
+    assert not (tmp_path / "data" / "updates" / "pending_update.json").exists()

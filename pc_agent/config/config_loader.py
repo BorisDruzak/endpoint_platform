@@ -6,8 +6,9 @@
 - get_config() — lazy singleton после init_config (не eager-load при импорте).
 - Переменные окружения (для E2E/тестов): PC_AGENT_WS_URL, PC_AGENT_API_URL переопределяют server.ws_url / server.api_url.
 """
+
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Literal, Optional
 import os
 import shutil
 import yaml
@@ -16,7 +17,9 @@ from loguru import logger
 
 _CONFIG_DIR = Path(__file__).resolve().parent
 DEFAULT_SETTINGS_TEMPLATE = _CONFIG_DIR / "settings.default.yaml"
-_config_base: Optional[Path] = None  # data_root при вызове init_config(); для разрешения относительных путей
+_config_base: Optional[Path] = (
+    None  # data_root при вызове init_config(); для разрешения относительных путей
+)
 CORE_ENABLED_MODULES = ("system", "screen", "diag_logs", "inventory", "presence")
 
 
@@ -34,24 +37,43 @@ def _normalize_enabled_modules(module_names: List[str] | None) -> List[str]:
 
 class ServerConfig(BaseModel):
     """Конфигурация сервера."""
-    ws_url: str = Field(default="ws://192.168.100.17:8666/ws", description="URL WebSocket сервера")
-    api_url: str = Field(default="http://192.168.100.17:8666/api", description="URL API сервера")
-    http_port: int = Field(default=12345, ge=1, le=65535, description="Порт HTTP сервера")
-    reconnect_interval: int = Field(default=5, ge=1, description="Интервал переподключения (сек)")
+
+    ws_url: str = Field(
+        default="ws://192.168.100.17:8666/ws", description="URL WebSocket сервера"
+    )
+    api_url: str = Field(
+        default="http://192.168.100.17:8666/api", description="URL API сервера"
+    )
+    http_port: int = Field(
+        default=12345, ge=1, le=65535, description="Порт HTTP сервера"
+    )
+    reconnect_interval: int = Field(
+        default=5, ge=1, description="Интервал переподключения (сек)"
+    )
+    update_channel: Literal["stable", "canary"] = Field(
+        default="stable",
+        description="Endpoint Platform update assignment channel",
+    )
 
 
 class SecurityConfig(BaseModel):
     """Конфигурация безопасности."""
-    allow_remote_code: bool = Field(default=False, description="Разрешить выполнение удаленного кода")
+
+    allow_remote_code: bool = Field(
+        default=False, description="Разрешить выполнение удаленного кода"
+    )
 
 
 class PathsConfig(BaseModel):
     """Конфигурация путей (относительно data_root при использовании с runtime_paths)."""
+
     data_dir: str = Field(default="data", description="Директория данных")
-    identity_file: str = Field(default="data/identity.json", description="Файл идентификации")
+    identity_file: str = Field(
+        default="data/identity.json", description="Файл идентификации"
+    )
     temp_dir: str = Field(default="data/temp", description="Временная директория")
 
-    @field_validator('data_dir')
+    @field_validator("data_dir")
     @classmethod
     def validate_path(cls, v: str) -> str:
         """Валидация путей."""

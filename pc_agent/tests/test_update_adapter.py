@@ -127,7 +127,7 @@ async def test_fetch_recommendation_treats_204_as_final_without_legacy_fallback(
     ],
 )
 async def test_fetch_recommendation_rejects_malformed_primary_contract(
-    body: str, tmp_path
+    body: str,
 ) -> None:
     adapter, _ = _adapter(_Response(200, body))
 
@@ -139,7 +139,6 @@ async def test_fetch_recommendation_rejects_malformed_primary_contract(
     assert result.recommendation is None
     assert result.unavailable is False
     assert result.safe_error == "endpoint_contract_invalid"
-    assert not list(tmp_path.rglob("pending_update.json"))
 
 
 @pytest.mark.asyncio
@@ -248,6 +247,31 @@ async def test_primary_200_body_transport_failure_never_calls_legacy() -> None:
 
 
 @pytest.mark.asyncio
+async def test_primary_200_payload_error_fails_closed_without_legacy() -> None:
+    calls = 0
+
+    class Broken(_Response):
+        async def text(self) -> str:
+            raise aiohttp.ClientPayloadError("truncated response")
+
+    async def legacy_fetch() -> object:
+        nonlocal calls
+        calls += 1
+        return {}
+
+    adapter, _ = _adapter(Broken(200, ""), legacy_fetch=legacy_fetch)
+
+    result = await adapter.fetch_recommendation(
+        platform="windows_amd64", channel="stable"
+    )
+
+    assert result.source == "endpoint"
+    assert result.recommendation is None
+    assert result.safe_error == "endpoint_unavailable"
+    assert calls == 0
+
+
+@pytest.mark.asyncio
 async def test_uppercase_https_wire_form_is_rejected() -> None:
     adapter, _ = _adapter(
         _Response(200, _valid_payload().replace("https://", "HTTPS://"))
@@ -305,3 +329,63 @@ async def test_terminal_report_reuses_report_key_after_failed_post(tmp_path) -> 
         "safe_code",
         "delivered_at",
     }
+
+
+@pytest.mark.asyncio
+async def test_scheduled_handoff_ack_is_durable_across_adapter_restart(
+    tmp_path,
+) -> None:
+    class Session:
+        def __init__(self, status: int):
+            self.status = status
+            self.bodies: list[dict[str, object]] = []
+
+        def post(self, url: str, *, headers: dict[str, str], json: dict[str, object]):
+            self.bodies.append(json)
+            return _Response(self.status, "")
+
+    first_session = Session(500)
+    first = EndpointUpdateAdapter(
+        api_url="https://endpoint.example.test",
+        bearer_token=lambda: "token",
+        session=first_session,
+        data_root=tmp_path,
+    )
+    operation_id = "caa31a48-bf2f-4f1c-8b77-d1be77e12b4e"
+
+    assert (
+        await first.record_scheduled_handoff(
+            operation_id,
+            assigned_version="2.0.0",
+            rollback_version="1.9.0",
+        )
+        is False
+    )
+
+    second_session = Session(204)
+    second = EndpointUpdateAdapter(
+        api_url="https://endpoint.example.test",
+        bearer_token=lambda: "token",
+        session=second_session,
+        data_root=tmp_path,
+    )
+    assert await second.retry_scheduled_acknowledgement(operation_id) is True
+    assert first_session.bodies == [
+        {"schema_version": "agent_update_ack_v1", "status": "scheduled"}
+    ]
+    assert second_session.bodies == first_session.bodies
+
+    state = json.loads(
+        (tmp_path / "updates" / "endpoint_update_state.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert state == [
+        {
+            "operation_id": operation_id,
+            "assigned_version": "2.0.0",
+            "rollback_version": "1.9.0",
+            "scheduled_ack_delivered_at": state[0]["scheduled_ack_delivered_at"],
+        }
+    ]
+    assert isinstance(state[0]["scheduled_ack_delivered_at"], str)

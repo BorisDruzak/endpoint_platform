@@ -3,10 +3,12 @@
 ## Endpoint update adapter map (2026-07-29)
 
 - `pc_agent/update_adapter.py` owns the strict primary Endpoint Platform
-  recommendation, acknowledgement, and terminal-report adapter. It exposes no
-  bearer, artifact URL, raw pending payload, local path, or trace in logs, safe
-  diagnostics, status, or action-trace output; its internal recommendation
-  value retains the artifact URL needed by scheduling.
+  recommendation, durable scheduled acknowledgement, safe launcher
+  correlation, and terminal-report adapter. New Endpoint-specific values
+  expose no bearer, artifact URL, raw pending payload, local path, or trace in
+  logs, safe diagnostics, status, or action-trace output; its internal
+  recommendation value retains the artifact URL needed by scheduling. This
+  scope does not redefine the legacy scheduler/launcher path diagnostics.
 - `pc_agent/ws_agent.py` owns runtime integration: it invokes the adapter,
   keeps verified update scheduling and launcher handoff, supplies `requested`
   / `scheduled` acknowledgements, sends terminal reports, and adds terminal
@@ -24,10 +26,12 @@ polling/scheduling when pending work exists; other status/manual paths may poll
 but must not create a duplicate pending schedule. Rollback is simply a valid
 ordinary assignment to an older version.
 
-`scheduled` records launcher handoff only. `applied` needs the new runtime's
-post-restart endpoint handshake. Terminal `applied`, `failed`, and
-`rolled_back` reports reuse the locally durable opaque `report_key` stored in
-`updates/endpoint_update_reports.json`; neither that journal nor diagnostics
+`server.update_channel` safely selects `stable` or `canary` (default
+`stable`). `scheduled` records launcher handoff only and is retried from
+`updates/endpoint_update_state.json` before terminal delivery.
+`applied` needs the matching post-restart `handshake_ack`. Terminal `applied`,
+`failed`, and `rolled_back` reports reuse the locally durable opaque
+`report_key` stored in `updates/endpoint_update_reports.json`; neither journal
 may be extended with credentials, artifact URLs, raw pending payloads, paths,
 or traces.
 

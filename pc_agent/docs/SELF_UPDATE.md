@@ -4,11 +4,17 @@
 
 `pc_agent/update_adapter.py` is the compatibility boundary for the primary
 Endpoint Platform recommendation endpoint. It accepts only the strict,
-credential-free `agent_update_recommendation_v1` manifest for the current
-platform and channel. The manifest is validated before it is used; logs, safe
-diagnostics, status output, and action-trace output must never expose the
-bearer credential, artifact URL, raw pending payload, local paths, or exception
-traces. Internal adapter values may retain the artifact URL for scheduling.
+credential-free `agent_update_recommendation_v1` manifest for the configured
+platform and channel. The manifest is validated before it is used. New
+Endpoint-specific logs, safe diagnostics, status output, and action-trace
+values never expose the bearer credential, artifact URL, raw pending payload,
+local paths, or exception traces. The pre-existing legacy scheduler and
+launcher diagnostics retain their local path-oriented technical traces; this
+Endpoint-specific guarantee does not retroactively describe those legacy
+records. Internal adapter values may retain the artifact URL for scheduling.
+
+The channel is selected explicitly with `server.update_channel` in
+`settings.yaml`. Only `stable` and `canary` are valid; the default is `stable`.
 
 ### Primary endpoint compatibility matrix
 
@@ -25,11 +31,15 @@ version follows the same regular update flow as any other assigned version.
 
 ### Lifecycle acknowledgement and terminal report
 
-After the agent requests a valid assignment it may acknowledge `requested`;
-after the controlled shutdown is accepted it may acknowledge `scheduled`.
+After the agent requests a valid assignment it must acknowledge `requested`
+before scheduling. After the controlled shutdown is accepted it persists the
+safe assignment correlation in `updates/endpoint_update_state.json`, then
+acknowledges `scheduled`. A lost or non-204 acknowledgement remains pending
+there and is retried after restart before any terminal report.
 `scheduled` means only that responsibility has been handed to the launcher.
 It does **not** mean the artifact was applied. `applied` requires the new
-runtime's post-restart endpoint handshake.
+runtime's matching post-restart `handshake_ack`, not merely sending the
+handshake.
 
 The terminal endpoint reports are `applied`, `failed`, and `rolled_back`.
 The operation id is in the POST path
@@ -58,7 +68,7 @@ PC Agent поддерживает удалённое обновление чер
 
 Важно: server-side assigned rollout является source of truth и может указывать как на upgrade, так и на controlled rollback. Для агента это один и тот же self-update flow: если рекомендованная release-версия с сервера отличается от текущей, агент после успешного startup handshake один раз автоматически запрашивает recommended build, GUI показывает action/state для ручного контроля, а launcher после restart применяет запрошенный архив и переключает `current.json` на указанную версию.
 
-Startup auto-update не обходит серверную авторизацию: `ws_agent.py` пропускает запуск, если уже есть `pending_update.json`, получает verdict через update recommendation endpoint и вызывает обычный `POST /api/devices/{device_id}/agent/update` с reason `agent_startup_auto_update`. Сервер по-прежнему разрешает agent-role self-update только для собственного `device_id` и только для текущего recommended build. После постановки controlled shutdown агент отдаёт через локальный status `update_request_state=applying`, чтобы GUI успел показать пользователю, что идёт обновление и последует автоматический перезапуск.
+Startup auto-update не обходит серверную авторизацию: `ws_agent.py` пропускает запуск, если уже есть `pending_update.json`, и сначала получает verdict через Endpoint recommendation. Строгая Endpoint assignment после `requested` ack передаётся напрямую в проверенный локальный scheduler; bearer устройства не отправляется на artifact host. Только eligible legacy fallback использует прежний `POST /api/devices/{device_id}/agent/update` с reason `agent_startup_auto_update`. После постановки controlled shutdown агент отдаёт через локальный status `update_request_state=applying`, чтобы GUI успел показать пользователю, что идёт обновление и последует автоматический перезапуск.
 
 Server handshake can also enqueue the same `update` command for older installed agents that do not yet contain agent-side startup auto-update code. That fallback runs only for a newer assigned rollout, skips active update operations, skips the same version after a launcher-reported failure, and uses reason `agent_handshake_auto_update`.
 

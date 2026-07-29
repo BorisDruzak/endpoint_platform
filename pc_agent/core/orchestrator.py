@@ -20,7 +20,7 @@ import importlib.util
 from contextlib import nullcontext
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Awaitable, Callable, Dict, Any, List, Optional
+from typing import Awaitable, Callable, Dict, Any, List, Literal, Optional
 from time import perf_counter
 import hashlib
 try:
@@ -1499,15 +1499,22 @@ class AgentOrchestrator:
             f"target_operation_id={target_operation_id}"
         )
         return True
-    
-    async def _handle_update(self, command: Dict[str, Any], meta: ToolMeta) -> ToolResponse:
+
+    async def _handle_update(
+        self,
+        command: Dict[str, Any],
+        meta: ToolMeta,
+        *,
+        download_auth_mode: Literal["device", "none"] = "device",
+        safe_diagnostics: bool = False,
+    ) -> ToolResponse:
         """
         Обработка команды 'update' - обновление агента (self-update).
-        
+
         Args:
             command: Полный payload команды (params из WS), включая download_url/sha256/size/version.
             meta: Метаданные выполнения команды
-        
+
         Returns:
             ToolResponse с результатом операции обновления
         """
@@ -1528,6 +1535,31 @@ class AgentOrchestrator:
             summary: str,
             details: Optional[Dict[str, Any]] = None,
         ) -> None:
+            if safe_diagnostics:
+                allowed_keys = {
+                    "archive_type",
+                    "channel",
+                    "current_version",
+                    "delay_sec",
+                    "downloaded_sha256",
+                    "downloaded_size",
+                    "existing_operation_id",
+                    "existing_version",
+                    "exit_code_pending",
+                    "incoming_version",
+                    "operation_id",
+                    "pending_operation_id",
+                    "received_at",
+                    "requested_by",
+                    "requested_version",
+                    "target",
+                    "version",
+                }
+                details = {
+                    key: value
+                    for key, value in (details or {}).items()
+                    if key in allowed_keys
+                }
             get_action_trace_recorder().record(
                 update_trace,
                 stage=stage,
@@ -1542,7 +1574,12 @@ class AgentOrchestrator:
             # сервер теперь может отправлять self-update, инициированный самим агентом через
             # его GUI, уже после отдельной server-side авторизации recommended build.
             if actor_role not in {"admin", "system", "agent"}:
-                return fail(code="FORBIDDEN", message="admin/agent only", meta=meta, retriable=False)
+                return fail(
+                    code="FORBIDDEN",
+                    message="admin/agent only",
+                    meta=meta,
+                    retriable=False,
+                )
 
             version = command.get("version")
             target = command.get("target")
@@ -1552,7 +1589,9 @@ class AgentOrchestrator:
             expected_size = command.get("size")
             restart_delay_sec = command.get("restart_delay_sec")
             archive_type = command.get("archive_type") or "zip"
-            requested_by = (command.get("requested_by") or actor_role or "admin").lower()
+            requested_by = (
+                command.get("requested_by") or actor_role or "admin"
+            ).lower()
 
             _record_update_trace(
                 "request",
@@ -1569,14 +1608,35 @@ class AgentOrchestrator:
             )
 
             if not version:
-                _record_update_trace("response", status="error", summary="Missing version")
-                return fail(code="UPDATE_FAILED", message="Missing version", meta=meta, retriable=False)
+                _record_update_trace(
+                    "response", status="error", summary="Missing version"
+                )
+                return fail(
+                    code="UPDATE_FAILED",
+                    message="Missing version",
+                    meta=meta,
+                    retriable=False,
+                )
             if not download_url:
-                _record_update_trace("response", status="error", summary="Missing download_url")
-                return fail(code="UPDATE_FAILED", message="Missing download_url", meta=meta, retriable=False)
+                _record_update_trace(
+                    "response", status="error", summary="Missing download_url"
+                )
+                return fail(
+                    code="UPDATE_FAILED",
+                    message="Missing download_url",
+                    meta=meta,
+                    retriable=False,
+                )
             if not expected_sha256:
-                _record_update_trace("response", status="error", summary="Missing sha256")
-                return fail(code="UPDATE_FAILED", message="Missing sha256", meta=meta, retriable=False)
+                _record_update_trace(
+                    "response", status="error", summary="Missing sha256"
+                )
+                return fail(
+                    code="UPDATE_FAILED",
+                    message="Missing sha256",
+                    meta=meta,
+                    retriable=False,
+                )
             if archive_type not in ("zip", "tar.gz", "tgz"):
                 _record_update_trace(
                     "response",
@@ -1584,7 +1644,12 @@ class AgentOrchestrator:
                     summary="Unsupported archive_type",
                     details={"archive_type": archive_type},
                 )
-                return fail(code="UPDATE_FAILED", message="Unsupported archive_type", meta=meta, retriable=False)
+                return fail(
+                    code="UPDATE_FAILED",
+                    message="Unsupported archive_type",
+                    meta=meta,
+                    retriable=False,
+                )
             # tgz — алиас для tar.gz (launcher/installer поддерживает оба)
 
             # data_root/updates/downloads
@@ -1600,12 +1665,20 @@ class AgentOrchestrator:
             if pending_path.exists():
                 existing_pending = {}
                 try:
-                    existing_pending = json.loads(pending_path.read_text(encoding="utf-8"))
+                    existing_pending = json.loads(
+                        pending_path.read_text(encoding="utf-8")
+                    )
                 except Exception:
                     existing_pending = {}
-                existing_operation_id = str(existing_pending.get("operation_id") or "").strip()
+                existing_operation_id = str(
+                    existing_pending.get("operation_id") or ""
+                ).strip()
                 existing_version = str(existing_pending.get("version") or "").strip()
-                if existing_operation_id and operation_id and existing_operation_id == operation_id:
+                if (
+                    existing_operation_id
+                    and operation_id
+                    and existing_operation_id == operation_id
+                ):
                     observations = {
                         "message": "already_scheduled",
                         "requested_version": existing_version or version,
@@ -1619,8 +1692,13 @@ class AgentOrchestrator:
                         details=observations,
                     )
                     return ok(data=ToolData(observations=observations), meta=meta)
-                if existing_version and _agent_version_compare(existing_version, AGENT_VERSION) <= 0:
-                    _archive_stale_pending_update(pending_path, existing_pending, incoming_version=version)
+                if (
+                    existing_version
+                    and _agent_version_compare(existing_version, AGENT_VERSION) <= 0
+                ):
+                    _archive_stale_pending_update(
+                        pending_path, existing_pending, incoming_version=version
+                    )
                     _record_update_trace(
                         "stale_pending_archived",
                         status="ok",
@@ -1647,19 +1725,31 @@ class AgentOrchestrator:
                             "existing_version": existing_version or None,
                         },
                     )
-                    return fail(code="UPDATE_FAILED", message=pending_message, meta=meta, retriable=True)
+                    return fail(
+                        code="UPDATE_FAILED",
+                        message=pending_message,
+                        meta=meta,
+                        retriable=True,
+                    )
             ext = "zip" if archive_type == "zip" else "tar.gz"
-            safe_version = "".join(ch if ch.isalnum() or ch in ("-", "_", ".") else "_" for ch in str(version))
-            safe_operation_id = "".join(
-                ch if ch.isalnum() or ch in ("-", "_", ".") else "_" for ch in str(operation_id or "update")
+            safe_version = "".join(
+                ch if ch.isalnum() or ch in ("-", "_", ".") else "_"
+                for ch in str(version)
             )
-            artifact_path = downloads_dir / f"build-{safe_version}-{safe_operation_id}.{ext}"
+            safe_operation_id = "".join(
+                ch if ch.isalnum() or ch in ("-", "_", ".") else "_"
+                for ch in str(operation_id or "update")
+            )
+            artifact_path = (
+                downloads_dir / f"build-{safe_version}-{safe_operation_id}.{ext}"
+            )
 
             dl_sha256, dl_size = await self._download_file_to_path(
                 url=download_url,
                 dest_path=artifact_path,
                 expected_sha256=expected_sha256,
                 expected_size=expected_size,
+                auth_mode=download_auth_mode,
             )
             _record_update_trace(
                 "downloaded",
@@ -1688,7 +1778,10 @@ class AgentOrchestrator:
                 "sha256": dl_sha256,
                 "size": dl_size,
             }
-            pending_path.write_text(json.dumps(pending_payload, ensure_ascii=False, indent=2), encoding="utf-8")
+            pending_path.write_text(
+                json.dumps(pending_payload, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
             _record_update_trace(
                 "pending_written",
                 status="ok",
@@ -1711,15 +1804,23 @@ class AgentOrchestrator:
                     )
                 else:
                     loop = asyncio.get_running_loop()
-                    loop.call_later(restart_delay, lambda: os._exit(EXIT_UPDATE_PENDING))
+                    loop.call_later(
+                        restart_delay, lambda: os._exit(EXIT_UPDATE_PENDING)
+                    )
                 _record_update_trace(
                     "shutdown_scheduled",
                     status="ok",
                     summary="update shutdown scheduled",
-                    details={"delay_sec": restart_delay, "exit_code_pending": EXIT_UPDATE_PENDING},
+                    details={
+                        "delay_sec": restart_delay,
+                        "exit_code_pending": EXIT_UPDATE_PENDING,
+                    },
                 )
             except Exception as e:
-                logger.warning(f"[update] Failed to schedule exit: {e}")
+                if safe_diagnostics:
+                    logger.warning("[update] Failed to schedule endpoint update exit")
+                else:
+                    logger.warning(f"[update] Failed to schedule exit: {e}")
                 try:
                     pending_path.unlink(missing_ok=True)
                 except Exception:
@@ -1747,7 +1848,11 @@ class AgentOrchestrator:
                 )
                 return fail(
                     code="UPDATE_FAILED",
-                    message=f"Failed to schedule update shutdown: {e}",
+                    message=(
+                        "Failed to schedule endpoint update shutdown"
+                        if safe_diagnostics
+                        else f"Failed to schedule update shutdown: {e}"
+                    ),
                     meta=meta,
                     retriable=True,
                 )
@@ -1770,7 +1875,7 @@ class AgentOrchestrator:
                 details=observations,
             )
             return ok(data=ToolData(observations=observations), meta=meta)
-            
+
         except Exception as e:
             _record_update_trace(
                 "response",
@@ -1778,6 +1883,14 @@ class AgentOrchestrator:
                 summary="update command failed",
                 details={"exception_type": type(e).__name__, "message": str(e)},
             )
+            if safe_diagnostics:
+                logger.error("[update] Endpoint update command failed")
+                return fail(
+                    code="UPDATE_FAILED",
+                    message="Endpoint update failed",
+                    meta=meta,
+                    retriable=True,
+                )
             logger.error(f"Ошибка в _handle_update: {e}")
             raise
 
@@ -1788,22 +1901,29 @@ class AgentOrchestrator:
         dest_path: pathlib.Path,
         expected_sha256: Optional[str],
         expected_size: Optional[int],
+        auth_mode: Literal["device", "none"] = "device",
         chunk_size: int = 8192,
     ) -> tuple[str, int]:
         """
         Download a file to disk with streaming sha256 verification.
 
-        Uses agent token for Authorization (Bearer) when available.
+        Device-auth mode preserves legacy authorization. Strict Endpoint
+        Platform manifests explicitly select no-auth mode for artifact hosts.
         """
         if aiohttp is None:
             raise ImportError("aiohttp is required for update downloads")
 
+        if auth_mode not in {"device", "none"}:
+            raise ValueError("unsupported update download auth mode")
         headers: dict[str, str] = {}
-        if self.identity_manager and self.identity_manager.has_token:
+        if (
+            auth_mode == "device"
+            and self.identity_manager
+            and self.identity_manager.has_token
+        ):
             token = self.identity_manager.token
             if token:
                 headers["Authorization"] = f"Bearer {token}"
-                logger.debug(f"[UpdateDownload] Using token for download: {token[:8]}...")
 
         dest_path.parent.mkdir(parents=True, exist_ok=True)
         tmp_path = dest_path.with_suffix(dest_path.suffix + ".tmp")
@@ -1812,7 +1932,9 @@ class AgentOrchestrator:
         total_size = 0
 
         try:
-            async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=600)) as session:
+            async with aiohttp.ClientSession(
+                timeout=aiohttp.ClientTimeout(total=600)
+            ) as session:
                 async with session.get(url, headers=headers) as resp:
                     if resp.status == 401:
                         raise RuntimeError("Download failed: HTTP 401 (AUTH_REQUIRED)")
@@ -1820,8 +1942,14 @@ class AgentOrchestrator:
                         raise RuntimeError(f"Download failed: HTTP {resp.status}")
 
                     content_length = resp.headers.get("Content-Length")
-                    if expected_size and content_length and int(content_length) != int(expected_size):
-                        raise ValueError(f"Size mismatch: expected {expected_size}, got {content_length}")
+                    if (
+                        expected_size
+                        and content_length
+                        and int(content_length) != int(expected_size)
+                    ):
+                        raise ValueError(
+                            f"Size mismatch: expected {expected_size}, got {content_length}"
+                        )
 
                     with open(tmp_path, "wb") as f:
                         async for chunk in resp.content.iter_chunked(chunk_size):

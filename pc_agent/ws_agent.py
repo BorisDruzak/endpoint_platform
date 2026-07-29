@@ -71,7 +71,11 @@ from pc_agent.auth.connection_request import run_connection_request_flow
 from pc_agent.auth.gui_auth_state_machine import GuiAuthStateMachine
 from pc_agent.auth.rejected_flag import connection_rejected_flag_path
 from pc_agent.auth.token_source import load_auth_token, load_auth_token_from_db
-from pc_agent.update_adapter import EndpointRecommendation, EndpointUpdateAdapter
+from pc_agent.update_adapter import (
+    EndpointRecommendation,
+    EndpointUpdateAdapter,
+    load_endpoint_update_handoffs,
+)
 from pc_agent.ws_agent_runtime_helpers import (
     authenticate as helper_authenticate,
     connection_rejected_flag_path_for,
@@ -226,6 +230,7 @@ class WSAgent:
         self._cached_update_status: Dict[str, Any] = {}
         self._cached_update_checked_at: Optional[str] = None
         self._endpoint_recommendation: Optional[EndpointRecommendation] = None
+        self._pending_endpoint_handshake_confirmation: Optional[Dict[str, Any]] = None
         self._startup_recommended_update_checked = False
         self._startup_recommended_update_task: Optional[asyncio.Task] = None
 
@@ -356,6 +361,37 @@ class WSAgent:
             latest = entries[0]
             version = latest.get("version")
             operation_id = latest.get("operation_id")
+            correlated_handoff: Optional[Dict[str, Any]] = None
+            handoffs = load_endpoint_update_handoffs(Path(data_root))
+            if version and operation_id:
+                correlated_handoff = next(
+                    (
+                        handoff
+                        for handoff in reversed(handoffs)
+                        if handoff["operation_id"] == str(operation_id)
+                        and handoff["assigned_version"] == str(version)
+                    ),
+                    None,
+                )
+            elif version:
+                reason = str(latest.get("reason") or "")
+                history_rollback_version = str(
+                    latest.get("previous_version")
+                    or latest.get("rollback_version")
+                    or ""
+                ).strip()
+                for handoff in reversed(handoffs):
+                    if handoff["assigned_version"] != str(version):
+                        continue
+                    if (
+                        "rollback" in reason
+                        and history_rollback_version
+                        and handoff["rollback_version"] != history_rollback_version
+                    ):
+                        continue
+                    correlated_handoff = handoff
+                    operation_id = handoff["operation_id"]
+                    break
             if not version or not operation_id:
                 return None
             if latest.get("success") is True:
@@ -370,8 +406,21 @@ class WSAgent:
             }
             if latest.get("at"):
                 payload["failed_update_at"] = str(latest["at"])
-            if latest.get("message"):
+            if latest.get("message") and correlated_handoff is None:
                 payload["failed_update_message"] = str(latest["message"])
+            if "rollback" in payload["failed_update_reason"]:
+                rollback_version = str(
+                    latest.get("previous_version")
+                    or latest.get("rollback_version")
+                    or (
+                        correlated_handoff.get("rollback_version")
+                        if correlated_handoff
+                        else ""
+                    )
+                    or ""
+                ).strip()
+                if rollback_version:
+                    payload["rollback_update_version"] = rollback_version
             return payload
         except Exception as exc:
             logger.debug(
@@ -381,9 +430,9 @@ class WSAgent:
 
     async def _report_endpoint_terminal_observation(
         self, confirmation: Optional[Dict[str, str]]
-    ) -> None:
+    ) -> bool:
         if not confirmation:
-            return
+            return False
         operation_id = str(
             confirmation.get("last_update_operation_id")
             or confirmation.get("failed_update_operation_id")
@@ -391,9 +440,9 @@ class WSAgent:
         )
         try:
             if str(uuid.UUID(operation_id)) != operation_id:
-                return
+                return False
         except (ValueError, AttributeError):
-            return
+            return False
         if confirmation.get("applied_update_version"):
             status, version, safe_code = (
                 "applied",
@@ -416,12 +465,40 @@ class WSAgent:
                 )
             )
         else:
-            return
+            return False
         session = self._http_session
         if session is None or session.closed:
-            return
-        await self._endpoint_update_adapter(session).report_terminal(
+            return False
+        adapter = self._endpoint_update_adapter(session)
+        if not await adapter.retry_scheduled_acknowledgement(operation_id):
+            return False
+        if status == "rolled_back":
+            version = str(confirmation.get("rollback_update_version") or version)
+        return await adapter.report_terminal(
             operation_id, status=status, reported_version=version, safe_code=safe_code
+        )
+
+    def _stage_endpoint_handshake_confirmation(
+        self, request_id: str, confirmation: Optional[Dict[str, str]]
+    ) -> None:
+        self._pending_endpoint_handshake_confirmation = (
+            {
+                "request_id": request_id,
+                "confirmation": dict(confirmation),
+            }
+            if request_id and confirmation
+            else None
+        )
+
+    async def _send_handshake_with_update_confirmation(
+        self,
+        ws: ClientWebSocketResponse,
+        message: Dict[str, Any],
+        confirmation: Optional[Dict[str, str]],
+    ) -> None:
+        await ws.send_json(message)
+        self._stage_endpoint_handshake_confirmation(
+            str(message.get("request_id") or ""), confirmation
         )
 
     @staticmethod
@@ -752,6 +829,15 @@ class WSAgent:
         )
 
     @staticmethod
+    def _endpoint_update_channel() -> str:
+        configured = (
+            str(getattr(get_config().server, "update_channel", "stable") or "stable")
+            .strip()
+            .lower()
+        )
+        return "canary" if configured == "canary" else "stable"
+
+    @staticmethod
     def _endpoint_recommended_build(
         recommendation: EndpointRecommendation,
     ) -> Dict[str, Any]:
@@ -794,7 +880,7 @@ class WSAgent:
             created_session = True
         try:
             result = await self._endpoint_update_adapter(session).fetch_recommendation(
-                platform=target, channel="stable"
+                platform=target, channel=self._endpoint_update_channel()
             )
             if result.source == "legacy" and isinstance(result.legacy_result, dict):
                 return self._merge_update_status(result.legacy_result)
@@ -1087,11 +1173,16 @@ class WSAgent:
                     request_id=item.operation_id,
                     agent_id=self.device_id,
                 ),
+                download_auth_mode="none",
+                safe_diagnostics=True,
             )
             if getattr(scheduled, "status", None) != "success":
                 raise RuntimeError("endpoint update scheduling failed")
-            if not await adapter.acknowledge(item.operation_id, "scheduled"):
-                raise RuntimeError("endpoint scheduled acknowledgement failed")
+            scheduled_ack_delivered = await adapter.record_scheduled_handoff(
+                item.operation_id,
+                assigned_version=item.version,
+                rollback_version=AGENT_VERSION,
+            )
             self._set_cached_update_request_state(
                 "scheduled",
                 version=item.version,
@@ -1101,8 +1192,12 @@ class WSAgent:
             get_action_trace_recorder().record(
                 action_trace,
                 stage="scheduled",
-                status="ok",
-                summary="endpoint update scheduled",
+                status="ok" if scheduled_ack_delivered else "warning",
+                summary=(
+                    "endpoint update scheduled"
+                    if scheduled_ack_delivered
+                    else "endpoint update scheduled acknowledgement pending"
+                ),
                 details={"operation_id": item.operation_id, "version": item.version},
             )
             return {
@@ -2475,6 +2570,7 @@ class WSAgent:
 
             # Handshake ACK
             if msg_type == "handshake_ack":
+                pending_confirmation = self._pending_endpoint_handshake_confirmation
                 server_capabilities = payload.get("server_capabilities", [])
                 if isinstance(server_capabilities, list):
                     self.server_capabilities = set(
@@ -2509,6 +2605,15 @@ class WSAgent:
                     logger.debug(f"[agent-observer] telemetry upload skipped: {exc}")
                 logger.info("✅ Получен handshake_ack от сервера")
                 await self._publish_connection_state("connected", "WS подключён")
+                if (
+                    pending_confirmation
+                    and pending_confirmation.get("request_id") == request_id
+                ):
+                    delivered = await self._report_endpoint_terminal_observation(
+                        pending_confirmation.get("confirmation")
+                    )
+                    if delivered:
+                        self._pending_endpoint_handshake_confirmation = None
                 return
 
             # Protocol V3: outbox_ack (предпочтительный)
@@ -3878,19 +3983,13 @@ class WSAgent:
 
                             self._current_trace_id = handshake_trace_id
 
-                            await ws.send_json(handshake_message)
-                            await self._report_endpoint_terminal_observation(
-                                latest_update_confirmation
+                            await self._send_handshake_with_update_confirmation(
+                                ws, handshake_message, latest_update_confirmation
                             )
                             has_tok = bool(handshake_data.get("token"))
                             logger.info(f"🤝 Отправлен handshake с аутентификацией")
                             logger.debug(
                                 f"   Токен в handshake: {'да' if has_tok else 'нет'}"
-                                + (
-                                    f" ({handshake_data['token'][:12]}...)"
-                                    if has_tok
-                                    else ""
-                                )
                             )
                             logger.debug(
                                 f"   Device ID: {handshake_data['uuid'][:8]}..."

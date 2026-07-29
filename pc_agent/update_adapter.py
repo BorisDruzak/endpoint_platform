@@ -79,6 +79,12 @@ _SAFE_CODES = {
     "launcher_rolled_back",
     "post_restart_handshake_confirmed",
 }
+_STATE_FIELDS = {
+    "operation_id",
+    "assigned_version",
+    "rollback_version",
+    "scheduled_ack_delivered_at",
+}
 
 
 class EndpointUpdateAdapter:
@@ -139,12 +145,14 @@ class EndpointUpdateAdapter:
                         "endpoint", None, False, "endpoint_unavailable"
                     )
                 raw_body = await response.text()
-        except (aiohttp.ClientConnectionError, asyncio.TimeoutError):
+        except (aiohttp.ClientError, asyncio.TimeoutError) as exc:
             if received_primary_response:
                 return RecommendationResult(
                     "endpoint", None, False, "endpoint_unavailable"
                 )
-            return await self._fetch_legacy()
+            if isinstance(exc, (aiohttp.ClientConnectionError, asyncio.TimeoutError)):
+                return await self._fetch_legacy()
+            return RecommendationResult("endpoint", None, False, "endpoint_unavailable")
 
         recommendation = _parse_recommendation(
             raw_body, platform=platform, channel=channel
@@ -172,6 +180,64 @@ class EndpointUpdateAdapter:
                 return response.status == 204
         except (aiohttp.ClientError, asyncio.TimeoutError):
             return False
+
+    async def record_scheduled_handoff(
+        self,
+        operation_id: str,
+        *,
+        assigned_version: str,
+        rollback_version: str,
+    ) -> bool:
+        if (
+            self._data_root is None
+            or not _is_operation_id(operation_id)
+            or not _SEMVER.fullmatch(assigned_version)
+            or not _SEMVER.fullmatch(rollback_version)
+        ):
+            return False
+        records = self._load_update_state()
+        existing = next(
+            (record for record in records if record["operation_id"] == operation_id),
+            None,
+        )
+        if existing is None:
+            records.append(
+                {
+                    "operation_id": operation_id,
+                    "assigned_version": assigned_version,
+                    "rollback_version": rollback_version,
+                    "scheduled_ack_delivered_at": None,
+                }
+            )
+            self._write_update_state(records)
+        elif (
+            existing["assigned_version"] != assigned_version
+            or existing["rollback_version"] != rollback_version
+        ):
+            return False
+        return await self.retry_scheduled_acknowledgement(operation_id)
+
+    async def retry_scheduled_acknowledgement(self, operation_id: str) -> bool:
+        if self._data_root is None or not _is_operation_id(operation_id):
+            return False
+        records = self._load_update_state()
+        record = next(
+            (
+                candidate
+                for candidate in records
+                if candidate["operation_id"] == operation_id
+            ),
+            None,
+        )
+        if record is None:
+            return False
+        if record["scheduled_ack_delivered_at"] is not None:
+            return True
+        if not await self.acknowledge(operation_id, "scheduled"):
+            return False
+        record["scheduled_ack_delivered_at"] = datetime.now(timezone.utc).isoformat()
+        self._write_update_state(records)
+        return True
 
     async def report_terminal(
         self,
@@ -232,6 +298,23 @@ class EndpointUpdateAdapter:
     def _report_journal_path(self) -> Path:
         assert self._data_root is not None
         return self._data_root / "updates" / "endpoint_update_reports.json"
+
+    def _update_state_path(self) -> Path:
+        assert self._data_root is not None
+        return self._data_root / "updates" / "endpoint_update_state.json"
+
+    def _load_update_state(self) -> list[dict[str, str | None]]:
+        assert self._data_root is not None
+        return load_endpoint_update_handoffs(self._data_root)
+
+    def _write_update_state(self, records: list[dict[str, str | None]]) -> None:
+        path = self._update_state_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        temporary = path.with_name(f"{path.name}.{uuid4().hex}.tmp")
+        temporary.write_text(
+            json.dumps(records[-100:], ensure_ascii=False), encoding="utf-8"
+        )
+        temporary.replace(path)
 
     def _load_or_create_report(
         self, operation_id: str, status: str, reported_version: str, safe_code: str
@@ -362,3 +445,34 @@ def _validate_wire_form(
 
 def _is_operation_id(value: str) -> bool:
     return bool(_LOWERCASE_UUID.fullmatch(value))
+
+
+def load_endpoint_update_handoffs(
+    data_root: Path,
+) -> list[dict[str, str | None]]:
+    path = Path(data_root) / "updates" / "endpoint_update_state.json"
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8")) if path.exists() else []
+    except (OSError, json.JSONDecodeError):
+        return []
+    if not isinstance(raw, list):
+        return []
+    records: list[dict[str, str | None]] = []
+    for item in raw:
+        if (
+            not isinstance(item, dict)
+            or set(item) != _STATE_FIELDS
+            or not isinstance(item.get("operation_id"), str)
+            or not _is_operation_id(item["operation_id"])
+            or not isinstance(item.get("assigned_version"), str)
+            or not _SEMVER.fullmatch(item["assigned_version"])
+            or not isinstance(item.get("rollback_version"), str)
+            or not _SEMVER.fullmatch(item["rollback_version"])
+            or (
+                item.get("scheduled_ack_delivered_at") is not None
+                and not isinstance(item.get("scheduled_ack_delivered_at"), str)
+            )
+        ):
+            continue
+        records.append({key: item[key] for key in _STATE_FIELDS})
+    return records

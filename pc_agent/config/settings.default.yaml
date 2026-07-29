@@ -6,6 +6,7 @@ server:
   api_url: "http://192.168.100.17:8666/api"
   http_port: 12345
   reconnect_interval: 5
+  update_channel: "stable"
 
 security:
   allow_remote_code: false
