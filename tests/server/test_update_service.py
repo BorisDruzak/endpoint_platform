@@ -567,7 +567,8 @@ async def test_rollback_is_new_older_compatible_rollout_with_trigger_reason(
     )
     assert rollback.mode == "rollback"
     assert rollback.build_id == older.id
-    assert trigger.rollout_identifier in (rollback.reason or "")
+    assert str(trigger.id) in (rollback.reason or "")
+    assert trigger.rollout_identifier not in (rollback.reason or "")
     assert "restore last known good" in (rollback.reason or "")
     assert rollback.status == "active"
     rollback_targets = (
@@ -791,6 +792,16 @@ async def test_nonterminal_rollout_cannot_complete_and_unsafe_reason_is_rejected
     build = await _build(session)
     device = await _device(session, "terminal-gate")
     hostile_reasons = (
+        "rollback /",
+        "failed-/var/lib/endpoint/state.json",
+        "{}",
+        "[]",
+        "access_token=abc123",
+        "log_output=agent dump",
+        "stacktrace follows",
+        "pending.update.json payload",
+        "password abc123",
+        "cookie abc123",
         r"failed at C:\agent\pending_update.json",
         "failed at C:/agent/pending_update.json",
         "failed at C:/",

@@ -40,28 +40,16 @@ _ACTIVE_TARGET_STATUSES = ("assigned", "requested", "scheduled")
 _TERMINAL_TARGET_STATUSES = ("applied", "failed", "rolled_back", "cancelled")
 _PLATFORMS = ("linux_amd64", "windows_amd64")
 _SAFE_IDENTIFIER = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
-_SENSITIVE_REASON = re.compile(
-    r"(?i)(?:\bbearer\b|\bauthorization\b|\bpassword\b|\bsecret\b|"
-    r"\bcookie\b|\btoken\b|\blogs?\b|\bstdout\b|\bstderr\b|"
-    r"\btrace(?:back)?\b|\bstack\s+trace\b|(?:file|https?)://)"
-)
-_ABSOLUTE_PATH_REASON = re.compile(
-    r"(?i)(?:\b[A-Z]:[\\/]|"
-    r"\\\\[^\s\\]+\\[^\s\\]+|//[^\s/]+/[^\s/]+|"
-    r"\b(?:at|path|file|directory|dir)\s*(?:=|:)?\s*/(?=\s|$)|"
-    r"(?<![\w.-])/(?![/\s])(?:[^\s/]+(?:/[^\s/]+)*))"
-)
-_ARTIFACT_OR_PENDING_REASON = re.compile(
+# Service-only persistence boundary: the public wire contract bounds length,
+# while this grammar prevents paths and serialized payloads from entering DB/audit.
+_SAFE_REASON_GRAMMAR = re.compile(r"^(?:[^\W_]|[ .,:;()!?&#+%'\-–—])+$")
+_DIAGNOSTIC_REASON_MARKER = re.compile(
     r"(?i)(?:"
-    r"\bpending(?:[_ -]?update)(?:[_ -]?(?:payload|manifest))?(?:\.json)?\b|"
-    r"\b[A-Za-z0-9][A-Za-z0-9._-]*\.(?:zip|tar\.gz|tgz|7z)\b)"
-)
-_JSON_LIKE_REASON = re.compile(r'(?:\{[^{}]*[:,"][^{}]*\}|\[[^\[\]]*[:,"][^\[\]]*\])')
-_UNSAFE_REASON_PATTERNS = (
-    _SENSITIVE_REASON,
-    _ABSOLUTE_PATH_REASON,
-    _ARTIFACT_OR_PENDING_REASON,
-    _JSON_LIKE_REASON,
+    r"\b(?:token|secret|bearer|authorization|password|cookie|logs?|trace|traceback|"
+    r"stacktrace|pending|archive|stdout|stderr)\b|"
+    r"\baccess(?:[ ._-]+)token\b|\blog(?:[ ._-]+)output\b|"
+    r"\bstack(?:[ ._-]+)trace\b|\bpending(?:[ ._-]+)update\b|"
+    r"\.(?:zip|tar\.gz|tgz|7z)\b)"
 )
 
 
@@ -92,6 +80,7 @@ def _actor_identifier(actor: object) -> str:
 
 
 def _safe_reason(value: str | None, *, required: bool = False) -> str | None:
+    """Apply the service-only public-reason persistence safety boundary."""
     if value is None:
         if required:
             raise UpdateValidationError("a bounded safe reason is required")
@@ -102,7 +91,8 @@ def _safe_reason(value: str | None, *, required: bool = False) -> str | None:
         or value != value.strip()
         or len(value) > 512
         or any(ord(character) < 32 or ord(character) == 127 for character in value)
-        or any(pattern.search(value) for pattern in _UNSAFE_REASON_PATTERNS)
+        or not _SAFE_REASON_GRAMMAR.fullmatch(value)
+        or _DIAGNOSTIC_REASON_MARKER.search(value)
     ):
         raise UpdateValidationError("reason must be bounded safe text")
     return value
@@ -688,7 +678,7 @@ async def create_rollback_rollout(
     if _compare_semver(rollback_build.version, trigger_build.version) >= 0:
         raise UpdateStateError("rollback build must be older than trigger build")
     safe_reason = _safe_reason(reason, required=True)
-    combined_reason = f"rollback_of={trigger.rollout_identifier}; {safe_reason}"
+    combined_reason = f"rollback of {trigger.id}; {safe_reason}"
     if len(combined_reason) > 512:
         raise UpdateValidationError("rollback reason is too long")
     normalized_ids, normalized_reason = await _validate_rollout_input(
