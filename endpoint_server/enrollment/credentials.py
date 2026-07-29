@@ -82,6 +82,15 @@ def generate_retry_receipt() -> str:
     )
 
 
+def retry_receipt_digest(receipt: str, device_token_pepper: bytes) -> str:
+    """Return the contextual HMAC digest used for retry-envelope lookup."""
+    return _context_digest(
+        receipt,
+        device_token_pepper,
+        _RECEIPT_DIGEST_CONTEXT,
+    )
+
+
 def device_token_digest(token: str, device_token_pepper: bytes) -> str:
     """Return the HMAC-SHA256 digest stored for a device bearer token."""
     if not token or not device_token_pepper:
@@ -176,11 +185,7 @@ def seal_retry_envelope(
         raise ValueError("device token and hardware fingerprint must not be empty")
 
     receipt = generate_retry_receipt()
-    receipt_digest = _context_digest(
-        receipt,
-        device_token_pepper,
-        _RECEIPT_DIGEST_CONTEXT,
-    )
+    receipt_digest = retry_receipt_digest(receipt, device_token_pepper)
     fingerprint_digest = _context_digest(
         hardware_fingerprint,
         device_token_pepper,

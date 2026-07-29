@@ -70,6 +70,36 @@ def claim_token_digest(token: str, pepper: bytes) -> str:
     return _digest(token, pepper, _CLAIM_CONTEXT)
 
 
+def install_claim_bindings_match(
+    claim: EnrollmentClaim,
+    pepper: bytes,
+    *,
+    installation_session: str,
+    hardware_fingerprint: str,
+) -> bool:
+    """Check stored claim bindings without exposing which input mismatched."""
+    try:
+        session_digest = _bound_digest(
+            installation_session,
+            pepper,
+            _INSTALL_SESSION_CONTEXT,
+        )
+        fingerprint_digest = _bound_digest(
+            hardware_fingerprint,
+            pepper,
+            _FINGERPRINT_CONTEXT,
+        )
+    except ValueError:
+        return False
+    return _digest_matches(
+        session_digest,
+        claim.installation_session_digest,
+    ) and _digest_matches(
+        fingerprint_digest,
+        claim.fingerprint_digest,
+    )
+
+
 def _bound_digest(value: str, pepper: bytes, context: bytes) -> str:
     return _digest(value, pepper, context)
 
@@ -191,7 +221,14 @@ def issue_install_claim(
     expiry = _aware_utc(expires_at, "claim expiry")
     if expiry <= issued_at:
         raise ValueError("claim expiry must be in the future")
-    if not _campaign_allows(campaign, now=issued_at):
+    if not (
+        campaign.revoked_at is None
+        and campaign.disabled_at is None
+        and campaign.expires_at is not None
+        and campaign.expires_at.tzinfo is not None
+        and issued_at < campaign.expires_at
+        and campaign.use_count < campaign.max_uses
+    ):
         raise EnrollmentDenied("Enrollment denied")
     if campaign.expires_at is None or campaign.expires_at.tzinfo is None:
         raise ValueError("campaign expiry must be timezone-aware")
@@ -220,37 +257,46 @@ def issue_install_claim(
     return IssuedInstallClaim(token=token, record=record)
 
 
-def _campaign_allows(
+def campaign_request_matches(
     campaign: EnrollmentCampaign,
     *,
     now: datetime,
-    source_address: IPv4Address | IPv6Address | None = None,
-    platform: str | None = None,
+    source_address: IPv4Address | IPv6Address,
+    platform: str,
 ) -> bool:
+    """Validate immutable request context without considering remaining quota."""
     expiry = campaign.expires_at
-    active = (
+    if not (
         campaign.revoked_at is None
         and campaign.disabled_at is None
         and expiry is not None
         and expiry.tzinfo is not None
         and now < expiry
-        and campaign.use_count < campaign.max_uses
+        and platform == campaign.target_platform
+    ):
+        return False
+    try:
+        networks = tuple(
+            ipaddress.ip_network(value, strict=True) for value in campaign.allowed_cidrs
+        )
+    except ValueError:
+        return False
+    return any(source_address in network for network in networks)
+
+
+def _campaign_allows(
+    campaign: EnrollmentCampaign,
+    *,
+    now: datetime,
+    source_address: IPv4Address | IPv6Address,
+    platform: str,
+) -> bool:
+    return campaign.use_count < campaign.max_uses and campaign_request_matches(
+        campaign,
+        now=now,
+        source_address=source_address,
+        platform=platform,
     )
-    if not active:
-        return False
-    if platform is not None and platform != campaign.target_platform:
-        return False
-    if source_address is not None:
-        try:
-            networks = tuple(
-                ipaddress.ip_network(value, strict=True)
-                for value in campaign.allowed_cidrs
-            )
-        except ValueError:
-            return False
-        if not any(source_address in network for network in networks):
-            return False
-    return True
 
 
 async def reserve_campaign_use(
@@ -354,16 +400,6 @@ async def consume_install_claim(
     checked_at = _aware_utc(now or datetime.now(UTC), "now")
     try:
         token_digest = claim_token_digest(token, pepper)
-        session_digest = _bound_digest(
-            installation_session,
-            pepper,
-            _INSTALL_SESSION_CONTEXT,
-        )
-        fingerprint_digest = _bound_digest(
-            hardware_fingerprint,
-            pepper,
-            _FINGERPRINT_CONTEXT,
-        )
     except ValueError as error:
         raise EnrollmentDenied("Enrollment denied") from error
     claim_result = await session.execute(
@@ -372,13 +408,18 @@ async def consume_install_claim(
         .with_for_update()
     )
     claim = claim_result.scalar_one_or_none()
+    valid_bindings = claim is not None and install_claim_bindings_match(
+        claim,
+        pepper,
+        installation_session=installation_session,
+        hardware_fingerprint=hardware_fingerprint,
+    )
     if (
         claim is None
         or claim.claimed_at is not None
         or claim.expires_at.tzinfo is None
         or checked_at >= claim.expires_at
-        or not _digest_matches(session_digest, claim.installation_session_digest)
-        or not _digest_matches(fingerprint_digest, claim.fingerprint_digest)
+        or not valid_bindings
     ):
         raise EnrollmentDenied("Enrollment denied")
     campaign_result = await session.execute(
