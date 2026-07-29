@@ -4,24 +4,41 @@ from __future__ import annotations
 
 import asyncio
 import os
-from collections.abc import Iterator
+from collections.abc import AsyncIterator, Iterator
+from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
 
 import asyncpg
 import pytest
+import pytest_asyncio
 from alembic import command
 from alembic.config import Config
-from sqlalchemy import UniqueConstraint
+from sqlalchemy import UniqueConstraint, func, select
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.engine import make_url
 from sqlalchemy.schema import CreateIndex
 
+from endpoint_contracts import (
+    AgentUpdateAcknowledgementV1,
+    AgentUpdateReportV1,
+    UpdateBuildManifestV1,
+)
 from endpoint_server.db.models import (
+    AuditEvent,
+    Device,
     UpdateBuild,
     UpdateReport,
     UpdateRollout,
     UpdateTarget,
+)
+from endpoint_server.db.session import AsyncSessionProvider
+from endpoint_server.updates import (
+    UpdateConflict,
+    create_rollout,
+    record_ack,
+    record_report,
+    register_build,
 )
 
 
@@ -64,9 +81,7 @@ def update_migration_database_urls() -> Iterator[tuple[str, str]]:
         hide_password=False
     )
     database_name = f"endpoint_updates_{uuid4().hex}"
-    asyncio.run(
-        _execute(plain_admin_url, f'CREATE DATABASE "{database_name}"')
-    )
+    asyncio.run(_execute(plain_admin_url, f'CREATE DATABASE "{database_name}"'))
     plain_database_url = parsed.set(
         drivername="postgresql", database=database_name
     ).render_as_string(hide_password=False)
@@ -83,9 +98,7 @@ def update_migration_database_urls() -> Iterator[tuple[str, str]]:
                 f"WHERE datname = '{database_name}' AND pid <> pg_backend_pid()",
             )
         )
-        asyncio.run(
-            _execute(plain_admin_url, f'DROP DATABASE "{database_name}"')
-        )
+        asyncio.run(_execute(plain_admin_url, f'DROP DATABASE "{database_name}"'))
 
 
 def test_update_models_persist_safe_control_plane_state() -> None:
@@ -225,9 +238,7 @@ def test_update_downgrade_preserves_history_and_neutralizes_active_state(
     )
     assert len(upgraded) == 1
     assert upgraded[0]["channel"] == f"legacy-{build_id.hex}"
-    assert upgraded[0]["artifact_url"] == (
-        f"https://invalid.invalid/legacy/{build_id}"
-    )
+    assert upgraded[0]["artifact_url"] == (f"https://invalid.invalid/legacy/{build_id}")
     assert upgraded[0]["artifact_name"] == f"legacy-{build_id.hex}.zip"
     assert upgraded[0]["archive_type"] == "zip"
     assert upgraded[0]["size"] == 1
@@ -356,3 +367,282 @@ def test_update_downgrade_preserves_history_and_neutralizes_active_state(
     assert all(row["target_status"] == "cancelled" for row in round_trip)
     assert {row["report_key"] for row in round_trip} == {"legacy-report", None}
     assert {row["report_status"] for row in round_trip} == {"legacy_success", None}
+
+
+@pytest.fixture(scope="module")
+def update_service_database_url() -> Iterator[str]:
+    admin_url = os.environ.get("ENDPOINT_TEST_POSTGRES_URL")
+    if not admin_url:
+        pytest.skip("set ENDPOINT_TEST_POSTGRES_URL to a disposable PostgreSQL server")
+    parsed = make_url(admin_url)
+    if parsed.host not in {"127.0.0.1", "localhost", "::1"}:
+        pytest.fail("update service tests may only use loopback PostgreSQL")
+    plain_admin_url = parsed.set(drivername="postgresql").render_as_string(
+        hide_password=False
+    )
+    database_name = f"endpoint_update_service_{uuid4().hex}"
+    asyncio.run(_execute(plain_admin_url, f'CREATE DATABASE "{database_name}"'))
+    async_url = parsed.set(
+        drivername="postgresql+asyncpg",
+        database=database_name,
+    ).render_as_string(hide_password=False)
+    command.upgrade(_alembic_config(async_url), "head")
+    try:
+        yield async_url
+    finally:
+        asyncio.run(
+            _execute(
+                plain_admin_url,
+                "SELECT pg_terminate_backend(pid) FROM pg_stat_activity "
+                f"WHERE datname = '{database_name}' AND pid <> pg_backend_pid()",
+            )
+        )
+        asyncio.run(_execute(plain_admin_url, f'DROP DATABASE "{database_name}"'))
+
+
+@pytest_asyncio.fixture
+async def update_service_provider(
+    update_service_database_url: str,
+) -> AsyncIterator[AsyncSessionProvider]:
+    provider = AsyncSessionProvider(update_service_database_url)
+    try:
+        yield provider
+    finally:
+        await provider.close()
+
+
+def _postgres_manifest(
+    *,
+    build_identifier: str,
+    version: str,
+    channel: str,
+    digest_character: str,
+) -> UpdateBuildManifestV1:
+    artifact_name = f"{build_identifier}.tar.gz"
+    return UpdateBuildManifestV1(
+        schema_version="update_build_manifest_v1",
+        build_identifier=build_identifier,
+        version=version,
+        platform="linux_amd64",
+        channel=channel,
+        artifact_url=f"https://releases.example.test/{artifact_name}",
+        artifact_name=artifact_name,
+        archive_type="tar.gz",
+        sha256=digest_character * 64,
+        size=8192,
+        release_notes=None,
+    )
+
+
+@pytest.mark.asyncio
+async def test_concurrent_active_assignments_leave_one_target(
+    update_service_provider: AsyncSessionProvider,
+) -> None:
+    """Device-row locking and the partial unique index must elect one assignment."""
+    now = datetime.now(UTC)
+    device = Device(
+        id=uuid4(),
+        device_identifier=f"update-race-{uuid4().hex}",
+        display_name="Update assignment race",
+        retired_at=None,
+    )
+    async with update_service_provider() as session:
+        first_build = await register_build(
+            session,
+            _postgres_manifest(
+                build_identifier=f"race-first-{uuid4().hex}",
+                version="3.0.0",
+                channel="stable",
+                digest_character="3",
+            ),
+            "postgres-admin",
+            f"build-first-{uuid4().hex}",
+            now=now,
+        )
+        second_build = await register_build(
+            session,
+            _postgres_manifest(
+                build_identifier=f"race-second-{uuid4().hex}",
+                version="3.1.0",
+                channel="canary",
+                digest_character="4",
+            ),
+            "postgres-admin",
+            f"build-second-{uuid4().hex}",
+            now=now,
+        )
+        session.add(device)
+        await session.commit()
+
+    async def assign(build_id: object, suffix: str) -> object:
+        async with update_service_provider() as session:
+            try:
+                rollout = await create_rollout(
+                    session,
+                    build_id,
+                    "canary",
+                    [device.id],
+                    f"{suffix} race assignment",
+                    "postgres-admin",
+                    f"assign-{suffix}-{uuid4().hex}",
+                    now=now,
+                )
+                await session.commit()
+                return rollout
+            except Exception as error:
+                await session.rollback()
+                return error
+
+    outcomes = await asyncio.gather(
+        assign(first_build.id, "first"),
+        assign(second_build.id, "second"),
+    )
+    assert sum(isinstance(item, UpdateRollout) for item in outcomes) == 1
+    assert sum(isinstance(item, UpdateConflict) for item in outcomes) == 1
+
+    async with update_service_provider() as session:
+        active_targets = await session.scalar(
+            select(func.count())
+            .select_from(UpdateTarget)
+            .where(
+                UpdateTarget.device_id == device.id,
+                UpdateTarget.status.in_(("assigned", "requested", "scheduled")),
+            )
+        )
+        rollout_audits = await session.scalar(
+            select(func.count())
+            .select_from(AuditEvent)
+            .where(
+                AuditEvent.action == "updates.rollout_created",
+                AuditEvent.details["target_count"].as_integer() == 1,
+            )
+        )
+        target_audits = await session.scalar(
+            select(func.count())
+            .select_from(AuditEvent)
+            .where(
+                AuditEvent.action == "updates.target_assigned",
+                AuditEvent.details["device_id"].as_string() == str(device.id),
+            )
+        )
+    assert active_targets == 1
+    assert rollout_audits >= 1
+    assert target_audits == 1
+
+
+@pytest.mark.asyncio
+async def test_concurrent_conflicting_report_key_persists_one_terminal_result(
+    update_service_provider: AsyncSessionProvider,
+) -> None:
+    """Target-row locking must make one report-key payload authoritative."""
+    now = datetime.now(UTC)
+    device = Device(
+        id=uuid4(),
+        device_identifier=f"report-race-{uuid4().hex}",
+        display_name="Update report race",
+        retired_at=None,
+    )
+    async with update_service_provider() as session:
+        build = await register_build(
+            session,
+            _postgres_manifest(
+                build_identifier=f"report-build-{uuid4().hex}",
+                version="4.0.0",
+                channel="stable",
+                digest_character="5",
+            ),
+            "postgres-admin",
+            f"report-build-{uuid4().hex}",
+            now=now,
+        )
+        session.add(device)
+        await session.flush()
+        rollout = await create_rollout(
+            session,
+            build.id,
+            "canary",
+            [device.id],
+            "report race assignment",
+            "postgres-admin",
+            f"report-rollout-{uuid4().hex}",
+            now=now,
+        )
+        target = await session.scalar(
+            select(UpdateTarget).where(UpdateTarget.rollout_id == rollout.id)
+        )
+        assert target is not None
+        await record_ack(
+            session,
+            device_id=device.id,
+            operation_id=target.operation_id,
+            acknowledgement=AgentUpdateAcknowledgementV1(
+                schema_version="agent_update_ack_v1",
+                status="requested",
+            ),
+            request_id=f"report-requested-{uuid4().hex}",
+            now=now,
+        )
+        await record_ack(
+            session,
+            device_id=device.id,
+            operation_id=target.operation_id,
+            acknowledgement=AgentUpdateAcknowledgementV1(
+                schema_version="agent_update_ack_v1",
+                status="scheduled",
+            ),
+            request_id=f"report-scheduled-{uuid4().hex}",
+            now=now,
+        )
+        operation_id = target.operation_id
+        await session.commit()
+
+    async def report(status: str, safe_code: str) -> object:
+        async with update_service_provider() as session:
+            try:
+                result = await record_report(
+                    session,
+                    device_id=device.id,
+                    operation_id=operation_id,
+                    report=AgentUpdateReportV1(
+                        schema_version="agent_update_report_v1",
+                        report_key="same-operation-result",
+                        status=status,
+                        reported_version="4.0.0",
+                        safe_code=safe_code,
+                    ),
+                    request_id=f"report-{status}-{uuid4().hex}",
+                    now=now,
+                )
+                await session.commit()
+                return result
+            except Exception as error:
+                await session.rollback()
+                return error
+
+    outcomes = await asyncio.gather(
+        report("applied", "update.applied"),
+        report("failed", "update.failed"),
+    )
+    assert sum(isinstance(item, UpdateReport) for item in outcomes) == 1
+    assert sum(isinstance(item, UpdateConflict) for item in outcomes) == 1
+
+    async with update_service_provider() as session:
+        reports = (
+            await session.scalars(
+                select(UpdateReport).where(UpdateReport.update_target_id == target.id)
+            )
+        ).all()
+        persisted_target = await session.get(UpdateTarget, target.id)
+        report_audits = (
+            await session.scalars(
+                select(AuditEvent).where(
+                    AuditEvent.action == "updates.target_reported",
+                    AuditEvent.object_identifier == str(target.id),
+                )
+            )
+        ).all()
+    assert len(reports) == 1
+    assert persisted_target is not None
+    assert persisted_target.status == reports[0].status
+    assert persisted_target.status in {"applied", "failed"}
+    assert len(report_audits) == 1
