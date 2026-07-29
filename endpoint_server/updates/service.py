@@ -19,6 +19,7 @@ from endpoint_contracts import (
     UpdateBuildManifestV1,
     UpdateRolloutCreateV1,
 )
+from endpoint_contracts.update_safety import validate_public_update_prose
 from endpoint_server.audit.service import append_audit_event
 from endpoint_server.db.models import (
     Device,
@@ -40,17 +41,6 @@ _ACTIVE_TARGET_STATUSES = ("assigned", "requested", "scheduled")
 _TERMINAL_TARGET_STATUSES = ("applied", "failed", "rolled_back", "cancelled")
 _PLATFORMS = ("linux_amd64", "windows_amd64")
 _SAFE_IDENTIFIER = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
-# Service-only persistence boundary: the public wire contract bounds length,
-# while this grammar prevents paths and serialized payloads from entering DB/audit.
-_SAFE_REASON_GRAMMAR = re.compile(r"^(?:[^\W_]|[ .,:;()!?&#+%'\-–—])+$")
-_DIAGNOSTIC_REASON_MARKER = re.compile(
-    r"(?i)(?:"
-    r"\b(?:token|secret|bearer|authorization|password|cookie|logs?|trace|traceback|"
-    r"stacktrace|pending|archive|stdout|stderr)\b|"
-    r"\baccess(?:[ ._-]+)token\b|\blog(?:[ ._-]+)output\b|"
-    r"\bstack(?:[ ._-]+)trace\b|\bpending(?:[ ._-]+)update\b|"
-    r"\.(?:zip|tar\.gz|tgz|7z)\b)"
-)
 
 
 def _timestamp(value: datetime | None) -> datetime:
@@ -81,21 +71,15 @@ def _actor_identifier(actor: object) -> str:
 
 def _safe_reason(value: str | None, *, required: bool = False) -> str | None:
     """Apply the service-only public-reason persistence safety boundary."""
-    if value is None:
-        if required:
-            raise UpdateValidationError("a bounded safe reason is required")
-        return None
-    if (
-        not isinstance(value, str)
-        or not value
-        or value != value.strip()
-        or len(value) > 512
-        or any(ord(character) < 32 or ord(character) == 127 for character in value)
-        or not _SAFE_REASON_GRAMMAR.fullmatch(value)
-        or _DIAGNOSTIC_REASON_MARKER.search(value)
-    ):
-        raise UpdateValidationError("reason must be bounded safe text")
-    return value
+    try:
+        return validate_public_update_prose(
+            value,
+            field_name="reason",
+            max_length=512,
+            required=required,
+        )
+    except ValueError as error:
+        raise UpdateValidationError("reason must be bounded safe text") from error
 
 
 def _uuid(value: UUID | str, name: str) -> UUID:
@@ -145,6 +129,17 @@ def _report(
 
 
 def _build_values(manifest: UpdateBuildManifestV1) -> dict[str, object]:
+    try:
+        release_notes = validate_public_update_prose(
+            manifest.release_notes,
+            field_name="release notes",
+            max_length=4096,
+            allow_newlines=True,
+        )
+    except ValueError as error:
+        raise UpdateValidationError(
+            "release notes must be bounded safe text"
+        ) from error
     return {
         "build_identifier": manifest.build_identifier,
         "version": manifest.version,
@@ -156,7 +151,7 @@ def _build_values(manifest: UpdateBuildManifestV1) -> dict[str, object]:
         "archive_type": manifest.archive_type,
         "sha256_digest": manifest.sha256,
         "size": manifest.size,
-        "release_notes": manifest.release_notes,
+        "release_notes": release_notes,
     }
 
 

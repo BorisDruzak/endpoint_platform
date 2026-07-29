@@ -490,6 +490,8 @@ def test_update_contract_artifacts_publish_strict_safe_control_plane_schemas() -
     assert manifest_schema["properties"]["sha256"]["pattern"].endswith(r"(?![\s\S])")
     assert report_schema["properties"]["report_key"]["pattern"].endswith(r"(?![\s\S])")
     assert "model-only" in manifest_schema["$comment"].lower()
+    assert "release_notes" in manifest_schema["$comment"]
+    assert "credential" in manifest_schema["$comment"].lower()
 
     rollout_schema = json.loads(
         Path("contracts/jsonschema/update-rollout-v1.json").read_text(encoding="utf-8")

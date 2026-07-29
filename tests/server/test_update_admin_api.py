@@ -180,7 +180,7 @@ async def test_scoped_admin_registers_build_with_hmac_audit_correlation(
     app = create_app(_settings(), session_provider)
     principal = _principal(["updates:write"])
     app.dependency_overrides[require_admin] = lambda: principal
-    marker = r"Bearer trace-marker C:\agent\pending_update.json"
+    marker = r"Bearer trace-marker raw-log C:\agent\pending_update.json"
     transport = httpx.ASGITransport(
         app=app,
         client=("127.0.0.1", 12345),
@@ -207,11 +207,54 @@ async def test_scoped_admin_registers_build_with_hmac_audit_correlation(
         )
     assert build is not None
     assert audit is not None
+    assert build.release_notes == "Endpoint Platform 2.0.0"
     assert audit.actor_identifier == str(principal.user.id)
     assert audit.request_id.startswith("external_")
     assert marker not in audit.request_id
     assert marker not in str(audit.details)
+    assert "raw-log" not in str(audit.details)
     assert "pending_update.json" not in str(audit.details)
+
+
+@pytest.mark.asyncio
+async def test_admin_build_rejects_sensitive_release_notes_without_persistence(
+    session_provider: async_sessionmaker[AsyncSession],
+) -> None:
+    """Build input must not persist credential-shaped, path, trace, or log text."""
+    app = create_app(_settings(), session_provider)
+    app.dependency_overrides[require_admin] = lambda: _principal(["updates:write"])
+    hostile_values = (
+        "C" * 43,
+        "D" * 43,
+        "Bearer raw-release-secret",
+        r"failed at C:\agent\pending_update.json",
+        "traceback follows",
+        "raw log follows",
+    )
+    header_marker = r"Bearer header-secret C:\agent\pending_update.json"
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(
+            app=app,
+            client=("127.0.0.1", 12345),
+        ),
+        base_url="https://endpoint.sosnadmin.local",
+    ) as client:
+        responses = [
+            await client.post(
+                "/api/admin/updates/builds",
+                json={**MANIFEST, "release_notes": value},
+                headers={"X-Request-ID": header_marker},
+            )
+            for value in hostile_values
+        ]
+
+    assert all(response.status_code == 422 for response in responses)
+    for response, value in zip(responses, hostile_values, strict=True):
+        assert value not in response.text
+        assert "pending_update.json" not in response.text
+    async with session_provider() as session:
+        assert await session.scalar(select(UpdateBuild.id)) is None
+        assert await session.scalar(select(AuditEvent.id)) is None
 
 
 @pytest.mark.asyncio

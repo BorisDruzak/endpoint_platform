@@ -1,5 +1,5 @@
 {
-  "$comment": "Model-only constraints: artifact_name suffix must match archive_type.",
+  "$comment": "Model-only constraints: artifact_name suffix must match archive_type; release_notes must be public-safe prose without credential, diagnostic, path or serialized payload shapes.",
   "additionalProperties": false,
   "properties": {
     "archive_type": {

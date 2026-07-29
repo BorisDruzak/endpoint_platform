@@ -15,6 +15,7 @@ from pydantic import (
 )
 
 from .base import ContractModelV1
+from .update_safety import validate_public_update_prose
 
 UpdatePlatformV1 = Literal["linux_amd64", "windows_amd64"]
 UpdateChannelV1 = Literal["stable", "canary"]
@@ -159,8 +160,28 @@ class _ImmutableUpdateManifestV1(ContractModelV1):
 
 
 class UpdateBuildManifestV1(_ImmutableUpdateManifestV1):
+    model_config = ConfigDict(
+        json_schema_extra={
+            "$comment": (
+                "Model-only constraints: artifact_name suffix must match "
+                "archive_type; release_notes must be public-safe prose without "
+                "credential, diagnostic, path or serialized payload shapes."
+            )
+        }
+    )
+
     schema_version: Literal["update_build_manifest_v1"]
     release_notes: Annotated[str, Field(min_length=1, max_length=4096)] | None = None
+
+    @field_validator("release_notes")
+    @classmethod
+    def validate_release_notes(cls, value: str | None) -> str | None:
+        return validate_public_update_prose(
+            value,
+            field_name="release notes",
+            max_length=4096,
+            allow_newlines=True,
+        )
 
 
 class UpdateRolloutCreateV1(ContractModelV1):

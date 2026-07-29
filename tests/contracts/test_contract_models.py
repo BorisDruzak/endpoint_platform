@@ -97,6 +97,44 @@ def test_update_build_manifest_rejects_unknown_or_unsafe_artifact_fields() -> No
 
 
 @pytest.mark.parametrize(
+    "release_notes",
+    (
+        "C" * 43,
+        "D" * 43,
+        "Bearer raw-release-secret",
+        r"failed at C:\agent\pending_update.json",
+        "traceback follows",
+        "raw log follows",
+        '{"operation_id":"raw-operation","status":"scheduled"}',
+        "archive endpoint-agent.zip",
+    ),
+)
+def test_update_build_manifest_rejects_sensitive_release_notes(
+    release_notes: str,
+) -> None:
+    """Release notes cross a persistence boundary and must remain public-safe prose."""
+    with pytest.raises(ValidationError):
+        UpdateBuildManifestV1.model_validate(
+            {**VALID_UPDATE_BUILD, "release_notes": release_notes}
+        )
+
+
+def test_update_build_manifest_accepts_multiline_safe_release_notes() -> None:
+    """Ordinary operator-facing prose remains representable after hardening."""
+    release_notes = (
+        "Improves update verification.\n"
+        "- Adds retry handling\n"
+        "- Preserves rollback state"
+    )
+
+    manifest = UpdateBuildManifestV1.model_validate(
+        {**VALID_UPDATE_BUILD, "release_notes": release_notes}
+    )
+
+    assert manifest.release_notes == release_notes
+
+
+@pytest.mark.parametrize(
     "artifact_url",
     [
         "https://example.test/agent.tar.gz?access_token=fixture-value",

@@ -792,6 +792,8 @@ async def test_nonterminal_rollout_cannot_complete_and_unsafe_reason_is_rejected
     build = await _build(session)
     device = await _device(session, "terminal-gate")
     hostile_reasons = (
+        "C" * 43,
+        "D" * 43,
         "rollback /",
         "failed-/var/lib/endpoint/state.json",
         "{}",
@@ -867,6 +869,57 @@ async def test_nonterminal_rollout_cannot_complete_and_unsafe_reason_is_rejected
             "req-premature-complete",
             now=NOW,
         )
+
+
+@pytest.mark.asyncio
+async def test_build_registration_rejects_sensitive_release_notes_before_persistence(
+    session: AsyncSession,
+) -> None:
+    """Raw credentials and diagnostics must not survive as immutable build metadata."""
+    hostile_release_notes = (
+        "C" * 43,
+        "D" * 43,
+        "Bearer raw-release-secret",
+        r"failed at C:\agent\pending_update.json",
+        "traceback follows",
+        "raw log follows",
+        '{"operation_id":"raw-operation","status":"scheduled"}',
+        "archive endpoint-agent.zip",
+    )
+    for index, release_notes in enumerate(hostile_release_notes):
+        with pytest.raises(UpdateValidationError):
+            await register_build(
+                session,
+                {**VALID_MANIFEST, "release_notes": release_notes},
+                ADMIN_ID,
+                f"unsafe-release-notes-{index}",
+                now=NOW,
+            )
+
+    assert await session.scalar(select(UpdateBuild.id)) is None
+    assert await session.scalar(select(AuditEvent.id)) is None
+
+
+@pytest.mark.asyncio
+async def test_build_registration_preserves_multiline_safe_release_notes(
+    session: AsyncSession,
+) -> None:
+    """Security validation must not erase ordinary public release prose."""
+    release_notes = (
+        "Improves update verification.\n"
+        "- Adds retry handling\n"
+        "- Preserves rollback state"
+    )
+
+    build = await register_build(
+        session,
+        {**VALID_MANIFEST, "release_notes": release_notes},
+        ADMIN_ID,
+        "safe-release-notes",
+        now=NOW,
+    )
+
+    assert build.release_notes == release_notes
 
 
 @pytest.mark.asyncio
