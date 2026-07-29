@@ -853,8 +853,8 @@ async def test_old_token_report_fails_after_pending_credential_activation(
             session,
             _postgres_manifest(
                 build_identifier=f"route-rotation-build-{uuid4().hex}",
-                version="2.0.0",
-                channel="stable",
+                version="2.1.0",
+                channel="canary",
                 digest_character="8",
             ),
             "postgres-admin",
@@ -918,7 +918,7 @@ async def test_old_token_report_fails_after_pending_credential_activation(
         "schema_version": "agent_update_report_v1",
         "report_key": "post-rotation-report",
         "status": "failed",
-        "reported_version": "2.0.0",
+        "reported_version": "2.1.0",
         "safe_code": "update.failed",
     }
     transport = httpx.ASGITransport(app=app, client=("127.0.0.1", 12345))
