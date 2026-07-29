@@ -90,6 +90,60 @@ async def _current_collection(
     return collection
 
 
+async def _advance_current_pointer(
+    session: AsyncSession,
+    snapshot: ContextSnapshot,
+    *,
+    updated_at: datetime,
+) -> None:
+    """Advance a device/profile pointer only for a strictly newer observation.
+
+    The transaction-scoped advisory lock covers an absent current row, which a
+    row lock alone cannot serialize. Equal timestamps intentionally preserve
+    the first current snapshot so duplicate-time observations do not churn the
+    pointer based on delayed completion order.
+    """
+    await _advisory_lock(
+        session, f"context.current:{snapshot.device_id}:{snapshot.profile}"
+    )
+    current = await session.scalar(
+        select(ContextCurrent)
+        .where(
+            ContextCurrent.device_id == snapshot.device_id,
+            ContextCurrent.profile == snapshot.profile,
+        )
+        .with_for_update()
+    )
+    if current is None:
+        session.add(
+            ContextCurrent(
+                id=uuid4(),
+                device_id=snapshot.device_id,
+                profile=snapshot.profile,
+                snapshot_id=snapshot.id,
+                updated_at=updated_at,
+            )
+        )
+        return
+
+    current_snapshot = await session.scalar(
+        select(ContextSnapshot)
+        .where(ContextSnapshot.id == current.snapshot_id)
+        .with_for_update()
+    )
+    if current_snapshot is None:
+        raise ContextConflict("current context snapshot is missing")
+    current_collected_at = current_snapshot.collected_at
+    if current_collected_at.tzinfo is None:
+        # SQLite drops tzinfo for DateTime(timezone=True); PostgreSQL preserves
+        # it. Context snapshots are validated as UTC before persistence.
+        current_collected_at = current_collected_at.replace(tzinfo=UTC)
+    if snapshot.collected_at <= current_collected_at.astimezone(UTC):
+        return
+    current.snapshot_id = snapshot.id
+    current.updated_at = updated_at
+
+
 async def ingest_context_result(
     session: AsyncSession,
     command_result_id: UUID | str,
@@ -148,20 +202,7 @@ async def ingest_context_result(
     )
     session.add(snapshot)
     await session.flush()
-    current = await session.scalar(
-        select(ContextCurrent)
-        .where(ContextCurrent.device_id == command.device_id, ContextCurrent.profile == profile)
-        .with_for_update()
-    )
-    if current is None:
-        current = ContextCurrent(
-            id=uuid4(), device_id=command.device_id, profile=profile,
-            snapshot_id=snapshot.id, updated_at=observed_at,
-        )
-        session.add(current)
-    else:
-        current.snapshot_id = snapshot.id
-        current.updated_at = observed_at
+    await _advance_current_pointer(session, snapshot, updated_at=observed_at)
     collection.status = "completed"
     collection.completed_at = observed_at
     await session.flush()

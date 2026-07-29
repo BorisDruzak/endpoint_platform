@@ -5,7 +5,17 @@ from __future__ import annotations
 from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Index, JSON, String, Text, UniqueConstraint
+from sqlalchemy import (
+    CheckConstraint,
+    DateTime,
+    ForeignKey,
+    ForeignKeyConstraint,
+    Index,
+    JSON,
+    String,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from endpoint_server.db.base import Base
@@ -58,6 +68,9 @@ class ContextSnapshot(OwnershipRecord, Base):
     __tablename__ = "context_snapshots"
     __table_args__ = (
         UniqueConstraint("collection_id", name="uq_context_snapshots_collection"),
+        UniqueConstraint(
+            "id", "device_id", "profile", name="uq_context_snapshots_identity"
+        ),
         Index("ix_context_snapshots_device_profile_collected", "device_id", "profile", "collected_at"),
     )
 
@@ -88,12 +101,22 @@ class ContextCurrent(OwnershipRecord, Base):
     __tablename__ = "context_current"
     __table_args__ = (
         UniqueConstraint("device_id", "profile", name="uq_context_current_device_profile"),
+        ForeignKeyConstraint(
+            ["snapshot_id", "device_id", "profile"],
+            [
+                "context_snapshots.id",
+                "context_snapshots.device_id",
+                "context_snapshots.profile",
+            ],
+            name="fk_context_current_snapshot_identity",
+            ondelete="CASCADE",
+        ),
         Index("ix_context_current_device_profile", "device_id", "profile"),
     )
 
     device_id: Mapped[UUID] = mapped_column(ForeignKey("devices.id", ondelete="CASCADE"), nullable=False)
     profile: Mapped[str] = mapped_column(String(32), nullable=False)
-    snapshot_id: Mapped[UUID] = mapped_column(ForeignKey("context_snapshots.id", ondelete="CASCADE"), nullable=False)
+    snapshot_id: Mapped[UUID] = mapped_column(nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 

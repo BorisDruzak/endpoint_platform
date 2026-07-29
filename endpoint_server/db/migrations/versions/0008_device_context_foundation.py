@@ -71,6 +71,7 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(["device_id"], ["devices.id"], ondelete="CASCADE"),
         sa.PrimaryKeyConstraint("id"),
         sa.UniqueConstraint("collection_id", name="uq_context_snapshots_collection"),
+        sa.UniqueConstraint("id", "device_id", "profile", name="uq_context_snapshots_identity"),
     )
     op.create_index("ix_context_snapshots_device_profile_collected", "context_snapshots", ["device_id", "profile", "collected_at"])
     op.create_table(
@@ -94,7 +95,16 @@ def upgrade() -> None:
         sa.Column("snapshot_id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
         sa.ForeignKeyConstraint(["device_id"], ["devices.id"], ondelete="CASCADE"),
-        sa.ForeignKeyConstraint(["snapshot_id"], ["context_snapshots.id"], ondelete="CASCADE"),
+        sa.ForeignKeyConstraint(
+            ["snapshot_id", "device_id", "profile"],
+            [
+                "context_snapshots.id",
+                "context_snapshots.device_id",
+                "context_snapshots.profile",
+            ],
+            name="fk_context_current_snapshot_identity",
+            ondelete="CASCADE",
+        ),
         sa.PrimaryKeyConstraint("id"),
         sa.UniqueConstraint("device_id", "profile", name="uq_context_current_device_profile"),
     )

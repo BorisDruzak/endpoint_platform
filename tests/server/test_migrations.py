@@ -126,6 +126,32 @@ def test_migration_history_has_exactly_one_head() -> None:
     assert script.get_heads() == ["0008_device_context_foundation"]
 
 
+def test_device_context_migration_binds_current_pointer_to_snapshot_identity() -> None:
+    """A snapshot-id-only FK would allow a cross-device/profile current row."""
+    output = io.StringIO()
+    config = Config(REPOSITORY_ROOT / "alembic.ini", output_buffer=output)
+    config.set_main_option(
+        "sqlalchemy.url",
+        "postgresql+asyncpg://unused@127.0.0.1/unused",
+    )
+
+    command.upgrade(
+        config,
+        "0007_admin_update_scopes:0008_device_context_foundation",
+        sql=True,
+    )
+
+    rendered = " ".join(output.getvalue().split())
+    assert (
+        "CONSTRAINT uq_context_snapshots_identity UNIQUE (id, device_id, profile)"
+    ) in rendered
+    assert (
+        "CONSTRAINT fk_context_current_snapshot_identity FOREIGN KEY"
+        "(snapshot_id, device_id, profile) REFERENCES context_snapshots "
+        "(id, device_id, profile) ON DELETE CASCADE"
+    ) in rendered
+
+
 def test_update_downgrade_sql_neutralizes_actionable_assignments() -> None:
     """Dropping rollout state must cancel assignments before their state is lost."""
     output = io.StringIO()
