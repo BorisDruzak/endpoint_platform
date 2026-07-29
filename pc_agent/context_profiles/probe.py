@@ -6,6 +6,8 @@ from collections.abc import Sequence
 from pathlib import Path
 import shutil
 import subprocess
+import threading
+import time
 
 
 MAX_PROBE_BYTES = 65_536
@@ -38,7 +40,8 @@ class SystemProbe:
 
     def read_text(self, path: str, max_bytes: int) -> str:
         limit = _bounded_limit(max_bytes)
-        return Path(path).read_bytes()[:limit].decode("utf-8", errors="replace")
+        with Path(path).open("rb") as source:
+            return source.read(limit).decode("utf-8", errors="replace")
 
     def run(self, argv: Sequence[str], timeout_seconds: float, max_bytes: int) -> str:
         command = tuple(str(item) for item in argv)
@@ -50,17 +53,76 @@ class SystemProbe:
         executable = shutil.which(command[0])
         if not executable:
             raise FileNotFoundError(command[0])
-        completed = subprocess.run(
-            (executable, *command[1:]),
-            check=False,
-            capture_output=True,
-            timeout=timeout_seconds,
-        )
-        output = (completed.stdout or b"") + (completed.stderr or b"")
-        return output[:limit].decode("utf-8", errors="replace")
+        try:
+            output = _execute_bounded_command((executable, *command[1:]), timeout_seconds, limit)
+        except subprocess.TimeoutExpired as exc:
+            raise TimeoutError("context probe command timed out") from exc
+        return output.decode("utf-8", errors="replace")
 
 
 def _bounded_limit(max_bytes: int) -> int:
     if not isinstance(max_bytes, int) or max_bytes < 1:
         raise ValueError("context probe max_bytes must be a positive integer")
     return min(max_bytes, MAX_PROBE_BYTES)
+
+
+def _execute_bounded_command(command: tuple[str, ...], timeout_seconds: float, limit: int) -> bytes:
+    """Capture local command output without materializing unbounded pipe streams."""
+    process = subprocess.Popen(
+        command,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    assert process.stdout is not None
+    assert process.stderr is not None
+    stdout = _BoundedDrain(process.stdout, limit)
+    stderr = _BoundedDrain(process.stderr, limit)
+    stdout.start()
+    stderr.start()
+
+    deadline = time.monotonic() + timeout_seconds
+    timed_out = False
+    try:
+        while process.poll() is None:
+            if stdout.full.is_set() or stderr.full.is_set() or time.monotonic() >= deadline:
+                timed_out = time.monotonic() >= deadline
+                process.terminate()
+                break
+            time.sleep(0.01)
+        process.wait()
+    finally:
+        if process.poll() is None:
+            process.kill()
+            process.wait()
+        stdout.join()
+        stderr.join()
+        process.stdout.close()
+        process.stderr.close()
+
+    if timed_out:
+        raise subprocess.TimeoutExpired(command, timeout_seconds)
+    return (bytes(stdout.output) + bytes(stderr.output))[:limit]
+
+
+class _BoundedDrain:
+    def __init__(self, stream: object, limit: int) -> None:
+        self._stream = stream
+        self._limit = limit
+        self.output = bytearray()
+        self.full = threading.Event()
+        self._thread = threading.Thread(target=self._drain, daemon=True)
+
+    def start(self) -> None:
+        self._thread.start()
+
+    def join(self) -> None:
+        self._thread.join()
+
+    def _drain(self) -> None:
+        while len(self.output) < self._limit:
+            chunk = self._stream.read(min(8192, self._limit - len(self.output)))
+            if not chunk:
+                return
+            self.output.extend(chunk)
+        self.full.set()
