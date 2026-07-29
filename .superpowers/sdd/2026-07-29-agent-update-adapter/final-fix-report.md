@@ -274,3 +274,37 @@ ModuleNotFoundError: scripts.register_support_modules
 - Live launcher/canary behavior was intentionally not exercised because this
   task prohibited remote hosts, canary, artifacts, deploys, and launcher
   changes.
+
+## Final mechanical formatting verification
+
+Ruff formatting was applied to exactly the three files identified by final
+verification:
+
+```powershell
+python -m ruff format pc_agent/config/config_loader.py pc_agent/core/orchestrator.py pc_agent/tests/test_self_update_runtime.py
+```
+
+```text
+3 files reformatted
+```
+
+The resulting formatting and focused adapter/runtime behavior were verified:
+
+```powershell
+python -m ruff format --check pc_agent/config/config_loader.py pc_agent/core/orchestrator.py pc_agent/tests/test_self_update_runtime.py
+python -m pytest pc_agent/tests/test_update_adapter.py pc_agent/tests/test_self_update_runtime.py -q
+git diff --check
+```
+
+```text
+3 files already formatted
+.......................................................                  [100%]
+55 passed in 1.19s
+git diff --check exit 0
+```
+
+The format-only commit is:
+
+```text
+e6308cb pc_agent: normalize update adapter formatting
+```
