@@ -7,7 +7,7 @@ import os
 from collections.abc import AsyncIterator, Iterator
 from ipaddress import ip_network
 from pathlib import Path
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import asyncpg
 import pytest
@@ -324,8 +324,18 @@ async def test_agent_enrollment_retry_ack_and_rotation_are_atomic_in_postgresql(
         policy={"policy_id": "postgres-e2e"},
         now=now,
     )
+    unrelated_agent_audit = AuditEvent(
+        actor_kind="agent",
+        actor_identifier=None,
+        action="enrollment_campaign.use_reserved",
+        object_kind="enrollment_campaign",
+        object_identifier=str(uuid4()),
+        request_id="preceding-postgres-enrollment-test",
+        details={},
+        created_at=now,
+    )
     async with enrollment_provider() as session:
-        session.add(issued.record)
+        session.add_all((issued.record, unrelated_agent_audit))
         await session.commit()
 
     app = create_app(
@@ -410,30 +420,52 @@ async def test_agent_enrollment_retry_ack_and_rotation_are_atomic_in_postgresql(
     assert activated.status_code == 204
     assert retired_old_token.status_code == 401
 
+    device_id = UUID(delivery["device_id"])
     async with enrollment_provider() as session:
-        devices = (await session.scalars(select(Device))).all()
-        credentials = (await session.scalars(select(DeviceCredential))).all()
+        device = await session.get(Device, device_id)
+        assert device is not None
+        credentials = (
+            await session.scalars(
+                select(DeviceCredential).where(DeviceCredential.device_id == device_id)
+            )
+        ).all()
+        assert len(credentials) == 1
+        credential = credentials[0]
         campaign = await session.get(EnrollmentCampaign, issued.record.id)
-        envelopes = (await session.scalars(select(EnrollmentRetryEnvelope))).all()
-        actions = [
-            event.action
+        envelopes = (
+            await session.scalars(
+                select(EnrollmentRetryEnvelope).where(
+                    EnrollmentRetryEnvelope.device_credential_id == credential.id
+                )
+            )
+        ).all()
+        audit_facts = [
+            (event.action, event.object_identifier)
             for event in (
                 await session.scalars(
-                    select(AuditEvent).where(AuditEvent.actor_kind == "agent")
+                    select(AuditEvent).where(
+                        AuditEvent.actor_kind == "agent",
+                        AuditEvent.object_identifier.in_(
+                            (
+                                str(issued.record.id),
+                                str(device.id),
+                                str(credential.id),
+                            )
+                        ),
+                    )
                 )
             ).all()
         ]
-    assert len(devices) == len(credentials) == 1
     assert campaign is not None
     assert campaign.use_count == 1
     assert envelopes == []
-    assert sorted(actions) == sorted(
+    assert sorted(audit_facts) == sorted(
         [
-            "enrollment_campaign.use_reserved",
-            "device.enrolled",
-            "enrollment.delivery_acknowledged",
-            "device_credential.rotation_started",
-            "device_credential.rotation_activated",
+            ("enrollment_campaign.use_reserved", str(issued.record.id)),
+            ("device.enrolled", str(device.id)),
+            ("enrollment.delivery_acknowledged", str(device.id)),
+            ("device_credential.rotation_started", str(credential.id)),
+            ("device_credential.rotation_activated", str(credential.id)),
         ]
     )
 

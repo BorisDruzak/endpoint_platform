@@ -32,9 +32,7 @@ class EnrollmentCampaign(OwnershipRecord, Base):
     disabled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     max_uses: Mapped[int] = mapped_column(Integer, nullable=False)
     use_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    allowed_cidrs: Mapped[list[str]] = mapped_column(
-        ARRAY(String(64)), nullable=False
-    )
+    allowed_cidrs: Mapped[list[str]] = mapped_column(ARRAY(String(64)), nullable=False)
     target_platform: Mapped[str] = mapped_column(String(64), nullable=False)
     policy: Mapped[dict[str, object]] = mapped_column(
         JSON().with_variant(JSONB(), "postgresql"),
@@ -54,9 +52,7 @@ class EnrollmentClaim(OwnershipRecord, Base):
     claim_identifier: Mapped[str] = mapped_column(
         String(128), nullable=False, unique=True
     )
-    claim_digest: Mapped[str] = mapped_column(
-        String(256), nullable=False, unique=True
-    )
+    claim_digest: Mapped[str] = mapped_column(String(256), nullable=False, unique=True)
     installation_session_digest: Mapped[str] = mapped_column(
         String(256), nullable=False
     )

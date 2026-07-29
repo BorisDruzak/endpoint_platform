@@ -369,9 +369,10 @@ def test_initial_revision_upgrades_and_downgrades_empty_postgresql(
         "site",
         "revoked_at",
     } <= columns_by_table["enrollment_campaigns"].keys()
-    assert columns_by_table["enrollment_campaigns"]["allowed_cidrs"][
-        "data_type"
-    ] == "ARRAY"
+    assert (
+        columns_by_table["enrollment_campaigns"]["allowed_cidrs"]["data_type"]
+        == "ARRAY"
+    )
     assert columns_by_table["enrollment_campaigns"]["policy"]["data_type"] == "jsonb"
     assert {
         "claim_digest",
