@@ -245,6 +245,31 @@ def _campaign_allows_delivery(
     )
 
 
+def _claim_allows_enrollment(
+    claim: EnrollmentClaim | None,
+    *,
+    now: datetime,
+) -> bool:
+    return claim is None or (
+        claim.expires_at.tzinfo is not None and now < claim.expires_at.astimezone(UTC)
+    )
+
+
+def _raise_if_delivery_expired(
+    envelope: EnrollmentRetryEnvelope,
+    *,
+    observed_at: datetime,
+) -> None:
+    if (
+        envelope.expires_at.tzinfo is None
+        or observed_at >= envelope.expires_at.astimezone(UTC)
+    ):
+        raise ExpiredEnrollmentDelivery(
+            envelope,
+            observed_at=observed_at,
+        )
+
+
 async def _load_delivery(
     session,
     receipt: str,
@@ -279,19 +304,42 @@ async def _load_delivery(
         pepper,
     ):
         raise EnrollmentDenied("Enrollment delivery unavailable")
+    checked_at = datetime.now(UTC)
+    _raise_if_delivery_expired(envelope, observed_at=checked_at)
     credential_result = await session.execute(
         select(DeviceCredential)
         .where(DeviceCredential.id == envelope.device_credential_id)
         .with_for_update()
     )
     credential = credential_result.scalar_one_or_none()
+    checked_at = datetime.now(UTC)
+    _raise_if_delivery_expired(envelope, observed_at=checked_at)
     if credential is None or credential.pending_token_digest is not None:
+        raise EnrollmentDenied("Enrollment delivery unavailable")
+    token = recover_retry_token(
+        receipt,
+        hardware_fingerprint,
+        envelope,
+        pepper,
+        session_secret,
+        now=checked_at,
+    )
+    if (
+        token is None
+        or not device_token_matches(token, credential.token_digest, pepper)
+        or not device_credential_accepts_token(
+            credential,
+            token,
+            pepper,
+            now=checked_at,
+        )
+    ):
         raise EnrollmentDenied("Enrollment delivery unavailable")
     device_result = await session.execute(
         select(Device).where(Device.id == credential.device_id)
     )
     device = device_result.scalar_one_or_none()
-    if device is None or device.retired_at is not None:
+    if device is None:
         raise EnrollmentDenied("Enrollment delivery unavailable")
     event_result = await session.execute(
         select(EnrollmentEvent).where(
@@ -307,25 +355,9 @@ async def _load_delivery(
     )
     campaign = campaign_result.scalar_one_or_none()
     checked_at = datetime.now(UTC)
+    _raise_if_delivery_expired(envelope, observed_at=checked_at)
     if (
-        envelope.expires_at.tzinfo is None
-        or checked_at >= envelope.expires_at.astimezone(UTC)
-    ):
-        raise ExpiredEnrollmentDelivery(
-            envelope,
-            observed_at=checked_at,
-        )
-    token = recover_retry_token(
-        receipt,
-        hardware_fingerprint,
-        envelope,
-        pepper,
-        session_secret,
-        now=checked_at,
-    )
-    if (
-        token is None
-        or not device_token_matches(token, credential.token_digest, pepper)
+        device.retired_at is not None
         or not device_credential_accepts_token(
             credential,
             token,
@@ -421,6 +453,14 @@ async def enroll_agent(
                 session,
                 device_identifier,
             )
+            issued_at = datetime.now(UTC)
+            if not campaign_request_matches(
+                campaign,
+                now=issued_at,
+                source_address=source_address,
+                platform=body.platform,
+            ) or not _claim_allows_enrollment(claim, now=issued_at):
+                raise EnrollmentDenied("Enrollment denied")
             if existing_device is not None:
                 bindings_match = claim is None or (
                     claim.device_id == existing_device.id
@@ -658,7 +698,6 @@ async def acknowledge_enrollment_delivery(
     """Delete one correctly bound delivery envelope after durable agent storage."""
     source_address = _observed_source_address(request)
     settings = request.app.state.settings
-    now = datetime.now(UTC)
     receipt = body.enrollment_receipt
     hardware_fingerprint = body.hardware_fingerprint
     async with request.app.state.session_provider() as session:
@@ -670,6 +709,7 @@ async def acknowledge_enrollment_delivery(
                 pepper=settings.device_token_pepper,
                 session_secret=settings.session_secret,
             )
+            now = datetime.now(UTC)
             await session.delete(envelope)
             await append_audit_event(
                 session,
@@ -713,7 +753,6 @@ async def rotate_device_credential(
     _observed_source_address(request)
     token = _bearer_token(request, denial=_invalid_device_credential())
     settings = request.app.state.settings
-    now = datetime.now(UTC)
     try:
         digest = device_token_digest(token, settings.device_token_pepper)
     except ValueError as error:
@@ -725,6 +764,7 @@ async def rotate_device_credential(
             .with_for_update()
         )
         credential = result.scalar_one_or_none()
+        now = datetime.now(UTC)
         if (
             credential is None
             or not device_token_matches(
@@ -789,7 +829,6 @@ async def activate_device_credential(
     _observed_source_address(request)
     token = _bearer_token(request, denial=_invalid_device_credential())
     settings = request.app.state.settings
-    now = datetime.now(UTC)
     try:
         digest = device_token_digest(token, settings.device_token_pepper)
     except ValueError as error:
@@ -801,6 +840,7 @@ async def activate_device_credential(
             .with_for_update()
         )
         credential = result.scalar_one_or_none()
+        now = datetime.now(UTC)
         if (
             credential is None
             or credential.pending_token_digest is None

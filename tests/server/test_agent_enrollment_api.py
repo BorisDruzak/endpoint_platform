@@ -66,13 +66,21 @@ class _AgentEnrollmentSession:
         claim: EnrollmentClaim | None = None,
         fail_audit: bool = False,
         expire_campaign_on_lock: bool = False,
+        expire_campaign_on_advisory_lock: bool = False,
+        expire_claim_on_advisory_lock: bool = False,
         expire_envelope_on_lock: bool = False,
+        expire_current_credential_on_lock: bool = False,
+        expire_pending_credential_on_lock: bool = False,
     ) -> None:
         self.campaign = campaign
         self.claim = claim
         self.fail_audit = fail_audit
         self.expire_campaign_on_lock = expire_campaign_on_lock
+        self.expire_campaign_on_advisory_lock = expire_campaign_on_advisory_lock
+        self.expire_claim_on_advisory_lock = expire_claim_on_advisory_lock
         self.expire_envelope_on_lock = expire_envelope_on_lock
+        self.expire_current_credential_on_lock = expire_current_credential_on_lock
+        self.expire_pending_credential_on_lock = expire_pending_credential_on_lock
         self.added: list[object] = []
         self.deleted: list[object] = []
         self.commit_calls = 0
@@ -90,6 +98,11 @@ class _AgentEnrollmentSession:
     async def execute(self, statement: object) -> _Result:
         descriptions = getattr(statement, "column_descriptions", ())
         entity = descriptions[0].get("entity") if descriptions else None
+        if "pg_advisory_xact_lock" in str(statement):
+            if self.expire_campaign_on_advisory_lock:
+                self.campaign.expires_at = datetime.now(UTC)
+            if self.expire_claim_on_advisory_lock and self.claim is not None:
+                self.claim.expires_at = datetime.now(UTC)
         if entity is EnrollmentCampaign:
             if self.expire_campaign_on_lock:
                 self.campaign.expires_at = datetime.now(UTC)
@@ -104,16 +117,23 @@ class _AgentEnrollmentSession:
                 )
             )
         if entity is DeviceCredential:
-            return _Result(
-                next(
-                    (
-                        value
-                        for value in self.added
-                        if isinstance(value, DeviceCredential)
-                    ),
-                    None,
-                )
+            credential = next(
+                (value for value in self.added if isinstance(value, DeviceCredential)),
+                None,
             )
+            where_text = str(getattr(statement, "whereclause", ""))
+            if credential is not None and (
+                (
+                    self.expire_current_credential_on_lock
+                    and "device_credentials.token_digest =" in where_text
+                )
+                or (
+                    self.expire_pending_credential_on_lock
+                    and "device_credentials.pending_token_digest =" in where_text
+                )
+            ):
+                credential.expires_at = datetime.now(UTC)
+            return _Result(credential)
         if entity is EnrollmentRetryEnvelope:
             envelope = next(
                 (
@@ -440,6 +460,68 @@ async def test_enrollment_rechecks_campaign_expiry_after_authority_lock() -> Non
 
 
 @pytest.mark.asyncio
+async def test_enrollment_rechecks_campaign_expiry_after_advisory_lock() -> None:
+    """Waiting for the device advisory lock must not extend campaign lifetime."""
+    campaign_token, campaign = _campaign()
+    session = _AgentEnrollmentSession(
+        campaign=campaign,
+        expire_campaign_on_advisory_lock=True,
+    )
+    app = create_app(_settings(), session_provider=_Provider(session))
+
+    async with AsyncClient(
+        transport=ASGITransport(
+            app=app,
+            client=("192.168.100.20", 43100),
+        ),
+        base_url="https://endpoint.sosnadmin.local",
+    ) as client:
+        response = await client.post(
+            "/agent/v1/enroll",
+            headers={"Authorization": f"Bearer {campaign_token}"},
+            json=_enrollment_body(),
+        )
+
+    assert response.status_code == 403
+    assert response.json() == {"detail": "Enrollment denied"}
+    assert campaign.use_count == 0
+    assert session.added == []
+    assert session.commit_calls == 0
+
+
+@pytest.mark.asyncio
+async def test_enrollment_rechecks_claim_expiry_after_advisory_lock() -> None:
+    """Waiting for the device advisory lock must not extend claim lifetime."""
+    claim_token, campaign, claim = _claim()
+    session = _AgentEnrollmentSession(
+        campaign=campaign,
+        claim=claim,
+        expire_claim_on_advisory_lock=True,
+    )
+    app = create_app(_settings(), session_provider=_Provider(session))
+
+    async with AsyncClient(
+        transport=ASGITransport(
+            app=app,
+            client=("192.168.100.20", 43100),
+        ),
+        base_url="https://endpoint.sosnadmin.local",
+    ) as client:
+        response = await client.post(
+            "/agent/v1/enroll",
+            headers={"Authorization": f"Bearer {claim_token}"},
+            json=_enrollment_body(),
+        )
+
+    assert response.status_code == 403
+    assert response.json() == {"detail": "Enrollment denied"}
+    assert claim.claimed_at is None
+    assert campaign.use_count == 0
+    assert session.added == []
+    assert session.commit_calls == 0
+
+
+@pytest.mark.asyncio
 async def test_duplicate_claim_enrollment_keeps_original_claim_and_quota() -> None:
     """Omitting claim attribution would turn a harmless duplicate into a second use."""
     claim_token, campaign, claim = _claim()
@@ -703,6 +785,65 @@ async def test_retry_expiry_and_fingerprint_mismatch_hide_secret_inputs() -> Non
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("invalid_state", ["pending_credential", "retired_device"])
+async def test_expired_envelope_is_destroyed_before_later_delivery_state_checks(
+    invalid_state: str,
+) -> None:
+    """A proven expiry must delete even when later credential/device state is invalid."""
+    campaign_token, campaign = _campaign()
+    session = _AgentEnrollmentSession(campaign=campaign)
+    app = create_app(_settings(), session_provider=_Provider(session))
+
+    async with AsyncClient(
+        transport=ASGITransport(
+            app=app,
+            client=("192.168.100.20", 43100),
+        ),
+        base_url="https://endpoint.sosnadmin.local",
+    ) as client:
+        enrolled = await client.post(
+            "/agent/v1/enroll",
+            headers={"Authorization": f"Bearer {campaign_token}"},
+            json=_enrollment_body(),
+        )
+        delivery = enrolled.json()
+        envelope = next(
+            value
+            for value in session.added
+            if isinstance(value, EnrollmentRetryEnvelope)
+        )
+        credential = next(
+            value for value in session.added if isinstance(value, DeviceCredential)
+        )
+        device = next(value for value in session.added if isinstance(value, Device))
+        envelope.expires_at = datetime.now(UTC) - timedelta(seconds=1)
+        if invalid_state == "pending_credential":
+            credential.pending_token_digest = "pending-state-marker"
+        else:
+            device.retired_at = datetime.now(UTC)
+        retry = await client.post(
+            "/agent/v1/enroll/retry",
+            json={
+                "schema_version": "enrollment_delivery_proof_v1",
+                "enrollment_receipt": delivery["enrollment_receipt"],
+                "hardware_fingerprint": "sha256:agent-device-a",
+            },
+        )
+
+    assert retry.status_code == 403
+    assert retry.json() == {"detail": "Enrollment delivery unavailable"}
+    assert session.deleted == [envelope]
+    expiration_audits = [
+        value
+        for value in session.added
+        if isinstance(value, AuditEvent)
+        and value.action == "enrollment.delivery_expired"
+    ]
+    assert len(expiration_audits) == 1
+    assert session.commit_calls == 2
+
+
+@pytest.mark.asyncio
 async def test_acknowledgement_destroys_proven_expired_envelope() -> None:
     """ACK observing a proven expiry must delete and audit the envelope."""
     campaign_token, campaign = _campaign()
@@ -805,6 +946,82 @@ async def test_rotation_requires_old_token_and_activation_retires_it_immediately
         "device_credential.rotation_started",
         "device_credential.rotation_activated",
     ]
+
+
+@pytest.mark.asyncio
+async def test_rotation_rechecks_credential_expiry_after_lock() -> None:
+    """Waiting for the current-credential lock must not extend bearer lifetime."""
+    campaign_token, campaign = _campaign()
+    session = _AgentEnrollmentSession(campaign=campaign)
+    app = create_app(_settings(), session_provider=_Provider(session))
+
+    async with AsyncClient(
+        transport=ASGITransport(
+            app=app,
+            client=("192.168.100.20", 43100),
+        ),
+        base_url="https://endpoint.sosnadmin.local",
+    ) as client:
+        enrolled = await client.post(
+            "/agent/v1/enroll",
+            headers={"Authorization": f"Bearer {campaign_token}"},
+            json=_enrollment_body(),
+        )
+        session.expire_current_credential_on_lock = True
+        rotated = await client.post(
+            "/agent/v1/credentials/rotate",
+            headers={"Authorization": f"Bearer {enrolled.json()['device_token']}"},
+        )
+
+    assert enrolled.status_code == 201
+    assert rotated.status_code == 401
+    assert rotated.json() == {"detail": "Invalid device credential"}
+    credential = next(
+        value for value in session.added if isinstance(value, DeviceCredential)
+    )
+    assert credential.pending_token_digest is None
+    assert session.commit_calls == 1
+
+
+@pytest.mark.asyncio
+async def test_activation_rechecks_credential_expiry_after_lock() -> None:
+    """Waiting for the pending-credential lock must not permit late activation."""
+    campaign_token, campaign = _campaign()
+    session = _AgentEnrollmentSession(campaign=campaign)
+    app = create_app(_settings(), session_provider=_Provider(session))
+
+    async with AsyncClient(
+        transport=ASGITransport(
+            app=app,
+            client=("192.168.100.20", 43100),
+        ),
+        base_url="https://endpoint.sosnadmin.local",
+    ) as client:
+        enrolled = await client.post(
+            "/agent/v1/enroll",
+            headers={"Authorization": f"Bearer {campaign_token}"},
+            json=_enrollment_body(),
+        )
+        rotated = await client.post(
+            "/agent/v1/credentials/rotate",
+            headers={"Authorization": f"Bearer {enrolled.json()['device_token']}"},
+        )
+        pending_token = rotated.json()["device_token"]
+        session.expire_pending_credential_on_lock = True
+        activated = await client.post(
+            "/agent/v1/credentials/activate",
+            headers={"Authorization": f"Bearer {pending_token}"},
+        )
+
+    assert enrolled.status_code == 201
+    assert rotated.status_code == 201
+    assert activated.status_code == 401
+    assert activated.json() == {"detail": "Invalid device credential"}
+    credential = next(
+        value for value in session.added if isinstance(value, DeviceCredential)
+    )
+    assert credential.pending_token_digest is not None
+    assert session.commit_calls == 2
 
 
 @pytest.mark.asyncio
