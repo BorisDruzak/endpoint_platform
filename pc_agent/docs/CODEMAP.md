@@ -1,5 +1,40 @@
 # CODEMAP (pc_agent)
 
+## Endpoint update adapter map (2026-07-29)
+
+- `pc_agent/update_adapter.py` owns the strict primary Endpoint Platform
+  recommendation, acknowledgement, and terminal-report adapter. It exposes no
+  bearer, artifact URL, raw pending payload, local path, or trace in logs or
+  safe return details.
+- `pc_agent/ws_agent.py` owns runtime integration: it invokes the adapter,
+  keeps verified update scheduling and launcher handoff, supplies `requested`
+  / `scheduled` acknowledgements, sends terminal reports, and adds terminal
+  confirmation only after the post-restart handshake.
+- `pc_agent/tests/test_update_adapter.py` covers strict manifest parsing,
+  endpoint/legacy compatibility, acknowledgements, and report-key durability.
+  `pc_agent/tests/test_self_update_runtime.py` covers runtime integration.
+
+Primary compatibility is intentionally narrow: valid `200` assignment uses
+the primary result without legacy; `204` is no assignment without legacy;
+only `404`, `501`, connection failures, and pre-response timeouts make exactly
+one legacy poll. `401`, `403`, `409`, `422`, `500`, malformed bodies, and all
+other outcomes fail closed with no pending update. Existing pending work skips
+new scheduling. Rollback is simply a valid ordinary assignment to an older
+version.
+
+`scheduled` records launcher handoff only. `applied` needs the new runtime's
+post-restart endpoint handshake. Terminal `applied`, `failed`, and
+`rolled_back` reports reuse the locally durable opaque `report_key` stored in
+`updates/endpoint_update_reports.json`; neither that journal nor diagnostics
+may be extended with credentials, artifact URLs, raw pending payloads, paths,
+or traces.
+
+Any live canary on `test-agent` is a separate authorized production-like
+operation: first verify the artifact upload, then make exactly one device
+assignment, inspect launcher diagnostics, and require the post-restart
+handshake. Do not build/upload or contact the host as part of documentation or
+adapter-only work.
+
 Карта кода `pc_client/pc_agent`. Используется для быстрой навигации и поиска (в т.ч. скрипт `scripts/agent_find.py` и контекст агента). Пути указаны относительно корня репозитория (например `pc_agent/ws_agent.py`).
 
 ---

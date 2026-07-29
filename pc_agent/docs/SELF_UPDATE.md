@@ -1,5 +1,52 @@
 # Self-Update (remote update) v2 — pc_agent
 
+## Endpoint Platform update-adapter contract (2026-07-29)
+
+`pc_agent/update_adapter.py` is the compatibility boundary for the primary
+Endpoint Platform recommendation endpoint. It accepts only the strict,
+credential-free `agent_update_recommendation_v1` manifest for the current
+platform and channel. The manifest is validated before it is used; logs,
+return values, and safe error details must never expose the bearer credential,
+artifact URL, raw pending payload, local paths, or exception traces.
+
+### Primary endpoint compatibility matrix
+
+| Primary outcome | Agent behaviour |
+| --- | --- |
+| `200` with a valid strict assignment | Use the assignment; do **not** poll legacy. Existing verified update scheduling remains the normal update flow. |
+| `204` | No assignment; do **not** poll legacy. |
+| `404`, `501`, connection failure, or timeout before a response | Poll the legacy recommendation path exactly once. |
+| `401`, `403`, `409`, `422`, `500`, malformed `200`, or any other response | Fail closed: no assignment, no legacy fallback, and no pending update is created. |
+| A local pending update already exists | Skip recommendation/scheduling so it cannot be overwritten. |
+
+Rollback is not a separate adapter action: an assignment to an older valid
+version follows the same regular update flow as any other assigned version.
+
+### Lifecycle acknowledgement and terminal report
+
+After the agent requests a valid assignment it may acknowledge `requested`;
+after the controlled shutdown is accepted it may acknowledge `scheduled`.
+`scheduled` means only that responsibility has been handed to the launcher.
+It does **not** mean the artifact was applied. `applied` requires the new
+runtime's post-restart endpoint handshake.
+
+The terminal endpoint reports are `applied`, `failed`, and `rolled_back`.
+They contain only the operation id, reported version, an allow-listed safe
+code, and an opaque durable `report_key`. The key is recorded locally in
+`updates/endpoint_update_reports.json` before sending so retries use the same
+idempotency value; it is not a credential and must not be expanded with
+artifact URLs, pending payloads, paths, or traces.
+
+### Authorized local canary gate
+
+This documentation change does not authorize a deployment or canary. A canary
+on `test-agent` requires separate authorization and all of the following:
+
+1. a verified artifact upload;
+2. exactly one explicit assignment to the test device;
+3. launcher diagnostics for the handoff/apply outcome; and
+4. a post-restart endpoint handshake confirming the terminal result.
+
 PC Agent поддерживает удалённое обновление через команду Protocol V3 `update`.
 
 **Модель v2:** агент запускается через **launcher**. Агент только скачивает артефакт и пишет `pending_update.json`, затем завершается с кодом 42. Launcher применяет обновление (распаковка, verify, переключение версии или rollback).

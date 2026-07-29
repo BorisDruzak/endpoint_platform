@@ -1,5 +1,51 @@
 # Agent Update Workflow (pc_agent)
 
+## Endpoint Platform adapter rollout boundary (2026-07-29)
+
+The primary agent recommendation request is handled by
+`pc_agent/update_adapter.py`; existing scheduling and launcher verification
+remain the execution path. It consumes only a strict, credential-free
+`agent_update_recommendation_v1` manifest. Diagnostics and API-safe results
+must not contain a bearer token, artifact URL, raw pending payload, local path,
+or traceback.
+
+### Compatibility decision matrix
+
+| Primary response/outcome | Required result |
+| --- | --- |
+| Valid strict `200` assignment | Use it and preserve verified scheduling; no legacy poll. |
+| `204` | Treat as no assignment; no legacy poll. |
+| `404`, `501`, connection failure, timeout before response | Perform exactly one legacy poll. |
+| `401`, `403`, `409`, `422`, `500`, malformed `200`, other status | Fail closed: do not create a pending update and do not poll legacy. |
+| Pending update already exists | Skip the poll/schedule path. |
+
+An assignment to an older version is the ordinary rollback mechanism: validate
+and schedule it exactly like any other assignment, rather than using an
+out-of-band rollback endpoint.
+
+### Endpoint lifecycle evidence
+
+The adapter can acknowledge the primary endpoint at `requested` and
+`scheduled`. `scheduled` is strictly the launcher handoff after controlled
+shutdown; it is not evidence of installation. `applied` is valid only after
+the restarted agent completes its post-restart handshake. The terminal report
+states are `applied`, `failed`, and `rolled_back`.
+
+Terminal reports persist an opaque `report_key` in
+`updates/endpoint_update_reports.json` before delivery, allowing a retry to
+reuse the same key. Report payloads are deliberately limited to operation,
+terminal state, version, allow-listed safe code, and that opaque key. Do not
+log or add credentials, artifact URLs, raw pending JSON, paths, or traces.
+
+### Separately authorized canary procedure
+
+Do not run a canary merely because this workflow changed. A separately
+authorized canary on `test-agent` must first have a verified artifact upload,
+then exactly one assigned device. Collect launcher diagnostics and require the
+new runtime's post-restart endpoint handshake before considering the canary
+complete. This task neither builds/uploads an artifact nor contacts a remote
+host.
+
 Канонический workflow для изменений, которые попадают в распространяемый агент: launcher, `ws_agent`, `ui_bridge`, GUI, self-update, release-артефакты и rollout через сервер.
 
 **Дата обновления:** 2026-04-13
