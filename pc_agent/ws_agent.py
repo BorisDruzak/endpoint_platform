@@ -21,7 +21,7 @@ import argparse
 import atexit
 import queue
 from urllib.parse import quote, urlparse
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Dict, Any, Optional, List, Tuple
 
@@ -39,7 +39,9 @@ if project_root_str not in sys.path:
     sys.path.insert(0, project_root_str)
 # Legacy managed modules still get their own import path from the module loader.
 from pc_agent.core.database import DatabaseManager
-from pc_agent.core.orchestrator import AgentOrchestrator
+from pc_agent.core.orchestrator import AgentOrchestrator, execute_context_agent_command
+from pc_agent.context_profiles.probe import SystemProbe
+from endpoint_contracts.commands import AgentCommandV1, AgentResultV1
 from pc_agent.core.tool_response import ToolMeta
 from pc_agent.core.identity import IdentityManager
 from pc_agent.core.sender import WSOutboxFlusher
@@ -147,6 +149,52 @@ ALLOWED_MESSAGE_TYPES = {
 }
 
 UPDATE_STATUS_CACHE_TTL_SEC = 300
+
+CONTEXT_COLLECTION_COMMANDS = frozenset(
+    {
+        "context.baseline.collect",
+        "context.health.collect",
+        "context.network.collect",
+        "context.diagnostic.collect",
+    }
+)
+
+
+def _is_context_command(command: object) -> bool:
+    return isinstance(command, str) and command.startswith("context.")
+
+
+def _context_result_transport_payload(
+    result: AgentResultV1, *, command: str, request_id: str | None
+) -> Dict[str, Any]:
+    """Adapt the typed Device Context result to the established command transport."""
+    typed_result = result.model_dump(mode="json")
+    if result.status == "succeeded":
+        return {
+            "status": "success",
+            "data": typed_result,
+            "error": None,
+            "meta": {"command": command, "request_id": request_id},
+        }
+    if result.status == "canceled":
+        return {
+            "status": "canceled",
+            "data": typed_result,
+            "error": {
+                "code": result.message or "OPERATION_CANCELED",
+                "message": "Device Context collection was canceled",
+            },
+            "meta": {"command": command, "request_id": request_id},
+        }
+    return {
+        "status": "error",
+        "data": typed_result,
+        "error": {
+            "code": result.message or "CONTEXT_COLLECTION_FAILED",
+            "message": "Device Context collection failed",
+        },
+        "meta": {"command": command, "request_id": request_id},
+    }
 
 # Методы требующие idempotency_key (Фаза 4.1, замечание 5)
 IDEMPOTENT_METHODS = {
@@ -2303,11 +2351,9 @@ class WSAgent:
                     "meta": tool_response.get("meta", {}),
                 }
             if self.db_manager and not cached_canceled:
-                status = (
-                    "success"
-                    if command_result_payload["status"] == "success"
-                    else "error"
-                )
+                status = command_result_payload["status"]
+                if status not in {"success", "canceled"}:
+                    status = "error"
                 result_json = jsonlib.dumps(command_result_payload, ensure_ascii=False)
                 was_updated = await self.db_manager.mark_command_seen(
                     command_id=command_id,
@@ -2831,14 +2877,15 @@ class WSAgent:
 
                 # Добавляем ticket_id и job_id в params если они есть в envelope
                 # Это нужно для того, чтобы оркестратор мог использовать их
-                if ticket_id_from_envelope and "ticket_id" not in params:
-                    params["ticket_id"] = ticket_id_from_envelope
-                if (
-                    job_id_from_envelope
-                    and "job_id" not in params
-                    and "chat_job_id" not in params
-                ):
-                    params["chat_job_id"] = job_id_from_envelope
+                if not _is_context_command(command):
+                    if ticket_id_from_envelope and "ticket_id" not in params:
+                        params["ticket_id"] = ticket_id_from_envelope
+                    if (
+                        job_id_from_envelope
+                        and "job_id" not in params
+                        and "chat_job_id" not in params
+                    ):
+                        params["chat_job_id"] = job_id_from_envelope
 
                 logger.info(f"⚙️  Получена команда: {command}")
                 logger.debug(f"🔧 Параметры команды: {params}")
@@ -3295,6 +3342,48 @@ class WSAgent:
             # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
             # КОМАНДЫ ОРКЕСТРАТОРА (делегируем через handle_command)
             # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+            if _is_context_command(command):
+                if command not in CONTEXT_COLLECTION_COMMANDS:
+                    return {
+                        "status": "error",
+                        "data": {},
+                        "error": {
+                            "code": "CONTEXT_CAPABILITY_REJECTED",
+                            "message": "Unsupported Device Context capability",
+                        },
+                        "meta": {"command": command, "request_id": request_id},
+                    }
+                try:
+                    now = datetime.now(timezone.utc)
+                    context_command = AgentCommandV1(
+                        schema_version="agent_command_v1",
+                        command_id=request_id,
+                        device_id=device_id,
+                        capability=command,
+                        parameters=params,
+                        requested_by_service="endpoint-platform",
+                        idempotency_key=f"context:{request_id}",
+                        created_at=now,
+                        deadline_at=now + timedelta(minutes=5),
+                    )
+                except (TypeError, ValueError) as exc:
+                    return {
+                        "status": "error",
+                        "data": {},
+                        "error": {
+                            "code": "CONTEXT_COMMAND_INVALID",
+                            "message": str(exc),
+                        },
+                        "meta": {"command": command, "request_id": request_id},
+                    }
+
+                result = execute_context_agent_command(
+                    context_command, probe=SystemProbe()
+                )
+                return _context_result_transport_payload(
+                    result, command=command, request_id=request_id
+                )
 
             orchestrator_commands = [
                 "ping",
