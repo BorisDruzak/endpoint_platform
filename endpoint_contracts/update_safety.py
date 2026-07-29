@@ -6,9 +6,7 @@ import re
 
 
 _SAFE_PROSE_PUNCTUATION = frozenset(" .,:;()!?&#+%'-–—")
-_OPAQUE_32_BYTE_SECRET = re.compile(
-    r"(?<![A-Za-z0-9_-])[A-Za-z0-9_-]{43}(?![A-Za-z0-9_-])"
-)
+_OPAQUE_32_BYTE_SECRET = re.compile(r"[A-Za-z0-9_-]{43}")
 _DIAGNOSTIC_MARKER = re.compile(
     r"(?i)(?:"
     r"\b(?:token|secret|bearer|authorization|password|cookie|logs?|trace|traceback|"
@@ -17,6 +15,13 @@ _DIAGNOSTIC_MARKER = re.compile(
     r"\bstack(?:[ ._-]+)trace\b|\bpending(?:[ ._-]+)update\b|"
     r"\.(?:zip|tar\.gz|tgz|7z)\b)"
 )
+
+
+def validate_no_opaque_update_secret(value: object, *, field_name: str) -> str:
+    """Reject a base64url-shaped 32-byte credential in every persistence field."""
+    if not isinstance(value, str) or _OPAQUE_32_BYTE_SECRET.search(value):
+        raise ValueError(f"{field_name} must not contain an opaque credential")
+    return value
 
 
 def validate_public_update_prose(
@@ -53,4 +58,4 @@ def validate_public_update_prose(
     return value
 
 
-__all__ = ["validate_public_update_prose"]
+__all__ = ["validate_no_opaque_update_secret", "validate_public_update_prose"]

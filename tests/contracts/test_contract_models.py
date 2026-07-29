@@ -101,6 +101,8 @@ def test_update_build_manifest_rejects_unknown_or_unsafe_artifact_fields() -> No
     (
         "C" * 43,
         "D" * 43,
+        "x" + "C" * 43,
+        "r." + "D" * 43,
         "Bearer raw-release-secret",
         r"failed at C:\agent\pending_update.json",
         "traceback follows",
@@ -299,6 +301,37 @@ def test_agent_update_report_bounds_safe_details_and_terminal_statuses() -> None
     with pytest.raises(ValidationError):
         AgentUpdateReportV1.model_validate(
             {**VALID_UPDATE_REPORT, "status": "scheduled"}
+        )
+
+
+@pytest.mark.parametrize(
+    ("field_name", "value"),
+    [
+        ("report_key", "x" + "A" * 43),
+        ("report_key", "r." + "A" * 43),
+        ("reported_version", "1.2.3+x" + "A" * 43),
+    ],
+)
+def test_agent_update_report_rejects_embedded_opaque_credentials(
+    field_name: str,
+    value: str,
+) -> None:
+    """Opaque credential-shaped substrings cannot enter report persistence fields."""
+    with pytest.raises(ValidationError):
+        AgentUpdateReportV1.model_validate({**VALID_UPDATE_REPORT, field_name: value})
+
+
+def test_update_contract_rejects_versions_that_cannot_persist() -> None:
+    """A SemVer accepted at the API boundary must fit every persisted version column."""
+    too_long_semver = "1.2.3+" + "a" * 65
+
+    with pytest.raises(ValidationError):
+        UpdateBuildManifestV1.model_validate(
+            {**VALID_UPDATE_BUILD, "version": too_long_semver}
+        )
+    with pytest.raises(ValidationError):
+        AgentUpdateReportV1.model_validate(
+            {**VALID_UPDATE_REPORT, "reported_version": too_long_semver}
         )
 
 

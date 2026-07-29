@@ -15,7 +15,10 @@ from pydantic import (
 )
 
 from .base import ContractModelV1
-from .update_safety import validate_public_update_prose
+from .update_safety import (
+    validate_no_opaque_update_secret,
+    validate_public_update_prose,
+)
 
 UpdatePlatformV1 = Literal["linux_amd64", "windows_amd64"]
 UpdateChannelV1 = Literal["stable", "canary"]
@@ -66,7 +69,7 @@ UpdateIdentifierV1 = Annotated[
 ]
 SemanticVersionV1 = Annotated[
     str,
-    StringConstraints(min_length=5, max_length=128, pattern=_SEMVER_PATTERN),
+    StringConstraints(min_length=5, max_length=64, pattern=_SEMVER_PATTERN),
     Field(json_schema_extra={"pattern": _SEMVER_JSON_SCHEMA_PATTERN}),
 ]
 ArtifactNameV1 = Annotated[
@@ -243,3 +246,13 @@ class AgentUpdateReportV1(ContractModelV1):
     status: UpdateReportStatusV1
     reported_version: SemanticVersionV1
     safe_code: SafeCodeV1 | None = None
+
+    @field_validator("report_key")
+    @classmethod
+    def validate_report_key_has_no_opaque_credential(cls, value: str) -> str:
+        return validate_no_opaque_update_secret(value, field_name="report key")
+
+    @field_validator("reported_version")
+    @classmethod
+    def validate_report_version_has_no_opaque_credential(cls, value: str) -> str:
+        return validate_no_opaque_update_secret(value, field_name="reported version")

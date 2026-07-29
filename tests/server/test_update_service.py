@@ -65,6 +65,32 @@ VALID_MANIFEST = {
 }
 
 
+@pytest.mark.parametrize(
+    ("field_name", "unsafe_value"),
+    [
+        ("report_key", "x" + "A" * 43),
+        ("reported_version", "1.2.3+x" + "A" * 43),
+    ],
+)
+def test_report_service_revalidates_constructed_contract_secret_fields(
+    field_name: str,
+    unsafe_value: str,
+) -> None:
+    """A bypassed Pydantic instance cannot persist an opaque device credential."""
+    unsafe_values = {
+        "schema_version": "agent_update_report_v1",
+        "report_key": "safe-report-key",
+        "status": "failed",
+        "reported_version": "1.2.3",
+        "safe_code": None,
+    }
+    unsafe_values[field_name] = unsafe_value
+    unsafe = AgentUpdateReportV1.model_construct(**unsafe_values)
+
+    with pytest.raises(UpdateValidationError, match="invalid update report"):
+        update_service_module._report(unsafe)
+
+
 @pytest_asyncio.fixture
 async def session() -> AsyncIterator[AsyncSession]:
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")

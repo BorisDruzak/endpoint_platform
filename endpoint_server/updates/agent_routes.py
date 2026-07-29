@@ -112,7 +112,6 @@ async def _authenticate_device(session, request: Request) -> DevicePrincipal:
             )
             .order_by(DeviceCredential.id)
             .limit(2)
-            .with_for_update()
         )
     ).all()
     if len(credentials) != 1:
@@ -146,7 +145,6 @@ async def _authenticate_device(session, request: Request) -> DevicePrincipal:
             Device.id == credential.device_id,
             Device.retired_at.is_(None),
         )
-        .with_for_update()
     )
     if device is None:
         raise _invalid_credential()

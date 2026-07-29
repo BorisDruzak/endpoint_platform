@@ -3,13 +3,16 @@
 from __future__ import annotations
 
 import asyncio
+import ipaddress
 import os
 from collections.abc import AsyncIterator, Iterator
 from datetime import UTC, datetime
 from pathlib import Path
+from types import SimpleNamespace
 from uuid import uuid4
 
 import asyncpg
+import httpx
 import pytest
 import pytest_asyncio
 from alembic import command
@@ -27,12 +30,19 @@ from endpoint_contracts import (
 from endpoint_server.db.models import (
     AuditEvent,
     Device,
+    DeviceCredential,
     UpdateBuild,
     UpdateReport,
     UpdateRollout,
     UpdateTarget,
 )
 from endpoint_server.db.session import AsyncSessionProvider
+from endpoint_server.auth.admin_sessions import require_admin_update_scope
+from endpoint_server.config import Settings
+from endpoint_server.enrollment.credentials import device_token_digest
+from endpoint_server.main import create_app
+import endpoint_server.updates.agent_routes as update_agent_routes
+import endpoint_server.updates.service as update_service_module
 from endpoint_server.updates import (
     UpdateConflict,
     create_rollout,
@@ -646,3 +656,178 @@ async def test_concurrent_conflicting_report_key_persists_one_terminal_result(
     assert persisted_target.status == reports[0].status
     assert persisted_target.status in {"applied", "failed"}
     assert len(report_audits) == 1
+
+
+@pytest.mark.asyncio
+async def test_concurrent_report_replay_and_rollback_routes_complete_without_deadlock(
+    update_service_provider: AsyncSessionProvider,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Agent authentication must not lock a device before rollback domain locks."""
+    now = datetime.now(UTC)
+    token = "postgres-route-lock-token"
+    device = Device(
+        id=uuid4(),
+        device_identifier=f"route-lock-{uuid4().hex}",
+        display_name="Update route lock race",
+        retired_at=None,
+    )
+    async with update_service_provider() as session:
+        rollback_build = await register_build(
+            session,
+            _postgres_manifest(
+                build_identifier=f"route-rollback-{uuid4().hex}",
+                version="1.0.0",
+                channel="stable",
+                digest_character="6",
+            ),
+            "postgres-admin",
+            f"route-rollback-build-{uuid4().hex}",
+            now=now,
+        )
+        trigger_build = await register_build(
+            session,
+            _postgres_manifest(
+                build_identifier=f"route-trigger-{uuid4().hex}",
+                version="2.0.0",
+                channel="stable",
+                digest_character="7",
+            ),
+            "postgres-admin",
+            f"route-trigger-build-{uuid4().hex}",
+            now=now,
+        )
+        session.add(device)
+        session.add(
+            DeviceCredential(
+                id=uuid4(),
+                device_id=device.id,
+                credential_identifier=f"route-credential-{uuid4().hex}",
+                token_digest=device_token_digest(token, b"device-pepper"),
+                pending_token_digest=None,
+                rotation_overlap_expires_at=None,
+                expires_at=None,
+                revoked_at=None,
+            )
+        )
+        await session.flush()
+        trigger = await create_rollout(
+            session,
+            trigger_build.id,
+            "canary",
+            [device.id],
+            "route lock trigger",
+            "postgres-admin",
+            f"route-trigger-rollout-{uuid4().hex}",
+            now=now,
+        )
+        target = await session.scalar(
+            select(UpdateTarget).where(UpdateTarget.rollout_id == trigger.id)
+        )
+        assert target is not None
+        await record_ack(
+            session,
+            device_id=device.id,
+            operation_id=target.operation_id,
+            acknowledgement=AgentUpdateAcknowledgementV1(
+                schema_version="agent_update_ack_v1",
+                status="requested",
+            ),
+            request_id=f"route-requested-{uuid4().hex}",
+            now=now,
+        )
+        await record_ack(
+            session,
+            device_id=device.id,
+            operation_id=target.operation_id,
+            acknowledgement=AgentUpdateAcknowledgementV1(
+                schema_version="agent_update_ack_v1",
+                status="scheduled",
+            ),
+            request_id=f"route-scheduled-{uuid4().hex}",
+            now=now,
+        )
+        report_body = {
+            "schema_version": "agent_update_report_v1",
+            "report_key": "route-replay-report",
+            "status": "failed",
+            "reported_version": "2.0.0",
+            "safe_code": "update.failed",
+        }
+        await record_report(
+            session,
+            device_id=device.id,
+            operation_id=target.operation_id,
+            report=AgentUpdateReportV1.model_validate(report_body),
+            request_id=f"route-initial-report-{uuid4().hex}",
+            now=now,
+        )
+        await session.commit()
+
+    report_paused_after_authentication = asyncio.Event()
+    allow_report_to_lock_domain = asyncio.Event()
+    rollback_entered_device_lock = asyncio.Event()
+    original_record_report = update_agent_routes.record_report
+    original_lock_devices = update_service_module._lock_assignable_devices
+
+    async def pause_report_after_authentication(*args: object, **kwargs: object) -> object:
+        report_paused_after_authentication.set()
+        await allow_report_to_lock_domain.wait()
+        return await original_record_report(*args, **kwargs)
+
+    async def mark_rollback_device_lock(*args: object, **kwargs: object) -> object:
+        rollback_entered_device_lock.set()
+        return await original_lock_devices(*args, **kwargs)
+
+    monkeypatch.setattr(update_agent_routes, "record_report", pause_report_after_authentication)
+    monkeypatch.setattr(update_service_module, "_lock_assignable_devices", mark_rollback_device_lock)
+    app = create_app(
+        Settings(
+            database_url="postgresql+asyncpg://test",
+            public_base_url="https://endpoint.sosnadmin.local",
+            device_token_pepper=b"device-pepper",
+            service_token_pepper=b"service-pepper",
+            session_secret=b"request-correlation-secret",
+            allowed_agent_cidrs=(ipaddress.ip_network("127.0.0.0/8"),),
+            allowed_admin_cidrs=(ipaddress.ip_network("127.0.0.0/8"),),
+            artifact_root=Path("artifacts"),
+        ),
+        update_service_provider,
+    )
+    app.dependency_overrides[require_admin_update_scope] = lambda: SimpleNamespace(
+        user=SimpleNamespace(id="postgres-admin")
+    )
+    transport = httpx.ASGITransport(app=app, client=("127.0.0.1", 12345))
+    async with httpx.AsyncClient(
+        transport=transport,
+        base_url="https://endpoint.sosnadmin.local",
+    ) as client:
+        report_task = asyncio.create_task(
+            client.post(
+                f"/agent/v1/updates/{target.operation_id}/reports",
+                json=report_body,
+                headers={"Authorization": f"Bearer {token}"},
+            )
+        )
+        await asyncio.wait_for(report_paused_after_authentication.wait(), timeout=2)
+        rollback_task = asyncio.create_task(
+            client.post(
+                f"/api/admin/updates/rollouts/{trigger.id}/rollback",
+                json={
+                    "schema_version": "update_rollout_v1",
+                    "build_identifier": rollback_build.build_identifier,
+                    "mode": "rollback",
+                    "device_ids": [str(device.id)],
+                    "reason": "route lock rollback",
+                },
+            )
+        )
+        await asyncio.wait_for(rollback_entered_device_lock.wait(), timeout=2)
+        allow_report_to_lock_domain.set()
+        report_response, rollback_response = await asyncio.wait_for(
+            asyncio.gather(report_task, rollback_task),
+            timeout=4,
+        )
+
+    assert report_response.status_code == 200
+    assert rollback_response.status_code == 201

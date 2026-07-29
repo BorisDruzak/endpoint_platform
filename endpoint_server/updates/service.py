@@ -19,7 +19,10 @@ from endpoint_contracts import (
     UpdateBuildManifestV1,
     UpdateRolloutCreateV1,
 )
-from endpoint_contracts.update_safety import validate_public_update_prose
+from endpoint_contracts.update_safety import (
+    validate_no_opaque_update_secret,
+    validate_public_update_prose,
+)
 from endpoint_server.audit.service import append_audit_event
 from endpoint_server.db.models import (
     Device,
@@ -119,12 +122,16 @@ def _report(
     value: AgentUpdateReportV1 | Mapping[str, object],
 ) -> AgentUpdateReportV1:
     try:
-        return (
-            value
-            if isinstance(value, AgentUpdateReportV1)
-            else AgentUpdateReportV1.model_validate(value)
+        validated = AgentUpdateReportV1.model_validate(
+            value.model_dump() if isinstance(value, AgentUpdateReportV1) else value
         )
-    except ValidationError as error:
+        validate_no_opaque_update_secret(validated.report_key, field_name="report key")
+        validate_no_opaque_update_secret(
+            validated.reported_version,
+            field_name="reported version",
+        )
+        return validated
+    except (ValidationError, ValueError) as error:
         raise UpdateValidationError("invalid update report") from error
 
 
