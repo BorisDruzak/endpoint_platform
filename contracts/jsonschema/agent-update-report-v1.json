@@ -11,7 +11,7 @@
     "reported_version": {
       "maxLength": 128,
       "minLength": 5,
-      "pattern": "^(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)(?:-[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?(?![\\s\\S])",
+      "pattern": "^(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)(?:-(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)(?:\\.(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*))*)?(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?(?![\\s\\S])",
       "title": "Reported Version",
       "type": "string"
     },
@@ -29,21 +29,6 @@
       ],
       "default": null,
       "title": "Safe Code"
-    },
-    "safe_message": {
-      "anyOf": [
-        {
-          "maxLength": 512,
-          "minLength": 1,
-          "pattern": "^[^\\r\\n]{1,512}(?![\\s\\S])",
-          "type": "string"
-        },
-        {
-          "type": "null"
-        }
-      ],
-      "default": null,
-      "title": "Safe Message"
     },
     "schema_version": {
       "const": "agent_update_report_v1",

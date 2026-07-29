@@ -179,7 +179,6 @@ FIXTURES: dict[str, dict[str, Any]] = {
         "status": "applied",
         "reported_version": "1.2.3",
         "safe_code": "post_restart_handshake",
-        "safe_message": "Fixture post-restart handshake completed.",
     },
 }
 

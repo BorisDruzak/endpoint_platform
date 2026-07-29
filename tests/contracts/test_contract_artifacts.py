@@ -480,6 +480,7 @@ def test_update_contract_artifacts_publish_strict_safe_control_plane_schemas() -
     }
     assert "traceback" not in report_schema["properties"]
     assert "logs" not in report_schema["properties"]
+    assert "safe_message" not in report_schema["properties"]
 
     manifest_schema = json.loads(
         Path("contracts/jsonschema/update-build-manifest-v1.json").read_text(
@@ -488,6 +489,13 @@ def test_update_contract_artifacts_publish_strict_safe_control_plane_schemas() -
     )
     assert manifest_schema["properties"]["sha256"]["pattern"].endswith(r"(?![\s\S])")
     assert report_schema["properties"]["report_key"]["pattern"].endswith(r"(?![\s\S])")
+    assert "model-only" in manifest_schema["$comment"].lower()
+
+    rollout_schema = json.loads(
+        Path("contracts/jsonschema/update-rollout-v1.json").read_text(encoding="utf-8")
+    )
+    assert rollout_schema["properties"]["device_ids"]["uniqueItems"] is True
+    assert "model-only" in rollout_schema["$comment"].lower()
 
     openapi = yaml.safe_load(
         Path("contracts/openapi/endpoint-platform-v1.yaml").read_text(encoding="utf-8")
@@ -497,6 +505,65 @@ def test_update_contract_artifacts_publish_strict_safe_control_plane_schemas() -
         "/agent/v1/updates/{operation_id}/ack",
         "/agent/v1/updates/{operation_id}/reports",
     } <= set(openapi["paths"])
+
+
+@pytest.mark.parametrize(
+    "artifact_url",
+    [
+        "http://bad.example.test/agent.tar.gz",
+        "https://user:pass@example.test/agent.tar.gz",
+        "https://example.test/agent.tar.gz#fragment",
+        "https://example.test/agent.tar.gz?access_token=fixture-value",
+        "https://example.test/agent.tar.gz?download=1",
+    ],
+)
+def test_manifest_schema_and_openapi_reject_noncanonical_artifact_urls(
+    artifact_url: str,
+) -> None:
+    """Expose only canonical immutable HTTPS URLs through public schemas."""
+    payload = {
+        **FIXTURES["update-build-manifest-v1.json"],
+        "artifact_url": artifact_url,
+    }
+
+    with pytest.raises(JsonSchemaValidationError):
+        _schema_validator("update-build-manifest-v1.json").validate(payload)
+    with pytest.raises(JsonSchemaValidationError):
+        _openapi_component_validator("UpdateBuildManifestV1").validate(payload)
+
+
+@pytest.mark.parametrize("size", [True, "1"])
+def test_manifest_schema_rejects_noninteger_sizes(size: object) -> None:
+    """Keep immutable artifact size type strict in public JSON Schema."""
+    with pytest.raises(JsonSchemaValidationError):
+        _schema_validator("update-build-manifest-v1.json").validate(
+            {**FIXTURES["update-build-manifest-v1.json"], "size": size}
+        )
+
+
+@pytest.mark.parametrize("version", ["1.2.3-01", "1.2.3-01.1", "1.2.3-1.01"])
+def test_manifest_schema_and_openapi_reject_invalid_semver_prereleases(
+    version: str,
+) -> None:
+    """Keep SemVer prerelease validity aligned across published consumers."""
+    payload = {**FIXTURES["update-build-manifest-v1.json"], "version": version}
+
+    with pytest.raises(JsonSchemaValidationError):
+        _schema_validator("update-build-manifest-v1.json").validate(payload)
+    with pytest.raises(JsonSchemaValidationError):
+        _openapi_component_validator("UpdateBuildManifestV1").validate(payload)
+
+
+def test_rollout_schema_rejects_duplicate_device_targets() -> None:
+    """Publish the same explicit-target uniqueness invariant as the model."""
+    duplicate = "11111111-1111-4111-8111-111111111111"
+    with pytest.raises(JsonSchemaValidationError):
+        _schema_validator("update-rollout-v1.json").validate(
+            {
+                **FIXTURES["update-rollout-v1.json"],
+                "device_ids": [duplicate, duplicate],
+            }
+        )
 
 
 @pytest.mark.parametrize("filename", FIXTURES)

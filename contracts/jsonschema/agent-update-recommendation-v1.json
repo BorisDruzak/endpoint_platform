@@ -1,4 +1,5 @@
 {
+  "$comment": "Model-only constraints: artifact_name suffix must match archive_type.",
   "additionalProperties": false,
   "properties": {
     "archive_type": {
@@ -17,8 +18,10 @@
       "type": "string"
     },
     "artifact_url": {
+      "$comment": "Only canonical HTTPS artifact URLs are accepted; user-info, fragments and query strings are forbidden.",
       "format": "uri",
       "minLength": 1,
+      "pattern": "^https://[^/?#@]+(?:/[^?#\\s]*)?(?![\\s\\S])",
       "title": "Artifact Url",
       "type": "string"
     },
@@ -85,7 +88,7 @@
     "version": {
       "maxLength": 128,
       "minLength": 5,
-      "pattern": "^(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)(?:-[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?(?![\\s\\S])",
+      "pattern": "^(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)(?:-(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)(?:\\.(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*))*)?(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?(?![\\s\\S])",
       "title": "Version",
       "type": "string"
     }

@@ -96,6 +96,39 @@ def test_update_build_manifest_rejects_unknown_or_unsafe_artifact_fields() -> No
         )
 
 
+@pytest.mark.parametrize(
+    "artifact_url",
+    [
+        "https://example.test/agent.tar.gz?access_token=fixture-value",
+        "https://example.test/agent.tar.gz?download=1",
+    ],
+)
+def test_update_build_manifest_rejects_query_urls(
+    artifact_url: str,
+) -> None:
+    """Prevent query strings from becoming persisted artifact credentials."""
+    with pytest.raises(ValidationError):
+        UpdateBuildManifestV1.model_validate(
+            {**VALID_UPDATE_BUILD, "artifact_url": artifact_url}
+        )
+
+
+@pytest.mark.parametrize("size", [True, "1"])
+def test_update_build_manifest_rejects_coerced_sizes(size: object) -> None:
+    """Keep runtime numeric validation aligned with JSON Schema's integer type."""
+    with pytest.raises(ValidationError):
+        UpdateBuildManifestV1.model_validate({**VALID_UPDATE_BUILD, "size": size})
+
+
+@pytest.mark.parametrize("version", ["1.2.3-01", "1.2.3-01.1", "1.2.3-1.01"])
+def test_update_build_manifest_rejects_leading_zero_numeric_prereleases(
+    version: str,
+) -> None:
+    """Enforce the SemVer numeric prerelease identifier rule."""
+    with pytest.raises(ValidationError):
+        UpdateBuildManifestV1.model_validate({**VALID_UPDATE_BUILD, "version": version})
+
+
 def test_update_rollout_requires_deduplicated_explicit_device_targets() -> None:
     """Reject duplicate device assignments before a rollout is persisted."""
     payload = {
@@ -110,6 +143,19 @@ def test_update_rollout_requires_deduplicated_explicit_device_targets() -> None:
 
     with pytest.raises(ValidationError):
         UpdateRolloutCreateV1.model_validate(payload)
+
+
+def test_rollback_rollout_requires_a_safe_trigger_reason() -> None:
+    """Prevent an unauditable rollback intent from crossing the wire boundary."""
+    with pytest.raises(ValidationError):
+        UpdateRolloutCreateV1.model_validate(
+            {
+                "schema_version": "update_rollout_v1",
+                "build_identifier": "endpoint-agent-linux-1.2.3",
+                "mode": "rollback",
+                "device_ids": ["11111111-1111-4111-8111-111111111111"],
+            }
+        )
 
 
 def test_agent_update_recommendation_exposes_only_verified_manifest_metadata() -> None:
@@ -158,6 +204,26 @@ def test_agent_update_report_excludes_raw_diagnostics() -> None:
         )
 
 
+@pytest.mark.parametrize(
+    "diagnostic_field, diagnostic_value",
+    [
+        ("safe_message", "Bearer fixture-token"),
+        ("traceback", "Traceback (most recent call last):"),
+        ("pending_update", '{"device_token":"fixture-token"}'),
+        ("logs", "2026-07-29 launcher output"),
+    ],
+)
+def test_agent_update_report_rejects_raw_diagnostic_channels(
+    diagnostic_field: str,
+    diagnostic_value: str,
+) -> None:
+    """Allow only server-owned safe messages, never agent-supplied diagnostics."""
+    with pytest.raises(ValidationError):
+        AgentUpdateReportV1.model_validate(
+            {**VALID_UPDATE_REPORT, diagnostic_field: diagnostic_value}
+        )
+
+
 def test_agent_update_report_bounds_safe_details_and_terminal_statuses() -> None:
     """Reject unbounded messages and nonterminal state reports."""
     report = AgentUpdateReportV1.model_validate(
@@ -165,7 +231,6 @@ def test_agent_update_report_bounds_safe_details_and_terminal_statuses() -> None
             **VALID_UPDATE_REPORT,
             "status": "rolled_back",
             "safe_code": "launcher_verify_failed",
-            "safe_message": "Version verification failed after restart.",
         }
     )
 
@@ -173,10 +238,6 @@ def test_agent_update_report_bounds_safe_details_and_terminal_statuses() -> None
     with pytest.raises(ValidationError):
         AgentUpdateReportV1.model_validate(
             {**VALID_UPDATE_REPORT, "status": "scheduled"}
-        )
-    with pytest.raises(ValidationError):
-        AgentUpdateReportV1.model_validate(
-            {**VALID_UPDATE_REPORT, "safe_message": "x" * 513}
         )
 
 

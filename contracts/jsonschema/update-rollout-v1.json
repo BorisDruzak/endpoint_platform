@@ -1,4 +1,5 @@
 {
+  "$comment": "Model-only constraint: rollback mode requires a non-empty safe trigger reason.",
   "additionalProperties": false,
   "properties": {
     "build_identifier": {
@@ -16,7 +17,8 @@
       "maxItems": 10000,
       "minItems": 1,
       "title": "Device Ids",
-      "type": "array"
+      "type": "array",
+      "uniqueItems": true
     },
     "mode": {
       "enum": [

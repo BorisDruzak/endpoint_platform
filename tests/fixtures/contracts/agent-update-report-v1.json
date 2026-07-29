@@ -2,7 +2,6 @@
   "report_key": "report-fixture-01",
   "reported_version": "1.2.3",
   "safe_code": "post_restart_handshake",
-  "safe_message": "Fixture post-restart handshake completed.",
   "schema_version": "agent_update_report_v1",
   "status": "applied"
 }
