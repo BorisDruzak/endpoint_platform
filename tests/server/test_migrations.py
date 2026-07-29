@@ -118,7 +118,42 @@ def test_migration_history_has_exactly_one_head() -> None:
         _alembic_config("postgresql+asyncpg://unused@127.0.0.1/unused")
     )
 
-    assert script.get_heads() == ["0005_enrollment_campaigns"]
+    assert script.get_heads() == ["0006_update_control_plane"]
+
+
+def test_update_downgrade_sql_neutralizes_actionable_assignments() -> None:
+    """Dropping rollout state must cancel assignments before their state is lost."""
+    output = io.StringIO()
+    config = Config(REPOSITORY_ROOT / "alembic.ini", output_buffer=output)
+    config.set_main_option(
+        "sqlalchemy.url",
+        "postgresql+asyncpg://unused@127.0.0.1/unused",
+    )
+
+    command.downgrade(
+        config,
+        "0006_update_control_plane:0005_enrollment_campaigns",
+        sql=True,
+    )
+
+    rendered = " ".join(output.getvalue().split())
+    rollout_update = (
+        "UPDATE update_rollouts SET status = 'cancelled', completed_at = "
+        "COALESCE(completed_at, cancelled_at, paused_at, started_at, "
+        "CURRENT_TIMESTAMP) WHERE status IN ('draft', 'active', 'paused');"
+    )
+    target_update = (
+        "UPDATE update_targets SET status = 'cancelled', updated_at = "
+        "COALESCE(terminal_at, scheduled_at, requested_at, assigned_at, "
+        "updated_at, CURRENT_TIMESTAMP) WHERE status IN "
+        "('assigned', 'requested', 'scheduled');"
+    )
+    assert rollout_update in rendered
+    assert target_update in rendered
+    assert rendered.index(rollout_update) < rendered.index(
+        "DROP COLUMN cancelled_at"
+    )
+    assert rendered.index(target_update) < rendered.index("DROP COLUMN operation_id")
 
 
 def test_enrollment_downgrade_sql_neutralizes_bounded_credentials() -> None:
@@ -311,7 +346,7 @@ def test_initial_revision_upgrades_and_downgrades_empty_postgresql(
         _fetch(plain_url, "SELECT version_num FROM alembic_version")
     )
     assert [row["version_num"] for row in revision_rows] == [
-        "0005_enrollment_campaigns"
+        "0006_update_control_plane"
     ]
 
     column_rows = asyncio.run(
