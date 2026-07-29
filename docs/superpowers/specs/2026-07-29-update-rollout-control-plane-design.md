@@ -114,8 +114,13 @@ it is not emitted by the server merely because the agent scheduled a restart.
 ## Authorization, audit and concurrency
 
 All admin mutations require the existing interactive administrator session
-with an explicit `updates:write` scope.  Agent endpoints authenticate only the
-device credential and cannot create builds, rollouts or targets.
+with an explicit `updates:write` scope.  The scope is persisted as a
+normalized `admin_users.scopes` grant, is loaded into the interactive
+principal server-side and is never supplied by a browser header.  The first
+bootstrap administrator receives the explicit `updates:write` grant; the
+additive migration grants it to existing administrators so the upgrade does
+not silently lock them out.  Agent endpoints authenticate only the device
+credential and cannot create builds, rollouts or targets.
 
 Build creation, rollout lifecycle transitions, target assignment, ack and
 report mutation each append one immutable audit event in the same transaction.
@@ -131,10 +136,12 @@ idempotency is unique per target and report key.
 
 ## Migration and downgrade
 
-One forward Alembic revision expands the existing ownership tables with the
+The update-control-plane revision expands the existing ownership tables with the
 validated build manifest, rollout mode/reason/lifecycle timestamps, target
 operation and lifecycle fields, and report idempotency/safe detail fields.
-It adds supporting indexes and constraints.
+It adds supporting indexes and constraints.  A following additive revision
+adds normalized interactive administrator scopes and backfills the explicit
+`updates:write` grant as described above.
 
 Downgrade is fail-closed: before dropping state it disables every active
 rollout and marks active targets cancelled, so a rollback cannot re-enable an

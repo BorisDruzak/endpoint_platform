@@ -206,6 +206,10 @@ git commit -m "feat: add immutable update rollout service"
 ### Task 4: Authenticated admin and device update APIs
 
 **Files:**
+- Modify: `endpoint_server/db/models/administration.py`
+- Modify: `endpoint_server/auth/admin_sessions.py`
+- Modify: `endpoint_server/auth/bootstrap_admin.py`
+- Create: `endpoint_server/db/migrations/versions/0007_admin_update_scopes.py`
 - Create: `endpoint_server/updates/admin_routes.py`
 - Create: `endpoint_server/updates/agent_routes.py`
 - Modify: `endpoint_server/main.py`
@@ -217,6 +221,10 @@ git commit -m "feat: add immutable update rollout service"
 - Admin API: create build; create/activate/pause/complete rollout; create rollback rollout.
 - Agent API: `GET /agent/v1/updates/recommendation`, `POST /agent/v1/updates/{operation_id}/ack`, `POST /agent/v1/updates/{operation_id}/reports`.
 - Agent routes consume Task 1 strict models and Task 3 service functions.
+- `require_admin_update_scope(request) -> AdminPrincipal` loads the interactive
+  session principal and requires persisted `updates:write`; no request header
+  grants a scope.  The 0007 migration adds normalized `AdminUser.scopes` and
+  backfills the explicit `updates:write` grant for existing administrators.
 
 - [ ] **Step 1: Write RED API/security tests.**
 
@@ -229,6 +237,10 @@ async def test_agent_cannot_read_another_devices_recommendation(client, device_a
 async def test_report_key_is_idempotent_but_payload_conflict_fails(client, device):
     assert (await client.post(device.report_url, json=REPORT)).status_code == 200
     assert (await client.post(device.report_url, json={**REPORT, "status": "failed"})).status_code == 409
+
+async def test_admin_update_scope_is_persisted_not_header_granted(client, admin):
+    assert (await client.post("/api/admin/updates/builds", headers=admin.headers)).status_code == 403
+    assert (await client.post("/api/admin/updates/builds", headers={**admin.headers, "X-Scope": "updates:write"})).status_code == 403
 ```
 
 - [ ] **Step 2: Run targeted tests and confirm routes are absent.**
@@ -239,7 +251,10 @@ Expected: FAIL with missing routes.
 
 - [ ] **Step 3: Implement admin and agent route boundaries.**
 
-Require existing admin/session scope checks for admin mutations.  Resolve the
+Add `AdminUser.scopes` as a normalized persisted collection in revision 0007;
+backfill and bootstrap the explicit `updates:write` grant, and add
+`require_admin_update_scope` around the existing interactive-session and CSRF
+checks.  Require that dependency for every admin mutation.  Resolve the
 device from its bearer credential, not request data.  Return a generic no
 assignment response for no target, foreign platform/channel and inactive
 rollout.  Map domain errors to non-enumerating status codes.  Use an HMAC-safe
