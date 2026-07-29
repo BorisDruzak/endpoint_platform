@@ -4,6 +4,7 @@ from datetime import datetime
 from uuid import UUID
 
 from sqlalchemy import DateTime, ForeignKey, String, UniqueConstraint
+from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.orm import Mapped, mapped_column
 
 from endpoint_server.db.base import Base
@@ -56,7 +57,13 @@ class ServiceCredential(OwnershipRecord, Base):
         ForeignKey("service_clients.id", ondelete="CASCADE"), nullable=False
     )
     credential_identifier: Mapped[str] = mapped_column(String(128), nullable=False)
+    token_prefix: Mapped[str] = mapped_column(
+        String(160), nullable=False, unique=True
+    )
     secret_digest: Mapped[str] = mapped_column(String(256), nullable=False)
+    scopes: Mapped[list[str]] = mapped_column(
+        ARRAY(String(128)), nullable=False
+    )
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 

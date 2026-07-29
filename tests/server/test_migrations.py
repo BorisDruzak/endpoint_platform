@@ -115,7 +115,7 @@ def test_migration_history_has_exactly_one_head() -> None:
         _alembic_config("postgresql+asyncpg://unused@127.0.0.1/unused")
     )
 
-    assert script.get_heads() == ["0001_initial"]
+    assert script.get_heads() == ["0002_service_credentials"]
 
 
 def test_initial_revision_upgrades_and_downgrades_empty_postgresql(
@@ -144,7 +144,9 @@ def test_initial_revision_upgrades_and_downgrades_empty_postgresql(
     revision_rows = asyncio.run(
         _fetch(plain_url, "SELECT version_num FROM alembic_version")
     )
-    assert [row["version_num"] for row in revision_rows] == ["0001_initial"]
+    assert [row["version_num"] for row in revision_rows] == [
+        "0002_service_credentials"
+    ]
 
     column_rows = asyncio.run(
         _fetch(
@@ -174,6 +176,11 @@ def test_initial_revision_upgrades_and_downgrades_empty_postgresql(
 
     for table_name, digest_columns in CREDENTIAL_TABLE_COLUMNS.items():
         assert digest_columns <= columns_by_table[table_name].keys()
+
+    assert {"token_prefix", "scopes"} <= columns_by_table[
+        "service_credentials"
+    ].keys()
+    assert columns_by_table["service_credentials"]["scopes"]["data_type"] == "ARRAY"
 
     command.downgrade(config, "base")
 
