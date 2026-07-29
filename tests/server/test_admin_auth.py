@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import hashlib
 import hmac
 import io
+import os
 import secrets
 from contextlib import asynccontextmanager
+from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
 from ipaddress import ip_network
 from pathlib import Path
@@ -15,9 +18,14 @@ from types import SimpleNamespace
 from typing import AsyncIterator
 from uuid import uuid4
 
+import asyncpg
 import pytest
+from alembic import command
+from alembic.config import Config
 from fastapi import HTTPException
 from httpx import ASGITransport, AsyncClient
+from sqlalchemy import func, select
+from sqlalchemy.engine import make_url
 from starlette.requests import Request
 from starlette.responses import Response
 
@@ -43,7 +51,11 @@ from endpoint_server.auth.csrf import (
 from endpoint_server.auth.passwords import hash_password, verify_password
 from endpoint_server.config import Settings
 from endpoint_server.db.models import AdminSession, AdminUser
+from endpoint_server.db.session import create_session_provider
 from endpoint_server.main import create_app
+
+
+REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 
 
 class _InteractiveInput(io.StringIO):
@@ -56,14 +68,24 @@ class _BootstrapSession:
         self.existing_admins = existing_admins
         self.added: list[object] = []
         self.commit_calls = 0
+        self.events: list[str] = []
+
+    async def execute(
+        self, statement: object, parameters: object | None = None
+    ) -> object:
+        self.events.append("lock")
+        return object()
 
     async def scalar(self, statement: object) -> int:
+        self.events.append("count")
         return self.existing_admins
 
     def add(self, value: object) -> None:
+        self.events.append("add")
         self.added.append(value)
 
     async def commit(self) -> None:
+        self.events.append("commit")
         self.commit_calls += 1
 
 class _AuthSession:
@@ -112,7 +134,9 @@ def _decode_urlsafe(value: str) -> bytes:
 def _request(method: str, *, csrf_header: str | None = None) -> Request:
     headers = []
     if csrf_header is not None:
-        headers.append((CSRF_HEADER.lower().encode("ascii"), csrf_header.encode("ascii")))
+        headers.append(
+            (CSRF_HEADER.lower().encode("ascii"), csrf_header.encode("latin-1"))
+        )
     return Request(
         {
             "type": "http",
@@ -143,6 +167,54 @@ def _admin_user(password: str) -> AdminUser:
         password_digest=hash_password(password),
         disabled_at=None,
     )
+
+
+def _postgres_admin_url() -> str:
+    url = os.environ.get("ENDPOINT_TEST_POSTGRES_URL")
+    if not url:
+        pytest.skip(
+            "set ENDPOINT_TEST_POSTGRES_URL to a disposable local PostgreSQL server"
+        )
+    parsed = make_url(url)
+    if parsed.host not in {"127.0.0.1", "localhost", "::1"}:
+        pytest.fail("authentication tests may only use a loopback PostgreSQL server")
+    return parsed.set(drivername="postgresql").render_as_string(
+        hide_password=False
+    )
+
+
+async def _execute_postgres(database_url: str, statement: str) -> None:
+    connection = await asyncpg.connect(database_url)
+    try:
+        await connection.execute(statement)
+    finally:
+        await connection.close()
+
+
+@pytest.fixture
+def auth_database_url() -> Iterator[str]:
+    admin_url = _postgres_admin_url()
+    database_name = f"endpoint_admin_auth_{uuid4().hex}"
+    asyncio.run(_execute_postgres(admin_url, f'CREATE DATABASE "{database_name}"'))
+    database_url = (
+        make_url(admin_url)
+        .set(drivername="postgresql+asyncpg", database=database_name)
+        .render_as_string(hide_password=False)
+    )
+    config = Config(REPOSITORY_ROOT / "alembic.ini")
+    config.set_main_option("sqlalchemy.url", database_url.replace("%", "%%"))
+    try:
+        command.upgrade(config, "head")
+        yield database_url
+    finally:
+        asyncio.run(
+            _execute_postgres(
+                admin_url,
+                "SELECT pg_terminate_backend(pid) FROM pg_stat_activity "
+                f"WHERE datname = '{database_name}' AND pid <> pg_backend_pid()",
+            )
+        )
+        asyncio.run(_execute_postgres(admin_url, f'DROP DATABASE "{database_name}"'))
 
 
 def test_password_digest_uses_argon2id_and_verifies_without_retaining_password() -> None:
@@ -177,6 +249,35 @@ def test_bootstrap_password_reader_requires_a_terminal_and_confirmation(
         read_interactive_password()
 
 
+@pytest.mark.parametrize(
+    ("case", "expected_message"),
+    [
+        ("empty", "must not be empty"),
+        ("mismatch", "does not match"),
+    ],
+)
+def test_bootstrap_rejects_empty_or_mismatched_password_confirmation(
+    monkeypatch: pytest.MonkeyPatch,
+    case: str,
+    expected_message: str,
+) -> None:
+    """Empty or mistyped confirmation must not create a bootstrap credential."""
+    entered_passwords = (
+        ("", "")
+        if case == "empty"
+        else (secrets.token_urlsafe(24), secrets.token_urlsafe(24))
+    )
+    entered = iter(entered_passwords)
+    monkeypatch.setattr("sys.stdin", _InteractiveInput())
+    monkeypatch.setattr(
+        "endpoint_server.auth.bootstrap_admin.getpass.getpass",
+        lambda prompt: next(entered),
+    )
+
+    with pytest.raises(RuntimeError, match=expected_message):
+        read_interactive_password()
+
+
 def test_bootstrap_cli_has_no_password_argument(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
@@ -207,11 +308,48 @@ async def test_bootstrap_stores_only_an_argon2id_digest_for_the_first_admin() ->
     assert user.password_digest.startswith("$argon2id$")
     assert password not in user.password_digest
     assert verify_password(user.password_digest, password)
+    assert session.events == ["lock", "count", "add", "commit"]
 
     occupied_session = _BootstrapSession(existing_admins=1)
     with pytest.raises(RuntimeError, match="already exists"):
         await bootstrap_first_admin(occupied_session, "second-admin", password)
     assert occupied_session.added == []
+
+
+@pytest.mark.asyncio
+async def test_concurrent_bootstrap_creates_exactly_one_first_admin(
+    auth_database_url: str,
+) -> None:
+    """Different concurrent usernames must not both pass the first-admin check."""
+    usernames = [f"first-admin-{index}" for index in range(4)]
+
+    async def attempt(username: str) -> str | None:
+        provider = create_session_provider(auth_database_url)
+        try:
+            async with provider() as session:
+                try:
+                    user = await bootstrap_first_admin(
+                        session,
+                        username,
+                        secrets.token_urlsafe(24),
+                    )
+                except RuntimeError:
+                    return None
+                return user.username
+        finally:
+            await provider.close()
+
+    results = await asyncio.gather(*(attempt(username) for username in usernames))
+
+    provider = create_session_provider(auth_database_url)
+    try:
+        async with provider() as session:
+            persisted_count = await session.scalar(select(func.count(AdminUser.id)))
+    finally:
+        await provider.close()
+
+    assert sum(result is not None for result in results) == 1
+    assert persisted_count == 1
 
 
 def test_issued_session_uses_32_random_bytes_and_persists_only_hmac_digest() -> None:
@@ -297,6 +435,30 @@ async def test_unsafe_methods_require_matching_per_session_csrf_token() -> None:
     enforce_csrf(_request("GET"), token, session_secret)
 
 
+@pytest.mark.parametrize(
+    "malformed_header",
+    [
+        "é" * 43,
+        "A" * 42,
+        "A" * 44,
+        "!" * 43,
+        "A=" + "A" * 41,
+    ],
+)
+def test_malformed_csrf_header_is_rejected_without_server_error(
+    malformed_header: str,
+) -> None:
+    """Malformed attacker-controlled header text must fail closed instead of raising."""
+    with pytest.raises(HTTPException) as rejected:
+        enforce_csrf(
+            _request("POST", csrf_header=malformed_header),
+            secrets.token_urlsafe(32),
+            secrets.token_bytes(32),
+        )
+
+    assert rejected.value.status_code == 403
+
+
 @pytest.mark.asyncio
 async def test_login_persists_only_digest_and_sets_protected_cookie() -> None:
     """A successful login must not persist or return the bearer token outside its cookie."""
@@ -332,6 +494,55 @@ async def test_login_persists_only_digest_and_sets_protected_cookie() -> None:
     assert record.session_digest != raw_token
     assert raw_token not in record.session_digest
     assert raw_token not in response.text
+
+
+@pytest.mark.asyncio
+async def test_disabled_admin_cannot_login() -> None:
+    """A disabled account returned by a stale or permissive query must still be denied."""
+    password = secrets.token_urlsafe(24)
+    user = _admin_user(password)
+    user.disabled_at = datetime.now(UTC)
+    session = _AuthSession(user=user)
+    app = create_app(
+        _settings(secrets.token_bytes(32)),
+        session_provider=_AuthSessionProvider(session),
+    )
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="https://endpoint.sosnadmin.local",
+    ) as client:
+        response = await client.post(
+            "/api/admin/session",
+            json={"username": user.username, "password": password},
+        )
+
+    assert response.status_code == 401
+    assert session.added == []
+    assert session.commit_calls == 0
+
+
+@pytest.mark.asyncio
+async def test_validation_error_does_not_reflect_malformed_password_input() -> None:
+    """FastAPI's 422 payload must not echo malformed secret-bearing field input."""
+    secret_marker = f"validation-leak-{secrets.token_urlsafe(16)}"
+    app = create_app(
+        _settings(secrets.token_bytes(32)),
+        session_provider=_AuthSessionProvider(_AuthSession()),
+    )
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="https://endpoint.sosnadmin.local",
+    ) as client:
+        response = await client.post(
+            "/api/admin/session",
+            json={"username": "first-admin", "password": [secret_marker]},
+        )
+
+    assert response.status_code == 422
+    assert secret_marker not in response.text
+    assert all("input" not in error for error in response.json()["detail"])
 
 
 @pytest.mark.asyncio
@@ -401,6 +612,50 @@ async def test_require_admin_checks_cookie_state_user_state_and_csrf() -> None:
     with pytest.raises(HTTPException) as malformed:
         await require_admin(protected_request("GET", token="not-valid"))
     assert malformed.value.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_require_admin_rejects_expired_session() -> None:
+    """An expired record returned from storage must fail at the dependency boundary."""
+    session_secret = secrets.token_bytes(32)
+    expired = issue_admin_session(
+        uuid4(),
+        session_secret,
+        now=datetime.now(UTC) - timedelta(hours=2),
+        lifetime=timedelta(hours=1),
+    )
+    user = AdminUser(
+        id=expired.record.admin_user_id,
+        username="first-admin",
+        password_digest=hash_password(secrets.token_urlsafe(24)),
+        disabled_at=None,
+    )
+    provider = _AuthSessionProvider(
+        _AuthSession(user=user, admin_session=expired.record)
+    )
+    request = Request(
+        {
+            "type": "http",
+            "method": "GET",
+            "path": "/protected",
+            "headers": [
+                (
+                    b"cookie",
+                    f"{ADMIN_SESSION_COOKIE}={expired.token}".encode("ascii"),
+                )
+            ],
+            "app": SimpleNamespace(
+                state=SimpleNamespace(
+                    settings=_settings(session_secret),
+                    session_provider=provider,
+                )
+            ),
+        }
+    )
+
+    with pytest.raises(HTTPException) as rejected:
+        await require_admin(request)
+    assert rejected.value.status_code == 401
 
 
 @pytest.mark.asyncio

@@ -210,7 +210,7 @@ async def login_admin(
         password = credentials.password.get_secret_value()
         digest = user.password_digest if user is not None else _DUMMY_PASSWORD_DIGEST
         password_valid = verify_password(digest, password)
-        if user is None or not password_valid:
+        if user is None or user.disabled_at is not None or not password_valid:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid username or password",

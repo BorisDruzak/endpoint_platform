@@ -12,6 +12,10 @@ from fastapi import HTTPException, Request, status
 CSRF_HEADER = "x-csrf-token"
 _CSRF_CONTEXT = b"endpoint-admin-csrf-v1\0"
 _SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS", "TRACE"})
+_CSRF_TOKEN_LENGTH = 43
+_URLSAFE_TOKEN_CHARACTERS = frozenset(
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
+)
 
 
 def csrf_token_for_session(session_token: str, session_secret: bytes) -> str:
@@ -34,7 +38,12 @@ def enforce_csrf(
         return
     supplied = request.headers.get(CSRF_HEADER, "")
     expected = csrf_token_for_session(session_token, session_secret)
-    if not supplied or not hmac.compare_digest(supplied, expected):
+    valid_form = (
+        len(supplied) == _CSRF_TOKEN_LENGTH
+        and supplied.isascii()
+        and all(character in _URLSAFE_TOKEN_CHARACTERS for character in supplied)
+    )
+    if not valid_form or not hmac.compare_digest(supplied, expected):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="CSRF validation failed",

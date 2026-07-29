@@ -9,7 +9,7 @@ import sys
 from collections.abc import Sequence
 from typing import Protocol
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 
 from endpoint_server.config import Settings
 from endpoint_server.db.models import AdminUser
@@ -18,7 +18,14 @@ from endpoint_server.db.session import create_session_provider
 from .passwords import hash_password
 
 
+_FIRST_ADMIN_LOCK_KEY = 0x454E445041444D49
+
+
 class _BootstrapSession(Protocol):
+    async def execute(
+        self, statement: object, parameters: object | None = None
+    ) -> object: ...
+
     async def scalar(self, statement: object) -> int | None: ...
 
     def add(self, instance: object) -> None: ...
@@ -71,6 +78,10 @@ async def bootstrap_first_admin(
     normalized_username = username.strip()
     if not normalized_username or len(normalized_username) > 128:
         raise ValueError("username must contain between 1 and 128 characters")
+    await session.execute(
+        text("SELECT pg_advisory_xact_lock(:lock_key)"),
+        {"lock_key": _FIRST_ADMIN_LOCK_KEY},
+    )
     existing_admins = await session.scalar(select(func.count(AdminUser.id)))
     if existing_admins:
         raise RuntimeError("an administrator already exists")
