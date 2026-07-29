@@ -106,6 +106,9 @@ def _execute_bounded_command(command: tuple[str, ...], timeout_seconds: float, l
             cleanup_failed = True
         stdout.join(_DRAIN_JOIN_GRACE_SECONDS)
         stderr.join(_DRAIN_JOIN_GRACE_SECONDS)
+        if stdout.is_alive() or stderr.is_alive():
+            timed_out = True
+            cleanup_failed = not _terminate_pipe_holding_group(process, stdout, stderr) or cleanup_failed
 
     if timed_out or cleanup_failed:
         raise subprocess.TimeoutExpired(command, timeout_seconds)
@@ -157,6 +160,27 @@ def _wait_for_exit(process: subprocess.Popen[bytes]) -> bool:
     return True
 
 
+def _terminate_pipe_holding_group(
+    process: subprocess.Popen[bytes], stdout: _BoundedDrain, stderr: _BoundedDrain
+) -> bool:
+    """Stop POSIX descendants that retain probe pipes after their parent exits."""
+    if os.name != "posix":
+        return False
+    if not _signal_process(process, terminate=True):
+        return False
+    _wait_for_exit(process)
+    stdout.join(_DRAIN_JOIN_GRACE_SECONDS)
+    stderr.join(_DRAIN_JOIN_GRACE_SECONDS)
+    if not stdout.is_alive() and not stderr.is_alive():
+        return True
+    if not _signal_process(process, terminate=False):
+        return False
+    _wait_for_exit(process)
+    stdout.join(_DRAIN_JOIN_GRACE_SECONDS)
+    stderr.join(_DRAIN_JOIN_GRACE_SECONDS)
+    return not stdout.is_alive() and not stderr.is_alive()
+
+
 class _BoundedDrain:
     def __init__(self, stream: object, limit: int) -> None:
         self._stream = stream
@@ -170,6 +194,9 @@ class _BoundedDrain:
 
     def join(self, timeout_seconds: float) -> None:
         self._thread.join(timeout=timeout_seconds)
+
+    def is_alive(self) -> bool:
+        return self._thread.is_alive()
 
     def _drain(self) -> None:
         try:

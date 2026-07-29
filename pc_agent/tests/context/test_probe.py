@@ -3,6 +3,7 @@ from __future__ import annotations
 from io import BytesIO
 import os
 from pathlib import Path
+import signal
 import subprocess
 import sys
 import time
@@ -153,6 +154,52 @@ def test_bounded_command_times_out_without_waiting_for_descendant_holding_pipes(
         probe_module._execute_bounded_command((sys.executable, "-c", script), 0.05, 128)
 
     assert time.monotonic() - started < 1.0
+
+
+@pytest.mark.skipif(os.name == "nt", reason="process-group cleanup is exercised on POSIX")
+def test_system_probe_times_out_and_cleans_parent_exited_pipe_holding_descendant(
+    monkeypatch, tmp_path
+) -> None:
+    """A completed parent must not make a live pipe-holding group look successful."""
+    child_pid_path = tmp_path / "child-pid"
+    child_cleanup_path = tmp_path / "child-cleanup"
+    probe_executable = tmp_path / "lsblk"
+    probe_executable.write_text(
+        "#!/usr/bin/env python3\n"
+        "import os\n"
+        "from pathlib import Path\n"
+        "import subprocess\n"
+        "import sys\n"
+        f"child_pid_path = Path({str(child_pid_path)!r})\n"
+        f"child_cleanup_path = Path({str(child_cleanup_path)!r})\n"
+        "child_code = (\n"
+        "    'import signal, sys, time; from pathlib import Path; '\n"
+        "    'signal.signal(signal.SIGTERM, lambda *_: (Path(sys.argv[1]).write_text(\\\"done\\\"), sys.exit())); '\n"
+        "    'time.sleep(30)'\n"
+        ")\n"
+        "child = subprocess.Popen([sys.executable, '-c', child_code, str(child_cleanup_path)])\n"
+        "child_pid_path.write_text(f'{child.pid}:{os.getpgrp()}')\n"
+    )
+    probe_executable.chmod(0o755)
+    monkeypatch.setattr(probe_module.shutil, "which", lambda command: str(probe_executable))
+
+    started = time.monotonic()
+    try:
+        with pytest.raises(TimeoutError, match="context probe command timed out"):
+            SystemProbe().run(
+                probe_module.LSBLK_COMMAND,
+                1.0,
+                128,
+            )
+        assert time.monotonic() - started < 1.0
+        assert child_cleanup_path.read_text() == "done"
+    finally:
+        if child_pid_path.exists():
+            _child_pid, process_group = child_pid_path.read_text().split(":")
+            try:
+                os.killpg(int(process_group), signal.SIGKILL)
+            except ProcessLookupError:
+                pass
 
 
 @pytest.mark.parametrize("failure_stage", ("terminate", "kill"))
