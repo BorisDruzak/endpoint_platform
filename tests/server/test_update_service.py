@@ -740,6 +740,50 @@ async def test_activate_only_resumes_paused_rollout_with_same_targets(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "reason",
+    (
+        "operator's approved rollback",
+        "approved by R&D",
+        "incident #123",
+    ),
+)
+async def test_bounded_operator_prose_is_preserved_without_rewriting(
+    session: AsyncSession,
+    reason: str,
+) -> None:
+    """Removing contract-valid punctuation would reject ordinary operator prose."""
+    build = await _build(session)
+    device = await _device(session, f"prose-{uuid4().hex}")
+
+    rollout = await create_rollout(
+        session,
+        build.id,
+        "canary",
+        [device.id],
+        reason,
+        ADMIN_ID,
+        "req-operator-prose",
+        now=NOW,
+    )
+    target = await session.scalar(
+        select(UpdateTarget).where(UpdateTarget.rollout_id == rollout.id)
+    )
+    audit = await session.scalar(
+        select(AuditEvent).where(
+            AuditEvent.action == "updates.rollout_created",
+            AuditEvent.object_identifier == str(rollout.id),
+        )
+    )
+
+    assert rollout.reason == reason
+    assert target is not None
+    assert target.safe_reason == reason
+    assert audit is not None
+    assert audit.details["reason"] == reason
+
+
+@pytest.mark.asyncio
 async def test_nonterminal_rollout_cannot_complete_and_unsafe_reason_is_rejected(
     session: AsyncSession,
 ) -> None:
@@ -749,6 +793,8 @@ async def test_nonterminal_rollout_cannot_complete_and_unsafe_reason_is_rejected
     hostile_reasons = (
         r"failed at C:\agent\pending_update.json",
         "failed at C:/agent/pending_update.json",
+        "failed at C:/",
+        "failed at /",
         "failed at /home/agent/endpoint.tar.gz",
         "failed at /opt/endpoint/archive.zip",
         r"failed at \\server\share\endpoint.zip",
@@ -757,6 +803,8 @@ async def test_nonterminal_rollout_cannot_complete_and_unsafe_reason_is_rejected
         "pending_update payload was malformed",
         '{"operation_id":"raw-operation","status":"scheduled"}',
         "Bearer raw-token was rejected",
+        "raw log follows",
+        "stdout captured",
     )
     for index, hostile_reason in enumerate(hostile_reasons):
         with pytest.raises(UpdateValidationError):

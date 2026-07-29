@@ -40,13 +40,28 @@ _ACTIVE_TARGET_STATUSES = ("assigned", "requested", "scheduled")
 _TERMINAL_TARGET_STATUSES = ("applied", "failed", "rolled_back", "cancelled")
 _PLATFORMS = ("linux_amd64", "windows_amd64")
 _SAFE_IDENTIFIER = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
-_SAFE_REASON_TEXT = re.compile(r"^[\w .,:;=()_+!?-]+$")
-_UNSAFE_REASON = re.compile(
+_SENSITIVE_REASON = re.compile(
     r"(?i)(?:\bbearer\b|\bauthorization\b|\bpassword\b|\bsecret\b|"
-    r"\bcookie\b|\btoken\b|\btraceback\b|\bstack\s+trace\b|"
-    r"[/\\]|"
+    r"\bcookie\b|\btoken\b|\blogs?\b|\bstdout\b|\bstderr\b|"
+    r"\btrace(?:back)?\b|\bstack\s+trace\b|(?:file|https?)://)"
+)
+_ABSOLUTE_PATH_REASON = re.compile(
+    r"(?i)(?:\b[A-Z]:[\\/]|"
+    r"\\\\[^\s\\]+\\[^\s\\]+|//[^\s/]+/[^\s/]+|"
+    r"\b(?:at|path|file|directory|dir)\s*(?:=|:)?\s*/(?=\s|$)|"
+    r"(?<![\w.-])/(?![/\s])(?:[^\s/]+(?:/[^\s/]+)*))"
+)
+_ARTIFACT_OR_PENDING_REASON = re.compile(
+    r"(?i)(?:"
     r"\bpending(?:[_ -]?update)(?:[_ -]?(?:payload|manifest))?(?:\.json)?\b|"
     r"\b[A-Za-z0-9][A-Za-z0-9._-]*\.(?:zip|tar\.gz|tgz|7z)\b)"
+)
+_JSON_LIKE_REASON = re.compile(r'(?:\{[^{}]*[:,"][^{}]*\}|\[[^\[\]]*[:,"][^\[\]]*\])')
+_UNSAFE_REASON_PATTERNS = (
+    _SENSITIVE_REASON,
+    _ABSOLUTE_PATH_REASON,
+    _ARTIFACT_OR_PENDING_REASON,
+    _JSON_LIKE_REASON,
 )
 
 
@@ -87,8 +102,7 @@ def _safe_reason(value: str | None, *, required: bool = False) -> str | None:
         or value != value.strip()
         or len(value) > 512
         or any(ord(character) < 32 or ord(character) == 127 for character in value)
-        or not _SAFE_REASON_TEXT.fullmatch(value)
-        or _UNSAFE_REASON.search(value)
+        or any(pattern.search(value) for pattern in _UNSAFE_REASON_PATTERNS)
     ):
         raise UpdateValidationError("reason must be bounded safe text")
     return value
