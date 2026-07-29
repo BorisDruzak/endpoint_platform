@@ -13,7 +13,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from endpoint_contracts import AgentResultV1, DeviceContextEnvelopeV1, validate_context_result_item
 from endpoint_server.db.models import Command, CommandResult
 
-from .models import ContextCollection, ContextCurrent, ContextSnapshot
+from .canonicalize import canonicalize_baseline
+from .diff import compare_snapshots
+from .models import ContextCollection, ContextCurrent, ContextDiff, ContextSnapshot
+from .semantic_hash import semantic_hash
 from .service import ContextConflict, ContextNotFound, ContextValidationError, require_profile, require_uuid
 
 
@@ -95,6 +98,7 @@ async def _advance_current_pointer(
     snapshot: ContextSnapshot,
     *,
     updated_at: datetime,
+    lock_held: bool = False,
 ) -> None:
     """Advance a device/profile pointer only for a strictly newer observation.
 
@@ -103,9 +107,10 @@ async def _advance_current_pointer(
     the first current snapshot so duplicate-time observations do not churn the
     pointer based on delayed completion order.
     """
-    await _advisory_lock(
-        session, f"context.current:{snapshot.device_id}:{snapshot.profile}"
-    )
+    if not lock_held:
+        await _advisory_lock(
+            session, f"context.current:{snapshot.device_id}:{snapshot.profile}"
+        )
     current = await session.scalar(
         select(ContextCurrent)
         .where(
@@ -195,14 +200,53 @@ async def ingest_context_result(
     collection.status = "validated"
     collection.validated_at = observed_at
     projection = envelope.model_dump(mode="json")
+    baseline_hash = (
+        semantic_hash(canonicalize_baseline(projection))
+        if profile == "baseline_v1"
+        else None
+    )
+    if baseline_hash is not None:
+        # The same device/profile lock serializes the latest-hash check with
+        # snapshot insertion; an absent current row is otherwise race-prone.
+        await _advisory_lock(
+            session, f"context.current:{command.device_id}:baseline_v1"
+        )
+        latest_baseline = await session.scalar(
+            select(ContextSnapshot)
+            .where(
+                ContextSnapshot.device_id == command.device_id,
+                ContextSnapshot.profile == "baseline_v1",
+            )
+            .order_by(ContextSnapshot.collected_at.desc(), ContextSnapshot.id.desc())
+            .with_for_update()
+        )
+        if latest_baseline is not None and latest_baseline.semantic_hash == baseline_hash:
+            collection.status = "completed"
+            collection.completed_at = observed_at
+            await session.flush()
+            return collection
     snapshot = ContextSnapshot(
         id=uuid4(), collection_id=collection.id, device_id=command.device_id,
-        profile=profile, collected_at=envelope.collected_at, semantic_hash=None,
+        profile=profile, collected_at=envelope.collected_at, semantic_hash=baseline_hash,
         raw_payload=raw_payload, normalized_projection=projection,
     )
     session.add(snapshot)
     await session.flush()
-    await _advance_current_pointer(session, snapshot, updated_at=observed_at)
+    if profile == "baseline_v1" and latest_baseline is not None:
+        diff = compare_snapshots(latest_baseline.normalized_projection, projection)
+        session.add(
+            ContextDiff(
+                id=uuid4(), device_id=command.device_id, profile=profile,
+                before_snapshot_id=latest_baseline.id, after_snapshot_id=snapshot.id,
+                diff_payload=diff.model_dump(mode="json"),
+            )
+        )
+    await _advance_current_pointer(
+        session,
+        snapshot,
+        updated_at=observed_at,
+        lock_held=profile == "baseline_v1",
+    )
     collection.status = "completed"
     collection.completed_at = observed_at
     await session.flush()

@@ -36,6 +36,27 @@ async def request_collection(
     now: datetime | None = None,
 ) -> ContextCollection:
     """Create one requested collection, replaying its exact device/profile key."""
+    collection, _ = await request_collection_outcome(
+        session,
+        device_id,
+        profile,
+        requested_by,
+        idempotency_key,
+        now=now,
+    )
+    return collection
+
+
+async def request_collection_outcome(
+    session: AsyncSession,
+    device_id: UUID | str,
+    profile: str,
+    requested_by: str,
+    idempotency_key: str,
+    *,
+    now: datetime | None = None,
+) -> tuple[ContextCollection, bool]:
+    """Create one request and report whether this transaction inserted it."""
     checked_device_id = require_uuid(device_id, "device id")
     checked_profile = require_profile(profile)
     if not requested_by or len(requested_by) > 128 or not idempotency_key or len(idempotency_key) > 128:
@@ -54,7 +75,7 @@ async def request_collection(
         .with_for_update()
     )
     if existing is not None:
-        return existing
+        return existing, False
     collection = ContextCollection(
         id=uuid4(), device_id=checked_device_id, profile=checked_profile,
         requested_by=requested_by, idempotency_key=idempotency_key,
@@ -62,7 +83,7 @@ async def request_collection(
     )
     session.add(collection)
     await session.flush()
-    return collection
+    return collection, True
 
 
 async def link_collection_command(

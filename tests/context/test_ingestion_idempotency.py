@@ -1,5 +1,7 @@
 """Idempotency and failure invariants for Device Context result ingestion."""
 
+from datetime import timedelta
+
 from sqlalchemy import func, select
 
 from endpoint_server.context.models import ContextCurrent, ContextSnapshot
@@ -22,6 +24,23 @@ async def test_duplicate_result_creates_one_snapshot(session) -> None:
     second = await ingest_context_result(session, result_record.id, result)
 
     assert first.id == second.id
+    assert await _snapshot_count(session, first.device_id) == 1
+
+
+async def test_equivalent_later_baseline_does_not_create_another_snapshot(session) -> None:
+    """Persisting a timestamp-only baseline change would churn immutable history."""
+    first_record, first_result = await _result(session)
+    first = await ingest_context_result(session, first_record.id, first_result)
+    later_record, later_result = await _result(
+        session,
+        device_id=first.device_id,
+        collected_at=first_result.completed_at + timedelta(minutes=5),
+    )
+    later_result.result_items[0]["warnings"] = ["probe_unavailable"]
+
+    later = await ingest_context_result(session, later_record.id, later_result)
+
+    assert later.status == "completed"
     assert await _snapshot_count(session, first.device_id) == 1
 
 

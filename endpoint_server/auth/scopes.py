@@ -19,6 +19,11 @@ from .service_tokens import (
 )
 
 
+DEVICES_READ_SCOPE = "devices.read"
+CONTEXT_READ_SCOPE = "context.read"
+CONTEXT_COLLECT_SCOPE = "context.collect"
+
+
 @dataclass(frozen=True, slots=True)
 class ServicePrincipal:
     """Authenticated service client and credential authorizing a request."""
