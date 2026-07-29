@@ -118,10 +118,12 @@ class EndpointUpdateAdapter:
             f"{self._api_url}/agent/v1/updates/recommendation"
             f"?platform={platform}&channel={channel}"
         )
+        received_primary_response = False
         try:
             async with self._session.get(
                 url, headers={"Authorization": f"Bearer {bearer}"}
             ) as response:
+                received_primary_response = True
                 if response.status == 204:
                     return RecommendationResult("endpoint", None, False, None)
                 if response.status in {404, 501}:
@@ -132,6 +134,10 @@ class EndpointUpdateAdapter:
                     )
                 raw_body = await response.text()
         except (aiohttp.ClientConnectionError, asyncio.TimeoutError):
+            if received_primary_response:
+                return RecommendationResult(
+                    "endpoint", None, False, "endpoint_unavailable"
+                )
             return await self._fetch_legacy()
 
         recommendation = _parse_recommendation(
@@ -243,13 +249,10 @@ def _validate_wire_form(
         raise ValueError("target")
     if not isinstance(artifact_url, str):
         raise ValueError("artifact_url")
-
-
-def _is_operation_id(value: str) -> bool:
-    return bool(_LOWERCASE_UUID.fullmatch(value))
     parsed = urlsplit(artifact_url)
     if (
-        parsed.scheme != "https"
+        not artifact_url.startswith("https://")
+        or parsed.scheme != "https"
         or not parsed.hostname
         or parsed.username is not None
         or parsed.password is not None
@@ -257,3 +260,7 @@ def _is_operation_id(value: str) -> bool:
         or parsed.fragment
     ):
         raise ValueError("artifact_url")
+
+
+def _is_operation_id(value: str) -> bool:
+    return bool(_LOWERCASE_UUID.fullmatch(value))

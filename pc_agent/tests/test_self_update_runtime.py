@@ -1006,13 +1006,13 @@ async def test_endpoint_assignment_acks_requested_before_scheduling(tmp_path, mo
         async def __aenter__(self): return self
         async def __aexit__(self, *args): return False
     payload = {"schema_version": "agent_update_recommendation_v1", "operation_id": "caa31a48-bf2f-4f1c-8b77-d1be77e12b4e", "build_identifier": "agent-1.2.3", "version": "1.2.3", "platform": "windows_amd64", "channel": "stable", "artifact_url": "https://updates.example.test/agent-1.2.3.zip", "artifact_name": "agent-1.2.3.zip", "archive_type": "zip", "sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", "size": 123, "reason": "rollout"}
-    lifecycle, scheduled = [], []
+    events, scheduled = [], []
     class Session:
         closed = False
         def get(self, url, headers=None): return Response(200, json.dumps(payload))
-        def post(self, url, headers=None, json=None): lifecycle.append(json["status"]); return Response(204)
+        def post(self, url, headers=None, json=None): events.append(json["status"]); return Response(204)
     class Orchestrator:
-        async def _handle_update(self, command, meta): scheduled.append(command); return SimpleNamespace(status="success")
+        async def _handle_update(self, command, meta): events.append("schedule"); scheduled.append(command); return SimpleNamespace(status="success")
     agent = WSAgent(data_root=tmp_path / "data", install_root=tmp_path / "install")
     agent.auth_token, agent.device_id, agent._http_session, agent.orchestrator = "token", "device", Session(), Orchestrator()
     monkeypatch.setattr("pc_agent.ws_agent.get_config", lambda: SimpleNamespace(server=SimpleNamespace(api_url="https://endpoint.example.test")))
@@ -1020,5 +1020,30 @@ async def test_endpoint_assignment_acks_requested_before_scheduling(tmp_path, mo
     assert status["recommended_build"]["artifact_name"] == "agent-1.2.3.zip"
     assert "artifact_url" not in status["recommended_build"]
     assert (await agent.trigger_recommended_update())["status"] == "scheduled"
-    assert lifecycle == ["requested", "scheduled"]
+    assert events == ["requested", "schedule", "scheduled"]
     assert scheduled[0]["download_url"] == payload["artifact_url"]
+
+
+@pytest.mark.asyncio
+async def test_endpoint_scheduler_failure_does_not_ack_scheduled(tmp_path, monkeypatch):
+    class Response:
+        status = 200
+        async def text(self): return json.dumps({"schema_version": "agent_update_recommendation_v1", "operation_id": "caa31a48-bf2f-4f1c-8b77-d1be77e12b4e", "build_identifier": "agent-1.2.3", "version": "1.2.3", "platform": "windows_amd64", "channel": "stable", "artifact_url": "https://updates.example.test/agent-1.2.3.zip", "artifact_name": "agent-1.2.3.zip", "archive_type": "zip", "sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", "size": 123})
+        async def __aenter__(self): return self
+        async def __aexit__(self, *args): return False
+    events = []
+    class Session:
+        closed = False
+        def get(self, url, headers=None): return Response()
+        def post(self, url, headers=None, json=None): events.append(json["status"]); return type("Ack", (), {"status": 204, "__aenter__": lambda self: _enter(self), "__aexit__": lambda self, *args: _exit()})()
+    async def _enter(value): return value
+    async def _exit(): return False
+    class Orchestrator:
+        async def _handle_update(self, command, meta): events.append("schedule"); return SimpleNamespace(status="error")
+    agent = WSAgent(data_root=tmp_path / "data", install_root=tmp_path / "install")
+    agent.auth_token, agent.device_id, agent._http_session, agent.orchestrator = "token", "device", Session(), Orchestrator()
+    monkeypatch.setattr("pc_agent.ws_agent.get_config", lambda: SimpleNamespace(server=SimpleNamespace(api_url="https://endpoint.example.test")))
+    await agent._fetch_update_status(force=True)
+    with pytest.raises(RuntimeError, match="scheduling failed"):
+        await agent.trigger_recommended_update()
+    assert events == ["requested", "schedule"]

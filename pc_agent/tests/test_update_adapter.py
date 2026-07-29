@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 from collections.abc import Callable
 
@@ -173,6 +174,37 @@ async def test_connection_failure_calls_legacy_once() -> None:
     adapter = EndpointUpdateAdapter(api_url="https://endpoint.example.test", bearer_token=lambda: "token", session=Session(), legacy_fetch=legacy_fetch)
     assert (await adapter.fetch_recommendation(platform="windows_amd64", channel="stable")).source == "legacy"
     assert calls == 1
+
+
+@pytest.mark.asyncio
+async def test_timeout_before_primary_response_calls_legacy_once() -> None:
+    calls = 0
+    class Session:
+        def get(self, url: str, *, headers: dict[str, str]): raise asyncio.TimeoutError()
+    async def legacy_fetch() -> object:
+        nonlocal calls; calls += 1; return {}
+    adapter = EndpointUpdateAdapter(api_url="https://endpoint.example.test", bearer_token=lambda: "token", session=Session(), legacy_fetch=legacy_fetch)
+    assert (await adapter.fetch_recommendation(platform="windows_amd64", channel="stable")).source == "legacy"
+    assert calls == 1
+
+
+@pytest.mark.asyncio
+async def test_primary_200_body_transport_failure_never_calls_legacy() -> None:
+    calls = 0
+    class Broken(_Response):
+        async def text(self) -> str: raise aiohttp.ClientConnectionError()
+    async def legacy_fetch() -> object:
+        nonlocal calls; calls += 1; return {}
+    adapter, _ = _adapter(Broken(200, ""), legacy_fetch=legacy_fetch)
+    result = await adapter.fetch_recommendation(platform="windows_amd64", channel="stable")
+    assert result.source == "endpoint" and result.recommendation is None
+    assert calls == 0
+
+
+@pytest.mark.asyncio
+async def test_uppercase_https_wire_form_is_rejected() -> None:
+    adapter, _ = _adapter(_Response(200, _valid_payload().replace("https://", "HTTPS://")))
+    assert (await adapter.fetch_recommendation(platform="windows_amd64", channel="stable")).safe_error == "endpoint_contract_invalid"
 
 
 @pytest.mark.asyncio
