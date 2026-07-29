@@ -30,7 +30,7 @@ from endpoint_server.auth.service_tokens import (
     service_credential_summary,
 )
 from endpoint_server.config import Settings
-from endpoint_server.db.models import ServiceClient, ServiceCredential
+from endpoint_server.db.models import AuditEvent, ServiceClient, ServiceCredential
 
 
 class _ServiceAuthSession:
@@ -39,11 +39,14 @@ class _ServiceAuthSession:
         *,
         client: ServiceClient | None = None,
         credential: ServiceCredential | None = None,
+        fail_audit: bool = False,
     ) -> None:
         self.client = client
         self.credential = credential
+        self.fail_audit = fail_audit
         self.added: list[object] = []
         self.commit_calls = 0
+        self.rollback_calls = 0
 
     async def scalar(self, statement: object) -> object | None:
         entity = statement.column_descriptions[0]["entity"]
@@ -54,10 +57,16 @@ class _ServiceAuthSession:
         raise AssertionError(f"unexpected query entity: {entity}")
 
     def add(self, value: object) -> None:
+        if self.fail_audit and isinstance(value, AuditEvent):
+            raise RuntimeError("injected audit failure")
         self.added.append(value)
 
     async def commit(self) -> None:
         self.commit_calls += 1
+
+    async def rollback(self) -> None:
+        self.rollback_calls += 1
+        self.added.clear()
 
 
 class _ServiceAuthSessionProvider:
@@ -139,6 +148,9 @@ async def test_creation_shows_token_once_and_persists_only_prefix_hmac_and_scope
             session,
             client.id,
             pepper,
+            actor_kind="admin",
+            actor_identifier="admin-42",
+            request_id="service-credential-request",
             scopes=("devices:read", "commands:create"),
             expires_at=expires_at,
             now=datetime(2026, 7, 29, 10, tzinfo=UTC),
@@ -155,8 +167,22 @@ async def test_creation_shows_token_once_and_persists_only_prefix_hmac_and_scope
     ).hexdigest()
     assert issued.record.scopes == ["commands:create", "devices:read"]
     assert issued.record.expires_at == expires_at
-    assert session.added == [issued.record]
+    assert len(session.added) == 2
+    assert session.added[0] is issued.record
+    audit = session.added[1]
+    assert isinstance(audit, AuditEvent)
+    assert audit.actor_kind == "admin"
+    assert audit.actor_identifier == "admin-42"
+    assert audit.action == "service_credential.created"
+    assert audit.object_kind == "service_credential"
+    assert audit.object_identifier == str(issued.record.id)
+    assert audit.request_id == "service-credential-request"
+    assert audit.details == {
+        "expires_at": "2026-07-30T10:00:00+00:00",
+        "scopes": ["commands:create", "devices:read"],
+    }
     assert session.commit_calls == 1
+    assert session.rollback_calls == 0
 
     summary = service_credential_summary(issued.record)
     assert isinstance(summary, ServiceCredentialSummary)
@@ -172,10 +198,34 @@ async def test_creation_shows_token_once_and_persists_only_prefix_hmac_and_scope
         repr(issued),
         repr(issued.record),
         repr(summary),
+        repr(audit),
+        str(audit.details),
         caplog.text,
         persisted_text,
     )
     _assert_sensitive_value_absent(raw_material, persisted_text, caplog.text)
+
+
+@pytest.mark.asyncio
+async def test_creation_rolls_back_credential_when_audit_append_fails() -> None:
+    """A service credential must not persist without its required audit event."""
+    client = _service_client()
+    session = _ServiceAuthSession(client=client, fail_audit=True)
+
+    with pytest.raises(RuntimeError, match="injected audit failure"):
+        await create_service_credential(
+            session,
+            client.id,
+            secrets.token_bytes(32),
+            actor_kind="admin",
+            actor_identifier="admin-42",
+            request_id="service-credential-failure",
+            scopes=("devices:read",),
+        )
+
+    assert session.added == []
+    assert session.commit_calls == 0
+    assert session.rollback_calls == 1
 
 
 @pytest.mark.asyncio
@@ -188,12 +238,18 @@ async def test_random_material_and_public_identifier_change_per_credential() -> 
         _ServiceAuthSession(client=client),
         client.id,
         pepper,
+        actor_kind="admin",
+        actor_identifier="admin-42",
+        request_id="first-credential",
         scopes=("devices:read",),
     )
     second = await create_service_credential(
         _ServiceAuthSession(client=client),
         client.id,
         pepper,
+        actor_kind="admin",
+        actor_identifier="admin-42",
+        request_id="second-credential",
         scopes=("devices:read",),
     )
 
@@ -216,6 +272,9 @@ async def test_creation_rejects_a_string_in_place_of_a_scope_collection() -> Non
             _ServiceAuthSession(client=client),
             client.id,
             secrets.token_bytes(32),
+            actor_kind="admin",
+            actor_identifier="admin-42",
+            request_id="invalid-scope-collection",
             scopes="devices:read",
         )
 
@@ -230,6 +289,9 @@ async def test_creation_rejects_ascii_delete_in_scope() -> None:
             _ServiceAuthSession(client=client),
             client.id,
             secrets.token_bytes(32),
+            actor_kind="admin",
+            actor_identifier="admin-42",
+            request_id="invalid-scope-delete",
             scopes=("devices:read\x7f",),
         )
 
@@ -269,6 +331,9 @@ async def test_require_service_scope_allows_only_exact_scope_membership() -> Non
         session,
         client.id,
         pepper,
+        actor_kind="admin",
+        actor_identifier="admin-42",
+        request_id="authorized-service-credential",
         scopes=("devices:read", "commands:create:own"),
     )
     provider = _ServiceAuthSessionProvider(
@@ -295,6 +360,9 @@ async def test_require_service_scope_rejects_wrong_revoked_expired_or_disabled_t
         _ServiceAuthSession(client=client),
         client.id,
         pepper,
+        actor_kind="admin",
+        actor_identifier="admin-42",
+        request_id="rejected-service-credential",
         scopes=("devices:read",),
     )
     session = _ServiceAuthSession(client=client, credential=issued.record)

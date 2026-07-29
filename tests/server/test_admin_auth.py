@@ -50,7 +50,7 @@ from endpoint_server.auth.csrf import (
 )
 from endpoint_server.auth.passwords import hash_password, verify_password
 from endpoint_server.config import Settings
-from endpoint_server.db.models import AdminSession, AdminUser
+from endpoint_server.db.models import AdminSession, AdminUser, AuditEvent
 from endpoint_server.db.session import create_session_provider
 from endpoint_server.main import create_app
 
@@ -64,10 +64,14 @@ class _InteractiveInput(io.StringIO):
 
 
 class _BootstrapSession:
-    def __init__(self, existing_admins: int = 0) -> None:
+    def __init__(
+        self, existing_admins: int = 0, *, fail_audit: bool = False
+    ) -> None:
         self.existing_admins = existing_admins
+        self.fail_audit = fail_audit
         self.added: list[object] = []
         self.commit_calls = 0
+        self.rollback_calls = 0
         self.events: list[str] = []
 
     async def execute(
@@ -81,6 +85,8 @@ class _BootstrapSession:
         return self.existing_admins
 
     def add(self, value: object) -> None:
+        if self.fail_audit and isinstance(value, AuditEvent):
+            raise RuntimeError("injected audit failure")
         self.events.append("add")
         self.added.append(value)
 
@@ -88,17 +94,29 @@ class _BootstrapSession:
         self.events.append("commit")
         self.commit_calls += 1
 
+    async def rollback(self) -> None:
+        self.events.append("rollback")
+        self.rollback_calls += 1
+        self.added.clear()
+
+
 class _AuthSession:
     def __init__(
         self,
         *,
         user: AdminUser | None = None,
         admin_session: AdminSession | None = None,
+        fail_audit: bool = False,
     ) -> None:
         self.user = user
         self.admin_session = admin_session
+        self.fail_audit = fail_audit
         self.added: list[object] = []
         self.commit_calls = 0
+        self.rollback_calls = 0
+        self._original_revoked_at = (
+            admin_session.revoked_at if admin_session is not None else None
+        )
 
     async def scalar(self, statement: object) -> object | None:
         entity = statement.column_descriptions[0]["entity"]
@@ -109,10 +127,18 @@ class _AuthSession:
         raise AssertionError(f"unexpected query entity: {entity}")
 
     def add(self, value: object) -> None:
+        if self.fail_audit and isinstance(value, AuditEvent):
+            raise RuntimeError("injected audit failure")
         self.added.append(value)
 
     async def commit(self) -> None:
         self.commit_calls += 1
+
+    async def rollback(self) -> None:
+        self.rollback_calls += 1
+        self.added.clear()
+        if self.admin_session is not None:
+            self.admin_session.revoked_at = self._original_revoked_at
 
     async def merge(self, value: object) -> object:
         return value
@@ -299,21 +325,60 @@ async def test_bootstrap_stores_only_an_argon2id_digest_for_the_first_admin() ->
     session = _BootstrapSession()
     password = secrets.token_urlsafe(24)
 
-    user = await bootstrap_first_admin(session, "first-admin", password)
+    user = await bootstrap_first_admin(
+        session,
+        "first-admin",
+        password,
+        request_id="bootstrap-request",
+    )
 
-    assert session.added == [user]
+    assert len(session.added) == 2
+    assert session.added[0] is user
+    audit = session.added[1]
+    assert isinstance(audit, AuditEvent)
+    assert audit.actor_kind == "system"
+    assert audit.actor_identifier == "bootstrap-cli"
+    assert audit.action == "admin.created"
+    assert audit.object_kind == "admin_user"
+    assert audit.object_identifier == str(user.id)
+    assert audit.request_id == "bootstrap-request"
+    assert audit.details == {"username": "first-admin"}
     assert session.commit_calls == 1
+    assert session.rollback_calls == 0
     assert isinstance(user, AdminUser)
     assert user.username == "first-admin"
     assert user.password_digest.startswith("$argon2id$")
     assert password not in user.password_digest
     assert verify_password(user.password_digest, password)
-    assert session.events == ["lock", "count", "add", "commit"]
+    assert session.events == ["lock", "count", "add", "add", "commit"]
 
     occupied_session = _BootstrapSession(existing_admins=1)
     with pytest.raises(RuntimeError, match="already exists"):
-        await bootstrap_first_admin(occupied_session, "second-admin", password)
+        await bootstrap_first_admin(
+            occupied_session,
+            "second-admin",
+            password,
+            request_id="occupied-request",
+        )
     assert occupied_session.added == []
+
+
+@pytest.mark.asyncio
+async def test_bootstrap_rolls_back_admin_when_audit_append_fails() -> None:
+    """An administrator must not persist if its required audit row cannot be added."""
+    session = _BootstrapSession(fail_audit=True)
+
+    with pytest.raises(RuntimeError, match="injected audit failure"):
+        await bootstrap_first_admin(
+            session,
+            "first-admin",
+            secrets.token_urlsafe(24),
+            request_id="bootstrap-failure",
+        )
+
+    assert session.added == []
+    assert session.commit_calls == 0
+    assert session.rollback_calls == 1
 
 
 @pytest.mark.asyncio
@@ -332,6 +397,7 @@ async def test_concurrent_bootstrap_creates_exactly_one_first_admin(
                         session,
                         username,
                         secrets.token_urlsafe(24),
+                        request_id=f"bootstrap-{username}",
                     )
                 except RuntimeError:
                     return None
@@ -477,6 +543,7 @@ async def test_login_persists_only_digest_and_sets_protected_cookie() -> None:
         response = await client.post(
             "/api/admin/session",
             json={"username": user.username, "password": password},
+            headers={"X-Request-ID": "login-request"},
         )
 
     assert response.status_code == 201
@@ -488,12 +555,47 @@ async def test_login_persists_only_digest_and_sets_protected_cookie() -> None:
     assert "Secure" in cookie
     assert "SameSite=strict" in cookie
     assert session.commit_calls == 1
-    assert len(session.added) == 1
-    record = session.added[0]
+    assert len(session.added) == 2
+    record, audit = session.added
     assert isinstance(record, AdminSession)
+    assert isinstance(audit, AuditEvent)
+    assert audit.actor_kind == "admin"
+    assert audit.actor_identifier == str(user.id)
+    assert audit.action == "admin_session.created"
+    assert audit.object_kind == "admin_session"
+    assert audit.object_identifier == str(record.id)
+    assert audit.request_id == "login-request"
+    assert audit.details == {"username": "first-admin"}
     assert record.session_digest != raw_token
     assert raw_token not in record.session_digest
     assert raw_token not in response.text
+
+
+@pytest.mark.asyncio
+async def test_login_rolls_back_session_when_audit_append_fails() -> None:
+    """A login session must not persist without its attributed audit event."""
+    password = secrets.token_urlsafe(24)
+    user = _admin_user(password)
+    session = _AuthSession(user=user, fail_audit=True)
+    app = create_app(
+        _settings(secrets.token_bytes(32)),
+        session_provider=_AuthSessionProvider(session),
+    )
+
+    with pytest.raises(RuntimeError, match="injected audit failure"):
+        async with AsyncClient(
+            transport=ASGITransport(app=app),
+            base_url="https://endpoint.sosnadmin.local",
+        ) as client:
+            await client.post(
+                "/api/admin/session",
+                json={"username": user.username, "password": password},
+                headers={"X-Request-ID": "login-failure"},
+            )
+
+    assert session.added == []
+    assert session.commit_calls == 0
+    assert session.rollback_calls == 1
 
 
 @pytest.mark.asyncio
@@ -678,16 +780,66 @@ async def test_logout_requires_csrf_and_persists_session_revocation() -> None:
         denied = await client.delete("/api/admin/session")
         response = await client.delete(
             "/api/admin/session",
-            headers={CSRF_HEADER: issued.csrf_token},
+            headers={
+                CSRF_HEADER: issued.csrf_token,
+                "X-Request-ID": "logout-request",
+            },
         )
 
     assert denied.status_code == 403
     assert response.status_code == 204
     assert issued.record.revoked_at is not None
     assert session.commit_calls == 1
+    assert session.rollback_calls == 0
+    assert len(session.added) == 1
+    audit = session.added[0]
+    assert isinstance(audit, AuditEvent)
+    assert audit.actor_kind == "admin"
+    assert audit.actor_identifier == str(user.id)
+    assert audit.action == "admin_session.revoked"
+    assert audit.object_kind == "admin_session"
+    assert audit.object_identifier == str(issued.record.id)
+    assert audit.request_id == "logout-request"
+    assert audit.details == {}
     cookie = response.headers["set-cookie"]
     assert f"{ADMIN_SESSION_COOKIE}=" in cookie
     assert "Max-Age=0" in cookie
     assert "HttpOnly" in cookie
     assert "Secure" in cookie
     assert "SameSite=strict" in cookie
+
+
+@pytest.mark.asyncio
+async def test_logout_rolls_back_revocation_when_audit_append_fails() -> None:
+    """A session must remain active if its revocation audit event cannot be added."""
+    session_secret = secrets.token_bytes(32)
+    user = _admin_user(secrets.token_urlsafe(24))
+    issued = issue_admin_session(user.id, session_secret)
+    session = _AuthSession(
+        user=user,
+        admin_session=issued.record,
+        fail_audit=True,
+    )
+    app = create_app(
+        _settings(session_secret),
+        session_provider=_AuthSessionProvider(session),
+    )
+
+    with pytest.raises(RuntimeError, match="injected audit failure"):
+        async with AsyncClient(
+            transport=ASGITransport(app=app),
+            base_url="https://endpoint.sosnadmin.local",
+        ) as client:
+            client.cookies.set(ADMIN_SESSION_COOKIE, issued.token)
+            await client.delete(
+                "/api/admin/session",
+                headers={
+                    CSRF_HEADER: issued.csrf_token,
+                    "X-Request-ID": "logout-failure",
+                },
+            )
+
+    assert issued.record.revoked_at is None
+    assert session.added == []
+    assert session.commit_calls == 0
+    assert session.rollback_calls == 1

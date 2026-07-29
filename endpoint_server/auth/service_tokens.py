@@ -9,10 +9,11 @@ import secrets
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from endpoint_server.audit.service import append_audit_event
 from endpoint_server.db.models import ServiceCredential
 
 
@@ -113,11 +114,14 @@ async def create_service_credential(
     service_client_id: UUID,
     service_token_pepper: bytes,
     *,
+    actor_kind: str,
+    actor_identifier: str | None,
+    request_id: str,
     scopes: Iterable[str],
     expires_at: datetime | None = None,
     now: datetime | None = None,
 ) -> IssuedServiceCredential:
-    """Persist a credential and return its raw token only in this creation result."""
+    """Persist a credential and audit row, returning raw token material once."""
     issued_at = now or datetime.now(UTC)
     if issued_at.tzinfo is None:
         raise ValueError("now must be timezone-aware")
@@ -137,6 +141,7 @@ async def create_service_credential(
     ).rstrip(b"=").decode("ascii")
     token = f"{token_prefix}.{raw_material}"
     record = ServiceCredential(
+        id=uuid4(),
         service_client_id=service_client_id,
         credential_identifier=credential_identifier,
         token_prefix=token_prefix,
@@ -146,7 +151,24 @@ async def create_service_credential(
         revoked_at=None,
     )
     session.add(record)
-    await session.commit()
+    try:
+        await append_audit_event(
+            session,
+            actor_kind=actor_kind,
+            actor_identifier=actor_identifier,
+            action="service_credential.created",
+            object_kind="service_credential",
+            object_identifier=str(record.id),
+            request_id=request_id,
+            details={
+                "expires_at": expires_at,
+                "scopes": normalized_scopes,
+            },
+        )
+        await session.commit()
+    except Exception:
+        await session.rollback()
+        raise
     return IssuedServiceCredential(token=token, record=record)
 
 

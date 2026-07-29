@@ -8,9 +8,11 @@ import getpass
 import sys
 from collections.abc import Sequence
 from typing import Protocol
+from uuid import uuid4
 
 from sqlalchemy import func, select, text
 
+from endpoint_server.audit.service import append_audit_event
 from endpoint_server.config import Settings
 from endpoint_server.db.models import AdminUser
 from endpoint_server.db.session import create_session_provider
@@ -31,6 +33,8 @@ class _BootstrapSession(Protocol):
     def add(self, instance: object) -> None: ...
 
     async def commit(self) -> None: ...
+
+    async def rollback(self) -> None: ...
 
 
 class _SecretSafeArgumentParser(argparse.ArgumentParser):
@@ -72,9 +76,13 @@ def secrets_compare(left: str, right: str) -> bool:
 
 
 async def bootstrap_first_admin(
-    session: _BootstrapSession, username: str, password: str
+    session: _BootstrapSession,
+    username: str,
+    password: str,
+    *,
+    request_id: str,
 ) -> AdminUser:
-    """Persist the first administrator, storing only an Argon2id digest."""
+    """Persist the first administrator and its audit row in one transaction."""
     normalized_username = username.strip()
     if not normalized_username or len(normalized_username) > 128:
         raise ValueError("username must contain between 1 and 128 characters")
@@ -87,12 +95,27 @@ async def bootstrap_first_admin(
         raise RuntimeError("an administrator already exists")
 
     user = AdminUser(
+        id=uuid4(),
         username=normalized_username,
         password_digest=hash_password(password),
         disabled_at=None,
     )
     session.add(user)
-    await session.commit()
+    try:
+        await append_audit_event(
+            session,
+            actor_kind="system",
+            actor_identifier="bootstrap-cli",
+            action="admin.created",
+            object_kind="admin_user",
+            object_identifier=str(user.id),
+            request_id=request_id,
+            details={"username": normalized_username},
+        )
+        await session.commit()
+    except Exception:
+        await session.rollback()
+        raise
     return user
 
 
@@ -103,7 +126,12 @@ async def _run(arguments: Sequence[str] | None = None) -> int:
     provider = create_session_provider(settings.database_url)
     try:
         async with provider() as session:
-            await bootstrap_first_admin(session, parsed.username, password)
+            await bootstrap_first_admin(
+                session,
+                parsed.username,
+                password,
+                request_id=f"bootstrap-{uuid4().hex}",
+            )
     finally:
         await provider.close()
     return 0

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from datetime import UTC, datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta, timezone, tzinfo
 from pathlib import PurePosixPath
 from uuid import uuid4
 
@@ -31,6 +31,17 @@ class _AuditSession:
 
     async def commit(self) -> None:
         self.commit_calls += 1
+
+
+class _IndeterminateTimezone(tzinfo):
+    def utcoffset(self, value: datetime | None) -> None:
+        return None
+
+    def dst(self, value: datetime | None) -> None:
+        return None
+
+    def tzname(self, value: datetime | None) -> str:
+        return "indeterminate"
 
 
 def test_recursive_redaction_produces_json_safe_independent_details() -> None:
@@ -139,7 +150,7 @@ async def test_append_attributes_event_in_utc_and_persists_only_redacted_details
         "credentials": [{"token": REDACTED}],
     }
     assert session.added == [event]
-    assert session.commit_calls == 1
+    assert session.commit_calls == 0
 
 
 @pytest.mark.asyncio
@@ -162,6 +173,65 @@ async def test_append_rejects_naive_timestamp_before_persistence() -> None:
 
     assert session.added == []
     assert session.commit_calls == 0
+
+
+@pytest.mark.asyncio
+async def test_append_rejects_timezone_without_utc_offset() -> None:
+    """A tzinfo object with no offset is still a naive, non-convertible timestamp."""
+    session = _AuditSession()
+
+    with pytest.raises(ValueError, match="timezone-aware"):
+        await append_audit_event(
+            session,
+            actor_kind="system",
+            actor_identifier=None,
+            action="health.changed",
+            object_kind="service",
+            object_identifier=None,
+            request_id="request-indeterminate",
+            details={},
+            occurred_at=datetime(
+                2026,
+                7,
+                29,
+                13,
+                45,
+                tzinfo=_IndeterminateTimezone(),
+            ),
+        )
+
+    assert session.added == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "field",
+    ["actor_kind", "action", "object_kind", "request_id"],
+)
+async def test_append_rejects_blank_required_attribution(field: str) -> None:
+    """Blank attribution would create an audit row that cannot answer who did what."""
+    session = _AuditSession()
+    attribution = {
+        "actor_kind": "admin",
+        "action": "service.changed",
+        "object_kind": "service",
+        "request_id": "request-required",
+    }
+    attribution[field] = " \t"
+
+    with pytest.raises(ValueError, match=field):
+        await append_audit_event(
+            session,
+            actor_kind=attribution["actor_kind"],
+            actor_identifier="admin-1",
+            action=attribution["action"],
+            object_kind=attribution["object_kind"],
+            object_identifier="service-1",
+            request_id=attribution["request_id"],
+            details={},
+        )
+
+    assert session.added == []
 
 
 def test_orm_rejects_audit_update_and_delete() -> None:

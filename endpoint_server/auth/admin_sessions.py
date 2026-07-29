@@ -8,13 +8,14 @@ import hmac
 import secrets
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from pydantic import BaseModel, Field, SecretStr
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from endpoint_server.audit.service import append_audit_event
 from endpoint_server.db.models import AdminSession, AdminUser
 
 from .csrf import csrf_token_for_session, enforce_csrf
@@ -57,6 +58,11 @@ def _unauthorized() -> HTTPException:
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Invalid administrator session",
     )
+
+
+def _request_id(request: Request) -> str:
+    supplied = request.headers.get("x-request-id", "").strip()
+    return supplied or f"request-{uuid4().hex}"
 
 
 def _is_opaque_session_token(value: str) -> bool:
@@ -143,6 +149,7 @@ def issue_admin_session(
     raw_bytes = secrets.token_bytes(SESSION_TOKEN_BYTES)
     token = base64.urlsafe_b64encode(raw_bytes).rstrip(b"=").decode("ascii")
     record = AdminSession(
+        id=uuid4(),
         admin_user_id=admin_user_id,
         session_digest=session_digest(token, session_secret),
         expires_at=issued_at + lifetime,
@@ -220,7 +227,21 @@ async def login_admin(
             request.app.state.settings.session_secret,
         )
         session.add(issued.record)
-        await session.commit()
+        try:
+            await append_audit_event(
+                session,
+                actor_kind="admin",
+                actor_identifier=str(user.id),
+                action="admin_session.created",
+                object_kind="admin_session",
+                object_identifier=str(issued.record.id),
+                request_id=_request_id(request),
+                details={"username": user.username},
+            )
+            await session.commit()
+        except Exception:
+            await session.rollback()
+            raise
 
     set_admin_session_cookie(response, issued.token, issued.record.expires_at)
     return {"csrf_token": issued.csrf_token}
@@ -241,7 +262,21 @@ async def logout_admin(
     async with request.app.state.session_provider() as session:
         managed_record = await session.merge(principal.session)
         revoke_admin_session(managed_record)
-        await session.commit()
+        try:
+            await append_audit_event(
+                session,
+                actor_kind="admin",
+                actor_identifier=str(principal.user.id),
+                action="admin_session.revoked",
+                object_kind="admin_session",
+                object_identifier=str(managed_record.id),
+                request_id=_request_id(request),
+                details={},
+            )
+            await session.commit()
+        except Exception:
+            await session.rollback()
+            raise
     response.delete_cookie(
         ADMIN_SESSION_COOKIE,
         path="/",

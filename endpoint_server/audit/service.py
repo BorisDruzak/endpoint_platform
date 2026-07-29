@@ -25,10 +25,19 @@ async def append_audit_event(
     details: Mapping[str, object],
     occurred_at: datetime | None = None,
 ) -> AuditEvent:
-    """Append one attributed event after recursively sanitizing its details."""
+    """Add one sanitized event to the caller's uncommitted transaction."""
     timestamp = occurred_at or datetime.now(UTC)
-    if timestamp.tzinfo is None:
+    if timestamp.utcoffset() is None:
         raise ValueError("audit event timestamp must be timezone-aware")
+    required_attribution = {
+        "actor_kind": actor_kind,
+        "action": action,
+        "object_kind": object_kind,
+        "request_id": request_id,
+    }
+    for field, value in required_attribution.items():
+        if not value.strip():
+            raise ValueError(f"audit event {field} must not be blank")
     redacted = redact_audit_details(details)
     if not isinstance(redacted, dict):
         raise TypeError("audit event details must be a JSON object")
@@ -44,7 +53,6 @@ async def append_audit_event(
         created_at=timestamp.astimezone(UTC),
     )
     session.add(event)
-    await session.commit()
     return event
 
 
