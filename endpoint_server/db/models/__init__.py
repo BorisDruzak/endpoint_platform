@@ -8,6 +8,13 @@ from .administration import (
     ServiceCredential,
 )
 from .commands import Command, CommandDelivery, CommandResult
+from endpoint_server.context.models import (
+    ContextCollection,
+    ContextCurrent,
+    ContextDiff,
+    ContextFinding,
+    ContextSnapshot,
+)
 from .devices import Device, DeviceCredential, DeviceInstance, DeviceSession
 from .enrollment import (
     EnrollmentCampaign,
@@ -24,6 +31,11 @@ __all__ = [
     "Command",
     "CommandDelivery",
     "CommandResult",
+    "ContextCollection",
+    "ContextCurrent",
+    "ContextDiff",
+    "ContextFinding",
+    "ContextSnapshot",
     "Device",
     "DeviceCredential",
     "DeviceInstance",

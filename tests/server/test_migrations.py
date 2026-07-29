@@ -25,6 +25,11 @@ APPLICATION_TABLES = {
     "command_deliveries",
     "command_results",
     "commands",
+    "context_collections",
+    "context_current",
+    "context_diffs",
+    "context_findings",
+    "context_snapshots",
     "device_credentials",
     "device_instances",
     "device_sessions",
@@ -118,7 +123,7 @@ def test_migration_history_has_exactly_one_head() -> None:
         _alembic_config("postgresql+asyncpg://unused@127.0.0.1/unused")
     )
 
-    assert script.get_heads() == ["0007_admin_update_scopes"]
+    assert script.get_heads() == ["0008_device_context_foundation"]
 
 
 def test_update_downgrade_sql_neutralizes_actionable_assignments() -> None:
@@ -381,7 +386,7 @@ def test_initial_revision_upgrades_and_downgrades_empty_postgresql(
     revision_rows = asyncio.run(
         _fetch(plain_url, "SELECT version_num FROM alembic_version")
     )
-    assert [row["version_num"] for row in revision_rows] == ["0007_admin_update_scopes"]
+    assert [row["version_num"] for row in revision_rows] == ["0008_device_context_foundation"]
 
     column_rows = asyncio.run(
         _fetch(
