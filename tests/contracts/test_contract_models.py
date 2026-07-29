@@ -101,6 +101,9 @@ def test_update_build_manifest_rejects_unknown_or_unsafe_artifact_fields() -> No
     [
         "https://example.test/agent.tar.gz?access_token=fixture-value",
         "https://example.test/agent.tar.gz?download=1",
+        "https://example.test/agent.tar.gz?",
+        "https://example.test/agent.tar.gz#",
+        "https://example.test/agent.tar.gz?#",
     ],
 )
 def test_update_build_manifest_rejects_query_urls(
@@ -118,6 +121,13 @@ def test_update_build_manifest_rejects_coerced_sizes(size: object) -> None:
     """Keep runtime numeric validation aligned with JSON Schema's integer type."""
     with pytest.raises(ValidationError):
         UpdateBuildManifestV1.model_validate({**VALID_UPDATE_BUILD, "size": size})
+
+
+def test_update_build_manifest_accepts_integral_json_number_size() -> None:
+    """Match JSON Schema integer semantics for a JSON `1.0` value."""
+    manifest = UpdateBuildManifestV1.model_validate({**VALID_UPDATE_BUILD, "size": 1.0})
+
+    assert manifest.size == 1
 
 
 @pytest.mark.parametrize("version", ["1.2.3-01", "1.2.3-01.1", "1.2.3-1.01"])
@@ -143,6 +153,19 @@ def test_update_rollout_requires_deduplicated_explicit_device_targets() -> None:
 
     with pytest.raises(ValidationError):
         UpdateRolloutCreateV1.model_validate(payload)
+
+
+def test_update_rollout_rejects_noncanonical_uppercase_device_uuid() -> None:
+    """Make device ID lexical form match the lowercase public JSON Schema."""
+    with pytest.raises(ValidationError):
+        UpdateRolloutCreateV1.model_validate(
+            {
+                "schema_version": "update_rollout_v1",
+                "build_identifier": "endpoint-agent-linux-1.2.3",
+                "mode": "canary",
+                "device_ids": ["AAAAAAAA-AAAA-4AAA-8AAA-AAAAAAAAAAAA"],
+            }
+        )
 
 
 def test_rollback_rollout_requires_a_safe_trigger_reason() -> None:

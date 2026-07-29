@@ -515,6 +515,10 @@ def test_update_contract_artifacts_publish_strict_safe_control_plane_schemas() -
         "https://example.test/agent.tar.gz#fragment",
         "https://example.test/agent.tar.gz?access_token=fixture-value",
         "https://example.test/agent.tar.gz?download=1",
+        "https://example.test/agent.tar.gz?",
+        "https://example.test/agent.tar.gz#",
+        "https://example.test/agent.tar.gz?#",
+        "https://user%40example.test/agent.tar.gz",
     ],
 )
 def test_manifest_schema_and_openapi_reject_noncanonical_artifact_urls(
@@ -530,6 +534,17 @@ def test_manifest_schema_and_openapi_reject_noncanonical_artifact_urls(
         _schema_validator("update-build-manifest-v1.json").validate(payload)
     with pytest.raises(JsonSchemaValidationError):
         _openapi_component_validator("UpdateBuildManifestV1").validate(payload)
+
+
+def test_manifest_schema_and_openapi_accept_case_insensitive_https_scheme() -> None:
+    """Treat the URL scheme per interoperable URL syntax, not input casing."""
+    payload = {
+        **FIXTURES["update-build-manifest-v1.json"],
+        "artifact_url": "HTTPS://releases.example.test/endpoint-agent-1.2.3.tar.gz",
+    }
+
+    _schema_validator("update-build-manifest-v1.json").validate(payload)
+    _openapi_component_validator("UpdateBuildManifestV1").validate(payload)
 
 
 @pytest.mark.parametrize("size", [True, "1"])
@@ -562,6 +577,17 @@ def test_rollout_schema_rejects_duplicate_device_targets() -> None:
             {
                 **FIXTURES["update-rollout-v1.json"],
                 "device_ids": [duplicate, duplicate],
+            }
+        )
+
+
+def test_rollout_schema_rejects_uppercase_device_uuid() -> None:
+    """Keep public target uniqueness semantics free of UUID case folding."""
+    with pytest.raises(JsonSchemaValidationError):
+        _schema_validator("update-rollout-v1.json").validate(
+            {
+                **FIXTURES["update-rollout-v1.json"],
+                "device_ids": ["AAAAAAAA-AAAA-4AAA-8AAA-AAAAAAAAAAAA"],
             }
         )
 

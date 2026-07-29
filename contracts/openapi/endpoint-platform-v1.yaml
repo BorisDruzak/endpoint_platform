@@ -1405,7 +1405,7 @@ components:
           "$comment": "Only canonical HTTPS artifact URLs are accepted; user-info, fragments and query strings are forbidden."
           format: "uri"
           minLength: 1
-          pattern: "^https://[^/?#@]+(?:/[^?#\\s]*)?(?![\\s\\S])"
+          pattern: "^[Hh][Tt][Tt][Pp][Ss]://[^/?#@%]+(?:/[^?#\\s]*)?(?![\\s\\S])"
           title: "Artifact Url"
           type: "string"
         artifact_name:
@@ -1482,6 +1482,7 @@ components:
         device_ids:
           items:
             format: "uuid"
+            pattern: "^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}(?![\\s\\S])"
             type: "string"
           maxItems: 10000
           minItems: 1
@@ -1537,7 +1538,7 @@ components:
           "$comment": "Only canonical HTTPS artifact URLs are accepted; user-info, fragments and query strings are forbidden."
           format: "uri"
           minLength: 1
-          pattern: "^https://[^/?#@]+(?:/[^?#\\s]*)?(?![\\s\\S])"
+          pattern: "^[Hh][Tt][Tt][Pp][Ss]://[^/?#@%]+(?:/[^?#\\s]*)?(?![\\s\\S])"
           title: "Artifact Url"
           type: "string"
         artifact_name:

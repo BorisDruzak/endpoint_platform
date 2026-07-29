@@ -21,7 +21,7 @@
       "$comment": "Only canonical HTTPS artifact URLs are accepted; user-info, fragments and query strings are forbidden.",
       "format": "uri",
       "minLength": 1,
-      "pattern": "^https://[^/?#@]+(?:/[^?#\\s]*)?(?![\\s\\S])",
+      "pattern": "^[Hh][Tt][Tt][Pp][Ss]://[^/?#@%]+(?:/[^?#\\s]*)?(?![\\s\\S])",
       "title": "Artifact Url",
       "type": "string"
     },

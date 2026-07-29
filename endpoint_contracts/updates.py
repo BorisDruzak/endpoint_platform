@@ -1,10 +1,18 @@
 from __future__ import annotations
 
+import re
 from typing import Annotated, Literal
 from urllib.parse import urlsplit
 from uuid import UUID
 
-from pydantic import AnyUrl, ConfigDict, Field, StringConstraints, model_validator
+from pydantic import (
+    AnyUrl,
+    ConfigDict,
+    Field,
+    StringConstraints,
+    field_validator,
+    model_validator,
+)
 
 from .base import ContractModelV1
 
@@ -35,7 +43,20 @@ _SEMVER_JSON_SCHEMA_PATTERN = (
 _ARTIFACT_NAME_JSON_SCHEMA_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9._-]{0,255}(?![\s\S])"
 _SHA256_JSON_SCHEMA_PATTERN = r"^[0-9a-f]{64}(?![\s\S])"
 _SAFE_CODE_JSON_SCHEMA_PATTERN = r"^[a-z][a-z0-9._-]{0,127}(?![\s\S])"
-_HTTPS_ARTIFACT_URL_JSON_SCHEMA_PATTERN = r"^https://[^/?#@]+(?:/[^?#\s]*)?(?![\s\S])"
+_HTTPS_ARTIFACT_URL_JSON_SCHEMA_PATTERN = (
+    r"^[Hh][Tt][Tt][Pp][Ss]://[^/?#@%]+(?:/[^?#\s]*)?(?![\s\S])"
+)
+_HTTPS_ARTIFACT_URL_WIRE_PATTERN = re.compile(
+    r"[Hh][Tt][Tt][Pp][Ss]://[^/?#@%]+(?:/[^?#\s]*)?"
+)
+_LOWERCASE_UUID_JSON_SCHEMA_PATTERN = (
+    r"^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}"
+    r"-[0-9a-f]{12}(?![\s\S])"
+)
+_LOWERCASE_UUID_WIRE_PATTERN = re.compile(
+    r"[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}"
+    r"-[0-9a-f]{12}"
+)
 
 UpdateIdentifierV1 = Annotated[
     str,
@@ -63,6 +84,10 @@ ArtifactUrlV1 = Annotated[
             ),
         }
     ),
+]
+DeviceIdV1 = Annotated[
+    UUID,
+    Field(json_schema_extra={"pattern": _LOWERCASE_UUID_JSON_SCHEMA_PATTERN}),
 ]
 Sha256V1 = Annotated[
     str,
@@ -95,10 +120,30 @@ class _ImmutableUpdateManifestV1(ContractModelV1):
     sha256: Sha256V1
     size: Annotated[int, Field(strict=True, gt=0, le=2**63 - 1)]
 
+    @field_validator("artifact_url", mode="before")
+    @classmethod
+    def validate_artifact_url_wire_form(cls, value: object) -> object:
+        if not isinstance(value, str) or not _HTTPS_ARTIFACT_URL_WIRE_PATTERN.fullmatch(
+            value
+        ):
+            raise ValueError("artifact_url must be a canonical HTTPS URL")
+        return value
+
+    @field_validator("size", mode="before")
+    @classmethod
+    def normalize_integral_json_number_size(cls, value: object) -> object:
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise ValueError("size must be an integer JSON number")
+        if isinstance(value, float):
+            if not value.is_integer():
+                raise ValueError("size must be an integer JSON number")
+            return int(value)
+        return value
+
     @model_validator(mode="after")
     def validate_immutable_artifact(self) -> _ImmutableUpdateManifestV1:
         parsed = urlsplit(str(self.artifact_url))
-        if parsed.scheme != "https" or not parsed.hostname:
+        if parsed.scheme.lower() != "https" or not parsed.hostname:
             raise ValueError("artifact_url must be an absolute HTTPS URL")
         if parsed.username is not None or parsed.password is not None:
             raise ValueError("artifact_url must not contain credentials")
@@ -132,10 +177,24 @@ class UpdateRolloutCreateV1(ContractModelV1):
     build_identifier: UpdateIdentifierV1
     mode: UpdateRolloutModeV1
     device_ids: Annotated[
-        list[UUID],
+        list[DeviceIdV1],
         Field(min_length=1, max_length=10_000, json_schema_extra={"uniqueItems": True}),
     ]
     reason: Annotated[str, Field(min_length=1, max_length=512)] | None = None
+
+    @field_validator("device_ids", mode="before")
+    @classmethod
+    def validate_device_id_wire_forms(cls, value: object) -> object:
+        if not isinstance(value, list):
+            return value
+        for device_id in value:
+            if isinstance(device_id, UUID):
+                continue
+            if not isinstance(
+                device_id, str
+            ) or not _LOWERCASE_UUID_WIRE_PATTERN.fullmatch(device_id):
+                raise ValueError("device_ids must use canonical lowercase UUIDs")
+        return value
 
     @model_validator(mode="after")
     def validate_unique_device_ids(self) -> UpdateRolloutCreateV1:
