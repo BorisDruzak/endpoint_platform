@@ -703,6 +703,57 @@ async def test_retry_expiry_and_fingerprint_mismatch_hide_secret_inputs() -> Non
 
 
 @pytest.mark.asyncio
+async def test_acknowledgement_destroys_proven_expired_envelope() -> None:
+    """ACK observing a proven expiry must delete and audit the envelope."""
+    campaign_token, campaign = _campaign()
+    session = _AgentEnrollmentSession(campaign=campaign)
+    app = create_app(_settings(), session_provider=_Provider(session))
+
+    async with AsyncClient(
+        transport=ASGITransport(
+            app=app,
+            client=("192.168.100.20", 43100),
+        ),
+        base_url="https://endpoint.sosnadmin.local",
+    ) as client:
+        enrolled = await client.post(
+            "/agent/v1/enroll",
+            headers={"Authorization": f"Bearer {campaign_token}"},
+            json=_enrollment_body(),
+        )
+        delivery = enrolled.json()
+        envelope = next(
+            value
+            for value in session.added
+            if isinstance(value, EnrollmentRetryEnvelope)
+        )
+        envelope.expires_at = datetime.now(UTC) - timedelta(seconds=1)
+        acknowledged = await client.post(
+            "/agent/v1/enroll/ack",
+            json={
+                "schema_version": "enrollment_delivery_proof_v1",
+                "enrollment_receipt": delivery["enrollment_receipt"],
+                "hardware_fingerprint": "sha256:agent-device-a",
+            },
+        )
+
+    assert acknowledged.status_code == 403
+    assert acknowledged.json() == {"detail": "Enrollment delivery unavailable"}
+    assert session.deleted == [envelope]
+    expiration_audit = next(
+        value
+        for value in session.added
+        if isinstance(value, AuditEvent)
+        and value.action == "enrollment.delivery_expired"
+    )
+    assert expiration_audit.details == {
+        "source": "observed_ack",
+        "source_address": "192.168.100.20",
+    }
+    assert session.commit_calls == 2
+
+
+@pytest.mark.asyncio
 async def test_rotation_requires_old_token_and_activation_retires_it_immediately() -> (
     None
 ):
@@ -754,6 +805,81 @@ async def test_rotation_requires_old_token_and_activation_retires_it_immediately
         "device_credential.rotation_started",
         "device_credential.rotation_activated",
     ]
+
+
+@pytest.mark.asyncio
+async def test_ack_and_rotation_audit_correlation_never_persists_secrets() -> None:
+    """Secret-shaped correlation headers must be HMACed for all agent mutations."""
+    campaign_token, campaign = _campaign()
+    session = _AgentEnrollmentSession(campaign=campaign)
+    app = create_app(_settings(), session_provider=_Provider(session))
+
+    async with AsyncClient(
+        transport=ASGITransport(
+            app=app,
+            client=("192.168.100.20", 43100),
+        ),
+        base_url="https://endpoint.sosnadmin.local",
+    ) as client:
+        enrolled = await client.post(
+            "/agent/v1/enroll",
+            headers={"Authorization": f"Bearer {campaign_token}"},
+            json=_enrollment_body(),
+        )
+        delivery = enrolled.json()
+        receipt = delivery["enrollment_receipt"]
+        old_token = delivery["device_token"]
+        acknowledged = await client.post(
+            "/agent/v1/enroll/ack",
+            headers={"X-Request-ID": receipt},
+            json={
+                "schema_version": "enrollment_delivery_proof_v1",
+                "enrollment_receipt": receipt,
+                "hardware_fingerprint": "sha256:agent-device-a",
+            },
+        )
+        rotated = await client.post(
+            "/agent/v1/credentials/rotate",
+            headers={
+                "Authorization": f"Bearer {old_token}",
+                "X-Request-ID": old_token,
+            },
+        )
+        pending_token = rotated.json()["device_token"]
+        activated = await client.post(
+            "/agent/v1/credentials/activate",
+            headers={
+                "Authorization": f"Bearer {pending_token}",
+                "X-Request-ID": pending_token,
+            },
+        )
+
+    assert acknowledged.status_code == 204
+    assert rotated.status_code == 201
+    assert activated.status_code == 204
+    mutation_audits = {
+        value.action: value
+        for value in session.added
+        if isinstance(value, AuditEvent)
+        and value.action
+        in {
+            "enrollment.delivery_acknowledged",
+            "device_credential.rotation_started",
+            "device_credential.rotation_activated",
+        }
+    }
+    assert set(mutation_audits) == {
+        "enrollment.delivery_acknowledged",
+        "device_credential.rotation_started",
+        "device_credential.rotation_activated",
+    }
+    assert all(
+        audit.request_id.startswith("external_") for audit in mutation_audits.values()
+    )
+    persisted = repr(mutation_audits)
+    assert receipt not in persisted
+    assert old_token not in persisted
+    assert pending_token not in persisted
 
 
 @pytest.mark.asyncio

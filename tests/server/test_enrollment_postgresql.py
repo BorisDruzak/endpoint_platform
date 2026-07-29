@@ -35,6 +35,7 @@ from endpoint_server.enrollment.campaigns import (
     issue_install_claim,
     reserve_campaign_use,
 )
+from endpoint_server.enrollment.delivery import cleanup_expired_retry_envelopes
 from endpoint_server.main import create_app
 
 
@@ -435,3 +436,79 @@ async def test_agent_enrollment_retry_ack_and_rotation_are_atomic_in_postgresql(
             "device_credential.rotation_activated",
         ]
     )
+
+
+@pytest.mark.asyncio
+async def test_cleanup_skips_recovery_locked_envelope_then_cleans_after_release(
+    enrollment_provider: AsyncSessionProvider,
+) -> None:
+    """Cleanup must not block or delete a row while recovery owns its lock."""
+    from datetime import UTC, datetime, timedelta
+
+    expired_at = datetime.now(UTC) - timedelta(minutes=1)
+    device = Device(
+        id=uuid4(),
+        device_identifier=f"dev_{uuid4().hex}",
+        display_name="Cleanup contention fixture",
+        retired_at=None,
+    )
+    credential = DeviceCredential(
+        id=uuid4(),
+        device_id=device.id,
+        credential_identifier=uuid4().hex,
+        token_digest=uuid4().hex,
+        pending_token_digest=None,
+        rotation_overlap_expires_at=None,
+        expires_at=None,
+        revoked_at=None,
+    )
+    envelope = EnrollmentRetryEnvelope(
+        id=uuid4(),
+        device_credential_id=credential.id,
+        receipt_digest=uuid4().hex,
+        fingerprint_digest=uuid4().hex,
+        encrypted_token=b"expired-ciphertext",
+        encryption_nonce=b"012345678901",
+        expires_at=expired_at,
+    )
+    async with enrollment_provider() as session:
+        session.add_all((device, credential, envelope))
+        await session.commit()
+
+    async with enrollment_provider() as recovery_session:
+        locked = await recovery_session.scalar(
+            select(EnrollmentRetryEnvelope)
+            .where(EnrollmentRetryEnvelope.id == envelope.id)
+            .with_for_update()
+        )
+        assert locked is not None
+        async with enrollment_provider() as cleanup_session:
+            skipped = await cleanup_expired_retry_envelopes(
+                cleanup_session,
+                request_id="server_cleanup_locked",
+                now=datetime.now(UTC),
+            )
+            await cleanup_session.commit()
+        assert skipped == 0
+
+    async with enrollment_provider() as cleanup_session:
+        cleaned = await cleanup_expired_retry_envelopes(
+            cleanup_session,
+            request_id="server_cleanup_released",
+            now=datetime.now(UTC),
+        )
+        await cleanup_session.commit()
+    assert cleaned == 1
+
+    async with enrollment_provider() as session:
+        persisted = await session.get(EnrollmentRetryEnvelope, envelope.id)
+        expiration_audits = (
+            await session.scalars(
+                select(AuditEvent).where(
+                    AuditEvent.action == "enrollment.delivery_expired",
+                    AuditEvent.object_identifier == str(envelope.id),
+                )
+            )
+        ).all()
+    assert persisted is None
+    assert len(expiration_audits) == 1
