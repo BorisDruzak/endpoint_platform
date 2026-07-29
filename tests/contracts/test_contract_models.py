@@ -351,7 +351,17 @@ def test_command_rejects_unknown_shell_field() -> None:
         AgentCommandV1.model_validate(payload)
 
 
-@pytest.mark.parametrize("capability", ["agent.status.read", "gateway.echo"])
+@pytest.mark.parametrize(
+    "capability",
+    [
+        "agent.status.read",
+        "gateway.echo",
+        "context.baseline.collect",
+        "context.health.collect",
+        "context.network.collect",
+        "context.diagnostic.collect",
+    ],
+)
 def test_command_accepts_only_documented_safe_v1_capabilities(
     capability: str,
 ) -> None:

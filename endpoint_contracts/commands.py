@@ -20,7 +20,14 @@ CommandStatusV1 = Literal[
     "canceled",
     "expired",
 ]
-AgentCapabilityV1 = Literal["agent.status.read", "gateway.echo"]
+AgentCapabilityV1 = Literal[
+    "agent.status.read",
+    "gateway.echo",
+    "context.baseline.collect",
+    "context.health.collect",
+    "context.network.collect",
+    "context.diagnostic.collect",
+]
 
 
 class CommandCorrelationV1(ContractModelV1):

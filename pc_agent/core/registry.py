@@ -5,9 +5,16 @@ Module Registry Service
 
 import inspect
 import sys
+from collections.abc import Mapping
+from datetime import datetime
 from pathlib import Path
 from typing import Dict, Any, List, Optional, Callable, TYPE_CHECKING
 from functools import wraps
+
+from pc_agent.context_profiles.registry import (
+    ContextCapabilityError,
+    execute_context_capability as _execute_context_capability,
+)
 
 try:
     from shared.tool_contracts import normalize_risk_level, to_legacy_risk_level
@@ -25,6 +32,36 @@ else:
     except ImportError:
         # Fallback для случаев, когда pydantic не установлен
         BaseModel = None
+
+
+# This is deliberately separate from the dynamic module/tool registry below.
+# Device Context commands can only name one of these profile collectors.
+CONTEXT_COLLECTION_CAPABILITIES = frozenset(
+    {
+        "context.baseline.collect",
+        "context.health.collect",
+        "context.network.collect",
+        "context.diagnostic.collect",
+    }
+)
+
+
+def execute_context_capability(
+    capability: str,
+    parameters: Mapping[str, object],
+    probe: object,
+    *,
+    collected_at: datetime | None = None,
+) -> object:
+    """Resolve exactly one context profile without entering the dynamic tool registry."""
+    if capability not in CONTEXT_COLLECTION_CAPABILITIES:
+        raise ContextCapabilityError("unsupported context capability")
+    return _execute_context_capability(
+        capability,
+        parameters,
+        probe,
+        collected_at=collected_at,
+    )
 
 
 def _agent_default_execution() -> Dict[str, Any]:

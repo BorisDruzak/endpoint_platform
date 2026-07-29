@@ -669,6 +669,10 @@ components:
           enum:
             - "agent.status.read"
             - "gateway.echo"
+            - "context.baseline.collect"
+            - "context.health.collect"
+            - "context.network.collect"
+            - "context.diagnostic.collect"
           title: "Capability"
           type: "string"
         parameters:

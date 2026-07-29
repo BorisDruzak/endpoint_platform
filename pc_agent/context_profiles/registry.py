@@ -36,7 +36,11 @@ def execute_context_capability(
         _require_empty(parameters)
         return collect_network(probe, collected_at=collected_at)
     if capability == "context.diagnostic.collect":
-        if set(parameters) != {"reason"} or not isinstance(parameters["reason"], str):
+        if (
+            set(parameters) != {"reason"}
+            or not isinstance(parameters["reason"], str)
+            or not 1 <= len(parameters["reason"]) <= 256
+        ):
             raise ContextCapabilityError("diagnostic collection requires only a string reason")
         return collect_diagnostic(probe, reason=parameters["reason"], collected_at=collected_at)
     raise ContextCapabilityError("unsupported context capability")
