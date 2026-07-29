@@ -11,6 +11,8 @@ import time
 
 
 MAX_PROBE_BYTES = 65_536
+TERMINATION_GRACE_SECONDS = 0.2
+_DRAIN_JOIN_GRACE_SECONDS = 0.2
 
 LSBLK_COMMAND = ("lsblk", "--bytes", "--json", "--output", "NAME,MODEL,SIZE,WWN,SERIAL,TYPE")
 IP_LINK_COMMAND = ("ip", "-json", "link", "show")
@@ -83,26 +85,54 @@ def _execute_bounded_command(command: tuple[str, ...], timeout_seconds: float, l
 
     deadline = time.monotonic() + timeout_seconds
     timed_out = False
+    cleanup_failed = False
+    cleanup_attempted = False
     try:
         while process.poll() is None:
             if stdout.full.is_set() or stderr.full.is_set() or time.monotonic() >= deadline:
                 timed_out = time.monotonic() >= deadline
-                process.terminate()
+                cleanup_attempted = True
+                cleanup_failed = not _terminate_and_reap(process)
                 break
             time.sleep(0.01)
-        process.wait()
     finally:
-        if process.poll() is None:
-            process.kill()
-            process.wait()
-        stdout.join()
-        stderr.join()
+        if not cleanup_attempted and process.poll() is None:
+            cleanup_failed = not _terminate_and_reap(process) or cleanup_failed
+        elif not cleanup_attempted and not _wait_for_exit(process):
+            cleanup_failed = True
         process.stdout.close()
         process.stderr.close()
+        stdout.join(_DRAIN_JOIN_GRACE_SECONDS)
+        stderr.join(_DRAIN_JOIN_GRACE_SECONDS)
 
-    if timed_out:
+    if timed_out or cleanup_failed:
         raise subprocess.TimeoutExpired(command, timeout_seconds)
     return (bytes(stdout.output) + bytes(stderr.output))[:limit]
+
+
+def _terminate_and_reap(process: subprocess.Popen[bytes]) -> bool:
+    """Stop a child without letting a hung exit path block a collector."""
+    if process.poll() is not None:
+        return _wait_for_exit(process)
+    try:
+        process.terminate()
+    except ProcessLookupError:
+        return _wait_for_exit(process)
+    if _wait_for_exit(process):
+        return True
+    try:
+        process.kill()
+    except ProcessLookupError:
+        return _wait_for_exit(process)
+    return _wait_for_exit(process)
+
+
+def _wait_for_exit(process: subprocess.Popen[bytes]) -> bool:
+    try:
+        process.wait(timeout=TERMINATION_GRACE_SECONDS)
+    except subprocess.TimeoutExpired:
+        return False
+    return True
 
 
 class _BoundedDrain:
@@ -116,13 +146,16 @@ class _BoundedDrain:
     def start(self) -> None:
         self._thread.start()
 
-    def join(self) -> None:
-        self._thread.join()
+    def join(self, timeout_seconds: float) -> None:
+        self._thread.join(timeout=timeout_seconds)
 
     def _drain(self) -> None:
-        while len(self.output) < self._limit:
-            chunk = self._stream.read(min(8192, self._limit - len(self.output)))
-            if not chunk:
-                return
-            self.output.extend(chunk)
-        self.full.set()
+        try:
+            while len(self.output) < self._limit:
+                chunk = self._stream.read(min(8192, self._limit - len(self.output)))
+                if not chunk:
+                    return
+                self.output.extend(chunk)
+            self.full.set()
+        except (OSError, ValueError):
+            return

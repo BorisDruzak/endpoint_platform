@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 from io import BytesIO
+import os
 from pathlib import Path
 import subprocess
+import sys
+import time
 
 import pytest
 
@@ -67,7 +70,7 @@ def test_system_probe_stops_command_stream_at_requested_limit(monkeypatch) -> No
         def kill(self) -> None:
             self.terminated = True
 
-        def wait(self) -> int:
+        def wait(self, timeout: float | None = None) -> int:
             self.terminated = True
             return 0
 
@@ -78,3 +81,59 @@ def test_system_probe_stops_command_stream_at_requested_limit(monkeypatch) -> No
     assert SystemProbe().run(probe_module.LSBLK_COMMAND, 1.0, 128) == "a" * 128
     assert process.terminated is True
     assert read_sizes == [128, 128]
+
+
+def test_bounded_command_uses_bounded_waits_when_terminate_grace_expires(monkeypatch) -> None:
+    """A child that survives terminate is killed and reaped through bounded waits only."""
+
+    class RequiresBoundedWaitProcess:
+        def __init__(self) -> None:
+            self.stdout = BytesIO()
+            self.stderr = BytesIO()
+            self.killed = False
+            self.wait_timeouts: list[float | None] = []
+
+        def poll(self):
+            return 0 if self.killed else None
+
+        def terminate(self) -> None:
+            pass
+
+        def kill(self) -> None:
+            self.killed = True
+
+        def wait(self, timeout: float | None = None) -> int:
+            self.wait_timeouts.append(timeout)
+            if timeout is None:
+                raise AssertionError("unbounded wait used")
+            if not self.killed:
+                raise subprocess.TimeoutExpired(cmd="probe", timeout=timeout)
+            return 0
+
+    process = RequiresBoundedWaitProcess()
+    monkeypatch.setattr(probe_module.subprocess, "Popen", lambda *args, **kwargs: process)
+
+    with pytest.raises(subprocess.TimeoutExpired):
+        probe_module._execute_bounded_command(("probe",), 0.01, 128)
+
+    assert process.killed is True
+    assert process.wait_timeouts == [
+        probe_module.TERMINATION_GRACE_SECONDS,
+        probe_module.TERMINATION_GRACE_SECONDS,
+    ]
+
+
+@pytest.mark.skipif(os.name == "nt", reason="SIGTERM can only be ignored by this child on POSIX")
+def test_bounded_command_kills_a_child_that_ignores_sigterm_within_grace_period() -> None:
+    """Timeout cleanup must not wait for an uncooperative POSIX child to exit naturally."""
+    script = (
+        "import signal, time; "
+        "signal.signal(signal.SIGTERM, signal.SIG_IGN); "
+        "time.sleep(0.75)"
+    )
+    started = time.monotonic()
+
+    with pytest.raises(subprocess.TimeoutExpired):
+        probe_module._execute_bounded_command((sys.executable, "-c", script), 0.05, 128)
+
+    assert time.monotonic() - started < 0.6

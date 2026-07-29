@@ -25,3 +25,16 @@ def test_diagnostic_redacts_bearer_credentials_before_truncation(fake_probe) -> 
 
     assert secret not in (result.sections.log_excerpt or "")
     assert "Authorization: Bearer <redacted>" in (result.sections.log_excerpt or "")
+
+
+def test_diagnostic_redacts_equals_style_bearer_credentials_before_truncation(fake_probe) -> None:
+    """Bearer secrets are removed when logs render the header with an equals separator."""
+    secret = "secret-equals"
+    fake_probe.outputs[("journalctl", "-n", "100", "--no-pager", "-o", "cat")] = (
+        f"Authorization =   Bearer {secret}\n"
+    )
+
+    result = collect_diagnostic(fake_probe, reason="operator investigation", collected_at=FIXED_TIME)
+
+    assert secret not in (result.sections.log_excerpt or "")
+    assert "Authorization= Bearer <redacted>" in (result.sections.log_excerpt or "")

@@ -16,7 +16,7 @@ DIAGNOSTIC_LOG_BYTES = 8192
 _SENSITIVE_ASSIGNMENT = re.compile(
     r"(?i)\b(password|passphrase|token|secret|api[_-]?key|cookie)\s*([:=])\s*[^\s,;]+"
 )
-_BEARER_AUTHORIZATION = re.compile(r"(?i)\bauthorization\s*:\s*bearer\s+[^\s,;]+")
+_BEARER_AUTHORIZATION = re.compile(r"(?i)\bauthorization\s*([:=])\s*bearer\s+[^\s,;]+")
 _OTHER_AUTHORIZATION = re.compile(r"(?i)\bauthorization\s*([:=])(?!\s*bearer\b)[^\r\n,;]+")
 
 
@@ -87,7 +87,7 @@ def _log_excerpt(probe: object, warnings: list[str]) -> str | None:
     except (OSError, ValueError):
         warnings.append("command_failed")
         return None
-    redacted = _BEARER_AUTHORIZATION.sub("Authorization: Bearer <redacted>", raw)
+    redacted = _BEARER_AUTHORIZATION.sub(r"Authorization\1 Bearer <redacted>", raw)
     redacted = _OTHER_AUTHORIZATION.sub(r"Authorization\1<redacted>", redacted)
     redacted = _SENSITIVE_ASSIGNMENT.sub(r"\1\2<redacted>", redacted)
     if redacted != raw:
