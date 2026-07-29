@@ -1,5 +1,23 @@
 # CODEMAP (pc_agent)
 
+## Device Context map (2026-07-29)
+
+- `pc_agent/context_profiles/` owns bounded, read-only ALT profile collectors
+  and `SystemProbe`; it never receives an arbitrary module, method, shell
+  command or network target from a caller.
+- `pc_agent/core/registry.py` and `pc_agent/core/orchestrator.py` expose only
+  `context.baseline.collect`, `context.health.collect`,
+  `context.network.collect`, and `context.diagnostic.collect`. Every success
+  is one validated `DeviceContextEnvelopeV1` in the existing `AgentResultV1`
+  transport.
+- Baseline/health/network are server-schedulable profiles. Diagnostic requires
+  a bounded manual reason and is never a scheduled job or safe service output.
+  The server cadence is baseline 24h, health 5m, network 15m; it does not add
+  an agent-local scheduler.
+
+This is foundation-only: it does not modify `web_ovpn`, configure collection on
+a device, deploy an agent, or run an ALT pilot.
+
 ## Endpoint update adapter map (2026-07-29)
 
 - `pc_agent/update_adapter.py` owns the strict primary Endpoint Platform

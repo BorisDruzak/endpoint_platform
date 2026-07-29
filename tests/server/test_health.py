@@ -328,3 +328,39 @@ async def test_worker_closes_provider_it_creates(
         await task
 
     assert provider.close_calls == 1
+
+
+@pytest.mark.asyncio
+async def test_worker_isolates_context_scheduler_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A failed scheduler batch must not block retention or the following worker tick."""
+    provider = WorkerSessionProvider()
+    retained = asyncio.Event()
+
+    async def failing_scheduler(_: WorkerSession) -> int:
+        raise RuntimeError("scheduler database fault")
+
+    async def successful_retention(_: WorkerSession) -> int:
+        retained.set()
+        return 0
+
+    monkeypatch.setattr("endpoint_server.worker.schedule_due_collections", failing_scheduler)
+    monkeypatch.setattr("endpoint_server.worker.retain_context_snapshots", successful_retention)
+    task = asyncio.create_task(
+        run_worker(
+            _settings(),
+            provider,
+            cleanup_interval_seconds=0.01,
+            context_schedule_interval_seconds=0.01,
+            context_retention_interval_seconds=0.01,
+        )
+    )
+    await asyncio.wait_for(retained.wait(), timeout=1)
+
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    assert provider.session.rollback_calls >= 1
+    assert provider.session.commit_calls >= 2

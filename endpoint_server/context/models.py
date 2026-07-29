@@ -81,6 +81,7 @@ class ContextSnapshot(OwnershipRecord, Base):
     device_id: Mapped[UUID] = mapped_column(ForeignKey("devices.id", ondelete="CASCADE"), nullable=False)
     profile: Mapped[str] = mapped_column(String(32), nullable=False)
     collected_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    pinned_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     semantic_hash: Mapped[str | None] = mapped_column(String(64))
     raw_payload: Mapped[dict[str, object]] = mapped_column(JSON, nullable=False)
     normalized_projection: Mapped[dict[str, object]] = mapped_column(JSON, nullable=False)

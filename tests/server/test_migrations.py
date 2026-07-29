@@ -123,7 +123,7 @@ def test_migration_history_has_exactly_one_head() -> None:
         _alembic_config("postgresql+asyncpg://unused@127.0.0.1/unused")
     )
 
-    assert script.get_heads() == ["0008_device_context_foundation"]
+    assert script.get_heads() == ["0009_device_context_snapshot_pins"]
 
 
 def test_device_context_migration_binds_current_pointer_to_snapshot_identity() -> None:
