@@ -60,6 +60,10 @@ async def entering_failing_session() -> AsyncIterator[SuccessfulSession]:
     yield SuccessfulSession()
 
 
+def synchronously_failing_session_provider() -> AsyncIterator[SuccessfulSession]:
+    raise RuntimeError("database password=not-for-response")
+
+
 @asynccontextmanager
 async def exiting_failing_session() -> AsyncIterator[SuccessfulSession]:
     yield SuccessfulSession()
@@ -141,6 +145,26 @@ async def test_healthz_hides_exception_when_session_provider_fails_to_enter() ->
     }
     assert "password" not in response.text.lower()
     assert "not-for-response" not in response.text
+
+
+@pytest.mark.asyncio
+async def test_healthz_hides_exception_when_session_provider_raises_synchronously() -> None:
+    """Creating a session context can fail before one is returned to the route."""
+    app = create_app(_settings(), session_provider=synchronously_failing_session_provider)
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app, raise_app_exceptions=False),
+        base_url="http://testserver",
+    ) as client:
+        response = await client.get("/healthz")
+
+    assert response.status_code == 503
+    assert response.json() == {
+        "status": "unavailable",
+        "service": "endpoint-platform",
+        "database": "unavailable",
+        "version": "0.0.0",
+    }
 
 
 @pytest.mark.asyncio
