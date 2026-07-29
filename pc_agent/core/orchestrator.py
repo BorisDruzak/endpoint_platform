@@ -1843,15 +1843,37 @@ class AgentOrchestrator:
                 error_message="Device Context collection was canceled before execution started",
                 extra_meta={"canceled_by_request_id": meta.request_id},
             )
-        await self.db_manager.mark_command_seen(
+        cancellation_won = await self.db_manager.mark_command_seen(
             command_id=target_operation_id,
             status="canceled",
             result_json=json.dumps(payload, ensure_ascii=False),
         )
-        await self.db_manager.enqueue_pending_command_result(
-            command_id=target_operation_id,
-            payload=payload,
-        )
+        if cancellation_won:
+            await self.db_manager.enqueue_pending_command_result(
+                command_id=target_operation_id,
+                payload=payload,
+            )
+        else:
+            try:
+                retained = await self.db_manager.get_command_result(target_operation_id)
+                retained_payload = json.loads(retained["result_json"])
+            except (KeyError, TypeError, json.JSONDecodeError) as exc:
+                logger.warning(
+                    f"[cancel_operation] Failed to reload terminal result for "
+                    f"{target_operation_id}: {exc}"
+                )
+                return False
+            if not isinstance(retained_payload, dict):
+                logger.warning(
+                    f"[cancel_operation] Retained terminal result is not a payload for "
+                    f"{target_operation_id}"
+                )
+                return False
+            await self.db_manager.enqueue_pending_command_result(
+                command_id=target_operation_id,
+                payload=retained_payload,
+            )
+            return False
         logger.info(
             f"[cancel_operation] Finalized pre-running command as canceled: "
             f"target_operation_id={target_operation_id}"
