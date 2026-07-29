@@ -165,6 +165,7 @@ def seal_retry_envelope(
     device_token_pepper: bytes,
     session_secret: bytes,
     *,
+    receipt: str | None = None,
     now: datetime | None = None,
     lifetime: timedelta = DEFAULT_RETRY_ENVELOPE_LIFETIME,
 ) -> IssuedRetryEnvelope:
@@ -184,8 +185,8 @@ def seal_retry_envelope(
     if not token_bytes or not hardware_fingerprint:
         raise ValueError("device token and hardware fingerprint must not be empty")
 
-    receipt = generate_retry_receipt()
-    receipt_digest = retry_receipt_digest(receipt, device_token_pepper)
+    delivery_receipt = generate_retry_receipt() if receipt is None else receipt
+    receipt_digest = retry_receipt_digest(delivery_receipt, device_token_pepper)
     fingerprint_digest = _context_digest(
         hardware_fingerprint,
         device_token_pepper,
@@ -199,7 +200,7 @@ def seal_retry_envelope(
         _envelope_aad(receipt_digest, fingerprint_digest, expires_at),
     )
     return IssuedRetryEnvelope(
-        receipt=receipt,
+        receipt=delivery_receipt,
         receipt_digest=receipt_digest,
         fingerprint_digest=fingerprint_digest,
         encrypted_token=encrypted_token,
@@ -225,31 +226,12 @@ def recover_retry_token(
         or checked_at >= envelope.expires_at
     ):
         return None
-    try:
-        presented_receipt_digest = _context_digest(
-            receipt,
-            device_token_pepper,
-            _RECEIPT_DIGEST_CONTEXT,
-        )
-        presented_fingerprint_digest = _context_digest(
-            hardware_fingerprint,
-            device_token_pepper,
-            _FINGERPRINT_DIGEST_CONTEXT,
-        )
-    except (UnicodeEncodeError, ValueError):
-        return None
-    try:
-        receipt_matches = hmac.compare_digest(
-            presented_receipt_digest,
-            envelope.receipt_digest,
-        )
-        fingerprint_matches = hmac.compare_digest(
-            presented_fingerprint_digest,
-            envelope.fingerprint_digest,
-        )
-    except TypeError:
-        return None
-    if not receipt_matches or not fingerprint_matches:
+    if not retry_envelope_proof_matches(
+        receipt,
+        hardware_fingerprint,
+        envelope,
+        device_token_pepper,
+    ):
         return None
     try:
         token_bytes = AESGCM(_envelope_key(session_secret)).decrypt(
@@ -264,6 +246,35 @@ def recover_retry_token(
         return token_bytes.decode("ascii")
     except (InvalidTag, UnicodeDecodeError, ValueError):
         return None
+
+
+def retry_envelope_proof_matches(
+    receipt: str,
+    hardware_fingerprint: str,
+    envelope: RetryEnvelope,
+    device_token_pepper: bytes,
+) -> bool:
+    """Match both secret-bound proof digests without considering expiry."""
+    try:
+        presented_receipt_digest = _context_digest(
+            receipt,
+            device_token_pepper,
+            _RECEIPT_DIGEST_CONTEXT,
+        )
+        presented_fingerprint_digest = _context_digest(
+            hardware_fingerprint,
+            device_token_pepper,
+            _FINGERPRINT_DIGEST_CONTEXT,
+        )
+        return hmac.compare_digest(
+            presented_receipt_digest,
+            envelope.receipt_digest,
+        ) and hmac.compare_digest(
+            presented_fingerprint_digest,
+            envelope.fingerprint_digest,
+        )
+    except (TypeError, UnicodeEncodeError, ValueError):
+        return False
 
 
 def begin_device_credential_rotation(

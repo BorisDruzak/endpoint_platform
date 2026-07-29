@@ -6,15 +6,19 @@ import hashlib
 import hmac
 import secrets
 from datetime import UTC, datetime
-from ipaddress import ip_address
-from typing import Annotated, Literal
-from uuid import UUID, uuid4
+from uuid import uuid4
 
 from fastapi import APIRouter, HTTPException, Request, Response, status
-from pydantic import BaseModel, ConfigDict, Field, SecretStr
 from sqlalchemy import func, select
 
-from endpoint_contracts import EnrollmentRequestV1
+from endpoint_contracts import (
+    AgentEnrollmentDeliveryV1,
+    AgentEnrollmentRequestV1,
+    DeviceCredentialRotationV1,
+    EnrollmentDeliveryProofV1,
+)
+from endpoint_contracts.json_types import validate_bounded_json
+from endpoint_server.audit.request_ids import audit_request_id
 from endpoint_server.audit.service import append_audit_event
 from endpoint_server.db.models import (
     Device,
@@ -24,6 +28,7 @@ from endpoint_server.db.models import (
     EnrollmentEvent,
     EnrollmentRetryEnvelope,
 )
+from endpoint_server.network import observed_client_address
 
 from .campaigns import (
     EnrollmentDenied,
@@ -43,45 +48,15 @@ from .credentials import (
     device_token_matches,
     generate_device_token,
     recover_retry_token,
+    retry_envelope_proof_matches,
     retry_receipt_digest,
     seal_retry_envelope,
 )
+from .delivery import ExpiredEnrollmentDelivery, derive_enrollment_receipt
 
 
 router = APIRouter(prefix="/agent/v1", tags=["agent-enrollment"])
 _DEVICE_IDENTIFIER_CONTEXT = b"endpoint-device-identity-v1\0"
-
-
-class EnrollmentDeliveryResponse(BaseModel):
-    """One-time enrollment delivery containing secret transport material."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    schema_version: Literal["enrollment_response_v1"] = "enrollment_response_v1"
-    device_id: UUID
-    policy_id: str
-    policy: dict[str, object]
-    enrollment_receipt: str = Field(repr=False)
-    device_token: str = Field(repr=False)
-    issued_at: datetime
-
-
-class EnrollmentDeliveryRequest(BaseModel):
-    """Secret-bound receipt recovery or acknowledgement input."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    receipt: SecretStr = Field(min_length=1, max_length=256)
-    hardware_fingerprint: SecretStr = Field(min_length=8, max_length=256)
-
-
-class CredentialRotationResponse(BaseModel):
-    """Show-once pending device credential and overlap deadline."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    device_token: str = Field(repr=False)
-    overlap_expires_at: datetime
 
 
 def _denied() -> HTTPException:
@@ -105,18 +80,6 @@ def _invalid_device_credential() -> HTTPException:
     )
 
 
-def _already_enrolled() -> HTTPException:
-    return HTTPException(
-        status_code=status.HTTP_409_CONFLICT,
-        detail="Enrollment already completed",
-    )
-
-
-def _request_id(request: Request) -> str:
-    supplied = request.headers.get("x-request-id", "").strip()
-    return supplied or f"request-{uuid4().hex}"
-
-
 def _bearer_token(
     request: Request,
     *,
@@ -136,10 +99,8 @@ def _bearer_token(
 
 
 def _observed_source_address(request: Request):
-    if request.client is None:
-        raise _denied()
     try:
-        source = ip_address(request.client.host)
+        source = observed_client_address(request)
     except ValueError as error:
         raise _denied() from error
     if not any(
@@ -187,6 +148,17 @@ def _policy_id(policy: dict[str, object], campaign_identifier: str) -> str:
     ):
         return candidate
     return campaign_identifier
+
+
+def _validated_delivery_policy(
+    campaign: EnrollmentCampaign,
+) -> dict[str, object]:
+    policy = dict(campaign.policy)
+    try:
+        validate_bounded_json(policy)
+    except (TypeError, ValueError) as error:
+        raise EnrollmentDenied("Enrollment denied") from error
+    return policy
 
 
 async def _load_enrollment_authority(
@@ -280,7 +252,6 @@ async def _load_delivery(
     *,
     pepper: bytes,
     session_secret: bytes,
-    now: datetime,
 ) -> tuple[
     EnrollmentRetryEnvelope,
     DeviceCredential,
@@ -301,15 +272,12 @@ async def _load_delivery(
     envelope = envelope_result.scalar_one_or_none()
     if envelope is None:
         raise EnrollmentDenied("Enrollment delivery unavailable")
-    token = recover_retry_token(
+    if not retry_envelope_proof_matches(
         receipt,
         hardware_fingerprint,
         envelope,
         pepper,
-        session_secret,
-        now=now,
-    )
-    if token is None:
+    ):
         raise EnrollmentDenied("Enrollment delivery unavailable")
     credential_result = await session.execute(
         select(DeviceCredential)
@@ -317,17 +285,7 @@ async def _load_delivery(
         .with_for_update()
     )
     credential = credential_result.scalar_one_or_none()
-    if (
-        credential is None
-        or credential.pending_token_digest is not None
-        or not device_token_matches(token, credential.token_digest, pepper)
-        or not device_credential_accepts_token(
-            credential,
-            token,
-            pepper,
-            now=now,
-        )
-    ):
+    if credential is None or credential.pending_token_digest is not None:
         raise EnrollmentDenied("Enrollment delivery unavailable")
     device_result = await session.execute(
         select(Device).where(Device.id == credential.device_id)
@@ -348,38 +306,94 @@ async def _load_delivery(
         select(EnrollmentCampaign).where(EnrollmentCampaign.id == event.campaign_id)
     )
     campaign = campaign_result.scalar_one_or_none()
+    checked_at = datetime.now(UTC)
     if (
-        campaign is None
+        envelope.expires_at.tzinfo is None
+        or checked_at >= envelope.expires_at.astimezone(UTC)
+    ):
+        raise ExpiredEnrollmentDelivery(
+            envelope,
+            observed_at=checked_at,
+        )
+    token = recover_retry_token(
+        receipt,
+        hardware_fingerprint,
+        envelope,
+        pepper,
+        session_secret,
+        now=checked_at,
+    )
+    if (
+        token is None
+        or not device_token_matches(token, credential.token_digest, pepper)
+        or not device_credential_accepts_token(
+            credential,
+            token,
+            pepper,
+            now=checked_at,
+        )
+        or campaign is None
         or event.remote_identifier != str(device.id)
-        or not _campaign_allows_delivery(campaign, now=now)
+        or not _campaign_allows_delivery(campaign, now=checked_at)
     ):
         raise EnrollmentDenied("Enrollment delivery unavailable")
+    _validated_delivery_policy(campaign)
     return envelope, credential, device, campaign, event, token
+
+
+async def _destroy_observed_expired_delivery(
+    session,
+    *,
+    envelope: EnrollmentRetryEnvelope,
+    request: Request,
+    source_address: object,
+    source: str,
+    occurred_at: datetime,
+) -> None:
+    """Destroy one proven expired envelope in the observing transaction."""
+    await session.delete(envelope)
+    await append_audit_event(
+        session,
+        actor_kind="agent",
+        actor_identifier=None,
+        action="enrollment.delivery_expired",
+        object_kind="enrollment_retry_envelope",
+        object_identifier=str(envelope.id),
+        request_id=audit_request_id(request),
+        details={
+            "source": source,
+            "source_address": str(source_address),
+        },
+        occurred_at=occurred_at,
+    )
+    await session.commit()
 
 
 @router.post(
     "/enroll",
     status_code=status.HTTP_201_CREATED,
-    response_model=EnrollmentDeliveryResponse,
+    response_model=AgentEnrollmentDeliveryV1,
 )
 async def enroll_agent(
-    body: Annotated[EnrollmentRequestV1, Field()],
+    body: AgentEnrollmentRequestV1,
     request: Request,
-) -> EnrollmentDeliveryResponse:
+    response: Response,
+) -> AgentEnrollmentDeliveryV1:
     """Atomically reserve a campaign use and deliver a retry-safe credential."""
     token = _bearer_token(request)
     source_address = _observed_source_address(request)
-    issued_at = datetime.now(UTC)
     settings = request.app.state.settings
-    request_id = _request_id(request)
+    request_id = audit_request_id(request)
 
     async with request.app.state.session_provider() as session:
+        expired_cleanup_committed = False
         try:
             campaign, claim = await _load_enrollment_authority(
                 session,
                 token,
                 settings.device_token_pepper,
             )
+            issued_at = datetime.now(UTC)
             if not campaign_request_matches(
                 campaign,
                 now=issued_at,
@@ -387,10 +401,20 @@ async def enroll_agent(
                 platform=body.platform,
             ):
                 raise EnrollmentDenied("Enrollment denied")
+            policy = _validated_delivery_policy(campaign)
             device_identifier = _device_identifier(
                 body.installation_id,
                 body.hardware_fingerprint,
                 settings.device_token_pepper,
+            )
+            delivery_receipt = derive_enrollment_receipt(
+                settings.session_secret,
+                delivery_nonce=body.delivery_nonce,
+                device_identifier=device_identifier,
+                campaign_id=campaign.id,
+                claim_id=claim.id if claim is not None else None,
+                platform=body.platform,
+                requested_at=body.requested_at,
             )
             await _lock_device_identity(session, device_identifier)
             existing_device = await _load_existing_device(
@@ -413,7 +437,56 @@ async def enroll_agent(
                     campaign,
                     claim,
                 ):
-                    raise _already_enrolled()
+                    try:
+                        (
+                            envelope,
+                            _,
+                            device,
+                            delivery_campaign,
+                            event,
+                            raw_device_token,
+                        ) = await _load_delivery(
+                            session,
+                            delivery_receipt,
+                            body.hardware_fingerprint,
+                            pepper=settings.device_token_pepper,
+                            session_secret=settings.session_secret,
+                        )
+                    except ExpiredEnrollmentDelivery as error:
+                        await _destroy_observed_expired_delivery(
+                            session,
+                            envelope=error.envelope,
+                            request=request,
+                            source_address=source_address,
+                            source="observed_enroll_retry",
+                            occurred_at=error.observed_at,
+                        )
+                        expired_cleanup_committed = True
+                        raise _delivery_unavailable() from error
+                    except EnrollmentDenied as error:
+                        raise _delivery_unavailable() from error
+                    if (
+                        device.id != existing_device.id
+                        or delivery_campaign.id != campaign.id
+                        or event.claim_id != (claim.id if claim is not None else None)
+                    ):
+                        raise _delivery_unavailable()
+                    campaign = delivery_campaign
+                    issued_envelope = envelope
+                    issued_at = envelope.expires_at - DEFAULT_RETRY_ENVELOPE_LIFETIME
+                    response.status_code = status.HTTP_200_OK
+                    return AgentEnrollmentDeliveryV1(
+                        schema_version="agent_enrollment_delivery_v1",
+                        device_id=device.id,
+                        policy_id=_policy_id(
+                            policy,
+                            campaign.campaign_identifier,
+                        ),
+                        policy=policy,
+                        enrollment_receipt=delivery_receipt,
+                        device_token=raw_device_token,
+                        issued_at=issued_at,
+                    )
                 raise EnrollmentDenied("Enrollment denied")
             if claim is None:
                 campaign = await reserve_campaign_use(
@@ -466,6 +539,7 @@ async def enroll_agent(
                 body.hardware_fingerprint,
                 settings.device_token_pepper,
                 settings.session_secret,
+                receipt=delivery_receipt,
                 now=issued_at,
             )
             envelope = EnrollmentRetryEnvelope(
@@ -507,15 +581,16 @@ async def enroll_agent(
             await session.rollback()
             raise _denied() from error
         except HTTPException:
-            await session.rollback()
+            if not expired_cleanup_committed:
+                await session.rollback()
             raise
         except Exception:
             await session.rollback()
             raise
 
-    policy = dict(campaign.policy)
-    return EnrollmentDeliveryResponse(
-        device_id=str(device.id),
+    return AgentEnrollmentDeliveryV1(
+        schema_version="agent_enrollment_delivery_v1",
+        device_id=device.id,
         policy_id=_policy_id(policy, campaign.campaign_identifier),
         policy=policy,
         enrollment_receipt=issued_envelope.receipt,
@@ -526,18 +601,17 @@ async def enroll_agent(
 
 @router.post(
     "/enroll/retry",
-    response_model=EnrollmentDeliveryResponse,
+    response_model=AgentEnrollmentDeliveryV1,
 )
 async def retry_enrollment_delivery(
-    body: EnrollmentDeliveryRequest,
+    body: EnrollmentDeliveryProofV1,
     request: Request,
-) -> EnrollmentDeliveryResponse:
+) -> AgentEnrollmentDeliveryV1:
     """Recover an unacknowledged enrollment credential before envelope expiry."""
-    _observed_source_address(request)
+    source_address = _observed_source_address(request)
     settings = request.app.state.settings
-    now = datetime.now(UTC)
-    receipt = body.receipt.get_secret_value()
-    hardware_fingerprint = body.hardware_fingerprint.get_secret_value()
+    receipt = body.enrollment_receipt
+    hardware_fingerprint = body.hardware_fingerprint
     async with request.app.state.session_provider() as session:
         try:
             envelope, _, device, campaign, _, token = await _load_delivery(
@@ -546,13 +620,23 @@ async def retry_enrollment_delivery(
                 hardware_fingerprint,
                 pepper=settings.device_token_pepper,
                 session_secret=settings.session_secret,
-                now=now,
             )
+        except ExpiredEnrollmentDelivery as error:
+            await _destroy_observed_expired_delivery(
+                session,
+                envelope=error.envelope,
+                request=request,
+                source_address=source_address,
+                source="observed_retry",
+                occurred_at=error.observed_at,
+            )
+            raise _delivery_unavailable() from error
         except EnrollmentDenied as error:
             raise _delivery_unavailable() from error
     policy = dict(campaign.policy)
-    return EnrollmentDeliveryResponse(
-        device_id=str(device.id),
+    return AgentEnrollmentDeliveryV1(
+        schema_version="agent_enrollment_delivery_v1",
+        device_id=device.id,
         policy_id=_policy_id(policy, campaign.campaign_identifier),
         policy=policy,
         enrollment_receipt=receipt,
@@ -568,15 +652,15 @@ async def retry_enrollment_delivery(
     response_model=None,
 )
 async def acknowledge_enrollment_delivery(
-    body: EnrollmentDeliveryRequest,
+    body: EnrollmentDeliveryProofV1,
     request: Request,
 ) -> None:
     """Delete one correctly bound delivery envelope after durable agent storage."""
     source_address = _observed_source_address(request)
     settings = request.app.state.settings
     now = datetime.now(UTC)
-    receipt = body.receipt.get_secret_value()
-    hardware_fingerprint = body.hardware_fingerprint.get_secret_value()
+    receipt = body.enrollment_receipt
+    hardware_fingerprint = body.hardware_fingerprint
     async with request.app.state.session_provider() as session:
         try:
             envelope, _, device, _, _, _ = await _load_delivery(
@@ -585,7 +669,6 @@ async def acknowledge_enrollment_delivery(
                 hardware_fingerprint,
                 pepper=settings.device_token_pepper,
                 session_secret=settings.session_secret,
-                now=now,
             )
             await session.delete(envelope)
             await append_audit_event(
@@ -595,11 +678,21 @@ async def acknowledge_enrollment_delivery(
                 action="enrollment.delivery_acknowledged",
                 object_kind="device",
                 object_identifier=str(device.id),
-                request_id=_request_id(request),
+                request_id=audit_request_id(request),
                 details={"source_address": str(source_address)},
                 occurred_at=now,
             )
             await session.commit()
+        except ExpiredEnrollmentDelivery as error:
+            await _destroy_observed_expired_delivery(
+                session,
+                envelope=error.envelope,
+                request=request,
+                source_address=source_address,
+                source="observed_ack",
+                occurred_at=error.observed_at,
+            )
+            raise _delivery_unavailable() from error
         except EnrollmentDenied as error:
             await session.rollback()
             raise _delivery_unavailable() from error
@@ -611,11 +704,11 @@ async def acknowledge_enrollment_delivery(
 @router.post(
     "/credentials/rotate",
     status_code=status.HTTP_201_CREATED,
-    response_model=CredentialRotationResponse,
+    response_model=DeviceCredentialRotationV1,
 )
 async def rotate_device_credential(
     request: Request,
-) -> CredentialRotationResponse:
+) -> DeviceCredentialRotationV1:
     """Create one pending token using only the still-valid current bearer."""
     _observed_source_address(request)
     token = _bearer_token(request, denial=_invalid_device_credential())
@@ -668,7 +761,7 @@ async def rotate_device_credential(
                 action="device_credential.rotation_started",
                 object_kind="device_credential",
                 object_identifier=str(credential.id),
-                request_id=_request_id(request),
+                request_id=audit_request_id(request),
                 details={"overlap_expires_at": credential.rotation_overlap_expires_at},
                 occurred_at=now,
             )
@@ -676,7 +769,8 @@ async def rotate_device_credential(
         except Exception:
             await session.rollback()
             raise
-    return CredentialRotationResponse(
+    return DeviceCredentialRotationV1(
+        schema_version="device_credential_rotation_v1",
         device_token=issued.token,
         overlap_expires_at=credential.rotation_overlap_expires_at,
     )
@@ -731,7 +825,7 @@ async def activate_device_credential(
                 action="device_credential.rotation_activated",
                 object_kind="device_credential",
                 object_identifier=str(credential.id),
-                request_id=_request_id(request),
+                request_id=audit_request_id(request),
                 details={},
                 occurred_at=now,
             )

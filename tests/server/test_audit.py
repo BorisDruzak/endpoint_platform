@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from datetime import UTC, datetime, timedelta, timezone, tzinfo
 from pathlib import PurePosixPath
+from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
@@ -12,8 +13,10 @@ from sqlalchemy import create_engine
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Session
+from starlette.requests import Request
 
 from endpoint_server.audit.redaction import REDACTED, redact_audit_details
+from endpoint_server.audit.request_ids import audit_request_id
 from endpoint_server.audit.service import (
     AuditMutationError,
     append_audit_event,
@@ -42,6 +45,58 @@ class _IndeterminateTimezone(tzinfo):
 
     def tzname(self, value: datetime | None) -> str:
         return "indeterminate"
+
+
+def _request_with_correlation(value: str | None) -> Request:
+    headers = [] if value is None else [(b"x-request-id", value.encode("utf-8"))]
+    app = SimpleNamespace(
+        state=SimpleNamespace(
+            settings=SimpleNamespace(session_secret=b"audit-correlation-secret")
+        )
+    )
+    return Request(
+        {
+            "type": "http",
+            "method": "GET",
+            "path": "/",
+            "headers": headers,
+            "client": ("192.0.2.10", 1234),
+            "app": app,
+        }
+    )
+
+
+@pytest.mark.parametrize(
+    "marker",
+    [
+        "campaign-token-marker",
+        "claim-token-marker",
+        "receipt-marker",
+        "device-token-marker",
+        "Bearer secret-marker",
+    ],
+)
+def test_external_audit_correlation_is_deterministic_and_never_raw(
+    marker: str,
+) -> None:
+    """Copying a caller header into audit would persist bearer-like secrets."""
+    first = audit_request_id(_request_with_correlation(marker))
+    second = audit_request_id(_request_with_correlation(marker))
+
+    assert first == second
+    assert first.startswith("external_")
+    assert len(first) == len("external_") + 64
+    assert marker not in first
+
+
+def test_missing_audit_correlation_gets_bounded_server_identifier() -> None:
+    """An absent correlation header still needs non-secret unique attribution."""
+    first = audit_request_id(_request_with_correlation(None))
+    second = audit_request_id(_request_with_correlation(None))
+
+    assert first.startswith("server_")
+    assert len(first) == len("server_") + 32
+    assert first != second
 
 
 def test_recursive_redaction_produces_json_safe_independent_details() -> None:

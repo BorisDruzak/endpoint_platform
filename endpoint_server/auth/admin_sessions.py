@@ -15,6 +15,7 @@ from pydantic import BaseModel, Field, SecretStr
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from endpoint_server.audit.request_ids import audit_request_id
 from endpoint_server.audit.service import append_audit_event
 from endpoint_server.db.models import AdminSession, AdminUser
 
@@ -60,11 +61,6 @@ def _unauthorized() -> HTTPException:
     )
 
 
-def _request_id(request: Request) -> str:
-    supplied = request.headers.get("x-request-id", "").strip()
-    return supplied or f"request-{uuid4().hex}"
-
-
 def _is_opaque_session_token(value: str) -> bool:
     try:
         decoded = base64.b64decode(
@@ -88,8 +84,7 @@ async def _load_admin_principal(
         return None
     record = await session.scalar(
         select(AdminSession).where(
-            AdminSession.session_digest
-            == session_digest(session_token, session_secret)
+            AdminSession.session_digest == session_digest(session_token, session_secret)
         )
     )
     if record is None or not session_is_active(record, now=now):
@@ -162,9 +157,7 @@ def issue_admin_session(
     )
 
 
-def session_is_active(
-    record: AdminSession, *, now: datetime | None = None
-) -> bool:
+def session_is_active(record: AdminSession, *, now: datetime | None = None) -> bool:
     """Return whether a session is unrevoked and strictly before expiry."""
     checked_at = now or datetime.now(UTC)
     if checked_at.tzinfo is None or record.expires_at.tzinfo is None:
@@ -172,9 +165,7 @@ def session_is_active(
     return record.revoked_at is None and checked_at < record.expires_at
 
 
-def revoke_admin_session(
-    record: AdminSession, *, now: datetime | None = None
-) -> None:
+def revoke_admin_session(record: AdminSession, *, now: datetime | None = None) -> None:
     """Revoke a session while retaining its first revocation timestamp."""
     revoked_at = now or datetime.now(UTC)
     if revoked_at.tzinfo is None:
@@ -235,7 +226,7 @@ async def login_admin(
                 action="admin_session.created",
                 object_kind="admin_session",
                 object_identifier=str(issued.record.id),
-                request_id=_request_id(request),
+                request_id=audit_request_id(request),
                 details={"username": user.username},
             )
             await session.commit()
@@ -270,7 +261,7 @@ async def logout_admin(
                 action="admin_session.revoked",
                 object_kind="admin_session",
                 object_identifier=str(managed_record.id),
-                request_id=_request_id(request),
+                request_id=audit_request_id(request),
                 details={},
             )
             await session.commit()

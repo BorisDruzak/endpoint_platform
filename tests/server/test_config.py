@@ -44,6 +44,33 @@ def test_from_environment_loads_secret_bytes_and_parses_cidrs(tmp_path: Path) ->
     assert tuple(str(network) for network in settings.allowed_admin_cidrs) == (
         "192.168.100.0/24",
     )
+    assert settings.trusted_proxy_cidrs == ()
+
+
+def test_from_environment_parses_optional_trusted_proxy_cidrs(
+    tmp_path: Path,
+) -> None:
+    """Configured reverse proxies must be explicit networks, never implicit trust."""
+    environment = _environment(tmp_path)
+    environment["TRUSTED_PROXY_CIDRS"] = "127.0.0.1/32, 2001:db8:200::/48"
+
+    settings = Settings.from_environment(environment)
+
+    assert tuple(str(network) for network in settings.trusted_proxy_cidrs) == (
+        "127.0.0.1/32",
+        "2001:db8:200::/48",
+    )
+
+
+def test_from_environment_rejects_malformed_trusted_proxy_cidr(
+    tmp_path: Path,
+) -> None:
+    """Malformed proxy trust must fail startup instead of trusting an unknown peer."""
+    environment = _environment(tmp_path)
+    environment["TRUSTED_PROXY_CIDRS"] = "not-a-proxy-network"
+
+    with pytest.raises(ValueError, match="TRUSTED_PROXY_CIDRS"):
+        Settings.from_environment(environment)
 
 
 def test_settings_are_immutable_after_startup(tmp_path: Path) -> None:
@@ -133,7 +160,10 @@ def test_load_secret_file_rejects_symlink(tmp_path: Path) -> None:
         load_secret_file(symlink)
 
 
-@pytest.mark.skipif(os.name == "nt", reason="Windows stat modes do not represent POSIX group/world readability")
+@pytest.mark.skipif(
+    os.name == "nt",
+    reason="Windows stat modes do not represent POSIX group/world readability",
+)
 def test_load_secret_file_rejects_group_or_world_readable_file(tmp_path: Path) -> None:
     """Accepting a mode 0644 secret would let other local users read credential material."""
     secret = _write_secret(tmp_path / "readable-secret")

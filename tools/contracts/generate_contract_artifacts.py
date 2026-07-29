@@ -12,18 +12,22 @@ REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 if str(REPOSITORY_ROOT) not in sys.path:
     sys.path.insert(0, str(REPOSITORY_ROOT))
 
-from endpoint_contracts import (
+from endpoint_contracts import (  # noqa: E402
     AgentBuildRecommendationV1,
     AgentCommandAckV1,
     AgentCommandV1,
+    AgentEnrollmentDeliveryV1,
+    AgentEnrollmentRequestV1,
     AgentHeartbeatV1,
     AgentResultV1,
     AgentSessionV1,
     DeviceIdentityV1,
+    DeviceCredentialRotationV1,
+    EnrollmentDeliveryProofV1,
     EnrollmentRequestV1,
     EnrollmentResponseV1,
 )
-from endpoint_contracts.base import ContractModelV1
+from endpoint_contracts.base import ContractModelV1  # noqa: E402
 
 
 PUBLIC_MODELS: dict[str, type[ContractModelV1]] = {
@@ -31,6 +35,10 @@ PUBLIC_MODELS: dict[str, type[ContractModelV1]] = {
     "agent-session-v1.json": AgentSessionV1,
     "enrollment-request-v1.json": EnrollmentRequestV1,
     "enrollment-response-v1.json": EnrollmentResponseV1,
+    "agent-enrollment-request-v1.json": AgentEnrollmentRequestV1,
+    "agent-enrollment-delivery-v1.json": AgentEnrollmentDeliveryV1,
+    "enrollment-delivery-proof-v1.json": EnrollmentDeliveryProofV1,
+    "device-credential-rotation-v1.json": DeviceCredentialRotationV1,
     "agent-command-v1.json": AgentCommandV1,
     "agent-command-ack-v1.json": AgentCommandAckV1,
     "agent-result-v1.json": AgentResultV1,
@@ -165,10 +173,18 @@ def _yaml_document(value: object, *, indent: int = 0) -> str:
             rendered_key = _yaml_key(key)
             if isinstance(child, Mapping) or isinstance(child, list):
                 if not child:
-                    lines.append(f"{prefix}{rendered_key}: {{}}" if isinstance(child, Mapping) else f"{prefix}{rendered_key}: []")
+                    lines.append(
+                        f"{prefix}{rendered_key}: {{}}"
+                        if isinstance(child, Mapping)
+                        else f"{prefix}{rendered_key}: []"
+                    )
                 else:
                     lines.append(f"{prefix}{rendered_key}:")
-                    lines.extend(_yaml_document(child, indent=indent + 2).rstrip("\n").splitlines())
+                    lines.extend(
+                        _yaml_document(child, indent=indent + 2)
+                        .rstrip("\n")
+                        .splitlines()
+                    )
             else:
                 lines.append(f"{prefix}{rendered_key}: {_yaml_scalar(child)}")
         return "\n".join(lines) + "\n"
@@ -179,10 +195,18 @@ def _yaml_document(value: object, *, indent: int = 0) -> str:
         for child in value:
             if isinstance(child, Mapping) or isinstance(child, list):
                 if not child:
-                    lines.append(f"{prefix}- {{}}" if isinstance(child, Mapping) else f"{prefix}- []")
+                    lines.append(
+                        f"{prefix}- {{}}"
+                        if isinstance(child, Mapping)
+                        else f"{prefix}- []"
+                    )
                 else:
                     lines.append(f"{prefix}-")
-                    lines.extend(_yaml_document(child, indent=indent + 2).rstrip("\n").splitlines())
+                    lines.extend(
+                        _yaml_document(child, indent=indent + 2)
+                        .rstrip("\n")
+                        .splitlines()
+                    )
             else:
                 lines.append(f"{prefix}- {_yaml_scalar(child)}")
         return "\n".join(lines) + "\n"
@@ -245,12 +269,89 @@ def _openapi_component_schemas(
     return components
 
 
+def _json_content(component_name: str) -> dict[str, object]:
+    return {
+        "application/json": {
+            "schema": {"$ref": f"#/components/schemas/{component_name}"}
+        }
+    }
+
+
+def _agent_http_paths() -> dict[str, object]:
+    bearer_security = [{"AgentBearer": []}]
+    return {
+        "/agent/v1/enroll": {
+            "post": {
+                "security": bearer_security,
+                "requestBody": {
+                    "required": True,
+                    "content": _json_content("AgentEnrollmentRequestV1"),
+                },
+                "responses": {
+                    "200": {
+                        "description": "Recovered committed enrollment delivery",
+                        "content": _json_content("AgentEnrollmentDeliveryV1"),
+                    },
+                    "201": {
+                        "description": "Created enrollment delivery",
+                        "content": _json_content("AgentEnrollmentDeliveryV1"),
+                    },
+                },
+            }
+        },
+        "/agent/v1/enroll/retry": {
+            "post": {
+                "requestBody": {
+                    "required": True,
+                    "content": _json_content("EnrollmentDeliveryProofV1"),
+                },
+                "responses": {
+                    "200": {
+                        "description": "Recovered unacknowledged delivery",
+                        "content": _json_content("AgentEnrollmentDeliveryV1"),
+                    }
+                },
+            }
+        },
+        "/agent/v1/enroll/ack": {
+            "post": {
+                "requestBody": {
+                    "required": True,
+                    "content": _json_content("EnrollmentDeliveryProofV1"),
+                },
+                "responses": {
+                    "204": {"description": "Enrollment delivery acknowledged"}
+                },
+            }
+        },
+        "/agent/v1/credentials/rotate": {
+            "post": {
+                "security": bearer_security,
+                "responses": {
+                    "201": {
+                        "description": "Created pending device credential",
+                        "content": _json_content("DeviceCredentialRotationV1"),
+                    }
+                },
+            }
+        },
+        "/agent/v1/credentials/activate": {
+            "post": {
+                "security": bearer_security,
+                "responses": {"204": {"description": "Pending credential activated"}},
+            }
+        },
+    }
+
+
 def render_artifacts(output_root: Path) -> dict[Path, str]:
     """Return every generated artifact without writing to *output_root*."""
     _ = output_root
     rendered: dict[Path, str] = {}
     schemas = {
-        filename: _annotate_model_only_timestamp_normalization(model.model_json_schema())
+        filename: _annotate_model_only_timestamp_normalization(
+            model.model_json_schema()
+        )
         for filename, model in PUBLIC_MODELS.items()
     }
     for filename, schema in schemas.items():
@@ -259,12 +360,20 @@ def render_artifacts(output_root: Path) -> dict[Path, str]:
     openapi = {
         "openapi": "3.1.0",
         "info": {"title": "Endpoint Platform Gateway API", "version": "v1"},
-        "paths": {},
+        "paths": _agent_http_paths(),
         "components": {
-            "schemas": _openapi_component_schemas(schemas)
+            "schemas": _openapi_component_schemas(schemas),
+            "securitySchemes": {
+                "AgentBearer": {
+                    "type": "http",
+                    "scheme": "bearer",
+                }
+            },
         },
     }
-    rendered[Path("contracts/openapi/endpoint-platform-v1.yaml")] = _yaml_document(openapi)
+    rendered[Path("contracts/openapi/endpoint-platform-v1.yaml")] = _yaml_document(
+        openapi
+    )
 
     for filename, fixture in FIXTURES.items():
         rendered[Path("tests/fixtures/contracts") / filename] = _json_document(fixture)
@@ -282,7 +391,9 @@ def _check_artifacts(output_root: Path, artifacts: Mapping[Path, str]) -> bool:
     matches = True
     for relative_path, expected in artifacts.items():
         destination = output_root / relative_path
-        actual = destination.read_text(encoding="utf-8") if destination.exists() else None
+        actual = (
+            destination.read_text(encoding="utf-8") if destination.exists() else None
+        )
         if actual != expected:
             print(
                 f"outdated generated artifact: {relative_path.as_posix()}",
@@ -311,8 +422,12 @@ def _check_artifacts(output_root: Path, artifacts: Mapping[Path, str]) -> bool:
 def main() -> int:
     parser = argparse.ArgumentParser(description="Render gateway contract artifacts.")
     action = parser.add_mutually_exclusive_group(required=True)
-    action.add_argument("--write", action="store_true", help="write generated artifacts")
-    action.add_argument("--check", action="store_true", help="check generated artifacts")
+    action.add_argument(
+        "--write", action="store_true", help="write generated artifacts"
+    )
+    action.add_argument(
+        "--check", action="store_true", help="check generated artifacts"
+    )
     parser.add_argument(
         "--output-root",
         type=Path,

@@ -1,0 +1,53 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "delivery_nonce": {
+      "maxLength": 43,
+      "minLength": 43,
+      "pattern": "^[A-Za-z0-9_-]{43}$",
+      "title": "Delivery Nonce",
+      "type": "string"
+    },
+    "hardware_fingerprint": {
+      "maxLength": 256,
+      "minLength": 8,
+      "title": "Hardware Fingerprint",
+      "type": "string"
+    },
+    "installation_id": {
+      "maxLength": 256,
+      "minLength": 1,
+      "title": "Installation Id",
+      "type": "string"
+    },
+    "platform": {
+      "enum": [
+        "linux",
+        "windows"
+      ],
+      "title": "Platform",
+      "type": "string"
+    },
+    "requested_at": {
+      "$comment": "model-only UTC normalization: timezone-aware values are normalized to UTC.",
+      "format": "date-time",
+      "title": "Requested At",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "agent_enrollment_request_v1",
+      "title": "Schema Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema_version",
+    "platform",
+    "hardware_fingerprint",
+    "installation_id",
+    "delivery_nonce",
+    "requested_at"
+  ],
+  "title": "AgentEnrollmentRequestV1",
+  "type": "object"
+}

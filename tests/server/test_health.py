@@ -49,6 +49,50 @@ class ClosableSessionProvider:
         self.close_calls += 1
 
 
+class _WorkerResult:
+    class _Scalars:
+        def all(self) -> list[object]:
+            return []
+
+    def scalars(self) -> "_WorkerResult._Scalars":
+        return self._Scalars()
+
+
+class WorkerSession:
+    def __init__(self, *, fail_cleanup: bool = False) -> None:
+        self.fail_cleanup = fail_cleanup
+        self.commit_calls = 0
+        self.rollback_calls = 0
+        self.finished = asyncio.Event()
+
+    async def execute(self, statement: object) -> _WorkerResult:
+        del statement
+        if self.fail_cleanup:
+            raise RuntimeError("database password=worker-secret")
+        return _WorkerResult()
+
+    async def commit(self) -> None:
+        self.commit_calls += 1
+        self.finished.set()
+
+    async def rollback(self) -> None:
+        self.rollback_calls += 1
+        self.finished.set()
+
+
+class WorkerSessionProvider:
+    def __init__(self, *, fail_cleanup: bool = False) -> None:
+        self.session = WorkerSession(fail_cleanup=fail_cleanup)
+        self.close_calls = 0
+
+    @asynccontextmanager
+    async def __call__(self) -> AsyncIterator[WorkerSession]:
+        yield self.session
+
+    async def close(self) -> None:
+        self.close_calls += 1
+
+
 @asynccontextmanager
 async def failing_session() -> AsyncIterator[FailingSession]:
     yield FailingSession()
@@ -148,9 +192,13 @@ async def test_healthz_hides_exception_when_session_provider_fails_to_enter() ->
 
 
 @pytest.mark.asyncio
-async def test_healthz_hides_exception_when_session_provider_raises_synchronously() -> None:
+async def test_healthz_hides_exception_when_session_provider_raises_synchronously() -> (
+    None
+):
     """Creating a session context can fail before one is returned to the route."""
-    app = create_app(_settings(), session_provider=synchronously_failing_session_provider)
+    app = create_app(
+        _settings(), session_provider=synchronously_failing_session_provider
+    )
 
     async with AsyncClient(
         transport=ASGITransport(app=app, raise_app_exceptions=False),
@@ -211,3 +259,72 @@ async def test_worker_exits_when_cancelled() -> None:
 
     with pytest.raises(asyncio.CancelledError):
         await task
+
+
+@pytest.mark.asyncio
+async def test_worker_commits_cleanup_and_does_not_close_injected_provider() -> None:
+    """The worker must transact each batch without taking ownership of a test provider."""
+    provider = WorkerSessionProvider()
+    task = asyncio.create_task(
+        run_worker(
+            _settings(),
+            provider,
+            cleanup_interval_seconds=60,
+        )
+    )
+    await asyncio.wait_for(provider.session.finished.wait(), timeout=1)
+
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    assert provider.session.commit_calls == 1
+    assert provider.session.rollback_calls == 0
+    assert provider.close_calls == 0
+
+
+@pytest.mark.asyncio
+async def test_worker_rolls_back_failed_cleanup_and_remains_cancellable() -> None:
+    """One failed cleanup batch must roll back without preventing graceful shutdown."""
+    provider = WorkerSessionProvider(fail_cleanup=True)
+    task = asyncio.create_task(
+        run_worker(
+            _settings(),
+            provider,
+            cleanup_interval_seconds=60,
+        )
+    )
+    await asyncio.wait_for(provider.session.finished.wait(), timeout=1)
+
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    assert provider.session.commit_calls == 0
+    assert provider.session.rollback_calls == 1
+    assert provider.close_calls == 0
+
+
+@pytest.mark.asyncio
+async def test_worker_closes_provider_it_creates(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The default database engine belongs to the worker and must close on shutdown."""
+    provider = WorkerSessionProvider()
+    monkeypatch.setattr(
+        "endpoint_server.worker.create_session_provider",
+        lambda database_url: provider,
+    )
+    task = asyncio.create_task(
+        run_worker(
+            _settings(),
+            cleanup_interval_seconds=60,
+        )
+    )
+    await asyncio.wait_for(provider.session.finished.wait(), timeout=1)
+
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    assert provider.close_calls == 1

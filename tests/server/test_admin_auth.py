@@ -64,9 +64,7 @@ class _InteractiveInput(io.StringIO):
 
 
 class _BootstrapSession:
-    def __init__(
-        self, existing_admins: int = 0, *, fail_audit: bool = False
-    ) -> None:
+    def __init__(self, existing_admins: int = 0, *, fail_audit: bool = False) -> None:
         self.existing_admins = existing_admins
         self.fail_audit = fail_audit
         self.added: list[object] = []
@@ -204,9 +202,7 @@ def _postgres_admin_url() -> str:
     parsed = make_url(url)
     if parsed.host not in {"127.0.0.1", "localhost", "::1"}:
         pytest.fail("authentication tests may only use a loopback PostgreSQL server")
-    return parsed.set(drivername="postgresql").render_as_string(
-        hide_password=False
-    )
+    return parsed.set(drivername="postgresql").render_as_string(hide_password=False)
 
 
 async def _execute_postgres(database_url: str, statement: str) -> None:
@@ -243,7 +239,9 @@ def auth_database_url() -> Iterator[str]:
         asyncio.run(_execute_postgres(admin_url, f'DROP DATABASE "{database_name}"'))
 
 
-def test_password_digest_uses_argon2id_and_verifies_without_retaining_password() -> None:
+def test_password_digest_uses_argon2id_and_verifies_without_retaining_password() -> (
+    None
+):
     """Replacing Argon2id or accepting a wrong password would weaken stored credentials."""
     password = secrets.token_urlsafe(24)
 
@@ -451,9 +449,7 @@ def test_session_expiration_and_revocation_are_fail_closed() -> None:
     )
 
     assert session_is_active(issued.record, now=now)
-    assert not session_is_active(
-        issued.record, now=now + timedelta(minutes=30)
-    )
+    assert not session_is_active(issued.record, now=now + timedelta(minutes=30))
 
     revoked_at = now + timedelta(minutes=1)
     revoke_admin_session(issued.record, now=revoked_at)
@@ -564,7 +560,9 @@ async def test_login_persists_only_digest_and_sets_protected_cookie() -> None:
     assert audit.action == "admin_session.created"
     assert audit.object_kind == "admin_session"
     assert audit.object_identifier == str(record.id)
-    assert audit.request_id == "login-request"
+    assert audit.request_id.startswith("external_")
+    assert len(audit.request_id) == len("external_") + 64
+    assert "login-request" not in repr(audit)
     assert audit.details == {"username": "first-admin"}
     assert record.session_digest != raw_token
     assert raw_token not in record.session_digest
@@ -695,9 +693,7 @@ async def test_require_admin_checks_cookie_state_user_state_and_csrf() -> None:
         await require_admin(protected_request("POST"))
     assert missing_csrf.value.status_code == 403
 
-    principal = await require_admin(
-        protected_request("POST", csrf_header=csrf)
-    )
+    principal = await require_admin(protected_request("POST", csrf_header=csrf))
     assert principal.session.id == issued.record.id
 
     issued.record.revoked_at = datetime.now(UTC)
@@ -799,7 +795,9 @@ async def test_logout_requires_csrf_and_persists_session_revocation() -> None:
     assert audit.action == "admin_session.revoked"
     assert audit.object_kind == "admin_session"
     assert audit.object_identifier == str(issued.record.id)
-    assert audit.request_id == "logout-request"
+    assert audit.request_id.startswith("external_")
+    assert len(audit.request_id) == len("external_") + 64
+    assert "logout-request" not in repr(audit)
     assert audit.details == {}
     cookie = response.headers["set-cookie"]
     assert f"{ADMIN_SESSION_COOKIE}=" in cookie

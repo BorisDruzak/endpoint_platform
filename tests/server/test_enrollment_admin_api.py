@@ -107,6 +107,7 @@ def _principal() -> AdminPrincipal:
 @pytest.mark.asyncio
 async def test_admin_creates_show_once_campaign_and_audits_safely() -> None:
     """A campaign create response may expose the bearer once, but persistence/audit may not."""
+    request_marker = "Bearer campaign-request-secret-marker"
     session = _AdminEnrollmentSession()
     app = create_app(_settings(), session_provider=_Provider(session))
     app.dependency_overrides[require_admin] = _principal
@@ -117,7 +118,7 @@ async def test_admin_creates_show_once_campaign_and_audits_safely() -> None:
     ) as client:
         response = await client.post(
             "/api/admin/enrollment/campaigns",
-            headers={"X-Request-ID": "campaign-create"},
+            headers={"X-Request-ID": request_marker},
             json={
                 "expires_at": (NOW + timedelta(hours=1)).isoformat(),
                 "max_uses": 2,
@@ -139,6 +140,8 @@ async def test_admin_creates_show_once_campaign_and_audits_safely() -> None:
     audit = next(value for value in session.added if isinstance(value, AuditEvent))
     assert payload["token"] not in repr(campaign)
     assert payload["token"] not in repr(audit.details)
+    assert request_marker not in repr(audit)
+    assert audit.request_id.startswith("external_")
     assert audit.action == "enrollment_campaign.created"
     assert audit.details == {
         "allowed_cidrs": ["192.168.100.0/24"],
@@ -155,6 +158,8 @@ async def test_admin_creates_show_once_campaign_and_audits_safely() -> None:
 @pytest.mark.asyncio
 async def test_admin_issues_bound_show_once_claim_and_revokes_campaign() -> None:
     """Claim creation and revocation must both authenticate, lock and audit atomically."""
+    claim_request_marker = "claim-token-request-marker"
+    revoke_request_marker = "campaign-token-request-marker"
     campaign = issue_campaign(
         PEPPER,
         expires_at=NOW + timedelta(hours=1),
@@ -174,7 +179,7 @@ async def test_admin_issues_bound_show_once_claim_and_revokes_campaign() -> None
     ) as client:
         claim_response = await client.post(
             f"/api/admin/enrollment/campaigns/{campaign.id}/claims",
-            headers={"X-Request-ID": "claim-create"},
+            headers={"X-Request-ID": claim_request_marker},
             json={
                 "installation_session": "install-session-a",
                 "hardware_fingerprint": "sha256:device-a",
@@ -183,7 +188,7 @@ async def test_admin_issues_bound_show_once_claim_and_revokes_campaign() -> None
         )
         revoke_response = await client.post(
             f"/api/admin/enrollment/campaigns/{campaign.id}/revoke",
-            headers={"X-Request-ID": "campaign-revoke"},
+            headers={"X-Request-ID": revoke_request_marker},
         )
 
     assert claim_response.status_code == 201
@@ -195,6 +200,10 @@ async def test_admin_issues_bound_show_once_claim_and_revokes_campaign() -> None
     assert campaign.revoked_at is not None
     actions = [value.action for value in session.added if isinstance(value, AuditEvent)]
     assert actions == ["enrollment_claim.created", "enrollment_campaign.revoked"]
+    audits = [value for value in session.added if isinstance(value, AuditEvent)]
+    assert all(audit.request_id.startswith("external_") for audit in audits)
+    assert claim_request_marker not in repr(audits)
+    assert revoke_request_marker not in repr(audits)
     assert session.commit_calls == 2
 
 
@@ -252,6 +261,34 @@ async def test_invalid_campaign_constraints_return_bounded_validation_error() ->
     assert response.status_code == 422
     assert invalid_marker not in response.text
     assert session.added == []
+
+
+@pytest.mark.asyncio
+async def test_admin_rejects_policy_outside_agent_delivery_contract() -> None:
+    """An administrator must not persist policy the agent route cannot deliver."""
+    session = _AdminEnrollmentSession()
+    app = create_app(_settings(), session_provider=_Provider(session))
+    app.dependency_overrides[require_admin] = _principal
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="https://endpoint.sosnadmin.local",
+    ) as client:
+        response = await client.post(
+            "/api/admin/enrollment/campaigns",
+            json={
+                "expires_at": (NOW + timedelta(hours=1)).isoformat(),
+                "max_uses": 1,
+                "allowed_cidrs": ["192.168.100.0/24"],
+                "target_platform": "linux",
+                "policy": {f"key-{index}": "value" for index in range(33)},
+            },
+        )
+
+    assert response.status_code == 422
+    assert response.json() == {"detail": "Invalid enrollment campaign"}
+    assert session.added == []
+    assert session.commit_calls == 0
 
 
 @pytest.mark.asyncio

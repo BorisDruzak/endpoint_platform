@@ -9,7 +9,10 @@ from urllib.parse import parse_qsl, urlparse
 
 import pytest
 import yaml
-from jsonschema import Draft202012Validator, ValidationError as JsonSchemaValidationError
+from jsonschema import (
+    Draft202012Validator,
+    ValidationError as JsonSchemaValidationError,
+)
 from pydantic import ValidationError as PydanticValidationError
 
 from endpoint_contracts import AgentCommandV1
@@ -51,7 +54,9 @@ DEVICE_DATA_FIELDS = {
 }
 
 
-def _walk_json(value: Any, path: tuple[str, ...] = ()) -> Iterator[tuple[tuple[str, ...], Any]]:
+def _walk_json(
+    value: Any, path: tuple[str, ...] = ()
+) -> Iterator[tuple[tuple[str, ...], Any]]:
     if isinstance(value, dict):
         for key, child in value.items():
             child_path = (*path, key)
@@ -89,9 +94,8 @@ def _assert_synthetic_fixture(value: Any) -> None:
             assert child in SYNTHETIC_UUIDS, path
         elif field_name != "sha256":
             assert not OPAQUE_VALUE_PATTERN.fullmatch(child), path
-        if (
-            field_name.lower() in DEVICE_DATA_FIELDS
-            or any(marker in field_name.lower() for marker in DEVICE_DATA_MARKERS)
+        if field_name.lower() in DEVICE_DATA_FIELDS or any(
+            marker in field_name.lower() for marker in DEVICE_DATA_MARKERS
         ):
             assert child in SYNTHETIC_UUIDS or "fixture" in child.lower(), path
 
@@ -127,9 +131,7 @@ def _schema_validator(filename: str) -> Draft202012Validator:
 
 def _openapi_component_validator(component_name: str) -> Draft202012Validator:
     openapi = yaml.safe_load(
-        Path("contracts/openapi/endpoint-platform-v1.yaml").read_text(
-            encoding="utf-8"
-        )
+        Path("contracts/openapi/endpoint-platform-v1.yaml").read_text(encoding="utf-8")
     )
     schema = {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -142,7 +144,7 @@ def _openapi_component_validator(component_name: str) -> Draft202012Validator:
     )
 
 
-@pytest.mark.parametrize("filename", PUBLIC_MODELS)
+@pytest.mark.parametrize("filename", FIXTURES)
 def test_fixture_validates_against_model_and_schema(filename: str) -> None:
     fixture = json.loads(
         (Path("tests/fixtures/contracts") / filename).read_text(encoding="utf-8")
@@ -303,7 +305,9 @@ def test_openapi_components_enforce_expressible_contract_constraints(
         _openapi_component_validator(component_name).validate(fixture)
 
 
-def test_committed_contract_artifacts_match_renderer_without_mutation(tmp_path: Path) -> None:
+def test_committed_contract_artifacts_match_renderer_without_mutation(
+    tmp_path: Path,
+) -> None:
     rendered = render_artifacts(tmp_path)
 
     assert not any(tmp_path.iterdir())
@@ -376,11 +380,80 @@ def test_generated_openapi_has_only_resolvable_local_references(tmp_path: Path) 
         assert _resolve_json_pointer(openapi, reference) is not None
 
 
-@pytest.mark.parametrize("filename", PUBLIC_MODELS)
+def test_secret_agent_transport_is_published_without_golden_credentials(
+    tmp_path: Path,
+) -> None:
+    rendered = render_artifacts(tmp_path)
+    secret_schema_names = {
+        "agent-enrollment-request-v1.json",
+        "agent-enrollment-delivery-v1.json",
+        "enrollment-delivery-proof-v1.json",
+        "device-credential-rotation-v1.json",
+    }
+    openapi = yaml.safe_load(
+        rendered[Path("contracts/openapi/endpoint-platform-v1.yaml")]
+    )
+
+    assert secret_schema_names <= set(PUBLIC_MODELS)
+    assert secret_schema_names.isdisjoint(FIXTURES)
+    for filename in secret_schema_names:
+        assert Path("contracts/jsonschema") / filename in rendered
+        assert Path("tests/fixtures/contracts") / filename not in rendered
+    assert {
+        "/agent/v1/enroll",
+        "/agent/v1/enroll/retry",
+        "/agent/v1/enroll/ack",
+        "/agent/v1/credentials/rotate",
+        "/agent/v1/credentials/activate",
+    } <= set(openapi["paths"])
+    assert (
+        openapi["paths"]["/agent/v1/enroll"]["post"]["responses"]["201"]["content"][
+            "application/json"
+        ]["schema"]["$ref"]
+        == "#/components/schemas/AgentEnrollmentDeliveryV1"
+    )
+    assert (
+        openapi["paths"]["/agent/v1/enroll"]["post"]["requestBody"]["content"][
+            "application/json"
+        ]["schema"]["$ref"]
+        == "#/components/schemas/AgentEnrollmentRequestV1"
+    )
+
+
+def test_agent_response_schemas_require_every_canonical_wire_field() -> None:
+    """Defaults must not make mandatory discriminator or policy fields optional."""
+    delivery = json.loads(
+        Path("contracts/jsonschema/agent-enrollment-delivery-v1.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    rotation = json.loads(
+        Path("contracts/jsonschema/device-credential-rotation-v1.json").read_text(
+            encoding="utf-8"
+        )
+    )
+
+    assert set(delivery["required"]) == {
+        "schema_version",
+        "device_id",
+        "policy_id",
+        "policy",
+        "enrollment_receipt",
+        "device_token",
+        "issued_at",
+    }
+    assert set(rotation["required"]) == {
+        "schema_version",
+        "device_token",
+        "overlap_expires_at",
+    }
+
+
+@pytest.mark.parametrize("filename", FIXTURES)
 def test_fixture_is_synthetic_and_contains_no_sensitive_values(filename: str) -> None:
-    fixture = json.loads((Path("tests/fixtures/contracts") / filename).read_text(
-        encoding="utf-8"
-    ))
+    fixture = json.loads(
+        (Path("tests/fixtures/contracts") / filename).read_text(encoding="utf-8")
+    )
 
     _assert_synthetic_fixture(fixture)
 
@@ -391,12 +464,24 @@ def test_fixture_is_synthetic_and_contains_no_sensitive_values(filename: str) ->
         {"metadata": {"refresh_token": "test-value"}},
         {"metadata": {"client_secret": "test-value"}},
         {"metadata": {"authorization": "Bearer example-value"}},
-        {"metadata": {"value": "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJmaXh0dXJlIn0.signature"}},
+        {
+            "metadata": {
+                "value": "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJmaXh0dXJlIn0.signature"
+            }
+        },
         {"metadata": {"value": "A" * 32}},
         {"metadata": {"path": "/var/lib/endpoint/device.json"}},
         {"metadata": {"path": r"C:\\endpoint\\device.json"}},
-        {"metadata": {"url": "https://fixture-user:fixture-pass@example.test/artifact"}},
-        {"metadata": {"url": "https://example.test/artifact?access_token=fixture-value"}},
+        {
+            "metadata": {
+                "url": "https://fixture-user:fixture-pass@example.test/artifact"
+            }
+        },
+        {
+            "metadata": {
+                "url": "https://example.test/artifact?access_token=fixture-value"
+            }
+        },
         {"metadata": {"url": "https://["}},
         {"device_id": "99999999-9999-4999-8999-999999999999"},
         {"hardware_fingerprint": "prod-host-fingerprint"},

@@ -2,7 +2,77 @@ openapi: "3.1.0"
 info:
   title: "Endpoint Platform Gateway API"
   version: "v1"
-paths: {}
+paths:
+  "/agent/v1/enroll":
+    post:
+      security:
+        -
+          AgentBearer: []
+      requestBody:
+        required: true
+        content:
+          "application/json":
+            schema:
+              "$ref": "#/components/schemas/AgentEnrollmentRequestV1"
+      responses:
+        "200":
+          description: "Recovered committed enrollment delivery"
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/AgentEnrollmentDeliveryV1"
+        "201":
+          description: "Created enrollment delivery"
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/AgentEnrollmentDeliveryV1"
+  "/agent/v1/enroll/retry":
+    post:
+      requestBody:
+        required: true
+        content:
+          "application/json":
+            schema:
+              "$ref": "#/components/schemas/EnrollmentDeliveryProofV1"
+      responses:
+        "200":
+          description: "Recovered unacknowledged delivery"
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/AgentEnrollmentDeliveryV1"
+  "/agent/v1/enroll/ack":
+    post:
+      requestBody:
+        required: true
+        content:
+          "application/json":
+            schema:
+              "$ref": "#/components/schemas/EnrollmentDeliveryProofV1"
+      responses:
+        "204":
+          description: "Enrollment delivery acknowledged"
+  "/agent/v1/credentials/rotate":
+    post:
+      security:
+        -
+          AgentBearer: []
+      responses:
+        "201":
+          description: "Created pending device credential"
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/DeviceCredentialRotationV1"
+  "/agent/v1/credentials/activate":
+    post:
+      security:
+        -
+          AgentBearer: []
+      responses:
+        "204":
+          description: "Pending credential activated"
 components:
   schemas:
     DeviceIdentityV1:
@@ -136,6 +206,371 @@ components:
         - "enrollment_receipt"
         - "issued_at"
       title: "EnrollmentResponseV1"
+      type: "object"
+    AgentEnrollmentRequestV1:
+      additionalProperties: false
+      properties:
+        schema_version:
+          const: "agent_enrollment_request_v1"
+          title: "Schema Version"
+          type: "string"
+        platform:
+          enum:
+            - "linux"
+            - "windows"
+          title: "Platform"
+          type: "string"
+        hardware_fingerprint:
+          maxLength: 256
+          minLength: 8
+          title: "Hardware Fingerprint"
+          type: "string"
+        installation_id:
+          maxLength: 256
+          minLength: 1
+          title: "Installation Id"
+          type: "string"
+        delivery_nonce:
+          maxLength: 43
+          minLength: 43
+          pattern: "^[A-Za-z0-9_-]{43}$"
+          title: "Delivery Nonce"
+          type: "string"
+        requested_at:
+          format: "date-time"
+          title: "Requested At"
+          type: "string"
+          "$comment": "model-only UTC normalization: timezone-aware values are normalized to UTC."
+      required:
+        - "schema_version"
+        - "platform"
+        - "hardware_fingerprint"
+        - "installation_id"
+        - "delivery_nonce"
+        - "requested_at"
+      title: "AgentEnrollmentRequestV1"
+      type: "object"
+    AgentEnrollmentDeliveryV1:
+      "$comment": "Aggregate policy node count and serialized byte size are enforced by the Pydantic model only."
+      additionalProperties: false
+      properties:
+        schema_version:
+          const: "agent_enrollment_delivery_v1"
+          title: "Schema Version"
+          type: "string"
+        device_id:
+          format: "uuid"
+          title: "Device Id"
+          type: "string"
+        policy_id:
+          maxLength: 256
+          minLength: 1
+          title: "Policy Id"
+          type: "string"
+        policy:
+          additionalProperties:
+            "$ref": "#/components/schemas/AgentEnrollmentDeliveryV1__BoundedJsonValueDepth1"
+          maxProperties: 32
+          propertyNames:
+            maxLength: 4096
+          title: "Policy"
+          type: "object"
+        enrollment_receipt:
+          maxLength: 43
+          minLength: 43
+          pattern: "^[A-Za-z0-9_-]{43}$"
+          title: "Enrollment Receipt"
+          type: "string"
+        device_token:
+          maxLength: 43
+          minLength: 43
+          pattern: "^[A-Za-z0-9_-]{43}$"
+          title: "Device Token"
+          type: "string"
+        issued_at:
+          format: "date-time"
+          title: "Issued At"
+          type: "string"
+          "$comment": "model-only UTC normalization: timezone-aware values are normalized to UTC."
+      required:
+        - "schema_version"
+        - "device_id"
+        - "policy_id"
+        - "policy"
+        - "enrollment_receipt"
+        - "device_token"
+        - "issued_at"
+      title: "AgentEnrollmentDeliveryV1"
+      type: "object"
+    AgentEnrollmentDeliveryV1__BoundedJsonValueDepth1:
+      anyOf:
+        -
+          maxLength: 4096
+          type: "string"
+        -
+          type: "integer"
+        -
+          type: "number"
+        -
+          type: "boolean"
+        -
+          items:
+            "$ref": "#/components/schemas/AgentEnrollmentDeliveryV1__BoundedJsonValueDepth2"
+          maxItems: 32
+          type: "array"
+        -
+          additionalProperties:
+            "$ref": "#/components/schemas/AgentEnrollmentDeliveryV1__BoundedJsonValueDepth2"
+          maxProperties: 32
+          propertyNames:
+            maxLength: 4096
+          type: "object"
+        -
+          type: "null"
+    AgentEnrollmentDeliveryV1__BoundedJsonValueDepth2:
+      anyOf:
+        -
+          maxLength: 4096
+          type: "string"
+        -
+          type: "integer"
+        -
+          type: "number"
+        -
+          type: "boolean"
+        -
+          items:
+            "$ref": "#/components/schemas/AgentEnrollmentDeliveryV1__BoundedJsonValueDepth3"
+          maxItems: 32
+          type: "array"
+        -
+          additionalProperties:
+            "$ref": "#/components/schemas/AgentEnrollmentDeliveryV1__BoundedJsonValueDepth3"
+          maxProperties: 32
+          propertyNames:
+            maxLength: 4096
+          type: "object"
+        -
+          type: "null"
+    AgentEnrollmentDeliveryV1__BoundedJsonValueDepth3:
+      anyOf:
+        -
+          maxLength: 4096
+          type: "string"
+        -
+          type: "integer"
+        -
+          type: "number"
+        -
+          type: "boolean"
+        -
+          items:
+            "$ref": "#/components/schemas/AgentEnrollmentDeliveryV1__BoundedJsonValueDepth4"
+          maxItems: 32
+          type: "array"
+        -
+          additionalProperties:
+            "$ref": "#/components/schemas/AgentEnrollmentDeliveryV1__BoundedJsonValueDepth4"
+          maxProperties: 32
+          propertyNames:
+            maxLength: 4096
+          type: "object"
+        -
+          type: "null"
+    AgentEnrollmentDeliveryV1__BoundedJsonValueDepth4:
+      anyOf:
+        -
+          maxLength: 4096
+          type: "string"
+        -
+          type: "integer"
+        -
+          type: "number"
+        -
+          type: "boolean"
+        -
+          items:
+            "$ref": "#/components/schemas/AgentEnrollmentDeliveryV1__BoundedJsonValueDepth5"
+          maxItems: 32
+          type: "array"
+        -
+          additionalProperties:
+            "$ref": "#/components/schemas/AgentEnrollmentDeliveryV1__BoundedJsonValueDepth5"
+          maxProperties: 32
+          propertyNames:
+            maxLength: 4096
+          type: "object"
+        -
+          type: "null"
+    AgentEnrollmentDeliveryV1__BoundedJsonValueDepth5:
+      anyOf:
+        -
+          maxLength: 4096
+          type: "string"
+        -
+          type: "integer"
+        -
+          type: "number"
+        -
+          type: "boolean"
+        -
+          items:
+            "$ref": "#/components/schemas/AgentEnrollmentDeliveryV1__BoundedJsonValueDepth6"
+          maxItems: 32
+          type: "array"
+        -
+          additionalProperties:
+            "$ref": "#/components/schemas/AgentEnrollmentDeliveryV1__BoundedJsonValueDepth6"
+          maxProperties: 32
+          propertyNames:
+            maxLength: 4096
+          type: "object"
+        -
+          type: "null"
+    AgentEnrollmentDeliveryV1__BoundedJsonValueDepth6:
+      anyOf:
+        -
+          maxLength: 4096
+          type: "string"
+        -
+          type: "integer"
+        -
+          type: "number"
+        -
+          type: "boolean"
+        -
+          items:
+            "$ref": "#/components/schemas/AgentEnrollmentDeliveryV1__BoundedJsonValueDepth7"
+          maxItems: 32
+          type: "array"
+        -
+          additionalProperties:
+            "$ref": "#/components/schemas/AgentEnrollmentDeliveryV1__BoundedJsonValueDepth7"
+          maxProperties: 32
+          propertyNames:
+            maxLength: 4096
+          type: "object"
+        -
+          type: "null"
+    AgentEnrollmentDeliveryV1__BoundedJsonValueDepth7:
+      anyOf:
+        -
+          maxLength: 4096
+          type: "string"
+        -
+          type: "integer"
+        -
+          type: "number"
+        -
+          type: "boolean"
+        -
+          items:
+            "$ref": "#/components/schemas/AgentEnrollmentDeliveryV1__BoundedJsonValueDepth8"
+          maxItems: 32
+          type: "array"
+        -
+          additionalProperties:
+            "$ref": "#/components/schemas/AgentEnrollmentDeliveryV1__BoundedJsonValueDepth8"
+          maxProperties: 32
+          propertyNames:
+            maxLength: 4096
+          type: "object"
+        -
+          type: "null"
+    AgentEnrollmentDeliveryV1__BoundedJsonValueDepth8:
+      anyOf:
+        -
+          maxLength: 4096
+          type: "string"
+        -
+          type: "integer"
+        -
+          type: "number"
+        -
+          type: "boolean"
+        -
+          items:
+            anyOf:
+              -
+                maxLength: 4096
+                type: "string"
+              -
+                type: "integer"
+              -
+                type: "number"
+              -
+                type: "boolean"
+              -
+                type: "null"
+          maxItems: 0
+          type: "array"
+        -
+          additionalProperties:
+            anyOf:
+              -
+                maxLength: 4096
+                type: "string"
+              -
+                type: "integer"
+              -
+                type: "number"
+              -
+                type: "boolean"
+              -
+                type: "null"
+          maxProperties: 0
+          propertyNames:
+            maxLength: 4096
+          type: "object"
+        -
+          type: "null"
+    EnrollmentDeliveryProofV1:
+      additionalProperties: false
+      properties:
+        schema_version:
+          const: "enrollment_delivery_proof_v1"
+          title: "Schema Version"
+          type: "string"
+        enrollment_receipt:
+          maxLength: 43
+          minLength: 43
+          pattern: "^[A-Za-z0-9_-]{43}$"
+          title: "Enrollment Receipt"
+          type: "string"
+        hardware_fingerprint:
+          maxLength: 256
+          minLength: 8
+          title: "Hardware Fingerprint"
+          type: "string"
+      required:
+        - "schema_version"
+        - "enrollment_receipt"
+        - "hardware_fingerprint"
+      title: "EnrollmentDeliveryProofV1"
+      type: "object"
+    DeviceCredentialRotationV1:
+      additionalProperties: false
+      properties:
+        schema_version:
+          const: "device_credential_rotation_v1"
+          title: "Schema Version"
+          type: "string"
+        device_token:
+          maxLength: 43
+          minLength: 43
+          pattern: "^[A-Za-z0-9_-]{43}$"
+          title: "Device Token"
+          type: "string"
+        overlap_expires_at:
+          format: "date-time"
+          title: "Overlap Expires At"
+          type: "string"
+          "$comment": "model-only UTC normalization: timezone-aware values are normalized to UTC."
+      required:
+        - "schema_version"
+        - "device_token"
+        - "overlap_expires_at"
+      title: "DeviceCredentialRotationV1"
       type: "object"
     AgentCommandV1:
       "$comment": "deadline_at must be after created_at; this cross-field ordering rule is enforced by the Pydantic model only."
@@ -880,3 +1315,7 @@ components:
         - "issued_at"
       title: "AgentBuildRecommendationV1"
       type: "object"
+  securitySchemes:
+    AgentBearer:
+      type: "http"
+      scheme: "bearer"

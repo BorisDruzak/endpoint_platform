@@ -341,10 +341,11 @@ async def test_agent_enrollment_retry_ack_and_rotation_are_atomic_in_postgresql(
         session_provider=enrollment_provider,
     )
     body = {
-        "schema_version": "enrollment_request_v1",
+        "schema_version": "agent_enrollment_request_v1",
         "platform": "linux",
         "hardware_fingerprint": "sha256:postgres-agent",
         "installation_id": "postgres-installation",
+        "delivery_nonce": "P" * 43,
         "requested_at": now.isoformat(),
     }
     async with AsyncClient(
@@ -366,7 +367,8 @@ async def test_agent_enrollment_retry_ack_and_rotation_are_atomic_in_postgresql(
         )
         delivery = enrolled.json()
         delivery_binding = {
-            "receipt": delivery["enrollment_receipt"],
+            "schema_version": "enrollment_delivery_proof_v1",
+            "enrollment_receipt": delivery["enrollment_receipt"],
             "hardware_fingerprint": body["hardware_fingerprint"],
         }
         retried = await client.post(
@@ -397,7 +399,8 @@ async def test_agent_enrollment_retry_ack_and_rotation_are_atomic_in_postgresql(
         )
 
     assert enrolled.status_code == 201
-    assert duplicate.status_code == 409
+    assert duplicate.status_code == 200
+    assert duplicate.json() == delivery
     assert retried.status_code == 200
     assert retried.json() == delivery
     assert acknowledged.status_code == 204

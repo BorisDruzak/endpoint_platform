@@ -27,9 +27,13 @@ from endpoint_server.main import create_app
 
 NOW = datetime.now(UTC)
 PEPPER = b"agent-enrollment-device-pepper-for-testing"
+DELIVERY_NONCE = "N" * 43
 
 
-def _settings() -> Settings:
+def _settings(
+    *,
+    trusted_proxy_cidrs: tuple = (),
+) -> Settings:
     return Settings(
         database_url="postgresql+asyncpg://unused@localhost/unused",
         public_base_url="https://endpoint.sosnadmin.local",
@@ -39,6 +43,7 @@ def _settings() -> Settings:
         allowed_agent_cidrs=(ip_network("192.168.100.0/24"),),
         allowed_admin_cidrs=(),
         artifact_root=Path("artifacts"),
+        trusted_proxy_cidrs=trusted_proxy_cidrs,
     )
 
 
@@ -60,10 +65,14 @@ class _AgentEnrollmentSession:
         campaign: EnrollmentCampaign,
         claim: EnrollmentClaim | None = None,
         fail_audit: bool = False,
+        expire_campaign_on_lock: bool = False,
+        expire_envelope_on_lock: bool = False,
     ) -> None:
         self.campaign = campaign
         self.claim = claim
         self.fail_audit = fail_audit
+        self.expire_campaign_on_lock = expire_campaign_on_lock
+        self.expire_envelope_on_lock = expire_envelope_on_lock
         self.added: list[object] = []
         self.deleted: list[object] = []
         self.commit_calls = 0
@@ -82,6 +91,8 @@ class _AgentEnrollmentSession:
         descriptions = getattr(statement, "column_descriptions", ())
         entity = descriptions[0].get("entity") if descriptions else None
         if entity is EnrollmentCampaign:
+            if self.expire_campaign_on_lock:
+                self.campaign.expires_at = datetime.now(UTC)
             return _Result(self.campaign)
         if entity is EnrollmentClaim:
             return _Result(self.claim)
@@ -104,17 +115,18 @@ class _AgentEnrollmentSession:
                 )
             )
         if entity is EnrollmentRetryEnvelope:
-            return _Result(
-                next(
-                    (
-                        value
-                        for value in self.added
-                        if isinstance(value, EnrollmentRetryEnvelope)
-                        and value not in self.deleted
-                    ),
-                    None,
-                )
+            envelope = next(
+                (
+                    value
+                    for value in self.added
+                    if isinstance(value, EnrollmentRetryEnvelope)
+                    and value not in self.deleted
+                ),
+                None,
             )
+            if envelope is not None and self.expire_envelope_on_lock:
+                envelope.expires_at = datetime.now(UTC)
+            return _Result(envelope)
         if entity is EnrollmentEvent:
             return _Result(
                 next(
@@ -174,13 +186,18 @@ def _claim() -> tuple[str, EnrollmentCampaign, EnrollmentClaim]:
     return issued.token, campaign, issued.record
 
 
-def _enrollment_body() -> dict[str, str]:
+def _enrollment_body(
+    *,
+    delivery_nonce: str = DELIVERY_NONCE,
+    requested_at: datetime = NOW,
+) -> dict[str, str]:
     return {
-        "schema_version": "enrollment_request_v1",
+        "schema_version": "agent_enrollment_request_v1",
         "platform": "linux",
         "hardware_fingerprint": "sha256:agent-device-a",
         "installation_id": "installation-session-a",
-        "requested_at": NOW.isoformat(),
+        "delivery_nonce": delivery_nonce,
+        "requested_at": requested_at.isoformat(),
     }
 
 
@@ -189,6 +206,7 @@ async def test_campaign_enrollment_returns_show_once_delivery_and_audits_atomica
     None
 ):
     """Missing device creation, token delivery, or audit must break enrolment."""
+    request_marker = "device-token-request-marker"
     campaign_token, campaign = _campaign()
     session = _AgentEnrollmentSession(campaign=campaign)
     app = create_app(_settings(), session_provider=_Provider(session))
@@ -204,14 +222,14 @@ async def test_campaign_enrollment_returns_show_once_delivery_and_audits_atomica
             "/agent/v1/enroll",
             headers={
                 "Authorization": f"Bearer {campaign_token}",
-                "X-Request-ID": "agent-enroll-a",
+                "X-Request-ID": request_marker,
             },
             json=_enrollment_body(),
         )
 
     assert response.status_code == 201
     payload = response.json()
-    assert payload["schema_version"] == "enrollment_response_v1"
+    assert payload["schema_version"] == "agent_enrollment_delivery_v1"
     assert payload["policy_id"] == "linux-stable"
     assert payload["policy"] == {
         "policy_id": "linux-stable",
@@ -236,6 +254,9 @@ async def test_campaign_enrollment_returns_show_once_delivery_and_audits_atomica
         "enrollment_campaign.use_reserved",
         "device.enrolled",
     ]
+    audits = [value for value in session.added if isinstance(value, AuditEvent)]
+    assert all(audit.request_id.startswith("external_") for audit in audits)
+    assert request_marker not in repr(audits)
     assert session.commit_calls == 1
     assert session.rollback_calls == 0
 
@@ -270,10 +291,10 @@ async def test_install_claim_enrollment_consumes_claim_once_and_links_device() -
 
 
 @pytest.mark.asyncio
-async def test_duplicate_enrollment_is_conflict_without_second_device_or_quota_use() -> (
+async def test_lost_first_response_is_recovered_without_second_device_or_quota_use() -> (
     None
 ):
-    """Retrying the initial POST must never create a second identity or consume quota."""
+    """A committed response lost in transit must be reproduced from pre-commit proof."""
     campaign_token, campaign = _campaign()
     session = _AgentEnrollmentSession(campaign=campaign)
     app = create_app(_settings(), session_provider=_Provider(session))
@@ -291,6 +312,9 @@ async def test_duplicate_enrollment_is_conflict_without_second_device_or_quota_u
             json=_enrollment_body(),
         )
         persisted_count = len(session.added)
+        audit_count = len(
+            [value for value in session.added if isinstance(value, AuditEvent)]
+        )
         duplicate = await client.post(
             "/agent/v1/enroll",
             headers={"Authorization": f"Bearer {campaign_token}"},
@@ -298,11 +322,121 @@ async def test_duplicate_enrollment_is_conflict_without_second_device_or_quota_u
         )
 
     assert first.status_code == 201
-    assert duplicate.status_code == 409
-    assert duplicate.json() == {"detail": "Enrollment already completed"}
+    assert duplicate.status_code == 200
+    assert duplicate.json() == first.json()
     assert len(session.added) == persisted_count
+    assert (
+        len([value for value in session.added if isinstance(value, AuditEvent)])
+        == audit_count
+    )
     assert campaign.use_count == 1
     assert len([value for value in session.added if isinstance(value, Device)]) == 1
+    assert session.commit_calls == 1
+
+
+@pytest.mark.asyncio
+async def test_lost_response_retry_destroys_proven_expired_envelope() -> None:
+    """A duplicate enroll request observing expiry must commit deletion, not undo it."""
+    campaign_token, campaign = _campaign()
+    session = _AgentEnrollmentSession(campaign=campaign)
+    app = create_app(_settings(), session_provider=_Provider(session))
+
+    async with AsyncClient(
+        transport=ASGITransport(
+            app=app,
+            client=("192.168.100.20", 43100),
+        ),
+        base_url="https://endpoint.sosnadmin.local",
+    ) as client:
+        first = await client.post(
+            "/agent/v1/enroll",
+            headers={"Authorization": f"Bearer {campaign_token}"},
+            json=_enrollment_body(),
+        )
+        envelope = next(
+            value
+            for value in session.added
+            if isinstance(value, EnrollmentRetryEnvelope)
+        )
+        envelope.expires_at = datetime.now(UTC) - timedelta(seconds=1)
+        duplicate = await client.post(
+            "/agent/v1/enroll",
+            headers={"Authorization": f"Bearer {campaign_token}"},
+            json=_enrollment_body(),
+        )
+
+    assert first.status_code == 201
+    assert duplicate.status_code == 403
+    assert duplicate.json() == {"detail": "Enrollment delivery unavailable"}
+    assert session.deleted == [envelope]
+    assert session.commit_calls == 2
+    assert session.rollback_calls == 0
+
+
+@pytest.mark.asyncio
+async def test_recovery_rechecks_expiry_after_envelope_lock() -> None:
+    """Waiting for the envelope lock must not extend its recovery lifetime."""
+    campaign_token, campaign = _campaign()
+    session = _AgentEnrollmentSession(campaign=campaign)
+    app = create_app(_settings(), session_provider=_Provider(session))
+
+    async with AsyncClient(
+        transport=ASGITransport(
+            app=app,
+            client=("192.168.100.20", 43100),
+        ),
+        base_url="https://endpoint.sosnadmin.local",
+    ) as client:
+        enrolled = await client.post(
+            "/agent/v1/enroll",
+            headers={"Authorization": f"Bearer {campaign_token}"},
+            json=_enrollment_body(),
+        )
+        session.expire_envelope_on_lock = True
+        retry = await client.post(
+            "/agent/v1/enroll/retry",
+            json={
+                "schema_version": "enrollment_delivery_proof_v1",
+                "enrollment_receipt": enrolled.json()["enrollment_receipt"],
+                "hardware_fingerprint": "sha256:agent-device-a",
+            },
+        )
+
+    assert enrolled.status_code == 201
+    assert retry.status_code == 403
+    assert retry.json() == {"detail": "Enrollment delivery unavailable"}
+    assert len(session.deleted) == 1
+    assert session.commit_calls == 2
+
+
+@pytest.mark.asyncio
+async def test_enrollment_rechecks_campaign_expiry_after_authority_lock() -> None:
+    """Waiting for campaign authority must not reserve quota after expiry."""
+    campaign_token, campaign = _campaign()
+    session = _AgentEnrollmentSession(
+        campaign=campaign,
+        expire_campaign_on_lock=True,
+    )
+    app = create_app(_settings(), session_provider=_Provider(session))
+
+    async with AsyncClient(
+        transport=ASGITransport(
+            app=app,
+            client=("192.168.100.20", 43100),
+        ),
+        base_url="https://endpoint.sosnadmin.local",
+    ) as client:
+        response = await client.post(
+            "/agent/v1/enroll",
+            headers={"Authorization": f"Bearer {campaign_token}"},
+            json=_enrollment_body(),
+        )
+
+    assert response.status_code == 403
+    assert response.json() == {"detail": "Enrollment denied"}
+    assert campaign.use_count == 0
+    assert session.added == []
+    assert session.commit_calls == 0
 
 
 @pytest.mark.asyncio
@@ -331,10 +465,61 @@ async def test_duplicate_claim_enrollment_keeps_original_claim_and_quota() -> No
         )
 
     assert first.status_code == 201
-    assert duplicate.status_code == 409
+    assert duplicate.status_code == 200
+    assert duplicate.json() == first.json()
     assert campaign.use_count == 1
     event = next(value for value in session.added if isinstance(value, EnrollmentEvent))
     assert event.claim_id == claim.id
+
+
+@pytest.mark.asyncio
+async def test_duplicate_changed_nonce_or_timestamp_fails_without_mutation() -> None:
+    """A different recovery proof or bound intent must not recover committed token."""
+    campaign_token, campaign = _campaign()
+    session = _AgentEnrollmentSession(campaign=campaign)
+    app = create_app(_settings(), session_provider=_Provider(session))
+
+    async with AsyncClient(
+        transport=ASGITransport(
+            app=app,
+            client=("192.168.100.20", 43100),
+        ),
+        base_url="https://endpoint.sosnadmin.local",
+    ) as client:
+        first = await client.post(
+            "/agent/v1/enroll",
+            headers={"Authorization": f"Bearer {campaign_token}"},
+            json=_enrollment_body(),
+        )
+        persisted_count = len(session.added)
+        audit_count = len(
+            [value for value in session.added if isinstance(value, AuditEvent)]
+        )
+        changed_nonce = await client.post(
+            "/agent/v1/enroll",
+            headers={"Authorization": f"Bearer {campaign_token}"},
+            json=_enrollment_body(delivery_nonce="X" * 43),
+        )
+        changed_timestamp = await client.post(
+            "/agent/v1/enroll",
+            headers={"Authorization": f"Bearer {campaign_token}"},
+            json=_enrollment_body(requested_at=NOW + timedelta(microseconds=1)),
+        )
+
+    assert first.status_code == 201
+    assert changed_nonce.status_code == changed_timestamp.status_code == 403
+    assert (
+        changed_nonce.json()
+        == changed_timestamp.json()
+        == {"detail": "Enrollment delivery unavailable"}
+    )
+    assert len(session.added) == persisted_count
+    assert (
+        len([value for value in session.added if isinstance(value, AuditEvent)])
+        == audit_count
+    )
+    assert campaign.use_count == 1
+    assert session.commit_calls == 1
 
 
 @pytest.mark.asyncio
@@ -411,7 +596,8 @@ async def test_retry_replays_delivery_until_ack_then_fails_closed() -> None:
         )
         delivery = enrolled.json()
         retry_body = {
-            "receipt": delivery["enrollment_receipt"],
+            "schema_version": "enrollment_delivery_proof_v1",
+            "enrollment_receipt": delivery["enrollment_receipt"],
             "hardware_fingerprint": "sha256:agent-device-a",
         }
         retry_a = await client.post("/agent/v1/enroll/retry", json=retry_body)
@@ -459,7 +645,8 @@ async def test_retry_expiry_and_fingerprint_mismatch_hide_secret_inputs() -> Non
         mismatch = await client.post(
             "/agent/v1/enroll/retry",
             json={
-                "receipt": delivery["enrollment_receipt"],
+                "schema_version": "enrollment_delivery_proof_v1",
+                "enrollment_receipt": delivery["enrollment_receipt"],
                 "hardware_fingerprint": mismatch_marker,
             },
         )
@@ -469,15 +656,30 @@ async def test_retry_expiry_and_fingerprint_mismatch_hide_secret_inputs() -> Non
             if isinstance(value, EnrollmentRetryEnvelope)
         )
         envelope.expires_at = datetime.now(UTC) - timedelta(seconds=1)
+        expired_mismatch = await client.post(
+            "/agent/v1/enroll/retry",
+            json={
+                "schema_version": "enrollment_delivery_proof_v1",
+                "enrollment_receipt": delivery["enrollment_receipt"],
+                "hardware_fingerprint": mismatch_marker,
+            },
+        )
+        assert session.deleted == []
         expired = await client.post(
             "/agent/v1/enroll/retry",
             json={
-                "receipt": delivery["enrollment_receipt"],
+                "schema_version": "enrollment_delivery_proof_v1",
+                "enrollment_receipt": delivery["enrollment_receipt"],
                 "hardware_fingerprint": "sha256:agent-device-a",
             },
         )
 
-    assert mismatch.status_code == expired.status_code == 403
+    assert (
+        mismatch.status_code
+        == expired_mismatch.status_code
+        == expired.status_code
+        == 403
+    )
     assert (
         mismatch.json()
         == expired.json()
@@ -485,6 +687,19 @@ async def test_retry_expiry_and_fingerprint_mismatch_hide_secret_inputs() -> Non
     )
     assert mismatch_marker not in mismatch.text
     assert delivery["enrollment_receipt"] not in mismatch.text
+    assert session.deleted == [envelope]
+    expiration_audits = [
+        value
+        for value in session.added
+        if isinstance(value, AuditEvent)
+        and value.action == "enrollment.delivery_expired"
+    ]
+    assert len(expiration_audits) == 1
+    assert expiration_audits[0].details == {
+        "source": "observed_retry",
+        "source_address": "192.168.100.20",
+    }
+    assert session.commit_calls == 2
 
 
 @pytest.mark.asyncio
@@ -524,6 +739,7 @@ async def test_rotation_requires_old_token_and_activation_retires_it_immediately
         )
 
     assert rotated.status_code == 201
+    assert rotated.json()["schema_version"] == "device_credential_rotation_v1"
     assert rotated.json()["overlap_expires_at"]
     assert activated.status_code == 204
     assert old_reuse.status_code == 401
@@ -654,6 +870,117 @@ async def test_enrollment_uses_observed_peer_and_ignores_forwarded_address() -> 
 
 
 @pytest.mark.asyncio
+async def test_enrollment_accepts_single_forwarded_ip_from_trusted_proxy() -> None:
+    """A trusted reverse proxy must preserve the original client CIDR decision."""
+    campaign_token, campaign = _campaign()
+    session = _AgentEnrollmentSession(campaign=campaign)
+    app = create_app(
+        _settings(trusted_proxy_cidrs=(ip_network("10.10.0.0/24"),)),
+        session_provider=_Provider(session),
+    )
+
+    async with AsyncClient(
+        transport=ASGITransport(
+            app=app,
+            client=("10.10.0.5", 43100),
+        ),
+        base_url="https://endpoint.sosnadmin.local",
+    ) as client:
+        response = await client.post(
+            "/agent/v1/enroll",
+            headers={
+                "Authorization": f"Bearer {campaign_token}",
+                "X-Forwarded-For": "192.168.100.20",
+            },
+            json=_enrollment_body(),
+        )
+
+    assert response.status_code == 201
+    audit = next(
+        value
+        for value in session.added
+        if isinstance(value, AuditEvent) and value.action == "device.enrolled"
+    )
+    assert audit.details["source_address"] == "192.168.100.20"
+
+
+@pytest.mark.asyncio
+async def test_trusted_proxy_rejects_duplicate_forwarded_header_lines() -> None:
+    """Two header lines must not bypass the exactly-one forwarded-address rule."""
+    campaign_token, campaign = _campaign()
+    session = _AgentEnrollmentSession(campaign=campaign)
+    app = create_app(
+        _settings(trusted_proxy_cidrs=(ip_network("10.10.0.0/24"),)),
+        session_provider=_Provider(session),
+    )
+
+    async with AsyncClient(
+        transport=ASGITransport(
+            app=app,
+            client=("10.10.0.5", 43100),
+        ),
+        base_url="https://endpoint.sosnadmin.local",
+    ) as client:
+        response = await client.post(
+            "/agent/v1/enroll",
+            headers=[
+                ("Authorization", f"Bearer {campaign_token}"),
+                ("X-Forwarded-For", "192.168.100.20"),
+                ("X-Forwarded-For", "198.51.100.4"),
+            ],
+            json=_enrollment_body(),
+        )
+
+    assert response.status_code == 403
+    assert response.json() == {"detail": "Enrollment denied"}
+    assert session.added == []
+    assert session.commit_calls == 0
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "forwarded",
+    [
+        None,
+        "192.168.100.20, 198.51.100.4",
+        "not-an-ip-address",
+        "192.168.100.20 198.51.100.4",
+    ],
+)
+async def test_trusted_proxy_fails_closed_on_ambiguous_forwarded_address(
+    forwarded: str | None,
+) -> None:
+    """Trusted peers must not omit, append, or corrupt the single client address."""
+    campaign_token, campaign = _campaign()
+    session = _AgentEnrollmentSession(campaign=campaign)
+    app = create_app(
+        _settings(trusted_proxy_cidrs=(ip_network("10.10.0.0/24"),)),
+        session_provider=_Provider(session),
+    )
+    headers = {"Authorization": f"Bearer {campaign_token}"}
+    if forwarded is not None:
+        headers["X-Forwarded-For"] = forwarded
+
+    async with AsyncClient(
+        transport=ASGITransport(
+            app=app,
+            client=("10.10.0.5", 43100),
+        ),
+        base_url="https://endpoint.sosnadmin.local",
+    ) as client:
+        response = await client.post(
+            "/agent/v1/enroll",
+            headers=headers,
+            json=_enrollment_body(),
+        )
+
+    assert response.status_code == 403
+    assert response.json() == {"detail": "Enrollment denied"}
+    assert session.added == []
+    assert session.commit_calls == 0
+
+
+@pytest.mark.asyncio
 async def test_unbounded_policy_identifier_falls_back_to_campaign_identifier() -> None:
     """Control characters in administrator policy must not become protocol identity."""
     campaign_token, campaign = _campaign()
@@ -676,3 +1003,31 @@ async def test_unbounded_policy_identifier_falls_back_to_campaign_identifier() -
 
     assert response.status_code == 201
     assert response.json()["policy_id"] == campaign.campaign_identifier
+
+
+@pytest.mark.asyncio
+async def test_unbounded_campaign_policy_is_denied_before_quota_mutation() -> None:
+    """A response-contract failure must not happen after enrollment commits."""
+    campaign_token, campaign = _campaign()
+    campaign.policy = {f"key-{index}": "value" for index in range(33)}
+    session = _AgentEnrollmentSession(campaign=campaign)
+    app = create_app(_settings(), session_provider=_Provider(session))
+
+    async with AsyncClient(
+        transport=ASGITransport(
+            app=app,
+            client=("192.168.100.20", 43100),
+        ),
+        base_url="https://endpoint.sosnadmin.local",
+    ) as client:
+        response = await client.post(
+            "/agent/v1/enroll",
+            headers={"Authorization": f"Bearer {campaign_token}"},
+            json=_enrollment_body(),
+        )
+
+    assert response.status_code == 403
+    assert response.json() == {"detail": "Enrollment denied"}
+    assert campaign.use_count == 0
+    assert session.added == []
+    assert session.commit_calls == 0

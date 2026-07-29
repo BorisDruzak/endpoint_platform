@@ -8,13 +8,14 @@ import hmac
 import secrets
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta, timezone
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 
 import endpoint_server.enrollment.credentials as credentials
 import endpoint_server.db.models as models
 from endpoint_server.db.models import DeviceCredential
+from endpoint_server.enrollment.delivery import derive_enrollment_receipt
 
 
 def _decode_urlsafe(value: str) -> bytes:
@@ -173,6 +174,19 @@ def test_retry_envelope_rejects_non_short_lifetimes(lifetime: timedelta) -> None
         )
 
 
+def test_retry_envelope_rejects_explicit_blank_receipt() -> None:
+    """A supplied invalid proof must not silently fall back to unrelated randomness."""
+    with pytest.raises(ValueError, match="must not be empty"):
+        credentials.seal_retry_envelope(
+            credentials.generate_device_token(),
+            "sha256:device-a",
+            secrets.token_bytes(32),
+            secrets.token_bytes(32),
+            receipt="",
+            now=datetime(2026, 7, 29, 10, tzinfo=UTC),
+        )
+
+
 def test_retry_envelope_fails_closed_when_persisted_state_is_corrupt() -> None:
     """Corrupt digest or ciphertext state must deny recovery instead of escaping."""
     now = datetime(2026, 7, 29, 10, tzinfo=UTC)
@@ -206,6 +220,62 @@ def test_retry_envelope_fails_closed_when_persisted_state_is_corrupt() -> None:
             )
             is None
         )
+
+
+def test_enrollment_receipt_derivation_is_deterministic_and_canonical() -> None:
+    """Ambiguous fields or offset-sensitive timestamps could cross-bind delivery."""
+    yekaterinburg = timezone(timedelta(hours=5))
+    arguments = {
+        "delivery_nonce": "A" * 43,
+        "device_identifier": "dev_" + "1" * 64,
+        "campaign_id": UUID("11111111-1111-4111-8111-111111111111"),
+        "claim_id": UUID("22222222-2222-4222-8222-222222222222"),
+        "platform": "linux",
+        "requested_at": datetime(2026, 7, 29, 17, tzinfo=yekaterinburg),
+    }
+
+    receipt = derive_enrollment_receipt(b"session-secret", **arguments)
+    same_in_utc = derive_enrollment_receipt(
+        b"session-secret",
+        **{
+            **arguments,
+            "requested_at": datetime(2026, 7, 29, 12, tzinfo=UTC),
+        },
+    )
+
+    assert len(_decode_urlsafe(receipt)) == 32
+    assert receipt == same_in_utc
+    assert receipt not in repr(arguments)
+
+
+@pytest.mark.parametrize(
+    ("field", "changed"),
+    [
+        ("delivery_nonce", "B" * 43),
+        ("device_identifier", "dev_" + "2" * 64),
+        ("campaign_id", UUID("33333333-3333-4333-8333-333333333333")),
+        ("claim_id", None),
+        ("platform", "windows"),
+        ("requested_at", datetime(2026, 7, 29, 12, 0, 0, 1, tzinfo=UTC)),
+    ],
+)
+def test_enrollment_receipt_derivation_binds_every_intent_field(
+    field: str,
+    changed: object,
+) -> None:
+    """Removing any ordered canonical field must change the recovery proof."""
+    arguments = {
+        "delivery_nonce": "A" * 43,
+        "device_identifier": "dev_" + "1" * 64,
+        "campaign_id": UUID("11111111-1111-4111-8111-111111111111"),
+        "claim_id": UUID("22222222-2222-4222-8222-222222222222"),
+        "platform": "linux",
+        "requested_at": datetime(2026, 7, 29, 12, tzinfo=UTC),
+    }
+    expected = derive_enrollment_receipt(b"session-secret", **arguments)
+    arguments[field] = changed
+
+    assert derive_enrollment_receipt(b"session-secret", **arguments) != expected
 
 
 def test_rotation_accepts_old_only_during_overlap_and_activation_promotes_new() -> None:

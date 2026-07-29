@@ -16,6 +16,7 @@ from uuid import UUID, uuid4
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from endpoint_contracts.json_types import validate_bounded_json
 from endpoint_server.audit.service import append_audit_event
 from endpoint_server.db.models import EnrollmentCampaign, EnrollmentClaim
 
@@ -188,6 +189,7 @@ def issue_campaign(
         target_platform, name="target platform", maximum=64, required=True
     )
     normalized_policy = dict(policy)
+    validate_bounded_json(normalized_policy)
     identifier, token = _issue_token(_CAMPAIGN_MARKER)
     record = EnrollmentCampaign(
         id=uuid4(),

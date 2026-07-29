@@ -4,12 +4,13 @@ from __future__ import annotations
 
 from datetime import datetime
 from typing import Annotated
-from uuid import UUID, uuid4
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from pydantic import BaseModel, ConfigDict, Field, SecretStr
 from sqlalchemy import select
 
+from endpoint_server.audit.request_ids import audit_request_id
 from endpoint_server.audit.service import append_audit_event
 from endpoint_server.auth.admin_sessions import AdminPrincipal, require_admin
 from endpoint_server.db.models import EnrollmentCampaign
@@ -71,11 +72,6 @@ class InstallClaimCreateResponse(BaseModel):
     expires_at: datetime
 
 
-def _request_id(request: Request) -> str:
-    supplied = request.headers.get("x-request-id", "").strip()
-    return supplied or f"request-{uuid4().hex}"
-
-
 def _not_found() -> HTTPException:
     return HTTPException(
         status_code=status.HTTP_404_NOT_FOUND,
@@ -124,7 +120,7 @@ async def create_campaign(
                 action="enrollment_campaign.created",
                 object_kind="enrollment_campaign",
                 object_identifier=str(issued.record.id),
-                request_id=_request_id(request),
+                request_id=audit_request_id(request),
                 details={
                     "allowed_cidrs": issued.record.allowed_cidrs,
                     "expires_at": issued.record.expires_at,
@@ -189,7 +185,7 @@ async def create_install_claim(
                 action="enrollment_claim.created",
                 object_kind="enrollment_claim",
                 object_identifier=str(issued.record.id),
-                request_id=_request_id(request),
+                request_id=audit_request_id(request),
                 details={
                     "campaign_id": campaign.id,
                     "expires_at": issued.record.expires_at,
@@ -225,7 +221,7 @@ async def revoke_enrollment_campaign(
                 session,
                 campaign_id,
                 actor_identifier=str(principal.user.id),
-                request_id=_request_id(request),
+                request_id=audit_request_id(request),
             )
             await session.commit()
         except EnrollmentDenied as error:

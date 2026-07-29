@@ -51,7 +51,9 @@ def load_secret_file(path: Path) -> bytes:
         try:
             _validate_secret_metadata(path, os.fstat(secret_file.fileno()).st_mode)
         except OSError as error:
-            raise ValueError(f"secret file {path} is missing or inaccessible") from error
+            raise ValueError(
+                f"secret file {path} is missing or inaccessible"
+            ) from error
         secret = secret_file.read()
 
     if not secret:
@@ -77,8 +79,7 @@ def _parse_public_base_url(value: str) -> str:
 
     if not valid:
         raise ValueError(
-            "PUBLIC_BASE_URL must be the HTTPS origin for "
-            f"{_PRODUCTION_PUBLIC_HOST}"
+            f"PUBLIC_BASE_URL must be the HTTPS origin for {_PRODUCTION_PUBLIC_HOST}"
         )
     return f"https://{_PRODUCTION_PUBLIC_HOST}"
 
@@ -105,19 +106,26 @@ class Settings:
     allowed_agent_cidrs: tuple[Network, ...]
     allowed_admin_cidrs: tuple[Network, ...]
     artifact_root: Path
+    trusted_proxy_cidrs: tuple[Network, ...] = ()
 
     @classmethod
     def from_environment(cls, environment: Mapping[str, str] | None = None) -> Settings:
-        values = MappingProxyType(dict(os.environ) if environment is None else dict(environment))
+        values = MappingProxyType(
+            dict(os.environ) if environment is None else dict(environment)
+        )
         database_url = _require_setting("DATABASE_URL", values)
-        public_base_url = _parse_public_base_url(_require_setting("PUBLIC_BASE_URL", values))
+        public_base_url = _parse_public_base_url(
+            _require_setting("PUBLIC_BASE_URL", values)
+        )
         device_token_pepper = load_secret_file(
             Path(_require_setting("DEVICE_TOKEN_PEPPER_FILE", values))
         )
         service_token_pepper = load_secret_file(
             Path(_require_setting("SERVICE_TOKEN_PEPPER_FILE", values))
         )
-        session_secret = load_secret_file(Path(_require_setting("SESSION_SECRET_FILE", values)))
+        session_secret = load_secret_file(
+            Path(_require_setting("SESSION_SECRET_FILE", values))
+        )
         allowed_agent_cidrs = _parse_cidrs(
             "ALLOWED_AGENT_CIDRS", _require_setting("ALLOWED_AGENT_CIDRS", values)
         )
@@ -125,6 +133,12 @@ class Settings:
             "ALLOWED_ADMIN_CIDRS", _require_setting("ALLOWED_ADMIN_CIDRS", values)
         )
         artifact_root = Path(_require_setting("ARTIFACT_ROOT", values))
+        trusted_proxy_value = values.get("TRUSTED_PROXY_CIDRS", "").strip()
+        trusted_proxy_cidrs = (
+            _parse_cidrs("TRUSTED_PROXY_CIDRS", trusted_proxy_value)
+            if trusted_proxy_value
+            else ()
+        )
 
         return cls(
             database_url=database_url,
@@ -135,4 +149,5 @@ class Settings:
             allowed_agent_cidrs=allowed_agent_cidrs,
             allowed_admin_cidrs=allowed_admin_cidrs,
             artifact_root=artifact_root,
+            trusted_proxy_cidrs=trusted_proxy_cidrs,
         )

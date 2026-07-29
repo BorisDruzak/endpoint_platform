@@ -7,10 +7,14 @@ from endpoint_contracts import (
     AgentBuildRecommendationV1,
     AgentCommandAckV1,
     AgentCommandV1,
+    AgentEnrollmentDeliveryV1,
+    AgentEnrollmentRequestV1,
     AgentHeartbeatV1,
     AgentResultV1,
     AgentSessionV1,
     DeviceIdentityV1,
+    DeviceCredentialRotationV1,
+    EnrollmentDeliveryProofV1,
     EnrollmentRequestV1,
     EnrollmentResponseV1,
 )
@@ -311,9 +315,7 @@ def test_command_rejects_oversized_serialized_json() -> None:
 
 def test_command_rejects_oversized_json_structure() -> None:
     payload = valid_agent_command()
-    payload["parameters"] = {
-        f"key-{index}": list(range(32)) for index in range(32)
-    }
+    payload["parameters"] = {f"key-{index}": list(range(32)) for index in range(32)}
 
     with pytest.raises(ValidationError):
         AgentCommandV1.model_validate(payload)
@@ -496,3 +498,102 @@ def test_enrolment_response_rejects_raw_device_token() -> None:
                 "device_token": "raw-token-must-not-cross-enrollment-boundary",
             }
         )
+
+
+def test_agent_enrollment_transport_models_are_strict_and_secret_aware() -> None:
+    request = AgentEnrollmentRequestV1.model_validate(
+        {
+            "schema_version": "agent_enrollment_request_v1",
+            "platform": "linux",
+            "hardware_fingerprint": "sha256:fixture",
+            "installation_id": "install-fixture-01",
+            "delivery_nonce": "A" * 43,
+            "requested_at": "2026-07-29T17:00:00+05:00",
+        }
+    )
+    delivery = AgentEnrollmentDeliveryV1.model_validate(
+        {
+            "schema_version": "agent_enrollment_delivery_v1",
+            "device_id": "11111111-1111-4111-8111-111111111111",
+            "policy_id": "policy-fixture-01",
+            "policy": {"channel": "stable"},
+            "enrollment_receipt": "B" * 43,
+            "device_token": "C" * 43,
+            "issued_at": "2026-07-29T17:00:00+05:00",
+        }
+    )
+    proof = EnrollmentDeliveryProofV1.model_validate(
+        {
+            "schema_version": "enrollment_delivery_proof_v1",
+            "enrollment_receipt": "B" * 43,
+            "hardware_fingerprint": "sha256:fixture",
+        }
+    )
+    rotation = DeviceCredentialRotationV1.model_validate(
+        {
+            "schema_version": "device_credential_rotation_v1",
+            "device_token": "D" * 43,
+            "overlap_expires_at": "2026-07-29T17:10:00+05:00",
+        }
+    )
+
+    assert request.requested_at.isoformat() == "2026-07-29T12:00:00+00:00"
+    assert delivery.issued_at.isoformat() == "2026-07-29T12:00:00+00:00"
+    assert proof.enrollment_receipt == "B" * 43
+    assert rotation.overlap_expires_at.isoformat() == "2026-07-29T12:10:00+00:00"
+    assert "A" * 43 not in repr(request)
+    assert "B" * 43 not in repr(delivery)
+    assert "C" * 43 not in repr(delivery)
+    assert "D" * 43 not in repr(rotation)
+
+
+@pytest.mark.parametrize(
+    ("model", "payload"),
+    [
+        (
+            AgentEnrollmentRequestV1,
+            {
+                "schema_version": "agent_enrollment_request_v1",
+                "platform": "linux",
+                "hardware_fingerprint": "sha256:fixture",
+                "installation_id": "install-fixture-01",
+                "delivery_nonce": "short",
+                "requested_at": "2026-07-29T12:00:00Z",
+            },
+        ),
+        (
+            AgentEnrollmentDeliveryV1,
+            {
+                "schema_version": "enrollment_response_v1",
+                "device_id": "11111111-1111-4111-8111-111111111111",
+                "policy_id": "policy-fixture-01",
+                "policy": {},
+                "enrollment_receipt": "B" * 43,
+                "device_token": "C" * 43,
+                "issued_at": "2026-07-29T12:00:00Z",
+            },
+        ),
+        (
+            EnrollmentDeliveryProofV1,
+            {
+                "schema_version": "enrollment_delivery_proof_v1",
+                "enrollment_receipt": "!" * 43,
+                "hardware_fingerprint": "sha256:fixture",
+            },
+        ),
+        (
+            DeviceCredentialRotationV1,
+            {
+                "schema_version": "device_credential_rotation_v1",
+                "device_token": "D" * 44,
+                "overlap_expires_at": "2026-07-29T12:10:00Z",
+            },
+        ),
+    ],
+)
+def test_agent_enrollment_transport_rejects_invalid_secret_shapes(
+    model: type[object],
+    payload: dict[str, object],
+) -> None:
+    with pytest.raises(ValidationError):
+        model.model_validate(payload)
