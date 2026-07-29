@@ -996,3 +996,29 @@ async def test_fetch_update_status_reuses_recent_cache_for_idle_gui_polling(tmp_
     assert status["recommended_version"] == "3.1.36"
     assert status["update_available"] is False
     assert status["update_status_error"] is None
+
+
+@pytest.mark.asyncio
+async def test_endpoint_assignment_acks_requested_before_scheduling(tmp_path, monkeypatch):
+    class Response:
+        def __init__(self, status, body=""): self.status, self.body = status, body
+        async def text(self): return self.body
+        async def __aenter__(self): return self
+        async def __aexit__(self, *args): return False
+    payload = {"schema_version": "agent_update_recommendation_v1", "operation_id": "caa31a48-bf2f-4f1c-8b77-d1be77e12b4e", "build_identifier": "agent-1.2.3", "version": "1.2.3", "platform": "windows_amd64", "channel": "stable", "artifact_url": "https://updates.example.test/agent-1.2.3.zip", "artifact_name": "agent-1.2.3.zip", "archive_type": "zip", "sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", "size": 123, "reason": "rollout"}
+    lifecycle, scheduled = [], []
+    class Session:
+        closed = False
+        def get(self, url, headers=None): return Response(200, json.dumps(payload))
+        def post(self, url, headers=None, json=None): lifecycle.append(json["status"]); return Response(204)
+    class Orchestrator:
+        async def _handle_update(self, command, meta): scheduled.append(command); return SimpleNamespace(status="success")
+    agent = WSAgent(data_root=tmp_path / "data", install_root=tmp_path / "install")
+    agent.auth_token, agent.device_id, agent._http_session, agent.orchestrator = "token", "device", Session(), Orchestrator()
+    monkeypatch.setattr("pc_agent.ws_agent.get_config", lambda: SimpleNamespace(server=SimpleNamespace(api_url="https://endpoint.example.test")))
+    status = await agent._fetch_update_status(force=True)
+    assert status["recommended_build"]["artifact_name"] == "agent-1.2.3.zip"
+    assert "artifact_url" not in status["recommended_build"]
+    assert (await agent.trigger_recommended_update())["status"] == "scheduled"
+    assert lifecycle == ["requested", "scheduled"]
+    assert scheduled[0]["download_url"] == payload["artifact_url"]

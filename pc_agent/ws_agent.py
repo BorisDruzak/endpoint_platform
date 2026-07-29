@@ -40,6 +40,7 @@ if project_root_str not in sys.path:
 # Legacy managed modules still get their own import path from the module loader.
 from pc_agent.core.database import DatabaseManager
 from pc_agent.core.orchestrator import AgentOrchestrator
+from pc_agent.core.tool_response import ToolMeta
 from pc_agent.core.identity import IdentityManager
 from pc_agent.core.sender import WSOutboxFlusher
 from pc_agent.core.job_manager import JobManager
@@ -65,6 +66,7 @@ from pc_agent.auth.connection_request import run_connection_request_flow
 from pc_agent.auth.gui_auth_state_machine import GuiAuthStateMachine
 from pc_agent.auth.rejected_flag import connection_rejected_flag_path
 from pc_agent.auth.token_source import load_auth_token, load_auth_token_from_db
+from pc_agent.update_adapter import EndpointRecommendation, EndpointUpdateAdapter
 from pc_agent.ws_agent_runtime_helpers import (
     authenticate as helper_authenticate,
     connection_rejected_flag_path_for,
@@ -217,6 +219,7 @@ class WSAgent:
         self._last_connection_changed_at: Optional[str] = None
         self._cached_update_status: Dict[str, Any] = {}
         self._cached_update_checked_at: Optional[str] = None
+        self._endpoint_recommendation: Optional[EndpointRecommendation] = None
         self._startup_recommended_update_checked = False
         self._startup_recommended_update_task: Optional[asyncio.Task] = None
         
@@ -354,6 +357,27 @@ class WSAgent:
         except Exception as exc:
             logger.debug(f"[update] latest applied update confirmation unavailable: {exc}")
             return None
+
+    async def _report_endpoint_terminal_observation(self, confirmation: Optional[Dict[str, str]]) -> None:
+        if not confirmation:
+            return
+        operation_id = str(confirmation.get("last_update_operation_id") or confirmation.get("failed_update_operation_id") or "")
+        try:
+            if str(uuid.UUID(operation_id)) != operation_id:
+                return
+        except (ValueError, AttributeError):
+            return
+        if confirmation.get("applied_update_version"):
+            status, version, safe_code = "applied", str(confirmation["applied_update_version"]), "post_restart_handshake_confirmed"
+        elif confirmation.get("failed_update_version"):
+            rollback = "rollback" in str(confirmation.get("failed_update_reason") or "")
+            status, version, safe_code = ("rolled_back", str(confirmation["failed_update_version"]), "launcher_rolled_back") if rollback else ("failed", str(confirmation["failed_update_version"]), "launcher_apply_failed")
+        else:
+            return
+        session = self._http_session
+        if session is None or session.closed:
+            return
+        await self._endpoint_update_adapter(session).report_terminal(operation_id, status=status, reported_version=version, safe_code=safe_code)
 
     @staticmethod
     def _release_channel_for_version(version: Optional[str]) -> str:
@@ -555,20 +579,8 @@ class WSAgent:
             return text[:200]
         return f"HTTP {status}"
 
-    async def _fetch_update_status(self, *, force: bool = False) -> Dict[str, Any]:
+    async def _legacy_fetch_update_status(self) -> Dict[str, Any]:
         now_iso = datetime.now(timezone.utc).isoformat()
-        if (
-            not force
-            and self._cached_update_status
-            and self._cached_update_checked_at
-        ):
-            try:
-                cached_at = datetime.fromisoformat(self._cached_update_checked_at)
-                if (datetime.now(timezone.utc) - cached_at).total_seconds() < UPDATE_STATUS_CACHE_TTL_SEC:
-                    return self._merge_update_status(self._cached_update_status)
-            except Exception:
-                pass
-
         base = self._base_update_status()
         if not self.auth_token:
             base["update_status_error"] = "auth_token_missing"
@@ -636,6 +648,41 @@ class WSAgent:
         finally:
             if created_session:
                 await session.close()
+
+    @staticmethod
+    def _endpoint_platform() -> Optional[str]:
+        return "windows_amd64" if platform.system().lower().startswith("win") else "linux_amd64" if platform.system().lower().startswith("linux") else None
+
+    def _endpoint_update_adapter(self, session) -> EndpointUpdateAdapter:
+        return EndpointUpdateAdapter(api_url=get_config().server.api_url.rstrip("/"), bearer_token=lambda: self.auth_token, session=session, legacy_fetch=self._legacy_fetch_update_status, data_root=Path(self._data_root or runtime_paths.resolve_data_root()))
+
+    @staticmethod
+    def _endpoint_recommended_build(recommendation: EndpointRecommendation) -> Dict[str, Any]:
+        return {"target": recommendation.platform, "channel": recommendation.channel, "version": recommendation.version, "artifact_name": recommendation.artifact_name, "archive_type": recommendation.archive_type, "sha256": recommendation.sha256, "size": recommendation.size}
+
+    async def _fetch_update_status(self, *, force: bool = False) -> Dict[str, Any]:
+        now_iso = datetime.now(timezone.utc).isoformat()
+        if not force and self._cached_update_status and self._cached_update_checked_at:
+            try:
+                if (datetime.now(timezone.utc) - datetime.fromisoformat(self._cached_update_checked_at)).total_seconds() < UPDATE_STATUS_CACHE_TTL_SEC: return self._merge_update_status(self._cached_update_status)
+            except Exception: pass
+        base = self._base_update_status()
+        if not self.auth_token: base["update_status_error"] = "auth_token_missing"; return base
+        if not self.device_id: base["update_status_error"] = "device_id_missing"; return base
+        target = self._endpoint_platform()
+        if target is None: base["update_status_error"] = "endpoint_platform_unsupported"; return base
+        session = self._http_session; created_session = False
+        if session is None or session.closed: session = ClientSession(timeout=ClientTimeout(total=10)); created_session = True
+        try:
+            result = await self._endpoint_update_adapter(session).fetch_recommendation(platform=target, channel="stable")
+            if result.source == "legacy" and isinstance(result.legacy_result, dict): return self._merge_update_status(result.legacy_result)
+            if result.recommendation is None:
+                base.update({"recommendation_source": "endpoint", "update_checked_at": now_iso, "update_status_error": result.safe_error}); self._endpoint_recommendation = None; self._cached_update_checked_at = now_iso; self._cached_update_status = dict(base); return base
+            recommendation = result.recommendation; self._endpoint_recommendation = recommendation
+            status = {**base, "update_available": True, "recommended_version": recommendation.version, "recommended_channel": recommendation.channel, "recommended_reason": recommendation.reason, "recommended_build": self._endpoint_recommended_build(recommendation), "comparison": "endpoint_assignment", "recommendation_source": "endpoint", "assigned_rollout": {"target": recommendation.platform, "channel": recommendation.channel, "version": recommendation.version}, "update_checked_at": now_iso}
+            self._cached_update_checked_at = now_iso; self._cached_update_status = dict(status); return status
+        finally:
+            if created_session: await session.close()
 
     @property
     def requested_exit_code(self) -> int:
@@ -817,6 +864,26 @@ class WSAgent:
             raise RuntimeError("auth token is missing")
         if not self.device_id:
             raise RuntimeError("device_id is missing")
+
+        if recommendation.get("recommendation_source") == "endpoint":
+            item = self._endpoint_recommendation
+            if item is None or self.orchestrator is None:
+                raise RuntimeError("endpoint update scheduler is unavailable")
+            session = self._http_session
+            if session is None or session.closed:
+                raise RuntimeError("endpoint update session is unavailable")
+            adapter = self._endpoint_update_adapter(session)
+            if not await adapter.acknowledge(item.operation_id, "requested"):
+                raise RuntimeError("endpoint requested acknowledgement failed")
+            get_action_trace_recorder().record(action_trace, stage="requested", status="ok", summary="endpoint update request acknowledged", details={"operation_id": item.operation_id, "version": item.version})
+            scheduled = await self.orchestrator._handle_update({"actor_role": "agent", "version": item.version, "target": item.platform, "channel": item.channel, "download_url": item.artifact_url, "sha256": item.sha256, "size": item.size, "archive_type": item.archive_type, "reason": str(payload.get("reason") or "agent_gui_self_update")}, ToolMeta(timestamp_iso=datetime.now(timezone.utc).isoformat(), command="update", request_id=item.operation_id, agent_id=self.device_id))
+            if getattr(scheduled, "status", None) != "success":
+                raise RuntimeError("endpoint update scheduling failed")
+            if not await adapter.acknowledge(item.operation_id, "scheduled"):
+                raise RuntimeError("endpoint scheduled acknowledgement failed")
+            self._set_cached_update_request_state("scheduled", version=item.version, operation_id=item.operation_id, reason=str(payload.get("reason") or "agent_gui_self_update"))
+            get_action_trace_recorder().record(action_trace, stage="scheduled", status="ok", summary="endpoint update scheduled", details={"operation_id": item.operation_id, "version": item.version})
+            return {"status": "scheduled", "message": "Endpoint update scheduled", "recommendation": self._merge_update_status(self._cached_update_status)}
 
         api_url = get_config().server.api_url.rstrip("/")
         update_url = f"{api_url}/devices/{quote(self.device_id)}/agent/update"
@@ -2294,7 +2361,7 @@ class WSAgent:
                     if cached_result:
                         if cached_result["status"] in {"success", "canceled"}:
                             logger.info(f"♻️  Команда {command_id} уже выполнена (cached), возвращаем кэшированный результат")
-                            
+
                             # Возвращаем кэшированный payload (в точности тот же формат)
                             try:
                                 import json
@@ -3221,6 +3288,7 @@ class WSAgent:
                             self._current_trace_id = handshake_trace_id
 
                             await ws.send_json(handshake_message)
+                            await self._report_endpoint_terminal_observation(latest_update_confirmation)
                             has_tok = bool(handshake_data.get("token"))
                             logger.info(f"🤝 Отправлен handshake с аутентификацией")
                             logger.debug(f"   Токен в handshake: {'да' if has_tok else 'нет'}" + (f" ({handshake_data['token'][:12]}...)" if has_tok else ""))
