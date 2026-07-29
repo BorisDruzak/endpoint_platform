@@ -403,24 +403,48 @@ async def test_rollback_is_new_older_compatible_rollout_with_trigger_reason(
         suffix="windows",
     )
     trigger_device = await _device(session, "trigger")
-    rollback_device = await _device(session, "rollback")
+    second_trigger_device = await _device(session, "trigger-two")
+    foreign_device = await _device(session, "foreign-rollback")
     trigger = await create_rollout(
         session,
         current.id,
         "canary",
-        [trigger_device.id],
+        [trigger_device.id, second_trigger_device.id],
         "detected regression",
         ADMIN_ID,
         "req-trigger",
         now=NOW,
     )
+    trigger_targets = (
+        await session.scalars(
+            select(UpdateTarget)
+            .where(UpdateTarget.rollout_id == trigger.id)
+            .order_by(UpdateTarget.device_id)
+        )
+    ).all()
+    assert len(trigger_targets) == 2
+    for index, target in enumerate(trigger_targets):
+        await record_report(
+            session,
+            device_id=target.device_id,
+            operation_id=target.operation_id,
+            report=AgentUpdateReportV1(
+                schema_version="agent_update_report_v1",
+                report_key=f"trigger-failure-{index}",
+                status="failed",
+                reported_version="2.0.0",
+                safe_code="update.failed",
+            ),
+            request_id=f"req-trigger-failure-{index}",
+            now=NOW,
+        )
 
     with pytest.raises(UpdateStateError):
         await create_rollback_rollout(
             session,
             trigger.id,
             current.id,
-            [rollback_device.id],
+            [trigger_device.id],
             "same build is not a rollback",
             ADMIN_ID,
             "req-same",
@@ -431,10 +455,32 @@ async def test_rollback_is_new_older_compatible_rollout_with_trigger_reason(
             session,
             trigger.id,
             incompatible.id,
-            [rollback_device.id],
+            [trigger_device.id],
             "foreign platform",
             ADMIN_ID,
             "req-incompatible",
+            now=NOW,
+        )
+    with pytest.raises(UpdateStateError):
+        await create_rollback_rollout(
+            session,
+            trigger.id,
+            older.id,
+            [foreign_device.id],
+            "foreign device is not affected",
+            ADMIN_ID,
+            "req-foreign-device",
+            now=NOW,
+        )
+    with pytest.raises(UpdateValidationError):
+        await create_rollback_rollout(
+            session,
+            trigger.id,
+            older.id,
+            [],
+            "empty affected set",
+            ADMIN_ID,
+            "req-empty-targets",
             now=NOW,
         )
 
@@ -457,18 +503,63 @@ async def test_rollback_is_new_older_compatible_rollout_with_trigger_reason(
             session,
             draft_trigger.id,
             older.id,
-            [rollback_device.id],
+            [trigger_device.id],
             "draft has no affected devices",
             ADMIN_ID,
             "req-draft-trigger",
             now=NOW,
         )
 
+    cancelled_trigger = UpdateRollout(
+        id=uuid4(),
+        rollout_identifier=f"cancelled-trigger-{uuid4().hex}",
+        build_id=current.id,
+        mode="canary",
+        reason=None,
+        status="cancelled",
+        started_at=NOW,
+        paused_at=None,
+        completed_at=None,
+        cancelled_at=NOW,
+    )
+    session.add(cancelled_trigger)
+    await session.flush()
+    with pytest.raises(UpdateStateError):
+        await create_rollback_rollout(
+            session,
+            cancelled_trigger.id,
+            older.id,
+            [trigger_device.id],
+            "legacy trigger has no targets",
+            ADMIN_ID,
+            "req-targetless-cancelled",
+            now=NOW,
+        )
+    assert (
+        await session.scalar(
+            select(func.count())
+            .select_from(UpdateRollout)
+            .where(UpdateRollout.mode == "rollback")
+        )
+        == 0
+    )
+    assert (
+        await session.scalar(
+            select(func.count())
+            .select_from(AuditEvent)
+            .where(
+                AuditEvent.action == "updates.rollout_created",
+                AuditEvent.details["mode"].as_string() == "rollback",
+            )
+        )
+        == 0
+    )
+
     rollback = await create_rollback_rollout(
         session,
         trigger.id,
         older.id,
-        [rollback_device.id],
+        [trigger_device.id],
         "restore last known good",
         ADMIN_ID,
         "req-rollback",
@@ -479,6 +570,12 @@ async def test_rollback_is_new_older_compatible_rollout_with_trigger_reason(
     assert trigger.rollout_identifier in (rollback.reason or "")
     assert "restore last known good" in (rollback.reason or "")
     assert rollback.status == "active"
+    rollback_targets = (
+        await session.scalars(
+            select(UpdateTarget).where(UpdateTarget.rollout_id == rollback.id)
+        )
+    ).all()
+    assert [target.device_id for target in rollback_targets] == [trigger_device.id]
 
 
 @pytest.mark.asyncio
@@ -649,17 +746,42 @@ async def test_nonterminal_rollout_cannot_complete_and_unsafe_reason_is_rejected
     """Completion must not imply success, and raw path/token text must not persist."""
     build = await _build(session)
     device = await _device(session, "terminal-gate")
-    with pytest.raises(UpdateValidationError):
-        await create_rollout(
-            session,
-            build.id,
-            "canary",
-            [device.id],
-            r"failed at C:\agent\pending_update.json with Bearer raw-token",
-            ADMIN_ID,
-            "req-unsafe-reason",
-            now=NOW,
+    hostile_reasons = (
+        r"failed at C:\agent\pending_update.json",
+        "failed at C:/agent/pending_update.json",
+        "failed at /home/agent/endpoint.tar.gz",
+        "failed at /opt/endpoint/archive.zip",
+        r"failed at \\server\share\endpoint.zip",
+        "failed at //server/share/endpoint.zip",
+        "artifact endpoint-agent.zip was rejected",
+        "pending_update payload was malformed",
+        '{"operation_id":"raw-operation","status":"scheduled"}',
+        "Bearer raw-token was rejected",
+    )
+    for index, hostile_reason in enumerate(hostile_reasons):
+        with pytest.raises(UpdateValidationError):
+            await create_rollout(
+                session,
+                build.id,
+                "canary",
+                [device.id],
+                hostile_reason,
+                ADMIN_ID,
+                f"req-unsafe-reason-{index}",
+                now=NOW,
+            )
+    assert await session.scalar(select(func.count()).select_from(UpdateRollout)) == 0
+    assert await session.scalar(select(func.count()).select_from(UpdateTarget)) == 0
+    unsafe_audits = (
+        await session.scalars(
+            select(AuditEvent).where(
+                AuditEvent.action.in_(
+                    ("updates.rollout_created", "updates.target_assigned")
+                )
+            )
         )
+    ).all()
+    assert unsafe_audits == []
     with pytest.raises(UpdateValidationError):
         await register_build(
             session,

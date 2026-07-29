@@ -40,10 +40,13 @@ _ACTIVE_TARGET_STATUSES = ("assigned", "requested", "scheduled")
 _TERMINAL_TARGET_STATUSES = ("applied", "failed", "rolled_back", "cancelled")
 _PLATFORMS = ("linux_amd64", "windows_amd64")
 _SAFE_IDENTIFIER = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
+_SAFE_REASON_TEXT = re.compile(r"^[\w .,:;=()_+!?-]+$")
 _UNSAFE_REASON = re.compile(
     r"(?i)(?:\bbearer\b|\bauthorization\b|\bpassword\b|\bsecret\b|"
     r"\bcookie\b|\btoken\b|\btraceback\b|\bstack\s+trace\b|"
-    r"(?:[A-Za-z]:\\)|(?:/var/)|(?:/tmp/)|(?:file://)|(?:https?://))"
+    r"[/\\]|"
+    r"\bpending(?:[_ -]?update)(?:[_ -]?(?:payload|manifest))?(?:\.json)?\b|"
+    r"\b[A-Za-z0-9][A-Za-z0-9._-]*\.(?:zip|tar\.gz|tgz|7z)\b)"
 )
 
 
@@ -84,6 +87,7 @@ def _safe_reason(value: str | None, *, required: bool = False) -> str | None:
         or value != value.strip()
         or len(value) > 512
         or any(ord(character) < 32 or ord(character) == 127 for character in value)
+        or not _SAFE_REASON_TEXT.fullmatch(value)
         or _UNSAFE_REASON.search(value)
     ):
         raise UpdateValidationError("reason must be bounded safe text")
@@ -651,6 +655,16 @@ async def create_rollback_rollout(
     trigger = await _locked_rollout(session, trigger_id)
     if trigger.build_id != trigger_build.id:
         raise UpdateConflict("triggering rollout changed during rollback")
+    trigger_targets = (
+        await session.scalars(
+            select(UpdateTarget)
+            .where(UpdateTarget.rollout_id == trigger.id)
+            .order_by(UpdateTarget.device_id, UpdateTarget.id)
+            .with_for_update()
+        )
+    ).all()
+    if not trigger_targets:
+        raise UpdateStateError("triggering rollout has no affected devices")
     if trigger.status == "draft":
         raise UpdateStateError("a targetless draft cannot trigger rollback")
     if rollback_build.id == trigger_build.id:
@@ -669,6 +683,16 @@ async def create_rollback_rollout(
         device_ids,
         combined_reason,
     )
+    targets_by_device = {target.device_id: target for target in trigger_targets}
+    if any(device_id not in targets_by_device for device_id in normalized_ids):
+        raise UpdateStateError(
+            "rollback devices must be a subset of the triggering rollout"
+        )
+    if any(
+        targets_by_device[device_id].status not in _TERMINAL_TARGET_STATUSES
+        for device_id in normalized_ids
+    ):
+        raise UpdateStateError("rollback devices must have terminal trigger targets")
     return await _create_active_rollout(
         session,
         rollback_build,
