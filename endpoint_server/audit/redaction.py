@@ -22,6 +22,7 @@ _SENSITIVE_KEY_PARTS = (
     "secret",
     "bearer",
 )
+_SENSITIVE_EXACT_KEYS = frozenset({"campaign", "claim", "receipt"})
 _BEARER_VALUE = re.compile(r"(?i)\bbearer\s+[^\s,;]+")
 _NON_ALPHANUMERIC = re.compile(r"[^a-z0-9]+")
 
@@ -35,7 +36,9 @@ def _redact_bearer_values(value: str) -> str:
 
 def _is_sensitive_key(key: str) -> bool:
     normalized = _NON_ALPHANUMERIC.sub("", key.casefold())
-    return any(part in normalized for part in _SENSITIVE_KEY_PARTS)
+    return normalized in _SENSITIVE_EXACT_KEYS or any(
+        part in normalized for part in _SENSITIVE_KEY_PARTS
+    )
 
 
 def _json_key(value: object) -> str:

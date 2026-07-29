@@ -12,6 +12,7 @@ from endpoint_server.auth.admin_sessions import router as admin_auth_router
 from endpoint_server.auth.validation import redacting_validation_exception_handler
 from endpoint_server.config import Settings
 from endpoint_server.db.session import SessionProvider, create_session_provider
+from endpoint_server.enrollment.admin_routes import router as enrollment_admin_router
 from endpoint_server.health.routes import router as health_router
 
 
@@ -36,4 +37,5 @@ def create_app(
     )
     app.include_router(health_router)
     app.include_router(admin_auth_router)
+    app.include_router(enrollment_admin_router)
     return app

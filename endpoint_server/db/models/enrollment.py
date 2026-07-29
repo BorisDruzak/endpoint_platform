@@ -4,13 +4,16 @@ from datetime import datetime
 from uuid import UUID
 
 from sqlalchemy import (
+    JSON,
     DateTime,
     ForeignKey,
     Index,
+    Integer,
     LargeBinary,
     String,
     UniqueConstraint,
 )
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from endpoint_server.db.base import Base
@@ -27,6 +30,19 @@ class EnrollmentCampaign(OwnershipRecord, Base):
     token_digest: Mapped[str] = mapped_column(String(256), nullable=False, unique=True)
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     disabled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    max_uses: Mapped[int] = mapped_column(Integer, nullable=False)
+    use_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    allowed_cidrs: Mapped[list[str]] = mapped_column(
+        ARRAY(String(64)), nullable=False
+    )
+    target_platform: Mapped[str] = mapped_column(String(64), nullable=False)
+    policy: Mapped[dict[str, object]] = mapped_column(
+        JSON().with_variant(JSONB(), "postgresql"),
+        nullable=False,
+    )
+    label: Mapped[str | None] = mapped_column(String(256))
+    site: Mapped[str | None] = mapped_column(String(128))
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class EnrollmentClaim(OwnershipRecord, Base):
@@ -37,6 +53,16 @@ class EnrollmentClaim(OwnershipRecord, Base):
     )
     claim_identifier: Mapped[str] = mapped_column(
         String(128), nullable=False, unique=True
+    )
+    claim_digest: Mapped[str] = mapped_column(
+        String(256), nullable=False, unique=True
+    )
+    installation_session_digest: Mapped[str] = mapped_column(
+        String(256), nullable=False
+    )
+    fingerprint_digest: Mapped[str] = mapped_column(String(256), nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
     )
     device_id: Mapped[UUID | None] = mapped_column(
         ForeignKey("devices.id", ondelete="SET NULL")

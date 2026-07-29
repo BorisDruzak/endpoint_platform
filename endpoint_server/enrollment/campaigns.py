@@ -1,0 +1,403 @@
+"""Bounded enrollment campaigns and one-time install claims."""
+
+from __future__ import annotations
+
+import base64
+import hashlib
+import hmac
+import ipaddress
+import secrets
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass, field
+from datetime import UTC, datetime
+from ipaddress import IPv4Address, IPv6Address
+from uuid import UUID, uuid4
+
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from endpoint_server.audit.service import append_audit_event
+from endpoint_server.db.models import EnrollmentCampaign, EnrollmentClaim
+
+
+_TOKEN_BYTES = 32
+_IDENTIFIER_BYTES = 16
+_CAMPAIGN_MARKER = "ec_"
+_CLAIM_MARKER = "ic_"
+_CAMPAIGN_CONTEXT = b"endpoint-enrollment-campaign-v1\0"
+_CLAIM_CONTEXT = b"endpoint-install-claim-v1\0"
+_INSTALL_SESSION_CONTEXT = b"endpoint-install-session-v1\0"
+_FINGERPRINT_CONTEXT = b"endpoint-enrollment-fingerprint-v1\0"
+
+
+class EnrollmentDenied(Exception):
+    """Generic fail-closed enrollment denial without credential oracle details."""
+
+
+@dataclass(frozen=True, slots=True)
+class IssuedCampaign:
+    """One-time raw campaign bearer paired with its persistence record."""
+
+    token: str = field(repr=False)
+    record: EnrollmentCampaign
+
+
+@dataclass(frozen=True, slots=True)
+class IssuedInstallClaim:
+    """One-time raw install claim paired with its persistence record."""
+
+    token: str = field(repr=False)
+    record: EnrollmentClaim
+
+
+def _digest(value: str, pepper: bytes, context: bytes) -> str:
+    if not value or not pepper:
+        raise ValueError("credential and pepper must not be empty")
+    try:
+        encoded = value.encode("utf-8")
+    except UnicodeEncodeError as error:
+        raise ValueError("credential must be valid UTF-8") from error
+    return hmac.new(pepper, context + encoded, hashlib.sha256).hexdigest()
+
+
+def campaign_token_digest(token: str, pepper: bytes) -> str:
+    """Return the contextual HMAC digest stored for a campaign bearer."""
+    return _digest(token, pepper, _CAMPAIGN_CONTEXT)
+
+
+def claim_token_digest(token: str, pepper: bytes) -> str:
+    """Return the contextual HMAC digest stored for an install claim."""
+    return _digest(token, pepper, _CLAIM_CONTEXT)
+
+
+def _bound_digest(value: str, pepper: bytes, context: bytes) -> str:
+    return _digest(value, pepper, context)
+
+
+def _digest_matches(actual: str, expected: str) -> bool:
+    try:
+        return hmac.compare_digest(actual, expected)
+    except TypeError:
+        return False
+
+
+def _issue_token(marker: str) -> tuple[str, str]:
+    identifier = secrets.token_hex(_IDENTIFIER_BYTES)
+    secret = (
+        base64.urlsafe_b64encode(secrets.token_bytes(_TOKEN_BYTES))
+        .rstrip(b"=")
+        .decode("ascii")
+    )
+    return identifier, f"{marker}{identifier}.{secret}"
+
+
+def _aware_utc(value: datetime, name: str) -> datetime:
+    if value.tzinfo is None:
+        raise ValueError(f"{name} must be timezone-aware")
+    return value.astimezone(UTC)
+
+
+def _normalized_cidrs(values: Sequence[str]) -> list[str]:
+    if isinstance(values, (str, bytes)) or not values:
+        raise ValueError("at least one allowed CIDR is required")
+    normalized: list[str] = []
+    for value in values:
+        try:
+            network = ipaddress.ip_network(value, strict=True)
+        except ValueError as error:
+            raise ValueError("allowed CIDRs must be canonical networks") from error
+        canonical = str(network)
+        if canonical != value:
+            raise ValueError("allowed CIDRs must be canonical networks")
+        normalized.append(canonical)
+    return sorted(set(normalized))
+
+
+def _validated_text(
+    value: str | None,
+    *,
+    name: str,
+    maximum: int,
+    required: bool,
+) -> str | None:
+    if value is None:
+        if required:
+            raise ValueError(f"{name} is required")
+        return None
+    if (
+        not value
+        or value != value.strip()
+        or not value.isascii()
+        or len(value) > maximum
+        or any(ord(character) < 32 for character in value)
+    ):
+        raise ValueError(f"{name} must be bounded printable ASCII")
+    return value
+
+
+def issue_campaign(
+    pepper: bytes,
+    *,
+    expires_at: datetime,
+    max_uses: int,
+    allowed_cidrs: Sequence[str],
+    target_platform: str,
+    policy: Mapping[str, object],
+    label: str | None = None,
+    site: str | None = None,
+    now: datetime | None = None,
+) -> IssuedCampaign:
+    """Create a bounded campaign record and return its raw bearer once."""
+    issued_at = _aware_utc(now or datetime.now(UTC), "now")
+    expiry = _aware_utc(expires_at, "campaign expiry")
+    if expiry <= issued_at:
+        raise ValueError("campaign expiry must be in the future")
+    if not isinstance(max_uses, int) or isinstance(max_uses, bool) or max_uses <= 0:
+        raise ValueError("campaign max uses must be positive")
+    platform = _validated_text(
+        target_platform, name="target platform", maximum=64, required=True
+    )
+    normalized_policy = dict(policy)
+    identifier, token = _issue_token(_CAMPAIGN_MARKER)
+    record = EnrollmentCampaign(
+        id=uuid4(),
+        campaign_identifier=identifier,
+        token_digest=campaign_token_digest(token, pepper),
+        expires_at=expiry,
+        disabled_at=None,
+        max_uses=max_uses,
+        use_count=0,
+        allowed_cidrs=_normalized_cidrs(allowed_cidrs),
+        target_platform=platform,
+        policy=normalized_policy,
+        label=_validated_text(label, name="label", maximum=256, required=False),
+        site=_validated_text(site, name="site", maximum=128, required=False),
+        revoked_at=None,
+    )
+    return IssuedCampaign(token=token, record=record)
+
+
+def issue_install_claim(
+    campaign: EnrollmentCampaign,
+    pepper: bytes,
+    *,
+    installation_session: str,
+    hardware_fingerprint: str,
+    expires_at: datetime,
+    now: datetime | None = None,
+) -> IssuedInstallClaim:
+    """Create one expiring claim bound to an installation session and fingerprint."""
+    issued_at = _aware_utc(now or datetime.now(UTC), "now")
+    expiry = _aware_utc(expires_at, "claim expiry")
+    if expiry <= issued_at:
+        raise ValueError("claim expiry must be in the future")
+    if not _campaign_allows(campaign, now=issued_at):
+        raise EnrollmentDenied("Enrollment denied")
+    if campaign.expires_at is None or campaign.expires_at.tzinfo is None:
+        raise ValueError("campaign expiry must be timezone-aware")
+    if expiry > campaign.expires_at.astimezone(UTC):
+        raise ValueError("claim cannot outlive campaign")
+    identifier, token = _issue_token(_CLAIM_MARKER)
+    record = EnrollmentClaim(
+        id=uuid4(),
+        campaign_id=campaign.id,
+        claim_identifier=identifier,
+        claim_digest=claim_token_digest(token, pepper),
+        installation_session_digest=_bound_digest(
+            installation_session,
+            pepper,
+            _INSTALL_SESSION_CONTEXT,
+        ),
+        fingerprint_digest=_bound_digest(
+            hardware_fingerprint,
+            pepper,
+            _FINGERPRINT_CONTEXT,
+        ),
+        expires_at=expiry,
+        device_id=None,
+        claimed_at=None,
+    )
+    return IssuedInstallClaim(token=token, record=record)
+
+
+def _campaign_allows(
+    campaign: EnrollmentCampaign,
+    *,
+    now: datetime,
+    source_address: IPv4Address | IPv6Address | None = None,
+    platform: str | None = None,
+) -> bool:
+    expiry = campaign.expires_at
+    active = (
+        campaign.revoked_at is None
+        and campaign.disabled_at is None
+        and expiry is not None
+        and expiry.tzinfo is not None
+        and now < expiry
+        and campaign.use_count < campaign.max_uses
+    )
+    if not active:
+        return False
+    if platform is not None and platform != campaign.target_platform:
+        return False
+    if source_address is not None:
+        try:
+            networks = tuple(
+                ipaddress.ip_network(value, strict=True)
+                for value in campaign.allowed_cidrs
+            )
+        except ValueError:
+            return False
+        if not any(source_address in network for network in networks):
+            return False
+    return True
+
+
+async def reserve_campaign_use(
+    session: AsyncSession,
+    token: str,
+    pepper: bytes,
+    *,
+    source_address: IPv4Address | IPv6Address,
+    platform: str,
+    actor_kind: str,
+    actor_identifier: str | None,
+    request_id: str,
+    now: datetime | None = None,
+) -> EnrollmentCampaign:
+    """Lock and reserve one campaign use inside the caller's transaction."""
+    checked_at = _aware_utc(now or datetime.now(UTC), "now")
+    try:
+        digest = campaign_token_digest(token, pepper)
+    except ValueError as error:
+        raise EnrollmentDenied("Enrollment denied") from error
+    result = await session.execute(
+        select(EnrollmentCampaign)
+        .where(EnrollmentCampaign.token_digest == digest)
+        .with_for_update()
+    )
+    campaign = result.scalar_one_or_none()
+    if campaign is None or not _campaign_allows(
+        campaign,
+        now=checked_at,
+        source_address=source_address,
+        platform=platform,
+    ):
+        raise EnrollmentDenied("Enrollment denied")
+    campaign.use_count += 1
+    await append_audit_event(
+        session,
+        actor_kind=actor_kind,
+        actor_identifier=actor_identifier,
+        action="enrollment_campaign.use_reserved",
+        object_kind="enrollment_campaign",
+        object_identifier=str(campaign.id),
+        request_id=request_id,
+        details={
+            "platform": platform,
+            "source_address": str(source_address),
+        },
+        occurred_at=checked_at,
+    )
+    return campaign
+
+
+async def revoke_campaign(
+    session: AsyncSession,
+    campaign_id: UUID,
+    *,
+    actor_identifier: str,
+    request_id: str,
+    now: datetime | None = None,
+) -> EnrollmentCampaign:
+    """Lock and revoke a campaign inside the caller's transaction."""
+    revoked_at = _aware_utc(now or datetime.now(UTC), "now")
+    result = await session.execute(
+        select(EnrollmentCampaign)
+        .where(EnrollmentCampaign.id == campaign_id)
+        .with_for_update()
+    )
+    campaign = result.scalar_one_or_none()
+    if campaign is None:
+        raise EnrollmentDenied("Enrollment campaign not found")
+    if campaign.revoked_at is None:
+        campaign.revoked_at = revoked_at
+        await append_audit_event(
+            session,
+            actor_kind="admin",
+            actor_identifier=actor_identifier,
+            action="enrollment_campaign.revoked",
+            object_kind="enrollment_campaign",
+            object_identifier=str(campaign.id),
+            request_id=request_id,
+            details={},
+            occurred_at=revoked_at,
+        )
+    return campaign
+
+
+async def consume_install_claim(
+    session: AsyncSession,
+    token: str,
+    pepper: bytes,
+    *,
+    installation_session: str,
+    hardware_fingerprint: str,
+    actor_kind: str,
+    actor_identifier: str | None,
+    request_id: str,
+    now: datetime | None = None,
+) -> EnrollmentClaim:
+    """Lock and consume one correctly bound install claim in the caller transaction."""
+    checked_at = _aware_utc(now or datetime.now(UTC), "now")
+    try:
+        token_digest = claim_token_digest(token, pepper)
+        session_digest = _bound_digest(
+            installation_session,
+            pepper,
+            _INSTALL_SESSION_CONTEXT,
+        )
+        fingerprint_digest = _bound_digest(
+            hardware_fingerprint,
+            pepper,
+            _FINGERPRINT_CONTEXT,
+        )
+    except ValueError as error:
+        raise EnrollmentDenied("Enrollment denied") from error
+    claim_result = await session.execute(
+        select(EnrollmentClaim)
+        .where(EnrollmentClaim.claim_digest == token_digest)
+        .with_for_update()
+    )
+    claim = claim_result.scalar_one_or_none()
+    if (
+        claim is None
+        or claim.claimed_at is not None
+        or claim.expires_at.tzinfo is None
+        or checked_at >= claim.expires_at
+        or not _digest_matches(session_digest, claim.installation_session_digest)
+        or not _digest_matches(fingerprint_digest, claim.fingerprint_digest)
+    ):
+        raise EnrollmentDenied("Enrollment denied")
+    campaign_result = await session.execute(
+        select(EnrollmentCampaign)
+        .where(EnrollmentCampaign.id == claim.campaign_id)
+        .with_for_update()
+    )
+    campaign = campaign_result.scalar_one_or_none()
+    if campaign is None or not _campaign_allows(campaign, now=checked_at):
+        raise EnrollmentDenied("Enrollment denied")
+    claim.claimed_at = checked_at
+    campaign.use_count += 1
+    await append_audit_event(
+        session,
+        actor_kind=actor_kind,
+        actor_identifier=actor_identifier,
+        action="enrollment_claim.consumed",
+        object_kind="enrollment_claim",
+        object_identifier=str(claim.id),
+        request_id=request_id,
+        details={},
+        occurred_at=checked_at,
+    )
+    return claim

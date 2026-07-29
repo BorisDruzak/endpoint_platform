@@ -43,6 +43,7 @@ CREDENTIAL_TABLE_COLUMNS = {
     "admin_users": {"password_digest"},
     "device_credentials": {"token_digest"},
     "enrollment_campaigns": {"token_digest"},
+    "enrollment_claims": {"claim_digest"},
     "service_credentials": {"secret_digest"},
 }
 FORBIDDEN_RAW_CREDENTIAL_COLUMNS = {
@@ -116,7 +117,7 @@ def test_migration_history_has_exactly_one_head() -> None:
         _alembic_config("postgresql+asyncpg://unused@127.0.0.1/unused")
     )
 
-    assert script.get_heads() == ["0004_device_credentials"]
+    assert script.get_heads() == ["0005_enrollment_campaigns"]
 
 
 def test_initial_revision_upgrades_and_downgrades_empty_postgresql(
@@ -133,6 +134,8 @@ def test_initial_revision_upgrades_and_downgrades_empty_postgresql(
     audit_id = uuid4()
     device_id = uuid4()
     device_credential_id = uuid4()
+    campaign_id = uuid4()
+    claim_id = uuid4()
 
     command.upgrade(config, "0001_initial")
     asyncio.run(
@@ -178,6 +181,20 @@ def test_initial_revision_upgrades_and_downgrades_empty_postgresql(
         )
     )
 
+    command.upgrade(config, "0004_device_credentials")
+    asyncio.run(
+        _execute(
+            plain_url,
+            "INSERT INTO enrollment_campaigns "
+            "(id, campaign_identifier, token_digest, expires_at) "
+            f"VALUES ('{campaign_id}', 'legacy-campaign', "
+            "'legacy-campaign-digest', '2026-07-30T10:00:00+00:00'); "
+            "INSERT INTO enrollment_claims "
+            "(id, campaign_id, claim_identifier) "
+            f"VALUES ('{claim_id}', '{campaign_id}', 'legacy-claim')",
+        )
+    )
+
     command.upgrade(config, "head")
     audit_rows = asyncio.run(
         _fetch(
@@ -210,6 +227,40 @@ def test_initial_revision_upgrades_and_downgrades_empty_postgresql(
     assert device_credential_rows[0]["pending_token_digest"] is None
     assert device_credential_rows[0]["rotation_overlap_expires_at"] is None
 
+    campaign_rows = asyncio.run(
+        _fetch(
+            plain_url,
+            "SELECT max_uses, use_count, allowed_cidrs, target_platform, "
+            "policy::text AS policy FROM enrollment_campaigns "
+            f"WHERE id = '{campaign_id}'",
+        )
+    )
+    assert len(campaign_rows) == 1
+    assert campaign_rows[0]["max_uses"] == 1
+    assert campaign_rows[0]["use_count"] == 0
+    assert campaign_rows[0]["allowed_cidrs"] == ["0.0.0.0/0", "::/0"]
+    assert campaign_rows[0]["target_platform"] == "legacy"
+    assert campaign_rows[0]["policy"] == "{}"
+
+    claim_rows = asyncio.run(
+        _fetch(
+            plain_url,
+            "SELECT claim_digest, installation_session_digest, "
+            "fingerprint_digest, expires_at = created_at AS expired_on_migration "
+            "FROM enrollment_claims "
+            f"WHERE id = '{claim_id}'",
+        )
+    )
+    assert len(claim_rows) == 1
+    assert claim_rows[0]["claim_digest"] == f"migrated-claim-{claim_id.hex}"
+    assert claim_rows[0]["installation_session_digest"] == (
+        f"migrated-session-{claim_id.hex}"
+    )
+    assert claim_rows[0]["fingerprint_digest"] == (
+        f"migrated-fingerprint-{claim_id.hex}"
+    )
+    assert claim_rows[0]["expired_on_migration"]
+
     rows = asyncio.run(
         _fetch(
             plain_url,
@@ -224,7 +275,9 @@ def test_initial_revision_upgrades_and_downgrades_empty_postgresql(
     revision_rows = asyncio.run(
         _fetch(plain_url, "SELECT version_num FROM alembic_version")
     )
-    assert [row["version_num"] for row in revision_rows] == ["0004_device_credentials"]
+    assert [row["version_num"] for row in revision_rows] == [
+        "0005_enrollment_campaigns"
+    ]
 
     column_rows = asyncio.run(
         _fetch(
@@ -271,6 +324,26 @@ def test_initial_revision_upgrades_and_downgrades_empty_postgresql(
         "encryption_nonce",
         "expires_at",
     } <= columns_by_table["enrollment_retry_envelopes"].keys()
+    assert {
+        "max_uses",
+        "use_count",
+        "allowed_cidrs",
+        "target_platform",
+        "policy",
+        "label",
+        "site",
+        "revoked_at",
+    } <= columns_by_table["enrollment_campaigns"].keys()
+    assert columns_by_table["enrollment_campaigns"]["allowed_cidrs"][
+        "data_type"
+    ] == "ARRAY"
+    assert columns_by_table["enrollment_campaigns"]["policy"]["data_type"] == "jsonb"
+    assert {
+        "claim_digest",
+        "installation_session_digest",
+        "fingerprint_digest",
+        "expires_at",
+    } <= columns_by_table["enrollment_claims"].keys()
 
     for statement in (
         f"UPDATE audit_events SET action = 'changed' WHERE id = '{audit_id}'",
