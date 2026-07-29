@@ -32,6 +32,7 @@ class Device(SafeModel):
     device_identifier: str = Field(min_length=1, max_length=256)
     display_name: str = Field(min_length=1, max_length=256)
     retired_at: datetime | None
+    last_seen_at: datetime | None
 
 
 class ContextProfileAvailability(SafeModel):
@@ -76,6 +77,18 @@ class DeviceContext(SafeModel):
     device: Device
     profiles: list[ContextProfileAvailability]
     snapshots: list[ContextSnapshot]
+
+
+class BaselineHistory(SafeModel):
+    """Bounded, newest-first baseline snapshots for one device."""
+
+    snapshots: list[ContextSnapshot] = Field(max_length=100)
+
+    @model_validator(mode="after")
+    def validate_baseline_only(self) -> "BaselineHistory":
+        if any(snapshot.profile != "baseline_v1" for snapshot in self.snapshots):
+            raise ValueError("baseline history includes a non-baseline snapshot")
+        return self
 
 
 class Collection(SafeModel):

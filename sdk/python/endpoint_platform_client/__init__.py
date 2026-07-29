@@ -11,6 +11,7 @@ from .errors import (
     EndpointPlatformUnavailable,
 )
 from .models import (
+    BaselineHistory,
     Collection,
     CollectionDetails,
     ContextComparison,
@@ -22,6 +23,7 @@ from .models import (
 )
 
 __all__ = [
+    "BaselineHistory",
     "Collection",
     "CollectionDetails",
     "ContextComparison",

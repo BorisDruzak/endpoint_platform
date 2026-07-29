@@ -69,8 +69,9 @@ def _device_payload(device_id: str) -> dict[str, object]:
             {
                 "id": device_id,
                 "device_identifier": "workstation-001",
-                "display_name": "Workstation 001",
-                "retired_at": None,
+            "display_name": "Workstation 001",
+            "retired_at": None,
+            "last_seen_at": None,
             }
         ]
     }
@@ -302,3 +303,24 @@ def test_safe_read_methods_validate_normalized_service_projections(tmp_path: Pat
         "before_snapshot_id": str(snapshot_id),
         "after_snapshot_id": str(other_snapshot_id),
     }
+
+
+def test_baseline_history_is_typed_bounded_and_rejects_invalid_comparisons(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    device_id = uuid4()
+    first_id = uuid4()
+    second_id = uuid4()
+    fake = FakeHttpClient(responses=[_response(200, {"data": {"snapshots": [_baseline_snapshot(str(first_id)), _baseline_snapshot(str(second_id))]}})])
+    monkeypatch.setattr(client_module.httpx, "Client", lambda **_: fake)
+    client = EndpointPlatformClient("https://endpoint.invalid", token_file=token(tmp_path), ca_file=ca(tmp_path))
+
+    history = client.list_baseline_history(device_id, limit=2)
+
+    assert [snapshot.id for snapshot in history] == [first_id, second_id]
+    assert fake.calls == [("GET", f"/api/v1/devices/{device_id}/context/snapshots", {"json": None, "headers": None, "params": {"profile": "baseline_v1", "limit": "2"}})]
+    with pytest.raises(EndpointPlatformInvalidRequest):
+        client.list_baseline_history(device_id, limit=101)
+    with pytest.raises(EndpointPlatformInvalidRequest):
+        client.compare_context(device_id, first_id, first_id)
+    assert len(fake.calls) == 1

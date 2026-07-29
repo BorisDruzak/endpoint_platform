@@ -20,6 +20,7 @@ from .errors import (
     EndpointPlatformUnavailable,
 )
 from .models import (
+    BaselineHistory,
     Collection,
     CollectionDetails,
     ContextComparison,
@@ -34,6 +35,7 @@ from ._contracts import DeviceContextDiffV1
 
 _READ_ATTEMPTS = 3
 _TRANSIENT_STATUS_CODES = frozenset((502, 503, 504))
+_MAX_BASELINE_HISTORY_LIMIT = 100
 
 
 class EndpointPlatformClient:
@@ -118,6 +120,21 @@ class EndpointPlatformClient:
         matching = [snapshot for snapshot in context.data.snapshots if snapshot.profile == profile]
         return max(matching, key=lambda snapshot: snapshot.collected_at, default=None)
 
+    def list_baseline_history(self, device_id: UUID, *, limit: int = 50) -> list[ContextSnapshot]:
+        """Return at most 100 newest-first baseline snapshots for one device."""
+        if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= _MAX_BASELINE_HISTORY_LIMIT:
+            raise EndpointPlatformInvalidRequest()
+        data = self._get(
+            f"/api/v1/devices/{device_id}/context/snapshots",
+            params={"profile": "baseline_v1", "limit": str(limit)},
+        )
+        return self._validate(
+            data,
+            lambda value: _DataResponse[BaselineHistory](
+                data=BaselineHistory.model_validate(value["data"])
+            ),
+        ).data.snapshots
+
     def request_collection(
         self,
         device_id: UUID,
@@ -154,6 +171,9 @@ class EndpointPlatformClient:
         to_snapshot_id: UUID,
     ) -> ContextComparison:
         """Compare two baseline snapshots using only the fixed safe diff contract."""
+
+        if from_snapshot_id == to_snapshot_id:
+            raise EndpointPlatformInvalidRequest()
 
         data = self._get(
             f"/api/v1/devices/{device_id}/context/snapshots/compare",

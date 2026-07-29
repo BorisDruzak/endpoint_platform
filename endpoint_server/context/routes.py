@@ -5,9 +5,10 @@ from __future__ import annotations
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response, status
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from endpoint_contracts import ContextProfileV1
 from endpoint_server.audit.request_ids import audit_request_id
@@ -19,7 +20,7 @@ from endpoint_server.auth.scopes import (
     ServicePrincipal,
     require_service_scope,
 )
-from endpoint_server.db.models import Device
+from endpoint_server.db.models import Device, DeviceSession
 
 from .diff import compare_snapshots
 from .models import ContextCollection, ContextCurrent, ContextSnapshot
@@ -31,6 +32,8 @@ from .service import ContextError
 router = APIRouter(prefix="/api/v1", tags=["device-context"])
 
 _SAFE_SERVICE_PROFILES = ("baseline_v1", "health_v1", "network_v1")
+_BASELINE_HISTORY_LIMIT = 50
+_MAX_BASELINE_HISTORY_LIMIT = 100
 
 
 class CollectionRequest(BaseModel):
@@ -62,12 +65,20 @@ def _valid_idempotency_key(value: str | None) -> str:
     return value
 
 
-def _device_projection(device: Device) -> dict[str, object]:
+async def _device_projection(session: AsyncSession, device: Device) -> dict[str, object]:
+    """Expose a device's latest session timestamp without enrollment data."""
+    last_seen_at = await session.scalar(
+        select(DeviceSession.created_at)
+        .where(DeviceSession.device_id == device.id)
+        .order_by(DeviceSession.created_at.desc(), DeviceSession.id.desc())
+        .limit(1)
+    )
     return {
         "id": str(device.id),
         "device_identifier": device.device_identifier,
         "display_name": device.display_name,
         "retired_at": device.retired_at,
+        "last_seen_at": last_seen_at,
     }
 
 
@@ -79,7 +90,8 @@ async def list_devices(
     """List service-visible device identities without context or credentials."""
     async with request.app.state.session_provider() as session:
         devices = (await session.scalars(select(Device).order_by(Device.device_identifier))).all()
-    return {"data": [_device_projection(device) for device in devices]}
+        projections = [await _device_projection(session, device) for device in devices]
+    return {"data": projections}
 
 
 @router.get("/devices/{device_id}/context")
@@ -131,9 +143,44 @@ async def read_device_context(
         )
     return {
         "data": {
-            "device": _device_projection(device),
+            "device": await _device_projection(session, device),
             "profiles": [availability[profile] for profile in sorted(availability)],
             "snapshots": snapshots,
+        }
+    }
+
+
+@router.get("/devices/{device_id}/context/snapshots")
+async def list_baseline_context_history(
+    device_id: UUID,
+    request: Request,
+    _: Annotated[ServicePrincipal, Depends(require_service_scope(CONTEXT_READ_SCOPE))],
+    profile: ContextProfileV1 = "baseline_v1",
+    limit: Annotated[int, Query(ge=1, le=_MAX_BASELINE_HISTORY_LIMIT)] = _BASELINE_HISTORY_LIMIT,
+) -> dict[str, object]:
+    """List a deterministic, bounded baseline-only history for one device."""
+    if profile != "baseline_v1":
+        raise _invalid_request()
+    async with request.app.state.session_provider() as session:
+        device = await session.scalar(select(Device.id).where(Device.id == device_id))
+        if device is None:
+            raise _not_found()
+        snapshots = (await session.scalars(
+            select(ContextSnapshot)
+            .where(
+                ContextSnapshot.device_id == device_id,
+                ContextSnapshot.profile == "baseline_v1",
+            )
+            .order_by(ContextSnapshot.collected_at.desc(), ContextSnapshot.id.desc())
+            .limit(limit)
+        )).all()
+    return {
+        "data": {
+            "snapshots": [
+                projection
+                for snapshot in snapshots
+                if (projection := snapshot_projection(snapshot)) is not None
+            ]
         }
     }
 
@@ -215,6 +262,8 @@ async def compare_device_context_snapshots(
     _: Annotated[ServicePrincipal, Depends(require_service_scope(CONTEXT_READ_SCOPE))],
 ) -> dict[str, object]:
     """Compare two baseline snapshots owned by the specified device."""
+    if before_snapshot_id == after_snapshot_id:
+        raise _invalid_request()
     async with request.app.state.session_provider() as session:
         snapshots = (await session.scalars(
             select(ContextSnapshot).where(
