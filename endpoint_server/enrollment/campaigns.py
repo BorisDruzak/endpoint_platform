@@ -343,6 +343,8 @@ async def consume_install_claim(
     *,
     installation_session: str,
     hardware_fingerprint: str,
+    source_address: IPv4Address | IPv6Address,
+    platform: str,
     actor_kind: str,
     actor_identifier: str | None,
     request_id: str,
@@ -385,7 +387,12 @@ async def consume_install_claim(
         .with_for_update()
     )
     campaign = campaign_result.scalar_one_or_none()
-    if campaign is None or not _campaign_allows(campaign, now=checked_at):
+    if campaign is None or not _campaign_allows(
+        campaign,
+        now=checked_at,
+        source_address=source_address,
+        platform=platform,
+    ):
         raise EnrollmentDenied("Enrollment denied")
     claim.claimed_at = checked_at
     campaign.use_count += 1

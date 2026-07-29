@@ -130,6 +130,15 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    op.execute(
+        "UPDATE enrollment_campaigns SET disabled_at = "
+        "COALESCE(disabled_at, CURRENT_TIMESTAMP) "
+        "WHERE revoked_at IS NOT NULL OR use_count >= max_uses"
+    )
+    op.execute(
+        "UPDATE enrollment_claims SET claimed_at = "
+        "COALESCE(claimed_at, CURRENT_TIMESTAMP)"
+    )
     op.drop_index(
         "ix_enrollment_claims_expires_at",
         table_name="enrollment_claims",

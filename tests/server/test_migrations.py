@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import io
 import os
 from collections.abc import Iterator
 from pathlib import Path
@@ -120,6 +121,33 @@ def test_migration_history_has_exactly_one_head() -> None:
     assert script.get_heads() == ["0005_enrollment_campaigns"]
 
 
+def test_enrollment_downgrade_sql_neutralizes_bounded_credentials() -> None:
+    """Dropping Task 2 state must not revive revoked campaigns or active claims."""
+    output = io.StringIO()
+    config = Config(REPOSITORY_ROOT / "alembic.ini", output_buffer=output)
+    config.set_main_option(
+        "sqlalchemy.url",
+        "postgresql+asyncpg://unused@127.0.0.1/unused",
+    )
+
+    command.downgrade(
+        config,
+        "0005_enrollment_campaigns:0004_device_credentials",
+        sql=True,
+    )
+
+    rendered = " ".join(output.getvalue().split())
+    assert (
+        "UPDATE enrollment_campaigns SET disabled_at = "
+        "COALESCE(disabled_at, CURRENT_TIMESTAMP) "
+        "WHERE revoked_at IS NOT NULL OR use_count >= max_uses;"
+    ) in rendered
+    assert (
+        "UPDATE enrollment_claims SET claimed_at = "
+        "COALESCE(claimed_at, CURRENT_TIMESTAMP);"
+    ) in rendered
+
+
 def test_initial_revision_upgrades_and_downgrades_empty_postgresql(
     empty_database_url: str,
 ) -> None:
@@ -136,6 +164,8 @@ def test_initial_revision_upgrades_and_downgrades_empty_postgresql(
     device_credential_id = uuid4()
     campaign_id = uuid4()
     claim_id = uuid4()
+    exhausted_campaign_id = uuid4()
+    exhausted_claim_id = uuid4()
 
     command.upgrade(config, "0001_initial")
     asyncio.run(
@@ -188,10 +218,15 @@ def test_initial_revision_upgrades_and_downgrades_empty_postgresql(
             "INSERT INTO enrollment_campaigns "
             "(id, campaign_identifier, token_digest, expires_at) "
             f"VALUES ('{campaign_id}', 'legacy-campaign', "
-            "'legacy-campaign-digest', '2026-07-30T10:00:00+00:00'); "
+            "'legacy-campaign-digest', '2026-07-30T10:00:00+00:00'), "
+            f"('{exhausted_campaign_id}', 'legacy-exhausted-campaign', "
+            "'legacy-exhausted-campaign-digest', "
+            "'2026-07-30T10:00:00+00:00'); "
             "INSERT INTO enrollment_claims "
             "(id, campaign_id, claim_identifier) "
-            f"VALUES ('{claim_id}', '{campaign_id}', 'legacy-claim')",
+            f"VALUES ('{claim_id}', '{campaign_id}', 'legacy-claim'), "
+            f"('{exhausted_claim_id}', '{exhausted_campaign_id}', "
+            "'legacy-exhausted-claim')",
         )
     )
 
@@ -352,6 +387,75 @@ def test_initial_revision_upgrades_and_downgrades_empty_postgresql(
         with pytest.raises(asyncpg.PostgresError, match="append-only") as rejected:
             asyncio.run(_execute(plain_url, statement))
         assert rejected.value.sqlstate == "55000"
+
+    asyncio.run(
+        _execute(
+            plain_url,
+            "UPDATE enrollment_campaigns SET revoked_at = CURRENT_TIMESTAMP "
+            f"WHERE id = '{campaign_id}'; "
+            "UPDATE enrollment_campaigns SET use_count = max_uses "
+            f"WHERE id = '{exhausted_campaign_id}'",
+        )
+    )
+    command.downgrade(config, "0004_device_credentials")
+    downgraded_campaign_rows = asyncio.run(
+        _fetch(
+            plain_url,
+            "SELECT id, disabled_at IS NOT NULL AS disabled "
+            "FROM enrollment_campaigns "
+            f"WHERE id IN ('{campaign_id}', '{exhausted_campaign_id}') "
+            "ORDER BY id",
+        )
+    )
+    assert len(downgraded_campaign_rows) == 2
+    assert all(row["disabled"] for row in downgraded_campaign_rows)
+    downgraded_claim_rows = asyncio.run(
+        _fetch(
+            plain_url,
+            "SELECT id, claimed_at IS NOT NULL AS neutralized "
+            "FROM enrollment_claims "
+            f"WHERE id IN ('{claim_id}', '{exhausted_claim_id}') "
+            "ORDER BY id",
+        )
+    )
+    assert len(downgraded_claim_rows) == 2
+    assert all(row["neutralized"] for row in downgraded_claim_rows)
+    removed_enrollment_columns = asyncio.run(
+        _fetch(
+            plain_url,
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_schema = 'public' "
+            "AND table_name IN ('enrollment_campaigns', 'enrollment_claims') "
+            "AND column_name IN "
+            "('revoked_at', 'max_uses', 'use_count', 'claim_digest', "
+            "'installation_session_digest', 'fingerprint_digest')",
+        )
+    )
+    assert removed_enrollment_columns == []
+
+    command.upgrade(config, "head")
+    round_trip_campaign_rows = asyncio.run(
+        _fetch(
+            plain_url,
+            "SELECT id, disabled_at IS NOT NULL AS disabled "
+            "FROM enrollment_campaigns "
+            f"WHERE id IN ('{campaign_id}', '{exhausted_campaign_id}') "
+            "ORDER BY id",
+        )
+    )
+    assert len(round_trip_campaign_rows) == 2
+    assert all(row["disabled"] for row in round_trip_campaign_rows)
+    round_trip_claim_rows = asyncio.run(
+        _fetch(
+            plain_url,
+            "SELECT id, claimed_at IS NOT NULL AS neutralized "
+            "FROM enrollment_claims "
+            f"WHERE id IN ('{claim_id}', '{exhausted_claim_id}') "
+            "ORDER BY id",
+        )
+    )
+    assert len(round_trip_claim_rows) == 2
+    assert all(row["neutralized"] for row in round_trip_claim_rows)
 
     command.downgrade(config, "base")
 

@@ -16,11 +16,13 @@ from alembic.config import Config
 from sqlalchemy import select
 from sqlalchemy.engine import make_url
 
-from endpoint_server.db.models import AuditEvent, EnrollmentCampaign
+from endpoint_server.db.models import AuditEvent, EnrollmentCampaign, EnrollmentClaim
 from endpoint_server.db.session import AsyncSessionProvider
 from endpoint_server.enrollment.campaigns import (
     EnrollmentDenied,
+    consume_install_claim,
     issue_campaign,
+    issue_install_claim,
     reserve_campaign_use,
 )
 
@@ -142,3 +144,152 @@ async def test_concurrent_final_campaign_use_is_reserved_exactly_once(
     assert campaign is not None
     assert campaign.use_count == 1
     assert len(audits) == 1
+
+
+@pytest.mark.asyncio
+async def test_concurrent_same_claim_is_consumed_exactly_once(
+    enrollment_provider: AsyncSessionProvider,
+) -> None:
+    """Two transactions presenting one claim must not both consume it."""
+    from datetime import UTC, datetime, timedelta
+    from ipaddress import ip_address
+
+    now = datetime.now(UTC)
+    campaign = issue_campaign(
+        PEPPER,
+        expires_at=now + timedelta(hours=1),
+        max_uses=2,
+        allowed_cidrs=("192.168.100.0/24",),
+        target_platform="linux",
+        policy={},
+        now=now,
+    ).record
+    claim = issue_install_claim(
+        campaign,
+        PEPPER,
+        installation_session="same-claim-session",
+        hardware_fingerprint="sha256:same-claim",
+        expires_at=now + timedelta(minutes=10),
+        now=now,
+    )
+    async with enrollment_provider() as session:
+        session.add_all((campaign, claim.record))
+        await session.commit()
+
+    async def consume(request_id: str) -> bool:
+        async with enrollment_provider() as session:
+            try:
+                await consume_install_claim(
+                    session,
+                    claim.token,
+                    PEPPER,
+                    installation_session="same-claim-session",
+                    hardware_fingerprint="sha256:same-claim",
+                    source_address=ip_address("192.168.100.20"),
+                    platform="linux",
+                    actor_kind="agent",
+                    actor_identifier=None,
+                    request_id=request_id,
+                    now=now,
+                )
+                await session.commit()
+                return True
+            except EnrollmentDenied:
+                await session.rollback()
+                return False
+
+    assert sorted(await asyncio.gather(consume("same-a"), consume("same-b"))) == [
+        False,
+        True,
+    ]
+    async with enrollment_provider() as session:
+        persisted_campaign = await session.get(EnrollmentCampaign, campaign.id)
+        persisted_claim = await session.get(EnrollmentClaim, claim.record.id)
+        audits = (
+            await session.scalars(
+                select(AuditEvent).where(
+                    AuditEvent.object_identifier == str(claim.record.id),
+                    AuditEvent.action == "enrollment_claim.consumed",
+                )
+            )
+        ).all()
+    assert persisted_campaign is not None
+    assert persisted_campaign.use_count == 1
+    assert persisted_claim is not None
+    assert persisted_claim.claimed_at is not None
+    assert len(audits) == 1
+
+
+@pytest.mark.asyncio
+async def test_different_claims_compete_for_final_campaign_quota(
+    enrollment_provider: AsyncSessionProvider,
+) -> None:
+    """Claim locks alone must not let different claims exceed campaign quota."""
+    from datetime import UTC, datetime, timedelta
+    from ipaddress import ip_address
+
+    now = datetime.now(UTC)
+    campaign = issue_campaign(
+        PEPPER,
+        expires_at=now + timedelta(hours=1),
+        max_uses=1,
+        allowed_cidrs=("192.168.100.0/24",),
+        target_platform="linux",
+        policy={},
+        now=now,
+    ).record
+    claims = [
+        issue_install_claim(
+            campaign,
+            PEPPER,
+            installation_session=f"quota-session-{suffix}",
+            hardware_fingerprint=f"sha256:quota-{suffix}",
+            expires_at=now + timedelta(minutes=10),
+            now=now,
+        )
+        for suffix in ("a", "b")
+    ]
+    async with enrollment_provider() as session:
+        session.add_all((campaign, *(issued.record for issued in claims)))
+        await session.commit()
+
+    async def consume(index: int) -> bool:
+        issued = claims[index]
+        suffix = ("a", "b")[index]
+        async with enrollment_provider() as session:
+            try:
+                await consume_install_claim(
+                    session,
+                    issued.token,
+                    PEPPER,
+                    installation_session=f"quota-session-{suffix}",
+                    hardware_fingerprint=f"sha256:quota-{suffix}",
+                    source_address=ip_address("192.168.100.20"),
+                    platform="linux",
+                    actor_kind="agent",
+                    actor_identifier=None,
+                    request_id=f"quota-{suffix}",
+                    now=now,
+                )
+                await session.commit()
+                return True
+            except EnrollmentDenied:
+                await session.rollback()
+                return False
+
+    assert sorted(await asyncio.gather(consume(0), consume(1))) == [False, True]
+    async with enrollment_provider() as session:
+        persisted_campaign = await session.get(EnrollmentCampaign, campaign.id)
+        claimed_count = len(
+            (
+                await session.scalars(
+                    select(EnrollmentClaim).where(
+                        EnrollmentClaim.campaign_id == campaign.id,
+                        EnrollmentClaim.claimed_at.is_not(None),
+                    )
+                )
+            ).all()
+        )
+    assert persisted_campaign is not None
+    assert persisted_campaign.use_count == 1
+    assert claimed_count == 1

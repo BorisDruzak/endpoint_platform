@@ -326,6 +326,8 @@ async def test_claim_is_one_time_expiring_and_bound_to_session_and_fingerprint()
                 PEPPER,
                 installation_session=install_session,
                 hardware_fingerprint=fingerprint,
+                source_address=ip_address("192.168.100.20"),
+                platform="linux",
                 actor_kind="agent",
                 actor_identifier=None,
                 request_id="claim-denied",
@@ -341,12 +343,35 @@ async def test_claim_is_one_time_expiring_and_bound_to_session_and_fingerprint()
             PEPPER,
             installation_session="install-session-a",
             hardware_fingerprint="sha256:device-a",
+            source_address=ip_address("192.168.100.20"),
+            platform="linux",
             actor_kind="agent",
             actor_identifier=None,
             request_id="claim-corrupt",
             now=NOW,
         )
     issued.record.fingerprint_digest = original_fingerprint_digest
+
+    for source, platform in (
+        ("192.168.101.20", "linux"),
+        ("192.168.100.20", "windows"),
+    ):
+        with pytest.raises(EnrollmentDenied):
+            await consume_install_claim(
+                _EnrollmentSession(campaign=campaign, claim=issued.record),
+                issued.token,
+                PEPPER,
+                installation_session="install-session-a",
+                hardware_fingerprint="sha256:device-a",
+                source_address=ip_address(source),
+                platform=platform,
+                actor_kind="agent",
+                actor_identifier=None,
+                request_id="claim-campaign-boundary",
+                now=NOW,
+            )
+        assert issued.record.claimed_at is None
+        assert campaign.use_count == 0
 
     session = _EnrollmentSession(campaign=campaign, claim=issued.record)
     consumed = await consume_install_claim(
@@ -355,6 +380,8 @@ async def test_claim_is_one_time_expiring_and_bound_to_session_and_fingerprint()
         PEPPER,
         installation_session="install-session-a",
         hardware_fingerprint="sha256:device-a",
+        source_address=ip_address("192.168.100.20"),
+        platform="linux",
         actor_kind="agent",
         actor_identifier=None,
         request_id="claim-ok",
@@ -375,6 +402,8 @@ async def test_claim_is_one_time_expiring_and_bound_to_session_and_fingerprint()
             PEPPER,
             installation_session="install-session-a",
             hardware_fingerprint="sha256:device-a",
+            source_address=ip_address("192.168.100.20"),
+            platform="linux",
             actor_kind="agent",
             actor_identifier=None,
             request_id="claim-reuse",
@@ -390,6 +419,8 @@ async def test_claim_is_one_time_expiring_and_bound_to_session_and_fingerprint()
             PEPPER,
             installation_session="install-session-a",
             hardware_fingerprint="sha256:device-a",
+            source_address=ip_address("192.168.100.20"),
+            platform="linux",
             actor_kind="agent",
             actor_identifier=None,
             request_id="claim-expired",
