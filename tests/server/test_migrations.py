@@ -131,6 +131,8 @@ def test_initial_revision_upgrades_and_downgrades_empty_postgresql(
     client_id = uuid4()
     credential_id = uuid4()
     audit_id = uuid4()
+    device_id = uuid4()
+    device_credential_id = uuid4()
 
     command.upgrade(config, "0001_initial")
     asyncio.run(
@@ -161,6 +163,21 @@ def test_initial_revision_upgrades_and_downgrades_empty_postgresql(
     assert credential_rows[0]["token_prefix"] == (f"svc_migrated_{credential_id.hex}")
     assert credential_rows[0]["scopes"] == []
 
+    command.upgrade(config, "0003_immutable_audit")
+    asyncio.run(
+        _execute(
+            plain_url,
+            "INSERT INTO devices "
+            "(id, device_identifier, display_name) "
+            f"VALUES ('{device_id}', 'legacy-device', 'Legacy device'); "
+            "INSERT INTO device_credentials "
+            "(id, device_id, credential_identifier, token_digest, expires_at) "
+            f"VALUES ('{device_credential_id}', '{device_id}', "
+            "'legacy-device-credential', 'legacy-device-token-digest', "
+            "'2026-07-30T10:00:00+00:00')",
+        )
+    )
+
     command.upgrade(config, "head")
     audit_rows = asyncio.run(
         _fetch(
@@ -172,6 +189,26 @@ def test_initial_revision_upgrades_and_downgrades_empty_postgresql(
     assert len(audit_rows) == 1
     assert audit_rows[0]["request_id"] == f"legacy-{audit_id.hex}"
     assert audit_rows[0]["details"] == "{}"
+
+    device_credential_rows = asyncio.run(
+        _fetch(
+            plain_url,
+            "SELECT device_id, credential_identifier, token_digest, "
+            "extract(epoch FROM expires_at)::bigint AS expires_epoch, "
+            "pending_token_digest, rotation_overlap_expires_at "
+            "FROM device_credentials "
+            f"WHERE id = '{device_credential_id}'",
+        )
+    )
+    assert len(device_credential_rows) == 1
+    assert device_credential_rows[0]["device_id"] == device_id
+    assert (
+        device_credential_rows[0]["credential_identifier"] == "legacy-device-credential"
+    )
+    assert device_credential_rows[0]["token_digest"] == "legacy-device-token-digest"
+    assert device_credential_rows[0]["expires_epoch"] == 1785405600
+    assert device_credential_rows[0]["pending_token_digest"] is None
+    assert device_credential_rows[0]["rotation_overlap_expires_at"] is None
 
     rows = asyncio.run(
         _fetch(

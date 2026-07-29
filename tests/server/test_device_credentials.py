@@ -7,8 +7,10 @@ import hashlib
 import hmac
 import secrets
 from dataclasses import replace
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime, timedelta, timezone
 from uuid import uuid4
+
+import pytest
 
 import endpoint_server.enrollment.credentials as credentials
 import endpoint_server.db.models as models
@@ -119,6 +121,56 @@ def test_retry_envelope_recovers_only_matching_fingerprint_before_expiry() -> No
     )
     assert token not in repr(issued)
     assert issued.receipt not in repr(issued)
+
+
+def test_retry_envelope_survives_postgresql_timezone_normalization() -> None:
+    """Equivalent timestamptz offsets must produce identical authenticated data."""
+    yekaterinburg = timezone(timedelta(hours=5))
+    issued_at = datetime(2026, 7, 29, 15, tzinfo=yekaterinburg)
+    token = credentials.generate_device_token()
+    token_pepper = secrets.token_bytes(32)
+    session_secret = secrets.token_bytes(32)
+    issued = credentials.seal_retry_envelope(
+        token,
+        "sha256:device-a",
+        token_pepper,
+        session_secret,
+        now=issued_at,
+    )
+    persisted = replace(issued, expires_at=issued.expires_at.astimezone(UTC))
+
+    assert issued.expires_at == datetime(2026, 7, 29, 10, 5, tzinfo=UTC)
+    assert (
+        credentials.recover_retry_token(
+            issued.receipt,
+            "sha256:device-a",
+            persisted,
+            token_pepper,
+            session_secret,
+            now=datetime(2026, 7, 29, 10, 1, tzinfo=UTC),
+        )
+        == token
+    )
+
+
+@pytest.mark.parametrize(
+    "lifetime",
+    (
+        timedelta(0),
+        timedelta(minutes=15, microseconds=1),
+    ),
+)
+def test_retry_envelope_rejects_non_short_lifetimes(lifetime: timedelta) -> None:
+    """Zero or over-limit TTLs must not create unusable or long-lived recovery."""
+    with pytest.raises(ValueError, match="at most 15 minutes"):
+        credentials.seal_retry_envelope(
+            credentials.generate_device_token(),
+            "sha256:device-a",
+            secrets.token_bytes(32),
+            secrets.token_bytes(32),
+            now=datetime(2026, 7, 29, 10, tzinfo=UTC),
+            lifetime=lifetime,
+        )
 
 
 def test_retry_envelope_fails_closed_when_persisted_state_is_corrupt() -> None:

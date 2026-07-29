@@ -140,11 +140,12 @@ def _envelope_aad(
     fingerprint_digest: str,
     expires_at: datetime,
 ) -> bytes:
+    canonical_expiry = expires_at.astimezone(UTC)
     return "\0".join(
         (
             receipt_digest,
             fingerprint_digest,
-            expires_at.isoformat(),
+            canonical_expiry.isoformat(timespec="microseconds"),
         )
     ).encode("ascii")
 
@@ -162,6 +163,7 @@ def seal_retry_envelope(
     issued_at = now or datetime.now(UTC)
     if issued_at.tzinfo is None:
         raise ValueError("now must be timezone-aware")
+    issued_at = issued_at.astimezone(UTC)
     if lifetime <= timedelta(0) or lifetime > MAX_RETRY_ENVELOPE_LIFETIME:
         raise ValueError(
             "retry envelope lifetime must be positive and at most 15 minutes"
