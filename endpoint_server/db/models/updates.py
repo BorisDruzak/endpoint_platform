@@ -80,9 +80,7 @@ class UpdateRollout(OwnershipRecord, Base):
 class UpdateTarget(OwnershipRecord, Base):
     __tablename__ = "update_targets"
     __table_args__ = (
-        UniqueConstraint(
-            "rollout_id", "device_id", name="uq_update_targets_device"
-        ),
+        UniqueConstraint("rollout_id", "device_id", name="uq_update_targets_device"),
         CheckConstraint(
             "status IN "
             "('assigned', 'requested', 'scheduled', 'applied', 'failed', "
@@ -93,9 +91,7 @@ class UpdateTarget(OwnershipRecord, Base):
             "uq_update_targets_active_device",
             "device_id",
             unique=True,
-            postgresql_where=text(
-                "status IN ('assigned', 'requested', 'scheduled')"
-            ),
+            postgresql_where=text("status IN ('assigned', 'requested', 'scheduled')"),
         ),
     )
 
@@ -108,9 +104,7 @@ class UpdateTarget(OwnershipRecord, Base):
     target_identifier: Mapped[str] = mapped_column(
         String(128), nullable=False, unique=True
     )
-    operation_id: Mapped[str] = mapped_column(
-        String(128), nullable=False, unique=True
-    )
+    operation_id: Mapped[str] = mapped_column(String(128), nullable=False, unique=True)
     status: Mapped[str] = mapped_column(String(32), nullable=False)
     assigned_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False

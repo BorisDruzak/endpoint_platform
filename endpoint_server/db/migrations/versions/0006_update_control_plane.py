@@ -140,8 +140,7 @@ def upgrade() -> None:
         sa.Column("safe_reason", sa.Text(), nullable=True),
     )
     op.execute(
-        "UPDATE update_targets SET operation_id = id::text, "
-        "assigned_at = created_at"
+        "UPDATE update_targets SET operation_id = id::text, assigned_at = created_at"
     )
     op.execute(
         "UPDATE update_targets SET status = 'cancelled', "
@@ -174,9 +173,7 @@ def upgrade() -> None:
         "update_targets",
         ["device_id"],
         unique=True,
-        postgresql_where=sa.text(
-            "status IN ('assigned', 'requested', 'scheduled')"
-        ),
+        postgresql_where=sa.text("status IN ('assigned', 'requested', 'scheduled')"),
     )
 
     op.add_column(
