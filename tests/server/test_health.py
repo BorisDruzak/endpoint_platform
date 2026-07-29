@@ -15,7 +15,11 @@ from endpoint_server.worker import run_worker
 
 
 class SuccessfulSession:
+    def __init__(self) -> None:
+        self.statement: object | None = None
+
     async def execute(self, statement: object) -> object:
+        self.statement = statement
         return object()
 
 
@@ -24,14 +28,42 @@ class FailingSession:
         raise RuntimeError("database password=not-for-response")
 
 
-@asynccontextmanager
-async def successful_session() -> AsyncIterator[SuccessfulSession]:
-    yield SuccessfulSession()
+class SuccessfulSessionProvider:
+    def __init__(self) -> None:
+        self.session = SuccessfulSession()
+
+    @asynccontextmanager
+    async def __call__(self) -> AsyncIterator[SuccessfulSession]:
+        yield self.session
+
+
+class ClosableSessionProvider:
+    def __init__(self) -> None:
+        self.close_calls = 0
+
+    @asynccontextmanager
+    async def __call__(self) -> AsyncIterator[SuccessfulSession]:
+        yield SuccessfulSession()
+
+    async def close(self) -> None:
+        self.close_calls += 1
 
 
 @asynccontextmanager
 async def failing_session() -> AsyncIterator[FailingSession]:
     yield FailingSession()
+
+
+@asynccontextmanager
+async def entering_failing_session() -> AsyncIterator[SuccessfulSession]:
+    raise RuntimeError("database password=not-for-response")
+    yield SuccessfulSession()
+
+
+@asynccontextmanager
+async def exiting_failing_session() -> AsyncIterator[SuccessfulSession]:
+    yield SuccessfulSession()
+    raise RuntimeError("database password=not-for-response")
 
 
 def _settings() -> Settings:
@@ -50,7 +82,8 @@ def _settings() -> Settings:
 @pytest.mark.asyncio
 async def test_healthz_returns_exact_payload_when_database_is_available() -> None:
     """A broken health contract would cause load balancers to misclassify the service."""
-    app = create_app(_settings(), session_provider=successful_session)
+    provider = SuccessfulSessionProvider()
+    app = create_app(_settings(), session_provider=provider)
 
     async with AsyncClient(
         transport=ASGITransport(app=app), base_url="http://testserver"
@@ -64,6 +97,7 @@ async def test_healthz_returns_exact_payload_when_database_is_available() -> Non
         "database": "ok",
         "version": "0.0.0",
     }
+    assert str(provider.session.statement) == "SELECT 1"
 
 
 @pytest.mark.asyncio
@@ -77,9 +111,70 @@ async def test_healthz_hides_database_exception_details() -> None:
         response = await client.get("/healthz")
 
     assert response.status_code == 503
-    assert response.json()["database"] == "unavailable"
+    assert response.json() == {
+        "status": "unavailable",
+        "service": "endpoint-platform",
+        "database": "unavailable",
+        "version": "0.0.0",
+    }
     assert "password" not in response.text.lower()
     assert "not-for-response" not in response.text
+
+
+@pytest.mark.asyncio
+async def test_healthz_hides_exception_when_session_provider_fails_to_enter() -> None:
+    """A connection failure before SELECT 1 must still be a generic health response."""
+    app = create_app(_settings(), session_provider=entering_failing_session)
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app, raise_app_exceptions=False),
+        base_url="http://testserver",
+    ) as client:
+        response = await client.get("/healthz")
+
+    assert response.status_code == 503
+    assert response.json() == {
+        "status": "unavailable",
+        "service": "endpoint-platform",
+        "database": "unavailable",
+        "version": "0.0.0",
+    }
+    assert "password" not in response.text.lower()
+    assert "not-for-response" not in response.text
+
+
+@pytest.mark.asyncio
+async def test_healthz_hides_exception_when_session_provider_fails_to_exit() -> None:
+    """A release failure after SELECT 1 must not bypass the generic health response."""
+    app = create_app(_settings(), session_provider=exiting_failing_session)
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app, raise_app_exceptions=False),
+        base_url="http://testserver",
+    ) as client:
+        response = await client.get("/healthz")
+
+    assert response.status_code == 503
+    assert response.json() == {
+        "status": "unavailable",
+        "service": "endpoint-platform",
+        "database": "unavailable",
+        "version": "0.0.0",
+    }
+    assert "password" not in response.text.lower()
+    assert "not-for-response" not in response.text
+
+
+@pytest.mark.asyncio
+async def test_app_lifespan_closes_default_session_provider() -> None:
+    """Skipping session-provider cleanup would leave database connections open on shutdown."""
+    provider = ClosableSessionProvider()
+    app = create_app(_settings(), session_provider=provider)
+
+    async with app.router.lifespan_context(app):
+        assert provider.close_calls == 0
+
+    assert provider.close_calls == 1
 
 
 @pytest.mark.asyncio

@@ -2,29 +2,31 @@
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
 from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncSession
+
+from endpoint_server.db.session import SessionProvider
 
 
 router = APIRouter()
 
 
-async def get_session(request: Request) -> AsyncIterator[AsyncSession]:
-    """Yield the request's injected database session."""
-    async with request.app.state.session_provider() as session:
-        yield session
+def get_session_provider(request: Request) -> SessionProvider:
+    """Return the request's injected session provider without opening a session."""
+    return request.app.state.session_provider
 
 
 @router.get("/healthz")
-async def healthz(session: Annotated[AsyncSession, Depends(get_session)]) -> JSONResponse:
+async def healthz(
+    session_provider: Annotated[SessionProvider, Depends(get_session_provider)],
+) -> JSONResponse:
     """Report service availability without exposing database errors."""
     try:
-        await session.execute(text("SELECT 1"))
+        async with session_provider() as session:
+            await session.execute(text("SELECT 1"))
     except Exception:
         return JSONResponse(
             status_code=503,
