@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import sys
+import traceback
 from uuid import UUID, uuid4
 
 import httpx
@@ -37,6 +38,13 @@ class FakeHttpClient:
 
     def close(self) -> None:
         return None
+
+
+class MalformedJsonResponse:
+    status_code = 200
+
+    def json(self) -> object:
+        raise ValueError("secret-token raw response body")
 
 
 def token(tmp_path: Path) -> Path:
@@ -131,6 +139,24 @@ def test_tls_initialization_failure_is_a_redacted_configuration_error(tmp_path: 
     assert "endpoint-platform-ca.pem" not in str(exc.value)
 
 
+def test_tls_initialization_traceback_does_not_expose_unsafe_cause(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        client_module.httpx,
+        "Client",
+        lambda **_: (_ for _ in ()).throw(OSError("secret-token /private/endpoint-platform-ca.pem")),
+    )
+
+    with pytest.raises(EndpointPlatformConfigurationError) as exc:
+        EndpointPlatformClient("https://endpoint.invalid", token_file=token(tmp_path), ca_file=ca(tmp_path))
+
+    rendered = "".join(traceback.format_exception(exc.type, exc.value, exc.tb))
+    assert "secret-token" not in rendered
+    assert "endpoint-platform-ca.pem" not in rendered
+    assert exc.value.__cause__ is None
+
+
 def test_get_retries_a_bounded_number_of_times_and_returns_typed_devices(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     device_id = str(uuid4())
     fake = FakeHttpClient(
@@ -187,6 +213,60 @@ def test_malformed_safe_response_becomes_typed_redacted_error(tmp_path: Path, mo
         client.list_devices()
 
     assert "not-a-uuid" not in str(exc.value)
+
+
+@pytest.mark.parametrize(
+    ("outcome", "error_type", "unsafe_text"),
+    [
+        (httpx.ConnectError("secret-token transport detail"), EndpointPlatformUnavailable, "secret-token"),
+        (_response(200, {"data": [{"id": "secret-token"}]}), EndpointPlatformMalformedResponse, "secret-token"),
+    ],
+)
+def test_public_sdk_error_tracebacks_do_not_retain_unsafe_causes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    outcome: httpx.Response | Exception,
+    error_type: type[Exception],
+    unsafe_text: str,
+) -> None:
+    fake = FakeHttpClient(responses=[outcome, outcome, outcome] if isinstance(outcome, Exception) else [outcome])
+    monkeypatch.setattr(client_module.httpx, "Client", lambda **_: fake)
+    client = EndpointPlatformClient("https://endpoint.invalid", token_file=token(tmp_path), ca_file=ca(tmp_path))
+
+    with pytest.raises(error_type) as exc:
+        client.list_devices()
+
+    rendered = "".join(traceback.format_exception(exc.type, exc.value, exc.tb))
+    assert unsafe_text not in rendered
+    assert exc.value.__cause__ is None
+
+
+def test_malformed_json_traceback_does_not_expose_response_content(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fake = FakeHttpClient(responses=[MalformedJsonResponse()])  # type: ignore[list-item]
+    monkeypatch.setattr(client_module.httpx, "Client", lambda **_: fake)
+    client = EndpointPlatformClient("https://endpoint.invalid", token_file=token(tmp_path), ca_file=ca(tmp_path))
+
+    with pytest.raises(EndpointPlatformMalformedResponse) as exc:
+        client.list_devices()
+
+    rendered = "".join(traceback.format_exception(exc.type, exc.value, exc.tb))
+    assert "secret-token" not in rendered
+    assert exc.value.__cause__ is None
+
+
+def test_http_error_traceback_does_not_expose_response_body(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    fake = FakeHttpClient(responses=[_response(500, {"detail": "secret-token raw response body"})])
+    monkeypatch.setattr(client_module.httpx, "Client", lambda **_: fake)
+    client = EndpointPlatformClient("https://endpoint.invalid", token_file=token(tmp_path), ca_file=ca(tmp_path))
+
+    with pytest.raises(EndpointPlatformResponseError) as exc:
+        client.list_devices()
+
+    rendered = "".join(traceback.format_exception(exc.type, exc.value, exc.tb))
+    assert "secret-token" not in rendered
+    assert exc.value.__cause__ is None
 
 
 def test_safe_read_methods_validate_normalized_service_projections(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

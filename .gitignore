@@ -3,3 +3,5 @@
 __pycache__/
 *.py[cod]
 artifacts/baseline/local.json
+sdk/python/build/
+sdk/python/*.egg-info/

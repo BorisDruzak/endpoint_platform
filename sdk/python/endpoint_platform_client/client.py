@@ -29,7 +29,7 @@ from .models import (
     SafeContextProfile,
     is_safe_profile,
 )
-from endpoint_contracts.context import DeviceContextDiffV1
+from ._contracts import DeviceContextDiffV1
 
 
 _READ_ATTEMPTS = 3
@@ -68,15 +68,15 @@ class EndpointPlatformClient:
                 timeout=timeout_seconds,
                 follow_redirects=False,
             )
-        except (OSError, ValueError, httpx.HTTPError) as error:
-            raise EndpointPlatformConfigurationError() from error
+        except (OSError, ValueError, httpx.HTTPError):
+            raise EndpointPlatformConfigurationError() from None
 
     @staticmethod
     def _read_token(path: Path) -> str:
         try:
             token = path.read_text(encoding="utf-8").strip()
-        except (OSError, UnicodeError) as error:
-            raise EndpointPlatformConfigurationError() from error
+        except (OSError, UnicodeError):
+            raise EndpointPlatformConfigurationError() from None
         if not token or len(token) > 4096:
             raise EndpointPlatformConfigurationError()
         return token
@@ -187,26 +187,26 @@ class EndpointPlatformClient:
         for attempt in range(attempts):
             try:
                 response = self._http.request(method, path, json=json, headers=headers, params=params)
-            except httpx.RequestError as error:
+            except httpx.RequestError:
                 if attempt + 1 < attempts:
                     continue
-                raise EndpointPlatformUnavailable() from error
+                raise EndpointPlatformUnavailable() from None
             if response.status_code in _TRANSIENT_STATUS_CODES and attempt + 1 < attempts:
                 continue
             if response.status_code < 200 or response.status_code >= 300:
                 raise EndpointPlatformResponseError(response.status_code)
             try:
                 return response.json()
-            except ValueError as error:
-                raise EndpointPlatformMalformedResponse() from error
+            except ValueError:
+                raise EndpointPlatformMalformedResponse() from None
         raise EndpointPlatformUnavailable()
 
     @staticmethod
     def _validate(value: object, parser: Callable[[object], Any]) -> Any:
         try:
             return parser(value)
-        except (KeyError, TypeError, ValidationError, ValueError) as error:
-            raise EndpointPlatformMalformedResponse() from error
+        except (KeyError, TypeError, ValidationError, ValueError):
+            raise EndpointPlatformMalformedResponse() from None
 
     @staticmethod
     def _require_safe_profile(profile: object) -> None:

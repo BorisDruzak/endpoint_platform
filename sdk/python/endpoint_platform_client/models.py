@@ -8,7 +8,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from endpoint_contracts.context import (
+from ._contracts import (
     BaselineSectionsV1,
     ContextWarningCodeV1,
     DeviceContextDiffV1,
