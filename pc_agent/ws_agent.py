@@ -47,7 +47,12 @@ from pc_agent.core.job_manager import JobManager
 from pc_agent.core.http_client import AioHttpClient
 from pc_agent.config.config_loader import get_config, init_config
 from pc_agent.core import runtime_paths
-from pc_agent.core.runtime_logging import RuntimeLogBuffer, configure_runtime_logging, read_log_tail, format_log_tail
+from pc_agent.core.runtime_logging import (
+    RuntimeLogBuffer,
+    configure_runtime_logging,
+    read_log_tail,
+    format_log_tail,
+)
 from pc_agent.core.action_trace import (
     configure_action_trace,
     get_action_trace_recorder,
@@ -103,6 +108,7 @@ def _configure_utf8_stdio() -> None:
 # 🔧 PROTOCOL V3 КОНСТАНТЫ
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+
 # Разрешенные типы сообщений (Фаза 2.1)
 def _is_auth_rejection_handshake_error(
     *,
@@ -133,7 +139,7 @@ ALLOWED_MESSAGE_TYPES = {
     # Legacy support (будут удалены)
     "command",
     "command_result",
-    "ack"
+    "ack",
 }
 
 UPDATE_STATUS_CACHE_TTL_SEC = 300
@@ -148,16 +154,11 @@ IDEMPOTENT_METHODS = {
     "run_recipe",
     "schedule_task",
     "cancel_task",
-    "task_run_now"
+    "task_run_now",
 }
 
 # Scheduler методы - заглушки (Фаза 7.1)
-SCHEDULER_METHODS = {
-    "schedule_task",
-    "cancel_task",
-    "list_tasks",
-    "task_run_now"
-}
+SCHEDULER_METHODS = {"schedule_task", "cancel_task", "list_tasks", "task_run_now"}
 
 # IDEMPOTENCY TTL (замечание 5)
 IDEMPOTENCY_TTL_SECONDS = 3600  # 1 час
@@ -173,24 +174,27 @@ MAX_UNKNOWN_MESSAGES_PER_MINUTE = 10
 # 🎯 КЛАСС АГЕНТА
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+
 class WSAgent:
     """
     WebSocket агент с интеграцией универсального оркестратора.
-    
+
     Оркестратор предоставляет единую точку входа для обработки всех команд:
     - ping - проверка статуса
     - collect - сбор данных с модулей
     - list_modules - список доступных модулей
     - update - обновление агента (заглушка)
     - exec_script - выполнение скриптов (заглушка)
-    
+
     Дополнительно ws_agent поддерживает:
     - get_status - статус агента с конфигурацией
     - get_info - системная информация
     - get_history - история событий из БД
     """
-    
-    def __init__(self, data_root: Optional[Path] = None, install_root: Optional[Path] = None):
+
+    def __init__(
+        self, data_root: Optional[Path] = None, install_root: Optional[Path] = None
+    ):
         """Инициализация агента. data_root/install_root задаются из точки входа (runtime_paths)."""
         self._data_root: Optional[Path] = data_root
         self._install_root: Optional[Path] = install_root
@@ -200,12 +204,14 @@ class WSAgent:
         self.flusher: Optional[WSOutboxFlusher] = None
         self.flusher_task: Optional[asyncio.Task] = None
         self.server_capabilities: set[str] = set()
-        self.device_id: Optional[str] = None  # Будет установлен из identity при initialize()
+        self.device_id: Optional[str] = (
+            None  # Будет установлен из identity при initialize()
+        )
         self.start_time = time.time()
         self._http_session: Optional[ClientSession] = None
         self.http: Optional[AioHttpClient] = None
         self.auth_token: Optional[str] = None
-        
+
         # UI Bridge компоненты
         self.event_bus: Optional[EventBus] = None
         self.ui_api_server: Optional[UiApiServer] = None
@@ -222,7 +228,7 @@ class WSAgent:
         self._endpoint_recommendation: Optional[EndpointRecommendation] = None
         self._startup_recommended_update_checked = False
         self._startup_recommended_update_task: Optional[asyncio.Task] = None
-        
+
         # Очередь и задача для публикации логов в EventBus
         # Используем обычную queue.Queue для синхронного sink
         self._log_queue: Optional[queue.Queue] = None
@@ -233,25 +239,25 @@ class WSAgent:
         self._shutdown_task: Optional[asyncio.Task] = None
         self._run_task: Optional[asyncio.Task] = None
         self._requested_exit_code: int = 0
-        
+
         # Process-local dedupe: command_id -> Future с результатом (для in_progress без дубля)
         self._running_commands: Dict[str, asyncio.Future] = {}
         self._background_command_tasks: set[asyncio.Task] = set()
-        
+
         # WebSocket соединение с сервером (для chat_raise и других команд)
         self._agent_ws: Optional[ClientWebSocketResponse] = None
         self._ws_send_lock = asyncio.Lock()
         self._pending_chat_raise: Dict[str, asyncio.Future] = {}  # request_id -> Future
-        
+
         # Protocol V3: Session ID для tracking unknown messages
         self._session_id: str = str(uuid.uuid4())
-        
+
         # Protocol V3: Idempotency GC task
         self._idempotency_gc_task: Optional[asyncio.Task] = None
-        
+
         # Protocol V3: Current trace_id для корреляции запросов
         self._current_trace_id: Optional[str] = None
-        
+
         # Protocol V3: Current ticket_id и job_id контекст
         self._current_ticket_id: Optional[str] = None
         self._current_job_id: Optional[str] = None
@@ -284,17 +290,30 @@ class WSAgent:
             "last_uploaded_seq": max(0, int(seq or 0)),
             "updated_at": datetime.now(timezone.utc).isoformat(),
         }
-        path.write_text(jsonlib.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        path.write_text(
+            jsonlib.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
 
-    async def _upload_agent_observer_events_once(self, ws: ClientWebSocketResponse) -> int:
+    async def _upload_agent_observer_events_once(
+        self, ws: ClientWebSocketResponse
+    ) -> int:
         if self._pending_agent_observer_upload:
             return 0
         cursor = self._load_agent_observer_upload_cursor()
-        events = get_action_trace_recorder().export_observer_events(after_seq=cursor, limit=100)
+        events = get_action_trace_recorder().export_observer_events(
+            after_seq=cursor, limit=100
+        )
         if not events:
             return 0
         request_id = str(uuid.uuid4())
-        max_seq = max(int((event.get("attrs_json") or {}).get("action_trace_seq") or event.get("agent_seq") or 0) for event in events)
+        max_seq = max(
+            int(
+                (event.get("attrs_json") or {}).get("action_trace_seq")
+                or event.get("agent_seq")
+                or 0
+            )
+            for event in events
+        )
         self._pending_agent_observer_upload = {
             "request_id": request_id,
             "max_seq": max_seq,
@@ -355,29 +374,55 @@ class WSAgent:
                 payload["failed_update_message"] = str(latest["message"])
             return payload
         except Exception as exc:
-            logger.debug(f"[update] latest applied update confirmation unavailable: {exc}")
+            logger.debug(
+                f"[update] latest applied update confirmation unavailable: {exc}"
+            )
             return None
 
-    async def _report_endpoint_terminal_observation(self, confirmation: Optional[Dict[str, str]]) -> None:
+    async def _report_endpoint_terminal_observation(
+        self, confirmation: Optional[Dict[str, str]]
+    ) -> None:
         if not confirmation:
             return
-        operation_id = str(confirmation.get("last_update_operation_id") or confirmation.get("failed_update_operation_id") or "")
+        operation_id = str(
+            confirmation.get("last_update_operation_id")
+            or confirmation.get("failed_update_operation_id")
+            or ""
+        )
         try:
             if str(uuid.UUID(operation_id)) != operation_id:
                 return
         except (ValueError, AttributeError):
             return
         if confirmation.get("applied_update_version"):
-            status, version, safe_code = "applied", str(confirmation["applied_update_version"]), "post_restart_handshake_confirmed"
+            status, version, safe_code = (
+                "applied",
+                str(confirmation["applied_update_version"]),
+                "post_restart_handshake_confirmed",
+            )
         elif confirmation.get("failed_update_version"):
             rollback = "rollback" in str(confirmation.get("failed_update_reason") or "")
-            status, version, safe_code = ("rolled_back", str(confirmation["failed_update_version"]), "launcher_rolled_back") if rollback else ("failed", str(confirmation["failed_update_version"]), "launcher_apply_failed")
+            status, version, safe_code = (
+                (
+                    "rolled_back",
+                    str(confirmation["failed_update_version"]),
+                    "launcher_rolled_back",
+                )
+                if rollback
+                else (
+                    "failed",
+                    str(confirmation["failed_update_version"]),
+                    "launcher_apply_failed",
+                )
+            )
         else:
             return
         session = self._http_session
         if session is None or session.closed:
             return
-        await self._endpoint_update_adapter(session).report_terminal(operation_id, status=status, reported_version=version, safe_code=safe_code)
+        await self._endpoint_update_adapter(session).report_terminal(
+            operation_id, status=status, reported_version=version, safe_code=safe_code
+        )
 
     @staticmethod
     def _release_channel_for_version(version: Optional[str]) -> str:
@@ -421,7 +466,9 @@ class WSAgent:
         updates_dir = data_root / "updates"
         pending_payload = self._read_json_file(updates_dir / "pending_update.json")
         history_payload = self._read_json_file(updates_dir / "update_history.json")
-        failed_payload = self._read_json_file(updates_dir / "last_failed_pending_update.json")
+        failed_payload = self._read_json_file(
+            updates_dir / "last_failed_pending_update.json"
+        )
 
         state = {
             "pending_update_version": None,
@@ -458,25 +505,45 @@ class WSAgent:
             entries = [item for item in history_payload if isinstance(item, dict)]
             if entries:
                 entries.sort(key=lambda item: item.get("at") or "", reverse=True)
-                latest_success = next((item for item in entries if item.get("success") is True), None)
-                latest_failure = next((item for item in entries if item.get("success") is False), None)
+                latest_success = next(
+                    (item for item in entries if item.get("success") is True), None
+                )
+                latest_failure = next(
+                    (item for item in entries if item.get("success") is False), None
+                )
                 if latest_success:
                     state["last_applied_update_version"] = latest_success.get("version")
                     state["last_applied_update_at"] = latest_success.get("at")
-                    state["last_applied_update_operation_id"] = latest_success.get("operation_id")
+                    state["last_applied_update_operation_id"] = latest_success.get(
+                        "operation_id"
+                    )
                 if latest_failure:
                     state["last_failed_update_version"] = latest_failure.get("version")
                     state["last_failed_update_at"] = latest_failure.get("at")
-                    state["last_failed_update_operation_id"] = latest_failure.get("operation_id")
+                    state["last_failed_update_operation_id"] = latest_failure.get(
+                        "operation_id"
+                    )
                     state["last_failed_update_reason"] = latest_failure.get("reason")
                     state["last_failed_update_message"] = latest_failure.get("message")
 
         if isinstance(failed_payload, dict):
-            pending_failed = failed_payload.get("pending_payload") if isinstance(failed_payload.get("pending_payload"), dict) else {}
-            state["last_failed_update_version"] = state["last_failed_update_version"] or pending_failed.get("version")
-            state["last_failed_update_operation_id"] = state["last_failed_update_operation_id"] or pending_failed.get("operation_id")
-            state["last_failed_update_reason"] = state["last_failed_update_reason"] or failed_payload.get("error_message")
-            state["last_failed_update_message"] = state["last_failed_update_message"] or failed_payload.get("error_message")
+            pending_failed = (
+                failed_payload.get("pending_payload")
+                if isinstance(failed_payload.get("pending_payload"), dict)
+                else {}
+            )
+            state["last_failed_update_version"] = state[
+                "last_failed_update_version"
+            ] or pending_failed.get("version")
+            state["last_failed_update_operation_id"] = state[
+                "last_failed_update_operation_id"
+            ] or pending_failed.get("operation_id")
+            state["last_failed_update_reason"] = state[
+                "last_failed_update_reason"
+            ] or failed_payload.get("error_message")
+            state["last_failed_update_message"] = state[
+                "last_failed_update_message"
+            ] or failed_payload.get("error_message")
 
         return state
 
@@ -533,18 +600,34 @@ class WSAgent:
     @staticmethod
     def _finalize_update_status(status: Dict[str, Any]) -> Dict[str, Any]:
         pending_version = str(status.get("pending_update_version") or "").strip()
-        pending_operation_id = str(status.get("pending_update_operation_id") or "").strip()
-        pending_received_at = str(status.get("pending_update_received_at") or "").strip()
+        pending_operation_id = str(
+            status.get("pending_update_operation_id") or ""
+        ).strip()
+        pending_received_at = str(
+            status.get("pending_update_received_at") or ""
+        ).strip()
         pending_reason = str(status.get("pending_update_reason") or "").strip()
         if pending_version:
             status["update_request_state"] = "pending_restart"
             status["update_request_version"] = pending_version
-            status["update_request_operation_id"] = pending_operation_id or status.get("update_request_operation_id")
-            status["update_request_requested_at"] = pending_received_at or status.get("update_request_requested_at")
-            status["update_request_reason"] = pending_reason or status.get("update_request_reason")
+            status["update_request_operation_id"] = pending_operation_id or status.get(
+                "update_request_operation_id"
+            )
+            status["update_request_requested_at"] = pending_received_at or status.get(
+                "update_request_requested_at"
+            )
+            status["update_request_reason"] = pending_reason or status.get(
+                "update_request_reason"
+            )
 
         request_state = str(status.get("update_request_state") or "").strip().lower()
-        if request_state in {"requesting", "requested", "pending_restart", "applying", "restarting"}:
+        if request_state in {
+            "requesting",
+            "requested",
+            "pending_restart",
+            "applying",
+            "restarting",
+        }:
             status["update_available"] = False
         return status
 
@@ -651,38 +734,106 @@ class WSAgent:
 
     @staticmethod
     def _endpoint_platform() -> Optional[str]:
-        return "windows_amd64" if platform.system().lower().startswith("win") else "linux_amd64" if platform.system().lower().startswith("linux") else None
+        return (
+            "windows_amd64"
+            if platform.system().lower().startswith("win")
+            else "linux_amd64"
+            if platform.system().lower().startswith("linux")
+            else None
+        )
 
     def _endpoint_update_adapter(self, session) -> EndpointUpdateAdapter:
-        return EndpointUpdateAdapter(api_url=get_config().server.api_url.rstrip("/"), bearer_token=lambda: self.auth_token, session=session, legacy_fetch=self._legacy_fetch_update_status, data_root=Path(self._data_root or runtime_paths.resolve_data_root()))
+        return EndpointUpdateAdapter(
+            api_url=get_config().server.api_url.rstrip("/"),
+            bearer_token=lambda: self.auth_token,
+            session=session,
+            legacy_fetch=self._legacy_fetch_update_status,
+            data_root=Path(self._data_root or runtime_paths.resolve_data_root()),
+        )
 
     @staticmethod
-    def _endpoint_recommended_build(recommendation: EndpointRecommendation) -> Dict[str, Any]:
-        return {"target": recommendation.platform, "channel": recommendation.channel, "version": recommendation.version, "artifact_name": recommendation.artifact_name, "archive_type": recommendation.archive_type, "sha256": recommendation.sha256, "size": recommendation.size}
+    def _endpoint_recommended_build(
+        recommendation: EndpointRecommendation,
+    ) -> Dict[str, Any]:
+        return {
+            "target": recommendation.platform,
+            "channel": recommendation.channel,
+            "version": recommendation.version,
+            "artifact_name": recommendation.artifact_name,
+            "archive_type": recommendation.archive_type,
+            "sha256": recommendation.sha256,
+            "size": recommendation.size,
+        }
 
     async def _fetch_update_status(self, *, force: bool = False) -> Dict[str, Any]:
         now_iso = datetime.now(timezone.utc).isoformat()
         if not force and self._cached_update_status and self._cached_update_checked_at:
             try:
-                if (datetime.now(timezone.utc) - datetime.fromisoformat(self._cached_update_checked_at)).total_seconds() < UPDATE_STATUS_CACHE_TTL_SEC: return self._merge_update_status(self._cached_update_status)
-            except Exception: pass
+                if (
+                    datetime.now(timezone.utc)
+                    - datetime.fromisoformat(self._cached_update_checked_at)
+                ).total_seconds() < UPDATE_STATUS_CACHE_TTL_SEC:
+                    return self._merge_update_status(self._cached_update_status)
+            except Exception:
+                pass
         base = self._base_update_status()
-        if not self.auth_token: base["update_status_error"] = "auth_token_missing"; return base
-        if not self.device_id: base["update_status_error"] = "device_id_missing"; return base
+        if not self.auth_token:
+            base["update_status_error"] = "auth_token_missing"
+            return base
+        if not self.device_id:
+            base["update_status_error"] = "device_id_missing"
+            return base
         target = self._endpoint_platform()
-        if target is None: base["update_status_error"] = "endpoint_platform_unsupported"; return base
-        session = self._http_session; created_session = False
-        if session is None or session.closed: session = ClientSession(timeout=ClientTimeout(total=10)); created_session = True
+        if target is None:
+            base["update_status_error"] = "endpoint_platform_unsupported"
+            return base
+        session = self._http_session
+        created_session = False
+        if session is None or session.closed:
+            session = ClientSession(timeout=ClientTimeout(total=10))
+            created_session = True
         try:
-            result = await self._endpoint_update_adapter(session).fetch_recommendation(platform=target, channel="stable")
-            if result.source == "legacy" and isinstance(result.legacy_result, dict): return self._merge_update_status(result.legacy_result)
+            result = await self._endpoint_update_adapter(session).fetch_recommendation(
+                platform=target, channel="stable"
+            )
+            if result.source == "legacy" and isinstance(result.legacy_result, dict):
+                return self._merge_update_status(result.legacy_result)
             if result.recommendation is None:
-                base.update({"recommendation_source": "endpoint", "update_checked_at": now_iso, "update_status_error": result.safe_error}); self._endpoint_recommendation = None; self._cached_update_checked_at = now_iso; self._cached_update_status = dict(base); return base
-            recommendation = result.recommendation; self._endpoint_recommendation = recommendation
-            status = {**base, "update_available": True, "recommended_version": recommendation.version, "recommended_channel": recommendation.channel, "recommended_reason": recommendation.reason, "recommended_build": self._endpoint_recommended_build(recommendation), "comparison": "endpoint_assignment", "recommendation_source": "endpoint", "assigned_rollout": {"target": recommendation.platform, "channel": recommendation.channel, "version": recommendation.version}, "update_checked_at": now_iso}
-            self._cached_update_checked_at = now_iso; self._cached_update_status = dict(status); return status
+                base.update(
+                    {
+                        "recommendation_source": "endpoint",
+                        "update_checked_at": now_iso,
+                        "update_status_error": result.safe_error,
+                    }
+                )
+                self._endpoint_recommendation = None
+                self._cached_update_checked_at = now_iso
+                self._cached_update_status = dict(base)
+                return base
+            recommendation = result.recommendation
+            self._endpoint_recommendation = recommendation
+            status = {
+                **base,
+                "update_available": True,
+                "recommended_version": recommendation.version,
+                "recommended_channel": recommendation.channel,
+                "recommended_reason": recommendation.reason,
+                "recommended_build": self._endpoint_recommended_build(recommendation),
+                "comparison": "endpoint_assignment",
+                "recommendation_source": "endpoint",
+                "assigned_rollout": {
+                    "target": recommendation.platform,
+                    "channel": recommendation.channel,
+                    "version": recommendation.version,
+                },
+                "update_checked_at": now_iso,
+            }
+            self._cached_update_checked_at = now_iso
+            self._cached_update_status = dict(status)
+            return status
         finally:
-            if created_session: await session.close()
+            if created_session:
+                await session.close()
 
     @property
     def requested_exit_code(self) -> int:
@@ -692,7 +843,11 @@ class WSAgent:
         """Предупреждает о потенциальной misconfig target-host."""
         ws_host = urlparse(ws_url).hostname or ""
         api_host = urlparse(api_url).hostname or ""
-        if ws_host in {"localhost", "127.0.0.1", "::1"} or api_host in {"localhost", "127.0.0.1", "::1"}:
+        if ws_host in {"localhost", "127.0.0.1", "::1"} or api_host in {
+            "localhost",
+            "127.0.0.1",
+            "::1",
+        }:
             logger.warning(
                 "[config] server.ws_url/api_url указывает на localhost. "
                 "Если ожидается удалённый сервер — проверьте settings.yaml и env overrides."
@@ -744,7 +899,9 @@ class WSAgent:
                 try:
                     async with session.get(endpoint) as response:
                         await response.read()
-                        logger.info(f"[connectivity] {endpoint} -> HTTP {response.status}")
+                        logger.info(
+                            f"[connectivity] {endpoint} -> HTTP {response.status}"
+                        )
                 except Exception as exc:
                     if endpoint_name == "modules_ping":
                         logger.warning(
@@ -760,33 +917,55 @@ class WSAgent:
         status = {
             "device_id": self.device_id,
             "agent_version": AGENT_VERSION,
-            "started_at": datetime.fromtimestamp(self.start_time, tz=timezone.utc).isoformat(),
+            "started_at": datetime.fromtimestamp(
+                self.start_time, tz=timezone.utc
+            ).isoformat(),
             "uptime_seconds": max(0, int(time.time() - self.start_time)),
             "connection_state": self._last_connection_state,
             "connection_detail": self._last_connection_detail,
             "connection_changed_at": self._last_connection_changed_at,
             "has_auth_token": bool(self.auth_token),
-            "ui_bridge_running": bool(self.ui_api_server and getattr(self.ui_api_server, "_listening", False)),
+            "ui_bridge_running": bool(
+                self.ui_api_server and getattr(self.ui_api_server, "_listening", False)
+            ),
             "log_runtime": dict(self._logging_runtime),
             "logs_dir": str(logs_dir),
-            "event_bus_subscribers": self.event_bus.get_subscriber_count() if self.event_bus else 0,
+            "event_bus_subscribers": self.event_bus.get_subscriber_count()
+            if self.event_bus
+            else 0,
         }
         status.update(self._merge_update_status(self._cached_update_status))
         status.update(self._read_local_update_state())
-        return self._finalize_update_status(self._overlay_active_cached_request_state(status))
+        return self._finalize_update_status(
+            self._overlay_active_cached_request_state(status)
+        )
 
     async def get_runtime_status_async(self) -> Dict[str, Any]:
         status = self.get_runtime_status()
         status.update(await self._fetch_update_status())
         status.update(self._read_local_update_state())
-        return self._finalize_update_status(self._overlay_active_cached_request_state(status))
+        return self._finalize_update_status(
+            self._overlay_active_cached_request_state(status)
+        )
 
-    def _overlay_active_cached_request_state(self, status: Dict[str, Any]) -> Dict[str, Any]:
-        cached = self._cached_update_status if isinstance(self._cached_update_status, dict) else None
+    def _overlay_active_cached_request_state(
+        self, status: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        cached = (
+            self._cached_update_status
+            if isinstance(self._cached_update_status, dict)
+            else None
+        )
         if not cached:
             return status
         request_state = str(cached.get("update_request_state") or "").strip().lower()
-        if request_state not in {"requesting", "requested", "pending_restart", "applying", "restarting"}:
+        if request_state not in {
+            "requesting",
+            "requested",
+            "pending_restart",
+            "applying",
+            "restarting",
+        }:
             return status
         for key in (
             "update_available",
@@ -810,7 +989,11 @@ class WSAgent:
         reason: str = "",
     ) -> None:
         now_iso = datetime.now(timezone.utc).isoformat()
-        cached = dict(self._cached_update_status) if isinstance(self._cached_update_status, dict) else {}
+        cached = (
+            dict(self._cached_update_status)
+            if isinstance(self._cached_update_status, dict)
+            else {}
+        )
         cached.update(
             {
                 "update_available": False,
@@ -830,7 +1013,9 @@ class WSAgent:
         self._cached_update_checked_at = now_iso
         self._cached_update_status = cached
 
-    async def trigger_recommended_update(self, payload: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    async def trigger_recommended_update(
+        self, payload: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
         payload = payload or {}
         action_trace = get_action_trace_recorder().context(
             source="ws_agent",
@@ -840,7 +1025,9 @@ class WSAgent:
         )
         recommendation = await self._fetch_update_status(force=True)
         recommended_build = recommendation.get("recommended_build")
-        if not recommendation.get("update_available") or not isinstance(recommended_build, dict):
+        if not recommendation.get("update_available") or not isinstance(
+            recommended_build, dict
+        ):
             get_action_trace_recorder().record(
                 action_trace,
                 stage="request",
@@ -875,15 +1062,54 @@ class WSAgent:
             adapter = self._endpoint_update_adapter(session)
             if not await adapter.acknowledge(item.operation_id, "requested"):
                 raise RuntimeError("endpoint requested acknowledgement failed")
-            get_action_trace_recorder().record(action_trace, stage="requested", status="ok", summary="endpoint update request acknowledged", details={"operation_id": item.operation_id, "version": item.version})
-            scheduled = await self.orchestrator._handle_update({"actor_role": "agent", "version": item.version, "target": item.platform, "channel": item.channel, "download_url": item.artifact_url, "sha256": item.sha256, "size": item.size, "archive_type": item.archive_type, "reason": str(payload.get("reason") or "agent_gui_self_update")}, ToolMeta(timestamp_iso=datetime.now(timezone.utc).isoformat(), command="update", request_id=item.operation_id, agent_id=self.device_id))
+            get_action_trace_recorder().record(
+                action_trace,
+                stage="requested",
+                status="ok",
+                summary="endpoint update request acknowledged",
+                details={"operation_id": item.operation_id, "version": item.version},
+            )
+            scheduled = await self.orchestrator._handle_update(
+                {
+                    "actor_role": "agent",
+                    "version": item.version,
+                    "target": item.platform,
+                    "channel": item.channel,
+                    "download_url": item.artifact_url,
+                    "sha256": item.sha256,
+                    "size": item.size,
+                    "archive_type": item.archive_type,
+                    "reason": str(payload.get("reason") or "agent_gui_self_update"),
+                },
+                ToolMeta(
+                    timestamp_iso=datetime.now(timezone.utc).isoformat(),
+                    command="update",
+                    request_id=item.operation_id,
+                    agent_id=self.device_id,
+                ),
+            )
             if getattr(scheduled, "status", None) != "success":
                 raise RuntimeError("endpoint update scheduling failed")
             if not await adapter.acknowledge(item.operation_id, "scheduled"):
                 raise RuntimeError("endpoint scheduled acknowledgement failed")
-            self._set_cached_update_request_state("scheduled", version=item.version, operation_id=item.operation_id, reason=str(payload.get("reason") or "agent_gui_self_update"))
-            get_action_trace_recorder().record(action_trace, stage="scheduled", status="ok", summary="endpoint update scheduled", details={"operation_id": item.operation_id, "version": item.version})
-            return {"status": "scheduled", "message": "Endpoint update scheduled", "recommendation": self._merge_update_status(self._cached_update_status)}
+            self._set_cached_update_request_state(
+                "scheduled",
+                version=item.version,
+                operation_id=item.operation_id,
+                reason=str(payload.get("reason") or "agent_gui_self_update"),
+            )
+            get_action_trace_recorder().record(
+                action_trace,
+                stage="scheduled",
+                status="ok",
+                summary="endpoint update scheduled",
+                details={"operation_id": item.operation_id, "version": item.version},
+            )
+            return {
+                "status": "scheduled",
+                "message": "Endpoint update scheduled",
+                "recommendation": self._merge_update_status(self._cached_update_status),
+            }
 
         api_url = get_config().server.api_url.rstrip("/")
         update_url = f"{api_url}/devices/{quote(self.device_id)}/agent/update"
@@ -895,7 +1121,9 @@ class WSAgent:
         }
         action_trace.operation_id = None
         action_trace.request_id = str(uuid.uuid4())
-        action_trace.trace_id = recommendation.get("pending_update_operation_id") or recommendation.get("last_update_operation_id")
+        action_trace.trace_id = recommendation.get(
+            "pending_update_operation_id"
+        ) or recommendation.get("last_update_operation_id")
         get_action_trace_recorder().record(
             action_trace,
             stage="request",
@@ -923,7 +1151,9 @@ class WSAgent:
             ) as response:
                 result = await response.json(content_type=None)
                 if response.status != 202:
-                    error_message = result.get("error") if isinstance(result, dict) else None
+                    error_message = (
+                        result.get("error") if isinstance(result, dict) else None
+                    )
                     get_action_trace_recorder().record(
                         action_trace,
                         stage="response",
@@ -932,8 +1162,14 @@ class WSAgent:
                         details={"status": response.status, "response": result},
                     )
                     raise RuntimeError(error_message or f"HTTP {response.status}")
-                operation_id = (result or {}).get("operation_id") if isinstance(result, dict) else None
-                action_trace.operation_id = str(operation_id) if operation_id else action_trace.operation_id
+                operation_id = (
+                    (result or {}).get("operation_id")
+                    if isinstance(result, dict)
+                    else None
+                )
+                action_trace.operation_id = (
+                    str(operation_id) if operation_id else action_trace.operation_id
+                )
                 logger.info(
                     "[update] request accepted: "
                     f"device_id={self.device_id} "
@@ -963,7 +1199,9 @@ class WSAgent:
                     "status": "accepted",
                     "message": "Update request sent",
                     "recommendation": recommendation,
-                    "server_response": result if isinstance(result, dict) else {"result": result},
+                    "server_response": result
+                    if isinstance(result, dict)
+                    else {"result": result},
                 }
         except Exception as exc:
             get_action_trace_recorder().record(
@@ -979,7 +1217,9 @@ class WSAgent:
             if created_session:
                 await session.close()
 
-    async def _maybe_trigger_startup_recommended_update(self) -> Optional[Dict[str, Any]]:
+    async def _maybe_trigger_startup_recommended_update(
+        self,
+    ) -> Optional[Dict[str, Any]]:
         if self._startup_recommended_update_checked:
             return None
         self._startup_recommended_update_checked = True
@@ -995,7 +1235,9 @@ class WSAgent:
 
         recommendation = await self._fetch_update_status(force=True)
         recommended_build = recommendation.get("recommended_build")
-        if not recommendation.get("update_available") or not isinstance(recommended_build, dict):
+        if not recommendation.get("update_available") or not isinstance(
+            recommended_build, dict
+        ):
             logger.info(
                 "[update] startup auto-update skipped: "
                 f"available={bool(recommendation.get('update_available'))} "
@@ -1011,7 +1253,9 @@ class WSAgent:
                 f"channel={recommended_build.get('channel')} "
                 f"version={recommended_build.get('version')}"
             )
-            return await self.trigger_recommended_update({"reason": "agent_startup_auto_update"})
+            return await self.trigger_recommended_update(
+                {"reason": "agent_startup_auto_update"}
+            )
         except Exception as exc:
             logger.error(f"[update] startup auto-update request failed: {exc!r}")
             return {
@@ -1020,7 +1264,9 @@ class WSAgent:
                 "recommendation": recommendation,
             }
 
-    def get_runtime_logs(self, source: str = "agent", lines: int = 120) -> Dict[str, Any]:
+    def get_runtime_logs(
+        self, source: str = "agent", lines: int = 120
+    ) -> Dict[str, Any]:
         normalized_source = str(source or "agent").strip().lower()
         max_lines = max(1, min(int(lines), 400))
         data_root = self._data_root or runtime_paths.resolve_data_root()
@@ -1040,15 +1286,24 @@ class WSAgent:
             rows = search_action_trace(limit=max_lines)
             return {
                 "source": "actions",
-                "path": str(get_action_trace_recorder().path) if getattr(get_action_trace_recorder(), "path", None) else None,
+                "path": str(get_action_trace_recorder().path)
+                if getattr(get_action_trace_recorder(), "path", None)
+                else None,
                 "entries": rows,
                 "lines": [jsonlib.dumps(item, ensure_ascii=False) for item in rows],
-                "text": "\n".join(jsonlib.dumps(item, ensure_ascii=False) for item in rows),
+                "text": "\n".join(
+                    jsonlib.dumps(item, ensure_ascii=False) for item in rows
+                ),
             }
 
         file_map = {
-            "agent": Path(self._logging_runtime.get("file") or (logs_dir / "agent.log")),
-            "launcher": next((candidate for candidate in launcher_candidates if candidate.exists()), launcher_candidates[0]),
+            "agent": Path(
+                self._logging_runtime.get("file") or (logs_dir / "agent.log")
+            ),
+            "launcher": next(
+                (candidate for candidate in launcher_candidates if candidate.exists()),
+                launcher_candidates[0],
+            ),
         }
         log_path = file_map.get(normalized_source)
         if log_path is None:
@@ -1060,7 +1315,7 @@ class WSAgent:
             "lines": [line.rstrip("\n") for line in tail_lines],
             "text": format_log_tail(tail_lines),
         }
-    
+
     async def initialize(self):
         """
         Инициализация базы данных, оркестратора и идентификации.
@@ -1086,12 +1341,12 @@ class WSAgent:
                 f"level={self._logging_runtime['level']}, "
                 f"file={self._logging_runtime['file']}"
             )
-            
+
             # Инициализируем менеджер идентификации: data_root/identity.json
             identity_path = data_root / "identity.json"
             self.identity_manager = IdentityManager(str(identity_path))
             self.identity_manager.load_or_create()
-            
+
             # Используем UUID из identity файла как device_id
             self.device_id = self.identity_manager.device_id
             logger.success("✅ Менеджер идентификации инициализирован")
@@ -1101,18 +1356,18 @@ class WSAgent:
             self.http = AioHttpClient(cfg.server.api_url, default_timeout=10)
             self._validate_server_config(cfg.server.ws_url, cfg.server.api_url)
             await self._check_server_reachability(cfg.server.api_url)
-            
+
             # Инициализируем глобальный FileUploader (для модуля screen и др.)
             get_uploader(identity_manager=self.identity_manager)
             logger.success("✅ FileUploader инициализирован")
-            
+
             # База данных: data_root/storage.db
             db_path = runtime_paths.resolve_storage_db_path(data_root)
             db_path.parent.mkdir(parents=True, exist_ok=True)
             self.db_manager = DatabaseManager(str(db_path))
             await self.db_manager.init_db()
             logger.success("✅ База данных инициализирована")
-            
+
             # Создаем универсальный оркестратор (data_root передаём для modules_store)
             self.orchestrator = AgentOrchestrator(
                 db_manager=self.db_manager,
@@ -1122,7 +1377,7 @@ class WSAgent:
                 data_root=data_root,
                 schedule_update_exit=self.schedule_update_shutdown,
             )
-            
+
             # Инициализируем оркестратор (загружает модули)
             await self.orchestrator.initialize()
             logger.success(f"✅ Оркестратор инициализирован")
@@ -1130,61 +1385,67 @@ class WSAgent:
             job_manager = JobManager(
                 db_manager=self.db_manager,
                 outbox_enqueue_func=self.db_manager.enqueue_job_event,
-                logger_instance=logger
+                logger_instance=logger,
             )
             self.orchestrator.attach_job_manager(job_manager)
             logger.success("✅ JobManager создан и подключен к оркестратору")
-            
+
             # Очищаем старые записи из seen_messages (TTL 14 дней)
             await self.db_manager.cleanup_old_seen_messages()
             logger.success("✅ Очистка старых seen_messages выполнена")
-            
+
             # Очищаем старые записи из seen_commands (TTL 14 дней)
             await self.db_manager.cleanup_seen_commands()
             logger.success("✅ Очистка старых seen_commands выполнена")
-            
+
             # Инициализируем UI Bridge
             self.event_bus = EventBus()
             logger.success("✅ EventBus инициализирован")
-            
+
             # Подключаем EventBus к оркестратору
             self.orchestrator.ui_bus = self.event_bus
             logger.success("✅ EventBus подключен к оркестратору")
-            
+
             # Создаем очередь для логов и задачу для публикации в EventBus
             # Используем обычную queue.Queue для синхронного sink
             self._log_queue = queue.Queue(maxsize=1000)  # Ограничение размера очереди
             self._log_publisher_task: Optional[asyncio.Task] = None
-            
+
             # Создаем sink для loguru, который отправляет логи в EventBus
             def log_sink(message):
                 """Sink для loguru, который добавляет логи в очередь для публикации в EventBus."""
                 try:
                     # Парсим сообщение loguru (message - это объект LogRecord)
                     record = message.record
-                    
+
                     # Исключаем логи, которые связаны с EventBus или SSE, чтобы избежать бесконечного цикла
                     log_message = record["message"]
                     module_name = record.get("name", "")
-                    
+
                     # Пропускаем логи от модулей EventBus и API сервера, чтобы избежать рекурсии
-                    if "event_bus" in module_name.lower() or "api_server" in module_name.lower():
+                    if (
+                        "event_bus" in module_name.lower()
+                        or "api_server" in module_name.lower()
+                    ):
                         return
-                    
+
                     # Пропускаем логи, которые содержат упоминания о публикации событий или отправке SSE
-                    if any(keyword in log_message.lower() for keyword in [
-                        "событие опубликовано",
-                        "sse событие отправлено",
-                        "event published",
-                        "sse event sent",
-                        "подписчик",
-                        "subscriber"
-                    ]):
+                    if any(
+                        keyword in log_message.lower()
+                        for keyword in [
+                            "событие опубликовано",
+                            "sse событие отправлено",
+                            "event published",
+                            "sse event sent",
+                            "подписчик",
+                            "subscriber",
+                        ]
+                    ):
                         return
-                    
+
                     # Получаем чистое сообщение без форматирования времени и уровня
                     # Используем record["message"] для получения исходного сообщения
-                    
+
                     # Формируем событие для EventBus
                     log_event = {
                         "level": record["level"].name.lower(),
@@ -1192,9 +1453,9 @@ class WSAgent:
                         "time": record["time"].isoformat(),
                         "module": module_name,
                         "function": record.get("function", ""),
-                        "line": record.get("line", 0)
+                        "line": record.get("line", 0),
                     }
-                    
+
                     # Добавляем в очередь (неблокирующе)
                     try:
                         self._log_queue.put_nowait(log_event)
@@ -1204,16 +1465,16 @@ class WSAgent:
                 except Exception:
                     # Не логируем ошибки в sink, чтобы избежать рекурсии
                     pass
-            
+
             # Добавляем sink для EventBus (используем enqueue=True для thread-safe)
             logger.add(
                 log_sink,
                 level=self._logging_runtime.get("level", "INFO"),
                 enqueue=True,  # Thread-safe очередь
-                format="{message}"
+                format="{message}",
             )
             logger.success("✅ Sink для EventBus добавлен в loguru")
-            
+
             # Запускаем задачу для публикации логов в EventBus
             async def log_publisher():
                 """Публикует логи из очереди в EventBus."""
@@ -1222,13 +1483,13 @@ class WSAgent:
                         # Ждем лог из очереди (используем asyncio.sleep для проверки)
                         # Проверяем очередь каждые 0.1 секунды
                         await asyncio.sleep(0.10)
-                        
+
                         # Пытаемся получить лог из очереди (неблокирующе)
                         try:
                             log_event = self._log_queue.get_nowait()
                         except queue.Empty:
                             continue
-                        
+
                         # Формируем событие для EventBus
                         event = {
                             "event_type": "log",
@@ -1237,23 +1498,23 @@ class WSAgent:
                                 "message": log_event["message"],
                                 "module": log_event["module"],
                                 "function": log_event["function"],
-                                "line": log_event["line"]
+                                "line": log_event["line"],
                             },
-                            "timestamp": log_event["time"]
+                            "timestamp": log_event["time"],
                         }
-                        
+
                         # Публикуем в EventBus
                         if self.event_bus:
                             await self.event_bus.publish(event)
-                        
+
                     except asyncio.CancelledError:
                         break
                     except Exception:
                         # Игнорируем ошибки публикации, чтобы не ломать логирование
                         pass
-            
+
             self._log_publisher_task = asyncio.create_task(log_publisher())
-            
+
             # Housekeeping task для cleanup_seen_commands (раз в сутки)
             async def housekeeping_cleanup_seen_commands_task():
                 """Периодический cleanup seen_commands (раз в сутки)."""
@@ -1262,16 +1523,19 @@ class WSAgent:
                         await asyncio.sleep(24 * 3600)  # 24 часа
                         if self.db_manager:
                             deleted_count = await self.db_manager.cleanup_seen_commands(
-                                max_age_days=14,
-                                max_records=50000
+                                max_age_days=14, max_records=50000
                             )
-                            logger.info(f"Housekeeping: cleaned up {deleted_count} seen_commands records")
+                            logger.info(
+                                f"Housekeeping: cleaned up {deleted_count} seen_commands records"
+                            )
                     except Exception as e:
                         logger.error(f"Housekeeping cleanup error: {e}", exc_info=True)
-            
-            self._housekeeping_task = asyncio.create_task(housekeeping_cleanup_seen_commands_task())
+
+            self._housekeeping_task = asyncio.create_task(
+                housekeeping_cleanup_seen_commands_task()
+            )
             logger.success("✅ Housekeeping task для seen_commands запущен")
-            
+
             # Housekeeping task для cleanup_expired_consents (раз в час)
             async def housekeeping_cleanup_expired_consents_task():
                 """Периодический cleanup expired pending_consents (раз в час)."""
@@ -1279,13 +1543,22 @@ class WSAgent:
                     try:
                         await asyncio.sleep(3600)  # 1 час
                         if self.db_manager:
-                            deleted_count = await self.db_manager.cleanup_expired_consents()
+                            deleted_count = (
+                                await self.db_manager.cleanup_expired_consents()
+                            )
                             if deleted_count > 0:
-                                logger.info(f"Housekeeping: cleaned up {deleted_count} expired pending_consents records")
+                                logger.info(
+                                    f"Housekeeping: cleaned up {deleted_count} expired pending_consents records"
+                                )
                     except Exception as e:
-                        logger.error(f"Housekeeping cleanup expired consents error: {e}", exc_info=True)
-            
-            self._consent_cleanup_task = asyncio.create_task(housekeeping_cleanup_expired_consents_task())
+                        logger.error(
+                            f"Housekeeping cleanup expired consents error: {e}",
+                            exc_info=True,
+                        )
+
+            self._consent_cleanup_task = asyncio.create_task(
+                housekeeping_cleanup_expired_consents_task()
+            )
             logger.success("✅ Housekeeping task для expired_consents запущен")
 
             # Runtime loop планировщика (MVP).
@@ -1294,12 +1567,14 @@ class WSAgent:
             # Даем задаче время на инициализацию в event loop
             await asyncio.sleep(0)
             logger.success("✅ Задача публикации логов в EventBus запущена")
-            
+
             # Создаем callback для обработки решений о согласии
             async def on_consent_decision(decision: ConsentDecision):
                 """Обработчик решений о согласии."""
-                logger.info(f"📋 Получено решение о согласии: job_id={decision.job_id}, approved={decision.approved}, reason={decision.reason}")
-                
+                logger.info(
+                    f"📋 Получено решение о согласии: job_id={decision.job_id}, approved={decision.approved}, reason={decision.reason}"
+                )
+
                 try:
                     # Формируем команду для оркестратора
                     cmd = {
@@ -1309,17 +1584,19 @@ class WSAgent:
                         "session_key": decision.session_key or decision.job_id or "",
                         "request_id": str(uuid.uuid4()),
                         "device_id": self.device_id,
-                        "actor_role": "user"  # consent_decision всегда от пользователя
+                        "actor_role": "user",  # consent_decision всегда от пользователя
                     }
-                    
+
                     # Вызываем оркестратор
                     result = await self.orchestrator.handle_command(cmd)
-                    logger.info(f"✅ Решение о согласии обработано оркестратором: approved={decision.approved}")
-                    
+                    logger.info(
+                        f"✅ Решение о согласии обработано оркестратором: approved={decision.approved}"
+                    )
+
                 except Exception as e:
                     logger.error(f"❌ Ошибка обработки решения о согласии: {e}")
                     logger.exception(e)
-            
+
             # Создаем UI API сервер (используем настройки из конфига)
             ui_config = get_config().ui
             ui_host = ui_config.host if ui_config else "127.0.0.1"
@@ -1333,9 +1610,15 @@ class WSAgent:
                 installed_modules: list[dict[str, Any]] = []
                 try:
                     module_manager = getattr(self.orchestrator, "module_manager", None)
-                    if module_manager is not None and hasattr(module_manager, "list_installed"):
+                    if module_manager is not None and hasattr(
+                        module_manager, "list_installed"
+                    ):
                         installed = module_manager.list_installed()
-                        modules = installed.get("modules", []) if isinstance(installed, dict) else []
+                        modules = (
+                            installed.get("modules", [])
+                            if isinstance(installed, dict)
+                            else []
+                        )
                         if isinstance(modules, list):
                             installed_modules = modules
                 except Exception as exc:
@@ -1385,10 +1668,14 @@ class WSAgent:
                 recorder = get_action_trace_recorder()
                 return {
                     "source": "actions",
-                    "path": str(recorder.path) if getattr(recorder, "path", None) else None,
+                    "path": str(recorder.path)
+                    if getattr(recorder, "path", None)
+                    else None,
                     "entries": rows,
                     "lines": [jsonlib.dumps(item, ensure_ascii=False) for item in rows],
-                    "text": "\n".join(jsonlib.dumps(item, ensure_ascii=False) for item in rows),
+                    "text": "\n".join(
+                        jsonlib.dumps(item, ensure_ascii=False) for item in rows
+                    ),
                 }
 
             async def on_chat_send(
@@ -1432,7 +1719,7 @@ class WSAgent:
                 on_chat_send=on_chat_send,
             )
             logger.success(f"✅ UiApiServer создан на {ui_host}:{ui_port}")
-            
+
             # Подключаем callback on_request_support к agent.chat_raise
             async def on_request_support(payload: dict) -> dict:
                 title = payload.get("title", "Support needed")
@@ -1440,7 +1727,9 @@ class WSAgent:
                 severity = payload.get("severity", "warning")
                 context = payload.get("context") or {}
 
-                result = await self.chat_raise(title=title, reason=reason, severity=severity, context=context)
+                result = await self.chat_raise(
+                    title=title, reason=reason, severity=severity, context=context
+                )
                 if not result:
                     return {"ok": False, "error": "chat_raise failed"}
                 if result.get("ok") is False:
@@ -1448,11 +1737,11 @@ class WSAgent:
                 return {"ok": True, **result}
 
             self.ui_api_server.on_request_support = on_request_support
-            
+
         except Exception as e:
             logger.error(f"❌ Ошибка инициализации: {e}")
             raise
-    
+
     async def cleanup(self):
         """
         Очистка ресурсов.
@@ -1470,7 +1759,7 @@ class WSAgent:
                     pass
                 self._log_publisher_task = None
                 logger.info("✅ Задача публикации логов остановлена")
-            
+
             if self._housekeeping_task:
                 logger.info("🛑 Останавливаю housekeeping task для seen_commands...")
                 self._housekeeping_task.cancel()
@@ -1480,7 +1769,7 @@ class WSAgent:
                     pass
                 self._housekeeping_task = None
                 logger.info("✅ Housekeeping task остановлен")
-            
+
             if self._consent_cleanup_task:
                 logger.info("🛑 Останавливаю housekeeping task для expired_consents...")
                 self._consent_cleanup_task.cancel()
@@ -1505,7 +1794,9 @@ class WSAgent:
                 logger.info("🛑 Останавливаю фоновые задачи command dispatch...")
                 for task in list(self._background_command_tasks):
                     task.cancel()
-                await asyncio.gather(*list(self._background_command_tasks), return_exceptions=True)
+                await asyncio.gather(
+                    *list(self._background_command_tasks), return_exceptions=True
+                )
                 self._background_command_tasks.clear()
                 logger.info("✅ Фоновые задачи command dispatch остановлены")
 
@@ -1518,7 +1809,7 @@ class WSAgent:
                     pass
                 self._startup_recommended_update_task = None
                 logger.info("✅ Startup update task остановлен")
-             
+
             # Останавливаем UI API сервер
             if self.ui_api_server and self.ui_api_task:
                 logger.info("🛑 Останавливаю UI API сервер...")
@@ -1539,17 +1830,17 @@ class WSAgent:
                     logger.warning(f"⚠️ Ошибка при остановке UI API сервера: {e}")
                 finally:
                     self.ui_api_task = None
-            
+
             # Корректное завершение оркестратора
             if self.orchestrator:
                 await self.orchestrator.shutdown()
                 logger.info("🛑 Оркестратор остановлен")
-            
+
             # Закрываем базу данных
             if self.db_manager:
                 await self.db_manager.close()
                 logger.info("🔒 База данных закрыта")
-            
+
             # Закрываем HTTP сессию
             if self._http_session:
                 await self._http_session.close()
@@ -1561,7 +1852,7 @@ class WSAgent:
                     await self.http.close()
                 except Exception as e:
                     logger.warning(f"Failed to close http client: {e}")
-                
+
         except Exception as e:
             logger.error(f"❌ Ошибка при очистке: {e}")
 
@@ -1582,7 +1873,9 @@ class WSAgent:
 
         try:
             if not ws.closed:
-                await asyncio.wait_for(ws.close(code=code, message=message), timeout=timeout)
+                await asyncio.wait_for(
+                    ws.close(code=code, message=message), timeout=timeout
+                )
             if callable(wait_for_close):
                 await asyncio.wait_for(wait_for_close(), timeout=timeout)
         except Exception as e:
@@ -1590,10 +1883,14 @@ class WSAgent:
         finally:
             self._agent_ws = None
 
-    async def schedule_restart(self, payload: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    async def schedule_restart(
+        self, payload: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
         return await helper_schedule_restart(self, payload)
 
-    async def schedule_update_shutdown(self, payload: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    async def schedule_update_shutdown(
+        self, payload: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
         payload = payload or {}
         self._set_cached_update_request_state(
             "applying",
@@ -1621,15 +1918,15 @@ class WSAgent:
 
     async def _restart_self(self, delay_sec: float, reason: str) -> None:
         await helper_restart_self(self, delay_sec, reason)
-    
+
     def normalize_envelope(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """
         Нормализует входящее сообщение в формат Protocol V3 envelope.
         Обеспечивает обратную совместимость со старыми форматами (V2/legacy).
-        
+
         Args:
             data: Распарсенное JSON сообщение
-        
+
         Returns:
             Нормализованный envelope (V3): {
                 "type": str,
@@ -1652,29 +1949,29 @@ class WSAgent:
                 self._current_ticket_id = data["ticket_id"]
             if "job_id" in data:
                 self._current_job_id = data["job_id"]
-            
+
             # Убеждаемся, что есть request_id
             if "request_id" not in data:
                 data["request_id"] = str(uuid.uuid4())
                 logger.debug(f"🔑 [V3] Сгенерирован request_id: {data['request_id']}")
-            
+
             # Убеждаемся, что есть meta
             if "meta" not in data:
                 data["meta"] = {
                     "timestamp": datetime.now(timezone.utc).isoformat(),
-                    "actor_role": "unknown"
+                    "actor_role": "unknown",
                 }
-            
+
             return data
-        
+
         # Legacy V2 envelope формат: {"type": "...", "payload": {...}}
         if "type" in data and "payload" in data:
             request_id = data.get("request_id") or str(uuid.uuid4())
             trace_id = data.get("trace_id") or str(uuid.uuid4())
-            
+
             # Извлекаем actor_role из payload для V2 совместимости
             actor_role = data.get("payload", {}).get("actor_role", "unknown")
-            
+
             envelope = {
                 "type": data["type"],
                 "request_id": request_id,
@@ -1684,10 +1981,10 @@ class WSAgent:
                 "payload": data["payload"],
                 "meta": {
                     "timestamp": datetime.now(timezone.utc).isoformat(),
-                    "actor_role": actor_role
-                }
+                    "actor_role": actor_role,
+                },
             }
-            
+
             # Сохраняем контекст
             self._current_trace_id = trace_id
             if "ticket_id" in data:
@@ -1696,15 +1993,17 @@ class WSAgent:
             if "job_id" in data:
                 envelope["job_id"] = data["job_id"]
                 self._current_job_id = data["job_id"]
-            
-            logger.debug(f"🔄 [V2→V3] Конвертирован legacy envelope: type={data['type']}")
+
+            logger.debug(
+                f"🔄 [V2→V3] Конвертирован legacy envelope: type={data['type']}"
+            )
             return envelope
-        
+
         # Старый формат: {"command": "...", "params": {...}}
         if "command" in data:
             request_id = data.get("request_id") or str(uuid.uuid4())
             trace_id = str(uuid.uuid4())
-            
+
             envelope = {
                 "type": "command",
                 "request_id": request_id,
@@ -1713,21 +2012,25 @@ class WSAgent:
                 "trace_id": trace_id,
                 "payload": {
                     "command": data["command"],
-                    "params": data.get("params", {})
+                    "params": data.get("params", {}),
                 },
                 "meta": {
                     "timestamp": datetime.now(timezone.utc).isoformat(),
-                    "actor_role": data.get("params", {}).get("actor_role", "unknown")
-                }
+                    "actor_role": data.get("params", {}).get("actor_role", "unknown"),
+                },
             }
-            
+
             self._current_trace_id = trace_id
-            logger.debug(f"🔄 [Legacy→V3] Конвертирована старая команда: {data['command']}")
+            logger.debug(
+                f"🔄 [Legacy→V3] Конвертирована старая команда: {data['command']}"
+            )
             return envelope
-        
+
         # Старый формат: {"type": "ping"}
         if data.get("type") == "agent_observer_batch_ack":
-            trace_id = data.get("trace_id") or self._current_trace_id or str(uuid.uuid4())
+            trace_id = (
+                data.get("trace_id") or self._current_trace_id or str(uuid.uuid4())
+            )
             self._current_trace_id = trace_id
             return {
                 "type": "agent_observer_batch_ack",
@@ -1754,12 +2057,14 @@ class WSAgent:
                 "payload": {},
                 "meta": {
                     "timestamp": datetime.now(timezone.utc).isoformat(),
-                    "actor_role": "server"
-                }
+                    "actor_role": "server",
+                },
             }
-        
+
         # Неизвестный формат - создаем envelope с исходными данными в payload
-        logger.warning(f"⚠️  Неизвестный формат сообщения, оборачиваю в V3 envelope: {data}")
+        logger.warning(
+            f"⚠️  Неизвестный формат сообщения, оборачиваю в V3 envelope: {data}"
+        )
         trace_id = str(uuid.uuid4())
         self._current_trace_id = trace_id
         return {
@@ -1771,24 +2076,24 @@ class WSAgent:
             "payload": data,
             "meta": {
                 "timestamp": datetime.now(timezone.utc).isoformat(),
-                "actor_role": "unknown"
-            }
+                "actor_role": "unknown",
+            },
         }
-    
+
     async def send_envelope(
-        self, 
-        ws: ClientWebSocketResponse, 
-        msg_type: str, 
-        request_id: Optional[str], 
+        self,
+        ws: ClientWebSocketResponse,
+        msg_type: str,
+        request_id: Optional[str],
         payload_dict: Dict[str, Any],
         trace_id: Optional[str] = None,
         ticket_id: Optional[str] = None,
         job_id: Optional[str] = None,
-        actor_role: Optional[str] = None
+        actor_role: Optional[str] = None,
     ) -> None:
         """
         Отправляет сообщение в формате Protocol V3 envelope.
-        
+
         Args:
             ws: WebSocket соединение
             msg_type: Тип сообщения (command_result, pong, error и т.д.)
@@ -1802,11 +2107,11 @@ class WSAgent:
         # Гарантируем наличие request_id
         if not request_id:
             request_id = str(uuid.uuid4())
-        
+
         # Используем trace_id из контекста или генерируем новый
         if not trace_id:
             trace_id = self._current_trace_id or str(uuid.uuid4())
-        
+
         # Protocol V3 envelope
         envelope = {
             "type": msg_type,
@@ -1816,10 +2121,10 @@ class WSAgent:
             "payload": payload_dict,
             "meta": {
                 "timestamp": datetime.now(timezone.utc).isoformat(),
-                "actor_role": actor_role or "agent"
-            }
+                "actor_role": actor_role or "agent",
+            },
         }
-        
+
         # Добавляем опциональные поля контекста
         if trace_id:
             envelope["trace_id"] = trace_id
@@ -1827,7 +2132,7 @@ class WSAgent:
             envelope["ticket_id"] = ticket_id or self._current_ticket_id
         if job_id or self._current_job_id:
             envelope["job_id"] = job_id or self._current_job_id
-        
+
         async with self._ws_send_lock:
             await ws.send_json(envelope)
         if msg_type in {"command_ack", "command_result"}:
@@ -1847,7 +2152,12 @@ class WSAgent:
 
     def _should_run_command_in_background(self, command: Optional[str]) -> bool:
         """Commands that can take noticeable time should not block the WS receive loop."""
-        return command in {"run_tool", "call_tool", "run_recipe", "remote_assist.request"}
+        return command in {
+            "run_tool",
+            "call_tool",
+            "run_recipe",
+            "remote_assist.request",
+        }
 
     async def _execute_command_and_send_result(
         self,
@@ -1898,7 +2208,11 @@ class WSAgent:
                     "meta": tool_response.get("meta", {}),
                 }
             if self.db_manager and not cached_canceled:
-                status = "success" if command_result_payload["status"] == "success" else "error"
+                status = (
+                    "success"
+                    if command_result_payload["status"] == "success"
+                    else "error"
+                )
                 result_json = jsonlib.dumps(command_result_payload, ensure_ascii=False)
                 was_updated = await self.db_manager.mark_command_seen(
                     command_id=command_id,
@@ -1914,9 +2228,13 @@ class WSAgent:
                     actor_role=actor_role_meta,
                 )
                 if was_updated:
-                    logger.debug(f"✅ Команда {command_id} сохранена в seen_commands (status={status})")
+                    logger.debug(
+                        f"✅ Команда {command_id} сохранена в seen_commands (status={status})"
+                    )
                 else:
-                    logger.debug(f"⚠️  Команда {command_id} уже была success, не перезаписали")
+                    logger.debug(
+                        f"⚠️  Команда {command_id} уже была success, не перезаписали"
+                    )
         except asyncio.CancelledError:
             command_result_payload = {
                 "status": "canceled",
@@ -1951,9 +2269,13 @@ class WSAgent:
                     actor_role=actor_role_meta,
                 )
                 if was_updated:
-                    logger.debug(f"✅ Команда {command_id} сохранена в seen_commands (status=canceled)")
+                    logger.debug(
+                        f"✅ Команда {command_id} сохранена в seen_commands (status=canceled)"
+                    )
                 else:
-                    logger.debug(f"⚠️  Команда {command_id} уже была terminal, не перезаписали")
+                    logger.debug(
+                        f"⚠️  Команда {command_id} уже была terminal, не перезаписали"
+                    )
         except Exception as e:
             logger.exception(e)
             command_result_payload = {
@@ -1966,7 +2288,8 @@ class WSAgent:
             future = self._running_commands.pop(command_id, None)
             if future and not future.done():
                 future.set_result(
-                    command_result_payload or {
+                    command_result_payload
+                    or {
                         "status": "error",
                         "data": {},
                         "error": {"message": "Unknown"},
@@ -1988,13 +2311,15 @@ class WSAgent:
             )
         except Exception as exc:
             if self.db_manager:
-                await self.db_manager.mark_pending_command_result_attempt(command_id, str(exc))
+                await self.db_manager.mark_pending_command_result_attempt(
+                    command_id, str(exc)
+                )
             raise
         logger.success(
             f"✅ [V3] Команда {command} выполнена "
             f"(request_id={request_id}, trace_id={trace_id}, command_id={command_id})"
         )
-    
+
     async def _send_durable_command_result(
         self,
         ws: ClientWebSocketResponse,
@@ -2037,7 +2362,9 @@ class WSAgent:
             try:
                 payload = jsonlib.loads(item["payload_json"])
             except Exception as exc:
-                await self.db_manager.mark_pending_command_result_attempt(command_id, str(exc))
+                await self.db_manager.mark_pending_command_result_attempt(
+                    command_id, str(exc)
+                )
                 continue
             try:
                 await self.send_envelope(
@@ -2052,13 +2379,21 @@ class WSAgent:
                 )
                 replayed += 1
             except Exception as exc:
-                await self.db_manager.mark_pending_command_result_attempt(command_id, str(exc))
-                logger.warning(f"[command_result_replay] failed command_id={command_id}: {exc}")
+                await self.db_manager.mark_pending_command_result_attempt(
+                    command_id, str(exc)
+                )
+                logger.warning(
+                    f"[command_result_replay] failed command_id={command_id}: {exc}"
+                )
         if replayed:
-            logger.info(f"[command_result_replay] replayed pending command results: count={replayed}")
+            logger.info(
+                f"[command_result_replay] replayed pending command results: count={replayed}"
+            )
         return replayed
 
-    async def recover_in_progress_commands_on_startup(self, ws: ClientWebSocketResponse) -> List[Dict[str, Any]]:
+    async def recover_in_progress_commands_on_startup(
+        self, ws: ClientWebSocketResponse
+    ) -> List[Dict[str, Any]]:
         if not self.db_manager:
             return []
         recovered = await self.db_manager.recover_in_progress_commands_on_startup(
@@ -2076,7 +2411,7 @@ class WSAgent:
     async def handle_message(self, ws: ClientWebSocketResponse, message: str) -> None:
         """
         Обрабатывает входящее сообщение от сервера.
-        
+
         Поддерживает единый формат envelope:
         {
             "type": str,
@@ -2084,32 +2419,44 @@ class WSAgent:
             "device_id": str,
             "payload": dict
         }
-        
+
         Обеспечивает обратную совместимость со старыми форматами.
-        
+
         Args:
             ws: WebSocket соединение
             message: Строка сообщения от сервера
         """
         try:
-            logger.debug(f"📩 Получено сообщение от сервера (длина: {len(message)} байт)")
+            logger.debug(
+                f"📩 Получено сообщение от сервера (длина: {len(message)} байт)"
+            )
             logger.debug(f"📄 Содержимое сообщения: {message}")
-            
+
             data = jsonlib.loads(message)
             logger.debug(f"📦 Распарсенные данные: {data}")
-            
+
             # Нормализуем входящее сообщение в формат envelope
             envelope = self.normalize_envelope(data)
             msg_type = envelope["type"]
             request_id = envelope["request_id"]
             payload = envelope["payload"]
-            
-            logger.debug(f"📦 Нормализованный envelope: type={msg_type}, request_id={request_id}")
-            
+
+            logger.debug(
+                f"📦 Нормализованный envelope: type={msg_type}, request_id={request_id}"
+            )
+
             if msg_type == "command_result_ack":
-                if self.db_manager and request_id and payload.get("status") == "accepted":
-                    await self.db_manager.mark_pending_command_result_acknowledged(request_id)
-                    logger.debug(f"[command_result_ack] acknowledged command_id={request_id}")
+                if (
+                    self.db_manager
+                    and request_id
+                    and payload.get("status") == "accepted"
+                ):
+                    await self.db_manager.mark_pending_command_result_acknowledged(
+                        request_id
+                    )
+                    logger.debug(
+                        f"[command_result_ack] acknowledged command_id={request_id}"
+                    )
                 elif self.db_manager and request_id:
                     await self.db_manager.mark_pending_command_result_attempt(
                         request_id,
@@ -2122,17 +2469,17 @@ class WSAgent:
                 trace_id = envelope.get("trace_id")
                 logger.debug(f"📶 Получен ping от сервера (trace_id={trace_id})")
                 await self.send_envelope(
-                    ws, "pong", request_id, {},
-                    trace_id=trace_id,
-                    actor_role="agent"
+                    ws, "pong", request_id, {}, trace_id=trace_id, actor_role="agent"
                 )
                 return
-            
+
             # Handshake ACK
             if msg_type == "handshake_ack":
                 server_capabilities = payload.get("server_capabilities", [])
                 if isinstance(server_capabilities, list):
-                    self.server_capabilities = set(str(item) for item in server_capabilities)
+                    self.server_capabilities = set(
+                        str(item) for item in server_capabilities
+                    )
                 else:
                     self.server_capabilities = set()
                 registration = payload.get("registration")
@@ -2142,14 +2489,20 @@ class WSAgent:
 
                         manager = UserProfileManager()
                         profile = manager.load()
-                        profile["registration_status"] = str(registration.get("status") or "unknown")
+                        profile["registration_status"] = str(
+                            registration.get("status") or "unknown"
+                        )
                         if registration.get("pending_claim_id"):
-                            profile["last_claim_id"] = str(registration.get("pending_claim_id"))
+                            profile["last_claim_id"] = str(
+                                registration.get("pending_claim_id")
+                            )
                         manager.save(profile)
                     except Exception as exc:
                         logger.debug("Registration status persistence skipped: {}", exc)
                 if self.flusher:
-                    self.flusher.supports_outbox_batch = "outbox_batch_v1" in self.server_capabilities
+                    self.flusher.supports_outbox_batch = (
+                        "outbox_batch_v1" in self.server_capabilities
+                    )
                 try:
                     await self._upload_agent_observer_events_once(ws)
                 except Exception as exc:
@@ -2157,7 +2510,7 @@ class WSAgent:
                 logger.info("✅ Получен handshake_ack от сервера")
                 await self._publish_connection_state("connected", "WS подключён")
                 return
-            
+
             # Protocol V3: outbox_ack (предпочтительный)
             if msg_type == "agent_observer_batch_ack":
                 await self._handle_agent_observer_batch_ack(payload)
@@ -2165,31 +2518,45 @@ class WSAgent:
 
             if msg_type == "outbox_ack":
                 trace_id = envelope.get("trace_id", "unknown")
-                logger.info(f"✅ [V3] Получен outbox_ack от сервера (trace_id={trace_id})")
+                logger.info(
+                    f"✅ [V3] Получен outbox_ack от сервера (trace_id={trace_id})"
+                )
                 if self.flusher:
                     outbox_ids_raw = payload.get("outbox_ids", [])
-                    server_seq = payload.get("server_seq")  # Опциональная последовательность сервера
+                    server_seq = payload.get(
+                        "server_seq"
+                    )  # Опциональная последовательность сервера
                     if isinstance(outbox_ids_raw, list) and outbox_ids_raw:
                         # Нормализуем к int: сервер может прислать числа или строки, inflight_deadlines ключи — int
                         outbox_ids = [int(oid) for oid in outbox_ids_raw]
                         await self.flusher.handle_ack(outbox_ids)
-                        logger.debug(f"✅ ACK обработан: {len(outbox_ids)} сообщений, server_seq={server_seq}")
+                        logger.debug(
+                            f"✅ ACK обработан: {len(outbox_ids)} сообщений, server_seq={server_seq}"
+                        )
                     else:
-                        logger.warning(f"⚠️  outbox_ack с пустым/неверным outbox_ids: {outbox_ids_raw}")
+                        logger.warning(
+                            f"⚠️  outbox_ack с пустым/неверным outbox_ids: {outbox_ids_raw}"
+                        )
                 return
-            
+
             # Legacy ACK для обратной совместимости (deprecated, будет удалено)
             if msg_type == "ack":
-                logger.warning("⚠️  Получен legacy ACK от сервера (deprecated, используйте outbox_ack)")
+                logger.warning(
+                    "⚠️  Получен legacy ACK от сервера (deprecated, используйте outbox_ack)"
+                )
                 if self.flusher and "outbox_ids" in payload:
                     outbox_ids = payload["outbox_ids"]
                     if isinstance(outbox_ids, list):
                         await self.flusher.handle_ack(outbox_ids)
-                        logger.debug(f"✅ Legacy ACK обработан: {len(outbox_ids)} сообщений")
+                        logger.debug(
+                            f"✅ Legacy ACK обработан: {len(outbox_ids)} сообщений"
+                        )
                     else:
-                        logger.warning(f"⚠️  Неверный формат outbox_ids в legacy ACK: {outbox_ids}")
+                        logger.warning(
+                            f"⚠️  Неверный формат outbox_ids в legacy ACK: {outbox_ids}"
+                        )
                 return
-            
+
             # Protocol V3: outbox_nack (Фаза 3.2)
             # КРИТИЧНО: обрабатываем NACK синхронно (await), чтобы mark_outbox_failed выполнился
             # до следующей итерации sender loop — иначе те же outbox_id снова claim'ятся и шлются.
@@ -2204,7 +2571,10 @@ class WSAgent:
                     # Пояснение: NACK приходит по конкретным outbox_id; "тикет X not found" значит,
                     # что отклонённые события относились к тикету X (старый/удалённый тикет), а не
                     # к тикету текущей операции — чтобы в логах было понятно.
-                    if err_code == "UNKNOWN_TICKET" and "not found" in (err_msg or "").lower():
+                    if (
+                        err_code == "UNKNOWN_TICKET"
+                        and "not found" in (err_msg or "").lower()
+                    ):
                         logger.warning(
                             f"⚠️  NACK для outbox_ids={outbox_ids}: сервер не нашёл тикет "
                             f"(события в outbox относились к старому/удалённому тикету). "
@@ -2218,10 +2588,10 @@ class WSAgent:
                         outbox_ids=outbox_ids,
                         retryable=retryable,
                         retry_after_sec=retry_after_sec,
-                        error=error
+                        error=error,
                     )
                 return
-            
+
             # Protocol V3: rpc_request (Фаза 4)
             if msg_type == "rpc_request":
                 method = payload.get("method")
@@ -2230,45 +2600,45 @@ class WSAgent:
                 job_id = envelope.get("job_id")
                 idempotency_key = envelope.get("idempotency_key")
                 trace_id = envelope.get("trace_id")
-                
+
                 logger.info(f"⚙️  Получен rpc_request: method={method}")
-                
+
                 # Замечание 10: Генерируем trace_id если нет
                 if not trace_id:
                     trace_id = str(uuid.uuid4())
                     logger.warning(f"⚠️  missing trace_id, generated: {trace_id}")
-                
+
                 # Замечание 5: Проверяем idempotency_key для mutating методов
                 if method in IDEMPOTENT_METHODS:
                     if not idempotency_key:
-                        logger.error(
-                            f"Method '{method}' requires idempotency_key"
-                        )
+                        logger.error(f"Method '{method}' requires idempotency_key")
                         await self.send_envelope(
-                            ws, "rpc_response", request_id,
+                            ws,
+                            "rpc_response",
+                            request_id,
                             {
                                 "status": "error",
                                 "error": {
                                     "code": "MISSING_IDEMPOTENCY_KEY",
-                                    "message": f"Method '{method}' requires idempotency_key"
-                                }
+                                    "message": f"Method '{method}' requires idempotency_key",
+                                },
                             },
                             trace_id=trace_id,
                             ticket_id=ticket_id,
                             job_id=job_id,
-                            actor_role="agent"
+                            actor_role="agent",
                         )
                         return
-                    
+
                     # Проверяем cache
-                    cached = await self.db_manager.check_idempotency_cache(idempotency_key)
+                    cached = await self.db_manager.check_idempotency_cache(
+                        idempotency_key
+                    )
                     if cached:
                         logger.info(f"Idempotency cache HIT for {idempotency_key}")
-                        await self.send_envelope(
-                            ws, "rpc_response", request_id, cached
-                        )
+                        await self.send_envelope(ws, "rpc_response", request_id, cached)
                         return
-                
+
                 # Scheduler MVP: отдельная обработка scheduler RPC.
                 if method in SCHEDULER_METHODS:
                     result = await self._handle_scheduler_rpc(
@@ -2277,22 +2647,31 @@ class WSAgent:
                         request_id=request_id,
                     )
                     await self.send_envelope(
-                        ws, "rpc_response", request_id, result,
+                        ws,
+                        "rpc_response",
+                        request_id,
+                        result,
                         trace_id=trace_id,
                         ticket_id=ticket_id,
                         job_id=job_id,
-                        actor_role="agent"
+                        actor_role="agent",
                     )
                     return
-                
+
                 # Прокидываем ticket/job контекст из envelope в params для оркестратора.
                 if isinstance(params, dict):
                     if ticket_id and "ticket_id" not in params:
                         params["ticket_id"] = ticket_id
-                    if job_id and "job_id" not in params and "chat_job_id" not in params:
+                    if (
+                        job_id
+                        and "job_id" not in params
+                        and "chat_job_id" not in params
+                    ):
                         params["chat_job_id"] = job_id
                 else:
-                    logger.warning(f"rpc_request params has invalid type: {type(params).__name__}, fallback to empty dict")
+                    logger.warning(
+                        f"rpc_request params has invalid type: {type(params).__name__}, fallback to empty dict"
+                    )
                     params = {}
                     if ticket_id:
                         params["ticket_id"] = ticket_id
@@ -2305,9 +2684,9 @@ class WSAgent:
                     params,
                     request_id=request_id,
                     device_id=envelope.get("device_id"),
-                    actor_role=payload.get("actor_role", "user")
+                    actor_role=payload.get("actor_role", "user"),
                 )
-                
+
                 # Сохраняем в cache
                 if idempotency_key:
                     await self.db_manager.save_idempotency_cache(
@@ -2315,71 +2694,96 @@ class WSAgent:
                         method,
                         ticket_id,
                         result,
-                        ttl_seconds=IDEMPOTENCY_TTL_SECONDS
+                        ttl_seconds=IDEMPOTENCY_TTL_SECONDS,
                     )
-                
+
                 # Отправляем rpc_response с полным контекстом
                 await self.send_envelope(
-                    ws, "rpc_response", request_id, result,
+                    ws,
+                    "rpc_response",
+                    request_id,
+                    result,
                     trace_id=trace_id,
                     ticket_id=ticket_id,
                     job_id=job_id,
-                    actor_role="agent"
+                    actor_role="agent",
                 )
                 return
-            
+
             # Команда
             if msg_type == "command":
                 command = payload.get("command")
                 params = payload.get("params", {})
                 actor_role = payload.get("actor_role", "user")
-                
+
                 # КРИТИЧНО: command_id == request_id (Protocol V3)
                 # Ключ идемпотентности = request_id, нигде не генерировать отдельный command_id
                 command_id = request_id
-                
+
                 # КРИТИЧНО: Получаем ticket_id и job_id из envelope (Protocol V3)
                 ticket_id_from_envelope = envelope.get("ticket_id")
                 job_id_from_envelope = envelope.get("job_id")
-                
+
                 # Добавляем ticket_id и job_id в params если они есть в envelope
                 # Это нужно для того, чтобы оркестратор мог использовать их
                 if ticket_id_from_envelope and "ticket_id" not in params:
                     params["ticket_id"] = ticket_id_from_envelope
-                if job_id_from_envelope and "job_id" not in params and "chat_job_id" not in params:
+                if (
+                    job_id_from_envelope
+                    and "job_id" not in params
+                    and "chat_job_id" not in params
+                ):
                     params["chat_job_id"] = job_id_from_envelope
-                
+
                 logger.info(f"⚙️  Получена команда: {command}")
                 logger.debug(f"🔧 Параметры команды: {params}")
-                logger.debug(f"📋 request_id: {request_id}, command_id: {command_id}, device_id: {envelope.get('device_id')}, actor_role: {actor_role}")
-                logger.debug(f"📋 ticket_id from envelope: {ticket_id_from_envelope}, job_id from envelope: {job_id_from_envelope}")
-                
+                logger.debug(
+                    f"📋 request_id: {request_id}, command_id: {command_id}, device_id: {envelope.get('device_id')}, actor_role: {actor_role}"
+                )
+                logger.debug(
+                    f"📋 ticket_id from envelope: {ticket_id_from_envelope}, job_id from envelope: {job_id_from_envelope}"
+                )
+
                 # ИДЕМПОТЕНТНОСТЬ: Проверяем, не выполняли ли мы эту команду ранее
                 if self.db_manager:
                     cached_result = await self.db_manager.get_command_result(command_id)
-                    
+
                     if cached_result:
                         if cached_result["status"] in {"success", "canceled"}:
-                            logger.info(f"♻️  Команда {command_id} уже выполнена (cached), возвращаем кэшированный результат")
+                            logger.info(
+                                f"♻️  Команда {command_id} уже выполнена (cached), возвращаем кэшированный результат"
+                            )
 
                             # Возвращаем кэшированный payload (в точности тот же формат)
                             try:
                                 import json
-                                cached_payload = jsonlib.loads(cached_result["result_json"]) if cached_result["result_json"] else {}
+
+                                cached_payload = (
+                                    jsonlib.loads(cached_result["result_json"])
+                                    if cached_result["result_json"]
+                                    else {}
+                                )
                             except Exception:
-                                cached_payload = {"status": cached_result["status"], "data": {}}
-                            
+                                cached_payload = {
+                                    "status": cached_result["status"],
+                                    "data": {},
+                                }
+
                             # Добавляем cached: true в meta
                             if "meta" not in cached_payload:
                                 cached_payload["meta"] = {}
                             cached_payload["meta"]["cached"] = True
-                            cached_payload["meta"]["completed_at"] = cached_result["completed_at"]
-                            
+                            cached_payload["meta"]["completed_at"] = cached_result[
+                                "completed_at"
+                            ]
+
                             trace_id = envelope.get("trace_id")
                             ticket_id_ctx = envelope.get("ticket_id")
                             job_id_ctx = envelope.get("job_id")
-                            actor_role_meta = envelope.get("meta", {}).get("actor_role", "agent")
-                            
+                            actor_role_meta = envelope.get("meta", {}).get(
+                                "actor_role", "agent"
+                            )
+
                             await self._send_durable_command_result(
                                 ws,
                                 request_id=request_id,
@@ -2388,20 +2792,33 @@ class WSAgent:
                                 trace_id=trace_id,
                                 ticket_id=ticket_id_ctx,
                                 job_id=job_id_ctx,
-                                actor_role=actor_role_meta
+                                actor_role=actor_role_meta,
                             )
                             return  # Не выполняем команду повторно
-                        
+
                         elif cached_result["status"] == "error":
                             try:
-                                cached_payload = jsonlib.loads(cached_result["result_json"]) if cached_result["result_json"] else {}
+                                cached_payload = (
+                                    jsonlib.loads(cached_result["result_json"])
+                                    if cached_result["result_json"]
+                                    else {}
+                                )
                             except Exception:
-                                cached_payload = {"status": "error", "data": {}, "error": {}}
+                                cached_payload = {
+                                    "status": "error",
+                                    "data": {},
+                                    "error": {},
+                                }
 
                             error_code = (cached_payload.get("error") or {}).get("code")
                             is_restart_recovery = (
-                                error_code in {"AGENT_RESTARTED", "COMMAND_INTERRUPTED_BY_AGENT_RESTART"}
-                                or (cached_payload.get("meta") or {}).get("recovery") is True
+                                error_code
+                                in {
+                                    "AGENT_RESTARTED",
+                                    "COMMAND_INTERRUPTED_BY_AGENT_RESTART",
+                                }
+                                or (cached_payload.get("meta") or {}).get("recovery")
+                                is True
                             )
                             if is_restart_recovery:
                                 logger.info(
@@ -2410,12 +2827,16 @@ class WSAgent:
                                 )
                                 cached_payload.setdefault("meta", {})
                                 cached_payload["meta"]["cached"] = True
-                                cached_payload["meta"]["completed_at"] = cached_result["completed_at"]
+                                cached_payload["meta"]["completed_at"] = cached_result[
+                                    "completed_at"
+                                ]
 
                                 trace_id = envelope.get("trace_id")
                                 ticket_id_ctx = envelope.get("ticket_id")
                                 job_id_ctx = envelope.get("job_id")
-                                actor_role_meta = envelope.get("meta", {}).get("actor_role", "agent")
+                                actor_role_meta = envelope.get("meta", {}).get(
+                                    "actor_role", "agent"
+                                )
 
                                 await self._send_durable_command_result(
                                     ws,
@@ -2425,7 +2846,7 @@ class WSAgent:
                                     trace_id=trace_id,
                                     ticket_id=ticket_id_ctx,
                                     job_id=job_id_ctx,
-                                    actor_role=actor_role_meta
+                                    actor_role=actor_role_meta,
                                 )
                                 return
 
@@ -2452,20 +2873,28 @@ class WSAgent:
                                         trace_id=envelope.get("trace_id"),
                                         ticket_id=envelope.get("ticket_id"),
                                         job_id=envelope.get("job_id"),
-                                        actor_role=envelope.get("meta", {}).get("actor_role", "agent"),
+                                        actor_role=envelope.get("meta", {}).get(
+                                            "actor_role", "agent"
+                                        ),
                                     )
                                     return
                             started_at = cached_result.get("started_at") or 0
-                            age_sec = time.time() - started_at if started_at else float("inf")
+                            age_sec = (
+                                time.time() - started_at if started_at else float("inf")
+                            )
                             if age_sec > IN_PROGRESS_STALE_SEC:
-                                stale_retry_count = int(cached_result.get("stale_retry_count") or 0)
+                                stale_retry_count = int(
+                                    cached_result.get("stale_retry_count") or 0
+                                )
                                 if stale_retry_count >= 1:
                                     logger.warning(
                                         f"⚠️  Команда {command_id} stale in_progress (age={age_sec:.0f}s), "
                                         "но controlled retry уже использован"
                                     )
                                     await self.send_envelope(
-                                        ws, "command_result", request_id,
+                                        ws,
+                                        "command_result",
+                                        request_id,
                                         {
                                             "status": "error",
                                             "error": {
@@ -2479,7 +2908,9 @@ class WSAgent:
                                         trace_id=envelope.get("trace_id"),
                                         ticket_id=envelope.get("ticket_id"),
                                         job_id=envelope.get("job_id"),
-                                        actor_role=envelope.get("meta", {}).get("actor_role", "agent"),
+                                        actor_role=envelope.get("meta", {}).get(
+                                            "actor_role", "agent"
+                                        ),
                                     )
                                     return
                                 logger.warning(
@@ -2495,22 +2926,33 @@ class WSAgent:
                                 # Тот же command_id уже выполняется — ждём результат первой задачи
                                 future = self._running_commands[command_id]
                                 try:
-                                    command_result_payload = await asyncio.wait_for(future, timeout=60.0)
+                                    command_result_payload = await asyncio.wait_for(
+                                        future, timeout=60.0
+                                    )
                                 except asyncio.TimeoutError:
                                     command_result_payload = {
                                         "status": "error",
-                                        "error": {"message": "Timeout waiting for duplicate command"},
+                                        "error": {
+                                            "message": "Timeout waiting for duplicate command"
+                                        },
                                         "data": {},
                                         "meta": {},
                                     }
                                 trace_id = envelope.get("trace_id")
                                 ticket_id_ctx = envelope.get("ticket_id")
                                 job_id_ctx = envelope.get("job_id")
-                                actor_role_meta = envelope.get("meta", {}).get("actor_role", "agent")
+                                actor_role_meta = envelope.get("meta", {}).get(
+                                    "actor_role", "agent"
+                                )
                                 await self.send_envelope(
-                                    ws, "command_result", request_id, command_result_payload,
-                                    trace_id=trace_id, ticket_id=ticket_id_ctx,
-                                    job_id=job_id_ctx, actor_role=actor_role_meta
+                                    ws,
+                                    "command_result",
+                                    request_id,
+                                    command_result_payload,
+                                    trace_id=trace_id,
+                                    ticket_id=ticket_id_ctx,
+                                    job_id=job_id_ctx,
+                                    actor_role=actor_role_meta,
                                 )
                                 return
                             else:
@@ -2520,7 +2962,9 @@ class WSAgent:
                                     f"retry later"
                                 )
                                 await self.send_envelope(
-                                    ws, "command_result", request_id,
+                                    ws,
+                                    "command_result",
+                                    request_id,
                                     {
                                         "status": "error",
                                         "error": {
@@ -2534,51 +2978,61 @@ class WSAgent:
                                     trace_id=envelope.get("trace_id"),
                                     ticket_id=envelope.get("ticket_id"),
                                     job_id=envelope.get("job_id"),
-                                    actor_role=envelope.get("meta", {}).get("actor_role", "agent"),
+                                    actor_role=envelope.get("meta", {}).get(
+                                        "actor_role", "agent"
+                                    ),
                                 )
                                 return
-                    
+
                     # Помечаем команду как начатую
                     await self.db_manager.mark_command_started(
                         command_id,
                         owner_instance_id=self._session_id,
                     )
-                
+
                 # КРИТИЧНО: Отправляем command_ack ПОСЛЕ seen_commands проверки и минимальной валидации,
                 # НО ДО PolicyEngine/Consent (это бизнес-решения, не протокольные reject)
                 trace_id = envelope.get("trace_id")
                 ticket_id_ctx = envelope.get("ticket_id")
                 job_id_ctx = envelope.get("job_id")
                 actor_role_meta = envelope.get("meta", {}).get("actor_role", "agent")
-                
+
                 try:
                     # Минимальная валидация envelope
                     if not request_id:
                         raise ValueError("Missing request_id")
                     if not envelope.get("device_id"):
                         raise ValueError("Missing device_id")
-                    
+
                     # Отправить command_ack со статусом 'accepted'
                     await self.send_envelope(
-                        ws, "command_ack", request_id,
+                        ws,
+                        "command_ack",
+                        request_id,
                         {"status": "accepted"},
                         trace_id=trace_id,
                         ticket_id=ticket_id_ctx,
                         job_id=job_id_ctx,
-                        actor_role=actor_role_meta
+                        actor_role=actor_role_meta,
                     )
-                    logger.debug(f"✅ [command_ack] Отправлен accepted для command_id={command_id}")
-                    
+                    logger.debug(
+                        f"✅ [command_ack] Отправлен accepted для command_id={command_id}"
+                    )
+
                 except ValueError as e:
                     # Протокольная ошибка (invalid payload/schema) - отправляем rejected
-                    logger.warning(f"⚠️  [command_ack] Протокольная ошибка: {e}, отправляем rejected")
+                    logger.warning(
+                        f"⚠️  [command_ack] Протокольная ошибка: {e}, отправляем rejected"
+                    )
                     await self.send_envelope(
-                        ws, "command_ack", request_id,
+                        ws,
+                        "command_ack",
+                        request_id,
                         {"status": "rejected", "reason": str(e)},
-                        trace_id=trace_id
+                        trace_id=trace_id,
                     )
                     return  # Не выполняем команду
-                
+
                 # Process-local dedupe: другие запросы с тем же command_id будут ждать этот Future
                 run_future = asyncio.get_event_loop().create_future()
                 self._running_commands[command_id] = run_future
@@ -2592,7 +3046,9 @@ class WSAgent:
                     "trace_id": envelope.get("trace_id"),
                     "ticket_id_ctx": envelope.get("ticket_id"),
                     "job_id_ctx": envelope.get("job_id"),
-                    "actor_role_meta": envelope.get("meta", {}).get("actor_role", "agent"),
+                    "actor_role_meta": envelope.get("meta", {}).get(
+                        "actor_role", "agent"
+                    ),
                 }
                 if self._should_run_command_in_background(command):
                     task = asyncio.create_task(
@@ -2608,38 +3064,47 @@ class WSAgent:
 
                 await self._execute_command_and_send_result(ws, **execution_kwargs)
                 return
-            
+
             # Command result - ответ на команду, отправленную агентом серверу (например, chat_raise)
             if msg_type == "command_result":
                 logger.debug(f"📬 Получен command_result: request_id={request_id}")
-                
+
                 # Проверяем, ждем ли мы этот ответ (для chat_raise)
                 if request_id in self._pending_chat_raise:
                     future = self._pending_chat_raise.pop(request_id)
                     if not future.done():
                         future.set_result(envelope)
-                        logger.debug(f"✅ command_result обработан: request_id={request_id}")
+                        logger.debug(
+                            f"✅ command_result обработан: request_id={request_id}"
+                        )
                     return
-                
+
                 # Если не нашли pending future, просто логируем
-                logger.debug(f"📬 command_result без ожидающего future: request_id={request_id}")
+                logger.debug(
+                    f"📬 command_result без ожидающего future: request_id={request_id}"
+                )
                 return
-            
+
             # Неизвестный тип сообщения
             trace_id = envelope.get("trace_id")
-            logger.warning(f"⚠️  Неизвестный тип сообщения: {msg_type} (trace_id={trace_id})")
+            logger.warning(
+                f"⚠️  Неизвестный тип сообщения: {msg_type} (trace_id={trace_id})"
+            )
             await self.send_envelope(
-                ws, "error", request_id, {
+                ws,
+                "error",
+                request_id,
+                {
                     "status": "error",
                     "error": {
                         "code": "UNKNOWN_MESSAGE_TYPE",
-                        "message": f"Неизвестный тип сообщения: {msg_type}"
-                    }
+                        "message": f"Неизвестный тип сообщения: {msg_type}",
+                    },
                 },
                 trace_id=trace_id,
-                actor_role="agent"
+                actor_role="agent",
             )
-                
+
         except jsonlib.JSONDecodeError as e:
             # Текстовые команды (ping)
             if message.strip().lower() == "ping":
@@ -2647,9 +3112,7 @@ class WSAgent:
                 request_id = str(uuid.uuid4())
                 trace_id = str(uuid.uuid4())
                 await self.send_envelope(
-                    ws, "pong", request_id, {},
-                    trace_id=trace_id,
-                    actor_role="agent"
+                    ws, "pong", request_id, {}, trace_id=trace_id, actor_role="agent"
                 )
                 return
             logger.error(f"❌ Ошибка декодирования JSON: {e}")
@@ -2658,88 +3121,120 @@ class WSAgent:
             request_id = str(uuid.uuid4())
             trace_id = str(uuid.uuid4())
             await self.send_envelope(
-                ws, "error", request_id, {
+                ws,
+                "error",
+                request_id,
+                {
                     "status": "error",
                     "error": {
                         "code": "JSON_DECODE_ERROR",
-                        "message": f"Ошибка декодирования JSON: {str(e)}"
-                    }
+                        "message": f"Ошибка декодирования JSON: {str(e)}",
+                    },
                 },
                 trace_id=trace_id,
-                actor_role="agent"
+                actor_role="agent",
             )
-        
+
         except Exception as e:
             logger.error(f"❌ Ошибка обработки сообщения: {e}")
             logger.exception(e)
             request_id = str(uuid.uuid4())
             trace_id = str(uuid.uuid4())
             await self.send_envelope(
-                ws, "error", request_id, {
+                ws,
+                "error",
+                request_id,
+                {
                     "status": "error",
-                    "error": {
-                        "code": "MESSAGE_HANDLING_ERROR",
-                        "message": str(e)
-                    }
+                    "error": {"code": "MESSAGE_HANDLING_ERROR", "message": str(e)},
                 },
                 trace_id=trace_id,
-                actor_role="agent"
+                actor_role="agent",
             )
-    
+
     async def execute_command(
-        self, 
-        command: str, 
+        self,
+        command: str,
         params: Dict[str, Any],
         request_id: Optional[str] = None,
         device_id: Optional[str] = None,
-        actor_role: Optional[str] = None
+        actor_role: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Выполняет команду и возвращает результат в формате ToolResponse (dict).
-        
+
         Команды делегируются оркестратору, кроме специфичных для ws_agent:
         - get_status, get_info, get_history - обрабатываются здесь
         - ping, collect, list_modules, update, exec_script, get_manifest, list_tools - делегируются оркестратору
-        
+
         ВАЖНО: Результат НЕ должен содержать device_id в top-level.
         device_id добавляется только в envelope при отправке.
-        
+
         Args:
             command: Название команды
             params: Параметры команды
             request_id: Идентификатор запроса (из входящего envelope)
             device_id: Идентификатор устройства (из входящего envelope)
             actor_role: Роль актора (из payload входящего envelope)
-        
+
         Returns:
             Dict с результатом выполнения (ToolResponse.model_dump())
         """
         try:
             logger.info(f"🎯 Начинаю выполнение команды: {command}")
             logger.debug(f"📋 Параметры: {params}")
-            logger.debug(f"📋 request_id: {request_id}, device_id: {device_id}, actor_role: {actor_role}")
-            
+            logger.debug(
+                f"📋 request_id: {request_id}, device_id: {device_id}, actor_role: {actor_role}"
+            )
+
             # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
             # КОМАНДЫ ОРКЕСТРАТОРА (делегируем через handle_command)
             # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-            
-            orchestrator_commands = ["ping", "collect", "list_modules", "update", "install_module_package", "exec_script", "get_manifest", "list_tools", "run_tool", "call_tool", "run_recipe", "list_installed_modules", "activate_module", "rollback_module", "deactivate_module", "remove_module_version", "remove_module", "start_job", "stop_job", "get_job_status", "list_jobs", "job_send_event", "ui_notify", "cancel_operation"]
-            
+
+            orchestrator_commands = [
+                "ping",
+                "collect",
+                "list_modules",
+                "update",
+                "install_module_package",
+                "exec_script",
+                "get_manifest",
+                "list_tools",
+                "run_tool",
+                "call_tool",
+                "run_recipe",
+                "list_installed_modules",
+                "activate_module",
+                "rollback_module",
+                "deactivate_module",
+                "remove_module_version",
+                "remove_module",
+                "start_job",
+                "stop_job",
+                "get_job_status",
+                "list_jobs",
+                "job_send_event",
+                "ui_notify",
+                "cancel_operation",
+            ]
+
             if command in orchestrator_commands:
-                logger.info(f"📨 Делегирую команду '{command}' оркестратору")   
-                
+                logger.info(f"📨 Делегирую команду '{command}' оркестратору")
+
                 # Формируем команду для оркестратора
                 orchestrator_cmd = {"cmd": command}
                 if command == "cancel_operation":
                     orchestrator_cmd["params"] = dict(params)
                 else:
                     orchestrator_cmd.update(params)  # Добавляем все параметры
-                
+
                 # Фикс для run_tool: переименовываем tool_name в tool
                 if command == "run_tool" and "tool_name" in orchestrator_cmd:
                     orchestrator_cmd["tool"] = orchestrator_cmd.pop("tool_name")
-                    logger.debug(f"🔧 Переименован параметр tool_name → tool: {orchestrator_cmd.get('tool')}")
-                
+                    logger.debug(
+                        f"🔧 Переименован параметр tool_name → tool: {orchestrator_cmd.get('tool')}"
+                    )
+
                 # ОБЯЗАТЕЛЬНО добавляем request_id, device_id, actor_role
                 if request_id:
                     orchestrator_cmd["request_id"] = request_id
@@ -2747,27 +3242,29 @@ class WSAgent:
                     orchestrator_cmd["device_id"] = device_id
                 if actor_role:
                     orchestrator_cmd["actor_role"] = actor_role
-                
+
                 logger.debug(f"🔧 Команда для оркестратора: {orchestrator_cmd}")
-                
+
                 # Вызываем оркестратор
                 result = await self.orchestrator.handle_command(orchestrator_cmd)
-                
+
                 logger.debug(f"📬 Результат от оркестратора: {result}")
-                
+
                 # НЕ добавляем device_id - он будет в envelope
                 if result.get("status") == "success":
-                    logger.success(f"✅ Команда '{command}' успешно выполнена оркестратором")
+                    logger.success(
+                        f"✅ Команда '{command}' успешно выполнена оркестратором"
+                    )
                 else:
                     logger.warning(
                         f"Команда '{command}' завершилась со статусом {result.get('status')}"
                     )
                 return result
-            
+
             # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
             # СТАТУС АГЕНТА (специфичная команда ws_agent)
             # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-            
+
             elif command == "remote_assist.request":
                 if self.event_bus:
                     await self.event_bus.publish(
@@ -2790,18 +3287,23 @@ class WSAgent:
             elif command == "get_status":
                 """Получить расширенный статус агента"""
                 uptime = time.time() - self.start_time
-                
+
                 # Возвращаем в формате ToolResponse
-                from pc_agent.core.tool_response import ToolResponse, ToolMeta, ToolData, ok
-                
+                from pc_agent.core.tool_response import (
+                    ToolResponse,
+                    ToolMeta,
+                    ToolData,
+                    ok,
+                )
+
                 meta = ToolMeta(
                     timestamp_iso=datetime.now(timezone.utc).isoformat(),
                     command=command,
                     request_id=request_id,  # Используем request_id из входящего envelope
                     agent_id=None,
-                    duration_ms=None
+                    duration_ms=None,
                 )
-                
+
                 observations = {
                     "agent": {
                         "version": "2.0.0",
@@ -2810,21 +3312,25 @@ class WSAgent:
                         "uptime_human": self._format_uptime(uptime),
                     },
                     "config": {
-                        "db_path": str(runtime_paths.resolve_storage_db_path(self._data_root or Path(get_config().paths.data_dir))),
+                        "db_path": str(
+                            runtime_paths.resolve_storage_db_path(
+                                self._data_root or Path(get_config().paths.data_dir)
+                            )
+                        ),
                         "ws_url": get_config().server.ws_url,
                         "api_url": get_config().server.api_url,
                         "modules_enabled": get_config().enabled_modules,
                     },
                 }
-                
+
                 data = ToolData(observations=observations)
                 response = ok(data=data, meta=meta)
                 return response.model_dump()
-            
+
             # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
             # ИНФОРМАЦИЯ О СИСТЕМЕ (специфичная команда ws_agent)
             # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-            
+
             elif command == "search_action_trace":
                 """Поиск action trace для tech/observer drilldown."""
                 from pc_agent.core.tool_response import ToolMeta, ToolData, ok
@@ -2862,7 +3368,9 @@ class WSAgent:
                     observations={
                         "entries": rows,
                         "count": len(rows),
-                        "path": str(recorder.path) if getattr(recorder, "path", None) else None,
+                        "path": str(recorder.path)
+                        if getattr(recorder, "path", None)
+                        else None,
                     }
                 )
                 response = ok(data=data, meta=meta)
@@ -2870,16 +3378,21 @@ class WSAgent:
 
             elif command == "get_info":
                 """Получить системную информацию (быстрый запрос без модулей)"""
-                from pc_agent.core.tool_response import ToolResponse, ToolMeta, ToolData, ok
-                
+                from pc_agent.core.tool_response import (
+                    ToolResponse,
+                    ToolMeta,
+                    ToolData,
+                    ok,
+                )
+
                 meta = ToolMeta(
                     timestamp_iso=datetime.now(timezone.utc).isoformat(),
                     command=command,
                     request_id=request_id,  # Используем request_id из входящего envelope
                     agent_id=None,
-                    duration_ms=None
+                    duration_ms=None,
                 )
-                
+
                 observations = {
                     "hostname": socket.gethostname(),
                     "os": platform.system(),
@@ -2887,110 +3400,118 @@ class WSAgent:
                     "python_version": platform.python_version(),
                     "architecture": platform.machine(),
                 }
-                
+
                 data = ToolData(observations=observations)
                 response = ok(data=data, meta=meta)
                 return response.model_dump()
-            
+
             # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
             # ИСТОРИЯ СОБЫТИЙ (специфичная команда ws_agent)
             # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-            
+
             elif command == "get_history":
                 """Получить историю событий из БД"""
-                from pc_agent.core.tool_response import ToolResponse, ToolMeta, ToolData, ok
-                
+                from pc_agent.core.tool_response import (
+                    ToolResponse,
+                    ToolMeta,
+                    ToolData,
+                    ok,
+                )
+
                 limit = params.get("limit", 10)
                 module = params.get("module")
-                
+
                 logger.info(f"📜 Получаю историю (limit={limit}, module={module})")
-                
+
                 events = await self.db_manager.get_events(
-                    limit=limit,
-                    module_name=module
+                    limit=limit, module_name=module
                 )
-                
+
                 meta = ToolMeta(
                     timestamp_iso=datetime.now(timezone.utc).isoformat(),
                     command=command,
                     request_id=request_id,  # Используем request_id из входящего envelope
                     agent_id=None,
-                    duration_ms=None
+                    duration_ms=None,
                 )
-                
+
                 observations = {
                     "events": events,
                     "count": len(events),
                 }
-                
+
                 data = ToolData(observations=observations)
                 response = ok(data=data, meta=meta)
                 return response.model_dump()
-            
+
             # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
             # НЕИЗВЕСТНАЯ КОМАНДА
             # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-            
+
             else:
                 from pc_agent.core.tool_response import ToolResponse, ToolMeta, fail
-                
+
                 meta = ToolMeta(
                     timestamp_iso=datetime.now(timezone.utc).isoformat(),
                     command=command,
                     request_id=request_id,  # Используем request_id из входящего envelope
                     agent_id=None,
-                    duration_ms=None
+                    duration_ms=None,
                 )
-                
+
                 response = fail(
                     code="UNKNOWN_COMMAND",
                     message=f"Неизвестная команда: {command}",
                     meta=meta,
                     details={
                         "available_commands": [
-                            "ping",           # Оркестратор
-                            "collect",        # Оркестратор
-                            "list_modules",   # Оркестратор
-                            "update",         # Оркестратор (заглушка)
-                            "exec_script",    # Оркестратор
-                            "get_manifest",   # Оркестратор
-                            "list_tools",     # Оркестратор
-                            "run_tool",       # Оркестратор
-                            "call_tool",      # Оркестратор (алиас для run_tool)
-                            "get_status",     # WS Agent
-                            "get_info",       # WS Agent
-                            "get_history",    # WS Agent
-                            "ui_notify"       # Оркестратор
+                            "ping",  # Оркестратор
+                            "collect",  # Оркестратор
+                            "list_modules",  # Оркестратор
+                            "update",  # Оркестратор (заглушка)
+                            "exec_script",  # Оркестратор
+                            "get_manifest",  # Оркестратор
+                            "list_tools",  # Оркестратор
+                            "run_tool",  # Оркестратор
+                            "call_tool",  # Оркестратор (алиас для run_tool)
+                            "get_status",  # WS Agent
+                            "get_info",  # WS Agent
+                            "get_history",  # WS Agent
+                            "ui_notify",  # Оркестратор
                         ]
-                    }
+                    },
                 )
                 return response.model_dump()
-        
+
         except Exception as e:
             logger.error(f"❌ Ошибка выполнения команды {command}: {e}")
             logger.exception(e)
             from pc_agent.core.tool_response import ToolResponse, ToolMeta, fail
-            
+
             meta = ToolMeta(
                 timestamp_iso=datetime.now(timezone.utc).isoformat(),
                 command=command,
                 request_id=request_id,  # Используем request_id из входящего envelope
                 agent_id=None,
-                duration_ms=None
+                duration_ms=None,
             )
-            
+
             response = fail(
                 code="COMMAND_EXECUTION_ERROR",
                 message=str(e),
                 meta=meta,
-                details={"exception_type": type(e).__name__}
+                details={"exception_type": type(e).__name__},
             )
             return response.model_dump()
 
-    def _scheduler_success(self, observations: Dict[str, Any], request_id: Optional[str]) -> Dict[str, Any]:
+    def _scheduler_success(
+        self, observations: Dict[str, Any], request_id: Optional[str]
+    ) -> Dict[str, Any]:
         return helper_scheduler_success(observations, request_id)
 
-    def _scheduler_error(self, code: str, message: str, request_id: Optional[str]) -> Dict[str, Any]:
+    def _scheduler_error(
+        self, code: str, message: str, request_id: Optional[str]
+    ) -> Dict[str, Any]:
         return helper_scheduler_error(code, message, request_id)
 
     async def _handle_scheduler_rpc(
@@ -3006,39 +3527,47 @@ class WSAgent:
 
     async def _execute_scheduled_task(self, task: Dict[str, Any]) -> None:
         await helper_execute_scheduled_task(self, task)
-    
+
     def _format_uptime(self, seconds: float) -> str:
         return helper_format_uptime(seconds)
-    
+
     async def authenticate(self) -> bool:
         return await helper_authenticate(self)
-    
+
     def _connection_rejected_flag_path(self) -> Path:
         return connection_rejected_flag_path_for(self)
 
-    async def request_connection_flow(self, wait_for_approval_seconds: int = 600) -> Tuple[bool, bool]:
+    async def request_connection_flow(
+        self, wait_for_approval_seconds: int = 600
+    ) -> Tuple[bool, bool]:
         return await helper_request_connection_flow(self, wait_for_approval_seconds)
 
     async def _request_token_from_console(self) -> bool:
         return await helper_request_token_from_console(self)
-    
-    async def chat_raise(self, title: str = "Support needed", reason: str = "agent_report", severity: str = "warning", context: dict | None = None) -> dict[str, Any] | None:
+
+    async def chat_raise(
+        self,
+        title: str = "Support needed",
+        reason: str = "agent_report",
+        severity: str = "warning",
+        context: dict | None = None,
+    ) -> dict[str, Any] | None:
         """
         Инициирует чат через WebSocket команду к серверу.
-        
+
         Args:
             title: Заголовок чат-сессии
             reason: Причина инициации чата
             severity: Уровень важности (warning, error, info и т.д.)
             context: Дополнительный контекст
-        
+
         Returns:
             Словарь с job_id и ticket_id или None при ошибке
         """
-        if not hasattr(self, '_agent_ws') or not self._agent_ws:
+        if not hasattr(self, "_agent_ws") or not self._agent_ws:
             logger.error("[chat_raise] WebSocket not connected")
             return None
-        
+
         # Формируем команду для сервера (не для агента!)
         request_id = str(uuid.uuid4())
         envelope = {
@@ -3051,30 +3580,36 @@ class WSAgent:
                     "title": title,
                     "reason": reason,
                     "severity": severity,
-                    "context": context or {}
-                }
-            }
+                    "context": context or {},
+                },
+            },
         }
-        
+
         # Создаем Future для ожидания ответа
         future = asyncio.get_event_loop().create_future()
         self._pending_chat_raise[request_id] = future
-        
+
         try:
             # Отправляем команду серверу
             await self._agent_ws.send_json(envelope)
             logger.info(f"[chat_raise] command sent request_id={request_id}")
-            
+
             # Ждем ответ с таймаутом
             response = await asyncio.wait_for(future, timeout=30)
-            
+
             # Извлекаем job_id и ticket_id из ответа
             payload = response.get("payload", {})
             if payload.get("status") == "error":
-                error = payload.get("error") if isinstance(payload.get("error"), dict) else {}
+                error = (
+                    payload.get("error")
+                    if isinstance(payload.get("error"), dict)
+                    else {}
+                )
                 error_code = str(error.get("code") or "CHAT_RAISE_FAILED")
                 error_message = str(error.get("message") or "chat_raise failed")
-                logger.warning(f"[chat_raise] server error code={error_code} message={error_message}")
+                logger.warning(
+                    f"[chat_raise] server error code={error_code} message={error_message}"
+                )
                 return {"ok": False, "error_code": error_code, "error": error_message}
             data = payload.get("data", {})
             observations = data.get("observations", {})
@@ -3082,12 +3617,14 @@ class WSAgent:
             ticket_id = observations.get("ticket_id")
 
             if job_id and ticket_id:
-                logger.info(f"[chat_raise] success job_id={job_id} ticket_id={ticket_id}")
+                logger.info(
+                    f"[chat_raise] success job_id={job_id} ticket_id={ticket_id}"
+                )
                 return {"job_id": job_id, "ticket_id": ticket_id}
             else:
                 logger.warning(f"[chat_raise] incomplete response: {response}")
                 return None
-                
+
         except asyncio.TimeoutError:
             logger.error(f"[chat_raise] timeout waiting for response")
             # Удаляем из pending
@@ -3098,7 +3635,7 @@ class WSAgent:
             # Удаляем из pending
             self._pending_chat_raise.pop(request_id, None)
             return None
-    
+
     async def run(self):
         """
         Основной цикл работы агента с WebSocket.
@@ -3109,19 +3646,29 @@ class WSAgent:
         if not self.auth_token:
             flag_path = self._connection_rejected_flag_path()
             if flag_path.exists():
-                logger.warning("Подключение ранее было отклонено администратором. Новые запросы не отправляются.")
-                await self._publish_connection_state("rejected", "подключение отклонено")
+                logger.warning(
+                    "Подключение ранее было отклонено администратором. Новые запросы не отправляются."
+                )
+                await self._publish_connection_state(
+                    "rejected", "подключение отклонено"
+                )
                 if self.event_bus:
-                    await self.event_bus.publish({
-                        "event_type": "connection_rejected",
-                        "data": {"message": "Администратор отклонил подключение"},
-                        "timestamp": datetime.now(timezone.utc).isoformat(),
-                    })
+                    await self.event_bus.publish(
+                        {
+                            "event_type": "connection_rejected",
+                            "data": {"message": "Администратор отклонил подключение"},
+                            "timestamp": datetime.now(timezone.utc).isoformat(),
+                        }
+                    )
                 return
             ok, rejected = await self.request_connection_flow()
             if not ok:
                 if rejected:
-                    error_code = getattr(self.identity_manager, "last_connection_request_error_code", None)
+                    error_code = getattr(
+                        self.identity_manager,
+                        "last_connection_request_error_code",
+                        None,
+                    )
                     if error_code != "DEVICE_ARCHIVED":
                         try:
                             flag_path.parent.mkdir(parents=True, exist_ok=True)
@@ -3129,7 +3676,9 @@ class WSAgent:
                         except Exception as e:
                             logger.warning(f"Не удалось записать флаг отклонения: {e}")
                     else:
-                        logger.info("Локальный reject-флаг не записан: устройство архивировано на сервере")
+                        logger.info(
+                            "Локальный reject-флаг не записан: устройство архивировано на сервере"
+                        )
                 return
             # Токен получен и сохранён в request_connection_flow(), продолжаем
 
@@ -3142,68 +3691,98 @@ class WSAgent:
             finally:
                 self.ui_api_task = True
 
-        
         # Создаем или используем существующую HTTP сессию
         if not self._http_session:
             self._http_session = ClientSession()
-        
+
         self._run_task = asyncio.current_task()
         try:
             async with ClientSession() as session:
                 while True:
                     should_exit = False
                     try:
-                        await self._publish_connection_state("connecting", "подключение к серверу")
-                        logger.info(f"🔄 Подключаюсь к серверу: {get_config().server.ws_url}")
-                        
+                        await self._publish_connection_state(
+                            "connecting", "подключение к серверу"
+                        )
+                        logger.info(
+                            f"🔄 Подключаюсь к серверу: {get_config().server.ws_url}"
+                        )
+
                         async with session.ws_connect(get_config().server.ws_url) as ws:
                             logger.success("✅ Подключено к серверу")
-                            await self._publish_connection_state("authorizing", "ожидание handshake_ack")
-                            
+                            await self._publish_connection_state(
+                                "authorizing", "ожидание handshake_ack"
+                            )
+
                             # Сохраняем ссылку на WebSocket для использования в chat_raise и других методах
                             self._agent_ws = ws
-                            
+
                             # Protocol V3 Handshake с полным набором capabilities
                             handshake_data = self.identity_manager.get_handshake_data()
                             handshake_request_id = str(uuid.uuid4())
                             handshake_trace_id = str(uuid.uuid4())
-                            latest_update_confirmation = self._get_latest_update_handshake_payload()
-                            
+                            latest_update_confirmation = (
+                                self._get_latest_update_handshake_payload()
+                            )
+
                             # Получить tools_list через orchestrator для toolset_hash
                             try:
                                 tools_list = self.orchestrator._build_tools_list()
                                 tools_count = len(tools_list)
                                 # Вычислить toolset_hash (compute_toolset_hash сама отсортирует tools_list)
-                                from pc_agent.utils.toolset_hash import compute_toolset_hash
-                                toolset_hash = compute_toolset_hash(tools_list) if tools_list else None
+                                from pc_agent.utils.toolset_hash import (
+                                    compute_toolset_hash,
+                                )
+
+                                toolset_hash = (
+                                    compute_toolset_hash(tools_list)
+                                    if tools_list
+                                    else None
+                                )
                             except Exception as e:
-                                logger.warning(f"⚠️ Ошибка при вычислении toolset_hash: {e}")
+                                logger.warning(
+                                    f"⚠️ Ошибка при вычислении toolset_hash: {e}"
+                                )
                                 tools_list = []
                                 tools_count = 0
                                 toolset_hash = None
-                            
+
                             # Получить installed modules через orchestrator.module_manager для modules_inventory
                             modules_inventory = []
-                            module_manager = getattr(self.orchestrator, "module_manager", None) if self.orchestrator else None
+                            module_manager = (
+                                getattr(self.orchestrator, "module_manager", None)
+                                if self.orchestrator
+                                else None
+                            )
                             if module_manager:
                                 try:
-                                    installed_modules_data = module_manager.list_installed()
-                                    for module_info in installed_modules_data.get("modules", []):
+                                    installed_modules_data = (
+                                        module_manager.list_installed()
+                                    )
+                                    for module_info in installed_modules_data.get(
+                                        "modules", []
+                                    ):
                                         module_name = module_info["name"]
                                         active_version = module_info.get("active")
                                         versions = module_info.get("versions", [])
                                         # Flattened format: [{name, version, state, active}]
                                         for version in versions:
-                                            modules_inventory.append({
-                                                "name": module_name,
-                                                "version": version,
-                                                "state": "active" if version == active_version else "installed",
-                                                "active": version == active_version
-                                            })
+                                            modules_inventory.append(
+                                                {
+                                                    "name": module_name,
+                                                    "version": version,
+                                                    "state": "active"
+                                                    if version == active_version
+                                                    else "installed",
+                                                    "active": version == active_version,
+                                                }
+                                            )
                                 except Exception as e:
-                                    logger.warning(f"⚠️ Ошибка при получении modules_inventory: {e}")
+                                    logger.warning(
+                                        f"⚠️ Ошибка при получении modules_inventory: {e}"
+                                    )
                                     modules_inventory = []
-                            
+
                             handshake_message = {
                                 "type": "handshake",
                                 "request_id": handshake_request_id,
@@ -3212,22 +3791,32 @@ class WSAgent:
                                 "trace_id": handshake_trace_id,
                                 "payload": {
                                     "token": handshake_data.get("token"),
-                                    "uuid": handshake_data.get("uuid"),  # Backward-compatible alias of machine_id
+                                    "uuid": handshake_data.get(
+                                        "uuid"
+                                    ),  # Backward-compatible alias of machine_id
                                     "device_id": self.device_id,  # Canonical machine_id
                                     "machine_id": handshake_data.get("machine_id"),
                                     "install_id": handshake_data.get("install_id"),
-                                    "machine_id_source": handshake_data.get("machine_id_source"),
+                                    "machine_id_source": handshake_data.get(
+                                        "machine_id_source"
+                                    ),
                                     "hostname": handshake_data.get("hostname"),
                                     "os": handshake_data.get("os"),
                                     "agent_version": AGENT_VERSION,
                                     "db_schema_version": DB_SCHEMA_VERSION,
                                     "tools_version": "tools_v1",
                                     "toolset_hash": toolset_hash,  # NEW: для синхронизации toolset с сервером
-                                    "tools_count": tools_count,    # NEW: количество tools
+                                    "tools_count": tools_count,  # NEW: количество tools
                                     # Список реально загруженных модулей (включая пакетные из modules_store).
                                     # Fallback на конфиг если оркестратор ещё не инициализирован.
-                                    "modules": [m.name for m in getattr(self.orchestrator, 'loaded_modules', [])] or get_config().enabled_modules,
-                                    "modules_inventory": modules_inventory  # NEW: full inventory
+                                    "modules": [
+                                        m.name
+                                        for m in getattr(
+                                            self.orchestrator, "loaded_modules", []
+                                        )
+                                    ]
+                                    or get_config().enabled_modules,
+                                    "modules_inventory": modules_inventory,  # NEW: full inventory
                                 },
                                 "meta": {
                                     "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -3237,133 +3826,184 @@ class WSAgent:
                                         "protocol_v3",
                                         "envelope_v3",
                                         "trace_correlation",
-                                        
                                         # Event handling (V3)
                                         "deterministic_event_id",
                                         "agent_seq_per_ticket",
                                         "device_seq_per_device",  # NEW: для device events
-                                        
                                         # Context tracking (Critical for server)
                                         "ticket_context",
                                         "job_context",
-                                        
                                         # Reliability (Critical for server)
                                         "idempotency_keys",
                                         "nack_support",
                                         "outbox_ack_v3",  # Critical: новый формат ACK
                                         "retry_policy",
                                         "outbox_batch_v1",
-                                        
                                         # Advanced features
                                         "reconcile_tickets",
                                         "scheduled_tasks",
                                         "attachment_refs",
                                         "consent_flow",
-                                        
                                         # Message types
                                         "rpc_request",
                                         "rpc_response",
                                         "outbox_item",
                                         "job_events",
-                                        "device_events"  # NEW: поддержка событий без ticket_id
+                                        "device_events",  # NEW: поддержка событий без ticket_id
                                     ],
-                                    "supported_message_types": list(ALLOWED_MESSAGE_TYPES)
+                                    "supported_message_types": list(
+                                        ALLOWED_MESSAGE_TYPES
+                                    ),
                                 },
                                 # Legacy fields for backward compatibility with V2 servers
                                 "token": handshake_data.get("token"),
                                 "agent_version": AGENT_VERSION,
                                 "tools_version": "tools_v1",
                                 "supported_message_types": list(ALLOWED_MESSAGE_TYPES),
-                                "modules": get_config().enabled_modules
+                                "modules": get_config().enabled_modules,
                             }
-                            
+
                             # Сохраняем trace_id для последующей корреляции
                             if latest_update_confirmation:
-                                handshake_message["payload"].update(latest_update_confirmation)
+                                handshake_message["payload"].update(
+                                    latest_update_confirmation
+                                )
                                 logger.info(
                                     "[update] Including latest update report in handshake: "
-                                    + ", ".join(f"{key}={value}" for key, value in latest_update_confirmation.items())
+                                    + ", ".join(
+                                        f"{key}={value}"
+                                        for key, value in latest_update_confirmation.items()
+                                    )
                                 )
 
                             self._current_trace_id = handshake_trace_id
 
                             await ws.send_json(handshake_message)
-                            await self._report_endpoint_terminal_observation(latest_update_confirmation)
+                            await self._report_endpoint_terminal_observation(
+                                latest_update_confirmation
+                            )
                             has_tok = bool(handshake_data.get("token"))
                             logger.info(f"🤝 Отправлен handshake с аутентификацией")
-                            logger.debug(f"   Токен в handshake: {'да' if has_tok else 'нет'}" + (f" ({handshake_data['token'][:12]}...)" if has_tok else ""))
-                            logger.debug(f"   Device ID: {handshake_data['uuid'][:8]}...")
+                            logger.debug(
+                                f"   Токен в handshake: {'да' if has_tok else 'нет'}"
+                                + (
+                                    f" ({handshake_data['token'][:12]}...)"
+                                    if has_tok
+                                    else ""
+                                )
+                            )
+                            logger.debug(
+                                f"   Device ID: {handshake_data['uuid'][:8]}..."
+                            )
                             logger.debug(f"   Hostname: {handshake_data['hostname']}")
                             logger.debug(f"   Protocol: {PROTOCOL_VERSION}")
-                            
+
                             # Небольшая задержка для обработки сервером
                             await asyncio.sleep(0.1)
-                            
+
                             # Проверяем состояние соединения сразу после handshake
                             # Сервер может закрыть соединение сразу, если токен невалидный
                             if ws.closed:
-                                close_code = getattr(ws, 'close_code', None)
-                                close_message = getattr(ws, 'close_message', None)
-                                
+                                close_code = getattr(ws, "close_code", None)
+                                close_message = getattr(ws, "close_message", None)
+
                                 if close_code == 4003:
-                                    error_msg = close_message.decode('utf-8', errors='ignore') if close_message else "Invalid token"
-                                    logger.error(f"🔴 Ошибка аутентификации при handshake: {error_msg}")
-                                    logger.warning("🔑 Токен невалиден или отсутствует. Требуется ввести новый токен.")
-                                    await self._publish_connection_state("auth_required", "невалидный токен")
-                                    
+                                    error_msg = (
+                                        close_message.decode("utf-8", errors="ignore")
+                                        if close_message
+                                        else "Invalid token"
+                                    )
+                                    logger.error(
+                                        f"🔴 Ошибка аутентификации при handshake: {error_msg}"
+                                    )
+                                    logger.warning(
+                                        "🔑 Токен невалиден или отсутствует. Требуется ввести новый токен."
+                                    )
+                                    await self._publish_connection_state(
+                                        "auth_required", "невалидный токен"
+                                    )
+
                                     # НЕ очищаем токен сразу - возможно, GUI еще работает или пользователь вставил токен вручную
                                     # Очищаем токен только если GUI не включен или если авторизация через GUI не удалась
                                     # Используем глобальный config (импортирован на строке 48)
-                                    gui_enabled = get_config().ui and get_config().ui.enabled
-                                    
+                                    gui_enabled = (
+                                        get_config().ui and get_config().ui.enabled
+                                    )
+
                                     if not gui_enabled:
                                         # Если GUI не включен, очищаем токен и запрашиваем через консоль
                                         self.identity_manager.clear_token()
                                         if self.db_manager:
                                             try:
-                                                await self.db_manager.clear_auth_token(self.identity_manager.device_id)
+                                                await self.db_manager.clear_auth_token(
+                                                    self.identity_manager.device_id
+                                                )
                                             except Exception as e:
-                                                logger.debug(f"Не удалось очистить токен из БД: {e}")
-                                        
+                                                logger.debug(
+                                                    f"Не удалось очистить токен из БД: {e}"
+                                                )
+
                                         # Запрашиваем новый токен через консоль
                                         logger.info("=" * 70)
                                         logger.info("💡 Инструкция:")
-                                        logger.info("   1. Откройте admin панель сервера: http://server:8666/admin")
-                                        logger.info("   2. Перейдите в раздел 'Generate Agent Token'")
-                                        logger.info(f"   3. Введите canonical device ID: {self.device_id}")
-                                        logger.info("   4. Скопируйте токен и вставьте его в диалог ниже")
+                                        logger.info(
+                                            "   1. Откройте admin панель сервера: http://server:8666/admin"
+                                        )
+                                        logger.info(
+                                            "   2. Перейдите в раздел 'Generate Agent Token'"
+                                        )
+                                        logger.info(
+                                            f"   3. Введите canonical device ID: {self.device_id}"
+                                        )
+                                        logger.info(
+                                            "   4. Скопируйте токен и вставьте его в диалог ниже"
+                                        )
                                         logger.info("=" * 70)
-                                        
+
                                         # Запрашиваем токен через консоль (GUI отключен)
                                         if not await self._request_token_from_console():
-                                            logger.error("❌ Не удалось получить токен. Завершение работы.")
+                                            logger.error(
+                                                "❌ Не удалось получить токен. Завершение работы."
+                                            )
                                             should_exit = True
                                             break
                                     else:
-                                        logger.info("🖥️ GUI включен, запускаю automatic reprovision flow...")
+                                        logger.info(
+                                            "🖥️ GUI включен, запускаю automatic reprovision flow..."
+                                        )
                                         if not await self._request_token_from_console():
-                                            logger.error("❌ Не удалось получить токен. Завершение работы.")
+                                            logger.error(
+                                                "❌ Не удалось получить токен. Завершение работы."
+                                            )
                                             should_exit = True
                                             break
-                                    
+
                                     logger.info("✅ Токен получен. Переподключаемся...")
                                     continue  # Переподключаемся
                                 else:
-                                    msg_text = close_message.decode('utf-8', errors='ignore') if close_message else "Unknown"
-                                    logger.warning(f"🔌 Соединение закрыто сервером: code={close_code}, message={msg_text}")
-                                    await self._publish_connection_state("disconnected", msg_text)
+                                    msg_text = (
+                                        close_message.decode("utf-8", errors="ignore")
+                                        if close_message
+                                        else "Unknown"
+                                    )
+                                    logger.warning(
+                                        f"🔌 Соединение закрыто сервером: code={close_code}, message={msg_text}"
+                                    )
+                                    await self._publish_connection_state(
+                                        "disconnected", msg_text
+                                    )
                                     break
-                            
+
                             # Ждем ответ handshake_ack (опционально, не блокируем если нет)
                             # Первое сообщение может быть handshake_ack
-                        
+
                             # Создаем и запускаем WSOutboxFlusher
                             self.flusher = WSOutboxFlusher(
                                 db_manager=self.db_manager,
                                 device_id=self.device_id,
-                                logger_instance=logger
+                                logger_instance=logger,
                             )
-                            
+
                             # Создаем функцию-обертку для отправки через ws (Protocol V3)
                             # sender.py может передавать trace_id для batched outbox envelopes
                             async def send_wrapper(
@@ -3376,19 +4016,22 @@ class WSAgent:
                             ):
                                 # Protocol V3: передаем ticket_id и job_id в send_envelope
                                 await self.send_envelope(
-                                    ws, msg_type, request_id, payload_dict,
+                                    ws,
+                                    msg_type,
+                                    request_id,
+                                    payload_dict,
                                     trace_id=trace_id or str(uuid.uuid4()),
                                     ticket_id=ticket_id,
                                     job_id=job_id,
-                                    actor_role="agent"
+                                    actor_role="agent",
                                 )
-                            
+
                             # Запускаем flusher в отдельной задаче
                             self.flusher_task = asyncio.create_task(
                                 self.flusher.run(send_wrapper)
                             )
                             logger.info("📤 WSOutboxFlusher запущен")
-                            
+
                             # Восстанавливаем jobs после перезапуска (только при первом подключении)
                             # Вызываем recover_jobs_on_startup через оркестратор
                             if self.orchestrator and self.orchestrator.job_manager:
@@ -3402,7 +4045,7 @@ class WSAgent:
                                     )
                                 except Exception as e:
                                     logger.error(f"❌ Ошибка восстановления jobs: {e}")
-                            
+
                             # Цикл чтения сообщений
                             try:
                                 await self.recover_in_progress_commands_on_startup(ws)
@@ -3413,8 +4056,10 @@ class WSAgent:
                                 self._startup_recommended_update_task is None
                                 or self._startup_recommended_update_task.done()
                             ):
-                                self._startup_recommended_update_task = asyncio.create_task(
-                                    self._maybe_trigger_startup_recommended_update()
+                                self._startup_recommended_update_task = (
+                                    asyncio.create_task(
+                                        self._maybe_trigger_startup_recommended_update()
+                                    )
                                 )
 
                             connection_closed_auth_error = False
@@ -3424,128 +4069,238 @@ class WSAgent:
                                     first_msg_processed = True
                                     if msg.type == WSMsgType.TEXT:
                                         await self.handle_message(ws, msg.data)
-                                        
+
                                     elif msg.type == WSMsgType.CLOSED:
                                         # Проверяем код закрытия
-                                        close_code = getattr(ws, 'close_code', None)
-                                        close_message = getattr(ws, 'close_message', None)
-                                        
+                                        close_code = getattr(ws, "close_code", None)
+                                        close_message = getattr(
+                                            ws, "close_message", None
+                                        )
+
                                         if close_code == 4003:
                                             connection_closed_auth_error = True
                                             # Токен невалидный или отсутствует
-                                            error_msg = close_message.decode('utf-8', errors='ignore') if close_message else "Invalid token"
-                                            logger.error(f"🔴 Ошибка аутентификации: {error_msg}")
-                                            logger.warning("🔑 Токен невалиден или отсутствует. Требуется ввести новый токен.")
-                                            await self._publish_connection_state("auth_required", "невалидный токен")
-                                            
+                                            error_msg = (
+                                                close_message.decode(
+                                                    "utf-8", errors="ignore"
+                                                )
+                                                if close_message
+                                                else "Invalid token"
+                                            )
+                                            logger.error(
+                                                f"🔴 Ошибка аутентификации: {error_msg}"
+                                            )
+                                            logger.warning(
+                                                "🔑 Токен невалиден или отсутствует. Требуется ввести новый токен."
+                                            )
+                                            await self._publish_connection_state(
+                                                "auth_required", "невалидный токен"
+                                            )
+
                                             # Очищаем токен
                                             self.identity_manager.clear_token()
                                             if self.db_manager:
                                                 try:
-                                                    await self.db_manager.clear_auth_token(self.identity_manager.device_id)
+                                                    await self.db_manager.clear_auth_token(
+                                                        self.identity_manager.device_id
+                                                    )
                                                 except Exception as e:
-                                                    logger.debug(f"Не удалось очистить токен из БД: {e}")
-                                            
+                                                    logger.debug(
+                                                        f"Не удалось очистить токен из БД: {e}"
+                                                    )
+
                                             # Запрашиваем новый токен
                                             logger.info("=" * 70)
                                             logger.info("💡 Инструкция:")
-                                            logger.info("   1. Откройте admin панель сервера: http://server:8666/admin")
-                                            logger.info("   2. Перейдите в раздел 'Generate Agent Token'")
-                                            logger.info(f"   3. Введите canonical device ID: {self.device_id}")
-                                            logger.info("   4. Скопируйте токен и вставьте его в диалог ниже")
+                                            logger.info(
+                                                "   1. Откройте admin панель сервера: http://server:8666/admin"
+                                            )
+                                            logger.info(
+                                                "   2. Перейдите в раздел 'Generate Agent Token'"
+                                            )
+                                            logger.info(
+                                                f"   3. Введите canonical device ID: {self.device_id}"
+                                            )
+                                            logger.info(
+                                                "   4. Скопируйте токен и вставьте его в диалог ниже"
+                                            )
                                             logger.info("=" * 70)
-                                            
+
                                             # Запрашиваем токен через консоль (GUI отключен)
                                             if not await self._request_token_from_console():
-                                                logger.error("❌ Не удалось получить токен. Завершение работы.")
+                                                logger.error(
+                                                    "❌ Не удалось получить токен. Завершение работы."
+                                                )
                                                 should_exit = True
                                                 break
-                                            
-                                            logger.info("✅ Токен получен. Переподключаемся...")
+
+                                            logger.info(
+                                                "✅ Токен получен. Переподключаемся..."
+                                            )
                                         else:
-                                            msg_text = close_message.decode('utf-8', errors='ignore') if close_message else "Unknown"
-                                            logger.warning(f"🔌 Соединение закрыто сервером: code={close_code}, message={msg_text}")
-                                            await self._publish_connection_state("disconnected", msg_text)
+                                            msg_text = (
+                                                close_message.decode(
+                                                    "utf-8", errors="ignore"
+                                                )
+                                                if close_message
+                                                else "Unknown"
+                                            )
+                                            logger.warning(
+                                                f"🔌 Соединение закрыто сервером: code={close_code}, message={msg_text}"
+                                            )
+                                            await self._publish_connection_state(
+                                                "disconnected", msg_text
+                                            )
                                         break
-                                        
+
                                     elif msg.type == WSMsgType.ERROR:
-                                        logger.error(f"❌ Ошибка WebSocket: {ws.exception()}")
-                                        await self._publish_connection_state("disconnected", "ошибка websocket")
+                                        logger.error(
+                                            f"❌ Ошибка WebSocket: {ws.exception()}"
+                                        )
+                                        await self._publish_connection_state(
+                                            "disconnected", "ошибка websocket"
+                                        )
                                         break
                             except asyncio.CancelledError:
-                                logger.info("🛑 Получен сигнал отмены, завершаю работу...")
+                                logger.info(
+                                    "🛑 Получен сигнал отмены, завершаю работу..."
+                                )
                                 raise
                             except Exception as read_error:
                                 # Если соединение было закрыто во время чтения - проверяем код закрытия
                                 if ws.closed:
-                                    close_code = getattr(ws, 'close_code', None)
+                                    close_code = getattr(ws, "close_code", None)
                                     if close_code == 4003:
                                         connection_closed_auth_error = True
-                                        close_message = getattr(ws, 'close_message', None)
-                                        error_msg = close_message.decode('utf-8', errors='ignore') if close_message else "Invalid token"
-                                        logger.error(f"🔴 Ошибка аутентификации (при чтении): {error_msg}")
-                                        logger.warning("🔑 Токен невалиден или отсутствует. Требуется ввести новый токен.")
-                                        await self._publish_connection_state("auth_required", "невалидный токен")
-                                        
+                                        close_message = getattr(
+                                            ws, "close_message", None
+                                        )
+                                        error_msg = (
+                                            close_message.decode(
+                                                "utf-8", errors="ignore"
+                                            )
+                                            if close_message
+                                            else "Invalid token"
+                                        )
+                                        logger.error(
+                                            f"🔴 Ошибка аутентификации (при чтении): {error_msg}"
+                                        )
+                                        logger.warning(
+                                            "🔑 Токен невалиден или отсутствует. Требуется ввести новый токен."
+                                        )
+                                        await self._publish_connection_state(
+                                            "auth_required", "невалидный токен"
+                                        )
+
                                         # Очищаем токен
                                         self.identity_manager.clear_token()
                                         if self.db_manager:
                                             try:
-                                                await self.db_manager.clear_auth_token(self.identity_manager.device_id)
+                                                await self.db_manager.clear_auth_token(
+                                                    self.identity_manager.device_id
+                                                )
                                             except Exception as e:
-                                                logger.debug(f"Не удалось очистить токен из БД: {e}")
-                                        
+                                                logger.debug(
+                                                    f"Не удалось очистить токен из БД: {e}"
+                                                )
+
                                         # Запрашиваем новый токен
                                         logger.info("=" * 70)
                                         logger.info("💡 Инструкция:")
-                                        logger.info("   1. Откройте admin панель сервера: http://server:8666/admin")
-                                        logger.info("   2. Перейдите в раздел 'Generate Agent Token'")
-                                        logger.info(f"   3. Введите canonical device ID: {self.device_id}")
-                                        logger.info("   4. Скопируйте токен и вставьте его в диалог ниже")
+                                        logger.info(
+                                            "   1. Откройте admin панель сервера: http://server:8666/admin"
+                                        )
+                                        logger.info(
+                                            "   2. Перейдите в раздел 'Generate Agent Token'"
+                                        )
+                                        logger.info(
+                                            f"   3. Введите canonical device ID: {self.device_id}"
+                                        )
+                                        logger.info(
+                                            "   4. Скопируйте токен и вставьте его в диалог ниже"
+                                        )
                                         logger.info("=" * 70)
-                                        
+
                                         if not await self._request_token_from_console():
-                                            logger.error("❌ Не удалось получить токен. Завершение работы.")
+                                            logger.error(
+                                                "❌ Не удалось получить токен. Завершение работы."
+                                            )
                                             should_exit = True
                                     else:
-                                        logger.error(f"❌ Ошибка при чтении сообщений: {read_error}")
-                                        await self._publish_connection_state("disconnected", "ошибка чтения")
+                                        logger.error(
+                                            f"❌ Ошибка при чтении сообщений: {read_error}"
+                                        )
+                                        await self._publish_connection_state(
+                                            "disconnected", "ошибка чтения"
+                                        )
                                 else:
-                                    logger.error(f"❌ Неожиданная ошибка при чтении: {read_error}")
-                                    await self._publish_connection_state("disconnected", "ошибка чтения")
+                                    logger.error(
+                                        f"❌ Неожиданная ошибка при чтении: {read_error}"
+                                    )
+                                    await self._publish_connection_state(
+                                        "disconnected", "ошибка чтения"
+                                    )
                             finally:
                                 # Если соединение было закрыто до начала чтения - проверяем код закрытия
                                 if not first_msg_processed and ws.closed:
-                                    close_code = getattr(ws, 'close_code', None)
+                                    close_code = getattr(ws, "close_code", None)
                                     if close_code == 4003:
                                         connection_closed_auth_error = True
-                                        close_message = getattr(ws, 'close_message', None)
-                                        error_msg = close_message.decode('utf-8', errors='ignore') if close_message else "Invalid token"
-                                        logger.error(f"🔴 Ошибка аутентификации при handshake: {error_msg}")
-                                        logger.warning("🔑 Токен невалиден или отсутствует. Требуется ввести новый токен.")
-                                        await self._publish_connection_state("auth_required", "невалидный токен")
-                                        
+                                        close_message = getattr(
+                                            ws, "close_message", None
+                                        )
+                                        error_msg = (
+                                            close_message.decode(
+                                                "utf-8", errors="ignore"
+                                            )
+                                            if close_message
+                                            else "Invalid token"
+                                        )
+                                        logger.error(
+                                            f"🔴 Ошибка аутентификации при handshake: {error_msg}"
+                                        )
+                                        logger.warning(
+                                            "🔑 Токен невалиден или отсутствует. Требуется ввести новый токен."
+                                        )
+                                        await self._publish_connection_state(
+                                            "auth_required", "невалидный токен"
+                                        )
+
                                         # Очищаем токен
                                         self.identity_manager.clear_token()
                                         if self.db_manager:
                                             try:
-                                                await self.db_manager.clear_auth_token(self.identity_manager.device_id)
+                                                await self.db_manager.clear_auth_token(
+                                                    self.identity_manager.device_id
+                                                )
                                             except Exception as e:
-                                                logger.debug(f"Не удалось очистить токен из БД: {e}")
-                                        
+                                                logger.debug(
+                                                    f"Не удалось очистить токен из БД: {e}"
+                                                )
+
                                         # Запрашиваем новый токен
                                         logger.info("=" * 70)
                                         logger.info("💡 Инструкция:")
-                                        logger.info("   1. Откройте admin панель сервера: http://server:8666/admin")
-                                        logger.info("   2. Перейдите в раздел 'Generate Agent Token'")
-                                        logger.info(f"   3. Введите canonical device ID: {self.device_id}")
-                                        logger.info("   4. Скопируйте токен и вставьте его в диалог ниже")
+                                        logger.info(
+                                            "   1. Откройте admin панель сервера: http://server:8666/admin"
+                                        )
+                                        logger.info(
+                                            "   2. Перейдите в раздел 'Generate Agent Token'"
+                                        )
+                                        logger.info(
+                                            f"   3. Введите canonical device ID: {self.device_id}"
+                                        )
+                                        logger.info(
+                                            "   4. Скопируйте токен и вставьте его в диалог ниже"
+                                        )
                                         logger.info("=" * 70)
-                                        
+
                                         if not await self._request_token_from_console():
-                                            logger.error("❌ Не удалось получить токен. Завершение работы.")
+                                            logger.error(
+                                                "❌ Не удалось получить токен. Завершение работы."
+                                            )
                                             should_exit = True
-                            
+
                             # Останавливаем flusher при разрыве соединения
                             if self.flusher_task:
                                 logger.info("🛑 Останавливаю WSOutboxFlusher...")
@@ -3557,90 +4312,122 @@ class WSAgent:
                                 self.flusher_task = None
                                 self.flusher = None
                                 logger.info("✅ WSOutboxFlusher остановлен")
-                            
+
                             # Обнуляем ссылку на WebSocket
                             self._agent_ws = None
-                            
+
                             # Отменяем все pending chat_raise запросы
                             for req_id, future in self._pending_chat_raise.items():
                                 if not future.done():
                                     future.cancel()
                             self._pending_chat_raise.clear()
-                            
+
                             # Проверяем причину закрытия
                             if connection_closed_auth_error:
                                 # Уже обработали выше, просто логируем
                                 logger.info("⏳ Переподключение с новым токеном...")
                             else:
                                 logger.warning("❌ Потеря связи с сервером")
-                                await self._publish_connection_state("disconnected", "соединение потеряно")
-                
+                                await self._publish_connection_state(
+                                    "disconnected", "соединение потеряно"
+                                )
+
                     except asyncio.CancelledError:
                         logger.info("🛑 Получен сигнал отмены в цикле подключения")
                         raise
                     except aiohttp.ClientConnectorError as e:
                         logger.error(f"❌ Ошибка подключения к серверу: {e}")
-                        logger.info(f"   Проверьте, что сервер запущен на {get_config().server.ws_url}")
-                        await self._publish_connection_state("disconnected", "сервер недоступен")
+                        logger.info(
+                            f"   Проверьте, что сервер запущен на {get_config().server.ws_url}"
+                        )
+                        await self._publish_connection_state(
+                            "disconnected", "сервер недоступен"
+                        )
                     except aiohttp.WSServerHandshakeError as e:
                         # Ошибка при handshake - возможно проблема с токеном
                         error_msg = str(e)
-                        status = getattr(e, 'status', None)
-                        message = getattr(e, 'message', b'')
-                        
+                        status = getattr(e, "status", None)
+                        message = getattr(e, "message", b"")
+
                         if _is_auth_rejection_handshake_error(
                             status=status,
                             error_msg=error_msg,
                             message=message,
                         ):
-                            logger.error("🔴 Сервер отклонил подключение: невалидный токен")
+                            logger.error(
+                                "🔴 Сервер отклонил подключение: невалидный токен"
+                            )
                             logger.warning("🔑 Требуется ввести новый токен.")
-                            await self._publish_connection_state("auth_required", "невалидный токен")
-                            
+                            await self._publish_connection_state(
+                                "auth_required", "невалидный токен"
+                            )
+
                             # Очищаем токен
                             self.identity_manager.clear_token()
                             if self.db_manager:
                                 try:
-                                    await self.db_manager.clear_auth_token(self.identity_manager.device_id)
+                                    await self.db_manager.clear_auth_token(
+                                        self.identity_manager.device_id
+                                    )
                                 except Exception as db_err:
-                                    logger.debug(f"Не удалось очистить токен из БД: {db_err}")
-                            
+                                    logger.debug(
+                                        f"Не удалось очистить токен из БД: {db_err}"
+                                    )
+
                             # Запрашиваем токен
                             logger.info("=" * 70)
                             logger.info("💡 Инструкция:")
-                            logger.info("   1. Откройте admin панель сервера: http://server:8666/admin")
-                            logger.info("   2. Перейдите в раздел 'Generate Agent Token'")
-                            logger.info(f"   3. Введите canonical device ID: {self.device_id}")
-                            logger.info("   4. Скопируйте токен и вставьте его в диалог ниже")
+                            logger.info(
+                                "   1. Откройте admin панель сервера: http://server:8666/admin"
+                            )
+                            logger.info(
+                                "   2. Перейдите в раздел 'Generate Agent Token'"
+                            )
+                            logger.info(
+                                f"   3. Введите canonical device ID: {self.device_id}"
+                            )
+                            logger.info(
+                                "   4. Скопируйте токен и вставьте его в диалог ниже"
+                            )
                             logger.info("=" * 70)
-                            
+
                             if not await self._request_token_from_console():
-                                logger.error("❌ Не удалось получить токен. Завершение работы.")
+                                logger.error(
+                                    "❌ Не удалось получить токен. Завершение работы."
+                                )
                                 should_exit = True
                                 break
-                            
+
                             logger.info("✅ Токен получен. Переподключаемся...")
                         else:
                             logger.error(f"❌ Ошибка handshake: {e}")
                             logger.info(f"   Status: {status}, Message: {message}")
-                            await self._publish_connection_state("disconnected", "ошибка handshake")
+                            await self._publish_connection_state(
+                                "disconnected", "ошибка handshake"
+                            )
                     except Exception as e:
                         logger.error(f"❌ Неожиданная ошибка подключения: {e}")
                         logger.exception(e)
-                        await self._publish_connection_state("disconnected", "ошибка подключения")
-                    
+                        await self._publish_connection_state(
+                            "disconnected", "ошибка подключения"
+                        )
+
                     # Проверяем, нужно ли завершить работу
                     if should_exit:
                         logger.info("🛑 Завершение работы агента...")
                         break
-                    
+
                     # Переподключение
-                    logger.info(f"⏳ Реконнект через {get_config().server.reconnect_interval} сек...")
+                    logger.info(
+                        f"⏳ Реконнект через {get_config().server.reconnect_interval} сек..."
+                    )
                     await asyncio.sleep(get_config().server.reconnect_interval)
-        
+
         except asyncio.CancelledError:
             if self._requested_exit_code == EXIT_UPDATE_PENDING:
-                logger.info("🛑 Получен сигнал update shutdown, выполняю clean shutdown под launcher exit code 42...")
+                logger.info(
+                    "🛑 Получен сигнал update shutdown, выполняю clean shutdown под launcher exit code 42..."
+                )
             else:
                 logger.info("🛑 Получен сигнал отмены, выполняю clean shutdown...")
             # Закрываем WebSocket соединение явно, иначе выход из ws_connect может зависать на closing handshake.
@@ -3669,31 +4456,31 @@ class WSAgent:
 # 🧪 ТЕСТИРОВАНИЕ
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+
 def test_envelope_format():
     """
     Тест-функция для проверки формата envelope.
-    
+
     Принимает примеры входящих сообщений и показывает сформированный envelope.
     Можно запустить без WebSocket соединения.
     """
     print("=" * 70)
     print("🧪 Тест формата WS envelope")
     print("=" * 70)
-    
+
     # Создаем экземпляр агента (без инициализации)
     agent = WSAgent()
-    
+
     # Тест 1: Старый формат команды
     print("\n1️⃣ Старый формат команды:")
-    old_command = {
-        "command": "collect",
-        "params": {"modules": ["system", "screen"]}
-    }
-    print(f"Входное сообщение: {jsonlib.dumps(old_command, indent=2, ensure_ascii=False)}")
+    old_command = {"command": "collect", "params": {"modules": ["system", "screen"]}}
+    print(
+        f"Входное сообщение: {jsonlib.dumps(old_command, indent=2, ensure_ascii=False)}"
+    )
     envelope1 = agent.normalize_envelope(old_command)
     print(f"Сформированный envelope:")
     print(jsonlib.dumps(envelope1, indent=2, ensure_ascii=False))
-    
+
     # Тест 2: Старый формат ping
     print("\n2️⃣ Старый формат ping:")
     old_ping = {"type": "ping"}
@@ -3701,23 +4488,22 @@ def test_envelope_format():
     envelope2 = agent.normalize_envelope(old_ping)
     print(f"Сформированный envelope:")
     print(jsonlib.dumps(envelope2, indent=2, ensure_ascii=False))
-    
+
     # Тест 3: Новый формат envelope (команда)
     print("\n3️⃣ Новый формат envelope (команда):")
     new_command = {
         "type": "command",
         "request_id": "test-request-123",
         "device_id": "test_pc_01",
-        "payload": {
-            "command": "collect",
-            "params": {"modules": ["system"]}
-        }
+        "payload": {"command": "collect", "params": {"modules": ["system"]}},
     }
-    print(f"Входное сообщение: {jsonlib.dumps(new_command, indent=2, ensure_ascii=False)}")
+    print(
+        f"Входное сообщение: {jsonlib.dumps(new_command, indent=2, ensure_ascii=False)}"
+    )
     envelope3 = agent.normalize_envelope(new_command)
     print(f"Сформированный envelope (без изменений):")
     print(jsonlib.dumps(envelope3, indent=2, ensure_ascii=False))
-    
+
     # Тест 4: Пример ответа (command_result)
     print("\n4️⃣ Пример ответа (command_result):")
     # Симулируем ToolResponse от оркестратора
@@ -3726,13 +4512,7 @@ def test_envelope_format():
         "data": {
             "observations": {
                 "results": {
-                    "system": {
-                        "ok": True,
-                        "observations": {
-                            "cpu": 25.5,
-                            "ram": 60.2
-                        }
-                    }
+                    "system": {"ok": True, "observations": {"cpu": 25.5, "ram": 60.2}}
                 }
             }
         },
@@ -3740,27 +4520,29 @@ def test_envelope_format():
             "timestamp_iso": "2025-01-15T10:30:00.000Z",
             "command": "collect",
             "request_id": "test-request-123",
-            "duration_ms": 150
-        }
+            "duration_ms": 150,
+        },
     }
     print(f"ToolResponse (payload):")
     print(jsonlib.dumps(tool_response, indent=2, ensure_ascii=False))
-    
+
     # Формируем envelope для ответа
     response_envelope = {
         "type": "command_result",
         "request_id": "test-request-123",
         "device_id": agent.device_id,
-        "payload": tool_response
+        "payload": tool_response,
     }
     print(f"\nСформированный envelope для ответа:")
     print(jsonlib.dumps(response_envelope, indent=2, ensure_ascii=False))
-    
+
     # Проверка: device_id НЕ должен быть в payload
-    assert "device_id" not in tool_response, "❌ device_id не должен быть в ToolResponse!"
+    assert "device_id" not in tool_response, (
+        "❌ device_id не должен быть в ToolResponse!"
+    )
     assert "device_id" in response_envelope, "✅ device_id должен быть в envelope"
     print("\n✅ Проверка: device_id только в envelope, не в ToolResponse")
-    
+
     print("\n" + "=" * 70)
     print("✅ Все тесты формата envelope пройдены!")
     print("=" * 70)
@@ -3770,9 +4552,11 @@ def test_envelope_format():
 # 🚀 ТОЧКА ВХОДА
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+
 async def _run_verify_mode(data_root: Path) -> None:
     """Режим --verify: init_config уже вызван, только БД миграции и проверка загрузки компонентов. Выход 0/1."""
     import sys
+
     logs_dir = runtime_paths.resolve_logs_dir(data_root)
     logs_dir.mkdir(parents=True, exist_ok=True)
     verify_log = logs_dir / "verify.log"
@@ -3784,7 +4568,11 @@ async def _run_verify_mode(data_root: Path) -> None:
         await db.init_db()
         logger.info("Verify: БД инициализирована, миграции применены")
         # Пробная загрузка оркестратора/модулей без подключения к серверу
-        orch = AgentOrchestrator(db_manager=db, enabled_modules=get_config().enabled_modules, data_root=data_root)
+        orch = AgentOrchestrator(
+            db_manager=db,
+            enabled_modules=get_config().enabled_modules,
+            data_root=data_root,
+        )
         await orch.initialize()
         logger.info("Verify: оркестратор инициализирован")
         sys.exit(0)
@@ -3811,7 +4599,9 @@ async def main_async(
     logger.info("🤖 PC Agent WebSocket Client v2.0 (с AgentOrchestrator)")
     logger.info(f"📡 WebSocket сервер: {cfg.server.ws_url}")
     logger.info(f"🌐 API сервер: {cfg.server.api_url}")
-    logger.info(f"💾 База данных: {runtime_paths.resolve_storage_db_path(data_root or Path(cfg.paths.data_dir))}")
+    logger.info(
+        f"💾 База данных: {runtime_paths.resolve_storage_db_path(data_root or Path(cfg.paths.data_dir))}"
+    )
     logger.info(f"⚙️  Уровень логирования: {cfg.logging.level}")
     logger.info(f"📦 Модули: {', '.join(cfg.enabled_modules)}")
     logger.info(f"🔍 main_async получил enable_gui={enable_gui}")
@@ -3821,21 +4611,27 @@ async def main_async(
 
     agent = WSAgent(data_root=data_root, install_root=install_root)
     exit_code = 0
-    
+
     # Событие для остановки
     stop_event = asyncio.Event()
     stop_wait_task: Optional[asyncio.Task] = None
     agent_task: Optional[asyncio.Task] = None
     gui_task: Optional[asyncio.Task] = None
     auth_state_machine: Optional[GuiAuthStateMachine] = None
-    
-    async def sync_agent_token_from_db(*, retries: int = 1, delay: float = 0.0, log_reason: str) -> Optional[str]:
+
+    async def sync_agent_token_from_db(
+        *, retries: int = 1, delay: float = 0.0, log_reason: str
+    ) -> Optional[str]:
         token_from_db_local = None
         try:
-            identity_device_id = getattr(agent.identity_manager, "device_id", None) or getattr(agent.identity_manager, "uuid", None)
+            identity_device_id = getattr(
+                agent.identity_manager, "device_id", None
+            ) or getattr(agent.identity_manager, "uuid", None)
             if agent.db_manager and identity_device_id:
                 for attempt in range(max(1, retries)):
-                    token_from_db_local = await load_auth_token_from_db(agent.db_manager, agent.identity_manager)
+                    token_from_db_local = await load_auth_token_from_db(
+                        agent.db_manager, agent.identity_manager
+                    )
                     if token_from_db_local:
                         break
                     if delay > 0 and attempt + 1 < max(1, retries):
@@ -3854,9 +4650,13 @@ async def main_async(
         # Инициализация
         await agent.initialize()
 
-        async def on_shutdown_agent(payload: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        async def on_shutdown_agent(
+            payload: Optional[Dict[str, Any]] = None,
+        ) -> Dict[str, Any]:
             reason = str((payload or {}).get("reason") or "ui_shutdown")
-            logger.warning(f"🛑 Получен запрос на полное завершение агента (reason={reason})")
+            logger.warning(
+                f"🛑 Получен запрос на полное завершение агента (reason={reason})"
+            )
             agent._requested_exit_code = 0
             await agent._publish_connection_state("shutting_down", reason)
             stop_event.set()
@@ -3864,16 +4664,15 @@ async def main_async(
 
         if agent.ui_api_server:
             agent.ui_api_server.on_shutdown_agent = on_shutdown_agent
-        
+
         # Выводим Device ID после инициализации (когда он уже установлен из identity)
         logger.info(f"🆔 Device ID: {agent.device_id}")
-        
+
         # Если GUI включен, запускаем UI API сервер до запуска GUI
-        
-        
+
         # Даем event loop возможность обработать инициализацию
         await asyncio.sleep(0)
-        
+
         # Если GUI включен, сначала запускаем GUI и ждем авторизации
         # Затем запускаем агента, который будет использовать уже сохраненный токен
         logger.info(f"🔍 Проверка enable_gui в main_async: {enable_gui}")
@@ -3881,10 +4680,12 @@ async def main_async(
             ui_config = get_config().ui
             # При enable_gui=True (--gui от launcher/CLI) всегда показываем окно; ui.enabled в конфиге только для автозапуска без --gui
             show_gui = True
-            logger.info(f"🔍 GUI: enable_gui=True, ui.enabled={ui_config.enabled if ui_config else None}, show_gui={show_gui}")
+            logger.info(
+                f"🔍 GUI: enable_gui=True, ui.enabled={ui_config.enabled if ui_config else None}, show_gui={show_gui}"
+            )
             if show_gui:
                 logger.info("✅ Запуск GUI")
-                
+
                 # КРИТИЧНО: Запускаем UI API сервер ДО запуска GUI
                 # GUI будет пытаться подключиться к серверу сразу после запуска
                 ui_bridge_listening: Optional[bool] = None
@@ -3905,14 +4706,15 @@ async def main_async(
                         agent.ui_api_task = True
 
                 from pc_agent.ui_gui.main import run_gui
+
                 host = ui_config.host
                 port = ui_config.port
                 logger.info(f"🖥️  Запускаю GUI на {host}:{port} (ожидаю авторизации)...")
-                
+
                 # Создаем событие для завершения авторизации (токен получен — одобрение или ввод вручную)
                 gui_auth_complete = asyncio.Event()
                 auth_state_machine = GuiAuthStateMachine(agent)
-                
+
                 # Обертываем run_gui: при отсутствии токена GUI сразу покажет «Ожидании подтверждения администратором»
                 async def run_gui_with_auth():
                     try:
@@ -3929,28 +4731,34 @@ async def main_async(
                         logger.error(f"Ошибка в GUI: {e}")
                         logger.exception(e)
                         gui_auth_complete.set()
-                
+
                 gui_task = asyncio.create_task(run_gui_with_auth(), name="run_gui")
-                
+
                 # Даем GUI время показать окно и диалог «Ожидании подтверждения администратором»
                 await asyncio.sleep(1.0)
 
                 # GUI может уже открыть основное окно по токену из БД, поэтому сначала
                 # синхронизируем токен в агенте и только потом решаем, нужен ли request flow.
                 await sync_agent_token_from_db(log_reason="before gui auth decision")
-                
+
                 # Явная state machine для переходов auth GUI->request->token.
                 if gui_auth_complete.is_set():
-                    logger.info("GUI уже завершил авторизацию до запуска request_connection_flow")
+                    logger.info(
+                        "GUI уже завершил авторизацию до запуска request_connection_flow"
+                    )
                 elif auth_state_machine.should_request_connection():
                     auth_state_machine.start_connection_flow(gui_auth_complete)
                 elif agent._connection_rejected_flag_path().exists():
-                    logger.warning("Подключение ранее отклонено; в GUI доступен ввод токена вручную или сброс через scripts/clear_local_agent_tokens.py")
-                
+                    logger.warning(
+                        "Подключение ранее отклонено; в GUI доступен ввод токена вручную или сброс через scripts/clear_local_agent_tokens.py"
+                    )
+
                 # Ждем, пока GUI завершит авторизацию (одобрение или ввод токена)
                 logger.info("⏳ Ожидаю завершения авторизации в GUI...")
-                await auth_state_machine.wait_for_gui_auth(gui_auth_complete, timeout_seconds=620)
-                
+                await auth_state_machine.wait_for_gui_auth(
+                    gui_auth_complete, timeout_seconds=620
+                )
+
                 # Токен хранится только в БД — опрашиваем БД, не identity.json
                 token_from_db_after_gui = await sync_agent_token_from_db(
                     retries=10,
@@ -3960,17 +4768,23 @@ async def main_async(
                 if token_from_db_after_gui:
                     logger.info("✅ Токен найден в БД после ожидания GUI авторизации")
                 else:
-                    logger.warning("⚠️ Токен не найден в БД после ожидания GUI авторизации")
+                    logger.warning(
+                        "⚠️ Токен не найден в БД после ожидания GUI авторизации"
+                    )
             else:
-                logger.warning(f"⚠️ GUI не включен в конфиге: ui_config={ui_config}, enabled={ui_config.enabled if ui_config else 'None'}")
-        
+                logger.warning(
+                    f"⚠️ GUI не включен в конфиге: ui_config={ui_config}, enabled={ui_config.enabled if ui_config else 'None'}"
+                )
+
         # Теперь запускаем агента (токен должен быть уже сохранен GUI в БД)
         # Загружаем токен из БД агента — identity.json токен не хранит (основной источник — storage.db)
         token_from_db = await sync_agent_token_from_db(log_reason="before agent.run")
         if not token_from_db and enable_gui and gui_task:
             logger.warning("⚠️ Токен не найден в БД перед запуском агента")
-            logger.info("💡 Агент при run() попытается загрузить токен из БД в authenticate()")
-        
+            logger.info(
+                "💡 Агент при run() попытается загрузить токен из БД в authenticate()"
+            )
+
         agent_task = asyncio.create_task(agent.run(), name="agent.run")
         stop_wait_task = asyncio.create_task(stop_event.wait(), name="agent.stop_wait")
 
@@ -3980,8 +4794,7 @@ async def main_async(
                 tasks_to_wait.append(gui_task)
 
             done, pending = await asyncio.wait(
-                tasks_to_wait,
-                return_when=asyncio.FIRST_COMPLETED
+                tasks_to_wait, return_when=asyncio.FIRST_COMPLETED
             )
 
             if stop_wait_task in done:
@@ -3992,7 +4805,9 @@ async def main_async(
                 except asyncio.CancelledError:
                     pass
                 except asyncio.TimeoutError:
-                    logger.warning("⚠️ Агент не завершился за 5 секунд после сигнала shutdown")
+                    logger.warning(
+                        "⚠️ Агент не завершился за 5 секунд после сигнала shutdown"
+                    )
                 break
 
             if gui_task and gui_task in done:
@@ -4005,7 +4820,9 @@ async def main_async(
                     logger.exception(gui_error)
                 if stop_event.is_set():
                     continue
-                logger.warning("⚠️ GUI завершился, агент продолжает работать в background/headless режиме")
+                logger.warning(
+                    "⚠️ GUI завершился, агент продолжает работать в background/headless режиме"
+                )
                 gui_task = None
                 continue
 
@@ -4022,9 +4839,11 @@ async def main_async(
                     except asyncio.CancelledError:
                         pass
                     except asyncio.TimeoutError:
-                        logger.warning("⚠️ GUI не завершился за 3 секунды после остановки агента")
+                        logger.warning(
+                            "⚠️ GUI не завершился за 3 секунды после остановки агента"
+                        )
                 break
-        
+
     except KeyboardInterrupt:
         logger.info("⛔ Получен сигнал остановки (Ctrl+C)")
     except Exception as e:
@@ -4058,12 +4877,36 @@ def main():
     """
     _configure_utf8_stdio()
     parser = argparse.ArgumentParser(description="PC Agent WebSocket Client")
-    parser.add_argument("--data-dir", type=str, default=None, help="Корень данных (БД, логи, модули). По умолчанию: по ОС (LOCALAPPDATA/XDG)")
-    parser.add_argument("--install-root", type=str, default=None, help="Корень установки (для launcher; опционально)")
-    parser.add_argument("--gui", action="store_true", help="Запустить GUI (альтернатива: config.ui.autostart_gui)")
-    parser.add_argument("--no-gui", action="store_true", help="Запустить агент без GUI, игнорируя config.ui.autostart_gui")
-    parser.add_argument("--verify", action="store_true", help="Режим проверки: только init + миграции БД, без WS/GUI (для launcher)")
-    parser.add_argument("--remote-assist-elevated-helper", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument(
+        "--data-dir",
+        type=str,
+        default=None,
+        help="Корень данных (БД, логи, модули). По умолчанию: по ОС (LOCALAPPDATA/XDG)",
+    )
+    parser.add_argument(
+        "--install-root",
+        type=str,
+        default=None,
+        help="Корень установки (для launcher; опционально)",
+    )
+    parser.add_argument(
+        "--gui",
+        action="store_true",
+        help="Запустить GUI (альтернатива: config.ui.autostart_gui)",
+    )
+    parser.add_argument(
+        "--no-gui",
+        action="store_true",
+        help="Запустить агент без GUI, игнорируя config.ui.autostart_gui",
+    )
+    parser.add_argument(
+        "--verify",
+        action="store_true",
+        help="Режим проверки: только init + миграции БД, без WS/GUI (для launcher)",
+    )
+    parser.add_argument(
+        "--remote-assist-elevated-helper", action="store_true", help=argparse.SUPPRESS
+    )
     parser.add_argument("--host", type=str, default="127.0.0.1", help=argparse.SUPPRESS)
     parser.add_argument("--port", type=int, default=0, help=argparse.SUPPRESS)
     parser.add_argument("--token", type=str, default="", help=argparse.SUPPRESS)
@@ -4081,7 +4924,11 @@ def main():
         )
 
     data_root = runtime_paths.resolve_data_root(cli_value=args.data_dir)
-    install_root = runtime_paths.resolve_install_root(cli_value=args.install_root) if args.install_root else None
+    install_root = (
+        runtime_paths.resolve_install_root(cli_value=args.install_root)
+        if args.install_root
+        else None
+    )
     instance_lock = SingleInstanceLock(data_root / "agent.lock")
     if not instance_lock.acquire():
         logger.warning("Another agent instance is already running; exiting.")
@@ -4094,7 +4941,9 @@ def main():
         return
 
     cfg = get_config()
-    enable_gui = False if args.no_gui else bool(args.gui or (cfg.ui and cfg.ui.autostart_gui))
+    enable_gui = (
+        False if args.no_gui else bool(args.gui or (cfg.ui and cfg.ui.autostart_gui))
+    )
     logger.info(f"🔍 Аргумент --gui: {args.gui}, итоговый enable_gui: {enable_gui}")
 
     if enable_gui:
@@ -4102,27 +4951,33 @@ def main():
         try:
             import qasync
             from PySide6.QtWidgets import QApplication
-            
+
             # Создаем QApplication
             app = QApplication([])
-            
+
             # Создаем qasync event loop
             loop = qasync.QEventLoop(app)
             asyncio.set_event_loop(loop)
             exit_code = 0
-            
+
             # Запускаем главную функцию в qasync loop
             with loop:
-                exit_code = loop.run_until_complete(main_async(enable_gui=True, data_root=data_root, install_root=install_root))
+                exit_code = loop.run_until_complete(
+                    main_async(
+                        enable_gui=True, data_root=data_root, install_root=install_root
+                    )
+                )
                 # После возврата main_async завершаем приложение. app.quit() только ставит событие в очередь;
                 # без повторного запуска цикла процесс зависал. Ждём фактического выхода (aboutToQuit).
                 quit_done = loop.create_future()
+
                 def on_about_to_quit():
                     try:
                         if not quit_done.done():
                             loop.call_soon_threadsafe(quit_done.set_result, None)
                     except Exception:
                         pass
+
                 app.aboutToQuit.connect(on_about_to_quit)
                 app.quit()
                 try:
@@ -4140,13 +4995,22 @@ def main():
         except Exception as e:
             logger.error(f"❌ Ошибка запуска GUI: {e}")
             logger.exception(e)
-            logger.error("❌ GUI обязателен для штатного запуска; автоматический fallback в --no-gui отключён.")
+            logger.error(
+                "❌ GUI обязателен для штатного запуска; автоматический fallback в --no-gui отключён."
+            )
             raise SystemExit(1)
     else:
         try:
-            raise SystemExit(asyncio.run(main_async(enable_gui=False, data_root=data_root, install_root=install_root)))
+            raise SystemExit(
+                asyncio.run(
+                    main_async(
+                        enable_gui=False, data_root=data_root, install_root=install_root
+                    )
+                )
+            )
         except KeyboardInterrupt:
             pass
+
 
 if __name__ == "__main__":
     main()

@@ -44,12 +44,18 @@ def test_extract_artifact_restores_tar_member_mode_on_posix(monkeypatch, tmp_pat
     chmod_calls = []
 
     monkeypatch.setattr(installer_module.os, "name", "posix", raising=False)
-    monkeypatch.setattr(installer_module.os, "chmod", lambda path, mode: chmod_calls.append((Path(path), mode)))
+    monkeypatch.setattr(
+        installer_module.os,
+        "chmod",
+        lambda path, mode: chmod_calls.append((Path(path), mode)),
+    )
 
     extract_artifact("tar.gz", artifact_path, staging_dir)
 
     assert (staging_dir / "pc_agent").read_bytes() == payload
-    assert [(Path(path), mode) for path, mode in chmod_calls] == [(Path(staging_dir / "pc_agent"), 0o755)]
+    assert [(Path(path), mode) for path, mode in chmod_calls] == [
+        (Path(staging_dir / "pc_agent"), 0o755)
+    ]
 
 
 def test_extract_artifact_allows_safe_relative_tar_symlink(monkeypatch, tmp_path):
@@ -68,13 +74,22 @@ def test_extract_artifact_allows_safe_relative_tar_symlink(monkeypatch, tmp_path
 
     symlink_calls = []
     monkeypatch.setattr(installer_module.os, "name", "posix", raising=False)
-    monkeypatch.setattr(installer_module.os, "symlink", lambda linkname, dest: symlink_calls.append((linkname, Path(dest))))
+    monkeypatch.setattr(
+        installer_module.os,
+        "symlink",
+        lambda linkname, dest: symlink_calls.append((linkname, Path(dest))),
+    )
 
     extract_artifact("tar.gz", artifact_path, staging_dir)
 
     assert (staging_dir / "_internal" / "libexample.so.1").read_bytes() == payload
-    assert [(linkname, str(dest).replace("\\", "/")) for linkname, dest in symlink_calls] == [
-        ("libexample.so.1", str(staging_dir / "_internal" / "libexample.so").replace("\\", "/"))
+    assert [
+        (linkname, str(dest).replace("\\", "/")) for linkname, dest in symlink_calls
+    ] == [
+        (
+            "libexample.so.1",
+            str(staging_dir / "_internal" / "libexample.so").replace("\\", "/"),
+        )
     ]
 
 
@@ -99,7 +114,9 @@ def test_apply_update_failure_removes_pending_and_writes_history(tmp_path):
     downloads_dir = updates_dir / "downloads"
     downloads_dir.mkdir(parents=True, exist_ok=True)
     (install_root / "versions").mkdir(parents=True, exist_ok=True)
-    (install_root / "current.json").write_text(json.dumps({"version": "1.0.0"}), encoding="utf-8")
+    (install_root / "current.json").write_text(
+        json.dumps({"version": "1.0.0"}), encoding="utf-8"
+    )
 
     artifact_path = downloads_dir / "build.zip"
     with zipfile.ZipFile(artifact_path, "w") as zf:
@@ -122,22 +139,30 @@ def test_apply_update_failure_removes_pending_and_writes_history(tmp_path):
         encoding="utf-8",
     )
 
-    ok, message = apply_update(install_root=install_root, data_root=data_root, pending_path=pending_path)
+    ok, message = apply_update(
+        install_root=install_root, data_root=data_root, pending_path=pending_path
+    )
 
     assert ok is False
     assert "Agent binary not found" in message
     assert pending_path.exists() is False
 
-    history = json.loads((updates_dir / "update_history.json").read_text(encoding="utf-8"))
+    history = json.loads(
+        (updates_dir / "update_history.json").read_text(encoding="utf-8")
+    )
     assert history[-1]["success"] is False
     assert history[-1]["reason"] == "binary_not_found"
     assert history[-1]["requested_reason"] == "test rollout"
 
-    failed_pending = json.loads((updates_dir / "last_failed_pending_update.json").read_text(encoding="utf-8"))
+    failed_pending = json.loads(
+        (updates_dir / "last_failed_pending_update.json").read_text(encoding="utf-8")
+    )
     assert failed_pending["pending_payload"]["version"] == "2.0.0"
 
 
-def test_apply_update_prunes_old_version_directories_after_success(tmp_path, monkeypatch):
+def test_apply_update_prunes_old_version_directories_after_success(
+    tmp_path, monkeypatch
+):
     install_root = tmp_path / "install"
     data_root = tmp_path / "data"
     updates_dir = data_root / "updates"
@@ -173,14 +198,23 @@ def test_apply_update_prunes_old_version_directories_after_success(tmp_path, mon
         encoding="utf-8",
     )
 
-    monkeypatch.setattr(installer_module, "run_verify", lambda *_args, **_kwargs: (True, "verify ok"))
+    monkeypatch.setattr(
+        installer_module, "run_verify", lambda *_args, **_kwargs: (True, "verify ok")
+    )
 
-    ok, message = apply_update(install_root=install_root, data_root=data_root, pending_path=pending_path)
+    ok, message = apply_update(
+        install_root=install_root, data_root=data_root, pending_path=pending_path
+    )
 
     assert ok is True
     assert message == "3.1.38"
-    assert sorted(path.name for path in versions_dir.iterdir() if path.is_dir()) == ["3.1.37", "3.1.38"]
-    assert (versions_dir / "3.1.37" / "marker.txt").read_text(encoding="utf-8") == "3.1.37"
+    assert sorted(path.name for path in versions_dir.iterdir() if path.is_dir()) == [
+        "3.1.37",
+        "3.1.38",
+    ]
+    assert (versions_dir / "3.1.37" / "marker.txt").read_text(
+        encoding="utf-8"
+    ) == "3.1.37"
     assert (versions_dir / "3.1.38" / "pc_agent.exe").exists()
     assert json.loads((install_root / "current.json").read_text(encoding="utf-8")) == {
         "version": "3.1.38",
@@ -198,7 +232,9 @@ def test_apply_update_publish_failure_restores_existing_version(tmp_path, monkey
     downloads_dir.mkdir(parents=True, exist_ok=True)
     target_version_dir.mkdir(parents=True, exist_ok=True)
     versions_dir.mkdir(parents=True, exist_ok=True)
-    (install_root / "current.json").write_text(json.dumps({"version": "1.0.0"}), encoding="utf-8")
+    (install_root / "current.json").write_text(
+        json.dumps({"version": "1.0.0"}), encoding="utf-8"
+    )
     (target_version_dir / "keep.txt").write_text("keep me", encoding="utf-8")
 
     artifact_path = downloads_dir / "build.zip"
@@ -224,8 +260,14 @@ def test_apply_update_publish_failure_restores_existing_version(tmp_path, monkey
     original_move = installer_module.shutil.move
     staging_dir = versions_dir / "_staging" / "2.0.0"
 
-    monkeypatch.setattr(installer_module, "_find_agent_binary", lambda _version_dir: staging_dir / "pc_agent.exe")
-    monkeypatch.setattr(installer_module, "run_verify", lambda *_args, **_kwargs: (True, "verify ok"))
+    monkeypatch.setattr(
+        installer_module,
+        "_find_agent_binary",
+        lambda _version_dir: staging_dir / "pc_agent.exe",
+    )
+    monkeypatch.setattr(
+        installer_module, "run_verify", lambda *_args, **_kwargs: (True, "verify ok")
+    )
 
     def _fake_move(src, dst):
         if Path(src) == staging_dir and Path(dst) == target_version_dir:
@@ -234,12 +276,19 @@ def test_apply_update_publish_failure_restores_existing_version(tmp_path, monkey
 
     monkeypatch.setattr(installer_module.shutil, "move", _fake_move)
 
-    ok, message = apply_update(install_root=install_root, data_root=data_root, pending_path=pending_path)
+    ok, message = apply_update(
+        install_root=install_root, data_root=data_root, pending_path=pending_path
+    )
 
     assert ok is False
     assert "Publish failed" in message
     assert (target_version_dir / "keep.txt").read_text(encoding="utf-8") == "keep me"
-    assert json.loads((install_root / "current.json").read_text(encoding="utf-8"))["version"] == "1.0.0"
+    assert (
+        json.loads((install_root / "current.json").read_text(encoding="utf-8"))[
+            "version"
+        ]
+        == "1.0.0"
+    )
     assert pending_path.exists() is False
 
 
@@ -283,7 +332,9 @@ def test_latest_update_handshake_payload_prefers_latest_failure(tmp_path):
     }
 
 
-def test_latest_update_handshake_payload_returns_success_when_latest_entry_succeeded(tmp_path):
+def test_latest_update_handshake_payload_returns_success_when_latest_entry_succeeded(
+    tmp_path,
+):
     data_root = tmp_path / "data"
     updates_dir = data_root / "updates"
     updates_dir.mkdir(parents=True, exist_ok=True)
@@ -323,7 +374,9 @@ def _update_meta() -> ToolMeta:
 
 @pytest.mark.asyncio
 @pytest.mark.no_db
-async def test_update_command_accepts_agent_role_for_server_authorized_self_update(tmp_path, monkeypatch):
+async def test_update_command_accepts_agent_role_for_server_authorized_self_update(
+    tmp_path, monkeypatch
+):
     ConfigLoader._instance = None
     ConfigLoader._config = None
     init_config(tmp_path)
@@ -343,7 +396,9 @@ async def test_update_command_accepts_agent_role_for_server_authorized_self_upda
     async def fake_schedule_update_exit(payload):
         scheduled_payloads.append(payload)
 
-    monkeypatch.setattr(orchestrator, "_download_file_to_path", fake_download_file_to_path)
+    monkeypatch.setattr(
+        orchestrator, "_download_file_to_path", fake_download_file_to_path
+    )
     orchestrator.schedule_update_exit = fake_schedule_update_exit
 
     result = await orchestrator._handle_update(
@@ -365,7 +420,9 @@ async def test_update_command_accepts_agent_role_for_server_authorized_self_upda
     assert result.data is not None
     assert result.data.observations["message"] == "scheduled"
 
-    pending_payload = json.loads((tmp_path / "updates" / "pending_update.json").read_text(encoding="utf-8"))
+    pending_payload = json.loads(
+        (tmp_path / "updates" / "pending_update.json").read_text(encoding="utf-8")
+    )
     assert pending_payload["version"] == "3.1.7"
     assert pending_payload["requested_by"] == "agent"
     assert pending_payload["requested_reason"] == "agent_gui_self_update"
@@ -381,7 +438,9 @@ async def test_update_command_accepts_agent_role_for_server_authorized_self_upda
 
 @pytest.mark.asyncio
 @pytest.mark.no_db
-async def test_update_command_rejects_when_pending_update_already_exists(tmp_path, monkeypatch):
+async def test_update_command_rejects_when_pending_update_already_exists(
+    tmp_path, monkeypatch
+):
     ConfigLoader._instance = None
     ConfigLoader._config = None
     init_config(tmp_path)
@@ -409,9 +468,13 @@ async def test_update_command_rejects_when_pending_update_already_exists(tmp_pat
 
     async def fake_download_file_to_path(**kwargs):
         download_called["value"] = True
-        raise AssertionError("download should not run when pending update already exists")
+        raise AssertionError(
+            "download should not run when pending update already exists"
+        )
 
-    monkeypatch.setattr(orchestrator, "_download_file_to_path", fake_download_file_to_path)
+    monkeypatch.setattr(
+        orchestrator, "_download_file_to_path", fake_download_file_to_path
+    )
 
     result = await orchestrator._handle_update(
         {
@@ -432,7 +495,10 @@ async def test_update_command_rejects_when_pending_update_already_exists(tmp_pat
     assert result.error.code == "UPDATE_FAILED"
     assert "already pending" in result.error.message
     assert download_called["value"] is False
-    assert json.loads(pending_path.read_text(encoding="utf-8"))["operation_id"] == "existing-op"
+    assert (
+        json.loads(pending_path.read_text(encoding="utf-8"))["operation_id"]
+        == "existing-op"
+    )
 
 
 @pytest.mark.asyncio
@@ -475,7 +541,9 @@ async def test_update_command_replaces_stale_pending_update(tmp_path, monkeypatc
         scheduled_payloads.append(payload)
         return {"status": "ok", "scheduled": True}
 
-    monkeypatch.setattr(orchestrator, "_download_file_to_path", fake_download_file_to_path)
+    monkeypatch.setattr(
+        orchestrator, "_download_file_to_path", fake_download_file_to_path
+    )
     orchestrator.schedule_update_exit = fake_schedule_update_exit
 
     meta = _update_meta().model_copy(update={"request_id": "fresh-op"})
@@ -494,7 +562,9 @@ async def test_update_command_replaces_stale_pending_update(tmp_path, monkeypatc
     )
 
     assert result.status == "success"
-    archived = json.loads((updates_dir / "last_stale_pending_update.json").read_text(encoding="utf-8"))
+    archived = json.loads(
+        (updates_dir / "last_stale_pending_update.json").read_text(encoding="utf-8")
+    )
     assert archived["version"] == "0.0.1"
     assert archived["operation_id"] == "stale-op"
     next_pending = json.loads(pending_path.read_text(encoding="utf-8"))
@@ -505,7 +575,9 @@ async def test_update_command_replaces_stale_pending_update(tmp_path, monkeypatc
 
 @pytest.mark.asyncio
 @pytest.mark.no_db
-async def test_update_command_fails_when_shutdown_cannot_be_scheduled(tmp_path, monkeypatch):
+async def test_update_command_fails_when_shutdown_cannot_be_scheduled(
+    tmp_path, monkeypatch
+):
     ConfigLoader._instance = None
     ConfigLoader._config = None
     init_config(tmp_path)
@@ -524,7 +596,9 @@ async def test_update_command_fails_when_shutdown_cannot_be_scheduled(tmp_path, 
     async def fake_schedule_update_exit(_payload):
         raise RuntimeError("scheduler offline")
 
-    monkeypatch.setattr(orchestrator, "_download_file_to_path", fake_download_file_to_path)
+    monkeypatch.setattr(
+        orchestrator, "_download_file_to_path", fake_download_file_to_path
+    )
     orchestrator.schedule_update_exit = fake_schedule_update_exit
 
     result = await orchestrator._handle_update(
@@ -571,7 +645,9 @@ async def test_update_command_records_action_trace_stages(tmp_path, monkeypatch)
     async def fake_schedule_update_exit(_payload):
         return {"status": "ok", "scheduled": True}
 
-    monkeypatch.setattr(orchestrator, "_download_file_to_path", fake_download_file_to_path)
+    monkeypatch.setattr(
+        orchestrator, "_download_file_to_path", fake_download_file_to_path
+    )
     orchestrator.schedule_update_exit = fake_schedule_update_exit
 
     result = await orchestrator._handle_update(
@@ -591,8 +667,17 @@ async def test_update_command_records_action_trace_stages(tmp_path, monkeypatch)
 
     assert result.status == "success"
     recorder = ActionTraceRecorder(tmp_path)
-    rows = recorder.search(limit=20, operation_id="req-self-update", tool_name="update", source="orchestrator")
-    stages = {(row["stage"], row["status"]) for row in rows if row["action"] == "agent.update.command"}
+    rows = recorder.search(
+        limit=20,
+        operation_id="req-self-update",
+        tool_name="update",
+        source="orchestrator",
+    )
+    stages = {
+        (row["stage"], row["status"])
+        for row in rows
+        if row["action"] == "agent.update.command"
+    }
     assert ("request", "started") in stages
     assert ("downloaded", "ok") in stages
     assert ("pending_written", "ok") in stages
@@ -722,7 +807,9 @@ async def test_runtime_status_includes_recommended_update_fields(tmp_path, monke
 
 
 @pytest.mark.asyncio
-async def test_runtime_status_async_preserves_cached_requested_update_state(tmp_path, monkeypatch):
+async def test_runtime_status_async_preserves_cached_requested_update_state(
+    tmp_path, monkeypatch
+):
     agent = WSAgent(data_root=tmp_path / "data", install_root=tmp_path / "install")
     agent.device_id = "device-1"
     agent.auth_token = "agent-token-1"
@@ -786,7 +873,9 @@ async def test_runtime_status_async_preserves_cached_requested_update_state(tmp_
 
 
 @pytest.mark.asyncio
-async def test_schedule_update_shutdown_exposes_applying_state_before_exit(tmp_path, monkeypatch):
+async def test_schedule_update_shutdown_exposes_applying_state_before_exit(
+    tmp_path, monkeypatch
+):
     agent = WSAgent(data_root=tmp_path / "data", install_root=tmp_path / "install")
 
     async def fake_schedule_update_shutdown(agent_arg, payload=None):
@@ -799,7 +888,10 @@ async def test_schedule_update_shutdown_exposes_applying_state_before_exit(tmp_p
             "exit_code": 42,
         }
 
-    monkeypatch.setattr("pc_agent.ws_agent.helper_schedule_update_shutdown", fake_schedule_update_shutdown)
+    monkeypatch.setattr(
+        "pc_agent.ws_agent.helper_schedule_update_shutdown",
+        fake_schedule_update_shutdown,
+    )
 
     result = await agent.schedule_update_shutdown(
         {
@@ -821,7 +913,9 @@ async def test_schedule_update_shutdown_exposes_applying_state_before_exit(tmp_p
 
 
 @pytest.mark.asyncio
-async def test_startup_recommended_update_triggers_once_when_new_release_is_available(tmp_path, monkeypatch):
+async def test_startup_recommended_update_triggers_once_when_new_release_is_available(
+    tmp_path, monkeypatch
+):
     agent = WSAgent(data_root=tmp_path / "data", install_root=tmp_path / "install")
     trigger_payloads = []
 
@@ -839,21 +933,31 @@ async def test_startup_recommended_update_triggers_once_when_new_release_is_avai
 
     async def fake_trigger_recommended_update(payload=None):
         trigger_payloads.append(payload)
-        return {"status": "accepted", "server_response": {"operation_id": "op-startup-update"}}
+        return {
+            "status": "accepted",
+            "server_response": {"operation_id": "op-startup-update"},
+        }
 
     monkeypatch.setattr(agent, "_fetch_update_status", fake_fetch_update_status)
-    monkeypatch.setattr(agent, "trigger_recommended_update", fake_trigger_recommended_update)
+    monkeypatch.setattr(
+        agent, "trigger_recommended_update", fake_trigger_recommended_update
+    )
 
     result = await agent._maybe_trigger_startup_recommended_update()
     repeat = await agent._maybe_trigger_startup_recommended_update()
 
-    assert result == {"status": "accepted", "server_response": {"operation_id": "op-startup-update"}}
+    assert result == {
+        "status": "accepted",
+        "server_response": {"operation_id": "op-startup-update"},
+    }
     assert repeat is None
     assert trigger_payloads == [{"reason": "agent_startup_auto_update"}]
 
 
 @pytest.mark.asyncio
-async def test_startup_recommended_update_skips_when_pending_update_exists(tmp_path, monkeypatch):
+async def test_startup_recommended_update_skips_when_pending_update_exists(
+    tmp_path, monkeypatch
+):
     updates_dir = tmp_path / "data" / "updates"
     updates_dir.mkdir(parents=True, exist_ok=True)
     (updates_dir / "pending_update.json").write_text(
@@ -870,13 +974,19 @@ async def test_startup_recommended_update_skips_when_pending_update_exists(tmp_p
     agent = WSAgent(data_root=tmp_path / "data", install_root=tmp_path / "install")
 
     async def fail_fetch_update_status(*, force: bool = False):
-        raise AssertionError("startup update check must not hit server while pending update exists")
+        raise AssertionError(
+            "startup update check must not hit server while pending update exists"
+        )
 
     async def fail_trigger_recommended_update(payload=None):
-        raise AssertionError("startup update trigger must not run while pending update exists")
+        raise AssertionError(
+            "startup update trigger must not run while pending update exists"
+        )
 
     monkeypatch.setattr(agent, "_fetch_update_status", fail_fetch_update_status)
-    monkeypatch.setattr(agent, "trigger_recommended_update", fail_trigger_recommended_update)
+    monkeypatch.setattr(
+        agent, "trigger_recommended_update", fail_trigger_recommended_update
+    )
 
     assert await agent._maybe_trigger_startup_recommended_update() is None
 
@@ -888,7 +998,9 @@ def test_apply_update_failure_records_launcher_action_trace(tmp_path):
     downloads_dir = updates_dir / "downloads"
     downloads_dir.mkdir(parents=True, exist_ok=True)
     (install_root / "versions").mkdir(parents=True, exist_ok=True)
-    (install_root / "current.json").write_text(json.dumps({"version": "1.0.0"}), encoding="utf-8")
+    (install_root / "current.json").write_text(
+        json.dumps({"version": "1.0.0"}), encoding="utf-8"
+    )
 
     artifact_path = downloads_dir / "build.zip"
     with zipfile.ZipFile(artifact_path, "w") as zf:
@@ -911,14 +1023,21 @@ def test_apply_update_failure_records_launcher_action_trace(tmp_path):
         encoding="utf-8",
     )
 
-    ok, message = apply_update(install_root=install_root, data_root=data_root, pending_path=pending_path)
+    ok, message = apply_update(
+        install_root=install_root, data_root=data_root, pending_path=pending_path
+    )
 
     assert ok is False
     assert "Agent binary not found" in message
 
     recorder = ActionTraceRecorder(data_root)
-    rows = recorder.search(limit=20, operation_id="op-launcher-update", source="launcher")
-    assert any(row["action"] == "agent.update.apply" and row["stage"] == "start" for row in rows)
+    rows = recorder.search(
+        limit=20, operation_id="op-launcher-update", source="launcher"
+    )
+    assert any(
+        row["action"] == "agent.update.apply" and row["stage"] == "start"
+        for row in rows
+    )
     assert any(
         row["action"] == "agent.update.apply"
         and row["stage"] == "finish"
@@ -929,7 +1048,9 @@ def test_apply_update_failure_records_launcher_action_trace(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_fetch_update_status_reports_plain_text_404_cleanly(tmp_path, monkeypatch):
+async def test_fetch_update_status_reports_plain_text_404_cleanly(
+    tmp_path, monkeypatch
+):
     agent = WSAgent(data_root=tmp_path / "data", install_root=tmp_path / "install")
     agent.device_id = "device-1"
     agent.auth_token = "agent-token-1"
@@ -954,7 +1075,9 @@ async def test_fetch_update_status_reports_plain_text_404_cleanly(tmp_path, monk
 
     monkeypatch.setattr(
         "pc_agent.ws_agent.get_config",
-        lambda: SimpleNamespace(server=SimpleNamespace(api_url="http://example.test/api")),
+        lambda: SimpleNamespace(
+            server=SimpleNamespace(api_url="http://example.test/api")
+        ),
     )
     agent._http_session = FakeSession()
 
@@ -962,11 +1085,16 @@ async def test_fetch_update_status_reports_plain_text_404_cleanly(tmp_path, monk
 
     assert status["update_available"] is False
     assert status["recommended_version"] is None
-    assert status["update_status_error"] == "Update recommendation endpoint is unavailable on server (HTTP 404)"
+    assert (
+        status["update_status_error"]
+        == "Update recommendation endpoint is unavailable on server (HTTP 404)"
+    )
 
 
 @pytest.mark.asyncio
-async def test_fetch_update_status_reuses_recent_cache_for_idle_gui_polling(tmp_path, monkeypatch):
+async def test_fetch_update_status_reuses_recent_cache_for_idle_gui_polling(
+    tmp_path, monkeypatch
+):
     agent = WSAgent(data_root=tmp_path / "data", install_root=tmp_path / "install")
     agent.device_id = "device-1"
     agent.auth_token = "agent-token-1"
@@ -983,11 +1111,15 @@ async def test_fetch_update_status_reuses_recent_cache_for_idle_gui_polling(tmp_
         closed = False
 
         def get(self, url, headers=None):
-            raise AssertionError("idle GUI status polling should not hit update recommendation every few seconds")
+            raise AssertionError(
+                "idle GUI status polling should not hit update recommendation every few seconds"
+            )
 
     monkeypatch.setattr(
         "pc_agent.ws_agent.get_config",
-        lambda: SimpleNamespace(server=SimpleNamespace(api_url="http://example.test/api")),
+        lambda: SimpleNamespace(
+            server=SimpleNamespace(api_url="http://example.test/api")
+        ),
     )
     agent._http_session = FailingSession()
 
@@ -999,23 +1131,67 @@ async def test_fetch_update_status_reuses_recent_cache_for_idle_gui_polling(tmp_
 
 
 @pytest.mark.asyncio
-async def test_endpoint_assignment_acks_requested_before_scheduling(tmp_path, monkeypatch):
+async def test_endpoint_assignment_acks_requested_before_scheduling(
+    tmp_path, monkeypatch
+):
     class Response:
-        def __init__(self, status, body=""): self.status, self.body = status, body
-        async def text(self): return self.body
-        async def __aenter__(self): return self
-        async def __aexit__(self, *args): return False
-    payload = {"schema_version": "agent_update_recommendation_v1", "operation_id": "caa31a48-bf2f-4f1c-8b77-d1be77e12b4e", "build_identifier": "agent-1.2.3", "version": "1.2.3", "platform": "windows_amd64", "channel": "stable", "artifact_url": "https://updates.example.test/agent-1.2.3.zip", "artifact_name": "agent-1.2.3.zip", "archive_type": "zip", "sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", "size": 123, "reason": "rollout"}
+        def __init__(self, status, body=""):
+            self.status, self.body = status, body
+
+        async def text(self):
+            return self.body
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return False
+
+    payload = {
+        "schema_version": "agent_update_recommendation_v1",
+        "operation_id": "caa31a48-bf2f-4f1c-8b77-d1be77e12b4e",
+        "build_identifier": "agent-1.2.3",
+        "version": "1.2.3",
+        "platform": "windows_amd64",
+        "channel": "stable",
+        "artifact_url": "https://updates.example.test/agent-1.2.3.zip",
+        "artifact_name": "agent-1.2.3.zip",
+        "archive_type": "zip",
+        "sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+        "size": 123,
+        "reason": "rollout",
+    }
     events, scheduled = [], []
+
     class Session:
         closed = False
-        def get(self, url, headers=None): return Response(200, json.dumps(payload))
-        def post(self, url, headers=None, json=None): events.append(json["status"]); return Response(204)
+
+        def get(self, url, headers=None):
+            return Response(200, json.dumps(payload))
+
+        def post(self, url, headers=None, json=None):
+            events.append(json["status"])
+            return Response(204)
+
     class Orchestrator:
-        async def _handle_update(self, command, meta): events.append("schedule"); scheduled.append(command); return SimpleNamespace(status="success")
+        async def _handle_update(self, command, meta):
+            events.append("schedule")
+            scheduled.append(command)
+            return SimpleNamespace(status="success")
+
     agent = WSAgent(data_root=tmp_path / "data", install_root=tmp_path / "install")
-    agent.auth_token, agent.device_id, agent._http_session, agent.orchestrator = "token", "device", Session(), Orchestrator()
-    monkeypatch.setattr("pc_agent.ws_agent.get_config", lambda: SimpleNamespace(server=SimpleNamespace(api_url="https://endpoint.example.test")))
+    agent.auth_token, agent.device_id, agent._http_session, agent.orchestrator = (
+        "token",
+        "device",
+        Session(),
+        Orchestrator(),
+    )
+    monkeypatch.setattr(
+        "pc_agent.ws_agent.get_config",
+        lambda: SimpleNamespace(
+            server=SimpleNamespace(api_url="https://endpoint.example.test")
+        ),
+    )
     status = await agent._fetch_update_status(force=True)
     assert status["recommended_build"]["artifact_name"] == "agent-1.2.3.zip"
     assert "artifact_url" not in status["recommended_build"]
@@ -1028,21 +1204,74 @@ async def test_endpoint_assignment_acks_requested_before_scheduling(tmp_path, mo
 async def test_endpoint_scheduler_failure_does_not_ack_scheduled(tmp_path, monkeypatch):
     class Response:
         status = 200
-        async def text(self): return json.dumps({"schema_version": "agent_update_recommendation_v1", "operation_id": "caa31a48-bf2f-4f1c-8b77-d1be77e12b4e", "build_identifier": "agent-1.2.3", "version": "1.2.3", "platform": "windows_amd64", "channel": "stable", "artifact_url": "https://updates.example.test/agent-1.2.3.zip", "artifact_name": "agent-1.2.3.zip", "archive_type": "zip", "sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", "size": 123})
-        async def __aenter__(self): return self
-        async def __aexit__(self, *args): return False
+
+        async def text(self):
+            return json.dumps(
+                {
+                    "schema_version": "agent_update_recommendation_v1",
+                    "operation_id": "caa31a48-bf2f-4f1c-8b77-d1be77e12b4e",
+                    "build_identifier": "agent-1.2.3",
+                    "version": "1.2.3",
+                    "platform": "windows_amd64",
+                    "channel": "stable",
+                    "artifact_url": "https://updates.example.test/agent-1.2.3.zip",
+                    "artifact_name": "agent-1.2.3.zip",
+                    "archive_type": "zip",
+                    "sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+                    "size": 123,
+                }
+            )
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return False
+
     events = []
+
     class Session:
         closed = False
-        def get(self, url, headers=None): return Response()
-        def post(self, url, headers=None, json=None): events.append(json["status"]); return type("Ack", (), {"status": 204, "__aenter__": lambda self: _enter(self), "__aexit__": lambda self, *args: _exit()})()
-    async def _enter(value): return value
-    async def _exit(): return False
+
+        def get(self, url, headers=None):
+            return Response()
+
+        def post(self, url, headers=None, json=None):
+            events.append(json["status"])
+            return type(
+                "Ack",
+                (),
+                {
+                    "status": 204,
+                    "__aenter__": lambda self: _enter(self),
+                    "__aexit__": lambda self, *args: _exit(),
+                },
+            )()
+
+    async def _enter(value):
+        return value
+
+    async def _exit():
+        return False
+
     class Orchestrator:
-        async def _handle_update(self, command, meta): events.append("schedule"); return SimpleNamespace(status="error")
+        async def _handle_update(self, command, meta):
+            events.append("schedule")
+            return SimpleNamespace(status="error")
+
     agent = WSAgent(data_root=tmp_path / "data", install_root=tmp_path / "install")
-    agent.auth_token, agent.device_id, agent._http_session, agent.orchestrator = "token", "device", Session(), Orchestrator()
-    monkeypatch.setattr("pc_agent.ws_agent.get_config", lambda: SimpleNamespace(server=SimpleNamespace(api_url="https://endpoint.example.test")))
+    agent.auth_token, agent.device_id, agent._http_session, agent.orchestrator = (
+        "token",
+        "device",
+        Session(),
+        Orchestrator(),
+    )
+    monkeypatch.setattr(
+        "pc_agent.ws_agent.get_config",
+        lambda: SimpleNamespace(
+            server=SimpleNamespace(api_url="https://endpoint.example.test")
+        ),
+    )
     await agent._fetch_update_status(force=True)
     with pytest.raises(RuntimeError, match="scheduling failed"):
         await agent.trigger_recommended_update()

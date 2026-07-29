@@ -44,7 +44,9 @@ class _Response(Protocol):
 
 class _Session(Protocol):
     def get(self, url: str, *, headers: dict[str, str]) -> _Response: ...
-    def post(self, url: str, *, headers: dict[str, str], json: dict[str, object]) -> _Response: ...
+    def post(
+        self, url: str, *, headers: dict[str, str], json: dict[str, object]
+    ) -> _Response: ...
 
 
 @dataclass(frozen=True)
@@ -72,7 +74,11 @@ class RecommendationResult:
 
 _ACKNOWLEDGEMENT_STATUSES = {"requested", "scheduled"}
 _TERMINAL_STATUSES = {"applied", "failed", "rolled_back"}
-_SAFE_CODES = {"launcher_apply_failed", "launcher_rolled_back", "post_restart_handshake_confirmed"}
+_SAFE_CODES = {
+    "launcher_apply_failed",
+    "launcher_rolled_back",
+    "post_restart_handshake_confirmed",
+}
 
 
 class EndpointUpdateAdapter:
@@ -150,63 +156,155 @@ class EndpointUpdateAdapter:
         return RecommendationResult("endpoint", recommendation, False, None)
 
     async def acknowledge(self, operation_id: str, status: str) -> bool:
-        if status not in _ACKNOWLEDGEMENT_STATUSES or not _is_operation_id(operation_id): return False
+        if status not in _ACKNOWLEDGEMENT_STATUSES or not _is_operation_id(
+            operation_id
+        ):
+            return False
         bearer = self._bearer_token()
-        if not isinstance(bearer, str) or not bearer: return False
+        if not isinstance(bearer, str) or not bearer:
+            return False
         try:
-            async with self._session.post(f"{self._api_url}/agent/v1/updates/{operation_id}/ack", headers={"Authorization": f"Bearer {bearer}"}, json={"schema_version": "agent_update_ack_v1", "status": status}) as response:
+            async with self._session.post(
+                f"{self._api_url}/agent/v1/updates/{operation_id}/ack",
+                headers={"Authorization": f"Bearer {bearer}"},
+                json={"schema_version": "agent_update_ack_v1", "status": status},
+            ) as response:
                 return response.status == 204
-        except (aiohttp.ClientError, asyncio.TimeoutError): return False
+        except (aiohttp.ClientError, asyncio.TimeoutError):
+            return False
 
-    async def report_terminal(self, operation_id: str, *, status: str, reported_version: str, safe_code: str | None) -> bool:
-        if status not in _TERMINAL_STATUSES or not _is_operation_id(operation_id) or not _SEMVER.fullmatch(reported_version) or safe_code not in _SAFE_CODES or self._data_root is None: return False
+    async def report_terminal(
+        self,
+        operation_id: str,
+        *,
+        status: str,
+        reported_version: str,
+        safe_code: str | None,
+    ) -> bool:
+        if (
+            status not in _TERMINAL_STATUSES
+            or not _is_operation_id(operation_id)
+            or not _SEMVER.fullmatch(reported_version)
+            or safe_code not in _SAFE_CODES
+            or self._data_root is None
+        ):
+            return False
         bearer = self._bearer_token()
-        if not isinstance(bearer, str) or not bearer: return False
-        record = self._load_or_create_report(operation_id, status, reported_version, safe_code)
-        if record["delivered_at"] is not None: return True
-        payload = {"schema_version": "agent_update_report_v1", "report_key": record["report_key"], "status": status, "reported_version": reported_version, "safe_code": safe_code}
+        if not isinstance(bearer, str) or not bearer:
+            return False
+        record = self._load_or_create_report(
+            operation_id, status, reported_version, safe_code
+        )
+        if record["delivered_at"] is not None:
+            return True
+        payload = {
+            "schema_version": "agent_update_report_v1",
+            "report_key": record["report_key"],
+            "status": status,
+            "reported_version": reported_version,
+            "safe_code": safe_code,
+        }
         try:
-            async with self._session.post(f"{self._api_url}/agent/v1/updates/{operation_id}/reports", headers={"Authorization": f"Bearer {bearer}"}, json=payload) as response:
-                if response.status != 200: return False
-        except (aiohttp.ClientError, asyncio.TimeoutError): return False
+            async with self._session.post(
+                f"{self._api_url}/agent/v1/updates/{operation_id}/reports",
+                headers={"Authorization": f"Bearer {bearer}"},
+                json=payload,
+            ) as response:
+                if response.status != 200:
+                    return False
+        except (aiohttp.ClientError, asyncio.TimeoutError):
+            return False
         record["delivered_at"] = datetime.now(timezone.utc).isoformat()
         self._write_report_journal(self._load_report_journal_with(record))
         return True
 
     async def _fetch_legacy(self) -> RecommendationResult:
-        if self._legacy_fetch is None: return RecommendationResult("endpoint", None, True, "endpoint_unavailable")
-        try: legacy_result = await self._legacy_fetch()
-        except Exception: return RecommendationResult("endpoint", None, True, "endpoint_unavailable")
-        return RecommendationResult("legacy", None, False, "endpoint_unavailable", legacy_result)
+        if self._legacy_fetch is None:
+            return RecommendationResult("endpoint", None, True, "endpoint_unavailable")
+        try:
+            legacy_result = await self._legacy_fetch()
+        except Exception:
+            return RecommendationResult("endpoint", None, True, "endpoint_unavailable")
+        return RecommendationResult(
+            "legacy", None, False, "endpoint_unavailable", legacy_result
+        )
 
     def _report_journal_path(self) -> Path:
         assert self._data_root is not None
         return self._data_root / "updates" / "endpoint_update_reports.json"
 
-    def _load_or_create_report(self, operation_id: str, status: str, reported_version: str, safe_code: str) -> dict[str, str | None]:
+    def _load_or_create_report(
+        self, operation_id: str, status: str, reported_version: str, safe_code: str
+    ) -> dict[str, str | None]:
         journal = self._load_report_journal()
         for record in journal:
-            if all(record[key] == value for key, value in {"operation_id": operation_id, "status": status, "reported_version": reported_version, "safe_code": safe_code}.items()): return record
-        record: dict[str, str | None] = {"operation_id": operation_id, "report_key": uuid4().hex, "status": status, "reported_version": reported_version, "safe_code": safe_code, "delivered_at": None}
-        journal.append(record); self._write_report_journal(journal); return record
+            if all(
+                record[key] == value
+                for key, value in {
+                    "operation_id": operation_id,
+                    "status": status,
+                    "reported_version": reported_version,
+                    "safe_code": safe_code,
+                }.items()
+            ):
+                return record
+        record: dict[str, str | None] = {
+            "operation_id": operation_id,
+            "report_key": uuid4().hex,
+            "status": status,
+            "reported_version": reported_version,
+            "safe_code": safe_code,
+            "delivered_at": None,
+        }
+        journal.append(record)
+        self._write_report_journal(journal)
+        return record
 
-    def _load_report_journal_with(self, changed: dict[str, str | None]) -> list[dict[str, str | None]]:
+    def _load_report_journal_with(
+        self, changed: dict[str, str | None]
+    ) -> list[dict[str, str | None]]:
         journal = self._load_report_journal()
         for index, record in enumerate(journal):
-            if record["report_key"] == changed["report_key"]: journal[index] = changed; return journal
+            if record["report_key"] == changed["report_key"]:
+                journal[index] = changed
+                return journal
         return [*journal, changed]
 
     def _load_report_journal(self) -> list[dict[str, str | None]]:
         path = self._report_journal_path()
-        try: raw = json.loads(path.read_text(encoding="utf-8")) if path.exists() else []
-        except (OSError, json.JSONDecodeError): return []
-        fields = {"operation_id", "report_key", "status", "reported_version", "safe_code", "delivered_at"}
-        return [{key: item[key] for key in fields} for item in raw if isinstance(item, dict) and set(item) == fields and all(isinstance(item.get(key), str) or item.get(key) is None for key in fields)] if isinstance(raw, list) else []
+        try:
+            raw = json.loads(path.read_text(encoding="utf-8")) if path.exists() else []
+        except (OSError, json.JSONDecodeError):
+            return []
+        fields = {
+            "operation_id",
+            "report_key",
+            "status",
+            "reported_version",
+            "safe_code",
+            "delivered_at",
+        }
+        return (
+            [
+                {key: item[key] for key in fields}
+                for item in raw
+                if isinstance(item, dict)
+                and set(item) == fields
+                and all(
+                    isinstance(item.get(key), str) or item.get(key) is None
+                    for key in fields
+                )
+            ]
+            if isinstance(raw, list)
+            else []
+        )
 
     def _write_report_journal(self, journal: list[dict[str, str | None]]) -> None:
-        path = self._report_journal_path(); path.parent.mkdir(parents=True, exist_ok=True)
+        path = self._report_journal_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
         temporary = path.with_name(f"{path.name}.{uuid4().hex}.tmp")
-        temporary.write_text(json.dumps(journal, ensure_ascii=False), encoding="utf-8"); temporary.replace(path)
+        temporary.write_text(json.dumps(journal, ensure_ascii=False), encoding="utf-8")
+        temporary.replace(path)
 
 
 def _parse_recommendation(
