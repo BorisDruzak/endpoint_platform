@@ -35,7 +35,7 @@ async def request_collection(
     *,
     now: datetime | None = None,
 ) -> ContextCollection:
-    """Create one requested collection, replaying its exact device/profile key."""
+    """Create one request, replaying its exact requester/device/profile/key identity."""
     collection, _ = await request_collection_outcome(
         session,
         device_id,
@@ -61,7 +61,10 @@ async def request_collection_outcome(
     checked_profile = require_profile(profile)
     if not requested_by or len(requested_by) > 128 or not idempotency_key or len(idempotency_key) > 128:
         raise ContextValidationError("request identity must be bounded non-empty text")
-    await _advisory_lock(session, f"context.request:{checked_device_id}:{checked_profile}:{idempotency_key}")
+    await _advisory_lock(
+        session,
+        f"context.request:{checked_device_id}:{checked_profile}:{requested_by}:{idempotency_key}",
+    )
     device = await session.scalar(select(Device).where(Device.id == checked_device_id).with_for_update())
     if device is None:
         raise ContextNotFound("device was not found")
@@ -70,6 +73,7 @@ async def request_collection_outcome(
         .where(
             ContextCollection.device_id == checked_device_id,
             ContextCollection.profile == checked_profile,
+            ContextCollection.requested_by == requested_by,
             ContextCollection.idempotency_key == idempotency_key,
         )
         .with_for_update()

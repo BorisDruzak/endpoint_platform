@@ -52,7 +52,10 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(["command_id"], ["commands.id"], ondelete="SET NULL"),
         sa.ForeignKeyConstraint(["command_result_id"], ["command_results.id"], ondelete="SET NULL"),
         sa.PrimaryKeyConstraint("id"),
-        sa.UniqueConstraint("device_id", "profile", "idempotency_key", name="uq_context_collections_request"),
+        sa.UniqueConstraint(
+            "device_id", "profile", "requested_by", "idempotency_key",
+            name="uq_context_collections_request",
+        ),
         sa.UniqueConstraint("command_id", name="uq_context_collections_command"),
         sa.UniqueConstraint("command_result_id", name="uq_context_collections_result"),
     )

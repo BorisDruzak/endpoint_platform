@@ -33,7 +33,10 @@ class ContextCollection(OwnershipRecord, Base):
 
     __tablename__ = "context_collections"
     __table_args__ = (
-        UniqueConstraint("device_id", "profile", "idempotency_key", name="uq_context_collections_request"),
+        UniqueConstraint(
+            "device_id", "profile", "requested_by", "idempotency_key",
+            name="uq_context_collections_request",
+        ),
         UniqueConstraint("command_id", name="uq_context_collections_command"),
         UniqueConstraint("command_result_id", name="uq_context_collections_result"),
         CheckConstraint(

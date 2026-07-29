@@ -39,8 +39,8 @@ async def session_provider() -> AsyncIterator[async_sessionmaker[AsyncSession]]:
     await engine.dispose()
 
 
-def _principal(scopes: list[str]) -> ServicePrincipal:
-    client = ServiceClient(id=uuid4(), client_identifier="web-ovpn", display_name="web_ovpn", disabled_at=None)
+def _principal(scopes: list[str], *, client_identifier: str = "web-ovpn") -> ServicePrincipal:
+    client = ServiceClient(id=uuid4(), client_identifier=client_identifier, display_name=client_identifier, disabled_at=None)
     credential = ServiceCredential(
         id=uuid4(), service_client_id=client.id, credential_identifier="a" * 32, token_prefix="svc_" + "a" * 32,
         secret_digest="digest", scopes=scopes, expires_at=None, revoked_at=None,
@@ -55,6 +55,23 @@ def _install_principals(monkeypatch: pytest.MonkeyPatch, principals: dict[str, S
         return principals.get(token)
 
     monkeypatch.setattr(scopes_module, "_load_service_principal", load)
+
+
+def _normalized_projection(profile: str, collected_at: datetime) -> dict[str, object]:
+    sections_by_profile: dict[str, dict[str, object]] = {
+        "baseline_v1": {
+            "system": {"platform": "linux", "distribution": "ALT", "architecture": "x86_64"},
+            "hardware": {"manufacturer": "Acme", "model": "A1", "cpu_model": "CPU", "memory_bytes": 1024},
+            "storage": [{"stable_key": "disk:one", "model": "Disk", "size_bytes": 2048}],
+            "interfaces": [], "software": [],
+        },
+        "health_v1": {"resources": {"uptime_seconds": 1, "load_1m": 0.0, "free_bytes": 1}, "services": []},
+        "network_v1": {"default_route": {"interface": "eth0", "gateway": "192.0.2.1"}, "interfaces": []},
+    }
+    return {
+        "schema_version": "device_context_v1", "profile": profile,
+        "collected_at": collected_at.isoformat(), "warnings": [], "sections": sections_by_profile[profile],
+    }
 
 
 @pytest.mark.asyncio
@@ -76,6 +93,40 @@ async def test_service_context_read_projection_excludes_raw_payload_and_diagnost
     assert "raw diagnostic" not in response.text
     assert "secret" not in response.text
     assert "token" not in response.text
+
+
+@pytest.mark.asyncio
+async def test_safe_context_routes_exclude_and_reject_diagnostic_collections(session_provider: async_sessionmaker[AsyncSession], monkeypatch: pytest.MonkeyPatch) -> None:
+    """The public service boundary must not expose diagnostic lifecycle metadata."""
+    async with session_provider() as session:
+        device = Device(id=uuid4(), device_identifier="diagnostic-device", display_name="Diagnostic device", retired_at=None)
+        diagnostic = ContextCollection(
+            id=uuid4(), device_id=device.id, profile="diagnostic_v1", requested_by="operator",
+            idempotency_key="diagnostic-seed", status="completed", requested_at=datetime.now(UTC),
+            completed_at=datetime.now(UTC),
+        )
+        baseline = ContextCollection(
+            id=uuid4(), device_id=device.id, profile="baseline_v1", requested_by="operator",
+            idempotency_key="baseline-seed", status="completed", requested_at=datetime.now(UTC),
+        )
+        session.add_all((device, diagnostic, baseline))
+        await session.commit()
+    _install_principals(monkeypatch, {"reader": _principal(["context.read"]), "collector": _principal(["context.collect"])})
+    app = create_app(_settings(), session_provider)
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="https://endpoint.sosnadmin.local") as client:
+        listed = await client.get(f"/api/v1/devices/{device.id}/context", headers={"Authorization": "Bearer reader"})
+        read_diagnostic = await client.get(f"/api/v1/context/collections/{diagnostic.id}", headers={"Authorization": "Bearer reader"})
+        request_diagnostic = await client.post(
+            f"/api/v1/devices/{device.id}/context/collections", json={"profile": "diagnostic_v1"},
+            headers={"Authorization": "Bearer collector", "Idempotency-Key": "diagnostic-request"},
+        )
+    assert listed.status_code == 200
+    assert listed.json()["data"]["profiles"] == [{"profile": "baseline_v1", "status": "completed", "last_collected_at": None}]
+    assert "diagnostic_v1" not in listed.text
+    assert read_diagnostic.status_code == 404
+    assert "diagnostic_v1" not in read_diagnostic.text
+    assert request_diagnostic.status_code == 422
+    assert "diagnostic_v1" not in request_diagnostic.text
 
 
 @pytest.mark.asyncio
@@ -125,3 +176,59 @@ async def test_collection_request_requires_exact_scope_idempotency_and_audit(ses
     assert len(events) == 1
     assert events[0].action == "context.collection_requested"
     assert "raw secret" not in str(events[0].details)
+
+
+@pytest.mark.asyncio
+async def test_collection_idempotency_is_scoped_to_the_authenticated_requester(session_provider: async_sessionmaker[AsyncSession], monkeypatch: pytest.MonkeyPatch) -> None:
+    """A shared key cannot replay a different service principal's collection."""
+    async with session_provider() as session:
+        device = Device(id=uuid4(), device_identifier="principal-device", display_name="Principal device", retired_at=None)
+        session.add(device)
+        await session.commit()
+    _install_principals(monkeypatch, {
+        "first": _principal(["context.collect"], client_identifier="web-ovpn-a"),
+        "second": _principal(["context.collect"], client_identifier="web-ovpn-b"),
+    })
+    app = create_app(_settings(), session_provider)
+    headers = {"Idempotency-Key": "shared-request-key"}
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="https://endpoint.sosnadmin.local") as client:
+        first = await client.post(f"/api/v1/devices/{device.id}/context/collections", json={"profile": "baseline_v1"}, headers={**headers, "Authorization": "Bearer first"})
+        second = await client.post(f"/api/v1/devices/{device.id}/context/collections", json={"profile": "baseline_v1"}, headers={**headers, "Authorization": "Bearer second"})
+        replay = await client.post(f"/api/v1/devices/{device.id}/context/collections", json={"profile": "baseline_v1"}, headers={**headers, "Authorization": "Bearer first"})
+    assert first.status_code == 201
+    assert second.status_code == 201
+    assert replay.status_code == 200
+    assert first.json()["data"]["id"] != second.json()["data"]["id"]
+    assert replay.json()["data"]["id"] == first.json()["data"]["id"]
+
+
+@pytest.mark.asyncio
+async def test_safe_context_snapshots_are_ordered_by_profile(session_provider: async_sessionmaker[AsyncSession], monkeypatch: pytest.MonkeyPatch) -> None:
+    """Safe context lists must stay stable regardless of database insertion order."""
+    async with session_provider() as session:
+        device = Device(id=uuid4(), device_identifier="ordered-device", display_name="Ordered device", retired_at=None)
+        collections = [
+            ContextCollection(id=uuid4(), device_id=device.id, profile=profile, requested_by="svc", idempotency_key=f"{profile}-key", status="completed", requested_at=datetime.now(UTC))
+            for profile in ("network_v1", "baseline_v1", "health_v1")
+        ]
+        collected_at = datetime.now(UTC)
+        snapshots = [
+            ContextSnapshot(id=uuid4(), collection_id=collection.id, device_id=device.id, profile=collection.profile, collected_at=collected_at, semantic_hash=None, raw_payload={}, normalized_projection=_normalized_projection(collection.profile, collected_at))
+            for collection in collections
+        ]
+        session.add_all((device, *collections, *snapshots))
+        await session.flush()
+        # Insert current pointers in reverse-profile order so unordered SQL leaks into the API.
+        for snapshot in snapshots:
+            session.add(ContextCurrent(
+                id=uuid4(), device_id=device.id, profile=snapshot.profile,
+                snapshot_id=snapshot.id, updated_at=datetime.now(UTC),
+            ))
+            await session.flush()
+        await session.commit()
+    _install_principals(monkeypatch, {"reader": _principal(["context.read"])})
+    app = create_app(_settings(), session_provider)
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="https://endpoint.sosnadmin.local") as client:
+        response = await client.get(f"/api/v1/devices/{device.id}/context", headers={"Authorization": "Bearer reader"})
+    assert response.status_code == 200
+    assert [item["profile"] for item in response.json()["data"]["snapshots"]] == ["baseline_v1", "health_v1", "network_v1"]

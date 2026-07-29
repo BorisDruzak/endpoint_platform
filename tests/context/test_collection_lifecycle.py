@@ -121,6 +121,20 @@ async def test_request_collection_replays_same_device_profile_and_idempotency_ke
 
 
 @pytest.mark.asyncio
+async def test_request_collection_idempotency_is_scoped_to_requester(session: AsyncSession) -> None:
+    """Another requester using a shared key must receive an independent collection."""
+    device = Device(id=uuid4(), device_identifier="device-requester-scope", display_name="ALT")
+    session.add(device)
+    await session.flush()
+
+    first = await request_collection(session, device.id, "baseline_v1", "service-a", "shared-request")
+    second = await request_collection(session, device.id, "baseline_v1", "service-b", "shared-request")
+
+    assert first.id != second.id
+    assert (await session.scalars(select(ContextCollection).order_by(ContextCollection.requested_by))).all() == [first, second]
+
+
+@pytest.mark.asyncio
 async def test_successful_result_creates_snapshot_and_current_from_separate_raw_and_projection(session: AsyncSession) -> None:
     """Dropping raw/result separation or the current pointer would lose the audit boundary."""
     result_record, result = await _result(session)

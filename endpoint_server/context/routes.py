@@ -30,6 +30,8 @@ from .service import ContextError
 
 router = APIRouter(prefix="/api/v1", tags=["device-context"])
 
+_SAFE_SERVICE_PROFILES = ("baseline_v1", "health_v1", "network_v1")
+
 
 class CollectionRequest(BaseModel):
     """The only caller-selected collection input is one fixed profile."""
@@ -92,12 +94,20 @@ async def read_device_context(
         if device is None:
             raise _not_found()
         currents = (await session.scalars(
-            select(ContextCurrent).where(ContextCurrent.device_id == device_id)
+            select(ContextCurrent)
+            .where(
+                ContextCurrent.device_id == device_id,
+                ContextCurrent.profile.in_(_SAFE_SERVICE_PROFILES),
+            )
+            .order_by(ContextCurrent.profile, ContextCurrent.updated_at, ContextCurrent.id)
         )).all()
         collections = (await session.scalars(
             select(ContextCollection)
-            .where(ContextCollection.device_id == device_id)
-            .order_by(ContextCollection.requested_at.desc())
+            .where(
+                ContextCollection.device_id == device_id,
+                ContextCollection.profile.in_(_SAFE_SERVICE_PROFILES),
+            )
+            .order_by(ContextCollection.requested_at.desc(), ContextCollection.id.desc())
         )).all()
         snapshots = []
         for current in currents:
@@ -108,6 +118,7 @@ async def read_device_context(
                 safe = snapshot_projection(snapshot)
                 if safe is not None:
                     snapshots.append(safe)
+    snapshots.sort(key=lambda item: (str(item["profile"]), str(item["collected_at"]), str(item["id"])))
     availability: dict[str, dict[str, object]] = {}
     for collection in collections:
         availability.setdefault(
@@ -138,6 +149,8 @@ async def request_device_context_collection(
 ) -> dict[str, object]:
     """Create or replay one audited collection request with a bounded key."""
     key = _valid_idempotency_key(idempotency_key)
+    if body.profile not in _SAFE_SERVICE_PROFILES:
+        raise _invalid_request()
     async with request.app.state.session_provider() as session:
         try:
             collection, created = await request_collection_outcome(
@@ -184,7 +197,7 @@ async def read_collection(
         collection = await session.scalar(
             select(ContextCollection).where(ContextCollection.id == collection_id)
         )
-        if collection is None:
+        if collection is None or collection.profile not in _SAFE_SERVICE_PROFILES:
             raise _not_found()
         snapshot = await session.scalar(
             select(ContextSnapshot).where(ContextSnapshot.collection_id == collection.id)
