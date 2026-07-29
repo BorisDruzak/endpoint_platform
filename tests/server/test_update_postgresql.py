@@ -770,7 +770,9 @@ async def test_concurrent_report_replay_and_rollback_routes_complete_without_dea
     original_record_report = update_agent_routes.record_report
     original_lock_devices = update_service_module._lock_assignable_devices
 
-    async def pause_report_after_authentication(*args: object, **kwargs: object) -> object:
+    async def pause_report_after_authentication(
+        *args: object, **kwargs: object
+    ) -> object:
         report_paused_after_authentication.set()
         await allow_report_to_lock_domain.wait()
         return await original_record_report(*args, **kwargs)
@@ -779,8 +781,12 @@ async def test_concurrent_report_replay_and_rollback_routes_complete_without_dea
         rollback_entered_device_lock.set()
         return await original_lock_devices(*args, **kwargs)
 
-    monkeypatch.setattr(update_agent_routes, "record_report", pause_report_after_authentication)
-    monkeypatch.setattr(update_service_module, "_lock_assignable_devices", mark_rollback_device_lock)
+    monkeypatch.setattr(
+        update_agent_routes, "record_report", pause_report_after_authentication
+    )
+    monkeypatch.setattr(
+        update_service_module, "_lock_assignable_devices", mark_rollback_device_lock
+    )
     app = create_app(
         Settings(
             database_url="postgresql+asyncpg://test",
@@ -895,12 +901,16 @@ async def test_old_token_report_fails_after_pending_credential_activation(
     allow_report_to_lock_domain = asyncio.Event()
     original_record_report = update_agent_routes.record_report
 
-    async def pause_report_after_authentication(*args: object, **kwargs: object) -> object:
+    async def pause_report_after_authentication(
+        *args: object, **kwargs: object
+    ) -> object:
         report_paused_after_authentication.set()
         await allow_report_to_lock_domain.wait()
         return await original_record_report(*args, **kwargs)
 
-    monkeypatch.setattr(update_agent_routes, "record_report", pause_report_after_authentication)
+    monkeypatch.setattr(
+        update_agent_routes, "record_report", pause_report_after_authentication
+    )
     app = create_app(
         Settings(
             database_url="postgresql+asyncpg://test",

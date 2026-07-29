@@ -140,8 +140,7 @@ async def _authenticate_device(session, request: Request) -> DevicePrincipal:
     ):
         raise _invalid_credential()
     device = await session.scalar(
-        select(Device)
-        .where(
+        select(Device).where(
             Device.id == credential.device_id,
             Device.retired_at.is_(None),
         )

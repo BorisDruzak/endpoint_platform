@@ -564,12 +564,16 @@ async def test_old_token_report_cannot_commit_after_pending_credential_activatio
     allow_report_to_lock_domain = asyncio.Event()
     original_record_report = update_agent_routes.record_report
 
-    async def pause_report_after_authentication(*args: object, **kwargs: object) -> object:
+    async def pause_report_after_authentication(
+        *args: object, **kwargs: object
+    ) -> object:
         report_paused_after_authentication.set()
         await allow_report_to_lock_domain.wait()
         return await original_record_report(*args, **kwargs)
 
-    monkeypatch.setattr(update_agent_routes, "record_report", pause_report_after_authentication)
+    monkeypatch.setattr(
+        update_agent_routes, "record_report", pause_report_after_authentication
+    )
     app = create_app(_settings(), session_provider)
     report_body = {
         "schema_version": "agent_update_report_v1",
@@ -598,7 +602,7 @@ async def test_old_token_report_cannot_commit_after_pending_credential_activatio
             pytest.fail(
                 "report must reach the post-authentication race point; "
                 f"got {early_response.status_code}: {early_response.text}"
-        )
+            )
         await asyncio.wait_for(report_paused_after_authentication.wait(), timeout=2)
         async with session_provider() as session:
             credential = await session.scalar(
