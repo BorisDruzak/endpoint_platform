@@ -6,6 +6,7 @@ import base64
 import hashlib
 import hmac
 import secrets
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
@@ -24,6 +25,7 @@ from .passwords import hash_password, verify_password
 
 
 ADMIN_SESSION_COOKIE = "endpoint_admin_session"
+ADMIN_UPDATE_SCOPE = "updates:write"
 SESSION_TOKEN_BYTES = 32
 DEFAULT_SESSION_LIFETIME = timedelta(hours=8)
 router = APIRouter(prefix="/api/admin", tags=["admin-authentication"])
@@ -52,6 +54,25 @@ class AdminLoginRequest(BaseModel):
 
     username: str = Field(min_length=1, max_length=128)
     password: SecretStr
+
+
+def normalize_admin_scopes(scopes: Iterable[str]) -> list[str]:
+    """Return sorted exact persisted grants, rejecting ambiguous scope input."""
+    if isinstance(scopes, (str, bytes)):
+        raise ValueError("admin scopes must be provided as a scope collection")
+    normalized: list[str] = []
+    for scope in scopes:
+        if (
+            not isinstance(scope, str)
+            or not scope
+            or scope != scope.strip()
+            or not scope.isascii()
+            or len(scope) > 128
+            or any(ord(character) < 32 or ord(character) > 126 for character in scope)
+        ):
+            raise ValueError("admin scopes must be non-empty printable ASCII")
+        normalized.append(scope)
+    return sorted(set(normalized))
 
 
 def _unauthorized() -> HTTPException:
@@ -115,6 +136,30 @@ async def require_admin(request: Request) -> AdminPrincipal:
         session_token,
         request.app.state.settings.session_secret,
     )
+    return principal
+
+
+async def require_admin_update_scope(
+    request: Request,
+    principal: AdminPrincipal = Depends(require_admin),
+) -> AdminPrincipal:
+    """Require an interactive session whose persisted user owns update writes."""
+    del request
+    try:
+        normalized_scopes = normalize_admin_scopes(principal.user.scopes)
+    except (TypeError, ValueError) as error:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Update administration scope is required",
+        ) from error
+    if (
+        principal.user.scopes != normalized_scopes
+        or ADMIN_UPDATE_SCOPE not in normalized_scopes
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Update administration scope is required",
+        )
     return principal
 
 

@@ -18,6 +18,7 @@ class AdminUser(OwnershipRecord, Base):
 
     username: Mapped[str] = mapped_column(String(128), nullable=False, unique=True)
     password_digest: Mapped[str] = mapped_column(String(256), nullable=False)
+    scopes: Mapped[list[str]] = mapped_column(ARRAY(String(128)), nullable=False)
     disabled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
@@ -30,7 +31,9 @@ class AdminSession(OwnershipRecord, Base):
     session_digest: Mapped[str] = mapped_column(
         String(256), nullable=False, unique=True
     )
-    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
@@ -58,13 +61,9 @@ class ServiceCredential(OwnershipRecord, Base):
         ForeignKey("service_clients.id", ondelete="CASCADE"), nullable=False
     )
     credential_identifier: Mapped[str] = mapped_column(String(128), nullable=False)
-    token_prefix: Mapped[str] = mapped_column(
-        String(160), nullable=False, unique=True
-    )
+    token_prefix: Mapped[str] = mapped_column(String(160), nullable=False, unique=True)
     secret_digest: Mapped[str] = mapped_column(String(256), nullable=False)
-    scopes: Mapped[list[str]] = mapped_column(
-        ARRAY(String(128)), nullable=False
-    )
+    scopes: Mapped[list[str]] = mapped_column(ARRAY(String(128)), nullable=False)
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 

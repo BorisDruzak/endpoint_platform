@@ -18,6 +18,7 @@ from endpoint_server.db.models import AdminUser
 from endpoint_server.db.session import create_session_provider
 
 from .passwords import hash_password
+from .admin_sessions import ADMIN_UPDATE_SCOPE, normalize_admin_scopes
 
 
 _FIRST_ADMIN_LOCK_KEY = 0x454E445041444D49
@@ -98,6 +99,7 @@ async def bootstrap_first_admin(
         id=uuid4(),
         username=normalized_username,
         password_digest=hash_password(password),
+        scopes=normalize_admin_scopes((ADMIN_UPDATE_SCOPE,)),
         disabled_at=None,
     )
     session.add(user)

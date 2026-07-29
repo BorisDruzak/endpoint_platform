@@ -399,6 +399,26 @@ def _agent_http_paths() -> dict[str, object]:
         "/agent/v1/updates/recommendation": {
             "get": {
                 "security": bearer_security,
+                "parameters": [
+                    {
+                        "name": "platform",
+                        "in": "query",
+                        "required": True,
+                        "schema": {
+                            "type": "string",
+                            "enum": ["linux_amd64", "windows_amd64"],
+                        },
+                    },
+                    {
+                        "name": "channel",
+                        "in": "query",
+                        "required": True,
+                        "schema": {
+                            "type": "string",
+                            "enum": ["stable", "canary"],
+                        },
+                    },
+                ],
                 "responses": {
                     "200": {
                         "description": "Active update recommendation",

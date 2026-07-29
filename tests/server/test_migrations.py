@@ -118,7 +118,7 @@ def test_migration_history_has_exactly_one_head() -> None:
         _alembic_config("postgresql+asyncpg://unused@127.0.0.1/unused")
     )
 
-    assert script.get_heads() == ["0006_update_control_plane"]
+    assert script.get_heads() == ["0007_admin_update_scopes"]
 
 
 def test_update_downgrade_sql_neutralizes_actionable_assignments() -> None:
@@ -150,10 +150,34 @@ def test_update_downgrade_sql_neutralizes_actionable_assignments() -> None:
     )
     assert rollout_update in rendered
     assert target_update in rendered
-    assert rendered.index(rollout_update) < rendered.index(
-        "DROP COLUMN cancelled_at"
-    )
+    assert rendered.index(rollout_update) < rendered.index("DROP COLUMN cancelled_at")
     assert rendered.index(target_update) < rendered.index("DROP COLUMN operation_id")
+
+
+def test_admin_scope_migration_backfills_explicit_update_grant() -> None:
+    """Existing interactive admins need a persisted grant, never a header fallback."""
+    output = io.StringIO()
+    config = Config(REPOSITORY_ROOT / "alembic.ini", output_buffer=output)
+    config.set_main_option(
+        "sqlalchemy.url",
+        "postgresql+asyncpg://unused@127.0.0.1/unused",
+    )
+
+    command.upgrade(
+        config,
+        "0006_update_control_plane:0007_admin_update_scopes",
+        sql=True,
+    )
+
+    rendered = " ".join(output.getvalue().split())
+    add_column = "ALTER TABLE admin_users ADD COLUMN scopes VARCHAR(128)[];"
+    backfill = "UPDATE admin_users SET scopes = ARRAY['updates:write']::varchar[];"
+    not_null = "ALTER TABLE admin_users ALTER COLUMN scopes SET NOT NULL;"
+    assert add_column in rendered
+    assert backfill in rendered
+    assert not_null in rendered
+    assert rendered.index(add_column) < rendered.index(backfill)
+    assert rendered.index(backfill) < rendered.index(not_null)
 
 
 def test_enrollment_downgrade_sql_neutralizes_bounded_credentials() -> None:
@@ -195,6 +219,7 @@ def test_initial_revision_upgrades_and_downgrades_empty_postgresql(
     client_id = uuid4()
     credential_id = uuid4()
     audit_id = uuid4()
+    admin_user_id = uuid4()
     device_id = uuid4()
     device_credential_id = uuid4()
     campaign_id = uuid4()
@@ -206,6 +231,9 @@ def test_initial_revision_upgrades_and_downgrades_empty_postgresql(
     asyncio.run(
         _execute(
             plain_url,
+            "INSERT INTO admin_users "
+            "(id, username, password_digest) "
+            f"VALUES ('{admin_user_id}', 'legacy-admin', 'legacy-digest'); "
             "INSERT INTO service_clients "
             "(id, client_identifier, display_name) "
             f"VALUES ('{client_id}', 'legacy-client', 'Legacy client'); "
@@ -266,6 +294,14 @@ def test_initial_revision_upgrades_and_downgrades_empty_postgresql(
     )
 
     command.upgrade(config, "head")
+    admin_scope_rows = asyncio.run(
+        _fetch(
+            plain_url,
+            f"SELECT scopes FROM admin_users WHERE id = '{admin_user_id}'",
+        )
+    )
+    assert len(admin_scope_rows) == 1
+    assert admin_scope_rows[0]["scopes"] == ["updates:write"]
     audit_rows = asyncio.run(
         _fetch(
             plain_url,
@@ -345,9 +381,7 @@ def test_initial_revision_upgrades_and_downgrades_empty_postgresql(
     revision_rows = asyncio.run(
         _fetch(plain_url, "SELECT version_num FROM alembic_version")
     )
-    assert [row["version_num"] for row in revision_rows] == [
-        "0006_update_control_plane"
-    ]
+    assert [row["version_num"] for row in revision_rows] == ["0007_admin_update_scopes"]
 
     column_rows = asyncio.run(
         _fetch(
@@ -380,6 +414,8 @@ def test_initial_revision_upgrades_and_downgrades_empty_postgresql(
 
     assert {"token_prefix", "scopes"} <= columns_by_table["service_credentials"].keys()
     assert columns_by_table["service_credentials"]["scopes"]["data_type"] == "ARRAY"
+    assert {"scopes"} <= columns_by_table["admin_users"].keys()
+    assert columns_by_table["admin_users"]["scopes"]["data_type"] == "ARRAY"
     assert {"request_id", "details"} <= columns_by_table["audit_events"].keys()
     assert columns_by_table["audit_events"]["details"]["data_type"] == "jsonb"
     assert {

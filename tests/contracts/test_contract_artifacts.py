@@ -505,6 +505,37 @@ def test_update_contract_artifacts_publish_strict_safe_control_plane_schemas() -
         "/agent/v1/updates/{operation_id}/ack",
         "/agent/v1/updates/{operation_id}/reports",
     } <= set(openapi["paths"])
+    recommendation_parameters = openapi["paths"]["/agent/v1/updates/recommendation"][
+        "get"
+    ]["parameters"]
+    assert recommendation_parameters == [
+        {
+            "name": "platform",
+            "in": "query",
+            "required": True,
+            "schema": {
+                "type": "string",
+                "enum": ["linux_amd64", "windows_amd64"],
+            },
+        },
+        {
+            "name": "channel",
+            "in": "query",
+            "required": True,
+            "schema": {
+                "type": "string",
+                "enum": ["stable", "canary"],
+            },
+        },
+    ]
+    ack_success = openapi["paths"]["/agent/v1/updates/{operation_id}/ack"]["post"][
+        "responses"
+    ]["204"]
+    report_success = openapi["paths"]["/agent/v1/updates/{operation_id}/reports"][
+        "post"
+    ]["responses"]["200"]
+    assert ack_success == {"description": "Update acknowledgement recorded"}
+    assert report_success == {"description": "Update report recorded"}
 
 
 @pytest.mark.parametrize(

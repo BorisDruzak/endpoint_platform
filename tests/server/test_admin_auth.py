@@ -39,6 +39,7 @@ from endpoint_server.auth.admin_sessions import (
     session_is_active,
     set_admin_session_cookie,
 )
+import endpoint_server.auth.admin_sessions as admin_sessions_module
 from endpoint_server.auth.bootstrap_admin import (
     bootstrap_first_admin,
     parse_arguments,
@@ -317,6 +318,22 @@ def test_bootstrap_cli_has_no_password_argument(
     assert supplied_password not in capsys.readouterr().err
 
 
+def test_admin_scopes_are_normalized_as_exact_persisted_grants() -> None:
+    """Whitespace, duplicates, or a scalar string must not broaden admin authority."""
+    normalize = admin_sessions_module.normalize_admin_scopes
+
+    assert normalize(("updates:write", "updates:write")) == ["updates:write"]
+    assert normalize(("devices:read", "updates:write")) == [
+        "devices:read",
+        "updates:write",
+    ]
+    with pytest.raises(ValueError, match="scope collection"):
+        normalize("updates:write")
+    for unsafe in (" updates:write", "updates:write ", "updates:write\x7f"):
+        with pytest.raises(ValueError, match="printable ASCII"):
+            normalize((unsafe,))
+
+
 @pytest.mark.asyncio
 async def test_bootstrap_stores_only_an_argon2id_digest_for_the_first_admin() -> None:
     """Persisting the raw bootstrap password would compromise the first administrator."""
@@ -345,6 +362,7 @@ async def test_bootstrap_stores_only_an_argon2id_digest_for_the_first_admin() ->
     assert session.rollback_calls == 0
     assert isinstance(user, AdminUser)
     assert user.username == "first-admin"
+    assert user.scopes == ["updates:write"]
     assert user.password_digest.startswith("$argon2id$")
     assert password not in user.password_digest
     assert verify_password(user.password_digest, password)

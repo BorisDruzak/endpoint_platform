@@ -78,6 +78,25 @@ paths:
       security:
         -
           AgentBearer: []
+      parameters:
+        -
+          name: "platform"
+          in: "query"
+          required: true
+          schema:
+            type: "string"
+            enum:
+              - "linux_amd64"
+              - "windows_amd64"
+        -
+          name: "channel"
+          in: "query"
+          required: true
+          schema:
+            type: "string"
+            enum:
+              - "stable"
+              - "canary"
       responses:
         "200":
           description: "Active update recommendation"
