@@ -11,7 +11,7 @@
 ## Global Constraints
 
 - Do not change launcher apply/verify/rollback logic, update exit code, artifact build/upload, UI, WebSocket, production or bulk rollout.
-- Preserve pending-update idempotency and never log bearer values, raw URLs with credentials, paths, traces or logs.
+- Preserve the existing pending-update file idempotency. Never log or return bearer values, raw pending payloads, URLs with credentials, paths or traces; the strict artifact URL itself contains no credentials.
 - New endpoint valid no-assignment is final; legacy fallback occurs only for 404/501/connection unavailable.
 - Report `requested`, `scheduled`, `applied`, `failed` or `rolled_back` with durable idempotency keys and safe codes only.
 - Primary GET is `/agent/v1/updates/recommendation?platform={windows_amd64|linux_amd64}&channel={stable|canary}`. A strict 200 body is an `AgentUpdateRecommendationV1`; 204 is a final no-assignment.
@@ -60,7 +60,7 @@
 
 - [ ] Write RED tests: primary 404/501 and connection failure call legacy once; 401/403/409/422/500 never do. Assert endpoint 200 produces `recommended_build` with target/channel/version/artifact fields but no artifact URL in status/action-trace details. Assert `requested` precedes existing scheduling and `scheduled` follows its success.
 - [ ] Write a restart test: a failed terminal POST reuses the same generated opaque report key on a new adapter instance. Its body must contain neither a path, URL, exception, trace nor raw history object.
-- [ ] Implement bounded fallback. Preserve existing legacy POST behavior only for legacy recommendations; a primary recommendation must use the existing verified local scheduling path. Implement journaled reports and map observations only to `launcher_apply_failed`, `launcher_rolled_back`, and `post_restart_handshake_confirmed`.
+- [ ] Implement bounded fallback. Preserve existing legacy POST behavior only for legacy recommendations; a primary recommendation must use the existing verified local scheduling path, which retains `pending_update.json` with only its validated credential-free manifest. Implement journaled reports and map observations only to `launcher_apply_failed`, `launcher_rolled_back`, and `post_restart_handshake_confirmed`.
 - [ ] Run `python -m pytest pc_agent/tests/test_update_adapter.py pc_agent/tests/test_self_update_runtime.py -q`; commit `feat: report endpoint update lifecycle`.
 
 ### Task 3: Compatibility, docs and local canary gate
