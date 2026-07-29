@@ -4,8 +4,9 @@
 
 - `pc_agent/update_adapter.py` owns the strict primary Endpoint Platform
   recommendation, acknowledgement, and terminal-report adapter. It exposes no
-  bearer, artifact URL, raw pending payload, local path, or trace in logs or
-  safe return details.
+  bearer, artifact URL, raw pending payload, local path, or trace in logs, safe
+  diagnostics, status, or action-trace output; its internal recommendation
+  value retains the artifact URL needed by scheduling.
 - `pc_agent/ws_agent.py` owns runtime integration: it invokes the adapter,
   keeps verified update scheduling and launcher handoff, supplies `requested`
   / `scheduled` acknowledgements, sends terminal reports, and adds terminal
@@ -18,9 +19,10 @@ Primary compatibility is intentionally narrow: valid `200` assignment uses
 the primary result without legacy; `204` is no assignment without legacy;
 only `404`, `501`, connection failures, and pre-response timeouts make exactly
 one legacy poll. `401`, `403`, `409`, `422`, `500`, malformed bodies, and all
-other outcomes fail closed with no pending update. Existing pending work skips
-new scheduling. Rollback is simply a valid ordinary assignment to an older
-version.
+other outcomes fail closed with no pending update. Startup auto-update skips
+polling/scheduling when pending work exists; other status/manual paths may poll
+but must not create a duplicate pending schedule. Rollback is simply a valid
+ordinary assignment to an older version.
 
 `scheduled` records launcher handoff only. `applied` needs the new runtime's
 post-restart endpoint handshake. Terminal `applied`, `failed`, and

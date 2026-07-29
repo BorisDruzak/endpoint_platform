@@ -17,7 +17,7 @@ or traceback.
 | `204` | Treat as no assignment; no legacy poll. |
 | `404`, `501`, connection failure, timeout before response | Perform exactly one legacy poll. |
 | `401`, `403`, `409`, `422`, `500`, malformed `200`, other status | Fail closed: do not create a pending update and do not poll legacy. |
-| Pending update already exists | Skip the poll/schedule path. |
+| Pending update already exists | Startup auto-update skips its poll/schedule path. Other status/manual paths may poll, but must not create a duplicate pending schedule. |
 
 An assignment to an older version is the ordinary rollback mechanism: validate
 and schedule it exactly like any other assignment, rather than using an
@@ -33,9 +33,11 @@ states are `applied`, `failed`, and `rolled_back`.
 
 Terminal reports persist an opaque `report_key` in
 `updates/endpoint_update_reports.json` before delivery, allowing a retry to
-reuse the same key. Report payloads are deliberately limited to operation,
-terminal state, version, allow-listed safe code, and that opaque key. Do not
-log or add credentials, artifact URLs, raw pending JSON, paths, or traces.
+reuse the same key. The operation id is in the POST path
+`/agent/v1/updates/{operation_id}/reports`; the JSON body contains exactly
+`schema_version`, `report_key`, `status`, `reported_version`, and `safe_code`.
+Do not log or add credentials, artifact URLs, raw pending JSON, paths, or
+traces.
 
 ### Separately authorized canary procedure
 

@@ -5,9 +5,10 @@
 `pc_agent/update_adapter.py` is the compatibility boundary for the primary
 Endpoint Platform recommendation endpoint. It accepts only the strict,
 credential-free `agent_update_recommendation_v1` manifest for the current
-platform and channel. The manifest is validated before it is used; logs,
-return values, and safe error details must never expose the bearer credential,
-artifact URL, raw pending payload, local paths, or exception traces.
+platform and channel. The manifest is validated before it is used; logs, safe
+diagnostics, status output, and action-trace output must never expose the
+bearer credential, artifact URL, raw pending payload, local paths, or exception
+traces. Internal adapter values may retain the artifact URL for scheduling.
 
 ### Primary endpoint compatibility matrix
 
@@ -17,7 +18,7 @@ artifact URL, raw pending payload, local paths, or exception traces.
 | `204` | No assignment; do **not** poll legacy. |
 | `404`, `501`, connection failure, or timeout before a response | Poll the legacy recommendation path exactly once. |
 | `401`, `403`, `409`, `422`, `500`, malformed `200`, or any other response | Fail closed: no assignment, no legacy fallback, and no pending update is created. |
-| A local pending update already exists | Skip recommendation/scheduling so it cannot be overwritten. |
+| A local pending update already exists | Startup auto-update skips its poll/schedule path. Other status/manual paths may poll, but must not create a duplicate pending schedule. |
 
 Rollback is not a separate adapter action: an assignment to an older valid
 version follows the same regular update flow as any other assigned version.
@@ -31,8 +32,10 @@ It does **not** mean the artifact was applied. `applied` requires the new
 runtime's post-restart endpoint handshake.
 
 The terminal endpoint reports are `applied`, `failed`, and `rolled_back`.
-They contain only the operation id, reported version, an allow-listed safe
-code, and an opaque durable `report_key`. The key is recorded locally in
+The operation id is in the POST path
+`/agent/v1/updates/{operation_id}/reports`; the JSON body contains exactly
+`schema_version`, `report_key`, `status`, `reported_version`, and `safe_code`.
+The opaque durable key is recorded locally in
 `updates/endpoint_update_reports.json` before sending so retries use the same
 idempotency value; it is not a credential and must not be expanded with
 artifact URLs, pending payloads, paths, or traces.
