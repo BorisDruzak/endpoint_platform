@@ -4,6 +4,18 @@ from .commands import (
     AgentResultV1,
     CommandCorrelationV1,
 )
+from .context import (
+    BaselineSectionsV1,
+    ContextProfileV1,
+    ContextWarningCodeV1,
+    DeviceContextBaselineV1,
+    DeviceContextDiagnosticV1,
+    DeviceContextDiffV1,
+    DeviceContextEnvelopeV1,
+    DeviceContextHealthV1,
+    DeviceContextNetworkV1,
+    validate_context_result_item,
+)
 from .enrollment import (
     AgentEnrollmentDeliveryV1,
     AgentEnrollmentRequestV1,
@@ -35,6 +47,15 @@ __all__ = [
     "AgentUpdateRecommendationV1",
     "AgentUpdateReportV1",
     "CommandCorrelationV1",
+    "ContextProfileV1",
+    "ContextWarningCodeV1",
+    "BaselineSectionsV1",
+    "DeviceContextBaselineV1",
+    "DeviceContextDiagnosticV1",
+    "DeviceContextDiffV1",
+    "DeviceContextEnvelopeV1",
+    "DeviceContextHealthV1",
+    "DeviceContextNetworkV1",
     "DeviceIdentityV1",
     "DeviceCredentialRotationV1",
     "EnrollmentDeliveryProofV1",
@@ -42,4 +63,5 @@ __all__ = [
     "EnrollmentResponseV1",
     "UpdateBuildManifestV1",
     "UpdateRolloutCreateV1",
+    "validate_context_result_item",
 ]

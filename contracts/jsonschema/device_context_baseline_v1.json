@@ -1,0 +1,265 @@
+{
+  "$defs": {
+    "BaselineHardwareV1": {
+      "additionalProperties": false,
+      "properties": {
+        "cpu_model": {
+          "maxLength": 256,
+          "minLength": 1,
+          "title": "Cpu Model",
+          "type": "string"
+        },
+        "manufacturer": {
+          "maxLength": 256,
+          "minLength": 1,
+          "title": "Manufacturer",
+          "type": "string"
+        },
+        "memory_bytes": {
+          "minimum": 1,
+          "title": "Memory Bytes",
+          "type": "integer"
+        },
+        "model": {
+          "maxLength": 256,
+          "minLength": 1,
+          "title": "Model",
+          "type": "string"
+        }
+      },
+      "required": [
+        "manufacturer",
+        "model",
+        "cpu_model",
+        "memory_bytes"
+      ],
+      "title": "BaselineHardwareV1",
+      "type": "object"
+    },
+    "BaselineInterfaceV1": {
+      "additionalProperties": false,
+      "properties": {
+        "link_type": {
+          "enum": [
+            "ethernet",
+            "loopback",
+            "wireless",
+            "other"
+          ],
+          "title": "Link Type",
+          "type": "string"
+        },
+        "name": {
+          "maxLength": 64,
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "stable_key": {
+          "maxLength": 128,
+          "minLength": 3,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$",
+          "title": "Stable Key",
+          "type": "string"
+        }
+      },
+      "required": [
+        "stable_key",
+        "name",
+        "link_type"
+      ],
+      "title": "BaselineInterfaceV1",
+      "type": "object"
+    },
+    "BaselineSectionsV1": {
+      "additionalProperties": false,
+      "properties": {
+        "hardware": {
+          "$ref": "#/$defs/BaselineHardwareV1"
+        },
+        "interfaces": {
+          "items": {
+            "$ref": "#/$defs/BaselineInterfaceV1"
+          },
+          "maxItems": 64,
+          "title": "Interfaces",
+          "type": "array"
+        },
+        "software": {
+          "items": {
+            "$ref": "#/$defs/BaselineSoftwareV1"
+          },
+          "maxItems": 256,
+          "title": "Software",
+          "type": "array"
+        },
+        "storage": {
+          "items": {
+            "$ref": "#/$defs/BaselineStorageV1"
+          },
+          "maxItems": 64,
+          "minItems": 1,
+          "title": "Storage",
+          "type": "array"
+        },
+        "system": {
+          "$ref": "#/$defs/BaselineSystemV1"
+        }
+      },
+      "required": [
+        "system",
+        "hardware",
+        "storage",
+        "interfaces",
+        "software"
+      ],
+      "title": "BaselineSectionsV1",
+      "type": "object"
+    },
+    "BaselineSoftwareV1": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "maxLength": 256,
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "source": {
+          "enum": [
+            "installer",
+            "package",
+            "system"
+          ],
+          "title": "Source",
+          "type": "string"
+        },
+        "version": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "version",
+        "source"
+      ],
+      "title": "BaselineSoftwareV1",
+      "type": "object"
+    },
+    "BaselineStorageV1": {
+      "additionalProperties": false,
+      "properties": {
+        "model": {
+          "maxLength": 256,
+          "minLength": 1,
+          "title": "Model",
+          "type": "string"
+        },
+        "size_bytes": {
+          "minimum": 1,
+          "title": "Size Bytes",
+          "type": "integer"
+        },
+        "stable_key": {
+          "maxLength": 128,
+          "minLength": 3,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$",
+          "title": "Stable Key",
+          "type": "string"
+        }
+      },
+      "required": [
+        "stable_key",
+        "model",
+        "size_bytes"
+      ],
+      "title": "BaselineStorageV1",
+      "type": "object"
+    },
+    "BaselineSystemV1": {
+      "additionalProperties": false,
+      "properties": {
+        "architecture": {
+          "enum": [
+            "x86_64",
+            "aarch64"
+          ],
+          "title": "Architecture",
+          "type": "string"
+        },
+        "distribution": {
+          "maxLength": 256,
+          "minLength": 1,
+          "title": "Distribution",
+          "type": "string"
+        },
+        "platform": {
+          "enum": [
+            "linux",
+            "windows"
+          ],
+          "title": "Platform",
+          "type": "string"
+        }
+      },
+      "required": [
+        "platform",
+        "distribution",
+        "architecture"
+      ],
+      "title": "BaselineSystemV1",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "collected_at": {
+      "$comment": "model-only UTC normalization: timezone-aware values are normalized to UTC.",
+      "format": "date-time",
+      "title": "Collected At",
+      "type": "string"
+    },
+    "profile": {
+      "const": "baseline_v1",
+      "title": "Profile",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "device_context_v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "sections": {
+      "$ref": "#/$defs/BaselineSectionsV1"
+    },
+    "warnings": {
+      "items": {
+        "enum": [
+          "command_failed",
+          "command_timed_out",
+          "data_truncated",
+          "permission_denied",
+          "probe_unavailable",
+          "redaction_applied",
+          "source_unavailable",
+          "unsupported_platform"
+        ],
+        "type": "string"
+      },
+      "maxItems": 16,
+      "title": "Warnings",
+      "type": "array"
+    }
+  },
+  "required": [
+    "schema_version",
+    "profile",
+    "collected_at",
+    "sections"
+  ],
+  "title": "DeviceContextBaselineV1",
+  "type": "object"
+}

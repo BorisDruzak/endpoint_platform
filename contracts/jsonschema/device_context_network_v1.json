@@ -1,0 +1,130 @@
+{
+  "$defs": {
+    "NetworkInterfaceV1": {
+      "additionalProperties": false,
+      "properties": {
+        "addresses": {
+          "items": {
+            "maxLength": 64,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 16,
+          "title": "Addresses",
+          "type": "array"
+        },
+        "name": {
+          "maxLength": 64,
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "addresses"
+      ],
+      "title": "NetworkInterfaceV1",
+      "type": "object"
+    },
+    "NetworkRouteV1": {
+      "additionalProperties": false,
+      "properties": {
+        "gateway": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Gateway"
+        },
+        "interface": {
+          "maxLength": 64,
+          "minLength": 1,
+          "title": "Interface",
+          "type": "string"
+        }
+      },
+      "required": [
+        "interface"
+      ],
+      "title": "NetworkRouteV1",
+      "type": "object"
+    },
+    "NetworkSectionsV1": {
+      "additionalProperties": false,
+      "properties": {
+        "default_route": {
+          "$ref": "#/$defs/NetworkRouteV1"
+        },
+        "interfaces": {
+          "items": {
+            "$ref": "#/$defs/NetworkInterfaceV1"
+          },
+          "maxItems": 64,
+          "title": "Interfaces",
+          "type": "array"
+        }
+      },
+      "required": [
+        "default_route",
+        "interfaces"
+      ],
+      "title": "NetworkSectionsV1",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "collected_at": {
+      "$comment": "model-only UTC normalization: timezone-aware values are normalized to UTC.",
+      "format": "date-time",
+      "title": "Collected At",
+      "type": "string"
+    },
+    "profile": {
+      "const": "network_v1",
+      "title": "Profile",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "device_context_v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "sections": {
+      "$ref": "#/$defs/NetworkSectionsV1"
+    },
+    "warnings": {
+      "items": {
+        "enum": [
+          "command_failed",
+          "command_timed_out",
+          "data_truncated",
+          "permission_denied",
+          "probe_unavailable",
+          "redaction_applied",
+          "source_unavailable",
+          "unsupported_platform"
+        ],
+        "type": "string"
+      },
+      "maxItems": 16,
+      "title": "Warnings",
+      "type": "array"
+    }
+  },
+  "required": [
+    "schema_version",
+    "profile",
+    "collected_at",
+    "sections"
+  ],
+  "title": "DeviceContextNetworkV1",
+  "type": "object"
+}

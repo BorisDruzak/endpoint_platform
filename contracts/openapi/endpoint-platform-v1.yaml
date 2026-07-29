@@ -1677,6 +1677,555 @@ components:
         - "reported_version"
       title: "AgentUpdateReportV1"
       type: "object"
+    DeviceContextBaselineV1:
+      additionalProperties: false
+      properties:
+        schema_version:
+          const: "device_context_v1"
+          title: "Schema Version"
+          type: "string"
+        profile:
+          const: "baseline_v1"
+          title: "Profile"
+          type: "string"
+        collected_at:
+          format: "date-time"
+          title: "Collected At"
+          type: "string"
+          "$comment": "model-only UTC normalization: timezone-aware values are normalized to UTC."
+        sections:
+          "$ref": "#/components/schemas/DeviceContextBaselineV1__BaselineSectionsV1"
+        warnings:
+          items:
+            enum:
+              - "command_failed"
+              - "command_timed_out"
+              - "data_truncated"
+              - "permission_denied"
+              - "probe_unavailable"
+              - "redaction_applied"
+              - "source_unavailable"
+              - "unsupported_platform"
+            type: "string"
+          maxItems: 16
+          title: "Warnings"
+          type: "array"
+      required:
+        - "schema_version"
+        - "profile"
+        - "collected_at"
+        - "sections"
+      title: "DeviceContextBaselineV1"
+      type: "object"
+    DeviceContextBaselineV1__BaselineHardwareV1:
+      additionalProperties: false
+      properties:
+        manufacturer:
+          maxLength: 256
+          minLength: 1
+          title: "Manufacturer"
+          type: "string"
+        model:
+          maxLength: 256
+          minLength: 1
+          title: "Model"
+          type: "string"
+        cpu_model:
+          maxLength: 256
+          minLength: 1
+          title: "Cpu Model"
+          type: "string"
+        memory_bytes:
+          minimum: 1
+          title: "Memory Bytes"
+          type: "integer"
+      required:
+        - "manufacturer"
+        - "model"
+        - "cpu_model"
+        - "memory_bytes"
+      title: "BaselineHardwareV1"
+      type: "object"
+    DeviceContextBaselineV1__BaselineInterfaceV1:
+      additionalProperties: false
+      properties:
+        stable_key:
+          maxLength: 128
+          minLength: 3
+          pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+          title: "Stable Key"
+          type: "string"
+        name:
+          maxLength: 64
+          minLength: 1
+          title: "Name"
+          type: "string"
+        link_type:
+          enum:
+            - "ethernet"
+            - "loopback"
+            - "wireless"
+            - "other"
+          title: "Link Type"
+          type: "string"
+      required:
+        - "stable_key"
+        - "name"
+        - "link_type"
+      title: "BaselineInterfaceV1"
+      type: "object"
+    DeviceContextBaselineV1__BaselineSectionsV1:
+      additionalProperties: false
+      properties:
+        system:
+          "$ref": "#/components/schemas/DeviceContextBaselineV1__BaselineSystemV1"
+        hardware:
+          "$ref": "#/components/schemas/DeviceContextBaselineV1__BaselineHardwareV1"
+        storage:
+          items:
+            "$ref": "#/components/schemas/DeviceContextBaselineV1__BaselineStorageV1"
+          maxItems: 64
+          minItems: 1
+          title: "Storage"
+          type: "array"
+        interfaces:
+          items:
+            "$ref": "#/components/schemas/DeviceContextBaselineV1__BaselineInterfaceV1"
+          maxItems: 64
+          title: "Interfaces"
+          type: "array"
+        software:
+          items:
+            "$ref": "#/components/schemas/DeviceContextBaselineV1__BaselineSoftwareV1"
+          maxItems: 256
+          title: "Software"
+          type: "array"
+      required:
+        - "system"
+        - "hardware"
+        - "storage"
+        - "interfaces"
+        - "software"
+      title: "BaselineSectionsV1"
+      type: "object"
+    DeviceContextBaselineV1__BaselineSoftwareV1:
+      additionalProperties: false
+      properties:
+        name:
+          maxLength: 256
+          minLength: 1
+          title: "Name"
+          type: "string"
+        version:
+          maxLength: 128
+          minLength: 1
+          title: "Version"
+          type: "string"
+        source:
+          enum:
+            - "installer"
+            - "package"
+            - "system"
+          title: "Source"
+          type: "string"
+      required:
+        - "name"
+        - "version"
+        - "source"
+      title: "BaselineSoftwareV1"
+      type: "object"
+    DeviceContextBaselineV1__BaselineStorageV1:
+      additionalProperties: false
+      properties:
+        stable_key:
+          maxLength: 128
+          minLength: 3
+          pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+          title: "Stable Key"
+          type: "string"
+        model:
+          maxLength: 256
+          minLength: 1
+          title: "Model"
+          type: "string"
+        size_bytes:
+          minimum: 1
+          title: "Size Bytes"
+          type: "integer"
+      required:
+        - "stable_key"
+        - "model"
+        - "size_bytes"
+      title: "BaselineStorageV1"
+      type: "object"
+    DeviceContextBaselineV1__BaselineSystemV1:
+      additionalProperties: false
+      properties:
+        platform:
+          enum:
+            - "linux"
+            - "windows"
+          title: "Platform"
+          type: "string"
+        distribution:
+          maxLength: 256
+          minLength: 1
+          title: "Distribution"
+          type: "string"
+        architecture:
+          enum:
+            - "x86_64"
+            - "aarch64"
+          title: "Architecture"
+          type: "string"
+      required:
+        - "platform"
+        - "distribution"
+        - "architecture"
+      title: "BaselineSystemV1"
+      type: "object"
+    DeviceContextHealthV1:
+      additionalProperties: false
+      properties:
+        schema_version:
+          const: "device_context_v1"
+          title: "Schema Version"
+          type: "string"
+        profile:
+          const: "health_v1"
+          title: "Profile"
+          type: "string"
+        collected_at:
+          format: "date-time"
+          title: "Collected At"
+          type: "string"
+          "$comment": "model-only UTC normalization: timezone-aware values are normalized to UTC."
+        sections:
+          "$ref": "#/components/schemas/DeviceContextHealthV1__HealthSectionsV1"
+        warnings:
+          items:
+            enum:
+              - "command_failed"
+              - "command_timed_out"
+              - "data_truncated"
+              - "permission_denied"
+              - "probe_unavailable"
+              - "redaction_applied"
+              - "source_unavailable"
+              - "unsupported_platform"
+            type: "string"
+          maxItems: 16
+          title: "Warnings"
+          type: "array"
+      required:
+        - "schema_version"
+        - "profile"
+        - "collected_at"
+        - "sections"
+      title: "DeviceContextHealthV1"
+      type: "object"
+    DeviceContextHealthV1__HealthResourcesV1:
+      additionalProperties: false
+      properties:
+        uptime_seconds:
+          minimum: 0
+          title: "Uptime Seconds"
+          type: "integer"
+        load_1m:
+          maximum: 1000000
+          minimum: 0
+          title: "Load 1M"
+          type: "number"
+        free_bytes:
+          minimum: 0
+          title: "Free Bytes"
+          type: "integer"
+      required:
+        - "uptime_seconds"
+        - "load_1m"
+        - "free_bytes"
+      title: "HealthResourcesV1"
+      type: "object"
+    DeviceContextHealthV1__HealthSectionsV1:
+      additionalProperties: false
+      properties:
+        resources:
+          "$ref": "#/components/schemas/DeviceContextHealthV1__HealthResourcesV1"
+        services:
+          items:
+            "$ref": "#/components/schemas/DeviceContextHealthV1__HealthServiceV1"
+          maxItems: 64
+          title: "Services"
+          type: "array"
+      required:
+        - "resources"
+        - "services"
+      title: "HealthSectionsV1"
+      type: "object"
+    DeviceContextHealthV1__HealthServiceV1:
+      additionalProperties: false
+      properties:
+        name:
+          maxLength: 128
+          minLength: 1
+          title: "Name"
+          type: "string"
+        status:
+          enum:
+            - "active"
+            - "inactive"
+            - "failed"
+            - "unknown"
+          title: "Status"
+          type: "string"
+      required:
+        - "name"
+        - "status"
+      title: "HealthServiceV1"
+      type: "object"
+    DeviceContextNetworkV1:
+      additionalProperties: false
+      properties:
+        schema_version:
+          const: "device_context_v1"
+          title: "Schema Version"
+          type: "string"
+        profile:
+          const: "network_v1"
+          title: "Profile"
+          type: "string"
+        collected_at:
+          format: "date-time"
+          title: "Collected At"
+          type: "string"
+          "$comment": "model-only UTC normalization: timezone-aware values are normalized to UTC."
+        sections:
+          "$ref": "#/components/schemas/DeviceContextNetworkV1__NetworkSectionsV1"
+        warnings:
+          items:
+            enum:
+              - "command_failed"
+              - "command_timed_out"
+              - "data_truncated"
+              - "permission_denied"
+              - "probe_unavailable"
+              - "redaction_applied"
+              - "source_unavailable"
+              - "unsupported_platform"
+            type: "string"
+          maxItems: 16
+          title: "Warnings"
+          type: "array"
+      required:
+        - "schema_version"
+        - "profile"
+        - "collected_at"
+        - "sections"
+      title: "DeviceContextNetworkV1"
+      type: "object"
+    DeviceContextNetworkV1__NetworkInterfaceV1:
+      additionalProperties: false
+      properties:
+        name:
+          maxLength: 64
+          minLength: 1
+          title: "Name"
+          type: "string"
+        addresses:
+          items:
+            maxLength: 64
+            minLength: 1
+            type: "string"
+          maxItems: 16
+          title: "Addresses"
+          type: "array"
+      required:
+        - "name"
+        - "addresses"
+      title: "NetworkInterfaceV1"
+      type: "object"
+    DeviceContextNetworkV1__NetworkRouteV1:
+      additionalProperties: false
+      properties:
+        interface:
+          maxLength: 64
+          minLength: 1
+          title: "Interface"
+          type: "string"
+        gateway:
+          anyOf:
+            -
+              maxLength: 64
+              type: "string"
+            -
+              type: "null"
+          default: null
+          title: "Gateway"
+      required:
+        - "interface"
+      title: "NetworkRouteV1"
+      type: "object"
+    DeviceContextNetworkV1__NetworkSectionsV1:
+      additionalProperties: false
+      properties:
+        default_route:
+          "$ref": "#/components/schemas/DeviceContextNetworkV1__NetworkRouteV1"
+        interfaces:
+          items:
+            "$ref": "#/components/schemas/DeviceContextNetworkV1__NetworkInterfaceV1"
+          maxItems: 64
+          title: "Interfaces"
+          type: "array"
+      required:
+        - "default_route"
+        - "interfaces"
+      title: "NetworkSectionsV1"
+      type: "object"
+    DeviceContextDiagnosticV1:
+      additionalProperties: false
+      properties:
+        schema_version:
+          const: "device_context_v1"
+          title: "Schema Version"
+          type: "string"
+        profile:
+          const: "diagnostic_v1"
+          title: "Profile"
+          type: "string"
+        collected_at:
+          format: "date-time"
+          title: "Collected At"
+          type: "string"
+          "$comment": "model-only UTC normalization: timezone-aware values are normalized to UTC."
+        sections:
+          "$ref": "#/components/schemas/DeviceContextDiagnosticV1__DiagnosticSectionsV1"
+        warnings:
+          items:
+            enum:
+              - "command_failed"
+              - "command_timed_out"
+              - "data_truncated"
+              - "permission_denied"
+              - "probe_unavailable"
+              - "redaction_applied"
+              - "source_unavailable"
+              - "unsupported_platform"
+            type: "string"
+          maxItems: 16
+          title: "Warnings"
+          type: "array"
+      required:
+        - "schema_version"
+        - "profile"
+        - "collected_at"
+        - "sections"
+      title: "DeviceContextDiagnosticV1"
+      type: "object"
+    DeviceContextDiagnosticV1__DiagnosticProcessV1:
+      additionalProperties: false
+      properties:
+        name:
+          maxLength: 128
+          minLength: 1
+          title: "Name"
+          type: "string"
+        state:
+          enum:
+            - "running"
+            - "sleeping"
+            - "stopped"
+            - "unknown"
+          title: "State"
+          type: "string"
+      required:
+        - "name"
+        - "state"
+      title: "DiagnosticProcessV1"
+      type: "object"
+    DeviceContextDiagnosticV1__DiagnosticSectionsV1:
+      additionalProperties: false
+      properties:
+        reason:
+          maxLength: 256
+          minLength: 1
+          title: "Reason"
+          type: "string"
+        log_excerpt:
+          anyOf:
+            -
+              maxLength: 8192
+              type: "string"
+            -
+              type: "null"
+          default: null
+          title: "Log Excerpt"
+        processes:
+          items:
+            "$ref": "#/components/schemas/DeviceContextDiagnosticV1__DiagnosticProcessV1"
+          maxItems: 64
+          title: "Processes"
+          type: "array"
+      required:
+        - "reason"
+        - "processes"
+      title: "DiagnosticSectionsV1"
+      type: "object"
+    DeviceContextDiffV1:
+      additionalProperties: false
+      properties:
+        schema_version:
+          const: "device_context_diff_v1"
+          title: "Schema Version"
+          type: "string"
+        profile:
+          const: "baseline_v1"
+          title: "Profile"
+          type: "string"
+        from_hash:
+          pattern: "^[a-f0-9]{64}$"
+          title: "From Hash"
+          type: "string"
+        to_hash:
+          pattern: "^[a-f0-9]{64}$"
+          title: "To Hash"
+          type: "string"
+        changes:
+          items:
+            "$ref": "#/components/schemas/DeviceContextDiffV1__DeviceContextDiffChangeV1"
+          maxItems: 128
+          title: "Changes"
+          type: "array"
+      required:
+        - "schema_version"
+        - "profile"
+        - "from_hash"
+        - "to_hash"
+        - "changes"
+      title: "DeviceContextDiffV1"
+      type: "object"
+    DeviceContextDiffV1__DeviceContextDiffChangeV1:
+      additionalProperties: false
+      properties:
+        code:
+          enum:
+            - "agent_changed"
+            - "hardware_changed"
+            - "network_changed"
+            - "platform_changed"
+            - "software_changed"
+            - "storage_changed"
+          title: "Code"
+          type: "string"
+        summary:
+          maxLength: 256
+          minLength: 1
+          title: "Summary"
+          type: "string"
+      required:
+        - "code"
+        - "summary"
+      title: "DeviceContextDiffChangeV1"
+      type: "object"
   securitySchemes:
     AgentBearer:
       type: "http"

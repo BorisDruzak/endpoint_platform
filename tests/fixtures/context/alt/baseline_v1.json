@@ -1,0 +1,40 @@
+{
+  "schema_version": "device_context_v1",
+  "profile": "baseline_v1",
+  "collected_at": "2026-07-29T12:00:00Z",
+  "sections": {
+    "system": {
+      "platform": "linux",
+      "distribution": "ALT Linux",
+      "architecture": "x86_64"
+    },
+    "hardware": {
+      "manufacturer": "Example Systems",
+      "model": "ALT fixture",
+      "cpu_model": "Fixture CPU",
+      "memory_bytes": 8589934592
+    },
+    "storage": [
+      {
+        "stable_key": "disk-fixture-01",
+        "model": "Fixture SSD",
+        "size_bytes": 512110190592
+      }
+    ],
+    "interfaces": [
+      {
+        "stable_key": "iface-fixture-01",
+        "name": "enp0s3",
+        "link_type": "ethernet"
+      }
+    ],
+    "software": [
+      {
+        "name": "endpoint-agent",
+        "version": "1.2.3",
+        "source": "package"
+      }
+    ]
+  },
+  "warnings": []
+}

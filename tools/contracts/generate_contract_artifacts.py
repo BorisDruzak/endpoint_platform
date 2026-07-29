@@ -23,6 +23,11 @@ from endpoint_contracts import (  # noqa: E402
     AgentSessionV1,
     DeviceIdentityV1,
     DeviceCredentialRotationV1,
+    DeviceContextBaselineV1,
+    DeviceContextDiagnosticV1,
+    DeviceContextDiffV1,
+    DeviceContextHealthV1,
+    DeviceContextNetworkV1,
     EnrollmentDeliveryProofV1,
     EnrollmentRequestV1,
     EnrollmentResponseV1,
@@ -54,6 +59,11 @@ PUBLIC_MODELS: dict[str, type[ContractModelV1]] = {
     "agent-update-recommendation-v1.json": AgentUpdateRecommendationV1,
     "agent-update-ack-v1.json": AgentUpdateAcknowledgementV1,
     "agent-update-report-v1.json": AgentUpdateReportV1,
+    "device_context_baseline_v1.json": DeviceContextBaselineV1,
+    "device_context_health_v1.json": DeviceContextHealthV1,
+    "device_context_network_v1.json": DeviceContextNetworkV1,
+    "device_context_diagnostic_v1.json": DeviceContextDiagnosticV1,
+    "device_context_diff_v1.json": DeviceContextDiffV1,
 }
 
 FIXTURES: dict[str, dict[str, Any]] = {

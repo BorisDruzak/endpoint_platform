@@ -1,0 +1,73 @@
+{
+  "$defs": {
+    "DeviceContextDiffChangeV1": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "enum": [
+            "agent_changed",
+            "hardware_changed",
+            "network_changed",
+            "platform_changed",
+            "software_changed",
+            "storage_changed"
+          ],
+          "title": "Code",
+          "type": "string"
+        },
+        "summary": {
+          "maxLength": 256,
+          "minLength": 1,
+          "title": "Summary",
+          "type": "string"
+        }
+      },
+      "required": [
+        "code",
+        "summary"
+      ],
+      "title": "DeviceContextDiffChangeV1",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "changes": {
+      "items": {
+        "$ref": "#/$defs/DeviceContextDiffChangeV1"
+      },
+      "maxItems": 128,
+      "title": "Changes",
+      "type": "array"
+    },
+    "from_hash": {
+      "pattern": "^[a-f0-9]{64}$",
+      "title": "From Hash",
+      "type": "string"
+    },
+    "profile": {
+      "const": "baseline_v1",
+      "title": "Profile",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "device_context_diff_v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "to_hash": {
+      "pattern": "^[a-f0-9]{64}$",
+      "title": "To Hash",
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema_version",
+    "profile",
+    "from_hash",
+    "to_hash",
+    "changes"
+  ],
+  "title": "DeviceContextDiffV1",
+  "type": "object"
+}

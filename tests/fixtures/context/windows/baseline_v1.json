@@ -1,0 +1,40 @@
+{
+  "schema_version": "device_context_v1",
+  "profile": "baseline_v1",
+  "collected_at": "2026-07-29T12:00:00Z",
+  "sections": {
+    "system": {
+      "platform": "windows",
+      "distribution": "Windows 11",
+      "architecture": "x86_64"
+    },
+    "hardware": {
+      "manufacturer": "Example Systems",
+      "model": "Windows fixture",
+      "cpu_model": "Fixture CPU",
+      "memory_bytes": 17179869184
+    },
+    "storage": [
+      {
+        "stable_key": "disk-fixture-02",
+        "model": "Fixture SSD",
+        "size_bytes": 1024209543168
+      }
+    ],
+    "interfaces": [
+      {
+        "stable_key": "iface-fixture-02",
+        "name": "Ethernet",
+        "link_type": "ethernet"
+      }
+    ],
+    "software": [
+      {
+        "name": "endpoint-agent",
+        "version": "1.2.3",
+        "source": "installer"
+      }
+    ]
+  },
+  "warnings": []
+}

@@ -1,0 +1,129 @@
+{
+  "$defs": {
+    "HealthResourcesV1": {
+      "additionalProperties": false,
+      "properties": {
+        "free_bytes": {
+          "minimum": 0,
+          "title": "Free Bytes",
+          "type": "integer"
+        },
+        "load_1m": {
+          "maximum": 1000000,
+          "minimum": 0,
+          "title": "Load 1M",
+          "type": "number"
+        },
+        "uptime_seconds": {
+          "minimum": 0,
+          "title": "Uptime Seconds",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "uptime_seconds",
+        "load_1m",
+        "free_bytes"
+      ],
+      "title": "HealthResourcesV1",
+      "type": "object"
+    },
+    "HealthSectionsV1": {
+      "additionalProperties": false,
+      "properties": {
+        "resources": {
+          "$ref": "#/$defs/HealthResourcesV1"
+        },
+        "services": {
+          "items": {
+            "$ref": "#/$defs/HealthServiceV1"
+          },
+          "maxItems": 64,
+          "title": "Services",
+          "type": "array"
+        }
+      },
+      "required": [
+        "resources",
+        "services"
+      ],
+      "title": "HealthSectionsV1",
+      "type": "object"
+    },
+    "HealthServiceV1": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "active",
+            "inactive",
+            "failed",
+            "unknown"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "status"
+      ],
+      "title": "HealthServiceV1",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "collected_at": {
+      "$comment": "model-only UTC normalization: timezone-aware values are normalized to UTC.",
+      "format": "date-time",
+      "title": "Collected At",
+      "type": "string"
+    },
+    "profile": {
+      "const": "health_v1",
+      "title": "Profile",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "device_context_v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "sections": {
+      "$ref": "#/$defs/HealthSectionsV1"
+    },
+    "warnings": {
+      "items": {
+        "enum": [
+          "command_failed",
+          "command_timed_out",
+          "data_truncated",
+          "permission_denied",
+          "probe_unavailable",
+          "redaction_applied",
+          "source_unavailable",
+          "unsupported_platform"
+        ],
+        "type": "string"
+      },
+      "maxItems": 16,
+      "title": "Warnings",
+      "type": "array"
+    }
+  },
+  "required": [
+    "schema_version",
+    "profile",
+    "collected_at",
+    "sections"
+  ],
+  "title": "DeviceContextHealthV1",
+  "type": "object"
+}
