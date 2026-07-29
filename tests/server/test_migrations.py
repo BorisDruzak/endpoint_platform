@@ -156,6 +156,25 @@ def test_device_context_migration_binds_current_pointer_to_snapshot_identity() -
     ) in rendered
 
 
+def test_device_context_pin_migration_adds_only_the_explicit_pin_column() -> None:
+    """The final Device Context revision must retain its narrow schema delta."""
+    output = io.StringIO()
+    config = Config(REPOSITORY_ROOT / "alembic.ini", output_buffer=output)
+    config.set_main_option(
+        "sqlalchemy.url",
+        "postgresql+asyncpg://unused@127.0.0.1/unused",
+    )
+
+    command.upgrade(
+        config,
+        "0008_device_context_foundation:0009_device_context_snapshot_pins",
+        sql=True,
+    )
+
+    rendered = " ".join(output.getvalue().split())
+    assert "ALTER TABLE context_snapshots ADD COLUMN pinned_at TIMESTAMP WITH TIME ZONE;" in rendered
+
+
 def test_update_downgrade_sql_neutralizes_actionable_assignments() -> None:
     """Dropping rollout state must cancel assignments before their state is lost."""
     output = io.StringIO()
@@ -416,7 +435,7 @@ def test_initial_revision_upgrades_and_downgrades_empty_postgresql(
     revision_rows = asyncio.run(
         _fetch(plain_url, "SELECT version_num FROM alembic_version")
     )
-    assert [row["version_num"] for row in revision_rows] == ["0008_device_context_foundation"]
+    assert [row["version_num"] for row in revision_rows] == ["0009_device_context_snapshot_pins"]
 
     column_rows = asyncio.run(
         _fetch(
@@ -465,6 +484,11 @@ def test_initial_revision_upgrades_and_downgrades_empty_postgresql(
         "encryption_nonce",
         "expires_at",
     } <= columns_by_table["enrollment_retry_envelopes"].keys()
+    assert "pinned_at" in columns_by_table["context_snapshots"]
+    assert (
+        columns_by_table["context_snapshots"]["pinned_at"]["data_type"]
+        == "timestamp with time zone"
+    )
     assert {
         "max_uses",
         "use_count",

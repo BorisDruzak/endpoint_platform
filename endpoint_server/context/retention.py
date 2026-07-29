@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .models import ContextCurrent, ContextSnapshot
@@ -14,6 +14,15 @@ from .service import ContextNotFound, ContextValidationError, require_uuid
 
 def _utc(value: datetime) -> datetime:
     return value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
+
+
+async def _advisory_lock(session: AsyncSession, key: str) -> None:
+    """Serialize a device/profile decision with current-pointer mutation."""
+    if session.get_bind().dialect.name == "postgresql":
+        await session.execute(
+            text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"),
+            {"key": key},
+        )
 
 
 async def pin_context_snapshot(
@@ -27,12 +36,23 @@ async def pin_context_snapshot(
     when = pinned_at or datetime.now(UTC)
     if when.tzinfo is None:
         raise ContextValidationError("pinned_at must be timezone-aware")
+    observed = await session.scalar(
+        select(ContextSnapshot)
+        .where(ContextSnapshot.id == checked_id)
+    )
+    if observed is None:
+        raise ContextNotFound("context snapshot was not found")
+    await _advisory_lock(
+        session, f"context.current:{observed.device_id}:{observed.profile}"
+    )
     snapshot = await session.scalar(
         select(ContextSnapshot)
         .where(ContextSnapshot.id == checked_id)
         .with_for_update()
     )
     if snapshot is None:
+        # A retention transaction may have completed before this operation
+        # acquired its profile lock; never pin a stale in-memory row.
         raise ContextNotFound("context snapshot was not found")
     snapshot.pinned_at = when.astimezone(UTC)
     await session.flush()
@@ -54,29 +74,35 @@ async def retain_context_snapshots(
     """
     if not 1 <= limit <= 100:
         raise ValueError("retention limit must be between 1 and 100")
-    currents = (await session.scalars(
-        select(ContextCurrent).with_for_update(skip_locked=True)
-    )).all()
-    current_ids = {
-        (current.device_id, current.profile): current.snapshot_id for current in currents
-    }
-    snapshots = (await session.scalars(
-        select(ContextSnapshot)
-        .order_by(
-            ContextSnapshot.device_id,
-            ContextSnapshot.profile,
-            ContextSnapshot.collected_at.desc(),
-            ContextSnapshot.id.desc(),
-        )
-        .with_for_update(skip_locked=True)
-    )).all()
-    grouped: dict[tuple[UUID, str], list[ContextSnapshot]] = {}
-    for snapshot in snapshots:
-        grouped.setdefault((snapshot.device_id, snapshot.profile), []).append(snapshot)
-
     deleted = 0
-    for key, group in grouped.items():
-        current_id = current_ids.get(key)
+    profile_rows = await session.execute(
+        select(ContextSnapshot.device_id, ContextSnapshot.profile)
+        .distinct()
+        .order_by(ContextSnapshot.device_id, ContextSnapshot.profile)
+    )
+    for device_id, profile in profile_rows.tuples():
+        # This is deliberately the same transaction-scoped lock used by
+        # ingestion to move ContextCurrent.  Do not use SKIP LOCKED here: a
+        # skipped current, predecessor, or pin is unknown, not absent.
+        await _advisory_lock(session, f"context.current:{device_id}:{profile}")
+        current = await session.scalar(
+            select(ContextCurrent)
+            .where(
+                ContextCurrent.device_id == device_id,
+                ContextCurrent.profile == profile,
+            )
+            .with_for_update()
+        )
+        group = (await session.scalars(
+            select(ContextSnapshot)
+            .where(
+                ContextSnapshot.device_id == device_id,
+                ContextSnapshot.profile == profile,
+            )
+            .order_by(ContextSnapshot.collected_at.desc(), ContextSnapshot.id.desc())
+            .with_for_update()
+        )).all()
+        current_id = current.snapshot_id if current is not None else None
         keep_ids = {snapshot.id for snapshot in group if snapshot.pinned_at is not None}
         if current_id is not None:
             keep_ids.add(current_id)

@@ -12,7 +12,8 @@ from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from endpoint_server.context.models import ContextCollection, ContextCurrent, ContextSnapshot
-from endpoint_server.context.retention import retain_context_snapshots
+from endpoint_server.context import retention
+from endpoint_server.context.retention import pin_context_snapshot, retain_context_snapshots
 from endpoint_server.db.models import Command, CommandResult, Device
 
 
@@ -120,3 +121,106 @@ async def test_retention_handles_equal_collection_times_with_a_stable_id_order(
     assert await retain_context_snapshots(session) == 1
     assert set(await session.scalars(select(ContextSnapshot.id))) == {previous.id, current.id}
     assert old.id not in set(await session.scalars(select(ContextSnapshot.id)))
+
+
+@pytest.mark.asyncio
+async def test_retention_serializes_a_profile_before_deciding_what_to_delete(
+    session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A skipped current row must never be interpreted as an absent pointer."""
+    device = Device(id=uuid4(), device_identifier="retention-lock", display_name="ALT")
+    session.add(device)
+    await session.flush()
+    old = await _snapshot(session, device_id=device.id, collected_at=NOW - timedelta(days=2))
+    previous = await _snapshot(session, device_id=device.id, collected_at=NOW - timedelta(days=1))
+    current = await _snapshot(session, device_id=device.id, collected_at=NOW)
+    session.add(
+        ContextCurrent(
+            id=uuid4(), device_id=device.id, profile="baseline_v1", snapshot_id=current.id, updated_at=NOW
+        )
+    )
+    await session.flush()
+
+    held_keys: list[str] = []
+
+    async def capture_lock(_: AsyncSession, key: str) -> None:
+        held_keys.append(key)
+
+    monkeypatch.setattr(retention, "_advisory_lock", capture_lock, raising=False)
+
+    assert await retain_context_snapshots(session) == 1
+    assert held_keys == [f"context.current:{device.id}:baseline_v1"]
+    assert set(await session.scalars(select(ContextSnapshot.id))) == {previous.id, current.id}
+    assert old.id not in set(await session.scalars(select(ContextSnapshot.id)))
+
+
+@pytest.mark.asyncio
+async def test_retention_reads_profile_rows_with_full_locks_after_its_lease(
+    session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The retention read path must not silently omit a locked preservation row."""
+    device = Device(id=uuid4(), device_identifier="retention-full-lock", display_name="ALT")
+    session.add(device)
+    await session.flush()
+    await _snapshot(session, device_id=device.id, collected_at=NOW - timedelta(days=2))
+    await _snapshot(session, device_id=device.id, collected_at=NOW - timedelta(days=1))
+    await _snapshot(session, device_id=device.id, collected_at=NOW)
+
+    held_keys: list[str] = []
+    original_scalars = session.scalars
+    original_scalar = session.scalar
+    checked_rows = 0
+
+    async def capture_lock(_: AsyncSession, key: str) -> None:
+        held_keys.append(key)
+
+    async def inspect_locks(statement, *args, **kwargs):
+        nonlocal checked_rows
+        lock = getattr(statement, "_for_update_arg", None)
+        if lock is not None:
+            checked_rows += 1
+            assert held_keys
+            assert not lock.skip_locked
+        return await original_scalars(statement, *args, **kwargs)
+
+    async def inspect_one_lock(statement, *args, **kwargs):
+        nonlocal checked_rows
+        lock = getattr(statement, "_for_update_arg", None)
+        if lock is not None:
+            checked_rows += 1
+            assert held_keys
+            assert not lock.skip_locked
+        return await original_scalar(statement, *args, **kwargs)
+
+    monkeypatch.setattr(retention, "_advisory_lock", capture_lock, raising=False)
+    monkeypatch.setattr(session, "scalars", inspect_locks)
+    monkeypatch.setattr(session, "scalar", inspect_one_lock)
+
+    assert await retain_context_snapshots(session) == 1
+    assert checked_rows == 2
+
+
+@pytest.mark.asyncio
+async def test_pin_serializes_with_retention_for_its_profile(
+    session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Pinning must share the retention/ingestion profile lock before it writes."""
+    device = Device(id=uuid4(), device_identifier="retention-pin-lock", display_name="ALT")
+    session.add(device)
+    await session.flush()
+    snapshot = await _snapshot(session, device_id=device.id, collected_at=NOW)
+
+    held_keys: list[str] = []
+
+    async def capture_lock(_: AsyncSession, key: str) -> None:
+        held_keys.append(key)
+
+    monkeypatch.setattr(retention, "_advisory_lock", capture_lock, raising=False)
+
+    pinned = await pin_context_snapshot(session, snapshot.id, pinned_at=NOW)
+
+    assert pinned.pinned_at == NOW
+    assert held_keys == [f"context.current:{device.id}:baseline_v1"]
