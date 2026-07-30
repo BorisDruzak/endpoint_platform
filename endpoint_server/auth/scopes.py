@@ -22,6 +22,7 @@ from .service_tokens import (
 DEVICES_READ_SCOPE = "devices.read"
 CONTEXT_READ_SCOPE = "context.read"
 CONTEXT_COLLECT_SCOPE = "context.collect"
+PROVISIONING_INSTALL_CLAIMS_ISSUE_SCOPE = "provisioning.install-claims.issue"
 
 
 @dataclass(frozen=True, slots=True)
@@ -49,9 +50,7 @@ async def _load_service_principal(
     if token_prefix is None:
         return None
     record = await session.scalar(
-        select(ServiceCredential).where(
-            ServiceCredential.token_prefix == token_prefix
-        )
+        select(ServiceCredential).where(ServiceCredential.token_prefix == token_prefix)
     )
     supplied_digest = service_token_digest(token, service_token_pepper)
     if (
