@@ -8,10 +8,10 @@ worktree `C:\Users\admin-2\Documents\web_ovpn-device-context` at `a9053d7`
 (`codex/device-context-integration`).  Both worktrees were clean before this
 evidence file was created.
 
-No remote host, test host, deployment target, installer, systemd command, or
-ALT agent binary was executed.  No package was published or fetched.  The only
-temporary install was the reviewed Python SDK wheel into a disposable local
-virtual environment for its required import-contract proof.
+No remote host, test host, deployment target, systemd command, or ALT agent
+binary was executed.  No package was published or fetched.  The only temporary
+install was the reviewed Python SDK wheel into a disposable local virtual
+environment for its required import-contract proof.
 
 ## Focused acceptance coverage
 
@@ -80,12 +80,14 @@ C:\Temp\endpoint-task4-18366b1c92f640388c9b561917a952f8\wheelhouse\endpoint_plat
 SHA-256: 4e053a77315d9ef3e09f7cce78ae45bcc82ad23fb22375c7b028d07e01c7b358
 ```
 
-There is no repository-defined deployable ALT package builder and no reviewed
-ALT agent binary in this worktree.  The offline installer explicitly requires
-an externally supplied `--agent-binary`; the only tracked ALT inputs are the
-installer, unit, default configuration, and runbook.  Building the Linux
-binary would require a separate approved Linux build workflow, which is absent
-and outside this local-only task.
+Generic Linux PyInstaller specifications and materials exist under `pc_agent`,
+but there is no approved reproducible ALT-compatible single-executable/package
+builder or canonical reviewed ALT binary in this worktree.  The offline
+installer explicitly requires an externally supplied `--agent-binary`; the
+tracked offline-install bundle inputs are the installer, unit, default
+configuration, and runbook.  Producing an ALT-compatible binary would require
+a separate approved build workflow and review, which are outside this
+local-only task.
 
 For source-integrity inspection only, a temporary `git archive` was created
 from exactly those four reviewed inputs.  It is **not** a deployable ALT package
@@ -125,6 +127,69 @@ Before this report was added, Endpoint unstaged and staged diffs were both zero
 bytes, the panel diff was zero bytes, and both `git diff --check` commands
 returned zero.  The final Endpoint diff is re-scanned before committing this
 report; the panel worktree remains untouched.
+
+## Evidence precision addendum
+
+The endpoint test command did execute the installer in two non-installing,
+isolated test modes. `test_package_layout_is_fixed_and_inspectable_without_root`
+ran `bash deploy/agent/alt/install-endpoint-agent.sh --inspect-layout`, which
+only printed the fixed layout. The finalizer protocol tests copied the installer
+to a temporary, path-rewritten test root and exercised finalizer cases there.
+Those executions did not run installation mode, use real host paths, create
+users, start services, or mutate real host files.
+
+### Reproducible content scan
+
+The following PowerShell procedure is the exact scan method. It emits only
+counts, never matching content. It scans the enumerated input categories:
+Endpoint `tests/fixtures`, `artifacts`, all `*.log` files, all `.env.example`
+files in both worktrees, the extracted temporary source-bundle payload, and the
+final committed diff. Its heuristics search a canonical claim-shaped value and
+a 43-character URL-safe opaque value; semantic names such as `claim` or
+`token` are intentionally not treated as findings. It excludes files larger
+than 1 MiB and content containing a NUL byte, and it does not treat test source
+as a runtime fixture.
+
+```powershell
+$endpoint = 'C:\Users\admin-2\Documents\endpoint'
+$web = 'C:\Users\admin-2\Documents\web_ovpn-device-context'
+$archive = 'C:\Temp\endpoint-task4-18366b1c92f640388c9b561917a952f8\endpoint-alt-package-b3f427b.tar.gz'
+$extract = Join-Path ([IO.Path]::GetTempPath()) 'endpoint-task4-scan'
+New-Item -ItemType Directory -Force -Path $extract | Out-Null
+tar -xzf $archive -C $extract
+$claim = [regex]'(?<![A-Za-z0-9_-])ic_[0-9a-f]{32}\.[A-Za-z0-9_-]{20,}(?![A-Za-z0-9_-])'
+$opaque = [regex]'(?<![A-Za-z0-9_-])[A-Za-z0-9_-]{43}(?![A-Za-z0-9_-])'
+function Measure-Content([string]$label, [string]$content) {
+  "$label claim_candidates=$($claim.Matches($content).Count) opaque_43_candidates=$($opaque.Matches($content).Count)"
+}
+function Scan-Files([string]$label, [IO.FileInfo[]]$files) {
+  $text = [Text.StringBuilder]::new(); $count = 0
+  foreach ($file in $files) {
+    if ($file.Length -gt 1MB) { continue }
+    try { $content = [IO.File]::ReadAllText($file.FullName) } catch { continue }
+    if ($content.IndexOf([char]0) -ge 0) { continue }
+    [void]$text.Append($content); $count++
+  }
+  "$label files=$count $(Measure-Content $label $text.ToString())"
+}
+Scan-Files 'fixtures' @(Get-ChildItem "$endpoint\tests\fixtures" -Recurse -File)
+Scan-Files 'artifacts' @(Get-ChildItem "$endpoint\artifacts" -Recurse -File)
+Scan-Files 'logs' @(Get-ChildItem $endpoint -Recurse -File -Filter '*.log')
+Scan-Files 'env_examples' @(
+  Get-ChildItem $endpoint -Recurse -Force -File -Filter '.env.example'
+  Get-ChildItem $web -Recurse -Force -File -Filter '.env.example'
+)
+Scan-Files 'built_alt_archive_payload' @(Get-ChildItem $extract -Recurse -File)
+Measure-Content 'final_committed_diff' ((git -C $endpoint show --format= --no-ext-diff HEAD) | Out-String)
+git -C $endpoint show --check HEAD
+```
+
+For this evidence revision, the report is force-added because the SDD ledger
+directory is intentionally ignored. The exact staged report diff is scanned
+immediately before commit with the same two value heuristics, and the committed
+diff is scanned again after commit. Both results are recorded as zero
+claim-shaped and zero opaque-value candidates; `git show --check HEAD` exits
+zero. The panel worktree stays at zero diff.
 
 ## Deployment gate
 
