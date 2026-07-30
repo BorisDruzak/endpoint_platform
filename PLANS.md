@@ -23,6 +23,10 @@ API service are enabled, and the database is migrated through
 `0010_session_last_seen_index`. The live `https://endpoint.sosnadmin.local`
 health check passes strict CA and hostname verification.
 
+The initial administrator `osn-admin` is active with the explicit
+`updates:write` grant. Bootstrap was audited, and the strict-HTTPS login check
+created then revoked its temporary verification session.
+
 ## Constraints
 
 - web_ovpn and network_configuration remain read-only until a clean dedicated worktree exists.
@@ -38,12 +42,10 @@ health check passes strict CA and hostname verification.
 
 ## Next Steps
 
-1. Bootstrap the first platform administrator using an explicitly chosen login
-   name and an interactively supplied password.
-2. Install the ALT agent bundle on `test-agent-lin`, enrol it against the
+1. Install the ALT agent bundle on `test-agent-lin`, enrol it against the
    production API, and validate baseline extraction, Gateway, updates and
    rollback before any wider rollout.
-3. Begin the separate Wave 1 `web_ovpn` integration only in its dedicated
+2. Begin the separate Wave 1 `web_ovpn` integration only in its dedicated
    worktree after the production agent pilot is accepted.
 
 ## Verification
