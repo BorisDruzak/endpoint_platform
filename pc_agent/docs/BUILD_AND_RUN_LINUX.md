@@ -128,3 +128,41 @@ Launcher читает `current.json`, запускает `versions/<version>/pc_
   (путь замените на свой к venv или системной установке PySide6/Qt/plugins).
 - **Лаунчер и --gui:** Linux-лаунчер по умолчанию передаёт агенту `--gui`. Если окно не появляется, проверьте логи агента (в data_root или консоль при прямом запуске `pc_agent --gui`).
 Security update 2026-05-23: unauthenticated `POST /api/login` is no longer an agent provisioning path. For new installs use the connection-request flow, or have an authenticated admin issue a manual token through the server UI/API. Manual connection-request polling requires the server-returned `request_id` and `poll_secret`.
+
+## Offline release bundle for ALT Linux
+
+Build release bundles only on Linux with the same Python 3.12 environment
+used for PyInstaller. The builder's explicit `--build` mode runs the existing
+`pyinstaller_launcher_linux.spec` and `pyinstaller_agent_linux.spec`, then
+assembles their `dist/` output:
+
+```bash
+cd /var/chat_bot/pc_client
+./pc_agent/venv/bin/python -m pc_agent.build_linux_release_bundle \
+  --build --version 3.2.1 --output /tmp/endpoint-agent-releases
+```
+
+The result is the transient directory
+`/tmp/endpoint-agent-releases/endpoint-agent-3.2.1/`. It contains only
+`launcher`, `pc_agent/` (including `pc_agent/pc_agent` and its onedir
+contents), and `manifest.json`. Do not commit this output or store a CA,
+claim credential, token, server URL, or agent configuration in it.
+
+To assemble already-built output without invoking PyInstaller, pass its
+directory explicitly. `--revision` records the reviewed source revision; when
+omitted, the builder records `git rev-parse HEAD` from the repository.
+
+```bash
+./pc_agent/venv/bin/python -m pc_agent.build_linux_release_bundle \
+  --source /path/to/dist --revision "$(git rev-parse HEAD)" \
+  --version 3.2.1 --output /tmp/endpoint-agent-releases
+```
+
+`manifest.json` is schema version 1. It records the bounded release version,
+source revision, and sorted SHA-256 plus POSIX mode for every regular payload
+file. Inspect it before handing the bundle to the installer:
+
+```bash
+python3 -m json.tool \
+  /tmp/endpoint-agent-releases/endpoint-agent-3.2.1/manifest.json
+```
