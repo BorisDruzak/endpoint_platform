@@ -1,0 +1,18 @@
+# Rendered by install-endpoint-agent.sh.  Do not store a credential in this file.
+schema_version: 1
+gateway:
+  endpoint: "__ENDPOINT_URL__"
+  ca_file: "/etc/endpoint-agent/ca.crt"
+provisioning:
+  provisioning_handoff_file: "/etc/endpoint-agent/provisioning-claim"
+  permanent_credential_file: "/var/lib/endpoint-agent/device-credential"
+runtime:
+  data_dir: "/var/lib/endpoint-agent"
+  log_dir: "/var/log/endpoint-agent"
+  install_root: "/opt/endpoint-agent"
+context_profiles:
+  scheduled:
+    - baseline_v1
+    - health_v1
+    - network_v1
+  diagnostic_manual_only: true
