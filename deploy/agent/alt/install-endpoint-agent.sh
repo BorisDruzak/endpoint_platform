@@ -30,9 +30,14 @@ handoff_file=''
 agent_bundle=''
 bundle_version=''
 bundle_revision=''
+release_stage=''
 release_backup=''
 release_version_target=''
 release_version_was_new=false
+previous_launcher_backed_up=false
+previous_current_backed_up=false
+launcher_published=false
+current_published=false
 dry_run=false
 inspect_layout=false
 finalize_handoff=false
@@ -528,7 +533,7 @@ finally:
 PY
 }
 
-existing_version_matches_stage() {
+verify_existing_release_identity() {
     python3 - "$1" "$2" <<'PY'
 import hashlib
 import os
@@ -536,7 +541,7 @@ import stat
 import sys
 
 def tree(root):
-    files = {}
+    entries = {}
     for directory, dirs, names in os.walk(root, followlinks=False):
         for name in dirs + names:
             path = os.path.join(directory, name)
@@ -550,10 +555,12 @@ def tree(root):
                     for chunk in iter(lambda: stream.read(1024 * 1024), b""):
                         digest_value.update(chunk)
                 digest = digest_value.hexdigest()
-                files[relative] = (stat.S_IMODE(entry.st_mode), digest)
-            elif not stat.S_ISDIR(entry.st_mode):
+                entries[relative] = ("file", stat.S_IMODE(entry.st_mode), digest)
+            elif stat.S_ISDIR(entry.st_mode):
+                entries[relative] = ("directory", stat.S_IMODE(entry.st_mode))
+            else:
                 raise ValueError("nonregular entry")
-    return files
+    return entries
 
 try:
     raise SystemExit(0 if tree(sys.argv[1]) == tree(sys.argv[2]) else 1)
@@ -593,9 +600,11 @@ backup_previous_selection() {
     read_previous_selection
     if [[ -e "$LAUNCHER_TARGET" ]]; then
         mv -f "$LAUNCHER_TARGET" "$release_backup/launcher" || return 1
+        previous_launcher_backed_up=true
     fi
     if [[ -e "$CURRENT_TARGET" ]]; then
         mv -f "$CURRENT_TARGET" "$release_backup/current.json" || return 1
+        previous_current_backed_up=true
     fi
 }
 
@@ -604,11 +613,18 @@ rollback_release_selection() {
     if [[ "$release_version_was_new" == true && -n "$release_version_target" ]]; then
         rm -rf -- "$release_version_target" || rollback_failed=true
     fi
-    rm -f -- "$LAUNCHER_TARGET" "$CURRENT_TARGET" || rollback_failed=true
-    if [[ -e "$release_backup/launcher" ]]; then
+    if [[ "$launcher_published" == true ]]; then
+        rm -f -- "$LAUNCHER_TARGET" || rollback_failed=true
+    fi
+    if [[ "$current_published" == true ]]; then
+        rm -f -- "$CURRENT_TARGET" || rollback_failed=true
+    fi
+    if [[ "$previous_launcher_backed_up" == true ]]; then
+        [[ ! -e "$LAUNCHER_TARGET" ]] || rollback_failed=true
         mv -f "$release_backup/launcher" "$LAUNCHER_TARGET" || rollback_failed=true
     fi
-    if [[ -e "$release_backup/current.json" ]]; then
+    if [[ "$previous_current_backed_up" == true ]]; then
+        [[ ! -e "$CURRENT_TARGET" ]] || rollback_failed=true
         mv -f "$release_backup/current.json" "$CURRENT_TARGET" || rollback_failed=true
     fi
     fsync_path "$VERSIONS_ROOT" || rollback_failed=true
@@ -622,6 +638,25 @@ cleanup_release_backup() {
     release_backup=''
     release_version_target=''
     release_version_was_new=false
+    previous_launcher_backed_up=false
+    previous_current_backed_up=false
+    launcher_published=false
+    current_published=false
+}
+
+publish_release_selection() {
+    local launcher_stage=$1 current_stage=$2
+    # current.json is the durable selector.  It is not published until the
+    # promoted version and its parent are fsynced, and the launcher is durable.
+    fsync_tree "$release_version_target" || return 1
+    fsync_path "$VERSIONS_ROOT" || return 1
+    backup_previous_selection || return 1
+    mv -f "$launcher_stage" "$LAUNCHER_TARGET" || return 1
+    launcher_published=true
+    fsync_path "$INSTALL_ROOT" || return 1
+    mv -f "$current_stage.secure" "$CURRENT_TARGET" || return 1
+    current_published=true
+    fsync_path "$INSTALL_ROOT"
 }
 
 install_atomically() {
@@ -648,6 +683,7 @@ install_atomically() {
 
     mkdir -m 0755 "$version_stage"
     mv -f "$bundle_stage/pc_agent" "$version_stage/pc_agent"
+    cp -a -- "$bundle_stage/launcher" "$version_stage/launcher"
     mv -f "$bundle_stage/launcher" "$launcher_stage"
     install -o root -g root -m 0644 "$bundle_stage/manifest.json" "$version_stage/manifest.json"
     printf '{"schema_version":1,"source_revision":"%s","version":"%s"}\n' \
@@ -668,7 +704,7 @@ install_atomically() {
     release_version_target="$version_target"
     if [[ -e "$version_target" || -L "$version_target" ]]; then
         [[ -d "$version_target" && ! -L "$version_target" ]] || die 'existing release version is unsafe'
-        existing_version_matches_stage "$version_target/pc_agent" "$version_stage/pc_agent" || \
+        verify_existing_release_identity "$version_target" "$version_stage" || \
             die 'existing release version does not match the verified bundle'
         rm -rf -- "$version_stage"
     else
@@ -679,9 +715,7 @@ install_atomically() {
     mv -f "$ca_stage" "$CA_TARGET"
     mv -f "$handoff_stage" "$HANDOFF_TARGET"
     mv -f "$service_stage" "/etc/systemd/system/$SERVICE_NAME"
-    if ! backup_previous_selection || ! mv -f "$launcher_stage" "$LAUNCHER_TARGET" || \
-        ! mv -f "$current_stage.secure" "$CURRENT_TARGET" || ! fsync_tree "$version_target" || \
-        ! fsync_path "$VERSIONS_ROOT" || ! fsync_path "$INSTALL_ROOT"; then
+    if ! publish_release_selection "$launcher_stage" "$current_stage"; then
         rollback_release_selection
         cleanup_release_backup
         trap - RETURN

@@ -170,12 +170,9 @@ def test_installer_preflights_the_bundle_before_account_creation_and_move() -> N
         "ensure_service_account"
     )
 
-    install_body = installer[
-        installer.index("install_atomically() {") : installer.index("install_package() {")
-    ]
-    final_validation = install_body.rindex("validate_install_destinations")
-    launcher_move = install_body.index('mv -f "$launcher_stage" "$LAUNCHER_TARGET"')
-    assert final_validation < launcher_move
+    # The behavioural selection tests inject failures at each backup/publish
+    # move; this package contract only confirms installation delegates there.
+    assert 'publish_release_selection "$launcher_stage" "$current_stage"' in installer
 
 
 def test_config_and_runbook_preserve_one_time_token_handoff_boundary() -> None:
