@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import subprocess
+import sys
 
 import pytest
 
@@ -15,6 +16,7 @@ import pytest
 ROOT = Path(__file__).resolve().parents[2]
 INSTALLER = ROOT / "deploy" / "agent" / "alt" / "install-endpoint-agent.sh"
 SERVICE = ROOT / "deploy" / "agent" / "alt" / "endpoint-agent.service"
+LINUX_HARNESS = ROOT / "tests" / "deploy" / "verify_alt_agent_bundle_linux_harness.sh"
 PYTHON = Path(__import__("sys").executable).as_posix()
 
 
@@ -265,3 +267,52 @@ def test_service_executes_the_stable_launcher_not_a_version_payload() -> None:
     assert "ConditionPathExists=/opt/endpoint-agent/launcher" in service
     assert "ExecStart=/opt/endpoint-agent/launcher " in service
     assert "/versions/" not in service
+
+
+def test_linux_harness_is_present_for_the_bundle_installation_scenarios() -> None:
+    """The wrapper pins the isolated harness contract for a Linux test host."""
+    assert LINUX_HARNESS.is_file(), "missing isolated ALT bundle Linux harness"
+    text = _text(LINUX_HARNESS)
+
+    for scenario in (
+        "valid",
+        "digest-mismatch",
+        "bundle-symlink",
+        "incomplete-onedir",
+        "activation-failure-rollback",
+        "idempotent-second-install",
+    ):
+        assert scenario in text
+
+
+def test_linux_harness_proves_isolation_and_reaches_the_injected_restart_failure() -> None:
+    """A generic failure must not be accepted as proof of activation rollback."""
+    text = _text(LINUX_HARNESS)
+
+    for required in (
+        "assert_isolated_installer_copy",
+        "snapshot_live_paths",
+        "assert_live_paths_unchanged",
+        "reset_systemctl_log",
+        'grep -Fx -- "restart endpoint-agent.service"',
+        "/opt/.endpoint-agent-stage",
+        "require_trusted_root_parent /etc/systemd/system",
+    ):
+        assert required in text
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="requires Linux shell semantics")
+def test_linux_harness_executes_without_host_path_mutation() -> None:
+    """Run the real isolated harness only where its shell/filesystem semantics exist."""
+    if __import__("os").geteuid() != 0:
+        pytest.skip("run the isolated installer harness with sudo on a Linux test host")
+
+    result = subprocess.run(
+        ["bash", LINUX_HARNESS.as_posix(), INSTALLER.as_posix()],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr + result.stdout
+    assert "ALT bundle Linux harness: all cases passed" in result.stdout
