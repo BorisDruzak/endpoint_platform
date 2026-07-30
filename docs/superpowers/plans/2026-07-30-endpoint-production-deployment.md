@@ -34,21 +34,24 @@
 import importlib
 import sys
 
-from endpoint_server.config import Settings
 
-
-def test_asgi_uses_fail_closed_settings(monkeypatch):
-    captured = {}
-    sentinel = object()
-    monkeypatch.setattr(Settings, "from_environment", lambda: sentinel)
-    monkeypatch.setattr(
-        "endpoint_server.main.create_app",
-        lambda settings: captured.setdefault("settings", settings) or object(),
-    )
+def test_asgi_exposes_health_route_from_valid_environment(monkeypatch, tmp_path):
+    for name in (
+        "DEVICE_TOKEN_PEPPER_FILE",
+        "SERVICE_TOKEN_PEPPER_FILE",
+        "SESSION_SECRET_FILE",
+    ):
+        path = tmp_path / name
+        path.write_bytes(b"test-secret")
+        monkeypatch.setenv(name, str(path))
+    monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://endpoint:secret@127.0.0.1/endpoint")
+    monkeypatch.setenv("PUBLIC_BASE_URL", "https://endpoint.sosnadmin.local")
+    monkeypatch.setenv("ALLOWED_AGENT_CIDRS", "192.168.101.0/24")
+    monkeypatch.setenv("ALLOWED_ADMIN_CIDRS", "192.168.100.0/24")
+    monkeypatch.setenv("ARTIFACT_ROOT", str(tmp_path / "artifacts"))
     sys.modules.pop("endpoint_server.asgi", None)
     module = importlib.import_module("endpoint_server.asgi")
-    assert captured["settings"] is sentinel
-    assert module.app is not None
+    assert "/healthz" in {route.path for route in module.app.routes}
 ~~~
 
 - [ ] **Step 2: Run the test.**
@@ -217,7 +220,7 @@ git commit -m "deploy: add hardened endpoint service assets"
 def test_runbook_preserves_secret_and_tls_boundaries():
     runbook = Path("deploy/server/PRODUCTION_RUNBOOK.md").read_text()
     assert "git archive" in runbook
-    assert "--verify_hostname endpoint.sosnadmin.local" in runbook
+    assert "-verify_hostname endpoint.sosnadmin.local" in runbook
     assert "curl -k" not in runbook
     assert "PRIVATE KEY-----" not in runbook
 ~~~

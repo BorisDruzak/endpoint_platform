@@ -32,13 +32,14 @@ private key has not been copied into the workspace.
 
 ## Next Steps
 
-1. At the production gate, re-check production capacity and verify the exact
-   committed application release and its local test gate.
-2. Install and configure PostgreSQL and Nginx on the Endpoint production host,
-   transfer the verified wildcard certificate and key through a controlled
-   deployment path without persisting them in Git or the workspace, then apply
-   migrations only after the application deployment is verified.
-3. Run the agent pilot only after the production API and TLS smoke checks pass.
+1. Complete and independently review the ASGI, systemd, Nginx, and controlled
+   production-runbook assets on branch `codex/endpoint-production-deployment`.
+2. Run the local release gate, then execute the controlled production gate:
+   re-check capacity, install PostgreSQL and Nginx, deploy the verified
+   release, transfer TLS material without workspace persistence, and run the
+   forward migration only after settings validation.
+3. Run the agent pilot only after production API and strict TLS smoke checks
+   pass.
 
 ## Verification
 
