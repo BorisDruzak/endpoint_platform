@@ -3,7 +3,7 @@
 from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import DateTime, ForeignKey, String, UniqueConstraint
+from sqlalchemy import DateTime, ForeignKey, Index, String, UniqueConstraint, desc
 from sqlalchemy.orm import Mapped, mapped_column
 
 from endpoint_server.db.base import Base
@@ -64,6 +64,14 @@ class DeviceInstance(OwnershipRecord, Base):
 
 class DeviceSession(OwnershipRecord, Base):
     __tablename__ = "device_sessions"
+    __table_args__ = (
+        Index(
+            "ix_device_sessions_device_created_id_desc",
+            "device_id",
+            desc("created_at"),
+            desc("id"),
+        ),
+    )
 
     device_id: Mapped[UUID] = mapped_column(
         ForeignKey("devices.id", ondelete="CASCADE"), nullable=False
