@@ -172,6 +172,7 @@ components:
         hardware_fingerprint:
           maxLength: 256
           minLength: 8
+          pattern: "^sha256:[a-z0-9][a-z0-9._-]{1,248}$"
           title: "Hardware Fingerprint"
           type: "string"
       required:
@@ -230,6 +231,7 @@ components:
         hardware_fingerprint:
           maxLength: 256
           minLength: 8
+          pattern: "^sha256:[a-z0-9][a-z0-9._-]{1,248}$"
           title: "Hardware Fingerprint"
           type: "string"
         installation_id:
@@ -300,6 +302,7 @@ components:
         hardware_fingerprint:
           maxLength: 256
           minLength: 8
+          pattern: "^sha256:[a-z0-9][a-z0-9._-]{1,248}$"
           title: "Hardware Fingerprint"
           type: "string"
         installation_id:
@@ -617,6 +620,7 @@ components:
         hardware_fingerprint:
           maxLength: 256
           minLength: 8
+          pattern: "^sha256:[a-z0-9][a-z0-9._-]{1,248}$"
           title: "Hardware Fingerprint"
           type: "string"
       required:

@@ -1,5 +1,5 @@
 {
-  "hardware_fingerprint": "fixture-hardware-fingerprint-01",
+  "hardware_fingerprint": "sha256:fixture-hardware-fingerprint-01",
   "installation_id": "fixture-installation-01",
   "platform": "linux",
   "requested_at": "2026-07-28T12:00:00Z",

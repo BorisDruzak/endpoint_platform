@@ -7,18 +7,14 @@ from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
-from pydantic import BaseModel, ConfigDict, Field, SecretStr
-from sqlalchemy import select
+from pydantic import BaseModel, ConfigDict, Field
 
 from endpoint_server.audit.request_ids import audit_request_id
 from endpoint_server.audit.service import append_audit_event
 from endpoint_server.auth.admin_sessions import AdminPrincipal, require_admin
-from endpoint_server.db.models import EnrollmentCampaign
-
 from .campaigns import (
     EnrollmentDenied,
     issue_campaign,
-    issue_install_claim,
     revoke_campaign,
 )
 
@@ -51,25 +47,6 @@ class CampaignCreateResponse(BaseModel):
     token: str
     expires_at: datetime
     max_uses: int
-
-
-class InstallClaimCreateRequest(BaseModel):
-    """Secret-bound install claim input."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    installation_session: SecretStr
-    hardware_fingerprint: SecretStr
-    expires_at: datetime
-
-
-class InstallClaimCreateResponse(BaseModel):
-    """Show-once install claim bearer response."""
-
-    id: UUID
-    claim_identifier: str
-    token: str
-    expires_at: datetime
 
 
 def _not_found() -> HTTPException:
@@ -140,66 +117,6 @@ async def create_campaign(
         token=issued.token,
         expires_at=issued.record.expires_at,
         max_uses=issued.record.max_uses,
-    )
-
-
-@router.post(
-    "/campaigns/{campaign_id}/claims",
-    status_code=status.HTTP_201_CREATED,
-    response_model=InstallClaimCreateResponse,
-)
-async def create_install_claim(
-    campaign_id: UUID,
-    body: InstallClaimCreateRequest,
-    request: Request,
-    principal: Annotated[AdminPrincipal, Depends(require_admin)],
-) -> InstallClaimCreateResponse:
-    """Create a one-time claim under a locked active campaign."""
-    async with request.app.state.session_provider() as session:
-        result = await session.execute(
-            select(EnrollmentCampaign)
-            .where(EnrollmentCampaign.id == campaign_id)
-            .with_for_update()
-        )
-        campaign = result.scalar_one_or_none()
-        if campaign is None:
-            raise _not_found()
-        try:
-            issued = issue_install_claim(
-                campaign,
-                request.app.state.settings.device_token_pepper,
-                installation_session=body.installation_session.get_secret_value(),
-                hardware_fingerprint=body.hardware_fingerprint.get_secret_value(),
-                expires_at=body.expires_at,
-            )
-        except EnrollmentDenied as error:
-            raise _not_found() from error
-        except ValueError as error:
-            raise _invalid("Invalid install claim") from error
-        session.add(issued.record)
-        try:
-            await append_audit_event(
-                session,
-                actor_kind="admin",
-                actor_identifier=str(principal.user.id),
-                action="enrollment_claim.created",
-                object_kind="enrollment_claim",
-                object_identifier=str(issued.record.id),
-                request_id=audit_request_id(request),
-                details={
-                    "campaign_id": campaign.id,
-                    "expires_at": issued.record.expires_at,
-                },
-            )
-            await session.commit()
-        except Exception:
-            await session.rollback()
-            raise
-    return InstallClaimCreateResponse(
-        id=issued.record.id,
-        claim_identifier=issued.record.claim_identifier,
-        token=issued.token,
-        expires_at=issued.record.expires_at,
     )
 
 

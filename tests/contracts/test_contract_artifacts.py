@@ -312,6 +312,21 @@ def test_openapi_components_enforce_expressible_contract_constraints(
         _openapi_component_validator(component_name).validate(fixture)
 
 
+def test_hardware_fingerprint_schemas_publish_canonical_shape() -> None:
+    """Provisioning and agent clients must share the same public proof grammar."""
+    expected = r"^sha256:[a-z0-9][a-z0-9._-]{1,248}$"
+    for filename in (
+        "device-identity-v1.json",
+        "enrollment-request-v1.json",
+        "agent-enrollment-request-v1.json",
+        "enrollment-delivery-proof-v1.json",
+    ):
+        schema = json.loads(
+            (Path("contracts/jsonschema") / filename).read_text(encoding="utf-8")
+        )
+        assert schema["properties"]["hardware_fingerprint"]["pattern"] == expected
+
+
 def test_committed_contract_artifacts_match_renderer_without_mutation(
     tmp_path: Path,
 ) -> None:

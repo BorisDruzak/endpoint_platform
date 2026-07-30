@@ -71,7 +71,7 @@ FIXTURES: dict[str, dict[str, Any]] = {
         "schema_version": "device_identity_v1",
         "device_id": "11111111-1111-4111-8111-111111111111",
         "platform": "linux",
-        "hardware_fingerprint": "fixture-hardware-fingerprint-01",
+        "hardware_fingerprint": "sha256:fixture-hardware-fingerprint-01",
     },
     "agent-session-v1.json": {
         "schema_version": "agent_session_v1",
@@ -83,7 +83,7 @@ FIXTURES: dict[str, dict[str, Any]] = {
     "enrollment-request-v1.json": {
         "schema_version": "enrollment_request_v1",
         "platform": "linux",
-        "hardware_fingerprint": "fixture-hardware-fingerprint-01",
+        "hardware_fingerprint": "sha256:fixture-hardware-fingerprint-01",
         "installation_id": "fixture-installation-01",
         "requested_at": "2026-07-28T12:00:00Z",
     },

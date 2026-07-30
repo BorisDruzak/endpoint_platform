@@ -10,6 +10,7 @@ from pydantic import (
 )
 
 from .base import ContractModelV1
+from .identity import HardwareFingerprintV1
 from .json_types import (
     BoundedJsonKeyV1,
     BoundedJsonValueV1,
@@ -30,7 +31,7 @@ OpaqueTransportSecretV1 = Annotated[
 class EnrollmentRequestV1(ContractModelV1):
     schema_version: Literal["enrollment_request_v1"]
     platform: Literal["linux", "windows"]
-    hardware_fingerprint: Annotated[str, Field(min_length=8, max_length=256)]
+    hardware_fingerprint: HardwareFingerprintV1
     installation_id: Annotated[str, Field(min_length=1, max_length=256)]
     requested_at: AwareDatetime
 
@@ -59,10 +60,7 @@ class AgentEnrollmentRequestV1(_SecretSafeContractModelV1):
 
     schema_version: Literal["agent_enrollment_request_v1"]
     platform: Literal["linux", "windows"]
-    hardware_fingerprint: Annotated[
-        str,
-        Field(min_length=8, max_length=256),
-    ]
+    hardware_fingerprint: HardwareFingerprintV1
     installation_id: Annotated[str, Field(min_length=1, max_length=256)]
     delivery_nonce: OpaqueTransportSecretV1
     requested_at: AwareDatetime
@@ -99,10 +97,7 @@ class EnrollmentDeliveryProofV1(_SecretSafeContractModelV1):
 
     schema_version: Literal["enrollment_delivery_proof_v1"]
     enrollment_receipt: OpaqueTransportSecretV1
-    hardware_fingerprint: Annotated[
-        str,
-        Field(min_length=8, max_length=256),
-    ]
+    hardware_fingerprint: HardwareFingerprintV1
 
 
 class DeviceCredentialRotationV1(_SecretSafeContractModelV1):

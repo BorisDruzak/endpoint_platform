@@ -16,6 +16,7 @@ from uuid import UUID, uuid4
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from endpoint_contracts.identity import normalize_hardware_fingerprint
 from endpoint_contracts.json_types import validate_bounded_json
 from endpoint_server.audit.service import append_audit_event
 from endpoint_server.db.models import EnrollmentCampaign, EnrollmentClaim
@@ -80,13 +81,14 @@ def install_claim_bindings_match(
 ) -> bool:
     """Check stored claim bindings without exposing which input mismatched."""
     try:
+        canonical_fingerprint = normalize_hardware_fingerprint(hardware_fingerprint)
         session_digest = _bound_digest(
             installation_session,
             pepper,
             _INSTALL_SESSION_CONTEXT,
         )
         fingerprint_digest = _bound_digest(
-            hardware_fingerprint,
+            canonical_fingerprint,
             pepper,
             _FINGERPRINT_CONTEXT,
         )
@@ -236,6 +238,7 @@ def issue_install_claim(
         raise ValueError("campaign expiry must be timezone-aware")
     if expiry > campaign.expires_at.astimezone(UTC):
         raise ValueError("claim cannot outlive campaign")
+    canonical_fingerprint = normalize_hardware_fingerprint(hardware_fingerprint)
     identifier, token = _issue_token(_CLAIM_MARKER)
     record = EnrollmentClaim(
         id=uuid4(),
@@ -248,7 +251,7 @@ def issue_install_claim(
             _INSTALL_SESSION_CONTEXT,
         ),
         fingerprint_digest=_bound_digest(
-            hardware_fingerprint,
+            canonical_fingerprint,
             pepper,
             _FINGERPRINT_CONTEXT,
         ),

@@ -156,8 +156,10 @@ async def test_admin_creates_show_once_campaign_and_audits_safely() -> None:
 
 
 @pytest.mark.asyncio
-async def test_admin_issues_bound_show_once_claim_and_revokes_campaign() -> None:
-    """Claim creation and revocation must both authenticate, lock and audit atomically."""
+async def test_admin_claim_url_is_retired_but_campaign_revocation_remains_available() -> (
+    None
+):
+    """A browser admin must not obtain a raw install claim from the legacy route."""
     claim_request_marker = "claim-token-request-marker"
     revoke_request_marker = "campaign-token-request-marker"
     campaign = issue_campaign(
@@ -191,20 +193,18 @@ async def test_admin_issues_bound_show_once_claim_and_revokes_campaign() -> None
             headers={"X-Request-ID": revoke_request_marker},
         )
 
-    assert claim_response.status_code == 201
-    claim_payload = claim_response.json()
-    assert claim_payload["token"].startswith("ic_")
-    claim = next(value for value in session.added if isinstance(value, EnrollmentClaim))
-    assert claim_payload["token"] not in repr(claim)
+    assert claim_response.status_code == 404
+    assert claim_request_marker not in claim_response.text
+    assert not any(isinstance(value, EnrollmentClaim) for value in session.added)
     assert revoke_response.status_code == 204
     assert campaign.revoked_at is not None
     actions = [value.action for value in session.added if isinstance(value, AuditEvent)]
-    assert actions == ["enrollment_claim.created", "enrollment_campaign.revoked"]
+    assert actions == ["enrollment_campaign.revoked"]
     audits = [value for value in session.added if isinstance(value, AuditEvent)]
     assert all(audit.request_id.startswith("external_") for audit in audits)
     assert claim_request_marker not in repr(audits)
     assert revoke_request_marker not in repr(audits)
-    assert session.commit_calls == 2
+    assert session.commit_calls == 1
 
 
 @pytest.mark.asyncio
@@ -289,36 +289,3 @@ async def test_admin_rejects_policy_outside_agent_delivery_contract() -> None:
     assert response.json() == {"detail": "Invalid enrollment campaign"}
     assert session.added == []
     assert session.commit_calls == 0
-
-
-@pytest.mark.asyncio
-async def test_invalid_claim_binding_returns_bounded_validation_error() -> None:
-    """An empty secret binding must be rejected without an internal exception."""
-    campaign = issue_campaign(
-        PEPPER,
-        expires_at=NOW + timedelta(hours=1),
-        max_uses=1,
-        allowed_cidrs=("192.168.100.0/24",),
-        target_platform="linux",
-        policy={},
-        now=NOW,
-    ).record
-    session = _AdminEnrollmentSession(campaign=campaign)
-    app = create_app(_settings(), session_provider=_Provider(session))
-    app.dependency_overrides[require_admin] = _principal
-
-    async with AsyncClient(
-        transport=ASGITransport(app=app),
-        base_url="https://endpoint.sosnadmin.local",
-    ) as client:
-        response = await client.post(
-            f"/api/admin/enrollment/campaigns/{campaign.id}/claims",
-            json={
-                "installation_session": "",
-                "hardware_fingerprint": "sha256:device-a",
-                "expires_at": (NOW + timedelta(minutes=10)).isoformat(),
-            },
-        )
-
-    assert response.status_code == 422
-    assert session.added == []

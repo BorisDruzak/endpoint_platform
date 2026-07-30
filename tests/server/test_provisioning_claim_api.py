@@ -11,6 +11,7 @@ from uuid import uuid4
 import pytest
 from httpx import ASGITransport, AsyncClient
 
+from endpoint_contracts import AgentEnrollmentRequestV1
 from endpoint_server.auth.service_tokens import create_service_credential
 from endpoint_server.config import Settings
 from endpoint_server.db.models import (
@@ -192,6 +193,7 @@ async def test_scoped_provisioner_gets_bound_claim_and_redacted_audit() -> None:
     )
     app = create_app(_settings(), session_provider=_Provider(session))
     install_session = "alt-session-001"
+    submitted_fingerprint = "SHA256:ALT-HARDWARE-001"
     fingerprint = "sha256:alt-hardware-001"
     async with AsyncClient(
         transport=ASGITransport(app=app),
@@ -206,7 +208,7 @@ async def test_scoped_provisioner_gets_bound_claim_and_redacted_audit() -> None:
             json={
                 "campaign_id": str(campaign.id),
                 "install_session_id": install_session,
-                "hardware_fingerprint": fingerprint,
+                "hardware_fingerprint": submitted_fingerprint,
             },
         )
 
@@ -225,6 +227,17 @@ async def test_scoped_provisioner_gets_bound_claim_and_redacted_audit() -> None:
         installation_session=install_session,
         hardware_fingerprint=fingerprint,
     )
+    enrollment_request = AgentEnrollmentRequestV1.model_validate(
+        {
+            "schema_version": "agent_enrollment_request_v1",
+            "platform": "linux",
+            "hardware_fingerprint": submitted_fingerprint,
+            "installation_id": install_session,
+            "delivery_nonce": "A" * 43,
+            "requested_at": NOW,
+        }
+    )
+    assert enrollment_request.hardware_fingerprint == fingerprint
     assert not install_claim_bindings_match(
         claim,
         DEVICE_PEPPER,
@@ -311,6 +324,35 @@ async def test_provisioning_claim_input_is_bounded_and_redacted() -> None:
     assert response.status_code == 422
     assert marker not in response.text
     assert session.added == []
+
+
+@pytest.mark.asyncio
+async def test_provisioning_claim_rejects_noncanonical_hardware_fingerprint() -> None:
+    """A printable label is not a hardware proof and must not become a claim binding."""
+    campaign = _campaign()
+    session, token = await _authorized_session(
+        scopes=(PROVISIONING_SCOPE,), campaign=campaign
+    )
+    app = create_app(_settings(), session_provider=_Provider(session))
+    marker = "sha256:arbitrary printable fingerprint"
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="https://endpoint.sosnadmin.local",
+    ) as client:
+        response = await client.post(
+            "/api/v1/provisioning/install-claims",
+            headers={"Authorization": f"Bearer {token}"},
+            json={
+                "campaign_id": str(campaign.id),
+                "install_session_id": "alt-session-canonical",
+                "hardware_fingerprint": marker,
+            },
+        )
+
+    assert response.status_code == 422
+    assert marker not in response.text
+    assert session.added == []
+    assert session.commit_calls == 0
 
 
 @pytest.mark.asyncio

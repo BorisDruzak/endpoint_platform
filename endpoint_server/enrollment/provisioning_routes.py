@@ -10,6 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, ConfigDict, Field, SecretStr
 from sqlalchemy import select
 
+from endpoint_contracts.identity import normalize_hardware_fingerprint
 from endpoint_server.audit.request_ids import audit_request_id
 from endpoint_server.audit.service import append_audit_event
 from endpoint_server.auth.scopes import (
@@ -28,7 +29,7 @@ router = APIRouter(prefix="/api/v1/provisioning", tags=["provisioning"])
 # but callers cannot lengthen it or choose a separate expiry.
 _INSTALL_CLAIM_LIFETIME = timedelta(minutes=15)
 _MAX_INSTALL_SESSION_LENGTH = 128
-_MAX_HARDWARE_FINGERPRINT_LENGTH = 512
+_MAX_HARDWARE_FINGERPRINT_LENGTH = 256
 
 
 class ProvisioningInstallClaimRequest(BaseModel):
@@ -102,9 +103,8 @@ async def issue_provisioning_install_claim(
             body.install_session_id.get_secret_value(),
             maximum=_MAX_INSTALL_SESSION_LENGTH,
         )
-        hardware_fingerprint = _bounded_binding(
-            body.hardware_fingerprint.get_secret_value(),
-            maximum=_MAX_HARDWARE_FINGERPRINT_LENGTH,
+        hardware_fingerprint = normalize_hardware_fingerprint(
+            body.hardware_fingerprint.get_secret_value()
         )
     except ValueError as error:
         raise _invalid() from error
