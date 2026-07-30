@@ -23,6 +23,7 @@ from pydantic import (
     Field,
     SecretStr,
     ValidationError,
+    field_validator,
 )
 
 from .errors import (
@@ -37,6 +38,7 @@ from .errors import (
 _MAX_INSTALL_SESSION_LENGTH: Final = 128
 _MAX_HARDWARE_FINGERPRINT_LENGTH: Final = 256
 _MAX_TOKEN_LENGTH: Final = 4096
+_MAX_RESPONSE_BYTES: Final = 16 * 1024
 _CLAIM_PATTERN: Final = r"^ic_[0-9a-f]{32}\.[A-Za-z0-9_-]{43}$"
 _HARDWARE_FINGERPRINT_PATTERN: Final = re.compile(
     r"^sha256:[a-z0-9][a-z0-9._-]{1,248}$",
@@ -74,11 +76,29 @@ class _InstallClaimResponse(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    claim: str = Field(min_length=79, max_length=79, pattern=_CLAIM_PATTERN)
+    claim: SecretStr
     expires_at: AwareDatetime
     install_session_id: str = Field(
         min_length=1, max_length=_MAX_INSTALL_SESSION_LENGTH
     )
+
+    @field_validator("claim", mode="before")
+    @classmethod
+    def validate_claim(cls, value: object) -> SecretStr:
+        if (
+            not isinstance(value, str)
+            or len(value) != 79
+            or re.fullmatch(_CLAIM_PATTERN, value) is None
+        ):
+            raise ValueError("invalid install claim")
+        return SecretStr(value)
+
+    @field_validator("expires_at", mode="before")
+    @classmethod
+    def validate_utc_z_expiry(cls, value: object) -> object:
+        if not isinstance(value, str) or not value.endswith("Z"):
+            raise ValueError("claim expiry must use UTC Z wire form")
+        return value
 
 
 class EndpointProvisioningClient:
@@ -110,7 +130,7 @@ class EndpointProvisioningClient:
                 base_url=base_url.rstrip("/"),
                 headers={
                     "Accept": "application/json",
-                    "Authorization": f"Bearer {token}",
+                    "Authorization": f"Bearer {token.get_secret_value()}",
                 },
                 verify=str(ca_bundle),
                 timeout=timeout_seconds,
@@ -120,14 +140,13 @@ class EndpointProvisioningClient:
             raise EndpointPlatformConfigurationError() from None
 
     @staticmethod
-    def _read_provisioning_token(path: Path) -> str:
+    def _read_provisioning_token(path: Path) -> SecretStr:
         try:
-            token = path.read_text(encoding="utf-8").strip()
+            return _validated_provisioning_token(
+                SecretStr(path.read_text(encoding="utf-8").strip())
+            )
         except (OSError, UnicodeError):
             raise EndpointPlatformConfigurationError() from None
-        if not token or len(token) > _MAX_TOKEN_LENGTH:
-            raise EndpointPlatformConfigurationError()
-        return token
 
     def close(self) -> None:
         """Close the owned HTTP connection pool."""
@@ -172,20 +191,62 @@ class EndpointProvisioningClient:
             raise EndpointPlatformUnavailable() from None
         if response.status_code < 200 or response.status_code >= 300:
             raise EndpointPlatformResponseError(response.status_code)
+        return _parse_install_claim_response(response, normalized_session)
+
+
+def _validated_provisioning_token(token: SecretStr) -> SecretStr:
+    if (
+        not token.get_secret_value()
+        or len(token.get_secret_value()) > _MAX_TOKEN_LENGTH
+    ):
+        raise EndpointPlatformConfigurationError()
+    return token
+
+
+def _parse_install_claim_response(
+    response: httpx.Response,
+    requested_session: str,
+) -> InstallClaim:
+    """Parse one bounded response while clearing raw body values on every error."""
+
+    payload: object | None = None
+    parsed: _InstallClaimResponse | None = None
+    try:
+        payload = _bounded_response_json(response)
+        parsed = _InstallClaimResponse.model_validate(payload)
+        session = _normalize_install_session_id(parsed.install_session_id)
+        if session != requested_session:
+            raise ValueError("response install session does not match request")
+        if parsed.expires_at <= datetime.now(UTC):
+            raise ValueError("response claim is expired")
+        return InstallClaim(
+            _secret=parsed.claim,
+            expires_at=parsed.expires_at,
+            install_session_id=session,
+        )
+    except (TypeError, ValueError, ValidationError, httpx.HTTPError):
+        payload = None
+        parsed = None
+        raise EndpointPlatformMalformedResponse() from None
+
+
+def _bounded_response_json(response: httpx.Response) -> object:
+    """Reject oversized payloads before asking the HTTP client to parse JSON."""
+
+    content_length = response.headers.get("Content-Length")
+    if content_length is not None:
         try:
-            parsed = _InstallClaimResponse.model_validate(response.json())
-            session = _normalize_install_session_id(parsed.install_session_id)
-            if session != normalized_session:
-                raise ValueError("response install session does not match request")
-            if parsed.expires_at <= datetime.now(UTC):
-                raise ValueError("response claim is expired")
-            return InstallClaim(
-                _secret=SecretStr(parsed.claim),
-                expires_at=parsed.expires_at,
-                install_session_id=session,
-            )
-        except (TypeError, ValueError, ValidationError):
-            raise EndpointPlatformMalformedResponse() from None
+            declared_length = int(content_length)
+        except ValueError:
+            raise ValueError("invalid response content length") from None
+        if declared_length < 0 or declared_length > _MAX_RESPONSE_BYTES:
+            raise ValueError("response body is too large")
+    content = response.content
+    oversized = len(content) > _MAX_RESPONSE_BYTES
+    content = b""
+    if oversized:
+        raise ValueError("response body is too large")
+    return response.json()
 
 
 def _normalize_install_session_id(value: object) -> str:
