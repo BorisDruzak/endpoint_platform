@@ -127,7 +127,16 @@ def test_migration_history_has_exactly_one_head() -> None:
         _alembic_config("postgresql+asyncpg://unused@127.0.0.1/unused")
     )
 
-    assert script.get_heads() == ["0010_device_session_last_seen_index"]
+    assert script.get_heads() == ["0010_session_last_seen_index"]
+
+
+def test_migration_revisions_fit_alembic_version_storage() -> None:
+    """Alembic's default version table stores identifiers in VARCHAR(32)."""
+    script = ScriptDirectory.from_config(
+        _alembic_config("postgresql+asyncpg://unused@127.0.0.1/unused")
+    )
+
+    assert all(len(revision.revision) <= 32 for revision in script.walk_revisions())
 
 
 def test_device_session_last_seen_index_migration_is_additive_and_ordered() -> None:
@@ -141,7 +150,7 @@ def test_device_session_last_seen_index_migration_is_additive_and_ordered() -> N
 
     command.upgrade(
         config,
-        "0009_device_context_snapshot_pins:0010_device_session_last_seen_index",
+        "0009_context_snapshot_pins:0010_session_last_seen_index",
         sql=True,
     )
 
@@ -211,7 +220,7 @@ def test_device_context_pin_migration_adds_only_the_explicit_pin_column() -> Non
 
     command.upgrade(
         config,
-        "0008_device_context_foundation:0009_device_context_snapshot_pins",
+        "0008_device_context_foundation:0009_context_snapshot_pins",
         sql=True,
     )
 
@@ -483,7 +492,7 @@ def test_initial_revision_upgrades_and_downgrades_empty_postgresql(
         _fetch(plain_url, "SELECT version_num FROM alembic_version")
     )
     assert [row["version_num"] for row in revision_rows] == [
-        "0010_device_session_last_seen_index"
+        "0010_session_last_seen_index"
     ]
 
     column_rows = asyncio.run(

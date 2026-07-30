@@ -1,7 +1,7 @@
 """Index deterministic device-session last-seen lookups.
 
-Revision ID: 0010_device_session_last_seen_index
-Revises: 0009_device_context_snapshot_pins
+Revision ID: 0010_session_last_seen_index
+Revises: 0009_context_snapshot_pins
 """
 
 from __future__ import annotations
@@ -12,8 +12,8 @@ from alembic import op
 import sqlalchemy as sa
 
 
-revision: str = "0010_device_session_last_seen_index"
-down_revision: str | None = "0009_device_context_snapshot_pins"
+revision: str = "0010_session_last_seen_index"
+down_revision: str | None = "0009_context_snapshot_pins"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

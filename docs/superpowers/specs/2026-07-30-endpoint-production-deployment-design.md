@@ -98,6 +98,6 @@ targeted ALT packaging tests, static Alembic SQL, and `git diff --check` pass.
 
 After deployment: `systemctl` reports the API, PostgreSQL, and Nginx active;
 the API is not reachable except through loopback; the database reports Alembic
-revision `0010_device_session_last_seen_index`; and HTTPS validation succeeds
+revision `0010_session_last_seen_index`; and HTTPS validation succeeds
 for `endpoint.sosnadmin.local` with hostname verification enabled and the
 internal CA.

@@ -299,7 +299,7 @@ Require:
 systemctl is-active postgresql endpoint-platform nginx -> active
 curl --fail http://127.0.0.1:8000/healthz -> success
 strict CA and hostname validation -> success
-alembic current -> 0010_device_session_last_seen_index
+alembic current -> 0010_session_last_seen_index
 ~~~
 
 Bootstrap first administrator only after these checks. Update PLANS.md with deployed commit, migration revision, service/TLS status, and next permitted step: test-agent pilot; commit the non-secret handoff record.

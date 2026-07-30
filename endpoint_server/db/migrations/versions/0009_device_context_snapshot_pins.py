@@ -1,6 +1,6 @@
 """Persist explicit Device Context snapshot retention pins.
 
-Revision ID: 0009_device_context_snapshot_pins
+Revision ID: 0009_context_snapshot_pins
 Revises: 0008_device_context_foundation
 """
 
@@ -12,7 +12,7 @@ from alembic import op
 import sqlalchemy as sa
 
 
-revision: str = "0009_device_context_snapshot_pins"
+revision: str = "0009_context_snapshot_pins"
 down_revision: str | None = "0008_device_context_foundation"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
