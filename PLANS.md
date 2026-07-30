@@ -17,6 +17,12 @@ isolated test-agent acceptance harness are complete. A valid wildcard
 `*.sosnadmin.local` certificate is in active use on the TLS source host; its
 private key has not been copied into the workspace.
 
+The initial production deployment is complete on `endpoint-platform-server`
+at release `42de4d53f0d1`: PostgreSQL listens only on loopback, Nginx and the
+API service are enabled, and the database is migrated through
+`0010_session_last_seen_index`. The live `https://endpoint.sosnadmin.local`
+health check passes strict CA and hostname verification.
+
 ## Constraints
 
 - web_ovpn and network_configuration remain read-only until a clean dedicated worktree exists.
@@ -32,14 +38,13 @@ private key has not been copied into the workspace.
 
 ## Next Steps
 
-1. Complete and independently review the ASGI, systemd, Nginx, and controlled
-   production-runbook assets on branch `codex/endpoint-production-deployment`.
-2. Run the local release gate, then execute the controlled production gate:
-   re-check capacity, install PostgreSQL and Nginx, deploy the verified
-   release, transfer TLS material without workspace persistence, and run the
-   forward migration only after settings validation.
-3. Run the agent pilot only after production API and strict TLS smoke checks
-   pass.
+1. Bootstrap the first platform administrator using an explicitly chosen login
+   name and an interactively supplied password.
+2. Install the ALT agent bundle on `test-agent-lin`, enrol it against the
+   production API, and validate baseline extraction, Gateway, updates and
+   rollback before any wider rollout.
+3. Begin the separate Wave 1 `web_ovpn` integration only in its dedicated
+   worktree after the production agent pilot is accepted.
 
 ## Verification
 
@@ -51,8 +56,6 @@ current snapshot, its prior snapshot and explicit pins.
 
 ## Handoff
 
-No remote migration, web_ovpn deployment or network change is authorized
-before the production deployment gate passes. The `web_ovpn` service
-token/client, netctl correlation and real pilot are distinct later
-deliverables.
+Production deployment passed its gate; the remaining agent pilot and the
+`web_ovpn` service-token/client integration remain distinct deliverables.
 
