@@ -66,6 +66,10 @@ require_regular_file() {
     [[ -f "$path" && ! -L "$path" ]] || die "$label must be a regular local file"
 }
 
+path_is_symlink() {
+    [[ -L "$1" ]]
+}
+
 require_safe_parent_components() {
     local path=$1 parent component current
     [[ "$path" == /* ]] || die 'security-sensitive path must be absolute'
@@ -80,18 +84,123 @@ require_safe_parent_components() {
         else
             current="$current/$component"
         fi
-        [[ -d "$current" && ! -L "$current" ]] || \
-            die 'security-sensitive path traverses an unsafe parent'
+        [[ -d "$current" ]] && ! path_is_symlink "$current" || \
+            die "security-sensitive path traverses an unsafe parent: $current"
     done
 }
 
+root_owner_uid() {
+    id -u root
+}
+
+root_owner_gid() {
+    id -g root
+}
+
+service_owner_uid() {
+    id -u "$SERVICE_USER"
+}
+
+service_owner_gid() {
+    getent group "$SERVICE_GROUP" | awk -F: 'NR == 1 { print $3 }'
+}
+
+file_owner_uid() {
+    stat -c %u -- "$1"
+}
+
+file_owner_gid() {
+    stat -c %g -- "$1"
+}
+
+file_mode() {
+    stat -c %a -- "$1"
+}
+
+require_exact_owner_and_mode() {
+    local label=$1 path=$2 ownership=$3 expected_mode=$4 owner group expected_owner expected_group mode
+    owner=$(file_owner_uid "$path") || die "$label owner could not be read"
+    group=$(file_owner_gid "$path") || die "$label group could not be read"
+    mode=$(file_mode "$path") || die "$label mode could not be read"
+    [[ "$mode" == "$expected_mode" ]] || die "$label ($path) must have mode $expected_mode"
+    case "$ownership" in
+        root)
+            expected_owner=$(root_owner_uid) || die 'root account lookup failed'
+            [[ "$owner" == "$expected_owner" ]] || die "$label must be owned by root"
+            ;;
+        service)
+            expected_owner=$(service_owner_uid) || die 'service account lookup failed'
+            expected_group=$(service_owner_gid)
+            [[ "$expected_group" =~ ^[0-9]+$ ]] || die 'service group lookup failed'
+            [[ "$owner" == "$expected_owner" && "$group" == "$expected_group" ]] || \
+                die "$label must be owned by $SERVICE_USER:$SERVICE_GROUP"
+            ;;
+        *) die 'invalid fixed destination ownership class' ;;
+    esac
+}
+
+require_trusted_root_parent() {
+    local path=$1 mode owner group group_digit other_digit
+    [[ -d "$path" ]] && ! path_is_symlink "$path" || \
+        die 'fixed destination parent is missing or unsafe'
+    owner=$(file_owner_uid "$path") || die 'fixed destination parent owner could not be read'
+    group=$(file_owner_gid "$path") || die 'fixed destination parent group could not be read'
+    mode=$(file_mode "$path") || die 'fixed destination parent mode could not be read'
+    [[ "$owner" == "$(root_owner_uid)" && "$group" == "$(root_owner_gid)" ]] || \
+        die 'fixed destination parent must be owned by root:root'
+    [[ "$mode" =~ ^[0-7]{3,4}$ ]] || die 'fixed destination parent has invalid mode'
+    group_digit=${mode: -2:1}
+    other_digit=${mode: -1}
+    (( (10#$group_digit & 2) == 0 && (10#$other_digit & 2) == 0 )) || \
+        die 'fixed destination parent must not be group or world writable'
+}
+
+validate_fixed_directory_or_absent() {
+    local path=$1 ownership=$2 expected_mode=$3
+    require_safe_parent_components "$path"
+    path_is_symlink "$path" && die 'fixed destination directory must not be a symlink'
+    [[ ! -e "$path" ]] && return
+    [[ -d "$path" ]] || die 'fixed destination must be a directory'
+    require_exact_owner_and_mode 'fixed destination directory' "$path" "$ownership" "$expected_mode"
+}
+
+validate_fixed_regular_target_or_absent() {
+    local path=$1 ownership=$2 expected_mode=$3
+    require_safe_parent_components "$path"
+    path_is_symlink "$path" && die 'fixed destination file must not be a symlink'
+    [[ ! -e "$path" ]] && return
+    [[ -f "$path" ]] || die 'fixed destination must be a regular file'
+    require_exact_owner_and_mode 'fixed destination file' "$path" "$ownership" "$expected_mode"
+}
+
+validate_install_destinations() {
+    # These existing system parents are deliberately not created by the
+    # installer.  Validating them first prevents every later write from
+    # traversing a pre-existing attacker-controlled link or writable directory.
+    require_trusted_root_parent /opt
+    require_trusted_root_parent /etc
+    require_trusted_root_parent /var
+    require_trusted_root_parent /var/lib
+    require_trusted_root_parent /var/log
+    require_trusted_root_parent /etc/systemd
+    require_trusted_root_parent /etc/systemd/system
+
+    validate_fixed_directory_or_absent "$INSTALL_ROOT" root 755
+    validate_fixed_directory_or_absent "$CONFIG_ROOT" root 755
+    validate_fixed_directory_or_absent "$DATA_ROOT" service 750
+    validate_fixed_directory_or_absent "$LOG_ROOT" service 750
+    validate_fixed_regular_target_or_absent "$CONFIG_TARGET" root 600
+    validate_fixed_regular_target_or_absent "$CA_TARGET" root 600
+    validate_fixed_regular_target_or_absent "$HANDOFF_TARGET" root 600
+    validate_fixed_regular_target_or_absent "$PERMANENT_CREDENTIAL_TARGET" service 600
+    validate_fixed_regular_target_or_absent "$HANDOFF_REQUEST_TARGET" service 600
+    validate_fixed_regular_target_or_absent "/etc/systemd/system/$SERVICE_NAME" root 644
+}
+
 require_root_secret_file() {
-    local label=$1 path=$2 mode owner
+    local label=$1 path=$2
     require_regular_file "$label" "$path"
-    mode=$(stat -c %a "$path")
-    owner=$(stat -c %u "$path")
-    [[ "$mode" == '600' ]] || die "$label must have mode 0600"
-    [[ "$owner" == '0' ]] || die "$label must be owned by root"
+    require_exact_owner_and_mode "$label" "$path" root 600
     [[ -s "$path" ]] || die "$label must not be empty"
 }
 
@@ -127,17 +236,9 @@ validate_existing_service_account() {
 }
 
 require_service_secret_file() {
-    local label=$1 path=$2 mode owner group expected_owner expected_group
+    local label=$1 path=$2
     require_regular_file "$label" "$path"
-    expected_owner=$(id -u "$SERVICE_USER") || die 'service account lookup failed'
-    expected_group=$(getent group "$SERVICE_GROUP" | awk -F: 'NR == 1 { print $3 }')
-    [[ "$expected_group" =~ ^[0-9]+$ ]] || die 'service group lookup failed'
-    mode=$(stat -c %a "$path")
-    owner=$(stat -c %u "$path")
-    group=$(stat -c %g "$path")
-    [[ "$mode" == '600' ]] || die "$label must have mode 0600"
-    [[ "$owner" == "$expected_owner" ]] || die "$label must be owned by $SERVICE_USER:$SERVICE_GROUP"
-    [[ "$group" == "$expected_group" ]] || die "$label must be owned by $SERVICE_USER:$SERVICE_GROUP"
+    require_exact_owner_and_mode "$label" "$path" service 600
     [[ -s "$path" ]] || die "$label must not be empty"
 }
 
@@ -203,7 +304,7 @@ render_config() {
 
 install_atomically() {
     local stage config_stage ca_stage handoff_stage binary_stage service_stage
-    install -d -m 0755 /opt /etc/systemd/system
+    validate_install_destinations
     stage=$(mktemp -d /opt/.endpoint-agent-stage.XXXXXX)
     trap 'rm -rf "$stage"' RETURN
 
@@ -222,6 +323,7 @@ install_atomically() {
 
     install -d -o root -g root -m 0755 "$INSTALL_ROOT" "$CONFIG_ROOT"
     install -d -o "$SERVICE_USER" -g "$SERVICE_GROUP" -m 0750 "$DATA_ROOT" "$LOG_ROOT"
+    validate_install_destinations
     mv -f "$binary_stage" "$INSTALL_ROOT/endpoint-agent"
     mv -f "$config_stage.secure" "$CONFIG_TARGET"
     mv -f "$ca_stage" "$CA_TARGET"
@@ -251,6 +353,7 @@ install_package() {
 finalize_handoff() {
     require_root
     validate_existing_service_account
+    validate_install_destinations
     if [[ ! -e "$HANDOFF_REQUEST_TARGET" && ! -L "$HANDOFF_REQUEST_TARGET" ]]; then
         if [[ ! -e "$HANDOFF_TARGET" && ! -L "$HANDOFF_TARGET" ]]; then
             printf 'one-time provisioning handoff was already finalized\n'

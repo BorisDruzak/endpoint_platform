@@ -104,8 +104,8 @@ def test_permanent_credential_is_runtime_owned_and_finalize_requires_that_contra
     runbook = _text(RUNBOOK)
 
     assert "require_service_secret_file 'permanent credential'" in installer
-    assert 'owner=$(stat -c %u "$path")' in installer
-    assert '[[ "$owner" == "$expected_owner" ]]' in installer
+    assert 'owner=$(file_owner_uid "$path")' in installer
+    assert '[[ "$owner" == "$expected_owner" && "$group" == "$expected_group" ]]' in installer
     assert "must be owned by $SERVICE_USER:$SERVICE_GROUP" in installer
     assert "root ownership" not in runbook.lower()
     assert "owned by `endpoint-agent`" in runbook
@@ -126,6 +126,30 @@ def test_finalizer_accepts_only_the_fixed_proven_credential_handoff_protocol() -
         'rm -f -- "$HANDOFF_TARGET" "$HANDOFF_REQUEST_TARGET"',
     ):
         assert required in installer
+
+
+def test_installer_validates_fixed_destinations_before_any_root_write() -> None:
+    installer = _text(INSTALLER)
+
+    for required in (
+        "validate_install_destinations",
+        "validate_fixed_directory_or_absent \"$INSTALL_ROOT\" root 755",
+        "validate_fixed_directory_or_absent \"$CONFIG_ROOT\" root 755",
+        "validate_fixed_directory_or_absent \"$DATA_ROOT\" service 750",
+        "validate_fixed_directory_or_absent \"$LOG_ROOT\" service 750",
+        "validate_fixed_regular_target_or_absent \"$CONFIG_TARGET\" root 600",
+        "validate_fixed_regular_target_or_absent \"$CA_TARGET\" root 600",
+        "validate_fixed_regular_target_or_absent \"$HANDOFF_TARGET\" root 600",
+        "validate_fixed_regular_target_or_absent \"$PERMANENT_CREDENTIAL_TARGET\" service 600",
+        "validate_fixed_regular_target_or_absent \"$HANDOFF_REQUEST_TARGET\" service 600",
+        'validate_fixed_regular_target_or_absent "/etc/systemd/system/$SERVICE_NAME" root 644',
+    ):
+        assert required in installer
+
+    install_body = installer[installer.index("install_atomically() {") : installer.index("install_package() {")]
+    assert install_body.index("validate_install_destinations") < install_body.index(
+        "stage=$(mktemp -d /opt/.endpoint-agent-stage.XXXXXX)"
+    )
 
 
 def test_config_and_runbook_preserve_one_time_token_handoff_boundary() -> None:
