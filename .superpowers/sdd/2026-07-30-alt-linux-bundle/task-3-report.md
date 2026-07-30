@@ -142,3 +142,16 @@ The safe diagnostic no longer uses `read_bytes()`. It opens the private
 captured log in binary mode and reads at most 8192 bytes. Its oversized-fixture
 test verifies that the output remains the fixed safe category/message token and
 does not contain the fixture's claim-like suffix. No captured bytes are printed.
+
+## Linux test-host acceptance
+
+On 2026-07-30, the exact-LF archive was executed as `sudo` on
+`test-agent-lin`. All six isolated cases passed: valid install, digest mismatch,
+bundle symlink, incomplete onedir, activation-failure rollback, and idempotent
+second install. The harness output contained only case statuses and manifest
+SHA-256 values.
+
+Afterwards, a read-only postcondition check confirmed the transfer root and
+archive were removed, no `/opt/endpoint-agent`, `/etc/endpoint-agent`,
+`/var/lib/endpoint-agent`, `/var/log/endpoint-agent`, or unit file existed,
+and `endpoint-agent.service` was inactive. No real agent was installed.
