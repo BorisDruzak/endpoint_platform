@@ -4,7 +4,7 @@ gateway:
   endpoint: "__ENDPOINT_URL__"
   ca_file: "/etc/endpoint-agent/ca.crt"
 provisioning:
-  provisioning_handoff_file: "/etc/endpoint-agent/provisioning-claim"
+  systemd_claim_credential_name: "endpoint-enrollment-claim"
   permanent_credential_file: "/var/lib/endpoint-agent/device-credential"
 runtime:
   data_dir: "/var/lib/endpoint-agent"

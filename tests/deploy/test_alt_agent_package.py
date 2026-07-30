@@ -58,7 +58,9 @@ def test_installer_requires_https_ca_local_artifact_and_secure_handoff() -> None
     assert "curl " not in text
 
 
-def test_installer_validates_existing_service_identity_and_keeps_claim_exchange_out_of_scope() -> None:
+def test_installer_validates_existing_service_identity_and_keeps_claim_exchange_out_of_scope() -> (
+    None
+):
     text = _text(INSTALLER)
 
     assert "validate_existing_service_account" in text
@@ -69,7 +71,7 @@ def test_installer_validates_existing_service_identity_and_keeps_claim_exchange_
     assert "existing group without dedicated service account" in text
     assert "curl " not in text
     assert "wget " not in text
-    assert "enroll" not in text.lower()
+    assert "/agent/v1/enroll" not in text
 
 
 def test_service_runs_as_dedicated_user_with_durable_paths_and_restart() -> None:
@@ -85,8 +87,8 @@ def test_service_runs_as_dedicated_user_with_durable_paths_and_restart() -> None
         "LogsDirectory=endpoint-agent",
         "LoadCredential=endpoint-agent-config:/etc/endpoint-agent/config.yaml",
         "LoadCredential=endpoint-agent-ca:/etc/endpoint-agent/ca.crt",
-        "LoadCredential=endpoint-agent-provisioning-handoff:/etc/endpoint-agent/provisioning-claim",
-        "Environment=ENDPOINT_AGENT_PROVISIONING_HANDOFF_FILE=%d/endpoint-agent-provisioning-handoff",
+        "LoadCredential=endpoint-enrollment-claim:/etc/endpoint-agent/provisioning-claim",
+        "Environment=ENDPOINT_AGENT_PROVISIONING_HANDOFF_FILE=%d/endpoint-enrollment-claim",
         "ReadWritePaths=/var/lib/endpoint-agent /var/log/endpoint-agent",
         "NoNewPrivileges=true",
         "ProtectSystem=strict",
@@ -95,16 +97,35 @@ def test_service_runs_as_dedicated_user_with_durable_paths_and_restart() -> None
         assert required in text
 
 
-def test_permanent_credential_is_runtime_owned_and_finalize_requires_that_contract() -> None:
+def test_permanent_credential_is_runtime_owned_and_finalize_requires_that_contract() -> (
+    None
+):
     installer = _text(INSTALLER)
     runbook = _text(RUNBOOK)
 
     assert "require_service_secret_file 'permanent credential'" in installer
-    assert "owner=$(stat -c %u \"$path\")" in installer
+    assert 'owner=$(stat -c %u "$path")' in installer
     assert '[[ "$owner" == "$expected_owner" ]]' in installer
     assert "must be owned by $SERVICE_USER:$SERVICE_GROUP" in installer
     assert "root ownership" not in runbook.lower()
     assert "owned by `endpoint-agent`" in runbook
+
+
+def test_finalizer_accepts_only_the_fixed_proven_credential_handoff_protocol() -> None:
+    installer = _text(INSTALLER)
+
+    for required in (
+        'readonly HANDOFF_REQUEST_TARGET="${DATA_ROOT}/claim-removal-request.json"',
+        "readonly CLAIM_CREDENTIAL_NAME=endpoint-enrollment-claim",
+        "readonly HANDOFF_REQUEST_SCHEMA_VERSION=endpoint_claim_removal_request_v1",
+        "require_safe_parent_components",
+        "require_opaque_permanent_credential",
+        "validate_handoff_request",
+        "credential_sha256",
+        "require_root_secret_file 'installed provisioning handoff' \"$HANDOFF_TARGET\"",
+        'rm -f -- "$HANDOFF_TARGET" "$HANDOFF_REQUEST_TARGET"',
+    ):
+        assert required in installer
 
 
 def test_config_and_runbook_preserve_one_time_token_handoff_boundary() -> None:
@@ -112,7 +133,7 @@ def test_config_and_runbook_preserve_one_time_token_handoff_boundary() -> None:
     runbook = _text(RUNBOOK)
 
     assert 'endpoint: "__ENDPOINT_URL__"' in config
-    assert "provisioning_handoff_file" in config
+    assert 'systemd_claim_credential_name: "endpoint-enrollment-claim"' in config
     assert "permanent_credential_file" in config
     assert "campaign token" not in config.lower()
     assert "0600" in runbook

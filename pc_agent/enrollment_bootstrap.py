@@ -32,13 +32,11 @@ SYSTEMD_CLAIM_CREDENTIAL_NAME = "endpoint-enrollment-claim"
 # Task 15 used this LoadCredential name.  It remains an explicit, temporary
 # integration seam; callers must opt in through BootstrapConfig rather than
 # reading an environment-provided pathname.
-TASK15_CLAIM_CREDENTIAL_NAME = "endpoint-agent-provisioning-handoff"
-_ALLOWED_CLAIM_CREDENTIAL_NAMES = frozenset(
-    {SYSTEMD_CLAIM_CREDENTIAL_NAME, TASK15_CLAIM_CREDENTIAL_NAME}
-)
 _TOKEN_LENGTH = 43
 _FINGERPRINT_CONTEXT = b"endpoint-agent-bootstrap-fingerprint-v1\0"
 _HANDOFF_SCHEMA_VERSION = "endpoint_claim_removal_request_v1"
+PERMANENT_CREDENTIAL_PATH = Path("/var/lib/endpoint-agent/device-credential")
+HANDOFF_REQUEST_PATH = Path("/var/lib/endpoint-agent/claim-removal-request.json")
 
 
 class EnrollmentTransportUnavailable(Exception):
@@ -84,10 +82,11 @@ class BootstrapConfig:
     endpoint_url: str
     ca_file: Path
     installation_id: str
-    credential_path: Path = Path("/var/lib/endpoint-agent/device-credential")
-    handoff_request_path: Path = Path(
-        "/var/lib/endpoint-agent/claim-removal-request.json"
-    )
+    # These fields exist only to make the deployment boundary explicit.  They
+    # are deliberately validated against the fixed production locations below:
+    # an unprivileged process must never select a root-finalizer path.
+    credential_path: Path = PERMANENT_CREDENTIAL_PATH
+    handoff_request_path: Path = HANDOFF_REQUEST_PATH
     service_uid: int | None = None
     service_gid: int | None = None
     claim_credential_name: str = SYSTEMD_CLAIM_CREDENTIAL_NAME
@@ -105,6 +104,10 @@ class BootstrapConfig:
             or parsed.fragment
         ):
             raise ValueError("Endpoint bootstrap requires an explicit HTTPS URL")
+        try:
+            _require_safe_regular_path(self.ca_file)
+        except OSError as error:
+            raise ValueError("Endpoint bootstrap requires a safe CA file") from error
         if not self.ca_file.is_file():
             raise ValueError("Endpoint bootstrap requires a CA file")
         if not (
@@ -116,12 +119,17 @@ class BootstrapConfig:
             and all(32 <= ord(character) <= 126 for character in self.installation_id)
         ):
             raise ValueError("Installation session must be bounded printable ASCII")
-        if self.claim_credential_name not in _ALLOWED_CLAIM_CREDENTIAL_NAMES:
+        if self.claim_credential_name != SYSTEMD_CLAIM_CREDENTIAL_NAME:
             raise ValueError("Unknown systemd enrollment claim credential")
         if not 1 <= self.retry_attempts <= 3:
             raise ValueError("Enrollment retry budget must be between 1 and 3")
-        if self.credential_path == self.handoff_request_path:
-            raise ValueError("Credential and claim-removal handoff paths must differ")
+        if (
+            self.credential_path != PERMANENT_CREDENTIAL_PATH
+            or self.handoff_request_path != HANDOFF_REQUEST_PATH
+        ):
+            raise ValueError(
+                "Credential and claim-removal handoff paths must use fixed production locations"
+            )
 
 
 class EnrollmentTransport(Protocol):
@@ -142,6 +150,7 @@ class ClaimRemovalHandoff(Protocol):
         claim_credential_name: str,
         credential_path: Path,
         device_id: UUID,
+        credential_sha256: str,
     ) -> bool: ...
 
 
@@ -197,8 +206,7 @@ class FileClaimRemovalHandoff:
     root-owned source (Task 15's ``--finalize-handoff`` path).
     """
 
-    def __init__(self, path: Path, *, uid: int, gid: int) -> None:
-        self._path = path
+    def __init__(self, *, uid: int, gid: int) -> None:
         self._uid = uid
         self._gid = gid
 
@@ -208,22 +216,32 @@ class FileClaimRemovalHandoff:
         claim_credential_name: str,
         credential_path: Path,
         device_id: UUID,
+        credential_sha256: str,
     ) -> bool:
+        if (
+            claim_credential_name != SYSTEMD_CLAIM_CREDENTIAL_NAME
+            or credential_path != PERMANENT_CREDENTIAL_PATH
+            or not _is_sha256_hex(credential_sha256)
+        ):
+            return False
         payload = json.dumps(
             {
                 "schema_version": _HANDOFF_SCHEMA_VERSION,
                 "claim_credential_name": claim_credential_name,
                 "credential_path": str(credential_path),
                 "device_id": str(device_id),
+                "credential_sha256": credential_sha256,
             },
             separators=(",", ":"),
             sort_keys=True,
         ).encode("utf-8")
         try:
-            _atomic_secret_write(self._path, payload, uid=self._uid, gid=self._gid)
+            _atomic_secret_write(
+                HANDOFF_REQUEST_PATH, payload, uid=self._uid, gid=self._gid
+            )
         except OSError:
             return False
-        return _verify_owned_mode(self._path, uid=self._uid, gid=self._gid)
+        return _verify_owned_mode(HANDOFF_REQUEST_PATH, uid=self._uid, gid=self._gid)
 
 
 async def bootstrap_enrollment(
@@ -254,9 +272,7 @@ async def bootstrap_enrollment(
         return EnrollmentOutcome("credential_invalid")
 
     try:
-        claim = _read_systemd_claim(
-            Path(credentials_dir), config.claim_credential_name
-        )
+        claim = _read_systemd_claim(Path(credentials_dir), config.claim_credential_name)
         hardware_fingerprint = _derive_hardware_fingerprint(probe)
         request = AgentEnrollmentRequestV1(
             schema_version="agent_enrollment_request_v1",
@@ -316,21 +332,30 @@ async def bootstrap_enrollment(
         )
         return EnrollmentOutcome("persistence_failed")
 
-    selected_handoff = handoff or FileClaimRemovalHandoff(
-        config.handoff_request_path, uid=uid, gid=gid
-    )
+    selected_handoff = handoff or FileClaimRemovalHandoff(uid=uid, gid=gid)
     if not selected_handoff.request_removal(
         claim_credential_name=config.claim_credential_name,
         credential_path=config.credential_path,
         device_id=delivery.device_id,
+        credential_sha256=hashlib.sha256(
+            delivery.device_token.encode("ascii")
+        ).hexdigest(),
     ):
         return EnrollmentOutcome("handoff_pending", str(delivery.device_id))
     return EnrollmentOutcome("enrolled", str(delivery.device_id))
 
 
 def _service_identity(config: BootstrapConfig) -> tuple[int, int]:
-    uid = getattr(os, "getuid", lambda: 0)() if config.service_uid is None else config.service_uid
-    gid = getattr(os, "getgid", lambda: 0)() if config.service_gid is None else config.service_gid
+    uid = (
+        getattr(os, "getuid", lambda: 0)()
+        if config.service_uid is None
+        else config.service_uid
+    )
+    gid = (
+        getattr(os, "getgid", lambda: 0)()
+        if config.service_gid is None
+        else config.service_gid
+    )
     if (
         not isinstance(uid, int)
         or isinstance(uid, bool)
@@ -344,15 +369,11 @@ def _service_identity(config: BootstrapConfig) -> tuple[int, int]:
 
 
 def _read_systemd_claim(credentials_dir: Path, credential_name: str) -> str:
+    _require_safe_directory(credentials_dir)
     path = credentials_dir / credential_name
-    descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
-    try:
-        metadata = os.fstat(descriptor)
-        if not stat.S_ISREG(metadata.st_mode) or metadata.st_size <= 0 or metadata.st_size > 512:
-            raise ValueError("Invalid systemd claim credential")
-        raw = os.read(descriptor, 513)
-    finally:
-        os.close(descriptor)
+    raw = _read_regular_bytes(path, maximum_bytes=512)
+    if not raw:
+        raise ValueError("Invalid systemd claim credential")
     if len(raw) > 512:
         raise ValueError("Invalid systemd claim credential")
     try:
@@ -389,27 +410,40 @@ def _is_opaque_device_token(value: object) -> bool:
     )
 
 
-def _existing_credential_state(path: Path, *, uid: int, gid: int) -> Literal["missing", "valid", "invalid"]:
+def _existing_credential_state(
+    path: Path, *, uid: int, gid: int
+) -> Literal["missing", "valid", "invalid"]:
+    try:
+        _require_safe_parent_path(path)
+    except OSError:
+        return "invalid"
     try:
         metadata = path.lstat()
     except FileNotFoundError:
         return "missing"
     except OSError:
         return "invalid"
-    if not stat.S_ISREG(metadata.st_mode) or not _verify_owned_mode(path, uid=uid, gid=gid):
+    if not stat.S_ISREG(metadata.st_mode) or not _verify_owned_mode(
+        path, uid=uid, gid=gid
+    ):
         return "invalid"
     try:
-        token = path.read_text(encoding="ascii")
+        token = _read_regular_bytes(path, maximum_bytes=_TOKEN_LENGTH).decode("ascii")
     except (OSError, UnicodeDecodeError):
         return "invalid"
     return "valid" if _is_opaque_device_token(token) else "invalid"
 
 
-def _verified_credential_matches(path: Path, expected: str, *, uid: int, gid: int) -> bool:
+def _verified_credential_matches(
+    path: Path, expected: str, *, uid: int, gid: int
+) -> bool:
     if _existing_credential_state(path, uid=uid, gid=gid) != "valid":
         return False
     try:
-        return path.read_text(encoding="ascii") == expected
+        return (
+            _read_regular_bytes(path, maximum_bytes=_TOKEN_LENGTH).decode("ascii")
+            == expected
+        )
     except (OSError, UnicodeDecodeError):
         return False
 
@@ -424,7 +458,10 @@ def _discard_unverified_new_credential(
             return
         if os.name != "nt" and (metadata.st_uid != uid or metadata.st_gid != gid):
             return
-        if path.read_text(encoding="ascii") != expected:
+        if (
+            _read_regular_bytes(path, maximum_bytes=_TOKEN_LENGTH).decode("ascii")
+            != expected
+        ):
             return
         path.unlink()
         _fsync_directory(path.parent)
@@ -434,6 +471,7 @@ def _discard_unverified_new_credential(
 
 def _verify_owned_mode(path: Path, *, uid: int, gid: int) -> bool:
     try:
+        _require_safe_regular_path(path)
         metadata = path.lstat()
     except OSError:
         return False
@@ -453,7 +491,9 @@ def _verify_owned_mode(path: Path, *, uid: int, gid: int) -> bool:
 
 
 def _atomic_secret_write(path: Path, payload: bytes, *, uid: int, gid: int) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
+    _require_safe_parent_path(path)
+    if path.exists() or path.is_symlink():
+        _require_safe_regular_path(path)
     temporary = path.with_name(f".{path.name}.{secrets.token_hex(8)}.tmp")
     descriptor = os.open(
         temporary,
@@ -490,3 +530,83 @@ def _fsync_directory(path: Path) -> None:
         os.fsync(descriptor)
     finally:
         os.close(descriptor)
+
+
+def _is_sha256_hex(value: object) -> bool:
+    return (
+        isinstance(value, str)
+        and len(value) == 64
+        and all(character in "0123456789abcdef" for character in value)
+    )
+
+
+def _require_safe_directory(path: Path) -> None:
+    _require_safe_path_components(path, include_leaf=True)
+    try:
+        metadata = path.lstat()
+    except OSError:
+        raise
+    if not stat.S_ISDIR(metadata.st_mode):
+        raise OSError("Expected a directory")
+
+
+def _require_safe_parent_path(path: Path) -> None:
+    _require_safe_path_components(path, include_leaf=False)
+
+
+def _require_safe_regular_path(path: Path) -> None:
+    _require_safe_parent_path(path)
+    metadata = path.lstat()
+    if not stat.S_ISREG(metadata.st_mode):
+        raise OSError("Expected a regular file")
+
+
+def _read_regular_bytes(path: Path, *, maximum_bytes: int) -> bytes:
+    _require_safe_regular_path(path)
+    descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+    try:
+        metadata = os.fstat(descriptor)
+        if (
+            not stat.S_ISREG(metadata.st_mode)
+            or metadata.st_size < 0
+            or metadata.st_size > maximum_bytes
+        ):
+            raise OSError("Security-sensitive file has an invalid size")
+        chunks: list[bytes] = []
+        remaining = maximum_bytes + 1
+        while remaining:
+            chunk = os.read(descriptor, min(remaining, 4096))
+            if not chunk:
+                break
+            chunks.append(chunk)
+            remaining -= len(chunk)
+        raw = b"".join(chunks)
+        if len(raw) > maximum_bytes:
+            raise OSError("Security-sensitive file has an invalid size")
+        return raw
+    finally:
+        os.close(descriptor)
+
+
+def _require_safe_path_components(path: Path, *, include_leaf: bool) -> None:
+    """Reject symlinks and non-directories in each existing parent component.
+
+    ``O_NOFOLLOW`` protects the final descriptor.  Checking every component as
+    well prevents the writes and reads in this module from traversing an
+    attacker-controlled parent before that descriptor is opened.
+    """
+    if not path.is_absolute():
+        raise OSError("Security-sensitive path must be absolute")
+    parts = path.parts
+    if not parts:
+        raise OSError("Security-sensitive path is empty")
+    current = Path(parts[0])
+    limit = len(parts) if include_leaf else len(parts) - 1
+    for component in parts[1:limit]:
+        current = current / component
+        try:
+            metadata = current.lstat()
+        except FileNotFoundError:
+            raise OSError("Security-sensitive parent is missing") from None
+        if stat.S_ISLNK(metadata.st_mode) or not stat.S_ISDIR(metadata.st_mode):
+            raise OSError("Security-sensitive path traverses an unsafe parent")

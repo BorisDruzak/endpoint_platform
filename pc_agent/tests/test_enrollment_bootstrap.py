@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import json
 import logging
 import os
 import stat
@@ -59,8 +61,8 @@ def _config(tmp_path: Path) -> BootstrapConfig:
         endpoint_url="https://endpoint.example.test",
         ca_file=ca_file,
         installation_id="alt-install-001",
-        credential_path=tmp_path / "state" / "device-credential",
-        handoff_request_path=tmp_path / "state" / "claim-removal-request.json",
+        credential_path=enrollment_bootstrap.PERMANENT_CREDENTIAL_PATH,
+        handoff_request_path=enrollment_bootstrap.HANDOFF_REQUEST_PATH,
         # The production path is Linux-only.  The unit test runs on Windows,
         # where stat reports the synthetic zero owner/group.
         service_uid=0,
@@ -83,6 +85,43 @@ def _delivery() -> EnrollmentDelivery:
         device_id=UUID("9c83f6de-3435-4fc3-a7e0-7bcddc744f3b"),
         device_token=_TOKEN,
     )
+
+
+@pytest.fixture(autouse=True)
+def _isolated_fixed_production_locations(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Tests replace constants, never the BootstrapConfig runtime API."""
+    state = tmp_path / "state"
+    state.mkdir()
+    monkeypatch.setattr(
+        enrollment_bootstrap, "PERMANENT_CREDENTIAL_PATH", state / "device-credential"
+    )
+    monkeypatch.setattr(
+        enrollment_bootstrap,
+        "HANDOFF_REQUEST_PATH",
+        state / "claim-removal-request.json",
+    )
+
+
+def test_bootstrap_configuration_rejects_arbitrary_credential_and_handoff_paths(
+    tmp_path: Path,
+) -> None:
+    """The unprivileged runtime must not choose root-finalizer locations."""
+    ca_file = tmp_path / "ca.crt"
+    ca_file.write_text("test-ca", encoding="utf-8")
+    config = BootstrapConfig(
+        endpoint_url="https://endpoint.example.test",
+        ca_file=ca_file,
+        installation_id="alt-install-001",
+        credential_path=tmp_path / "unsafe" / "device-credential",
+        handoff_request_path=tmp_path / "unsafe" / "claim-removal-request.json",
+        service_uid=0,
+        service_gid=0,
+    )
+
+    with pytest.raises(ValueError, match="fixed production locations"):
+        config.validate()
 
 
 @pytest.mark.asyncio
@@ -108,12 +147,22 @@ async def test_success_persists_verified_service_credential_before_nonsecret_roo
     metadata = credential.stat()
     if os.name != "nt":
         assert stat.S_IMODE(metadata.st_mode) == 0o600
-        assert (metadata.st_uid, metadata.st_gid) == (config.service_uid, config.service_gid)
+        assert (metadata.st_uid, metadata.st_gid) == (
+            config.service_uid,
+            config.service_gid,
+        )
     assert (credentials_dir / "endpoint-enrollment-claim").read_text() == _CLAIM
     handoff = config.handoff_request_path.read_text(encoding="utf-8")
     assert _CLAIM not in handoff
     assert _TOKEN not in handoff
-    assert "endpoint-enrollment-claim" in handoff
+    handoff_payload = json.loads(handoff)
+    assert handoff_payload == {
+        "schema_version": "endpoint_claim_removal_request_v1",
+        "claim_credential_name": "endpoint-enrollment-claim",
+        "credential_path": str(config.credential_path),
+        "device_id": "9c83f6de-3435-4fc3-a7e0-7bcddc744f3b",
+        "credential_sha256": hashlib.sha256(_TOKEN.encode("ascii")).hexdigest(),
+    }
     assert transport.requests == [
         (
             "https://endpoint.example.test",
@@ -186,7 +235,7 @@ async def test_existing_verified_credential_preserves_identity_without_rereading
 ) -> None:
     """Catches re-enrolling an already provisioned service after a restart."""
     config = _config(tmp_path)
-    config.credential_path.parent.mkdir()
+    config.credential_path.parent.mkdir(exist_ok=True)
     config.credential_path.write_text(_TOKEN, encoding="utf-8")
     config.credential_path.chmod(0o600)
     transport = _Transport([])
@@ -203,10 +252,10 @@ async def test_existing_verified_credential_preserves_identity_without_rereading
 
 
 @pytest.mark.asyncio
-async def test_legacy_task15_systemd_credential_name_requires_explicit_compatibility_setting(
+async def test_legacy_task15_systemd_credential_name_is_rejected_by_the_fixed_protocol(
     tmp_path: Path,
 ) -> None:
-    """Catches silently relying on environment paths instead of LoadCredential files."""
+    """Only the service's reviewed credential name may reach finalization."""
     config = _config(tmp_path)
     config = BootstrapConfig(
         **{
@@ -228,8 +277,8 @@ async def test_legacy_task15_systemd_credential_name_requires_explicit_compatibi
         transport=transport,
     )
 
-    assert result.status == "enrolled"
-    assert transport.requests[0][2] == _CLAIM
+    assert result.status == "credential_invalid"
+    assert transport.requests == []
 
 
 @pytest.mark.asyncio
@@ -252,4 +301,60 @@ async def test_failed_postwrite_verification_removes_the_just_written_credential
 
     assert result.status == "persistence_failed"
     assert not config.credential_path.exists()
+    assert not config.handoff_request_path.exists()
+
+
+@pytest.mark.asyncio
+async def test_symlink_claim_source_is_rejected_before_any_enrollment_or_write(
+    tmp_path: Path,
+) -> None:
+    """Catches following an attacker-controlled credential source."""
+    config = _config(tmp_path)
+    credentials_dir = tmp_path / "credentials"
+    credentials_dir.mkdir()
+    original = tmp_path / "claim-source"
+    original.write_text(_CLAIM, encoding="utf-8")
+    (credentials_dir / "endpoint-enrollment-claim").symlink_to(original)
+    transport = _Transport([])
+
+    result = await bootstrap_enrollment(
+        credentials_dir,
+        config,
+        probe=lambda: _FINGERPRINT,
+        transport=transport,
+    )
+
+    assert result.status == "denied"
+    assert transport.requests == []
+    assert not config.credential_path.exists()
+    assert not config.handoff_request_path.exists()
+
+
+@pytest.mark.asyncio
+async def test_symlink_request_parent_leaves_verified_credential_and_claim_intact(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Catches following a symlink while preparing the root-finalizer request."""
+    unsafe_parent = tmp_path / "unsafe-request-parent"
+    target_parent = tmp_path / "request-target"
+    target_parent.mkdir()
+    unsafe_parent.symlink_to(target_parent, target_is_directory=True)
+    monkeypatch.setattr(
+        enrollment_bootstrap,
+        "HANDOFF_REQUEST_PATH",
+        unsafe_parent / "claim-removal-request.json",
+    )
+    config = _config(tmp_path)
+    credentials_dir = _credential_dir(tmp_path)
+
+    result = await bootstrap_enrollment(
+        credentials_dir,
+        config,
+        probe=lambda: _FINGERPRINT,
+        transport=_Transport([_delivery()]),
+    )
+
+    assert result.status == "handoff_pending"
+    assert config.credential_path.read_text(encoding="ascii") == _TOKEN
+    assert (credentials_dir / "endpoint-enrollment-claim").read_text() == _CLAIM
     assert not config.handoff_request_path.exists()

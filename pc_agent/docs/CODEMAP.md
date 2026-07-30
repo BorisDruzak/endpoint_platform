@@ -7,21 +7,21 @@
   integration explicitly calls `bootstrap_enrollment(credentials_dir, config,
   probe)` after systemd provides the credentials directory; importing the
   module never contacts a server or reads any secret.
-- It reads the claim only from a named `LoadCredential` file (primary
-  `endpoint-enrollment-claim`; the Task 15
-  `endpoint-agent-provisioning-handoff` name requires explicit config during
-  the package transition), derives and normalizes the hardware proof through
-  `endpoint_contracts`, and uses `/agent/v1/enroll` only over HTTPS with an
-  explicit CA file.
+- It reads the claim only from the fixed named `LoadCredential` file
+  `endpoint-enrollment-claim`, derives and normalizes the hardware proof
+  through `endpoint_contracts`, and uses `/agent/v1/enroll` only over HTTPS
+  with an explicit CA file.
 - The successful device bearer is atomically written as a service-user owned
   `0600` credential and rechecked before a non-secret root-removal request is
   written.  The agent never removes the root-owned claim source.  Temporary
   Gateway failures retry at most three times; denial, replay, expiry, mismatch
   and malformed input fail closed.  No claim, device bearer or raw response is
   written to logs, status, config or the root handoff request.
-- `pc_agent/tests/test_enrollment_bootstrap.py` covers persistence ordering,
-  bounded retry, terminal denial, restart identity preservation and the
-  explicit Task 15 credential-name seam.  The operation runbook is
+- The request is bound to the fixed credential pathname, fixed claim name,
+  returned device UUID and a SHA-256 proof of the verified permanent
+  credential. `pc_agent/tests/test_enrollment_bootstrap.py` covers persistence
+  ordering, bounded retry, terminal denial, restart identity preservation and
+  symlink rejection. The operation runbook is
   `docs/runbooks/ALT_AGENT_ENROLLMENT_BOOTSTRAP.md`.
 
 ## Device Context map (2026-07-29)

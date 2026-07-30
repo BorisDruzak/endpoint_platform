@@ -66,7 +66,8 @@ At runtime systemd exposes the three root-only inputs through its transient
 credential directory to the dedicated service user; their persistent source
 files stay unreadable to that account. The supplied ALT agent artifact must
 consume the `ENDPOINT_AGENT_CONFIG`, `ENDPOINT_AGENT_CA_FILE`, and
-`ENDPOINT_AGENT_PROVISIONING_HANDOFF_FILE` paths. Task 16 supplies the
+`ENDPOINT_AGENT_PROVISIONING_HANDOFF_FILE` paths; the latter is the fixed
+`endpoint-enrollment-claim` credential. Task 16 supplies the
 one-time enrollment implementation; this package deliberately does not invent
 or emulate a permanent credential.
 
@@ -81,8 +82,11 @@ mode `0600`, remove the one-time handoff using:
 sudo bash deploy/agent/alt/install-endpoint-agent.sh --finalize-handoff
 ```
 
-This is intentionally a separate, fail-closed action: it refuses to delete the
-handoff unless the permanent credential exists with the required ownership,
-mode, and non-empty content. A future test on `test-agent-lin` must record
-enrollment, scheduled baseline/health/network collections, update/rollback,
-and token-redacted journal evidence before any broader rollout.
+This is intentionally a separate, fail-closed action: it reads only the fixed
+`/var/lib/endpoint-agent/claim-removal-request.json` request, checks its schema,
+device UUID, credential path/name and SHA-256 credential proof, and rejects
+symlinked/unsafe path components before deleting the exact root claim source.
+It is idempotent after both the claim and request were removed. A future test on
+`test-agent-lin` must record enrollment, scheduled baseline/health/network
+collections, update/rollback, and token-redacted journal evidence before any
+broader rollout.

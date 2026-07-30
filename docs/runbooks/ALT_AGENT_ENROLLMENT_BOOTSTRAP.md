@@ -12,12 +12,12 @@ credentials directory, non-secret configuration and a hardware probe. It never
 accepts a campaign bearer, administrator token, environment claim, command-line
 secret, or legacy agent credential as an enrollment fallback.
 
-The primary systemd credential name is `endpoint-enrollment-claim`, supplied
-as `LoadCredential=endpoint-enrollment-claim:<root-owned-source>`. During the
-Task 15 package transition, the existing
-`endpoint-agent-provisioning-handoff` name can be selected only through the
-non-secret `BootstrapConfig.claim_credential_name` integration setting. The
-bootstrap never derives a credential pathname from an environment variable.
+The only systemd credential name is `endpoint-enrollment-claim`, supplied as
+`LoadCredential=endpoint-enrollment-claim:<root-owned-source>`. The bootstrap
+never derives a credential pathname from an environment variable, and its
+permanent credential and root-finalizer request locations are fixed at
+`/var/lib/endpoint-agent/device-credential` and
+`/var/lib/endpoint-agent/claim-removal-request.json`.
 
 ## Preconditions for a future service integration
 
@@ -42,15 +42,17 @@ credential.
 
 After a successful delivery, the permanent device credential is atomically
 written, fsynced, and rechecked for content, regular-file type, service
-ownership and mode. Only then does the agent write a mode-`0600`, non-secret
-claim-removal request containing the credential name, device ID and durable
-credential path. It contains neither the install claim nor the device bearer.
+ownership and mode. Only then does the agent write the fixed-schema,
+mode-`0600`, non-secret claim-removal request. It contains the fixed claim
+name/path, returned device UUID and SHA-256 proof of the verified permanent
+credential; it contains neither the install claim nor the device bearer.
 
-The agent cannot delete the root-owned source. A privileged controller must
-independently verify the durable credential and then perform its narrowly
-reviewed claim-source removal action (Task 15's finalizer). If this handoff
-request cannot be written, the durable identity remains valid and the claim is
-not removed automatically.
+The agent cannot delete the root-owned source. The installer finalizer reads
+only that fixed request, rejects unsafe/symlink path components or mismatched
+schema, device UUID, claim name, credential path or credential proof, and then
+removes only the exact installed claim source and request. Re-running it after
+both were removed is idempotent. If this handoff request cannot be written, the
+durable identity remains valid and the claim is not removed automatically.
 
 ## Verification before a live pilot
 

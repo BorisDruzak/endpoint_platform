@@ -17,6 +17,9 @@ readonly CONFIG_TARGET="${CONFIG_ROOT}/config.yaml"
 readonly CA_TARGET="${CONFIG_ROOT}/ca.crt"
 readonly HANDOFF_TARGET="${CONFIG_ROOT}/provisioning-claim"
 readonly PERMANENT_CREDENTIAL_TARGET="${DATA_ROOT}/device-credential"
+readonly HANDOFF_REQUEST_TARGET="${DATA_ROOT}/claim-removal-request.json"
+readonly CLAIM_CREDENTIAL_NAME=endpoint-enrollment-claim
+readonly HANDOFF_REQUEST_SCHEMA_VERSION=endpoint_claim_removal_request_v1
 
 endpoint=''
 ca_file=''
@@ -59,7 +62,27 @@ require_https_endpoint() {
 
 require_regular_file() {
     local label=$1 path=$2
+    require_safe_parent_components "$path"
     [[ -f "$path" && ! -L "$path" ]] || die "$label must be a regular local file"
+}
+
+require_safe_parent_components() {
+    local path=$1 parent component current
+    [[ "$path" == /* ]] || die 'security-sensitive path must be absolute'
+    parent=${path%/*}
+    [[ -n "$parent" && "$parent" != "$path" ]] || die 'security-sensitive path has no parent'
+    current=/
+    IFS=/ read -r -a _safe_path_components <<< "${parent#/}"
+    for component in "${_safe_path_components[@]}"; do
+        [[ -n "$component" ]] || continue
+        if [[ "$current" == / ]]; then
+            current="/$component"
+        else
+            current="$current/$component"
+        fi
+        [[ -d "$current" && ! -L "$current" ]] || \
+            die 'security-sensitive path traverses an unsafe parent'
+    done
 }
 
 require_root_secret_file() {
@@ -116,6 +139,30 @@ require_service_secret_file() {
     [[ "$owner" == "$expected_owner" ]] || die "$label must be owned by $SERVICE_USER:$SERVICE_GROUP"
     [[ "$group" == "$expected_group" ]] || die "$label must be owned by $SERVICE_USER:$SERVICE_GROUP"
     [[ -s "$path" ]] || die "$label must not be empty"
+}
+
+require_opaque_permanent_credential() {
+    local contents size
+    require_service_secret_file 'permanent credential' "$PERMANENT_CREDENTIAL_TARGET"
+    size=$(wc -c < "$PERMANENT_CREDENTIAL_TARGET")
+    [[ "$size" == '43' ]] || die 'permanent credential has an invalid length'
+    contents=$(<"$PERMANENT_CREDENTIAL_TARGET")
+    [[ "$contents" =~ ^[A-Za-z0-9_-]{43}$ ]] || \
+        die 'permanent credential has an invalid format'
+}
+
+validate_handoff_request() {
+    local request request_pattern credential_digest actual_digest
+    require_service_secret_file 'claim-removal request' "$HANDOFF_REQUEST_TARGET"
+    request=$(<"$HANDOFF_REQUEST_TARGET")
+    [[ ${#request} -le 512 ]] || die 'claim-removal request is too large'
+    request_pattern='^\{"claim_credential_name":"endpoint-enrollment-claim","credential_path":"/var/lib/endpoint-agent/device-credential","credential_sha256":"([0-9a-f]{64})","device_id":"[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}","schema_version":"endpoint_claim_removal_request_v1"\}$'
+    [[ "$request" =~ $request_pattern ]] || \
+        die 'claim-removal request has an invalid schema or binding'
+    credential_digest=${BASH_REMATCH[1]}
+    actual_digest=$(sha256sum -- "$PERMANENT_CREDENTIAL_TARGET" | awk '{ print $1 }')
+    [[ "$actual_digest" == "$credential_digest" ]] || \
+        die 'claim-removal request does not prove the permanent credential'
 }
 
 validate_ca() {
@@ -204,10 +251,23 @@ install_package() {
 finalize_handoff() {
     require_root
     validate_existing_service_account
-    require_service_secret_file 'permanent credential' "$PERMANENT_CREDENTIAL_TARGET"
-    [[ -f "$HANDOFF_TARGET" ]] || die 'no installed provisioning handoff exists'
-    rm -f "$HANDOFF_TARGET"
-    printf 'one-time provisioning handoff removed after verified permanent credential persistence\n'
+    if [[ ! -e "$HANDOFF_REQUEST_TARGET" && ! -L "$HANDOFF_REQUEST_TARGET" ]]; then
+        if [[ ! -e "$HANDOFF_TARGET" && ! -L "$HANDOFF_TARGET" ]]; then
+            printf 'one-time provisioning handoff was already finalized\n'
+            return
+        fi
+        die 'no verified claim-removal request exists'
+    fi
+    require_opaque_permanent_credential
+    validate_handoff_request
+    if [[ -e "$HANDOFF_TARGET" || -L "$HANDOFF_TARGET" ]]; then
+        require_root_secret_file 'installed provisioning handoff' "$HANDOFF_TARGET"
+    fi
+    # These are the only state-changing operations.  Both locations are fixed
+    # constants, validated immediately above, and no caller-supplied pathname
+    # can reach this finalizer.
+    rm -f -- "$HANDOFF_TARGET" "$HANDOFF_REQUEST_TARGET"
+    printf 'one-time provisioning handoff finalized after verified credential proof\n'
 }
 
 while [[ $# -gt 0 ]]; do
