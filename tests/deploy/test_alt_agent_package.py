@@ -152,6 +152,28 @@ def test_installer_validates_fixed_destinations_before_any_root_write() -> None:
     )
 
 
+def test_installer_preflights_the_binary_leaf_before_account_creation_and_move() -> None:
+    """Catches an unsafe executable leaf reaching useradd or the final mv."""
+    installer = _text(INSTALLER)
+
+    assert 'readonly BINARY_TARGET="${INSTALL_ROOT}/endpoint-agent"' in installer
+    assert 'validate_fixed_regular_target_or_absent "$BINARY_TARGET" root 755' in installer
+
+    package_body = installer[
+        installer.index("install_package() {") : installer.index("finalize_handoff() {")
+    ]
+    assert package_body.index("validate_install_destinations") < package_body.index(
+        "ensure_service_account"
+    )
+
+    install_body = installer[
+        installer.index("install_atomically() {") : installer.index("install_package() {")
+    ]
+    final_validation = install_body.rindex("validate_install_destinations")
+    binary_move = install_body.index('mv -f "$binary_stage" "$BINARY_TARGET"')
+    assert final_validation < binary_move
+
+
 def test_config_and_runbook_preserve_one_time_token_handoff_boundary() -> None:
     config = _text(CONFIG)
     runbook = _text(RUNBOOK)

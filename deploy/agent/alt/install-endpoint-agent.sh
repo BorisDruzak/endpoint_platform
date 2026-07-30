@@ -13,6 +13,7 @@ readonly LOG_ROOT=/var/log/endpoint-agent
 readonly SERVICE_NAME=endpoint-agent.service
 readonly SERVICE_USER=endpoint-agent
 readonly SERVICE_GROUP=endpoint-agent
+readonly BINARY_TARGET="${INSTALL_ROOT}/endpoint-agent"
 readonly CONFIG_TARGET="${CONFIG_ROOT}/config.yaml"
 readonly CA_TARGET="${CONFIG_ROOT}/ca.crt"
 readonly HANDOFF_TARGET="${CONFIG_ROOT}/provisioning-claim"
@@ -83,6 +84,28 @@ require_safe_parent_components() {
             current="/$component"
         else
             current="$current/$component"
+        fi
+        [[ -d "$current" ]] && ! path_is_symlink "$current" || \
+            die "security-sensitive path traverses an unsafe parent: $current"
+    done
+}
+
+require_safe_existing_parent_components() {
+    local path=$1 parent component current
+    [[ "$path" == /* ]] || die 'security-sensitive path must be absolute'
+    parent=${path%/*}
+    [[ -n "$parent" && "$parent" != "$path" ]] || die 'security-sensitive path has no parent'
+    current=/
+    IFS=/ read -r -a _safe_path_components <<< "${parent#/}"
+    for component in "${_safe_path_components[@]}"; do
+        [[ -n "$component" ]] || continue
+        if [[ "$current" == / ]]; then
+            current="/$component"
+        else
+            current="$current/$component"
+        fi
+        if [[ ! -e "$current" && ! -L "$current" ]]; then
+            continue
         fi
         [[ -d "$current" ]] && ! path_is_symlink "$current" || \
             die "security-sensitive path traverses an unsafe parent: $current"
@@ -166,9 +189,12 @@ validate_fixed_directory_or_absent() {
 
 validate_fixed_regular_target_or_absent() {
     local path=$1 ownership=$2 expected_mode=$3
-    require_safe_parent_components "$path"
     path_is_symlink "$path" && die 'fixed destination file must not be a symlink'
-    [[ ! -e "$path" ]] && return
+    if [[ ! -e "$path" ]]; then
+        require_safe_existing_parent_components "$path"
+        return
+    fi
+    require_safe_parent_components "$path"
     [[ -f "$path" ]] || die 'fixed destination must be a regular file'
     require_exact_owner_and_mode 'fixed destination file' "$path" "$ownership" "$expected_mode"
 }
@@ -189,6 +215,7 @@ validate_install_destinations() {
     validate_fixed_directory_or_absent "$CONFIG_ROOT" root 755
     validate_fixed_directory_or_absent "$DATA_ROOT" service 750
     validate_fixed_directory_or_absent "$LOG_ROOT" service 750
+    validate_fixed_regular_target_or_absent "$BINARY_TARGET" root 755
     validate_fixed_regular_target_or_absent "$CONFIG_TARGET" root 600
     validate_fixed_regular_target_or_absent "$CA_TARGET" root 600
     validate_fixed_regular_target_or_absent "$HANDOFF_TARGET" root 600
@@ -324,7 +351,7 @@ install_atomically() {
     install -d -o root -g root -m 0755 "$INSTALL_ROOT" "$CONFIG_ROOT"
     install -d -o "$SERVICE_USER" -g "$SERVICE_GROUP" -m 0750 "$DATA_ROOT" "$LOG_ROOT"
     validate_install_destinations
-    mv -f "$binary_stage" "$INSTALL_ROOT/endpoint-agent"
+    mv -f "$binary_stage" "$BINARY_TARGET"
     mv -f "$config_stage.secure" "$CONFIG_TARGET"
     mv -f "$ca_stage" "$CA_TARGET"
     mv -f "$handoff_stage" "$HANDOFF_TARGET"
@@ -341,6 +368,7 @@ install_package() {
         return
     fi
     require_root
+    validate_install_destinations
     ensure_service_account
     install_atomically
     command -v systemctl >/dev/null 2>&1 || die 'systemctl is required after package files are installed'
