@@ -149,16 +149,20 @@ a 43-character URL-safe opaque value; semantic names such as `claim` or
 `token` are intentionally not treated as findings. Every eligible file is
 scanned independently: file content is never concatenated. Files larger than
 1 MiB and content containing a NUL byte are counted as exclusions, while an
-unreadable file fails the scan closed. Test source is not treated as a runtime
-fixture.
+unreadable file or failed input-path enumeration fails the scan closed. Every
+recursive enumeration includes hidden items and treats missing or inaccessible
+paths as terminating errors, so a partial list cannot be scanned as if it were
+complete. Test source is not treated as a runtime fixture.
 
 ```powershell
+$ErrorActionPreference = 'Stop'
 $endpoint = 'C:\Users\admin-2\Documents\endpoint'
 $web = 'C:\Users\admin-2\Documents\web_ovpn-device-context'
 $archive = 'C:\Temp\endpoint-task4-18366b1c92f640388c9b561917a952f8\endpoint-alt-package-b3f427b.tar.gz'
-$extract = Join-Path ([IO.Path]::GetTempPath()) 'endpoint-task4-scan'
-New-Item -ItemType Directory -Force -Path $extract | Out-Null
+$extract = Join-Path ([IO.Path]::GetTempPath()) ('endpoint-task4-scan-' + [guid]::NewGuid().ToString('N'))
+New-Item -ItemType Directory -Path $extract -ErrorAction Stop | Out-Null
 tar -xzf $archive -C $extract
+if ($LASTEXITCODE -ne 0) { throw 'archive extraction failed' }
 $claim = [regex]'(?<![A-Za-z0-9_-])ic_[0-9a-f]{32}\.[A-Za-z0-9_-]{20,}(?![A-Za-z0-9_-])'
 $opaque = [regex]'(?<![A-Za-z0-9_-])[A-Za-z0-9_-]{43}(?![A-Za-z0-9_-])'
 function Measure-Content([string]$label, [string]$content) {
@@ -178,14 +182,15 @@ function Scan-Files([string]$label, [IO.FileInfo[]]$files) {
   }
   "$label files=$count excluded_large=$large excluded_binary=$binary claim_candidates=$claims opaque_43_candidates=$opaqueValues"
 }
-Scan-Files 'fixtures' @(Get-ChildItem "$endpoint\tests\fixtures" -Recurse -File)
-Scan-Files 'artifacts' @(Get-ChildItem "$endpoint\artifacts" -Recurse -File)
-Scan-Files 'logs' @(Get-ChildItem $endpoint -Recurse -File -Filter '*.log')
+Scan-Files 'fixtures' @(Get-ChildItem -LiteralPath "$endpoint\tests\fixtures" -Recurse -Force -File -ErrorAction Stop)
+Scan-Files 'artifacts' @(Get-ChildItem -LiteralPath "$endpoint\artifacts" -Recurse -Force -File -ErrorAction Stop)
+Scan-Files 'logs' @(Get-ChildItem -LiteralPath $endpoint -Recurse -Force -File -Filter '*.log' -ErrorAction Stop)
 Scan-Files 'env_examples' @(
-  Get-ChildItem $endpoint -Recurse -Force -File -Filter '.env.example'
-  Get-ChildItem $web -Recurse -Force -File -Filter '.env.example'
+  Get-ChildItem -LiteralPath $endpoint -Recurse -Force -File -Filter '.env.example' -ErrorAction Stop
+  Get-ChildItem -LiteralPath $web -Recurse -Force -File -Filter '.env.example' -ErrorAction Stop
 )
-Scan-Files 'built_alt_archive_payload' @(Get-ChildItem $extract -Recurse -File)
+Scan-Files 'built_alt_archive_payload' @(Get-ChildItem -LiteralPath $extract -Recurse -Force -File -ErrorAction Stop)
+Measure-Content 'staged_report_diff' ((git -C $endpoint diff --cached --no-ext-diff -- '.superpowers/sdd/2026-07-30-alt-provisioning-claims/provision-task4-report.md') | Out-String)
 Measure-Content 'final_committed_diff' ((git -C $endpoint show --format= --no-ext-diff HEAD) | Out-String)
 git -C $endpoint show --check HEAD
 ```
@@ -204,13 +209,30 @@ if ($claim.Matches($artificialFile1).Count + $claim.Matches($artificialFile2).Co
 'boundary_self_test=pass'
 ```
 
-The revised procedure was executed locally. The boundary self-test passed. The
-results were: fixtures `16/0/0/0/0`, artifacts `3/0/0/0/0`, logs `5/0/0/0/0`,
-environment examples `12/0/0/0/0`, and temporary archive payload `4/0/0/0/0`.
-Each tuple is `eligible files / large exclusions / binary exclusions /
-claim-shaped candidates / opaque-value candidates`. There were no unreadable
-files; an unreadable file would have failed the procedure. The pre-revision
-committed diff also had zero claim-shaped and zero opaque-value candidates.
+The scanner also includes this absent-input self-test. The path is generated
+in memory and is never created. The test succeeds only when recursive
+enumeration raises a terminating error; it prints no path or exception content:
+
+```powershell
+$absentInput = Join-Path ([IO.Path]::GetTempPath()) ('endpoint-task4-absent-' + [guid]::NewGuid().ToString('N'))
+$absentEnumerationStopped = $false
+try {
+  $null = @(Get-ChildItem -LiteralPath $absentInput -Recurse -Force -File -ErrorAction Stop)
+} catch {
+  $absentEnumerationStopped = $true
+}
+if (-not $absentEnumerationStopped) { throw 'absent enumeration input did not stop scan' }
+'absent_enumeration_self_test=pass'
+```
+
+The revised procedure was executed locally. The boundary and absent-enumeration
+self-tests both passed. The results were: fixtures `16/0/0/0/0`, artifacts
+`3/0/0/0/0`, logs `5/0/0/0/0`, environment examples `12/0/0/0/0`, and
+temporary archive payload `4/0/0/0/0`. Each tuple is `eligible files / large
+exclusions / binary exclusions / claim-shaped candidates / opaque-value
+candidates`. There were no unreadable files or enumeration failures; either
+condition would have stopped the procedure. The pre-revision committed diff
+also had zero claim-shaped and zero opaque-value candidates.
 
 For this evidence revision, the report is force-added because the SDD ledger
 directory is intentionally ignored. The exact staged report diff is scanned
@@ -218,6 +240,36 @@ immediately before commit with the same two value heuristics, and the committed
 diff is scanned again after commit. Both results are recorded as zero
 claim-shaped and zero opaque-value candidates; `git show --check HEAD` exits
 zero. The panel worktree stays at zero diff.
+
+### Fail-closed enumeration evidence
+
+The P2 correction was verified on 2026-07-30 by rerunning the scanner above
+with this report staged. It produced only the following counts and status
+labels; no matching content was emitted:
+
+```text
+fixtures files=16 excluded_large=0 excluded_binary=0 claim_candidates=0 opaque_43_candidates=0
+artifacts files=3 excluded_large=0 excluded_binary=0 claim_candidates=0 opaque_43_candidates=0
+logs files=5 excluded_large=0 excluded_binary=0 claim_candidates=0 opaque_43_candidates=0
+env_examples files=12 excluded_large=0 excluded_binary=0 claim_candidates=0 opaque_43_candidates=0
+built_alt_archive_payload files=4 excluded_large=0 excluded_binary=0 claim_candidates=0 opaque_43_candidates=0
+staged_report_diff claim_candidates=0 opaque_43_candidates=0
+pre_correction_committed_diff claim_candidates=0 opaque_43_candidates=0
+boundary_self_test=pass
+absent_enumeration_self_test=pass
+```
+
+The absent-input proof used a generated path that was never created. Its pass
+status therefore demonstrates that `Get-ChildItem` raised a terminating error
+instead of returning an empty or partial file list. The staged diff is rescanned
+after recording these results and immediately before the correction commit.
+The correction commit's final diff was then scanned with the same value-only
+heuristics:
+
+```text
+final_committed_diff claim_candidates=0 opaque_43_candidates=0
+git_show_check=pass
+```
 
 ## Deployment gate
 
