@@ -9,10 +9,10 @@ Deliver Wave 1 Device Context, then expose normalized projections in web_ovpn wi
 6A enrollment and update control-plane work are merged locally. Device Context
 foundation has passed independent review and local acceptance: strict profiles,
 bounded ALT collectors, fixed Gateway capabilities, additive lifecycle/snapshot
-storage, safe service routes, scheduler and retention. The typed safe SDK and
-feature-gated `web_ovpn` adapter API are also implemented in clean local
-worktrees. UI history/compare remediation and netctl correlation remain before
-a test-agent pilot.
+storage, safe service routes, scheduler and retention. The typed safe SDK plus
+the feature-gated `web_ovpn` adapter API and Russian-first endpoint pages have
+also passed local review in clean worktrees. Explicit netctl correlation,
+ALT packaging/provisioning, and a test-agent pilot remain.
 
 ## Constraints
 
@@ -29,11 +29,9 @@ a test-agent pilot.
 
 ## Next Steps
 
-1. Finish baseline-history API review, then complete and review the
-   `web_ovpn` history/compare UI remediation.
-2. Implement explicit netctl correlation without IP-only matching.
-3. Prepare ALT packaging/provisioning and validate it on the test agent.
-4. At the production gate, check current disk capacity, install PostgreSQL and
+1. Implement explicit netctl correlation without IP-only matching.
+2. Prepare ALT packaging/provisioning and validate it on the test agent.
+3. At the production gate, check current disk capacity, install PostgreSQL and
    Nginx, transfer the CA through a controlled deployment path, and apply
    migrations only after a verified deploy.
 
