@@ -1,0 +1,42 @@
+[Unit]
+Description=Endpoint Platform ALT agent
+Documentation=file:///usr/share/doc/endpoint-agent/ALT_AGENT_INSTALL.md
+Wants=network-online.target
+After=network-online.target
+ConditionPathExists=/opt/endpoint-agent/endpoint-agent
+
+[Service]
+Type=simple
+User=endpoint-agent
+Group=endpoint-agent
+Environment=PC_AGENT_DATA_DIR=/var/lib/endpoint-agent
+Environment=PC_AGENT_INSTALL_ROOT=/opt/endpoint-agent
+LoadCredential=endpoint-agent-config:/etc/endpoint-agent/config.yaml
+LoadCredential=endpoint-agent-ca:/etc/endpoint-agent/ca.crt
+LoadCredential=endpoint-agent-provisioning-handoff:/etc/endpoint-agent/provisioning-claim
+Environment=ENDPOINT_AGENT_CONFIG=%d/endpoint-agent-config
+Environment=ENDPOINT_AGENT_CA_FILE=%d/endpoint-agent-ca
+Environment=ENDPOINT_AGENT_PROVISIONING_HANDOFF_FILE=%d/endpoint-agent-provisioning-handoff
+ExecStart=/opt/endpoint-agent/endpoint-agent --no-gui --data-dir /var/lib/endpoint-agent --install-root /opt/endpoint-agent
+Restart=on-failure
+RestartSec=5s
+TimeoutStartSec=45s
+TimeoutStopSec=30s
+StateDirectory=endpoint-agent
+LogsDirectory=endpoint-agent
+ReadWritePaths=/var/lib/endpoint-agent /var/log/endpoint-agent
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+ProtectKernelModules=true
+LockPersonality=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+SystemCallArchitectures=native
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target
