@@ -21,10 +21,14 @@ manifest.json
 
 `manifest.json` declares a bounded release version, the source revision, and
 SHA-256 digests for every regular payload file. It contains no endpoint URL,
-CA, claim, device credential, or user-specific configuration. The builder
-rejects symlinks and unexpected paths. The installer verifies the manifest,
-file digests, executable bits, and required `launcher` / `pc_agent` leaves
-before making any host change.
+CA, claim, device credential, or user-specific configuration. The final bundle
+contains no symlinks. The builder copies ordinary source files directly and
+dereferences only a PyInstaller onedir symlink that resolves to a regular file
+inside the source `pc_agent/` tree; the copied destination is an ordinary file
+at the same logical path. Top-level, dangling, directory, cyclic, and
+out-of-tree symlinks remain rejected, as do unexpected paths. The installer
+verifies the manifest, file digests, executable bits, and required `launcher`
+/ `pc_agent` leaves before making any host change.
 
 ## Build and install flow
 
@@ -58,8 +62,9 @@ before making any host change.
 
 ## Verification
 
-Tests cover manifest traversal/symlink rejection, digest mismatch, incomplete
-payload rejection, atomic selection, and rollback. A test-host run verifies
+Tests cover manifest traversal, unsafe source-symlink rejection, safe in-tree
+PyInstaller-link normalization, final-bundle symlink absence, digest mismatch,
+incomplete payload rejection, atomic selection, and rollback. A test-host run verifies
 the real Linux PyInstaller output, first-boot enrollment, handoff finalization,
 service restart identity persistence, baseline collection, update, and
 rollback. Logs and acceptance evidence are scanned for claim and permanent

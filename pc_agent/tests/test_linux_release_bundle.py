@@ -72,6 +72,30 @@ def test_assemble_bundle_writes_a_complete_sorted_schema_one_manifest(tmp_path: 
     assert (bundle / "pc_agent" / "_internal" / "a.dat").read_bytes() == b"a\n"
 
 
+def test_assemble_bundle_normalizes_an_in_tree_payload_symlink(tmp_path: Path) -> None:
+    """PyInstaller runtime links must become ordinary attested bundle files."""
+    source = _valid_source(tmp_path)
+    target = source / "pc_agent" / "_internal" / "runtime.dat"
+    _write_payload(target, b"runtime\n", 0o755)
+    link = source / "pc_agent" / "_internal" / "runtime-link.so"
+    try:
+        os.symlink("runtime.dat", link)
+    except OSError as exc:
+        pytest.skip(f"symlinks are not available in this test environment: {exc}")
+
+    bundle = assemble_bundle(source, tmp_path / "output", "3.2.1", "6985dd0b89ff6626")
+
+    copied_link = bundle / "pc_agent" / "_internal" / "runtime-link.so"
+    assert not copied_link.is_symlink()
+    assert copied_link.read_bytes() == b"runtime\n"
+    if os.name != "nt":
+        assert stat.S_IMODE(copied_link.stat().st_mode) == 0o755
+    manifest = json.loads((bundle / "manifest.json").read_text(encoding="utf-8"))
+    assert {entry["path"] for entry in manifest["files"]} >= {
+        "pc_agent/_internal/runtime-link.so"
+    }
+
+
 def test_assemble_bundle_rejects_an_unexpected_source_entry(tmp_path: Path) -> None:
     """A top-level file other than launcher must not become an unverified install input."""
     source = _valid_source(tmp_path)
@@ -81,12 +105,28 @@ def test_assemble_bundle_rejects_an_unexpected_source_entry(tmp_path: Path) -> N
         assemble_bundle(source, tmp_path / "output", "3.2.1", "6985dd0b89ff6626")
 
 
-def test_assemble_bundle_rejects_a_symlink_in_the_payload(tmp_path: Path) -> None:
-    """Following a symlink could add files outside the reviewed build output."""
+def test_assemble_bundle_rejects_an_out_of_tree_symlink_in_the_payload(tmp_path: Path) -> None:
+    """A payload link may not pull bytes from outside the reviewed onedir tree."""
     source = _valid_source(tmp_path)
+    outside = tmp_path / "outside.dat"
+    _write_payload(outside, b"outside\n", 0o644)
     link = source / "pc_agent" / "_internal" / "linked.dat"
     try:
-        os.symlink(source / "pc_agent" / "_internal" / "a.dat", link)
+        os.symlink(outside, link)
+    except OSError as exc:
+        pytest.skip(f"symlinks are not available in this test environment: {exc}")
+
+    with pytest.raises(ValueError, match="symbolic link"):
+        assemble_bundle(source, tmp_path / "output", "3.2.1", "6985dd0b89ff6626")
+
+
+def test_assemble_bundle_rejects_a_top_level_symlink(tmp_path: Path) -> None:
+    """The launcher source itself must never be resolved through a link."""
+    source = _valid_source(tmp_path)
+    launcher = source / "launcher"
+    launcher.unlink()
+    try:
+        os.symlink(source / "pc_agent" / "pc_agent", launcher)
     except OSError as exc:
         pytest.skip(f"symlinks are not available in this test environment: {exc}")
 

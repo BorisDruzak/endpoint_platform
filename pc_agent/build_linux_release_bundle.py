@@ -45,6 +45,19 @@ def _regular_source_files(source: Path) -> list[tuple[Path, str]]:
     agent_root = entries.get("pc_agent")
     if agent_root is None or not agent_root.is_dir() or agent_root.is_symlink():
         raise ValueError("required payload file is missing or not regular: pc_agent/pc_agent")
+    resolved_agent_root = agent_root.resolve(strict=True)
+
+    def normalized_payload_link(entry: Path, relative: Path) -> Path:
+        """Return an in-tree regular link target suitable for a regular output file."""
+        try:
+            target = entry.resolve(strict=True)
+            target.relative_to(resolved_agent_root)
+        except (OSError, RuntimeError, ValueError) as exc:
+            raise ValueError(f"symbolic link is not allowed: {relative.as_posix()}") from exc
+        target_mode = target.lstat().st_mode
+        if not stat.S_ISREG(target_mode):
+            raise ValueError(f"symbolic link is not allowed: {relative.as_posix()}")
+        return target
 
     files: list[tuple[Path, str]] = [(launcher, "launcher")]
 
@@ -52,7 +65,8 @@ def _regular_source_files(source: Path) -> list[tuple[Path, str]]:
         for entry in sorted(directory.iterdir(), key=lambda item: item.name):
             entry_relative = relative / entry.name
             if entry.is_symlink():
-                raise ValueError(f"symbolic link is not allowed: {entry_relative.as_posix()}")
+                files.append((normalized_payload_link(entry, entry_relative), entry_relative.as_posix()))
+                continue
             entry_mode = entry.lstat().st_mode
             if stat.S_ISREG(entry_mode):
                 files.append((entry, entry_relative.as_posix()))

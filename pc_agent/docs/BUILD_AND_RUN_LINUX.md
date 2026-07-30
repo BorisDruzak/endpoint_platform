@@ -148,6 +148,13 @@ The result is the transient directory
 contents), and `manifest.json`. Do not commit this output or store a CA,
 claim credential, token, server URL, or agent configuration in it.
 
+PyInstaller may create file symlinks inside its temporary `dist/pc_agent/`
+tree (for example Qt runtime libraries). The release builder accepts only a
+payload link that resolves to a regular file inside that same `pc_agent/` tree,
+then copies its bytes into an ordinary file at the same bundle path. The final
+bundle therefore contains no symlinks; a top-level, dangling, directory, cyclic
+or out-of-tree link aborts the build.
+
 To assemble already-built output without invoking PyInstaller, pass its
 directory explicitly. `--revision` records the reviewed source revision; when
 omitted, the builder records `git rev-parse HEAD` from the repository.
