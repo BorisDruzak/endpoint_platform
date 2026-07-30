@@ -12,8 +12,10 @@ bounded ALT collectors, fixed Gateway capabilities, additive lifecycle/snapshot
 storage, safe service routes, scheduler and retention. The typed safe SDK plus
 the feature-gated `web_ovpn` adapter API and Russian-first endpoint pages have
 also passed local review in clean worktrees. Explicit netctl correlation has
-also passed review without IP-only matching. ALT packaging/provisioning and a
-test-agent pilot remain.
+also passed review without IP-only matching. ALT packaging/provisioning and the
+isolated test-agent acceptance harness are complete. A valid wildcard
+`*.sosnadmin.local` certificate is in active use on the TLS source host; its
+private key has not been copied into the workspace.
 
 ## Constraints
 
@@ -30,10 +32,13 @@ test-agent pilot remain.
 
 ## Next Steps
 
-1. Prepare ALT packaging/provisioning and validate it on the test agent.
-2. At the production gate, check current disk capacity, install PostgreSQL and
-   Nginx, transfer the CA through a controlled deployment path, and apply
-   migrations only after a verified deploy.
+1. At the production gate, re-check production capacity and verify the exact
+   committed application release and its local test gate.
+2. Install and configure PostgreSQL and Nginx on the Endpoint production host,
+   transfer the verified wildcard certificate and key through a controlled
+   deployment path without persisting them in Git or the workspace, then apply
+   migrations only after the application deployment is verified.
+3. Run the agent pilot only after the production API and TLS smoke checks pass.
 
 ## Verification
 
@@ -45,7 +50,8 @@ current snapshot, its prior snapshot and explicit pins.
 
 ## Handoff
 
-No remote migration, ALT install, web_ovpn deployment or network change is
-authorized by this plan. The `web_ovpn` service token/client, netctl
-correlation and real pilot are distinct later deliverables.
+No remote migration, web_ovpn deployment or network change is authorized
+before the production deployment gate passes. The `web_ovpn` service
+token/client, netctl correlation and real pilot are distinct later
+deliverables.
 
