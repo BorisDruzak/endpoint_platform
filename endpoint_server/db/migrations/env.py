@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 from logging.config import fileConfig
 
 from alembic import context
@@ -10,10 +11,12 @@ from sqlalchemy import pool
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from endpoint_server.db.base import Base
+from endpoint_server.db.migrations.runtime_config import configure_database_url
 import endpoint_server.db.models  # noqa: F401
 
 
 config = context.config
+configure_database_url(config, os.environ)
 if config.config_file_name:
     fileConfig(config.config_file_name)
 

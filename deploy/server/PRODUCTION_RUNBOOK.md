@@ -23,6 +23,7 @@ environment file, certificate, or secret:
 $releaseCommit = git rev-parse --short=12 HEAD
 git archive --format=tar.gz --prefix="endpoint-platform-$releaseCommit/" HEAD endpoint_server endpoint_contracts alembic.ini requirements-server.txt |
   ssh endpoint-platform-server "sudo install -d -m 0755 /opt/endpoint-platform/releases; sudo tee /tmp/endpoint-platform-$releaseCommit.tar.gz > /dev/null"
+ssh endpoint-platform-server "printf '%s\n' '$releaseCommit' | sudo install -o root -g root -m 0644 /dev/stdin /etc/endpoint-platform/release-commit"
 ```
 
 ## 2. Re-check production conditions
@@ -49,6 +50,10 @@ sudo adduser --system --group --home /var/lib/endpoint-platform --shell /usr/sbi
 sudo install -d -o root -g root -m 0755 /opt/endpoint-platform/releases /etc/endpoint-platform
 sudo install -d -o endpoint-platform -g endpoint-platform -m 0750 /var/lib/endpoint-platform/artifacts
 sudo install -d -o root -g root -m 0700 /etc/endpoint-platform/secrets
+sudo -u postgres psql -v ON_ERROR_STOP=1 -c "ALTER SYSTEM SET listen_addresses = '127.0.0.1,::1'"
+sudo systemctl restart postgresql
+sudo -u postgres psql -Atqc "SHOW listen_addresses"
+sudo ss -ltnp | grep postgres
 ```
 
 Create the root-owned `0600` environment file and three independent regular
@@ -92,13 +97,19 @@ Extract the uploaded archive to its immutable versioned directory and create
 the virtual environment:
 
 ```bash
-sudo tar -xzf "/tmp/endpoint-platform-$releaseCommit.tar.gz" -C /opt/endpoint-platform/releases
-sudo rm -f "/tmp/endpoint-platform-$releaseCommit.tar.gz"
-sudo python3.12 -m venv "/opt/endpoint-platform/releases/endpoint-platform-$releaseCommit/venv"
-sudo "/opt/endpoint-platform/releases/endpoint-platform-$releaseCommit/venv/bin/pip" install --upgrade pip
-sudo "/opt/endpoint-platform/releases/endpoint-platform-$releaseCommit/venv/bin/pip" install -r "/opt/endpoint-platform/releases/endpoint-platform-$releaseCommit/requirements-server.txt"
-sudo chown -R root:root "/opt/endpoint-platform/releases/endpoint-platform-$releaseCommit"
-sudo ln -sfn "/opt/endpoint-platform/releases/endpoint-platform-$releaseCommit" /opt/endpoint-platform/current
+release_commit="$(sudo cat /etc/endpoint-platform/release-commit)"
+release_dir="/opt/endpoint-platform/releases/endpoint-platform-${release_commit}"
+sudo tar -xzf "/tmp/endpoint-platform-${release_commit}.tar.gz" -C /opt/endpoint-platform/releases
+sudo rm -f "/tmp/endpoint-platform-${release_commit}.tar.gz"
+sudo python3.12 -m venv "${release_dir}/venv"
+sudo "${release_dir}/venv/bin/pip" install --upgrade pip
+sudo "${release_dir}/venv/bin/pip" install -r "${release_dir}/requirements-server.txt"
+sudo chown -R root:root "${release_dir}"
+previous_release="$(sudo readlink -f /opt/endpoint-platform/current 2>/dev/null || true)"
+if [ -n "${previous_release}" ]; then
+  printf '%s\n' "${previous_release}" | sudo install -o root -g root -m 0644 /dev/stdin /etc/endpoint-platform/previous-release
+fi
+sudo ln -sfn "${release_dir}" /opt/endpoint-platform/current
 ```
 
 Install the non-secret assets from the operator worktree. Enable the Nginx
@@ -172,6 +183,7 @@ hostname. Do not substitute an IP address:
 
 ```powershell
 openssl s_client -connect endpoint.sosnadmin.local:443 -servername endpoint.sosnadmin.local -verify_hostname endpoint.sosnadmin.local -verify_return_error -CAfile 'C:\Users\admin-2\Desktop\Новая папка (2)\тех\сертификат\sosnadmin-local-ca.crt'
+curl.exe --fail --noproxy '*' --cacert 'C:\Users\admin-2\Desktop\Новая папка (2)\тех\сертификат\sosnadmin-local-ca.crt' https://endpoint.sosnadmin.local/healthz
 ```
 
 Only after all checks pass, open a TTY on the host and run the existing
@@ -186,8 +198,19 @@ Replace `ADMIN_USERNAME` with the administrator login approved by the operator.
 
 ## 7. Release rollback
 
-If the API release fails after migrations have succeeded, stop the API, point
-`/opt/endpoint-platform/current` at the prior verified release, restart it,
-and repeat loopback health plus the strict TLS command above. Never downgrade a
+If the API release fails after migrations have succeeded, use the recorded
+prior release; stop if the marker is missing or does not name a release
+directory:
+
+```bash
+previous_release="$(sudo cat /etc/endpoint-platform/previous-release)"
+test -d "${previous_release}"
+sudo systemctl stop endpoint-platform.service
+sudo ln -sfn "${previous_release}" /opt/endpoint-platform/current
+sudo systemctl start endpoint-platform.service
+curl --fail http://127.0.0.1:8000/healthz
+```
+
+Then repeat the strict TLS and HTTPS health commands above. Never downgrade a
 production migration automatically; investigate and approve a specific schema
 rollback separately.
