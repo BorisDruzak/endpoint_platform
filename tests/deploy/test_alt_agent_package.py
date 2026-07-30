@@ -46,12 +46,30 @@ def test_installer_requires_https_ca_local_artifact_and_secure_handoff() -> None
     assert "--dry-run" in text
     assert "install -o root -g root -m 0600" in text
     assert "stat -c %a" in text
-    assert "systemctl enable --now endpoint-agent.service" in text
+    daemon_reload = text.index("systemctl daemon-reload")
+    enable = text.index("systemctl enable endpoint-agent.service")
+    restart = text.index("systemctl restart endpoint-agent.service")
+    assert daemon_reload < enable < restart
+    assert "systemctl enable --now endpoint-agent.service" not in text
     assert "mv -f" in text
     assert "curl | sh" not in text
     assert "verify=False" not in text
     assert "wget " not in text
     assert "curl " not in text
+
+
+def test_installer_validates_existing_service_identity_and_keeps_claim_exchange_out_of_scope() -> None:
+    text = _text(INSTALLER)
+
+    assert "validate_existing_service_account" in text
+    assert 'getent passwd "$SERVICE_USER"' in text
+    assert 'getent group "$SERVICE_GROUP"' in text
+    assert '"$account_gid" == "$group_gid"' in text
+    assert "is_nonlogin_shell" in text
+    assert "existing group without dedicated service account" in text
+    assert "curl " not in text
+    assert "wget " not in text
+    assert "enroll" not in text.lower()
 
 
 def test_service_runs_as_dedicated_user_with_durable_paths_and_restart() -> None:
@@ -68,12 +86,25 @@ def test_service_runs_as_dedicated_user_with_durable_paths_and_restart() -> None
         "LoadCredential=endpoint-agent-config:/etc/endpoint-agent/config.yaml",
         "LoadCredential=endpoint-agent-ca:/etc/endpoint-agent/ca.crt",
         "LoadCredential=endpoint-agent-provisioning-handoff:/etc/endpoint-agent/provisioning-claim",
+        "Environment=ENDPOINT_AGENT_PROVISIONING_HANDOFF_FILE=%d/endpoint-agent-provisioning-handoff",
         "ReadWritePaths=/var/lib/endpoint-agent /var/log/endpoint-agent",
         "NoNewPrivileges=true",
         "ProtectSystem=strict",
         "ProtectHome=true",
     ):
         assert required in text
+
+
+def test_permanent_credential_is_runtime_owned_and_finalize_requires_that_contract() -> None:
+    installer = _text(INSTALLER)
+    runbook = _text(RUNBOOK)
+
+    assert "require_service_secret_file 'permanent credential'" in installer
+    assert "owner=$(stat -c %u \"$path\")" in installer
+    assert '[[ "$owner" == "$expected_owner" ]]' in installer
+    assert "must be owned by $SERVICE_USER:$SERVICE_GROUP" in installer
+    assert "root ownership" not in runbook.lower()
+    assert "owned by `endpoint-agent`" in runbook
 
 
 def test_config_and_runbook_preserve_one_time_token_handoff_boundary() -> None:

@@ -72,6 +72,52 @@ require_root_secret_file() {
     [[ -s "$path" ]] || die "$label must not be empty"
 }
 
+is_nonlogin_shell() {
+    case "$1" in
+        /usr/sbin/nologin|/sbin/nologin) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+system_uid_max() {
+    local configured
+    configured=$(awk '$1 == "SYS_UID_MAX" && $2 ~ /^[0-9]+$/ { print $2; exit }' /etc/login.defs 2>/dev/null || true)
+    printf '%s\n' "${configured:-999}"
+}
+
+validate_existing_service_account() {
+    local account_entry group_entry account_name account_uid account_gid account_home account_shell
+    local group_name group_gid system_max
+    account_entry=$(getent passwd "$SERVICE_USER") || die 'service account lookup failed'
+    group_entry=$(getent group "$SERVICE_GROUP") || die 'service group lookup failed'
+    IFS=: read -r account_name _ account_uid account_gid _ account_home account_shell <<< "$account_entry"
+    IFS=: read -r group_name _ group_gid _ <<< "$group_entry"
+    [[ "$account_name" == "$SERVICE_USER" ]] || die 'service account name is conflicting'
+    [[ "$group_name" == "$SERVICE_GROUP" ]] || die 'service group name is conflicting'
+    [[ "$account_uid" =~ ^[1-9][0-9]*$ ]] || die 'service account must have a non-root numeric UID'
+    system_max=$(system_uid_max)
+    [[ "$account_uid" -le "$system_max" ]] || die 'service account must be a system account'
+    [[ "$account_gid" =~ ^[0-9]+$ && "$group_gid" =~ ^[0-9]+$ ]] || die 'service account group must have a numeric GID'
+    [[ "$account_gid" == "$group_gid" ]] || die 'service account primary group is conflicting'
+    [[ "$account_home" == '/nonexistent' ]] || die 'service account home is conflicting'
+    is_nonlogin_shell "$account_shell" || die 'service account must use a non-login shell'
+}
+
+require_service_secret_file() {
+    local label=$1 path=$2 mode owner group expected_owner expected_group
+    require_regular_file "$label" "$path"
+    expected_owner=$(id -u "$SERVICE_USER") || die 'service account lookup failed'
+    expected_group=$(getent group "$SERVICE_GROUP" | awk -F: 'NR == 1 { print $3 }')
+    [[ "$expected_group" =~ ^[0-9]+$ ]] || die 'service group lookup failed'
+    mode=$(stat -c %a "$path")
+    owner=$(stat -c %u "$path")
+    group=$(stat -c %g "$path")
+    [[ "$mode" == '600' ]] || die "$label must have mode 0600"
+    [[ "$owner" == "$expected_owner" ]] || die "$label must be owned by $SERVICE_USER:$SERVICE_GROUP"
+    [[ "$group" == "$expected_group" ]] || die "$label must be owned by $SERVICE_USER:$SERVICE_GROUP"
+    [[ -s "$path" ]] || die "$label must not be empty"
+}
+
 validate_ca() {
     require_regular_file 'CA file' "$ca_file"
     command -v openssl >/dev/null 2>&1 || die 'openssl is required to validate the CA file'
@@ -90,10 +136,15 @@ validate_inputs() {
 
 ensure_service_account() {
     if getent passwd "$SERVICE_USER" >/dev/null 2>&1; then
+        validate_existing_service_account
         return
+    fi
+    if getent group "$SERVICE_GROUP" >/dev/null 2>&1; then
+        die 'existing group without dedicated service account'
     fi
     command -v useradd >/dev/null 2>&1 || die 'useradd is required to create the service account'
     useradd --system --user-group --home-dir /nonexistent --shell /usr/sbin/nologin "$SERVICE_USER"
+    validate_existing_service_account
 }
 
 render_config() {
@@ -145,13 +196,15 @@ install_package() {
     install_atomically
     command -v systemctl >/dev/null 2>&1 || die 'systemctl is required after package files are installed'
     systemctl daemon-reload
-    systemctl enable --now endpoint-agent.service
+    systemctl enable endpoint-agent.service
+    systemctl restart endpoint-agent.service
     systemctl is-active --quiet endpoint-agent.service || die 'service did not become active'
 }
 
 finalize_handoff() {
     require_root
-    require_root_secret_file 'permanent credential' "$PERMANENT_CREDENTIAL_TARGET"
+    validate_existing_service_account
+    require_service_secret_file 'permanent credential' "$PERMANENT_CREDENTIAL_TARGET"
     [[ -f "$HANDOFF_TARGET" ]] || die 'no installed provisioning handoff exists'
     rm -f "$HANDOFF_TARGET"
     printf 'one-time provisioning handoff removed after verified permanent credential persistence\n'

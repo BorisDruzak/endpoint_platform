@@ -74,8 +74,8 @@ or emulate a permanent credential.
 
 Do **not** delete the handoff merely because the service started. After the
 Task 16 enrollment runtime has verified permanent credential persistence at
-`/var/lib/endpoint-agent/device-credential` with root ownership and mode
-`0600`, remove the one-time handoff using:
+`/var/lib/endpoint-agent/device-credential`, owned by `endpoint-agent` with
+mode `0600`, remove the one-time handoff using:
 
 ```bash
 sudo bash deploy/agent/alt/install-endpoint-agent.sh --finalize-handoff
