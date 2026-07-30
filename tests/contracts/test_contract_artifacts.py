@@ -23,6 +23,7 @@ from endpoint_contracts import (
     UpdateBuildManifestV1,
     UpdateRolloutCreateV1,
 )
+from endpoint_contracts.identity import normalize_install_session_id
 from tools.contracts.generate_contract_artifacts import (
     FIXTURES,
     PUBLIC_MODELS,
@@ -325,6 +326,25 @@ def test_hardware_fingerprint_schemas_publish_canonical_shape() -> None:
             (Path("contracts/jsonschema") / filename).read_text(encoding="utf-8")
         )
         assert schema["properties"]["hardware_fingerprint"]["pattern"] == expected
+
+
+@pytest.mark.parametrize(
+    "value",
+    ["alt-install-001", "fixture_session.1", "x" * 128],
+)
+def test_install_session_contract_accepts_bounded_printable_ascii(value: str) -> None:
+    assert normalize_install_session_id(value) == value
+
+
+@pytest.mark.parametrize(
+    "value",
+    ["", " bad", "bad ", "line\nbreak", "не-ascii", "x" * 129],
+)
+def test_install_session_contract_rejects_unsafe_or_unbounded_values(
+    value: str,
+) -> None:
+    with pytest.raises(ValueError):
+        normalize_install_session_id(value)
 
 
 def test_committed_contract_artifacts_match_renderer_without_mutation(

@@ -1,6 +1,7 @@
 """Safe, TLS-verifying client for Endpoint Platform Device Context APIs."""
 
 from .client import EndpointPlatformClient
+from .provisioning import EndpointProvisioningClient, InstallClaim
 from .errors import (
     EndpointPlatformConfigurationError,
     EndpointPlatformError,
@@ -32,6 +33,7 @@ __all__ = [
     "Device",
     "DeviceContext",
     "EndpointPlatformClient",
+    "EndpointProvisioningClient",
     "EndpointPlatformConfigurationError",
     "EndpointPlatformError",
     "EndpointPlatformInvalidRequest",
@@ -39,5 +41,6 @@ __all__ = [
     "EndpointPlatformNotFound",
     "EndpointPlatformResponseError",
     "EndpointPlatformUnavailable",
+    "InstallClaim",
     "SafeContextProfile",
 ]
