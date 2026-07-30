@@ -23,7 +23,7 @@ production preflight in the next section succeeds:
 ```powershell
 $releaseCommit = git rev-parse --short=12 HEAD
 $releaseArchive = Join-Path $env:TEMP "endpoint-platform-$releaseCommit.tar.gz"
-git archive --format=tar.gz --prefix="endpoint-platform-$releaseCommit/" HEAD endpoint_server endpoint_contracts alembic.ini requirements-server.txt > $releaseArchive
+git archive --format=tar.gz --output="$releaseArchive" --prefix="endpoint-platform-$releaseCommit/" HEAD endpoint_server endpoint_contracts alembic.ini requirements-server.txt
 ```
 
 ## 2. Re-check production conditions

@@ -51,6 +51,8 @@ def test_runbook_preserves_secret_and_tls_boundaries() -> None:
     runbook = (_DEPLOY_ROOT / "PRODUCTION_RUNBOOK.md").read_text(encoding="utf-8")
 
     assert "git archive" in runbook
+    assert '--output="$releaseArchive"' in runbook
+    assert "requirements-server.txt > $releaseArchive" not in runbook
     assert "-verify_hostname endpoint.sosnadmin.local" in runbook
     assert "curl.exe --fail --noproxy '*' --cacert" in runbook
     assert "sudo systemctl disable --now nginx" in runbook
