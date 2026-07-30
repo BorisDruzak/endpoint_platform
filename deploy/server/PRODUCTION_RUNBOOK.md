@@ -51,7 +51,7 @@ sudo rm -f /etc/nginx/sites-enabled/default
 sudo adduser --system --group --home /var/lib/endpoint-platform --shell /usr/sbin/nologin endpoint-platform
 sudo install -d -o root -g root -m 0755 /opt/endpoint-platform/releases /etc/endpoint-platform
 sudo install -d -o endpoint-platform -g endpoint-platform -m 0750 /var/lib/endpoint-platform/artifacts
-sudo install -d -o root -g root -m 0700 /etc/endpoint-platform/secrets
+sudo install -d -o root -g endpoint-platform -m 0710 /etc/endpoint-platform/secrets
 sudo -u postgres psql -v ON_ERROR_STOP=1 -c "ALTER SYSTEM SET listen_addresses = '127.0.0.1,::1'"
 sudo systemctl restart postgresql
 sudo -u postgres psql -Atqc "SHOW listen_addresses"
