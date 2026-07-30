@@ -146,9 +146,11 @@ Endpoint `tests/fixtures`, `artifacts`, all `*.log` files, all `.env.example`
 files in both worktrees, the extracted temporary source-bundle payload, and the
 final committed diff. Its heuristics search a canonical claim-shaped value and
 a 43-character URL-safe opaque value; semantic names such as `claim` or
-`token` are intentionally not treated as findings. It excludes files larger
-than 1 MiB and content containing a NUL byte, and it does not treat test source
-as a runtime fixture.
+`token` are intentionally not treated as findings. Every eligible file is
+scanned independently: file content is never concatenated. Files larger than
+1 MiB and content containing a NUL byte are counted as exclusions, while an
+unreadable file fails the scan closed. Test source is not treated as a runtime
+fixture.
 
 ```powershell
 $endpoint = 'C:\Users\admin-2\Documents\endpoint'
@@ -163,14 +165,18 @@ function Measure-Content([string]$label, [string]$content) {
   "$label claim_candidates=$($claim.Matches($content).Count) opaque_43_candidates=$($opaque.Matches($content).Count)"
 }
 function Scan-Files([string]$label, [IO.FileInfo[]]$files) {
-  $text = [Text.StringBuilder]::new(); $count = 0
+  $count = 0; $large = 0; $binary = 0; $claims = 0; $opaqueValues = 0
   foreach ($file in $files) {
-    if ($file.Length -gt 1MB) { continue }
-    try { $content = [IO.File]::ReadAllText($file.FullName) } catch { continue }
-    if ($content.IndexOf([char]0) -ge 0) { continue }
-    [void]$text.Append($content); $count++
+    if ($file.Length -gt 1MB) { $large++; continue }
+    try { $content = [IO.File]::ReadAllText($file.FullName) } catch {
+      throw "unreadable scan input: $($file.FullName)"
+    }
+    if ($content.IndexOf([char]0) -ge 0) { $binary++; continue }
+    $count++
+    $claims += $claim.Matches($content).Count
+    $opaqueValues += $opaque.Matches($content).Count
   }
-  "$label files=$count $(Measure-Content $label $text.ToString())"
+  "$label files=$count excluded_large=$large excluded_binary=$binary claim_candidates=$claims opaque_43_candidates=$opaqueValues"
 }
 Scan-Files 'fixtures' @(Get-ChildItem "$endpoint\tests\fixtures" -Recurse -File)
 Scan-Files 'artifacts' @(Get-ChildItem "$endpoint\artifacts" -Recurse -File)
@@ -183,6 +189,28 @@ Scan-Files 'built_alt_archive_payload' @(Get-ChildItem $extract -Recurse -File)
 Measure-Content 'final_committed_diff' ((git -C $endpoint show --format= --no-ext-diff HEAD) | Out-String)
 git -C $endpoint show --check HEAD
 ```
+
+The scanner includes this in-memory boundary self-test. It constructs a
+synthetic candidate only at runtime and never prints it. The first artificial
+file contributes an adjacent word character; the second contains the synthetic
+candidate. The old concatenation behavior would suppress the candidate at that
+boundary, while the independent per-file count must detect exactly one:
+
+```powershell
+$synthetic = ('i' + 'c_') + ('a' * 32) + '.' + ('b' * 20)
+$artificialFile1 = 'x'; $artificialFile2 = $synthetic
+if ($claim.Matches($artificialFile1 + $artificialFile2).Count -ne 0) { throw 'boundary setup failed' }
+if ($claim.Matches($artificialFile1).Count + $claim.Matches($artificialFile2).Count -ne 1) { throw 'boundary detection failed' }
+'boundary_self_test=pass'
+```
+
+The revised procedure was executed locally. The boundary self-test passed. The
+results were: fixtures `16/0/0/0/0`, artifacts `3/0/0/0/0`, logs `5/0/0/0/0`,
+environment examples `12/0/0/0/0`, and temporary archive payload `4/0/0/0/0`.
+Each tuple is `eligible files / large exclusions / binary exclusions /
+claim-shaped candidates / opaque-value candidates`. There were no unreadable
+files; an unreadable file would have failed the procedure. The pre-revision
+committed diff also had zero claim-shaped and zero opaque-value candidates.
 
 For this evidence revision, the report is force-added because the SDD ledger
 directory is intentionally ignored. The exact staged report diff is scanned
