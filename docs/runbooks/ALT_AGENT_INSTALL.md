@@ -6,9 +6,10 @@ Do not use it on a production host until the Wave 1 production gate is open.
 
 ## Inputs
 
-Prepare four local files on the ALT machine as `root`:
+Prepare four local inputs on the ALT machine as `root`:
 
-- an executable, reviewed Endpoint Agent ALT artifact;
+- a reviewed Endpoint Agent release-bundle directory containing `launcher`,
+  `pc_agent/`, and `manifest.json`;
 - the Endpoint Platform CA PEM file;
 - a root-owned, mode `0600` one-time provisioning handoff file; and
 - the installer package directory from this repository.
@@ -33,28 +34,34 @@ sudo bash deploy/agent/alt/install-endpoint-agent.sh \
   --endpoint https://endpoint.sosnadmin.local \
   --ca-file /root/input/sosnadmin-local-ca.crt \
   --handoff-file /root/input/endpoint-agent-one-time-claim \
-  --agent-binary /root/input/endpoint-agent \
+  --agent-bundle /root/input/endpoint-agent-3.2.1 \
   --dry-run
 ```
 
 The endpoint must be explicit HTTPS. The installer parses and verifies the CA
-with OpenSSL, rejects symlinks for security-sensitive inputs, and rejects any
-handoff that is not root-owned mode `0600`.
+with OpenSSL, rejects symlinks, traversal, unexpected/missing onedir leaves,
+digest mismatches, and manifest mode mismatches before it creates the service
+account or changes host files. It also rejects any handoff that is not
+root-owned mode `0600`.
 
 ## Installation
 
 Run the same command without `--dry-run`. The installer creates only these
 runtime roots: `/opt/endpoint-agent`, `/var/lib/endpoint-agent`,
 `/etc/endpoint-agent`, and `/var/log/endpoint-agent`. It creates the dedicated
-non-login `endpoint-agent` service user, atomically installs files, and only
-then reloads/enables/restarts `endpoint-agent.service`.
+non-login `endpoint-agent` service user, stages and re-verifies the complete
+bundle, then atomically selects `/opt/endpoint-agent/launcher`,
+`/opt/endpoint-agent/versions/VERSION/pc_agent/`, and `current.json` before it
+reloads/enables/restarts `endpoint-agent.service`. If activation fails, it
+restores the prior launcher/current selection and keeps the prior immutable
+version directory intact.
 
 ```bash
 sudo bash deploy/agent/alt/install-endpoint-agent.sh \
   --endpoint https://endpoint.sosnadmin.local \
   --ca-file /root/input/sosnadmin-local-ca.crt \
   --handoff-file /root/input/endpoint-agent-one-time-claim \
-  --agent-binary /root/input/endpoint-agent
+  --agent-bundle /root/input/endpoint-agent-3.2.1
 ```
 
 The installed config, CA and handoff at `/etc/endpoint-agent` are root-owned

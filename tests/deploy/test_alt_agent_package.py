@@ -34,7 +34,7 @@ def test_package_layout_is_fixed_and_inspectable_without_root() -> None:
     ]
 
 
-def test_installer_requires_https_ca_local_artifact_and_secure_handoff() -> None:
+def test_installer_requires_https_ca_verified_bundle_and_secure_handoff() -> None:
     text = _text(INSTALLER)
 
     assert "--endpoint" in text
@@ -42,7 +42,8 @@ def test_installer_requires_https_ca_local_artifact_and_secure_handoff() -> None
     assert "--ca-file" in text
     assert "openssl verify" in text
     assert "--handoff-file" in text
-    assert "--agent-binary" in text
+    assert "--agent-bundle" in text
+    assert "--agent-binary" not in text
     assert "--dry-run" in text
     assert "install -o root -g root -m 0600" in text
     assert "stat -c %a" in text
@@ -80,7 +81,7 @@ def test_service_runs_as_dedicated_user_with_durable_paths_and_restart() -> None
     for required in (
         "User=endpoint-agent",
         "Group=endpoint-agent",
-        "ExecStart=/opt/endpoint-agent/endpoint-agent",
+        "ExecStart=/opt/endpoint-agent/launcher",
         "Restart=on-failure",
         "RestartSec=5s",
         "StateDirectory=endpoint-agent",
@@ -152,17 +153,20 @@ def test_installer_validates_fixed_destinations_before_any_root_write() -> None:
     )
 
 
-def test_installer_preflights_the_binary_leaf_before_account_creation_and_move() -> None:
-    """Catches an unsafe executable leaf reaching useradd or the final mv."""
+def test_installer_preflights_the_bundle_before_account_creation_and_move() -> None:
+    """Catches an unverified bundle reaching useradd or the final selection move."""
     installer = _text(INSTALLER)
 
-    assert 'readonly BINARY_TARGET="${INSTALL_ROOT}/endpoint-agent"' in installer
-    assert 'validate_fixed_regular_target_or_absent "$BINARY_TARGET" root 755' in installer
+    assert 'readonly LAUNCHER_TARGET="${INSTALL_ROOT}/launcher"' in installer
+    assert 'readonly VERSIONS_ROOT="${INSTALL_ROOT}/versions"' in installer
+    assert 'readonly CURRENT_TARGET="${INSTALL_ROOT}/current.json"' in installer
+    assert 'validate_fixed_regular_target_or_absent "$LAUNCHER_TARGET" root 755' in installer
+    assert 'validate_fixed_regular_target_or_absent "$CURRENT_TARGET" root 644' in installer
 
     package_body = installer[
         installer.index("install_package() {") : installer.index("finalize_handoff() {")
     ]
-    assert package_body.index("validate_install_destinations") < package_body.index(
+    assert package_body.index("verify_agent_bundle") < package_body.index(
         "ensure_service_account"
     )
 
@@ -170,8 +174,8 @@ def test_installer_preflights_the_binary_leaf_before_account_creation_and_move()
         installer.index("install_atomically() {") : installer.index("install_package() {")
     ]
     final_validation = install_body.rindex("validate_install_destinations")
-    binary_move = install_body.index('mv -f "$binary_stage" "$BINARY_TARGET"')
-    assert final_validation < binary_move
+    launcher_move = install_body.index('mv -f "$launcher_stage" "$LAUNCHER_TARGET"')
+    assert final_validation < launcher_move
 
 
 def test_config_and_runbook_preserve_one_time_token_handoff_boundary() -> None:

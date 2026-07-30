@@ -3,7 +3,7 @@ Description=Endpoint Platform ALT agent
 Documentation=file:///usr/share/doc/endpoint-agent/ALT_AGENT_INSTALL.md
 Wants=network-online.target
 After=network-online.target
-ConditionPathExists=/opt/endpoint-agent/endpoint-agent
+ConditionPathExists=/opt/endpoint-agent/launcher
 
 [Service]
 Type=simple
@@ -17,7 +17,7 @@ LoadCredential=endpoint-enrollment-claim:/etc/endpoint-agent/provisioning-claim
 Environment=ENDPOINT_AGENT_CONFIG=%d/endpoint-agent-config
 Environment=ENDPOINT_AGENT_CA_FILE=%d/endpoint-agent-ca
 Environment=ENDPOINT_AGENT_PROVISIONING_HANDOFF_FILE=%d/endpoint-enrollment-claim
-ExecStart=/opt/endpoint-agent/endpoint-agent --no-gui --data-dir /var/lib/endpoint-agent --install-root /opt/endpoint-agent
+ExecStart=/opt/endpoint-agent/launcher --no-gui --data-dir /var/lib/endpoint-agent --install-root /opt/endpoint-agent
 Restart=on-failure
 RestartSec=5s
 TimeoutStartSec=45s
