@@ -132,7 +132,7 @@ setup_root() {
     chown -R root:root "$root/opt" "$root/etc" "$root/var"
     chmod 755 "$root/opt" "$root/etc" "$root/etc/systemd" "$root/etc/systemd/system" \
         "$root/var" "$root/var/lib" "$root/var/log"
-    : > "$root/etc/login.defs"
+    printf 'SYS_UID_MAX 65535\n' > "$root/etc/login.defs"
     cat > "$root/bin/getent" <<EOF
 #!/usr/bin/env bash
 if [[ -f "$root/account-created" && "\$1" == passwd && "\$2" == endpoint-agent ]]; then

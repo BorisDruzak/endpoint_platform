@@ -352,6 +352,13 @@ def test_linux_harness_does_not_mistake_its_temp_login_defs_for_a_live_path() ->
     assert "contains_live_root_path" in text
 
 
+def test_linux_harness_models_its_service_uid_as_a_system_account() -> None:
+    """The synthetic account must respect the rewritten SYS_UID_MAX policy."""
+    text = _text(LINUX_HARNESS)
+
+    assert "SYS_UID_MAX 65535" in text
+
+
 def test_linux_harness_detects_live_paths_in_common_shell_forms(tmp_path: Path) -> None:
     """Live paths can be quoted, assigned, or redirected as well as whitespace-delimited."""
     text = _text(LINUX_HARNESS)
