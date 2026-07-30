@@ -7,10 +7,12 @@ Deliver Wave 1 Device Context, then expose normalized projections in web_ovpn wi
 ## Current State
 
 6A enrollment and update control-plane work are merged locally. Device Context
-foundation is implemented in the local feature worktree: strict profiles,
+foundation has passed independent review and local acceptance: strict profiles,
 bounded ALT collectors, fixed Gateway capabilities, additive lifecycle/snapshot
-storage, safe service routes, scheduler and retention. Independent review and
-full local acceptance remain the gate before any Wave 1 panel work.
+storage, safe service routes, scheduler and retention. The typed safe SDK and
+feature-gated `web_ovpn` adapter API are also implemented in clean local
+worktrees. UI history/compare remediation and netctl correlation remain before
+a test-agent pilot.
 
 ## Constraints
 
@@ -20,13 +22,20 @@ full local acceptance remain the gate before any Wave 1 panel work.
 - The periodic allowlist is baseline (24h), health (5m) and network (15m).
   Diagnostic is manual-only. Scheduler and retention are local server work;
   their migration must not be run remotely in this foundation task.
+- DNS for `endpoint.sosnadmin.local` is configured and the internal CA is
+  available as deployment input outside Git. TLS verification remains mandatory.
+- Disk resize is cancelled. Deployment uses the existing disk only after a
+  capacity check confirms it is sufficient; no resize is a prerequisite.
 
 ## Next Steps
 
-1. Complete independent review and full local foundation acceptance, including
-   generated contracts and local disposable-PostgreSQL migration evidence.
-2. Make a separate web_ovpn SDK/adapter/UI plan in a clean worktree.
-3. Obtain separate authorization for an ALT pilot only after both sides pass.
+1. Finish baseline-history API review, then complete and review the
+   `web_ovpn` history/compare UI remediation.
+2. Implement explicit netctl correlation without IP-only matching.
+3. Prepare ALT packaging/provisioning and validate it on the test agent.
+4. At the production gate, check current disk capacity, install PostgreSQL and
+   Nginx, transfer the CA through a controlled deployment path, and apply
+   migrations only after a verified deploy.
 
 ## Verification
 
