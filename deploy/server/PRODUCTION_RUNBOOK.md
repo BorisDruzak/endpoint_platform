@@ -16,14 +16,14 @@ python tools/contracts/generate_contract_artifacts.py --check
 python -m alembic upgrade head --sql
 ```
 
-Create an archive containing only the server runtime. It has no Git metadata,
-environment file, certificate, or secret:
+Create a temporary archive containing only the server runtime. It has no Git
+metadata, environment file, certificate, or secret. Do not upload it until the
+production preflight in the next section succeeds:
 
 ```powershell
 $releaseCommit = git rev-parse --short=12 HEAD
-git archive --format=tar.gz --prefix="endpoint-platform-$releaseCommit/" HEAD endpoint_server endpoint_contracts alembic.ini requirements-server.txt |
-  ssh endpoint-platform-server "sudo install -d -m 0755 /opt/endpoint-platform/releases; sudo tee /tmp/endpoint-platform-$releaseCommit.tar.gz > /dev/null"
-ssh endpoint-platform-server "printf '%s\n' '$releaseCommit' | sudo install -o root -g root -m 0644 /dev/stdin /etc/endpoint-platform/release-commit"
+$releaseArchive = Join-Path $env:TEMP "endpoint-platform-$releaseCommit.tar.gz"
+git archive --format=tar.gz --prefix="endpoint-platform-$releaseCommit/" HEAD endpoint_server endpoint_contracts alembic.ini requirements-server.txt > $releaseArchive
 ```
 
 ## 2. Re-check production conditions
@@ -46,6 +46,8 @@ non-login service user and private directories:
 ```bash
 sudo apt-get update
 sudo apt-get install -y postgresql postgresql-client nginx python3.12-venv python3-pip
+sudo systemctl disable --now nginx
+sudo rm -f /etc/nginx/sites-enabled/default
 sudo adduser --system --group --home /var/lib/endpoint-platform --shell /usr/sbin/nologin endpoint-platform
 sudo install -d -o root -g root -m 0755 /opt/endpoint-platform/releases /etc/endpoint-platform
 sudo install -d -o endpoint-platform -g endpoint-platform -m 0750 /var/lib/endpoint-platform/artifacts
@@ -96,6 +98,12 @@ Never use symlinks for the environment or secret files.
 Extract the uploaded archive to its immutable versioned directory and create
 the virtual environment:
 
+```powershell
+scp $releaseArchive endpoint-platform-server:/tmp/
+ssh endpoint-platform-server "printf '%s\n' '$releaseCommit' | sudo install -o root -g root -m 0644 /dev/stdin /etc/endpoint-platform/release-commit"
+Remove-Item -LiteralPath $releaseArchive
+```
+
 ```bash
 release_commit="$(sudo cat /etc/endpoint-platform/release-commit)"
 release_dir="/opt/endpoint-platform/releases/endpoint-platform-${release_commit}"
@@ -113,11 +121,12 @@ sudo ln -sfn "${release_dir}" /opt/endpoint-platform/current
 ```
 
 Install the non-secret assets from the operator worktree. Enable the Nginx
-symlink only after the loopback API health check passes:
+configuration symlink for validation only; Nginx remains stopped until the
+loopback API health check passes:
 
 ```powershell
 scp deploy/server/endpoint-platform.service deploy/server/endpoint-platform-migrate.service deploy/server/endpoint-platform.nginx.conf endpoint-platform-server:/tmp/
-ssh endpoint-platform-server "sudo install -o root -g root -m 0644 /tmp/endpoint-platform.service /etc/systemd/system/endpoint-platform.service; sudo install -o root -g root -m 0644 /tmp/endpoint-platform-migrate.service /etc/systemd/system/endpoint-platform-migrate.service; sudo install -o root -g root -m 0644 /tmp/endpoint-platform.nginx.conf /etc/nginx/sites-available/endpoint-platform; sudo rm -f /tmp/endpoint-platform.service /tmp/endpoint-platform-migrate.service /tmp/endpoint-platform.nginx.conf; sudo systemctl daemon-reload"
+ssh endpoint-platform-server "sudo install -o root -g root -m 0644 /tmp/endpoint-platform.service /etc/systemd/system/endpoint-platform.service; sudo install -o root -g root -m 0644 /tmp/endpoint-platform-migrate.service /etc/systemd/system/endpoint-platform-migrate.service; sudo install -o root -g root -m 0644 /tmp/endpoint-platform.nginx.conf /etc/nginx/sites-available/endpoint-platform; sudo ln -sfn /etc/nginx/sites-available/endpoint-platform /etc/nginx/sites-enabled/endpoint-platform; sudo rm -f /tmp/endpoint-platform.service /tmp/endpoint-platform-migrate.service /tmp/endpoint-platform.nginx.conf; sudo systemctl daemon-reload"
 ```
 
 Validate the configured application before any public listener is enabled:
@@ -165,7 +174,6 @@ fails, and do not run an automatic downgrade:
 sudo systemctl start endpoint-platform-migrate.service
 sudo systemctl start endpoint-platform.service
 curl --fail http://127.0.0.1:8000/healthz
-sudo ln -sfn /etc/nginx/sites-available/endpoint-platform /etc/nginx/sites-enabled/endpoint-platform
 sudo systemctl enable --now nginx
 sudo systemctl reload nginx
 ```

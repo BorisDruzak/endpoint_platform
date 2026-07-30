@@ -52,5 +52,10 @@ def test_runbook_preserves_secret_and_tls_boundaries() -> None:
 
     assert "git archive" in runbook
     assert "-verify_hostname endpoint.sosnadmin.local" in runbook
+    assert "curl.exe --fail --noproxy '*' --cacert" in runbook
+    assert "sudo systemctl disable --now nginx" in runbook
+    assert runbook.index("/opt/endpoint-platform/releases /etc/endpoint-platform") < runbook.index(
+        "/etc/endpoint-platform/release-commit"
+    )
     assert "curl -k" not in runbook
     assert "PRIVATE KEY-----" not in runbook
