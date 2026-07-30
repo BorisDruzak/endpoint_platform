@@ -97,3 +97,48 @@ sudo bash alt-linux-harness/tests/deploy/verify_alt_agent_bundle_linux_harness.s
 The archive preserves the required adjacency and the harness rejects CRLF
 inputs before executing any case. The command neither needs nor carries a
 credential or provisioning handoff.
+
+## Review round 3 diagnosis and correction
+
+The exact-LF Linux archive reached the harness input preflight but every case
+then failed before the installer ran. Local reproduction of the rewrite and
+isolation checks identified the common cause: `assert_isolated_installer_copy`
+used an unanchored `/etc/login.defs` substring check. The correctly rewritten
+temporary path (`<mktemp-root>/etc/login.defs`) contains that substring, so the
+harness rejected every copied installer before any scenario invocation.
+
+RED was recorded for both regressions:
+
+```text
+python -m pytest tests/deploy/test_alt_agent_bundle_install.py::test_linux_harness_reports_a_bounded_redacted_valid_install_failure -q
+FAILED: missing emit_safe_failure_diagnostic
+
+python -m pytest tests/deploy/test_alt_agent_bundle_install.py::test_linux_harness_does_not_mistake_its_temp_login_defs_for_a_live_path -q
+FAILED: unanchored /etc/login.defs check present
+```
+
+The live `login.defs` check is now anchored to an absolute path boundary, so it
+still rejects an actual `/etc/login.defs` reference but accepts the temporary
+root's rewritten file. Isolation and archive-input preflight are otherwise
+unchanged.
+
+For any future valid-case installer failure, the harness reads at most 8 KiB of
+the private captured log and emits only a fixed failure category plus one fixed
+safe message token (for example `installer-fixed-parent` and
+`fixed_destination_parent`). It never prints captured output, input paths, CA
+data, handoff material, claims, or credentials. This distinguishes rewritten
+path, account-stub, service-activation, bundle-verification, staging, missing
+path, permission, and unknown failures without expanding diagnostic exposure.
+
+## Review round 4 correction
+
+The copied-installer live-root guard now uses a lexical absolute-path detector
+rather than whitespace matching. It rejects the supported live installer roots
+when used bare, quoted, in an assignment, or in shell redirection syntax; it
+continues to allow the corresponding paths underneath the temporary harness
+root. Wrapper tests execute this detector against those four fixture forms.
+
+The safe diagnostic no longer uses `read_bytes()`. It opens the private
+captured log in binary mode and reads at most 8192 bytes. Its oversized-fixture
+test verifies that the output remains the fixed safe category/message token and
+does not contain the fixture's claim-like suffix. No captured bytes are printed.

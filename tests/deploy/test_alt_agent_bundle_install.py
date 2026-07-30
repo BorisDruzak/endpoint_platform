@@ -6,6 +6,7 @@ installer's security and rollback boundary without executing host mutations.
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 import shutil
 import subprocess
@@ -28,6 +29,17 @@ def _text(path: Path) -> str:
 
 def _body(text: str, function: str, next_function: str) -> str:
     return text[text.index(f"{function}() {{") : text.index(f"{next_function}() {{")]
+
+
+def _shell_function(text: str, function: str, next_function: str) -> str:
+    return _body(text, function, next_function)
+
+
+def _bash_environment_with_python3(tmp_path: Path) -> dict[str, str]:
+    shim = tmp_path / "python3"
+    shim.write_text(f'#!/usr/bin/env bash\nexec "{PYTHON}" "$@"\n', encoding="utf-8")
+    shim.chmod(0o700)
+    return {**os.environ, "PATH": f"{tmp_path}{os.pathsep}{os.environ['PATH']}"}
 
 
 def _installer_function_library() -> str:
@@ -315,6 +327,96 @@ def test_linux_harness_declares_and_preflights_its_adjacent_archive_assets() -> 
         'source_dir=$(dirname "$source_installer")',
     ):
         assert required in text
+
+
+def test_linux_harness_reports_a_bounded_redacted_valid_install_failure() -> None:
+    """A failed valid case must identify its boundary without printing inputs."""
+    text = _text(LINUX_HARNESS)
+
+    for required in (
+        "emit_safe_failure_diagnostic",
+        "failure_category=",
+        "last_safe_message=",
+        "redacted",
+        'emit_safe_failure_diagnostic "$scenario"',
+        'emit_safe_failure_diagnostic "$scenario" "installer-exit"',
+    ):
+        assert required in text
+
+
+def test_linux_harness_does_not_mistake_its_temp_login_defs_for_a_live_path() -> None:
+    """The live-root check must not reject ``<mktemp>/etc/login.defs``."""
+    text = _text(LINUX_HARNESS)
+
+    assert "'/etc/login.defs'; do" not in text
+    assert "contains_live_root_path" in text
+
+
+def test_linux_harness_detects_live_paths_in_common_shell_forms(tmp_path: Path) -> None:
+    """Live paths can be quoted, assigned, or redirected as well as whitespace-delimited."""
+    text = _text(LINUX_HARNESS)
+    assert "contains_live_root_path() {" in text
+
+    function = _shell_function(text, "contains_live_root_path", "assert_isolated_installer_copy")
+    runner = tmp_path / "path-guard.sh"
+    runner.write_text(
+        "#!/usr/bin/env bash\nset -euo pipefail\n"
+        + function
+        + '\ncontains_live_root_path "$1"\n',
+        encoding="utf-8",
+    )
+    runner.chmod(0o700)
+    environment = _bash_environment_with_python3(tmp_path)
+
+    variants = {
+        "quoted": 'source="/etc/login.defs"\n',
+        "assignment": "input=/etc/login.defs\n",
+        "redirection": "command </etc/login.defs\n",
+        "temporary": "input=/tmp/isolated/etc/login.defs\n",
+    }
+    for name, payload in variants.items():
+        candidate = tmp_path / f"{name}.sh"
+        candidate.write_text(payload, encoding="utf-8")
+        result = subprocess.run(
+            ["bash", runner.as_posix(), candidate.as_posix()],
+            capture_output=True,
+            text=True,
+            check=False,
+            env=environment,
+        )
+        assert result.returncode == (1 if name == "temporary" else 0), result.stderr
+
+
+def test_linux_harness_reads_at_most_8k_for_a_redacted_failure_diagnostic(tmp_path: Path) -> None:
+    """The diagnostic classifier must never read an unbounded captured installer log."""
+    text = _text(LINUX_HARNESS)
+    diagnostic = _shell_function(text, "emit_safe_failure_diagnostic", "reset_systemctl_log")
+    assert "Path(output).open(\"rb\")" in diagnostic
+    assert "stream.read(8192)" in diagnostic
+    assert "read_bytes" not in diagnostic
+
+    captured = tmp_path / "oversized-output"
+    captured.write_bytes(b"fixed destination parent is missing or unsafe\n" + b"x" * 16384 + b"claim-secret")
+    runner = tmp_path / "diagnostic.sh"
+    runner.write_text(
+        "#!/usr/bin/env bash\nset -euo pipefail\n"
+        + diagnostic
+        + '\nemit_safe_failure_diagnostic valid installer-exit "$1"\n',
+        encoding="utf-8",
+    )
+    runner.chmod(0o700)
+    environment = _bash_environment_with_python3(tmp_path)
+    result = subprocess.run(
+        ["bash", runner.as_posix(), captured.as_posix()],
+        capture_output=True,
+        text=True,
+        check=False,
+        env=environment,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == "CASE valid status=failed failure_category=installer-fixed-parent last_safe_message=fixed_destination_parent\n"
+    assert "claim-secret" not in result.stdout
 
 
 @pytest.mark.skipif(sys.platform != "linux", reason="requires Linux shell semantics")

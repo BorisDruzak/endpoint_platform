@@ -68,6 +68,19 @@ assert_live_paths_unchanged() {
     [[ "$(snapshot_live_paths)" == "$1" ]] || return 1
 }
 
+contains_live_root_path() {
+    python3 - "$1" <<'PY'
+from pathlib import Path
+import re
+import sys
+
+text = Path(sys.argv[1]).read_text(encoding="utf-8")
+path = r"(?:/opt/(?:endpoint-agent|\.endpoint-agent-stage)(?:\.[A-Za-z0-9_-]+)?|/var/lib/endpoint-agent|/etc/endpoint-agent|/var/log/endpoint-agent|/etc/systemd/system(?:/\$SERVICE_NAME|/endpoint-agent\.service)?|/etc/login\.defs)"
+pattern = re.compile(r"(?<![A-Za-z0-9_./-])" + path + r"(?![A-Za-z0-9_.-])")
+raise SystemExit(0 if pattern.search(text) else 1)
+PY
+}
+
 assert_isolated_installer_copy() {
     local root=$1 copy="$root/installer-dir/install-endpoint-agent.sh" prohibited
     for prohibited in \
@@ -83,10 +96,10 @@ assert_isolated_installer_copy() {
         'require_trusted_root_parent /var/log' \
         'require_trusted_root_parent /etc/systemd' \
         'require_trusted_root_parent /etc/systemd/system' \
-        '"/etc/systemd/system/$SERVICE_NAME"' \
-        '/etc/login.defs'; do
+        '"/etc/systemd/system/$SERVICE_NAME"'; do
         ! grep -F -- "$prohibited" "$copy" >/dev/null || return 1
     done
+    ! contains_live_root_path "$copy" || return 1
 }
 
 make_installer_copy() {
@@ -202,6 +215,46 @@ run_install() {
     printf '%s' "$status"
 }
 
+emit_safe_failure_diagnostic() {
+    local scenario=$1 requested_category=$2 output=$3
+    python3 - "$scenario" "$requested_category" "$output" <<'PY'
+from pathlib import Path
+import sys
+
+scenario, requested_category, output = sys.argv[1:]
+try:
+    with Path(output).open("rb") as stream:
+        captured = stream.read(8192).decode("utf-8", "replace").lower()
+except OSError:
+    captured = ""
+
+# Never emit the captured text. These fixed labels retain only the failing
+# boundary needed to repair a harness stub or rewritten path.
+if "fixed destination parent" in captured:
+    category, message = "installer-fixed-parent", "fixed_destination_parent"
+elif "fixed destination" in captured:
+    category, message = "installer-fixed-destination", "fixed_destination"
+elif "invalid user" in captured or "service account" in captured:
+    category, message = "installer-service-account", "service_account"
+elif "service did not become active" in captured:
+    category, message = "installer-service-activation", "service_activation"
+elif "agent bundle verification" in captured:
+    category, message = "installer-bundle-verification", "bundle_verification"
+elif "mktemp" in captured or "staging" in captured:
+    category, message = "installer-staging", "staging"
+elif "permission denied" in captured:
+    category, message = "installer-file-permission", "file_permission"
+elif "no such file" in captured:
+    category, message = "installer-missing-path", "missing_path"
+elif captured:
+    category, message = requested_category, "redacted"
+else:
+    category, message = requested_category, "unavailable"
+
+print(f"CASE {scenario} status=failed failure_category={category} last_safe_message={message}")
+PY
+}
+
 reset_systemctl_log() {
     : > "$1/systemctl.log"
 }
@@ -226,7 +279,10 @@ run_case() {
     case "$scenario" in
         valid)
             status=$(run_install "$root" "$bundle" "$root/output")
-            [[ "$status" == 0 ]] || return 1
+            if [[ "$status" != 0 ]]; then
+                emit_safe_failure_diagnostic "$scenario" "installer-exit" "$root/output"
+                return 1
+            fi
             [[ -e "$root/useradd.log" ]] || return 1
             [[ "$(python3 - "$root/opt/endpoint-agent/current.json" <<'PY'
 import json, sys
