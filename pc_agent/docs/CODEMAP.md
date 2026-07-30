@@ -1,5 +1,29 @@
 # CODEMAP (pc_agent)
 
+## ALT first-boot enrollment bootstrap (2026-07-30)
+
+- `pc_agent/enrollment_bootstrap.py` is a deliberately uninvoked Linux/systemd
+  boundary for the one-time Endpoint Platform install claim.  A service
+  integration explicitly calls `bootstrap_enrollment(credentials_dir, config,
+  probe)` after systemd provides the credentials directory; importing the
+  module never contacts a server or reads any secret.
+- It reads the claim only from a named `LoadCredential` file (primary
+  `endpoint-enrollment-claim`; the Task 15
+  `endpoint-agent-provisioning-handoff` name requires explicit config during
+  the package transition), derives and normalizes the hardware proof through
+  `endpoint_contracts`, and uses `/agent/v1/enroll` only over HTTPS with an
+  explicit CA file.
+- The successful device bearer is atomically written as a service-user owned
+  `0600` credential and rechecked before a non-secret root-removal request is
+  written.  The agent never removes the root-owned claim source.  Temporary
+  Gateway failures retry at most three times; denial, replay, expiry, mismatch
+  and malformed input fail closed.  No claim, device bearer or raw response is
+  written to logs, status, config or the root handoff request.
+- `pc_agent/tests/test_enrollment_bootstrap.py` covers persistence ordering,
+  bounded retry, terminal denial, restart identity preservation and the
+  explicit Task 15 credential-name seam.  The operation runbook is
+  `docs/runbooks/ALT_AGENT_ENROLLMENT_BOOTSTRAP.md`.
+
 ## Device Context map (2026-07-29)
 
 - `pc_agent/context_profiles/` owns bounded, read-only ALT profile collectors
