@@ -4,12 +4,31 @@
 set -euo pipefail
 IFS=$'\n\t'
 
-source_installer=${1:?usage: verify_alt_agent_bundle_linux_harness.sh INSTALLER_PATH}
+source_installer=${1:?usage: verify_alt_agent_bundle_linux_harness.sh INSTALLER_PATH (with adjacent default-config.yaml and endpoint-agent.service)}
+source_dir=$(dirname "$source_installer")
+
+validate_harness_inputs() {
+    local asset label
+    for asset in "$source_installer" "$source_dir/default-config.yaml" "$source_dir/endpoint-agent.service"; do
+        label=$(basename "$asset")
+        [[ -f "$asset" && ! -L "$asset" ]] || {
+            printf 'ALT bundle Linux harness: missing required harness asset: %s\n' "$label" >&2
+            exit 2
+        }
+        ! LC_ALL=C grep -q $'\r' "$asset" || {
+            printf 'ALT bundle Linux harness: required harness asset must use LF: %s\n' "$label" >&2
+            exit 2
+        }
+    done
+    bash -n "$source_installer" || {
+        echo 'ALT bundle Linux harness: installer syntax is invalid' >&2
+        exit 2
+    }
+}
+
 [[ "$(uname -s)" == Linux ]] || { echo 'ALT bundle Linux harness: skipped (Linux required)'; exit 0; }
+validate_harness_inputs
 [[ "${EUID}" -eq 0 ]] || { echo 'ALT bundle Linux harness: run with sudo on a Linux test host' >&2; exit 2; }
-[[ -f "$source_installer" ]] || { echo 'ALT bundle Linux harness: installer is missing' >&2; exit 2; }
-! LC_ALL=C grep -q $'\r' "$source_installer" || { echo 'ALT bundle Linux harness: installer must use LF' >&2; exit 2; }
-bash -n "$source_installer"
 
 readonly SERVICE_UID=42420
 readonly SERVICE_GID=42420
@@ -71,8 +90,7 @@ assert_isolated_installer_copy() {
 }
 
 make_installer_copy() {
-    local root=$1 source_dir
-    source_dir=$(dirname "$source_installer")
+    local root=$1
     mkdir -p "$root/installer-dir"
     cp -- "$source_dir/default-config.yaml" "$source_dir/endpoint-agent.service" "$root/installer-dir/"
     sed \

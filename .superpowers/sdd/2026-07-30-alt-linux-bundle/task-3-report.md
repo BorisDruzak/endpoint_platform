@@ -69,3 +69,31 @@ The rollback case now clears the service stub log after the first successful
 install and requires the injected run to contain exactly
 `restart endpoint-agent.service`; a generic early installation failure cannot
 satisfy the rollback assertion.
+
+## Review round 2 correction: archive input contract
+
+The Linux execution failure was pre-scenario: the copied installer expects
+`default-config.yaml` and `endpoint-agent.service` immediately beside it, but
+the transferred input contained only the installer. The harness now validates
+the installer plus both adjacent regular, non-symlinked LF assets before any
+root check or temporary scenario root. A missing asset exits with status 2 and
+the safe message `missing required harness asset: <filename>`.
+
+Transfer the harness and all three installer inputs as one LF Git archive; do
+not transfer the installer alone:
+
+```text
+git archive --format=tar --prefix=alt-linux-harness/ HEAD \
+  deploy/agent/alt/install-endpoint-agent.sh \
+  deploy/agent/alt/default-config.yaml \
+  deploy/agent/alt/endpoint-agent.service \
+  tests/deploy/verify_alt_agent_bundle_linux_harness.sh > alt-linux-harness.tar
+sha256sum alt-linux-harness.tar
+tar -xf alt-linux-harness.tar
+sudo bash alt-linux-harness/tests/deploy/verify_alt_agent_bundle_linux_harness.sh \
+  alt-linux-harness/deploy/agent/alt/install-endpoint-agent.sh
+```
+
+The archive preserves the required adjacency and the harness rejects CRLF
+inputs before executing any case. The command neither needs nor carries a
+credential or provisioning handoff.

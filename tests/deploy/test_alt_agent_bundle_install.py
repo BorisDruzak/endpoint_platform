@@ -7,6 +7,7 @@ installer's security and rollback boundary without executing host mutations.
 from __future__ import annotations
 
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 
@@ -16,6 +17,7 @@ import pytest
 ROOT = Path(__file__).resolve().parents[2]
 INSTALLER = ROOT / "deploy" / "agent" / "alt" / "install-endpoint-agent.sh"
 SERVICE = ROOT / "deploy" / "agent" / "alt" / "endpoint-agent.service"
+CONFIG = ROOT / "deploy" / "agent" / "alt" / "default-config.yaml"
 LINUX_HARNESS = ROOT / "tests" / "deploy" / "verify_alt_agent_bundle_linux_harness.sh"
 PYTHON = Path(__import__("sys").executable).as_posix()
 
@@ -299,6 +301,49 @@ def test_linux_harness_proves_isolation_and_reaches_the_injected_restart_failure
         "require_trusted_root_parent /etc/systemd/system",
     ):
         assert required in text
+
+
+def test_linux_harness_declares_and_preflights_its_adjacent_archive_assets() -> None:
+    """A partial archive must fail before any mktemp scenario is created."""
+    text = _text(LINUX_HARNESS)
+
+    for required in (
+        "validate_harness_inputs",
+        "missing required harness asset:",
+        "default-config.yaml",
+        "endpoint-agent.service",
+        'source_dir=$(dirname "$source_installer")',
+    ):
+        assert required in text
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="requires Linux shell semantics")
+@pytest.mark.parametrize(
+    ("missing_asset", "present_asset"),
+    [
+        ("default-config.yaml", None),
+        ("endpoint-agent.service", CONFIG),
+    ],
+)
+def test_linux_harness_rejects_missing_adjacent_asset_before_running_scenarios(
+    tmp_path: Path, missing_asset: str, present_asset: Path | None
+) -> None:
+    """The archive contract reports the missing filename without requiring root."""
+    installer = tmp_path / "install-endpoint-agent.sh"
+    shutil.copyfile(INSTALLER, installer)
+    installer.chmod(0o700)
+    if present_asset is not None:
+        shutil.copyfile(present_asset, tmp_path / present_asset.name)
+
+    result = subprocess.run(
+        ["bash", LINUX_HARNESS.as_posix(), installer.as_posix()],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 2
+    assert f"missing required harness asset: {missing_asset}" in result.stderr
 
 
 @pytest.mark.skipif(sys.platform != "linux", reason="requires Linux shell semantics")
