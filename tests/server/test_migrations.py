@@ -14,7 +14,11 @@ import pytest
 from alembic import command
 from alembic.config import Config
 from alembic.script import ScriptDirectory
+from sqlalchemy.dialects import postgresql
 from sqlalchemy.engine import make_url
+from sqlalchemy.schema import CreateIndex
+
+from endpoint_server.db.models import DeviceSession
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
@@ -123,7 +127,47 @@ def test_migration_history_has_exactly_one_head() -> None:
         _alembic_config("postgresql+asyncpg://unused@127.0.0.1/unused")
     )
 
-    assert script.get_heads() == ["0009_device_context_snapshot_pins"]
+    assert script.get_heads() == ["0010_device_session_last_seen_index"]
+
+
+def test_device_session_last_seen_index_migration_is_additive_and_ordered() -> None:
+    """The list API needs one deterministic latest-session lookup per device set."""
+    output = io.StringIO()
+    config = Config(REPOSITORY_ROOT / "alembic.ini", output_buffer=output)
+    config.set_main_option(
+        "sqlalchemy.url",
+        "postgresql+asyncpg://unused@127.0.0.1/unused",
+    )
+
+    command.upgrade(
+        config,
+        "0009_device_context_snapshot_pins:0010_device_session_last_seen_index",
+        sql=True,
+    )
+
+    rendered = " ".join(output.getvalue().split())
+    assert (
+        "CREATE INDEX ix_device_sessions_device_created_id_desc ON device_sessions "
+        "(device_id, created_at DESC, id DESC);"
+    ) in rendered
+
+
+def test_device_session_model_declares_last_seen_index() -> None:
+    """ORM metadata must match the additive index consumed by the list query."""
+    indexes = {index.name: index for index in DeviceSession.__table__.indexes}
+
+    rendered = " ".join(
+        str(
+            CreateIndex(indexes["ix_device_sessions_device_created_id_desc"]).compile(
+                dialect=postgresql.dialect()
+            )
+        ).split()
+    )
+
+    assert rendered == (
+        "CREATE INDEX ix_device_sessions_device_created_id_desc ON device_sessions "
+        "(device_id, created_at DESC, id DESC)"
+    )
 
 
 def test_device_context_migration_binds_current_pointer_to_snapshot_identity() -> None:
@@ -172,7 +216,10 @@ def test_device_context_pin_migration_adds_only_the_explicit_pin_column() -> Non
     )
 
     rendered = " ".join(output.getvalue().split())
-    assert "ALTER TABLE context_snapshots ADD COLUMN pinned_at TIMESTAMP WITH TIME ZONE;" in rendered
+    assert (
+        "ALTER TABLE context_snapshots ADD COLUMN pinned_at TIMESTAMP WITH TIME ZONE;"
+        in rendered
+    )
 
 
 def test_update_downgrade_sql_neutralizes_actionable_assignments() -> None:
@@ -435,7 +482,9 @@ def test_initial_revision_upgrades_and_downgrades_empty_postgresql(
     revision_rows = asyncio.run(
         _fetch(plain_url, "SELECT version_num FROM alembic_version")
     )
-    assert [row["version_num"] for row in revision_rows] == ["0009_device_context_snapshot_pins"]
+    assert [row["version_num"] for row in revision_rows] == [
+        "0010_device_session_last_seen_index"
+    ]
 
     column_rows = asyncio.run(
         _fetch(
