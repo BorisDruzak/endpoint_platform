@@ -49,8 +49,10 @@ Helpdesk WebSocket/API is no longer used by the ALT systemd runtime.
 
 ## Next Steps
 
-1. Validate the Endpoint update and rollback control plane on
-   `test-agent-lin` before any wider rollout.
+1. Implement and validate the Gateway-native ALT update and rollback runtime
+   on `test-agent-lin` before any wider rollout.  The dedicated design and
+   task plan are in `docs/superpowers/specs/2026-07-31-gateway-update-runtime-design.md`
+   and `docs/superpowers/plans/2026-07-31-gateway-update-runtime.md`.
 2. Validate Gateway reconnect and a repeated baseline collection after the
    update/rollback exercise.
 3. Begin the separate Wave 1 `web_ovpn` integration only in its dedicated
