@@ -20,6 +20,9 @@ _SEMVER = re.compile(
 _OPERATION_ID = re.compile(
     r"^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
 )
+_ROLLBACK_REASON = re.compile(
+    r"^rollback of [0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}; .+"
+)
 
 
 @dataclass(frozen=True)
@@ -56,7 +59,9 @@ class GatewayUpdateRuntime:
             return GatewayUpdateRunResult(
                 "unavailable" if recommendation_result.unavailable else "idle"
             )
-        if not _is_strictly_newer(recommendation.version, self._current_version):
+        if not _is_eligible_recommendation(
+            recommendation.version, self._current_version, recommendation.reason
+        ):
             return GatewayUpdateRunResult("idle")
         if not await self._adapter.acknowledge(recommendation.operation_id, "requested"):
             return GatewayUpdateRunResult("request_ack_pending")
@@ -143,6 +148,26 @@ def _is_strictly_newer(candidate: str, installed: str) -> bool:
     if candidate_parts[:3] != installed_parts[:3]:
         return candidate_parts[:3] > installed_parts[:3]
     return _compare_prerelease(candidate_parts[3], installed_parts[3]) > 0
+
+
+def _is_eligible_recommendation(candidate: str, installed: str, reason: str | None) -> bool:
+    candidate_parts = _parse_semver(candidate)
+    installed_parts = _parse_semver(installed)
+    if candidate_parts is None or installed_parts is None:
+        return False
+    comparison = _compare_semver_parts(candidate_parts, installed_parts)
+    return comparison > 0 or (
+        comparison < 0 and isinstance(reason, str) and _ROLLBACK_REASON.fullmatch(reason) is not None
+    )
+
+
+def _compare_semver_parts(
+    candidate: tuple[int, int, int, tuple[str, ...] | None],
+    installed: tuple[int, int, int, tuple[str, ...] | None],
+) -> int:
+    if candidate[:3] != installed[:3]:
+        return 1 if candidate[:3] > installed[:3] else -1
+    return _compare_prerelease(candidate[3], installed[3])
 
 
 def _parse_semver(value: str) -> tuple[int, int, int, tuple[str, ...] | None] | None:

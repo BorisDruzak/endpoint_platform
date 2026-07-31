@@ -138,6 +138,34 @@ async def test_unavailable_gateway_does_not_create_pending_or_fallback_state(
 
 
 @pytest.mark.asyncio
+async def test_authenticated_rollback_recommendation_allows_an_older_release(
+    tmp_path: Path,
+) -> None:
+    recommendation = _recommendation(version="3.1.79")
+    recommendation = EndpointRecommendation(
+        **{**recommendation.__dict__, "reason": "rollback of 11111111-1111-4111-8111-111111111111; test recovery"}
+    )
+    adapter = _RecommendationAdapter(RecommendationResult("endpoint", recommendation, False, None))
+
+    async def download(item: EndpointRecommendation, destination: Path) -> tuple[str, int]:
+        destination.write_bytes(b"verified-data")
+        return item.sha256, item.size
+
+    runtime = GatewayUpdateRuntime(
+        adapter=adapter,
+        data_root=tmp_path,
+        current_version="3.1.80",
+        download=download,
+    )
+
+    assert (await runtime.run_once()).status == "scheduled"
+    assert adapter.acknowledgements == [
+        (_OPERATION_ID, "requested"),
+        (_OPERATION_ID, "scheduled"),
+    ]
+
+
+@pytest.mark.asyncio
 async def test_startup_reports_applied_only_after_retrying_durable_scheduled_ack(
     tmp_path: Path,
 ) -> None:
