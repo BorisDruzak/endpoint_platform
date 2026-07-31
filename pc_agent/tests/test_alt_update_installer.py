@@ -59,18 +59,24 @@ def _write_bundle(
         archive.addfile(info, io.BytesIO(manifest))
 
 
-def _pending(data_root: Path, artifact: Path) -> Path:
+def _pending(
+    data_root: Path,
+    artifact: Path,
+    *,
+    version: str = "3.1.77-rc.1",
+    operation_id: str = _OPERATION_ID,
+) -> Path:
     payload = {
         "archive_type": "tar.gz",
         "artifact_path": str(artifact),
         "channel": "canary",
-        "operation_id": _OPERATION_ID,
+        "operation_id": operation_id,
         "requested_by": "gateway",
         "requested_reason": "scheduled_rollout",
         "sha256": _sha256(artifact.read_bytes()),
         "size": artifact.stat().st_size,
         "target": "linux_amd64",
-        "version": "3.1.77-rc.1",
+        "version": version,
     }
     path = data_root / "updates" / "pending_alt_update.json"
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -164,3 +170,53 @@ def test_manifest_hash_mismatch_leaves_active_alt_selector_unchanged(
             "version": "3.1.77-rc.1",
         }
     ]
+
+
+def test_verified_existing_alt_release_can_be_selected_for_rollback(
+    tmp_path: Path,
+) -> None:
+    install_root, data_root = tmp_path / "install", tmp_path / "data"
+    _initial_selector(install_root)
+    artifact = data_root / "updates" / "downloads" / "candidate.tar.gz"
+    artifact.parent.mkdir(parents=True)
+    _write_bundle(artifact)
+
+    ok, version = apply_alt_update(install_root, data_root, _pending(data_root, artifact))
+    assert (ok, version) == (True, "3.1.77-rc.1")
+    existing_release = install_root / "versions" / "3.1.77-rc.1"
+    existing_launcher = (existing_release / "launcher").read_bytes()
+    (install_root / "versions" / "3.1.78" / "pc_agent").mkdir(parents=True)
+    (install_root / "current.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "source_revision": "newerbuild",
+                "version": "3.1.78",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    rollback_operation = "caa31a48-bf2f-4f1c-8b77-d1be77e12b4f"
+    ok, version = apply_alt_update(
+        install_root,
+        data_root,
+        _pending(data_root, artifact, operation_id=rollback_operation),
+    )
+
+    assert (ok, version) == (True, "3.1.77-rc.1")
+    assert (existing_release / "launcher").read_bytes() == existing_launcher
+    assert json.loads((install_root / "current.json").read_text(encoding="utf-8")) == {
+        "schema_version": 1,
+        "source_revision": "feedface",
+        "version": "3.1.77-rc.1",
+    }
+    history = json.loads(
+        (data_root / "updates" / "update_history.json").read_text(encoding="utf-8")
+    )
+    assert history[-1] == {
+        "operation_id": rollback_operation,
+        "previous_version": "3.1.78",
+        "success": True,
+        "version": "3.1.77-rc.1",
+    }

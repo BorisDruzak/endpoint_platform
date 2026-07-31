@@ -56,10 +56,11 @@ def apply_alt_update(
         )
         target = install_root / "versions" / manifest.version
         if target.exists() or target.is_symlink():
-            raise ValueError("target ALT release already exists")
-        target.parent.mkdir(parents=True, exist_ok=True)
-        shutil.move(str(staging), str(target))
-        _make_release_directories_traversable(target)
+            _verify_existing_release(target, manifest)
+        else:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.move(str(staging), str(target))
+            _make_release_directories_traversable(target)
         _write_selector(install_root / "current.json", manifest)
         _append_history(
             data_root,
@@ -291,6 +292,42 @@ def _make_release_directories_traversable(release_root: Path) -> None:
     """ALT code runs as the service account while release trees stay root-owned."""
     for directory, _, _ in os.walk(release_root):
         os.chmod(directory, 0o755)
+
+
+def _verify_existing_release(release_root: Path, expected: _Manifest) -> None:
+    """Accept a previous immutable release only when it exactly matches the bundle."""
+    if release_root.is_symlink() or not release_root.is_dir():
+        raise ValueError("invalid existing ALT release")
+    manifest_path = release_root / "manifest.json"
+    if manifest_path.is_symlink() or not manifest_path.is_file():
+        raise ValueError("missing existing ALT manifest")
+    existing = _parse_manifest(
+        manifest_path.read_bytes(), expected_version=expected.version
+    )
+    if existing != expected:
+        raise ValueError("existing ALT manifest does not match bundle")
+
+    expected_files = {"manifest.json", *expected.files}
+    actual_files: set[str] = set()
+    for path in release_root.rglob("*"):
+        relative = path.relative_to(release_root).as_posix()
+        if path.is_symlink():
+            raise ValueError("unsafe existing ALT release entry")
+        if path.is_dir():
+            continue
+        if not path.is_file() or relative not in expected_files:
+            raise ValueError("unexpected existing ALT release entry")
+        actual_files.add(relative)
+        if relative == "manifest.json":
+            continue
+        digest = hashlib.sha256(path.read_bytes()).hexdigest()
+        expected_digest, expected_mode = expected.files[relative]
+        if digest != expected_digest or (
+            os.name != "nt" and stat.S_IMODE(path.stat().st_mode) != expected_mode
+        ):
+            raise ValueError("existing ALT release file does not match bundle")
+    if actual_files != expected_files:
+        raise ValueError("incomplete existing ALT release")
 
 
 def _append_history(data_root: Path, entry: dict[str, object]) -> None:
