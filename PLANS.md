@@ -44,6 +44,14 @@ the selector and recorded as a terminal failed canary; its immutable artifact
 was not overwritten. The post-rollback `baseline_v1` request completed through
 Gateway; its unchanged semantic hash reused the existing current snapshot.
 
+Wave 1 core adapter/API is merged in `BorisDruzak/web_ovpn` at `6e767ba`.
+It has typed safe projections, existing API authentication and CSRF checks,
+idempotency forwarding for collections, strict configured CA verification and
+deterministic degraded responses. It is not deployed to `192.168.100.30` yet:
+the deployment gate must provide the built Endpoint Platform SDK plus a
+root-managed least-privilege service token and CA file. The Russian-first UI
+pages and any netctl correlation remain separate follow-on work.
+
 ## Constraints
 
 - web_ovpn and network_configuration remain read-only until a clean dedicated worktree exists.
@@ -62,10 +70,10 @@ Gateway; its unchanged semantic hash reused the existing current snapshot.
 1. Treat the Gateway/update/rollback pilot as accepted only for the dedicated
    `test-agent-lin`; do not assign a production endpoint or run a bulk rollout
    without a separate change decision.
-2. Begin the separate Wave 1 `web_ovpn` integration only in its dedicated
-   worktree. It must use the typed service client over verified TLS, consume
-   normalized Device Context projections only, and keep `web_ovpn` and
-   `network_configuration` read-only until that worktree is created.
+2. At a separate authorized deployment gate, install the reviewed SDK and
+   root-managed `web_ovpn` service credential/CA on `192.168.100.30`, enable
+   the feature, and verify only normalized projections over TLS. Do not add
+   IP-only correlation or expose raw agent result payloads.
 
 ## Verification
 
