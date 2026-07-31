@@ -14,7 +14,8 @@ restore_update_state_owner() {
     # chown an agent-writable tree.
     for state in \
         "$DATA_ROOT/updates/update_history.json" \
-        "$DATA_ROOT/updates/last_failed_pending_update.json"; do
+        "$DATA_ROOT/updates/last_failed_pending_update.json" \
+        "$DATA_ROOT/logs/action_trace.jsonl"; do
         if [[ -f "$state" && ! -L "$state" ]]; then
             chown endpoint-agent:endpoint-agent "$state"
             chmod 0600 "$state"
