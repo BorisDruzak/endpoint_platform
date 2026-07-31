@@ -56,6 +56,30 @@ def test_remote_fingerprint_must_be_the_single_canonical_line() -> None:
         controller.parse_hardware_fingerprint(b"sha256:not-a-hash\n")
 
 
+def test_remote_fingerprint_is_collected_as_the_agent_service_account() -> None:
+    """The claim binding must match the identity that later runs enrollment."""
+    fingerprint = "sha256:" + "c" * 64
+    ssh = _FakeSsh((fingerprint + "\n").encode())
+
+    assert controller._remote_fingerprint(ssh) == fingerprint
+    assert ssh.command == (
+        "sudo -u endpoint-agent "
+        "/root/input/endpoint-agent-test-pilot-bundle/pc_agent/pc_agent "
+        "--print-hardware-fingerprint"
+    )
+
+
+def test_controller_prepares_the_service_identity_before_collecting_fingerprint() -> None:
+    ssh = _FakeSsh()
+
+    controller._prepare_remote_service_account(ssh)
+
+    assert ssh.command == (
+        "sudo /root/input/endpoint-agent-installer/install-endpoint-agent.sh "
+        "--prepare-service-account"
+    )
+
+
 def test_parser_accepts_only_local_inputs_and_administrator_name(tmp_path: Path) -> None:
     parser = controller.build_parser()
     parsed = parser.parse_args(

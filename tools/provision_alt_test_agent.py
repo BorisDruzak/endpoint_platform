@@ -190,7 +190,17 @@ def _stage_remote_inputs(bundle: Path, ca_file: Path, ssh: SshRunner) -> None:
 
 def _remote_fingerprint(ssh: CommandRunner) -> str:
     return parse_hardware_fingerprint(
-        ssh.run_output(f"sudo {_REMOTE_BUNDLE}/pc_agent/pc_agent --print-hardware-fingerprint")
+        ssh.run_output(
+            f"sudo -u endpoint-agent {_REMOTE_BUNDLE}/pc_agent/pc_agent "
+            "--print-hardware-fingerprint"
+        )
+    )
+
+
+def _prepare_remote_service_account(ssh: CommandRunner) -> None:
+    """Create or validate the exact account before binding a claim to it."""
+    ssh.run_output(
+        f"sudo {_REMOTE_INSTALLER}/install-endpoint-agent.sh --prepare-service-account"
     )
 
 
@@ -382,6 +392,7 @@ def main(argv: list[str] | None = None) -> int:
     validate_pilot_target(TEST_HOST)
     ssh = SshRunner()
     _stage_remote_inputs(args.bundle, args.ca_file, ssh)
+    _prepare_remote_service_account(ssh)
     fingerprint = _remote_fingerprint(ssh)
     result = issue_and_deliver_claim(
         ca_file=args.ca_file,

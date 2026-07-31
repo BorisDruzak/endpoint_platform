@@ -7,6 +7,17 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from pc_agent.launcher import launcher_main
+from pc_agent.launcher import installer as launcher_installer
+
+
+def test_find_agent_binary_ignores_a_directory_named_like_the_binary(tmp_path):
+    version_dir = tmp_path / "version"
+    executable = "pc_agent.exe" if launcher_installer.os.name == "nt" else "pc_agent"
+    (version_dir / executable).mkdir(parents=True)
+    binary = version_dir / executable / executable
+    binary.write_text("binary", encoding="utf-8")
+
+    assert launcher_installer._find_agent_binary(version_dir) == binary
 
 
 def test_launcher_loads_current_json_with_utf8_bom(monkeypatch, tmp_path):

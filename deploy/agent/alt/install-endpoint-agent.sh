@@ -42,6 +42,7 @@ current_published=false
 dry_run=false
 inspect_layout=false
 finalize_handoff=false
+prepare_service_account=false
 
 die() {
     printf 'endpoint-agent installer: %s\n' "$*" >&2
@@ -54,6 +55,7 @@ Usage:
   install-endpoint-agent.sh --endpoint https://endpoint.example --installation-id ID --ca-file FILE \
     --handoff-file FILE --agent-bundle DIRECTORY [--dry-run]
   install-endpoint-agent.sh --inspect-layout
+  install-endpoint-agent.sh --prepare-service-account
   install-endpoint-agent.sh --finalize-handoff
 
 The release bundle, CA and one-time provisioning handoff must already be local.
@@ -792,6 +794,7 @@ while [[ $# -gt 0 ]]; do
         --agent-bundle) agent_bundle=${2:-}; shift 2 ;;
         --dry-run) dry_run=true; shift ;;
         --inspect-layout) inspect_layout=true; shift ;;
+        --prepare-service-account) prepare_service_account=true; shift ;;
         --finalize-handoff) finalize_handoff=true; shift ;;
         --help|-h) usage; exit 0 ;;
         *) die "unknown argument: $1" ;;
@@ -799,9 +802,17 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [[ "$inspect_layout" == true ]]; then
-    [[ "$finalize_handoff" == false && -z "$endpoint$installation_id$ca_file$handoff_file$agent_bundle" ]] || \
+    [[ "$finalize_handoff" == false && "$prepare_service_account" == false && -z "$endpoint$installation_id$ca_file$handoff_file$agent_bundle" ]] || \
         die '--inspect-layout cannot be combined with installation options'
     print_layout
+    exit 0
+fi
+if [[ "$prepare_service_account" == true ]]; then
+    [[ "$finalize_handoff" == false && -z "$endpoint$installation_id$ca_file$handoff_file$agent_bundle" && "$dry_run" == false ]] || \
+        die '--prepare-service-account cannot be combined with installation options'
+    require_root
+    ensure_service_account
+    printf 'endpoint-agent service account is ready\n'
     exit 0
 fi
 if [[ "$finalize_handoff" == true ]]; then

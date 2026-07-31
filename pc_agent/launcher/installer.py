@@ -138,7 +138,7 @@ def _find_agent_binary(version_dir: Path) -> Path:
     else:
         exe_name = "pc_agent"
     direct = version_dir / exe_name
-    if direct.exists():
+    if direct.is_file():
         return direct
     # Одна поддиректория (onedir output)
     subdirs = [d for d in version_dir.iterdir() if d.is_dir()]
