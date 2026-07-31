@@ -64,13 +64,17 @@ access to `/opt/endpoint-agent`. A durable
 `updates/pending_alt_update.json` is therefore consumed by the fixed
 root-owned `endpoint-agent-update.path` and
 `endpoint-agent-update.service`, not by the ordinary launcher loop. The
-one-shot worker stops the agent, invokes the stable launcher with
-`--apply-alt-update`, then starts the service again. A handled artifact or
-publish failure is recorded locally and must still return the prior selected
-unprivileged release to service; `scheduled` remains non-terminal. On restart,
-the reporter resolves a successful current version before any older failed
-history entry, so a stale terminal record cannot mask a newer applied canary.
-An older release is eligible only when the authenticated controller reason has
+one-shot worker stops the agent, strictly resolves the root-owned immutable
+launcher selected by `current.json`, invokes it with `--apply-alt-update`, then
+starts the service again. It must never use a stale fixed launcher from the
+initial installation. A handled artifact or publish failure is recorded
+locally and must still return the prior selected unprivileged release to
+service; `scheduled` remains non-terminal. A rollback may select an existing
+release only after its manifest, exact regular-file set, hashes and POSIX modes
+match the newly verified bundle; no immutable release is overwritten. On
+restart, the reporter walks durable history newest-first: a newer failure is
+reported ahead of a prior applied operation, while an old failure cannot mask a
+later applied canary. An older release is eligible only when the authenticated controller reason has
 the exact rollback form `rollback of <UUID>; <safe reason>`; ordinary older
 recommendations remain ignored.
 

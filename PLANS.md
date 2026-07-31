@@ -27,12 +27,22 @@ The initial administrator `osn-admin` is active with the explicit
 `updates:write` grant. Bootstrap was audited, and the strict-HTTPS login check
 created then revoked its temporary verification session.
 
-The test-agent pilot has completed one-time enrollment and a live Gateway
-baseline collection. The permanent credential is owned by
+The test-agent pilot has completed one-time enrollment, Gateway delivery and a
+live baseline collection. The permanent credential is owned by
 `endpoint-agent:endpoint-agent`; the finalized unit has no one-time claim
 dependency, stays active with the TLS-only Gateway transport, and produced a
 completed `baseline_v1` snapshot on the production controller. The inherited
 Helpdesk WebSocket/API is no longer used by the ALT systemd runtime.
+
+The complete single-device update proof also passed on `test-agent-lin`: the
+controller-delivered `3.1.84` canary reached `applied` after the post-restart
+handshake, then an authenticated rollback selected the already immutable
+`3.1.80` release and also reached `applied`. The root worker now resolves and
+verifies the launcher in `current.json` rather than retaining stale updater
+code. A deliberately malformed `3.1.83` archive was rejected without moving
+the selector and recorded as a terminal failed canary; its immutable artifact
+was not overwritten. The post-rollback `baseline_v1` request completed through
+Gateway; its unchanged semantic hash reused the existing current snapshot.
 
 ## Constraints
 
@@ -49,27 +59,13 @@ Helpdesk WebSocket/API is no longer used by the ALT systemd runtime.
 
 ## Next Steps
 
-1. Implement and validate the Gateway-native ALT update and rollback runtime
-   on `test-agent-lin` before any wider rollout.  The dedicated design and
-   task plan are in `docs/superpowers/specs/2026-07-31-gateway-update-runtime-design.md`
-   and `docs/superpowers/plans/2026-07-31-gateway-update-runtime.md`.
-   The dedicated delivery boundary is `/agent/v1/updates/artifacts/{build_identifier}`:
-   only an actively assigned device can retrieve the controller-owned artifact.
-   The first live canary safely reached `requested` and `scheduled`, then
-   failed without selector corruption because the unprivileged service could
-   not write the intentionally root-owned immutable release root. The fix is
-   the committed root-owned systemd update worker; rebuild the test baseline
-   with that worker before retrying a new canary. Disk resize remains cancelled.
-   The root-worker baseline `3.1.78`, controller canary `3.1.79`, and ordinary
-   reporter-order canary `3.1.80` have now completed only on `test-agent-lin`.
-   The final `3.1.80` target reached durable controller status `applied` with
-   the post-restart Gateway report; the systemd agent stayed active with zero
-   restart failures. The remaining proof is a deliberately failing, bounded
-   rollback canary and a post-rollback Device Context collection.
-2. Validate Gateway reconnect and a repeated baseline collection after the
-   update/rollback exercise.
-3. Begin the separate Wave 1 `web_ovpn` integration only in its dedicated
-   worktree after the production agent pilot is accepted.
+1. Treat the Gateway/update/rollback pilot as accepted only for the dedicated
+   `test-agent-lin`; do not assign a production endpoint or run a bulk rollout
+   without a separate change decision.
+2. Begin the separate Wave 1 `web_ovpn` integration only in its dedicated
+   worktree. It must use the typed service client over verified TLS, consume
+   normalized Device Context projections only, and keep `web_ovpn` and
+   `network_configuration` read-only until that worktree is created.
 
 ## Verification
 
