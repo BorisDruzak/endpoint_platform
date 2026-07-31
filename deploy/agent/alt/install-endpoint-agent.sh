@@ -75,16 +75,13 @@ require_https_endpoint() {
 }
 
 require_installation_id() {
-    python3 - "$installation_id" <<'PY' || die 'installation ID must be 1-128 printable ASCII characters without surrounding whitespace'
+    python3 - "$installation_id" <<'PY' || die 'installation ID must use 1-128 ASCII letters, digits, dots, underscores, or hyphens'
 import sys
+import re
 
 value = sys.argv[1]
 valid = (
-    bool(value)
-    and value == value.strip()
-    and value.isascii()
-    and len(value) <= 128
-    and all(32 <= ord(character) <= 126 for character in value)
+    re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}", value) is not None
 )
 raise SystemExit(0 if valid else 1)
 PY

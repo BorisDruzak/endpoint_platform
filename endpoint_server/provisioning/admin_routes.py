@@ -7,7 +7,7 @@ from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, SecretStr
 
 from endpoint_contracts.identity import normalize_install_session_id
 from endpoint_server.audit.request_ids import audit_request_id
@@ -29,6 +29,8 @@ class PilotCredentialRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     install_session_id: str = Field(min_length=1, max_length=128)
+    campaign_id: UUID
+    hardware_fingerprint: SecretStr = Field(min_length=1, max_length=256)
 
 
 class PilotCredentialResponse(BaseModel):
@@ -67,6 +69,8 @@ async def create_test_pilot_credential(
                 session,
                 settings=request.app.state.settings,
                 installation_id=installation_id,
+                campaign_id=body.campaign_id,
+                hardware_fingerprint=body.hardware_fingerprint.get_secret_value(),
                 actor_id=str(principal.user.id),
                 request_id=audit_request_id(request),
             )

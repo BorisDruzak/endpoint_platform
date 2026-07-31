@@ -5282,7 +5282,13 @@ async def main_async(
 def _run_linux_systemd_enrollment_gate() -> None:
     """Exchange the fixed first-boot claim before any ordinary agent startup."""
     runtime_paths_from_systemd = systemd_runtime_paths()
+    enrollment_required = os.environ.get("ENDPOINT_AGENT_ENROLLMENT_REQUIRED", "")
+    if enrollment_required not in {"", "1"}:
+        raise SystemExit(75)
     if runtime_paths_from_systemd is None:
+        if enrollment_required == "1":
+            logger.error("Endpoint first-boot enrollment required but credentials are absent")
+            raise SystemExit(75)
         return
     config_path, ca_file, claim_file = runtime_paths_from_systemd
     outcome = asyncio.run(

@@ -27,6 +27,10 @@ from endpoint_server.enrollment.campaigns import (
     issue_campaign,
 )
 from endpoint_server.main import create_app
+from endpoint_server.provisioning.pilot_service import (
+    PILOT_SERVICE_CLIENT_IDENTIFIER,
+    pilot_credential_identifier,
+)
 
 
 NOW = datetime.now(UTC)
@@ -106,11 +110,15 @@ class _Provider:
 
 
 async def _authorized_session(
-    *, scopes: tuple[str, ...], campaign: EnrollmentCampaign | None
+    *,
+    scopes: tuple[str, ...],
+    campaign: EnrollmentCampaign | None,
+    client_identifier: str | None = None,
+    credential_identifier: str | None = None,
 ) -> tuple[_Session, str]:
     client = ServiceClient(
         id=uuid4(),
-        client_identifier=f"alt-provisioner-{uuid4().hex}",
+        client_identifier=client_identifier or f"alt-provisioner-{uuid4().hex}",
         display_name="ALT provisioning controller",
         disabled_at=None,
     )
@@ -135,6 +143,7 @@ async def _authorized_session(
         actor_identifier="seed-admin",
         request_id="seed-provisioner",
         scopes=scopes,
+        credential_identifier=credential_identifier,
     )
     return (
         _Session(client=client, credential=issued.record, campaign=campaign),
@@ -152,6 +161,52 @@ def _campaign() -> EnrollmentCampaign:
         policy={},
         now=NOW,
     ).record
+
+
+@pytest.mark.asyncio
+async def test_test_pilot_bearer_is_bound_to_campaign_installation_and_fingerprint() -> None:
+    campaign = _campaign()
+    installation_id = "alt-test-agent-001"
+    fingerprint = "sha256:" + "d" * 64
+    expected_identifier = pilot_credential_identifier(
+        service_token_pepper=SERVICE_PEPPER,
+        campaign_id=campaign.id,
+        installation_id=installation_id,
+        hardware_fingerprint=fingerprint,
+    )
+    session, token = await _authorized_session(
+        scopes=(PROVISIONING_SCOPE,),
+        campaign=campaign,
+        client_identifier=PILOT_SERVICE_CLIENT_IDENTIFIER,
+        credential_identifier=expected_identifier,
+    )
+    app = create_app(_settings(), session_provider=_Provider(session))
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="https://endpoint.sosnadmin.local",
+    ) as client:
+        allowed = await client.post(
+            "/api/v1/provisioning/install-claims",
+            headers={"Authorization": f"Bearer {token}"},
+            json={
+                "campaign_id": str(campaign.id),
+                "install_session_id": installation_id,
+                "hardware_fingerprint": fingerprint,
+            },
+        )
+        denied = await client.post(
+            "/api/v1/provisioning/install-claims",
+            headers={"Authorization": f"Bearer {token}"},
+            json={
+                "campaign_id": str(campaign.id),
+                "install_session_id": "other-installation",
+                "hardware_fingerprint": fingerprint,
+            },
+        )
+
+    assert allowed.status_code == 201
+    assert denied.status_code == 403
 
 
 @pytest.mark.asyncio

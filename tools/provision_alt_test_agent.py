@@ -28,7 +28,8 @@ _REMOTE_INSTALLER = f"{_REMOTE_INPUT_ROOT}/endpoint-agent-installer"
 _REMOTE_CA = f"{_REMOTE_INPUT_ROOT}/sosnadmin-local-ca.crt"
 _REMOTE_CLAIM = "/etc/endpoint-agent/provisioning-claim"
 _FINGERPRINT_PATTERN = re.compile(r"sha256:[0-9a-f]{64}\Z")
-_ALLOWED_AGENT_CIDR = "192.168.101.0/24"
+_ALLOWED_AGENT_CIDR = "192.168.101.162/32"
+_INSTALLATION_ID_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}\Z")
 
 
 class CommandRunner(Protocol):
@@ -66,6 +67,13 @@ def validate_pilot_target(value: str) -> str:
     if value != TEST_HOST:
         raise ValueError("the controller is restricted to test-agent-lin")
     return value
+
+
+def _normalize_pilot_installation_id(value: str) -> str:
+    normalized = normalize_install_session_id(value)
+    if not _INSTALLATION_ID_PATTERN.fullmatch(normalized):
+        raise ValueError("installation ID must use a YAML-safe pilot grammar")
+    return normalized
 
 
 def parse_hardware_fingerprint(output: bytes) -> str:
@@ -204,17 +212,33 @@ def _revoke_safely(
     csrf_token: str,
     credential_id: str | None,
     campaign_id: str | None,
-) -> None:
+) -> bool:
+    """Attempt each cleanup action independently; callers receive no secret detail."""
     headers = {"X-CSRF-Token": csrf_token}
+    clean = True
     if credential_id:
-        client.post(
-            f"/api/admin/provisioning/test-pilot/credentials/{credential_id}/revoke",
-            headers=headers,
-        )
+        try:
+            response = client.post(
+                f"/api/admin/provisioning/test-pilot/credentials/{credential_id}/revoke",
+                headers=headers,
+            )
+            clean = response.status_code == 204 and clean
+        except httpx.HTTPError:
+            clean = False
     if campaign_id:
-        client.post(
-            f"/api/admin/enrollment/campaigns/{campaign_id}/revoke", headers=headers
-        )
+        try:
+            response = client.post(
+                f"/api/admin/enrollment/campaigns/{campaign_id}/revoke", headers=headers
+            )
+            clean = response.status_code == 204 and clean
+        except httpx.HTTPError:
+            clean = False
+    try:
+        response = client.delete("/api/admin/session", headers=headers)
+        clean = response.status_code == 204 and clean
+    except httpx.HTTPError:
+        clean = False
+    return clean
 
 
 def issue_and_deliver_claim(
@@ -227,7 +251,7 @@ def issue_and_deliver_claim(
     admin_password: str | None = None,
 ) -> PilotResult:
     """Create, use, and revoke the short service bearer without exposing secrets."""
-    normalized_installation_id = normalize_install_session_id(installation_id)
+    normalized_installation_id = _normalize_pilot_installation_id(installation_id)
     context = _validate_ca(ca_file)
     password = admin_password if admin_password is not None else getpass.getpass(
         f"Endpoint administrator password for {admin_username}: "
@@ -281,7 +305,11 @@ def issue_and_deliver_claim(
                 client.post(
                     "/api/admin/provisioning/test-pilot/credentials",
                     headers=headers,
-                    json={"install_session_id": normalized_installation_id},
+                    json={
+                        "campaign_id": campaign_id,
+                        "install_session_id": normalized_installation_id,
+                        "hardware_fingerprint": fingerprint,
+                    },
                 ),
                 201,
                 "test-pilot credential creation failed",
@@ -327,13 +355,14 @@ def issue_and_deliver_claim(
             )
         finally:
             if csrf_token:
-                _revoke_safely(
+                clean = _revoke_safely(
                     client,
                     csrf_token=csrf_token,
                     credential_id=credential_id,
                     campaign_id=None if succeeded else campaign_id,
                 )
-                client.delete("/api/admin/session", headers={"X-CSRF-Token": csrf_token})
+                if not clean:
+                    raise RuntimeError("test-pilot credential cleanup failed")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -349,7 +378,7 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     _validate_bundle(args.bundle)
     _validate_ca(args.ca_file)
-    normalize_install_session_id(args.installation_id)
+    _normalize_pilot_installation_id(args.installation_id)
     validate_pilot_target(TEST_HOST)
     ssh = SshRunner()
     _stage_remote_inputs(args.bundle, args.ca_file, ssh)

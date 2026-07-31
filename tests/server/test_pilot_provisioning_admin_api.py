@@ -102,6 +102,8 @@ async def test_admin_pilot_credential_is_show_once_scoped_and_redacted() -> None
     session = _PilotSession()
     app = create_app(_settings(), session_provider=_Provider(session))
     app.dependency_overrides[require_admin] = _principal
+    campaign_id = uuid4()
+    fingerprint = "sha256:" + "a" * 64
 
     async with AsyncClient(
         transport=ASGITransport(app=app),
@@ -110,7 +112,11 @@ async def test_admin_pilot_credential_is_show_once_scoped_and_redacted() -> None
         response = await client.post(
             "/api/admin/provisioning/test-pilot/credentials",
             headers={"X-Request-ID": "pilot-request-marker"},
-            json={"install_session_id": "alt-test-agent-001"},
+            json={
+                "campaign_id": str(campaign_id),
+                "install_session_id": "alt-test-agent-001",
+                "hardware_fingerprint": fingerprint,
+            },
         )
 
     assert response.status_code == 201
@@ -132,6 +138,7 @@ async def test_admin_pilot_credential_is_show_once_scoped_and_redacted() -> None
     assert all(payload["token"] not in repr(audit) for audit in audits)
     assert all("pilot-request-marker" not in repr(audit) for audit in audits)
     assert audits[-1].details == {
+        "campaign_id": str(campaign_id),
         "expires_at": session.credential.expires_at.isoformat(),
         "installation_id": "alt-test-agent-001",
         "scope": "provisioning.install-claims.issue",
@@ -144,6 +151,7 @@ async def test_pilot_credential_revoke_is_idempotent_and_never_returns_token() -
     session = _PilotSession()
     app = create_app(_settings(), session_provider=_Provider(session))
     app.dependency_overrides[require_admin] = _principal
+    campaign_id = uuid4()
 
     async with AsyncClient(
         transport=ASGITransport(app=app),
@@ -151,7 +159,11 @@ async def test_pilot_credential_revoke_is_idempotent_and_never_returns_token() -
     ) as client:
         issued = await client.post(
             "/api/admin/provisioning/test-pilot/credentials",
-            json={"install_session_id": "alt-test-agent-001"},
+            json={
+                "campaign_id": str(campaign_id),
+                "install_session_id": "alt-test-agent-001",
+                "hardware_fingerprint": "sha256:" + "b" * 64,
+            },
         )
         credential_id = issued.json()["credential_id"]
         token = issued.json()["token"]
@@ -183,7 +195,11 @@ async def test_pilot_credential_requires_administrator_session() -> None:
     ) as client:
         response = await client.post(
             "/api/admin/provisioning/test-pilot/credentials",
-            json={"install_session_id": "alt-test-agent-001"},
+            json={
+                "campaign_id": str(uuid4()),
+                "install_session_id": "alt-test-agent-001",
+                "hardware_fingerprint": "sha256:" + "c" * 64,
+            },
         )
 
     assert response.status_code == 401

@@ -62,7 +62,7 @@ def test_installer_requires_https_ca_verified_bundle_and_secure_handoff() -> Non
     assert "curl " not in text
 
 
-@pytest.mark.parametrize("installation_id", [" padded", "padded ", "тест", "x" * 129])
+@pytest.mark.parametrize("installation_id", [" padded", "padded ", "тест", "x" * 129, "id&rewrite"])
 def test_installer_rejects_invalid_installation_id_before_any_host_mutation(
     installation_id: str,
 ) -> None:
@@ -88,7 +88,7 @@ def test_installer_rejects_invalid_installation_id_before_any_host_mutation(
     )
 
     assert completed.returncode == 1
-    assert "installation ID must be 1-128 printable ASCII" in completed.stderr
+    assert "installation ID must use 1-128 ASCII letters" in completed.stderr
 
 
 def test_installer_validates_existing_service_identity_and_keeps_claim_exchange_out_of_scope() -> (

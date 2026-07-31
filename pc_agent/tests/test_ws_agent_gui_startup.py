@@ -84,3 +84,15 @@ def test_systemd_enrollment_gate_allows_persisted_credential_state(
     monkeypatch.setattr(ws_agent_module, "run_linux_enrollment_gate", _already_enrolled)
 
     ws_agent_module._run_linux_systemd_enrollment_gate()
+
+
+def test_systemd_enrollment_gate_requires_credentials_when_service_contract_is_set(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(ws_agent_module, "systemd_runtime_paths", lambda: None)
+    monkeypatch.setenv("ENDPOINT_AGENT_ENROLLMENT_REQUIRED", "1")
+
+    with pytest.raises(SystemExit) as exc_info:
+        ws_agent_module._run_linux_systemd_enrollment_gate()
+
+    assert exc_info.value.code == 75

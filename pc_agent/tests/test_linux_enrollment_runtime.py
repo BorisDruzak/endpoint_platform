@@ -84,6 +84,11 @@ def test_systemd_paths_are_all_or_nothing_and_cannot_be_renamed() -> None:
     with pytest.raises(ValueError, match="all Endpoint agent systemd credentials"):
         runtime.systemd_runtime_paths({"ENDPOINT_AGENT_CONFIG": environment["ENDPOINT_AGENT_CONFIG"]})
 
+    renamed = dict(environment)
+    renamed["ENDPOINT_AGENT_CONFIG"] = "/tmp/endpoint-agent-config"
+    with pytest.raises(ValueError, match="fixed systemd paths"):
+        runtime.systemd_runtime_paths(renamed)
+
 
 def test_runtime_gate_uses_existing_bootstrap_with_fixed_credential_directory(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path

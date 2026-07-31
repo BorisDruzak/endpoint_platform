@@ -26,6 +26,7 @@ SYSTEMD_CONFIG_CREDENTIAL_NAME = "endpoint-agent-config"
 SYSTEMD_CA_CREDENTIAL_NAME = "endpoint-agent-ca"
 _CONFIGURED_CA_PATH = "/etc/endpoint-agent/ca.crt"
 _PERMANENT_CREDENTIAL_CONFIG_PATH = "/var/lib/endpoint-agent/device-credential"
+_SYSTEMD_CREDENTIALS_DIRECTORY = "/run/credentials/endpoint-agent.service"
 
 
 def _mapping(value: object, *, name: str) -> Mapping[str, object]:
@@ -109,6 +110,13 @@ def systemd_runtime_paths(environment: Mapping[str, str] | None = None) -> tuple
         return None
     if not all(raw):
         raise ValueError("all Endpoint agent systemd credentials are required")
+    expected = (
+        f"{_SYSTEMD_CREDENTIALS_DIRECTORY}/{SYSTEMD_CONFIG_CREDENTIAL_NAME}",
+        f"{_SYSTEMD_CREDENTIALS_DIRECTORY}/{SYSTEMD_CA_CREDENTIAL_NAME}",
+        f"{_SYSTEMD_CREDENTIALS_DIRECTORY}/{SYSTEMD_CLAIM_CREDENTIAL_NAME}",
+    )
+    if raw != expected:
+        raise ValueError("Endpoint agent credentials must use the fixed systemd paths")
     return tuple(Path(value) for value in raw)  # type: ignore[return-value]
 
 
