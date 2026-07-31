@@ -5,6 +5,8 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
+import pytest
+
 
 ROOT = Path(__file__).resolve().parents[2]
 INSTALLER = ROOT / "deploy" / "agent" / "alt" / "install-endpoint-agent.sh"
@@ -38,6 +40,7 @@ def test_installer_requires_https_ca_verified_bundle_and_secure_handoff() -> Non
     text = _text(INSTALLER)
 
     assert "--endpoint" in text
+    assert "--installation-id" in text
     assert "https://" in text
     assert "--ca-file" in text
     assert "openssl verify" in text
@@ -57,6 +60,35 @@ def test_installer_requires_https_ca_verified_bundle_and_secure_handoff() -> Non
     assert "verify=False" not in text
     assert "wget " not in text
     assert "curl " not in text
+
+
+@pytest.mark.parametrize("installation_id", [" padded", "padded ", "тест", "x" * 129, "id&rewrite"])
+def test_installer_rejects_invalid_installation_id_before_any_host_mutation(
+    installation_id: str,
+) -> None:
+    completed = subprocess.run(
+        [
+            "bash",
+            INSTALLER.as_posix(),
+            "--endpoint",
+            "https://endpoint.sosnadmin.local",
+            "--installation-id",
+            installation_id,
+            "--ca-file",
+            "/not-used-ca.pem",
+            "--handoff-file",
+            "/not-used-claim",
+            "--agent-bundle",
+            "/not-used-bundle",
+            "--dry-run",
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode == 1
+    assert "installation ID must use 1-128 ASCII letters" in completed.stderr
 
 
 def test_installer_validates_existing_service_identity_and_keeps_claim_exchange_out_of_scope() -> (
@@ -180,6 +212,7 @@ def test_config_and_runbook_preserve_one_time_token_handoff_boundary() -> None:
     runbook = _text(RUNBOOK)
 
     assert 'endpoint: "__ENDPOINT_URL__"' in config
+    assert 'installation_id: "__INSTALLATION_ID__"' in config
     assert 'systemd_claim_credential_name: "endpoint-enrollment-claim"' in config
     assert "permanent_credential_file" in config
     assert "campaign token" not in config.lower()

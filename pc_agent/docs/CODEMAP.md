@@ -2,10 +2,15 @@
 
 ## ALT first-boot enrollment bootstrap (2026-07-30)
 
-- `pc_agent/enrollment_bootstrap.py` is a deliberately uninvoked Linux/systemd
-  boundary for the one-time Endpoint Platform install claim.  A service
-  integration explicitly calls `bootstrap_enrollment(credentials_dir, config,
-  probe)` after systemd provides the credentials directory; importing the
+- `pc_agent/linux_enrollment_runtime.py` is the fixed Linux/systemd startup
+  boundary. `pc_agent/ws_agent.py` invokes it before acquiring its ordinary
+  instance lock or creating `WSAgent` when all three systemd credential paths
+  are present; incomplete or renamed input fails closed. Its hidden
+  `--print-hardware-fingerprint` mode writes only the canonical SHA-256 proof
+  for a root-side controller and does not start the agent.
+- `pc_agent/enrollment_bootstrap.py` performs the one-time Endpoint Platform
+  install claim when that runtime boundary explicitly calls
+  `bootstrap_enrollment(credentials_dir, config, probe)`; importing either
   module never contacts a server or reads any secret.
 - It reads the claim only from the fixed named `LoadCredential` file
   `endpoint-enrollment-claim`, derives and normalizes the hardware proof

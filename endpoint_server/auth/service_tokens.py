@@ -26,6 +26,16 @@ _URLSAFE_TOKEN_CHARACTERS = frozenset(
 )
 
 
+def _validate_credential_identifier(value: str) -> str:
+    if (
+        len(value) != _PUBLIC_IDENTIFIER_BYTES * 2
+        or not value.isascii()
+        or any(character not in "0123456789abcdef" for character in value)
+    ):
+        raise ValueError("service credential identifier must be lowercase hexadecimal")
+    return value
+
+
 @dataclass(frozen=True, slots=True)
 class IssuedServiceCredential:
     """One-time bearer material paired with its secret-free database record."""
@@ -120,6 +130,8 @@ async def create_service_credential(
     scopes: Iterable[str],
     expires_at: datetime | None = None,
     now: datetime | None = None,
+    commit: bool = True,
+    credential_identifier: str | None = None,
 ) -> IssuedServiceCredential:
     """Persist a credential and audit row, returning raw token material once."""
     issued_at = now or datetime.now(UTC)
@@ -134,7 +146,9 @@ async def create_service_credential(
     if not service_token_pepper:
         raise ValueError("service token pepper must not be empty")
 
-    credential_identifier = secrets.token_hex(_PUBLIC_IDENTIFIER_BYTES)
+    credential_identifier = _validate_credential_identifier(
+        credential_identifier or secrets.token_hex(_PUBLIC_IDENTIFIER_BYTES)
+    )
     token_prefix = f"{_TOKEN_PREFIX_MARKER}{credential_identifier}"
     raw_material = base64.urlsafe_b64encode(
         secrets.token_bytes(SERVICE_TOKEN_BYTES)
@@ -165,9 +179,11 @@ async def create_service_credential(
                 "scopes": normalized_scopes,
             },
         )
-        await session.commit()
+        if commit:
+            await session.commit()
     except Exception:
-        await session.rollback()
+        if commit:
+            await session.rollback()
         raise
     return IssuedServiceCredential(token=token, record=record)
 

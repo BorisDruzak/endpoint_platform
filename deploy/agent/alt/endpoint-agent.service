@@ -11,6 +11,7 @@ User=endpoint-agent
 Group=endpoint-agent
 Environment=PC_AGENT_DATA_DIR=/var/lib/endpoint-agent
 Environment=PC_AGENT_INSTALL_ROOT=/opt/endpoint-agent
+Environment=ENDPOINT_AGENT_ENROLLMENT_REQUIRED=1
 LoadCredential=endpoint-agent-config:/etc/endpoint-agent/config.yaml
 LoadCredential=endpoint-agent-ca:/etc/endpoint-agent/ca.crt
 LoadCredential=endpoint-enrollment-claim:/etc/endpoint-agent/provisioning-claim

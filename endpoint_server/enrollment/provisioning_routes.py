@@ -22,6 +22,10 @@ from endpoint_server.auth.scopes import (
     require_service_scope,
 )
 from endpoint_server.db.models import EnrollmentCampaign
+from endpoint_server.provisioning.pilot_service import (
+    PILOT_SERVICE_CLIENT_IDENTIFIER,
+    pilot_credential_identifier,
+)
 
 from .campaigns import EnrollmentDenied, issue_install_claim
 
@@ -110,6 +114,21 @@ async def issue_provisioning_install_claim(
         )
     except ValueError as error:
         raise _invalid() from error
+    if principal.client.client_identifier == PILOT_SERVICE_CLIENT_IDENTIFIER:
+        try:
+            expected_identifier = pilot_credential_identifier(
+                service_token_pepper=request.app.state.settings.service_token_pepper,
+                campaign_id=body.campaign_id,
+                installation_id=install_session_id,
+                hardware_fingerprint=hardware_fingerprint,
+            )
+        except ValueError as error:
+            raise _invalid() from error
+        if principal.credential.credential_identifier != expected_identifier:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Test-pilot credential binding is missing",
+            )
 
     issued_at = datetime.now(UTC)
     async with request.app.state.session_provider() as session:

@@ -54,6 +54,11 @@ from pc_agent.core.job_manager import JobManager
 from pc_agent.core.http_client import AioHttpClient
 from pc_agent.config.config_loader import get_config, init_config
 from pc_agent.core import runtime_paths
+from pc_agent.linux_enrollment_runtime import (
+    derive_linux_hardware_fingerprint,
+    run_linux_enrollment_gate,
+    systemd_runtime_paths,
+)
 from pc_agent.core.runtime_logging import (
     RuntimeLogBuffer,
     configure_runtime_logging,
@@ -5274,6 +5279,37 @@ async def main_async(
     return exit_code
 
 
+def _run_linux_systemd_enrollment_gate() -> None:
+    """Exchange the fixed first-boot claim before any ordinary agent startup."""
+    runtime_paths_from_systemd = systemd_runtime_paths()
+    enrollment_required = os.environ.get("ENDPOINT_AGENT_ENROLLMENT_REQUIRED", "")
+    if enrollment_required not in {"", "1"}:
+        raise SystemExit(75)
+    if runtime_paths_from_systemd is None:
+        if enrollment_required == "1":
+            logger.error("Endpoint first-boot enrollment required but credentials are absent")
+            raise SystemExit(75)
+        return
+    config_path, ca_file, claim_file = runtime_paths_from_systemd
+    outcome = asyncio.run(
+        run_linux_enrollment_gate(
+            config_path=config_path,
+            ca_file=ca_file,
+            claim_file=claim_file,
+        )
+    )
+    if outcome.status not in {"enrolled", "already_enrolled", "handoff_pending"}:
+        logger.error(
+            "Endpoint first-boot enrollment stopped before agent startup: status={}",
+            outcome.status,
+        )
+        raise SystemExit(75)
+    logger.info(
+        "Endpoint first-boot enrollment completed before agent startup: status={}",
+        outcome.status,
+    )
+
+
 def main():
     """
     Главная функция. Сначала парсим --data-dir/--install-root, инициализируем конфиг от data_root, затем запускаем агент или verify.
@@ -5308,6 +5344,11 @@ def main():
         help="Режим проверки: только init + миграции БД, без WS/GUI (для launcher)",
     )
     parser.add_argument(
+        "--print-hardware-fingerprint",
+        action="store_true",
+        help=argparse.SUPPRESS,
+    )
+    parser.add_argument(
         "--remote-assist-elevated-helper", action="store_true", help=argparse.SUPPRESS
     )
     parser.add_argument("--host", type=str, default="127.0.0.1", help=argparse.SUPPRESS)
@@ -5325,6 +5366,12 @@ def main():
                 token=args.token,
             )
         )
+
+    if args.print_hardware_fingerprint:
+        print(derive_linux_hardware_fingerprint())
+        return
+
+    _run_linux_systemd_enrollment_gate()
 
     data_root = runtime_paths.resolve_data_root(cli_value=args.data_dir)
     install_root = (

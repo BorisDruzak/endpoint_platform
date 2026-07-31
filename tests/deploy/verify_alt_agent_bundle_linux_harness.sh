@@ -208,7 +208,7 @@ run_install() {
     shift 3
     set +e
     PATH="$root/bin:$PATH" "$@" bash "$root/installer-dir/install-endpoint-agent.sh" \
-        --endpoint https://endpoint.sosnadmin.local --ca-file "$root/input/ca.crt" \
+        --endpoint https://endpoint.sosnadmin.local --installation-id alt-test-agent-001 --ca-file "$root/input/ca.crt" \
         --handoff-file "$root/input/handoff" --agent-bundle "$bundle" > "$output" 2>&1
     local status=$?
     set -e
