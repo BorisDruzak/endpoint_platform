@@ -155,6 +155,15 @@ def test_root_owned_update_worker_is_limited_to_the_fixed_alt_pending_path() -> 
     assert "--apply-alt-update" in helper
 
 
+def test_root_owned_update_worker_uses_the_selected_immutable_launcher() -> None:
+    helper = _text(UPDATE_HELPER)
+
+    assert 'readonly LAUNCHER=/opt/endpoint-agent/launcher' not in helper
+    assert 'current.json' in helper
+    assert 'versions' in helper
+    assert '"$CURRENT_LAUNCHER" --apply-alt-update' in helper
+
+
 def test_root_worker_returns_only_durable_update_state_to_the_service_account() -> None:
     helper = _text(UPDATE_HELPER)
 
