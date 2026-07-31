@@ -120,6 +120,7 @@ async def create_service_credential(
     scopes: Iterable[str],
     expires_at: datetime | None = None,
     now: datetime | None = None,
+    commit: bool = True,
 ) -> IssuedServiceCredential:
     """Persist a credential and audit row, returning raw token material once."""
     issued_at = now or datetime.now(UTC)
@@ -165,9 +166,11 @@ async def create_service_credential(
                 "scopes": normalized_scopes,
             },
         )
-        await session.commit()
+        if commit:
+            await session.commit()
     except Exception:
-        await session.rollback()
+        if commit:
+            await session.rollback()
         raise
     return IssuedServiceCredential(token=token, record=record)
 
