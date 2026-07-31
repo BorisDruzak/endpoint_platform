@@ -155,6 +155,15 @@ def test_root_owned_update_worker_is_limited_to_the_fixed_alt_pending_path() -> 
     assert "--apply-alt-update" in helper
 
 
+def test_root_worker_returns_only_durable_update_state_to_the_service_account() -> None:
+    helper = _text(UPDATE_HELPER)
+
+    assert "update_history.json" in helper
+    assert "last_failed_pending_update.json" in helper
+    assert "chown endpoint-agent:endpoint-agent" in helper
+    assert "chown -R" not in helper
+
+
 def test_installer_installs_and_enables_the_root_owned_update_path() -> None:
     installer = _text(INSTALLER)
 
