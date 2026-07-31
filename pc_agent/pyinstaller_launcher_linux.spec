@@ -10,7 +10,7 @@ sys.path.insert(0, str(project_root))
 a = Analysis(
     [str(pc_agent_root / "launcher" / "launcher_main.py")],
     pathex=[str(project_root)],
-    hiddenimports=["pc_agent.core.runtime_paths", "pc_agent.launcher.installer", "pc_agent.version"],
+    hiddenimports=["pc_agent.core.runtime_paths", "pc_agent.launcher.installer", "pc_agent.alt_update_installer", "pc_agent.version"],
     datas=[],
     hookspath=[],
     hooksconfig={},

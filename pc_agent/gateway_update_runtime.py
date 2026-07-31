@@ -17,6 +17,9 @@ _SEMVER = re.compile(
     r"(?P<patch>0|[1-9][0-9]*)(?:-(?P<pre>[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?"
     r"(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$"
 )
+_OPERATION_ID = re.compile(
+    r"^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+)
 
 
 @dataclass(frozen=True)
@@ -95,6 +98,28 @@ class GatewayUpdateRuntime:
         )
         return GatewayUpdateRunResult("scheduled")
 
+    async def report_startup_outcome(self) -> bool:
+        """Report one launcher-derived terminal state after a durable restart."""
+        history = _load_history(self._data_root / "updates" / "update_history.json")
+        outcome = _startup_outcome(
+            history=history,
+            current_version=self._current_version,
+            failed_marker=_load_object(
+                self._data_root / "updates" / "last_failed_launch.json"
+            ),
+        )
+        if outcome is None:
+            return False
+        operation_id, status, reported_version, safe_code = outcome
+        if not await self._adapter.retry_scheduled_acknowledgement(operation_id):
+            return False
+        return await self._adapter.report_terminal(
+            operation_id,
+            status=status,
+            reported_version=reported_version,
+            safe_code=safe_code,
+        )
+
 
 def _archive_extension(archive_type: str) -> str:
     return "tar.gz" if archive_type in {"tar.gz", "tgz"} else "zip"
@@ -153,3 +178,81 @@ def _compare_prerelease(
     if len(candidate) == len(installed):
         return 0
     return 1 if len(candidate) > len(installed) else -1
+
+
+def _load_object(path: Path) -> dict[str, object] | None:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
+def _load_history(path: Path) -> list[dict[str, object]]:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return []
+    return [item for item in payload if isinstance(item, dict)] if isinstance(payload, list) else []
+
+
+def _startup_outcome(
+    *,
+    history: list[dict[str, object]],
+    current_version: str,
+    failed_marker: dict[str, object] | None,
+) -> tuple[str, str, str, str] | None:
+    if failed_marker and failed_marker.get("reason") == "startup_crash_rollback":
+        crashed_version = failed_marker.get("crashed_version")
+        rollback_version = failed_marker.get("rollback_version")
+        if (
+            isinstance(crashed_version, str)
+            and isinstance(rollback_version, str)
+            and rollback_version == current_version
+        ):
+            record = _latest_operation(history, version=crashed_version, success=True)
+            if record is not None:
+                return (
+                    record,
+                    "rolled_back",
+                    rollback_version,
+                    "launcher_rolled_back",
+                )
+    failed = _latest_failure(history)
+    if failed is not None:
+        operation_id, version = failed
+        return operation_id, "failed", version, "launcher_apply_failed"
+    operation_id = _latest_operation(history, version=current_version, success=True)
+    if operation_id is None:
+        return None
+    return operation_id, "applied", current_version, "post_restart_handshake_confirmed"
+
+
+def _latest_operation(
+    history: list[dict[str, object]], *, version: str, success: bool
+) -> str | None:
+    for entry in reversed(history):
+        operation_id = entry.get("operation_id")
+        if (
+            entry.get("version") == version
+            and entry.get("success") is success
+            and isinstance(operation_id, str)
+            and _OPERATION_ID.fullmatch(operation_id)
+        ):
+            return operation_id
+    return None
+
+
+def _latest_failure(history: list[dict[str, object]]) -> tuple[str, str] | None:
+    for entry in reversed(history):
+        operation_id = entry.get("operation_id")
+        version = entry.get("version")
+        if (
+            entry.get("success") is False
+            and isinstance(operation_id, str)
+            and _OPERATION_ID.fullmatch(operation_id)
+            and isinstance(version, str)
+            and _SEMVER.fullmatch(version)
+        ):
+            return operation_id, version
+    return None

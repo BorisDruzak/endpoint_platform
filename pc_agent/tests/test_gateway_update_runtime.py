@@ -35,6 +35,23 @@ class _RecommendationAdapter:
         self.acknowledgements.append((operation_id, "scheduled"))
         return True
 
+    async def retry_scheduled_acknowledgement(self, operation_id: str) -> bool:
+        self.acknowledgements.append((operation_id, "scheduled_retry"))
+        return True
+
+    async def report_terminal(
+        self,
+        operation_id: str,
+        *,
+        status: str,
+        reported_version: str,
+        safe_code: str,
+    ) -> bool:
+        self.acknowledgements.append(
+            (operation_id, f"{status}:{reported_version}:{safe_code}")
+        )
+        return True
+
 
 def _recommendation(version: str = "3.1.77-rc.1") -> EndpointRecommendation:
     return EndpointRecommendation(
@@ -118,3 +135,83 @@ async def test_unavailable_gateway_does_not_create_pending_or_fallback_state(
     assert result.status == "unavailable"
     assert not (tmp_path / "updates" / "pending_alt_update.json").exists()
     assert adapter.acknowledgements == []
+
+
+@pytest.mark.asyncio
+async def test_startup_reports_applied_only_after_retrying_durable_scheduled_ack(
+    tmp_path: Path,
+) -> None:
+    adapter = _RecommendationAdapter(RecommendationResult("endpoint", None, False, None))
+    updates = tmp_path / "updates"
+    updates.mkdir()
+    (updates / "update_history.json").write_text(
+        json.dumps(
+            [
+                {
+                    "operation_id": _OPERATION_ID,
+                    "previous_version": "3.1.76",
+                    "success": True,
+                    "version": "3.1.77-rc.1",
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+    runtime = GatewayUpdateRuntime(
+        adapter=adapter,
+        data_root=tmp_path,
+        current_version="3.1.77-rc.1",
+        download=lambda *_: pytest.fail("startup reporting must not download"),
+    )
+
+    assert await runtime.report_startup_outcome() is True
+
+    assert adapter.acknowledgements == [
+        (_OPERATION_ID, "scheduled_retry"),
+        (_OPERATION_ID, "applied:3.1.77-rc.1:post_restart_handshake_confirmed"),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_startup_reports_rolled_back_release_from_launcher_marker(
+    tmp_path: Path,
+) -> None:
+    adapter = _RecommendationAdapter(RecommendationResult("endpoint", None, False, None))
+    updates = tmp_path / "updates"
+    updates.mkdir()
+    (updates / "update_history.json").write_text(
+        json.dumps(
+            [
+                {
+                    "operation_id": _OPERATION_ID,
+                    "previous_version": "3.1.76",
+                    "success": True,
+                    "version": "3.1.77-rc.1",
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+    (updates / "last_failed_launch.json").write_text(
+        json.dumps(
+            {
+                "crashed_version": "3.1.77-rc.1",
+                "reason": "startup_crash_rollback",
+                "rollback_version": "3.1.76",
+            }
+        ),
+        encoding="utf-8",
+    )
+    runtime = GatewayUpdateRuntime(
+        adapter=adapter,
+        data_root=tmp_path,
+        current_version="3.1.76",
+        download=lambda *_: pytest.fail("startup reporting must not download"),
+    )
+
+    assert await runtime.report_startup_outcome() is True
+
+    assert adapter.acknowledgements == [
+        (_OPERATION_ID, "scheduled_retry"),
+        (_OPERATION_ID, "rolled_back:3.1.76:launcher_rolled_back"),
+    ]

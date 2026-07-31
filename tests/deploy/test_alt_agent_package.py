@@ -113,6 +113,7 @@ def test_service_runs_as_dedicated_user_with_durable_paths_and_restart() -> None
     for required in (
         "User=endpoint-agent",
         "Group=endpoint-agent",
+        "Environment=ENDPOINT_AGENT_ALT_UPDATE_MODE=1",
         "ExecStart=/opt/endpoint-agent/launcher",
         "Restart=on-failure",
         "RestartSec=5s",

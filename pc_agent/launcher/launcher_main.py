@@ -11,16 +11,30 @@ import sys
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 # Минимальные зависимости; installer импортируется здесь
 from pc_agent.core.runtime_paths import resolve_data_root, resolve_install_root
 from pc_agent.launcher.installer import apply_update, _find_agent_binary
+from pc_agent.alt_update_installer import apply_alt_update
 from pc_agent.version import EXIT_UPDATE_PENDING
 
 
 IMMEDIATE_CRASH_WINDOW_SEC = 20.0
 IMMEDIATE_CRASH_RETRY_LIMIT = 3
+
+
+def alt_update_mode_enabled() -> bool:
+    """Keep the ALT updater opt-in so desktop installs retain their workflow."""
+    return os.environ.get("ENDPOINT_AGENT_ALT_UPDATE_MODE") == "1"
+
+
+def select_update_installation(
+    *, data_root: Path
+) -> tuple[Path, Callable[[Path, Path, Path], tuple[bool, str]]]:
+    if alt_update_mode_enabled():
+        return data_root / "updates" / "pending_alt_update.json", apply_alt_update
+    return data_root / "updates" / "pending_update.json", apply_update
 
 
 def _log(msg: str) -> None:
@@ -94,6 +108,56 @@ def _rollback_current_version(current_path: Path, *, crashed_version: str, fallb
     )
 
 
+def rollback_alt_current_version(
+    current_path: Path, *, crashed_version: str, fallback_version: str
+) -> None:
+    """Restore an ALT selector using the prior immutable bundle's source identity."""
+    manifest_path = current_path.parent / "versions" / fallback_version / "manifest.json"
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        revision = manifest["source_revision"]
+    except (OSError, json.JSONDecodeError, KeyError, TypeError) as exc:
+        raise RuntimeError("ALT rollback manifest is unavailable") from exc
+    if (
+        not isinstance(revision, str)
+        or manifest.get("schema_version") != 1
+        or manifest.get("version") != fallback_version
+    ):
+        raise RuntimeError("ALT rollback manifest is invalid")
+    current_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "source_revision": revision,
+                "version": fallback_version,
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+
+def _alt_previous_version(data_root: Path, *, current_version: str) -> str | None:
+    """Recover rollback selection from the launcher-owned ALT update history."""
+    history_path = data_root / "updates" / "update_history.json"
+    try:
+        history = json.loads(history_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(history, list):
+        return None
+    for entry in reversed(history):
+        if not isinstance(entry, dict) or entry.get("success") is not True:
+            continue
+        if entry.get("version") != current_version:
+            continue
+        previous = entry.get("previous_version")
+        if isinstance(previous, str) and previous and previous != current_version:
+            return previous
+    return None
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="PC Agent Launcher")
     parser.add_argument("--data-dir", type=str, default=None, help="Data root (default: env/config)")
@@ -105,7 +169,7 @@ def main() -> None:
     data_root = resolve_data_root(cli_value=args.data_dir)
     install_root = resolve_install_root(cli_value=args.install_root)
     current_path = install_root / "current.json"
-    pending_path = data_root / "updates" / "pending_update.json"
+    pending_path, apply_pending_update = select_update_installation(data_root=data_root)
     updates_dir = data_root / "updates"
     versions_dir = install_root / "versions"
     if not current_path.exists():
@@ -117,6 +181,8 @@ def main() -> None:
     except RuntimeError as e:
         _log(str(e))
         sys.exit(1)
+    if alt_update_mode_enabled():
+        previous_version = _alt_previous_version(data_root, current_version=version)
     env = os.environ.copy()
     env["PC_AGENT_DATA_DIR"] = str(data_root)
     env["PC_AGENT_INSTALL_ROOT"] = str(install_root)
@@ -127,7 +193,12 @@ def main() -> None:
     while True:
         if pending_path.exists():
             _log("pending_update.json found, applying update...")
-            ok_, msg = apply_update(install_root, data_root, pending_path, log_message=_log)
+            if alt_update_mode_enabled():
+                ok_, msg = apply_pending_update(install_root, data_root, pending_path)
+            else:
+                ok_, msg = apply_pending_update(
+                    install_root, data_root, pending_path, log_message=_log
+                )
             if ok_:
                 _log(f"Update applied: {msg}; restarting with new version")
             else:
@@ -138,6 +209,8 @@ def main() -> None:
             except RuntimeError as e:
                 _log(str(e))
                 sys.exit(1)
+            if alt_update_mode_enabled():
+                previous_version = _alt_previous_version(data_root, current_version=version)
             immediate_crash_attempts = 0
             immediate_crash_version = None
         agent_argv = [str(binary_path)]
@@ -207,11 +280,18 @@ def main() -> None:
                     attempts=immediate_crash_attempts,
                 )
                 try:
-                    _rollback_current_version(
-                        current_path,
-                        crashed_version=version,
-                        fallback_version=previous_version,
-                    )
+                    if alt_update_mode_enabled():
+                        rollback_alt_current_version(
+                            current_path,
+                            crashed_version=version,
+                            fallback_version=previous_version,
+                        )
+                    else:
+                        _rollback_current_version(
+                            current_path,
+                            crashed_version=version,
+                            fallback_version=previous_version,
+                        )
                     _, version, previous_version, binary_path = _load_current_state(current_path, versions_dir)
                 except RuntimeError as e:
                     _log(f"Rollback failed: {e}")

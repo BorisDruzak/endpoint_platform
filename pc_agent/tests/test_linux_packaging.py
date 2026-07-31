@@ -20,6 +20,14 @@ def test_linux_agent_spec_collects_the_systemd_gateway_transport() -> None:
     text = (root / "pyinstaller_agent_linux.spec").read_text(encoding="utf-8")
 
     assert '"pc_agent.endpoint_gateway"' in text
+    assert '"pc_agent.gateway_update_runtime"' in text
+
+
+def test_linux_launcher_spec_collects_the_immutable_alt_updater() -> None:
+    root = Path(__file__).resolve().parents[1]
+    text = (root / "pyinstaller_launcher_linux.spec").read_text(encoding="utf-8")
+
+    assert '"pc_agent.alt_update_installer"' in text
 
 
 def test_windows_agent_specs_collect_core_builtin_modules() -> None:

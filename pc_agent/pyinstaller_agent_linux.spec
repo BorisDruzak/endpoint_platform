@@ -22,6 +22,7 @@ a = Analysis(
         "pc_agent.core.runtime_paths",
         "pc_agent.config.config_loader",
         "pc_agent.endpoint_gateway",
+        "pc_agent.gateway_update_runtime",
         "qasync",
         "PySide6.QtWidgets",
         "PySide6.QtCore",

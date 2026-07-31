@@ -143,3 +143,12 @@ def test_manifest_hash_mismatch_leaves_active_alt_selector_unchanged(
         "version": "3.1.76",
     }
     assert not (install_root / "versions" / "3.1.77-rc.1").exists()
+    assert json.loads(
+        (data_root / "updates" / "update_history.json").read_text(encoding="utf-8")
+    ) == [
+        {
+            "operation_id": _OPERATION_ID,
+            "success": False,
+            "version": "3.1.77-rc.1",
+        }
+    ]

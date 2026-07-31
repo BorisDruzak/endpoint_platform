@@ -44,6 +44,7 @@ def apply_alt_update(
         Path(data_root),
         Path(pending_path),
     )
+    payload: dict[str, Any] | None = None
     try:
         payload = _load_pending(data_root, pending_path)
         artifact_path = _verified_artifact(data_root, payload)
@@ -71,6 +72,15 @@ def apply_alt_update(
         pending_path.unlink(missing_ok=True)
         return True, manifest.version
     except (OSError, ValueError, json.JSONDecodeError, tarfile.TarError) as exc:
+        if payload is not None:
+            _append_history(
+                data_root,
+                {
+                    "operation_id": payload["operation_id"],
+                    "success": False,
+                    "version": payload["version"],
+                },
+            )
         _archive_failed_pending(data_root, pending_path)
         return False, type(exc).__name__
     finally:
