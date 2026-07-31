@@ -243,13 +243,20 @@ def _startup_outcome(
                     rollback_version,
                     "launcher_rolled_back",
                 )
-    operation_id = _latest_operation(history, version=current_version, success=True)
-    if operation_id is not None:
-        return operation_id, "applied", current_version, "post_restart_handshake_confirmed"
-    failed = _latest_failure(history)
-    if failed is not None:
-        operation_id, version = failed
-        return operation_id, "failed", version, "launcher_apply_failed"
+    for entry in reversed(history):
+        operation_id = entry.get("operation_id")
+        version = entry.get("version")
+        if (
+            not isinstance(operation_id, str)
+            or _OPERATION_ID.fullmatch(operation_id) is None
+            or not isinstance(version, str)
+            or _SEMVER.fullmatch(version) is None
+        ):
+            continue
+        if entry.get("success") is False:
+            return operation_id, "failed", version, "launcher_apply_failed"
+        if entry.get("success") is True and version == current_version:
+            return operation_id, "applied", current_version, "post_restart_handshake_confirmed"
     return None
 
 
@@ -267,17 +274,3 @@ def _latest_operation(
             return operation_id
     return None
 
-
-def _latest_failure(history: list[dict[str, object]]) -> tuple[str, str] | None:
-    for entry in reversed(history):
-        operation_id = entry.get("operation_id")
-        version = entry.get("version")
-        if (
-            entry.get("success") is False
-            and isinstance(operation_id, str)
-            and _OPERATION_ID.fullmatch(operation_id)
-            and isinstance(version, str)
-            and _SEMVER.fullmatch(version)
-        ):
-            return operation_id, version
-    return None

@@ -242,6 +242,47 @@ async def test_startup_prefers_current_success_over_an_older_failed_operation(
 
 
 @pytest.mark.asyncio
+async def test_startup_reports_a_newer_failed_rollback_over_prior_current_success(
+    tmp_path: Path,
+) -> None:
+    adapter = _RecommendationAdapter(RecommendationResult("endpoint", None, False, None))
+    updates = tmp_path / "updates"
+    updates.mkdir()
+    failed_operation = "33333333-3333-4333-8333-333333333333"
+    (updates / "update_history.json").write_text(
+        json.dumps(
+            [
+                {
+                    "operation_id": _OPERATION_ID,
+                    "previous_version": "3.1.80",
+                    "success": True,
+                    "version": "3.1.81",
+                },
+                {
+                    "operation_id": failed_operation,
+                    "success": False,
+                    "version": "3.1.80",
+                },
+            ]
+        ),
+        encoding="utf-8",
+    )
+    runtime = GatewayUpdateRuntime(
+        adapter=adapter,
+        data_root=tmp_path,
+        current_version="3.1.81",
+        download=lambda *_: pytest.fail("startup reporting must not download"),
+    )
+
+    assert await runtime.report_startup_outcome() is True
+
+    assert adapter.acknowledgements == [
+        (failed_operation, "scheduled_retry"),
+        (failed_operation, "failed:3.1.80:launcher_apply_failed"),
+    ]
+
+
+@pytest.mark.asyncio
 async def test_startup_reports_rolled_back_release_from_launcher_marker(
     tmp_path: Path,
 ) -> None:
