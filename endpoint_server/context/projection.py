@@ -2,9 +2,14 @@
 
 from __future__ import annotations
 
+import re
+
 from endpoint_contracts import DeviceContextEnvelopeV1
 
 from .models import ContextCollection, ContextSnapshot
+
+
+_BASELINE_MAC_KEY_RE = re.compile(r"^mac-[0-9a-f]{12}$")
 
 
 def collection_projection(collection: ContextCollection) -> dict[str, object]:
@@ -41,4 +46,27 @@ def snapshot_projection(snapshot: ContextSnapshot) -> dict[str, object] | None:
     }
 
 
-__all__ = ["collection_projection", "snapshot_projection"]
+def baseline_interface_mac_keys(snapshot: ContextSnapshot) -> tuple[str, ...]:
+    """Return only canonical baseline interface identity keys for a service peer."""
+    try:
+        envelope = DeviceContextEnvelopeV1.model_validate(snapshot.normalized_projection)
+    except Exception:
+        return ()
+    if envelope.profile != "baseline_v1":
+        return ()
+    return tuple(
+        sorted(
+            {
+                interface.stable_key
+                for interface in envelope.sections.interfaces
+                if _BASELINE_MAC_KEY_RE.fullmatch(interface.stable_key)
+            }
+        )
+    )
+
+
+__all__ = [
+    "baseline_interface_mac_keys",
+    "collection_projection",
+    "snapshot_projection",
+]

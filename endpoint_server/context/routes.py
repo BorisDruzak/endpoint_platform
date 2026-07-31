@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from datetime import datetime
-from typing import Annotated
+from datetime import UTC, datetime
+from typing import Annotated, Literal
 from uuid import UUID
 
 from fastapi import (
@@ -16,7 +16,7 @@ from fastapi import (
     Response,
     status,
 )
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -34,7 +34,11 @@ from endpoint_server.db.models import Device, DeviceSession
 
 from .diff import compare_snapshots
 from .models import ContextCollection, ContextCurrent, ContextSnapshot
-from .projection import collection_projection, snapshot_projection
+from .projection import (
+    baseline_interface_mac_keys,
+    collection_projection,
+    snapshot_projection,
+)
 from .repository import request_collection_outcome
 from .service import ContextError
 
@@ -44,6 +48,9 @@ router = APIRouter(prefix="/api/v1", tags=["device-context"])
 _SAFE_SERVICE_PROFILES = ("baseline_v1", "health_v1", "network_v1")
 _BASELINE_HISTORY_LIMIT = 50
 _MAX_BASELINE_HISTORY_LIMIT = 100
+_NETWORK_IDENTITY_LIMIT = 250
+_NETWORK_IDENTITY_CHUNK_SIZE = 250
+SafeServiceProfile = Literal["baseline_v1", "health_v1", "network_v1"]
 
 
 class CollectionRequest(BaseModel):
@@ -52,6 +59,31 @@ class CollectionRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     profile: ContextProfileV1
+
+
+class AgentNetworkProfile(BaseModel):
+    """Current safe profile availability needed by the network panel."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    profile: SafeServiceProfile
+    collected_at: datetime
+
+
+class AgentNetworkIdentity(BaseModel):
+    """Minimal service-only identity material for exact MAC correlation."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: UUID
+    device_identifier: str = Field(min_length=1, max_length=256)
+    display_name: str = Field(min_length=1, max_length=256)
+    last_seen_at: datetime | None
+    baseline_collected_at: datetime
+    profiles: list[AgentNetworkProfile] = Field(max_length=3)
+    baseline_mac_keys: list[
+        Annotated[str, Field(pattern=r"^mac-[0-9a-f]{12}$")]
+    ] = Field(min_length=1, max_length=64)
 
 
 def _not_found() -> HTTPException:
@@ -91,6 +123,13 @@ def _device_projection(
         "retired_at": device.retired_at,
         "last_seen_at": last_seen_at,
     }
+
+
+def _aware_timestamp(value: datetime | None) -> datetime | None:
+    """Normalize SQLite fixture timestamps without changing aware production values."""
+    if value is None or value.tzinfo is not None:
+        return value
+    return value.replace(tzinfo=UTC)
 
 
 async def _single_device_projection(
@@ -143,6 +182,108 @@ async def list_devices(
             _device_projection(device, last_seen_at) for device, last_seen_at in rows
         ]
     return {"data": projections}
+
+
+@router.get("/devices/network-identities")
+async def list_network_identities(
+    request: Request,
+    _: Annotated[ServicePrincipal, Depends(require_service_scope(DEVICES_READ_SCOPE))],
+    __: Annotated[ServicePrincipal, Depends(require_service_scope(CONTEXT_READ_SCOPE))],
+    limit: Annotated[int, Query(ge=1, le=_NETWORK_IDENTITY_LIMIT)] = _NETWORK_IDENTITY_LIMIT,
+    cursor: UUID | None = None,
+) -> dict[str, object]:
+    """Return bounded current baseline MAC identities for a trusted service peer."""
+    candidates: list[AgentNetworkIdentity] = []
+    after_id = cursor
+    async with request.app.state.session_provider() as session:
+        session_rank = (
+            func.row_number()
+            .over(
+                partition_by=DeviceSession.device_id,
+                order_by=(DeviceSession.created_at.desc(), DeviceSession.id.desc()),
+            )
+            .label("session_rank")
+        )
+        latest_sessions = select(
+            DeviceSession.device_id.label("device_id"),
+            DeviceSession.created_at.label("last_seen_at"),
+            session_rank,
+        ).subquery()
+        while len(candidates) <= limit:
+            filters = [Device.retired_at.is_(None)]
+            if after_id is not None:
+                filters.append(Device.id > after_id)
+            device_rows = (
+                await session.execute(
+                    select(Device, latest_sessions.c.last_seen_at)
+                    .outerjoin(
+                        latest_sessions,
+                        and_(
+                            Device.id == latest_sessions.c.device_id,
+                            latest_sessions.c.session_rank == 1,
+                        ),
+                    )
+                    .where(*filters)
+                    .order_by(Device.id)
+                    .limit(_NETWORK_IDENTITY_CHUNK_SIZE)
+                )
+            ).all()
+            if not device_rows:
+                break
+            device_ids = [device.id for device, _ in device_rows]
+            current_rows = (
+                await session.execute(
+                    select(ContextCurrent.device_id, ContextSnapshot)
+                    .join(ContextSnapshot, ContextSnapshot.id == ContextCurrent.snapshot_id)
+                    .where(
+                        ContextCurrent.device_id.in_(device_ids),
+                        ContextCurrent.profile.in_(_SAFE_SERVICE_PROFILES),
+                    )
+                )
+            ).all()
+            current_by_device: dict[UUID, dict[str, ContextSnapshot]] = {}
+            for device_id, snapshot in current_rows:
+                current_by_device.setdefault(device_id, {})[snapshot.profile] = snapshot
+            for device, last_seen_at in device_rows:
+                snapshots = current_by_device.get(device.id, {})
+                safe_snapshots = {
+                    profile: snapshot
+                    for profile, snapshot in snapshots.items()
+                    if snapshot_projection(snapshot) is not None
+                }
+                baseline = safe_snapshots.get("baseline_v1")
+                if baseline is None:
+                    continue
+                mac_keys = baseline_interface_mac_keys(baseline)
+                if not mac_keys:
+                    continue
+                candidates.append(
+                    AgentNetworkIdentity(
+                        id=device.id,
+                        device_identifier=device.device_identifier,
+                        display_name=device.display_name or device.device_identifier,
+                        last_seen_at=_aware_timestamp(last_seen_at),
+                        baseline_collected_at=_aware_timestamp(baseline.collected_at),
+                        profiles=[
+                            AgentNetworkProfile(
+                                profile=profile,
+                                collected_at=_aware_timestamp(snapshot.collected_at),
+                            )
+                            for profile, snapshot in sorted(safe_snapshots.items())
+                        ],
+                        baseline_mac_keys=list(mac_keys),
+                    )
+                )
+                if len(candidates) > limit:
+                    break
+            if len(candidates) > limit or len(device_rows) < _NETWORK_IDENTITY_CHUNK_SIZE:
+                break
+            after_id = device_rows[-1][0].id
+    next_cursor = str(candidates[limit - 1].id) if len(candidates) > limit else None
+    return {
+        "data": [candidate.model_dump(mode="json") for candidate in candidates[:limit]],
+        "next_cursor": next_cursor,
+    }
 
 
 @router.get("/devices/{device_id}/context")

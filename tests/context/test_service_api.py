@@ -4,7 +4,7 @@ from collections.abc import AsyncIterator
 from datetime import UTC, datetime
 import ipaddress
 from pathlib import Path
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import httpx
 import pytest
@@ -906,3 +906,287 @@ async def test_context_comparison_rejects_duplicate_snapshot_id(
             headers={"Authorization": "Bearer reader"},
         )
     assert response.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_network_identity_feed_returns_only_active_safe_baseline_identity_material(
+    session_provider: async_sessionmaker[AsyncSession], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A network consumer receives current MAC keys, never raw Context data."""
+    seen_at = datetime(2026, 7, 31, 10, 0, tzinfo=UTC)
+    baseline_at = datetime(2026, 7, 31, 9, 0, tzinfo=UTC)
+    health_at = datetime(2026, 7, 31, 9, 5, tzinfo=UTC)
+    async with session_provider() as session:
+        active = Device(
+            id=uuid4(),
+            device_identifier="network-agent",
+            display_name="Office workstation",
+            retired_at=None,
+        )
+        retired = Device(
+            id=uuid4(),
+            device_identifier="retired-agent",
+            display_name="Retired workstation",
+            retired_at=seen_at,
+        )
+        baseline_collection = ContextCollection(
+            id=uuid4(),
+            device_id=active.id,
+            profile="baseline_v1",
+            requested_by="agent",
+            idempotency_key="network-baseline",
+            status="completed",
+            requested_at=baseline_at,
+        )
+        health_collection = ContextCollection(
+            id=uuid4(),
+            device_id=active.id,
+            profile="health_v1",
+            requested_by="agent",
+            idempotency_key="network-health",
+            status="completed",
+            requested_at=health_at,
+        )
+        retired_collection = ContextCollection(
+            id=uuid4(),
+            device_id=retired.id,
+            profile="baseline_v1",
+            requested_by="agent",
+            idempotency_key="retired-baseline",
+            status="completed",
+            requested_at=baseline_at,
+        )
+        baseline_projection = _normalized_projection("baseline_v1", baseline_at)
+        baseline_projection["sections"]["interfaces"] = [
+            {"stable_key": "mac-aabbccddeeff", "name": "eth0", "link_type": "ethernet"},
+            {"stable_key": "MAC-AABBCCDDEEFF", "name": "eth1", "link_type": "ethernet"},
+            {"stable_key": "serial:device-secret", "name": "eth2", "link_type": "ethernet"},
+        ]
+        retired_projection = _normalized_projection("baseline_v1", baseline_at)
+        retired_projection["sections"]["interfaces"] = [
+            {"stable_key": "mac-001122334455", "name": "eth0", "link_type": "ethernet"}
+        ]
+        baseline_snapshot = ContextSnapshot(
+            id=uuid4(),
+            collection_id=baseline_collection.id,
+            device_id=active.id,
+            profile="baseline_v1",
+            collected_at=baseline_at,
+            semantic_hash="a" * 64,
+            raw_payload={"authorization": "raw-token", "interfaces": ["raw"]},
+            normalized_projection=baseline_projection,
+        )
+        health_snapshot = ContextSnapshot(
+            id=uuid4(),
+            collection_id=health_collection.id,
+            device_id=active.id,
+            profile="health_v1",
+            collected_at=health_at,
+            semantic_hash="b" * 64,
+            raw_payload={"diagnostic": "private"},
+            normalized_projection=_normalized_projection("health_v1", health_at),
+        )
+        retired_snapshot = ContextSnapshot(
+            id=uuid4(),
+            collection_id=retired_collection.id,
+            device_id=retired.id,
+            profile="baseline_v1",
+            collected_at=baseline_at,
+            semantic_hash="c" * 64,
+            raw_payload={},
+            normalized_projection=retired_projection,
+        )
+        session.add_all(
+            (
+                active,
+                retired,
+                baseline_collection,
+                health_collection,
+                retired_collection,
+                baseline_snapshot,
+                health_snapshot,
+                retired_snapshot,
+                ContextCurrent(
+                    id=uuid4(), device_id=active.id, profile="baseline_v1",
+                    snapshot_id=baseline_snapshot.id, updated_at=baseline_at,
+                ),
+                ContextCurrent(
+                    id=uuid4(), device_id=active.id, profile="health_v1",
+                    snapshot_id=health_snapshot.id, updated_at=health_at,
+                ),
+                ContextCurrent(
+                    id=uuid4(), device_id=retired.id, profile="baseline_v1",
+                    snapshot_id=retired_snapshot.id, updated_at=baseline_at,
+                ),
+                DeviceSession(
+                    id=uuid4(), device_id=active.id, device_instance_id=None,
+                    session_identifier="network-old", created_at=baseline_at,
+                    expires_at=seen_at,
+                ),
+                DeviceSession(
+                    id=uuid4(), device_id=active.id, device_instance_id=None,
+                    session_identifier="network-current", created_at=seen_at,
+                    expires_at=seen_at,
+                ),
+            )
+        )
+        await session.commit()
+    _install_principals(
+        monkeypatch,
+        {
+            "allowed": _principal(["devices.read", "context.read"]),
+            "devices-only": _principal(["devices.read"]),
+            "context-only": _principal(["context.read"]),
+        },
+    )
+    app = create_app(_settings(), session_provider)
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app),
+        base_url="https://endpoint.sosnadmin.local",
+    ) as client:
+        response = await client.get(
+            "/api/v1/devices/network-identities",
+            headers={"Authorization": "Bearer allowed"},
+        )
+        devices_only = await client.get(
+            "/api/v1/devices/network-identities",
+            headers={"Authorization": "Bearer devices-only"},
+        )
+        context_only = await client.get(
+            "/api/v1/devices/network-identities",
+            headers={"Authorization": "Bearer context-only"},
+        )
+    assert response.status_code == 200
+    assert devices_only.status_code == 403
+    assert context_only.status_code == 403
+    assert response.json()["next_cursor"] is None
+    assert response.json()["data"] == [
+        {
+            "id": str(active.id),
+            "device_identifier": "network-agent",
+            "display_name": "Office workstation",
+            "last_seen_at": seen_at.isoformat().replace("+00:00", "Z"),
+            "baseline_collected_at": baseline_at.isoformat().replace("+00:00", "Z"),
+            "profiles": [
+                {"profile": "baseline_v1", "collected_at": baseline_at.isoformat().replace("+00:00", "Z")},
+                {"profile": "health_v1", "collected_at": health_at.isoformat().replace("+00:00", "Z")},
+            ],
+            "baseline_mac_keys": ["mac-aabbccddeeff"],
+        }
+    ]
+    assert str(retired.id) not in response.text
+    assert "raw-token" not in response.text
+    assert "private" not in response.text
+    assert "serial:device-secret" not in response.text
+    assert '"interfaces"' not in response.text
+
+
+@pytest.mark.asyncio
+async def test_network_identity_feed_uses_qualifying_identity_cursor_and_bounds(
+    session_provider: async_sessionmaker[AsyncSession], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Cursor pages must neither repeat eligible identities nor leak missing-baseline devices."""
+    collected_at = datetime(2026, 7, 31, 11, 0, tzinfo=UTC)
+    identities = [
+        UUID("a0000000-0000-0000-0000-000000000001"),
+        UUID("b0000000-0000-0000-0000-000000000001"),
+        UUID("c0000000-0000-0000-0000-000000000001"),
+    ]
+    async with session_provider() as session:
+        for index, device_id in enumerate(identities):
+            device = Device(
+                id=device_id,
+                device_identifier=f"paged-agent-{index}",
+                display_name=f"Paged agent {index}",
+                retired_at=None,
+            )
+            collection = ContextCollection(
+                id=uuid4(),
+                device_id=device.id,
+                profile="baseline_v1",
+                requested_by="agent",
+                idempotency_key=f"paged-baseline-{index}",
+                status="completed",
+                requested_at=collected_at,
+            )
+            projection = _normalized_projection("baseline_v1", collected_at)
+            projection["sections"]["interfaces"] = [
+                {
+                    "stable_key": f"mac-aabbccddee{index:02x}",
+                    "name": "eth0",
+                    "link_type": "ethernet",
+                }
+            ]
+            snapshot = ContextSnapshot(
+                id=uuid4(),
+                collection_id=collection.id,
+                device_id=device.id,
+                profile="baseline_v1",
+                collected_at=collected_at,
+                semantic_hash="d" * 64,
+                raw_payload={},
+                normalized_projection=projection,
+            )
+            session.add_all(
+                (
+                    device,
+                    collection,
+                    snapshot,
+                    ContextCurrent(
+                        id=uuid4(),
+                        device_id=device.id,
+                        profile="baseline_v1",
+                        snapshot_id=snapshot.id,
+                        updated_at=collected_at,
+                    ),
+                )
+            )
+        no_baseline = Device(
+            id=uuid4(),
+            device_identifier="no-baseline",
+            display_name="No baseline",
+            retired_at=None,
+        )
+        session.add(no_baseline)
+        await session.commit()
+    _install_principals(monkeypatch, {"allowed": _principal(["devices.read", "context.read"])})
+    app = create_app(_settings(), session_provider)
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app),
+        base_url="https://endpoint.sosnadmin.local",
+    ) as client:
+        first = await client.get(
+            "/api/v1/devices/network-identities?limit=1",
+            headers={"Authorization": "Bearer allowed"},
+        )
+        second = await client.get(
+            "/api/v1/devices/network-identities",
+            params={"limit": "1", "cursor": first.json()["next_cursor"]},
+            headers={"Authorization": "Bearer allowed"},
+        )
+        third = await client.get(
+            "/api/v1/devices/network-identities",
+            params={"limit": "1", "cursor": second.json()["next_cursor"]},
+            headers={"Authorization": "Bearer allowed"},
+        )
+        invalid_cursor = await client.get(
+            "/api/v1/devices/network-identities?cursor=not-a-uuid",
+            headers={"Authorization": "Bearer allowed"},
+        )
+        invalid_limit = await client.get(
+            "/api/v1/devices/network-identities?limit=251",
+            headers={"Authorization": "Bearer allowed"},
+        )
+        unauthenticated = await client.get("/api/v1/devices/network-identities")
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert third.status_code == 200
+    assert [page.json()["data"][0]["id"] for page in (first, second, third)] == [
+        str(identity) for identity in identities
+    ]
+    assert first.json()["next_cursor"] == str(identities[0])
+    assert second.json()["next_cursor"] == str(identities[1])
+    assert third.json()["next_cursor"] is None
+    assert invalid_cursor.status_code == 422
+    assert invalid_limit.status_code == 422
+    assert unauthenticated.status_code == 401
