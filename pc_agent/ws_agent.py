@@ -5310,6 +5310,16 @@ def _run_linux_systemd_enrollment_gate() -> None:
     )
 
 
+def _run_endpoint_gateway() -> None:
+    """Run the fixed TLS Gateway transport without initializing legacy settings."""
+    ca_path = os.environ.get("ENDPOINT_AGENT_CA_FILE", "").strip()
+    if not ca_path:
+        raise SystemExit(75)
+    from pc_agent.endpoint_gateway import run_gateway_forever
+
+    asyncio.run(run_gateway_forever(ca_file=Path(ca_path)))
+
+
 def main():
     """
     Главная функция. Сначала парсим --data-dir/--install-root, инициализируем конфиг от data_root, затем запускаем агент или verify.
@@ -5371,7 +5381,19 @@ def main():
         print(derive_linux_hardware_fingerprint())
         return
 
+    # The finalized unit intentionally drops the one-time systemd claim.
+    # It must not enter the bootstrap gate, which requires all three inputs.
+    if os.environ.get("ENDPOINT_AGENT_GATEWAY_READY") == "1":
+        _run_endpoint_gateway()
+        return
+
     _run_linux_systemd_enrollment_gate()
+
+    # A successful first boot has already exchanged the claim for the durable
+    # device credential, so it can use the Gateway immediately.
+    if os.environ.get("ENDPOINT_AGENT_ENROLLMENT_REQUIRED") == "1":
+        _run_endpoint_gateway()
+        return
 
     data_root = runtime_paths.resolve_data_root(cli_value=args.data_dir)
     install_root = (

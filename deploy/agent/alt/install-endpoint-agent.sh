@@ -782,6 +782,15 @@ finalize_handoff() {
     # constants, validated immediately above, and no caller-supplied pathname
     # can reach this finalizer.
     rm -f -- "$HANDOFF_TARGET" "$HANDOFF_REQUEST_TARGET"
+    # The bootstrap claim is intentionally absent after finalization.  Switch
+    # the fixed unit to its post-enrolment form before daemon-reload, otherwise
+    # systemd would reject the missing LoadCredential source on every restart.
+    sed -i \
+        -e '/^LoadCredential=endpoint-enrollment-claim:/d' \
+        -e '/^Environment=ENDPOINT_AGENT_PROVISIONING_HANDOFF_FILE=/d' \
+        -e 's/^Environment=ENDPOINT_AGENT_ENROLLMENT_REQUIRED=1$/Environment=ENDPOINT_AGENT_GATEWAY_READY=1/' \
+        "/etc/systemd/system/$SERVICE_NAME"
+    systemctl daemon-reload
     printf 'one-time provisioning handoff finalized after verified credential proof\n'
 }
 

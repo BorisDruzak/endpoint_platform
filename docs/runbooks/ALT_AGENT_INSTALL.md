@@ -100,6 +100,10 @@ This is intentionally a separate, fail-closed action: it reads only the fixed
 `/var/lib/endpoint-agent/claim-removal-request.json` request, checks its schema,
 device UUID, credential path/name and SHA-256 credential proof, and rejects
 symlinked/unsafe path components before deleting the exact root claim source.
+On success it also removes the matching `LoadCredential` and handoff environment
+line from the fixed systemd unit, switches it to `ENDPOINT_AGENT_GATEWAY_READY=1`,
+and reloads systemd. This prevents later restarts from depending on an
+intentionally deleted claim and starts the TLS-only Endpoint Gateway transport.
 It is idempotent after both the claim and request were removed. A future test on
 `test-agent-lin` must record enrollment, scheduled baseline/health/network
 collections, update/rollback, and token-redacted journal evidence before any

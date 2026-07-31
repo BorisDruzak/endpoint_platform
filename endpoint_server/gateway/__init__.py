@@ -1,0 +1,1 @@
+"""Device-authenticated Gateway transport."""

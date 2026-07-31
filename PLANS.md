@@ -27,6 +27,14 @@ The initial administrator `osn-admin` is active with the explicit
 `updates:write` grant. Bootstrap was audited, and the strict-HTTPS login check
 created then revoked its temporary verification session.
 
+The test-agent pilot has completed one-time enrollment: the permanent device
+credential was created with `endpoint-agent:endpoint-agent` ownership and the
+handoff was finalized.  It is not yet accepted as a Gateway pilot.  The
+installed runtime is still the inherited Helpdesk agent and starts against the
+legacy `192.168.100.17:8666` WebSocket/API; that service is unavailable to the
+Endpoint Platform pilot and the process exits normally.  Gateway transport and
+device-authenticated command delivery are therefore the remaining blocker.
+
 ## Constraints
 
 - web_ovpn and network_configuration remain read-only until a clean dedicated worktree exists.
@@ -42,10 +50,12 @@ created then revoked its temporary verification session.
 
 ## Next Steps
 
-1. Install the ALT agent bundle on `test-agent-lin`, enrol it against the
-   production API, and validate baseline extraction, Gateway, updates and
-   rollback before any wider rollout.
-2. Begin the separate Wave 1 `web_ovpn` integration only in its dedicated
+1. Implement the Endpoint Gateway transport and server-side
+   device-authenticated command delivery, then validate baseline extraction on
+   `test-agent-lin` without a legacy Helpdesk connection.
+2. Validate Gateway, updates and rollback on `test-agent-lin` before any
+   wider rollout.
+3. Begin the separate Wave 1 `web_ovpn` integration only in its dedicated
    worktree after the production agent pilot is accepted.
 
 ## Verification

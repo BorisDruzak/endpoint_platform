@@ -28,6 +28,13 @@
   ordering, bounded retry, terminal denial, restart identity preservation and
   symlink rejection. The operation runbook is
   `docs/runbooks/ALT_AGENT_ENROLLMENT_BOOTSTRAP.md`.
+- `pc_agent/endpoint_gateway.py` is the post-enrolment ALT transport.  It
+  polls only `https://endpoint.sosnadmin.local` with the systemd-provided CA,
+  accepts only fixed Device Context capabilities, replays an unacknowledged
+  command idempotently, and never falls back to the legacy Helpdesk WebSocket.
+  `ws_agent.py` enters this mode immediately after successful first boot and
+  after the root finalizer has replaced the bootstrap claim unit inputs with
+  `ENDPOINT_AGENT_GATEWAY_READY=1`.
 
 ## Device Context map (2026-07-29)
 

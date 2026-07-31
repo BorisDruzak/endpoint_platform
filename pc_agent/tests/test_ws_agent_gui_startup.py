@@ -96,3 +96,52 @@ def test_systemd_enrollment_gate_requires_credentials_when_service_contract_is_s
         ws_agent_module._run_linux_systemd_enrollment_gate()
 
     assert exc_info.value.code == 75
+
+
+def test_gateway_runtime_bypasses_bootstrap_gate_after_handoff(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """The post-handoff unit no longer has the one-time claim credential."""
+    calls: list[Path] = []
+
+    def _bootstrap_gate_must_not_run() -> None:
+        raise AssertionError("post-handoff Gateway mode must not load bootstrap credentials")
+
+    async def _gateway_runner(*, ca_file: Path) -> None:
+        calls.append(ca_file)
+
+    monkeypatch.setattr(ws_agent_module, "_run_linux_systemd_enrollment_gate", _bootstrap_gate_must_not_run)
+    monkeypatch.setattr("pc_agent.endpoint_gateway.run_gateway_forever", _gateway_runner)
+    monkeypatch.setenv("ENDPOINT_AGENT_GATEWAY_READY", "1")
+    monkeypatch.setenv("ENDPOINT_AGENT_CA_FILE", str(tmp_path / "endpoint-agent-ca"))
+    monkeypatch.setattr(sys, "argv", ["ws_agent.py", "--no-gui"])
+
+    ws_agent_module.main()
+
+    assert calls == [tmp_path / "endpoint-agent-ca"]
+
+
+def test_first_boot_enters_gateway_after_successful_enrollment(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    calls: list[Path] = []
+
+    async def _gateway_runner(*, ca_file: Path) -> None:
+        calls.append(ca_file)
+
+    monkeypatch.setattr(ws_agent_module, "_run_linux_systemd_enrollment_gate", lambda: None)
+    monkeypatch.setattr("pc_agent.endpoint_gateway.run_gateway_forever", _gateway_runner)
+    monkeypatch.setattr(
+        ws_agent_module.runtime_paths,
+        "resolve_data_root",
+        lambda **_kwargs: (_ for _ in ()).throw(AssertionError("legacy runtime must not start")),
+    )
+    monkeypatch.setenv("ENDPOINT_AGENT_ENROLLMENT_REQUIRED", "1")
+    monkeypatch.setenv("ENDPOINT_AGENT_CA_FILE", str(tmp_path / "endpoint-agent-ca"))
+    monkeypatch.setattr(sys, "argv", ["ws_agent.py", "--no-gui"])
+
+    ws_agent_module.main()
+
+    assert calls == [tmp_path / "endpoint-agent-ca"]

@@ -51,6 +51,7 @@ file_owner_gid() { id -g; }
 file_mode() {
     case "$1" in
         */var/lib/endpoint-agent|*/var/log/endpoint-agent) printf '750\\n' ;;
+        */etc/systemd/system/endpoint-agent.service) printf '644\\n' ;;
         */etc/endpoint-agent) printf '755\\n' ;;
         */provisioning-claim)
             [[ "${ENDPOINT_AGENT_TEST_SCENARIO:-}" == claim-mode ]] && printf '644\\n' || printf '600\\n'
@@ -131,6 +132,17 @@ sed "s|__TEST_ROOT__|$root|g" {installer.as_posix()!s} > "$root/installer"
 chmod 700 "$root/installer"
 mkdir -p "$root/opt" "$root/etc/endpoint-agent" "$root/etc/systemd/system" "$root/var/lib/endpoint-agent" "$root/var/log/endpoint-agent"
 mkdir -p "$root/bin"
+cat > "$root/etc/systemd/system/endpoint-agent.service" <<'UNIT'
+[Service]
+Environment=ENDPOINT_AGENT_ENROLLMENT_REQUIRED=1
+LoadCredential=endpoint-agent-config:/etc/endpoint-agent/config.yaml
+LoadCredential=endpoint-agent-ca:/etc/endpoint-agent/ca.crt
+LoadCredential=endpoint-enrollment-claim:/etc/endpoint-agent/provisioning-claim
+Environment=ENDPOINT_AGENT_CONFIG=%d/endpoint-agent-config
+Environment=ENDPOINT_AGENT_CA_FILE=%d/endpoint-agent-ca
+Environment=ENDPOINT_AGENT_PROVISIONING_HANDOFF_FILE=%d/endpoint-enrollment-claim
+UNIT
+chmod 644 "$root/etc/systemd/system/endpoint-agent.service"
 export ENDPOINT_AGENT_TEST_UID=$(id -u)
 export ENDPOINT_AGENT_TEST_GID=$(id -g)
 export ENDPOINT_AGENT_TEST_SCENARIO={scenario!r}
@@ -155,6 +167,11 @@ fi
 exec /usr/bin/id "$@"
 ID
 chmod 700 "$root/bin/getent" "$root/bin/id"
+cat > "$root/bin/systemctl" <<'SYSTEMCTL'
+#!/usr/bin/env bash
+[[ "$1" == daemon-reload ]]
+SYSTEMCTL
+chmod 700 "$root/bin/systemctl"
 credential="$root/var/lib/endpoint-agent/device-credential"
 request="$root/var/lib/endpoint-agent/claim-removal-request.json"
 claim="$root/etc/endpoint-agent/provisioning-claim"
@@ -189,7 +206,8 @@ set +e
 PATH="$root/bin:$PATH" bash "$root/installer" --finalize-handoff
 status=$?
 set -e
-printf 'status=%s claim=%s request=%s credential=%s\n' "$status" "$([[ -e "$claim" || -L "$claim" ]] && echo present || echo absent)" "$([[ -e "$request" || -L "$request" ]] && echo present || echo absent)" "$([[ -e "$credential" || -L "$credential" ]] && echo present || echo absent)"
+unit="$root/etc/systemd/system/endpoint-agent.service"
+printf 'status=%s claim=%s request=%s credential=%s unit_claim=%s unit_handoff=%s unit_gateway=%s\n' "$status" "$([[ -e "$claim" || -L "$claim" ]] && echo present || echo absent)" "$([[ -e "$request" || -L "$request" ]] && echo present || echo absent)" "$([[ -e "$credential" || -L "$credential" ]] && echo present || echo absent)" "$(grep -c '^LoadCredential=endpoint-enrollment-claim:' "$unit" || true)" "$(grep -c '^Environment=ENDPOINT_AGENT_PROVISIONING_HANDOFF_FILE=' "$unit" || true)" "$(grep -c '^Environment=ENDPOINT_AGENT_GATEWAY_READY=1$' "$unit" || true)"
 exit 0
 """,
         encoding="utf-8",
@@ -217,6 +235,7 @@ def test_verified_bootstrap_request_removes_only_the_exact_claim_and_request(
     result = _run_harness(tmp_path, "success")
 
     assert "status=0 claim=absent request=absent credential=present" in result.stdout
+    assert "unit_claim=0 unit_handoff=0 unit_gateway=1" in result.stdout
 
 
 def test_invalid_request_or_credential_keeps_the_claim_and_request_for_recovery(
