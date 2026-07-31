@@ -60,6 +60,12 @@ Helpdesk WebSocket/API is no longer used by the ALT systemd runtime.
    not write the intentionally root-owned immutable release root. The fix is
    the committed root-owned systemd update worker; rebuild the test baseline
    with that worker before retrying a new canary. Disk resize remains cancelled.
+   The root-worker baseline `3.1.78`, controller canary `3.1.79`, and ordinary
+   reporter-order canary `3.1.80` have now completed only on `test-agent-lin`.
+   The final `3.1.80` target reached durable controller status `applied` with
+   the post-restart Gateway report; the systemd agent stayed active with zero
+   restart failures. The remaining proof is a deliberately failing, bounded
+   rollback canary and a post-rollback Device Context collection.
 2. Validate Gateway reconnect and a repeated baseline collection after the
    update/rollback exercise.
 3. Begin the separate Wave 1 `web_ovpn` integration only in its dedicated
