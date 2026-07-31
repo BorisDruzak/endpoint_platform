@@ -44,13 +44,17 @@ the selector and recorded as a terminal failed canary; its immutable artifact
 was not overwritten. The post-rollback `baseline_v1` request completed through
 Gateway; its unchanged semantic hash reused the existing current snapshot.
 
-Wave 1 core adapter/API is merged in `BorisDruzak/web_ovpn` at `6e767ba`.
-It has typed safe projections, existing API authentication and CSRF checks,
-idempotency forwarding for collections, strict configured CA verification and
-deterministic degraded responses. It is not deployed to `192.168.100.30` yet:
-the deployment gate must provide the built Endpoint Platform SDK plus a
-root-managed least-privilege service token and CA file. The Russian-first UI
-pages and any netctl correlation remain separate follow-on work.
+Wave 1 core adapter/API is merged in `BorisDruzak/web_ovpn` at `6e767ba` and
+is deployed on `192.168.100.30`. The `openvpn-web` runtime has the built typed
+Endpoint Platform SDK, a root-managed least-privilege `web-ovpn-context`
+credential, and the configured CA file. DNS resolution for
+`endpoint.sosnadmin.local` is pinned to the internal resolver for the internal
+domain; live health and adapter calls pass hostname and CA verification. The
+feature is enabled and returns only normalized device projections; a live
+baseline collection completed through Gateway. The panel routes remain
+Bearer-token protected by the pre-existing API contract, while unavailable and
+disabled states stay deterministic and redacted. The Russian-first UI pages
+and any netctl correlation remain separate follow-on work.
 
 ## Constraints
 
@@ -70,10 +74,10 @@ pages and any netctl correlation remain separate follow-on work.
 1. Treat the Gateway/update/rollback pilot as accepted only for the dedicated
    `test-agent-lin`; do not assign a production endpoint or run a bulk rollout
    without a separate change decision.
-2. At a separate authorized deployment gate, install the reviewed SDK and
-   root-managed `web_ovpn` service credential/CA on `192.168.100.30`, enable
-   the feature, and verify only normalized projections over TLS. Do not add
-   IP-only correlation or expose raw agent result payloads.
+2. Keep the `web_ovpn` Endpoint Platform integration feature-gated and rotate
+   its least-privilege service credential through the controller lifecycle
+   before any credential-expiry policy is introduced. Do not add IP-only
+   correlation or expose raw agent result payloads.
 
 ## Verification
 
@@ -85,6 +89,7 @@ current snapshot, its prior snapshot and explicit pins.
 
 ## Handoff
 
-Production deployment passed its gate; the remaining agent pilot and the
-`web_ovpn` service-token/client integration remain distinct deliverables.
+Production deployment and the dedicated test-agent pilot passed their gates.
+The deployed `web_ovpn` adapter remains a narrow service-to-service boundary;
+any browser UI or netctl-correlation expansion requires a separate decision.
 
