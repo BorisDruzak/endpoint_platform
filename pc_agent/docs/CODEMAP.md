@@ -35,6 +35,14 @@
   `ws_agent.py` enters this mode immediately after successful first boot and
   after the root finalizer has replaced the bootstrap claim unit inputs with
   `ENDPOINT_AGENT_GATEWAY_READY=1`.
+- `pc_agent/gateway_update_runtime.py` extends that same post-enrolment
+  transport with canary-only `linux_amd64` update polling.  It consumes only a
+  controller-hosted artifact URL, verifies the downloaded SHA-256 and size,
+  writes a durable ALT pending record, then reports `requested`, `scheduled`,
+  and one launcher-derived terminal state without using the legacy Helpdesk
+  update path.  `pc_agent/alt_update_installer.py` validates the immutable
+  `launcher`/`pc_agent` bundle and preserves the ALT selector schema during
+  apply or rollback.
 
 ## Device Context map (2026-07-29)
 

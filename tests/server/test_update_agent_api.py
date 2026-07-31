@@ -40,7 +40,7 @@ NOW = datetime.now(UTC)
 ADMIN_ID = uuid4()
 
 
-def _settings() -> Settings:
+def _settings(artifact_root: Path = Path("artifacts")) -> Settings:
     return Settings(
         database_url="sqlite+aiosqlite:///:memory:",
         public_base_url="https://endpoint.sosnadmin.local",
@@ -49,7 +49,7 @@ def _settings() -> Settings:
         session_secret=b"request-correlation-secret",
         allowed_agent_cidrs=(ipaddress.ip_network("127.0.0.0/8"),),
         allowed_admin_cidrs=(ipaddress.ip_network("127.0.0.0/8"),),
-        artifact_root=Path("artifacts"),
+        artifact_root=artifact_root,
     )
 
 
@@ -162,6 +162,60 @@ def _client(app) -> httpx.AsyncClient:
         ),
         base_url="https://endpoint.sosnadmin.local",
     )
+
+
+@pytest.mark.asyncio
+async def test_assigned_device_can_download_only_its_controller_artifact(
+    session_provider: async_sessionmaker[AsyncSession], tmp_path: Path
+) -> None:
+    token_a, token_b = "artifact-token-a", "artifact-token-b"
+    artifact = b"verified-alt-release"
+    artifact_name = "endpoint-linux-2.0.0.tar.gz"
+    artifact_root = tmp_path / "artifacts"
+    artifact_root.mkdir()
+    (artifact_root / artifact_name).write_bytes(artifact)
+    async with session_provider() as session:
+        device_a = await _seed_device(session, suffix="artifact-a", token=token_a)
+        device_b = await _seed_device(session, suffix="artifact-b", token=token_b)
+        build = await register_build(
+            session,
+            {
+                "schema_version": "update_build_manifest_v1",
+                "build_identifier": "endpoint-linux-2.0.0",
+                "version": "2.0.0",
+                "platform": "linux_amd64",
+                "channel": "stable",
+                "artifact_url": (
+                    "https://endpoint.sosnadmin.local/agent/v1/updates/"
+                    "artifacts/endpoint-linux-2.0.0"
+                ),
+                "artifact_name": artifact_name,
+                "archive_type": "tar.gz",
+                "sha256": "a" * 64,
+                "size": len(artifact),
+            },
+            ADMIN_ID,
+            "register-artifact",
+            now=NOW,
+        )
+        await _seed_assignment(session, device=device_a, build=build, suffix="artifact")
+        await session.commit()
+
+    app = create_app(_settings(artifact_root), session_provider)
+    async with _client(app) as client:
+        allowed = await client.get(
+            "/agent/v1/updates/artifacts/endpoint-linux-2.0.0",
+            headers={"Authorization": f"Bearer {token_a}"},
+        )
+        denied = await client.get(
+            "/agent/v1/updates/artifacts/endpoint-linux-2.0.0",
+            headers={"Authorization": f"Bearer {token_b}"},
+        )
+
+    assert allowed.status_code == 200
+    assert allowed.content == artifact
+    assert allowed.headers["content-type"] == "application/gzip"
+    assert denied.status_code == 404
 
 
 @pytest.mark.asyncio

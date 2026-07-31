@@ -108,3 +108,15 @@ It is idempotent after both the claim and request were removed. A future test on
 `test-agent-lin` must record enrollment, scheduled baseline/health/network
 collections, update/rollback, and token-redacted journal evidence before any
 broader rollout.
+
+## Gateway update pilot
+
+The finalized unit enables `ENDPOINT_AGENT_ALT_UPDATE_MODE=1`.  It polls only
+the Endpoint controller's canary recommendation for `linux_amd64`; it will not
+use an external artifact host.  Before assigning a canary, place the reviewed
+`.tar.gz` file under the controller's root-owned `ARTIFACT_ROOT` using the
+exact `artifact_name` registered in the immutable build manifest.  The
+controller serves it at `/agent/v1/updates/artifacts/{build_identifier}` only
+to the device that has an active target for that build.  Verify the lifecycle
+in this order: `requested`, `scheduled`, service restart, then `applied` (or
+`failed`/`rolled_back`).  A `scheduled` acknowledgement alone is not success.

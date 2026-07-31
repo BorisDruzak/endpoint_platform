@@ -4,12 +4,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Annotated, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Query, Request, Response, status
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, ConfigDict
-from sqlalchemy import or_, select
+from sqlalchemy import and_, or_, select
 
 from endpoint_contracts import (
     AgentUpdateAcknowledgementV1,
@@ -17,7 +19,13 @@ from endpoint_contracts import (
     AgentUpdateReportV1,
 )
 from endpoint_server.audit.request_ids import audit_request_id
-from endpoint_server.db.models import Device, DeviceCredential
+from endpoint_server.db.models import (
+    Device,
+    DeviceCredential,
+    UpdateBuild,
+    UpdateRollout,
+    UpdateTarget,
+)
 from endpoint_server.enrollment.credentials import (
     device_credential_accepts_token,
     device_token_digest,
@@ -36,6 +44,7 @@ from .service import recommendation_for_device, record_ack, record_report
 
 
 router = APIRouter(prefix="/agent/v1/updates", tags=["agent-updates"])
+_DELIVERABLE_TARGET_STATUSES = ("assigned", "requested", "scheduled")
 
 
 @dataclass(frozen=True, slots=True)
@@ -203,6 +212,52 @@ def _agent_error(error: UpdateError) -> HTTPException:
     ):
         return _operation_unavailable()
     return _operation_unavailable()
+
+
+def _artifact_path(root: Path, identifier: str) -> Path | None:
+    """Resolve only one controller-owned regular artifact inside the fixed root."""
+    if not identifier or Path(identifier).name != identifier:
+        return None
+    try:
+        root_resolved = root.resolve(strict=True)
+        artifact = (root_resolved / identifier).resolve(strict=True)
+        artifact.relative_to(root_resolved)
+    except (OSError, ValueError):
+        return None
+    if artifact.is_symlink() or not artifact.is_file():
+        return None
+    return artifact
+
+
+@router.get("/artifacts/{build_identifier}", response_model=None)
+async def download_update_artifact(
+    build_identifier: str, request: Request
+) -> Response:
+    """Deliver one assigned build only to the authenticated assigned device."""
+    async with request.app.state.session_provider() as session:
+        principal = await _authenticate_device(session, request)
+        build = await session.scalar(
+            select(UpdateBuild)
+            .join(UpdateRollout, UpdateRollout.build_id == UpdateBuild.id)
+            .join(UpdateTarget, UpdateTarget.rollout_id == UpdateRollout.id)
+            .where(
+                and_(
+                    UpdateBuild.build_identifier == build_identifier,
+                    UpdateTarget.device_id == principal.device.id,
+                    UpdateTarget.status.in_(_DELIVERABLE_TARGET_STATUSES),
+                    UpdateRollout.status == "active",
+                )
+            )
+            .order_by(UpdateTarget.assigned_at.desc())
+        )
+        if build is None:
+            return Response(status_code=status.HTTP_404_NOT_FOUND)
+        artifact = _artifact_path(
+            request.app.state.settings.artifact_root, build.artifact_identifier
+        )
+        if artifact is None or artifact.stat().st_size != build.size:
+            return Response(status_code=status.HTTP_404_NOT_FOUND)
+    return FileResponse(artifact, media_type="application/gzip")
 
 
 @router.get(

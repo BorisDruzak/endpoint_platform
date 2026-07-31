@@ -53,6 +53,8 @@ Helpdesk WebSocket/API is no longer used by the ALT systemd runtime.
    on `test-agent-lin` before any wider rollout.  The dedicated design and
    task plan are in `docs/superpowers/specs/2026-07-31-gateway-update-runtime-design.md`
    and `docs/superpowers/plans/2026-07-31-gateway-update-runtime.md`.
+   The dedicated delivery boundary is `/agent/v1/updates/artifacts/{build_identifier}`:
+   only an actively assigned device can retrieve the controller-owned artifact.
 2. Validate Gateway reconnect and a repeated baseline collection after the
    update/rollback exercise.
 3. Begin the separate Wave 1 `web_ovpn` integration only in its dedicated
