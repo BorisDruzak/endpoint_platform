@@ -17,8 +17,8 @@ isolated test-agent acceptance harness are complete. A valid wildcard
 `*.sosnadmin.local` certificate is in active use on the TLS source host; its
 private key has not been copied into the workspace.
 
-The initial production deployment is complete on `endpoint-platform-server`
-at release `42de4d53f0d1`: PostgreSQL listens only on loopback, Nginx and the
+The production Endpoint Platform release is `9f8f5b49f578` on
+`endpoint-platform-server`: PostgreSQL listens only on loopback, Nginx and the
 API service are enabled, and the database is migrated through
 `0010_session_last_seen_index`. The live `https://endpoint.sosnadmin.local`
 health check passes strict CA and hostname verification.
@@ -44,17 +44,25 @@ the selector and recorded as a terminal failed canary; its immutable artifact
 was not overwritten. The post-rollback `baseline_v1` request completed through
 Gateway; its unchanged semantic hash reused the existing current snapshot.
 
-Wave 1 core adapter/API is merged in `BorisDruzak/web_ovpn` at `6e767ba` and
-is deployed on `192.168.100.30`. The `openvpn-web` runtime has the built typed
-Endpoint Platform SDK, a root-managed least-privilege `web-ovpn-context`
-credential, and the configured CA file. DNS resolution for
-`endpoint.sosnadmin.local` is pinned to the internal resolver for the internal
-domain; live health and adapter calls pass hostname and CA verification. The
-feature is enabled and returns only normalized device projections; a live
-baseline collection completed through Gateway. The panel routes remain
-Bearer-token protected by the pre-existing API contract, while unavailable and
-disabled states stay deterministic and redacted. The Russian-first UI pages
-and any netctl correlation remain separate follow-on work.
+Wave 1 is merged and deployed in `BorisDruzak/web_ovpn` at `f1108f4`. The
+`openvpn-web` runtime has the matching typed Endpoint Platform SDK, a
+root-managed least-privilege `web-ovpn-context` credential, and the configured
+CA file. DNS resolution for `endpoint.sosnadmin.local` is pinned to the
+internal resolver for the internal domain; live health and adapter calls pass
+hostname and CA verification. The network-device list shows a session-only
+Endpoint Agent state: it refreshes no more than once in five minutes, preserves
+a stale safe cache on failure, and confirms a relationship only for a unique
+normalized-MAC match. No MAC, IP, raw context, token, CA path or upstream error
+is rendered or returned by the new status route. The status route is
+session-protected; existing Bearer API authentication is unchanged.
+
+The service credential was rotated through the controller lifecycle with no
+scope change and no expiry policy. The replacement was staged and verified over
+strict TLS before an atomic web-host switch; the old credential was revoked
+with immutable created/revoked audit records, then its local backup was
+securely removed. Production acceptance verified one active replacement
+credential, the rejected old bearer, and a successful current identity-feed
+call.
 
 ## Constraints
 
@@ -74,10 +82,10 @@ and any netctl correlation remain separate follow-on work.
 1. Treat the Gateway/update/rollback pilot as accepted only for the dedicated
    `test-agent-lin`; do not assign a production endpoint or run a bulk rollout
    without a separate change decision.
-2. Keep the `web_ovpn` Endpoint Platform integration feature-gated and rotate
-   its least-privilege service credential through the controller lifecycle
-   before any credential-expiry policy is introduced. Do not add IP-only
-   correlation or expose raw agent result payloads.
+2. Keep the `web_ovpn` Endpoint Platform integration feature-gated. Any
+   credential-expiry policy, production endpoint assignment, bulk rollout,
+   IP-only correlation, or exposure of raw agent result payloads requires a
+   separate approved change.
 
 ## Verification
 
@@ -89,7 +97,10 @@ current snapshot, its prior snapshot and explicit pins.
 
 ## Handoff
 
-Production deployment and the dedicated test-agent pilot passed their gates.
-The deployed `web_ovpn` adapter remains a narrow service-to-service boundary;
-any browser UI or netctl-correlation expansion requires a separate decision.
+Production deployment, the dedicated test-agent pilot, and the Wave 1 network
+list presentation passed their gates. The deployed `web_ovpn` integration
+remains a narrow service-to-service boundary; its page cache is MAC-free and
+its only automatic association is the unique-MAC confirmation. Any production
+endpoint assignment, bulk rollout, credential-expiry policy, or new data source
+requires a separate decision.
 
