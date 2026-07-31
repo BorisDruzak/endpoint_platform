@@ -94,6 +94,27 @@ def _baseline_snapshot(snapshot_id: str) -> dict[str, object]:
     }
 
 
+def _network_identity_page(
+    device_id: str, *, mac_key: str, next_cursor: str | None
+) -> dict[str, object]:
+    return {
+        "data": [
+            {
+                "id": device_id,
+                "device_identifier": "workstation-001",
+                "display_name": "Workstation 001",
+                "last_seen_at": "2026-07-31T10:00:00Z",
+                "baseline_collected_at": "2026-07-31T09:00:00Z",
+                "profiles": [
+                    {"profile": "baseline_v1", "collected_at": "2026-07-31T09:00:00Z"}
+                ],
+                "baseline_mac_keys": [mac_key],
+            }
+        ],
+        "next_cursor": next_cursor,
+    }
+
+
 def test_client_uses_ca_and_redacts_token_on_unavailable_error(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     created: list[FakeHttpClient] = []
 
@@ -324,3 +345,55 @@ def test_baseline_history_is_typed_bounded_and_rejects_invalid_comparisons(
     with pytest.raises(EndpointPlatformInvalidRequest):
         client.compare_context(device_id, first_id, first_id)
     assert len(fake.calls) == 1
+
+
+def test_network_identity_feed_follows_typed_cursor_pages(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    first_id = uuid4()
+    second_id = uuid4()
+    fake = FakeHttpClient(
+        responses=[
+            _response(
+                200,
+                _network_identity_page(
+                    str(first_id), mac_key="mac-aabbccddeeff", next_cursor=str(first_id)
+                ),
+            ),
+            _response(
+                200,
+                _network_identity_page(
+                    str(second_id), mac_key="mac-001122334455", next_cursor=None
+                ),
+            ),
+        ]
+    )
+    monkeypatch.setattr(client_module.httpx, "Client", lambda **_: fake)
+    client = EndpointPlatformClient("https://endpoint.invalid", token_file=token(tmp_path), ca_file=ca(tmp_path))
+
+    identities = client.list_agent_network_identities()
+
+    assert [identity.id for identity in identities] == [first_id, second_id]
+    assert identities[0].baseline_mac_keys == ["mac-aabbccddeeff"]
+    assert fake.calls == [
+        ("GET", "/api/v1/devices/network-identities", {"json": None, "headers": None, "params": {"limit": "250"}}),
+        ("GET", "/api/v1/devices/network-identities", {"json": None, "headers": None, "params": {"limit": "250", "cursor": str(first_id)}}),
+    ]
+
+
+def test_network_identity_feed_rejects_raw_or_noncanonical_response_fields(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    device_id = uuid4()
+    malformed = _network_identity_page(
+        str(device_id), mac_key="MAC-AABBCCDDEEFF", next_cursor=None
+    )
+    malformed["data"][0]["raw_payload"] = {"token": "secret-token"}  # type: ignore[index]
+    fake = FakeHttpClient(responses=[_response(200, malformed)])
+    monkeypatch.setattr(client_module.httpx, "Client", lambda **_: fake)
+    client = EndpointPlatformClient("https://endpoint.invalid", token_file=token(tmp_path), ca_file=ca(tmp_path))
+
+    with pytest.raises(EndpointPlatformMalformedResponse) as exc:
+        client.list_agent_network_identities()
+
+    assert "secret-token" not in str(exc.value)

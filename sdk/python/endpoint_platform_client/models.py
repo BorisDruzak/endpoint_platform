@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Literal, TypeAlias
+import re
+from typing import Annotated, Literal, TypeAlias
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -33,6 +34,43 @@ class Device(SafeModel):
     display_name: str = Field(min_length=1, max_length=256)
     retired_at: datetime | None
     last_seen_at: datetime | None
+
+
+class AgentNetworkProfile(SafeModel):
+    """One currently available safe Context profile for a network identity."""
+
+    profile: SafeContextProfile
+    collected_at: datetime
+
+
+class AgentNetworkIdentity(SafeModel):
+    """Safe service-to-service identity material for exact MAC correlation."""
+
+    id: UUID
+    device_identifier: str = Field(min_length=1, max_length=256)
+    display_name: str = Field(min_length=1, max_length=256)
+    last_seen_at: datetime | None
+    baseline_collected_at: datetime
+    profiles: list[AgentNetworkProfile] = Field(max_length=3)
+    baseline_mac_keys: list[Annotated[str, Field(pattern=r"^mac-[0-9a-f]{12}$")]] = Field(
+        min_length=1, max_length=64
+    )
+
+    @field_validator("baseline_mac_keys")
+    @classmethod
+    def canonical_baseline_mac_keys(cls, value: list[str]) -> list[str]:
+        if value != sorted(set(value)) or any(
+            re.fullmatch(r"mac-[0-9a-f]{12}", key) is None for key in value
+        ):
+            raise ValueError("baseline MAC keys must be canonical")
+        return value
+
+
+class AgentNetworkIdentityPage(SafeModel):
+    """One bounded page from the Endpoint Platform identity feed."""
+
+    data: list[AgentNetworkIdentity] = Field(max_length=250)
+    next_cursor: UUID | None
 
 
 class ContextProfileAvailability(SafeModel):

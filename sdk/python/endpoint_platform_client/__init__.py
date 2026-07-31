@@ -12,6 +12,9 @@ from .errors import (
     EndpointPlatformUnavailable,
 )
 from .models import (
+    AgentNetworkIdentity,
+    AgentNetworkIdentityPage,
+    AgentNetworkProfile,
     BaselineHistory,
     Collection,
     CollectionDetails,
@@ -24,6 +27,9 @@ from .models import (
 )
 
 __all__ = [
+    "AgentNetworkIdentity",
+    "AgentNetworkIdentityPage",
+    "AgentNetworkProfile",
     "BaselineHistory",
     "Collection",
     "CollectionDetails",

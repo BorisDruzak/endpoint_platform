@@ -20,6 +20,8 @@ from .errors import (
     EndpointPlatformUnavailable,
 )
 from .models import (
+    AgentNetworkIdentity,
+    AgentNetworkIdentityPage,
     BaselineHistory,
     Collection,
     CollectionDetails,
@@ -36,6 +38,7 @@ from ._contracts import DeviceContextDiffV1
 _READ_ATTEMPTS = 3
 _TRANSIENT_STATUS_CODES = frozenset((502, 503, 504))
 _MAX_BASELINE_HISTORY_LIMIT = 100
+_MAX_NETWORK_IDENTITY_PAGES = 100
 
 
 class EndpointPlatformClient:
@@ -97,6 +100,28 @@ class EndpointPlatformClient:
     def list_devices(self) -> list[Device]:
         data = self._get("/api/v1/devices")
         return self._validate(data, lambda value: _DeviceListResponse.model_validate(value)).data
+
+    def list_agent_network_identities(self) -> list[AgentNetworkIdentity]:
+        """Read every bounded safe network-identity page with cursor-loop protection."""
+        cursor: UUID | None = None
+        seen_cursors: set[UUID] = set()
+        identities: list[AgentNetworkIdentity] = []
+        for _ in range(_MAX_NETWORK_IDENTITY_PAGES):
+            params = {"limit": "250"}
+            if cursor is not None:
+                params["cursor"] = str(cursor)
+            page = self._validate(
+                self._get("/api/v1/devices/network-identities", params=params),
+                lambda value: AgentNetworkIdentityPage.model_validate(value),
+            )
+            identities.extend(page.data)
+            if page.next_cursor is None:
+                return identities
+            if page.next_cursor in seen_cursors:
+                raise EndpointPlatformMalformedResponse()
+            seen_cursors.add(page.next_cursor)
+            cursor = page.next_cursor
+        raise EndpointPlatformMalformedResponse()
 
     def get_device(self, device_id: UUID) -> Device:
         """Return one service-visible identity through the devices.read boundary."""
