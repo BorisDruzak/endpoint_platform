@@ -37,6 +37,22 @@ def select_update_installation(
     return data_root / "updates" / "pending_update.json", apply_update
 
 
+def pending_update_requires_privileged_worker(*, data_root: Path) -> bool:
+    """Return whether the ALT agent must leave publication to the root worker."""
+    pending_path, _ = select_update_installation(data_root=data_root)
+    return alt_update_mode_enabled() and pending_path.exists()
+
+
+def apply_pending_alt_update_as_worker(
+    *, install_root: Path, data_root: Path
+) -> tuple[bool, str]:
+    """Consume one ALT pending update without launching an agent process."""
+    pending_path = data_root / "updates" / "pending_alt_update.json"
+    if not pending_path.exists():
+        return True, "no pending ALT update"
+    return apply_alt_update(install_root, data_root, pending_path)
+
+
 def _log(msg: str) -> None:
     print(f"[launcher] {msg}", flush=True)
 
@@ -164,6 +180,11 @@ def main() -> None:
     parser.add_argument("--install-root", type=str, default=None, help="Install root (default: env/config)")
     parser.add_argument("--gui", action="store_true", help="Запустить агент с GUI (по умолчанию)")
     parser.add_argument("--no-gui", action="store_true", help="Запустить агент без GUI (консольный режим)")
+    parser.add_argument(
+        "--apply-alt-update",
+        action="store_true",
+        help="Apply one pending ALT update without starting the agent (root worker only)",
+    )
     args = parser.parse_args()
     use_gui = args.gui or not args.no_gui  # по умолчанию GUI включён
     data_root = resolve_data_root(cli_value=args.data_dir)
@@ -172,6 +193,24 @@ def main() -> None:
     pending_path, apply_pending_update = select_update_installation(data_root=data_root)
     updates_dir = data_root / "updates"
     versions_dir = install_root / "versions"
+    if args.apply_alt_update:
+        if not alt_update_mode_enabled():
+            _log("--apply-alt-update requires ENDPOINT_AGENT_ALT_UPDATE_MODE=1")
+            raise SystemExit(2)
+        if os.name != "nt" and os.geteuid() != 0:
+            _log("--apply-alt-update must run from the root-owned systemd worker")
+            raise SystemExit(1)
+        ok, message = apply_pending_alt_update_as_worker(
+            install_root=install_root, data_root=data_root
+        )
+        _log(
+            f"Privileged ALT update {'applied' if ok else 'failed'}: {message}; "
+            "returning control to systemd"
+        )
+        # A handled verification or publish failure is durable in update
+        # history.  Exit cleanly so the helper can restart the last known good
+        # unprivileged service for outcome reporting.
+        raise SystemExit(0)
     if not current_path.exists():
         _log(f"current.json not found at {current_path}; create it with initial version")
         sys.exit(1)
@@ -183,6 +222,9 @@ def main() -> None:
         sys.exit(1)
     if alt_update_mode_enabled():
         previous_version = _alt_previous_version(data_root, current_version=version)
+    if pending_update_requires_privileged_worker(data_root=data_root):
+        _log("pending ALT update is delegated to the root-owned systemd worker")
+        raise SystemExit(0)
     env = os.environ.copy()
     env["PC_AGENT_DATA_DIR"] = str(data_root)
     env["PC_AGENT_INSTALL_ROOT"] = str(install_root)
@@ -229,12 +271,18 @@ def main() -> None:
         ret = proc.wait()
         elapsed_sec = time.monotonic() - started_at
         if ret == EXIT_UPDATE_PENDING:
+            if alt_update_mode_enabled():
+                _log("Agent exited with update-pending (42); root worker will apply it")
+                raise SystemExit(0)
             _log("Agent exited with update-pending (42); will apply update and restart")
             backoff = 1.0
             immediate_crash_attempts = 0
             immediate_crash_version = None
             continue
         if pending_path.exists():
+            if alt_update_mode_enabled():
+                _log("pending ALT update is delegated to the root-owned systemd worker")
+                raise SystemExit(0)
             _log("pending_update.json present after exit; applying update")
             immediate_crash_attempts = 0
             immediate_crash_version = None

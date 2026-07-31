@@ -64,6 +64,14 @@ PC Agent поддерживает удалённое обновление чер
 
 **Модель v2:** агент запускается через **launcher**. Агент только скачивает артефакт и пишет `pending_update.json`, затем завершается с кодом 42. Launcher применяет обновление (распаковка, verify, переключение версии или rollback).
 
+**ALT Linux:** для immutable layout `/opt/endpoint-agent` это правило разделено
+по привилегиям. Сервис `endpoint-agent` остаётся непривилегированным, пишет
+только `updates/pending_alt_update.json` и завершается. Root-owned
+`endpoint-agent-update.path` запускает одноразовый worker, который вызывает
+stable launcher с `--apply-alt-update`, после чего обязательно возвращает
+предыдущий или новый unprivileged service в работу. Нельзя выдавать
+`endpoint-agent` право записи в `/opt/endpoint-agent`.
+
 Для операционного сценария "что менять, как версионировать, что проверять и как катить rollout" используйте канонический playbook: [AGENT_UPDATE_WORKFLOW.md](AGENT_UPDATE_WORKFLOW.md).
 
 Важно: server-side assigned rollout является source of truth и может указывать как на upgrade, так и на controlled rollback. Для агента это один и тот же self-update flow: если рекомендованная release-версия с сервера отличается от текущей, агент после успешного startup handshake один раз автоматически запрашивает recommended build, GUI показывает action/state для ручного контроля, а launcher после restart применяет запрошенный архив и переключает `current.json` на указанную версию.

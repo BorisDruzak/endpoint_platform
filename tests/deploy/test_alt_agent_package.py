@@ -11,6 +11,9 @@ import pytest
 ROOT = Path(__file__).resolve().parents[2]
 INSTALLER = ROOT / "deploy" / "agent" / "alt" / "install-endpoint-agent.sh"
 SERVICE = ROOT / "deploy" / "agent" / "alt" / "endpoint-agent.service"
+UPDATE_SERVICE = ROOT / "deploy" / "agent" / "alt" / "endpoint-agent-update.service"
+UPDATE_PATH = ROOT / "deploy" / "agent" / "alt" / "endpoint-agent-update.path"
+UPDATE_HELPER = ROOT / "deploy" / "agent" / "alt" / "apply-pending-alt-update.sh"
 CONFIG = ROOT / "deploy" / "agent" / "alt" / "default-config.yaml"
 RUNBOOK = ROOT / "docs" / "runbooks" / "ALT_AGENT_INSTALL.md"
 
@@ -129,6 +132,42 @@ def test_service_runs_as_dedicated_user_with_durable_paths_and_restart() -> None
         "ProtectHome=true",
     ):
         assert required in text
+
+
+def test_root_owned_update_worker_is_limited_to_the_fixed_alt_pending_path() -> None:
+    update_service = _text(UPDATE_SERVICE)
+    update_path = _text(UPDATE_PATH)
+    helper = _text(UPDATE_HELPER)
+
+    for required in (
+        "User=root",
+        "Group=root",
+        "ExecStart=/usr/lib/endpoint-agent/apply-pending-alt-update",
+        "ReadWritePaths=/opt/endpoint-agent /var/lib/endpoint-agent",
+        "NoNewPrivileges=true",
+        "ProtectSystem=strict",
+    ):
+        assert required in update_service
+    assert "PathExists=/var/lib/endpoint-agent/updates/pending_alt_update.json" in update_path
+    assert "Unit=endpoint-agent-update.service" in update_path
+    assert "systemctl stop endpoint-agent.service" in helper
+    assert "systemctl start endpoint-agent.service" in helper
+    assert "--apply-alt-update" in helper
+
+
+def test_installer_installs_and_enables_the_root_owned_update_path() -> None:
+    installer = _text(INSTALLER)
+
+    for required in (
+        "endpoint-agent-update.service",
+        "endpoint-agent-update.path",
+        "apply-pending-alt-update.sh",
+        "readonly UPDATE_HELPER_ROOT=/usr/lib/endpoint-agent",
+        "readonly UPDATE_HELPER_TARGET=\"${UPDATE_HELPER_ROOT}/apply-pending-alt-update\"",
+        "systemctl enable endpoint-agent-update.path",
+        "systemctl start endpoint-agent-update.path",
+    ):
+        assert required in installer
 
 
 def test_permanent_credential_is_runtime_owned_and_finalize_requires_that_contract() -> (

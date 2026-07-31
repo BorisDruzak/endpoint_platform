@@ -36,10 +36,15 @@ responsibilities:
    artifact using the device bearer, and stage a pending update;
 3. request a controlled process exit only after the pending file is durable.
 
-The ALT launcher gets a matching ALT-specific apply path.  It validates the
-bundle manifest before publish, keeps the immutable release layout, preserves
-the selector schema, records `previous` only in launcher history, and rolls
-back to the previous immutable bundle after repeated immediate crashes.
+The ALT launcher gets a matching ALT-specific apply path, but it is never
+invoked by the unprivileged agent service.  A root-owned systemd path unit
+watches the durable pending file and starts a short root-owned worker.  The
+worker stops the agent cleanly, invokes the stable launcher in explicit
+`--apply-alt-update` mode, and always attempts to start the agent again.  The
+launcher validates the bundle manifest before publish, keeps the immutable
+release layout, preserves the selector schema, records `previous` only in
+launcher history, and rolls back to the previous immutable bundle after
+repeated immediate crashes.
 
 ## Safety Rules
 
@@ -52,6 +57,12 @@ back to the previous immutable bundle after repeated immediate crashes.
 - A candidate must have a strictly newer SemVer than the installed selector.
 - The updater verifies size, SHA-256, archive structure, manifest, file modes,
   and source revision before changing the selector.
+- `endpoint-agent.service` stays `endpoint-agent`; it has no write access to
+  `/opt/endpoint-agent`.  Only `endpoint-agent-update.service` runs as root
+  and receives write access to that fixed release root.
+- The update helper always restarts the unprivileged service after a handled
+  failed apply, so a rejected artifact cannot leave the old healthy agent
+  stopped.
 - `scheduled` is not success.  `applied`, `failed`, or `rolled_back` is
   reported only after the launcher has a durable local outcome.
 

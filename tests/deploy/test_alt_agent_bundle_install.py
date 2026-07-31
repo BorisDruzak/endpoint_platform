@@ -18,6 +18,9 @@ import pytest
 ROOT = Path(__file__).resolve().parents[2]
 INSTALLER = ROOT / "deploy" / "agent" / "alt" / "install-endpoint-agent.sh"
 SERVICE = ROOT / "deploy" / "agent" / "alt" / "endpoint-agent.service"
+UPDATE_SERVICE = ROOT / "deploy" / "agent" / "alt" / "endpoint-agent-update.service"
+UPDATE_PATH = ROOT / "deploy" / "agent" / "alt" / "endpoint-agent-update.path"
+UPDATE_HELPER = ROOT / "deploy" / "agent" / "alt" / "apply-pending-alt-update.sh"
 CONFIG = ROOT / "deploy" / "agent" / "alt" / "default-config.yaml"
 LINUX_HARNESS = ROOT / "tests" / "deploy" / "verify_alt_agent_bundle_linux_harness.sh"
 PYTHON = Path(__import__("sys").executable).as_posix()
@@ -324,6 +327,9 @@ def test_linux_harness_declares_and_preflights_its_adjacent_archive_assets() -> 
         "missing required harness asset:",
         "default-config.yaml",
         "endpoint-agent.service",
+        "endpoint-agent-update.service",
+        "endpoint-agent-update.path",
+        "apply-pending-alt-update.sh",
         'source_dir=$(dirname "$source_installer")',
     ):
         assert required in text

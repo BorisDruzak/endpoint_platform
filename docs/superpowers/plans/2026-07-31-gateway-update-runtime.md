@@ -311,3 +311,69 @@ git commit -m "docs: record Gateway update canary result"
 - Spec coverage: Tasks 1 and 3 implement strict Gateway lifecycle; Task 2 resolves the discovered ALT selector and immutable-bundle incompatibility; Task 4 enforces SemVer packaging and documents the service switch; Task 5 provides the required canary, reconnect and rollback proof.
 - Completeness scan: every task defines concrete files, interfaces, tests, commands, and expected outcomes.
 - Type consistency: Task 1 produces `GatewayUpdateRuntime`; Task 2 produces `apply_alt_update`; Task 3 composes exactly those interfaces; Task 4 enables their explicit runtime flag; Task 5 uses the verified release artifacts.
+
+### Task 6: Privileged ALT publication worker
+
+**Files:**
+- Create: `deploy/agent/alt/endpoint-agent-update.service`
+- Create: `deploy/agent/alt/endpoint-agent-update.path`
+- Create: `deploy/agent/alt/apply-pending-alt-update.sh`
+- Modify: `pc_agent/launcher/launcher_main.py`
+- Modify: `deploy/agent/alt/install-endpoint-agent.sh`
+- Modify: `pc_agent/tests/test_alt_launcher_runtime.py`
+- Modify: `tests/deploy/test_alt_agent_package.py`
+- Modify: `docs/runbooks/ALT_AGENT_INSTALL.md`
+- Modify: `PLANS.md`
+
+**Interfaces:**
+- Consumes: `/var/lib/endpoint-agent/updates/pending_alt_update.json`, immutable `/opt/endpoint-agent`, and `apply_alt_update(install_root, data_root, pending_path)`.
+- Produces: `--apply-alt-update` launcher mode plus a root-only systemd path/service pair that publishes a verified release and returns the running agent to its dedicated user.
+
+- [ ] **Step 1: Write failing delegation and package tests**
+
+```python
+def test_alt_agent_defers_pending_publish_to_privileged_worker(...) -> None:
+    assert launcher_main.pending_update_requires_privileged_worker(...) is True
+
+def test_update_worker_is_root_owned_and_restarts_agent_after_apply(...) -> None:
+    assert "User=root" in update_service
+    assert "systemctl start endpoint-agent.service" in worker_script
+```
+
+- [ ] **Step 2: Run the focused tests to verify they fail**
+
+Run: `python -m pytest pc_agent/tests/test_alt_launcher_runtime.py tests/deploy/test_alt_agent_package.py -q`
+
+Expected: FAIL because no worker mode or root-owned units exist.
+
+- [ ] **Step 3: Implement the fixed privilege boundary**
+
+Add `--apply-alt-update` to the stable launcher.  It runs only in ALT mode,
+applies one pending file, records its durable result, and exits without
+starting the agent.  Normal ALT launchers must exit successfully when a
+pending file exists or the agent returns exit `42`; systemd owns the follow-up.
+
+Install a root-owned `endpoint-agent-update.path` that watches the fixed
+pending path.  Its service runs a root-owned fixed-path helper which stops the
+agent, invokes the stable launcher in worker mode, and attempts to start the
+unprivileged agent even if the handled apply fails.  The installer stages,
+validates, installs, daemon-reloads, and enables the path unit together with
+the main service.  It never grants the `endpoint-agent` user write permission
+to `/opt/endpoint-agent`.
+
+- [ ] **Step 4: Run focused tests and package verification**
+
+Run: `python -m pytest pc_agent/tests/test_alt_launcher_runtime.py tests/deploy/test_alt_agent_package.py pc_agent/tests/test_alt_update_installer.py -q`
+
+Run: `bash -n deploy/agent/alt/install-endpoint-agent.sh deploy/agent/alt/apply-pending-alt-update.sh`
+
+Expected: PASS.
+
+- [ ] **Step 5: Rebuild the semantic test baseline and repeat one canary**
+
+Install a verified new baseline only on `test-agent-lin` so its stable launcher
+contains worker mode and its installer has enabled the path unit.  Schedule a
+fresh `3.1.79` canary only for the dedicated test device.  Verify root worker
+application, unprivileged Gateway reconnect, durable `applied`, and a bounded
+context collection.  Record a failed pre-worker canary separately as safe
+failure evidence, not as a successful update.

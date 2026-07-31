@@ -120,3 +120,17 @@ controller serves it at `/agent/v1/updates/artifacts/{build_identifier}` only
 to the device that has an active target for that build.  Verify the lifecycle
 in this order: `requested`, `scheduled`, service restart, then `applied` (or
 `failed`/`rolled_back`).  A `scheduled` acknowledgement alone is not success.
+
+The agent service itself remains the dedicated unprivileged `endpoint-agent`
+account and cannot write `/opt/endpoint-agent`. A root-owned
+`endpoint-agent-update.path` watches only the fixed ALT pending file and starts
+the companion `endpoint-agent-update.service`. That one-shot worker stops the
+agent, validates and publishes the immutable release through the stable
+launcher, and starts the unprivileged service again even after a handled
+artifact failure. Inspect both units during a canary without printing any
+credentials:
+
+```bash
+systemctl status endpoint-agent.service endpoint-agent-update.path endpoint-agent-update.service
+journalctl -u endpoint-agent-update.service -u endpoint-agent.service --since '15 minutes ago'
+```

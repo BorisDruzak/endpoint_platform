@@ -11,8 +11,12 @@ readonly DATA_ROOT=/var/lib/endpoint-agent
 readonly CONFIG_ROOT=/etc/endpoint-agent
 readonly LOG_ROOT=/var/log/endpoint-agent
 readonly SERVICE_NAME=endpoint-agent.service
+readonly UPDATE_SERVICE_NAME=endpoint-agent-update.service
+readonly UPDATE_PATH_NAME=endpoint-agent-update.path
 readonly SERVICE_USER=endpoint-agent
 readonly SERVICE_GROUP=endpoint-agent
+readonly UPDATE_HELPER_ROOT=/usr/lib/endpoint-agent
+readonly UPDATE_HELPER_TARGET="${UPDATE_HELPER_ROOT}/apply-pending-alt-update"
 readonly LAUNCHER_TARGET="${INSTALL_ROOT}/launcher"
 readonly VERSIONS_ROOT="${INSTALL_ROOT}/versions"
 readonly CURRENT_TARGET="${INSTALL_ROOT}/current.json"
@@ -240,6 +244,8 @@ validate_install_destinations() {
     require_trusted_root_parent /var
     require_trusted_root_parent /var/lib
     require_trusted_root_parent /var/log
+    require_trusted_root_parent /usr
+    require_trusted_root_parent /usr/lib
     require_trusted_root_parent /etc/systemd
     require_trusted_root_parent /etc/systemd/system
 
@@ -248,6 +254,7 @@ validate_install_destinations() {
     validate_fixed_directory_or_absent "$CONFIG_ROOT" root 755
     validate_fixed_directory_or_absent "$DATA_ROOT" service 750
     validate_fixed_directory_or_absent "$LOG_ROOT" service 750
+    validate_fixed_directory_or_absent "$UPDATE_HELPER_ROOT" root 755
     validate_fixed_regular_target_or_absent "$LAUNCHER_TARGET" root 755
     validate_fixed_regular_target_or_absent "$CURRENT_TARGET" root 644
     validate_fixed_regular_target_or_absent "$CONFIG_TARGET" root 600
@@ -256,6 +263,9 @@ validate_install_destinations() {
     validate_fixed_regular_target_or_absent "$PERMANENT_CREDENTIAL_TARGET" service 600
     validate_fixed_regular_target_or_absent "$HANDOFF_REQUEST_TARGET" service 600
     validate_fixed_regular_target_or_absent "/etc/systemd/system/$SERVICE_NAME" root 644
+    validate_fixed_regular_target_or_absent "/etc/systemd/system/$UPDATE_SERVICE_NAME" root 644
+    validate_fixed_regular_target_or_absent "/etc/systemd/system/$UPDATE_PATH_NAME" root 644
+    validate_fixed_regular_target_or_absent "$UPDATE_HELPER_TARGET" root 755
 }
 
 require_root_secret_file() {
@@ -678,7 +688,7 @@ publish_release_selection() {
 
 install_atomically() {
     local bundle_stage version_stage version_target launcher_stage current_stage
-    local config_stage ca_stage handoff_stage service_stage
+    local config_stage ca_stage handoff_stage service_stage update_service_stage update_path_stage update_helper_stage
     validate_install_destinations
     release_stage=$(mktemp -d /opt/.endpoint-agent-stage.XXXXXX)
     trap 'rm -rf -- "$release_stage"' RETURN
@@ -689,6 +699,9 @@ install_atomically() {
     ca_stage="$release_stage/ca.crt"
     handoff_stage="$release_stage/provisioning-claim"
     service_stage="$release_stage/$SERVICE_NAME"
+    update_service_stage="$release_stage/$UPDATE_SERVICE_NAME"
+    update_path_stage="$release_stage/$UPDATE_PATH_NAME"
+    update_helper_stage="$release_stage/apply-pending-alt-update"
     launcher_stage="$release_stage/launcher"
     current_stage="$release_stage/current.json"
 
@@ -712,9 +725,12 @@ install_atomically() {
     install -o root -g root -m 0600 "$ca_file" "$ca_stage"
     install -o root -g root -m 0600 "$handoff_file" "$handoff_stage"
     install -o root -g root -m 0644 "$(dirname "$0")/endpoint-agent.service" "$service_stage"
+    install -o root -g root -m 0644 "$(dirname "$0")/$UPDATE_SERVICE_NAME" "$update_service_stage"
+    install -o root -g root -m 0644 "$(dirname "$0")/$UPDATE_PATH_NAME" "$update_path_stage"
+    install -o root -g root -m 0755 "$(dirname "$0")/apply-pending-alt-update.sh" "$update_helper_stage"
     fsync_tree "$release_stage"
 
-    install -d -o root -g root -m 0755 "$INSTALL_ROOT" "$VERSIONS_ROOT" "$CONFIG_ROOT"
+    install -d -o root -g root -m 0755 "$INSTALL_ROOT" "$VERSIONS_ROOT" "$CONFIG_ROOT" "$UPDATE_HELPER_ROOT"
     install -d -o "$SERVICE_USER" -g "$SERVICE_GROUP" -m 0750 "$DATA_ROOT" "$LOG_ROOT"
     validate_install_destinations
     version_target="$VERSIONS_ROOT/$bundle_version"
@@ -732,6 +748,9 @@ install_atomically() {
     mv -f "$ca_stage" "$CA_TARGET"
     mv -f "$handoff_stage" "$HANDOFF_TARGET"
     mv -f "$service_stage" "/etc/systemd/system/$SERVICE_NAME"
+    mv -f "$update_service_stage" "/etc/systemd/system/$UPDATE_SERVICE_NAME"
+    mv -f "$update_path_stage" "/etc/systemd/system/$UPDATE_PATH_NAME"
+    mv -f "$update_helper_stage" "$UPDATE_HELPER_TARGET"
     if ! publish_release_selection "$launcher_stage" "$current_stage"; then
         rollback_release_selection
         cleanup_release_backup
@@ -753,8 +772,9 @@ install_package() {
     ensure_service_account
     install_atomically
     if ! command -v systemctl >/dev/null 2>&1 || ! systemctl daemon-reload || \
-        ! systemctl enable endpoint-agent.service || ! systemctl restart endpoint-agent.service || \
-        ! systemctl is-active --quiet endpoint-agent.service; then
+        ! systemctl enable endpoint-agent-update.path || ! systemctl start endpoint-agent-update.path || \
+        ! systemctl is-active --quiet endpoint-agent-update.path || ! systemctl enable endpoint-agent.service || \
+        ! systemctl restart endpoint-agent.service || ! systemctl is-active --quiet endpoint-agent.service; then
         rollback_release_selection
         cleanup_release_backup
         die 'service did not become active'

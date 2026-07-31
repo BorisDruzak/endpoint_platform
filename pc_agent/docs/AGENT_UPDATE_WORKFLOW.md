@@ -57,6 +57,18 @@ new runtime's post-restart endpoint handshake before considering the canary
 complete. This task neither builds/uploads an artifact nor contacts a remote
 host.
 
+### ALT Linux privilege boundary
+
+The ALT systemd agent runs as `endpoint-agent` and must not receive write
+access to `/opt/endpoint-agent`. A durable
+`updates/pending_alt_update.json` is therefore consumed by the fixed
+root-owned `endpoint-agent-update.path` and
+`endpoint-agent-update.service`, not by the ordinary launcher loop. The
+one-shot worker stops the agent, invokes the stable launcher with
+`--apply-alt-update`, then starts the service again. A handled artifact or
+publish failure is recorded locally and must still return the prior selected
+unprivileged release to service; `scheduled` remains non-terminal.
+
 Канонический workflow для изменений, которые попадают в распространяемый агент: launcher, `ws_agent`, `ui_bridge`, GUI, self-update, release-артефакты и rollout через сервер.
 
 **Дата обновления:** 2026-04-13

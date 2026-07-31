@@ -55,6 +55,11 @@ Helpdesk WebSocket/API is no longer used by the ALT systemd runtime.
    and `docs/superpowers/plans/2026-07-31-gateway-update-runtime.md`.
    The dedicated delivery boundary is `/agent/v1/updates/artifacts/{build_identifier}`:
    only an actively assigned device can retrieve the controller-owned artifact.
+   The first live canary safely reached `requested` and `scheduled`, then
+   failed without selector corruption because the unprivileged service could
+   not write the intentionally root-owned immutable release root. The fix is
+   the committed root-owned systemd update worker; rebuild the test baseline
+   with that worker before retrying a new canary. Disk resize remains cancelled.
 2. Validate Gateway reconnect and a repeated baseline collection after the
    update/rollback exercise.
 3. Begin the separate Wave 1 `web_ovpn` integration only in its dedicated

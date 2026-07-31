@@ -43,6 +43,14 @@
   update path.  `pc_agent/alt_update_installer.py` validates the immutable
   `launcher`/`pc_agent` bundle and preserves the ALT selector schema during
   apply or rollback.
+- `pc_agent/launcher/launcher_main.py` never lets the `endpoint-agent`
+  service publish an ALT release. In ALT mode it exits cleanly when a durable
+  pending record exists or the Gateway requests exit `42`. The fixed
+  root-owned `endpoint-agent-update.path` starts
+  `endpoint-agent-update.service`, whose companion helper invokes the stable
+  launcher with `--apply-alt-update`, then returns execution to the
+  unprivileged service. Packaging for those units and the helper is owned by
+  `deploy/agent/alt/`; see `docs/runbooks/ALT_AGENT_INSTALL.md`.
 
 ## Device Context map (2026-07-29)
 

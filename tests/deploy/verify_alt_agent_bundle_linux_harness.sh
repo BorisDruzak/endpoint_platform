@@ -4,12 +4,14 @@
 set -euo pipefail
 IFS=$'\n\t'
 
-source_installer=${1:?usage: verify_alt_agent_bundle_linux_harness.sh INSTALLER_PATH (with adjacent default-config.yaml and endpoint-agent.service)}
+source_installer=${1:?usage: verify_alt_agent_bundle_linux_harness.sh INSTALLER_PATH (with adjacent ALT package assets)}
 source_dir=$(dirname "$source_installer")
 
 validate_harness_inputs() {
     local asset label
-    for asset in "$source_installer" "$source_dir/default-config.yaml" "$source_dir/endpoint-agent.service"; do
+    for asset in "$source_installer" "$source_dir/default-config.yaml" "$source_dir/endpoint-agent.service" \
+        "$source_dir/endpoint-agent-update.service" "$source_dir/endpoint-agent-update.path" \
+        "$source_dir/apply-pending-alt-update.sh"; do
         label=$(basename "$asset")
         [[ -f "$asset" && ! -L "$asset" ]] || {
             printf 'ALT bundle Linux harness: missing required harness asset: %s\n' "$label" >&2
@@ -50,6 +52,9 @@ paths = (
     "/etc/endpoint-agent",
     "/var/log/endpoint-agent",
     "/etc/systemd/system/endpoint-agent.service",
+    "/etc/systemd/system/endpoint-agent-update.service",
+    "/etc/systemd/system/endpoint-agent-update.path",
+    "/usr/lib/endpoint-agent",
 )
 digest = hashlib.sha256()
 for path in paths:
@@ -75,7 +80,7 @@ import re
 import sys
 
 text = Path(sys.argv[1]).read_text(encoding="utf-8")
-path = r"(?:/opt/(?:endpoint-agent|\.endpoint-agent-stage)(?:\.[A-Za-z0-9_-]+)?|/var/lib/endpoint-agent|/etc/endpoint-agent|/var/log/endpoint-agent|/etc/systemd/system(?:/\$SERVICE_NAME|/endpoint-agent\.service)?|/etc/login\.defs)"
+path = r"(?:/opt/(?:endpoint-agent|\.endpoint-agent-stage)(?:\.[A-Za-z0-9_-]+)?|/var/lib/endpoint-agent|/etc/endpoint-agent|/var/log/endpoint-agent|/usr/lib/endpoint-agent|/etc/systemd/system(?:/\$(?:SERVICE_NAME|UPDATE_SERVICE_NAME|UPDATE_PATH_NAME)|/endpoint-agent(?:-update)?\.(?:service|path))?|/etc/login\.defs)"
 pattern = re.compile(r"(?<![A-Za-z0-9_./-])" + path + r"(?![A-Za-z0-9_.-])")
 raise SystemExit(0 if pattern.search(text) else 1)
 PY
@@ -88,15 +93,20 @@ assert_isolated_installer_copy() {
         'readonly DATA_ROOT=/var/lib/endpoint-agent' \
         'readonly CONFIG_ROOT=/etc/endpoint-agent' \
         'readonly LOG_ROOT=/var/log/endpoint-agent' \
+        'readonly UPDATE_HELPER_ROOT=/usr/lib/endpoint-agent' \
         'mktemp -d /opt/.endpoint-agent-stage' \
         'require_trusted_root_parent /opt' \
         'require_trusted_root_parent /etc' \
         'require_trusted_root_parent /var' \
         'require_trusted_root_parent /var/lib' \
         'require_trusted_root_parent /var/log' \
+        'require_trusted_root_parent /usr' \
+        'require_trusted_root_parent /usr/lib' \
         'require_trusted_root_parent /etc/systemd' \
         'require_trusted_root_parent /etc/systemd/system' \
-        '"/etc/systemd/system/$SERVICE_NAME"'; do
+        '"/etc/systemd/system/$SERVICE_NAME"' \
+        '"/etc/systemd/system/$UPDATE_SERVICE_NAME"' \
+        '"/etc/systemd/system/$UPDATE_PATH_NAME"'; do
         ! grep -F -- "$prohibited" "$copy" >/dev/null || return 1
     done
     ! contains_live_root_path "$copy" || return 1
@@ -105,21 +115,28 @@ assert_isolated_installer_copy() {
 make_installer_copy() {
     local root=$1
     mkdir -p "$root/installer-dir"
-    cp -- "$source_dir/default-config.yaml" "$source_dir/endpoint-agent.service" "$root/installer-dir/"
+    cp -- "$source_dir/default-config.yaml" "$source_dir/endpoint-agent.service" \
+        "$source_dir/endpoint-agent-update.service" "$source_dir/endpoint-agent-update.path" \
+        "$source_dir/apply-pending-alt-update.sh" "$root/installer-dir/"
     sed \
         -e "s|/opt/\\.endpoint-agent-stage|$root/opt/.endpoint-agent-stage|g" \
         -e "s|/opt/endpoint-agent|$root/opt/endpoint-agent|g" \
         -e "s|/var/lib/endpoint-agent|$root/var/lib/endpoint-agent|g" \
         -e "s|/etc/endpoint-agent|$root/etc/endpoint-agent|g" \
         -e "s|/var/log/endpoint-agent|$root/var/log/endpoint-agent|g" \
+        -e "s|/usr/lib/endpoint-agent|$root/usr/lib/endpoint-agent|g" \
         -e "s|require_trusted_root_parent /etc/systemd/system|require_trusted_root_parent $root/etc/systemd/system|g" \
         -e "s|require_trusted_root_parent /etc/systemd|require_trusted_root_parent $root/etc/systemd|g" \
         -e "s|require_trusted_root_parent /var/lib|require_trusted_root_parent $root/var/lib|g" \
         -e "s|require_trusted_root_parent /var/log|require_trusted_root_parent $root/var/log|g" \
+        -e "s|^    require_trusted_root_parent /usr/lib$|    require_trusted_root_parent $root/usr/lib|" \
+        -e "s|^    require_trusted_root_parent /usr$|    require_trusted_root_parent $root/usr|" \
         -e "s|require_trusted_root_parent /opt|require_trusted_root_parent $root/opt|g" \
         -e "s|require_trusted_root_parent /etc|require_trusted_root_parent $root/etc|g" \
         -e "s|require_trusted_root_parent /var|require_trusted_root_parent $root/var|g" \
         -e "s|/etc/systemd/system/\\\$SERVICE_NAME|$root/etc/systemd/system/\\\$SERVICE_NAME|g" \
+        -e "s|/etc/systemd/system/\\\$UPDATE_SERVICE_NAME|$root/etc/systemd/system/\\\$UPDATE_SERVICE_NAME|g" \
+        -e "s|/etc/systemd/system/\\\$UPDATE_PATH_NAME|$root/etc/systemd/system/\\\$UPDATE_PATH_NAME|g" \
         -e "s|/etc/login.defs|$root/etc/login.defs|g" \
         -e "s|-o \\\"\\\$SERVICE_USER\\\" -g \\\"\\\$SERVICE_GROUP\\\"|-o $SERVICE_UID -g $SERVICE_GID|g" \
         "$source_installer" > "$root/installer-dir/install-endpoint-agent.sh"
@@ -128,10 +145,10 @@ make_installer_copy() {
 
 setup_root() {
     local root=$1
-    mkdir -p "$root"/{opt,etc,etc/systemd/system,var,var/lib,var/log,bin,input}
-    chown -R root:root "$root/opt" "$root/etc" "$root/var"
+    mkdir -p "$root"/{opt,etc,etc/systemd/system,var,var/lib,var/log,usr,usr/lib,bin,input}
+    chown -R root:root "$root/opt" "$root/etc" "$root/var" "$root/usr"
     chmod 755 "$root/opt" "$root/etc" "$root/etc/systemd" "$root/etc/systemd/system" \
-        "$root/var" "$root/var/lib" "$root/var/log"
+        "$root/var" "$root/var/lib" "$root/var/log" "$root/usr" "$root/usr/lib"
     printf 'SYS_UID_MAX 65535\n' > "$root/etc/login.defs"
     cat > "$root/bin/getent" <<EOF
 #!/usr/bin/env bash

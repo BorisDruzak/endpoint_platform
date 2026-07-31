@@ -1,0 +1,9 @@
+[Unit]
+Description=Watch for Endpoint Platform ALT update requests
+
+[Path]
+PathExists=/var/lib/endpoint-agent/updates/pending_alt_update.json
+Unit=endpoint-agent-update.service
+
+[Install]
+WantedBy=multi-user.target
