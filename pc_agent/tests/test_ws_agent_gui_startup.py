@@ -8,6 +8,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import pc_agent.ws_agent as ws_agent_module
+from pc_agent.enrollment_bootstrap import EnrollmentOutcome
 
 
 def test_gui_import_failure_exits_without_headless_fallback(monkeypatch, tmp_path):
@@ -48,3 +49,38 @@ def test_gui_import_failure_exits_without_headless_fallback(monkeypatch, tmp_pat
 
     assert exc_info.value.code == 1
     assert main_async_calls == []
+
+
+def test_systemd_enrollment_gate_stops_runtime_on_terminal_bootstrap_result(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def _denied(**_kwargs):
+        return EnrollmentOutcome("denied", None)
+
+    monkeypatch.setattr(
+        ws_agent_module,
+        "systemd_runtime_paths",
+        lambda: (Path("config"), Path("ca"), Path("claim")),
+    )
+    monkeypatch.setattr(ws_agent_module, "run_linux_enrollment_gate", _denied)
+
+    with pytest.raises(SystemExit) as exc_info:
+        ws_agent_module._run_linux_systemd_enrollment_gate()
+
+    assert exc_info.value.code == 75
+
+
+def test_systemd_enrollment_gate_allows_persisted_credential_state(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def _already_enrolled(**_kwargs):
+        return EnrollmentOutcome("already_enrolled", "device-1")
+
+    monkeypatch.setattr(
+        ws_agent_module,
+        "systemd_runtime_paths",
+        lambda: (Path("config"), Path("ca"), Path("claim")),
+    )
+    monkeypatch.setattr(ws_agent_module, "run_linux_enrollment_gate", _already_enrolled)
+
+    ws_agent_module._run_linux_systemd_enrollment_gate()

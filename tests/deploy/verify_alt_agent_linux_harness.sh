@@ -139,7 +139,7 @@ run_binary_case() {
         *) echo "unknown binary scenario: $scenario" >&2; return 2 ;;
     esac
     set +e
-    PATH="$root/bin:$PATH" bash "$root/installer" --endpoint https://endpoint.sosnadmin.local \
+    PATH="$root/bin:$PATH" bash "$root/installer" --endpoint https://endpoint.sosnadmin.local --installation-id alt-test-agent-001 \
         --ca-file "$root/input/ca.crt" --handoff-file "$root/input/handoff" \
         --agent-binary "$root/input/agent" >"$root/output" 2>&1
     status=$?

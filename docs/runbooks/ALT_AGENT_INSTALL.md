@@ -14,6 +14,10 @@ Prepare four local inputs on the ALT machine as `root`:
 - a root-owned, mode `0600` one-time provisioning handoff file; and
 - the installer package directory from this repository.
 
+Choose a bounded `installation_id` for the pilot before installation. It is a
+non-secret, one-to-one operator label (1–128 printable ASCII characters with
+no surrounding whitespace) that binds the issued claim to this installation.
+
 The handoff contains an enrollment claim/campaign token only for its one-time
 exchange. It must never be included in an image, command line, journal field,
 Git commit, or regular configuration file. The permanent credential is written
@@ -32,6 +36,7 @@ Validate the local inputs without writing files or starting a service:
 ```bash
 sudo bash deploy/agent/alt/install-endpoint-agent.sh \
   --endpoint https://endpoint.sosnadmin.local \
+  --installation-id alt-test-agent-001 \
   --ca-file /root/input/sosnadmin-local-ca.crt \
   --handoff-file /root/input/endpoint-agent-one-time-claim \
   --agent-bundle /root/input/endpoint-agent-3.2.1 \
@@ -59,6 +64,7 @@ version directory intact.
 ```bash
 sudo bash deploy/agent/alt/install-endpoint-agent.sh \
   --endpoint https://endpoint.sosnadmin.local \
+  --installation-id alt-test-agent-001 \
   --ca-file /root/input/sosnadmin-local-ca.crt \
   --handoff-file /root/input/endpoint-agent-one-time-claim \
   --agent-bundle /root/input/endpoint-agent-3.2.1
@@ -74,9 +80,10 @@ credential directory to the dedicated service user; their persistent source
 files stay unreadable to that account. The supplied ALT agent artifact must
 consume the `ENDPOINT_AGENT_CONFIG`, `ENDPOINT_AGENT_CA_FILE`, and
 `ENDPOINT_AGENT_PROVISIONING_HANDOFF_FILE` paths; the latter is the fixed
-`endpoint-enrollment-claim` credential. Task 16 supplies the
-one-time enrollment implementation; this package deliberately does not invent
-or emulate a permanent credential.
+`endpoint-enrollment-claim` credential. The runtime validates the fixed
+`https://endpoint.sosnadmin.local` HTTPS origin, derives the hardware proof,
+and exchanges the one-time handoff before normal agent startup. This package
+does not invent or emulate a permanent credential.
 
 ## One-time handoff completion
 

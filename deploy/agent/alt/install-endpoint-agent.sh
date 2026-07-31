@@ -25,6 +25,7 @@ readonly CLAIM_CREDENTIAL_NAME=endpoint-enrollment-claim
 readonly HANDOFF_REQUEST_SCHEMA_VERSION=endpoint_claim_removal_request_v1
 
 endpoint=''
+installation_id=''
 ca_file=''
 handoff_file=''
 agent_bundle=''
@@ -50,7 +51,7 @@ die() {
 usage() {
     cat <<'USAGE'
 Usage:
-  install-endpoint-agent.sh --endpoint https://endpoint.example --ca-file FILE \
+  install-endpoint-agent.sh --endpoint https://endpoint.example --installation-id ID --ca-file FILE \
     --handoff-file FILE --agent-bundle DIRECTORY [--dry-run]
   install-endpoint-agent.sh --inspect-layout
   install-endpoint-agent.sh --finalize-handoff
@@ -71,6 +72,22 @@ require_root() {
 require_https_endpoint() {
     [[ "$endpoint" =~ ^https://[^/[:space:]]+(/[^[:space:]]*)?$ ]] || \
         die 'endpoint must be an explicit HTTPS URL'
+}
+
+require_installation_id() {
+    python3 - "$installation_id" <<'PY' || die 'installation ID must be 1-128 printable ASCII characters without surrounding whitespace'
+import sys
+
+value = sys.argv[1]
+valid = (
+    bool(value)
+    and value == value.strip()
+    and value.isascii()
+    and len(value) <= 128
+    and all(32 <= ord(character) <= 126 for character in value)
+)
+raise SystemExit(0 if valid else 1)
+PY
 }
 
 require_regular_file() {
@@ -471,6 +488,7 @@ PY
 
 validate_inputs() {
     require_https_endpoint
+    require_installation_id
     validate_ca
     require_root_secret_file 'one-time provisioning handoff' "$handoff_file"
 }
@@ -490,8 +508,8 @@ ensure_service_account() {
 
 render_config() {
     local destination=$1
-    awk -v endpoint_value="$endpoint" '
-        { gsub(/__ENDPOINT_URL__/, endpoint_value); print }
+    awk -v endpoint_value="$endpoint" -v installation_value="$installation_id" '
+        { gsub(/__ENDPOINT_URL__/, endpoint_value); gsub(/__INSTALLATION_ID__/, installation_value); print }
     ' "$(dirname "$0")/default-config.yaml" > "$destination"
 }
 
@@ -771,6 +789,7 @@ finalize_handoff() {
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --endpoint) endpoint=${2:-}; shift 2 ;;
+        --installation-id) installation_id=${2:-}; shift 2 ;;
         --ca-file) ca_file=${2:-}; shift 2 ;;
         --handoff-file) handoff_file=${2:-}; shift 2 ;;
         --agent-bundle) agent_bundle=${2:-}; shift 2 ;;
@@ -783,19 +802,19 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [[ "$inspect_layout" == true ]]; then
-    [[ "$finalize_handoff" == false && -z "$endpoint$ca_file$handoff_file$agent_bundle" ]] || \
+    [[ "$finalize_handoff" == false && -z "$endpoint$installation_id$ca_file$handoff_file$agent_bundle" ]] || \
         die '--inspect-layout cannot be combined with installation options'
     print_layout
     exit 0
 fi
 if [[ "$finalize_handoff" == true ]]; then
-    [[ -z "$endpoint$ca_file$handoff_file$agent_bundle" && "$dry_run" == false ]] || \
+    [[ -z "$endpoint$installation_id$ca_file$handoff_file$agent_bundle" && "$dry_run" == false ]] || \
         die '--finalize-handoff cannot be combined with installation options'
     finalize_handoff
     exit 0
 fi
-[[ -n "$endpoint" && -n "$ca_file" && -n "$handoff_file" && -n "$agent_bundle" ]] || {
+[[ -n "$endpoint" && -n "$installation_id" && -n "$ca_file" && -n "$handoff_file" && -n "$agent_bundle" ]] || {
     usage >&2
-    die 'endpoint, CA, handoff file and local agent bundle are required'
+    die 'endpoint, installation ID, CA, handoff file and local agent bundle are required'
 }
 install_package
