@@ -8,6 +8,7 @@ import json
 import tarfile
 from pathlib import Path
 
+from pc_agent import alt_update_installer
 from pc_agent.alt_update_installer import apply_alt_update
 
 
@@ -95,13 +96,22 @@ def _initial_selector(install_root: Path) -> None:
 
 
 def test_valid_alt_update_preserves_selector_schema_and_prior_release(
-    tmp_path: Path,
+    tmp_path: Path, monkeypatch
 ) -> None:
     install_root, data_root = tmp_path / "install", tmp_path / "data"
     _initial_selector(install_root)
     artifact = data_root / "updates" / "downloads" / "candidate.tar.gz"
     artifact.parent.mkdir(parents=True)
     _write_bundle(artifact)
+
+    chmod_calls: list[tuple[Path, int]] = []
+    original_chmod = alt_update_installer.os.chmod
+
+    def capture_chmod(path: str | Path, mode: int) -> None:
+        chmod_calls.append((Path(path), mode))
+        original_chmod(path, mode)
+
+    monkeypatch.setattr(alt_update_installer.os, "chmod", capture_chmod)
 
     ok, version = apply_alt_update(install_root, data_root, _pending(data_root, artifact))
 
@@ -123,6 +133,8 @@ def test_valid_alt_update_preserves_selector_schema_and_prior_release(
             "version": "3.1.77-rc.1",
         }
     ]
+    assert (install_root / "versions" / "3.1.77-rc.1", 0o755) in chmod_calls
+    assert (install_root / "versions" / "3.1.77-rc.1" / "pc_agent", 0o755) in chmod_calls
 
 
 def test_manifest_hash_mismatch_leaves_active_alt_selector_unchanged(

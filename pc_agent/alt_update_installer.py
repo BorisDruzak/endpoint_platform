@@ -59,6 +59,7 @@ def apply_alt_update(
             raise ValueError("target ALT release already exists")
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.move(str(staging), str(target))
+        _make_release_directories_traversable(target)
         _write_selector(install_root / "current.json", manifest)
         _append_history(
             data_root,
@@ -284,6 +285,12 @@ def _write_selector(path: Path, manifest: _Manifest) -> None:
     )
     os.chmod(temporary, 0o644)
     temporary.replace(path)
+
+
+def _make_release_directories_traversable(release_root: Path) -> None:
+    """ALT code runs as the service account while release trees stay root-owned."""
+    for directory, _, _ in os.walk(release_root):
+        os.chmod(directory, 0o755)
 
 
 def _append_history(data_root: Path, entry: dict[str, object]) -> None:
