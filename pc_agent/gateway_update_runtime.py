@@ -218,14 +218,14 @@ def _startup_outcome(
                     rollback_version,
                     "launcher_rolled_back",
                 )
+    operation_id = _latest_operation(history, version=current_version, success=True)
+    if operation_id is not None:
+        return operation_id, "applied", current_version, "post_restart_handshake_confirmed"
     failed = _latest_failure(history)
     if failed is not None:
         operation_id, version = failed
         return operation_id, "failed", version, "launcher_apply_failed"
-    operation_id = _latest_operation(history, version=current_version, success=True)
-    if operation_id is None:
-        return None
-    return operation_id, "applied", current_version, "post_restart_handshake_confirmed"
+    return None
 
 
 def _latest_operation(

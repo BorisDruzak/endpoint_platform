@@ -173,6 +173,47 @@ async def test_startup_reports_applied_only_after_retrying_durable_scheduled_ack
 
 
 @pytest.mark.asyncio
+async def test_startup_prefers_current_success_over_an_older_failed_operation(
+    tmp_path: Path,
+) -> None:
+    adapter = _RecommendationAdapter(RecommendationResult("endpoint", None, False, None))
+    updates = tmp_path / "updates"
+    updates.mkdir()
+    older_operation = "33333333-3333-4333-8333-333333333333"
+    (updates / "update_history.json").write_text(
+        json.dumps(
+            [
+                {
+                    "operation_id": older_operation,
+                    "success": False,
+                    "version": "3.1.78",
+                },
+                {
+                    "operation_id": _OPERATION_ID,
+                    "previous_version": "3.1.78",
+                    "success": True,
+                    "version": "3.1.79",
+                },
+            ]
+        ),
+        encoding="utf-8",
+    )
+    runtime = GatewayUpdateRuntime(
+        adapter=adapter,
+        data_root=tmp_path,
+        current_version="3.1.79",
+        download=lambda *_: pytest.fail("startup reporting must not download"),
+    )
+
+    assert await runtime.report_startup_outcome() is True
+
+    assert adapter.acknowledgements == [
+        (_OPERATION_ID, "scheduled_retry"),
+        (_OPERATION_ID, "applied:3.1.79:post_restart_handshake_confirmed"),
+    ]
+
+
+@pytest.mark.asyncio
 async def test_startup_reports_rolled_back_release_from_launcher_marker(
     tmp_path: Path,
 ) -> None:

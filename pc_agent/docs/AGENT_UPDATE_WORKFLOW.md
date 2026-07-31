@@ -67,7 +67,9 @@ root-owned `endpoint-agent-update.path` and
 one-shot worker stops the agent, invokes the stable launcher with
 `--apply-alt-update`, then starts the service again. A handled artifact or
 publish failure is recorded locally and must still return the prior selected
-unprivileged release to service; `scheduled` remains non-terminal.
+unprivileged release to service; `scheduled` remains non-terminal. On restart,
+the reporter resolves a successful current version before any older failed
+history entry, so a stale terminal record cannot mask a newer applied canary.
 
 Канонический workflow для изменений, которые попадают в распространяемый агент: launcher, `ws_agent`, `ui_bridge`, GUI, self-update, release-артефакты и rollout через сервер.
 
