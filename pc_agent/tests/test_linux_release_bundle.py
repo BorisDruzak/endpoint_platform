@@ -180,3 +180,22 @@ def test_cli_assembles_a_fixture_source_without_running_pyinstaller(tmp_path: Pa
 
     assert result == 0
     assert capsys.readouterr().out.strip() == str(tmp_path / "output" / "endpoint-agent-3.2.1")
+
+
+def test_cli_requires_explicit_legacy_opt_in_for_historic_pyinstaller_build(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A new RPM build must not accidentally select the legacy GUI bundle route."""
+    with pytest.raises(SystemExit) as error:
+        main(
+            [
+                "--build",
+                "--version",
+                "3.2.1",
+                "--output",
+                str(tmp_path / "output"),
+            ]
+        )
+
+    assert error.value.code == 2
+    assert "--legacy-helpdesk-gui" in capsys.readouterr().err

@@ -17,6 +17,7 @@ _excluded_optional_runtime = [
     "pylibsrtp",
     "mss",
     "PIL",
+    "Pillow",
     "pynput",
     "imageio_ffmpeg",
     "pc_agent.ui_gui",

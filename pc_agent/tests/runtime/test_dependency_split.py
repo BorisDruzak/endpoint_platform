@@ -35,6 +35,42 @@ FORBIDDEN_CORE_DISTRIBUTIONS = {
     "pynput",
     "imageio-ffmpeg",
 }
+FORBIDDEN_SPEC_IMPORTS = {
+    "PySide6",
+    "qasync",
+    "aiortc",
+    "aioice",
+    "av",
+    "pylibsrtp",
+    "mss",
+    "PIL",
+    "Pillow",
+    "pynput",
+    "imageio_ffmpeg",
+    "pc_agent.ui_gui",
+    "pc_agent.ui_bridge",
+    "pc_agent.remote_assist",
+    "pc_agent.ws_agent",
+}
+FORBIDDEN_ARTIFACT_COMPONENTS = frozenset(
+    {
+        "pyside6",
+        "qasync",
+        "aiortc",
+        "aioice",
+        "av",
+        "pylibsrtp",
+        "mss",
+        "pil",
+        "pillow",
+        "pynput",
+        "imageio_ffmpeg",
+        "ui_gui",
+        "ui_bridge",
+        "remote_assist",
+        "ws_agent",
+    }
+)
 
 
 def _locked_requirements(path: Path) -> dict[str, str]:
@@ -95,6 +131,41 @@ def test_headless_entrypoint_can_run_as_the_pyinstaller_script() -> None:
     assert "Endpoint Agent headless runtime" in result.stdout
 
 
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows PyInstaller artifact check")
+def test_windows_core_artifact_excludes_all_optional_runtime_packages(
+    tmp_path: Path,
+) -> None:
+    """A packaged Windows core artifact must not regain optional runtime files."""
+    dist_path = tmp_path / "dist"
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "PyInstaller",
+            "--noconfirm",
+            "--distpath",
+            str(dist_path),
+            "--workpath",
+            str(tmp_path / "build"),
+            str(PROJECT_ROOT / "pc_agent" / "pyinstaller_endpoint_core_windows.spec"),
+        ],
+        cwd=PROJECT_ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+    artifact_root = dist_path / "endpoint_agent_core"
+    assert artifact_root.is_dir()
+    components = {
+        component.lower()
+        for path in artifact_root.rglob("*")
+        for component in path.relative_to(artifact_root).parts
+    }
+    assert not FORBIDDEN_ARTIFACT_COMPONENTS.intersection(components)
+
+
 @pytest.mark.parametrize("platform", ("linux", "windows"))
 def test_core_specs_build_only_the_headless_runtime(platform: str) -> None:
     """Changing a core package back to a GUI or legacy entrypoint is a bug."""
@@ -106,19 +177,5 @@ def test_core_specs_build_only_the_headless_runtime(platform: str) -> None:
         str(PROJECT_ROOT / "pc_agent" / "runtime" / "main.py")
     ]
     assert captured["datas"] == []
-    assert not {
-        "PySide6",
-        "qasync",
-        "pc_agent.ui_gui",
-        "pc_agent.ui_bridge",
-        "pc_agent.remote_assist",
-        "pc_agent.ws_agent",
-    }.intersection(captured["hiddenimports"])
-    assert {
-        "PySide6",
-        "qasync",
-        "pc_agent.ui_gui",
-        "pc_agent.ui_bridge",
-        "pc_agent.remote_assist",
-        "pc_agent.ws_agent",
-    }.issubset(captured["excludes"])
+    assert not FORBIDDEN_SPEC_IMPORTS.intersection(captured["hiddenimports"])
+    assert FORBIDDEN_SPEC_IMPORTS.issubset(captured["excludes"])

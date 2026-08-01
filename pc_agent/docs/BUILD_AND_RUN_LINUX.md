@@ -6,8 +6,13 @@
 
 Требуется Python 3.12 и PyInstaller в venv агента:
 
+> **Historic Helpdesk/GUI only.** The following launcher and agent build is
+> not a supported path for a new Endpoint core RPM; use the headless-core
+> package instructions at the end of this document instead.
+
 ```bash
 cd /var/chat_bot/pc_client
+# HISTORIC HELPDESK/GUI ONLY: do not use the following specs for new RPM/core packages.
 ./pc_agent/venv/bin/pip install pyinstaller   # если ещё не установлен
 ./pc_agent/venv/bin/pyinstaller pc_agent/pyinstaller_launcher_linux.spec --noconfirm
 ./pc_agent/venv/bin/pyinstaller pc_agent/pyinstaller_agent_linux.spec --noconfirm
@@ -129,17 +134,18 @@ Launcher читает `current.json`, запускает `versions/<version>/pc_
 - **Лаунчер и --gui:** Linux-лаунчер по умолчанию передаёт агенту `--gui`. Если окно не появляется, проверьте логи агента (в data_root или консоль при прямом запуске `pc_agent --gui`).
 Security update 2026-05-23: unauthenticated `POST /api/login` is no longer an agent provisioning path. For new installs use the connection-request flow, or have an authenticated admin issue a manual token through the server UI/API. Manual connection-request polling requires the server-returned `request_id` and `poll_secret`.
 
-## Offline release bundle for ALT Linux
+## Historic Helpdesk/GUI offline release bundle for ALT Linux
 
-Build release bundles only on Linux with the same Python 3.12 environment
-used for PyInstaller. The builder's explicit `--build` mode runs the existing
-`pyinstaller_launcher_linux.spec` and `pyinstaller_agent_linux.spec`, then
-assembles their `dist/` output:
+This section is retained only to reproduce historic Helpdesk/GUI artifacts.
+It is not a route for a new Endpoint core RPM. Build these historic release
+bundles only on Linux with the same Python 3.12 environment used for
+PyInstaller. The builder requires an explicit legacy acknowledgement before it
+runs `pyinstaller_launcher_linux.spec` and `pyinstaller_agent_linux.spec`:
 
 ```bash
 cd /var/chat_bot/pc_client
 ./pc_agent/venv/bin/python -m pc_agent.build_linux_release_bundle \
-  --build --version 3.2.1 --output /tmp/endpoint-agent-releases
+  --build --legacy-helpdesk-gui --version 3.2.1 --output /tmp/endpoint-agent-releases
 ```
 
 The result is the transient directory
