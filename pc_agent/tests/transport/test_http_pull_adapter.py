@@ -4,15 +4,21 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+import ssl
 from uuid import UUID
 
+import aiohttp
 import pytest
+from aiohttp.client_reqrep import ConnectionKey
 
 from endpoint_contracts import AgentCommandAckV1, AgentHelloV1, AgentResultV1
 from pc_agent.transport.http_pull import (
+    ClassifiedGatewayTransport,
+    GatewayCredentialRejected,
     GatewayNoCommandAvailable,
     HttpPullGatewayTransport,
 )
+from pc_agent.transport.base import GatewayRetryableError, GatewayTerminalError
 
 
 _DEVICE_ID = UUID("00000000-0000-4000-8000-000000000411")
@@ -91,6 +97,67 @@ class _Session:
         return self._responses.pop(0)
 
 
+class _FailingGatewayTransport:
+    def __init__(self, error: BaseException) -> None:
+        self._error = error
+
+    async def connect(self, _hello: AgentHelloV1) -> object:
+        raise self._error
+
+    async def receive(self) -> object:
+        raise AssertionError("connect failure must stop the attempt")
+
+    async def send_ack(self, _ack) -> None:
+        raise AssertionError("connect failure must stop the attempt")
+
+    async def send_result(self, _result) -> None:
+        raise AssertionError("connect failure must stop the attempt")
+
+    async def send_heartbeat(self, _heartbeat) -> None:
+        raise AssertionError("connect failure must stop the attempt")
+
+    async def close(self) -> None:
+        return None
+
+
+def _tls_connection_key() -> ConnectionKey:
+    return ConnectionKey(
+        host="endpoint.sosnadmin.local",
+        port=443,
+        is_ssl=True,
+        ssl=True,
+        proxy=None,
+        proxy_auth=None,
+        proxy_headers_hash=None,
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("error", "expected_error"),
+    [
+        (aiohttp.ClientConnectionError("offline"), GatewayRetryableError),
+        (
+            aiohttp.ClientConnectorSSLError(
+                _tls_connection_key(), ssl.SSLError("TLS failure")
+            ),
+            GatewayTerminalError,
+        ),
+        (aiohttp.ClientResponseError(None, (), status=500), GatewayRetryableError),
+        (aiohttp.ClientResponseError(None, (), status=404), GatewayTerminalError),
+        (GatewayCredentialRejected("denied"), GatewayCredentialRejected),
+    ],
+)
+async def test_classified_transport_maps_http_failures_to_neutral_runtime_errors(
+    error: BaseException, expected_error: type[BaseException]
+) -> None:
+    """The runtime must not know aiohttp's retry and TLS exception hierarchy."""
+    transport = ClassifiedGatewayTransport(_FailingGatewayTransport(error))
+
+    with pytest.raises(expected_error):
+        await transport.connect(_hello())
+
+
 @pytest.mark.asyncio
 async def test_http_pull_adapter_preserves_accepted_command_ack_and_result_routes(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
@@ -147,6 +214,10 @@ async def test_http_pull_adapter_preserves_accepted_command_ack_and_result_route
         "headers": {"Authorization": "Bearer device-token"},
         "ssl": tls_context,
     }
+    assert session.requests[1][2]["headers"] == {"Authorization": "Bearer device-token"}
+    assert session.requests[1][2]["ssl"] is tls_context
+    assert session.requests[2][2]["headers"] == {"Authorization": "Bearer device-token"}
+    assert session.requests[2][2]["ssl"] is tls_context
 
 
 @pytest.mark.asyncio

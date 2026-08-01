@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import inspect
 import ssl
 from collections.abc import Awaitable, Callable
@@ -14,6 +15,13 @@ import aiohttp
 
 from endpoint_contracts.gateway_ws import CommandEnvelopeV1, GatewayCommandV1
 
+from .base import (
+    GatewayCredentialRejected,
+    GatewayIdle,
+    GatewayRetryableError,
+    GatewayTerminalError,
+    GatewayTransport,
+)
 from .protocol import (
     AgentCommandAckV1,
     AgentHeartbeatV1,
@@ -27,10 +35,6 @@ from .protocol import (
 DEFAULT_ENDPOINT_ORIGIN = "https://endpoint.sosnadmin.local"
 DEFAULT_HTTP_PULL_HEARTBEAT_INTERVAL_SECONDS = 30
 DEFAULT_GATEWAY_MAXIMUM_MESSAGE_BYTES = 1024 * 1024
-
-
-class GatewayCredentialRejected(RuntimeError):
-    """The controller rejected a durable credential; do not retry in-process."""
 
 
 class GatewayNoCommandAvailable(RuntimeError):
@@ -173,3 +177,57 @@ class HttpPullGatewayTransport:
 
     def _headers(self) -> dict[str, str]:
         return {"Authorization": f"Bearer {self._credential}"}
+
+
+class ClassifiedGatewayTransport:
+    """Translate an HTTP adapter's library failures at the transport boundary."""
+
+    def __init__(self, transport: GatewayTransport) -> None:
+        self._transport = transport
+
+    async def connect(self, hello: AgentHelloV1) -> GatewayHelloV1:
+        return await self._call(lambda: self._transport.connect(hello))
+
+    async def receive(self) -> GatewayInboundV1:
+        try:
+            return await self._call(self._transport.receive)
+        except GatewayNoCommandAvailable as error:
+            raise GatewayIdle(5.0) from error
+
+    async def send_ack(self, ack: AgentCommandAckV1) -> None:
+        await self._call(lambda: self._transport.send_ack(ack))
+
+    async def send_result(self, result: AgentResultV1) -> None:
+        await self._call(lambda: self._transport.send_result(result))
+
+    async def send_heartbeat(self, heartbeat: AgentHeartbeatV1) -> None:
+        await self._call(lambda: self._transport.send_heartbeat(heartbeat))
+
+    async def close(self) -> None:
+        await self._call(self._transport.close)
+
+    async def _call(self, operation):
+        try:
+            return await operation()
+        except (
+            GatewayCredentialRejected,
+            GatewayRetryableError,
+            GatewayTerminalError,
+            GatewayNoCommandAvailable,
+        ):
+            raise
+        except (
+            aiohttp.ClientConnectorCertificateError,
+            aiohttp.ClientConnectorSSLError,
+        ) as error:
+            raise GatewayTerminalError(type(error).__name__) from error
+        except (aiohttp.ClientConnectionError, asyncio.TimeoutError) as error:
+            raise GatewayRetryableError(type(error).__name__) from error
+        except aiohttp.ClientResponseError as error:
+            if 500 <= error.status <= 599:
+                raise GatewayRetryableError(type(error).__name__) from error
+            raise GatewayTerminalError(type(error).__name__) from error
+        except SystemExit:
+            raise
+        except Exception as error:
+            raise GatewayTerminalError(type(error).__name__) from error

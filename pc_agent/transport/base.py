@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Protocol, runtime_checkable
 
 from .protocol import (
@@ -12,6 +13,29 @@ from .protocol import (
     GatewayHelloV1,
     GatewayInboundV1,
 )
+
+
+class GatewayCredentialRejected(RuntimeError):
+    """A device credential was denied and must not retry in-process."""
+
+
+class GatewayRetryableError(RuntimeError):
+    """A transient transport failure that permits a lifecycle reconnect."""
+
+
+class GatewayTerminalError(RuntimeError):
+    """A transport failure that must stop the runtime."""
+
+
+@dataclass(frozen=True, slots=True)
+class GatewayIdle(RuntimeError):
+    """A successful transport attempt has no inbound work until a later poll."""
+
+    delay: float
+
+    def __post_init__(self) -> None:
+        if self.delay < 0:
+            raise ValueError("gateway idle delay must not be negative")
 
 
 @runtime_checkable

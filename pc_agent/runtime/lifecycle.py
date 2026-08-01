@@ -5,23 +5,26 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import Protocol
 
+from endpoint_contracts import AgentCommandAckV1, AgentCommandV1, AgentResultV1
+from pc_agent.transport.base import (
+    GatewayCredentialRejected,
+    GatewayIdle,
+    GatewayRetryableError,
+    GatewayTerminalError,
+    GatewayTransport,
+)
+from pc_agent.transport.protocol import GatewayInboundV1, compatibility_agent_hello
 from pc_agent.version import EXIT_UPDATE_PENDING
 
 from .status import RuntimePhase, RuntimeStatus
 
 
-class CredentialRejected(RuntimeError):
-    """A durable Endpoint credential was rejected and must not retry in-process."""
-
-
-class RetryableTransportError(RuntimeError):
-    """A transient Endpoint transport failure that permits reconnect."""
-
-
-class TerminalTransportError(RuntimeError):
-    """A transport/configuration failure that must end the process."""
+CredentialRejected = GatewayCredentialRejected
+RetryableTransportError = GatewayRetryableError
+TerminalTransportError = GatewayTerminalError
 
 
 @dataclass(frozen=True, slots=True)
@@ -38,18 +41,14 @@ class ContinueAfter:
 class RuntimeExecutor(Protocol):
     async def start(self) -> None: ...
     async def stop(self) -> None: ...
-
-
-class RuntimeTransport(Protocol):
-    async def start(self) -> ContinueAfter | None: ...
-    async def close(self) -> None: ...
+    async def execute(self, command: AgentCommandV1) -> AgentResultV1: ...
 
 
 @dataclass(frozen=True, slots=True)
 class RuntimeDependencies:
     load_credential: Callable[[object], str]
     create_executor: Callable[[], RuntimeExecutor]
-    create_transport: Callable[[object, str, RuntimeExecutor], RuntimeTransport]
+    create_transport: Callable[[object, str, RuntimeExecutor], GatewayTransport]
     sleep: Callable[[float], Awaitable[None]] = asyncio.sleep
     reconnect_delay: float = 5.0
 
@@ -95,7 +94,11 @@ class RuntimeLifecycle:
                 next_delay: float | None = None
                 try:
                     self._status.transition(RuntimePhase.CONNECTING)
-                    outcome = await transport.start()
+                    await transport.connect(compatibility_agent_hello())
+                    inbound = await transport.receive()
+                    await _handle_inbound(transport, executor, inbound)
+                    self._status.transition(RuntimePhase.RUNNING)
+                    next_delay = 0.0
                 except SystemExit as error:
                     code = error.code if isinstance(error.code, int) else 1
                     if code == EXIT_UPDATE_PENDING:
@@ -118,20 +121,9 @@ class RuntimeLifecycle:
                     terminal_phase = RuntimePhase.STOPPED
                     self._status.transition(RuntimePhase.STOPPING)
                     return 0
-                else:
-                    if outcome is None:
-                        terminal_phase = RuntimePhase.STOPPED
-                        self._status.transition(RuntimePhase.STOPPING)
-                        return 0
-                    if not isinstance(outcome, ContinueAfter):
-                        terminal_phase = RuntimePhase.FAILED
-                        self._status.transition(
-                            terminal_phase,
-                            error=TypeError("invalid transport attempt outcome"),
-                        )
-                        return 1
+                except GatewayIdle as idle:
                     self._status.transition(RuntimePhase.RUNNING)
-                    next_delay = outcome.delay
+                    next_delay = idle.delay
                 finally:
                     await _cleanup(transport.close)
 
@@ -154,3 +146,24 @@ async def _cleanup(action: Callable[[], Awaitable[None]]) -> None:
         await action()
     except Exception:
         pass
+
+
+async def _handle_inbound(
+    transport: GatewayTransport,
+    executor: RuntimeExecutor,
+    inbound: GatewayInboundV1,
+) -> None:
+    """Execute only command envelopes at the current common-runtime boundary."""
+    if inbound.root.kind != "command":
+        raise GatewayTerminalError("unsupported Gateway inbound message")
+    command = inbound.root.payload
+    ack = AgentCommandAckV1(
+        schema_version="agent_command_ack_v1",
+        command_id=command.command_id,
+        device_id=command.device_id,
+        status="acknowledged",
+        acknowledged_at=datetime.now(UTC),
+    )
+    await transport.send_ack(ack)
+    result = await executor.execute(command)
+    await transport.send_result(result)

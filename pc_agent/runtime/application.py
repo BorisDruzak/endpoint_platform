@@ -8,20 +8,25 @@ from pathlib import Path
 from typing import Literal
 from urllib.parse import urlsplit
 
-import aiohttp
-
 from pc_agent import endpoint_gateway
 from pc_agent.device_credential import DeviceCredentialError, read_device_credential
+from pc_agent.transport.base import GatewayTerminalError, GatewayTransport
+from pc_agent.transport.http_pull import ClassifiedGatewayTransport
+from pc_agent.transport.protocol import (
+    AgentCommandAckV1,
+    AgentHeartbeatV1,
+    AgentHelloV1,
+    AgentResultV1,
+    GatewayHelloV1,
+    GatewayInboundV1,
+)
 
 from .command_executor import CommandExecutor
 from .lifecycle import (
-    ContinueAfter,
     CredentialRejected,
-    RetryableTransportError,
     RuntimeDependencies,
     RuntimeExecutor,
     RuntimeLifecycle,
-    TerminalTransportError,
 )
 from .status import RuntimeStatus
 
@@ -84,7 +89,7 @@ def _default_dependencies() -> RuntimeDependencies:
 
     def create_transport(
         settings: object, credential: str, executor: RuntimeExecutor
-    ) -> "_EndpointHttpPullTransport":
+    ) -> GatewayTransport:
         return _create_transport(
             settings,
             credential,
@@ -114,22 +119,48 @@ def _create_transport(
     executor: RuntimeExecutor,
     *,
     state: "_EndpointHttpPullState | None" = None,
-) -> "_EndpointHttpPullTransport":
+) -> GatewayTransport:
     if not isinstance(settings, RuntimeSettings):
-        raise TerminalTransportError("invalid runtime settings")
+        raise GatewayTerminalError("invalid runtime settings")
+    if settings.transport_mode == "gateway_wss":
+        return _GatewayWssUnavailableTransport()
     if settings.transport_mode != "gateway_http_pull":
-        raise TerminalTransportError(
-            "Gateway WSS is not available before the transport migration"
-        )
+        raise GatewayTerminalError("unsupported Endpoint transport mode")
     if settings.endpoint_origin != endpoint_gateway._ORIGIN:
-        raise TerminalTransportError(
+        raise GatewayTerminalError(
             "current HTTP pull supports only the accepted Endpoint origin"
         )
-    return _EndpointHttpPullTransport(
-        settings,
-        credential,
-        executor,
-        state=state or _EndpointHttpPullState(),
+    return ClassifiedGatewayTransport(
+        _create_http_pull_transport(
+            settings,
+            credential,
+            state=state or _EndpointHttpPullState(),
+        )
+    )
+
+
+def _create_http_pull_transport(
+    settings: RuntimeSettings,
+    credential: str,
+    *,
+    state: "_EndpointHttpPullState",
+) -> GatewayTransport:
+    loop = asyncio.get_running_loop()
+    poll_updates = loop.time() >= state.next_update_poll_at
+
+    def update_poll_completed() -> None:
+        state.next_update_poll_at = (
+            loop.time() + endpoint_gateway.GATEWAY_UPDATE_POLL_INTERVAL_SEC
+        )
+
+    return endpoint_gateway.create_http_pull_transport(
+        ca_file=settings.ca_file,
+        credential=credential,
+        endpoint_origin=settings.endpoint_origin,
+        data_root=settings.data_root,
+        current_selector=settings.install_root / "current.json",
+        poll_updates=poll_updates,
+        on_update_poll_complete=update_poll_completed,
     )
 
 
@@ -138,63 +169,25 @@ class _EndpointHttpPullState:
     next_update_poll_at: float = 0.0
 
 
-class _EndpointHttpPullTransport:
-    """Transitional seam around the accepted HTTP-pull Gateway runtime."""
+class _GatewayWssUnavailableTransport:
+    """Explicit WSS selection with no HTTP or Helpdesk fallback before Task 7."""
 
-    def __init__(
-        self,
-        settings: RuntimeSettings,
-        credential: str,
-        executor: RuntimeExecutor,
-        *,
-        state: _EndpointHttpPullState,
-    ) -> None:
-        self._settings = settings
-        self._credential = credential
-        self._executor = executor
-        self._state = state
+    async def connect(self, _hello: AgentHelloV1) -> GatewayHelloV1:
+        raise GatewayTerminalError(
+            "Gateway WSS is not available before the transport migration"
+        )
 
-    async def start(self) -> ContinueAfter | None:
-        try:
-            loop = asyncio.get_running_loop()
-            now = loop.time()
-            poll_updates = now >= self._state.next_update_poll_at
+    async def receive(self) -> GatewayInboundV1:
+        raise GatewayTerminalError("Gateway WSS is not connected")
 
-            def update_poll_completed() -> None:
-                self._state.next_update_poll_at = (
-                    loop.time() + endpoint_gateway.GATEWAY_UPDATE_POLL_INTERVAL_SEC
-                )
+    async def send_ack(self, _ack: AgentCommandAckV1) -> None:
+        raise GatewayTerminalError("Gateway WSS is not connected")
 
-            outcome = await endpoint_gateway.run_gateway_once(
-                ca_file=self._settings.ca_file,
-                command_executor=self._executor,
-                credential=self._credential,
-                endpoint_origin=self._settings.endpoint_origin,
-                data_root=self._settings.data_root,
-                current_selector=self._settings.install_root / "current.json",
-                poll_updates=poll_updates,
-                on_update_poll_complete=update_poll_completed,
-            )
-            if outcome is None:
-                return None
-            return ContinueAfter(outcome.delay_before_next)
-        except endpoint_gateway.GatewayCredentialRejected as error:
-            raise CredentialRejected(str(error)) from error
-        except (
-            aiohttp.ClientConnectorCertificateError,
-            aiohttp.ClientConnectorSSLError,
-        ) as error:
-            raise TerminalTransportError(type(error).__name__) from error
-        except (aiohttp.ClientConnectionError, asyncio.TimeoutError) as error:
-            raise RetryableTransportError(type(error).__name__) from error
-        except aiohttp.ClientResponseError as error:
-            if 500 <= error.status <= 599:
-                raise RetryableTransportError(type(error).__name__) from error
-            raise TerminalTransportError(type(error).__name__) from error
-        except SystemExit:
-            raise
-        except Exception as error:
-            raise TerminalTransportError(type(error).__name__) from error
+    async def send_result(self, _result: AgentResultV1) -> None:
+        raise GatewayTerminalError("Gateway WSS is not connected")
+
+    async def send_heartbeat(self, _heartbeat: AgentHeartbeatV1) -> None:
+        raise GatewayTerminalError("Gateway WSS is not connected")
 
     async def close(self) -> None:
         return None

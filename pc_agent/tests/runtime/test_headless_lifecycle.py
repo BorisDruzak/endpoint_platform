@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -56,10 +57,23 @@ class _Transport:
         self._events = events
         self._outcome = outcome
 
-    async def start(self) -> None:
-        self._events.append("transport.start")
+    async def connect(self, _hello) -> None:
+        self._events.append("transport.connect")
         if self._outcome is not None:
             raise self._outcome
+
+    async def receive(self):
+        self._events.append("transport.receive")
+        raise asyncio.CancelledError()
+
+    async def send_ack(self, _ack) -> None:
+        raise AssertionError("the lifecycle test transport must not deliver commands")
+
+    async def send_result(self, _result) -> None:
+        raise AssertionError("the lifecycle test transport must not deliver commands")
+
+    async def send_heartbeat(self, _heartbeat) -> None:
+        raise AssertionError("the lifecycle test transport must not send heartbeats")
 
     async def close(self) -> None:
         self._events.append("transport.close")
@@ -114,7 +128,8 @@ async def test_runtime_starts_in_order_and_closes_every_started_component(
         "executor.create",
         "executor.start",
         "transport.create",
-        "transport.start",
+        "transport.connect",
+        "transport.receive",
         "transport.close",
         "executor.stop",
     ]
@@ -156,7 +171,7 @@ async def test_retryable_transport_failure_reconnects_without_reloading_credenti
     assert await application.run() == 0
     assert events.count("credential.load") == 1
     assert events.count("executor.start") == 1
-    assert events.count("transport.start") == 2
+    assert events.count("transport.connect") == 2
     assert events.count("transport.close") == 2
     assert sleeps == [0.25]
     assert application.status.reconnect_attempts == 1
@@ -179,7 +194,7 @@ async def test_gateway_credential_rejection_is_terminal_in_process(
     )
 
     assert await application.run() == 75
-    assert events.count("transport.start") == 1
+    assert events.count("transport.connect") == 1
     assert sleeps == []
     assert application.status.phase is RuntimePhase.CREDENTIAL_REJECTED
 
@@ -304,7 +319,7 @@ async def test_command_executor_uses_existing_typed_context_path() -> None:
 async def test_default_runtime_wires_executor_into_current_http_pull(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    """The compatibility transport must execute commands through the neutral executor."""
+    """Default selection must create the accepted pull adapter with neutral inputs."""
     settings = _settings(tmp_path)
     settings.data_root.mkdir()
     settings.install_root.mkdir()
@@ -312,47 +327,44 @@ async def test_default_runtime_wires_executor_into_current_http_pull(
     (settings.data_root / "device-credential").write_text(
         "c" * 43 + "\n", encoding="ascii"
     )
-    observed: list[
-        tuple[Path, CommandExecutor, str, str, Path, Path]
-    ] = []
+    observed: list[dict[str, object]] = []
 
-    async def gateway_runner(
-        *,
-        ca_file: Path,
-        command_executor: CommandExecutor,
-        credential: str,
-        endpoint_origin: str,
-        data_root: Path,
-        current_selector: Path,
-        poll_updates: bool,
-        on_update_poll_complete: Callable[[], None],
-    ) -> None:
-        observed.append(
-            (
-                ca_file,
-                command_executor,
-                credential,
-                endpoint_origin,
-                data_root,
-                current_selector,
-            )
-        )
+    class NoWorkPullTransport:
+        async def connect(self, _hello) -> object:
+            return object()
 
-        assert poll_updates is True
-        on_update_poll_complete()
+        async def receive(self) -> object:
+            raise asyncio.CancelledError()
 
-    monkeypatch.setattr(endpoint_gateway, "run_gateway_once", gateway_runner)
+        async def send_ack(self, _ack) -> None:
+            raise AssertionError("no command should be delivered")
+
+        async def send_result(self, _result) -> None:
+            raise AssertionError("no command should be delivered")
+
+        async def send_heartbeat(self, _heartbeat) -> None:
+            raise AssertionError("no heartbeat should be sent")
+
+        async def close(self) -> None:
+            return None
+
+    def create_pull(**kwargs: object) -> NoWorkPullTransport:
+        observed.append(kwargs)
+        return NoWorkPullTransport()
+
+    monkeypatch.setattr(endpoint_gateway, "create_http_pull_transport", create_pull)
 
     assert await run_runtime(settings) == 0
     assert len(observed) == 1
-    assert observed[0][0] == settings.ca_file
-    assert isinstance(observed[0][1], CommandExecutor)
-    assert observed[0][2:] == (
-        "c" * 43,
-        settings.endpoint_origin,
-        settings.data_root,
-        settings.install_root / "current.json",
-    )
+    assert observed[0] == {
+        "ca_file": settings.ca_file,
+        "credential": "c" * 43,
+        "endpoint_origin": settings.endpoint_origin,
+        "data_root": settings.data_root,
+        "current_selector": settings.install_root / "current.json",
+        "poll_updates": True,
+        "on_update_poll_complete": observed[0]["on_update_poll_complete"],
+    }
 
 
 class _AttemptResponse:

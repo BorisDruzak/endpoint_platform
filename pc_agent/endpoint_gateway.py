@@ -11,13 +11,11 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from urllib.parse import urlsplit
-from uuid import UUID
 
 import aiohttp
 
 from endpoint_contracts import (
     AgentCommandAckV1,
-    AgentHelloV1,
     AgentResultV1,
 )
 from pc_agent.context_profiles.command_execution import execute_context_agent_command
@@ -33,6 +31,7 @@ from pc_agent.transport.http_pull import (
     require_gateway_response,
     validate_endpoint_origin,
 )
+from pc_agent.transport.protocol import compatibility_agent_hello
 from pc_agent.update_adapter import EndpointRecommendation, EndpointUpdateAdapter
 from pc_agent.version import EXIT_UPDATE_PENDING
 
@@ -172,33 +171,18 @@ async def run_gateway_once(
     _endpoint_origin(configured_origin)
     credential_source = _credential if credential is None else lambda: credential
     token = credential_source()
-    async def on_connected(session: aiohttp.ClientSession) -> None:
-        if use_default_update_runtime:
-            update_runtime = _gateway_update_runtime(session)
-        else:
-            update_runtime = _gateway_update_runtime(
-                session,
-                endpoint_origin=configured_origin,
-                credential_source=credential_source,
-                data_root=data_root,
-                current_selector=current_selector,
-            )
-        await update_runtime.report_startup_outcome()
-        if poll_updates:
-            update_result = await update_runtime.run_once()
-            if on_update_poll_complete is not None:
-                on_update_poll_complete()
-            if update_result.status == "scheduled":
-                raise SystemExit(EXIT_UPDATE_PENDING)
-
-    transport = HttpPullGatewayTransport(
+    transport = create_http_pull_transport(
         ca_file=ca_file,
         credential=token,
         endpoint_origin=configured_origin,
-        on_connected=on_connected,
+        data_root=data_root,
+        current_selector=current_selector,
+        poll_updates=poll_updates,
+        on_update_poll_complete=on_update_poll_complete,
+        use_default_update_runtime=use_default_update_runtime,
     )
     try:
-        await transport.connect(_http_pull_compatibility_hello())
+        await transport.connect(compatibility_agent_hello())
         try:
             inbound = await transport.receive()
         except GatewayNoCommandAvailable:
@@ -224,22 +208,39 @@ async def run_gateway_once(
         await transport.close()
 
 
-def _http_pull_compatibility_hello() -> AgentHelloV1:
-    """Supply the local-only contract value required by a non-handshaking pull."""
-    return AgentHelloV1(
-        schema_version="agent_hello_v1",
-        device_id=UUID(int=0),
-        agent_instance_id=UUID(int=0),
-        agent_version="http-pull",
-        launcher_version="http-pull",
-        platform="linux_amd64",
-        boot_id="http-pull",
-        capabilities=[
-            "context.baseline.collect",
-            "context.diagnostic.collect",
-            "context.health.collect",
-            "context.network.collect",
-        ],
-        last_result_sequence=0,
-        last_policy_revision=0,
+def create_http_pull_transport(
+    *,
+    ca_file: Path,
+    credential: str,
+    endpoint_origin: str,
+    data_root: Path | None,
+    current_selector: Path | None,
+    poll_updates: bool,
+    on_update_poll_complete: Callable[[], None] | None,
+    use_default_update_runtime: bool = False,
+) -> HttpPullGatewayTransport:
+    """Create the pull adapter with the preserved Endpoint update lifecycle."""
+    async def on_connected(session: aiohttp.ClientSession) -> None:
+        if use_default_update_runtime:
+            update_runtime = _gateway_update_runtime(session)
+        else:
+            update_runtime = _gateway_update_runtime(
+                session,
+                endpoint_origin=endpoint_origin,
+                credential_source=lambda: credential,
+                data_root=data_root,
+                current_selector=current_selector,
+            )
+        await update_runtime.report_startup_outcome()
+        if poll_updates:
+            update_result = await update_runtime.run_once()
+            if on_update_poll_complete is not None:
+                on_update_poll_complete()
+            if update_result.status == "scheduled":
+                raise SystemExit(EXIT_UPDATE_PENDING)
+    return HttpPullGatewayTransport(
+        ca_file=ca_file,
+        credential=credential,
+        endpoint_origin=endpoint_origin,
+        on_connected=on_connected,
     )

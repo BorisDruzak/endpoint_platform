@@ -20,6 +20,11 @@
   delays and retry of network/HTTP 5xx failures. A completed update poll advances its 300-second deadline before
   later command/ACK/result work, so a command-path retry cannot repeat update
   download work. TLS verification and credential rejection remain terminal.
+- `pc_agent/transport/base.py` is the runtime transport boundary:
+  `RuntimeLifecycle` directly owns `connect`, `receive`, ACK, result, and
+  close calls on `GatewayTransport`. `ClassifiedGatewayTransport` translates
+  HTTP-library failures to neutral credential/retryable/terminal outcomes, so
+  the runtime package does not import or classify `aiohttp` exceptions.
 - `pc_agent/runtime/command_executor.py` accepts only typed
   `AgentCommandV1` Device Context commands and rejects unknown capabilities
   before the fixed collector execution path. The typed executor and fixed

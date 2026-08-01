@@ -16,4 +16,8 @@ def bounded_exponential_backoff(
         raise ValueError("backoff bounds must be positive")
     if base_seconds > maximum_seconds:
         raise ValueError("backoff base must not exceed the maximum")
-    return min(base_seconds * (2**attempt), maximum_seconds)
+    delay = base_seconds
+    while attempt and delay < maximum_seconds:
+        delay = min(delay * 2.0, maximum_seconds)
+        attempt -= 1
+    return delay
