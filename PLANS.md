@@ -6,6 +6,10 @@ Deliver Wave 1 Device Context, then expose normalized projections in web_ovpn wi
 
 ## Current State
 
+Headless Agent V2 architecture baseline is repository
+`5b53f080d884193189b7458e27ab55a04cb6efe4`. The accepted ALT pilot release is
+`3.1.84`; the accepted immutable rollback release is `3.1.80`.
+
 6A enrollment and update control-plane work are merged locally. Device Context
 foundation has passed independent review and local acceptance: strict profiles,
 bounded ALT collectors, fixed Gateway capabilities, additive lifecycle/snapshot
@@ -65,6 +69,10 @@ credential, the rejected old bearer, and a successful current identity-feed
 call.
 
 ## Constraints
+
+- Headless Agent V2 architecture work is documentation and local guardrail work
+  only. It must not deploy to production, alter production configuration or
+  data, restart services, or change the dedicated test-agent host.
 
 - web_ovpn and network_configuration remain read-only until a clean dedicated worktree exists.
 - ALT Linux is first; no real device collection, deployment, or canary belongs to the foundation.
