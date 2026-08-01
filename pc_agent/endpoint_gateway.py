@@ -6,6 +6,7 @@ import hashlib
 import json
 import os
 import ssl
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Protocol
 from datetime import UTC, datetime
@@ -171,6 +172,7 @@ async def run_gateway_once(
     data_root: Path | None = None,
     current_selector: Path | None = None,
     poll_updates: bool = True,
+    on_update_poll_complete: Callable[[], None] | None = None,
 ) -> GatewayAttemptOutcome:
     """Perform one TLS Gateway attempt and surface every outcome to the caller."""
     use_default_update_runtime = (
@@ -202,6 +204,8 @@ async def run_gateway_once(
         await update_runtime.report_startup_outcome()
         if poll_updates:
             update_result = await update_runtime.run_once()
+            if on_update_poll_complete is not None:
+                on_update_poll_complete()
             if update_result.status == "scheduled":
                 raise SystemExit(EXIT_UPDATE_PENDING)
         async with session.get(

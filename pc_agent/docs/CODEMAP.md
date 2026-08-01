@@ -14,7 +14,9 @@
   credential-rejected, or update-pending exit. The transitional HTTP-pull seam
   delegates one network attempt at a time to `pc_agent/endpoint_gateway.py`;
   the lifecycle owns normal polling delays and retry of network/HTTP 5xx
-  failures. TLS verification and credential rejection remain terminal.
+  failures. A completed update poll advances its 300-second deadline before
+  later command/ACK/result work, so a command-path retry cannot repeat update
+  download work. TLS verification and credential rejection remain terminal.
 - `pc_agent/runtime/command_executor.py` accepts only typed
   `AgentCommandV1` Device Context commands and rejects unknown capabilities
   before the fixed collector execution path. The typed executor and fixed

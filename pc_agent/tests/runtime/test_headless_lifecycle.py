@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
@@ -324,6 +325,7 @@ async def test_default_runtime_wires_executor_into_current_http_pull(
         data_root: Path,
         current_selector: Path,
         poll_updates: bool,
+        on_update_poll_complete: Callable[[], None],
     ) -> None:
         observed.append(
             (
@@ -337,6 +339,7 @@ async def test_default_runtime_wires_executor_into_current_http_pull(
         )
 
         assert poll_updates is True
+        on_update_poll_complete()
 
     monkeypatch.setattr(endpoint_gateway, "run_gateway_once", gateway_runner)
 
@@ -396,30 +399,49 @@ class _AttemptSession:
 
 
 class _IdleUpdateRuntime:
+    def __init__(self) -> None:
+        self.calls = 0
+
     async def report_startup_outcome(self) -> bool:
         return False
 
     async def run_once(self) -> SimpleNamespace:
+        self.calls += 1
+        return SimpleNamespace(status="idle")
+
+
+class _RetryableUpdateRuntime(_IdleUpdateRuntime):
+    async def run_once(self) -> SimpleNamespace:
+        self.calls += 1
+        if self.calls == 1:
+            raise aiohttp.ClientConnectionError("update poll offline")
         return SimpleNamespace(status="idle")
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    ("first_outcome", "expected_reconnects", "expected_sleeps"),
+    (
+        "first_outcome",
+        "expected_reconnects",
+        "expected_sleeps",
+        "expected_update_polls",
+    ),
     [
-        ("network", 1, [0.25]),
-        ("http_500", 1, [0.25]),
-        ("no_command", 0, [5.0]),
+        ("network", 1, [0.25], 1),
+        ("http_500", 1, [0.25], 1),
+        ("no_command", 0, [5.0], 1),
+        ("update_network", 1, [0.25], 2),
     ],
 )
-async def test_production_http_attempt_continues_through_lifecycle(
+async def test_production_http_attempt_preserves_update_poll_deadline_through_lifecycle(
     first_outcome: str,
     expected_reconnects: int,
     expected_sleeps: list[float],
+    expected_update_polls: int,
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    """The real HTTP seam surfaces both polling and retry outcomes to lifecycle."""
+    """Only a failed update poll may repeat before its 300-second deadline."""
     settings = _settings(tmp_path)
     settings.data_root.mkdir()
     settings.install_root.mkdir()
@@ -435,6 +457,11 @@ async def test_production_http_attempt_continues_through_lifecycle(
         first = _AttemptSession(status=204)
     sessions = [first, _AttemptSession(status=403)]
     sleeps: list[float] = []
+    update_runtime = (
+        _RetryableUpdateRuntime()
+        if first_outcome == "update_network"
+        else _IdleUpdateRuntime()
+    )
 
     monkeypatch.setattr(
         endpoint_gateway.ssl, "create_default_context", lambda **_kwargs: object()
@@ -450,7 +477,7 @@ async def test_production_http_attempt_continues_through_lifecycle(
     monkeypatch.setattr(
         endpoint_gateway,
         "_gateway_update_runtime",
-        lambda *_args, **_kwargs: _IdleUpdateRuntime(),
+        lambda *_args, **_kwargs: update_runtime,
     )
 
     async def capture_sleep(delay: float) -> None:
@@ -472,6 +499,7 @@ async def test_production_http_attempt_continues_through_lifecycle(
     assert application.status.phase is RuntimePhase.CREDENTIAL_REJECTED
     assert application.status.reconnect_attempts == expected_reconnects
     assert sleeps == expected_sleeps
+    assert update_runtime.calls == expected_update_polls
     assert sessions == []
 
 

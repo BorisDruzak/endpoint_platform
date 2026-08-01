@@ -156,8 +156,15 @@ class _EndpointHttpPullTransport:
 
     async def start(self) -> ContinueAfter | None:
         try:
-            now = asyncio.get_running_loop().time()
+            loop = asyncio.get_running_loop()
+            now = loop.time()
             poll_updates = now >= self._state.next_update_poll_at
+
+            def update_poll_completed() -> None:
+                self._state.next_update_poll_at = (
+                    loop.time() + endpoint_gateway.GATEWAY_UPDATE_POLL_INTERVAL_SEC
+                )
+
             outcome = await endpoint_gateway.run_gateway_once(
                 ca_file=self._settings.ca_file,
                 command_executor=self._executor,
@@ -166,13 +173,10 @@ class _EndpointHttpPullTransport:
                 data_root=self._settings.data_root,
                 current_selector=self._settings.install_root / "current.json",
                 poll_updates=poll_updates,
+                on_update_poll_complete=update_poll_completed,
             )
             if outcome is None:
                 return None
-            if poll_updates:
-                self._state.next_update_poll_at = (
-                    now + endpoint_gateway.GATEWAY_UPDATE_POLL_INTERVAL_SEC
-                )
             return ContinueAfter(outcome.delay_before_next)
         except endpoint_gateway.GatewayCredentialRejected as error:
             raise CredentialRejected(str(error)) from error
