@@ -1,5 +1,31 @@
 # CODEMAP (pc_agent)
 
+## Neutral headless runtime (2026-08-01)
+
+- `pc_agent/runtime/main.py` is the canonical headless Endpoint Agent
+  entrypoint. `RuntimeSettings` carries the data/install roots, CA file,
+  Endpoint HTTPS origin, and explicit `gateway_http_pull` / `gateway_wss`
+  selection. `gateway_wss` remains fail-closed until the transport task lands;
+  it never falls back to the legacy Helpdesk WebSocket.
+- `pc_agent/runtime/application.py` and `runtime/lifecycle.py` own neutral
+  startup, one-time credential loading, command-executor startup, classified
+  reconnect, controlled update exit `42`, terminal credential rejection, and
+  clean component shutdown. The transitional HTTP-pull seam delegates only
+  network work to `pc_agent/endpoint_gateway.py` and passes the resolved
+  runtime settings plus the neutral executor explicitly.
+- `pc_agent/runtime/command_executor.py` accepts only typed
+  `AgentCommandV1` Device Context commands and rejects unknown capabilities
+  before the fixed collector execution path. `runtime/verification.py` is a
+  network-free preflight for settings, SQLite migration, identity/credential
+  structure, collector registry, immutable update selector, and import
+  boundaries.
+- `pc_agent/ws_agent.py` is now a compatibility entrypoint: accepted ALT
+  Gateway startup delegates to `pc_agent.runtime.main`; its inherited GUI,
+  Helpdesk/Ticket API, Remote Assist UI, and legacy Protocol V3 runtime remain
+  available only to existing development tests during the staged cutover. New
+  platform packages must use `pc_agent/runtime/main.py` and must not import
+  the legacy branch.
+
 ## ALT first-boot enrollment bootstrap (2026-07-30)
 
 - `pc_agent/linux_enrollment_runtime.py` is the fixed Linux/systemd startup

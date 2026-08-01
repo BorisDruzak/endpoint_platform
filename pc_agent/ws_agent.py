@@ -5311,13 +5311,22 @@ def _run_linux_systemd_enrollment_gate() -> None:
 
 
 def _run_endpoint_gateway() -> None:
-    """Run the fixed TLS Gateway transport without initializing legacy settings."""
+    """Delegate the accepted ALT Gateway branch to the neutral runtime."""
     ca_path = os.environ.get("ENDPOINT_AGENT_CA_FILE", "").strip()
     if not ca_path:
         raise SystemExit(75)
-    from pc_agent.endpoint_gateway import run_gateway_forever
+    from pc_agent.runtime.main import RuntimeSettings, run_runtime
 
-    asyncio.run(run_gateway_forever(ca_file=Path(ca_path)))
+    settings = RuntimeSettings(
+        data_root=Path("/var/lib/endpoint-agent"),
+        install_root=Path("/opt/endpoint-agent"),
+        ca_file=Path(ca_path),
+        endpoint_origin="https://endpoint.sosnadmin.local",
+        transport_mode="gateway_http_pull",
+    )
+    exit_code = asyncio.run(run_runtime(settings))
+    if exit_code:
+        raise SystemExit(exit_code)
 
 
 def main():

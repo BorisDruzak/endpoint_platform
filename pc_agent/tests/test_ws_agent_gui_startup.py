@@ -108,11 +108,12 @@ def test_gateway_runtime_bypasses_bootstrap_gate_after_handoff(
     def _bootstrap_gate_must_not_run() -> None:
         raise AssertionError("post-handoff Gateway mode must not load bootstrap credentials")
 
-    async def _gateway_runner(*, ca_file: Path) -> None:
-        calls.append(ca_file)
+    async def _runtime_runner(settings) -> int:
+        calls.append(settings.ca_file)
+        return 0
 
     monkeypatch.setattr(ws_agent_module, "_run_linux_systemd_enrollment_gate", _bootstrap_gate_must_not_run)
-    monkeypatch.setattr("pc_agent.endpoint_gateway.run_gateway_forever", _gateway_runner)
+    monkeypatch.setattr("pc_agent.runtime.main.run_runtime", _runtime_runner)
     monkeypatch.setenv("ENDPOINT_AGENT_GATEWAY_READY", "1")
     monkeypatch.setenv("ENDPOINT_AGENT_CA_FILE", str(tmp_path / "endpoint-agent-ca"))
     monkeypatch.setattr(sys, "argv", ["ws_agent.py", "--no-gui"])
@@ -128,11 +129,12 @@ def test_first_boot_enters_gateway_after_successful_enrollment(
 ) -> None:
     calls: list[Path] = []
 
-    async def _gateway_runner(*, ca_file: Path) -> None:
-        calls.append(ca_file)
+    async def _runtime_runner(settings) -> int:
+        calls.append(settings.ca_file)
+        return 0
 
     monkeypatch.setattr(ws_agent_module, "_run_linux_systemd_enrollment_gate", lambda: None)
-    monkeypatch.setattr("pc_agent.endpoint_gateway.run_gateway_forever", _gateway_runner)
+    monkeypatch.setattr("pc_agent.runtime.main.run_runtime", _runtime_runner)
     monkeypatch.setattr(
         ws_agent_module.runtime_paths,
         "resolve_data_root",

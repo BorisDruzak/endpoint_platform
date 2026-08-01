@@ -7,6 +7,7 @@ import hashlib
 import json
 import os
 import ssl
+from typing import Protocol
 from datetime import UTC, datetime
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -28,6 +29,10 @@ _UPDATE_POLL_INTERVAL_SEC = 300.0
 
 class GatewayCredentialRejected(RuntimeError):
     """The controller rejected a durable credential; do not retry it in-process."""
+
+
+class GatewayCommandExecutor(Protocol):
+    async def execute(self, command: AgentCommandV1) -> AgentResultV1: ...
 
 
 def require_gateway_response(response: aiohttp.ClientResponse) -> None:
@@ -60,9 +65,9 @@ def read_gateway_current_version(selector_path: Path = _ALT_CURRENT_SELECTOR) ->
     return selector["version"]
 
 
-def _endpoint_origin() -> tuple[str, str]:
+def _endpoint_origin(origin: str | None = None) -> tuple[str, str]:
     """Return the only permitted HTTPS controller origin components."""
-    parsed = urlsplit(_ORIGIN)
+    parsed = urlsplit(_ORIGIN if origin is None else origin)
     if (
         parsed.scheme != "https"
         or not parsed.netloc
@@ -80,9 +85,13 @@ async def _download_gateway_artifact(
     session: aiohttp.ClientSession,
     item: EndpointRecommendation,
     destination: Path,
+    *,
+    endpoint_origin: str | None = None,
+    credential_source=None,
 ) -> tuple[str, int]:
     """Stream a controller-hosted artifact through the existing pinned TLS session."""
-    origin_scheme, origin_netloc = _endpoint_origin()
+    origin_scheme, origin_netloc = _endpoint_origin(endpoint_origin)
+    load_credential = credential_source or _credential
     parsed = urlsplit(item.artifact_url)
     if (parsed.scheme, parsed.netloc) != (origin_scheme, origin_netloc):
         raise ValueError("Gateway update artifact must use the Endpoint origin")
@@ -93,7 +102,7 @@ async def _download_gateway_artifact(
     try:
         async with session.get(
             item.artifact_url,
-            headers={"Authorization": f"Bearer {_credential()}"},
+            headers={"Authorization": f"Bearer {load_credential()}"},
             allow_redirects=False,
         ) as response:
             require_gateway_response(response)
@@ -115,37 +124,78 @@ async def _download_gateway_artifact(
         raise
 
 
-def _gateway_update_runtime(session: aiohttp.ClientSession) -> GatewayUpdateRuntime:
-    data_root = PERMANENT_CREDENTIAL_PATH.parent
+def _gateway_update_runtime(
+    session: aiohttp.ClientSession,
+    *,
+    endpoint_origin: str | None = None,
+    credential_source=None,
+    data_root: Path | None = None,
+    current_selector: Path | None = None,
+) -> GatewayUpdateRuntime:
+    configured_origin = _ORIGIN if endpoint_origin is None else endpoint_origin
+    load_credential = credential_source or _credential
+    runtime_data_root = data_root or PERMANENT_CREDENTIAL_PATH.parent
     adapter = EndpointUpdateAdapter(
-        api_url=_ORIGIN,
-        bearer_token=_credential,
+        api_url=configured_origin,
+        bearer_token=load_credential,
         session=session,
-        data_root=data_root,
+        data_root=runtime_data_root,
     )
     return GatewayUpdateRuntime(
         adapter=adapter,
-        data_root=data_root,
-        current_version=read_gateway_current_version(),
+        data_root=runtime_data_root,
+        current_version=read_gateway_current_version(
+            current_selector or _ALT_CURRENT_SELECTOR
+        ),
         download=lambda item, destination: _download_gateway_artifact(
-            session, item, destination
+            session,
+            item,
+            destination,
+            endpoint_origin=configured_origin,
+            credential_source=load_credential,
         ),
     )
 
 
-async def run_gateway_forever(*, ca_file: Path) -> None:
+async def run_gateway_forever(
+    *,
+    ca_file: Path,
+    command_executor: GatewayCommandExecutor | None = None,
+    credential: str | None = None,
+    endpoint_origin: str | None = None,
+    data_root: Path | None = None,
+    current_selector: Path | None = None,
+) -> None:
     """Poll only the fixed HTTPS Gateway; transient outages never stop the service."""
+    use_default_update_runtime = (
+        credential is None
+        and endpoint_origin is None
+        and data_root is None
+        and current_selector is None
+    )
+    configured_origin = _ORIGIN if endpoint_origin is None else endpoint_origin
+    _endpoint_origin(configured_origin)
+    credential_source = _credential if credential is None else lambda: credential
     context = ssl.create_default_context(cafile=str(ca_file))
     next_update_poll_at = 0.0
     while True:
         try:
-            token = _credential()
+            token = credential_source()
             headers = {"Authorization": f"Bearer {token}"}
             connector = aiohttp.TCPConnector(ssl=context)
             async with aiohttp.ClientSession(
                 timeout=aiohttp.ClientTimeout(total=20), connector=connector
             ) as session:
-                update_runtime = _gateway_update_runtime(session)
+                if use_default_update_runtime:
+                    update_runtime = _gateway_update_runtime(session)
+                else:
+                    update_runtime = _gateway_update_runtime(
+                        session,
+                        endpoint_origin=configured_origin,
+                        credential_source=credential_source,
+                        data_root=data_root,
+                        current_selector=current_selector,
+                    )
                 await update_runtime.report_startup_outcome()
                 now = asyncio.get_running_loop().time()
                 if now >= next_update_poll_at:
@@ -153,17 +203,20 @@ async def run_gateway_forever(*, ca_file: Path) -> None:
                     next_update_poll_at = now + _UPDATE_POLL_INTERVAL_SEC
                     if update_result.status == "scheduled":
                         raise SystemExit(EXIT_UPDATE_PENDING)
-                async with session.get(f"{_ORIGIN}/agent/v1/gateway/commands/next", headers=headers, ssl=context) as response:
+                async with session.get(f"{configured_origin}/agent/v1/gateway/commands/next", headers=headers, ssl=context) as response:
                     if response.status == 204:
                         await asyncio.sleep(5)
                         continue
                     require_gateway_response(response)
                     command = AgentCommandV1.model_validate(await response.json())
                 ack = AgentCommandAckV1(schema_version="agent_command_ack_v1", command_id=command.command_id, device_id=command.device_id, status="acknowledged", acknowledged_at=datetime.now(UTC))
-                async with session.post(f"{_ORIGIN}/agent/v1/gateway/commands/{command.command_id}/ack", headers=headers, json=ack.model_dump(mode="json"), ssl=context) as response:
+                async with session.post(f"{configured_origin}/agent/v1/gateway/commands/{command.command_id}/ack", headers=headers, json=ack.model_dump(mode="json"), ssl=context) as response:
                     require_gateway_response(response)
-                result = execute_context_agent_command(command, probe=SystemProbe())
-                async with session.post(f"{_ORIGIN}/agent/v1/gateway/commands/{command.command_id}/results", headers=headers, json=result.model_dump(mode="json"), ssl=context) as response:
+                if command_executor is None:
+                    result = execute_context_agent_command(command, probe=SystemProbe())
+                else:
+                    result = await command_executor.execute(command)
+                async with session.post(f"{configured_origin}/agent/v1/gateway/commands/{command.command_id}/results", headers=headers, json=result.model_dump(mode="json"), ssl=context) as response:
                     require_gateway_response(response)
         except (
             aiohttp.ClientConnectorCertificateError,

@@ -236,10 +236,6 @@ def test_endpoint_server_rejects_generic_relay_routes_and_outbound_url_execution
     assert not forbidden_calls, f"generic outbound URL execution is forbidden: {forbidden_calls}"
 
 
-@pytest.mark.xfail(
-    reason="Task 2 must create pc_agent/runtime before this headless-import guard can pass",
-    strict=True,
-)
 def test_future_runtime_package_is_headless() -> None:
     """Task 2 must provide a headless runtime with no GUI or bridge dependency."""
     assert _RUNTIME_ROOT.is_dir(), "Task 2 must create pc_agent/runtime"
