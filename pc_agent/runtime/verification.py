@@ -9,11 +9,11 @@ from pathlib import Path
 from uuid import UUID
 
 from pc_agent import endpoint_gateway
-from pc_agent.core import database as database_module
-from pc_agent.core.database import DatabaseManager
-from pc_agent.core.registry import CONTEXT_COLLECTION_CAPABILITIES
+from pc_agent.context_profiles.registry import CONTEXT_COLLECTION_CAPABILITIES
+from pc_agent.device_credential import read_device_credential
 
 from .application import RuntimeSettings
+from .local_state import migrate_local_state
 
 
 _EXPECTED_CONTEXT_CAPABILITIES = frozenset(
@@ -29,6 +29,12 @@ _FORBIDDEN_IMPORT_PREFIXES = (
     "qasync",
     "pc_agent.ui_gui",
     "pc_agent.ui_bridge",
+    "pc_agent.ws_agent",
+    "pc_agent.auth",
+    "pc_agent.core.database",
+    "pc_agent.core.job_manager",
+    "pc_agent.core.orchestrator",
+    "pc_agent.core.sender",
     "helpdesk",
 )
 
@@ -37,32 +43,17 @@ def run_verify(settings: RuntimeSettings) -> int:
     """Validate durable local state and migrate SQLite without network access."""
     try:
         settings.validate()
-        _verify_credential(settings.data_root / "device-credential")
+        read_device_credential(settings.data_root / "device-credential")
         _verify_identity(settings.data_root / "identity.json")
         endpoint_gateway.read_gateway_current_version(
             settings.install_root / "current.json"
         )
         _verify_collector_registry()
         _verify_import_boundaries(Path(__file__).resolve().parent)
-        asyncio.run(_migrate_database(settings.data_root / "storage.db"))
+        asyncio.run(migrate_local_state(settings.data_root / "storage.db"))
     except Exception:
         return 1
     return 0
-
-
-def _verify_credential(path: Path) -> None:
-    try:
-        raw = path.read_text(encoding="ascii")
-    except (OSError, UnicodeError) as error:
-        raise ValueError("invalid Endpoint device credential file") from error
-    credential = raw.rstrip("\r\n")
-    if (
-        raw not in {credential, f"{credential}\n"}
-        or len(credential) != 43
-        or not credential.isascii()
-        or any(character.isspace() for character in credential)
-    ):
-        raise ValueError("invalid Endpoint device credential file")
 
 
 def _verify_identity(path: Path) -> None:
@@ -116,16 +107,3 @@ def _verify_import_boundaries(runtime_root: Path) -> None:
             for forbidden in _FORBIDDEN_IMPORT_PREFIXES
         ):
             raise ValueError("headless runtime import boundary violated")
-
-
-async def _migrate_database(path: Path) -> None:
-    """Run the existing migration with an isolated manager instance."""
-    previous_instance = DatabaseManager._instance
-    previous_global = getattr(database_module, "db_manager", None)
-    DatabaseManager._instance = None
-    try:
-        manager = DatabaseManager(str(path))
-        await manager.init_db()
-    finally:
-        DatabaseManager._instance = previous_instance
-        database_module.db_manager = previous_global

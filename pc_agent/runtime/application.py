@@ -11,9 +11,11 @@ from urllib.parse import urlsplit
 import aiohttp
 
 from pc_agent import endpoint_gateway
+from pc_agent.device_credential import DeviceCredentialError, read_device_credential
 
 from .command_executor import CommandExecutor
 from .lifecycle import (
+    ContinueAfter,
     CredentialRejected,
     RetryableTransportError,
     RuntimeDependencies,
@@ -78,36 +80,40 @@ async def run_runtime(settings: RuntimeSettings) -> int:
 
 
 def _default_dependencies() -> RuntimeDependencies:
+    transport_state = _EndpointHttpPullState()
+
+    def create_transport(
+        settings: object, credential: str, executor: RuntimeExecutor
+    ) -> "_EndpointHttpPullTransport":
+        return _create_transport(
+            settings,
+            credential,
+            executor,
+            state=transport_state,
+        )
+
     return RuntimeDependencies(
         load_credential=_load_credential,
         create_executor=CommandExecutor,
-        create_transport=_create_transport,
+        create_transport=create_transport,
     )
 
 
 def _load_credential(settings: object) -> str:
     if not isinstance(settings, RuntimeSettings):
         raise CredentialRejected("invalid runtime settings")
-    path = settings.data_root / "device-credential"
     try:
-        raw = path.read_text(encoding="ascii")
-    except (OSError, UnicodeError) as error:
-        raise CredentialRejected("Endpoint device credential is unavailable") from error
-    credential = raw.rstrip("\r\n")
-    if (
-        raw not in {credential, f"{credential}\n"}
-        or len(credential) != 43
-        or not credential.isascii()
-        or any(character.isspace() for character in credential)
-    ):
-        raise CredentialRejected("Endpoint device credential is invalid")
-    return credential
+        return read_device_credential(settings.data_root / "device-credential")
+    except DeviceCredentialError as error:
+        raise CredentialRejected(str(error)) from error
 
 
 def _create_transport(
     settings: object,
     credential: str,
     executor: RuntimeExecutor,
+    *,
+    state: "_EndpointHttpPullState | None" = None,
 ) -> "_EndpointHttpPullTransport":
     if not isinstance(settings, RuntimeSettings):
         raise TerminalTransportError("invalid runtime settings")
@@ -119,7 +125,17 @@ def _create_transport(
         raise TerminalTransportError(
             "current HTTP pull supports only the accepted Endpoint origin"
         )
-    return _EndpointHttpPullTransport(settings, credential, executor)
+    return _EndpointHttpPullTransport(
+        settings,
+        credential,
+        executor,
+        state=state or _EndpointHttpPullState(),
+    )
+
+
+@dataclass(slots=True)
+class _EndpointHttpPullState:
+    next_update_poll_at: float = 0.0
 
 
 class _EndpointHttpPullTransport:
@@ -130,21 +146,34 @@ class _EndpointHttpPullTransport:
         settings: RuntimeSettings,
         credential: str,
         executor: RuntimeExecutor,
+        *,
+        state: _EndpointHttpPullState,
     ) -> None:
         self._settings = settings
         self._credential = credential
         self._executor = executor
+        self._state = state
 
-    async def start(self) -> None:
+    async def start(self) -> ContinueAfter | None:
         try:
-            await endpoint_gateway.run_gateway_forever(
+            now = asyncio.get_running_loop().time()
+            poll_updates = now >= self._state.next_update_poll_at
+            outcome = await endpoint_gateway.run_gateway_once(
                 ca_file=self._settings.ca_file,
                 command_executor=self._executor,
                 credential=self._credential,
                 endpoint_origin=self._settings.endpoint_origin,
                 data_root=self._settings.data_root,
                 current_selector=self._settings.install_root / "current.json",
+                poll_updates=poll_updates,
             )
+            if outcome is None:
+                return None
+            if poll_updates:
+                self._state.next_update_poll_at = (
+                    now + endpoint_gateway.GATEWAY_UPDATE_POLL_INTERVAL_SEC
+                )
+            return ContinueAfter(outcome.delay_before_next)
         except endpoint_gateway.GatewayCredentialRejected as error:
             raise CredentialRejected(str(error)) from error
         except (
@@ -154,6 +183,10 @@ class _EndpointHttpPullTransport:
             raise TerminalTransportError(type(error).__name__) from error
         except (aiohttp.ClientConnectionError, asyncio.TimeoutError) as error:
             raise RetryableTransportError(type(error).__name__) from error
+        except aiohttp.ClientResponseError as error:
+            if 500 <= error.status <= 599:
+                raise RetryableTransportError(type(error).__name__) from error
+            raise TerminalTransportError(type(error).__name__) from error
         except SystemExit:
             raise
         except Exception as error:

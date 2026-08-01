@@ -13,6 +13,12 @@ _FORBIDDEN_IMPORTS = (
     "pc_agent.ui_gui",
     "pc_agent.ui_bridge",
     "pc_agent.ui_gui.server_api",
+    "pc_agent.ws_agent",
+    "pc_agent.auth",
+    "pc_agent.core.database",
+    "pc_agent.core.job_manager",
+    "pc_agent.core.orchestrator",
+    "pc_agent.core.sender",
     "helpdesk",
 )
 
@@ -24,7 +30,7 @@ def _is_forbidden(module_name: str) -> bool:
     )
 
 
-def test_runtime_main_imports_without_gui_bridge_or_helpdesk(monkeypatch) -> None:
+def test_runtime_main_imports_without_gui_helpdesk_or_protocol_v3(monkeypatch) -> None:
     """Adding a forbidden dependency to the core must make its public import fail."""
     original_import = builtins.__import__
 

@@ -8,9 +8,9 @@ from datetime import UTC, datetime
 from typing import Any
 
 from endpoint_contracts import AgentCommandV1, AgentResultV1
+from pc_agent.context_profiles.command_execution import execute_context_agent_command
 from pc_agent.context_profiles.probe import SystemProbe
-from pc_agent.core.orchestrator import execute_context_agent_command
-from pc_agent.core.registry import CONTEXT_COLLECTION_CAPABILITIES
+from pc_agent.context_profiles.registry import CONTEXT_COLLECTION_CAPABILITIES
 
 
 class CommandExecutor:

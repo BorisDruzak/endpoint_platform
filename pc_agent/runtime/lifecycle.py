@@ -24,13 +24,24 @@ class TerminalTransportError(RuntimeError):
     """A transport/configuration failure that must end the process."""
 
 
+@dataclass(frozen=True, slots=True)
+class ContinueAfter:
+    """A completed transport attempt requests another attempt after a delay."""
+
+    delay: float = 0.0
+
+    def __post_init__(self) -> None:
+        if self.delay < 0:
+            raise ValueError("transport retry delay must not be negative")
+
+
 class RuntimeExecutor(Protocol):
     async def start(self) -> None: ...
     async def stop(self) -> None: ...
 
 
 class RuntimeTransport(Protocol):
-    async def start(self) -> None: ...
+    async def start(self) -> ContinueAfter | None: ...
     async def close(self) -> None: ...
 
 
@@ -81,9 +92,10 @@ class RuntimeLifecycle:
                 transport = self._dependencies.create_transport(
                     self._settings, credential, executor
                 )
+                next_delay: float | None = None
                 try:
                     self._status.transition(RuntimePhase.CONNECTING)
-                    await transport.start()
+                    outcome = await transport.start()
                 except SystemExit as error:
                     code = error.code if isinstance(error.code, int) else 1
                     if code == EXIT_UPDATE_PENDING:
@@ -97,6 +109,7 @@ class RuntimeLifecycle:
                     return 75
                 except RetryableTransportError as error:
                     self._status.record_reconnect(error)
+                    next_delay = self._dependencies.reconnect_delay
                 except TerminalTransportError as error:
                     terminal_phase = RuntimePhase.FAILED
                     self._status.transition(terminal_phase, error=error)
@@ -106,19 +119,38 @@ class RuntimeLifecycle:
                     self._status.transition(RuntimePhase.STOPPING)
                     return 0
                 else:
-                    terminal_phase = RuntimePhase.STOPPED
-                    self._status.transition(RuntimePhase.STOPPING)
-                    return 0
+                    if outcome is None:
+                        terminal_phase = RuntimePhase.STOPPED
+                        self._status.transition(RuntimePhase.STOPPING)
+                        return 0
+                    if not isinstance(outcome, ContinueAfter):
+                        terminal_phase = RuntimePhase.FAILED
+                        self._status.transition(
+                            terminal_phase,
+                            error=TypeError("invalid transport attempt outcome"),
+                        )
+                        return 1
+                    self._status.transition(RuntimePhase.RUNNING)
+                    next_delay = outcome.delay
                 finally:
-                    await transport.close()
+                    await _cleanup(transport.close)
 
-                await self._dependencies.sleep(self._dependencies.reconnect_delay)
+                if next_delay:
+                    await self._dependencies.sleep(next_delay)
         except Exception as error:
             terminal_phase = RuntimePhase.FAILED
             self._status.transition(terminal_phase, error=error)
             return 1
         finally:
             if executor_started:
-                await executor.stop()
+                await _cleanup(executor.stop)
             if terminal_phase is not None:
                 self._status.transition(terminal_phase)
+
+
+async def _cleanup(action: Callable[[], Awaitable[None]]) -> None:
+    """Keep a teardown failure from replacing an already-selected exit result."""
+    try:
+        await action()
+    except Exception:
+        pass

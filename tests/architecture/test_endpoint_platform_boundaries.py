@@ -20,6 +20,12 @@ FORBIDDEN_RUNTIME_IMPORTS = {
     "pc_agent.ui_gui",
     "pc_agent.ui_bridge",
     "pc_agent.ui_gui.server_api",
+    "pc_agent.ws_agent",
+    "pc_agent.auth",
+    "pc_agent.core.database",
+    "pc_agent.core.job_manager",
+    "pc_agent.core.orchestrator",
+    "pc_agent.core.sender",
 }
 
 _FORBIDDEN_RUNTIME_IMPORT_PREFIXES = FORBIDDEN_RUNTIME_IMPORTS | {"helpdesk"}
@@ -196,10 +202,13 @@ def test_outbound_calls_resolve_aliases_and_client_instances(
     [
         "from pc_agent.ui_gui.main import run_gui\n",
         "import pc_agent.ui_bridge.models\n",
+        "from pc_agent.core.database import DatabaseManager\n",
+        "import pc_agent.core.orchestrator.job_helpers\n",
+        "from pc_agent.auth.token_source import load_token\n",
         "import helpdesk\n",
     ],
 )
-def test_future_runtime_guard_rejects_gui_bridge_and_helpdesk_submodules(
+def test_future_runtime_guard_rejects_gui_helpdesk_and_protocol_v3_submodules(
     source: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     """Headless runtime imports must reject GUI, bridge, and Helpdesk dependencies."""
@@ -210,7 +219,7 @@ def test_future_runtime_guard_rejects_gui_bridge_and_helpdesk_submodules(
     monkeypatch.setattr(module, "_REPOSITORY_ROOT", tmp_path)
     monkeypatch.setattr(module, "_RUNTIME_ROOT", runtime_root)
 
-    with pytest.raises(AssertionError, match="runtime imports GUI, bridge, or Helpdesk modules"):
+    with pytest.raises(AssertionError, match="runtime imports forbidden legacy modules"):
         test_future_runtime_package_is_headless()
 
 
@@ -249,5 +258,5 @@ def test_future_runtime_package_is_headless() -> None:
         )
 
     assert not forbidden_imports, (
-        f"runtime imports GUI, bridge, or Helpdesk modules: {forbidden_imports}"
+        f"runtime imports forbidden legacy modules: {forbidden_imports}"
     )

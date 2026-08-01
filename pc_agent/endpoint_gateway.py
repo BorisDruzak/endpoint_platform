@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-import asyncio
 import hashlib
 import json
 import os
 import ssl
+from dataclasses import dataclass
 from typing import Protocol
 from datetime import UTC, datetime
 from pathlib import Path
@@ -15,8 +15,9 @@ from urllib.parse import urlsplit
 import aiohttp
 
 from endpoint_contracts import AgentCommandAckV1, AgentCommandV1, AgentResultV1
+from pc_agent.context_profiles.command_execution import execute_context_agent_command
 from pc_agent.context_profiles.probe import SystemProbe
-from pc_agent.core.orchestrator import execute_context_agent_command
+from pc_agent.device_credential import read_device_credential
 from pc_agent.enrollment_bootstrap import PERMANENT_CREDENTIAL_PATH
 from pc_agent.gateway_update_runtime import GatewayUpdateRuntime
 from pc_agent.update_adapter import EndpointRecommendation, EndpointUpdateAdapter
@@ -24,7 +25,7 @@ from pc_agent.version import EXIT_UPDATE_PENDING
 
 _ORIGIN = "https://endpoint.sosnadmin.local"
 _ALT_CURRENT_SELECTOR = Path("/opt/endpoint-agent/current.json")
-_UPDATE_POLL_INTERVAL_SEC = 300.0
+GATEWAY_UPDATE_POLL_INTERVAL_SEC = 300.0
 
 
 class GatewayCredentialRejected(RuntimeError):
@@ -35,6 +36,13 @@ class GatewayCommandExecutor(Protocol):
     async def execute(self, command: AgentCommandV1) -> AgentResultV1: ...
 
 
+@dataclass(frozen=True, slots=True)
+class GatewayAttemptOutcome:
+    """A successful single poll and the delay before the next lifecycle attempt."""
+
+    delay_before_next: float
+
+
 def require_gateway_response(response: aiohttp.ClientResponse) -> None:
     if response.status in {401, 403}:
         raise GatewayCredentialRejected("Endpoint Gateway rejected device credential")
@@ -42,10 +50,7 @@ def require_gateway_response(response: aiohttp.ClientResponse) -> None:
 
 
 def _credential() -> str:
-    value = PERMANENT_CREDENTIAL_PATH.read_text(encoding="ascii").strip()
-    if len(value) != 43 or any(ch.isspace() for ch in value):
-        raise ValueError("invalid Endpoint device credential")
-    return value
+    return read_device_credential(PERMANENT_CREDENTIAL_PATH)
 
 
 def read_gateway_current_version(selector_path: Path = _ALT_CURRENT_SELECTOR) -> str:
@@ -157,7 +162,7 @@ def _gateway_update_runtime(
     )
 
 
-async def run_gateway_forever(
+async def run_gateway_once(
     *,
     ca_file: Path,
     command_executor: GatewayCommandExecutor | None = None,
@@ -165,8 +170,9 @@ async def run_gateway_forever(
     endpoint_origin: str | None = None,
     data_root: Path | None = None,
     current_selector: Path | None = None,
-) -> None:
-    """Poll only the fixed HTTPS Gateway; transient outages never stop the service."""
+    poll_updates: bool = True,
+) -> GatewayAttemptOutcome:
+    """Perform one TLS Gateway attempt and surface every outcome to the caller."""
     use_default_update_runtime = (
         credential is None
         and endpoint_origin is None
@@ -177,51 +183,59 @@ async def run_gateway_forever(
     _endpoint_origin(configured_origin)
     credential_source = _credential if credential is None else lambda: credential
     context = ssl.create_default_context(cafile=str(ca_file))
-    next_update_poll_at = 0.0
-    while True:
-        try:
-            token = credential_source()
-            headers = {"Authorization": f"Bearer {token}"}
-            connector = aiohttp.TCPConnector(ssl=context)
-            async with aiohttp.ClientSession(
-                timeout=aiohttp.ClientTimeout(total=20), connector=connector
-            ) as session:
-                if use_default_update_runtime:
-                    update_runtime = _gateway_update_runtime(session)
-                else:
-                    update_runtime = _gateway_update_runtime(
-                        session,
-                        endpoint_origin=configured_origin,
-                        credential_source=credential_source,
-                        data_root=data_root,
-                        current_selector=current_selector,
-                    )
-                await update_runtime.report_startup_outcome()
-                now = asyncio.get_running_loop().time()
-                if now >= next_update_poll_at:
-                    update_result = await update_runtime.run_once()
-                    next_update_poll_at = now + _UPDATE_POLL_INTERVAL_SEC
-                    if update_result.status == "scheduled":
-                        raise SystemExit(EXIT_UPDATE_PENDING)
-                async with session.get(f"{configured_origin}/agent/v1/gateway/commands/next", headers=headers, ssl=context) as response:
-                    if response.status == 204:
-                        await asyncio.sleep(5)
-                        continue
-                    require_gateway_response(response)
-                    command = AgentCommandV1.model_validate(await response.json())
-                ack = AgentCommandAckV1(schema_version="agent_command_ack_v1", command_id=command.command_id, device_id=command.device_id, status="acknowledged", acknowledged_at=datetime.now(UTC))
-                async with session.post(f"{configured_origin}/agent/v1/gateway/commands/{command.command_id}/ack", headers=headers, json=ack.model_dump(mode="json"), ssl=context) as response:
-                    require_gateway_response(response)
-                if command_executor is None:
-                    result = execute_context_agent_command(command, probe=SystemProbe())
-                else:
-                    result = await command_executor.execute(command)
-                async with session.post(f"{configured_origin}/agent/v1/gateway/commands/{command.command_id}/results", headers=headers, json=result.model_dump(mode="json"), ssl=context) as response:
-                    require_gateway_response(response)
-        except (
-            aiohttp.ClientConnectorCertificateError,
-            aiohttp.ClientConnectorSSLError,
-        ):
-            raise
-        except (aiohttp.ClientConnectionError, asyncio.TimeoutError):
-            await asyncio.sleep(5)
+    token = credential_source()
+    headers = {"Authorization": f"Bearer {token}"}
+    connector = aiohttp.TCPConnector(ssl=context)
+    async with aiohttp.ClientSession(
+        timeout=aiohttp.ClientTimeout(total=20), connector=connector
+    ) as session:
+        if use_default_update_runtime:
+            update_runtime = _gateway_update_runtime(session)
+        else:
+            update_runtime = _gateway_update_runtime(
+                session,
+                endpoint_origin=configured_origin,
+                credential_source=credential_source,
+                data_root=data_root,
+                current_selector=current_selector,
+            )
+        await update_runtime.report_startup_outcome()
+        if poll_updates:
+            update_result = await update_runtime.run_once()
+            if update_result.status == "scheduled":
+                raise SystemExit(EXIT_UPDATE_PENDING)
+        async with session.get(
+            f"{configured_origin}/agent/v1/gateway/commands/next",
+            headers=headers,
+            ssl=context,
+        ) as response:
+            if response.status == 204:
+                return GatewayAttemptOutcome(delay_before_next=5.0)
+            require_gateway_response(response)
+            command = AgentCommandV1.model_validate(await response.json())
+        ack = AgentCommandAckV1(
+            schema_version="agent_command_ack_v1",
+            command_id=command.command_id,
+            device_id=command.device_id,
+            status="acknowledged",
+            acknowledged_at=datetime.now(UTC),
+        )
+        async with session.post(
+            f"{configured_origin}/agent/v1/gateway/commands/{command.command_id}/ack",
+            headers=headers,
+            json=ack.model_dump(mode="json"),
+            ssl=context,
+        ) as response:
+            require_gateway_response(response)
+        if command_executor is None:
+            result = execute_context_agent_command(command, probe=SystemProbe())
+        else:
+            result = await command_executor.execute(command)
+        async with session.post(
+            f"{configured_origin}/agent/v1/gateway/commands/{command.command_id}/results",
+            headers=headers,
+            json=result.model_dump(mode="json"),
+            ssl=context,
+        ) as response:
+            require_gateway_response(response)
+    return GatewayAttemptOutcome(delay_before_next=0.0)

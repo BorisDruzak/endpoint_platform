@@ -34,11 +34,8 @@ from pc_agent.core.validator import CodeValidator
 from pc_agent.core.loader import DynamicModuleLoader
 from pc_agent.core.process_provider import ProcessProvider
 from pc_agent.core.registry import ModuleRegistry
-from pc_agent.core.registry import (
-    CONTEXT_COLLECTION_CAPABILITIES,
-    ContextCapabilityError,
-    execute_context_capability,
-)
+from pc_agent.core.registry import CONTEXT_COLLECTION_CAPABILITIES
+from pc_agent.context_profiles.command_execution import execute_context_agent_command
 from pc_agent.core.tool_response import (
     ToolResponse,
     ToolMeta,
@@ -75,8 +72,7 @@ from pc_agent.core.orchestrator_shared import logger
 from pc_agent.utils.toolset_hash import compute_toolset_hash
 import inspect
 
-from endpoint_contracts.commands import AgentCommandV1, AgentResultV1
-from endpoint_contracts.context import validate_context_result_item
+from endpoint_contracts.commands import AgentResultV1
 
 try:
     from shared.tool_contracts import ToolExecutionEnvelope, ToolExecutionMetrics
@@ -151,79 +147,6 @@ BUILTIN_PACKAGE_INSTALL_MODULES = {name.lower() for name in CORE_ENABLED_MODULES
 TOOL_EXECUTION_LANE_SAFE_READ = "safe_read"
 TOOL_EXECUTION_LANE_SERIAL = "serial"
 SAFE_READ_TOOL_CONCURRENCY = 2
-
-
-def execute_context_agent_command(
-    command: AgentCommandV1,
-    *,
-    probe: object,
-    completed_at: datetime | None = None,
-) -> AgentResultV1:
-    """Execute one fixed Device Context capability as one typed result item.
-
-    This intentionally does not delegate to the agent's dynamic module/tool
-    registry.  The collection profiles have a fixed allowlist and a local-only
-    probe boundary; a caller cannot select a shell command or arbitrary module.
-    """
-    finished_at = completed_at or datetime.now(timezone.utc)
-    if command.capability not in CONTEXT_COLLECTION_CAPABILITIES:
-        return _context_command_result(
-            command, status="failed", message="CONTEXT_CAPABILITY_REJECTED", completed_at=finished_at
-        )
-    try:
-        envelope = execute_context_capability(
-            command.capability,
-            command.parameters,
-            probe,
-            collected_at=finished_at,
-        )
-        # Validate the serialized payload before it enters AgentResultV1.
-        result_item = validate_context_result_item(envelope.model_dump(mode="json"))
-    except asyncio.CancelledError:
-        return _context_command_result(
-            command, status="canceled", message="OPERATION_CANCELED", completed_at=finished_at
-        )
-    except TimeoutError:
-        return _context_command_result(
-            command,
-            status="failed",
-            message="CONTEXT_COLLECTION_TIMED_OUT",
-            completed_at=finished_at,
-        )
-    except ContextCapabilityError:
-        return _context_command_result(
-            command,
-            status="failed",
-            message="CONTEXT_CAPABILITY_REJECTED",
-            completed_at=finished_at,
-        )
-
-    return AgentResultV1(
-        schema_version="agent_result_v1",
-        command_id=command.command_id,
-        device_id=command.device_id,
-        status="succeeded",
-        result_items=[result_item.model_dump(mode="json")],
-        completed_at=finished_at,
-    )
-
-
-def _context_command_result(
-    command: AgentCommandV1,
-    *,
-    status: Literal["failed", "canceled"],
-    message: str,
-    completed_at: datetime,
-) -> AgentResultV1:
-    return AgentResultV1(
-        schema_version="agent_result_v1",
-        command_id=command.command_id,
-        device_id=command.device_id,
-        status=status,
-        result_items=[],
-        message=message,
-        completed_at=completed_at,
-    )
 
 
 def _agent_version_compare(left: str | None, right: str | None) -> int:

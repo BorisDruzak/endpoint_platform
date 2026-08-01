@@ -198,7 +198,7 @@ async def test_gateway_uses_configured_ca_and_endpoint_origin_without_legacy_fal
     )
 
     with pytest.raises(endpoint_gateway.GatewayCredentialRejected):
-        await endpoint_gateway.run_gateway_forever(ca_file=ca_file)
+        await endpoint_gateway.run_gateway_once(ca_file=ca_file)
 
     assert contexts == [{"cafile": str(ca_file)}]
     assert connectors == [tls_context]
@@ -212,14 +212,13 @@ async def test_gateway_uses_configured_ca_and_endpoint_origin_without_legacy_fal
 
 
 @pytest.mark.asyncio
-async def test_gateway_retries_transient_transport_failures_but_not_credential_rejection(
+async def test_gateway_surfaces_transient_transport_failure_after_one_attempt(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    """A credential rejection must escape, while a transport outage gets one retry."""
+    """The poller must not hide a transport outage from the runtime lifecycle."""
     first_session = _GatewaySession(failure=aiohttp.ClientConnectionError("offline"))
     second_session = _GatewaySession(response=_GatewayResponse(403))
     sessions = [first_session, second_session]
-    sleeps: list[float] = []
 
     monkeypatch.setattr(endpoint_gateway.ssl, "create_default_context", lambda **_kwargs: object())
     monkeypatch.setattr(endpoint_gateway.aiohttp, "TCPConnector", lambda **_kwargs: object())
@@ -231,17 +230,11 @@ async def test_gateway_retries_transient_transport_failures_but_not_credential_r
         endpoint_gateway, "_gateway_update_runtime", lambda _session: _IdleUpdateRuntime()
     )
 
-    async def capture_sleep(seconds: float) -> None:
-        sleeps.append(seconds)
+    with pytest.raises(aiohttp.ClientConnectionError):
+        await endpoint_gateway.run_gateway_once(ca_file=tmp_path / "endpoint-ca.crt")
 
-    monkeypatch.setattr(endpoint_gateway.asyncio, "sleep", capture_sleep)
-
-    with pytest.raises(endpoint_gateway.GatewayCredentialRejected):
-        await endpoint_gateway.run_gateway_forever(ca_file=tmp_path / "endpoint-ca.crt")
-
-    assert sleeps == [5]
     assert len(first_session.requests) == 1
-    assert len(second_session.requests) == 1
+    assert second_session.requests == []
 
 
 def _tls_connection_key() -> ConnectionKey:
@@ -275,7 +268,6 @@ async def test_gateway_does_not_retry_tls_verification_or_configuration_failures
     session = _GatewaySession(failure=failure)
     retry_session = _GatewaySession(response=_GatewayResponse(403))
     sessions = [session, retry_session]
-    sleeps: list[float] = []
 
     monkeypatch.setattr(endpoint_gateway.ssl, "create_default_context", lambda **_kwargs: object())
     monkeypatch.setattr(endpoint_gateway.aiohttp, "TCPConnector", lambda **_kwargs: object())
@@ -287,28 +279,21 @@ async def test_gateway_does_not_retry_tls_verification_or_configuration_failures
         endpoint_gateway, "_gateway_update_runtime", lambda _session: _IdleUpdateRuntime()
     )
 
-    async def capture_sleep(seconds: float) -> None:
-        sleeps.append(seconds)
-
-    monkeypatch.setattr(endpoint_gateway.asyncio, "sleep", capture_sleep)
-
     with pytest.raises(type(failure)):
-        await endpoint_gateway.run_gateway_forever(ca_file=tmp_path / "endpoint-ca.crt")
+        await endpoint_gateway.run_gateway_once(ca_file=tmp_path / "endpoint-ca.crt")
 
-    assert sleeps == []
     assert len(session.requests) == 1
     assert retry_session.requests == []
 
 
 @pytest.mark.asyncio
-async def test_gateway_does_not_retry_a_permanent_http_failure(
+async def test_gateway_surfaces_http_failure_without_internal_retry(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    """A controller 500 must stop this process instead of being treated as transport loss."""
+    """A controller 500 must be classified by the owning runtime lifecycle."""
     session = _GatewaySession(response=_GatewayResponse(500))
     retry_session = _GatewaySession(response=_GatewayResponse(403))
     sessions = [session, retry_session]
-    sleeps: list[float] = []
 
     monkeypatch.setattr(endpoint_gateway.ssl, "create_default_context", lambda **_kwargs: object())
     monkeypatch.setattr(endpoint_gateway.aiohttp, "TCPConnector", lambda **_kwargs: object())
@@ -320,16 +305,10 @@ async def test_gateway_does_not_retry_a_permanent_http_failure(
         endpoint_gateway, "_gateway_update_runtime", lambda _session: _IdleUpdateRuntime()
     )
 
-    async def capture_sleep(seconds: float) -> None:
-        sleeps.append(seconds)
-
-    monkeypatch.setattr(endpoint_gateway.asyncio, "sleep", capture_sleep)
-
     with pytest.raises(aiohttp.ClientResponseError) as error:
-        await endpoint_gateway.run_gateway_forever(ca_file=tmp_path / "endpoint-ca.crt")
+        await endpoint_gateway.run_gateway_once(ca_file=tmp_path / "endpoint-ca.crt")
 
     assert error.value.status == 500
-    assert sleeps == []
     assert len(session.requests) == 1
     assert retry_session.requests == []
 
@@ -350,7 +329,6 @@ async def test_gateway_does_not_retry_permanent_configuration_or_integrity_failu
     """Credential and artifact validation failures must not be converted into retries."""
     update_runtime = _PermanentUpdateRuntime(failure)
     session = _GatewaySession(response=_GatewayResponse(204))
-    sleeps: list[float] = []
 
     monkeypatch.setattr(endpoint_gateway.ssl, "create_default_context", lambda **_kwargs: object())
     monkeypatch.setattr(endpoint_gateway.aiohttp, "TCPConnector", lambda **_kwargs: object())
@@ -358,16 +336,10 @@ async def test_gateway_does_not_retry_permanent_configuration_or_integrity_failu
     monkeypatch.setattr(endpoint_gateway, "_credential", lambda: "device-token")
     monkeypatch.setattr(endpoint_gateway, "_gateway_update_runtime", lambda _session: update_runtime)
 
-    async def capture_sleep(seconds: float) -> None:
-        sleeps.append(seconds)
-
-    monkeypatch.setattr(endpoint_gateway.asyncio, "sleep", capture_sleep)
-
     with pytest.raises(ValueError, match=str(failure)):
-        await endpoint_gateway.run_gateway_forever(ca_file=tmp_path / "endpoint-ca.crt")
+        await endpoint_gateway.run_gateway_once(ca_file=tmp_path / "endpoint-ca.crt")
 
     assert update_runtime.calls == 1
-    assert sleeps == []
     assert session.requests == []
 
 
@@ -423,9 +395,12 @@ async def test_gateway_parses_executes_acknowledges_and_reports_only_context_all
         endpoint_gateway, "_gateway_update_runtime", lambda _session: _IdleUpdateRuntime()
     )
 
-    with pytest.raises(endpoint_gateway.GatewayCredentialRejected):
-        await endpoint_gateway.run_gateway_forever(ca_file=tmp_path / "endpoint-ca.crt")
+    outcome = await endpoint_gateway.run_gateway_once(
+        ca_file=tmp_path / "endpoint-ca.crt"
+    )
 
+    assert outcome.delay_before_next == 0
+    assert terminal_session.requests == []
     assert [url for url, _kwargs in command_session.requests] == [
         "https://endpoint.sosnadmin.local/agent/v1/gateway/commands/next",
         f"https://endpoint.sosnadmin.local/agent/v1/gateway/commands/{_COMMAND_ID}/ack",

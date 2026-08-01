@@ -10,15 +10,24 @@
 - `pc_agent/runtime/application.py` and `runtime/lifecycle.py` own neutral
   startup, one-time credential loading, command-executor startup, classified
   reconnect, controlled update exit `42`, terminal credential rejection, and
-  clean component shutdown. The transitional HTTP-pull seam delegates only
-  network work to `pc_agent/endpoint_gateway.py` and passes the resolved
-  runtime settings plus the neutral executor explicitly.
+  clean component shutdown. Cleanup errors cannot replace the selected clean,
+  credential-rejected, or update-pending exit. The transitional HTTP-pull seam
+  delegates one network attempt at a time to `pc_agent/endpoint_gateway.py`;
+  the lifecycle owns normal polling delays and retry of network/HTTP 5xx
+  failures. TLS verification and credential rejection remain terminal.
 - `pc_agent/runtime/command_executor.py` accepts only typed
   `AgentCommandV1` Device Context commands and rejects unknown capabilities
-  before the fixed collector execution path. `runtime/verification.py` is a
-  network-free preflight for settings, SQLite migration, identity/credential
-  structure, collector registry, immutable update selector, and import
-  boundaries.
+  before the fixed collector execution path. The typed executor and fixed
+  capability registry live in neutral `pc_agent/context_profiles` modules;
+  the legacy orchestrator only re-exports the executor for compatibility.
+  `pc_agent/device_credential.py` is the shared credential-file validator.
+  `runtime/local_state.py` owns only the Endpoint Agent V2 SQLite schema and
+  does not import or migrate the Helpdesk Protocol V3 database.
+- `runtime/verification.py` is a network-free preflight for settings, V2 local
+  state migration, identity/credential structure, collector registry,
+  immutable update selector, and import boundaries. Runtime guards reject GUI,
+  Helpdesk auth/ticket code, `ws_agent`, and Protocol V3 database/orchestrator/
+  job/sender modules and their submodules.
 - `pc_agent/ws_agent.py` is now a compatibility entrypoint: accepted ALT
   Gateway startup delegates to `pc_agent.runtime.main`; its inherited GUI,
   Helpdesk/Ticket API, Remote Assist UI, and legacy Protocol V3 runtime remain

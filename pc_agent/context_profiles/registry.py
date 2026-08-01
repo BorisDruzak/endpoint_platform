@@ -17,6 +17,16 @@ class ContextCapabilityError(ValueError):
     """Raised for a capability or parameter shape outside the fixed allowlist."""
 
 
+CONTEXT_COLLECTION_CAPABILITIES = frozenset(
+    {
+        "context.baseline.collect",
+        "context.health.collect",
+        "context.network.collect",
+        "context.diagnostic.collect",
+    }
+)
+
+
 def execute_context_capability(
     capability: str,
     parameters: Mapping[str, object],

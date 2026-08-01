@@ -10,8 +10,9 @@ from uuid import UUID
 import aiohttp
 import pytest
 
-from pc_agent.core.database import DB_SCHEMA_VERSION
+from pc_agent.device_credential import DeviceCredentialError, read_device_credential
 from pc_agent.runtime.application import RuntimeSettings
+from pc_agent.runtime.local_state import LOCAL_STATE_SCHEMA_VERSION
 from pc_agent.runtime.verification import run_verify
 
 
@@ -72,9 +73,10 @@ def test_verify_migrates_local_database_without_opening_gateway(
 
     assert run_verify(settings) == 0
     with sqlite3.connect(settings.data_root / "storage.db") as connection:
-        assert connection.execute("PRAGMA user_version").fetchone() == (
-            DB_SCHEMA_VERSION,
-        )
+        assert connection.execute(
+            "SELECT schema_version FROM endpoint_runtime_schema WHERE singleton = 1"
+        ).fetchone() == (LOCAL_STATE_SCHEMA_VERSION,)
+        assert connection.execute("PRAGMA user_version").fetchone() == (0,)
 
 
 @pytest.mark.parametrize(
@@ -107,3 +109,34 @@ def test_verify_rejects_non_https_endpoint_configuration(tmp_path: Path) -> None
     )
 
     assert run_verify(settings) == 1
+
+
+@pytest.mark.parametrize("suffix", [b"", b"\n", b"\r\n"])
+def test_neutral_credential_reader_accepts_exact_token_with_optional_lf(
+    tmp_path: Path, suffix: bytes
+) -> None:
+    path = tmp_path / "device-credential"
+    path.write_bytes(b"c" * 43 + suffix)
+
+    assert read_device_credential(path) == "c" * 43
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        b"c" * 42,
+        b"c" * 44,
+        b"c" * 43 + b"\n\n",
+        b"c" * 43 + b"\r",
+        b"c" * 42 + b" ",
+        b"\xff" * 43,
+    ],
+)
+def test_neutral_credential_reader_rejects_malformed_file(
+    tmp_path: Path, payload: bytes
+) -> None:
+    path = tmp_path / "device-credential"
+    path.write_bytes(payload)
+
+    with pytest.raises(DeviceCredentialError):
+        read_device_credential(path)

@@ -4,12 +4,15 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from types import SimpleNamespace
 from uuid import UUID
 
+import aiohttp
 import pytest
 
 from endpoint_contracts import AgentCommandV1
 from pc_agent import endpoint_gateway
+from pc_agent.runtime import application as runtime_application
 from pc_agent.runtime.application import (
     RuntimeApplication,
     RuntimeDependencies,
@@ -181,6 +184,46 @@ async def test_gateway_credential_rejection_is_terminal_in_process(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("outcome", "expected_code", "expected_phase"),
+    [
+        (SystemExit(EXIT_UPDATE_PENDING), EXIT_UPDATE_PENDING, RuntimePhase.UPDATE_PENDING),
+        (CredentialRejected("credential rejected"), 75, RuntimePhase.CREDENTIAL_REJECTED),
+        (None, 0, RuntimePhase.STOPPED),
+    ],
+)
+async def test_cleanup_failures_preserve_primary_exit_and_phase(
+    tmp_path: Path,
+    outcome: BaseException | None,
+    expected_code: int,
+    expected_phase: RuntimePhase,
+) -> None:
+    """Cleanup is best-effort after the lifecycle has selected its exit contract."""
+    events: list[str] = []
+
+    class FailingCleanupExecutor(_Executor):
+        async def stop(self) -> None:
+            await super().stop()
+            raise RuntimeError("executor cleanup failed")
+
+    class FailingCleanupTransport(_Transport):
+        async def close(self) -> None:
+            await super().close()
+            raise RuntimeError("transport cleanup failed")
+
+    dependencies = RuntimeDependencies(
+        load_credential=lambda _settings: "c" * 43,
+        create_executor=lambda: FailingCleanupExecutor(events),
+        create_transport=lambda *_args: FailingCleanupTransport(events, outcome),
+    )
+    application = RuntimeApplication(_settings(tmp_path), dependencies)
+
+    assert await application.run() == expected_code
+    assert application.status.phase is expected_phase
+    assert events[-2:] == ["transport.close", "executor.stop"]
+
+
+@pytest.mark.asyncio
 async def test_executor_startup_failure_returns_runtime_error(tmp_path: Path) -> None:
     """A local startup failure must not escape without an actionable exit code."""
     events: list[str] = []
@@ -280,6 +323,7 @@ async def test_default_runtime_wires_executor_into_current_http_pull(
         endpoint_origin: str,
         data_root: Path,
         current_selector: Path,
+        poll_updates: bool,
     ) -> None:
         observed.append(
             (
@@ -292,7 +336,9 @@ async def test_default_runtime_wires_executor_into_current_http_pull(
             )
         )
 
-    monkeypatch.setattr(endpoint_gateway, "run_gateway_forever", gateway_runner)
+        assert poll_updates is True
+
+    monkeypatch.setattr(endpoint_gateway, "run_gateway_once", gateway_runner)
 
     assert await run_runtime(settings) == 0
     assert len(observed) == 1
@@ -304,6 +350,129 @@ async def test_default_runtime_wires_executor_into_current_http_pull(
         settings.data_root,
         settings.install_root / "current.json",
     )
+
+
+class _AttemptResponse:
+    def __init__(self, status: int) -> None:
+        self.status = status
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *_args: object) -> None:
+        return None
+
+    def raise_for_status(self) -> None:
+        if self.status >= 400:
+            raise aiohttp.ClientResponseError(
+                request_info=SimpleNamespace(real_url="https://endpoint.invalid"),
+                history=(),
+                status=self.status,
+                message="synthetic response",
+            )
+
+
+class _AttemptSession:
+    def __init__(
+        self,
+        *,
+        status: int | None = None,
+        failure: BaseException | None = None,
+    ) -> None:
+        self._status = status
+        self._failure = failure
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *_args: object) -> None:
+        return None
+
+    def get(self, *_args: object, **_kwargs: object) -> _AttemptResponse:
+        if self._failure is not None:
+            raise self._failure
+        assert self._status is not None
+        return _AttemptResponse(self._status)
+
+
+class _IdleUpdateRuntime:
+    async def report_startup_outcome(self) -> bool:
+        return False
+
+    async def run_once(self) -> SimpleNamespace:
+        return SimpleNamespace(status="idle")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("first_outcome", "expected_reconnects", "expected_sleeps"),
+    [
+        ("network", 1, [0.25]),
+        ("http_500", 1, [0.25]),
+        ("no_command", 0, [5.0]),
+    ],
+)
+async def test_production_http_attempt_continues_through_lifecycle(
+    first_outcome: str,
+    expected_reconnects: int,
+    expected_sleeps: list[float],
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """The real HTTP seam surfaces both polling and retry outcomes to lifecycle."""
+    settings = _settings(tmp_path)
+    settings.data_root.mkdir()
+    settings.install_root.mkdir()
+    settings.ca_file.write_text("test-only CA fixture", encoding="ascii")
+    (settings.data_root / "device-credential").write_text(
+        "c" * 43 + "\n", encoding="ascii"
+    )
+    if first_outcome == "network":
+        first = _AttemptSession(failure=aiohttp.ClientConnectionError("offline"))
+    elif first_outcome == "http_500":
+        first = _AttemptSession(status=500)
+    else:
+        first = _AttemptSession(status=204)
+    sessions = [first, _AttemptSession(status=403)]
+    sleeps: list[float] = []
+
+    monkeypatch.setattr(
+        endpoint_gateway.ssl, "create_default_context", lambda **_kwargs: object()
+    )
+    monkeypatch.setattr(
+        endpoint_gateway.aiohttp, "TCPConnector", lambda **_kwargs: object()
+    )
+    monkeypatch.setattr(
+        endpoint_gateway.aiohttp,
+        "ClientSession",
+        lambda **_kwargs: sessions.pop(0),
+    )
+    monkeypatch.setattr(
+        endpoint_gateway,
+        "_gateway_update_runtime",
+        lambda *_args, **_kwargs: _IdleUpdateRuntime(),
+    )
+
+    async def capture_sleep(delay: float) -> None:
+        sleeps.append(delay)
+
+    defaults = runtime_application._default_dependencies()
+    application = RuntimeApplication(
+        settings,
+        RuntimeDependencies(
+            load_credential=defaults.load_credential,
+            create_executor=defaults.create_executor,
+            create_transport=defaults.create_transport,
+            sleep=capture_sleep,
+            reconnect_delay=0.25,
+        ),
+    )
+
+    assert await application.run() == 75
+    assert application.status.phase is RuntimePhase.CREDENTIAL_REJECTED
+    assert application.status.reconnect_attempts == expected_reconnects
+    assert sleeps == expected_sleeps
+    assert sessions == []
 
 
 def test_ws_agent_gateway_compatibility_entrypoint_delegates_to_runtime(
