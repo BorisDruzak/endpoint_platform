@@ -866,6 +866,7 @@
       "type": "object"
     },
     "GatewayCommandV1": {
+      "$comment": "deadline_at must be after created_at; this cross-field ordering rule is enforced by the Pydantic model only.",
       "additionalProperties": false,
       "allOf": [
         {
@@ -905,7 +906,7 @@
                   "message": {
                     "maxLength": 512,
                     "minLength": 1,
-                    "pattern": "^(?![A-Za-z][A-Za-z0-9+.-]*://)[\\s\\S]*$",
+                    "pattern": "^(?![\\s\\S]*://)[\\s\\S]*$",
                     "type": "string"
                   }
                 },
@@ -930,7 +931,7 @@
                   "reason": {
                     "maxLength": 256,
                     "minLength": 1,
-                    "pattern": "^(?![A-Za-z][A-Za-z0-9+.-]*://)[\\s\\S]*$",
+                    "pattern": "^(?![\\s\\S]*://)[\\s\\S]*$",
                     "type": "string"
                   }
                 },

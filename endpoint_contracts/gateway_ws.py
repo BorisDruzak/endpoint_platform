@@ -101,6 +101,9 @@ class GatewayHelloV1(ContractModelV1):
 
 def _gateway_command_schema_extra(schema: dict[str, object]) -> None:
     """Publish the same capability-specific parameter allowlist used at runtime."""
+    parent_schema_extra = AgentCommandV1.model_config.get("json_schema_extra")
+    if isinstance(parent_schema_extra, dict):
+        schema.update(parent_schema_extra)
     no_parameters = [
         "agent.status.read",
         "context.baseline.collect",
@@ -111,7 +114,7 @@ def _gateway_command_schema_extra(schema: dict[str, object]) -> None:
         "type": "string",
         "minLength": 1,
         "maxLength": 512,
-        "pattern": r"^(?![A-Za-z][A-Za-z0-9+.-]*://)[\s\S]*$",
+        "pattern": r"^(?![\s\S]*://)[\s\S]*$",
     }
     schema["allOf"] = [
         {

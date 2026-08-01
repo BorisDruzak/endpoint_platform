@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from jsonschema import Draft202012Validator
+from jsonschema import Draft202012Validator, FormatChecker
 from jsonschema.exceptions import ValidationError as JsonSchemaValidationError
 from pydantic import ValidationError
 
@@ -18,6 +18,7 @@ DEVICE_ID = "11111111-1111-4111-8111-111111111111"
 AGENT_INSTANCE_ID = "22222222-2222-4222-8222-222222222222"
 SESSION_ID = "33333333-3333-4333-8333-333333333333"
 COMMAND_ID = "44444444-4444-4444-8444-444444444444"
+JSON_SCHEMA_FORMAT_CHECKER = FormatChecker()
 
 
 def _contracts() -> Any:
@@ -35,6 +36,15 @@ def _contracts() -> Any:
     ):
         assert getattr(module, name, None) is not None, f"missing contract API: {name}"
     return module
+
+
+def _schema_validator(schema_name: str) -> Draft202012Validator:
+    schema = json.loads((SCHEMA_ROOT / schema_name).read_text(encoding="utf-8"))
+    Draft202012Validator.check_schema(schema)
+    return Draft202012Validator(
+        schema,
+        format_checker=JSON_SCHEMA_FORMAT_CHECKER,
+    )
 
 
 def _agent_hello() -> dict[str, object]:
@@ -310,17 +320,12 @@ def test_committed_json_schemas_validate_canonical_payloads(
     schema_name: str, payload: dict[str, object]
 ) -> None:
     _contracts()
-    schema = json.loads((SCHEMA_ROOT / schema_name).read_text(encoding="utf-8"))
-
-    Draft202012Validator(schema).validate(payload)
+    _schema_validator(schema_name).validate(payload)
 
 
 def test_envelope_json_schema_enforces_kind_bounds_and_neutrality() -> None:
     _contracts()
-    schema = json.loads(
-        (SCHEMA_ROOT / "gateway_ws_envelope_v1.json").read_text(encoding="utf-8")
-    )
-    validator = Draft202012Validator(schema)
+    validator = _schema_validator("gateway_ws_envelope_v1.json")
     valid = _envelope("command", _command())
 
     invalid_envelopes = [
@@ -337,6 +342,69 @@ def test_envelope_json_schema_enforces_kind_bounds_and_neutrality() -> None:
     for envelope in invalid_envelopes:
         with pytest.raises(JsonSchemaValidationError):
             validator.validate(envelope)
+
+
+@pytest.mark.parametrize(
+    ("capability", "parameter_name", "parameter_value"),
+    [
+        ("gateway.echo", "message", "see https://evil.example/run"),
+        (
+            "context.diagnostic.collect",
+            "reason",
+            "review ftp://evil.example/diagnostic",
+        ),
+    ],
+)
+def test_envelope_schema_rejects_urls_embedded_in_allowed_command_text(
+    capability: str, parameter_name: str, parameter_value: str
+) -> None:
+    contracts = _contracts()
+    command = {
+        **_command(),
+        "capability": capability,
+        "parameters": {parameter_name: parameter_value},
+    }
+    envelope = _envelope("command", command)
+
+    with pytest.raises(ValidationError):
+        contracts.GatewayWsEnvelopeV1.model_validate(envelope)
+    with pytest.raises(JsonSchemaValidationError):
+        _schema_validator("gateway_ws_envelope_v1.json").validate(envelope)
+
+
+@pytest.mark.parametrize(
+    ("field_name", "invalid_value"),
+    [
+        ("server_time", "2026-08-01T07:30:00"),
+        ("server_time", "not-a-date-time"),
+        ("session_id", "not-a-uuid"),
+    ],
+)
+def test_gateway_hello_schema_rejects_invalid_wire_formats(
+    field_name: str, invalid_value: str
+) -> None:
+    payload = {**_gateway_hello(), field_name: invalid_value}
+
+    with pytest.raises(JsonSchemaValidationError):
+        _schema_validator("gateway_hello_v1.json").validate(payload)
+
+
+def test_envelope_schema_documents_model_only_command_deadline_ordering() -> None:
+    contracts = _contracts()
+    command = {
+        **_command(),
+        "deadline_at": _command()["created_at"],
+    }
+    envelope = _envelope("command", command)
+    schema = json.loads(
+        (SCHEMA_ROOT / "gateway_ws_envelope_v1.json").read_text(encoding="utf-8")
+    )
+
+    _schema_validator("gateway_ws_envelope_v1.json").validate(envelope)
+    with pytest.raises(ValidationError):
+        contracts.GatewayWsEnvelopeV1.model_validate(envelope)
+    comment = schema["$defs"]["GatewayCommandV1"]["$comment"]
+    assert "deadline_at must be after created_at" in comment
 
 
 @pytest.mark.parametrize(
