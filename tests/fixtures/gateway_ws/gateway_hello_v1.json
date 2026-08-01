@@ -1,0 +1,11 @@
+{
+  "effective_capabilities": [
+    "context.baseline.collect"
+  ],
+  "heartbeat_interval_seconds": 30,
+  "maximum_message_bytes": 65536,
+  "policy_revision": 12,
+  "schema_version": "gateway_hello_v1",
+  "server_time": "2026-08-01T07:30:00Z",
+  "session_id": "33333333-3333-4333-8333-333333333333"
+}

@@ -8,11 +8,14 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
+from pydantic import BaseModel
+
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 if str(REPOSITORY_ROOT) not in sys.path:
     sys.path.insert(0, str(REPOSITORY_ROOT))
 
 from endpoint_contracts import (  # noqa: E402
+    AgentHelloV1,
     AgentBuildRecommendationV1,
     AgentCommandAckV1,
     AgentCommandV1,
@@ -31,6 +34,8 @@ from endpoint_contracts import (  # noqa: E402
     EnrollmentDeliveryProofV1,
     EnrollmentRequestV1,
     EnrollmentResponseV1,
+    GatewayHelloV1,
+    GatewayWsEnvelopeV1,
     AgentUpdateAcknowledgementV1,
     AgentUpdateRecommendationV1,
     AgentUpdateReportV1,
@@ -64,6 +69,12 @@ PUBLIC_MODELS: dict[str, type[ContractModelV1]] = {
     "device_context_network_v1.json": DeviceContextNetworkV1,
     "device_context_diagnostic_v1.json": DeviceContextDiagnosticV1,
     "device_context_diff_v1.json": DeviceContextDiffV1,
+}
+
+GATEWAY_WS_MODELS: dict[str, type[BaseModel]] = {
+    "agent_hello_v1.json": AgentHelloV1,
+    "gateway_hello_v1.json": GatewayHelloV1,
+    "gateway_ws_envelope_v1.json": GatewayWsEnvelopeV1,
 }
 
 FIXTURES: dict[str, dict[str, Any]] = {
@@ -192,10 +203,54 @@ FIXTURES: dict[str, dict[str, Any]] = {
     },
 }
 
+GATEWAY_WS_FIXTURES: dict[str, dict[str, Any]] = {
+    "agent_hello_v1.json": {
+        "schema_version": "agent_hello_v1",
+        "device_id": "11111111-1111-4111-8111-111111111111",
+        "agent_instance_id": "22222222-2222-4222-8222-222222222222",
+        "agent_version": "4.0.0",
+        "launcher_version": "2.1.0",
+        "platform": "linux_amd64",
+        "boot_id": "fixture-boot-01",
+        "capabilities": [
+            "context.baseline.collect",
+            "context.health.collect",
+        ],
+        "last_result_sequence": 7,
+        "last_policy_revision": 11,
+    },
+    "gateway_hello_v1.json": {
+        "schema_version": "gateway_hello_v1",
+        "session_id": "33333333-3333-4333-8333-333333333333",
+        "heartbeat_interval_seconds": 30,
+        "maximum_message_bytes": 65536,
+        "policy_revision": 12,
+        "effective_capabilities": ["context.baseline.collect"],
+        "server_time": "2026-08-01T07:30:00Z",
+    },
+    "gateway_ws_envelope_v1.json": {
+        "schema_version": "gateway_ws_envelope_v1",
+        "kind": "command",
+        "sequence": 1,
+        "payload": {
+            "schema_version": "agent_command_v1",
+            "command_id": "44444444-4444-4444-8444-444444444444",
+            "device_id": "11111111-1111-4111-8111-111111111111",
+            "capability": "context.baseline.collect",
+            "parameters": {},
+            "requested_by_service": "endpoint-gateway",
+            "idempotency_key": "gateway-command-01",
+            "created_at": "2026-08-01T07:30:00Z",
+            "deadline_at": "2026-08-01T07:35:00Z",
+        },
+    },
+}
+
 GENERATED_ARTIFACT_DIRECTORIES = (
     Path("contracts/jsonschema"),
     Path("contracts/openapi"),
     Path("tests/fixtures/contracts"),
+    Path("tests/fixtures/gateway_ws"),
 )
 
 _PLAIN_YAML_KEY = re.compile(r"^[A-Za-z_][A-Za-z0-9_-]*$")
@@ -492,6 +547,15 @@ def render_artifacts(output_root: Path) -> dict[Path, str]:
     for filename, schema in schemas.items():
         rendered[Path("contracts/jsonschema") / filename] = _json_document(schema)
 
+    gateway_ws_schemas = {
+        filename: _annotate_model_only_timestamp_normalization(
+            model.model_json_schema()
+        )
+        for filename, model in GATEWAY_WS_MODELS.items()
+    }
+    for filename, schema in gateway_ws_schemas.items():
+        rendered[Path("contracts/jsonschema") / filename] = _json_document(schema)
+
     openapi = {
         "openapi": "3.1.0",
         "info": {"title": "Endpoint Platform Gateway API", "version": "v1"},
@@ -512,6 +576,8 @@ def render_artifacts(output_root: Path) -> dict[Path, str]:
 
     for filename, fixture in FIXTURES.items():
         rendered[Path("tests/fixtures/contracts") / filename] = _json_document(fixture)
+    for filename, fixture in GATEWAY_WS_FIXTURES.items():
+        rendered[Path("tests/fixtures/gateway_ws") / filename] = _json_document(fixture)
     return rendered
 
 
