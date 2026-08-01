@@ -1,0 +1,9 @@
+# Optional Remote Assist profile. Not part of the headless core.
+-r agent-session-helper.txt
+aiortc==1.14.0
+aioice==0.10.2
+av==16.1.0
+mss==10.1.0
+Pillow==12.2.0
+pylibsrtp==1.0.0
+pynput==1.8.1

@@ -1,0 +1,3 @@
+# Build environment for the Windows headless-core artifact.
+-r agent-core.txt
+PyInstaller==6.19.0

@@ -173,3 +173,18 @@ file. Inspect it before handing the bundle to the installer:
 python3 -m json.tool \
   /tmp/endpoint-agent-releases/endpoint-agent-3.2.1/manifest.json
 ```
+
+## Headless Endpoint Agent core packages
+
+New RPM packages must install `requirements/build-linux.txt` and build only
+`pc_agent/pyinstaller_endpoint_core_linux.spec`:
+
+```bash
+python -m pip install -r requirements/build-linux.txt
+python -m PyInstaller --noconfirm pc_agent/pyinstaller_endpoint_core_linux.spec
+```
+
+This artifact starts `pc_agent/runtime/main.py` and contains no Qt, Helpdesk
+UI, or Remote Assist assets. The inherited `pyinstaller_agent_linux.spec` and
+`pc_agent/requirements.txt` files are legacy compatibility inputs only; they
+must not be used for a new RPM package.

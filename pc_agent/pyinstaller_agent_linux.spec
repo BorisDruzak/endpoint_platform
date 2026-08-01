@@ -1,3 +1,5 @@
+# LEGACY: retained only to reproduce historic Helpdesk/GUI artifacts.
+# New RPM packages MUST NOT use this spec; use pyinstaller_endpoint_core_linux.spec.
 # PyInstaller spec for agent (Linux). Build: pyinstaller pyinstaller_agent_linux.spec
 # Output: dist/pc_agent/ (onedir, contains pc_agent)
 import sys

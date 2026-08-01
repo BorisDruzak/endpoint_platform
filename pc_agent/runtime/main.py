@@ -5,13 +5,16 @@ from __future__ import annotations
 import argparse
 import asyncio
 import os
+import sys
 from pathlib import Path
 from typing import Sequence
 
-from pc_agent.core import runtime_paths
+if __package__ in {None, ""} and not getattr(sys, "frozen", False):
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from .application import RuntimeSettings, run_runtime
-from .verification import run_verify
+from pc_agent.core import runtime_paths
+from pc_agent.runtime.application import RuntimeSettings, run_runtime
+from pc_agent.runtime.verification import run_verify
 
 __all__ = ["RuntimeSettings", "run_runtime", "run_verify"]
 

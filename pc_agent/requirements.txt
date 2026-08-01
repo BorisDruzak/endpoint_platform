@@ -1,15 +1,6 @@
-pydantic
-PyYAML
-aiosqlite
-aiohttp
-loguru
-mss
-aiortc
-Pillow
-# Запись экрана (screen.record): нужен ffmpeg — системный (apt install ffmpeg) или imageio-ffmpeg (бинарник в пакете)
-imageio-ffmpeg
-psutil
-pynput
-requests
-PySide6
-qasync
+# Legacy compatibility environment for inherited Helpdesk/GUI packages only.
+# New MSI and RPM packages MUST use requirements/build-windows.txt or
+# requirements/build-linux.txt together with pyinstaller_endpoint_core_*.spec.
+-r ../requirements/agent-collectors.txt
+-r ../requirements/agent-session-helper.txt
+-r ../requirements/agent-remote-assist.txt

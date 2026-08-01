@@ -1,3 +1,5 @@
+# LEGACY: retained only to reproduce historic Helpdesk/GUI artifacts.
+# New MSI packages MUST NOT use this spec; use pyinstaller_endpoint_core_windows.spec.
 # PyInstaller spec for agent (Windows). Build: pyinstaller pyinstaller_agent_win.spec
 # Output: dist/pc_agent/ (onedir, contains pc_agent.exe)
 import sys
