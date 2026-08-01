@@ -9,6 +9,7 @@ from pathlib import Path
 
 import pytest
 from packaging.requirements import Requirement
+from PyInstaller.archive.readers import CArchiveReader
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
@@ -73,6 +74,29 @@ FORBIDDEN_ARTIFACT_COMPONENTS = frozenset(
 )
 
 
+def _artifact_module_names(artifact_root: Path) -> set[str]:
+    return {
+        name
+        for path in artifact_root.rglob("*")
+        for component in path.relative_to(artifact_root).parts
+        for name in {component.lower(), Path(component).stem.lower()}
+    }
+
+
+def _embedded_pyz_module_names(executable: Path) -> set[str]:
+    archive = CArchiveReader(executable)
+    pyz = archive.open_embedded_archive("PYZ.pyz")
+    return {name.lower() for name in pyz.toc}
+
+
+def _forbidden_artifact_modules(module_names: set[str]) -> set[str]:
+    return {
+        forbidden
+        for forbidden in FORBIDDEN_ARTIFACT_COMPONENTS
+        if any(name == forbidden or name.startswith(f"{forbidden}.") for name in module_names)
+    }
+
+
 def _locked_requirements(path: Path) -> dict[str, str]:
     requirements: dict[str, str] = {}
     for raw_line in path.read_text(encoding="utf-8").splitlines():
@@ -131,6 +155,13 @@ def test_headless_entrypoint_can_run_as_the_pyinstaller_script() -> None:
     assert "Endpoint Agent headless runtime" in result.stdout
 
 
+def test_artifact_module_names_normalize_extension_filenames(tmp_path: Path) -> None:
+    """An optional compiled extension must not evade the artifact exclusion check."""
+    (tmp_path / "av.pyd").touch()
+
+    assert "av" in _artifact_module_names(tmp_path)
+
+
 @pytest.mark.skipif(sys.platform != "win32", reason="Windows PyInstaller artifact check")
 def test_windows_core_artifact_excludes_all_optional_runtime_packages(
     tmp_path: Path,
@@ -158,12 +189,12 @@ def test_windows_core_artifact_excludes_all_optional_runtime_packages(
     assert result.returncode == 0, result.stderr
     artifact_root = dist_path / "endpoint_agent_core"
     assert artifact_root.is_dir()
-    components = {
-        component.lower()
-        for path in artifact_root.rglob("*")
-        for component in path.relative_to(artifact_root).parts
-    }
-    assert not FORBIDDEN_ARTIFACT_COMPONENTS.intersection(components)
+    filesystem_modules = _artifact_module_names(artifact_root)
+    embedded_modules = _embedded_pyz_module_names(
+        artifact_root / "endpoint_agent_core.exe"
+    )
+    assert "pc_agent.runtime.application" in embedded_modules
+    assert not _forbidden_artifact_modules(filesystem_modules | embedded_modules)
 
 
 @pytest.mark.parametrize("platform", ("linux", "windows"))
