@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from pc_agent import endpoint_gateway
+from pc_agent import endpoint_gateway, gateway_update_runtime
 from pc_agent.gateway_update_runtime import GatewayUpdateRuntime
 from pc_agent.launcher import launcher_main
 from pc_agent.update_adapter import EndpointRecommendation, RecommendationResult
@@ -34,8 +34,8 @@ def _recommendation(*, artifact_url: str = "https://endpoint.sosnadmin.local/age
 
 
 class _ArtifactResponse:
-    def __init__(self, body: bytes) -> None:
-        self.status = 200
+    def __init__(self, body: bytes, *, status: int = 200) -> None:
+        self.status = status
         self.content = self
         self._body = body
 
@@ -53,8 +53,8 @@ class _ArtifactResponse:
 
 
 class _ArtifactSession:
-    def __init__(self, body: bytes) -> None:
-        self._response = _ArtifactResponse(body)
+    def __init__(self, body: bytes, *, status: int = 200) -> None:
+        self._response = _ArtifactResponse(body, status=status)
         self.requests: list[tuple[str, dict[str, object]]] = []
 
     def get(self, url: str, **kwargs: object) -> _ArtifactResponse:
@@ -80,7 +80,7 @@ async def test_gateway_download_accepts_only_endpoint_artifacts_with_matching_di
     assert session.requests == [
         (
             "https://endpoint.sosnadmin.local/agent/v1/updates/artifacts/candidate.tar.gz",
-            {"headers": {"Authorization": "Bearer device-token"}},
+            {"headers": {"Authorization": "Bearer device-token"}, "allow_redirects": False},
         )
     ]
 
@@ -100,6 +100,87 @@ async def test_gateway_download_accepts_only_endpoint_artifacts_with_matching_di
         )
     assert not (tmp_path / ".wrong-size.tar.gz.tmp").exists()
     assert not (tmp_path / "wrong-size.tar.gz").exists()
+
+
+@pytest.mark.asyncio
+async def test_gateway_artifact_download_disables_redirects(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A controller redirect must not get a chance to send the bearer to another host."""
+    session = _ArtifactSession(b"verified ALT artifact")
+    monkeypatch.setattr(endpoint_gateway, "_credential", lambda: "device-token")
+
+    await endpoint_gateway._download_gateway_artifact(
+        session, _recommendation(), tmp_path / "candidate.tar.gz"
+    )
+
+    assert session.requests == [
+        (
+            "https://endpoint.sosnadmin.local/agent/v1/updates/artifacts/candidate.tar.gz",
+            {"headers": {"Authorization": "Bearer device-token"}, "allow_redirects": False},
+        )
+    ]
+
+
+@pytest.mark.asyncio
+async def test_gateway_artifact_download_rejects_redirect_without_following_it(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A redirect response is rejected before a second host can receive the bearer."""
+    session = _ArtifactSession(b"", status=302)
+    monkeypatch.setattr(endpoint_gateway, "_credential", lambda: "device-token")
+
+    with pytest.raises(ValueError, match="unavailable"):
+        await endpoint_gateway._download_gateway_artifact(
+            session, _recommendation(), tmp_path / "redirected.tar.gz"
+        )
+
+    assert session.requests == [
+        (
+            "https://endpoint.sosnadmin.local/agent/v1/updates/artifacts/candidate.tar.gz",
+            {"headers": {"Authorization": "Bearer device-token"}, "allow_redirects": False},
+        )
+    ]
+    assert not (tmp_path / "redirected.tar.gz").exists()
+
+
+@pytest.mark.asyncio
+async def test_gateway_artifact_download_rejects_a_non_https_configured_origin(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A configuration regression to HTTP must fail before any artifact request."""
+    session = _ArtifactSession(b"verified ALT artifact")
+    monkeypatch.setattr(endpoint_gateway, "_ORIGIN", "http://endpoint.sosnadmin.local")
+    monkeypatch.setattr(endpoint_gateway, "_credential", lambda: "device-token")
+
+    with pytest.raises(ValueError, match="HTTPS"):
+        await endpoint_gateway._download_gateway_artifact(
+            session,
+            _recommendation(),
+            tmp_path / "candidate.tar.gz",
+        )
+
+    assert session.requests == []
+
+
+@pytest.mark.asyncio
+async def test_gateway_artifact_download_rejects_sha256_mismatch_even_when_size_matches(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """An altered artifact with the expected byte count must not be published."""
+    session = _ArtifactSession(b"verified ALT artifact")
+    monkeypatch.setattr(endpoint_gateway, "_credential", lambda: "device-token")
+    recommendation = EndpointRecommendation(
+        **{**_recommendation().__dict__, "sha256": "0" * 64}
+    )
+
+    with pytest.raises(ValueError, match="integrity mismatch"):
+        await endpoint_gateway._download_gateway_artifact(
+            session, recommendation, tmp_path / "wrong-sha.tar.gz"
+        )
+
+    assert not (tmp_path / "wrong-sha.tar.gz").exists()
+    assert not (tmp_path / ".wrong-sha.tar.gz.tmp").exists()
 
 
 def test_gateway_reads_only_a_strict_immutable_alt_selector(tmp_path: Path) -> None:
@@ -154,10 +235,27 @@ class _UpdateAdapter:
 
 @pytest.mark.asyncio
 async def test_gateway_stages_an_atomic_pending_update(
-    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     """A controlled update exit is permitted only after durable pending state exists."""
     adapter = _UpdateAdapter()
+    replace_events: list[tuple[str, str, bool, bool, dict[str, object]]] = []
+    original_replace = Path.replace
+
+    def observe_pending_replace(source: Path, target: Path) -> Path:
+        if source.name == ".pending_alt_update.json.tmp":
+            replace_events.append(
+                (
+                    source.name,
+                    target.name,
+                    source.exists(),
+                    target.exists(),
+                    json.loads(source.read_text(encoding="utf-8")),
+                )
+            )
+        return original_replace(source, target)
+
+    monkeypatch.setattr(gateway_update_runtime.Path, "replace", observe_pending_replace)
 
     async def download(item: EndpointRecommendation, destination: Path) -> tuple[str, int]:
         destination.write_bytes(b"verified ALT artifact")
@@ -190,6 +288,15 @@ async def test_gateway_stages_an_atomic_pending_update(
         "version": "3.1.77-rc.1",
     }
     assert not (pending_path.parent / ".pending_alt_update.json.tmp").exists()
+    assert replace_events == [
+        (
+            ".pending_alt_update.json.tmp",
+            "pending_alt_update.json",
+            True,
+            False,
+            json.loads(pending_path.read_text(encoding="utf-8")),
+        )
+    ]
 
     assert adapter.calls == [
         ("linux_amd64", "canary"),

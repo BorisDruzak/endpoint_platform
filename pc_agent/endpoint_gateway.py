@@ -60,14 +60,31 @@ def read_gateway_current_version(selector_path: Path = _ALT_CURRENT_SELECTOR) ->
     return selector["version"]
 
 
+def _endpoint_origin() -> tuple[str, str]:
+    """Return the only permitted HTTPS controller origin components."""
+    parsed = urlsplit(_ORIGIN)
+    if (
+        parsed.scheme != "https"
+        or not parsed.netloc
+        or parsed.username is not None
+        or parsed.password is not None
+        or parsed.path not in {"", "/"}
+        or parsed.query
+        or parsed.fragment
+    ):
+        raise ValueError("Gateway Endpoint origin must be an absolute HTTPS origin")
+    return parsed.scheme, parsed.netloc
+
+
 async def _download_gateway_artifact(
     session: aiohttp.ClientSession,
     item: EndpointRecommendation,
     destination: Path,
 ) -> tuple[str, int]:
     """Stream a controller-hosted artifact through the existing pinned TLS session."""
+    origin_scheme, origin_netloc = _endpoint_origin()
     parsed = urlsplit(item.artifact_url)
-    if parsed.scheme != "https" or parsed.netloc != urlsplit(_ORIGIN).netloc:
+    if (parsed.scheme, parsed.netloc) != (origin_scheme, origin_netloc):
         raise ValueError("Gateway update artifact must use the Endpoint origin")
     temporary = destination.with_name(f".{destination.name}.tmp")
     digest = hashlib.sha256()
@@ -75,7 +92,9 @@ async def _download_gateway_artifact(
     destination.parent.mkdir(parents=True, exist_ok=True)
     try:
         async with session.get(
-            item.artifact_url, headers={"Authorization": f"Bearer {_credential()}"}
+            item.artifact_url,
+            headers={"Authorization": f"Bearer {_credential()}"},
+            allow_redirects=False,
         ) as response:
             require_gateway_response(response)
             if response.status != 200:
@@ -146,5 +165,5 @@ async def run_gateway_forever(*, ca_file: Path) -> None:
                 result = execute_context_agent_command(command, probe=SystemProbe())
                 async with session.post(f"{_ORIGIN}/agent/v1/gateway/commands/{command.command_id}/results", headers=headers, json=result.model_dump(mode="json"), ssl=context) as response:
                     require_gateway_response(response)
-        except (aiohttp.ClientError, asyncio.TimeoutError, OSError, ValueError, json.JSONDecodeError):
+        except (aiohttp.ClientConnectionError, asyncio.TimeoutError):
             await asyncio.sleep(5)

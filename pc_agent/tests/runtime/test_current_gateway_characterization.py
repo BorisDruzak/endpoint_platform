@@ -83,8 +83,9 @@ def test_alt_transport_executes_exactly_the_accepted_context_capabilities() -> N
 
 
 class _GatewayResponse:
-    def __init__(self, status: int) -> None:
+    def __init__(self, status: int, *, payload: object | None = None) -> None:
         self.status = status
+        self._payload = payload
 
     async def __aenter__(self) -> _GatewayResponse:
         return self
@@ -93,10 +94,13 @@ class _GatewayResponse:
         return False
 
     async def json(self) -> object:
-        raise AssertionError("credential rejection must not parse a command")
+        if self._payload is None:
+            raise AssertionError("credential rejection must not parse a command")
+        return self._payload
 
     def raise_for_status(self) -> None:
-        raise AssertionError("401/403 must be terminal before generic HTTP handling")
+        if self.status >= 400:
+            raise aiohttp.ClientResponseError(None, (), status=self.status)
 
 
 class _GatewaySession:
@@ -119,12 +123,47 @@ class _GatewaySession:
         return self._response
 
 
+class _GatewayCommandSession:
+    def __init__(self, command: dict[str, object]) -> None:
+        self._command = command
+        self.requests: list[tuple[str, dict[str, object]]] = []
+
+    async def __aenter__(self) -> _GatewayCommandSession:
+        return self
+
+    async def __aexit__(self, *_args: object) -> bool:
+        return False
+
+    def get(self, url: str, **kwargs: object) -> _GatewayResponse:
+        self.requests.append((url, kwargs))
+        return _GatewayResponse(200, payload=self._command)
+
+    def post(self, url: str, **kwargs: object) -> _GatewayResponse:
+        self.requests.append((url, kwargs))
+        return _GatewayResponse(204)
+
+
 class _IdleUpdateRuntime:
     async def report_startup_outcome(self) -> bool:
         return False
 
     async def run_once(self) -> SimpleNamespace:
         return SimpleNamespace(status="idle")
+
+
+class _PermanentUpdateRuntime:
+    def __init__(self, failure: ValueError) -> None:
+        self._failure = failure
+        self.calls = 0
+
+    async def report_startup_outcome(self) -> bool:
+        return False
+
+    async def run_once(self) -> SimpleNamespace:
+        self.calls += 1
+        if self.calls == 1:
+            raise self._failure
+        raise RuntimeError("a permanent update failure must not reach a second poll")
 
 
 @pytest.mark.asyncio
@@ -201,3 +240,141 @@ async def test_gateway_retries_transient_transport_failures_but_not_credential_r
     assert sleeps == [5]
     assert len(first_session.requests) == 1
     assert len(second_session.requests) == 1
+
+
+@pytest.mark.asyncio
+async def test_gateway_does_not_retry_a_permanent_http_failure(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A controller 500 must stop this process instead of being treated as transport loss."""
+    session = _GatewaySession(response=_GatewayResponse(500))
+    retry_session = _GatewaySession(response=_GatewayResponse(403))
+    sessions = [session, retry_session]
+    sleeps: list[float] = []
+
+    monkeypatch.setattr(endpoint_gateway.ssl, "create_default_context", lambda **_kwargs: object())
+    monkeypatch.setattr(endpoint_gateway.aiohttp, "TCPConnector", lambda **_kwargs: object())
+    monkeypatch.setattr(
+        endpoint_gateway.aiohttp, "ClientSession", lambda **_kwargs: sessions.pop(0)
+    )
+    monkeypatch.setattr(endpoint_gateway, "_credential", lambda: "device-token")
+    monkeypatch.setattr(
+        endpoint_gateway, "_gateway_update_runtime", lambda _session: _IdleUpdateRuntime()
+    )
+
+    async def capture_sleep(seconds: float) -> None:
+        sleeps.append(seconds)
+
+    monkeypatch.setattr(endpoint_gateway.asyncio, "sleep", capture_sleep)
+
+    with pytest.raises(aiohttp.ClientResponseError) as error:
+        await endpoint_gateway.run_gateway_forever(ca_file=tmp_path / "endpoint-ca.crt")
+
+    assert error.value.status == 500
+    assert sleeps == []
+    assert len(session.requests) == 1
+    assert retry_session.requests == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "failure",
+    [
+        ValueError("invalid Endpoint device credential"),
+        ValueError("Gateway update artifact integrity mismatch"),
+    ],
+)
+async def test_gateway_does_not_retry_permanent_configuration_or_integrity_failures(
+    failure: ValueError,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Credential and artifact validation failures must not be converted into retries."""
+    update_runtime = _PermanentUpdateRuntime(failure)
+    session = _GatewaySession(response=_GatewayResponse(204))
+    sleeps: list[float] = []
+
+    monkeypatch.setattr(endpoint_gateway.ssl, "create_default_context", lambda **_kwargs: object())
+    monkeypatch.setattr(endpoint_gateway.aiohttp, "TCPConnector", lambda **_kwargs: object())
+    monkeypatch.setattr(endpoint_gateway.aiohttp, "ClientSession", lambda **_kwargs: session)
+    monkeypatch.setattr(endpoint_gateway, "_credential", lambda: "device-token")
+    monkeypatch.setattr(endpoint_gateway, "_gateway_update_runtime", lambda _session: update_runtime)
+
+    async def capture_sleep(seconds: float) -> None:
+        sleeps.append(seconds)
+
+    monkeypatch.setattr(endpoint_gateway.asyncio, "sleep", capture_sleep)
+
+    with pytest.raises(ValueError, match=str(failure)):
+        await endpoint_gateway.run_gateway_forever(ca_file=tmp_path / "endpoint-ca.crt")
+
+    assert update_runtime.calls == 1
+    assert sleeps == []
+    assert session.requests == []
+
+
+def _command_payload(capability: str) -> dict[str, object]:
+    created_at = datetime(2026, 8, 1, tzinfo=UTC)
+    return {
+        "schema_version": "agent_command_v1",
+        "command_id": str(_COMMAND_ID),
+        "device_id": str(_DEVICE_ID),
+        "capability": capability,
+        "parameters": {"reason": "operator requested diagnostics"}
+        if capability == "context.diagnostic.collect"
+        else {},
+        "requested_by_service": "endpoint-gateway",
+        "idempotency_key": "gateway-baseline-0001",
+        "created_at": created_at.isoformat(),
+        "deadline_at": (created_at + timedelta(minutes=1)).isoformat(),
+    }
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("capability", "expected_status"),
+    [
+        ("context.baseline.collect", "succeeded"),
+        ("context.health.collect", "succeeded"),
+        ("context.network.collect", "succeeded"),
+        ("context.diagnostic.collect", "succeeded"),
+        ("agent.status.read", "failed"),
+        ("gateway.echo", "failed"),
+    ],
+)
+async def test_gateway_parses_executes_acknowledges_and_reports_only_context_allowlist(
+    capability: str,
+    expected_status: str,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """A non-context command must yield a rejected result, not dynamic execution."""
+    command_session = _GatewayCommandSession(_command_payload(capability))
+    terminal_session = _GatewaySession(response=_GatewayResponse(403))
+    sessions = [command_session, terminal_session]
+    probe = _Probe()
+
+    monkeypatch.setattr(endpoint_gateway.ssl, "create_default_context", lambda **_kwargs: object())
+    monkeypatch.setattr(endpoint_gateway.aiohttp, "TCPConnector", lambda **_kwargs: object())
+    monkeypatch.setattr(
+        endpoint_gateway.aiohttp, "ClientSession", lambda **_kwargs: sessions.pop(0)
+    )
+    monkeypatch.setattr(endpoint_gateway, "_credential", lambda: "device-token")
+    monkeypatch.setattr(endpoint_gateway, "SystemProbe", lambda: probe)
+    monkeypatch.setattr(
+        endpoint_gateway, "_gateway_update_runtime", lambda _session: _IdleUpdateRuntime()
+    )
+
+    with pytest.raises(endpoint_gateway.GatewayCredentialRejected):
+        await endpoint_gateway.run_gateway_forever(ca_file=tmp_path / "endpoint-ca.crt")
+
+    assert [url for url, _kwargs in command_session.requests] == [
+        "https://endpoint.sosnadmin.local/agent/v1/gateway/commands/next",
+        f"https://endpoint.sosnadmin.local/agent/v1/gateway/commands/{_COMMAND_ID}/ack",
+        f"https://endpoint.sosnadmin.local/agent/v1/gateway/commands/{_COMMAND_ID}/results",
+    ]
+    ack_payload = command_session.requests[1][1]["json"]
+    result_payload = command_session.requests[2][1]["json"]
+    assert ack_payload["status"] == "acknowledged"
+    assert result_payload["status"] == expected_status
+    assert "helpdesk" not in "\n".join(url for url, _kwargs in command_session.requests).lower()
