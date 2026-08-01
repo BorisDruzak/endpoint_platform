@@ -52,6 +52,10 @@ def upgrade() -> None:
         "command_results",
         sa.Column("result_sequence", sa.BigInteger(), nullable=True),
     )
+    op.add_column(
+        "command_results",
+        sa.Column("result_payload_digest", sa.String(length=64), nullable=True),
+    )
     op.create_check_constraint(
         "ck_command_results_result_sequence",
         "command_results",
@@ -60,11 +64,23 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    op.execute(
+        """
+        DO $$
+        BEGIN
+            IF EXISTS (SELECT 1 FROM device_instances WHERE length(agent_version) > 64) THEN
+                RAISE EXCEPTION 'cannot downgrade: agent_version exceeds 64 characters';
+            END IF;
+        END
+        $$;
+        """
+    )
     op.drop_constraint(
         "ck_command_results_result_sequence",
         "command_results",
         type_="check",
     )
+    op.drop_column("command_results", "result_payload_digest")
     op.drop_column("command_results", "result_sequence")
     op.drop_column("device_sessions", "source_address")
     op.drop_column("device_sessions", "last_seen_at")

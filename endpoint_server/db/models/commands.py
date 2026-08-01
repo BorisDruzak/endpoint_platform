@@ -62,3 +62,4 @@ class CommandResult(OwnershipRecord, Base):
     status: Mapped[str] = mapped_column(String(32), nullable=False)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     result_sequence: Mapped[int | None] = mapped_column(BigInteger)
+    result_payload_digest: Mapped[str | None] = mapped_column(String(64))

@@ -1,15 +1,19 @@
 from __future__ import annotations
 
+import asyncio
 import ipaddress
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any
 from uuid import UUID, uuid4
 
+import pytest
 import pytest_asyncio
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.pool import NullPool
 from starlette.datastructures import Address, Headers
 
 from endpoint_server.config import Settings
@@ -29,9 +33,20 @@ from endpoint_server.enrollment.credentials import device_token_digest
 
 PEPPER = b"gateway-device-pepper"
 VALID_TOKEN = "gateway-valid-device-token"
+_GATEWAY_TABLES = (
+    Device.__table__,
+    DeviceCredential.__table__,
+    DeviceInstance.__table__,
+    DeviceSession.__table__,
+    Command.__table__,
+    CommandDelivery.__table__,
+    CommandResult.__table__,
+    ContextCollection.__table__,
+    AuditEvent.__table__,
+)
 
 
-def gateway_settings() -> Settings:
+def gateway_settings(*, artifact_root: Path = Path("artifacts")) -> Settings:
     return Settings(
         database_url="sqlite+aiosqlite:///:memory:",
         public_base_url="https://endpoint.sosnadmin.local",
@@ -40,7 +55,7 @@ def gateway_settings() -> Settings:
         session_secret=b"session-secret",
         allowed_agent_cidrs=(ipaddress.ip_network("192.168.101.0/24"),),
         allowed_admin_cidrs=(),
-        artifact_root=Path("artifacts"),
+        artifact_root=artifact_root,
         trusted_proxy_cidrs=(ipaddress.ip_network("127.0.0.0/8"),),
     )
 
@@ -51,24 +66,62 @@ async def session_provider(
 ) -> AsyncIterator[async_sessionmaker[AsyncSession]]:
     database_path = tmp_path / "gateway.sqlite3"
     engine = create_async_engine(f"sqlite+aiosqlite:///{database_path.as_posix()}")
-    tables = (
-        Device.__table__,
-        DeviceCredential.__table__,
-        DeviceInstance.__table__,
-        DeviceSession.__table__,
-        Command.__table__,
-        CommandDelivery.__table__,
-        CommandResult.__table__,
-        ContextCollection.__table__,
-        AuditEvent.__table__,
-    )
     async with engine.begin() as connection:
         await connection.execute(text("PRAGMA foreign_keys=ON"))
         await connection.run_sync(
-            lambda sync: Device.metadata.create_all(sync, tables=tables)
+            lambda sync: Device.metadata.create_all(sync, tables=_GATEWAY_TABLES)
         )
     yield async_sessionmaker(engine, expire_on_commit=False)
     await engine.dispose()
+
+
+@dataclass(frozen=True)
+class GatewayRouteHarness:
+    provider: async_sessionmaker[AsyncSession]
+    settings: Settings
+    engine: Any
+
+
+@pytest.fixture
+def gateway_route_harness(tmp_path: Path):
+    database_path = tmp_path / "gateway-route.sqlite3"
+    engine = create_async_engine(
+        f"sqlite+aiosqlite:///{database_path.as_posix()}",
+        poolclass=NullPool,
+    )
+
+    async def prepare() -> None:
+        async with engine.begin() as connection:
+            await connection.execute(text("PRAGMA foreign_keys=ON"))
+            await connection.run_sync(
+                lambda sync: Device.metadata.create_all(
+                    sync,
+                    tables=_GATEWAY_TABLES,
+                )
+            )
+
+    asyncio.run(prepare())
+    provider = async_sessionmaker(engine, expire_on_commit=False)
+    artifact_root = tmp_path / "artifacts"
+    artifact_root.mkdir()
+    yield GatewayRouteHarness(
+        provider=provider,
+        settings=gateway_settings(artifact_root=artifact_root),
+        engine=engine,
+    )
+    asyncio.run(engine.dispose())
+
+
+class FixedWebSocketPeerApp:
+    """Run the real ASGI app with the production proxy peer address."""
+
+    def __init__(self, app: Any) -> None:
+        self._app = app
+
+    async def __call__(self, scope: dict[str, Any], receive: Any, send: Any) -> None:
+        if scope["type"] == "websocket":
+            scope = {**scope, "client": ("127.0.0.1", 54321)}
+        await self._app(scope, receive, send)
 
 
 async def seed_device(

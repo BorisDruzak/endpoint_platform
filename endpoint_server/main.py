@@ -23,7 +23,10 @@ from endpoint_server.provisioning.admin_routes import (
 )
 from endpoint_server.health.routes import router as health_router
 from endpoint_server.gateway.routes import router as gateway_router
-from endpoint_server.gateway.connection_registry import ConnectionRegistry
+from endpoint_server.gateway.connection_registry import (
+    ConnectionRegistry,
+    GatewayWorkerLease,
+)
 from endpoint_server.gateway.ws_routes import (
     assert_single_gateway_worker,
     router as gateway_ws_router,
@@ -34,11 +37,17 @@ from endpoint_server.updates.agent_routes import router as updates_agent_router
 
 @asynccontextmanager
 async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
-    yield
-    await app.state.gateway_connection_registry.shutdown_all()
-    close = getattr(app.state.session_provider, "close", None)
-    if close is not None:
-        await close()
+    app.state.gateway_worker_lease.acquire()
+    try:
+        yield
+    finally:
+        try:
+            await app.state.gateway_connection_registry.shutdown_all()
+            close = getattr(app.state.session_provider, "close", None)
+            if close is not None:
+                await close()
+        finally:
+            app.state.gateway_worker_lease.release()
 
 
 def create_app(
@@ -52,6 +61,7 @@ def create_app(
         settings.database_url
     )
     app.state.gateway_connection_registry = ConnectionRegistry()
+    app.state.gateway_worker_lease = GatewayWorkerLease(settings.artifact_root)
     app.add_exception_handler(
         RequestValidationError,
         redacting_validation_exception_handler,

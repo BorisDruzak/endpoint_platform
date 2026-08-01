@@ -13,7 +13,7 @@ from endpoint_server.context.models import ContextCollection
 from endpoint_server.db.models import Command, CommandDelivery, CommandResult
 from endpoint_server.updates.agent_routes import _authenticate_device
 
-from .command_service import next_pending_command
+from .command_service import next_pending_command, result_payload_digest
 
 
 router = APIRouter(prefix="/agent/v1/gateway", tags=["agent-gateway"])
@@ -92,14 +92,20 @@ async def submit_result(command_id: UUID, body: AgentResultV1, request: Request)
                 .where(CommandResult.result_identifier == result_identifier)
                 .with_for_update()
             )
+            payload_digest = result_payload_digest(body)
             if result is None:
                 result = CommandResult(id=uuid4(), command_id=command.id, delivery_id=None,
-                    result_identifier=result_identifier, status=body.status, completed_at=body.completed_at)
+                    result_identifier=result_identifier, status=body.status,
+                    completed_at=body.completed_at,
+                    result_payload_digest=payload_digest)
                 session.add(result)
                 await session.flush()
                 await ingest_context_result(session, result.id, body)
                 command.status = body.status
-            elif result.command_id != command.id:
+            elif (
+                result.command_id != command.id
+                or result.result_payload_digest != payload_digest
+            ):
                 raise _unavailable()
             await session.commit()
         except HTTPException:

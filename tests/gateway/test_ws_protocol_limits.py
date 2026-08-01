@@ -12,8 +12,9 @@ from endpoint_server.gateway.connection_registry import (
 )
 from endpoint_server.gateway.protocol import GatewayProtocolError, parse_agent_envelope
 from endpoint_server.gateway.ws_routes import assert_single_gateway_worker
+from endpoint_server.main import create_app
 
-from .conftest import agent_hello
+from .conftest import agent_hello, gateway_settings
 from .test_ws_reconnect import RecordingSocket
 
 
@@ -86,3 +87,20 @@ def test_startup_guard_rejects_unsupported_worker_configuration(
 
 def test_startup_guard_accepts_single_worker() -> None:
     assert_single_gateway_worker({"ENDPOINT_API_WORKERS": "1"})
+
+
+@pytest.mark.asyncio
+async def test_lifespan_rejects_a_second_worker_for_the_same_deployment(
+    session_provider,
+    tmp_path,
+) -> None:
+    artifact_root = tmp_path / "single-worker-artifacts"
+    artifact_root.mkdir()
+    settings = gateway_settings(artifact_root=artifact_root)
+    first = create_app(settings, session_provider)
+    second = create_app(settings, session_provider)
+
+    async with first.router.lifespan_context(first):
+        with pytest.raises(RuntimeError, match="exactly one API worker"):
+            async with second.router.lifespan_context(second):
+                pytest.fail("a second process-local registry became active")

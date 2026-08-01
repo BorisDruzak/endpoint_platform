@@ -16,6 +16,7 @@ def test_api_unit_is_loopback_only_and_hardened() -> None:
     assert "--host 127.0.0.1 --port 8000" in unit
     assert "--no-proxy-headers" in unit
     assert "--no-access-log" in unit
+    assert "--workers 1" in unit
     assert "ProtectSystem=strict" in unit
 
 
@@ -28,6 +29,9 @@ def test_proxy_limits_callers_and_replaces_forwarded_client_address() -> None:
     assert "server_name endpoint.sosnadmin.local;" in config
     assert "proxy_pass http://127.0.0.1:8000;" in config
     assert "proxy_set_header X-Forwarded-For $remote_addr;" in config
+    assert "location = /agent/v1/connect" in config
+    assert "proxy_set_header Upgrade $http_upgrade;" in config
+    assert 'proxy_set_header Connection "upgrade";' in config
     assert "allow 192.168.100.0/24;" in config
     assert "allow 192.168.101.0/24;" in config
     assert "deny all;" in config
@@ -43,6 +47,7 @@ def test_environment_template_keeps_secret_and_network_boundaries() -> None:
     assert "ALLOWED_AGENT_CIDRS=192.168.100.0/24,192.168.101.0/24" in environment
     assert "ALLOWED_ADMIN_CIDRS=192.168.100.0/24,192.168.101.0/24" in environment
     assert "TRUSTED_PROXY_CIDRS=127.0.0.1/32" in environment
+    assert "ENDPOINT_API_WORKERS=1" in environment
     assert "PRIVATE KEY" not in environment
 
 

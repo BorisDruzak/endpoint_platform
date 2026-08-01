@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+import os
 from dataclasses import dataclass
+from pathlib import Path
 from uuid import UUID
 
 from endpoint_contracts.gateway_ws import (
@@ -17,6 +19,55 @@ _SESSION_REPLACED_CLOSE_CODE = 4001
 
 class RegistryCapacityExceeded(RuntimeError):
     pass
+
+
+class GatewayWorkerLease:
+    """Hold a deployment-scoped OS lock while one Gateway worker is alive."""
+
+    def __init__(self, artifact_root: Path) -> None:
+        self._path = artifact_root / ".gateway-wss-worker.lock"
+        self._descriptor: int | None = None
+
+    def acquire(self) -> None:
+        if self._descriptor is not None:
+            raise RuntimeError("Gateway WSS worker lease is already held")
+        descriptor = os.open(self._path, os.O_RDWR | os.O_CREAT, 0o600)
+        try:
+            if os.fstat(descriptor).st_size == 0:
+                os.write(descriptor, b"\0")
+            os.lseek(descriptor, 0, os.SEEK_SET)
+            if os.name == "nt":
+                import msvcrt
+
+                msvcrt.locking(descriptor, msvcrt.LK_NBLCK, 1)
+            else:
+                import fcntl
+
+                fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError as error:
+            os.close(descriptor)
+            raise RuntimeError(
+                "Gateway WSS requires exactly one API worker"
+            ) from error
+        self._descriptor = descriptor
+
+    def release(self) -> None:
+        descriptor = self._descriptor
+        if descriptor is None:
+            return
+        self._descriptor = None
+        try:
+            os.lseek(descriptor, 0, os.SEEK_SET)
+            if os.name == "nt":
+                import msvcrt
+
+                msvcrt.locking(descriptor, msvcrt.LK_UNLCK, 1)
+            else:
+                import fcntl
+
+                fcntl.flock(descriptor, fcntl.LOCK_UN)
+        finally:
+            os.close(descriptor)
 
 
 @dataclass(frozen=True, slots=True)
@@ -102,5 +153,6 @@ class ConnectionRegistry:
 __all__ = [
     "ConnectionRegistry",
     "GatewayConnection",
+    "GatewayWorkerLease",
     "RegistryCapacityExceeded",
 ]

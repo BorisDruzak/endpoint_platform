@@ -16,6 +16,7 @@ from alembic.config import Config
 from alembic.script import ScriptDirectory
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.engine import make_url
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.schema import CreateIndex
 
 from endpoint_server.db.models import DeviceSession
@@ -177,6 +178,84 @@ def test_device_session_model_declares_last_seen_index() -> None:
         "CREATE INDEX ix_device_sessions_device_created_id_desc ON device_sessions "
         "(device_id, created_at DESC, id DESC)"
     )
+
+
+def test_gateway_downgrade_guards_long_agent_versions_before_metadata_drop() -> None:
+    """Valid V1 versions must not make a downgrade fail after partial teardown."""
+    output = io.StringIO()
+    config = Config(REPOSITORY_ROOT / "alembic.ini", output_buffer=output)
+    config.set_main_option(
+        "sqlalchemy.url",
+        "postgresql+asyncpg://unused@127.0.0.1/unused",
+    )
+
+    command.downgrade(
+        config,
+        "0011_gateway_wss:0010_session_last_seen_index",
+        sql=True,
+    )
+
+    rendered = " ".join(output.getvalue().split())
+    guard = "IF EXISTS (SELECT 1 FROM device_instances WHERE length(agent_version) > 64)"
+    metadata_drop = "ALTER TABLE command_results DROP COLUMN result_sequence;"
+    narrowing = "ALTER TABLE device_instances ALTER COLUMN agent_version TYPE VARCHAR(64);"
+    assert guard in rendered
+    assert metadata_drop in rendered
+    assert narrowing in rendered
+    assert rendered.index(guard) < rendered.index(metadata_drop)
+    assert rendered.index(guard) < rendered.index(narrowing)
+
+
+def test_gateway_downgrade_rejects_valid_long_version_on_postgresql(
+    empty_database_url: str,
+) -> None:
+    """The live migration must preserve metadata when narrowing is unsafe."""
+    config = _alembic_config(empty_database_url)
+    plain_url = (
+        make_url(empty_database_url)
+        .set(drivername="postgresql")
+        .render_as_string(hide_password=False)
+    )
+    device_id = uuid4()
+    instance_id = uuid4()
+    command.upgrade(config, "head")
+    asyncio.run(
+        _execute(
+            plain_url,
+            "INSERT INTO devices (id, device_identifier) "
+            f"VALUES ('{device_id}', 'gateway-downgrade-device'); "
+            "INSERT INTO device_instances "
+            "(id, device_id, instance_identifier, agent_version) "
+            f"VALUES ('{instance_id}', '{device_id}', "
+            f"'gateway-downgrade-instance', '{'v' * 65}')",
+        )
+    )
+
+    with pytest.raises(DBAPIError, match="agent_version.*64"):
+        command.downgrade(config, "0010_session_last_seen_index")
+
+    revision_rows = asyncio.run(
+        _fetch(plain_url, "SELECT version_num FROM alembic_version")
+    )
+    assert [row["version_num"] for row in revision_rows] == ["0011_gateway_wss"]
+    columns = asyncio.run(
+        _fetch(
+            plain_url,
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_name = 'command_results' "
+            "AND column_name = 'result_sequence'",
+        )
+    )
+    assert len(columns) == 1
+
+    asyncio.run(
+        _execute(
+            plain_url,
+            f"DELETE FROM device_instances WHERE id = '{instance_id}'; "
+            f"DELETE FROM devices WHERE id = '{device_id}'",
+        )
+    )
+    command.downgrade(config, "base")
 
 
 def test_device_context_migration_binds_current_pointer_to_snapshot_identity() -> None:

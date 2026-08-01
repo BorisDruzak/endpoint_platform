@@ -205,6 +205,7 @@ async def connect_agent(websocket: WebSocket) -> None:
             device_id,
             presence.session_id,
             lambda envelope: send_envelope(websocket, envelope),
+            allowed_capabilities=frozenset(effective_capabilities),
         )
 
         while True:
@@ -242,6 +243,7 @@ async def connect_agent(websocket: WebSocket) -> None:
                 device_id,
                 presence.session_id,
                 lambda message: send_envelope(websocket, message),
+                allowed_capabilities=frozenset(effective_capabilities),
             )
     except WebSocketDisconnect:
         pass
