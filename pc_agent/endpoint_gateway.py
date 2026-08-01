@@ -8,33 +8,37 @@ import os
 import ssl
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Protocol
 from datetime import UTC, datetime
 from pathlib import Path
 from urllib.parse import urlsplit
+from uuid import UUID
 
 import aiohttp
 
-from endpoint_contracts import AgentCommandAckV1, AgentCommandV1, AgentResultV1
+from endpoint_contracts import (
+    AgentCommandAckV1,
+    AgentHelloV1,
+    AgentResultV1,
+)
 from pc_agent.context_profiles.command_execution import execute_context_agent_command
 from pc_agent.context_profiles.probe import SystemProbe
 from pc_agent.device_credential import read_device_credential
 from pc_agent.enrollment_bootstrap import PERMANENT_CREDENTIAL_PATH
 from pc_agent.gateway_update_runtime import GatewayUpdateRuntime
+from pc_agent.transport.http_pull import (
+    DEFAULT_ENDPOINT_ORIGIN,
+    GatewayCredentialRejected,
+    GatewayNoCommandAvailable,
+    HttpPullGatewayTransport,
+    require_gateway_response,
+    validate_endpoint_origin,
+)
 from pc_agent.update_adapter import EndpointRecommendation, EndpointUpdateAdapter
 from pc_agent.version import EXIT_UPDATE_PENDING
 
-_ORIGIN = "https://endpoint.sosnadmin.local"
+_ORIGIN = DEFAULT_ENDPOINT_ORIGIN
 _ALT_CURRENT_SELECTOR = Path("/opt/endpoint-agent/current.json")
 GATEWAY_UPDATE_POLL_INTERVAL_SEC = 300.0
-
-
-class GatewayCredentialRejected(RuntimeError):
-    """The controller rejected a durable credential; do not retry it in-process."""
-
-
-class GatewayCommandExecutor(Protocol):
-    async def execute(self, command: AgentCommandV1) -> AgentResultV1: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -42,12 +46,6 @@ class GatewayAttemptOutcome:
     """A successful single poll and the delay before the next lifecycle attempt."""
 
     delay_before_next: float
-
-
-def require_gateway_response(response: aiohttp.ClientResponse) -> None:
-    if response.status in {401, 403}:
-        raise GatewayCredentialRejected("Endpoint Gateway rejected device credential")
-    response.raise_for_status()
 
 
 def _credential() -> str:
@@ -73,18 +71,7 @@ def read_gateway_current_version(selector_path: Path = _ALT_CURRENT_SELECTOR) ->
 
 def _endpoint_origin(origin: str | None = None) -> tuple[str, str]:
     """Return the only permitted HTTPS controller origin components."""
-    parsed = urlsplit(_ORIGIN if origin is None else origin)
-    if (
-        parsed.scheme != "https"
-        or not parsed.netloc
-        or parsed.username is not None
-        or parsed.password is not None
-        or parsed.path not in {"", "/"}
-        or parsed.query
-        or parsed.fragment
-    ):
-        raise ValueError("Gateway Endpoint origin must be an absolute HTTPS origin")
-    return parsed.scheme, parsed.netloc
+    return validate_endpoint_origin(_ORIGIN if origin is None else origin)
 
 
 async def _download_gateway_artifact(
@@ -166,7 +153,7 @@ def _gateway_update_runtime(
 async def run_gateway_once(
     *,
     ca_file: Path,
-    command_executor: GatewayCommandExecutor | None = None,
+    command_executor: object | None = None,
     credential: str | None = None,
     endpoint_origin: str | None = None,
     data_root: Path | None = None,
@@ -174,7 +161,7 @@ async def run_gateway_once(
     poll_updates: bool = True,
     on_update_poll_complete: Callable[[], None] | None = None,
 ) -> GatewayAttemptOutcome:
-    """Perform one TLS Gateway attempt and surface every outcome to the caller."""
+    """Compatibility entrypoint implemented through the HTTP-pull transport."""
     use_default_update_runtime = (
         credential is None
         and endpoint_origin is None
@@ -184,13 +171,8 @@ async def run_gateway_once(
     configured_origin = _ORIGIN if endpoint_origin is None else endpoint_origin
     _endpoint_origin(configured_origin)
     credential_source = _credential if credential is None else lambda: credential
-    context = ssl.create_default_context(cafile=str(ca_file))
     token = credential_source()
-    headers = {"Authorization": f"Bearer {token}"}
-    connector = aiohttp.TCPConnector(ssl=context)
-    async with aiohttp.ClientSession(
-        timeout=aiohttp.ClientTimeout(total=20), connector=connector
-    ) as session:
+    async def on_connected(session: aiohttp.ClientSession) -> None:
         if use_default_update_runtime:
             update_runtime = _gateway_update_runtime(session)
         else:
@@ -208,15 +190,22 @@ async def run_gateway_once(
                 on_update_poll_complete()
             if update_result.status == "scheduled":
                 raise SystemExit(EXIT_UPDATE_PENDING)
-        async with session.get(
-            f"{configured_origin}/agent/v1/gateway/commands/next",
-            headers=headers,
-            ssl=context,
-        ) as response:
-            if response.status == 204:
-                return GatewayAttemptOutcome(delay_before_next=5.0)
-            require_gateway_response(response)
-            command = AgentCommandV1.model_validate(await response.json())
+
+    transport = HttpPullGatewayTransport(
+        ca_file=ca_file,
+        credential=token,
+        endpoint_origin=configured_origin,
+        on_connected=on_connected,
+    )
+    try:
+        await transport.connect(_http_pull_compatibility_hello())
+        try:
+            inbound = await transport.receive()
+        except GatewayNoCommandAvailable:
+            return GatewayAttemptOutcome(delay_before_next=5.0)
+        if inbound.root.kind != "command":
+            raise ValueError("HTTP pull returned a non-command inbound message")
+        command = inbound.root.payload
         ack = AgentCommandAckV1(
             schema_version="agent_command_ack_v1",
             command_id=command.command_id,
@@ -224,22 +213,33 @@ async def run_gateway_once(
             status="acknowledged",
             acknowledged_at=datetime.now(UTC),
         )
-        async with session.post(
-            f"{configured_origin}/agent/v1/gateway/commands/{command.command_id}/ack",
-            headers=headers,
-            json=ack.model_dump(mode="json"),
-            ssl=context,
-        ) as response:
-            require_gateway_response(response)
+        await transport.send_ack(ack)
         if command_executor is None:
             result = execute_context_agent_command(command, probe=SystemProbe())
         else:
             result = await command_executor.execute(command)
-        async with session.post(
-            f"{configured_origin}/agent/v1/gateway/commands/{command.command_id}/results",
-            headers=headers,
-            json=result.model_dump(mode="json"),
-            ssl=context,
-        ) as response:
-            require_gateway_response(response)
-    return GatewayAttemptOutcome(delay_before_next=0.0)
+        await transport.send_result(result)
+        return GatewayAttemptOutcome(delay_before_next=0.0)
+    finally:
+        await transport.close()
+
+
+def _http_pull_compatibility_hello() -> AgentHelloV1:
+    """Supply the local-only contract value required by a non-handshaking pull."""
+    return AgentHelloV1(
+        schema_version="agent_hello_v1",
+        device_id=UUID(int=0),
+        agent_instance_id=UUID(int=0),
+        agent_version="http-pull",
+        launcher_version="http-pull",
+        platform="linux_amd64",
+        boot_id="http-pull",
+        capabilities=[
+            "context.baseline.collect",
+            "context.diagnostic.collect",
+            "context.health.collect",
+            "context.network.collect",
+        ],
+        last_result_sequence=0,
+        last_policy_revision=0,
+    )

@@ -12,9 +12,12 @@
   reconnect, controlled update exit `42`, terminal credential rejection, and
   clean component shutdown. Cleanup errors cannot replace the selected clean,
   credential-rejected, or update-pending exit. The transitional HTTP-pull seam
-  delegates one network attempt at a time to `pc_agent/endpoint_gateway.py`;
-  the lifecycle owns normal polling delays and retry of network/HTTP 5xx
-  failures. A completed update poll advances its 300-second deadline before
+  delegates one network attempt at a time through
+  `pc_agent/transport/http_pull.py`; that adapter exclusively owns the fixed
+  Endpoint HTTPS command-pull, acknowledgement, and result routes, while
+  `pc_agent/endpoint_gateway.py` remains a compatibility wrapper for existing
+  callers and update-poll integration. The lifecycle owns normal polling
+  delays and retry of network/HTTP 5xx failures. A completed update poll advances its 300-second deadline before
   later command/ACK/result work, so a command-path retry cannot repeat update
   download work. TLS verification and credential rejection remain terminal.
 - `pc_agent/runtime/command_executor.py` accepts only typed
