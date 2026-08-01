@@ -72,6 +72,14 @@ FORBIDDEN_ARTIFACT_COMPONENTS = frozenset(
         "ws_agent",
     }
 )
+FORBIDDEN_ARTIFACT_MODULE_PREFIXES = FORBIDDEN_ARTIFACT_COMPONENTS | frozenset(
+    {
+        "pc_agent.remote_assist",
+        "pc_agent.ui_gui",
+        "pc_agent.ui_bridge",
+        "pc_agent.ws_agent",
+    }
+)
 
 
 def _artifact_module_names(artifact_root: Path) -> set[str]:
@@ -92,7 +100,7 @@ def _embedded_pyz_module_names(executable: Path) -> set[str]:
 def _forbidden_artifact_modules(module_names: set[str]) -> set[str]:
     return {
         forbidden
-        for forbidden in FORBIDDEN_ARTIFACT_COMPONENTS
+        for forbidden in FORBIDDEN_ARTIFACT_MODULE_PREFIXES
         if any(name == forbidden or name.startswith(f"{forbidden}.") for name in module_names)
     }
 
@@ -160,6 +168,22 @@ def test_artifact_module_names_normalize_extension_filenames(tmp_path: Path) -> 
     (tmp_path / "av.pyd").touch()
 
     assert "av" in _artifact_module_names(tmp_path)
+
+
+@pytest.mark.parametrize(
+    ("module_name", "forbidden_prefix"),
+    [
+        ("pc_agent.remote_assist.client", "pc_agent.remote_assist"),
+        ("pc_agent.ui_gui.main_window", "pc_agent.ui_gui"),
+        ("pc_agent.ui_bridge.api_server", "pc_agent.ui_bridge"),
+        ("pc_agent.ws_agent", "pc_agent.ws_agent"),
+    ],
+)
+def test_forbidden_artifact_modules_match_namespaced_agent_modules(
+    module_name: str, forbidden_prefix: str
+) -> None:
+    """A forbidden agent module nested in PYZ must not evade the prefix check."""
+    assert _forbidden_artifact_modules({module_name}) == {forbidden_prefix}
 
 
 @pytest.mark.skipif(sys.platform != "win32", reason="Windows PyInstaller artifact check")
