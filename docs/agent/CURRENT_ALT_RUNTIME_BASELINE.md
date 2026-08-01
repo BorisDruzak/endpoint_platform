@@ -13,9 +13,9 @@ preserve.  The executable characterization lives in
 - A 401 or 403 device-credential rejection exits the Gateway loop; it is not
   retried or redirected to Helpdesk.
 - Only transient connection failures and timeouts retry after the bounded poll
-  delay.  HTTP response failures, credential/configuration failures, malformed
-  controller payloads, and update-integrity failures are terminal for the
-  process.
+  delay.  TLS connector/certificate verification failures, HTTP response
+  failures, credential/configuration failures, malformed controller payloads,
+  and update-integrity failures are terminal for the process.
 - Gateway command execution is restricted to `context.baseline.collect`,
   `context.health.collect`, `context.network.collect`, and
   `context.diagnostic.collect`.  Each command is parsed, acknowledged, run by

@@ -165,5 +165,10 @@ async def run_gateway_forever(*, ca_file: Path) -> None:
                 result = execute_context_agent_command(command, probe=SystemProbe())
                 async with session.post(f"{_ORIGIN}/agent/v1/gateway/commands/{command.command_id}/results", headers=headers, json=result.model_dump(mode="json"), ssl=context) as response:
                     require_gateway_response(response)
+        except (
+            aiohttp.ClientConnectorCertificateError,
+            aiohttp.ClientConnectorSSLError,
+        ):
+            raise
         except (aiohttp.ClientConnectionError, asyncio.TimeoutError):
             await asyncio.sleep(5)

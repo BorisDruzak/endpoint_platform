@@ -4,11 +4,13 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+import ssl
 from types import SimpleNamespace
 from uuid import UUID
 
 import aiohttp
 import pytest
+from aiohttp.client_reqrep import ConnectionKey
 
 from endpoint_contracts import AgentCommandV1
 from pc_agent import endpoint_gateway
@@ -240,6 +242,62 @@ async def test_gateway_retries_transient_transport_failures_but_not_credential_r
     assert sleeps == [5]
     assert len(first_session.requests) == 1
     assert len(second_session.requests) == 1
+
+
+def _tls_connection_key() -> ConnectionKey:
+    return ConnectionKey(
+        host="endpoint.sosnadmin.local",
+        port=443,
+        is_ssl=True,
+        ssl=True,
+        proxy=None,
+        proxy_auth=None,
+        proxy_headers_hash=None,
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "failure",
+    [
+        aiohttp.ClientConnectorSSLError(_tls_connection_key(), ssl.SSLError("TLS failure")),
+        aiohttp.ClientConnectorCertificateError(
+            _tls_connection_key(), ssl.SSLCertVerificationError("certificate failure")
+        ),
+    ],
+)
+async def test_gateway_does_not_retry_tls_verification_or_configuration_failures(
+    failure: aiohttp.ClientConnectionError,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """TLS failures must terminate before a second Gateway poll can occur."""
+    session = _GatewaySession(failure=failure)
+    retry_session = _GatewaySession(response=_GatewayResponse(403))
+    sessions = [session, retry_session]
+    sleeps: list[float] = []
+
+    monkeypatch.setattr(endpoint_gateway.ssl, "create_default_context", lambda **_kwargs: object())
+    monkeypatch.setattr(endpoint_gateway.aiohttp, "TCPConnector", lambda **_kwargs: object())
+    monkeypatch.setattr(
+        endpoint_gateway.aiohttp, "ClientSession", lambda **_kwargs: sessions.pop(0)
+    )
+    monkeypatch.setattr(endpoint_gateway, "_credential", lambda: "device-token")
+    monkeypatch.setattr(
+        endpoint_gateway, "_gateway_update_runtime", lambda _session: _IdleUpdateRuntime()
+    )
+
+    async def capture_sleep(seconds: float) -> None:
+        sleeps.append(seconds)
+
+    monkeypatch.setattr(endpoint_gateway.asyncio, "sleep", capture_sleep)
+
+    with pytest.raises(type(failure)):
+        await endpoint_gateway.run_gateway_forever(ca_file=tmp_path / "endpoint-ca.crt")
+
+    assert sleeps == []
+    assert len(session.requests) == 1
+    assert retry_session.requests == []
 
 
 @pytest.mark.asyncio
