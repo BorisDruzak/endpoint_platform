@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from uuid import UUID
 
 import pytest
@@ -20,7 +20,7 @@ from pc_agent.runtime import application as runtime_application
 from pc_agent.runtime.application import RuntimeApplication, RuntimeDependencies, RuntimeSettings
 from pc_agent.runtime.status import RuntimePhase
 from pc_agent.transport.backoff import bounded_exponential_backoff
-from pc_agent.transport.base import GatewayTransport
+from pc_agent.transport.base import GatewayTerminalError, GatewayTransport
 
 
 _DEVICE_ID = UUID("00000000-0000-4000-8000-000000000401")
@@ -235,7 +235,7 @@ async def test_default_selection_drives_http_pull_gateway_contract_through_lifec
 async def test_gateway_wss_selection_fails_closed_without_http_pull_fallback(
     monkeypatch: pytest.MonkeyPatch, tmp_path
 ) -> None:
-    """Selecting pending WSS must not invoke the current HTTP transport."""
+    """A terminal WSS failure must not invoke the migration HTTP transport."""
     settings = RuntimeSettings(
         data_root=tmp_path / "data",
         install_root=tmp_path / "install",
@@ -248,6 +248,15 @@ async def test_gateway_wss_selection_fails_closed_without_http_pull_fallback(
     def unexpected_http(*_args, **_kwargs):
         raise AssertionError("WSS selection fell back to HTTP pull")
 
+    class TerminalWssTransport(_InMemoryGatewayTransport):
+        async def connect(self, _hello: AgentHelloV1) -> GatewayHelloV1:
+            raise GatewayTerminalError("synthetic WSS policy denial")
+
+    monkeypatch.setattr(
+        runtime_application,
+        "WebSocketGatewayTransport",
+        lambda **_kwargs: TerminalWssTransport([]),
+    )
     monkeypatch.setattr(runtime_application, "_create_http_pull_transport", unexpected_http)
     application = RuntimeApplication(
         settings,

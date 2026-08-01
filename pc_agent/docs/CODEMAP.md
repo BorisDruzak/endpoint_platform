@@ -5,8 +5,14 @@
 - `pc_agent/runtime/main.py` is the canonical headless Endpoint Agent
   entrypoint. `RuntimeSettings` carries the data/install roots, CA file,
   Endpoint HTTPS origin, and explicit `gateway_http_pull` / `gateway_wss`
-  selection. `gateway_wss` remains fail-closed until the transport task lands;
-  it never falls back to the legacy Helpdesk WebSocket.
+  selection. `gateway_wss` uses `pc_agent/transport/websocket.py` with the
+  configured internal CA and device bearer. It derives only the fixed
+  `/agent/v1/connect` WSS route from the configured DNS HTTPS origin, rejects
+  redirects, IP substitution, other routes, malformed envelopes and terminal
+  authentication/policy failures, and uses bounded jittered reconnects for
+  transport unavailability. The default-false migration HTTP-pull fallback is
+  same-origin and activates only for that classified unavailability; it never
+  falls back to the legacy Helpdesk WebSocket.
 - `pc_agent/runtime/application.py` and `runtime/lifecycle.py` own neutral
   startup, one-time credential loading, command-executor startup, classified
   reconnect, controlled update exit `42`, terminal credential rejection, and
@@ -16,10 +22,12 @@
   `pc_agent/transport/http_pull.py`; that adapter exclusively owns the fixed
   Endpoint HTTPS command-pull, acknowledgement, and result routes, while
   `pc_agent/endpoint_gateway.py` remains a compatibility wrapper for existing
-  callers and update-poll integration. The lifecycle owns normal polling
-  delays and retry of network/HTTP 5xx failures. A completed update poll advances its 300-second deadline before
-  later command/ACK/result work, so a command-path retry cannot repeat update
-  download work. TLS verification and credential rejection remain terminal.
+  callers and update-poll integration. A successful WSS hello retains update
+  polling and artifact transfer on this CA-verified HTTPS path. The lifecycle
+  owns normal polling delays and retry of network/HTTP 5xx failures. A
+  completed update poll advances its 300-second deadline before later
+  command/ACK/result work, so a command-path retry cannot repeat update work.
+  TLS verification and credential rejection remain terminal.
 - `pc_agent/transport/base.py` is the runtime transport boundary:
   `RuntimeLifecycle` directly owns `connect`, `receive`, ACK, result, and
   close calls on `GatewayTransport`. `ClassifiedGatewayTransport` translates

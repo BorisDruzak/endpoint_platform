@@ -13,12 +13,12 @@ from pc_agent.device_credential import DeviceCredentialError, read_device_creden
 from pc_agent.transport.base import GatewayTerminalError, GatewayTransport
 from pc_agent.transport.http_pull import ClassifiedGatewayTransport
 from pc_agent.transport.protocol import (
-    AgentCommandAckV1,
-    AgentHeartbeatV1,
-    AgentHelloV1,
-    AgentResultV1,
     GatewayHelloV1,
-    GatewayInboundV1,
+    compatibility_agent_hello,
+)
+from pc_agent.transport.websocket import (
+    MigrationFallbackGatewayTransport,
+    WebSocketGatewayTransport,
 )
 
 from .command_executor import CommandExecutor
@@ -38,6 +38,7 @@ class RuntimeSettings:
     ca_file: Path
     endpoint_origin: str
     transport_mode: Literal["gateway_wss", "gateway_http_pull"]
+    migration_http_pull_fallback: bool = False
 
     def validate(self) -> None:
         for name in ("data_root", "install_root", "ca_file"):
@@ -56,6 +57,8 @@ class RuntimeSettings:
             raise ValueError("Endpoint origin must be an absolute HTTPS origin")
         if self.transport_mode not in {"gateway_wss", "gateway_http_pull"}:
             raise ValueError("unsupported Endpoint transport mode")
+        if not isinstance(self.migration_http_pull_fallback, bool):
+            raise ValueError("migration HTTP pull fallback must be boolean")
         if not self.ca_file.is_file():
             raise ValueError("Endpoint CA file is missing")
 
@@ -123,13 +126,35 @@ def _create_transport(
     if not isinstance(settings, RuntimeSettings):
         raise GatewayTerminalError("invalid runtime settings")
     if settings.transport_mode == "gateway_wss":
-        return _GatewayWssUnavailableTransport()
+        runtime_state = state or _EndpointHttpPullState()
+        primary = WebSocketGatewayTransport(
+            ca_file=settings.ca_file,
+            credential=credential,
+            endpoint_origin=settings.endpoint_origin,
+            on_connected=_https_update_hook(
+                settings,
+                credential,
+                state=runtime_state,
+            ),
+        )
+        if not settings.migration_http_pull_fallback:
+            return primary
+        fallback = ClassifiedGatewayTransport(
+            _create_http_pull_transport(
+                settings,
+                credential,
+                state=runtime_state,
+            )
+        )
+        return MigrationFallbackGatewayTransport(
+            primary=primary,
+            fallback=fallback,
+            enabled=True,
+            endpoint_origin=settings.endpoint_origin,
+            fallback_origin=settings.endpoint_origin,
+        )
     if settings.transport_mode != "gateway_http_pull":
         raise GatewayTerminalError("unsupported Endpoint transport mode")
-    if settings.endpoint_origin != endpoint_gateway._ORIGIN:
-        raise GatewayTerminalError(
-            "current HTTP pull supports only the accepted Endpoint origin"
-        )
     return ClassifiedGatewayTransport(
         _create_http_pull_transport(
             settings,
@@ -137,6 +162,24 @@ def _create_transport(
             state=state or _EndpointHttpPullState(),
         )
     )
+
+
+def _https_update_hook(
+    settings: RuntimeSettings,
+    credential: str,
+    *,
+    state: "_EndpointHttpPullState",
+):
+    async def poll_updates(_gateway_hello: GatewayHelloV1) -> None:
+        transport = ClassifiedGatewayTransport(
+            _create_http_pull_transport(settings, credential, state=state)
+        )
+        try:
+            await transport.connect(compatibility_agent_hello())
+        finally:
+            await transport.close()
+
+    return poll_updates
 
 
 def _create_http_pull_transport(
@@ -167,27 +210,3 @@ def _create_http_pull_transport(
 @dataclass(slots=True)
 class _EndpointHttpPullState:
     next_update_poll_at: float = 0.0
-
-
-class _GatewayWssUnavailableTransport:
-    """Explicit WSS selection with no HTTP or Helpdesk fallback before Task 7."""
-
-    async def connect(self, _hello: AgentHelloV1) -> GatewayHelloV1:
-        raise GatewayTerminalError(
-            "Gateway WSS is not available before the transport migration"
-        )
-
-    async def receive(self) -> GatewayInboundV1:
-        raise GatewayTerminalError("Gateway WSS is not connected")
-
-    async def send_ack(self, _ack: AgentCommandAckV1) -> None:
-        raise GatewayTerminalError("Gateway WSS is not connected")
-
-    async def send_result(self, _result: AgentResultV1) -> None:
-        raise GatewayTerminalError("Gateway WSS is not connected")
-
-    async def send_heartbeat(self, _heartbeat: AgentHeartbeatV1) -> None:
-        raise GatewayTerminalError("Gateway WSS is not connected")
-
-    async def close(self) -> None:
-        return None

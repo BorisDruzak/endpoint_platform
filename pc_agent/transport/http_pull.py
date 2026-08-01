@@ -41,6 +41,15 @@ class GatewayNoCommandAvailable(RuntimeError):
     """The HTTP pull endpoint returned 204 without an inbound command."""
 
 
+async def reject_endpoint_redirect(
+    _session: object,
+    _trace_context: object,
+    _params: object,
+) -> None:
+    """Stop any bearer-bearing Endpoint request before a redirect is followed."""
+    raise GatewayTerminalError("Endpoint redirect is not permitted")
+
+
 def require_gateway_response(response: aiohttp.ClientResponse) -> None:
     """Map only device-credential denial to the transport's terminal error."""
     if response.status in {401, 403}:
@@ -92,8 +101,12 @@ class HttpPullGatewayTransport:
         validate_endpoint_origin(self._endpoint_origin)
         self._context = ssl.create_default_context(cafile=str(self._ca_file))
         connector = aiohttp.TCPConnector(ssl=self._context)
+        trace = aiohttp.TraceConfig()
+        trace.on_request_redirect.append(reject_endpoint_redirect)
         self._session_context = aiohttp.ClientSession(
-            timeout=aiohttp.ClientTimeout(total=20), connector=connector
+            timeout=aiohttp.ClientTimeout(total=20),
+            connector=connector,
+            trace_configs=[trace],
         )
         self._session = await self._session_context.__aenter__()
         try:
