@@ -127,7 +127,7 @@ def test_migration_history_has_exactly_one_head() -> None:
         _alembic_config("postgresql+asyncpg://unused@127.0.0.1/unused")
     )
 
-    assert script.get_heads() == ["0010_session_last_seen_index"]
+    assert script.get_heads() == ["0011_gateway_wss"]
 
 
 def test_migration_revisions_fit_alembic_version_storage() -> None:
@@ -492,7 +492,7 @@ def test_initial_revision_upgrades_and_downgrades_empty_postgresql(
         _fetch(plain_url, "SELECT version_num FROM alembic_version")
     )
     assert [row["version_num"] for row in revision_rows] == [
-        "0010_session_last_seen_index"
+        "0011_gateway_wss"
     ]
 
     column_rows = asyncio.run(

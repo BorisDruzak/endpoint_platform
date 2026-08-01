@@ -3,7 +3,16 @@
 from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import DateTime, ForeignKey, Index, String, UniqueConstraint, desc
+from sqlalchemy import (
+    BigInteger,
+    CheckConstraint,
+    DateTime,
+    ForeignKey,
+    Index,
+    String,
+    UniqueConstraint,
+    desc,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from endpoint_server.db.base import Base
@@ -52,14 +61,21 @@ class DeviceInstance(OwnershipRecord, Base):
             "instance_identifier",
             name="uq_device_instances_device_identifier",
         ),
+        CheckConstraint(
+            "last_result_sequence >= 0",
+            name="ck_device_instances_last_result_sequence",
+        ),
     )
 
     device_id: Mapped[UUID] = mapped_column(
         ForeignKey("devices.id", ondelete="CASCADE"), nullable=False
     )
     instance_identifier: Mapped[str] = mapped_column(String(128), nullable=False)
-    agent_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    agent_version: Mapped[str] = mapped_column(String(128), nullable=False)
     last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_result_sequence: Mapped[int] = mapped_column(
+        BigInteger, nullable=False, default=0, server_default="0"
+    )
 
 
 class DeviceSession(OwnershipRecord, Base):
@@ -86,3 +102,5 @@ class DeviceSession(OwnershipRecord, Base):
         DateTime(timezone=True), nullable=False
     )
     closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    source_address: Mapped[str | None] = mapped_column(String(45))
