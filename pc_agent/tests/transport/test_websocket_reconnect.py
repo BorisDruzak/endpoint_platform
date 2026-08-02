@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 from pathlib import Path
 from types import SimpleNamespace
@@ -481,6 +482,95 @@ async def test_explicit_fallback_switches_after_connected_wss_unavailability() -
         "http:connect",
         "http:receive",
     ]
+
+
+@pytest.mark.asyncio
+async def test_connected_receive_and_heartbeat_share_one_fallback_transition() -> None:
+    """Concurrent WSS loss must close/connect once and retain the selected fallback."""
+    from pc_agent.runtime.lifecycle import _run_connected
+    from pc_agent.transport import websocket
+
+    events: list[str] = []
+    both_primary_calls_started = asyncio.Event()
+    fallback_heartbeat_sent = asyncio.Event()
+
+    class ConcurrentlyDroppedPrimary(_RecordingTransport):
+        failure_calls = 0
+        close_calls = 0
+
+        async def _fail_together(self, operation: str):
+            self.events.append(f"wss:{operation}")
+            self.failure_calls += 1
+            if self.failure_calls == 2:
+                both_primary_calls_started.set()
+            await both_primary_calls_started.wait()
+            raise websocket.GatewayTransportUnavailable("connected WSS dropped")
+
+        async def receive(self):
+            return await self._fail_together("receive")
+
+        async def send_heartbeat(self, _heartbeat) -> None:
+            await self._fail_together("heartbeat")
+
+        async def close(self) -> None:
+            self.events.append("wss:close")
+            self.close_calls += 1
+            await asyncio.sleep(0)
+
+    class ConcurrentFallback(_RecordingTransport):
+        connect_calls = 0
+
+        async def connect(self, hello: AgentHelloV1) -> GatewayHelloV1:
+            self.connect_calls += 1
+            return await super().connect(hello)
+
+        async def receive(self):
+            self.events.append("http:receive")
+            await fallback_heartbeat_sent.wait()
+            raise asyncio.CancelledError()
+
+        async def send_heartbeat(self, _heartbeat) -> None:
+            self.events.append("http:heartbeat")
+            fallback_heartbeat_sent.set()
+
+    class NoCommandExecutor:
+        async def execute(self, _command):
+            raise AssertionError("concurrent fallback test must not execute a command")
+
+    heartbeat_sleeps = 0
+
+    async def heartbeat_sleep(_delay: float) -> None:
+        nonlocal heartbeat_sleeps
+        heartbeat_sleeps += 1
+        if heartbeat_sleeps > 1:
+            await asyncio.Future()
+        await asyncio.sleep(0)
+
+    primary = ConcurrentlyDroppedPrimary("wss", events)
+    fallback = ConcurrentFallback("http", events)
+    transport = websocket.MigrationFallbackGatewayTransport(
+        primary=primary,
+        fallback=fallback,
+        enabled=True,
+        endpoint_origin=_ORIGIN,
+        fallback_origin=_ORIGIN,
+    )
+    gateway_hello = await transport.connect(_hello())
+
+    with pytest.raises(asyncio.CancelledError):
+        await _run_connected(
+            transport,
+            NoCommandExecutor(),
+            _hello(),
+            gateway_hello,
+            heartbeat_sleep,
+        )
+    await transport.close()
+
+    assert primary.close_calls == 1
+    assert fallback.connect_calls == 1
+    assert events.count("http:receive") == 1
+    assert events.count("http:heartbeat") == 1
 
 
 @pytest.mark.asyncio

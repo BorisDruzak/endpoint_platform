@@ -363,59 +363,78 @@ class MigrationFallbackGatewayTransport:
         self._enabled = enabled
         self._active: GatewayTransport = primary
         self._hello: AgentHelloV1 | None = None
+        self._fallback_transition: asyncio.Task[GatewayHelloV1] | None = None
 
     async def connect(self, hello: AgentHelloV1) -> GatewayHelloV1:
         self._active = self._primary
         self._hello = hello
+        self._fallback_transition = None
         try:
             return await self._primary.connect(hello)
         except GatewayTransportUnavailable as error:
-            return await self._switch_to_fallback(error)
+            return await self._switch_to_fallback(error, failed=self._primary)
 
     async def receive(self) -> GatewayInboundV1:
+        active = self._active
         try:
-            return await self._active.receive()
+            return await active.receive()
         except GatewayTransportUnavailable as error:
-            await self._switch_to_fallback(error)
+            await self._switch_to_fallback(error, failed=active)
             return await self._active.receive()
 
     async def send_ack(self, ack: AgentCommandAckV1) -> None:
+        active = self._active
         try:
-            await self._active.send_ack(ack)
+            await active.send_ack(ack)
         except GatewayTransportUnavailable as error:
-            await self._switch_to_fallback(error)
+            await self._switch_to_fallback(error, failed=active)
             await self._active.send_ack(ack)
 
     async def send_result(self, result: AgentResultV1) -> None:
+        active = self._active
         try:
-            await self._active.send_result(result)
+            await active.send_result(result)
         except GatewayTransportUnavailable as error:
-            await self._switch_to_fallback(error)
+            await self._switch_to_fallback(error, failed=active)
             await self._active.send_result(result)
 
     async def send_heartbeat(self, heartbeat: AgentHeartbeatV1) -> None:
+        active = self._active
         try:
-            await self._active.send_heartbeat(heartbeat)
+            await active.send_heartbeat(heartbeat)
         except GatewayTransportUnavailable as error:
-            await self._switch_to_fallback(error)
+            await self._switch_to_fallback(error, failed=active)
             await self._active.send_heartbeat(heartbeat)
 
     async def close(self) -> None:
+        transition = self._fallback_transition
+        if transition is not None:
+            try:
+                await asyncio.shield(transition)
+            except Exception:
+                pass
         await self._active.close()
 
     async def _switch_to_fallback(
         self,
         error: GatewayTransportUnavailable,
+        *,
+        failed: GatewayTransport,
     ) -> GatewayHelloV1:
-        if (
-            not self._enabled
-            or self._active is not self._primary
-            or self._hello is None
-        ):
+        hello = self._hello
+        if not self._enabled or failed is not self._primary or hello is None:
             raise error
+        transition = self._fallback_transition
+        if transition is None:
+            transition = asyncio.create_task(self._activate_fallback(hello))
+            self._fallback_transition = transition
+        return await asyncio.shield(transition)
+
+    async def _activate_fallback(self, hello: AgentHelloV1) -> GatewayHelloV1:
         try:
             await self._primary.close()
         except Exception:
             pass
+        gateway_hello = await self._fallback.connect(hello)
         self._active = self._fallback
-        return await self._fallback.connect(self._hello)
+        return gateway_hello
