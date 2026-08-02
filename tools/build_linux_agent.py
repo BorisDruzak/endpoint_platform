@@ -8,12 +8,14 @@ import gzip
 import hashlib
 import json
 import os
-from pathlib import Path
 import re
 import stat
 import subprocess
 import tarfile
 import tempfile
+import zipfile
+from io import BytesIO
+from pathlib import Path
 from typing import NamedTuple
 
 
@@ -30,6 +32,8 @@ _SEMVER_PATTERN = re.compile(
     r"(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?\Z"
 )
 _REVISION_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._+-]{0,127}\Z")
+_BASE_LIBRARY_ARCHIVE_PATH = "endpoint-agent/_internal/base_library.zip"
+_ZIP_TIMESTAMP = (1980, 1, 1, 0, 0, 0)
 
 
 class _PayloadEntry(NamedTuple):
@@ -159,11 +163,45 @@ def _write_deterministic_archive(
                         info.type = tarfile.DIRTYPE
                         bundle.addfile(info)
                     else:
-                        info.size = entry.source.stat().st_size
-                        with entry.source.open("rb") as source_stream:
-                            bundle.addfile(info, source_stream)
+                        if name == _BASE_LIBRARY_ARCHIVE_PATH:
+                            payload = _canonical_base_library(entry.source)
+                            info.size = len(payload)
+                            bundle.addfile(info, BytesIO(payload))
+                        else:
+                            info.size = entry.source.stat().st_size
+                            with entry.source.open("rb") as source_stream:
+                                bundle.addfile(info, source_stream)
         raw_stream.flush()
         os.fsync(raw_stream.fileno())
+
+
+def _canonical_base_library(path: Path) -> bytes:
+    """Return PyInstaller's base library with stable member order and metadata."""
+    output = BytesIO()
+    with zipfile.ZipFile(path, "r") as source:
+        members = source.infolist()
+        names = [member.filename for member in members]
+        if len(names) != len(set(names)):
+            raise ValueError("base_library.zip contains duplicate members")
+        with zipfile.ZipFile(
+            output,
+            "w",
+            compression=zipfile.ZIP_DEFLATED,
+            compresslevel=9,
+            strict_timestamps=True,
+        ) as destination:
+            for member in sorted(members, key=lambda item: item.filename):
+                canonical = zipfile.ZipInfo(member.filename, date_time=_ZIP_TIMESTAMP)
+                canonical.compress_type = zipfile.ZIP_DEFLATED
+                canonical.create_system = 3
+                canonical.external_attr = 0o100644 << 16
+                destination.writestr(
+                    canonical,
+                    source.read(member),
+                    compress_type=zipfile.ZIP_DEFLATED,
+                    compresslevel=9,
+                )
+    return output.getvalue()
 
 
 def _manifest_bytes(

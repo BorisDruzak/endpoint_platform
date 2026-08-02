@@ -137,11 +137,7 @@ def _run_builder(source: Path, output: Path) -> subprocess.CompletedProcess[str]
     )
 
 
-@pytest.fixture(scope="module")
-def built_artifact_root(tmp_path_factory: pytest.TempPathFactory) -> Path:
-    if not sys.platform.startswith("linux"):
-        pytest.skip("Linux artifact build")
-    build_root = tmp_path_factory.mktemp("linux-headless-artifact")
+def _build_pyinstaller_artifact(build_root: Path) -> Path:
     result = subprocess.run(
         [
             sys.executable,
@@ -161,6 +157,15 @@ def built_artifact_root(tmp_path_factory: pytest.TempPathFactory) -> Path:
     )
     assert result.returncode == 0, result.stderr
     return build_root / "dist" / "endpoint-agent"
+
+
+@pytest.fixture(scope="module")
+def built_artifact_root(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    if not sys.platform.startswith("linux"):
+        pytest.skip("Linux artifact build")
+    return _build_pyinstaller_artifact(
+        tmp_path_factory.mktemp("linux-headless-artifact")
+    )
 
 
 def test_linux_spec_names_the_new_headless_artifact_and_core_executable() -> None:
@@ -304,3 +309,28 @@ def test_release_builder_refuses_to_replace_an_existing_immutable_build(
     assert changed.returncode != 0
     assert "immutable build already exists" in changed.stderr
     assert archive.read_bytes() == original
+
+
+@pytest.mark.skipif(not sys.platform.startswith("linux"), reason="Linux clean builds")
+def test_two_clean_pyinstaller_builds_produce_identical_release_bytes(
+    tmp_path: Path,
+) -> None:
+    """A clean rebuild of one revision must not conflict with its immutable identity."""
+    first_source = _build_pyinstaller_artifact(tmp_path / "first-build")
+    second_source = _build_pyinstaller_artifact(tmp_path / "second-build")
+    first_output = tmp_path / "first-release"
+    second_output = tmp_path / "second-release"
+
+    first_result = _run_builder(first_source, first_output)
+    second_result = _run_builder(second_source, second_output)
+
+    assert first_result.returncode == 0, first_result.stderr
+    assert second_result.returncode == 0, second_result.stderr
+    archive_name = "endpoint-agent-linux_amd64-3.1.76.tar.gz"
+    manifest_name = "endpoint-agent-linux_amd64-3.1.76.manifest.json"
+    assert (first_output / archive_name).read_bytes() == (
+        second_output / archive_name
+    ).read_bytes()
+    assert (first_output / manifest_name).read_bytes() == (
+        second_output / manifest_name
+    ).read_bytes()

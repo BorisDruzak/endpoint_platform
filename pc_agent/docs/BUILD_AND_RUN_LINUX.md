@@ -205,4 +205,8 @@ the build identifier, version, source revision, platform, channel, archive
 type/name, SHA-256, and size. It intentionally has no download URL: artifact
 publication and conversion to the server's `UpdateBuildManifestV1` are a later
 release operation. This build step does not create an RPM or install files on
-a host.
+a host. The builder canonicalizes PyInstaller's generated
+`_internal/base_library.zip` member order and ZIP metadata before hashing the
+final tar, so two clean builds of the same checkout produce identical release
+bytes; changed embedded module bytes still produce a different immutable
+artifact.
