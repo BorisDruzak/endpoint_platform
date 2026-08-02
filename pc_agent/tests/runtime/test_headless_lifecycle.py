@@ -438,6 +438,57 @@ async def test_default_lifecycle_hello_uses_exact_stored_enrollment_device_id(
     assert observed == [expected]
 
 
+@pytest.mark.asyncio
+async def test_default_wss_composition_binds_bearer_to_stored_server_device_id(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Catches breaking identity loading before the real default WSS boundary."""
+    from pc_agent.transport.websocket import WebSocketGatewayTransport
+
+    stored_device_id = UUID("00000000-0000-4000-8000-000000000436")
+    settings = RuntimeSettings(
+        data_root=tmp_path / "data",
+        install_root=tmp_path / "install",
+        ca_file=tmp_path / "endpoint-ca.crt",
+        endpoint_origin="https://endpoint.sosnadmin.local",
+        transport_mode="gateway_wss",
+    )
+    settings.data_root.mkdir()
+    settings.install_root.mkdir()
+    settings.ca_file.write_text("test-only CA fixture", encoding="ascii")
+    (settings.data_root / "device-credential").write_text(
+        "w" * 43, encoding="ascii"
+    )
+    (settings.data_root / "enrollment-identity.json").write_text(
+        json.dumps(
+            {
+                "device_id": str(stored_device_id),
+                "schema_version": "endpoint_enrollment_identity_v1",
+            },
+            separators=(",", ":"),
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+    observed: list[tuple[WebSocketGatewayTransport, object]] = []
+
+    async def capture_connect(
+        transport: WebSocketGatewayTransport, hello: object
+    ) -> GatewayHelloV1:
+        observed.append((transport, hello))
+        raise asyncio.CancelledError()
+
+    monkeypatch.setattr(WebSocketGatewayTransport, "connect", capture_connect)
+
+    assert await RuntimeApplication(settings).run() == 0
+    assert len(observed) == 1
+    transport, hello = observed[0]
+    assert type(transport) is WebSocketGatewayTransport
+    assert transport._credential == "w" * 43
+    assert hello.device_id == stored_device_id
+
+
 @pytest.mark.parametrize(
     "payload",
     [

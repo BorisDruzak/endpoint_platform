@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from uuid import UUID
+from uuid import RFC_4122, UUID
 
 
 ENROLLMENT_IDENTITY_FILENAME = "enrollment-identity.json"
@@ -17,18 +17,21 @@ class EnrollmentIdentityError(ValueError):
 
 
 def canonical_enrollment_device_id(value: object) -> UUID:
-    """Parse one canonical UUID without inventing or consulting another identity."""
+    """Parse one canonical RFC 4122 v1-v5 UUID without inventing an identity."""
     if isinstance(value, UUID):
-        return UUID(str(value))
-    if not isinstance(value, str):
-        raise EnrollmentIdentityError("Endpoint enrollment identity is invalid")
-    try:
-        parsed = UUID(value)
-    except (AttributeError, TypeError, ValueError) as error:
-        raise EnrollmentIdentityError(
-            "Endpoint enrollment identity is invalid"
-        ) from error
-    if value != str(parsed):
+        parsed = UUID(str(value))
+    else:
+        if not isinstance(value, str):
+            raise EnrollmentIdentityError("Endpoint enrollment identity is invalid")
+        try:
+            parsed = UUID(value)
+        except (AttributeError, TypeError, ValueError) as error:
+            raise EnrollmentIdentityError(
+                "Endpoint enrollment identity is invalid"
+            ) from error
+        if value != str(parsed):
+            raise EnrollmentIdentityError("Endpoint enrollment identity is invalid")
+    if parsed.variant != RFC_4122 or parsed.version not in range(1, 6):
         raise EnrollmentIdentityError("Endpoint enrollment identity is invalid")
     return parsed
 

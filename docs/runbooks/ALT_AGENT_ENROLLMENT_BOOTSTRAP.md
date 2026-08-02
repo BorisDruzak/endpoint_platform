@@ -32,7 +32,9 @@ permanent credential and root-finalizer request locations are fixed at
   group with mode `0600`.
 - The authoritative server Device UUID is stored separately at
   `/var/lib/endpoint-agent/enrollment-identity.json` with the same owner and
-  mode. Legacy `identity.json.machine_id` is not an enrollment identity.
+  mode. Its `device_id` must be a canonical lowercase RFC 4122 UUID version
+  1–5, matching the installer finalizer grammar; nil and later UUID versions
+  fail closed. Legacy `identity.json.machine_id` is not an enrollment identity.
 - The root-owned provisioning source remains outside the service user's write
   access. Systemd exposes only a transient credential copy to the process.
 
