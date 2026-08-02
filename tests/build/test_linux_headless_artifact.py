@@ -140,6 +140,35 @@ def _run_builder(source: Path, output: Path) -> subprocess.CompletedProcess[str]
     )
 
 
+@pytest.mark.parametrize(
+    ("relative", "source_mode", "expected_mode"),
+    [
+        (Path("endpoint-agent"), 0o700, 0o755),
+        (Path("_internal/runtime.dat"), 0o600, 0o644),
+    ],
+)
+def test_release_builder_normalizes_safe_source_modes(
+    relative: Path, source_mode: int, expected_mode: int
+) -> None:
+    assert build_linux_agent._normalized_payload_mode(relative, source_mode) == expected_mode
+
+
+@pytest.mark.parametrize(
+    ("relative", "source_mode"),
+    [
+        (Path("_internal/runtime.dat"), 0o666),
+        (Path("endpoint-agent"), 0o777),
+        (Path("_internal/runtime.dat"), 0o757),
+        (Path("endpoint-agent"), 0o644),
+    ],
+)
+def test_release_builder_rejects_unsafe_or_non_entrypoint_source_modes(
+    relative: Path, source_mode: int
+) -> None:
+    with pytest.raises(ValueError):
+        build_linux_agent._normalized_payload_mode(relative, source_mode)
+
+
 def _build_pyinstaller_artifact(build_root: Path) -> Path:
     result = subprocess.run(
         [

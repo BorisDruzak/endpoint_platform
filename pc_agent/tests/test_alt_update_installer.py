@@ -29,6 +29,7 @@ def _write_bundle(
     source_revision: str = "feedface",
     corrupt_manifest: bool = False,
     layout: str = "legacy",
+    mode_overrides: dict[str, int] | None = None,
 ) -> None:
     if layout == "legacy":
         files = {
@@ -48,6 +49,11 @@ def _write_bundle(
         }
     else:
         raise AssertionError("unknown fixture layout")
+    if mode_overrides:
+        files = {
+            name: (value, mode_overrides.get(name, mode))
+            for name, (value, mode) in files.items()
+        }
     manifest_files = [
         {
             "path": name,
@@ -150,7 +156,339 @@ def _pending(
     path = data_root / "updates" / "pending_alt_update.json"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload), encoding="utf-8")
+    if os.name != "nt":
+        path.chmod(0o600)
     return path
+
+
+@pytest.mark.parametrize(
+    ("payload_path", "mode"),
+    [
+        ("endpoint-agent/_internal/runtime.dat", 0o666),
+        ("endpoint-agent/endpoint-agent", 0o777),
+        ("endpoint-agent/_internal/runtime.dat", 0o757),
+        ("endpoint-agent/endpoint-agent", 0o644),
+    ],
+)
+def test_alt_update_rejects_unsafe_or_noncanonical_payload_modes_before_publication(
+    tmp_path: Path, payload_path: str, mode: int
+) -> None:
+    install_root, data_root = tmp_path / "install", tmp_path / "data"
+    _initial_selector(install_root)
+    artifact = data_root / "updates" / "downloads" / "candidate.tar.gz"
+    artifact.parent.mkdir(parents=True)
+    _write_bundle(
+        artifact,
+        layout="headless",
+        mode_overrides={payload_path: mode},
+    )
+
+    ok, _ = apply_alt_update(install_root, data_root, _pending(data_root, artifact))
+
+    assert ok is False
+    assert json.loads((install_root / "current.json").read_text())["version"] == "3.1.76"
+    assert not (install_root / "versions" / "3.1.77-rc.1").exists()
+
+
+def test_invalid_pending_leaf_is_consumed_when_failure_destination_is_a_directory(
+    tmp_path: Path,
+) -> None:
+    install_root, data_root = tmp_path / "install", tmp_path / "data"
+    _initial_selector(install_root)
+    updates = data_root / "updates"
+    updates.mkdir(parents=True)
+    pending = updates / "pending_alt_update.json"
+    pending.mkdir()
+    failure = updates / "last_failed_alt_update.json"
+    failure.mkdir()
+
+    ok, _ = apply_alt_update(install_root, data_root, pending)
+
+    assert ok is False
+    assert not pending.exists()
+    assert failure.is_file() and not failure.is_symlink()
+    assert json.loads(failure.read_text())["reason"] == "invalid_alt_pending_update"
+
+
+def test_update_history_symlink_is_not_followed_or_incorporated(tmp_path: Path) -> None:
+    install_root, data_root = tmp_path / "install", tmp_path / "data"
+    _initial_selector(install_root)
+    artifact = data_root / "updates" / "downloads" / "candidate.tar.gz"
+    artifact.parent.mkdir(parents=True)
+    _write_bundle(artifact, layout="headless")
+    external = tmp_path / "external-history.json"
+    external.write_text('[{"attacker":"history"}]')
+    history = data_root / "updates" / "update_history.json"
+    try:
+        history.symlink_to(external)
+    except OSError as exc:
+        pytest.skip(f"symlinks unavailable: {exc}")
+
+    ok, _ = apply_alt_update(install_root, data_root, _pending(data_root, artifact))
+
+    assert ok is True
+    assert external.read_text() == '[{"attacker":"history"}]'
+    assert history.is_file() and not history.is_symlink()
+    assert json.loads(history.read_text()) == [
+        {
+            "operation_id": _OPERATION_ID,
+            "previous_version": "3.1.76",
+            "success": True,
+            "version": "3.1.77-rc.1",
+        }
+    ]
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX mode recovery")
+def test_update_recovers_a_valid_candidate_left_with_staging_directory_mode(
+    tmp_path: Path,
+) -> None:
+    install_root, data_root = tmp_path / "install", tmp_path / "data"
+    _initial_selector(install_root)
+    artifact = data_root / "updates" / "downloads" / "candidate.tar.gz"
+    artifact.parent.mkdir(parents=True)
+    _write_bundle(artifact, layout="headless")
+    target = install_root / "versions" / "3.1.77-rc.1"
+    (target / "endpoint-agent" / "_internal").mkdir(parents=True)
+    (target / "endpoint-agent" / "endpoint-agent").write_bytes(b"headless")
+    (target / "endpoint-agent" / "endpoint-agent").chmod(0o755)
+    (target / "endpoint-agent" / "_internal" / "runtime.dat").write_bytes(
+        b"runtime"
+    )
+    (target / "endpoint-agent" / "_internal" / "runtime.dat").chmod(0o644)
+    (target / "manifest.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "version": "3.1.77-rc.1",
+                "source_revision": "feedface",
+                "files": [
+                    {
+                        "path": "endpoint-agent/_internal/runtime.dat",
+                        "sha256": _sha256(b"runtime"),
+                        "mode": "0644",
+                    },
+                    {
+                        "path": "endpoint-agent/endpoint-agent",
+                        "sha256": _sha256(b"headless"),
+                        "mode": "0755",
+                    },
+                ],
+            },
+            separators=(",", ":"),
+        )
+    )
+    target.chmod(0o700)
+
+    ok, version = apply_alt_update(install_root, data_root, _pending(data_root, artifact))
+
+    assert (ok, version) == (True, "3.1.77-rc.1")
+    assert json.loads((install_root / "current.json").read_text())["version"] == (
+        "3.1.77-rc.1"
+    )
+
+
+def test_update_fsyncs_final_release_before_selector_and_retries_interruption(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    install_root, data_root = tmp_path / "install", tmp_path / "data"
+    _initial_selector(install_root)
+    artifact = data_root / "updates" / "downloads" / "candidate.tar.gz"
+    artifact.parent.mkdir(parents=True)
+    _write_bundle(artifact, layout="headless")
+    pending = _pending(data_root, artifact)
+    calls: list[Path] = []
+
+    def interrupt_once(release: Path) -> None:
+        calls.append(release)
+        if release.name == "3.1.77-rc.1" and calls.count(release) == 1:
+            raise OSError("simulated interruption after final release rename")
+
+    monkeypatch.setattr(
+        alt_update_installer, "_fsync_release_tree", interrupt_once, raising=False
+    )
+
+    assert apply_alt_update(install_root, data_root, pending)[0] is False
+    assert pending.exists()
+    assert json.loads((install_root / "current.json").read_text())["version"] == "3.1.76"
+    assert apply_alt_update(install_root, data_root, pending) == (True, "3.1.77-rc.1")
+    assert calls == [
+        install_root / "versions" / "_alt_update_staging" / calls[0].name,
+        install_root / "versions" / "3.1.77-rc.1",
+        install_root / "versions" / "3.1.77-rc.1",
+    ]
+
+
+@pytest.mark.parametrize("commit_point", ["release_fsync", "parent_fsync", "selector"])
+def test_durable_candidate_faults_preserve_pending_until_selector_commit(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, commit_point: str
+) -> None:
+    """Each post-rename interruption must replay instead of archiving a valid request."""
+    install_root, data_root = tmp_path / "install", tmp_path / "data"
+    _initial_selector(install_root)
+    artifact = data_root / "updates" / "downloads" / "candidate.tar.gz"
+    artifact.parent.mkdir(parents=True)
+    _write_bundle(artifact)
+    pending = _pending(data_root, artifact)
+    candidate = install_root / "versions" / "3.1.77-rc.1"
+    interrupted = False
+
+    if commit_point == "release_fsync":
+        original = alt_update_installer._fsync_release_tree
+
+        def fail_once(path: Path) -> None:
+            nonlocal interrupted
+            if path == candidate and not interrupted:
+                interrupted = True
+                raise OSError("injected release fsync failure")
+            original(path)
+
+        monkeypatch.setattr(alt_update_installer, "_fsync_release_tree", fail_once)
+    elif commit_point == "parent_fsync":
+        original = alt_update_installer._fsync_directory
+
+        def fail_once(path: Path) -> None:
+            nonlocal interrupted
+            if path == candidate.parent and candidate.exists() and not interrupted:
+                interrupted = True
+                raise OSError("injected release-parent fsync failure")
+            original(path)
+
+        monkeypatch.setattr(alt_update_installer, "_fsync_directory", fail_once)
+    else:
+        original = alt_update_installer._write_selector
+
+        def fail_once(path: Path, manifest: object) -> None:
+            nonlocal interrupted
+            if path.name == "current.json" and not interrupted:
+                interrupted = True
+                raise OSError("injected selector publication failure")
+            original(path, manifest)
+
+        monkeypatch.setattr(alt_update_installer, "_write_selector", fail_once)
+
+    assert apply_alt_update(install_root, data_root, pending)[0] is False
+    assert interrupted
+    assert pending.exists()
+    assert json.loads((install_root / "current.json").read_text()) == {
+        "schema_version": 1,
+        "source_revision": "deadbeef",
+        "version": "3.1.76",
+    }
+    assert apply_alt_update(install_root, data_root, pending) == (True, "3.1.77-rc.1")
+
+
+def test_staging_release_is_verified_before_rename(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    install_root, data_root = tmp_path / "install", tmp_path / "data"
+    _initial_selector(install_root)
+    artifact = data_root / "updates" / "downloads" / "candidate.tar.gz"
+    artifact.parent.mkdir(parents=True)
+    _write_bundle(artifact)
+    verified_staging = False
+    original_verify = alt_update_installer._verify_existing_release
+    original_move = alt_update_installer.shutil.move
+
+    def record_verified(path: Path, manifest: object) -> None:
+        nonlocal verified_staging
+        if "_alt_update_staging" in path.parts:
+            verified_staging = True
+        original_verify(path, manifest)
+
+    def reject_unverified_move(source: str, destination: str) -> str:
+        assert verified_staging
+        return original_move(source, destination)
+
+    monkeypatch.setattr(alt_update_installer, "_verify_existing_release", record_verified)
+    monkeypatch.setattr(alt_update_installer.shutil, "move", reject_unverified_move)
+
+    assert apply_alt_update(
+        install_root, data_root, _pending(data_root, artifact)
+    ) == (True, "3.1.77-rc.1")
+
+
+def test_update_quarantines_incomplete_candidate_then_publishes_verified_bundle(
+    tmp_path: Path,
+) -> None:
+    install_root, data_root = tmp_path / "install", tmp_path / "data"
+    _initial_selector(install_root)
+    artifact = data_root / "updates" / "downloads" / "candidate.tar.gz"
+    artifact.parent.mkdir(parents=True)
+    _write_bundle(artifact, layout="headless")
+    target = install_root / "versions" / "3.1.77-rc.1"
+    target.mkdir(parents=True)
+    (target / "poisoned").write_text("incomplete", encoding="utf-8")
+
+    assert apply_alt_update(
+        install_root, data_root, _pending(data_root, artifact)
+    ) == (True, "3.1.77-rc.1")
+    assert (target / "endpoint-agent" / "endpoint-agent").read_bytes() == b"headless"
+    assert any(
+        candidate.is_dir() and (candidate / "poisoned").exists()
+        for candidate in (install_root / "versions").glob(".rejected-3.1.77-rc.1.*")
+    )
+
+
+def test_pending_symlink_is_consumed_without_reading_its_target(tmp_path: Path) -> None:
+    install_root, data_root = tmp_path / "install", tmp_path / "data"
+    _initial_selector(install_root)
+    updates = data_root / "updates"
+    updates.mkdir(parents=True)
+    external = tmp_path / "external-pending.json"
+    external.write_text('{"attacker":true}', encoding="utf-8")
+    pending = updates / "pending_alt_update.json"
+    try:
+        pending.symlink_to(external)
+    except OSError as exc:
+        pytest.skip(f"symlinks unavailable: {exc}")
+
+    ok, _ = apply_alt_update(install_root, data_root, pending)
+
+    assert ok is False
+    assert external.read_text(encoding="utf-8") == '{"attacker":true}'
+    assert not pending.exists()
+    assert (updates / "last_failed_alt_update.json").is_file()
+
+
+def test_hostile_updates_parent_is_repaired_and_pending_is_terminal(
+    tmp_path: Path,
+) -> None:
+    install_root, data_root = tmp_path / "install", tmp_path / "data"
+    _initial_selector(install_root)
+    data_root.mkdir()
+    external = tmp_path / "external-updates"
+    external.mkdir()
+    updates = data_root / "updates"
+    try:
+        updates.symlink_to(external, target_is_directory=True)
+    except OSError as exc:
+        pytest.skip(f"symlinks unavailable: {exc}")
+
+    ok, _ = apply_alt_update(install_root, data_root, updates / "pending_alt_update.json")
+
+    assert ok is False
+    assert updates.is_dir() and not updates.is_symlink()
+    assert not list(external.iterdir())
+    assert (updates / "last_failed_alt_update.json").is_file()
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX FIFO semantics")
+def test_history_fifo_is_quarantined_without_blocking_update(tmp_path: Path) -> None:
+    install_root, data_root = tmp_path / "install", tmp_path / "data"
+    _initial_selector(install_root)
+    artifact = data_root / "updates" / "downloads" / "candidate.tar.gz"
+    artifact.parent.mkdir(parents=True)
+    _write_bundle(artifact)
+    _pending(data_root, artifact)
+    history = data_root / "updates" / "update_history.json"
+    os.mkfifo(history)
+
+    assert apply_alt_update(install_root, data_root, data_root / "updates" / "pending_alt_update.json") == (
+        True,
+        "3.1.77-rc.1",
+    )
+    assert history.is_file() and not history.is_symlink()
 
 
 def _initial_selector(install_root: Path) -> None:

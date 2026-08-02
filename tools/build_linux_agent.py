@@ -43,6 +43,24 @@ class _PayloadEntry(NamedTuple):
     is_directory: bool
 
 
+def _normalized_payload_mode(relative: Path, source_mode: int, *, is_directory: bool = False) -> int:
+    """Accept only safe source permissions and emit the immutable archive mode."""
+    source_mode = stat.S_IMODE(source_mode)
+    if source_mode & (stat.S_ISUID | stat.S_ISGID | stat.S_ISVTX):
+        raise ValueError(f"unsafe artifact mode: {relative.as_posix()}")
+    if is_directory:
+        return 0o755
+    if source_mode & (stat.S_IWGRP | stat.S_IWOTH):
+        raise ValueError(f"unsafe artifact mode: {relative.as_posix()}")
+    if relative.as_posix() == "endpoint-agent":
+        if not source_mode & 0o111:
+            raise ValueError("headless core executable is not executable")
+        return 0o755
+    if source_mode & 0o111:
+        raise ValueError(f"non-entrypoint payload must not be executable: {relative.as_posix()}")
+    return 0o644
+
+
 def _read_agent_version() -> str:
     version_path = PROJECT_ROOT / "pc_agent" / "version.py"
     match = re.search(
@@ -74,15 +92,14 @@ def _payload_entries(source: Path) -> list[_PayloadEntry]:
     executable = source / "endpoint-agent"
     if executable.is_symlink() or not executable.is_file():
         raise ValueError("headless core executable is missing")
-    if not executable.stat().st_mode & 0o111:
-        raise ValueError("headless core executable is not executable")
+    _normalized_payload_mode(Path("endpoint-agent"), executable.lstat().st_mode)
 
     resolved_root = source.resolve(strict=True)
     entries = [
         _PayloadEntry(
             source=source,
             relative=Path("endpoint-agent"),
-            mode=stat.S_IMODE(source.lstat().st_mode),
+            mode=_normalized_payload_mode(Path("."), source.lstat().st_mode, is_directory=True),
             is_directory=True,
         )
     ]
@@ -110,7 +127,7 @@ def _payload_entries(source: Path) -> list[_PayloadEntry]:
                     _PayloadEntry(
                         source=target,
                         relative=archive_relative,
-                        mode=stat.S_IMODE(target_mode),
+                        mode=_normalized_payload_mode(relative_source, target_mode),
                         is_directory=False,
                     )
                 )
@@ -119,7 +136,9 @@ def _payload_entries(source: Path) -> list[_PayloadEntry]:
                     _PayloadEntry(
                         source=entry,
                         relative=archive_relative,
-                        mode=stat.S_IMODE(entry_mode),
+                        mode=_normalized_payload_mode(
+                            relative_source, entry_mode, is_directory=True
+                        ),
                         is_directory=True,
                     )
                 )
@@ -129,7 +148,7 @@ def _payload_entries(source: Path) -> list[_PayloadEntry]:
                     _PayloadEntry(
                         source=entry,
                         relative=archive_relative,
-                        mode=stat.S_IMODE(entry_mode),
+                        mode=_normalized_payload_mode(relative_source, entry_mode),
                         is_directory=False,
                     )
                 )
@@ -139,6 +158,13 @@ def _payload_entries(source: Path) -> list[_PayloadEntry]:
                 )
 
     visit(source)
+    payload_paths = {entry.relative.as_posix() for entry in entries if not entry.is_directory}
+    if "endpoint-agent/endpoint-agent" not in payload_paths or any(
+        path != "endpoint-agent/endpoint-agent"
+        and not path.startswith("endpoint-agent/_internal/")
+        for path in payload_paths
+    ):
+        raise ValueError("Linux artifact payload has an unexpected shape")
     return entries
 
 

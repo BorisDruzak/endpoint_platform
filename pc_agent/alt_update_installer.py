@@ -27,6 +27,8 @@ _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 _OPERATION_ID = re.compile(
     r"^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
 )
+_MAX_PENDING_BYTES = 16 * 1024
+_MAX_HISTORY_BYTES = 256 * 1024
 ROLLBACK_REQUEST_SCHEMA = "endpoint_alt_rollback_request_v1"
 ROLLBACK_REQUEST_NAME = "rollback-request.json"
 PREVIOUS_SELECTOR_NAME = "previous.json"
@@ -51,9 +53,12 @@ def apply_alt_update(
     )
     payload: dict[str, Any] | None = None
     committed = False
+    recoverable_target = False
     try:
-        _validate_updates_dir(data_root)
-        payload = _load_pending(data_root, pending_path)
+        with _pinned_updates_dir(data_root, repair=True) as (updates, updates_fd):
+            payload = _load_pending(
+                data_root, pending_path, updates=updates, updates_fd=updates_fd
+            )
         artifact_path = _verified_artifact(data_root, payload)
         current = _load_selector(install_root / "current.json", root_authority=True)
         _verify_selected_release(install_root, current)
@@ -66,12 +71,29 @@ def apply_alt_update(
         )
         target = install_root / "versions" / manifest.version
         if target.exists() or target.is_symlink():
-            _verify_existing_release(target, manifest)
+            try:
+                _verify_existing_release(target, manifest)
+            except (OSError, ValueError, json.JSONDecodeError):
+                if current["version"] == manifest.version:
+                    raise
+                _quarantine_incomplete_release(target)
+                _finalize_staging_release(staging, manifest)
+                shutil.move(str(staging), str(target))
+                recoverable_target = True
+            else:
+                recoverable_target = True
         else:
             target.parent.mkdir(parents=True, exist_ok=True)
+            _finalize_staging_release(staging, manifest)
             shutil.move(str(staging), str(target))
-            _make_release_directories_traversable(target)
-            _verify_existing_release(target, manifest)
+            recoverable_target = True
+        # Reassert the immutable directory mode at its final pathname.  The
+        # same mode was verified in staging before the rename; this makes a
+        # recovery run repair metadata that an interrupted predecessor left.
+        _make_release_directories_traversable(target)
+        _fsync_release_tree(target)
+        _fsync_directory(target.parent)
+        _verify_existing_release(target, manifest)
         candidate = _selector_for_manifest(manifest)
         previous_path = install_root / PREVIOUS_SELECTOR_NAME
         if current == candidate:
@@ -110,7 +132,8 @@ def apply_alt_update(
                     "version": manifest.version,
                 },
             )
-            pending_path.unlink(missing_ok=True)
+            with _pinned_updates_dir(data_root, repair=True) as (updates, updates_fd):
+                _unlink_update_leaf(updates, updates_fd, "pending_alt_update.json")
         except (OSError, ValueError, json.JSONDecodeError):
             # current.json is the commit point.  Leave the pending request for
             # an idempotent replay instead of reporting an active build failed.
@@ -119,6 +142,11 @@ def apply_alt_update(
     except (OSError, ValueError, json.JSONDecodeError, tarfile.TarError) as exc:
         if committed:
             return True, str(payload["version"] if payload is not None else "committed")
+        if recoverable_target:
+            # The candidate tree is structurally complete but has not crossed
+            # selector publication. Preserve the fixed pending request so the
+            # root worker can fsync/verify and finish on its next activation.
+            return False, type(exc).__name__
         if payload is not None:
             _append_history(
                 data_root,
@@ -128,7 +156,11 @@ def apply_alt_update(
                     "version": payload["version"],
                 },
             )
-        _archive_failed_pending(data_root, pending_path)
+        _archive_failed_pending(
+            data_root,
+            pending_path,
+            reason="invalid_alt_pending_update",
+        )
         return False, type(exc).__name__
     finally:
         try:
@@ -281,15 +313,26 @@ def _load_rollback_request(
     return payload
 
 
-def _load_pending(data_root: Path, pending_path: Path) -> dict[str, Any]:
+def _load_pending(
+    data_root: Path,
+    pending_path: Path,
+    *,
+    updates: Path,
+    updates_fd: int | None,
+) -> dict[str, Any]:
     expected_path = data_root / "updates" / "pending_alt_update.json"
     if (
         pending_path != expected_path
-        or not pending_path.is_file()
-        or pending_path.is_symlink()
     ):
         raise ValueError("invalid ALT pending path")
-    payload = _load_json_no_duplicates(pending_path.read_text(encoding="utf-8"))
+    details, raw = _read_update_leaf(
+        updates,
+        updates_fd,
+        "pending_alt_update.json",
+        max_bytes=_MAX_PENDING_BYTES,
+    )
+    _validate_service_state_file(data_root, details)
+    payload = _load_json_no_duplicates(raw.decode("utf-8"))
     required = {
         "archive_type",
         "artifact_path",
@@ -322,6 +365,21 @@ def _load_pending(data_root: Path, pending_path: Path) -> dict[str, Any]:
     ):
         raise ValueError("invalid ALT pending values")
     return payload
+
+
+def _validate_service_state_file(data_root: Path, details: os.stat_result) -> None:
+    """Require a bounded, regular service-state file owned like data_root."""
+    if not stat.S_ISREG(details.st_mode):
+        raise ValueError("unsafe ALT service state leaf")
+    if os.name == "nt":
+        return
+    data_details = data_root.stat()
+    if (
+        details.st_uid != data_details.st_uid
+        or details.st_gid != data_details.st_gid
+        or stat.S_IMODE(details.st_mode) != 0o600
+    ):
+        raise ValueError("unsafe ALT service state metadata")
 
 
 def _verified_artifact(data_root: Path, payload: dict[str, Any]) -> Path:
@@ -376,12 +434,18 @@ def _extract_and_validate(
         for member in members:
             name = _safe_member_name(member.name)
             if member.isdir():
+                if stat.S_IMODE(member.mode) != 0o755:
+                    raise ValueError("unsafe ALT archive directory mode")
                 continue
             if not member.isfile() or name in regular:
                 raise ValueError("unsafe ALT archive member")
             regular[name] = member
         manifest_member = regular.get("manifest.json")
-        if manifest_member is None or manifest_member.size > 1024 * 1024:
+        if (
+            manifest_member is None
+            or manifest_member.size > 1024 * 1024
+            or stat.S_IMODE(manifest_member.mode) != 0o644
+        ):
             raise ValueError("missing ALT manifest")
         stream = archive.extractfile(manifest_member)
         if stream is None:
@@ -395,6 +459,7 @@ def _extract_and_validate(
         if actual != manifest.files:
             raise ValueError("ALT manifest does not match archive")
         _validate_release_shape(set(actual))
+        _validate_payload_modes(manifest.files)
         for name, member in regular.items():
             destination = staging.joinpath(*PurePosixPath(name).parts)
             destination.parent.mkdir(parents=True, exist_ok=True)
@@ -416,6 +481,19 @@ def _validate_release_shape(files: set[str]) -> None:
     )
     if legacy == headless:
         raise ValueError("unexpected ALT archive payload")
+
+
+def _validate_payload_modes(files: dict[str, tuple[str, int]]) -> None:
+    legacy = {"launcher", "pc_agent/pc_agent"}.issubset(files)
+    executable_paths = (
+        {"launcher", "pc_agent/pc_agent"}
+        if legacy
+        else {"endpoint-agent/endpoint-agent"}
+    )
+    for path, (_, mode) in files.items():
+        expected = 0o755 if path in executable_paths else 0o644
+        if mode != expected:
+            raise ValueError("unsafe ALT payload mode")
 
 
 def _parse_manifest(raw: bytes, *, expected_version: str) -> _Manifest:
@@ -564,9 +642,38 @@ def _make_release_directories_traversable(release_root: Path) -> None:
         os.chmod(directory, 0o755)
 
 
+def _finalize_staging_release(staging: Path, manifest: _Manifest) -> None:
+    """Set final immutable metadata and verify before the release-tree rename."""
+    _make_release_directories_traversable(staging)
+    _verify_existing_release(staging, manifest)
+    _fsync_release_tree(staging)
+    _fsync_directory(staging.parent)
+
+
+def _fsync_release_tree(release_root: Path) -> None:
+    if os.name == "nt":
+        return
+    for path in sorted(release_root.rglob("*"), key=lambda item: item.as_posix()):
+        if path.is_file() and not path.is_symlink():
+            descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+            try:
+                os.fsync(descriptor)
+            finally:
+                os.close(descriptor)
+    for directory, _, _ in os.walk(release_root, topdown=False):
+        _fsync_directory(Path(directory))
+
+
+def _quarantine_incomplete_release(target: Path) -> None:
+    quarantine = target.with_name(f".rejected-{target.name}.{uuid.uuid4().hex}")
+    target.replace(quarantine)
+    _fsync_directory(target.parent)
+
+
 def _verify_existing_release(release_root: Path, expected: _Manifest) -> None:
     """Accept a previous immutable release only when it exactly matches the bundle."""
     _validate_release_shape(set(expected.files))
+    _validate_payload_modes(expected.files)
     _validate_directory_metadata(release_root, expected_mode=0o755, root_authority=True)
     manifest_path = release_root / "manifest.json"
     _validate_regular_file_metadata(
@@ -660,43 +767,48 @@ def _validate_posix_metadata(
 
 
 def _append_history(data_root: Path, entry: dict[str, object]) -> None:
-    path = data_root / "updates" / "update_history.json"
-    try:
-        history = (
-            _load_json_no_duplicates(path.read_text(encoding="utf-8"))
-            if path.exists()
-            else []
-        )
-    except (OSError, ValueError, json.JSONDecodeError):
-        history = []
-    if not isinstance(history, list):
-        history = []
-    operation_id = entry.get("operation_id")
-    if operation_id is not None:
-        history = [
-            item
-            for item in history
-            if not isinstance(item, dict) or item.get("operation_id") != operation_id
-        ]
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
-    temporary.write_text(json.dumps([*history[-99:], entry]), encoding="utf-8")
-    os.chmod(temporary, 0o600)
-    temporary.replace(path)
+    with _pinned_updates_dir(data_root, repair=True) as (updates, updates_fd):
+        try:
+            details, raw = _read_update_leaf(
+                updates,
+                updates_fd,
+                "update_history.json",
+                max_bytes=_MAX_HISTORY_BYTES,
+            )
+            _validate_service_state_file(data_root, details)
+            history = _load_json_no_duplicates(raw.decode("utf-8"))
+            if not isinstance(history, list):
+                raise ValueError("invalid ALT update history")
+        except FileNotFoundError:
+            history = []
+        except (OSError, ValueError, UnicodeDecodeError, json.JSONDecodeError):
+            _quarantine_update_leaf(updates, updates_fd, "update_history.json")
+            history = []
+        operation_id = entry.get("operation_id")
+        if operation_id is not None:
+            history = [
+                item
+                for item in history
+                if not isinstance(item, dict) or item.get("operation_id") != operation_id
+            ]
+        _write_update_json(updates, updates_fd, "update_history.json", [*history[-99:], entry])
 
 
-def _archive_failed_pending(data_root: Path, pending_path: Path) -> None:
+def _archive_failed_pending(
+    data_root: Path, pending_path: Path, *, reason: str
+) -> None:
     expected = data_root / "updates" / "pending_alt_update.json"
-    if (
-        pending_path != expected
-        or not pending_path.exists()
-        or pending_path.is_symlink()
-    ):
+    if pending_path != expected:
         return
-    try:
-        pending_path.replace(expected.with_name("last_failed_alt_update.json"))
-    except OSError:
-        return
+    with _pinned_updates_dir(data_root, repair=True) as (updates, updates_fd):
+        _quarantine_update_leaf(updates, updates_fd, "pending_alt_update.json")
+        _quarantine_update_leaf(updates, updates_fd, "last_failed_alt_update.json")
+        _write_update_json(
+            updates,
+            updates_fd,
+            "last_failed_alt_update.json",
+            {"reason": reason},
+        )
 
 
 def _archive_failed_rollback_request(data_root: Path, request: Path) -> None:
@@ -723,7 +835,7 @@ def _reject_inconsistent_update_replay(
     expected = data_root / "updates" / "pending_alt_update.json"
     if pending_path != expected:
         raise ValueError("invalid inconsistent ALT pending path")
-    with _pinned_updates_dir(data_root) as (updates, updates_fd):
+    with _pinned_updates_dir(data_root, repair=True) as (updates, updates_fd):
         _quarantine_update_leaf(updates, updates_fd, "pending_alt_update.json")
         _quarantine_update_leaf(updates, updates_fd, "last_failed_alt_update.json")
         _write_update_json(
@@ -739,52 +851,139 @@ def _reject_inconsistent_update_replay(
 
 
 @contextmanager
-def _pinned_updates_dir(data_root: Path) -> Iterator[tuple[Path, int | None]]:
-    updates = _validate_updates_dir(data_root)
+def _pinned_updates_dir(
+    data_root: Path, *, repair: bool = False
+) -> Iterator[tuple[Path, int | None]]:
+    """Pin the service-owned update directory without following attacker paths.
+
+    A root worker may repair a hostile/missing ``updates`` entry, but only by
+    moving that entry aside from a descriptor pinned to the data root.  This
+    prevents a poisoned path from keeping a systemd path unit in a retry loop.
+    """
+    data_root = Path(data_root)
     if os.name == "nt":
+        try:
+            updates = _validate_updates_dir(data_root)
+        except (OSError, ValueError):
+            if not repair:
+                raise
+            updates = _repair_updates_dir_path(data_root)
         yield updates, None
         return
+
     flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
     data_fd = os.open(data_root, flags)
     updates_fd: int | None = None
     try:
         data_details = os.fstat(data_fd)
-        updates_fd = os.open("updates", flags, dir_fd=data_fd)
-        updates_details = os.fstat(updates_fd)
-        if (
-            updates_details.st_uid != data_details.st_uid
-            or updates_details.st_gid != data_details.st_gid
-            or stat.S_IMODE(updates_details.st_mode) & (stat.S_IWGRP | stat.S_IWOTH)
-        ):
-            raise ValueError("unsafe ALT pinned updates directory")
-        yield updates, updates_fd
+        if not stat.S_ISDIR(data_details.st_mode):
+            raise ValueError("unsafe ALT data root")
+        try:
+            updates_fd = os.open("updates", flags, dir_fd=data_fd)
+            _validate_pinned_updates_metadata(data_details, os.fstat(updates_fd))
+        except (OSError, ValueError):
+            if updates_fd is not None:
+                os.close(updates_fd)
+                updates_fd = None
+            if not repair:
+                raise
+            _repair_updates_dir_at(data_fd, data_details)
+            updates_fd = os.open("updates", flags, dir_fd=data_fd)
+            _validate_pinned_updates_metadata(data_details, os.fstat(updates_fd))
+        yield data_root / "updates", updates_fd
     finally:
         if updates_fd is not None:
             os.close(updates_fd)
         os.close(data_fd)
 
 
+def _validate_pinned_updates_metadata(
+    data_details: os.stat_result, updates_details: os.stat_result
+) -> None:
+    if not stat.S_ISDIR(updates_details.st_mode):
+        raise ValueError("unsafe ALT pinned updates directory")
+    if (
+        updates_details.st_uid != data_details.st_uid
+        or updates_details.st_gid != data_details.st_gid
+        or stat.S_IMODE(updates_details.st_mode) & (stat.S_IWGRP | stat.S_IWOTH)
+    ):
+        raise ValueError("unsafe ALT pinned updates directory")
+
+
+def _repair_updates_dir_at(data_fd: int, data_details: os.stat_result) -> None:
+    """Replace one hostile ``updates`` entry without resolving through it."""
+    try:
+        os.stat("updates", dir_fd=data_fd, follow_symlinks=False)
+    except FileNotFoundError:
+        pass
+    else:
+        os.replace(
+            "updates",
+            f".rejected-updates.{uuid.uuid4().hex}",
+            src_dir_fd=data_fd,
+            dst_dir_fd=data_fd,
+        )
+    os.mkdir("updates", 0o700, dir_fd=data_fd)
+    try:
+        os.chown("updates", data_details.st_uid, data_details.st_gid, dir_fd=data_fd)
+    except PermissionError:
+        # Unit tests deliberately run without root.  The root worker enforces
+        # ownership through the pinned metadata check immediately afterwards.
+        pass
+    _best_effort_fsync(data_fd)
+
+
+def _repair_updates_dir_path(data_root: Path) -> Path:
+    data_details = data_root.lstat()
+    if not stat.S_ISDIR(data_details.st_mode):
+        raise ValueError("unsafe ALT data root")
+    updates = data_root / "updates"
+    try:
+        updates.lstat()
+    except FileNotFoundError:
+        pass
+    else:
+        updates.replace(data_root / f".rejected-updates.{uuid.uuid4().hex}")
+    updates.mkdir(mode=0o700)
+    return updates
+
+
 def _read_update_leaf(
-    updates: Path, updates_fd: int | None, name: str
+    updates: Path,
+    updates_fd: int | None,
+    name: str,
+    *,
+    max_bytes: int = 1024,
 ) -> tuple[os.stat_result, bytes]:
     if updates_fd is None:
         path = updates / name
         details = path.lstat()
+        if not stat.S_ISREG(details.st_mode) or details.st_size < 0:
+            raise ValueError("unsafe ALT update state leaf")
+        if details.st_size > max_bytes:
+            raise ValueError("ALT update state leaf exceeds its size limit")
         return details, path.read_bytes()
     descriptor = os.open(
         name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=updates_fd
     )
     try:
         details = os.fstat(descriptor)
+        if not stat.S_ISREG(details.st_mode) or details.st_size < 0:
+            raise ValueError("unsafe ALT update state leaf")
+        if details.st_size > max_bytes:
+            raise ValueError("ALT update state leaf exceeds its size limit")
         chunks: list[bytes] = []
-        remaining = 1025
+        remaining = max_bytes + 1
         while remaining:
             chunk = os.read(descriptor, remaining)
             if not chunk:
                 break
             chunks.append(chunk)
             remaining -= len(chunk)
-        return details, b"".join(chunks)
+        raw = b"".join(chunks)
+        if len(raw) > max_bytes:
+            raise ValueError("ALT update state leaf exceeds its size limit")
+        return details, raw
     finally:
         os.close(descriptor)
 
@@ -793,7 +992,7 @@ def _write_update_json(
     updates: Path,
     updates_fd: int | None,
     name: str,
-    payload: dict[str, Any],
+    payload: Any,
 ) -> None:
     if updates_fd is None:
         _write_json_atomic(updates / name, payload, mode=0o600)
