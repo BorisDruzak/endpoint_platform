@@ -179,10 +179,10 @@ def test_root_owned_update_worker_uses_the_fixed_stable_launcher() -> None:
         in helper
     )
     assert '"$STABLE_LAUNCHER" --apply-alt-rollback' in helper
-    assert "validate_rollback_request" in helper
-    assert "stat.S_ISREG" in helper
-    assert "stat.S_IMODE" in helper
-    assert "request.is_symlink" not in helper
+    assert "validate_updates_directory" in helper
+    assert "stat.S_ISDIR" in helper
+    assert "stat.S_IWGRP | stat.S_IWOTH" in helper
+    assert "reject_unsafe_rollback_request" not in helper
     assert '"$@"' not in helper
     assert "resolve_current_launcher" not in helper
 

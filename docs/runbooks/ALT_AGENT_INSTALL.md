@@ -159,15 +159,25 @@ account and cannot write `/opt/endpoint-agent`. A root-owned
 version and source-revision identities; it contains no path or command. A
 successful root update first re-verifies the selected release and records it in
 root-owned `/opt/endpoint-agent/previous.json`, then publishes the candidate.
+Selector publication is the commit point: replay of the same pending operation
+preserves the distinct previous selector and resumes only durable history and
+request cleanup. A failed selector replacement restores the former
+`previous.json` record.
 The companion one-shot worker validates the request metadata, stops the agent,
 and invokes only the fixed stable launcher. Rollback mode compares the request
 to root-owned `current.json` and `previous.json`, re-verifies the exact previous
 manifest, files, hashes and modes, and atomically replaces only `current.json`.
 It writes the terminal `startup_crash_rollback` marker only after selector
 publication; rejected requests leave the selector unchanged. The worker starts
-the unprivileged service again after a handled request. Inspect both units
-during a canary without printing any
-credentials:
+the unprivileged service again after a handled request.
+
+If interrupted after selector publication, the next fixed-request activation
+idempotently finishes the terminal marker and cleanup. Rollback state I/O pins
+the non-symlinked, service-owned `updates` directory and uses no-follow,
+directory-relative operations; unsafe request leaves are consumed into a fixed
+regular failure record.
+
+Inspect both units during a canary without printing any credentials:
 
 ```bash
 systemctl status endpoint-agent.service endpoint-agent-update.path endpoint-agent-update.service

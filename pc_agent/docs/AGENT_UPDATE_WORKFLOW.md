@@ -75,6 +75,12 @@ never writes either selector. The root worker accepts only the target in
 `previous.json`, re-verifies that release's exact manifest/tree, and atomically
 replaces `current.json`. Only its post-publication terminal marker is reported
 as `rolled_back`; invalid or tampered requests do not change the selector.
+Update and rollback selector commits are replay-safe: repeated pending work
+preserves the distinct previous selector, and a partially committed rollback
+finishes its terminal marker and fixed cleanup. Both selectors and the complete
+release tree retain strict root metadata. Rollback state I/O pins the fixed
+non-symlinked `updates` directory and never follows a replacement parent or
+request leaf.
 The service passes explicit WSS and fallback-off arguments; the launcher sends
 them only to `endpoint-agent/endpoint-agent`, while retained
 `pc_agent/pc_agent` releases receive only their legacy `--no-gui` argument. A

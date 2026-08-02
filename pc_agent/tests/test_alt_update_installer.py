@@ -5,8 +5,11 @@ from __future__ import annotations
 import hashlib
 import io
 import json
+import os
 import tarfile
 from pathlib import Path
+
+import pytest
 
 from pc_agent import alt_update_installer
 from pc_agent.alt_update_installer import apply_alt_update
@@ -152,6 +155,9 @@ def _pending(
 
 def _initial_selector(install_root: Path) -> None:
     (install_root / "versions" / "3.1.76" / "pc_agent").mkdir(parents=True)
+    launcher = install_root / "versions" / "3.1.76" / "launcher"
+    launcher.write_bytes(b"old-launcher")
+    launcher.chmod(0o755)
     binary = install_root / "versions" / "3.1.76" / "pc_agent" / "pc_agent"
     binary.write_bytes(b"old-agent")
     binary.chmod(0o755)
@@ -163,10 +169,15 @@ def _initial_selector(install_root: Path) -> None:
                 "source_revision": "deadbeef",
                 "files": [
                     {
+                        "path": "launcher",
+                        "sha256": _sha256(b"old-launcher"),
+                        "mode": "0755",
+                    },
+                    {
                         "path": "pc_agent/pc_agent",
                         "sha256": _sha256(b"old-agent"),
                         "mode": "0755",
-                    }
+                    },
                 ],
             },
             separators=(",", ":"),
@@ -353,6 +364,276 @@ def test_root_worker_rejects_tampered_previous_release_without_selector_change(
     assert (install_root / "current.json").read_bytes() == original
 
 
+def test_committed_update_replay_preserves_distinct_previous_selector(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """A crash after current.json publication must not destroy rollback authority."""
+    install_root, data_root = tmp_path / "install", tmp_path / "data"
+    _initial_selector(install_root)
+    artifact = data_root / "updates" / "downloads" / "candidate.tar.gz"
+    artifact.parent.mkdir(parents=True)
+    _write_bundle(artifact)
+    pending = _pending(data_root, artifact)
+    original_append = alt_update_installer._append_history
+    interrupted = False
+
+    def interrupt_after_commit(root: Path, entry: dict[str, object]) -> None:
+        nonlocal interrupted
+        if not interrupted and entry.get("success") is True:
+            interrupted = True
+            raise OSError("simulated worker death after selector commit")
+        original_append(root, entry)
+
+    monkeypatch.setattr(alt_update_installer, "_append_history", interrupt_after_commit)
+
+    assert apply_alt_update(install_root, data_root, pending) == (
+        True,
+        "3.1.77-rc.1",
+    )
+    assert pending.exists()
+    assert (
+        json.loads((install_root / "previous.json").read_text())["version"] == "3.1.76"
+    )
+
+    assert apply_alt_update(install_root, data_root, pending) == (
+        True,
+        "3.1.77-rc.1",
+    )
+    assert not pending.exists()
+    assert (
+        json.loads((install_root / "previous.json").read_text())["version"] == "3.1.76"
+    )
+    history = json.loads((data_root / "updates" / "update_history.json").read_text())
+    assert [entry["operation_id"] for entry in history].count(_OPERATION_ID) == 1
+
+
+def test_failed_current_publication_restores_prior_previous_selector(
+    tmp_path: Path, monkeypatch
+) -> None:
+    install_root, data_root = tmp_path / "install", tmp_path / "data"
+    _select_two_headless_releases(install_root, data_root)
+    prior_previous = (install_root / "previous.json").read_bytes()
+    artifact = data_root / "updates" / "downloads" / "next.tar.gz"
+    _write_bundle(
+        artifact, version="3.1.79", source_revision="nextheadless", layout="headless"
+    )
+    original_write = alt_update_installer._write_selector
+
+    def fail_current(path: Path, manifest: object) -> None:
+        if path.name == "current.json":
+            raise OSError("simulated current selector publication failure")
+        original_write(path, manifest)
+
+    monkeypatch.setattr(alt_update_installer, "_write_selector", fail_current)
+
+    ok, _ = apply_alt_update(
+        install_root, data_root, _pending(data_root, artifact, version="3.1.79")
+    )
+
+    assert ok is False
+    assert (install_root / "previous.json").read_bytes() == prior_previous
+    assert (
+        json.loads((install_root / "current.json").read_text())["version"] == "3.1.78"
+    )
+
+
+def test_committed_rollback_replay_finishes_terminal_marker_and_cleanup(
+    tmp_path: Path, monkeypatch
+) -> None:
+    install_root, data_root = tmp_path / "install", tmp_path / "data"
+    _select_two_headless_releases(install_root, data_root)
+    request = _write_rollback_request(data_root)
+    original_write = alt_update_installer._write_update_json
+    interrupted = False
+
+    def interrupt_marker(
+        updates: Path,
+        updates_fd: int | None,
+        name: str,
+        payload: dict[str, object],
+    ) -> None:
+        nonlocal interrupted
+        if name == "last_failed_launch.json" and not interrupted:
+            interrupted = True
+            raise OSError("simulated worker death after selector commit")
+        original_write(updates, updates_fd, name, payload)
+
+    monkeypatch.setattr(alt_update_installer, "_write_update_json", interrupt_marker)
+
+    assert alt_update_installer.apply_alt_rollback(install_root, data_root)[0] is False
+    assert (
+        json.loads((install_root / "current.json").read_text())["version"] == "3.1.77"
+    )
+    assert request.exists()
+
+    assert alt_update_installer.apply_alt_rollback(install_root, data_root) == (
+        True,
+        "3.1.77",
+    )
+    assert not request.exists()
+    assert (
+        json.loads((data_root / "updates" / "last_failed_launch.json").read_text())[
+            "reason"
+        ]
+        == "startup_crash_rollback"
+    )
+
+
+def test_committed_rollback_replay_after_request_cleanup_failure(
+    tmp_path: Path, monkeypatch
+) -> None:
+    install_root, data_root = tmp_path / "install", tmp_path / "data"
+    _select_two_headless_releases(install_root, data_root)
+    request = _write_rollback_request(data_root)
+    original_unlink = alt_update_installer._unlink_update_leaf
+    interrupted = False
+
+    def interrupt_cleanup(updates: Path, updates_fd: int | None, name: str) -> None:
+        nonlocal interrupted
+        if name == "rollback-request.json" and not interrupted:
+            interrupted = True
+            raise OSError("simulated request cleanup failure")
+        original_unlink(updates, updates_fd, name)
+
+    monkeypatch.setattr(alt_update_installer, "_unlink_update_leaf", interrupt_cleanup)
+
+    assert alt_update_installer.apply_alt_rollback(install_root, data_root)[0] is False
+    assert request.exists()
+    assert (
+        json.loads((data_root / "updates" / "last_failed_launch.json").read_text())[
+            "reason"
+        ]
+        == "startup_crash_rollback"
+    )
+    assert alt_update_installer.apply_alt_rollback(install_root, data_root) == (
+        True,
+        "3.1.77",
+    )
+    assert not request.exists()
+
+
+def test_root_worker_rejects_release_with_unmanifested_empty_directory(
+    tmp_path: Path,
+) -> None:
+    install_root, data_root = tmp_path / "install", tmp_path / "data"
+    _select_two_headless_releases(install_root, data_root)
+    (install_root / "versions" / "3.1.77" / "unexpected-empty").mkdir()
+    original = (install_root / "current.json").read_bytes()
+    _write_rollback_request(data_root)
+
+    assert alt_update_installer.apply_alt_rollback(install_root, data_root)[0] is False
+    assert (install_root / "current.json").read_bytes() == original
+
+
+def test_rejected_request_is_consumed_when_failure_destination_is_hostile_directory(
+    tmp_path: Path,
+) -> None:
+    install_root, data_root = tmp_path / "install", tmp_path / "data"
+    _select_two_headless_releases(install_root, data_root)
+    request = _write_rollback_request(data_root, rollback_version="3.1.76")
+    failure = data_root / "updates" / "last_failed_alt_rollback_request.json"
+    failure.mkdir()
+
+    assert alt_update_installer.apply_alt_rollback(install_root, data_root)[0] is False
+    assert not request.exists()
+    assert failure.is_file() and not failure.is_symlink()
+
+
+def test_unsafe_request_directory_is_consumed_as_fixed_regular_failure(
+    tmp_path: Path,
+) -> None:
+    install_root, data_root = tmp_path / "install", tmp_path / "data"
+    _select_two_headless_releases(install_root, data_root)
+    request = data_root / "updates" / "rollback-request.json"
+    request.mkdir()
+    (request / "attacker-content").write_text("x")
+
+    assert alt_update_installer.apply_alt_rollback(install_root, data_root)[0] is False
+    assert not request.exists()
+    failure = data_root / "updates" / "last_failed_alt_rollback_request.json"
+    assert failure.is_file() and not failure.is_symlink()
+
+
+def test_symlinked_updates_parent_is_rejected_without_selector_change(
+    tmp_path: Path,
+) -> None:
+    install_root, data_root = tmp_path / "install", tmp_path / "data"
+    _select_two_headless_releases(install_root, data_root)
+    updates = data_root / "updates"
+    redirected = tmp_path / "redirected-updates"
+    updates.rename(redirected)
+    try:
+        updates.symlink_to(redirected, target_is_directory=True)
+    except OSError as exc:
+        pytest.skip(f"directory symlinks unavailable: {exc}")
+    original = (install_root / "current.json").read_bytes()
+
+    assert alt_update_installer.apply_alt_rollback(install_root, data_root)[0] is False
+    assert (install_root / "current.json").read_bytes() == original
+
+
+def test_symlinked_previous_selector_is_rejected_without_selector_change(
+    tmp_path: Path,
+) -> None:
+    install_root, data_root = tmp_path / "install", tmp_path / "data"
+    _select_two_headless_releases(install_root, data_root)
+    _write_rollback_request(data_root)
+    previous = install_root / "previous.json"
+    redirected = install_root / "redirected-previous.json"
+    previous.replace(redirected)
+    try:
+        previous.symlink_to(redirected)
+    except OSError as exc:
+        pytest.skip(f"file symlinks unavailable: {exc}")
+    original = (install_root / "current.json").read_bytes()
+
+    assert alt_update_installer.apply_alt_rollback(install_root, data_root)[0] is False
+    assert (install_root / "current.json").read_bytes() == original
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX mode contract")
+def test_group_writable_previous_selector_is_rejected(tmp_path: Path) -> None:
+    install_root, data_root = tmp_path / "install", tmp_path / "data"
+    _select_two_headless_releases(install_root, data_root)
+    _write_rollback_request(data_root)
+    previous = install_root / "previous.json"
+    previous.chmod(0o664)
+    original = (install_root / "current.json").read_bytes()
+
+    assert alt_update_installer.apply_alt_rollback(install_root, data_root)[0] is False
+    assert (install_root / "current.json").read_bytes() == original
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX ownership contract")
+def test_non_root_previous_selector_is_rejected(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    install_root, data_root = tmp_path / "install", tmp_path / "data"
+    _select_two_headless_releases(install_root, data_root)
+    _write_rollback_request(data_root)
+    previous = install_root / "previous.json"
+    if os.geteuid() == 0:
+        os.chown(previous, 1, 1)
+    else:
+        monkeypatch.setattr(alt_update_installer.os, "geteuid", lambda: 0)
+    original = (install_root / "current.json").read_bytes()
+
+    assert alt_update_installer.apply_alt_rollback(install_root, data_root)[0] is False
+    assert (install_root / "current.json").read_bytes() == original
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX FIFO contract")
+def test_fifo_rollback_request_is_consumed_without_blocking(tmp_path: Path) -> None:
+    install_root, data_root = tmp_path / "install", tmp_path / "data"
+    _select_two_headless_releases(install_root, data_root)
+    request = data_root / "updates" / "rollback-request.json"
+    os.mkfifo(request, 0o600)
+
+    assert alt_update_installer.apply_alt_rollback(install_root, data_root)[0] is False
+    assert not request.exists()
+    assert (data_root / "updates" / "last_failed_alt_rollback_request.json").is_file()
+
+
 def test_manifest_hash_mismatch_leaves_active_alt_selector_unchanged(
     tmp_path: Path,
 ) -> None:
@@ -399,6 +680,9 @@ def test_verified_existing_alt_release_can_be_selected_for_rollback(
     existing_launcher = (existing_release / "launcher").read_bytes()
     current_release = install_root / "versions" / "3.1.78"
     (current_release / "pc_agent").mkdir(parents=True)
+    current_launcher = current_release / "launcher"
+    current_launcher.write_bytes(b"newer-launcher")
+    current_launcher.chmod(0o755)
     current_binary = current_release / "pc_agent" / "pc_agent"
     current_binary.write_bytes(b"newer-agent")
     current_binary.chmod(0o755)
@@ -410,10 +694,15 @@ def test_verified_existing_alt_release_can_be_selected_for_rollback(
                 "source_revision": "newerbuild",
                 "files": [
                     {
+                        "path": "launcher",
+                        "sha256": _sha256(b"newer-launcher"),
+                        "mode": "0755",
+                    },
+                    {
                         "path": "pc_agent/pc_agent",
                         "sha256": _sha256(b"newer-agent"),
                         "mode": "0755",
-                    }
+                    },
                 ],
             },
             separators=(",", ":"),

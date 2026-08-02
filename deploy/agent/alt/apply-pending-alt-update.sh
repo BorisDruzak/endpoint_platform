@@ -32,41 +32,29 @@ except (OSError, ValueError):
 PY
 }
 
-validate_rollback_request() {
-    python3 - "$ROLLBACK_REQUEST" "$DATA_ROOT" <<'PY'
+validate_updates_directory() {
+    python3 - "$DATA_ROOT" <<'PY'
 import os
 import stat
 import sys
 from pathlib import Path
 
-request = Path(sys.argv[1])
-data_root = Path(sys.argv[2])
+data_root = Path(sys.argv[1])
+updates = data_root / "updates"
 try:
-    details = os.lstat(request)
     data_details = os.lstat(data_root)
+    updates_details = os.lstat(updates)
     if (
-        not stat.S_ISREG(details.st_mode)
-        or details.st_uid != data_details.st_uid
-        or details.st_gid != data_details.st_gid
-        or stat.S_IMODE(details.st_mode) != 0o600
-        or details.st_size <= 0
-        or details.st_size > 1024
+        not stat.S_ISDIR(data_details.st_mode)
+        or not stat.S_ISDIR(updates_details.st_mode)
+        or updates_details.st_uid != data_details.st_uid
+        or updates_details.st_gid != data_details.st_gid
+        or updates_details.st_mode & (stat.S_IWGRP | stat.S_IWOTH)
     ):
-        raise ValueError("unsafe rollback request")
+        raise ValueError("unsafe updates directory")
 except (OSError, ValueError):
-    raise SystemExit("unable to validate rollback request")
+    raise SystemExit("unable to validate updates directory")
 PY
-}
-
-reject_unsafe_rollback_request() {
-    if [[ -L "$ROLLBACK_REQUEST" ]]; then
-        rm -f -- "$ROLLBACK_REQUEST"
-    elif [[ -f "$ROLLBACK_REQUEST" ]]; then
-        rm -f -- "$FAILED_ROLLBACK_REQUEST"
-        mv -f -- "$ROLLBACK_REQUEST" "$FAILED_ROLLBACK_REQUEST"
-        chown endpoint-agent:endpoint-agent "$FAILED_ROLLBACK_REQUEST"
-        chmod 0600 "$FAILED_ROLLBACK_REQUEST"
-    fi
 }
 
 restore_update_state_owner() {
@@ -88,12 +76,9 @@ restore_update_state_owner() {
 }
 
 validate_stable_launcher || exit $?
+validate_updates_directory || exit $?
 worker_mode=update
 if [[ -e "$ROLLBACK_REQUEST" || -L "$ROLLBACK_REQUEST" ]]; then
-    if ! validate_rollback_request; then
-        reject_unsafe_rollback_request
-        exit 1
-    fi
     worker_mode=rollback
 fi
 systemctl stop endpoint-agent.service || exit $?

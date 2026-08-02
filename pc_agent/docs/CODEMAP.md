@@ -116,7 +116,9 @@
   `endpoint-agent`—and preserves the ALT selector schema. Privileged apply
   verifies the selected release, records its root-owned `previous.json`
   authority, and validates fixed rollback requests against both selectors and
-  the exact previous immutable tree before atomic publication.
+  the exact previous immutable tree before atomic publication. Update and
+  rollback selector commits are replay-safe; selectors/full release trees have
+  strict metadata validation, and rollback state uses pinned no-follow I/O.
 - `pc_agent/launcher/launcher_main.py` never lets the `endpoint-agent`
   service publish an ALT release. In ALT mode it exits cleanly when a durable
   pending record exists or the Gateway requests exit `42`; repeated candidate

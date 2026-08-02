@@ -39,10 +39,16 @@ preserve.  The executable characterization lives in
   publication to the root-owned update worker.
 - Before selecting a candidate, the root worker verifies the current immutable
   release and records its strict identity in root-owned `previous.json`.
+- Selector replacement is the update commit point. Same-operation replay keeps
+  a distinct verified previous selector and resumes history/request cleanup; a
+  failed replacement restores the earlier `previous.json` record.
 - Repeated candidate crashes create only the fixed service-writable rollback
   request. The root worker requires it to match `current.json` and
   `previous.json`, re-verifies the previous release, and atomically replaces
   the root-owned current selector. No request field chooses a path or command.
+- A post-selector rollback replay recognizes the already-authorized previous
+  selector and idempotently finishes terminal marker/request cleanup. Selector,
+  complete release-tree, and pinned state-directory metadata are validated.
 - After restart, the Gateway reports only a durable launcher outcome
   (`applied`, `failed`, or `rolled_back`) and retries the scheduled
   acknowledgement first.
