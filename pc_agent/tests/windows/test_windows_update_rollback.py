@@ -149,3 +149,52 @@ def test_updater_restarts_the_previous_agent_when_new_verify_fails(tmp_path: Pat
     assert service.events == ["stop", "wait_stopped", "verify", "start"]
     assert json.loads(paths.current_path.read_text()) == {"version": "3.1.0"}
     assert not list((paths.versions_root / "_staging").glob("*"))
+
+
+def test_attempt_marker_is_durable_before_candidate_start(tmp_path: Path) -> None:
+    """Writing the attempt after StartService races the agent's immediate handshake."""
+    from pc_agent.platform.windows.updater_service import WindowsUpdater
+
+    paths = _setup(tmp_path)
+    class _MarkerService(_Service):
+        def start(self) -> None:
+            assert (paths.updates_root / "startup-attempt.json").is_file()
+            super().start()
+    service = _MarkerService()
+    updater = WindowsUpdater(paths, acl=_Acl(), service=service, verifier=_Verifier(service.events), confirmation=_Confirmation(service.events, confirmed=True))
+    assert updater.run_once().status == "applied"
+
+
+def test_rollback_refuses_selector_switch_when_candidate_stop_fails(tmp_path: Path) -> None:
+    """An unknown SCM stop failure leaves the candidate state uncertain and cannot be ignored."""
+    from pc_agent.platform.windows.updater_service import WindowsUpdater
+
+    paths, service = _setup(tmp_path), _Service()
+    original_stop = service.stop
+    calls = 0
+    def fail_second_stop() -> None:
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            raise RuntimeError("access denied")
+        original_stop()
+    service.stop = fail_second_stop  # type: ignore[method-assign]
+    updater = WindowsUpdater(paths, acl=_Acl(), service=service, verifier=_Verifier(service.events), confirmation=_Confirmation(service.events, confirmed=False), deadline_seconds=0)
+    assert updater.run_once().status == "rejected"
+    assert json.loads(paths.current_path.read_text()) == {"version": "3.2.0"}
+
+
+def test_rollback_refuses_selector_switch_when_stop_wait_is_false(tmp_path: Path) -> None:
+    from pc_agent.platform.windows.updater_service import WindowsUpdater
+
+    paths, service = _setup(tmp_path), _Service()
+    waits = 0
+    original_wait = service.wait_stopped
+    def uncertain_wait() -> bool:
+        nonlocal waits
+        waits += 1
+        return original_wait() if waits == 1 else False
+    service.wait_stopped = uncertain_wait  # type: ignore[method-assign]
+    updater = WindowsUpdater(paths, acl=_Acl(), service=service, verifier=_Verifier(service.events), confirmation=_Confirmation(service.events, confirmed=False), deadline_seconds=0)
+    assert updater.run_once().status == "rejected"
+    assert json.loads(paths.current_path.read_text()) == {"version": "3.2.0"}

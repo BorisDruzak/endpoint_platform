@@ -419,3 +419,16 @@ def test_updater_terminal_status_is_reported_once_without_stop_pending_reversal(
         SERVICE_STOPPED = 1
     _report_updater_stopped(_Service(), _Scm(), 7)
     assert calls == [(1, {"win32ExitCode": 1066, "svcExitCode": 7})]
+
+
+def test_updater_scm_coordinator_ends_with_terminal_stopped_status() -> None:
+    """The pywin32 wrapper must not append STOP_PENDING after the worker's terminal state."""
+    from pc_agent.platform.windows.updater_service import UpdaterScmCoordinator
+
+    events = []
+    class _Status:
+        def report_start_pending(self): events.append("start_pending")
+        def report_running(self): events.append("running")
+        def report_stopped(self, code): events.append(f"stopped:{code}")
+    assert UpdaterScmCoordinator(lambda: 7, _Status()).run() == 7
+    assert events == ["start_pending", "running", "stopped:7"]

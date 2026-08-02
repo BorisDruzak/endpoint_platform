@@ -60,6 +60,30 @@ class StartupConfirmation(Protocol):
     def is_confirmed(self, *, version: str, operation_id: str, attempt_id: str, not_before: datetime) -> bool: ...
 
 
+class UpdaterScmStatus(Protocol):
+    def report_start_pending(self) -> None: ...
+    def report_running(self) -> None: ...
+    def report_stopped(self, exit_code: int) -> None: ...
+
+
+class UpdaterScmCoordinator:
+    """One-shot service lifecycle whose last status is always STOPPED."""
+
+    def __init__(self, run_worker, status: UpdaterScmStatus) -> None:
+        self._run_worker = run_worker
+        self._status = status
+
+    def run(self) -> int:
+        self._status.report_start_pending()
+        self._status.report_running()
+        exit_code = 1
+        try:
+            exit_code = self._run_worker()
+            return exit_code
+        finally:
+            self._status.report_stopped(exit_code)
+
+
 class PyWin32EndpointAgentService:
     """Fixed-name SCM control; callers cannot select another service."""
 
@@ -312,11 +336,16 @@ class WindowsUpdater:
             target = self._publish(staging, pending)
             _write_json_atomic(self._paths.previous_path, {"version": previous})
             _write_json_atomic(self._paths.current_path, {"version": pending.version})
-            self._service.start()
             self._attempt_id = _write_startup_attempt(self._paths, pending)
+            try:
+                self._service.start()
+            except Exception:
+                _clear_startup_attempt(self._paths)
+                raise
             if not self._wait_for_candidate_confirmation(pending):
                 return self._rollback(previous, "startup confirmation failed")
             self._paths.pending_path.unlink()
+            _clear_startup_attempt(self._paths)
             return UpdateResult("applied", str(target))
         except (OSError, ValueError, zipfile.BadZipFile) as error:
             if service_stopped and previous is not None:
@@ -367,15 +396,21 @@ class WindowsUpdater:
     def _rollback(self, previous: str, reason: str) -> UpdateResult:
         try:
             self._service.stop()
-        except Exception:
+        except Exception as error:
             # StopService reports ERROR_SERVICE_NOT_ACTIVE for an early crash;
             # that is already the desired stopped state.
-            pass
-        try:
-            self._service.wait_stopped()
-        except Exception:
-            pass
+            if not _is_service_not_active(error):
+                return UpdateResult("rejected", "candidate stop failed for rollback")
+            stopped = True
+        else:
+            try:
+                stopped = self._service.wait_stopped()
+            except Exception:
+                return UpdateResult("rejected", "candidate stop state is unknown")
+            if not stopped:
+                return UpdateResult("rejected", "candidate did not stop for rollback")
         _write_json_atomic(self._paths.current_path, {"version": previous})
+        _clear_startup_attempt(self._paths)
         self._service.start()
         return UpdateResult("rolled_back", reason)
 
@@ -524,6 +559,14 @@ def _write_startup_attempt(paths: WindowsUpdatePaths, pending: PendingUpdate) ->
     return attempt_id
 
 
+def _clear_startup_attempt(paths: WindowsUpdatePaths) -> None:
+    (paths.updates_root / "startup-attempt.json").unlink(missing_ok=True)
+
+
+def _is_service_not_active(error: Exception) -> bool:
+    return "ERROR_SERVICE_NOT_ACTIVE" in str(error).upper()
+
+
 def run_windows_updater_service() -> int:
     """Host the MSI-registered demand-start ``EndpointAgentUpdater`` service."""
     try:
@@ -539,11 +582,20 @@ def run_windows_updater_service() -> int:
         _svc_description_ = "Demand-start offline Endpoint Agent update worker"
 
         def SvcDoRun(self) -> None:
-            self.ReportServiceStatus(win32service.SERVICE_RUNNING)
-            result = WindowsUpdater().run_once()
-            _report_updater_stopped(
-                self, win32service, 0 if result.status in {"applied", "rolled_back"} else 1
-            )
+            class _Status:
+                def report_start_pending(_self) -> None:
+                    self.ReportServiceStatus(win32service.SERVICE_START_PENDING)
+
+                def report_running(_self) -> None:
+                    self.ReportServiceStatus(win32service.SERVICE_RUNNING)
+
+                def report_stopped(_self, exit_code: int) -> None:
+                    _report_updater_stopped(self, win32service, exit_code)
+
+            UpdaterScmCoordinator(
+                lambda: 0 if WindowsUpdater().run_once().status in {"applied", "rolled_back"} else 1,
+                _Status(),
+            ).run()
 
     servicemanager.Initialize()
     servicemanager.PrepareToHostSingle(EndpointAgentUpdaterWindowsService)
@@ -567,5 +619,5 @@ __all__ = [
     "AgentService", "FileStartupConfirmation", "PendingUpdate", "PendingUpdateValidator",
     "PyWin32EndpointAgentService", "PyWin32UpdatePathSecurity", "ReleaseVerifier",
     "STARTUP_DEADLINE_SECONDS", "StartupConfirmation", "SubprocessReleaseVerifier", "UPDATER_SERVICE_NAME",
-    "UPDATER_START_PRINCIPALS", "UpdateResult", "UpdatePathSecurity", "WindowsUpdater", "run_windows_updater_service",
+    "UPDATER_START_PRINCIPALS", "UpdateResult", "UpdatePathSecurity", "UpdaterScmCoordinator", "WindowsUpdater", "run_windows_updater_service",
 ]
