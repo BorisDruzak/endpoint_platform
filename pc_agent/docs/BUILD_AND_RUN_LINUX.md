@@ -188,9 +188,21 @@ New RPM packages must install `requirements/build-linux.txt` and build only
 ```bash
 python -m pip install -r requirements/build-linux.txt
 python -m PyInstaller --noconfirm pc_agent/pyinstaller_endpoint_core_linux.spec
+python tools/build_linux_agent.py --channel canary
 ```
 
 This artifact starts `pc_agent/runtime/main.py` and contains no Qt, Helpdesk
 UI, or Remote Assist assets. The inherited `pyinstaller_agent_linux.spec` and
 `pc_agent/requirements.txt` files are legacy compatibility inputs only; they
 must not be used for a new RPM package.
+
+The PyInstaller output is `dist/endpoint-agent/`, with the core executable at
+`dist/endpoint-agent/endpoint-agent`. The release builder consumes that
+reviewed onedir tree and writes a deterministic
+`endpoint-agent-linux_amd64-VERSION.tar.gz` plus a local immutable sidecar
+manifest under `dist/release/linux_amd64/CHANNEL/VERSION/`. The sidecar records
+the build identifier, version, source revision, platform, channel, archive
+type/name, SHA-256, and size. It intentionally has no download URL: artifact
+publication and conversion to the server's `UpdateBuildManifestV1` are a later
+release operation. This build step does not create an RPM or install files on
+a host.
