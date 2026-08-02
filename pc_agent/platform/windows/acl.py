@@ -79,17 +79,12 @@ class PyWin32AclAdapter:
             dacl = descriptor.GetSecurityDescriptorDacl()
             if dacl is None:
                 raise WindowsAclError("protected enrollment material has no DACL")
-            allowed = {
-                win32security.LookupAccountSid(None, dacl.GetAce(index)[2])[0]
-                for index in range(dacl.GetAceCount())
-                if dacl.GetAce(index)[0][0] == win32security.ACCESS_ALLOWED_ACE_TYPE
-            }
+            allowed = _allowed_sid_strings(dacl, win32security)
         except WindowsAclError:
             raise
         except Exception as error:
             raise WindowsAclError("could not inspect enrollment material DACL") from error
-        expected_names = {rule.principal.rsplit("\\", 1)[-1] for rule in CREDENTIAL_ACL}
-        if not allowed or not allowed.issubset(expected_names):
+        if not allowed or not allowed.issubset(_expected_sid_strings(win32security)):
             raise WindowsAclError("enrollment material is not protected")
 
     def _apply(self, path: Path, rules: tuple[AccessRule, ...]) -> None:
@@ -155,6 +150,24 @@ class PyWin32AclAdapter:
         attributes = getattr(path.lstat(), "st_file_attributes", 0)
         if path.is_symlink() or attributes & 0x400:
             raise WindowsAclError("protected enrollment material must not be a reparse point")
+
+
+def _allowed_sid_strings(dacl, win32security) -> set[str]:
+    return {
+        win32security.ConvertSidToStringSid(dacl.GetAce(index)[2])
+        for index in range(dacl.GetAceCount())
+        if dacl.GetAce(index)[0][0] == win32security.ACCESS_ALLOWED_ACE_TYPE
+    }
+
+
+def _expected_sid_strings(win32security) -> set[str]:
+    """Use well-known SID values, never localized display account names."""
+    virtual_accounts = (SERVICE_PRINCIPAL, UPDATER_PRINCIPAL)
+    expected = {"S-1-5-18", "S-1-5-32-544"}
+    for principal in virtual_accounts:
+        sid, _domain, _kind = win32security.LookupAccountName(None, principal)
+        expected.add(win32security.ConvertSidToStringSid(sid))
+    return expected
 
 
 __all__ = [

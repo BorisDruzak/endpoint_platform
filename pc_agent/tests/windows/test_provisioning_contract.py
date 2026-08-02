@@ -68,7 +68,7 @@ def _request(tmp_path: Path):
     )
 
 
-@pytest.mark.parametrize("origin", ["http://endpoint.sosnadmin.local", "https://user@endpoint.sosnadmin.local", "https://endpoint.sosnadmin.local/path", "https://:", "https://endpoint.sosnadmin.local:bad"])
+@pytest.mark.parametrize("origin", ["http://endpoint.sosnadmin.local", "https://user@endpoint.sosnadmin.local", "https://endpoint.sosnadmin.local/path", "https://:", "https://endpoint.sosnadmin.local:bad", "https://foo bar", "https://foo_bar.example", "https://%41.example", "https://.example", "https://example..com"])
 def test_provisioning_rejects_non_origin_https_endpoint(tmp_path: Path, origin: str) -> None:
     """Accepting a route, HTTP, or credentialed URL would widen the enrollment target."""
     from pc_agent.platform.windows.provision import ProvisioningRequest
@@ -79,6 +79,31 @@ def test_provisioning_rejects_non_origin_https_endpoint(tmp_path: Path, origin: 
 
     with pytest.raises(ValueError, match="absolute HTTPS origin"):
         request.validate()
+
+
+@pytest.mark.parametrize("origin", ["https://foo bar", "https://foo_bar.example", "https://%41.example", "https://.example", "https://example..com"])
+def test_malformed_origin_is_rejected_before_enrollment_adapter(
+    tmp_path: Path, origin: str
+) -> None:
+    """A malformed host must not reach the enrollment network boundary."""
+    from pc_agent.platform.windows.provision import ProvisioningRequest, WindowsProvisioner
+
+    calls: list[str] = []
+
+    class _NeverEnroll:
+        def enroll(self, **_kwargs):
+            calls.append("enroll")
+            raise AssertionError("invalid host reached enrollment")
+
+    request = _request(tmp_path)
+    request = ProvisioningRequest(origin, request.ca_file, request.data_root)
+    provisioner = WindowsProvisioner(
+        request, enrollment=_NeverEnroll(), service=_Service(calls), acl=_Acl(calls)
+    )
+
+    with pytest.raises(ValueError, match="absolute HTTPS origin"):
+        provisioner.provision_from_stdin(io.StringIO(_CLAIM))
+    assert calls == []
 
 
 def test_provisioning_requires_the_installed_ca_file(tmp_path: Path) -> None:

@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import ipaddress
 import os
+import re
 import secrets
 import ssl
 import sys
@@ -68,7 +70,7 @@ class ProvisioningRequest:
             raise ValueError("Endpoint origin must be an absolute HTTPS origin") from error
         if (
             parsed.scheme != "https"
-            or not parsed.hostname
+            or not _valid_endpoint_host(parsed.hostname)
             or parsed.username is not None
             or parsed.password is not None
             or parsed.path not in {"", "/"}
@@ -85,6 +87,21 @@ class ProvisioningRequest:
             raise ValueError("Endpoint CA file is missing or invalid") from error
         if not self.installation_id or len(self.installation_id) > 128:
             raise ValueError("installation identifier is invalid")
+
+
+def _valid_endpoint_host(hostname: str | None) -> bool:
+    if not hostname or len(hostname) > 253 or "%" in hostname:
+        return False
+    try:
+        ipaddress.ip_address(hostname)
+        return True
+    except ValueError:
+        pass
+    labels = hostname.split(".")
+    return bool(labels) and all(
+        re.fullmatch(r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?", label)
+        for label in labels
+    )
 
 
 @dataclass(frozen=True, slots=True)

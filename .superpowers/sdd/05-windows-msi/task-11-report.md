@@ -217,3 +217,35 @@ Get-ChildItem 'pc_agent\platform\windows' -Filter '*.py' | ForEach-Object { pyth
 ```
 
 Result: `58 passed in 1.54s`; compilation and whitespace checks succeeded.
+
+## Review fix round 2 (2026-08-02)
+
+### RED / GREEN — strict endpoint host and localized ACL SID handling
+
+Added malformed-host regression coverage for whitespace, underscore,
+percent-escaped, leading-dot, and empty-label hosts, including a provisioner
+test proving that none reaches the injected enrollment adapter. Added SID
+coverage where the Administrators well-known SID is represented by a localized
+account name and a Users SID remains rejected.
+
+```powershell
+python -m pytest pc_agent/tests/windows/test_provisioning_contract.py::test_malformed_origin_is_rejected_before_enrollment_adapter pc_agent/tests/windows/test_acl_sid_contract.py -q
+```
+
+RED result: five malformed hosts reached the enrollment adapter, and the ACL
+SID helper import failed because inspection still depended on display names.
+
+Implemented strict DNS-label or IP-literal validation (with bounded host/port
+handling) and changed protected-file ACL comparison to canonical SID strings:
+well-known LocalSystem and Builtin Administrators SID strings plus resolved
+virtual-service SID strings. No localized display name participates in the
+comparison.
+
+```powershell
+python -m pytest pc_agent/tests/windows/test_provisioning_contract.py::test_malformed_origin_is_rejected_before_enrollment_adapter pc_agent/tests/windows/test_provisioning_contract.py::test_provisioning_rejects_non_origin_https_endpoint pc_agent/tests/windows/test_acl_sid_contract.py -q
+```
+
+GREEN result: `16 passed in 0.55s`.
+
+Round-2 final focused verification (Windows contract plus neutral runtime):
+`69 passed in 1.56s`; platform modules compiled and `git diff --check` passed.
