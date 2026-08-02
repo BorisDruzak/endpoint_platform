@@ -3,16 +3,17 @@
      xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util">
   <Fragment>
     <ComponentGroup Id="EndpointAgentServiceComponents">
-      <Component Id="cmpServiceEntrypoints" Directory="INITIALRUNTIMEDIR"
-                 Guid="980AE24B-57BC-4B59-A18A-65B9B33A7906" Bitness="always64">
-        <File Id="filInitialCore" Source="$(var.StagingDir)\ProgramFiles\versions\$(var.InitialRuntimeVersion)\pc_agent.exe"
-              Name="pc_agent.exe" KeyPath="yes" />
+      <Component Id="cmpServiceEntrypoints" Directory="INSTALLFOLDER"
+                 Guid="A10A61A1-B511-4A07-9D37-C592515D217E" Bitness="always64">
+        <File Id="filServiceHost" Source="$(var.StagingDir)\ProgramFiles\endpoint-agent-service.exe"
+              Name="endpoint-agent-service.exe" KeyPath="yes" />
         <ServiceInstall Id="svcEndpointAgent" Name="EndpointAgent"
                         DisplayName="Endpoint Agent"
                         Description="Headless Endpoint Platform device agent"
                         Type="ownProcess" Start="auto" ErrorControl="normal"
                         Account="NT AUTHORITY\LocalService" Vital="yes"
-                        Arguments="--windows-service --data-dir &quot;[DATAROOT]&quot; --install-root &quot;[INSTALLFOLDER]&quot; --ca-file &quot;[DATAROOT]endpoint-ca.crt&quot; --endpoint-origin https://endpoint.sosnadmin.local --transport-mode gateway_wss --no-migration-http-pull-fallback">
+                        Arguments="--agent-service">
+          <ServiceConfig ServiceSid="unrestricted" OnInstall="yes" OnReinstall="yes" />
           <util:ServiceConfig ServiceName="EndpointAgent"
                               FirstFailureActionType="restart"
                               SecondFailureActionType="restart"
@@ -28,7 +29,8 @@
                         Description="Demand-start offline Endpoint Agent update worker"
                         Type="ownProcess" Start="demand" ErrorControl="normal"
                         Account="LocalSystem" Vital="yes"
-                        Arguments="--windows-updater-service">
+                        Arguments="--updater-service">
+          <ServiceConfig ServiceSid="unrestricted" OnInstall="yes" OnReinstall="yes" />
           <util:ServiceConfig ServiceName="EndpointAgentUpdater"
                               FirstFailureActionType="restart"
                               SecondFailureActionType="restart"
@@ -41,11 +43,16 @@
       </Component>
     </ComponentGroup>
 
-    <CustomAction Id="RestrictUpdaterServiceStart" FileRef="filInitialCore"
-                  ExeCommand="--windows-restrict-updater-start"
+    <CustomAction Id="ApplyProgramDataAcl" FileRef="filServiceHost"
+                  ExeCommand="--apply-programdata-acl"
+                  Execute="deferred" Impersonate="no" Return="check" HideTarget="yes" />
+    <CustomAction Id="RestrictUpdaterServiceStart" FileRef="filServiceHost"
+                  ExeCommand="--restrict-updater-start"
                   Execute="deferred" Impersonate="no" Return="check" HideTarget="yes" />
     <InstallExecuteSequence>
-      <Custom Action="RestrictUpdaterServiceStart" After="InstallServices"
+      <Custom Action="ApplyProgramDataAcl" After="InstallServices"
+              Condition="NOT REMOVE~=&quot;ALL&quot;" />
+      <Custom Action="RestrictUpdaterServiceStart" After="ApplyProgramDataAcl"
               Condition="NOT REMOVE~=&quot;ALL&quot;" />
     </InstallExecuteSequence>
   </Fragment>

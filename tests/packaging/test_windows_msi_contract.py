@@ -111,14 +111,35 @@ def test_services_use_fixed_accounts_start_modes_and_recovery() -> None:
     assert core.get("Account") == "NT AUTHORITY\\LocalService"
     assert core.get("Start") == "auto"
     assert core.get("Vital") == "yes"
-    assert core.get("Arguments", "").startswith("--windows-service ")
+    assert core.get("Arguments") == "--agent-service"
     assert updater.get("Name") == "EndpointAgentUpdater"
     assert updater.get("Account") == "LocalSystem"
     assert updater.get("Start") == "demand"
     assert updater.get("Vital") == "yes"
-    assert updater.get("Arguments") == "--windows-updater-service"
+    assert updater.get("Arguments") == "--updater-service"
 
-    recovery = _all_elements(trees, "ServiceConfig")
+    service_component = next(
+        component for component in _all_elements(trees, "Component")
+        if core in list(component)
+    )
+    service_key_path = next(
+        child for child in service_component if child.tag == f"{{{WIX_NS}}}File"
+    )
+    assert service_component.get("Directory") == "INSTALLFOLDER"
+    assert service_key_path.get("Id") == "filServiceHost"
+    assert service_key_path.get("Name") == "endpoint-agent-service.exe"
+    assert "versions" not in service_key_path.get("Source", "").lower()
+
+    for service in (core, updater):
+        sid_config = next(
+            child for child in service if child.tag == f"{{{WIX_NS}}}ServiceConfig"
+        )
+        assert sid_config.get("ServiceSid") == "unrestricted"
+
+    recovery = [
+        item for item in _all_elements(trees, "ServiceConfig")
+        if item.tag == f"{{{UTIL_NS}}}ServiceConfig"
+    ]
     assert {item.get("ServiceName") for item in recovery} == {
         "EndpointAgent",
         "EndpointAgentUpdater",
@@ -165,26 +186,22 @@ def test_updater_acl_custom_action_reaches_only_the_fixed_no_argument_boundary(
     assert observed == ["restricted"]
 
 
-def test_programdata_acl_is_explicit_and_program_files_inherits_secure_defaults() -> None:
+def test_programdata_acl_is_replaced_by_fixed_elevated_action() -> None:
     """Ordinary users must not gain a writable Program Files tree or credential access."""
     trees = _trees()
     components = _all_elements(trees, "Component")
     data = _by_id(components, "cmpProgramDataRoot")
-    permissions = [
-        item
-        for item in data.iter()
-        if item.tag == f"{{{UTIL_NS}}}PermissionEx"
-    ]
-
     assert data.get("Directory") == "DATAROOT"
     assert data.get("Permanent") == "yes"
-    assert {(item.get("Domain"), item.get("User")) for item in permissions} == {
-        ("NT AUTHORITY", "SYSTEM"),
-        ("BUILTIN", "Administrators"),
-        ("NT SERVICE", "EndpointAgent"),
-        ("NT SERVICE", "EndpointAgentUpdater"),
-    }
-    assert not any(item.get("User", "").lower() in {"users", "everyone"} for item in permissions)
+    assert not list(data.iter(f"{{{UTIL_NS}}}PermissionEx"))
+    actions = _all_elements(trees, "CustomAction")
+    action = _by_id(actions, "ApplyProgramDataAcl")
+    assert action.get("FileRef") == "filServiceHost"
+    assert action.get("ExeCommand") == "--apply-programdata-acl"
+    assert action.get("Execute") == "deferred"
+    assert action.get("Impersonate") == "no"
+    assert action.get("Return") == "check"
+    assert action.get("HideTarget") == "yes"
     program_files_components = [
         item for item in components if item.get("Directory") != "DATAROOT"
     ]
@@ -218,8 +235,9 @@ def test_major_upgrade_preserves_state_and_requires_explicit_runtime_transition(
 
     script = (WINDOWS_PACKAGING / "build-msi.ps1").read_text(encoding="utf-8")
     assert "ApproveInitialRuntimeTransition" in script
-    assert "initial-runtime.version" in script
-    assert "initial runtime transition requires" in script.lower()
+    assert "ApproveInitialRuntimeSourceChange" in script
+    assert "initial-runtime.json" in script
+    assert "InitialRuntimeComponentGuid" in script
 
 
 def test_default_uninstall_retains_programdata_and_documents_admin_purge() -> None:

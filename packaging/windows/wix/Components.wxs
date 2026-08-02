@@ -13,6 +13,11 @@
         <File Id="filCurrentSelector" Source="$(var.StagingDir)\ProgramFiles\current.json"
               Name="current.json" KeyPath="yes" NeverOverwrite="yes" />
       </Component>
+      <Component Id="cmpInitialRuntimeAnchor" Directory="INITIALRUNTIMEDIR"
+                 Guid="$(var.InitialRuntimeComponentGuid)" Bitness="always64">
+        <File Id="filInitialCore" Source="$(var.StagingDir)\ProgramFiles\versions\$(var.InitialRuntimeVersion)\pc_agent.exe"
+              Name="pc_agent.exe" KeyPath="yes" />
+      </Component>
       <Component Id="cmpConfigTemplate" Directory="CONFIGFOLDER"
                  Guid="DD9BB8D3-96EF-4595-8E51-4E8E52E9FEAF" Bitness="always64">
         <File Id="filConfigTemplate" Source="$(var.StagingDir)\ProgramFiles\config\agent-config.yaml"
@@ -26,14 +31,7 @@
       <Component Id="cmpProgramDataRoot" Directory="DATAROOT"
                  Guid="4B905736-6EF1-4B31-AFDF-FABC7700B2A6"
                  Bitness="always64" Permanent="yes">
-        <CreateFolder>
-          <util:PermissionEx Domain="NT AUTHORITY" User="SYSTEM" GenericAll="yes" Inheritable="yes" />
-          <util:PermissionEx Domain="BUILTIN" User="Administrators" GenericAll="yes" Inheritable="yes" />
-          <util:PermissionEx Domain="NT SERVICE" User="EndpointAgent"
-                             GenericRead="yes" GenericWrite="yes" DeleteChild="yes" Inheritable="yes" />
-          <util:PermissionEx Domain="NT SERVICE" User="EndpointAgentUpdater"
-                             GenericWrite="yes" DeleteChild="yes" Inheritable="yes" />
-        </CreateFolder>
+        <CreateFolder />
       </Component>
       <Component Id="cmpInstallRootCleanup" Directory="INSTALLFOLDER"
                  Guid="85851925-4D51-48E6-8E1E-8D6ED47E9F74" Bitness="always64">

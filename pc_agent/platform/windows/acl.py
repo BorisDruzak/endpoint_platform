@@ -13,6 +13,7 @@ SYSTEM_PRINCIPAL = "SYSTEM"
 ADMINISTRATORS_PRINCIPAL = "Administrators"
 SERVICE_PRINCIPAL = "NT SERVICE\\EndpointAgent"
 UPDATER_PRINCIPAL = "NT SERVICE\\EndpointAgentUpdater"
+MACHINE_DATA_ROOT = Path(r"C:\ProgramData\Endpoint Platform\Agent")
 EXPECTED_PRINCIPALS = (
     SYSTEM_PRINCIPAL,
     ADMINISTRATORS_PRINCIPAL,
@@ -43,6 +44,12 @@ DIRECTORY_ACL = (
     AccessRule(ADMINISTRATORS_PRINCIPAL, "full_control"),
     AccessRule(SERVICE_PRINCIPAL, "modify"),
     AccessRule(UPDATER_PRINCIPAL, "modify"),
+)
+MACHINE_DATA_ACL = (
+    AccessRule(SYSTEM_PRINCIPAL, "full_control"),
+    AccessRule(ADMINISTRATORS_PRINCIPAL, "full_control"),
+    AccessRule(SERVICE_PRINCIPAL, "modify"),
+    AccessRule(UPDATER_PRINCIPAL, "write_delete"),
 )
 CREDENTIAL_ACL = (
     AccessRule(SYSTEM_PRINCIPAL, "full_control"),
@@ -152,6 +159,61 @@ class PyWin32AclAdapter:
             raise WindowsAclError("protected enrollment material must not be a reparse point")
 
 
+def replace_machine_data_acl(path: Path, *, win32security, ntsecuritycon) -> None:
+    """Replace, rather than extend, the machine data root DACL."""
+    path.mkdir(parents=True, exist_ok=True)
+    acl = win32security.ACL()
+    rights = {
+        "full_control": ntsecuritycon.FILE_ALL_ACCESS,
+        "modify": (
+            ntsecuritycon.FILE_GENERIC_READ
+            | ntsecuritycon.FILE_GENERIC_WRITE
+            | ntsecuritycon.DELETE
+        ),
+        "write_delete": ntsecuritycon.FILE_GENERIC_WRITE | ntsecuritycon.DELETE,
+    }
+    inheritance = (
+        win32security.OBJECT_INHERIT_ACE | win32security.CONTAINER_INHERIT_ACE
+    )
+    try:
+        for rule in MACHINE_DATA_ACL:
+            if rule.principal == SYSTEM_PRINCIPAL:
+                sid = win32security.ConvertStringSidToSid("S-1-5-18")
+            elif rule.principal == ADMINISTRATORS_PRINCIPAL:
+                sid = win32security.ConvertStringSidToSid("S-1-5-32-544")
+            else:
+                sid, _domain, _kind = win32security.LookupAccountName(
+                    None, rule.principal
+                )
+            acl.AddAccessAllowedAceEx(
+                win32security.ACL_REVISION, inheritance, rights[rule.rights], sid
+            )
+        win32security.SetNamedSecurityInfo(
+            str(path),
+            win32security.SE_FILE_OBJECT,
+            win32security.DACL_SECURITY_INFORMATION
+            | win32security.PROTECTED_DACL_SECURITY_INFORMATION,
+            None,
+            None,
+            acl,
+            None,
+        )
+    except Exception as error:
+        raise WindowsAclError("could not replace machine data DACL") from error
+
+
+def apply_machine_data_acl() -> None:
+    """MSI custom-action boundary with a fixed, non-caller-controlled target."""
+    if os.name != "nt":
+        raise WindowsAclError("machine data DACL setup requires Windows")
+    win32security, ntsecuritycon = PyWin32AclAdapter._modules()
+    replace_machine_data_acl(
+        MACHINE_DATA_ROOT,
+        win32security=win32security,
+        ntsecuritycon=ntsecuritycon,
+    )
+
+
 def _allowed_sid_strings(dacl, win32security) -> set[str]:
     return {
         win32security.ConvertSidToStringSid(dacl.GetAce(index)[2])
@@ -181,4 +243,6 @@ __all__ = [
     "SYSTEM_PRINCIPAL",
     "UPDATER_PRINCIPAL",
     "WindowsAclError",
+    "apply_machine_data_acl",
+    "replace_machine_data_acl",
 ]

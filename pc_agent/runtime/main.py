@@ -19,6 +19,28 @@ from pc_agent.runtime.verification import run_verify
 __all__ = ["RuntimeSettings", "run_runtime", "run_verify"]
 
 
+async def _wait_for_service_host_pipe() -> bytes:
+    """Return when the fixed SCM host closes this child's stdin control pipe."""
+    return await asyncio.to_thread(sys.stdin.buffer.read, 1)
+
+
+async def _run_service_child(settings: RuntimeSettings) -> int:
+    runtime = asyncio.create_task(run_runtime(settings))
+    control = asyncio.create_task(_wait_for_service_host_pipe())
+    done, _pending = await asyncio.wait(
+        {runtime, control}, return_when=asyncio.FIRST_COMPLETED
+    )
+    if runtime in done:
+        control.cancel()
+        return await runtime
+    runtime.cancel()
+    try:
+        await runtime
+    except asyncio.CancelledError:
+        pass
+    return 0
+
+
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Endpoint Agent headless runtime")
     parser.add_argument("--data-dir", default=None)
@@ -48,6 +70,7 @@ def _parser() -> argparse.ArgumentParser:
     )
     modes = parser.add_mutually_exclusive_group()
     modes.add_argument("--windows-service", action="store_true")
+    modes.add_argument("--windows-service-child", action="store_true")
     modes.add_argument("--windows-updater-service", action="store_true")
     modes.add_argument("--windows-restrict-updater-start", action="store_true")
     modes.add_argument("--verify", action="store_true")
@@ -87,6 +110,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         from pc_agent.platform.windows.service import run_windows_service
 
         return run_windows_service(settings)
+    if args.windows_service_child:
+        return asyncio.run(_run_service_child(settings))
     if args.verify:
         return run_verify(settings)
     if args.print_safe_status:

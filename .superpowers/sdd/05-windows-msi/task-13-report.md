@@ -194,3 +194,92 @@ they could not be run. The focused replacement suites above were run instead.
   lock/toolchain chosen by release engineering.
 - This task creates packaging/build behavior only. It does not bump or publish
   an agent version, upload an artifact, assign a rollout, or contact a host.
+
+## Review fix round 1
+
+The first review identified four release-blocking contracts. This round fixed
+all four without installing an MSI or changing any service or host.
+
+### Stable SCM path and selected-runtime supervision
+
+SCM now binds both services to the fixed Program Files binary
+`endpoint-agent-service.exe`. `EndpointAgent --agent-service` strictly reloads
+`current.json` on every start, rejects unknown fields, non-triplet versions,
+traversal, missing files, symlinks, and Windows reparse points, then supervises
+the selected `versions/<version>/pc_agent.exe --windows-service-child` process.
+Closing the child's private stdin control pipe forwards SCM stop/shutdown; a
+pre-start stop is latched so it cannot race an orphaned spawn. Exit `42` starts
+only the fixed demand-start updater. Thus candidate start, confirmation, and
+rollback now execute the version named by the selector rather than the MSI's
+initial runtime forever.
+
+RED evidence was the missing `service_launcher` module, missing child mode, and
+the later stop-before-spawn test launching a child after stop. The focused
+GREEN suite includes literal old-to-new selector assertions and finished with
+all service-launcher cases passing.
+
+### Service SID and exact ProgramData DACL
+
+Both `ServiceInstall` rows now author core WiX `ServiceConfig` with
+`ServiceSid="unrestricted"` on install and reinstall. The former additive
+`util:PermissionEx` entries were removed. A fixed, deferred,
+non-impersonated, return-checked `--apply-programdata-acl` action runs after
+`InstallServices`, replaces the DACL, and uses
+`PROTECTED_DACL_SECURITY_INFORMATION` to disable inheritance. The executable
+policy test verifies the exact inheritable ACE masks: SYSTEM/Admin full,
+EndpointAgent read/write/delete, and EndpointAgentUpdater write/delete only.
+The updater-start service DACL action now also runs through the fixed host.
+
+RED evidence was the absent `replace_machine_data_acl` boundary and the
+initial updater modify mask including read. Both focused tests failed on those
+specific omissions before the protected exact policy passed.
+
+### Immutable initial-runtime identity
+
+`initial-runtime.version` was replaced by `initial-runtime.json`, which pins
+version `3.1.76`, the versioned-core component GUID, and sorted SHA-256 hashes
+for 50 reviewed core source inputs. The build validates it before PyInstaller. A
+transition requires a separate manifest, both
+`-ApproveInitialRuntimeTransition` and
+`-ApproveInitialRuntimeSourceChange`, and a new version plus a new component
+GUID. The manifest component GUID is passed into WiX, preventing a new
+absolute version path from silently reusing the old component identity.
+
+RED evidence covered a changed file behind the same label, one-approval
+transitions, same-version/GUID transitions, and the real transition case where
+old source bytes are no longer present. The validator now checks candidate
+bytes while retaining the baseline manifest only as the identity comparison.
+
+### Review-round build and verification evidence
+
+The exact required command was rerun:
+
+```powershell
+.\packaging\windows\build-msi.ps1 -Configuration Release -Platform x64
+```
+
+It built the neutral core, non-GUI launcher, and new fixed service host, wrote
+the binding manifest, and then exited only at the existing external gate:
+
+`WiX Toolset 4 command 'wix' is unavailable.`
+
+The regenerated manifest contains 2,497 files and 2,499 components. It records
+`EndpointAgent` as fixed binary `ProgramFiles/endpoint-agent-service.exe`,
+argument `--agent-service`, selector `ProgramFiles/current.json`, and the
+updater as the same fixed binary with `--updater-service`. Both the fixed host
+and `versions/3.1.76/pc_agent.exe` are present. Frozen `--help` smoke checks
+confirmed the host's four fixed modes and the core's new
+`--windows-service-child` mode.
+
+Final verification:
+
+```powershell
+python -m pytest -q pc_agent/tests/windows tests/packaging/test_windows_msi_contract.py tests/packaging/test_initial_runtime_contract.py tests/build/test_linux_headless_artifact.py pc_agent/tests/runtime
+```
+
+Result: `176 passed, 5 skipped in 48.94s`; skips are platform-specific.
+
+The checked-in manifest validator, Ruff, `compileall`, Windows PowerShell AST
+parsing, and `git diff --check` all exited zero. WiX compilation/table
+inspection and a disposable-machine MSI lifecycle pilot remain blocked only by
+the unchanged absence of WiX/.NET SDK on this workstation.

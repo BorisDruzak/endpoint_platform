@@ -5,8 +5,9 @@ param(
     [ValidateSet("x64")]
     [string]$Platform = "x64",
     [string]$Version,
-    [string]$InitialRuntimeVersion,
+    [string]$InitialRuntimeManifest,
     [switch]$ApproveInitialRuntimeTransition,
+    [switch]$ApproveInitialRuntimeSourceChange,
     [switch]$ReusePythonBuild,
     [switch]$PrepareOnly
 )
@@ -175,20 +176,35 @@ if (-not $buildRoot.StartsWith($allowedBuildParent + [IO.Path]::DirectorySeparat
     throw "Refusing to use a build directory outside packaging/windows/build."
 }
 
-$baselineInitialRuntime = [IO.File]::ReadAllText(
-    (Join-Path $packagingRoot 'initial-runtime.version')
-).Trim()
-if (-not $InitialRuntimeVersion) {
-    $InitialRuntimeVersion = $baselineInitialRuntime
+$python = (Get-Command python -ErrorAction Stop).Source
+$baselineInitialRuntimeManifest = Join-Path $packagingRoot 'initial-runtime.json'
+if (-not $InitialRuntimeManifest) {
+    $InitialRuntimeManifest = $baselineInitialRuntimeManifest
 }
+$validationArguments = @(
+    (Join-Path $packagingRoot 'initial_runtime_contract.py'),
+    '--repository-root', $repositoryRoot,
+    '--manifest', ([IO.Path]::GetFullPath($InitialRuntimeManifest)),
+    '--baseline', $baselineInitialRuntimeManifest
+)
+if ($ApproveInitialRuntimeTransition) {
+    $validationArguments += '--approve-version'
+}
+if ($ApproveInitialRuntimeSourceChange) {
+    $validationArguments += '--approve-source'
+}
+$identityJson = & $python @validationArguments
+if ($LASTEXITCODE -ne 0) {
+    throw "Initial runtime manifest validation failed."
+}
+$initialRuntimeIdentity = $identityJson | ConvertFrom-Json
+$InitialRuntimeVersion = [string]$initialRuntimeIdentity.version
+$InitialRuntimeComponentGuid = [string]$initialRuntimeIdentity.component_guid
 if (-not $Version) {
     $Version = Get-AgentVersion (Join-Path $repositoryRoot 'pc_agent\version.py')
 }
 Assert-SemVerTriplet $Version 'Package version'
 Assert-SemVerTriplet $InitialRuntimeVersion 'Initial runtime version'
-if ($InitialRuntimeVersion -ne $baselineInitialRuntime -and -not $ApproveInitialRuntimeTransition) {
-    throw "An initial runtime transition requires -ApproveInitialRuntimeTransition and review of selector compatibility."
-}
 
 if ((Test-Path -LiteralPath $buildRoot) -and -not $ReusePythonBuild) {
     Remove-Item -LiteralPath $buildRoot -Recurse -Force
@@ -209,29 +225,35 @@ if ($ReusePythonBuild) {
 }
 New-Item -ItemType Directory -Path $runtimeStage, $outputRoot -Force | Out-Null
 
-$python = (Get-Command python -ErrorAction Stop).Source
 $coreSpec = Join-Path $repositoryRoot 'pc_agent\pyinstaller_endpoint_core_windows.spec'
 $launcherSpec = Join-Path $repositoryRoot 'pc_agent\pyinstaller_launcher_win.spec'
+$serviceHostSpec = Join-Path $repositoryRoot 'pc_agent\pyinstaller_windows_service_launcher.spec'
 $commonPyInstaller = @('--noconfirm', '--clean', '--distpath', $distRoot, '--workpath', $workRoot)
 if (-not $ReusePythonBuild) {
     Invoke-Checked $python (@('-m', 'PyInstaller') + $commonPyInstaller + @($coreSpec)) $repositoryRoot
     Invoke-Checked $python (@('-m', 'PyInstaller') + $commonPyInstaller + @($launcherSpec)) $repositoryRoot
+    Invoke-Checked $python (@('-m', 'PyInstaller') + $commonPyInstaller + @($serviceHostSpec)) $repositoryRoot
 }
 
 $builtCore = Join-Path $distRoot 'endpoint_agent_core'
 $builtCoreExe = Join-Path $builtCore 'endpoint_agent_core.exe'
 $builtLauncher = Join-Path $distRoot 'launcher.exe'
+$builtServiceHost = Join-Path $distRoot 'endpoint-agent-service.exe'
 if (-not (Test-Path -LiteralPath $builtCoreExe -PathType Leaf)) {
     throw "Headless core build missing $builtCoreExe"
 }
 if (-not (Test-Path -LiteralPath $builtLauncher -PathType Leaf)) {
     throw "Launcher build missing $builtLauncher"
 }
+if (-not (Test-Path -LiteralPath $builtServiceHost -PathType Leaf)) {
+    throw "Service host build missing $builtServiceHost"
+}
 Get-ChildItem -LiteralPath $builtCore | ForEach-Object {
     Copy-Item -LiteralPath $_.FullName -Destination $runtimeStage -Recurse -Force
 }
 Move-Item -LiteralPath (Join-Path $runtimeStage 'endpoint_agent_core.exe') -Destination (Join-Path $runtimeStage 'pc_agent.exe')
 Copy-Item -LiteralPath $builtLauncher -Destination (Join-Path $programFilesStage 'launcher.exe')
+Copy-Item -LiteralPath $builtServiceHost -Destination (Join-Path $programFilesStage 'endpoint-agent-service.exe')
 New-Item -ItemType Directory -Path (Join-Path $programFilesStage 'config'), (Join-Path $programFilesStage 'docs') -Force | Out-Null
 Copy-Item -LiteralPath (Join-Path $packagingRoot 'assets\agent-config.yaml') -Destination (Join-Path $programFilesStage 'config\agent-config.yaml')
 Copy-Item -LiteralPath (Join-Path $packagingRoot 'README.md') -Destination (Join-Path $programFilesStage 'docs\README.md')
@@ -248,7 +270,7 @@ $fileManifest = foreach ($item in $allFiles) {
     }
 }
 $componentManifest = @(
-    'cmpLauncher', 'cmpCurrentSelector', 'cmpConfigTemplate', 'cmpPublicReadme',
+    'cmpLauncher', 'cmpCurrentSelector', 'cmpInitialRuntimeAnchor', 'cmpConfigTemplate', 'cmpPublicReadme',
     'cmpProgramDataRoot', 'cmpInstallRootCleanup', 'cmpServiceEntrypoints'
 ) + @($generatedItems | ForEach-Object {
     Get-StableId -Prefix 'cmpPayload' -Value (Get-RelativePath $runtimeStage $_.FullName)
@@ -261,13 +283,16 @@ $binding = [ordered]@{
         upgrade_code = 'D4F3045C-51CF-49D9-AF9C-3AEBF206ED1F'
         version = $Version
         initial_runtime_version = $InitialRuntimeVersion
+        initial_runtime_component_guid = $InitialRuntimeComponentGuid
+        initial_runtime_manifest_sha256 = (Get-FileHash -LiteralPath ([IO.Path]::GetFullPath($InitialRuntimeManifest)) -Algorithm SHA256).Hash.ToLowerInvariant()
         initial_runtime_transition_approved = [bool]$ApproveInitialRuntimeTransition
+        initial_runtime_source_change_approved = [bool]$ApproveInitialRuntimeSourceChange
     }
     files = @($fileManifest)
     components = @($componentManifest | Sort-Object)
     services = @(
-        [ordered]@{ name = 'EndpointAgent'; account = 'NT AUTHORITY\LocalService'; start = 'auto'; recovery = 'restart' },
-        [ordered]@{ name = 'EndpointAgentUpdater'; account = 'LocalSystem'; start = 'demand'; recovery = 'restart' }
+        [ordered]@{ name = 'EndpointAgent'; account = 'NT AUTHORITY\LocalService'; start = 'auto'; recovery = 'restart'; binary = 'ProgramFiles/endpoint-agent-service.exe'; arguments = '--agent-service'; selector = 'ProgramFiles/current.json' },
+        [ordered]@{ name = 'EndpointAgentUpdater'; account = 'LocalSystem'; start = 'demand'; recovery = 'restart'; binary = 'ProgramFiles/endpoint-agent-service.exe'; arguments = '--updater-service' }
     )
     state = [ordered]@{
         program_data_permanent = $true
@@ -301,6 +326,7 @@ $msiPath = Join-Path $outputRoot "EndpointAgent-$Version-x64.msi"
 $wixArguments = @(
     "build", "-arch", "x64", "-ext", "WixToolset.Util.wixext",
     "-dStagingDir=$stagingRoot", "-dInitialRuntimeVersion=$InitialRuntimeVersion",
+    "-dInitialRuntimeComponentGuid=$InitialRuntimeComponentGuid",
     "-dPackageVersion=$Version", '-out', $msiPath
 ) + $wixSources
 Invoke-Checked $wixCommand.Source $wixArguments $repositoryRoot

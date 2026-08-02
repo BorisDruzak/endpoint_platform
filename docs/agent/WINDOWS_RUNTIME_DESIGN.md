@@ -1,26 +1,27 @@
 # Windows Endpoint Agent runtime contract
 
 The Windows MSI registers `EndpointAgent` as an automatic-start service under
-`NT AUTHORITY\LocalService`. The service executable uses only the neutral
-headless entrypoint:
+`NT AUTHORITY\LocalService`. SCM invokes the fixed Program Files service host:
 
 ```text
-endpoint-agent.exe --windows-service
-endpoint-agent.exe --verify
-endpoint-agent.exe --print-safe-status
+endpoint-agent-service.exe --agent-service
 ```
 
-`--windows-service` dispatches through pywin32 only at execution time. Its
-SCM coordinator reports start/running/stopping/stopped states and translates
-stop and shutdown controls into cancellation of the existing neutral runtime.
-The runtime continues to own Gateway reconnects and update exit `42`. The
-Windows boundary does not import Qt, UI bridge, desktop APIs, Helpdesk, or the
-legacy `ws_agent` runtime.
+The host strictly reads `current.json` on every service start, rejects unknown
+fields, non-triplet versions, traversal, and reparse points, and supervises
+`versions/<version>/pc_agent.exe --windows-service-child`. Stop and shutdown
+controls close the child's private stdin control pipe. This makes both a
+candidate selector change and rollback effective at the next SCM start while
+SCM itself remains bound to a stable installed path. The runtime continues to
+own Gateway reconnects and update exit `42`; the host starts only the fixed
+demand-start updater on that exit. The Windows boundary does not import Qt, UI
+bridge, desktop APIs, Helpdesk, or the legacy `ws_agent` runtime.
 
 ## ACL contract
 
-The protected data directory and its enrollment state use explicit Windows
-DACLs for exactly these principals:
+Both services enable unrestricted service SIDs. A deferred, non-impersonated
+MSI action replaces the protected data-directory DACL, marks it protected from
+inherited ACEs, and grants rights to exactly these principals:
 
 - `SYSTEM`
 - `Administrators`
@@ -30,8 +31,9 @@ DACLs for exactly these principals:
 The permanent `device-credential` grants read only to `EndpointAgent`; the
 updater has write-only replacement access. `SYSTEM` and `Administrators` have
 full control. Inherited ordinary-user entries are removed, so ordinary users
-cannot read the device bearer. The data directory grants the two service
-accounts modify access for service state and atomic replacement.
+cannot read the device bearer. The data root grants EndpointAgent modify and
+EndpointAgentUpdater write/delete inheritance; the updater service itself runs
+as SYSTEM.
 
 ## Provisioning contract
 
@@ -59,7 +61,7 @@ credential contents.
 ## Current delivery boundary
 
 The Python contract is import-safe on non-Windows hosts and has injected SCM,
-ACL, service-control, and enrollment adapters for tests. The MSI tables,
-pyinstaller provisioner artifact, real service registration, and a disposable
-Windows pilot are follow-up packaging and validation work; this contract does
-not install, stop, or modify a real service.
+ACL, service-control, and enrollment adapters for tests. WiX binding, MSI table
+inspection, real service registration, and a disposable Windows pilot still
+require a build host with WiX 4; this work does not install, stop, or modify a
+real service.

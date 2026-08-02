@@ -1,8 +1,9 @@
 # Endpoint Agent Windows MSI
 
 This directory builds one machine-wide x64 MSI for the headless Endpoint
-Agent. It uses `pc_agent/pyinstaller_endpoint_core_windows.spec`; the legacy
-Helpdesk/GUI agent specifications are not MSI inputs.
+Agent. It uses the neutral core, non-GUI launcher, and fixed Windows service
+host PyInstaller specifications; the legacy Helpdesk/GUI agent specifications
+are not MSI inputs.
 
 ## Build
 
@@ -18,22 +19,30 @@ binding, a SHA-256 file/service/component manifest, and—when WiX is
 available—the MSI plus a direct MSI-table inspection manifest. The build has
 no parameter for enrollment or device material and does not read such input.
 
-The checked-in `initial-runtime.version` is the immutable first runtime. A
-different initial runtime requires both `-InitialRuntimeVersion` and the
-explicit `-ApproveInitialRuntimeTransition` switch. Routine major upgrades
-upgrade MSI-owned launcher/service metadata while keeping ProgramData and the
-existing `current.json` selection. `RemoveExistingProducts` runs inside the
-MSI transaction; vital service installation and the updater ACL action fail
-the transaction instead of continuing with a partial service installation.
+The checked-in `initial-runtime.json` pins the immutable first runtime version,
+component GUID, source-file list, and SHA-256 hashes. A different reviewed
+manifest requires both `-ApproveInitialRuntimeTransition` and
+`-ApproveInitialRuntimeSourceChange`; the new manifest must use a new version
+and component GUID. Routine major upgrades update MSI-owned launcher/service
+metadata while keeping ProgramData and the existing `current.json` selection.
+`RemoveExistingProducts` runs inside the MSI transaction; vital service
+installation and the ACL actions fail the transaction instead of continuing
+with a partial service installation.
 
 ## Installed security boundary
 
 - `EndpointAgent` runs as `NT AUTHORITY\LocalService` and is automatic-start.
 - `EndpointAgentUpdater` runs as `LocalSystem` and is demand-start only.
+- Both registrations enable unrestricted per-service SIDs. Their fixed
+  `endpoint-agent-service.exe` SCM binary resolves the strict `current.json`
+  selector on every agent-service start, so apply and rollback select the
+  corresponding immutable runtime.
 - Program Files inherits the standard administrator-only write policy; the
   installer adds no ordinary-user write ACL.
-- `C:\ProgramData\Endpoint Platform\Agent` receives an explicit inheritable
-  ACL for SYSTEM, Administrators, and the two service identities.
+- A deferred non-impersonated action replaces the
+  `C:\ProgramData\Endpoint Platform\Agent` DACL, disables inheritance, and
+  grants only the reviewed rights to SYSTEM, Administrators, and the two
+  service identities.
 - The MSI contains only binaries, the immutable initial selector, this public
   documentation, and a public configuration template. Provisioning happens
   after installation through the separately reviewed protected handoff.
