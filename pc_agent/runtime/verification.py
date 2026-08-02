@@ -4,13 +4,15 @@ from __future__ import annotations
 
 import ast
 import asyncio
-import json
 from pathlib import Path
-from uuid import UUID
 
 from pc_agent import endpoint_gateway
 from pc_agent.context_profiles.registry import CONTEXT_COLLECTION_CAPABILITIES
 from pc_agent.device_credential import read_device_credential
+from pc_agent.enrollment_identity import (
+    ENROLLMENT_IDENTITY_FILENAME,
+    read_enrollment_device_id,
+)
 
 from .application import RuntimeSettings
 from .local_state import migrate_local_state
@@ -44,7 +46,9 @@ def run_verify(settings: RuntimeSettings) -> int:
     try:
         settings.validate()
         read_device_credential(settings.data_root / "device-credential")
-        _verify_identity(settings.data_root / "identity.json")
+        read_enrollment_device_id(
+            settings.data_root / ENROLLMENT_IDENTITY_FILENAME
+        )
         endpoint_gateway.read_gateway_current_version(
             settings.install_root / "current.json"
         )
@@ -54,38 +58,6 @@ def run_verify(settings: RuntimeSettings) -> int:
     except Exception:
         return 1
     return 0
-
-
-def _verify_identity(path: Path) -> None:
-    try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as error:
-        raise ValueError("invalid Endpoint identity file") from error
-    required = {
-        "version",
-        "uuid",
-        "machine_id",
-        "install_id",
-        "machine_id_source",
-        "token",
-    }
-    if not isinstance(payload, dict) or not required.issubset(payload):
-        raise ValueError("invalid Endpoint identity file")
-    try:
-        machine_id = UUID(payload["machine_id"])
-        legacy_uuid = UUID(payload["uuid"])
-        UUID(payload["install_id"])
-    except (TypeError, ValueError, AttributeError) as error:
-        raise ValueError("invalid Endpoint identity file") from error
-    if (
-        payload["version"] != 2
-        or machine_id != legacy_uuid
-        or not isinstance(payload["machine_id_source"], str)
-        or not payload["machine_id_source"].strip()
-        or payload["token"] is not None
-    ):
-        raise ValueError("invalid Endpoint identity file")
-
 
 def _verify_collector_registry() -> None:
     if CONTEXT_COLLECTION_CAPABILITIES != _EXPECTED_CONTEXT_CAPABILITIES:

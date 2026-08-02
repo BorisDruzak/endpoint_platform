@@ -16,8 +16,7 @@ from pc_agent.runtime.local_state import LOCAL_STATE_SCHEMA_VERSION
 from pc_agent.runtime.verification import run_verify
 
 
-_MACHINE_ID = UUID("00000000-0000-4000-8000-000000000501")
-_INSTALL_ID = UUID("00000000-0000-4000-8000-000000000502")
+_DEVICE_ID = UUID("00000000-0000-4000-8000-000000000501")
 
 
 def _valid_settings(tmp_path: Path) -> RuntimeSettings:
@@ -28,16 +27,14 @@ def _valid_settings(tmp_path: Path) -> RuntimeSettings:
     ca_file = tmp_path / "endpoint-ca.crt"
     ca_file.write_text("test-only CA fixture", encoding="ascii")
     (data_root / "device-credential").write_text("c" * 43 + "\n", encoding="ascii")
-    (data_root / "identity.json").write_text(
+    (data_root / "enrollment-identity.json").write_text(
         json.dumps(
             {
-                "version": 2,
-                "uuid": str(_MACHINE_ID),
-                "machine_id": str(_MACHINE_ID),
-                "install_id": str(_INSTALL_ID),
-                "machine_id_source": "test-fixture",
-                "token": None,
-            }
+                "device_id": str(_DEVICE_ID),
+                "schema_version": "endpoint_enrollment_identity_v1",
+            },
+            separators=(",", ":"),
+            sort_keys=True,
         ),
         encoding="utf-8",
     )
@@ -82,17 +79,50 @@ def test_verify_migrates_local_database_without_opening_gateway(
 @pytest.mark.parametrize(
     ("filename", "payload"),
     [
-        ("identity.json", {"version": 2, "machine_id": "not-a-uuid"}),
+        (
+            "enrollment-identity.json",
+            {
+                "device_id": "not-a-uuid",
+                "schema_version": "endpoint_enrollment_identity_v1",
+            },
+        ),
         ("current.json", {"version": "3.1.84", "previous": "3.1.80"}),
     ],
 )
-def test_verify_rejects_malformed_identity_or_update_selector(
+def test_verify_rejects_malformed_enrollment_identity_or_update_selector(
     tmp_path: Path, filename: str, payload: dict[str, object]
 ) -> None:
     """Malformed durable state must fail preflight instead of starting the agent."""
     settings = _valid_settings(tmp_path)
-    target_root = settings.data_root if filename == "identity.json" else settings.install_root
+    target_root = (
+        settings.data_root
+        if filename == "enrollment-identity.json"
+        else settings.install_root
+    )
     (target_root / filename).write_text(json.dumps(payload), encoding="utf-8")
+
+    assert run_verify(settings) == 1
+
+
+def test_verify_rejects_missing_enrollment_identity_without_using_legacy_machine_id(
+    tmp_path: Path,
+) -> None:
+    """A legacy machine UUID must never substitute for the server Device.id."""
+    settings = _valid_settings(tmp_path)
+    (settings.data_root / "enrollment-identity.json").unlink()
+    (settings.data_root / "identity.json").write_text(
+        json.dumps(
+            {
+                "version": 2,
+                "uuid": "00000000-0000-4000-8000-000000000509",
+                "machine_id": "00000000-0000-4000-8000-000000000509",
+                "install_id": "00000000-0000-4000-8000-000000000510",
+                "machine_id_source": "test-fixture",
+                "token": None,
+            }
+        ),
+        encoding="utf-8",
+    )
 
     assert run_verify(settings) == 1
 

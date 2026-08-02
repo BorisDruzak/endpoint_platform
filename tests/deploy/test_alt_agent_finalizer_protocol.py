@@ -42,6 +42,7 @@ _WINDOWS_METADATA_SEAM = """file_owner_uid() {
         claim-owner) [[ "$1" == *provisioning-claim ]] && { printf '999999\\n'; return; } ;;
         request-owner) [[ "$1" == *claim-removal-request.json ]] && { printf '999999\\n'; return; } ;;
         credential-owner) [[ "$1" == *device-credential ]] && { printf '999999\\n'; return; } ;;
+        identity-owner) [[ "$1" == *enrollment-identity.json ]] && { printf '999999\\n'; return; } ;;
     esac
     id -u
 }
@@ -61,6 +62,9 @@ file_mode() {
             ;;
         */device-credential)
             [[ "${ENDPOINT_AGENT_TEST_SCENARIO:-}" == credential-mode ]] && printf '644\\n' || printf '600\\n'
+            ;;
+        */enrollment-identity.json)
+            [[ "${ENDPOINT_AGENT_TEST_SCENARIO:-}" == identity-mode ]] && printf '644\\n' || printf '600\\n'
             ;;
         *) printf '755\\n' ;;
     esac
@@ -173,11 +177,13 @@ cat > "$root/bin/systemctl" <<'SYSTEMCTL'
 SYSTEMCTL
 chmod 700 "$root/bin/systemctl"
 credential="$root/var/lib/endpoint-agent/device-credential"
+identity="$root/var/lib/endpoint-agent/enrollment-identity.json"
 request="$root/var/lib/endpoint-agent/claim-removal-request.json"
 claim="$root/etc/endpoint-agent/provisioning-claim"
 printf '%s' 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA' > "$credential"
+printf '%s' '{{"device_id":"9c83f6de-3435-4fc3-a7e0-7bcddc744f3b","schema_version":"endpoint_enrollment_identity_v1"}}' > "$identity"
 printf '%s' 'ic_0123456789abcdef0123456789abcdef.abcdefghijklmnopqrstuvwxyzABCDEFG' > "$claim"
-chmod 600 "$credential" "$claim"
+chmod 600 "$credential" "$identity" "$claim"
 digest=$(sha256sum -- "$credential" | awk '{{ print $1 }}')
 case {scenario!r} in
   success) ;;
@@ -186,7 +192,11 @@ case {scenario!r} in
   claim-mode) chmod 644 "$claim" ;;
   request-mode) request_mode=644 ;;
   credential-mode) chmod 644 "$credential" ;;
-  claim-owner|request-owner|credential-owner) ;;
+  identity-mode) chmod 644 "$identity" ;;
+  identity-missing) rm -f "$identity" ;;
+  identity-invalid) printf '%s' '{{"device_id":"not-a-uuid","schema_version":"endpoint_enrollment_identity_v1"}}' > "$identity" ;;
+  identity-mismatch) printf '%s' '{{"device_id":"00000000-0000-4000-8000-000000000001","schema_version":"endpoint_enrollment_identity_v1"}}' > "$identity" ;;
+  claim-owner|request-owner|credential-owner|identity-owner) ;;
   claim-symlink) rm -f "$claim"; ln -s "$credential" "$claim" ;;
   request-symlink) request_symlink=true ;;
   credential-symlink) mv "$credential" "$credential.real"; ln -s "$credential.real" "$credential"; digest=$(sha256sum -- "$credential.real" | awk '{{ print $1 }}') ;;
@@ -207,7 +217,7 @@ PATH="$root/bin:$PATH" bash "$root/installer" --finalize-handoff
 status=$?
 set -e
 unit="$root/etc/systemd/system/endpoint-agent.service"
-printf 'status=%s claim=%s request=%s credential=%s unit_claim=%s unit_handoff=%s unit_gateway=%s\n' "$status" "$([[ -e "$claim" || -L "$claim" ]] && echo present || echo absent)" "$([[ -e "$request" || -L "$request" ]] && echo present || echo absent)" "$([[ -e "$credential" || -L "$credential" ]] && echo present || echo absent)" "$(grep -c '^LoadCredential=endpoint-enrollment-claim:' "$unit" || true)" "$(grep -c '^Environment=ENDPOINT_AGENT_PROVISIONING_HANDOFF_FILE=' "$unit" || true)" "$(grep -c '^Environment=ENDPOINT_AGENT_GATEWAY_READY=1$' "$unit" || true)"
+printf 'status=%s claim=%s request=%s credential=%s identity=%s unit_claim=%s unit_handoff=%s unit_gateway=%s\n' "$status" "$([[ -e "$claim" || -L "$claim" ]] && echo present || echo absent)" "$([[ -e "$request" || -L "$request" ]] && echo present || echo absent)" "$([[ -e "$credential" || -L "$credential" ]] && echo present || echo absent)" "$([[ -e "$identity" || -L "$identity" ]] && echo present || echo absent)" "$(grep -c '^LoadCredential=endpoint-enrollment-claim:' "$unit" || true)" "$(grep -c '^Environment=ENDPOINT_AGENT_PROVISIONING_HANDOFF_FILE=' "$unit" || true)" "$(grep -c '^Environment=ENDPOINT_AGENT_GATEWAY_READY=1$' "$unit" || true)"
 exit 0
 """,
         encoding="utf-8",
@@ -234,7 +244,10 @@ def test_verified_bootstrap_request_removes_only_the_exact_claim_and_request(
 ) -> None:
     result = _run_harness(tmp_path, "success")
 
-    assert "status=0 claim=absent request=absent credential=present" in result.stdout
+    assert (
+        "status=0 claim=absent request=absent credential=present identity=present"
+        in result.stdout
+    )
     assert "unit_claim=0 unit_handoff=0 unit_gateway=1" in result.stdout
 
 
@@ -244,7 +257,8 @@ def test_invalid_request_or_credential_keeps_the_claim_and_request_for_recovery(
     for scenario in ("invalid-request", "credential-failure"):
         result = _run_harness(tmp_path, scenario)
         assert (
-            "status=1 claim=present request=present credential=present" in result.stdout
+            "status=1 claim=present request=present credential=present identity=present"
+            in result.stdout
         )
 
 
@@ -257,6 +271,8 @@ def test_invalid_request_or_credential_keeps_the_claim_and_request_for_recovery(
         "claim-owner",
         "request-owner",
         "credential-owner",
+        "identity-mode",
+        "identity-owner",
     ),
 )
 def test_finalizer_rejects_wrong_owner_or_mode_without_removing_recovery_state(
@@ -264,7 +280,26 @@ def test_finalizer_rejects_wrong_owner_or_mode_without_removing_recovery_state(
 ) -> None:
     result = _run_harness(tmp_path, scenario)
 
-    assert "status=1 claim=present request=present credential=present" in result.stdout
+    assert (
+        "status=1 claim=present request=present credential=present identity=present"
+        in result.stdout
+    )
+
+
+@pytest.mark.parametrize(
+    "scenario", ("identity-missing", "identity-invalid", "identity-mismatch")
+)
+def test_finalizer_requires_identity_matching_the_verified_handoff(
+    tmp_path: Path, scenario: str
+) -> None:
+    result = _run_harness(tmp_path, scenario)
+
+    expected_identity = "absent" if scenario == "identity-missing" else "present"
+    assert (
+        "status=1 claim=present request=present credential=present "
+        f"identity={expected_identity}"
+        in result.stdout
+    )
 
 
 @pytest.mark.parametrize(
@@ -281,7 +316,10 @@ def test_finalizer_rejects_leaf_and_parent_symlinks_without_unlinking(
         )
     result = _run_harness(tmp_path, scenario)
 
-    assert "status=1 claim=present request=present credential=present" in result.stdout
+    assert (
+        "status=1 claim=present request=present credential=present identity=present"
+        in result.stdout
+    )
 
 
 def test_finalizer_is_idempotent_after_a_completed_claim_removal(
@@ -289,4 +327,7 @@ def test_finalizer_is_idempotent_after_a_completed_claim_removal(
 ) -> None:
     result = _run_harness(tmp_path, "already-finalized")
 
-    assert "status=0 claim=absent request=absent credential=present" in result.stdout
+    assert (
+        "status=0 claim=absent request=absent credential=present identity=present"
+        in result.stdout
+    )

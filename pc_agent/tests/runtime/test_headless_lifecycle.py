@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
@@ -24,6 +25,7 @@ from pc_agent.runtime.command_executor import CommandExecutor
 from pc_agent.runtime.lifecycle import CredentialRejected, RetryableTransportError
 from pc_agent.runtime.status import RuntimePhase
 from pc_agent.tests.context.conftest import FakeProbe
+from pc_agent.transport.protocol import compatibility_agent_hello
 from pc_agent.version import EXIT_UPDATE_PENDING
 
 
@@ -339,6 +341,11 @@ async def test_default_runtime_wires_executor_into_current_http_pull(
     (settings.data_root / "device-credential").write_text(
         "c" * 43 + "\n", encoding="ascii"
     )
+    (settings.data_root / "enrollment-identity.json").write_text(
+        '{"device_id":"00000000-0000-4000-8000-000000000435",'
+        '"schema_version":"endpoint_enrollment_identity_v1"}',
+        encoding="utf-8",
+    )
     observed: list[dict[str, object]] = []
 
     class NoWorkPullTransport:
@@ -377,6 +384,96 @@ async def test_default_runtime_wires_executor_into_current_http_pull(
         "poll_updates": True,
         "on_update_poll_complete": observed[0]["on_update_poll_complete"],
     }
+
+
+@pytest.mark.asyncio
+async def test_default_lifecycle_hello_uses_exact_stored_enrollment_device_id(
+    tmp_path: Path,
+) -> None:
+    """Catches sending machine_id, UUID zero, or another fallback in the real hello."""
+    settings = _settings(tmp_path)
+    settings.data_root.mkdir()
+    (settings.data_root / "device-credential").write_text("c" * 43, encoding="ascii")
+    stored_device_id = UUID("00000000-0000-4000-8000-000000000431")
+    (settings.data_root / "enrollment-identity.json").write_text(
+        json.dumps(
+            {
+                "device_id": str(stored_device_id),
+                "schema_version": "endpoint_enrollment_identity_v1",
+            },
+            separators=(",", ":"),
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+    (settings.data_root / "identity.json").write_text(
+        json.dumps(
+            {
+                "machine_id": "00000000-0000-4000-8000-000000000432",
+                "uuid": "00000000-0000-4000-8000-000000000432",
+            }
+        ),
+        encoding="utf-8",
+    )
+    observed: list[object] = []
+    events: list[str] = []
+
+    class CaptureHelloTransport(_Transport):
+        async def connect(self, hello) -> GatewayHelloV1:
+            observed.append(hello)
+            return await super().connect(hello)
+
+    defaults = runtime_application._default_dependencies()
+    dependencies = RuntimeDependencies(
+        load_credential=defaults.load_credential,
+        create_executor=lambda: _Executor(events),
+        create_transport=lambda *_args: CaptureHelloTransport(events),
+        load_hello=defaults.load_hello,
+    )
+
+    assert await RuntimeApplication(settings, dependencies).run() == 0
+    expected = compatibility_agent_hello().model_copy(
+        update={"device_id": stored_device_id}
+    )
+    assert observed == [expected]
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        None,
+        {
+            "device_id": "not-a-uuid",
+            "schema_version": "endpoint_enrollment_identity_v1",
+        },
+        {
+            "device_id": "00000000-0000-4000-8000-000000000433",
+            "schema_version": "unknown_identity_v1",
+        },
+    ],
+)
+def test_default_hello_loader_rejects_missing_or_invalid_enrollment_identity(
+    tmp_path: Path, payload: dict[str, object] | None
+) -> None:
+    """Catches silently synthesizing a hello identity when enrollment state is bad."""
+    settings = _settings(tmp_path)
+    settings.data_root.mkdir()
+    if payload is not None:
+        (settings.data_root / "enrollment-identity.json").write_text(
+            json.dumps(payload), encoding="utf-8"
+        )
+    (settings.data_root / "identity.json").write_text(
+        json.dumps(
+            {
+                "machine_id": "00000000-0000-4000-8000-000000000434",
+                "uuid": "00000000-0000-4000-8000-000000000434",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="enrollment identity"):
+        runtime_application._default_dependencies().load_hello(settings)
 
 
 class _AttemptResponse:

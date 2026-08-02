@@ -207,11 +207,13 @@ def test_finalizer_accepts_only_the_fixed_proven_credential_handoff_protocol() -
     installer = _text(INSTALLER)
 
     for required in (
+        'readonly ENROLLMENT_IDENTITY_TARGET="${DATA_ROOT}/enrollment-identity.json"',
         'readonly HANDOFF_REQUEST_TARGET="${DATA_ROOT}/claim-removal-request.json"',
         "readonly CLAIM_CREDENTIAL_NAME=endpoint-enrollment-claim",
         "readonly HANDOFF_REQUEST_SCHEMA_VERSION=endpoint_claim_removal_request_v1",
         "require_safe_parent_components",
         "require_opaque_permanent_credential",
+        "require_enrollment_identity",
         "validate_handoff_request",
         "credential_sha256",
         "require_root_secret_file 'installed provisioning handoff' \"$HANDOFF_TARGET\"",
@@ -233,6 +235,7 @@ def test_installer_validates_fixed_destinations_before_any_root_write() -> None:
         "validate_fixed_regular_target_or_absent \"$CA_TARGET\" root 600",
         "validate_fixed_regular_target_or_absent \"$HANDOFF_TARGET\" root 600",
         "validate_fixed_regular_target_or_absent \"$PERMANENT_CREDENTIAL_TARGET\" service 600",
+        "validate_fixed_regular_target_or_absent \"$ENROLLMENT_IDENTITY_TARGET\" service 600",
         "validate_fixed_regular_target_or_absent \"$HANDOFF_REQUEST_TARGET\" service 600",
         'validate_fixed_regular_target_or_absent "/etc/systemd/system/$SERVICE_NAME" root 644',
     ):

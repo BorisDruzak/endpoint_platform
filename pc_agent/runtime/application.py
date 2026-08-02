@@ -10,9 +10,14 @@ from urllib.parse import urlsplit
 
 from pc_agent import endpoint_gateway
 from pc_agent.device_credential import DeviceCredentialError, read_device_credential
+from pc_agent.enrollment_identity import (
+    ENROLLMENT_IDENTITY_FILENAME,
+    read_enrollment_device_id,
+)
 from pc_agent.transport.base import GatewayTerminalError, GatewayTransport
 from pc_agent.transport.http_pull import ClassifiedGatewayTransport
 from pc_agent.transport.protocol import (
+    AgentHelloV1,
     GatewayHelloV1,
     compatibility_agent_hello,
 )
@@ -104,6 +109,7 @@ def _default_dependencies() -> RuntimeDependencies:
         load_credential=_load_credential,
         create_executor=CommandExecutor,
         create_transport=create_transport,
+        load_hello=_load_hello,
     )
 
 
@@ -114,6 +120,15 @@ def _load_credential(settings: object) -> str:
         return read_device_credential(settings.data_root / "device-credential")
     except DeviceCredentialError as error:
         raise CredentialRejected(str(error)) from error
+
+
+def _load_hello(settings: object) -> AgentHelloV1:
+    if not isinstance(settings, RuntimeSettings):
+        raise ValueError("invalid runtime settings")
+    device_id = read_enrollment_device_id(
+        settings.data_root / ENROLLMENT_IDENTITY_FILENAME
+    )
+    return compatibility_agent_hello().model_copy(update={"device_id": device_id})
 
 
 def _create_transport(

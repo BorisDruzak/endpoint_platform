@@ -65,9 +65,10 @@ EOF
 write_finalizer_state() {
     local root=$1 digest
     printf 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA' > "$root/var/lib/endpoint-agent/device-credential"
+    printf '%s' '{"device_id":"9c83f6de-3435-4fc3-a7e0-7bcddc744f3b","schema_version":"endpoint_enrollment_identity_v1"}' > "$root/var/lib/endpoint-agent/enrollment-identity.json"
     printf 'one-time-handoff' > "$root/etc/endpoint-agent/provisioning-claim"
-    chown "$test_uid:$test_gid" "$root/var/lib/endpoint-agent/device-credential"
-    chmod 600 "$root/var/lib/endpoint-agent/device-credential" "$root/etc/endpoint-agent/provisioning-claim"
+    chown "$test_uid:$test_gid" "$root/var/lib/endpoint-agent/device-credential" "$root/var/lib/endpoint-agent/enrollment-identity.json"
+    chmod 600 "$root/var/lib/endpoint-agent/device-credential" "$root/var/lib/endpoint-agent/enrollment-identity.json" "$root/etc/endpoint-agent/provisioning-claim"
     digest=$(sha256sum "$root/var/lib/endpoint-agent/device-credential" | awk '{print $1}')
     printf '{"claim_credential_name":"endpoint-enrollment-claim","credential_path":"%s","credential_sha256":"%s","device_id":"9c83f6de-3435-4fc3-a7e0-7bcddc744f3b","schema_version":"endpoint_claim_removal_request_v1"}' \
         "$root/var/lib/endpoint-agent/device-credential" "$digest" > "$root/var/lib/endpoint-agent/claim-removal-request.json"
@@ -76,22 +77,27 @@ write_finalizer_state() {
 }
 
 run_finalizer_case() {
-    local scenario=$1 root status claim request credential
+    local scenario=$1 root status claim request credential identity
     root=$(mktemp -d /tmp/endpoint-alt-finalizer.XXXXXX)
     trap 'rm -rf -- "$root"' RETURN
     make_copy "$root"; setup_layout "$root"; write_finalizer_state "$root"
     claim="$root/etc/endpoint-agent/provisioning-claim"
     request="$root/var/lib/endpoint-agent/claim-removal-request.json"
     credential="$root/var/lib/endpoint-agent/device-credential"
+    identity="$root/var/lib/endpoint-agent/enrollment-identity.json"
     case "$scenario" in
         valid) ;;
         idempotent) rm -f "$claim" "$request" ;;
         claim-mode) chmod 640 "$claim" ;;
         request-mode) chmod 640 "$request" ;;
         credential-mode) chmod 640 "$credential" ;;
+        identity-mode) chmod 640 "$identity" ;;
+        identity-missing) rm -f "$identity" ;;
+        identity-mismatch) printf '%s' '{"device_id":"00000000-0000-4000-8000-000000000001","schema_version":"endpoint_enrollment_identity_v1"}' > "$identity" ;;
         claim-owner) chown 42425:42425 "$claim" ;;
         request-owner) chown 42425:42425 "$request" ;;
         credential-owner) chown 42425:42425 "$credential" ;;
+        identity-owner) chown 42425:42425 "$identity" ;;
         claim-symlink) mv "$claim" "$claim.real"; ln -s "$claim.real" "$claim" ;;
         request-symlink) mv "$request" "$request.real"; ln -s "$request.real" "$request" ;;
         credential-symlink) mv "$credential" "$credential.real"; ln -s "$credential.real" "$credential" ;;
@@ -105,13 +111,14 @@ run_finalizer_case() {
     PATH="$root/bin:$PATH" bash "$root/installer" --finalize-handoff >"$root/output" 2>&1
     status=$?
     set -e
-    printf 'FINALIZER %-22s status=%s claim=%s request=%s credential=%s\n' "$scenario" "$status" \
+    printf 'FINALIZER %-22s status=%s claim=%s request=%s credential=%s identity=%s\n' "$scenario" "$status" \
         "$([[ -e "$claim" || -L "$claim" ]] && echo present || echo absent)" \
         "$([[ -e "$request" || -L "$request" ]] && echo present || echo absent)" \
-        "$([[ -e "$credential" || -L "$credential" ]] && echo present || echo absent)"
+        "$([[ -e "$credential" || -L "$credential" ]] && echo present || echo absent)" \
+        "$([[ -e "$identity" || -L "$identity" ]] && echo present || echo absent)"
     cat "$root/output"
     if [[ "$scenario" == valid || "$scenario" == idempotent ]]; then
-        [[ "$status" == 0 ]] || failures=$((failures + 1))
+        [[ "$status" == 0 && -f "$identity" ]] || failures=$((failures + 1))
     else
         [[ "$status" != 0 ]] || failures=$((failures + 1))
     fi
@@ -152,7 +159,7 @@ run_binary_case() {
     rm -rf -- "$root"
 }
 
-for scenario in valid idempotent claim-mode request-mode credential-mode claim-owner request-owner credential-owner claim-symlink request-symlink credential-symlink parent-symlink; do
+for scenario in valid idempotent claim-mode request-mode credential-mode identity-mode identity-missing identity-mismatch claim-owner request-owner credential-owner identity-owner claim-symlink request-symlink credential-symlink parent-symlink; do
     run_finalizer_case "$scenario"
 done
 for scenario in binary-symlink binary-symlink-to-directory binary-existing-directory; do

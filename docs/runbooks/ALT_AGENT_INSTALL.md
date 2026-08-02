@@ -90,7 +90,9 @@ does not invent or emulate a permanent credential.
 Do **not** delete the handoff merely because the service started. After the
 Task 16 enrollment runtime has verified permanent credential persistence at
 `/var/lib/endpoint-agent/device-credential`, owned by `endpoint-agent` with
-mode `0600`, remove the one-time handoff using:
+mode `0600`, and the matching canonical server Device UUID record at
+`/var/lib/endpoint-agent/enrollment-identity.json` with the same protection,
+remove the one-time handoff using:
 
 ```bash
 sudo bash deploy/agent/alt/install-endpoint-agent.sh --finalize-handoff
@@ -98,7 +100,8 @@ sudo bash deploy/agent/alt/install-endpoint-agent.sh --finalize-handoff
 
 This is intentionally a separate, fail-closed action: it reads only the fixed
 `/var/lib/endpoint-agent/claim-removal-request.json` request, checks its schema,
-device UUID, credential path/name and SHA-256 credential proof, and rejects
+device UUID against the retained enrollment identity, credential path/name and
+SHA-256 credential proof, and rejects
 symlinked/unsafe path components before deleting the exact root claim source.
 On success it also removes the matching `LoadCredential` and handoff environment
 line from the fixed systemd unit, switches it to `ENDPOINT_AGENT_GATEWAY_READY=1`,
