@@ -91,11 +91,12 @@ class _ScmError(Exception):
         self.winerror = code
 
 
-def test_service_not_active_classifier_accepts_pywintypes_args_without_importing_it() -> None:
-    """Some pywintypes-compatible errors expose code 1062 only in args[0]."""
+def test_service_not_active_classifier_requires_structured_winerror() -> None:
+    """Numeric Exception args alone must not authorize a selector rollback."""
     from pc_agent.platform.windows.updater_service import _is_service_not_active
 
-    assert _is_service_not_active(
+    assert _is_service_not_active(_ScmError(1062, "service is not active"))
+    assert not _is_service_not_active(
         Exception(1062, "ControlService", "Служба не была запущена")
     )
 

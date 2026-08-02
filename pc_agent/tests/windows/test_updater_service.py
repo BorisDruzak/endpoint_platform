@@ -410,23 +410,34 @@ def test_strict_update_acl_rejects_any_propagation_flag() -> None:
         _validate_strict_update_dacl(_Descriptor(), _Security(), _Rights())
 
 
-def test_updater_terminal_status_is_reported_once_without_stop_pending_reversal() -> None:
-    """A one-shot service must finish STOPPED; reporting STOP_PENDING afterwards reverses SCM state."""
-    from pc_agent.platform.windows.updater_service import _report_updater_stopped
-
-    calls = []
-    class _Service:
-        def ReportServiceStatus(self, status, **kwargs): calls.append((status, kwargs))
-    class _Scm:
-        SERVICE_STOPPED = 1
-    _report_updater_stopped(_Service(), _Scm(), 7)
-    assert calls == [(1, {"win32ExitCode": 1066, "svcExitCode": 7})]
-
-
-def test_updater_dispatcher_overrides_the_pywin32_base_svc_run_sequence(
+@pytest.mark.parametrize(
+    ("worker_status", "expected_statuses"),
+    [
+        (
+            "applied",
+            [
+                (2, {}),
+                (4, {}),
+                (3, {}),
+                (1, {}),
+            ],
+        ),
+        (
+            "rejected",
+            [
+                (2, {}),
+                (4, {}),
+                (1, {"win32ExitCode": 1066, "svcExitCode": 0x20000001}),
+            ],
+        ),
+    ],
+)
+def test_updater_dispatcher_leaves_single_terminal_status_to_native_pywin32_host(
     monkeypatch: pytest.MonkeyPatch,
+    worker_status: str,
+    expected_statuses: list[tuple[int, dict[str, int]]],
 ) -> None:
-    """Inheriting pywin32's SvcRun appends STOP_PENDING after SvcDoRun returns."""
+    """PythonService.service_main must own the sole terminal SCM report."""
     from pc_agent.platform.windows import updater_service
 
     events: list[tuple[int, dict[str, int]]] = []
@@ -461,7 +472,21 @@ def test_updater_dispatcher_overrides_the_pywin32_base_svc_run_sequence(
         hosted["service_class"] = service_class
 
     def dispatch() -> None:
-        hosted["service_class"](["EndpointAgentUpdater"]).SvcRun()
+        service = hosted["service_class"](["EndpointAgentUpdater"])
+        # Faithful boundary sequence from pywin32 311 PythonService.cpp:
+        # native service_main brackets the Python SvcRun call with the initial
+        # START_PENDING and exactly one final STOPPED report.
+        service.ReportServiceStatus(win32service.SERVICE_START_PENDING)
+        try:
+            service.SvcRun()
+        except Exception:
+            service.ReportServiceStatus(
+                win32service.SERVICE_STOPPED,
+                win32ExitCode=win32service.ERROR_SERVICE_SPECIFIC_ERROR,
+                svcExitCode=0x20000001,
+            )
+        else:
+            service.ReportServiceStatus(win32service.SERVICE_STOPPED)
 
     servicemanager.PrepareToHostSingle = prepare
     servicemanager.StartServiceCtrlDispatcher = dispatch
@@ -471,15 +496,10 @@ def test_updater_dispatcher_overrides_the_pywin32_base_svc_run_sequence(
     monkeypatch.setattr(
         updater_service,
         "WindowsUpdater",
-        lambda: SimpleNamespace(run_once=lambda: SimpleNamespace(status="rejected")),
+        lambda: SimpleNamespace(
+            run_once=lambda: SimpleNamespace(status=worker_status)
+        ),
     )
 
     assert updater_service.run_windows_updater_service() == 0
-    assert events == [
-        (win32service.SERVICE_START_PENDING, {}),
-        (win32service.SERVICE_RUNNING, {}),
-        (
-            win32service.SERVICE_STOPPED,
-            {"win32ExitCode": 1066, "svcExitCode": 1},
-        ),
-    ]
+    assert events == expected_statuses

@@ -61,30 +61,6 @@ class StartupConfirmation(Protocol):
     def is_confirmed(self, *, version: str, operation_id: str, attempt_id: str, not_before: datetime) -> bool: ...
 
 
-class UpdaterScmStatus(Protocol):
-    def report_start_pending(self) -> None: ...
-    def report_running(self) -> None: ...
-    def report_stopped(self, exit_code: int) -> None: ...
-
-
-class UpdaterScmCoordinator:
-    """One-shot service lifecycle whose last status is always STOPPED."""
-
-    def __init__(self, run_worker, status: UpdaterScmStatus) -> None:
-        self._run_worker = run_worker
-        self._status = status
-
-    def run(self) -> int:
-        self._status.report_start_pending()
-        self._status.report_running()
-        exit_code = 1
-        try:
-            exit_code = self._run_worker()
-            return exit_code
-        finally:
-            self._status.report_stopped(exit_code)
-
-
 class PyWin32EndpointAgentService:
     """Fixed-name SCM control; callers cannot select another service."""
 
@@ -599,13 +575,10 @@ def _clear_startup_attempt(paths: WindowsUpdatePaths) -> None:
 
 def _is_service_not_active(error: Exception) -> bool:
     winerror = getattr(error, "winerror", None)
-    if isinstance(winerror, int) and not isinstance(winerror, bool):
-        return winerror == _ERROR_SERVICE_NOT_ACTIVE
-    code = error.args[0] if error.args else None
     return (
-        isinstance(code, int)
-        and not isinstance(code, bool)
-        and code == _ERROR_SERVICE_NOT_ACTIVE
+        isinstance(winerror, int)
+        and not isinstance(winerror, bool)
+        and winerror == _ERROR_SERVICE_NOT_ACTIVE
     )
 
 
@@ -613,7 +586,6 @@ def run_windows_updater_service() -> int:
     """Host the MSI-registered demand-start ``EndpointAgentUpdater`` service."""
     try:
         import servicemanager  # type: ignore[import-not-found]
-        import win32service  # type: ignore[import-not-found]
         import win32serviceutil  # type: ignore[import-not-found]
     except ImportError as error:
         raise RuntimeError("pywin32 is required for EndpointAgentUpdater") from error
@@ -623,21 +595,15 @@ def run_windows_updater_service() -> int:
         _svc_display_name_ = "Endpoint Agent Updater"
         _svc_description_ = "Demand-start offline Endpoint Agent update worker"
 
-        def SvcRun(self) -> None:
-            class _Status:
-                def report_start_pending(_self) -> None:
-                    self.ReportServiceStatus(win32service.SERVICE_START_PENDING)
-
-                def report_running(_self) -> None:
-                    self.ReportServiceStatus(win32service.SERVICE_RUNNING)
-
-                def report_stopped(_self, exit_code: int) -> None:
-                    _report_updater_stopped(self, win32service, exit_code)
-
-            UpdaterScmCoordinator(
-                lambda: 0 if WindowsUpdater().run_once().status in {"applied", "rolled_back"} else 1,
-                _Status(),
-            ).run()
+        def SvcDoRun(self) -> None:
+            result = WindowsUpdater().run_once()
+            if result.status not in {"applied", "rolled_back"}:
+                # Let PythonService.service_main translate the exception into
+                # its native service-specific terminal failure.  The native
+                # host owns the sole SERVICE_STOPPED report after SvcRun exits.
+                raise RuntimeError(
+                    f"EndpointAgentUpdater worker failed with status {result.status!r}"
+                )
 
     servicemanager.Initialize()
     servicemanager.PrepareToHostSingle(EndpointAgentUpdaterWindowsService)
@@ -645,21 +611,9 @@ def run_windows_updater_service() -> int:
     return 0
 
 
-def _report_updater_stopped(service, win32service, exit_code: int) -> None:
-    """Emit the one terminal SCM state; no later STOP_PENDING transition exists."""
-    if exit_code == 0:
-        service.ReportServiceStatus(win32service.SERVICE_STOPPED)
-        return
-    service.ReportServiceStatus(
-        win32service.SERVICE_STOPPED,
-        win32ExitCode=getattr(win32service, "ERROR_SERVICE_SPECIFIC_ERROR", 1066),
-        svcExitCode=exit_code,
-    )
-
-
 __all__ = [
     "AgentService", "FileStartupConfirmation", "PendingUpdate", "PendingUpdateValidator",
     "PyWin32EndpointAgentService", "PyWin32UpdatePathSecurity", "ReleaseVerifier",
     "STARTUP_DEADLINE_SECONDS", "StartupConfirmation", "SubprocessReleaseVerifier", "UPDATER_SERVICE_NAME",
-    "UPDATER_START_PRINCIPALS", "UpdateResult", "UpdatePathSecurity", "UpdaterScmCoordinator", "WindowsUpdater", "run_windows_updater_service",
+    "UPDATER_START_PRINCIPALS", "UpdateResult", "UpdatePathSecurity", "WindowsUpdater", "run_windows_updater_service",
 ]
