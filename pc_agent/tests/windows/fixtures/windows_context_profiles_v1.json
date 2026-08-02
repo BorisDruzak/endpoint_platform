@@ -1,0 +1,32 @@
+{
+  "baseline_v1": {
+    "schema_version": "device_context_v1",
+    "profile": "baseline_v1",
+    "sections": {
+      "system": {"platform": "windows", "distribution": "Windows 11 Pro", "architecture": "x86_64"},
+      "hardware": {"manufacturer": "Example Systems", "model": "Example Workstation", "cpu_model": "Example CPU", "memory_bytes": 17179869184},
+      "storage": [{"stable_key": "serial-a1b2c3d4", "model": "Windows volume", "size_bytes": 512110190592}],
+      "interfaces": [{"stable_key": "mac-001122334455", "name": "Ethernet", "link_type": "ethernet"}],
+      "software": [{"name": "endpoint-agent", "version": "3.1.76", "source": "installer"}]
+    },
+    "warnings": []
+  },
+  "health_v1": {
+    "schema_version": "device_context_v1",
+    "profile": "health_v1",
+    "sections": {"resources": {"uptime_seconds": 123, "load_1m": 0.0, "free_bytes": 4294967296}, "services": []},
+    "warnings": []
+  },
+  "network_v1": {
+    "schema_version": "device_context_v1",
+    "profile": "network_v1",
+    "sections": {"default_route": {"interface": "Ethernet", "gateway": "192.0.2.1"}, "interfaces": [{"name": "Ethernet", "addresses": ["192.0.2.10"]}]},
+    "warnings": []
+  },
+  "diagnostic_v1": {
+    "schema_version": "device_context_v1",
+    "profile": "diagnostic_v1",
+    "sections": {"reason": "operator check", "processes": [{"name": "endpoint-agent.exe", "state": "running"}], "log_excerpt": null},
+    "warnings": []
+  }
+}

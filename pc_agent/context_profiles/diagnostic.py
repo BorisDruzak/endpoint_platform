@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import csv
 from datetime import datetime, timezone
 import re
 
@@ -26,6 +27,8 @@ def collect_diagnostic(
     reason: str,
     collected_at: datetime | None = None,
 ) -> DeviceContextDiagnosticV1:
+    if _is_windows(probe):
+        return _collect_windows_diagnostic(probe, reason=reason, collected_at=collected_at)
     warnings: list[str] = []
     processes = _processes(probe, warnings)
     log_excerpt = _log_excerpt(probe, warnings)
@@ -40,6 +43,56 @@ def collect_diagnostic(
         },
         warnings=list(dict.fromkeys(warnings))[:16],
     )
+
+
+def _collect_windows_diagnostic(
+    probe: object,
+    *,
+    reason: str,
+    collected_at: datetime | None,
+) -> DeviceContextDiagnosticV1:
+    warnings: list[str] = []
+    return DeviceContextDiagnosticV1(
+        schema_version="device_context_v1",
+        profile="diagnostic_v1",
+        collected_at=collected_at or datetime.now(timezone.utc),
+        sections={
+            "reason": bounded_text(reason, fallback="manual diagnostic", limit=256),
+            "processes": _windows_processes(probe, warnings),
+            "log_excerpt": None,
+        },
+        warnings=list(dict.fromkeys(warnings))[:16],
+    )
+
+
+def _windows_processes(probe: object, warnings: list[str]) -> list[dict[str, str]]:
+    command = ("tasklist", "/FO", "CSV", "/NH")
+    try:
+        output = str(probe.run(command, 2.0, 32_768))
+    except TimeoutError:
+        warnings.append("command_timed_out")
+        return []
+    except (OSError, ValueError):
+        warnings.append("command_failed")
+        return []
+    try:
+        rows = list(csv.reader(output.splitlines()))
+    except csv.Error:
+        warnings.append("command_failed")
+        return []
+    if len(rows) > DIAGNOSTIC_PROCESS_LIMIT:
+        warnings.append("data_truncated")
+    return [
+        {"name": bounded_text(row[0] if row else "", fallback="unknown", limit=128), "state": "running"}
+        for row in rows[:DIAGNOSTIC_PROCESS_LIMIT]
+        if row
+    ]
+
+
+def _is_windows(probe: object) -> bool:
+    from pc_agent.platform.windows.identity import is_windows_context
+
+    return is_windows_context(probe)
 
 
 def _processes(probe: object, warnings: list[str]) -> list[dict[str, str]]:

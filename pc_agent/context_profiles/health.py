@@ -10,6 +10,8 @@ from .probe import NETWORK_MANAGER_STATUS_COMMAND, SSHD_STATUS_COMMAND
 
 
 def collect_health(probe: object, *, collected_at: datetime | None = None) -> DeviceContextHealthV1:
+    if _is_windows(probe):
+        return _collect_windows_health(probe, collected_at=collected_at)
     warnings: list[str] = []
     uptime = _first_number(_read(probe, "/proc/uptime", warnings), default=0)
     load = _first_number(_read(probe, "/proc/loadavg", warnings), default=0.0)
@@ -35,6 +37,28 @@ def collect_health(probe: object, *, collected_at: datetime | None = None) -> De
         },
         warnings=list(dict.fromkeys(warnings))[:16],
     )
+
+
+def _collect_windows_health(probe: object, *, collected_at: datetime | None) -> DeviceContextHealthV1:
+    from pc_agent.platform.windows.identity import collect_health as collect_windows_health
+
+    health = collect_windows_health(probe)
+    return DeviceContextHealthV1(
+        schema_version="device_context_v1",
+        profile="health_v1",
+        collected_at=collected_at or datetime.now(timezone.utc),
+        sections={
+            "resources": {"uptime_seconds": health["uptime_seconds"], "load_1m": 0.0, "free_bytes": health["free_bytes"]},
+            "services": [],
+        },
+        warnings=[],
+    )
+
+
+def _is_windows(probe: object) -> bool:
+    from pc_agent.platform.windows.identity import is_windows_context
+
+    return is_windows_context(probe)
 
 
 def _read(probe: object, path: str, warnings: list[str]) -> str:
