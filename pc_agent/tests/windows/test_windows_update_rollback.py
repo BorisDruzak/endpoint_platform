@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import zipfile
+from datetime import UTC, datetime
 from pathlib import Path
 
 
@@ -26,7 +27,7 @@ def _setup(tmp_path: Path):
         "archive_type": "zip", "artifact_path": str(artifact), "channel": "canary",
         "operation_id": "caa31a48-bf2f-4f1c-8b77-d1be77e12b4e", "requested_by": "gateway",
         "requested_reason": "scheduled_rollout", "sha256": hashlib.sha256(artifact.read_bytes()).hexdigest(),
-        "size": artifact.stat().st_size, "target": "windows_amd64", "version": "3.2.0",
+        "size": artifact.stat().st_size, "target": "windows_amd64", "version": "3.2.0", "received_at": datetime.now(UTC).isoformat(),
     }
     paths.pending_path.write_text(json.dumps(payload), encoding="utf-8")
     return paths
@@ -40,9 +41,21 @@ class _Service:
     def __init__(self, *, crash: bool = False) -> None:
         self.events: list[str] = []
         self.crash = crash
-    def stop(self) -> None: self.events.append("stop")
-    def start(self) -> None: self.events.append("start")
-    def crashed_early(self) -> bool: return self.crash
+        self.running = True
+    def stop(self) -> None:
+        self.events.append("stop")
+        self.running = False
+
+    def start(self) -> None:
+        self.events.append("start")
+        self.running = True
+
+    def wait_stopped(self) -> bool:
+        self.events.append("wait_stopped")
+        return not self.running
+
+    def crashed_early(self) -> bool:
+        return self.crash
 
 
 class _Verifier:
@@ -62,8 +75,8 @@ class _FailingVerifier(_Verifier):
 class _Confirmation:
     def __init__(self, events: list[str], *, confirmed: bool) -> None:
         self.events, self.confirmed = events, confirmed
-    def wait_for_startup(self, *, version: str, deadline_seconds: int) -> bool:
-        assert version == "3.2.0" and deadline_seconds > 0
+    def is_confirmed(self, *, version: str, operation_id: str, not_before) -> bool:
+        assert version == "3.2.0" and operation_id
         self.events.append("confirmation")
         return self.confirmed
 
@@ -75,7 +88,7 @@ def test_updater_applies_then_waits_for_server_side_startup_confirmation(tmp_pat
     updater = WindowsUpdater(paths, acl=_Acl(), service=service, verifier=_Verifier(service.events), confirmation=_Confirmation(service.events, confirmed=True))
 
     assert updater.run_once().status == "applied"
-    assert service.events == ["stop", "verify", "start", "confirmation"]
+    assert service.events == ["stop", "wait_stopped", "verify", "start", "confirmation"]
     assert json.loads(paths.current_path.read_text()) == {"version": "3.2.0"}
     assert not paths.pending_path.exists()
 
@@ -84,10 +97,10 @@ def test_updater_rolls_back_selector_when_startup_confirmation_deadline_expires(
     from pc_agent.platform.windows.updater_service import WindowsUpdater
 
     paths, service = _setup(tmp_path), _Service()
-    updater = WindowsUpdater(paths, acl=_Acl(), service=service, verifier=_Verifier(service.events), confirmation=_Confirmation(service.events, confirmed=False))
+    updater = WindowsUpdater(paths, acl=_Acl(), service=service, verifier=_Verifier(service.events), confirmation=_Confirmation(service.events, confirmed=False), deadline_seconds=0)
 
     assert updater.run_once().status == "rolled_back"
-    assert service.events == ["stop", "verify", "start", "confirmation", "start"]
+    assert service.events == ["stop", "wait_stopped", "verify", "start", "stop", "wait_stopped", "start"]
     assert json.loads(paths.current_path.read_text()) == {"version": "3.1.0"}
 
 
@@ -98,7 +111,7 @@ def test_updater_rolls_back_before_confirmation_after_an_early_crash(tmp_path: P
     updater = WindowsUpdater(paths, acl=_Acl(), service=service, verifier=_Verifier(service.events), confirmation=_Confirmation(service.events, confirmed=True))
 
     assert updater.run_once().status == "rolled_back"
-    assert service.events == ["stop", "verify", "start", "start"]
+    assert service.events == ["stop", "wait_stopped", "verify", "start", "stop", "wait_stopped", "start"]
     assert json.loads(paths.current_path.read_text()) == {"version": "3.1.0"}
 
 
@@ -110,6 +123,6 @@ def test_updater_restarts_the_previous_agent_when_new_verify_fails(tmp_path: Pat
     updater = WindowsUpdater(paths, acl=_Acl(), service=service, verifier=_FailingVerifier(service.events), confirmation=_Confirmation(service.events, confirmed=True))
 
     assert updater.run_once().status == "rejected"
-    assert service.events == ["stop", "verify", "start"]
+    assert service.events == ["stop", "wait_stopped", "verify", "start"]
     assert json.loads(paths.current_path.read_text()) == {"version": "3.1.0"}
     assert not list((paths.versions_root / "_staging").glob("*"))

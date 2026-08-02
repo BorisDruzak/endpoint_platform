@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
@@ -110,7 +111,21 @@ def _default_dependencies() -> RuntimeDependencies:
         create_executor=CommandExecutor,
         create_transport=create_transport,
         load_hello=_load_hello,
+        after_server_handshake=_startup_proof_hook,
     )
+
+
+async def _startup_proof_hook(settings: object) -> None:
+    """Only the connected agent, never the privileged updater, proves startup."""
+    if not isinstance(settings, RuntimeSettings):
+        return
+    if os.name == "nt":
+        from pc_agent.platform.windows.startup_confirmation import StartupProofWriter
+        from pc_agent.platform.windows.update_paths import WindowsUpdatePaths
+
+        StartupProofWriter(
+            WindowsUpdatePaths(settings.install_root, settings.data_root / "updates" / "pending_update.json")
+        ).record_after_server_handshake()
 
 
 def _load_credential(settings: object) -> str:

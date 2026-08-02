@@ -10,7 +10,8 @@ from typing import Protocol
 SERVICE_NAME = "EndpointAgent"
 SERVICE_ACCOUNT = "NT AUTHORITY\\LocalService"
 UPDATER_SERVICE_NAME = "EndpointAgentUpdater"
-UPDATER_START_PRINCIPALS = ("SYSTEM", "Administrators", "NT SERVICE\\EndpointAgent")
+# Well-known SIDs avoid localized account-name lookups in the service DACL.
+UPDATER_START_PRINCIPALS = ("S-1-5-18", "S-1-5-32-544", "NT SERVICE\\EndpointAgent")
 
 
 class ServiceControl(Protocol):
@@ -60,10 +61,16 @@ def restrict_updater_start_permissions() -> None:
             scm, UPDATER_SERVICE_NAME, win32service.READ_CONTROL | win32service.WRITE_DAC
         )
         dacl = win32security.ACL()
-        for principal in UPDATER_START_PRINCIPALS:
-            sid, _domain, _kind = win32security.LookupAccountName(None, principal)
+        for principal, mask in updater_start_access_policy(
+            service_all_access=win32service.SERVICE_ALL_ACCESS,
+            service_start=win32service.SERVICE_START,
+        ).items():
+            if principal.startswith("S-"):
+                sid = win32security.ConvertStringSidToSid(principal)
+            else:
+                sid, _domain, _kind = win32security.LookupAccountName(None, principal)
             dacl.AddAccessAllowedAce(
-                win32security.ACL_REVISION, win32service.SERVICE_START, sid
+                win32security.ACL_REVISION, mask, sid
             )
         descriptor = win32security.SECURITY_DESCRIPTOR()
         descriptor.SetSecurityDescriptorDacl(1, dacl, 0)
@@ -75,6 +82,15 @@ def restrict_updater_start_permissions() -> None:
             win32service.CloseServiceHandle(service)
         if scm is not None:
             win32service.CloseServiceHandle(scm)
+
+
+def updater_start_access_policy(*, service_all_access: int, service_start: int) -> dict[str, int]:
+    """Normal SCM management for SYSTEM/Admins; start-only for EndpointAgent."""
+    return {
+        "S-1-5-18": service_all_access,
+        "S-1-5-32-544": service_all_access,
+        "NT SERVICE\\EndpointAgent": service_start,
+    }
 
 
 class PyWin32ServiceControl:
@@ -101,4 +117,5 @@ __all__ = [
     "WindowsServiceInstallSpec",
     "WindowsUpdaterServiceInstallSpec",
     "restrict_updater_start_permissions",
+    "updater_start_access_policy",
 ]

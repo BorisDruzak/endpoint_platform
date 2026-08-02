@@ -14,10 +14,10 @@ import re
 import shutil
 import stat
 import subprocess
-import time
 import uuid
 import zipfile
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path, PureWindowsPath
 from typing import Any, Protocol
 
@@ -29,7 +29,7 @@ from .update_paths import UPDATE_EXECUTABLE_NAME, WindowsUpdatePaths
 _PENDING_FIELDS = frozenset(
     {
         "archive_type", "artifact_path", "channel", "operation_id",
-        "requested_by", "requested_reason", "sha256", "size", "target", "version",
+        "received_at", "requested_by", "requested_reason", "sha256", "size", "target", "version",
     }
 )
 _SEMVER = re.compile(
@@ -48,6 +48,7 @@ class UpdatePathSecurity(Protocol):
 class AgentService(Protocol):
     def stop(self) -> None: ...
     def start(self) -> None: ...
+    def wait_stopped(self) -> bool: ...
     def crashed_early(self) -> bool: ...
 
 
@@ -56,7 +57,7 @@ class ReleaseVerifier(Protocol):
 
 
 class StartupConfirmation(Protocol):
-    def wait_for_startup(self, *, version: str, deadline_seconds: int) -> bool: ...
+    def is_confirmed(self, *, version: str, operation_id: str, not_before: datetime) -> bool: ...
 
 
 class PyWin32EndpointAgentService:
@@ -67,6 +68,14 @@ class PyWin32EndpointAgentService:
 
     def start(self) -> None:
         self._modules().StartService(SERVICE_NAME)
+
+    def wait_stopped(self) -> bool:
+        serviceutil = self._modules()
+        try:
+            serviceutil.WaitForServiceStatus(SERVICE_NAME, serviceutil.win32service.SERVICE_STOPPED, 30)
+            return True
+        except Exception:
+            return False
 
     def crashed_early(self) -> bool:
         serviceutil = self._modules()
@@ -106,18 +115,19 @@ class FileStartupConfirmation:
     def __init__(self, paths: WindowsUpdatePaths) -> None:
         self._path = paths.updates_root / "startup-confirmation.json"
 
-    def wait_for_startup(self, *, version: str, deadline_seconds: int) -> bool:
-        deadline = time.monotonic() + deadline_seconds
-        while time.monotonic() < deadline:
-            try:
-                _reject_reparse_path(self._path)
-                payload = json.loads(self._path.read_text(encoding="utf-8"))
-                if payload == {"status": "confirmed", "version": version}:
-                    return True
-            except (OSError, ValueError, json.JSONDecodeError):
-                pass
-            time.sleep(0.25)
-        return False
+    def is_confirmed(self, *, version: str, operation_id: str, not_before: datetime) -> bool:
+        try:
+            _reject_reparse_path(self._path)
+            payload = json.loads(self._path.read_text(encoding="utf-8"))
+            confirmed_at = datetime.fromisoformat(payload["confirmed_at"])
+            if confirmed_at.tzinfo is None:
+                return False
+            return payload == {
+                "confirmed_at": payload["confirmed_at"], "operation_id": operation_id,
+                "status": "confirmed", "version": version,
+            } and confirmed_at >= not_before
+        except (OSError, ValueError, KeyError, TypeError, json.JSONDecodeError):
+            return False
 
 
 @dataclass(frozen=True, slots=True)
@@ -127,6 +137,8 @@ class PendingUpdate:
     archive_type: str
     sha256: str
     size: int
+    operation_id: str
+    received_at: datetime
 
 
 @dataclass(frozen=True, slots=True)
@@ -143,6 +155,7 @@ class PyWin32UpdatePathSecurity:
         if os.name != "nt":
             raise ValueError("Windows owner and ACL inspection requires Windows")
         try:
+            import ntsecuritycon  # type: ignore[import-not-found]
             import win32security  # type: ignore[import-not-found]
         except ImportError as error:
             raise ValueError("pywin32 is required for Windows update ACL inspection") from error
@@ -152,26 +165,52 @@ class PyWin32UpdatePathSecurity:
                 win32security.OWNER_SECURITY_INFORMATION | win32security.DACL_SECURITY_INFORMATION,
             )
             owner = win32security.ConvertSidToStringSid(descriptor.GetSecurityDescriptorOwner())
-            dacl = descriptor.GetSecurityDescriptorDacl()
-            if dacl is None or owner != "S-1-5-18":
+            if owner != "S-1-5-18":
                 raise ValueError("wrong owner or ACL on update path")
-            allowed = {
-                win32security.ConvertSidToStringSid(dacl.GetAce(index)[2])
-                for index in range(dacl.GetAceCount())
-                if dacl.GetAce(index)[0][0] == win32security.ACCESS_ALLOWED_ACE_TYPE
-            }
-            # Reuse Task 11's exact SID identity policy, including the virtual
-            # updater identity that writes the request leaf.
-            expected = {"S-1-5-18", "S-1-5-32-544"}
-            for principal in EXPECTED_PRINCIPALS[2:]:
-                sid, _domain, _kind = win32security.LookupAccountName(None, principal)
-                expected.add(win32security.ConvertSidToStringSid(sid))
-            if not allowed or not allowed.issubset(expected):
-                raise ValueError("wrong owner or ACL on update path")
+            _validate_strict_update_dacl(descriptor, win32security, ntsecuritycon)
         except ValueError:
             raise
         except Exception as error:
             raise ValueError("could not inspect update owner or ACL") from error
+
+
+def _validate_strict_update_dacl(descriptor, win32security, rights=None) -> None:
+    """Require Task 11's protected, explicit DACL rather than a SID subset."""
+    control, _revision = descriptor.GetSecurityDescriptorControl()
+    if not control & win32security.SE_DACL_PROTECTED:
+        raise ValueError("wrong owner or ACL on update path")
+    dacl = descriptor.GetSecurityDescriptorDacl()
+    if dacl is None or dacl.GetAceCount() != 4:
+        raise ValueError("wrong owner or ACL on update path")
+    expected_sids = {"S-1-5-18", "S-1-5-32-544"}
+    for principal in EXPECTED_PRINCIPALS[2:]:
+        sid, _domain, _kind = win32security.LookupAccountName(None, principal)
+        expected_sids.add(win32security.ConvertSidToStringSid(sid))
+    rights = win32security if rights is None else rights
+    expected_masks = {
+        "S-1-5-18": rights.FILE_ALL_ACCESS,
+        "S-1-5-32-544": rights.FILE_ALL_ACCESS,
+    }
+    limited = (
+        rights.FILE_GENERIC_READ | rights.FILE_GENERIC_WRITE | rights.DELETE
+    )
+    for sid in expected_sids - set(expected_masks):
+        expected_masks[sid] = limited
+    actual: dict[str, int] = {}
+    for index in range(dacl.GetAceCount()):
+        header, mask, sid = dacl.GetAce(index)
+        ace_type, ace_flags = header
+        if (
+            ace_type != win32security.ACCESS_ALLOWED_ACE_TYPE
+            or ace_flags & win32security.INHERITED_ACE
+        ):
+            raise ValueError("wrong owner or ACL on update path")
+        sid_text = win32security.ConvertSidToStringSid(sid)
+        if sid_text in actual:
+            raise ValueError("wrong owner or ACL on update path")
+        actual[sid_text] = mask
+    if actual != expected_masks:
+        raise ValueError("wrong owner or ACL on update path")
 
 
 class PendingUpdateValidator:
@@ -199,9 +238,7 @@ class PendingUpdateValidator:
             raise ValueError("invalid pending update JSON") from error
         if not isinstance(payload, dict) or set(payload) != _PENDING_FIELDS:
             raise ValueError("unknown or missing pending update fields")
-        update = self._validate_payload(payload)
-        self._assert_no_version_collision(update)
-        return update
+        return self._validate_payload(payload)
 
     def _validate_payload(self, payload: dict[str, Any]) -> PendingUpdate:
         if (
@@ -213,6 +250,7 @@ class PendingUpdateValidator:
             or not isinstance(payload["sha256"], str)
             or not _SHA256.fullmatch(payload["sha256"])
             or not isinstance(payload["size"], int)
+            or isinstance(payload["size"], bool)
             or payload["size"] <= 0
         ):
             raise ValueError("invalid pending update fields")
@@ -230,20 +268,13 @@ class PendingUpdateValidator:
         digest = _hash_file(artifact)
         if digest != payload["sha256"]:
             raise ValueError("artifact hash mismatch")
-        return PendingUpdate(payload["version"], artifact, "zip", digest, details.st_size)
-
-    def _assert_no_version_collision(self, update: PendingUpdate) -> None:
-        target = self._paths.versions_root / update.version
-        if not target.exists() and not target.is_symlink():
-            return
-        _reject_reparse_path(target)
-        marker = target / ".endpoint-update.json"
         try:
-            recorded = json.loads(marker.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError) as error:
-            raise ValueError("target version collision") from error
-        if recorded != {"sha256": update.sha256, "size": update.size, "version": update.version}:
-            raise ValueError("target version collision with different bytes")
+            received_at = datetime.fromisoformat(payload["received_at"])
+            if received_at.tzinfo is None or not isinstance(payload["operation_id"], str):
+                raise ValueError
+        except (KeyError, TypeError, ValueError) as error:
+            raise ValueError("invalid received_at or operation_id") from error
+        return PendingUpdate(payload["version"], artifact, "zip", digest, details.st_size, payload["operation_id"], received_at)
 
 
 class WindowsUpdater:
@@ -271,6 +302,8 @@ class WindowsUpdater:
             previous = _load_current(self._paths.current_path)
             self._service.stop()
             service_stopped = True
+            if not self._service.wait_stopped():
+                raise ValueError("EndpointAgent did not stop")
             staging = self._extract_to_staging(pending)
             executable = staging / UPDATE_EXECUTABLE_NAME
             if not executable.is_file() or not self._verifier.verify(executable):
@@ -279,9 +312,7 @@ class WindowsUpdater:
             _write_json_atomic(self._paths.previous_path, {"version": previous})
             _write_json_atomic(self._paths.current_path, {"version": pending.version})
             self._service.start()
-            if self._service.crashed_early() or not self._confirmation.wait_for_startup(
-                version=pending.version, deadline_seconds=self._deadline_seconds
-            ):
+            if not self._wait_for_candidate_confirmation(pending):
                 return self._rollback(previous, "startup confirmation failed")
             self._paths.pending_path.unlink()
             return UpdateResult("applied", str(target))
@@ -304,9 +335,11 @@ class WindowsUpdater:
         staging = staging_parent / uuid.uuid4().hex
         staging.mkdir(parents=True, exist_ok=False)
         try:
-            with zipfile.ZipFile(pending.artifact_path) as archive:
+            artifact_copy = _pin_artifact(pending, staging_parent)
+            with zipfile.ZipFile(artifact_copy) as archive:
                 for member in archive.infolist():
                     _extract_zip_member(archive, member, staging)
+            artifact_copy.unlink(missing_ok=True)
         except Exception:
             shutil.rmtree(staging, ignore_errors=True)
             raise
@@ -315,8 +348,9 @@ class WindowsUpdater:
     def _publish(self, staging: Path, pending: PendingUpdate) -> Path:
         target = self._paths.versions_root / pending.version
         if target.exists() or target.is_symlink():
-            # Validator already proved identical provenance.  A replay can use
-            # this immutable release without replacing it.
+            _reject_reparse_path(target)
+            if _release_manifest(target) != _release_manifest(staging):
+                raise ValueError("target version collision with different bytes")
             shutil.rmtree(staging, ignore_errors=True)
             return target
         _write_json_atomic(staging / ".endpoint-update.json", {
@@ -326,9 +360,63 @@ class WindowsUpdater:
         return target
 
     def _rollback(self, previous: str, reason: str) -> UpdateResult:
+        self._service.stop()
+        if not self._service.wait_stopped():
+            return UpdateResult("rejected", "candidate did not stop for rollback")
         _write_json_atomic(self._paths.current_path, {"version": previous})
         self._service.start()
         return UpdateResult("rolled_back", reason)
+
+    def _wait_for_candidate_confirmation(self, pending: PendingUpdate) -> bool:
+        deadline = __import__("time").monotonic() + self._deadline_seconds
+        while __import__("time").monotonic() < deadline:
+            if self._service.crashed_early():
+                return False
+            if self._confirmation.is_confirmed(
+                version=pending.version, operation_id=pending.operation_id, not_before=pending.received_at
+            ):
+                return True
+            __import__("time").sleep(0.25)
+        return False
+
+
+def _pin_artifact(pending: PendingUpdate, destination_parent: Path) -> Path:
+    """Copy from one opened, revalidated descriptor; extraction never reopens input path."""
+    _reject_reparse_path(pending.artifact_path)
+    before = pending.artifact_path.stat()
+    descriptor = os.open(pending.artifact_path, os.O_RDONLY | getattr(os, "O_BINARY", 0))
+    copied = destination_parent / f".artifact-{uuid.uuid4().hex}.zip"
+    try:
+        opened = os.fstat(descriptor)
+        if (opened.st_size != pending.size or opened.st_size != before.st_size or _hash_descriptor(descriptor) != pending.sha256):
+            raise ValueError("artifact changed before extraction")
+        os.lseek(descriptor, 0, os.SEEK_SET)
+        with copied.open("xb") as output:
+            while block := os.read(descriptor, 1024 * 1024):
+                output.write(block)
+        if _hash_file(copied) != pending.sha256 or copied.stat().st_size != pending.size:
+            raise ValueError("artifact copy verification failed")
+        return copied
+    except Exception:
+        copied.unlink(missing_ok=True)
+        raise
+    finally:
+        os.close(descriptor)
+
+
+def _hash_descriptor(descriptor: int) -> str:
+    digest = hashlib.sha256()
+    while block := os.read(descriptor, 1024 * 1024):
+        digest.update(block)
+    return digest.hexdigest()
+
+
+def _release_manifest(root: Path) -> dict[str, str]:
+    result: dict[str, str] = {}
+    for path in root.rglob("*"):
+        if path.is_file() and path.name != ".endpoint-update.json":
+            result[path.relative_to(root).as_posix()] = _hash_file(path)
+    return result
 
 
 def _no_duplicate_keys(items: list[tuple[str, Any]]) -> dict[str, Any]:
@@ -415,9 +503,34 @@ def _write_json_atomic(path: Path, payload: dict[str, str]) -> None:
         temporary.unlink(missing_ok=True)
 
 
+def run_windows_updater_service() -> int:
+    """Host the MSI-registered demand-start ``EndpointAgentUpdater`` service."""
+    try:
+        import servicemanager  # type: ignore[import-not-found]
+        import win32service  # type: ignore[import-not-found]
+        import win32serviceutil  # type: ignore[import-not-found]
+    except ImportError as error:
+        raise RuntimeError("pywin32 is required for EndpointAgentUpdater") from error
+
+    class EndpointAgentUpdaterWindowsService(win32serviceutil.ServiceFramework):
+        _svc_name_ = UPDATER_SERVICE_NAME
+        _svc_display_name_ = "Endpoint Agent Updater"
+        _svc_description_ = "Demand-start offline Endpoint Agent update worker"
+
+        def SvcDoRun(self) -> None:
+            self.ReportServiceStatus(win32service.SERVICE_RUNNING)
+            WindowsUpdater().run_once()
+            self.ReportServiceStatus(win32service.SERVICE_STOPPED)
+
+    servicemanager.Initialize()
+    servicemanager.PrepareToHostSingle(EndpointAgentUpdaterWindowsService)
+    servicemanager.StartServiceCtrlDispatcher()
+    return 0
+
+
 __all__ = [
     "AgentService", "FileStartupConfirmation", "PendingUpdate", "PendingUpdateValidator",
     "PyWin32EndpointAgentService", "PyWin32UpdatePathSecurity", "ReleaseVerifier",
     "STARTUP_DEADLINE_SECONDS", "StartupConfirmation", "SubprocessReleaseVerifier", "UPDATER_SERVICE_NAME",
-    "UPDATER_START_PRINCIPALS", "UpdateResult", "UpdatePathSecurity", "WindowsUpdater",
+    "UPDATER_START_PRINCIPALS", "UpdateResult", "UpdatePathSecurity", "WindowsUpdater", "run_windows_updater_service",
 ]

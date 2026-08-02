@@ -6,6 +6,7 @@ import hashlib
 import inspect
 import json
 import zipfile
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -17,6 +18,7 @@ def _pending(paths, artifact: Path, **changes: object) -> Path:
         "artifact_path": str(artifact),
         "channel": "canary",
         "operation_id": "caa31a48-bf2f-4f1c-8b77-d1be77e12b4e",
+        "received_at": datetime.now(UTC).isoformat(),
         "requested_by": "gateway",
         "requested_reason": "scheduled_rollout",
         "sha256": hashlib.sha256(artifact.read_bytes()).hexdigest(),
@@ -135,7 +137,7 @@ def test_pending_validator_rejects_different_bytes_for_existing_target_version(
     tmp_path: Path,
 ) -> None:
     """A version directory is immutable; reusing its version label cannot replace bytes."""
-    from pc_agent.platform.windows.updater_service import PendingUpdateValidator
+    from pc_agent.platform.windows.updater_service import PendingUpdateValidator, WindowsUpdater
 
     paths = _paths(tmp_path)
     artifact = _artifact(paths.downloads_root / "candidate.zip", b"candidate")
@@ -147,8 +149,22 @@ def test_pending_validator_rejects_different_bytes_for_existing_target_version(
     )
     _pending(paths, artifact)
 
+    pending = PendingUpdateValidator(paths, _Acl()).load()
+
+    class _Service:
+        def stop(self): pass
+        def start(self): pass
+        def wait_stopped(self): return True
+        def crashed_early(self): return False
+    class _Verifier:
+        def verify(self, _path): return True
+    class _Confirmation:
+        def is_confirmed(self, **_kwargs): return True
+
+    updater = WindowsUpdater(paths, acl=_Acl(), service=_Service(), verifier=_Verifier(), confirmation=_Confirmation())
+    staging = updater._extract_to_staging(pending)
     with pytest.raises(ValueError, match="collision"):
-        PendingUpdateValidator(paths, _Acl()).load()
+        updater._publish(staging, pending)
 
 
 def test_updater_contract_has_fixed_identity_and_no_network_or_listener_api() -> None:
@@ -182,5 +198,139 @@ def test_updater_install_contract_is_demand_start_with_fixed_start_acl() -> None
     spec = service_control.WindowsUpdaterServiceInstallSpec()
     assert spec.name == "EndpointAgentUpdater"
     assert spec.start_type == "demand"
-    assert spec.start_principals == ("SYSTEM", "Administrators", "NT SERVICE\\EndpointAgent")
+    assert spec.start_principals == ("S-1-5-18", "S-1-5-32-544", "NT SERVICE\\EndpointAgent")
     assert list(inspect.signature(service_control.restrict_updater_start_permissions).parameters) == []
+
+
+def test_updater_start_acl_keeps_management_rights_without_granting_start_to_others() -> None:
+    """Replacing the whole DACL with RP-only ACEs breaks administration and is unnecessary."""
+    from pc_agent.platform.windows.service_control import updater_start_access_policy
+
+    policy = updater_start_access_policy(service_all_access=0xFFFF, service_start=0x10)
+    assert policy == {
+        "S-1-5-18": 0xFFFF,
+        "S-1-5-32-544": 0xFFFF,
+        "NT SERVICE\\EndpointAgent": 0x10,
+    }
+
+
+def test_update_acl_rejects_inherited_deny_or_wrong_access_mask() -> None:
+    """A SID subset check wrongly accepts a weak allow ACE or an overriding deny ACE."""
+    from pc_agent.platform.windows.updater_service import _validate_strict_update_dacl
+
+    class _Dacl:
+        def __init__(self, aces): self.aces = aces
+        def GetAceCount(self): return len(self.aces)
+        def GetAce(self, index): return self.aces[index]
+    class _Descriptor:
+        def __init__(self, aces, control): self.aces, self.control = aces, control
+        def GetSecurityDescriptorDacl(self): return _Dacl(self.aces)
+        def GetSecurityDescriptorControl(self): return self.control, 1
+    class _Security:
+        ACCESS_ALLOWED_ACE_TYPE = 0
+        SE_DACL_PROTECTED = 0x1000
+        INHERITED_ACE = 0x10
+        FILE_ALL_ACCESS = 0xFF
+        FILE_GENERIC_READ = 0x01
+        FILE_GENERIC_WRITE = 0x02
+        DELETE = 0x04
+        @staticmethod
+        def ConvertSidToStringSid(sid): return sid
+        @staticmethod
+        def LookupAccountName(_server, principal):
+            return {"NT SERVICE\\EndpointAgent": "agent", "NT SERVICE\\EndpointAgentUpdater": "updater"}[principal], None, None
+
+    security = _Security()
+    bad = _Descriptor([((1, 0), 0xFF, "S-1-5-18")], security.SE_DACL_PROTECTED)
+    with pytest.raises(ValueError, match="ACL"):
+        _validate_strict_update_dacl(bad, security)
+    inherited = _Descriptor([((0, 0x10), 0xFF, "S-1-5-18")], security.SE_DACL_PROTECTED)
+    with pytest.raises(ValueError, match="ACL"):
+        _validate_strict_update_dacl(inherited, security)
+
+
+def test_pending_validator_accepts_the_real_orchestrator_received_at_field(tmp_path: Path) -> None:
+    """The headless agent producer includes its reception timestamp in Windows requests."""
+    from pc_agent.platform.windows.updater_service import PendingUpdateValidator
+
+    paths = _paths(tmp_path)
+    artifact = _artifact(paths.downloads_root / "candidate.zip")
+    _pending(paths, artifact, received_at=datetime.now(UTC).isoformat())
+
+    assert PendingUpdateValidator(paths, _Acl()).load().version == "3.2.0"
+
+
+def test_updater_exposes_a_fixed_name_scm_dispatcher_without_importing_pywin32() -> None:
+    """The MSI service binary needs an actual EndpointAgentUpdater dispatch entrypoint."""
+    from pc_agent.platform.windows import updater_service
+
+    assert updater_service.UPDATER_SERVICE_NAME == "EndpointAgentUpdater"
+    assert callable(updater_service.run_windows_updater_service)
+
+
+def test_startup_proof_writer_binds_the_post_handshake_proof_to_pending_operation(
+    tmp_path: Path,
+) -> None:
+    """A matching version alone would allow a stale success marker to authorize a release."""
+    from pc_agent.platform.windows.startup_confirmation import StartupProofWriter
+
+    paths = _paths(tmp_path)
+    artifact = _artifact(paths.downloads_root / "candidate.zip")
+    operation_id = "caa31a48-bf2f-4f1c-8b77-d1be77e12b4e"
+    _pending(paths, artifact, received_at=datetime.now(UTC).isoformat(), operation_id=operation_id)
+    paths.install_root.mkdir(parents=True)
+    paths.current_path.write_text(json.dumps({"version": "3.2.0"}), encoding="utf-8")
+
+    assert StartupProofWriter(paths).record_after_server_handshake() is True
+    proof = json.loads((paths.updates_root / "startup-confirmation.json").read_text())
+    assert proof["operation_id"] == operation_id
+    assert proof["version"] == "3.2.0"
+    assert proof["status"] == "confirmed"
+
+
+def test_startup_proof_writer_is_a_noop_on_clean_install(tmp_path: Path) -> None:
+    from pc_agent.platform.windows.startup_confirmation import StartupProofWriter
+
+    paths = _paths(tmp_path)
+    assert StartupProofWriter(paths).record_after_server_handshake() is False
+    assert not (paths.updates_root / "startup-confirmation.json").exists()
+
+
+def test_confirmation_rejects_a_stale_or_wrong_operation_proof(tmp_path: Path) -> None:
+    from pc_agent.platform.windows.updater_service import FileStartupConfirmation
+
+    paths = _paths(tmp_path)
+    paths.updates_root.mkdir(parents=True)
+    (paths.updates_root / "startup-confirmation.json").write_text(json.dumps({
+        "status": "confirmed", "version": "3.2.0", "operation_id": "old",
+        "confirmed_at": (datetime.now(UTC) - timedelta(minutes=1)).isoformat(),
+    }), encoding="utf-8")
+
+    assert FileStartupConfirmation(paths).is_confirmed(
+        version="3.2.0", operation_id="new", not_before=datetime.now(UTC) - timedelta(seconds=5)
+    ) is False
+
+
+def test_extraction_rejects_an_artifact_replaced_after_validation(tmp_path: Path) -> None:
+    """Hashing a pathname then reopening it lets a replacement archive win the race."""
+    from pc_agent.platform.windows.updater_service import PendingUpdateValidator, WindowsUpdater
+
+    paths = _paths(tmp_path)
+    artifact = _artifact(paths.downloads_root / "candidate.zip")
+    _pending(paths, artifact)
+    pending = PendingUpdateValidator(paths, _Acl()).load()
+    artifact.write_bytes(b"replacement")
+
+    class _Service:
+        def stop(self): pass
+        def start(self): pass
+        def wait_stopped(self): return True
+        def crashed_early(self): return False
+    class _Verifier:
+        def verify(self, _path): return True
+    class _Confirmation:
+        def is_confirmed(self, **_kwargs): return True
+
+    updater = WindowsUpdater(paths, acl=_Acl(), service=_Service(), verifier=_Verifier(), confirmation=_Confirmation())
+    with pytest.raises(ValueError, match="artifact changed"):
+        updater._extract_to_staging(pending)

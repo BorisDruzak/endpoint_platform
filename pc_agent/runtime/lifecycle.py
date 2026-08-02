@@ -55,6 +55,10 @@ def _compatibility_hello(_settings: object) -> AgentHelloV1:
     return compatibility_agent_hello()
 
 
+async def _noop_after_handshake(_settings: object) -> None:
+    return None
+
+
 @dataclass(frozen=True, slots=True)
 class RuntimeDependencies:
     load_credential: Callable[[object], str]
@@ -63,6 +67,7 @@ class RuntimeDependencies:
     load_hello: Callable[[object], AgentHelloV1] = _compatibility_hello
     sleep: Callable[[float], Awaitable[None]] = asyncio.sleep
     heartbeat_sleep: Callable[[float], Awaitable[None]] = asyncio.sleep
+    after_server_handshake: Callable[[object], Awaitable[None]] = _noop_after_handshake
     reconnect_delay: float = 5.0
 
 
@@ -110,6 +115,7 @@ class RuntimeLifecycle:
                     self._status.transition(RuntimePhase.CONNECTING)
                     gateway_hello = await transport.connect(hello)
                     self._status.transition(RuntimePhase.RUNNING)
+                    await self._dependencies.after_server_handshake(self._settings)
                     await _run_connected(
                         transport,
                         executor,

@@ -207,6 +207,23 @@ def test_headless_entrypoint_exposes_exact_windows_service_modes(
         runtime_main.main(["--claim", "must-not-be-supported", *shared])
 
 
+def test_headless_entrypoint_reaches_the_fixed_updater_service_without_ca(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The demand-start updater cannot depend on normal agent configuration."""
+    from pc_agent.runtime import main as runtime_main
+
+    observed: list[str] = []
+    monkeypatch.setattr(
+        "pc_agent.platform.windows.updater_service.run_windows_updater_service",
+        lambda: observed.append("updater") or 0,
+    )
+    monkeypatch.delenv("ENDPOINT_AGENT_CA_FILE", raising=False)
+
+    assert runtime_main.main(["--windows-updater-service"]) == 0
+    assert observed == ["updater"]
+
+
 def test_safe_status_mode_reports_invalid_setup_without_requiring_a_ca_argument(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

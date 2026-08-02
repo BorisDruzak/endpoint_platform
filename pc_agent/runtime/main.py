@@ -48,6 +48,7 @@ def _parser() -> argparse.ArgumentParser:
     )
     modes = parser.add_mutually_exclusive_group()
     modes.add_argument("--windows-service", action="store_true")
+    modes.add_argument("--windows-updater-service", action="store_true")
     modes.add_argument("--verify", action="store_true")
     modes.add_argument("--print-safe-status", action="store_true")
     return parser
@@ -56,8 +57,12 @@ def _parser() -> argparse.ArgumentParser:
 def main(argv: Sequence[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     ca_value = args.ca_file or os.environ.get("ENDPOINT_AGENT_CA_FILE", "")
-    if not str(ca_value).strip() and not args.print_safe_status:
+    if not str(ca_value).strip() and not (args.print_safe_status or args.windows_updater_service):
         return 75
+    if args.windows_updater_service:
+        from pc_agent.platform.windows.updater_service import run_windows_updater_service
+
+        return run_windows_updater_service()
     settings = RuntimeSettings(
         data_root=runtime_paths.resolve_data_root(cli_value=args.data_dir),
         install_root=runtime_paths.resolve_install_root(cli_value=args.install_root),
