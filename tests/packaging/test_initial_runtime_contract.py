@@ -15,6 +15,7 @@ TOOLCHAIN_A = {
     "source_date_epoch": 1767225600,
 }
 TOOLCHAIN_B = {**TOOLCHAIN_A, "pyinstaller_version": "6.20.0"}
+TOOLCHAIN_DETERMINISTIC = {**TOOLCHAIN_A, "python_hash_seed": "0"}
 
 
 def _contract_module():
@@ -51,6 +52,7 @@ def _manifest(
     name: str | None = None,
     source_content: str = "runtime-source",
     toolchain: dict[str, object] = TOOLCHAIN_A,
+    schema_version: int = 2,
 ) -> Path:
     source = root / "runtime.py"
     source.write_text(source_content, encoding="utf-8")
@@ -62,7 +64,7 @@ def _manifest(
         "agent_version": version,
         "artifact": _artifact_identity(artifact_root),
         "component_guid": guid,
-        "schema_version": 2,
+        "schema_version": schema_version,
         "source_files": [
             {
                 "path": "pc_agent/version.py",
@@ -249,6 +251,51 @@ def test_toolchain_change_requires_a_dual_approved_transition(
         approve_source=True,
         artifact_root=artifact_root,
         observed_toolchain=TOOLCHAIN_B,
+    )
+
+    assert identity.version == "3.1.77"
+
+
+def test_schema3_runtime_transition_requires_the_pinned_python_hash_seed(
+    tmp_path: Path, artifact_root: Path
+) -> None:
+    """Archive entry order is part of the approved frozen runtime identity."""
+    validate = _contract_module().validate_initial_runtime
+    baseline = _manifest(
+        tmp_path,
+        version="3.1.76",
+        guid="980AE24B-57BC-4B59-A18A-65B9B33A7906",
+        artifact_root=artifact_root,
+        name="baseline.json",
+    )
+    transition = _manifest(
+        tmp_path,
+        version="3.1.77",
+        guid="D53E70D8-CAD1-4755-9AC8-36164A48C9D5",
+        artifact_root=artifact_root,
+        name="transition.json",
+        source_content="new-runtime-source",
+        toolchain=TOOLCHAIN_DETERMINISTIC,
+        schema_version=3,
+    )
+
+    with pytest.raises(ValueError, match="toolchain"):
+        validate(
+            tmp_path,
+            transition,
+            baseline,
+            approve_version=True,
+            approve_source=True,
+            observed_toolchain={**TOOLCHAIN_A, "python_hash_seed": "random"},
+        )
+
+    identity = validate(
+        tmp_path,
+        transition,
+        baseline,
+        approve_version=True,
+        approve_source=True,
+        observed_toolchain=TOOLCHAIN_DETERMINISTIC,
     )
 
     assert identity.version == "3.1.77"

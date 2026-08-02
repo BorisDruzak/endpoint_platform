@@ -9,7 +9,8 @@ param(
     [switch]$ApproveInitialRuntimeTransition,
     [switch]$ApproveInitialRuntimeSourceChange,
     [switch]$ReusePythonBuild,
-    [switch]$PrepareOnly
+    [switch]$PrepareOnly,
+    [string]$WixBuildRoot
 )
 
 $ErrorActionPreference = "Stop"
@@ -65,6 +66,56 @@ function Get-RelativePath {
     $baseUri = [Uri]::new($baseFull)
     $targetUri = [Uri]::new($targetFull)
     return [Uri]::UnescapeDataString($baseUri.MakeRelativeUri($targetUri).ToString()).Replace('/', '\')
+}
+
+function Get-ReparsePointInPath {
+    param([Parameter(Mandatory)][string]$Path)
+    $candidate = [IO.Path]::GetFullPath($Path)
+    while (-not (Test-Path -LiteralPath $candidate)) {
+        $parent = Split-Path -Parent $candidate
+        if (-not $parent -or $parent -eq $candidate) {
+            break
+        }
+        $candidate = $parent
+    }
+    while ($candidate) {
+        if (Test-Path -LiteralPath $candidate) {
+            $item = Get-Item -LiteralPath $candidate -Force
+            if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+                return $item.FullName
+            }
+        }
+        $parent = Split-Path -Parent $candidate
+        if (-not $parent -or $parent -eq $candidate) {
+            break
+        }
+        $candidate = $parent
+    }
+    return $null
+}
+
+function Assert-SafeWixBuildRoot {
+    param(
+        [Parameter(Mandatory)][string]$Path,
+        [Parameter(Mandatory)][string]$RepositoryRoot
+    )
+    $root = [IO.Path]::GetFullPath($Path).TrimEnd([char]0x5c)
+    $volumeRoot = [IO.Path]::GetPathRoot($root).TrimEnd([char]0x5c)
+    if ($root -eq $volumeRoot) {
+        throw "Refusing to use a filesystem root for WiX build output."
+    }
+    $repository = [IO.Path]::GetFullPath($RepositoryRoot).TrimEnd([char]0x5c)
+    if ($root -eq $repository -or $root.StartsWith($repository + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) {
+        throw "Refusing to use a WiX build directory inside the repository."
+    }
+    $reparsePoint = Get-ReparsePointInPath $root
+    if ($reparsePoint) {
+        throw "Refusing to use a WiX build directory through a reparse point: $reparsePoint"
+    }
+    if ((Test-Path -LiteralPath $root) -and -not (Test-Path -LiteralPath $root -PathType Container)) {
+        throw "WiX build directory must be a directory: $root"
+    }
+    return $root
 }
 
 function Invoke-Checked {
@@ -132,7 +183,7 @@ function Read-MsiTable {
         [Parameter(Mandatory)][string[]]$Columns
     )
     $view = $Database.OpenView($Query)
-    $view.Execute()
+    [void]$view.Execute()
     $rows = @()
     try {
         while ($record = $view.Fetch()) {
@@ -144,7 +195,7 @@ function Read-MsiTable {
         }
     }
     finally {
-        $view.Close()
+        [void]$view.Close()
     }
     return $rows
 }
@@ -175,6 +226,8 @@ $allowedBuildParent = [IO.Path]::GetFullPath((Join-Path $packagingRoot 'build'))
 if (-not $buildRoot.StartsWith($allowedBuildParent + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) {
     throw "Refusing to use a build directory outside packaging/windows/build."
 }
+$defaultWixBuildRoot = Join-Path ([IO.Path]::GetPathRoot($repositoryRoot)) "endpoint-platform-wix-build\$Configuration-$Platform"
+$wixBuildRoot = Assert-SafeWixBuildRoot -Path $(if ($WixBuildRoot) { $WixBuildRoot } else { $defaultWixBuildRoot }) -RepositoryRoot $repositoryRoot
 
 $python = (Get-Command python -ErrorAction Stop).Source
 $baselineInitialRuntimeManifest = Join-Path $packagingRoot 'initial-runtime.json'
@@ -188,6 +241,10 @@ if ($sourceDateEpoch -notmatch '^[1-9][0-9]*$') {
     throw "Initial runtime manifest has an invalid SOURCE_DATE_EPOCH."
 }
 $env:SOURCE_DATE_EPOCH = $sourceDateEpoch
+if ([int]$manifestPreview.schema_version -ge 3 -and [string]$manifestPreview.toolchain.python_hash_seed -ne '0') {
+    throw "Initial runtime manifest must pin python_hash_seed to 0."
+}
+$env:PYTHONHASHSEED = "0"
 $validationArguments = @(
     (Join-Path $packagingRoot 'initial_runtime_contract.py'),
     '--repository-root', $repositoryRoot,
@@ -218,15 +275,18 @@ Assert-SemVerTriplet $InitialRuntimeVersion 'Initial runtime version'
 if ((Test-Path -LiteralPath $buildRoot) -and -not $ReusePythonBuild) {
     Remove-Item -LiteralPath $buildRoot -Recurse -Force
 }
+if ((Test-Path -LiteralPath $wixBuildRoot) -and -not $ReusePythonBuild) {
+    Remove-Item -LiteralPath $wixBuildRoot -Recurse -Force
+}
 $pyinstallerRoot = Join-Path $buildRoot 'pyinstaller'
 $distRoot = Join-Path $pyinstallerRoot 'dist'
 $workRoot = Join-Path $pyinstallerRoot 'work'
-$stagingRoot = Join-Path $buildRoot 'staging'
+$stagingRoot = Join-Path $wixBuildRoot 'staging'
 $programFilesStage = Join-Path $stagingRoot 'ProgramFiles'
 $runtimeStage = Join-Path $programFilesStage "versions\$InitialRuntimeVersion"
-$outputRoot = Join-Path $buildRoot 'output'
+$outputRoot = Join-Path $wixBuildRoot 'output'
 if ($ReusePythonBuild) {
-    foreach ($generatedPath in @($stagingRoot, $outputRoot, (Join-Path $buildRoot 'PayloadComponents.generated.wxs'))) {
+    foreach ($generatedPath in @($stagingRoot, $outputRoot, (Join-Path $wixBuildRoot 'PayloadComponents.generated.wxs'))) {
         if (Test-Path -LiteralPath $generatedPath) {
             Remove-Item -LiteralPath $generatedPath -Recurse -Force
         }
@@ -281,7 +341,7 @@ Copy-Item -LiteralPath (Join-Path $packagingRoot 'assets\agent-config.yaml') -De
 Copy-Item -LiteralPath (Join-Path $packagingRoot 'README.md') -Destination (Join-Path $programFilesStage 'docs\README.md')
 Write-Utf8NoBom (Join-Path $programFilesStage 'current.json') (@{ version = $InitialRuntimeVersion } | ConvertTo-Json -Compress)
 
-$generatedWix = Join-Path $buildRoot 'PayloadComponents.generated.wxs'
+$generatedWix = Join-Path $wixBuildRoot 'PayloadComponents.generated.wxs'
 $generatedItems = Write-GeneratedPayloadWix $runtimeStage $generatedWix
 $allFiles = Get-ChildItem -LiteralPath $stagingRoot -Recurse -File | Sort-Object FullName
 $fileManifest = foreach ($item in $allFiles) {

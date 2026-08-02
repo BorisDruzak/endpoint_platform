@@ -85,3 +85,30 @@
   external WiX native cabinet failure after staging and authoring validation,
   not an MSI source/manifest validation failure. No system service or host was
   modified.
+
+## Deterministic payload and short WiX build root
+
+- Root cause: unpinned `PYTHONHASHSEED` made PyInstaller emit different byte
+  order for identical entries in `_internal/base_library.zip`. The complete
+  staged runtime hash therefore changed between clean builds, even though all
+  extracted module contents matched. WiX's native cabinet writer also failed
+  when generated source paths exceeded the Windows path limit in this long
+  worktree.
+- The builder now pins `PYTHONHASHSEED=0`. The 3.1.77 manifest is schema 3 and
+  records that seed as part of the frozen toolchain identity; immutable schema
+  2 baseline 3.1.76 remains valid and unchanged. The approved deterministic
+  artifact identity is 2,493 files with SHA-256
+  `e8508f45488421f847022e7f1d8021967824675f0f49865940fea544be5845bd`.
+- PyInstaller continues to build from the ordinary repository source path.
+  WiX staging/output/generated payload use the dedicated short default
+  `C:\endpoint-platform-wix-build\Release-x64`, or a validated explicit
+  `-WixBuildRoot`. Volume roots, repository-internal paths, and reparse points
+  are rejected before cleanup.
+- TDD RED/GREEN: added contract tests for hash-seed pinning, schema-3 seed
+  enforcement, safe short-root wiring, and discarded COM inspection outputs.
+  They initially failed; then `32 passed` after the minimal implementation.
+- Exact clean build evidence: the ordinary C-source command with the approved
+  3.1.77 manifest exited 0, created
+  `C:\endpoint-platform-wix-build\Release-x64\output\EndpointAgent-3.1.77-x64.msi`
+  (83,788,172 bytes), and wrote inspection rows for 2,498 files, 2,501
+  components, two services, and 11 properties. No service or host was changed.

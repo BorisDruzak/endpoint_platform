@@ -27,13 +27,14 @@ _MANIFEST_FIELDS = {
 }
 _SOURCE_FIELDS = {"path", "sha256"}
 _ARTIFACT_FIELDS = {"file_count", "tree_sha256"}
-_TOOLCHAIN_FIELDS = {
+_TOOLCHAIN_FIELDS_V2 = {
     "implementation",
     "platform",
     "pyinstaller_version",
     "python_version",
     "source_date_epoch",
 }
+_TOOLCHAIN_FIELDS_V3 = _TOOLCHAIN_FIELDS_V2 | {"python_hash_seed"}
 
 
 @dataclass(frozen=True, slots=True)
@@ -46,6 +47,7 @@ class InitialRuntimeIdentity:
 
 @dataclass(frozen=True, slots=True)
 class _Manifest:
+    schema_version: int
     identity: tuple[str, str]
     agent_version: str
     sources: list[dict[str, str]]
@@ -86,12 +88,16 @@ def discover_toolchain() -> dict[str, object]:
     epoch = os.environ.get("SOURCE_DATE_EPOCH", "")
     if not epoch.isdigit():
         raise ValueError("SOURCE_DATE_EPOCH is required for the pinned toolchain")
+    hash_seed = os.environ.get("PYTHONHASHSEED", "")
+    if hash_seed != "0":
+        raise ValueError("PYTHONHASHSEED=0 is required for the pinned toolchain")
     return {
         "implementation": platform.python_implementation(),
         "platform": sysconfig.get_platform(),
         "pyinstaller_version": PyInstaller.__version__,
         "python_version": platform.python_version(),
         "source_date_epoch": int(epoch),
+        "python_hash_seed": hash_seed,
     }
 
 
@@ -127,8 +133,9 @@ def _load_manifest(
     sources = payload.get("source_files")
     artifact = payload.get("artifact")
     toolchain = payload.get("toolchain")
+    schema_version = payload.get("schema_version")
     if (
-        payload.get("schema_version") != 2
+        schema_version not in {2, 3}
         or not isinstance(version, str)
         or not _SEMVER.fullmatch(version)
         or agent_version != version
@@ -152,16 +159,20 @@ def _load_manifest(
         or not re.fullmatch(r"[0-9a-f]{64}", artifact["tree_sha256"])
     ):
         raise ValueError("initial runtime artifact identity is invalid")
+    toolchain_fields = (
+        _TOOLCHAIN_FIELDS_V2 if schema_version == 2 else _TOOLCHAIN_FIELDS_V3
+    )
     if (
         not isinstance(toolchain, dict)
-        or set(toolchain) != _TOOLCHAIN_FIELDS
+        or set(toolchain) != toolchain_fields
         or not all(
             isinstance(toolchain.get(field), str) and toolchain[field]
-            for field in _TOOLCHAIN_FIELDS - {"source_date_epoch"}
+            for field in toolchain_fields - {"source_date_epoch"}
         )
         or not isinstance(toolchain.get("source_date_epoch"), int)
         or isinstance(toolchain.get("source_date_epoch"), bool)
         or toolchain["source_date_epoch"] <= 0
+        or (schema_version == 3 and toolchain.get("python_hash_seed") != "0")
     ):
         raise ValueError("initial runtime toolchain identity is invalid")
 
@@ -198,11 +209,13 @@ def _load_manifest(
 
     if validate_inputs:
         actual_toolchain = observed_toolchain or discover_toolchain()
-        if actual_toolchain != toolchain:
+        observed_fields = {field: actual_toolchain.get(field) for field in toolchain_fields}
+        if observed_fields != toolchain:
             raise ValueError("initial runtime toolchain mismatch")
         if artifact_root is not None and artifact_identity(artifact_root) != artifact:
             raise ValueError("initial runtime staged payload mismatch")
     return _Manifest(
+        schema_version,
         (version, canonical_guid),
         agent_version,
         normalized,

@@ -1,18 +1,19 @@
 {
-  "schema_version": 2,
+  "schema_version": 3,
   "version": "3.1.77",
   "agent_version": "3.1.77",
   "component_guid": "E6799EB3-DA89-43D9-A1F6-6B60E03203E9",
   "artifact": {
     "file_count": 2493,
-    "tree_sha256": "eb3e763fd241fb327467ae5b254f23c7de99c3f95e141ab8e258f4c2cd5f932f"
+    "tree_sha256": "e8508f45488421f847022e7f1d8021967824675f0f49865940fea544be5845bd"
   },
   "toolchain": {
     "implementation": "CPython",
     "platform": "win-amd64",
     "pyinstaller_version": "6.19.0",
     "python_version": "3.14.3",
-    "source_date_epoch": 1767225600
+    "source_date_epoch": 1767225600,
+    "python_hash_seed": "0"
   },
   "source_files": [
     {"path": "pc_agent/context_profiles/baseline.py", "sha256": "bda3359e6c657f4c6e94723018686dd72c11a50a95d3cf68a86c6c38f73175d3"},

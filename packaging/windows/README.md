@@ -16,17 +16,22 @@ with `WixToolset.Util.wixext` available. From the repository root:
   -ApproveInitialRuntimeTransition -ApproveInitialRuntimeSourceChange
 ```
 
-The build directory contains the staged payload, generated WiX payload
-binding, a SHA-256 file/service/component manifest, and—when WiX is
-available—the MSI plus a direct MSI-table inspection manifest. The build has
-no parameter for enrollment or device material and does not read such input.
+PyInstaller keeps its normal repository-local build output. WiX staging,
+generated payload binding, MSI output, and MSI-table inspection instead use the
+short, safe default `C:\endpoint-platform-wix-build\Release-x64` to avoid the
+native cabinet tool's path-length limit. Pass `-WixBuildRoot <absolute-path>`
+to choose another dedicated output directory; filesystem roots, reparse points,
+and paths inside the repository are rejected. The build has no parameter for
+enrollment or device material and does not read such input.
 
 The checked-in `initial-runtime.json` remains the immutable `3.1.76` baseline.
 The reviewed `initial-runtime-3.1.77.json` transition pins the Windows Device
 Context runtime with a new component GUID and must be built with both explicit
 approval switches shown above. Each manifest pins its runtime version,
 component GUID, source-file hashes, complete staged artifact tree identity,
-and the CPython/PyInstaller producer identity. The manifest version must equal
+and the CPython/PyInstaller producer identity, including
+`PYTHONHASHSEED=0` so PyInstaller's `base_library.zip` entry order is stable.
+The manifest version must equal
 `AGENT_VERSION`; every routine build hashes all staged runtime files before MSI
 binding. A different reviewed manifest requires both
 `-ApproveInitialRuntimeTransition` and

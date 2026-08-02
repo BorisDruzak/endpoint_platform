@@ -369,6 +369,36 @@ def test_msi_builder_passes_wix_preprocessor_defines_as_separate_arguments() -> 
     assert '"-dStagingDir=$stagingRoot"' not in script
 
 
+def test_msi_builder_pins_python_hash_ordering_for_reproducible_runtime_bytes() -> None:
+    """PyInstaller must not inherit a random hash seed into base_library.zip."""
+    script = (WINDOWS_PACKAGING / "build-msi.ps1").read_text(encoding="utf-8")
+
+    assert '$env:PYTHONHASHSEED = "0"' in script
+    assert 'python_hash_seed' in script
+
+
+def test_msi_builder_can_isolate_wix_payloads_in_a_safe_short_build_root() -> None:
+    """WiX cabinet source paths must be relocatable without moving repository sources."""
+    script = (WINDOWS_PACKAGING / "build-msi.ps1").read_text(encoding="utf-8")
+
+    assert '[string]$WixBuildRoot' in script
+    assert 'Assert-SafeWixBuildRoot' in script
+    assert 'Get-ReparsePointInPath' in script
+    assert 'Refusing to use a filesystem root for WiX build output.' in script
+    assert 'Refusing to use a WiX build directory inside the repository.' in script
+    assert '$repository + [IO.Path]::DirectorySeparatorChar' in script
+    assert '$stagingRoot = Join-Path $wixBuildRoot' in script
+    assert '$outputRoot = Join-Path $wixBuildRoot' in script
+
+
+def test_msi_inspection_discards_com_method_output_before_filtering_rows() -> None:
+    """COM Execute/Close return values must not become strict-mode table rows."""
+    script = (WINDOWS_PACKAGING / "build-msi.ps1").read_text(encoding="utf-8")
+
+    assert '[void]$view.Execute()' in script
+    assert '[void]$view.Close()' in script
+
+
 @pytest.mark.parametrize(
     "forbidden",
     ("enrollment-claim", "campaign-token", "device-token", "device-credential"),
