@@ -86,7 +86,11 @@
   `SYSTEM`, `Administrators`, `NT SERVICE\EndpointAgent`, and
   `NT SERVICE\EndpointAgentUpdater`. Ordinary users receive no read access to
   `device-credential`. `service_control.py` exposes an injectable SCM start
-  boundary; MSI service registration remains outside this Python contract.
+  boundary. `packaging/windows/` owns the WiX 4 machine-wide x64 binding,
+  fixed service registration/recovery, ProgramData preservation, secret-free
+  payload manifest, and final-uninstall versus administrator-purge behavior.
+  `pc_agent/runtime/main.py --windows-restrict-updater-start` is the fixed
+  no-argument deferred MSI boundary for the updater service DACL.
 
 ## ALT first-boot enrollment bootstrap (2026-07-30)
 
@@ -254,7 +258,7 @@ adapter-only work.
 | `pc_agent/launcher/launcher_main.py` | Stable launcher / запускные сценарии; recognizes retained `pc_agent` and new `endpoint-agent/endpoint-agent` layouts, routes GUI versus WSS/fallback arguments by entrypoint, delegates privileged ALT publication, records failed launches, retains legacy writable-selector rollback, and emits only the fixed root-worker request for ALT crash rollback |
 | `pc_agent/launcher_portable_main.py` | Портативный launcher; auto-detect install/data roots рядом с exe, импорт токена из primary `%LOCALAPPDATA%\\PCClientAgent\\data` для локального Windows теста и rollback на `previous` при repeated immediate crash новой версии |
 | `pc_agent/ui_gui/main.py` | Запуск Qt GUI, lifecycle окна, minimize-to-tray, start-hidden, явный exit path и cleanup локальных SSE/API ресурсов; before showing the main window, validates the stored machine token through `/api/registry/agent/account-state` and deactivates stale local tokens that return HTTP auth failures so account login is not shown on top of a broken technical agent authorization; installs the optional-by-env `GuiPerformanceProbe` field diagnostic for focused-window CPU investigations; локальные lifecycle/debug сообщения должны оставаться читаемыми русскими строками без mojibake |
-| `pc_agent/build_windows_release_v2.py` | Каноническая Windows release-сборка: launcher.exe + versioned agent layout + update ZIP |
+| `pc_agent/build_windows_release_v2.py` | Canonical Windows headless release: stable non-GUI launcher + `endpoint_agent_core` renamed to the fixed versioned `pc_agent.exe` updater contract + update ZIP |
 
 ---
 

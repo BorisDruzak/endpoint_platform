@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package Name="Endpoint Agent"
+           Manufacturer="Endpoint Platform"
+           Version="$(var.PackageVersion)"
+           UpgradeCode="D4F3045C-51CF-49D9-AF9C-3AEBF206ED1F"
+           Language="1033"
+           Scope="perMachine"
+           Compressed="yes"
+           InstallerVersion="500">
+    <MediaTemplate EmbedCab="yes" />
+    <MajorUpgrade DowngradeErrorMessage="A newer Endpoint Agent package is already installed."
+                  Schedule="afterInstallExecute"
+                  MigrateFeatures="yes" />
+    <PropertyRef Id="ENDPOINT_AGENT_UPGRADE_CONTRACT" />
+
+    <Feature Id="EndpointAgentFeature" Title="Endpoint Agent" Level="1">
+      <ComponentGroupRef Id="EndpointAgentComponents" />
+      <ComponentGroupRef Id="EndpointAgentServiceComponents" />
+      <ComponentGroupRef Id="EndpointAgentGeneratedPayload" />
+    </Feature>
+  </Package>
+</Wix>

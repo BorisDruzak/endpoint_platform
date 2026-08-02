@@ -228,7 +228,7 @@ ALT per-file manifest and contain exactly one approved payload shape: legacy
 
 ### 3.4 Сборка release-артефакта
 
-Windows quiet release:
+Windows headless release:
 
 ```powershell
 python pc_agent/build_windows_release_v2.py
@@ -237,9 +237,15 @@ python pc_agent/build_windows_release_v2.py
 Результат:
 
 - launcher: `pc_agent/dist/launcher.exe`
-- agent onedir: `pc_agent/dist/pc_agent/pc_agent.exe`
+- build onedir: `pc_agent/dist/endpoint_agent_core/endpoint_agent_core.exe`
 - release layout: `pc_agent/dist/release/windows_amd64/stable/<version>/install`
+- selected runtime entrypoint: `install/versions/<version>/pc_agent.exe`
 - update artifact: `pc_agent/dist/release/windows_amd64/stable/<version>/pc_agent-windows_amd64-<version>.zip`
+
+The canonical builder uses `pyinstaller_endpoint_core_windows.spec` and the
+stable non-GUI launcher spec. Machine-wide installation is a separate binding
+step documented in `packaging/windows/README.md`; it must not use the legacy
+Helpdesk/GUI agent specs or carry provisioning material.
 
 ### 3.5 Публикация на сервер
 

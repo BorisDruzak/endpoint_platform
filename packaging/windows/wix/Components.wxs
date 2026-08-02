@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util">
+  <Fragment>
+    <ComponentGroup Id="EndpointAgentComponents">
+      <Component Id="cmpLauncher" Directory="INSTALLFOLDER"
+                 Guid="2A283D07-8B93-43D4-93D9-8D8A359EDCF5" Bitness="always64">
+        <File Id="filLauncher" Source="$(var.StagingDir)\ProgramFiles\launcher.exe"
+              Name="launcher.exe" KeyPath="yes" />
+      </Component>
+      <Component Id="cmpCurrentSelector" Directory="INSTALLFOLDER"
+                 Guid="79A86026-5726-49BA-8C91-7EFF35DA0511" Bitness="always64">
+        <File Id="filCurrentSelector" Source="$(var.StagingDir)\ProgramFiles\current.json"
+              Name="current.json" KeyPath="yes" NeverOverwrite="yes" />
+      </Component>
+      <Component Id="cmpConfigTemplate" Directory="CONFIGFOLDER"
+                 Guid="DD9BB8D3-96EF-4595-8E51-4E8E52E9FEAF" Bitness="always64">
+        <File Id="filConfigTemplate" Source="$(var.StagingDir)\ProgramFiles\config\agent-config.yaml"
+              Name="agent-config.yaml" KeyPath="yes" />
+      </Component>
+      <Component Id="cmpPublicReadme" Directory="DOCSFOLDER"
+                 Guid="45D7002A-6497-435F-9C77-62B947DA16E3" Bitness="always64">
+        <File Id="filPublicReadme" Source="$(var.StagingDir)\ProgramFiles\docs\README.md"
+              Name="README.md" KeyPath="yes" />
+      </Component>
+      <Component Id="cmpProgramDataRoot" Directory="DATAROOT"
+                 Guid="4B905736-6EF1-4B31-AFDF-FABC7700B2A6"
+                 Bitness="always64" Permanent="yes">
+        <CreateFolder>
+          <util:PermissionEx Domain="NT AUTHORITY" User="SYSTEM" GenericAll="yes" Inheritable="yes" />
+          <util:PermissionEx Domain="BUILTIN" User="Administrators" GenericAll="yes" Inheritable="yes" />
+          <util:PermissionEx Domain="NT SERVICE" User="EndpointAgent"
+                             GenericRead="yes" GenericWrite="yes" DeleteChild="yes" Inheritable="yes" />
+          <util:PermissionEx Domain="NT SERVICE" User="EndpointAgentUpdater"
+                             GenericWrite="yes" DeleteChild="yes" Inheritable="yes" />
+        </CreateFolder>
+      </Component>
+      <Component Id="cmpInstallRootCleanup" Directory="INSTALLFOLDER"
+                 Guid="85851925-4D51-48E6-8E1E-8D6ED47E9F74" Bitness="always64">
+        <RegistryValue Root="HKLM" Key="Software\Endpoint Platform\Endpoint Agent"
+                       Name="InstallRoot" Type="string" Value="[INSTALLFOLDER]"
+                       KeyPath="yes" />
+        <util:RemoveFolderEx Id="RemoveEndpointAgentBinaries"
+                             Property="ENDPOINT_AGENT_REMEMBERED_INSTALLROOT"
+                             On="uninstall"
+                             Condition="NOT UPGRADINGPRODUCTCODE" />
+      </Component>
+    </ComponentGroup>
+  </Fragment>
+  <Fragment>
+    <Property Id="ENDPOINT_AGENT_REMEMBERED_INSTALLROOT">
+      <RegistrySearch Id="FindEndpointAgentInstallRoot" Root="HKLM"
+                      Key="Software\Endpoint Platform\Endpoint Agent"
+                      Name="InstallRoot" Type="raw" Bitness="always64" />
+    </Property>
+  </Fragment>
+</Wix>

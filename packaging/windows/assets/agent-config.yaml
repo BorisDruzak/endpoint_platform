@@ -1,0 +1,8 @@
+# Public machine configuration template. Enrollment state is stored separately
+# under ProgramData and is never embedded in the MSI.
+endpoint_origin: "https://endpoint.sosnadmin.local"
+transport_mode: "gateway_wss"
+migration_http_pull_fallback: false
+data_root: "C:\\ProgramData\\Endpoint Platform\\Agent"
+install_root: "C:\\Program Files\\Endpoint Platform\\Agent"
+ca_file: "C:\\ProgramData\\Endpoint Platform\\Agent\\endpoint-ca.crt"
