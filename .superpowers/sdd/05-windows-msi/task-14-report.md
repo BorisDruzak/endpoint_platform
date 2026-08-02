@@ -44,3 +44,16 @@
   when a probe does not supply one; it does not run a locale-sensitive command
   or a connectivity probe. The profile remains schema-valid and interface facts
   stay bounded.
+
+## Fix round 1 — Windows identity override precedence
+
+- Root cause: `stable_machine_identity()` delegated to the generic resolver,
+  which intentionally processes `PC_AGENT_MACHINE_ID` before MachineGuid. An
+  IP address or hostname in that generic override became an `env_seed` device
+  identity.
+- Fix: the Windows helper now invokes the existing MachineGuid resolver
+  directly, then its existing durable fallback. It never consumes
+  `PC_AGENT_MACHINE_ID`.
+- TDD evidence: the new IP-override and hostname-override regression tests
+  initially failed with `env_seed`; after the one-line resolver-order change,
+  `pc_agent/tests/windows/test_identity.py` reported `4 passed`.

@@ -14,7 +14,7 @@ import platform
 from pathlib import Path
 
 from pc_agent.context_profiles.stable_keys import bounded_text
-from pc_agent.core.machine_identity import _resolve_from_fallback_file, _stable_uuid_from_seed, resolve_machine_identity
+import pc_agent.core.machine_identity as machine_identity
 
 
 MachineGuidReader = Callable[[], str | None]
@@ -33,9 +33,10 @@ def stable_machine_identity(
     if machine_guid_reader is not None:
         machine_guid = str(machine_guid_reader() or "").strip()
         if machine_guid:
-            return _stable_uuid_from_seed(machine_guid, "windows_machine_guid"), "windows_machine_guid"
-        return _resolve_from_fallback_file(path=fallback_file)
-    return resolve_machine_identity(fallback_file=fallback_file)
+            return machine_identity._stable_uuid_from_seed(machine_guid, "windows_machine_guid"), "windows_machine_guid"
+        return machine_identity._resolve_from_fallback_file(path=fallback_file)
+    resolved = machine_identity._resolve_windows_machine_guid()
+    return resolved if resolved is not None else machine_identity._resolve_from_fallback_file(path=fallback_file)
 
 
 def collect_system(probe: object) -> dict[str, str]:
