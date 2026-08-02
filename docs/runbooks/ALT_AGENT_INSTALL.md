@@ -162,7 +162,9 @@ root-owned `/opt/endpoint-agent/previous.json`, then publishes the candidate.
 Selector publication is the commit point: replay of the same pending operation
 preserves the distinct previous selector and resumes only durable history and
 request cleanup. A failed selector replacement restores the former
-`previous.json` record.
+`previous.json` record. If that authority is missing or inconsistent on replay,
+the worker quarantines the pending record and publishes a fixed failure record
+instead of leaving the path unit in an activation loop.
 The companion one-shot worker validates the request metadata, stops the agent,
 and invokes only the fixed stable launcher. Rollback mode compares the request
 to root-owned `current.json` and `previous.json`, re-verifies the exact previous
@@ -175,7 +177,10 @@ If interrupted after selector publication, the next fixed-request activation
 idempotently finishes the terminal marker and cleanup. Rollback state I/O pins
 the non-symlinked, service-owned `updates` directory and uses no-follow,
 directory-relative operations; unsafe request leaves are consumed into a fixed
-regular failure record.
+regular failure record. If the `updates` parent itself was replaced by an
+unsafe leaf or symlink, the stopped-service helper quarantines that exact leaf,
+recreates an empty service-owned directory, and restarts without a watched
+request remaining.
 
 Inspect both units during a canary without printing any credentials:
 

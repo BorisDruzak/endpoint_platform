@@ -119,6 +119,8 @@
   the exact previous immutable tree before atomic publication. Update and
   rollback selector commits are replay-safe; selectors/full release trees have
   strict metadata validation, and rollback state uses pinned no-follow I/O.
+  Inconsistent replay authority and unsafe state-parent leaves are quarantined
+  so the systemd path does not repeatedly activate on an unconsumable object.
 - `pc_agent/launcher/launcher_main.py` never lets the `endpoint-agent`
   service publish an ALT release. In ALT mode it exits cleanly when a durable
   pending record exists or the Gateway requests exit `42`; repeated candidate

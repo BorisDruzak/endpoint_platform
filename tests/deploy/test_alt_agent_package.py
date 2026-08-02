@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import os
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -183,8 +185,45 @@ def test_root_owned_update_worker_uses_the_fixed_stable_launcher() -> None:
     assert "stat.S_ISDIR" in helper
     assert "stat.S_IWGRP | stat.S_IWOTH" in helper
     assert "reject_unsafe_rollback_request" not in helper
+    assert 'os.replace("updates", quarantine' in helper
+    assert 'os.mkdir("updates", 0o700' in helper
+    worker_body = helper[helper.index("validate_stable_launcher || exit $?") :]
+    assert worker_body.index("systemctl stop endpoint-agent.service") < (
+        worker_body.index("if ! validate_updates_directory")
+    )
     assert '"$@"' not in helper
     assert "resolve_current_launcher" not in helper
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX no-follow helper contract")
+def test_update_helper_consumes_symlinked_updates_parent_without_path_loop(
+    tmp_path: Path,
+) -> None:
+    helper = _text(UPDATE_HELPER)
+    marker = "python3 - \"$DATA_ROOT\" <<'PY'\n"
+    validation = helper.split(marker, 1)[1].split("\nPY", 1)[0]
+    data_root = tmp_path / "data"
+    redirected = tmp_path / "redirected"
+    data_root.mkdir(mode=0o750)
+    redirected.mkdir(mode=0o700)
+    (redirected / "rollback-request.json").write_text("attacker redirect")
+    (data_root / "updates").symlink_to(redirected, target_is_directory=True)
+
+    completed = subprocess.run(
+        [sys.executable, "-", str(data_root)],
+        input=validation,
+        text=True,
+        capture_output=True,
+        check=False,
+        timeout=10,
+    )
+
+    assert completed.returncode != 0
+    updates = data_root / "updates"
+    assert updates.is_dir() and not updates.is_symlink()
+    assert not (updates / "rollback-request.json").exists()
+    failure = updates / "last_failed_alt_rollback_request.json"
+    assert failure.is_file() and not failure.is_symlink()
 
 
 def test_root_worker_returns_only_durable_update_state_to_the_service_account() -> None:

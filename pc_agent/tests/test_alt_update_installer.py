@@ -407,6 +407,52 @@ def test_committed_update_replay_preserves_distinct_previous_selector(
     assert [entry["operation_id"] for entry in history].count(_OPERATION_ID) == 1
 
 
+@pytest.mark.parametrize(
+    ("invalid_previous", "expected_reason"),
+    [("missing", "FileNotFoundError"), ("same_as_current", "ValueError")],
+)
+def test_committed_update_replay_consumes_inconsistent_previous_authority(
+    tmp_path: Path, monkeypatch, invalid_previous: str, expected_reason: str
+) -> None:
+    install_root, data_root = tmp_path / "install", tmp_path / "data"
+    _initial_selector(install_root)
+    artifact = data_root / "updates" / "downloads" / "candidate.tar.gz"
+    artifact.parent.mkdir(parents=True)
+    _write_bundle(artifact)
+    pending = _pending(data_root, artifact)
+    original_append = alt_update_installer._append_history
+    interrupted = False
+
+    def interrupt_after_commit(root: Path, entry: dict[str, object]) -> None:
+        nonlocal interrupted
+        if not interrupted and entry.get("success") is True:
+            interrupted = True
+            raise OSError("simulated post-commit cleanup interruption")
+        original_append(root, entry)
+
+    monkeypatch.setattr(alt_update_installer, "_append_history", interrupt_after_commit)
+    assert apply_alt_update(install_root, data_root, pending)[0] is True
+    previous = install_root / "previous.json"
+    if invalid_previous == "missing":
+        previous.unlink()
+    else:
+        previous.write_bytes((install_root / "current.json").read_bytes())
+
+    ok, reason = apply_alt_update(install_root, data_root, pending)
+
+    assert (ok, reason) == (False, expected_reason)
+    assert not pending.exists()
+    assert json.loads((install_root / "current.json").read_text())["version"] == (
+        "3.1.77-rc.1"
+    )
+    failure = data_root / "updates" / "last_failed_alt_update.json"
+    assert json.loads(failure.read_text()) == {
+        "operation_id": _OPERATION_ID,
+        "reason": "invalid_committed_alt_update_replay",
+        "version": "3.1.77-rc.1",
+    }
+
+
 def test_failed_current_publication_restores_prior_previous_selector(
     tmp_path: Path, monkeypatch
 ) -> None:

@@ -41,7 +41,8 @@ preserve.  The executable characterization lives in
   release and records its strict identity in root-owned `previous.json`.
 - Selector replacement is the update commit point. Same-operation replay keeps
   a distinct verified previous selector and resumes history/request cleanup; a
-  failed replacement restores the earlier `previous.json` record.
+  failed replacement restores the earlier `previous.json` record. Invalid
+  replay authority is consumed into a fixed failure record, not left watched.
 - Repeated candidate crashes create only the fixed service-writable rollback
   request. The root worker requires it to match `current.json` and
   `previous.json`, re-verifies the previous release, and atomically replaces

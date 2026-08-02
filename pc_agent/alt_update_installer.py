@@ -75,13 +75,17 @@ def apply_alt_update(
         candidate = _selector_for_manifest(manifest)
         previous_path = install_root / PREVIOUS_SELECTOR_NAME
         if current == candidate:
-            committed = True
             # Replay after current.json was already committed.  The distinct
             # root-owned rollback selector is authority and must be preserved.
-            previous = _load_selector(previous_path, root_authority=True)
-            if previous == candidate:
-                raise ValueError("committed ALT update has no prior selector")
-            _verify_selected_release(install_root, previous)
+            try:
+                previous = _load_selector(previous_path, root_authority=True)
+                if previous == candidate:
+                    raise ValueError("committed ALT update has no prior selector")
+                _verify_selected_release(install_root, previous)
+            except (OSError, ValueError, json.JSONDecodeError) as exc:
+                _reject_inconsistent_update_replay(data_root, pending_path, payload)
+                return False, type(exc).__name__
+            committed = True
         else:
             prior_previous = _load_optional_selector(previous_path, root_authority=True)
             _write_selector_record(previous_path, current)
@@ -711,6 +715,27 @@ def _archive_failed_rollback_request(data_root: Path, request: Path) -> None:
             )
     except (OSError, ValueError):
         return
+
+
+def _reject_inconsistent_update_replay(
+    data_root: Path, pending_path: Path, payload: dict[str, Any]
+) -> None:
+    expected = data_root / "updates" / "pending_alt_update.json"
+    if pending_path != expected:
+        raise ValueError("invalid inconsistent ALT pending path")
+    with _pinned_updates_dir(data_root) as (updates, updates_fd):
+        _quarantine_update_leaf(updates, updates_fd, "pending_alt_update.json")
+        _quarantine_update_leaf(updates, updates_fd, "last_failed_alt_update.json")
+        _write_update_json(
+            updates,
+            updates_fd,
+            "last_failed_alt_update.json",
+            {
+                "operation_id": payload["operation_id"],
+                "reason": "invalid_committed_alt_update_replay",
+                "version": payload["version"],
+            },
+        )
 
 
 @contextmanager
