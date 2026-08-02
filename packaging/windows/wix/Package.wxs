@@ -13,6 +13,8 @@
                   Schedule="afterInstallExecute"
                   MigrateFeatures="yes" />
     <PropertyRef Id="ENDPOINT_AGENT_UPGRADE_CONTRACT" />
+    <Property Id="ENDPOINT_AGENT_INITIAL_RUNTIME_TRANSITION"
+              Value="$(var.InitialRuntimeTransitionApproved)" Secure="yes" />
 
     <Feature Id="EndpointAgentFeature" Title="Endpoint Agent" Level="1">
       <ComponentGroupRef Id="EndpointAgentComponents" />

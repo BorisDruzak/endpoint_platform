@@ -159,9 +159,79 @@ class PyWin32AclAdapter:
             raise WindowsAclError("protected enrollment material must not be a reparse point")
 
 
-def replace_machine_data_acl(path: Path, *, win32security, ntsecuritycon) -> None:
+def _assert_nonreparse_directory(path: Path) -> None:
+    try:
+        details = path.lstat()
+    except OSError as error:
+        raise WindowsAclError("machine data path element is missing") from error
+    if path.is_symlink() or getattr(details, "st_file_attributes", 0) & 0x400:
+        raise WindowsAclError("machine data path contains a reparse point")
+    if not path.is_dir():
+        raise WindowsAclError("machine data path element is not a directory")
+
+
+def _assert_trusted_owner(path: Path, win32security) -> None:
+    try:
+        descriptor = win32security.GetNamedSecurityInfo(
+            str(path),
+            win32security.SE_FILE_OBJECT,
+            win32security.OWNER_SECURITY_INFORMATION,
+        )
+        owner = win32security.ConvertSidToStringSid(
+            descriptor.GetSecurityDescriptorOwner()
+        )
+    except Exception as error:
+        raise WindowsAclError("could not inspect machine data owner") from error
+    if owner not in {"S-1-5-18", "S-1-5-32-544"}:
+        raise WindowsAclError("machine data path lacks a trusted owner")
+
+
+def _prepare_trusted_directory_chain(
+    path: Path, trusted_root: Path, win32security
+) -> list[Path]:
+    path = path.absolute()
+    trusted_root = trusted_root.absolute()
+    try:
+        relative = path.relative_to(trusted_root)
+    except ValueError as error:
+        raise WindowsAclError("machine data path is outside its trusted root") from error
+
+    # Reject redirection from the volume root through the trusted root before
+    # creating any missing service-owned descendants.
+    ancestor_chain = list(path.parents)[::-1] + [path]
+    for candidate in ancestor_chain:
+        try:
+            candidate.lstat()
+        except FileNotFoundError:
+            continue
+        _assert_nonreparse_directory(candidate)
+
+    trusted_chain = [trusted_root]
+    current = trusted_root
+    for part in relative.parts:
+        current = current / part
+        trusted_chain.append(current)
+    for candidate in trusted_chain:
+        try:
+            candidate.lstat()
+        except FileNotFoundError:
+            candidate.mkdir()
+        _assert_nonreparse_directory(candidate)
+        _assert_trusted_owner(candidate, win32security)
+    return trusted_chain
+
+
+def replace_machine_data_acl(
+    path: Path,
+    *,
+    win32security,
+    ntsecuritycon,
+    trusted_root: Path | None = None,
+) -> None:
     """Replace, rather than extend, the machine data root DACL."""
-    path.mkdir(parents=True, exist_ok=True)
+    trusted_chain = _prepare_trusted_directory_chain(
+        path, trusted_root or path.parent, win32security
+    )
     acl = win32security.ACL()
     rights = {
         "full_control": ntsecuritycon.FILE_ALL_ACCESS,
@@ -176,6 +246,10 @@ def replace_machine_data_acl(path: Path, *, win32security, ntsecuritycon) -> Non
         win32security.OBJECT_INHERIT_ACE | win32security.CONTAINER_INHERIT_ACE
     )
     try:
+        # Close the validation-to-write window as far as the path API permits.
+        for candidate in trusted_chain:
+            _assert_nonreparse_directory(candidate)
+            _assert_trusted_owner(candidate, win32security)
         for rule in MACHINE_DATA_ACL:
             if rule.principal == SYSTEM_PRINCIPAL:
                 sid = win32security.ConvertStringSidToSid("S-1-5-18")
@@ -211,6 +285,7 @@ def apply_machine_data_acl() -> None:
         MACHINE_DATA_ROOT,
         win32security=win32security,
         ntsecuritycon=ntsecuritycon,
+        trusted_root=Path(r"C:\ProgramData"),
     )
 
 

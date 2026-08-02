@@ -10,7 +10,10 @@ endpoint-agent-service.exe --agent-service
 The host strictly reads `current.json` on every service start, rejects unknown
 fields, non-triplet versions, traversal, and reparse points, and supervises
 `versions/<version>/pc_agent.exe --windows-service-child`. Stop and shutdown
-controls close the child's private stdin control pipe. This makes both a
+controls close the child's private stdin control pipe. The child watches that
+pipe with a dedicated daemon reader rather than asyncio's default executor, so
+a runtime exit `42` cannot hang `asyncio.run()` while the host pipe remains
+open. This makes both a
 candidate selector change and rollback effective at the next SCM start while
 SCM itself remains bound to a stable installed path. The runtime continues to
 own Gateway reconnects and update exit `42`; the host starts only the fixed
@@ -33,7 +36,22 @@ updater has write-only replacement access. `SYSTEM` and `Administrators` have
 full control. Inherited ordinary-user entries are removed, so ordinary users
 cannot read the device bearer. The data root grants EndpointAgent modify and
 EndpointAgentUpdater write/delete inheritance; the updater service itself runs
-as SYSTEM.
+as SYSTEM. Before replacing the DACL, the action validates the entire existing
+path chain against symlinks/reparse points and requires trusted SYSTEM or
+Administrators ownership for the ProgramData subtree.
+
+## MSI initial-runtime transition
+
+Routine packages pin the complete staged runtime tree and producer toolchain in
+`initial-runtime.json`; the declared version must match `AGENT_VERSION`. An
+approved source transition requires both release switches, a new version, and
+a new component GUID. The MSI stores its validated old/new versions in a fixed
+HKLM contract and runs the no-path selector migration action after service
+installation/ACL setup but before `StartServices`. If `current.json` still
+names the old initial runtime, it is atomically moved to the installed new
+runtime. A different selector is preserved only when its executable is a
+regular non-reparse file inside `versions/`; otherwise installation fails
+before service start.
 
 ## Provisioning contract
 

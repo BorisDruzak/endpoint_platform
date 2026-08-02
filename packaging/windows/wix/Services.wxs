@@ -49,11 +49,16 @@
     <CustomAction Id="RestrictUpdaterServiceStart" FileRef="filServiceHost"
                   ExeCommand="--restrict-updater-start"
                   Execute="deferred" Impersonate="no" Return="check" HideTarget="yes" />
+    <CustomAction Id="MigrateInitialSelector" FileRef="filServiceHost"
+                  ExeCommand="--migrate-initial-selector"
+                  Execute="deferred" Impersonate="no" Return="check" HideTarget="yes" />
     <InstallExecuteSequence>
       <Custom Action="ApplyProgramDataAcl" After="InstallServices"
               Condition="NOT REMOVE~=&quot;ALL&quot;" />
       <Custom Action="RestrictUpdaterServiceStart" After="ApplyProgramDataAcl"
               Condition="NOT REMOVE~=&quot;ALL&quot;" />
+      <Custom Action="MigrateInitialSelector" After="RestrictUpdaterServiceStart"
+              Condition="ENDPOINT_AGENT_INITIAL_RUNTIME_TRANSITION = 1 AND NOT REMOVE~=&quot;ALL&quot;" />
     </InstallExecuteSequence>
   </Fragment>
 </Wix>

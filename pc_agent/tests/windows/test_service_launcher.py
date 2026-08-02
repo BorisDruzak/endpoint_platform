@@ -2,10 +2,14 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
+import sys
+import threading
 from pathlib import Path
 
 import pytest
 
+from pc_agent.version import EXIT_UPDATE_PENDING
 from pc_agent.platform.windows.update_paths import WindowsUpdatePaths
 
 
@@ -135,3 +139,127 @@ def test_service_host_rejects_reparse_current_selector(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError, match="reparse point"):
         build_agent_child_command(paths)
+
+
+def test_service_child_propagates_exit_42_while_host_pipe_remains_open(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A cancelled blocking reader must not trap asyncio.run in executor shutdown."""
+    from pc_agent.runtime import main as runtime_main
+
+    async def update_pending(_settings) -> int:
+        return EXIT_UPDATE_PENDING
+
+    read_fd, write_fd = os.pipe()
+    held_open_stdin = os.fdopen(read_fd, "r", encoding="utf-8")
+    monkeypatch.setattr(runtime_main, "run_runtime", update_pending)
+    monkeypatch.setattr(sys, "stdin", held_open_stdin)
+    result: list[int] = []
+    worker = threading.Thread(
+        target=lambda: result.append(runtime_main.main([
+            "--windows-service-child",
+            "--data-dir", str(tmp_path / "data"),
+            "--install-root", str(tmp_path / "install"),
+            "--ca-file", str(tmp_path / "ca.crt"),
+        ]))
+    )
+    worker.start()
+    finished_while_pipe_open = False
+    try:
+        worker.join(timeout=0.5)
+        finished_while_pipe_open = not worker.is_alive()
+    finally:
+        os.close(write_fd)
+        worker.join(timeout=2)
+        held_open_stdin.close()
+
+    assert finished_while_pipe_open
+    assert result == [EXIT_UPDATE_PENDING]
+
+
+def _transition_contract(path: Path, *, previous: str, new: str) -> Path:
+    contract = path / "initial-runtime-transition.json"
+    contract.write_text(json.dumps({
+        "approved": True,
+        "from_version": previous,
+        "schema_version": 1,
+        "to_version": new,
+    }), encoding="utf-8")
+    return contract
+
+
+def test_approved_transition_atomically_migrates_old_initial_selector(
+    tmp_path: Path,
+) -> None:
+    """Removing the old MSI component must not strand current.json on its version."""
+    from pc_agent.platform.windows.selector_migration import migrate_initial_selector
+
+    paths = _paths(tmp_path)
+    paths.current_path.write_text('{"version":"3.1.76"}', encoding="utf-8")
+
+    outcome = migrate_initial_selector(
+        paths, _transition_contract(tmp_path, previous="3.1.76", new="3.1.77")
+    )
+
+    assert outcome == "migrated"
+    assert json.loads(paths.current_path.read_text(encoding="utf-8")) == {
+        "version": "3.1.77"
+    }
+    assert not list(paths.install_root.glob(".current.json.*.tmp"))
+
+
+def test_approved_transition_preserves_a_valid_noninitial_selector(
+    tmp_path: Path,
+) -> None:
+    """An updater-selected valid runtime must not be reset by an MSI transition."""
+    from pc_agent.platform.windows.selector_migration import migrate_initial_selector
+
+    paths = _paths(tmp_path)
+    selected = paths.versions_root / "3.1.75"
+    selected.mkdir()
+    (selected / "pc_agent.exe").write_bytes(b"selected")
+    paths.current_path.write_text('{"version":"3.1.75"}', encoding="utf-8")
+
+    outcome = migrate_initial_selector(
+        paths, _transition_contract(tmp_path, previous="3.1.76", new="3.1.77")
+    )
+
+    assert outcome == "preserved"
+    assert json.loads(paths.current_path.read_text(encoding="utf-8")) == {
+        "version": "3.1.75"
+    }
+
+
+def test_approved_transition_rejects_dangling_noninitial_selector(
+    tmp_path: Path,
+) -> None:
+    """Service start must not follow a preserved selector whose runtime is absent."""
+    from pc_agent.platform.windows.selector_migration import migrate_initial_selector
+
+    paths = _paths(tmp_path)
+    paths.current_path.write_text('{"version":"3.1.75"}', encoding="utf-8")
+
+    with pytest.raises(ValueError, match="selected runtime"):
+        migrate_initial_selector(
+            paths, _transition_contract(tmp_path, previous="3.1.76", new="3.1.77")
+        )
+
+    assert json.loads(paths.current_path.read_text(encoding="utf-8")) == {
+        "version": "3.1.75"
+    }
+
+
+def test_service_host_exposes_fixed_no_argument_selector_migration(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """MSI properties must not choose arbitrary selector or installation paths."""
+    from pc_agent.platform.windows import service_launcher
+
+    observed: list[str] = []
+    monkeypatch.setattr(
+        "pc_agent.platform.windows.selector_migration.migrate_production_selector",
+        lambda: observed.append("migrated") or "migrated",
+    )
+
+    assert service_launcher.main(["--migrate-initial-selector"]) == 0
+    assert observed == ["migrated"]

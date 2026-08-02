@@ -1,7 +1,19 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "version": "3.1.76",
+  "agent_version": "3.1.76",
   "component_guid": "980AE24B-57BC-4B59-A18A-65B9B33A7906",
+  "artifact": {
+    "file_count": 2492,
+    "tree_sha256": "31dbc29a1dbc74ea5c534c57393555a83f33c76318d973fef3d952381218d6f1"
+  },
+  "toolchain": {
+    "implementation": "CPython",
+    "platform": "win-amd64",
+    "pyinstaller_version": "6.19.0",
+    "python_version": "3.14.3",
+    "source_date_epoch": 1767225600
+  },
   "source_files": [
     {"path":"endpoint_contracts/__init__.py","sha256":"fc39b566a0c39e38e09ffd17a6659c8d499e5b7348e39a6694b4556def177262"},
     {"path":"endpoint_contracts/base.py","sha256":"090cbfea0a363b98d3fb19fa3c6c95b7ed373b89aa9d1ba366e4051f724f013b"},
@@ -28,7 +40,7 @@
     {"path":"pc_agent/enrollment_identity.py","sha256":"decb87aed51670eda997737c375f8f6dd41a9398a995f0bf7316e171c82f0357"},
     {"path":"pc_agent/gateway_update_runtime.py","sha256":"76837d1f4164eec713ada52998aac0a059e2d8f99672e873eefcf9a0662571dc"},
     {"path":"pc_agent/platform/windows/__init__.py","sha256":"f974ded51b0ed4ca20f7290a2670196385c54ec9ebc052adecba785769e17135"},
-    {"path":"pc_agent/platform/windows/acl.py","sha256":"f71e67c70e5e6f19bc9e52b4adb1c0737b96fcd5881c3846f6fc936b43675fa4"},
+    {"path":"pc_agent/platform/windows/acl.py","sha256":"fbcf12ada7a8f990a6a5e6c6ecde9760dafb54aa52b1160b8573ee2378a3130a"},
     {"path":"pc_agent/platform/windows/provision.py","sha256":"429566a9347983d410deb62c9dd94eabdaef39ef0e3b9b9e83d6f84c568f31fd"},
     {"path":"pc_agent/platform/windows/service.py","sha256":"534222999e9ebda8f5e94ca45310894e25a121007c1280925b926e5835c2d818"},
     {"path":"pc_agent/platform/windows/service_control.py","sha256":"489e38c5a5ba1585bdc4ba84a377dddbea7dc49e98e20fa4a8f05562770acb36"},
@@ -41,7 +53,7 @@
     {"path":"pc_agent/runtime/command_executor.py","sha256":"85126524ece965bbc90d8c1bd94ee4f0e6e587594530d8b90d8159749e779303"},
     {"path":"pc_agent/runtime/lifecycle.py","sha256":"a04e50d3ba1b62aa0c0b6b48608e026dfa9079fcc8472fedb850c38a146463b1"},
     {"path":"pc_agent/runtime/local_state.py","sha256":"d51a562abb6b625ff187b059a4c3aee4a21c37adc5a55681a319c068bcb4ddbd"},
-    {"path":"pc_agent/runtime/main.py","sha256":"8f75df91d0d14aecf9bce012cfef0d8e4ceea63acbc083a71aa21e133d65ac8a"},
+    {"path":"pc_agent/runtime/main.py","sha256":"a3ab029488b8b9ffab55b1d04936f5b3f9c00907daac81846ad776f59a93d866"},
     {"path":"pc_agent/runtime/status.py","sha256":"ac4a7a8237c6b0d6d3ea4f3c8279b4df6b82705db812131cb80ad8cc9bd42c49"},
     {"path":"pc_agent/runtime/verification.py","sha256":"4b2b584ce7c9fc20f201739b86f6075fa60f31e6df81063e9486fc6169149cc8"},
     {"path":"pc_agent/transport/__init__.py","sha256":"0c4166e15693e039181f442ec268abbca2052fed6f87ef6f9d809be2ecbd687b"},

@@ -283,3 +283,114 @@ The checked-in manifest validator, Ruff, `compileall`, Windows PowerShell AST
 parsing, and `git diff --check` all exited zero. WiX compilation/table
 inspection and a disposable-machine MSI lifecycle pilot remain blocked only by
 the unchanged absence of WiX/.NET SDK on this workstation.
+
+## Review fix round 2
+
+No deployment, service operation, host access, release upload, or rollout was
+performed in this round.
+
+### Cancellable child stop signal and exit 42
+
+The previous `asyncio.to_thread(sys.stdin.buffer.read, 1)` watcher could be
+cancelled as a Task but left its default-executor worker blocked. On runtime
+exit `42`, `asyncio.run()` then waited in `shutdown_default_executor()` while
+the fixed host still held stdin open, so the host never observed 42 and never
+started the updater.
+
+The regression uses a real held-open OS pipe and a runtime returning 42 in a
+worker thread. RED recorded `finished_while_pipe_open = False`; cleanup closed
+the pipe only after capturing that failure. The watcher now uses a dedicated
+daemon reader that completes an event-loop Future. Cancelling the Future does
+not put a blocking worker in asyncio's executor, so `asyncio.run()` returns 42
+while the pipe is still open. The focused service/selector suite is GREEN.
+
+### Approved selector migration before service start
+
+`NeverOverwrite` remains the correct routine-upgrade policy, but an approved
+new initial version would otherwise install the new component, preserve an old
+initial selector, and later remove that old component. The MSI now writes a
+validated fixed HKLM contract containing approval, baseline version, and new
+version. A deferred, non-impersonated, return-checked fixed-host action runs
+after `InstallServices`, the ProgramData ACL action, and the updater service
+DACL action, therefore before the standard `StartServices` action.
+
+The migration validates the new executable first. If `current.json` still
+selects the baseline initial version, it atomically replaces the selector. If
+another version is selected, it preserves it only after validating a regular
+non-reparse executable inside the fixed versions root; a dangling or unsafe
+selector fails installation before service start. RED was the absent module
+and MSI property/action. GREEN covers old-initial migration, valid alternate
+preservation, dangling alternate rejection, fixed no-path entrypoint, registry
+values, gating condition, and action ordering.
+
+### Complete artifact and toolchain identity
+
+Manifest schema 2 retains reviewed source hashes and additionally pins:
+
+- `agent_version`, which must equal both manifest `version` and the literal
+  `AGENT_VERSION` in `pc_agent/version.py`;
+- the complete staged onedir tree file count and canonical SHA-256 root over
+  every path, size, and file digest;
+- CPython implementation/version/platform, PyInstaller version, and a fixed
+  `SOURCE_DATE_EPOCH` producer identity.
+
+The build validates source/version/toolchain before PyInstaller and validates
+the entire staged runtime before copying the remaining payload or invoking
+WiX. Mismatched staged DLL/bootloader bytes or toolchain fail routine builds.
+A changed producer is accepted only through a separate manifest with both
+approvals, a new runtime version, and a new component GUID.
+
+RED was five schema/API failures, including staged DLL mutation, mismatched
+`AGENT_VERSION`, and PyInstaller version drift. All five manifest behavior
+tests are GREEN.
+
+The first clean build intentionally used a stale artifact placeholder and
+failed closed with `initial runtime staged payload mismatch`. The resulting
+complete runtime identity was then reviewed and pinned:
+
+- 2,492 staged runtime files;
+- tree SHA-256
+  `31dbc29a1dbc74ea5c534c57393555a83f33c76318d973fef3d952381218d6f1`;
+- CPython 3.14.3 / win-amd64 / PyInstaller 6.19.0 /
+  `SOURCE_DATE_EPOCH=1767225600`.
+
+A reuse-stage rerun passed that exact artifact gate, produced a binding
+manifest with 2,497 files and 2,500 components, then failed only at the
+unchanged intended WiX gate. The manifest carries the same artifact/toolchain
+identity and the new transition-state component.
+
+### ACL target trust
+
+Before creating or modifying the fixed ProgramData subtree, the ACL action now
+walks every existing path element with `lstat`, rejects symlinks and Windows
+reparse attributes, safely creates missing descendants only below the trusted
+ProgramData root, and verifies SYSTEM (`S-1-5-18`) or Administrators
+(`S-1-5-32-544`) ownership. It repeats reparse and owner validation immediately
+before replacing the protected DACL.
+
+RED showed both a user-controlled directory symlink and a user SID owner
+reaching the privileged write. Both now fail before `SetNamedSecurityInfo`;
+the exact protected-DACL success policy remains GREEN.
+
+### Verification evidence
+
+Focused Windows/MSI/manifest verification after integration:
+
+```powershell
+python -m pytest -q pc_agent/tests/windows tests/packaging/test_windows_msi_contract.py tests/packaging/test_initial_runtime_contract.py
+```
+
+Result: `108 passed in 1.72s`.
+
+The staged fixed host exposes `--migrate-initial-selector`; the staged core
+still exposes `--windows-service-child`. Ruff, `compileall`, PowerShell AST
+parsing, and `git diff --check` exited zero. The final broad suite is recorded
+below after the last documentation and manifest verification pass.
+
+```powershell
+python -m pytest -q pc_agent/tests/windows tests/packaging/test_windows_msi_contract.py tests/packaging/test_initial_runtime_contract.py tests/build/test_linux_headless_artifact.py pc_agent/tests/runtime
+```
+
+Result: `186 passed, 5 skipped in 48.16s`; skips are platform-specific. The
+same command invocation first revalidated the checked manifest against all
+2,492 staged runtime files and returned the routine, non-transition identity.

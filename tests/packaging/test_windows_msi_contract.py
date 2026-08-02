@@ -240,6 +240,48 @@ def test_major_upgrade_preserves_state_and_requires_explicit_runtime_transition(
     assert "InitialRuntimeComponentGuid" in script
 
 
+def test_approved_runtime_transition_migrates_selector_before_service_start() -> None:
+    """Removing an old initial component must not leave current.json dangling."""
+    trees = _trees()
+    properties = _all_elements(trees, "Property")
+    transition_property = _by_id(
+        properties, "ENDPOINT_AGENT_INITIAL_RUNTIME_TRANSITION"
+    )
+    assert transition_property.get("Value") == "$(var.InitialRuntimeTransitionApproved)"
+
+    actions = _all_elements(trees, "CustomAction")
+    migration = _by_id(actions, "MigrateInitialSelector")
+    assert migration.get("FileRef") == "filServiceHost"
+    assert migration.get("ExeCommand") == "--migrate-initial-selector"
+    assert migration.get("Execute") == "deferred"
+    assert migration.get("Impersonate") == "no"
+    assert migration.get("Return") == "check"
+
+    sequence = next(
+        item for item in _all_elements(trees, "Custom")
+        if item.get("Action") == "MigrateInitialSelector"
+    )
+    assert sequence.get("Action") == "MigrateInitialSelector"
+    assert sequence.get("After") == "RestrictUpdaterServiceStart"
+    assert "ENDPOINT_AGENT_INITIAL_RUNTIME_TRANSITION = 1" in sequence.get(
+        "Condition", ""
+    )
+
+    registry_values = [
+        item for item in _all_elements(trees, "RegistryValue")
+        if item.get("Key", "").endswith("InitialRuntimeTransition")
+    ]
+    assert {item.get("Name"): item.get("Value") for item in registry_values} == {
+        "Approved": "$(var.InitialRuntimeTransitionApproved)",
+        "FromVersion": "$(var.BaselineInitialRuntimeVersion)",
+        "ToVersion": "$(var.InitialRuntimeVersion)",
+    }
+
+    script = (WINDOWS_PACKAGING / "build-msi.ps1").read_text(encoding="utf-8")
+    assert "InitialRuntimeTransitionApproved" in script
+    assert "BaselineInitialRuntimeVersion" in script
+
+
 def test_default_uninstall_retains_programdata_and_documents_admin_purge() -> None:
     """Repair/reinstall identity must survive default uninstall while purge remains deliberate."""
     components = _all_elements(_trees(), "Component")

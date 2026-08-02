@@ -43,6 +43,18 @@
                              On="uninstall"
                              Condition="NOT UPGRADINGPRODUCTCODE" />
       </Component>
+      <Component Id="cmpInitialRuntimeTransitionState" Directory="INSTALLFOLDER"
+                 Guid="8E72E50B-C4EE-4686-8C99-636D7B41275E" Bitness="always64">
+        <RegistryValue Root="HKLM" Key="Software\Endpoint Platform\Endpoint Agent\InitialRuntimeTransition"
+                       Name="Approved" Type="integer"
+                       Value="$(var.InitialRuntimeTransitionApproved)" KeyPath="yes" />
+        <RegistryValue Root="HKLM" Key="Software\Endpoint Platform\Endpoint Agent\InitialRuntimeTransition"
+                       Name="FromVersion" Type="string"
+                       Value="$(var.BaselineInitialRuntimeVersion)" />
+        <RegistryValue Root="HKLM" Key="Software\Endpoint Platform\Endpoint Agent\InitialRuntimeTransition"
+                       Name="ToVersion" Type="string"
+                       Value="$(var.InitialRuntimeVersion)" />
+      </Component>
     </ComponentGroup>
   </Fragment>
   <Fragment>

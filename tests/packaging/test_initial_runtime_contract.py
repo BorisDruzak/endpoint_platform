@@ -7,6 +7,16 @@ from pathlib import Path
 import pytest
 
 
+TOOLCHAIN_A = {
+    "implementation": "CPython",
+    "platform": "win-amd64",
+    "pyinstaller_version": "6.19.0",
+    "python_version": "3.14.3",
+    "source_date_epoch": 1767225600,
+}
+TOOLCHAIN_B = {**TOOLCHAIN_A, "pyinstaller_version": "6.20.0"}
+
+
 def _contract_module():
     import importlib.util
     import sys
@@ -20,108 +30,225 @@ def _contract_module():
     return module
 
 
-def _manifest(root: Path, *, version: str, guid: str, name: str | None = None) -> Path:
+def _artifact_identity(root: Path) -> dict[str, object]:
+    digest = hashlib.sha256()
+    files = sorted(path for path in root.rglob("*") if path.is_file())
+    for path in files:
+        relative = path.relative_to(root).as_posix()
+        content = path.read_bytes()
+        digest.update(
+            f"{relative}\0{len(content)}\0{hashlib.sha256(content).hexdigest()}\n".encode()
+        )
+    return {"file_count": len(files), "tree_sha256": digest.hexdigest()}
+
+
+def _manifest(
+    root: Path,
+    *,
+    version: str,
+    guid: str,
+    artifact_root: Path,
+    name: str | None = None,
+    source_content: str = "runtime-source",
+    toolchain: dict[str, object] = TOOLCHAIN_A,
+) -> Path:
     source = root / "runtime.py"
-    source.write_text("runtime-source", encoding="utf-8")
+    source.write_text(source_content, encoding="utf-8")
+    version_file = root / "pc_agent" / "version.py"
+    version_file.parent.mkdir(exist_ok=True)
+    version_file.write_text(f'AGENT_VERSION = "{version}"\n', encoding="utf-8")
     path = root / (name or f"{version}.json")
     path.write_text(json.dumps({
-        "schema_version": 1,
-        "version": version,
+        "agent_version": version,
+        "artifact": _artifact_identity(artifact_root),
         "component_guid": guid,
-        "source_files": [{
-            "path": "runtime.py",
-            "sha256": hashlib.sha256(b"runtime-source").hexdigest(),
-        }],
+        "schema_version": 2,
+        "source_files": [
+            {
+                "path": "pc_agent/version.py",
+                "sha256": hashlib.sha256(version_file.read_bytes()).hexdigest(),
+            },
+            {
+                "path": "runtime.py",
+                "sha256": hashlib.sha256(source_content.encode()).hexdigest(),
+            },
+        ],
+        "toolchain": toolchain,
+        "version": version,
     }), encoding="utf-8")
     return path
 
 
-def test_routine_build_accepts_only_the_checked_in_identity(tmp_path: Path) -> None:
-    """A repeat build must bind the exact reviewed version, GUID, and source bytes."""
-    validate_initial_runtime = _contract_module().validate_initial_runtime
+@pytest.fixture
+def artifact_root(tmp_path: Path) -> Path:
+    root = tmp_path / "artifact"
+    (root / "_internal").mkdir(parents=True)
+    (root / "pc_agent.exe").write_bytes(b"exe-v1")
+    (root / "_internal" / "python314.dll").write_bytes(b"python-runtime")
+    return root
 
+
+def test_routine_build_accepts_only_the_checked_in_identity(
+    tmp_path: Path, artifact_root: Path
+) -> None:
+    """A repeat build must bind the exact reviewed version, GUID, and source bytes."""
+    validate = _contract_module().validate_initial_runtime
     baseline = _manifest(
-        tmp_path, version="3.1.76", guid="980AE24B-57BC-4B59-A18A-65B9B33A7906"
+        tmp_path,
+        version="3.1.76",
+        guid="980AE24B-57BC-4B59-A18A-65B9B33A7906",
+        artifact_root=artifact_root,
     )
 
-    identity = validate_initial_runtime(tmp_path, baseline, baseline)
+    identity = validate(
+        tmp_path,
+        baseline,
+        baseline,
+        artifact_root=artifact_root,
+        observed_toolchain=TOOLCHAIN_A,
+    )
 
     assert identity.version == "3.1.76"
     assert identity.component_guid == "980AE24B-57BC-4B59-A18A-65B9B33A7906"
     (tmp_path / "runtime.py").write_text("rebuilt-behind-same-label", encoding="utf-8")
     with pytest.raises(ValueError, match="source hash"):
-        validate_initial_runtime(tmp_path, baseline, baseline)
+        validate(tmp_path, baseline, baseline, observed_toolchain=TOOLCHAIN_A)
 
 
-def test_transition_requires_two_approvals_and_new_component_identity(tmp_path: Path) -> None:
-    """Approved bytes cannot reuse the old absolute path/component identity."""
-    validate_initial_runtime = _contract_module().validate_initial_runtime
-
+def test_manifest_version_must_match_agent_version_constant(
+    tmp_path: Path, artifact_root: Path
+) -> None:
+    """A directory label cannot claim a version different from the frozen runtime."""
+    validate = _contract_module().validate_initial_runtime
     baseline = _manifest(
-        tmp_path, version="3.1.76", guid="980AE24B-57BC-4B59-A18A-65B9B33A7906"
+        tmp_path,
+        version="3.1.76",
+        guid="980AE24B-57BC-4B59-A18A-65B9B33A7906",
+        artifact_root=artifact_root,
+    )
+    (tmp_path / "pc_agent" / "version.py").write_text(
+        'AGENT_VERSION = "3.1.75"\n', encoding="utf-8"
+    )
+
+    with pytest.raises(ValueError, match="AGENT_VERSION"):
+        validate(tmp_path, baseline, baseline, observed_toolchain=TOOLCHAIN_A)
+
+
+def test_routine_build_rejects_changed_complete_staged_payload(
+    tmp_path: Path, artifact_root: Path
+) -> None:
+    """Matching source cannot bless a different DLL or PyInstaller bootloader."""
+    validate = _contract_module().validate_initial_runtime
+    baseline = _manifest(
+        tmp_path,
+        version="3.1.76",
+        guid="980AE24B-57BC-4B59-A18A-65B9B33A7906",
+        artifact_root=artifact_root,
+    )
+    (artifact_root / "_internal" / "python314.dll").write_bytes(b"different-runtime")
+
+    with pytest.raises(ValueError, match="staged payload"):
+        validate(
+            tmp_path,
+            baseline,
+            baseline,
+            artifact_root=artifact_root,
+            observed_toolchain=TOOLCHAIN_A,
+        )
+
+
+def test_transition_requires_two_approvals_and_new_component_identity(
+    tmp_path: Path, artifact_root: Path
+) -> None:
+    """Approved bytes cannot reuse the old absolute path/component identity."""
+    validate = _contract_module().validate_initial_runtime
+    baseline = _manifest(
+        tmp_path,
+        version="3.1.76",
+        guid="980AE24B-57BC-4B59-A18A-65B9B33A7906",
+        artifact_root=artifact_root,
+        name="baseline.json",
     )
     transition = _manifest(
-        tmp_path, version="3.1.77", guid="D53E70D8-CAD1-4755-9AC8-36164A48C9D5"
+        tmp_path,
+        version="3.1.77",
+        guid="D53E70D8-CAD1-4755-9AC8-36164A48C9D5",
+        artifact_root=artifact_root,
+        name="transition.json",
+        source_content="new-runtime-source",
     )
 
     with pytest.raises(ValueError, match="two explicit approvals"):
-        validate_initial_runtime(tmp_path, transition, baseline, approve_version=True)
+        validate(
+            tmp_path,
+            transition,
+            baseline,
+            approve_version=True,
+            observed_toolchain=TOOLCHAIN_A,
+        )
 
-    identity = validate_initial_runtime(
+    identity = validate(
         tmp_path,
         transition,
         baseline,
         approve_version=True,
         approve_source=True,
+        artifact_root=artifact_root,
+        observed_toolchain=TOOLCHAIN_A,
     )
     assert identity.version == "3.1.77"
-    assert identity.component_guid == "D53E70D8-CAD1-4755-9AC8-36164A48C9D5"
 
     same_identity = _manifest(
         tmp_path,
         version="3.1.76",
         guid="980AE24B-57BC-4B59-A18A-65B9B33A7906",
+        artifact_root=artifact_root,
         name="same-identity-transition.json",
     )
     with pytest.raises(ValueError, match="new version and component GUID"):
-        validate_initial_runtime(
+        validate(
             tmp_path,
             same_identity,
             baseline,
             approve_version=True,
             approve_source=True,
+            observed_toolchain=TOOLCHAIN_A,
         )
 
 
-def test_approved_transition_validates_new_bytes_not_unavailable_old_bytes(
-    tmp_path: Path,
+def test_toolchain_change_requires_a_dual_approved_transition(
+    tmp_path: Path, artifact_root: Path
 ) -> None:
-    """A real source transition necessarily makes the old source hash unavailable."""
-    validate_initial_runtime = _contract_module().validate_initial_runtime
+    """A different PyInstaller producer cannot silently rebuild the pinned label."""
+    validate = _contract_module().validate_initial_runtime
     baseline = _manifest(
         tmp_path,
         version="3.1.76",
         guid="980AE24B-57BC-4B59-A18A-65B9B33A7906",
+        artifact_root=artifact_root,
         name="baseline.json",
     )
-    (tmp_path / "runtime.py").write_text("new-runtime-source", encoding="utf-8")
-    transition = tmp_path / "transition.json"
-    transition.write_text(json.dumps({
-        "schema_version": 1,
-        "version": "3.1.77",
-        "component_guid": "D53E70D8-CAD1-4755-9AC8-36164A48C9D5",
-        "source_files": [{
-            "path": "runtime.py",
-            "sha256": hashlib.sha256(b"new-runtime-source").hexdigest(),
-        }],
-    }), encoding="utf-8")
 
-    identity = validate_initial_runtime(
+    with pytest.raises(ValueError, match="toolchain"):
+        validate(tmp_path, baseline, baseline, observed_toolchain=TOOLCHAIN_B)
+
+    transition = _manifest(
+        tmp_path,
+        version="3.1.77",
+        guid="D53E70D8-CAD1-4755-9AC8-36164A48C9D5",
+        artifact_root=artifact_root,
+        name="transition.json",
+        source_content="new-runtime-source",
+        toolchain=TOOLCHAIN_B,
+    )
+    identity = validate(
         tmp_path,
         transition,
         baseline,
         approve_version=True,
         approve_source=True,
+        artifact_root=artifact_root,
+        observed_toolchain=TOOLCHAIN_B,
     )
 
     assert identity.version == "3.1.77"

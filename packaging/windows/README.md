@@ -20,11 +20,17 @@ available—the MSI plus a direct MSI-table inspection manifest. The build has
 no parameter for enrollment or device material and does not read such input.
 
 The checked-in `initial-runtime.json` pins the immutable first runtime version,
-component GUID, source-file list, and SHA-256 hashes. A different reviewed
-manifest requires both `-ApproveInitialRuntimeTransition` and
+component GUID, source-file hashes, complete staged artifact tree identity,
+and the CPython/PyInstaller producer identity. The manifest version must equal
+`AGENT_VERSION`; every routine build hashes all staged runtime files before MSI
+binding. A different reviewed manifest requires both
+`-ApproveInitialRuntimeTransition` and
 `-ApproveInitialRuntimeSourceChange`; the new manifest must use a new version
-and component GUID. Routine major upgrades update MSI-owned launcher/service
-metadata while keeping ProgramData and the existing `current.json` selection.
+and component GUID. An approved transition atomically moves `current.json`
+when it still selects the removed old initial runtime, while preserving another
+selected runtime only after validating it. Routine major upgrades update
+MSI-owned launcher/service metadata while keeping ProgramData and a valid
+`current.json` selection.
 `RemoveExistingProducts` runs inside the MSI transaction; vital service
 installation and the ACL actions fail the transaction instead of continuing
 with a partial service installation.
@@ -42,7 +48,9 @@ with a partial service installation.
 - A deferred non-impersonated action replaces the
   `C:\ProgramData\Endpoint Platform\Agent` DACL, disables inheritance, and
   grants only the reviewed rights to SYSTEM, Administrators, and the two
-  service identities.
+  service identities. Before that write it rejects every reparse path element
+  and requires SYSTEM/Administrators ownership under the trusted ProgramData
+  root.
 - The MSI contains only binaries, the immutable initial selector, this public
   documentation, and a public configuration template. Provisioning happens
   after installation through the separately reviewed protected handoff.

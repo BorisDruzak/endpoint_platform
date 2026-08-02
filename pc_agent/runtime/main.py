@@ -6,6 +6,7 @@ import argparse
 import asyncio
 import os
 import sys
+import threading
 from pathlib import Path
 from typing import Sequence
 
@@ -20,8 +21,37 @@ __all__ = ["RuntimeSettings", "run_runtime", "run_verify"]
 
 
 async def _wait_for_service_host_pipe() -> bytes:
-    """Return when the fixed SCM host closes this child's stdin control pipe."""
-    return await asyncio.to_thread(sys.stdin.buffer.read, 1)
+    """Return on host-pipe EOF without owning asyncio's blocking executor."""
+    loop = asyncio.get_running_loop()
+    completed: asyncio.Future[bytes] = loop.create_future()
+
+    def read_pipe() -> None:
+        try:
+            value = sys.stdin.buffer.read(1)
+        except BaseException as error:  # propagate native pipe failures to the loop
+            callback = completed.set_exception
+            result: bytes | BaseException = error
+        else:
+            callback = completed.set_result
+            result = value
+
+        def finish() -> None:
+            if completed.cancelled() or completed.done():
+                return
+            callback(result)  # type: ignore[arg-type]
+
+        try:
+            loop.call_soon_threadsafe(finish)
+        except RuntimeError:
+            # The runtime exited first and asyncio.run already closed the loop.
+            return
+
+    threading.Thread(
+        target=read_pipe,
+        name="endpoint-agent-service-stop-pipe",
+        daemon=True,
+    ).start()
+    return await completed
 
 
 async def _run_service_child(settings: RuntimeSettings) -> int:

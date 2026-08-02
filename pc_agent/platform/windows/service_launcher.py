@@ -50,10 +50,7 @@ def build_agent_child_command(paths: WindowsUpdatePaths | None = None) -> list[s
         or not _SEMVER_TRIPLET.fullmatch(payload["version"])
     ):
         raise ValueError("current selector is invalid")
-    executable = paths.versions_root / payload["version"] / UPDATE_EXECUTABLE_NAME
-    _reject_reparse_chain(paths.versions_root, executable)
-    if not executable.is_file():
-        raise ValueError("selected runtime executable is missing")
+    executable = validate_runtime_executable(paths, payload["version"])
     data_root = paths.pending_path.parents[1]
     return [
         str(executable),
@@ -65,6 +62,17 @@ def build_agent_child_command(paths: WindowsUpdatePaths | None = None) -> list[s
         "--transport-mode", "gateway_wss",
         "--no-migration-http-pull-fallback",
     ]
+
+
+def validate_runtime_executable(paths: WindowsUpdatePaths, version: str) -> Path:
+    """Return one regular executable below the fixed non-reparse versions root."""
+    if not _SEMVER_TRIPLET.fullmatch(version):
+        raise ValueError("selected runtime version is invalid")
+    executable = paths.versions_root / version / UPDATE_EXECUTABLE_NAME
+    _reject_reparse_chain(paths.versions_root, executable)
+    if not executable.is_file():
+        raise ValueError("selected runtime executable is missing")
+    return executable
 
 
 class ChildProcessCoordinator:
@@ -145,6 +153,7 @@ def _parser() -> argparse.ArgumentParser:
     modes.add_argument("--updater-service", action="store_true")
     modes.add_argument("--apply-programdata-acl", action="store_true")
     modes.add_argument("--restrict-updater-start", action="store_true")
+    modes.add_argument("--migrate-initial-selector", action="store_true")
     return parser
 
 
@@ -161,6 +170,13 @@ def main(argv: Sequence[str] | None = None) -> int:
 
         apply_machine_data_acl()
         return 0
+    if args.migrate_initial_selector:
+        from pc_agent.platform.windows.selector_migration import (
+            migrate_production_selector,
+        )
+
+        migrate_production_selector()
+        return 0
     from pc_agent.platform.windows.service_control import restrict_updater_start_permissions
 
     restrict_updater_start_permissions()
@@ -171,4 +187,10 @@ if __name__ == "__main__":
     raise SystemExit(main())
 
 
-__all__ = ["ChildProcessCoordinator", "build_agent_child_command", "main", "run_agent_service"]
+__all__ = [
+    "ChildProcessCoordinator",
+    "build_agent_child_command",
+    "main",
+    "run_agent_service",
+    "validate_runtime_executable",
+]

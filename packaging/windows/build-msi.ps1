@@ -181,10 +181,17 @@ $baselineInitialRuntimeManifest = Join-Path $packagingRoot 'initial-runtime.json
 if (-not $InitialRuntimeManifest) {
     $InitialRuntimeManifest = $baselineInitialRuntimeManifest
 }
+$initialRuntimeManifestPath = [IO.Path]::GetFullPath($InitialRuntimeManifest)
+$manifestPreview = Get-Content -LiteralPath $initialRuntimeManifestPath -Raw | ConvertFrom-Json
+$sourceDateEpoch = [string]$manifestPreview.toolchain.source_date_epoch
+if ($sourceDateEpoch -notmatch '^[1-9][0-9]*$') {
+    throw "Initial runtime manifest has an invalid SOURCE_DATE_EPOCH."
+}
+$env:SOURCE_DATE_EPOCH = $sourceDateEpoch
 $validationArguments = @(
     (Join-Path $packagingRoot 'initial_runtime_contract.py'),
     '--repository-root', $repositoryRoot,
-    '--manifest', ([IO.Path]::GetFullPath($InitialRuntimeManifest)),
+    '--manifest', $initialRuntimeManifestPath,
     '--baseline', $baselineInitialRuntimeManifest
 )
 if ($ApproveInitialRuntimeTransition) {
@@ -200,6 +207,8 @@ if ($LASTEXITCODE -ne 0) {
 $initialRuntimeIdentity = $identityJson | ConvertFrom-Json
 $InitialRuntimeVersion = [string]$initialRuntimeIdentity.version
 $InitialRuntimeComponentGuid = [string]$initialRuntimeIdentity.component_guid
+$BaselineInitialRuntimeVersion = [string]$initialRuntimeIdentity.baseline_version
+$InitialRuntimeTransitionApproved = if ([bool]$initialRuntimeIdentity.transition_approved) { '1' } else { '0' }
 if (-not $Version) {
     $Version = Get-AgentVersion (Join-Path $repositoryRoot 'pc_agent\version.py')
 }
@@ -252,6 +261,14 @@ Get-ChildItem -LiteralPath $builtCore | ForEach-Object {
     Copy-Item -LiteralPath $_.FullName -Destination $runtimeStage -Recurse -Force
 }
 Move-Item -LiteralPath (Join-Path $runtimeStage 'endpoint_agent_core.exe') -Destination (Join-Path $runtimeStage 'pc_agent.exe')
+$artifactValidationJson = & $python @($validationArguments + @('--artifact-root', $runtimeStage))
+if ($LASTEXITCODE -ne 0) {
+    throw "Staged initial runtime artifact validation failed."
+}
+$artifactValidationIdentity = $artifactValidationJson | ConvertFrom-Json
+if ([string]$artifactValidationIdentity.version -ne $InitialRuntimeVersion) {
+    throw "Staged artifact validation returned an unexpected runtime identity."
+}
 Copy-Item -LiteralPath $builtLauncher -Destination (Join-Path $programFilesStage 'launcher.exe')
 Copy-Item -LiteralPath $builtServiceHost -Destination (Join-Path $programFilesStage 'endpoint-agent-service.exe')
 New-Item -ItemType Directory -Path (Join-Path $programFilesStage 'config'), (Join-Path $programFilesStage 'docs') -Force | Out-Null
@@ -271,7 +288,8 @@ $fileManifest = foreach ($item in $allFiles) {
 }
 $componentManifest = @(
     'cmpLauncher', 'cmpCurrentSelector', 'cmpInitialRuntimeAnchor', 'cmpConfigTemplate', 'cmpPublicReadme',
-    'cmpProgramDataRoot', 'cmpInstallRootCleanup', 'cmpServiceEntrypoints'
+    'cmpProgramDataRoot', 'cmpInstallRootCleanup', 'cmpInitialRuntimeTransitionState',
+    'cmpServiceEntrypoints'
 ) + @($generatedItems | ForEach-Object {
     Get-StableId -Prefix 'cmpPayload' -Value (Get-RelativePath $runtimeStage $_.FullName)
 })
@@ -284,7 +302,9 @@ $binding = [ordered]@{
         version = $Version
         initial_runtime_version = $InitialRuntimeVersion
         initial_runtime_component_guid = $InitialRuntimeComponentGuid
-        initial_runtime_manifest_sha256 = (Get-FileHash -LiteralPath ([IO.Path]::GetFullPath($InitialRuntimeManifest)) -Algorithm SHA256).Hash.ToLowerInvariant()
+        initial_runtime_manifest_sha256 = (Get-FileHash -LiteralPath $initialRuntimeManifestPath -Algorithm SHA256).Hash.ToLowerInvariant()
+        initial_runtime_artifact = $manifestPreview.artifact
+        initial_runtime_toolchain = $manifestPreview.toolchain
         initial_runtime_transition_approved = [bool]$ApproveInitialRuntimeTransition
         initial_runtime_source_change_approved = [bool]$ApproveInitialRuntimeSourceChange
     }
@@ -327,6 +347,8 @@ $wixArguments = @(
     "build", "-arch", "x64", "-ext", "WixToolset.Util.wixext",
     "-dStagingDir=$stagingRoot", "-dInitialRuntimeVersion=$InitialRuntimeVersion",
     "-dInitialRuntimeComponentGuid=$InitialRuntimeComponentGuid",
+    "-dInitialRuntimeTransitionApproved=$InitialRuntimeTransitionApproved",
+    "-dBaselineInitialRuntimeVersion=$BaselineInitialRuntimeVersion",
     "-dPackageVersion=$Version", '-out', $msiPath
 ) + $wixSources
 Invoke-Checked $wixCommand.Source $wixArguments $repositoryRoot

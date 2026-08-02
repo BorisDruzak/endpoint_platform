@@ -16,6 +16,7 @@ a = Analysis(
         "win32security",
         "ntsecuritycon",
         "pc_agent.platform.windows.updater_service",
+        "pc_agent.platform.windows.selector_migration",
     ],
     datas=[],
     hookspath=[],
