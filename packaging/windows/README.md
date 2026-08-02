@@ -11,7 +11,9 @@ Prerequisites are Python with PyInstaller and the WiX Toolset 4 `wix` command
 with `WixToolset.Util.wixext` available. From the repository root:
 
 ```powershell
-.\packaging\windows\build-msi.ps1 -Configuration Release -Platform x64
+.\packaging\windows\build-msi.ps1 -Configuration Release -Platform x64 `
+  -InitialRuntimeManifest .\packaging\windows\initial-runtime-3.1.77.json `
+  -ApproveInitialRuntimeTransition -ApproveInitialRuntimeSourceChange
 ```
 
 The build directory contains the staged payload, generated WiX payload
@@ -19,7 +21,10 @@ binding, a SHA-256 file/service/component manifest, and—when WiX is
 available—the MSI plus a direct MSI-table inspection manifest. The build has
 no parameter for enrollment or device material and does not read such input.
 
-The checked-in `initial-runtime.json` pins the immutable first runtime version,
+The checked-in `initial-runtime.json` remains the immutable `3.1.76` baseline.
+The reviewed `initial-runtime-3.1.77.json` transition pins the Windows Device
+Context runtime with a new component GUID and must be built with both explicit
+approval switches shown above. Each manifest pins its runtime version,
 component GUID, source-file hashes, complete staged artifact tree identity,
 and the CPython/PyInstaller producer identity. The manifest version must equal
 `AGENT_VERSION`; every routine build hashes all staged runtime files before MSI

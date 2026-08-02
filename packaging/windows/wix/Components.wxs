@@ -9,9 +9,10 @@
               Name="launcher.exe" KeyPath="yes" />
       </Component>
       <Component Id="cmpCurrentSelector" Directory="INSTALLFOLDER"
-                 Guid="79A86026-5726-49BA-8C91-7EFF35DA0511" Bitness="always64">
+                 Guid="79A86026-5726-49BA-8C91-7EFF35DA0511" Bitness="always64"
+                 NeverOverwrite="yes">
         <File Id="filCurrentSelector" Source="$(var.StagingDir)\ProgramFiles\current.json"
-              Name="current.json" KeyPath="yes" NeverOverwrite="yes" />
+              Name="current.json" KeyPath="yes" />
       </Component>
       <Component Id="cmpInitialRuntimeAnchor" Directory="INITIALRUNTIMEDIR"
                  Guid="$(var.InitialRuntimeComponentGuid)" Bitness="always64">

@@ -57,3 +57,31 @@
 - TDD evidence: the new IP-override and hostname-override regression tests
   initially failed with `env_seed`; after the one-line resolver-order change,
   `pc_agent/tests/windows/test_identity.py` reported `4 passed`.
+
+## Packaging integration — versioned initial-runtime transition
+
+- Root cause: the immutable `initial-runtime.json` remains pinned to `3.1.76`.
+  Task 14 changed five of its reviewed Device Context sources and introduced
+  four Windows collector modules, so a routine build correctly rejected the
+  changed `baseline.py` hash.
+- Preserved the `3.1.76` baseline and added the explicitly approved
+  `initial-runtime-3.1.77.json` transition with a new component GUID
+  `E6799EB3-DA89-43D9-A1F6-6B60E03203E9`. `AGENT_VERSION` is now `3.1.77`.
+  The transition pins the complete staged runtime tree: 2,493 files and
+  SHA-256 `eb3e763fd241fb327467ae5b254f23c7de99c3f95e141ab8e258f4c2cd5f932f`.
+- TDD RED: the checked-in transition regression initially failed because the
+  manifest did not exist. Source-contract validation then passed only with
+  both transition approvals. A second RED showed WiX 4 rejected concatenated
+  `-dName=value` switches; the builder now passes each define as separate
+  `-d`, `Name=value` arguments. A third RED showed WiX 4 rejects
+  `File/@NeverOverwrite`; it is now the correct `Component/@NeverOverwrite`
+  MSI bit.
+- The documented build command now explicitly names the reviewed transition
+  manifest and both approval switches. The `3.1.76` baseline is not replaced
+  or re-pinned.
+- Exact approved build reached WiX 4.0.6 after the local Util extension was
+  added. WiX parsed and bound all sources but stopped in its cabinet writer
+  with `WIX0001 System.IO.IOException: The pipe is being closed`; this is an
+  external WiX native cabinet failure after staging and authoring validation,
+  not an MSI source/manifest validation failure. No system service or host was
+  modified.

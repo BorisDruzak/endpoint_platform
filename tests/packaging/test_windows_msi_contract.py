@@ -222,7 +222,18 @@ def test_payload_has_launcher_immutable_core_config_documentation_and_selector()
     assert by_id["filConfigTemplate"].get("Name") == "agent-config.yaml"
     assert by_id["filPublicReadme"].get("Name") == "README.md"
     assert by_id["filCurrentSelector"].get("Name") == "current.json"
-    assert by_id["filCurrentSelector"].get("NeverOverwrite") == "yes"
+
+
+def test_selector_never_overwrite_is_authored_on_the_wix4_component() -> None:
+    """WiX 4 emits MSI's NeverOverwrite component bit, not an invalid File attribute."""
+    components = _all_elements(_trees(), "Component")
+    selector_component = next(
+        component
+        for component in components
+        if any(child.get("Id") == "filCurrentSelector" for child in component)
+    )
+
+    assert selector_component.get("NeverOverwrite") == "yes"
 
 
 def test_major_upgrade_preserves_state_and_requires_explicit_runtime_transition() -> None:
@@ -348,6 +359,14 @@ def test_msi_builder_is_compatible_with_windows_powershell_51() -> None:
     assert "utf8NoBOM" not in script
     assert "[IO.Path]::GetRelativePath" not in script
     assert "::HashData" not in script
+
+
+def test_msi_builder_passes_wix_preprocessor_defines_as_separate_arguments() -> None:
+    """WiX 4 must receive each `-d` switch separately from its name/value pair."""
+    script = (WINDOWS_PACKAGING / "build-msi.ps1").read_text(encoding="utf-8")
+
+    assert '"-d", "StagingDir=$stagingRoot"' in script
+    assert '"-dStagingDir=$stagingRoot"' not in script
 
 
 @pytest.mark.parametrize(

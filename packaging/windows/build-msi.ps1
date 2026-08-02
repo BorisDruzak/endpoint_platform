@@ -350,11 +350,11 @@ $wixSources = @(
 $msiPath = Join-Path $outputRoot "EndpointAgent-$Version-x64.msi"
 $wixArguments = @(
     "build", "-arch", "x64", "-ext", "WixToolset.Util.wixext",
-    "-dStagingDir=$stagingRoot", "-dInitialRuntimeVersion=$InitialRuntimeVersion",
-    "-dInitialRuntimeComponentGuid=$InitialRuntimeComponentGuid",
-    "-dInitialRuntimeTransitionApproved=$InitialRuntimeTransitionApproved",
-    "-dBaselineInitialRuntimeVersion=$BaselineInitialRuntimeVersion",
-    "-dPackageVersion=$Version", '-out', $msiPath
+    "-d", "StagingDir=$stagingRoot", "-d", "InitialRuntimeVersion=$InitialRuntimeVersion",
+    "-d", "InitialRuntimeComponentGuid=$InitialRuntimeComponentGuid",
+    "-d", "InitialRuntimeTransitionApproved=$InitialRuntimeTransitionApproved",
+    "-d", "BaselineInitialRuntimeVersion=$BaselineInitialRuntimeVersion",
+    "-d", "PackageVersion=$Version", '-out', $msiPath
 ) + $wixSources
 Invoke-Checked $wixCommand.Source $wixArguments $repositoryRoot
 Export-MsiInspection $msiPath (Join-Path $outputRoot 'msi-inspection.json')
