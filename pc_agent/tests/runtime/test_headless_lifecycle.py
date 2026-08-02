@@ -26,7 +26,7 @@ from pc_agent.runtime.lifecycle import CredentialRejected, RetryableTransportErr
 from pc_agent.runtime.status import RuntimePhase
 from pc_agent.tests.context.conftest import FakeProbe
 from pc_agent.transport.protocol import compatibility_agent_hello
-from pc_agent.version import EXIT_UPDATE_PENDING
+from pc_agent.version import AGENT_VERSION, EXIT_UPDATE_PENDING
 
 
 def _settings(tmp_path: Path) -> RuntimeSettings:
@@ -436,6 +436,8 @@ async def test_default_lifecycle_hello_uses_exact_stored_enrollment_device_id(
         update={"device_id": stored_device_id}
     )
     assert observed == [expected]
+    assert expected.agent_version == "http-pull"
+    assert expected.launcher_version == "http-pull"
 
 
 @pytest.mark.asyncio
@@ -487,6 +489,8 @@ async def test_default_wss_composition_binds_bearer_to_stored_server_device_id(
     assert type(transport) is WebSocketGatewayTransport
     assert transport._credential == "w" * 43
     assert hello.device_id == stored_device_id
+    assert hello.agent_version == AGENT_VERSION
+    assert hello.launcher_version == AGENT_VERSION
 
 
 @pytest.mark.parametrize(

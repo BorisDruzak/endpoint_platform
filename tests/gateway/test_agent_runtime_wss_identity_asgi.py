@@ -23,6 +23,7 @@ from pc_agent.enrollment_identity import (
 from pc_agent.runtime import application as runtime_application
 from pc_agent.runtime.application import RuntimeApplication, RuntimeSettings
 from pc_agent.runtime.status import RuntimePhase
+from pc_agent.version import AGENT_VERSION
 
 from .conftest import (
     FixedWebSocketPeerApp,
@@ -181,6 +182,8 @@ async def test_default_runtime_wss_accepts_persisted_authoritative_device_id(
     assert isinstance(payload, dict)
     assert UUID(str(payload["device_id"])) == device.id
     assert device.id != UUID(int=0)
+    assert payload["agent_version"] == AGENT_VERSION
+    assert payload["launcher_version"] == AGENT_VERSION
 
 
 @pytest.mark.asyncio

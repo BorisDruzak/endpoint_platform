@@ -26,6 +26,7 @@ from pc_agent.transport.websocket import (
     MigrationFallbackGatewayTransport,
     WebSocketGatewayTransport,
 )
+from pc_agent.version import AGENT_VERSION
 
 from .command_executor import CommandExecutor
 from .lifecycle import (
@@ -143,7 +144,13 @@ def _load_hello(settings: object) -> AgentHelloV1:
     device_id = read_enrollment_device_id(
         settings.data_root / ENROLLMENT_IDENTITY_FILENAME
     )
-    return compatibility_agent_hello().model_copy(update={"device_id": device_id})
+    values: dict[str, object] = {"device_id": device_id}
+    if settings.transport_mode == "gateway_wss":
+        values.update(
+            agent_version=AGENT_VERSION,
+            launcher_version=AGENT_VERSION,
+        )
+    return compatibility_agent_hello().model_copy(update=values)
 
 
 def _create_transport(
