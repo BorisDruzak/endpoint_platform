@@ -46,14 +46,17 @@ def _parser() -> argparse.ArgumentParser:
         in {"1", "true", "yes"},
         help="temporarily use same-origin HTTP pull only when WSS is unavailable",
     )
-    parser.add_argument("--verify", action="store_true")
+    modes = parser.add_mutually_exclusive_group()
+    modes.add_argument("--windows-service", action="store_true")
+    modes.add_argument("--verify", action="store_true")
+    modes.add_argument("--print-safe-status", action="store_true")
     return parser
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     ca_value = args.ca_file or os.environ.get("ENDPOINT_AGENT_CA_FILE", "")
-    if not str(ca_value).strip():
+    if not str(ca_value).strip() and not args.print_safe_status:
         return 75
     settings = RuntimeSettings(
         data_root=runtime_paths.resolve_data_root(cli_value=args.data_dir),
@@ -63,8 +66,16 @@ def main(argv: Sequence[str] | None = None) -> int:
         transport_mode=args.transport_mode,
         migration_http_pull_fallback=args.migration_http_pull_fallback,
     )
+    if args.windows_service:
+        from pc_agent.platform.windows.service import run_windows_service
+
+        return run_windows_service(settings)
     if args.verify:
         return run_verify(settings)
+    if args.print_safe_status:
+        from pc_agent.platform.windows.service import print_safe_status
+
+        return print_safe_status(settings)
     return asyncio.run(run_runtime(settings))
 
 

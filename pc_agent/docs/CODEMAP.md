@@ -67,6 +67,27 @@
   platform packages must use `pc_agent/runtime/main.py` and must not import
   the legacy branch.
 
+## Windows headless service contract (2026-08-02)
+
+- `pc_agent/platform/windows/service.py` supplies the import-safe Windows
+  LocalService boundary. `pc_agent/runtime/main.py` accepts exactly
+  `--windows-service`, `--verify`, and `--print-safe-status`; only the first
+  mode imports pywin32 at execution time. The service coordinator maps SCM
+  stop/shutdown to cancellation while preserving the neutral runtime's Gateway
+  reconnect ownership and update exit `42`, with no desktop/UI imports.
+- `pc_agent/platform/windows/provision.py` is the
+  `endpoint-agent-provision.exe` contract. It takes one-time enrollment
+  material only from stdin or a protected file, validates the Endpoint HTTPS
+  origin and installed CA, atomically persists the bearer plus the existing
+  canonical server-issued `enrollment-identity.json`, proves both records,
+  starts the service, and only then consumes the staged claim. It never prints
+  enrollment secrets.
+- `pc_agent/platform/windows/acl.py` defines the explicit protected DACL for
+  `SYSTEM`, `Administrators`, `NT SERVICE\EndpointAgent`, and
+  `NT SERVICE\EndpointAgentUpdater`. Ordinary users receive no read access to
+  `device-credential`. `service_control.py` exposes an injectable SCM start
+  boundary; MSI service registration remains outside this Python contract.
+
 ## ALT first-boot enrollment bootstrap (2026-07-30)
 
 - `pc_agent/linux_enrollment_runtime.py` is the fixed Linux/systemd startup
