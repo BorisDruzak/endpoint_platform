@@ -155,9 +155,10 @@ class WebSocketGatewayTransport:
             except (
                 aiohttp.ClientConnectionError,
                 asyncio.TimeoutError,
-                OSError,
             ) as error:
                 await self._retry_unavailable(attempt, error)
+            except OSError as error:
+                raise GatewayTerminalError(type(error).__name__) from error
         raise AssertionError("unreachable WSS reconnect state")
 
     async def _retry_unavailable(self, attempt: int, error: Exception) -> None:
@@ -267,9 +268,10 @@ class WebSocketGatewayTransport:
         except (
             aiohttp.ClientConnectionError,
             asyncio.TimeoutError,
-            OSError,
         ) as error:
             raise GatewayTransportUnavailable(type(error).__name__) from error
+        except OSError as error:
+            raise GatewayTerminalError(type(error).__name__) from error
         if response.type in {
             aiohttp.WSMsgType.CLOSE,
             aiohttp.WSMsgType.CLOSED,
@@ -316,9 +318,10 @@ class WebSocketGatewayTransport:
         except (
             aiohttp.ClientConnectionError,
             asyncio.TimeoutError,
-            OSError,
         ) as error:
             raise GatewayTransportUnavailable(type(error).__name__) from error
+        except OSError as error:
+            raise GatewayTerminalError(type(error).__name__) from error
 
     def _require_socket(self):
         if self._socket is None:

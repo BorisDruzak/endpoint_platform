@@ -417,6 +417,41 @@ async def test_explicit_same_origin_fallback_activates_only_after_wss_unavailabl
 
 
 @pytest.mark.asyncio
+async def test_local_ca_oserror_is_terminal_and_never_selects_http_fallback(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """A missing or unreadable local CA is configuration failure, not WSS outage."""
+    from pc_agent.transport import websocket
+
+    events: list[str] = []
+
+    def missing_ca(**_kwargs):
+        raise FileNotFoundError("missing Endpoint CA")
+
+    monkeypatch.setattr(websocket.ssl, "create_default_context", missing_ca)
+    primary = websocket.WebSocketGatewayTransport(
+        ca_file=tmp_path / "missing-endpoint-ca.pem",
+        credential="r" * 43,
+        endpoint_origin=_ORIGIN,
+        reconnect_policy=websocket.WebSocketReconnectPolicy(maximum_attempts=1),
+    )
+    fallback = _RecordingTransport("http", events)
+    transport = websocket.MigrationFallbackGatewayTransport(
+        primary=primary,
+        fallback=fallback,
+        enabled=True,
+        endpoint_origin=_ORIGIN,
+        fallback_origin=_ORIGIN,
+    )
+
+    with pytest.raises(GatewayTerminalError, match="FileNotFoundError"):
+        await transport.connect(_hello())
+
+    assert events == []
+
+
+@pytest.mark.asyncio
 async def test_explicit_fallback_switches_after_connected_wss_unavailability() -> None:
     from pc_agent.transport import websocket
 

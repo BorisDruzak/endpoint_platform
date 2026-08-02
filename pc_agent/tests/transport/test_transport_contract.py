@@ -93,8 +93,22 @@ class _InMemoryGatewayTransport:
 
     async def receive(self) -> GatewayInboundV1:
         self._events.append("receive")
-        if getattr(self, "_completed", False):
+        if getattr(self, "_result_acknowledged", False):
             raise asyncio.CancelledError()
+        if getattr(self, "_result_sent", False):
+            self._result_acknowledged = True
+            return GatewayInboundV1.model_validate(
+                {
+                    "schema_version": "gateway_ws_envelope_v1",
+                    "sequence": 2,
+                    "kind": "result_ack",
+                    "payload": {
+                        "schema_version": "result_ack_v1",
+                        "command_id": str(_COMMAND_ID),
+                        "result_sequence": 1,
+                    },
+                }
+            )
         return GatewayInboundV1.model_validate(
             {
                 "schema_version": "gateway_ws_envelope_v1",
@@ -119,7 +133,7 @@ class _InMemoryGatewayTransport:
 
     async def send_result(self, result: AgentResultV1) -> None:
         self._events.append(f"result:{result.command_id}")
-        self._completed = True
+        self._result_sent = True
 
     async def send_heartbeat(self, heartbeat: AgentHeartbeatV1) -> None:
         self._events.append(f"heartbeat:{heartbeat.device_id}")
@@ -170,6 +184,7 @@ async def test_in_memory_gateway_transport_runs_through_runtime_lifecycle(
             load_credential=lambda _settings: "c" * 43,
             create_executor=_Executor,
             create_transport=create_transport,
+            load_hello=lambda _settings: _hello(),
         ),
     )
 
@@ -181,8 +196,7 @@ async def test_in_memory_gateway_transport_runs_through_runtime_lifecycle(
         "receive",
         f"ack:{_COMMAND_ID}",
         f"result:{_COMMAND_ID}",
-        "close",
-        "connect",
+        "receive",
         "receive",
         "close",
     ]
@@ -215,6 +229,7 @@ async def test_default_selection_drives_http_pull_gateway_contract_through_lifec
             load_credential=lambda _settings: "c" * 43,
             create_executor=_Executor,
             create_transport=defaults.create_transport,
+            load_hello=lambda _settings: _hello(),
         ),
     )
 
@@ -224,11 +239,79 @@ async def test_default_selection_drives_http_pull_gateway_contract_through_lifec
         "receive",
         f"ack:{_COMMAND_ID}",
         f"result:{_COMMAND_ID}",
-        "close",
-        "connect",
+        "receive",
         "receive",
         "close",
     ]
+
+
+@pytest.mark.asyncio
+async def test_runtime_sends_heartbeats_on_the_negotiated_connected_schedule(
+    tmp_path,
+) -> None:
+    """A blocked receive loop must not starve negotiated Gateway heartbeats."""
+    sleeps: list[float] = []
+    observed_hello: list[AgentHelloV1] = []
+    heartbeats: list[AgentHeartbeatV1] = []
+    heartbeat_sent = asyncio.Event()
+
+    class HeartbeatTransport(_InMemoryGatewayTransport):
+        async def connect(self, hello: AgentHelloV1) -> GatewayHelloV1:
+            observed_hello.append(hello)
+            self._events.append("connect")
+            return GatewayHelloV1(
+                schema_version="gateway_hello_v1",
+                session_id=UUID("00000000-0000-4000-8000-000000000405"),
+                heartbeat_interval_seconds=7,
+                maximum_message_bytes=1024,
+                policy_revision=0,
+                effective_capabilities=["context.baseline.collect"],
+                server_time=datetime(2026, 8, 1, tzinfo=UTC),
+            )
+
+        async def receive(self) -> GatewayInboundV1:
+            self._events.append("receive")
+            await heartbeat_sent.wait()
+            raise asyncio.CancelledError()
+
+        async def send_heartbeat(self, heartbeat: AgentHeartbeatV1) -> None:
+            heartbeats.append(heartbeat)
+            heartbeat_sent.set()
+
+    async def sleep(delay: float) -> None:
+        sleeps.append(delay)
+        if len(sleeps) > 1:
+            await asyncio.Future()
+        await asyncio.sleep(0)
+
+    events: list[str] = []
+    transport = HeartbeatTransport(events)
+    settings = RuntimeSettings(
+        data_root=tmp_path / "data",
+        install_root=tmp_path / "install",
+        ca_file=tmp_path / "endpoint-ca.crt",
+        endpoint_origin="https://endpoint.sosnadmin.local",
+        transport_mode="gateway_wss",
+    )
+    application = RuntimeApplication(
+        settings,
+        RuntimeDependencies(
+            load_credential=lambda _settings: "c" * 43,
+            create_executor=_Executor,
+            create_transport=lambda *_args: transport,
+            load_hello=lambda _settings: _hello(),
+            heartbeat_sleep=sleep,
+        ),
+    )
+
+    assert await application.run() == 0
+    assert observed_hello == [_hello()]
+    assert events == ["connect", "receive", "close"]
+    assert sleeps[0] == 7
+    assert len(heartbeats) == 1
+    assert heartbeats[0].device_id == _DEVICE_ID
+    assert heartbeats[0].platform == "linux"
+    assert heartbeats[0].agent_version == "1.0.0"
 
 
 @pytest.mark.asyncio

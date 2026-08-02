@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
@@ -12,7 +11,7 @@ from uuid import UUID
 import aiohttp
 import pytest
 
-from endpoint_contracts import AgentCommandV1
+from endpoint_contracts import AgentCommandV1, GatewayHelloV1
 from pc_agent import endpoint_gateway
 from pc_agent.runtime import application as runtime_application
 from pc_agent.runtime.application import (
@@ -52,15 +51,28 @@ class _Executor:
         raise AssertionError("the lifecycle test transport must not deliver commands")
 
 
+def _gateway_hello() -> GatewayHelloV1:
+    return GatewayHelloV1(
+        schema_version="gateway_hello_v1",
+        session_id=UUID("00000000-0000-4000-8000-000000000403"),
+        heartbeat_interval_seconds=30,
+        maximum_message_bytes=1024,
+        policy_revision=0,
+        effective_capabilities=["context.baseline.collect"],
+        server_time=datetime(2026, 8, 1, tzinfo=UTC),
+    )
+
+
 class _Transport:
     def __init__(self, events: list[str], outcome: BaseException | None = None) -> None:
         self._events = events
         self._outcome = outcome
 
-    async def connect(self, _hello) -> None:
+    async def connect(self, _hello) -> GatewayHelloV1:
         self._events.append("transport.connect")
         if self._outcome is not None:
             raise self._outcome
+        return _gateway_hello()
 
     async def receive(self):
         self._events.append("transport.receive")
@@ -330,8 +342,8 @@ async def test_default_runtime_wires_executor_into_current_http_pull(
     observed: list[dict[str, object]] = []
 
     class NoWorkPullTransport:
-        async def connect(self, _hello) -> object:
-            return object()
+        async def connect(self, _hello) -> GatewayHelloV1:
+            return _gateway_hello()
 
         async def receive(self) -> object:
             raise asyncio.CancelledError()

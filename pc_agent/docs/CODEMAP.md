@@ -16,7 +16,12 @@
 - `pc_agent/runtime/application.py` and `runtime/lifecycle.py` own neutral
   startup, one-time credential loading, command-executor startup, classified
   reconnect, controlled update exit `42`, terminal credential rejection, and
-  clean component shutdown. Cleanup errors cannot replace the selected clean,
+  clean component shutdown. After a Gateway hello, the lifecycle keeps one
+  transport connected for sequential messages and runs negotiated heartbeats
+  independently of command execution. Its injected hello loader is the seam
+  for an authoritative bearer-bound device identity; the compatibility loader
+  remains transitional until enrollment durably persists the server-assigned
+  Device ID. Cleanup errors cannot replace the selected clean,
   credential-rejected, or update-pending exit. The transitional HTTP-pull seam
   delegates one network attempt at a time through
   `pc_agent/transport/http_pull.py`; that adapter exclusively owns the fixed

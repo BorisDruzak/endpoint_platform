@@ -8,7 +8,14 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Protocol
 
-from endpoint_contracts import AgentCommandAckV1, AgentCommandV1, AgentResultV1
+from endpoint_contracts import (
+    AgentCommandAckV1,
+    AgentCommandV1,
+    AgentHeartbeatV1,
+    AgentHelloV1,
+    AgentResultV1,
+    GatewayHelloV1,
+)
 from pc_agent.transport.base import (
     GatewayCredentialRejected,
     GatewayIdle,
@@ -44,12 +51,18 @@ class RuntimeExecutor(Protocol):
     async def execute(self, command: AgentCommandV1) -> AgentResultV1: ...
 
 
+def _compatibility_hello(_settings: object) -> AgentHelloV1:
+    return compatibility_agent_hello()
+
+
 @dataclass(frozen=True, slots=True)
 class RuntimeDependencies:
     load_credential: Callable[[object], str]
     create_executor: Callable[[], RuntimeExecutor]
     create_transport: Callable[[object, str, RuntimeExecutor], GatewayTransport]
+    load_hello: Callable[[object], AgentHelloV1] = _compatibility_hello
     sleep: Callable[[float], Awaitable[None]] = asyncio.sleep
+    heartbeat_sleep: Callable[[float], Awaitable[None]] = asyncio.sleep
     reconnect_delay: float = 5.0
 
 
@@ -70,6 +83,7 @@ class RuntimeLifecycle:
         self._status.transition(RuntimePhase.STARTING)
         try:
             credential = self._dependencies.load_credential(self._settings)
+            hello = self._dependencies.load_hello(self._settings)
         except CredentialRejected as error:
             self._status.transition(RuntimePhase.CREDENTIAL_REJECTED, error=error)
             return 75
@@ -94,11 +108,18 @@ class RuntimeLifecycle:
                 next_delay: float | None = None
                 try:
                     self._status.transition(RuntimePhase.CONNECTING)
-                    await transport.connect(compatibility_agent_hello())
-                    inbound = await transport.receive()
-                    await _handle_inbound(transport, executor, inbound)
+                    gateway_hello = await transport.connect(hello)
                     self._status.transition(RuntimePhase.RUNNING)
-                    next_delay = 0.0
+                    await _run_connected(
+                        transport,
+                        executor,
+                        hello,
+                        gateway_hello,
+                        self._dependencies.heartbeat_sleep,
+                    )
+                    raise GatewayTerminalError(
+                        "Gateway connected loops stopped unexpectedly"
+                    )
                 except SystemExit as error:
                     code = error.code if isinstance(error.code, int) else 1
                     if code == EXIT_UPDATE_PENDING:
@@ -148,12 +169,98 @@ async def _cleanup(action: Callable[[], Awaitable[None]]) -> None:
         pass
 
 
+async def _run_connected(
+    transport: GatewayTransport,
+    executor: RuntimeExecutor,
+    hello: AgentHelloV1,
+    gateway_hello: GatewayHelloV1,
+    sleep: Callable[[float], Awaitable[None]],
+) -> None:
+    """Run receive and heartbeat loops for the lifetime of one connection."""
+    tasks = {
+        asyncio.create_task(_receive_loop(transport, executor)),
+        asyncio.create_task(
+            _heartbeat_loop(
+                transport,
+                hello,
+                gateway_hello.heartbeat_interval_seconds,
+                sleep,
+            )
+        ),
+    }
+    try:
+        done, _pending = await asyncio.wait(
+            tasks,
+            return_when=asyncio.FIRST_COMPLETED,
+        )
+        for task in done:
+            if task.cancelled():
+                continue
+            error = task.exception()
+            if error is not None:
+                raise error
+        raise asyncio.CancelledError()
+    finally:
+        for task in tasks:
+            task.cancel()
+        for task in tasks:
+            try:
+                await task
+            except BaseException:
+                pass
+
+
+async def _receive_loop(
+    transport: GatewayTransport,
+    executor: RuntimeExecutor,
+) -> None:
+    while True:
+        inbound = await transport.receive()
+        await _handle_inbound(transport, executor, inbound)
+
+
+async def _heartbeat_loop(
+    transport: GatewayTransport,
+    hello: AgentHelloV1,
+    interval: float,
+    sleep: Callable[[float], Awaitable[None]],
+) -> None:
+    platform = "linux" if hello.platform == "linux_amd64" else "windows"
+    while True:
+        await sleep(interval)
+        await transport.send_heartbeat(
+            AgentHeartbeatV1(
+                schema_version="agent_heartbeat_v1",
+                device_id=hello.device_id,
+                platform=platform,
+                agent_version=hello.agent_version,
+                reported_at=datetime.now(UTC),
+            )
+        )
+
+
 async def _handle_inbound(
     transport: GatewayTransport,
     executor: RuntimeExecutor,
     inbound: GatewayInboundV1,
 ) -> None:
-    """Execute only command envelopes at the current common-runtime boundary."""
+    """Handle the bounded server-to-agent messages owned by the common runtime."""
+    if inbound.root.kind == "result_ack":
+        return
+    if inbound.root.kind == "policy_update":
+        return
+    if inbound.root.kind == "command_cancel":
+        return
+    if inbound.root.kind == "server_shutdown_notice":
+        notice = inbound.root.payload
+        if notice.reason == "session_replaced":
+            raise GatewayTerminalError("Gateway session was replaced")
+        raise GatewayIdle(float(notice.retry_after_seconds or 0))
+    if inbound.root.kind == "error":
+        error = inbound.root.payload
+        if error.retryable:
+            raise GatewayRetryableError(error.code)
+        raise GatewayTerminalError(error.code)
     if inbound.root.kind != "command":
         raise GatewayTerminalError("unsupported Gateway inbound message")
     command = inbound.root.payload
