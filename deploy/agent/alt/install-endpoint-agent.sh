@@ -799,12 +799,27 @@ install_package() {
     cleanup_release_backup
 }
 
+finalize_service_unit() {
+    # This fixed transformation is intentionally idempotent. A reviewed unit
+    # replacement may restore the bootstrap template after the one-time claim
+    # was deleted, but it must not restore that credential dependency.
+    sed -i \
+        -e '/^LoadCredential=endpoint-enrollment-claim:/d' \
+        -e '/^Environment=ENDPOINT_AGENT_PROVISIONING_HANDOFF_FILE=/d' \
+        -e 's/^Environment=ENDPOINT_AGENT_ENROLLMENT_REQUIRED=1$/Environment=ENDPOINT_AGENT_GATEWAY_READY=1/' \
+        "/etc/systemd/system/$SERVICE_NAME"
+    systemctl daemon-reload
+}
+
 finalize_handoff() {
     require_root
     validate_existing_service_account
     validate_install_destinations
     if [[ ! -e "$HANDOFF_REQUEST_TARGET" && ! -L "$HANDOFF_REQUEST_TARGET" ]]; then
         if [[ ! -e "$HANDOFF_TARGET" && ! -L "$HANDOFF_TARGET" ]]; then
+            require_opaque_permanent_credential
+            require_enrollment_identity
+            finalize_service_unit
             printf 'one-time provisioning handoff was already finalized\n'
             return
         fi
@@ -820,15 +835,9 @@ finalize_handoff() {
     # constants, validated immediately above, and no caller-supplied pathname
     # can reach this finalizer.
     rm -f -- "$HANDOFF_TARGET" "$HANDOFF_REQUEST_TARGET"
-    # The bootstrap claim is intentionally absent after finalization.  Switch
-    # the fixed unit to its post-enrolment form before daemon-reload, otherwise
-    # systemd would reject the missing LoadCredential source on every restart.
-    sed -i \
-        -e '/^LoadCredential=endpoint-enrollment-claim:/d' \
-        -e '/^Environment=ENDPOINT_AGENT_PROVISIONING_HANDOFF_FILE=/d' \
-        -e 's/^Environment=ENDPOINT_AGENT_ENROLLMENT_REQUIRED=1$/Environment=ENDPOINT_AGENT_GATEWAY_READY=1/' \
-        "/etc/systemd/system/$SERVICE_NAME"
-    systemctl daemon-reload
+    # The bootstrap claim is intentionally absent after finalization. Switch
+    # the fixed unit to its post-enrolment form before any service restart.
+    finalize_service_unit
     printf 'one-time provisioning handoff finalized after verified credential proof\n'
 }
 

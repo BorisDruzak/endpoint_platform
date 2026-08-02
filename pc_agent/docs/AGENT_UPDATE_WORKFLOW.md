@@ -60,21 +60,28 @@ host.
 ### ALT Linux privilege boundary
 
 The ALT systemd agent runs as `endpoint-agent` and must not receive write
-access to `/opt/endpoint-agent`. A durable
-`updates/pending_alt_update.json` is therefore consumed by the fixed
+access to `/opt/endpoint-agent`. Durable `updates/pending_alt_update.json` and
+`updates/rollback-request.json` records are therefore consumed by the fixed
 root-owned `endpoint-agent-update.path` and
 `endpoint-agent-update.service`, not by the ordinary launcher loop. The
 one-shot worker validates the separately reviewed fixed root launcher, stops
-the agent, invokes that launcher with `--apply-alt-update`, then starts the
+the agent, invokes that launcher with the matching fixed worker mode, then starts the
 service again. Headless version payloads do not replace the stable launcher.
+A successful update re-verifies the current release and records its exact
+selector identity in root-owned `/opt/endpoint-agent/previous.json` before
+publishing the candidate. After repeated immediate crashes, the unprivileged
+launcher writes only an identity-bound rollback request under `/var/lib`; it
+never writes either selector. The root worker accepts only the target in
+`previous.json`, re-verifies that release's exact manifest/tree, and atomically
+replaces `current.json`. Only its post-publication terminal marker is reported
+as `rolled_back`; invalid or tampered requests do not change the selector.
 The service passes explicit WSS and fallback-off arguments; the launcher sends
 them only to `endpoint-agent/endpoint-agent`, while retained
 `pc_agent/pc_agent` releases receive only their legacy `--no-gui` argument. A
 handled artifact or publish failure is recorded
 locally and must still return the prior selected unprivileged release to
-service; `scheduled` remains non-terminal. A rollback may select an existing
-release only after its manifest, exact regular-file set, hashes and POSIX modes
-match the newly verified bundle; no immutable release is overwritten. On
+service; `scheduled` and `startup_crash_rollback_requested` remain non-terminal.
+No immutable release is overwritten. On
 restart, the reporter walks durable history newest-first: a newer failure is
 reported ahead of a prior applied operation, while an old failure cannot mask a
 later applied canary. An older release is eligible only when the authenticated controller reason has

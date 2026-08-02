@@ -152,8 +152,26 @@ def _pending(
 
 def _initial_selector(install_root: Path) -> None:
     (install_root / "versions" / "3.1.76" / "pc_agent").mkdir(parents=True)
-    (install_root / "versions" / "3.1.76" / "pc_agent" / "pc_agent").write_bytes(
-        b"old-agent"
+    binary = install_root / "versions" / "3.1.76" / "pc_agent" / "pc_agent"
+    binary.write_bytes(b"old-agent")
+    binary.chmod(0o755)
+    (install_root / "versions" / "3.1.76" / "manifest.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "version": "3.1.76",
+                "source_revision": "deadbeef",
+                "files": [
+                    {
+                        "path": "pc_agent/pc_agent",
+                        "sha256": _sha256(b"old-agent"),
+                        "mode": "0755",
+                    }
+                ],
+            },
+            separators=(",", ":"),
+        ),
+        encoding="utf-8",
     )
     (install_root / "current.json").write_text(
         json.dumps(
@@ -214,6 +232,125 @@ def test_valid_alt_update_preserves_selector_schema_and_prior_release(
         install_root / "versions" / "3.1.77-rc.1" / "pc_agent",
         0o755,
     ) in chmod_calls
+    assert json.loads((install_root / "previous.json").read_text(encoding="utf-8")) == {
+        "schema_version": 1,
+        "source_revision": "deadbeef",
+        "version": "3.1.76",
+    }
+
+
+def _write_rollback_request(
+    data_root: Path,
+    *,
+    crashed_version: str = "3.1.78",
+    crashed_revision: str = "badheadless",
+    rollback_version: str = "3.1.77",
+    rollback_revision: str = "acceptedheadless",
+) -> Path:
+    request = data_root / "updates" / "rollback-request.json"
+    request.parent.mkdir(parents=True, exist_ok=True)
+    request.write_text(
+        json.dumps(
+            {
+                "crashed_source_revision": crashed_revision,
+                "crashed_version": crashed_version,
+                "rollback_source_revision": rollback_revision,
+                "rollback_version": rollback_version,
+                "schema_version": "endpoint_alt_rollback_request_v1",
+            },
+            separators=(",", ":"),
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+    request.chmod(0o600)
+    return request
+
+
+def _select_two_headless_releases(install_root: Path, data_root: Path) -> None:
+    _initial_selector(install_root)
+    for version, revision, name in (
+        ("3.1.77", "acceptedheadless", "accepted.tar.gz"),
+        ("3.1.78", "badheadless", "bad.tar.gz"),
+    ):
+        artifact = data_root / "updates" / "downloads" / name
+        artifact.parent.mkdir(parents=True, exist_ok=True)
+        _write_bundle(
+            artifact, version=version, source_revision=revision, layout="headless"
+        )
+        ok, selected = apply_alt_update(
+            install_root,
+            data_root,
+            _pending(data_root, artifact, version=version),
+        )
+        assert (ok, selected) == (True, version)
+
+
+def test_root_worker_rolls_bad_headless_release_back_to_verified_previous_headless(
+    tmp_path: Path,
+) -> None:
+    """A worker that trusts history or skips the release manifest can select bad code."""
+    install_root, data_root = tmp_path / "install", tmp_path / "data"
+    _select_two_headless_releases(install_root, data_root)
+    request = _write_rollback_request(data_root)
+
+    ok, version = alt_update_installer.apply_alt_rollback(install_root, data_root)
+
+    assert (ok, version) == (True, "3.1.77")
+    assert json.loads((install_root / "current.json").read_text(encoding="utf-8")) == {
+        "schema_version": 1,
+        "source_revision": "acceptedheadless",
+        "version": "3.1.77",
+    }
+    assert not request.exists()
+    assert not (install_root / "previous.json").exists()
+    marker = json.loads(
+        (data_root / "updates" / "last_failed_launch.json").read_text(encoding="utf-8")
+    )
+    assert marker == {
+        "crashed_version": "3.1.78",
+        "reason": "startup_crash_rollback",
+        "rollback_version": "3.1.77",
+    }
+
+
+def test_root_worker_rejects_request_for_release_other_than_root_previous(
+    tmp_path: Path,
+) -> None:
+    """A service-writable request must not choose an arbitrary installed release."""
+    install_root, data_root = tmp_path / "install", tmp_path / "data"
+    _select_two_headless_releases(install_root, data_root)
+    original = (install_root / "current.json").read_bytes()
+    _write_rollback_request(
+        data_root,
+        rollback_version="3.1.76",
+        rollback_revision="deadbeef",
+    )
+
+    ok, reason = alt_update_installer.apply_alt_rollback(install_root, data_root)
+
+    assert (ok, reason) == (False, "ValueError")
+    assert (install_root / "current.json").read_bytes() == original
+    assert (data_root / "updates" / "last_failed_alt_rollback_request.json").is_file()
+
+
+def test_root_worker_rejects_tampered_previous_release_without_selector_change(
+    tmp_path: Path,
+) -> None:
+    """Matching selector strings are insufficient when immutable bytes changed."""
+    install_root, data_root = tmp_path / "install", tmp_path / "data"
+    _select_two_headless_releases(install_root, data_root)
+    original = (install_root / "current.json").read_bytes()
+    previous_binary = (
+        install_root / "versions" / "3.1.77" / "endpoint-agent" / "endpoint-agent"
+    )
+    previous_binary.write_bytes(b"tampered")
+    _write_rollback_request(data_root)
+
+    ok, reason = alt_update_installer.apply_alt_rollback(install_root, data_root)
+
+    assert (ok, reason) == (False, "ValueError")
+    assert (install_root / "current.json").read_bytes() == original
 
 
 def test_manifest_hash_mismatch_leaves_active_alt_selector_unchanged(
@@ -260,7 +397,29 @@ def test_verified_existing_alt_release_can_be_selected_for_rollback(
     assert (ok, version) == (True, "3.1.77-rc.1")
     existing_release = install_root / "versions" / "3.1.77-rc.1"
     existing_launcher = (existing_release / "launcher").read_bytes()
-    (install_root / "versions" / "3.1.78" / "pc_agent").mkdir(parents=True)
+    current_release = install_root / "versions" / "3.1.78"
+    (current_release / "pc_agent").mkdir(parents=True)
+    current_binary = current_release / "pc_agent" / "pc_agent"
+    current_binary.write_bytes(b"newer-agent")
+    current_binary.chmod(0o755)
+    (current_release / "manifest.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "version": "3.1.78",
+                "source_revision": "newerbuild",
+                "files": [
+                    {
+                        "path": "pc_agent/pc_agent",
+                        "sha256": _sha256(b"newer-agent"),
+                        "mode": "0755",
+                    }
+                ],
+            },
+            separators=(",", ":"),
+        ),
+        encoding="utf-8",
+    )
     (install_root / "current.json").write_text(
         json.dumps(
             {

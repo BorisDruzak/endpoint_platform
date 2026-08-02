@@ -107,7 +107,13 @@ On success it also removes the matching `LoadCredential` and handoff environment
 line from the fixed systemd unit, switches it to `ENDPOINT_AGENT_GATEWAY_READY=1`,
 and reloads systemd. This prevents later restarts from depending on an
 intentionally deleted claim and starts the TLS-only Endpoint Gateway transport.
-It is idempotent after both the claim and request were removed. A future test on
+It is idempotent after both the claim and request were removed: it first
+revalidates the service-owned permanent credential and canonical enrollment
+identity, then reapplies the fixed claim-free unit transformation. Therefore,
+after replacing an already-finalized installed unit, run `--finalize-handoff`
+before restarting the service; it removes any reintroduced claim dependency
+without restoring the deleted one-time claim. Missing durable enrollment proof
+fails closed and leaves the unit unchanged. A future test on
 `test-agent-lin` must record enrollment, scheduled baseline/health/network
 collections, update/rollback, and token-redacted journal evidence before any
 broader rollout.
@@ -148,11 +154,19 @@ the retained legacy launcher/`pc_agent` shape, never a mixture.
 
 The agent service itself remains the dedicated unprivileged `endpoint-agent`
 account and cannot write `/opt/endpoint-agent`. A root-owned
-`endpoint-agent-update.path` watches only the fixed ALT pending file and starts
-the companion `endpoint-agent-update.service`. That one-shot worker stops the
-agent, validates and publishes the immutable release through the fixed stable
-launcher, and starts the unprivileged service again even after a handled
-artifact failure. Inspect both units during a canary without printing any
+`endpoint-agent-update.path` watches the fixed ALT pending update and fixed
+`updates/rollback-request.json`. That request contains only current/previous
+version and source-revision identities; it contains no path or command. A
+successful root update first re-verifies the selected release and records it in
+root-owned `/opt/endpoint-agent/previous.json`, then publishes the candidate.
+The companion one-shot worker validates the request metadata, stops the agent,
+and invokes only the fixed stable launcher. Rollback mode compares the request
+to root-owned `current.json` and `previous.json`, re-verifies the exact previous
+manifest, files, hashes and modes, and atomically replaces only `current.json`.
+It writes the terminal `startup_crash_rollback` marker only after selector
+publication; rejected requests leave the selector unchanged. The worker starts
+the unprivileged service again after a handled request. Inspect both units
+during a canary without printing any
 credentials:
 
 ```bash

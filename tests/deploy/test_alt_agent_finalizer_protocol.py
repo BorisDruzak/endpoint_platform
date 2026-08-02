@@ -201,10 +201,12 @@ case {scenario!r} in
   request-symlink) request_symlink=true ;;
   credential-symlink) mv "$credential" "$credential.real"; ln -s "$credential.real" "$credential"; digest=$(sha256sum -- "$credential.real" | awk '{{ print $1 }}') ;;
   parent-symlink) mkdir "$root/claim-parent"; mv "$claim" "$root/claim-parent/provisioning-claim"; rm -rf "$root/etc/endpoint-agent"; ln -s "$root/claim-parent" "$root/etc/endpoint-agent" ;;
-  already-finalized) rm -f "$claim" "$request" ;;
+  already-finalized|already-finalized-twice) rm -f "$claim" "$request" ;;
+  already-finalized-identity-missing) rm -f "$claim" "$request" "$identity" ;;
+  already-finalized-credential-missing) rm -f "$claim" "$request" "$credential" ;;
   *) exit 97 ;;
 esac
-if [[ {scenario!r} != already-finalized ]]; then
+if [[ {scenario!r} != already-finalized* ]]; then
   printf '{{"claim_credential_name":"endpoint-enrollment-claim","credential_path":"%s","credential_sha256":"%s","device_id":"9c83f6de-3435-4fc3-a7e0-7bcddc744f3b","schema_version":"endpoint_claim_removal_request_v1"}}' "$credential" "$digest" > "$request"
   chmod "${{request_mode:-600}}" "$request"
   if [[ "${{request_symlink:-false}}" == true ]]; then
@@ -215,6 +217,10 @@ fi
 set +e
 PATH="$root/bin:$PATH" bash "$root/installer" --finalize-handoff
 status=$?
+if [[ {scenario!r} == already-finalized-twice && "$status" == 0 ]]; then
+  PATH="$root/bin:$PATH" bash "$root/installer" --finalize-handoff
+  status=$?
+fi
 set -e
 unit="$root/etc/systemd/system/endpoint-agent.service"
 printf 'status=%s claim=%s request=%s credential=%s identity=%s unit_claim=%s unit_handoff=%s unit_gateway=%s\n' "$status" "$([[ -e "$claim" || -L "$claim" ]] && echo present || echo absent)" "$([[ -e "$request" || -L "$request" ]] && echo present || echo absent)" "$([[ -e "$credential" || -L "$credential" ]] && echo present || echo absent)" "$([[ -e "$identity" || -L "$identity" ]] && echo present || echo absent)" "$(grep -c '^LoadCredential=endpoint-enrollment-claim:' "$unit" || true)" "$(grep -c '^Environment=ENDPOINT_AGENT_PROVISIONING_HANDOFF_FILE=' "$unit" || true)" "$(grep -c '^Environment=ENDPOINT_AGENT_GATEWAY_READY=1$' "$unit" || true)"
@@ -230,13 +236,19 @@ exit 0
 
 def _supports_shell_visible_symlinks(tmp_path: Path) -> bool:
     target = tmp_path / "symlink-target"
-    link = tmp_path / "symlink-link"
     target.write_text("target", encoding="utf-8")
-    return subprocess.run(
-        ["bash", "-lc", "ln -s symlink-target symlink-link && [[ -L symlink-link ]]"],
-        cwd=tmp_path,
-        check=False,
-    ).returncode == 0
+    return (
+        subprocess.run(
+            [
+                "bash",
+                "-lc",
+                "ln -s symlink-target symlink-link && [[ -L symlink-link ]]",
+            ],
+            cwd=tmp_path,
+            check=False,
+        ).returncode
+        == 0
+    )
 
 
 def test_verified_bootstrap_request_removes_only_the_exact_claim_and_request(
@@ -297,8 +309,7 @@ def test_finalizer_requires_identity_matching_the_verified_handoff(
     expected_identity = "absent" if scenario == "identity-missing" else "present"
     assert (
         "status=1 claim=present request=present credential=present "
-        f"identity={expected_identity}"
-        in result.stdout
+        f"identity={expected_identity}" in result.stdout
     )
 
 
@@ -325,9 +336,29 @@ def test_finalizer_rejects_leaf_and_parent_symlinks_without_unlinking(
 def test_finalizer_is_idempotent_after_a_completed_claim_removal(
     tmp_path: Path,
 ) -> None:
-    result = _run_harness(tmp_path, "already-finalized")
+    result = _run_harness(tmp_path, "already-finalized-twice")
 
     assert (
         "status=0 claim=absent request=absent credential=present identity=present"
         in result.stdout
     )
+    assert "unit_claim=0 unit_handoff=0 unit_gateway=1" in result.stdout
+
+
+@pytest.mark.parametrize(
+    ("scenario", "credential", "identity"),
+    (
+        ("already-finalized-identity-missing", "present", "absent"),
+        ("already-finalized-credential-missing", "absent", "present"),
+    ),
+)
+def test_claim_free_finalizer_requires_durable_enrollment_proof_before_unit_repair(
+    tmp_path: Path, scenario: str, credential: str, identity: str
+) -> None:
+    result = _run_harness(tmp_path, scenario)
+
+    assert (
+        f"status=1 claim=absent request=absent credential={credential} "
+        f"identity={identity}" in result.stdout
+    )
+    assert "unit_claim=1 unit_handoff=1 unit_gateway=0" in result.stdout

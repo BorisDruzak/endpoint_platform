@@ -37,8 +37,14 @@ preserve.  The executable characterization lives in
   selected release as the rollback version.
 - The unprivileged ALT launcher detects that durable pending path and delegates
   publication to the root-owned update worker.
+- Before selecting a candidate, the root worker verifies the current immutable
+  release and records its strict identity in root-owned `previous.json`.
+- Repeated candidate crashes create only the fixed service-writable rollback
+  request. The root worker requires it to match `current.json` and
+  `previous.json`, re-verifies the previous release, and atomically replaces
+  the root-owned current selector. No request field chooses a path or command.
 - After restart, the Gateway reports only a durable launcher outcome
   (`applied`, `failed`, or `rolled_back`) and retries the scheduled
   acknowledgement first.
-- A rollback may select an already-present immutable release, using its
-  manifest source revision to restore the strict selector schema.
+  `startup_crash_rollback_requested` is not terminal; only the root worker's
+  post-publication `startup_crash_rollback` marker becomes `rolled_back`.

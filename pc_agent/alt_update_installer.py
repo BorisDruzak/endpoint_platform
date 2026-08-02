@@ -26,6 +26,10 @@ _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 _OPERATION_ID = re.compile(
     r"^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
 )
+ROLLBACK_REQUEST_SCHEMA = "endpoint_alt_rollback_request_v1"
+ROLLBACK_REQUEST_NAME = "rollback-request.json"
+PREVIOUS_SELECTOR_NAME = "previous.json"
+FAILED_ROLLBACK_REQUEST_NAME = "last_failed_alt_rollback_request.json"
 
 
 @dataclass(frozen=True)
@@ -49,6 +53,7 @@ def apply_alt_update(
         payload = _load_pending(data_root, pending_path)
         artifact_path = _verified_artifact(data_root, payload)
         current = _load_selector(install_root / "current.json")
+        _verify_selected_release(install_root, current)
         staging_parent = install_root / "versions" / "_alt_update_staging"
         staging = staging_parent / uuid.uuid4().hex
         manifest = _extract_and_validate(
@@ -63,6 +68,10 @@ def apply_alt_update(
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.move(str(staging), str(target))
             _make_release_directories_traversable(target)
+        _write_selector_record(
+            install_root / PREVIOUS_SELECTOR_NAME,
+            current,
+        )
         _write_selector(install_root / "current.json", manifest)
         _append_history(
             data_root,
@@ -93,6 +102,107 @@ def apply_alt_update(
                 shutil.rmtree(staging)
         except OSError:
             pass
+
+
+def write_alt_rollback_request(
+    install_root: Path, data_root: Path, crashed_version: str
+) -> Path:
+    """Request only the root-authorized previous selector for a crashed ALT release."""
+    install_root, data_root = Path(install_root), Path(data_root)
+    current = _load_selector(install_root / "current.json")
+    previous = _load_selector(install_root / PREVIOUS_SELECTOR_NAME)
+    if current["version"] != crashed_version or previous["version"] == crashed_version:
+        raise ValueError("ALT rollback identities are stale")
+    payload = {
+        "crashed_source_revision": current["source_revision"],
+        "crashed_version": current["version"],
+        "rollback_source_revision": previous["source_revision"],
+        "rollback_version": previous["version"],
+        "schema_version": ROLLBACK_REQUEST_SCHEMA,
+    }
+    request = data_root / "updates" / ROLLBACK_REQUEST_NAME
+    _write_json_atomic(request, payload, mode=0o600)
+    return request
+
+
+def apply_alt_rollback(install_root: Path, data_root: Path) -> tuple[bool, str]:
+    """Apply one fixed, root-mediated ALT rollback request."""
+    install_root, data_root = Path(install_root), Path(data_root)
+    request = data_root / "updates" / ROLLBACK_REQUEST_NAME
+    try:
+        payload = _load_rollback_request(data_root, request)
+        current = _load_selector(install_root / "current.json")
+        previous = _load_selector(install_root / PREVIOUS_SELECTOR_NAME)
+        if payload != {
+            "crashed_source_revision": current["source_revision"],
+            "crashed_version": current["version"],
+            "rollback_source_revision": previous["source_revision"],
+            "rollback_version": previous["version"],
+            "schema_version": ROLLBACK_REQUEST_SCHEMA,
+        }:
+            raise ValueError("ALT rollback request is not root-authorized")
+        if current["version"] == previous["version"]:
+            raise ValueError("ALT rollback target is current")
+        _verify_selected_release(install_root, previous)
+        _write_selector_record(install_root / "current.json", previous)
+        _write_json_atomic(
+            data_root / "updates" / "last_failed_launch.json",
+            {
+                "crashed_version": current["version"],
+                "reason": "startup_crash_rollback",
+                "rollback_version": previous["version"],
+            },
+            mode=0o600,
+        )
+        request.unlink()
+        (install_root / PREVIOUS_SELECTOR_NAME).unlink()
+        return True, str(previous["version"])
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        _archive_failed_rollback_request(data_root, request)
+        return False, type(exc).__name__
+
+
+def _load_rollback_request(data_root: Path, request: Path) -> dict[str, Any]:
+    expected = data_root / "updates" / ROLLBACK_REQUEST_NAME
+    if request != expected:
+        raise ValueError("invalid ALT rollback request path")
+    details = request.lstat()
+    if request.is_symlink() or not stat.S_ISREG(details.st_mode):
+        raise ValueError("invalid ALT rollback request file")
+    if details.st_size <= 0 or details.st_size > 1024:
+        raise ValueError("invalid ALT rollback request size")
+    if os.name != "nt":
+        data_details = data_root.stat()
+        if (
+            details.st_uid != data_details.st_uid
+            or details.st_gid != data_details.st_gid
+            or stat.S_IMODE(details.st_mode) != 0o600
+        ):
+            raise ValueError("invalid ALT rollback request ownership")
+    payload = _load_json_no_duplicates(request.read_text(encoding="utf-8"))
+    required = {
+        "crashed_source_revision",
+        "crashed_version",
+        "rollback_source_revision",
+        "rollback_version",
+        "schema_version",
+    }
+    if not isinstance(payload, dict) or set(payload) != required:
+        raise ValueError("invalid ALT rollback request schema")
+    if (
+        payload["schema_version"] != ROLLBACK_REQUEST_SCHEMA
+        or not isinstance(payload["crashed_version"], str)
+        or not _SEMVER.fullmatch(payload["crashed_version"])
+        or not isinstance(payload["rollback_version"], str)
+        or not _SEMVER.fullmatch(payload["rollback_version"])
+        or payload["crashed_version"] == payload["rollback_version"]
+        or not isinstance(payload["crashed_source_revision"], str)
+        or not _REVISION.fullmatch(payload["crashed_source_revision"])
+        or not isinstance(payload["rollback_source_revision"], str)
+        or not _REVISION.fullmatch(payload["rollback_source_revision"])
+    ):
+        raise ValueError("invalid ALT rollback request values")
+    return payload
 
 
 def _load_pending(data_root: Path, pending_path: Path) -> dict[str, Any]:
@@ -160,17 +270,7 @@ def _verified_artifact(data_root: Path, payload: dict[str, Any]) -> Path:
 
 def _load_selector(path: Path) -> dict[str, Any]:
     selector = _load_json_no_duplicates(path.read_text(encoding="utf-8"))
-    if (
-        not isinstance(selector, dict)
-        or set(selector) != {"schema_version", "source_revision", "version"}
-        or selector["schema_version"] != 1
-        or not isinstance(selector["version"], str)
-        or not _SEMVER.fullmatch(selector["version"])
-        or not isinstance(selector["source_revision"], str)
-        or not _REVISION.fullmatch(selector["source_revision"])
-    ):
-        raise ValueError("invalid ALT current selector")
-    return selector
+    return _load_selector_payload(selector)
 
 
 def _extract_and_validate(
@@ -287,21 +387,61 @@ def _member_sha256(archive: tarfile.TarFile, member: tarfile.TarInfo) -> str:
 
 
 def _write_selector(path: Path, manifest: _Manifest) -> None:
+    _write_selector_record(
+        path,
+        {
+            "schema_version": 1,
+            "source_revision": manifest.source_revision,
+            "version": manifest.version,
+        },
+    )
+
+
+def _write_selector_record(path: Path, selector: dict[str, Any]) -> None:
+    validated = _load_selector_payload(selector)
+    _write_json_atomic(path, validated, mode=0o644)
+
+
+def _write_json_atomic(path: Path, payload: dict[str, Any], *, mode: int) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
     temporary.write_text(
-        json.dumps(
-            {
-                "schema_version": 1,
-                "source_revision": manifest.source_revision,
-                "version": manifest.version,
-            },
-            separators=(",", ":"),
-        ),
+        json.dumps(payload, separators=(",", ":"), sort_keys=True),
         encoding="utf-8",
     )
-    os.chmod(temporary, 0o644)
-    temporary.replace(path)
+    try:
+        os.chmod(temporary, mode)
+        temporary.replace(path)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+def _load_selector_payload(selector: Any) -> dict[str, Any]:
+    if (
+        not isinstance(selector, dict)
+        or set(selector) != {"schema_version", "source_revision", "version"}
+        or selector["schema_version"] != 1
+        or not isinstance(selector["version"], str)
+        or not _SEMVER.fullmatch(selector["version"])
+        or not isinstance(selector["source_revision"], str)
+        or not _REVISION.fullmatch(selector["source_revision"])
+    ):
+        raise ValueError("invalid ALT selector")
+    return selector
+
+
+def _verify_selected_release(install_root: Path, selector: dict[str, Any]) -> None:
+    selector = _load_selector_payload(selector)
+    release = install_root / "versions" / selector["version"]
+    manifest_path = release / "manifest.json"
+    if manifest_path.is_symlink() or not manifest_path.is_file():
+        raise ValueError("missing selected ALT manifest")
+    manifest = _parse_manifest(
+        manifest_path.read_bytes(), expected_version=selector["version"]
+    )
+    if manifest.source_revision != selector["source_revision"]:
+        raise ValueError("selected ALT revision does not match selector")
+    _verify_existing_release(release, manifest)
 
 
 def _make_release_directories_traversable(release_root: Path) -> None:
@@ -375,6 +515,16 @@ def _archive_failed_pending(data_root: Path, pending_path: Path) -> None:
         return
     try:
         pending_path.replace(expected.with_name("last_failed_alt_update.json"))
+    except OSError:
+        return
+
+
+def _archive_failed_rollback_request(data_root: Path, request: Path) -> None:
+    expected = data_root / "updates" / ROLLBACK_REQUEST_NAME
+    if request != expected or not request.exists() or request.is_symlink():
+        return
+    try:
+        request.replace(expected.with_name(FAILED_ROLLBACK_REQUEST_NAME))
     except OSError:
         return
 

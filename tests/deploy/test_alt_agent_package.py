@@ -138,7 +138,9 @@ def test_service_runs_as_dedicated_user_with_durable_paths_and_restart() -> None
         assert required in text
 
 
-def test_root_owned_update_worker_is_limited_to_the_fixed_alt_pending_path() -> None:
+def test_root_owned_update_worker_is_limited_to_fixed_update_and_rollback_paths() -> (
+    None
+):
     update_service = _text(UPDATE_SERVICE)
     update_path = _text(UPDATE_PATH)
     helper = _text(UPDATE_HELPER)
@@ -152,8 +154,13 @@ def test_root_owned_update_worker_is_limited_to_the_fixed_alt_pending_path() -> 
         "ProtectSystem=strict",
     ):
         assert required in update_service
+    assert "ConditionPathExists=" not in update_service
     assert (
         "PathExists=/var/lib/endpoint-agent/updates/pending_alt_update.json"
+        in update_path
+    )
+    assert (
+        "PathExists=/var/lib/endpoint-agent/updates/rollback-request.json"
         in update_path
     )
     assert "Unit=endpoint-agent-update.service" in update_path
@@ -167,6 +174,16 @@ def test_root_owned_update_worker_uses_the_fixed_stable_launcher() -> None:
 
     assert "readonly STABLE_LAUNCHER=/opt/endpoint-agent/launcher" in helper
     assert '"$STABLE_LAUNCHER" --apply-alt-update' in helper
+    assert (
+        "readonly ROLLBACK_REQUEST=/var/lib/endpoint-agent/updates/rollback-request.json"
+        in helper
+    )
+    assert '"$STABLE_LAUNCHER" --apply-alt-rollback' in helper
+    assert "validate_rollback_request" in helper
+    assert "stat.S_ISREG" in helper
+    assert "stat.S_IMODE" in helper
+    assert "request.is_symlink" not in helper
+    assert '"$@"' not in helper
     assert "resolve_current_launcher" not in helper
 
 
@@ -175,6 +192,8 @@ def test_root_worker_returns_only_durable_update_state_to_the_service_account() 
 
     assert "update_history.json" in helper
     assert "last_failed_alt_update.json" in helper
+    assert "last_failed_alt_rollback_request.json" in helper
+    assert "last_failed_launch.json" in helper
     assert "action_trace.jsonl" in helper
     assert "chown endpoint-agent:endpoint-agent" in helper
     assert "chown -R" not in helper

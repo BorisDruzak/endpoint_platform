@@ -17,7 +17,11 @@ from typing import Any, Callable
 # Минимальные зависимости; installer импортируется здесь
 from pc_agent.core.runtime_paths import resolve_data_root, resolve_install_root
 from pc_agent.launcher.installer import apply_update, _find_agent_binary
-from pc_agent.alt_update_installer import apply_alt_update
+from pc_agent.alt_update_installer import (
+    apply_alt_rollback,
+    apply_alt_update,
+    write_alt_rollback_request,
+)
 from pc_agent.version import EXIT_UPDATE_PENDING
 
 
@@ -52,6 +56,13 @@ def apply_pending_alt_update_as_worker(
     if not pending_path.exists():
         return True, "no pending ALT update"
     return apply_alt_update(install_root, data_root, pending_path)
+
+
+def apply_pending_alt_rollback_as_worker(
+    *, install_root: Path, data_root: Path
+) -> tuple[bool, str]:
+    """Consume one fixed ALT rollback request without caller-selected targets."""
+    return apply_alt_rollback(install_root, data_root)
 
 
 def _log(msg: str) -> None:
@@ -103,10 +114,12 @@ def _write_failed_launch_marker(
     elapsed_sec: float,
     attempts: int,
     message: str | None = None,
+    reason: str | None = None,
 ) -> None:
     payload = {
         "failed_at": datetime.now(timezone.utc).isoformat(),
-        "reason": "startup_crash_rollback" if rollback_version else "startup_crash",
+        "reason": reason
+        or ("startup_crash_rollback" if rollback_version else "startup_crash"),
         "crashed_version": crashed_version,
         "rollback_version": rollback_version,
         "exit_code": exit_code,
@@ -135,56 +148,23 @@ def _rollback_current_version(
     )
 
 
-def rollback_alt_current_version(
-    current_path: Path, *, crashed_version: str, fallback_version: str
-) -> None:
-    """Restore an ALT selector using the prior immutable bundle's source identity."""
-    manifest_path = (
-        current_path.parent / "versions" / fallback_version / "manifest.json"
-    )
+def _alt_previous_version(install_root: Path, *, current_version: str) -> str | None:
+    """Read rollback authority only from the root-owned previous selector."""
+    previous_path = install_root / "previous.json"
     try:
-        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-        revision = manifest["source_revision"]
-    except (OSError, json.JSONDecodeError, KeyError, TypeError) as exc:
-        raise RuntimeError("ALT rollback manifest is unavailable") from exc
-    if (
-        not isinstance(revision, str)
-        or manifest.get("schema_version") != 1
-        or manifest.get("version") != fallback_version
-    ):
-        raise RuntimeError("ALT rollback manifest is invalid")
-    current_path.write_text(
-        json.dumps(
-            {
-                "schema_version": 1,
-                "source_revision": revision,
-                "version": fallback_version,
-            },
-            ensure_ascii=False,
-            indent=2,
-        ),
-        encoding="utf-8",
-    )
-
-
-def _alt_previous_version(data_root: Path, *, current_version: str) -> str | None:
-    """Recover rollback selection from the launcher-owned ALT update history."""
-    history_path = data_root / "updates" / "update_history.json"
-    try:
-        history = json.loads(history_path.read_text(encoding="utf-8"))
+        previous = json.loads(previous_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return None
-    if not isinstance(history, list):
+    if (
+        not isinstance(previous, dict)
+        or set(previous) != {"schema_version", "source_revision", "version"}
+        or previous.get("schema_version") != 1
+        or not isinstance(previous.get("source_revision"), str)
+        or not isinstance(previous.get("version"), str)
+        or previous["version"] == current_version
+    ):
         return None
-    for entry in reversed(history):
-        if not isinstance(entry, dict) or entry.get("success") is not True:
-            continue
-        if entry.get("version") != current_version:
-            continue
-        previous = entry.get("previous_version")
-        if isinstance(previous, str) and previous and previous != current_version:
-            return previous
-    return None
+    return previous["version"]
 
 
 def _is_headless_entrypoint(binary_path: Path) -> bool:
@@ -252,6 +232,11 @@ def main() -> None:
         action="store_true",
         help="Apply one pending ALT update without starting the agent (root worker only)",
     )
+    parser.add_argument(
+        "--apply-alt-rollback",
+        action="store_true",
+        help="Apply the fixed ALT rollback request (root worker only)",
+    )
     args = parser.parse_args()
     use_gui = args.gui or not args.no_gui  # по умолчанию GUI включён
     data_root = resolve_data_root(cli_value=args.data_dir)
@@ -260,18 +245,33 @@ def main() -> None:
     pending_path, apply_pending_update = select_update_installation(data_root=data_root)
     updates_dir = data_root / "updates"
     versions_dir = install_root / "versions"
-    if args.apply_alt_update:
+    if args.apply_alt_update and args.apply_alt_rollback:
+        _log("ALT worker modes are mutually exclusive")
+        raise SystemExit(2)
+    if args.apply_alt_update or args.apply_alt_rollback:
         if not alt_update_mode_enabled():
-            _log("--apply-alt-update requires ENDPOINT_AGENT_ALT_UPDATE_MODE=1")
+            option = (
+                "--apply-alt-rollback"
+                if args.apply_alt_rollback
+                else "--apply-alt-update"
+            )
+            _log(f"{option} requires ENDPOINT_AGENT_ALT_UPDATE_MODE=1")
             raise SystemExit(2)
         if os.name != "nt" and os.geteuid() != 0:
-            _log("--apply-alt-update must run from the root-owned systemd worker")
+            _log("ALT worker mode must run from the root-owned systemd worker")
             raise SystemExit(1)
-        ok, message = apply_pending_alt_update_as_worker(
-            install_root=install_root, data_root=data_root
-        )
+        if args.apply_alt_rollback:
+            ok, message = apply_pending_alt_rollback_as_worker(
+                install_root=install_root, data_root=data_root
+            )
+            operation = "rollback"
+        else:
+            ok, message = apply_pending_alt_update_as_worker(
+                install_root=install_root, data_root=data_root
+            )
+            operation = "update"
         _log(
-            f"Privileged ALT update {'applied' if ok else 'failed'}: {message}; "
+            f"Privileged ALT {operation} {'applied' if ok else 'failed'}: {message}; "
             "returning control to systemd"
         )
         # A handled verification or publish failure is durable in update
@@ -292,7 +292,7 @@ def main() -> None:
         _log(str(e))
         sys.exit(1)
     if alt_update_mode_enabled():
-        previous_version = _alt_previous_version(data_root, current_version=version)
+        previous_version = _alt_previous_version(install_root, current_version=version)
     if pending_update_requires_privileged_worker(data_root=data_root):
         _log("pending ALT update is delegated to the root-owned systemd worker")
         raise SystemExit(0)
@@ -326,7 +326,7 @@ def main() -> None:
                 sys.exit(1)
             if alt_update_mode_enabled():
                 previous_version = _alt_previous_version(
-                    data_root, current_version=version
+                    install_root, current_version=version
                 )
             immediate_crash_attempts = 0
             immediate_crash_version = None
@@ -381,55 +381,91 @@ def main() -> None:
                 and previous_version
                 and previous_version != version
             ):
-                _log(
-                    f"Terminal startup crash detected for {version}; "
-                    f"rolling back to previous version {previous_version}"
-                )
-                _append_update_history(
-                    updates_dir,
-                    {
-                        "version": version,
-                        "success": False,
-                        "at": datetime.now(timezone.utc).isoformat(),
-                        "reason": "startup_crash_rollback",
-                        "message": (
-                            f"Rolled back to {previous_version} after "
-                            f"{immediate_crash_attempts} immediate crashes (exit code {ret})"
-                        ),
-                        "previous_version": previous_version,
-                    },
-                )
-                _write_failed_launch_marker(
-                    updates_dir,
-                    crashed_version=version,
-                    rollback_version=previous_version,
-                    exit_code=ret,
-                    elapsed_sec=elapsed_sec,
-                    attempts=immediate_crash_attempts,
-                )
-                try:
-                    if alt_update_mode_enabled():
-                        rollback_alt_current_version(
-                            current_path,
-                            crashed_version=version,
-                            fallback_version=previous_version,
+                if alt_update_mode_enabled():
+                    try:
+                        write_alt_rollback_request(
+                            install_root, data_root, crashed_version=version
                         )
+                    except (OSError, ValueError, json.JSONDecodeError) as exc:
+                        _log(
+                            "Root-mediated ALT rollback request failed: "
+                            f"{type(exc).__name__}"
+                        )
+                        previous_version = None
                     else:
-                        _rollback_current_version(
-                            current_path,
-                            crashed_version=version,
-                            fallback_version=previous_version,
+                        _log(
+                            f"Terminal startup crash detected for {version}; "
+                            f"requested root rollback to {previous_version}"
                         )
-                    _, version, previous_version, binary_path = _load_current_state(
-                        current_path, versions_dir
+                        _append_update_history(
+                            updates_dir,
+                            {
+                                "version": version,
+                                "success": False,
+                                "at": datetime.now(timezone.utc).isoformat(),
+                                "reason": "startup_crash_rollback_requested",
+                                "message": (
+                                    f"Requested root rollback to {previous_version} after "
+                                    f"{immediate_crash_attempts} immediate crashes "
+                                    f"(exit code {ret})"
+                                ),
+                                "previous_version": previous_version,
+                            },
+                        )
+                        _write_failed_launch_marker(
+                            updates_dir,
+                            crashed_version=version,
+                            rollback_version=previous_version,
+                            exit_code=ret,
+                            elapsed_sec=elapsed_sec,
+                            attempts=immediate_crash_attempts,
+                            reason="startup_crash_rollback_requested",
+                        )
+                        raise SystemExit(0)
+                else:
+                    _log(
+                        f"Terminal startup crash detected for {version}; "
+                        f"rolling back to previous version {previous_version}"
                     )
-                except RuntimeError as e:
-                    _log(f"Rollback failed: {e}")
-                    sys.exit(1)
-                backoff = 1.0
-                immediate_crash_attempts = 0
-                immediate_crash_version = None
-                continue
+                    _append_update_history(
+                        updates_dir,
+                        {
+                            "version": version,
+                            "success": False,
+                            "at": datetime.now(timezone.utc).isoformat(),
+                            "reason": "startup_crash_rollback",
+                            "message": (
+                                f"Rolled back to {previous_version} after "
+                                f"{immediate_crash_attempts} immediate crashes "
+                                f"(exit code {ret})"
+                            ),
+                            "previous_version": previous_version,
+                        },
+                    )
+                    _write_failed_launch_marker(
+                        updates_dir,
+                        crashed_version=version,
+                        rollback_version=previous_version,
+                        exit_code=ret,
+                        elapsed_sec=elapsed_sec,
+                        attempts=immediate_crash_attempts,
+                    )
+                    _rollback_current_version(
+                        current_path,
+                        crashed_version=version,
+                        fallback_version=previous_version,
+                    )
+                    try:
+                        _, version, previous_version, binary_path = _load_current_state(
+                            current_path, versions_dir
+                        )
+                    except RuntimeError as e:
+                        _log(f"Rollback failed: {e}")
+                        sys.exit(1)
+                    backoff = 1.0
+                    immediate_crash_attempts = 0
+                    immediate_crash_version = None
+                    continue
             if immediate_crash_attempts >= IMMEDIATE_CRASH_RETRY_LIMIT:
                 message = (
                     f"Agent {version} failed to start {immediate_crash_attempts} times "

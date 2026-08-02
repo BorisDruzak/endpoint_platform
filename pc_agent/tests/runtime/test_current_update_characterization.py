@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from pc_agent import endpoint_gateway, gateway_update_runtime
+from pc_agent import alt_update_installer, endpoint_gateway, gateway_update_runtime
 from pc_agent.gateway_update_runtime import GatewayUpdateRuntime
 from pc_agent.launcher import launcher_main
 from pc_agent.update_adapter import EndpointRecommendation, RecommendationResult
@@ -18,7 +18,10 @@ _OPERATION_ID = "caa31a48-bf2f-4c1c-8b77-d1be77e12b4e"
 _SHA256 = hashlib.sha256(b"verified ALT artifact").hexdigest()
 
 
-def _recommendation(*, artifact_url: str = "https://endpoint.sosnadmin.local/agent/v1/updates/artifacts/candidate.tar.gz") -> EndpointRecommendation:
+def _recommendation(
+    *,
+    artifact_url: str = "https://endpoint.sosnadmin.local/agent/v1/updates/artifacts/candidate.tar.gz",
+) -> EndpointRecommendation:
     return EndpointRecommendation(
         operation_id=_OPERATION_ID,
         version="3.1.77-rc.1",
@@ -80,14 +83,19 @@ async def test_gateway_download_accepts_only_endpoint_artifacts_with_matching_di
     assert session.requests == [
         (
             "https://endpoint.sosnadmin.local/agent/v1/updates/artifacts/candidate.tar.gz",
-            {"headers": {"Authorization": "Bearer device-token"}, "allow_redirects": False},
+            {
+                "headers": {"Authorization": "Bearer device-token"},
+                "allow_redirects": False,
+            },
         )
     ]
 
     with pytest.raises(ValueError, match="Endpoint origin"):
         await endpoint_gateway._download_gateway_artifact(
             session,
-            _recommendation(artifact_url="https://downloads.example.test/candidate.tar.gz"),
+            _recommendation(
+                artifact_url="https://downloads.example.test/candidate.tar.gz"
+            ),
             tmp_path / "outside-origin.tar.gz",
         )
     assert len(session.requests) == 1
@@ -117,7 +125,10 @@ async def test_gateway_artifact_download_disables_redirects(
     assert session.requests == [
         (
             "https://endpoint.sosnadmin.local/agent/v1/updates/artifacts/candidate.tar.gz",
-            {"headers": {"Authorization": "Bearer device-token"}, "allow_redirects": False},
+            {
+                "headers": {"Authorization": "Bearer device-token"},
+                "allow_redirects": False,
+            },
         )
     ]
 
@@ -138,7 +149,10 @@ async def test_gateway_artifact_download_rejects_redirect_without_following_it(
     assert session.requests == [
         (
             "https://endpoint.sosnadmin.local/agent/v1/updates/artifacts/candidate.tar.gz",
-            {"headers": {"Authorization": "Bearer device-token"}, "allow_redirects": False},
+            {
+                "headers": {"Authorization": "Bearer device-token"},
+                "allow_redirects": False,
+            },
         )
     ]
     assert not (tmp_path / "redirected.tar.gz").exists()
@@ -199,7 +213,9 @@ def test_gateway_reads_only_a_strict_immutable_alt_selector(tmp_path: Path) -> N
 
     assert endpoint_gateway.read_gateway_current_version(selector) == "3.1.76"
 
-    selector.write_text(json.dumps({"version": "3.1.76", "previous": "3.1.75"}), encoding="utf-8")
+    selector.write_text(
+        json.dumps({"version": "3.1.76", "previous": "3.1.75"}), encoding="utf-8"
+    )
     with pytest.raises(ValueError, match="ALT release selector"):
         endpoint_gateway.read_gateway_current_version(selector)
 
@@ -208,7 +224,9 @@ class _UpdateAdapter:
     def __init__(self) -> None:
         self.calls: list[tuple[str, str]] = []
 
-    async def fetch_recommendation(self, *, platform: str, channel: str) -> RecommendationResult:
+    async def fetch_recommendation(
+        self, *, platform: str, channel: str
+    ) -> RecommendationResult:
         self.calls.append((platform, channel))
         return RecommendationResult("endpoint", _recommendation(), False, None)
 
@@ -219,7 +237,9 @@ class _UpdateAdapter:
     async def record_scheduled_handoff(
         self, operation_id: str, *, assigned_version: str, rollback_version: str
     ) -> bool:
-        self.calls.append((operation_id, f"scheduled:{assigned_version}:{rollback_version}"))
+        self.calls.append(
+            (operation_id, f"scheduled:{assigned_version}:{rollback_version}")
+        )
         return True
 
     async def retry_scheduled_acknowledgement(self, operation_id: str) -> bool:
@@ -257,7 +277,9 @@ async def test_gateway_stages_an_atomic_pending_update(
 
     monkeypatch.setattr(gateway_update_runtime.Path, "replace", observe_pending_replace)
 
-    async def download(item: EndpointRecommendation, destination: Path) -> tuple[str, int]:
+    async def download(
+        item: EndpointRecommendation, destination: Path
+    ) -> tuple[str, int]:
         destination.write_bytes(b"verified ALT artifact")
         return item.sha256, item.size
 
@@ -343,32 +365,83 @@ def test_alt_root_worker_uses_the_durable_pending_path(
         data_root=tmp_path / "data"
     )
     assert selected_pending == pending_path
-    assert launcher_main.pending_update_requires_privileged_worker(data_root=tmp_path / "data") is True
+    assert (
+        launcher_main.pending_update_requires_privileged_worker(
+            data_root=tmp_path / "data"
+        )
+        is True
+    )
 
 
 def test_alt_rollback_can_select_an_existing_immutable_release(
     tmp_path: Path,
 ) -> None:
-    """Rollback must restore an already-verified release with its source revision."""
+    """Only the root worker may restore the previous manifest-verified release."""
     install_root = tmp_path / "install"
-    manifest_path = install_root / "versions" / "3.1.76" / "manifest.json"
-    manifest_path.parent.mkdir(parents=True)
+    release = install_root / "versions" / "3.1.76"
+    binary = release / "endpoint-agent" / "endpoint-agent"
+    binary.parent.mkdir(parents=True)
+    binary.write_bytes(b"accepted")
+    binary.chmod(0o755)
+    manifest_path = release / "manifest.json"
     manifest_path.write_text(
         json.dumps(
-            {"schema_version": 1, "source_revision": "deadbeef", "version": "3.1.76", "files": []}
+            {
+                "schema_version": 1,
+                "source_revision": "deadbeef",
+                "version": "3.1.76",
+                "files": [
+                    {
+                        "path": "endpoint-agent/endpoint-agent",
+                        "sha256": hashlib.sha256(b"accepted").hexdigest(),
+                        "mode": "0755",
+                    }
+                ],
+            }
         ),
         encoding="utf-8",
     )
     current_path = install_root / "current.json"
     current_path.write_text(
         json.dumps(
-            {"schema_version": 1, "source_revision": "feedface", "version": "3.1.77-rc.1"}
+            {
+                "schema_version": 1,
+                "source_revision": "feedface",
+                "version": "3.1.77-rc.1",
+            }
         ),
         encoding="utf-8",
     )
+    (install_root / "previous.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "source_revision": "deadbeef",
+                "version": "3.1.76",
+            }
+        ),
+        encoding="utf-8",
+    )
+    data_root = tmp_path / "data"
+    request = data_root / "updates" / "rollback-request.json"
+    request.parent.mkdir(parents=True)
+    request.write_text(
+        json.dumps(
+            {
+                "crashed_source_revision": "feedface",
+                "crashed_version": "3.1.77-rc.1",
+                "rollback_source_revision": "deadbeef",
+                "rollback_version": "3.1.76",
+                "schema_version": "endpoint_alt_rollback_request_v1",
+            }
+        ),
+        encoding="utf-8",
+    )
+    request.chmod(0o600)
 
-    launcher_main.rollback_alt_current_version(
-        current_path, crashed_version="3.1.77-rc.1", fallback_version="3.1.76"
+    assert alt_update_installer.apply_alt_rollback(install_root, data_root) == (
+        True,
+        "3.1.76",
     )
 
     assert json.loads(current_path.read_text(encoding="utf-8")) == {

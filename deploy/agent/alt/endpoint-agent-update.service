@@ -2,7 +2,6 @@
 Description=Endpoint Platform ALT update applier
 Documentation=file:///usr/share/doc/endpoint-agent/ALT_AGENT_INSTALL.md
 After=network-online.target
-ConditionPathExists=/var/lib/endpoint-agent/updates/pending_alt_update.json
 
 [Service]
 Type=oneshot

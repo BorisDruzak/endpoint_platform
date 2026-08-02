@@ -6,6 +6,8 @@ readonly AGENT_SERVICE=endpoint-agent.service
 readonly DATA_ROOT=/var/lib/endpoint-agent
 readonly INSTALL_ROOT=/opt/endpoint-agent
 readonly STABLE_LAUNCHER=/opt/endpoint-agent/launcher
+readonly ROLLBACK_REQUEST=/var/lib/endpoint-agent/updates/rollback-request.json
+readonly FAILED_ROLLBACK_REQUEST=/var/lib/endpoint-agent/updates/last_failed_alt_rollback_request.json
 
 validate_stable_launcher() {
     python3 - "$STABLE_LAUNCHER" <<'PY'
@@ -30,6 +32,43 @@ except (OSError, ValueError):
 PY
 }
 
+validate_rollback_request() {
+    python3 - "$ROLLBACK_REQUEST" "$DATA_ROOT" <<'PY'
+import os
+import stat
+import sys
+from pathlib import Path
+
+request = Path(sys.argv[1])
+data_root = Path(sys.argv[2])
+try:
+    details = os.lstat(request)
+    data_details = os.lstat(data_root)
+    if (
+        not stat.S_ISREG(details.st_mode)
+        or details.st_uid != data_details.st_uid
+        or details.st_gid != data_details.st_gid
+        or stat.S_IMODE(details.st_mode) != 0o600
+        or details.st_size <= 0
+        or details.st_size > 1024
+    ):
+        raise ValueError("unsafe rollback request")
+except (OSError, ValueError):
+    raise SystemExit("unable to validate rollback request")
+PY
+}
+
+reject_unsafe_rollback_request() {
+    if [[ -L "$ROLLBACK_REQUEST" ]]; then
+        rm -f -- "$ROLLBACK_REQUEST"
+    elif [[ -f "$ROLLBACK_REQUEST" ]]; then
+        rm -f -- "$FAILED_ROLLBACK_REQUEST"
+        mv -f -- "$ROLLBACK_REQUEST" "$FAILED_ROLLBACK_REQUEST"
+        chown endpoint-agent:endpoint-agent "$FAILED_ROLLBACK_REQUEST"
+        chmod 0600 "$FAILED_ROLLBACK_REQUEST"
+    fi
+}
+
 restore_update_state_owner() {
     local state
     # The root worker may create a terminal history file. Return only those
@@ -38,6 +77,8 @@ restore_update_state_owner() {
     for state in \
         "$DATA_ROOT/updates/update_history.json" \
         "$DATA_ROOT/updates/last_failed_alt_update.json" \
+        "$DATA_ROOT/updates/last_failed_alt_rollback_request.json" \
+        "$DATA_ROOT/updates/last_failed_launch.json" \
         "$DATA_ROOT/logs/action_trace.jsonl"; do
         if [[ -f "$state" && ! -L "$state" ]]; then
             chown endpoint-agent:endpoint-agent "$state"
@@ -47,11 +88,24 @@ restore_update_state_owner() {
 }
 
 validate_stable_launcher || exit $?
+worker_mode=update
+if [[ -e "$ROLLBACK_REQUEST" || -L "$ROLLBACK_REQUEST" ]]; then
+    if ! validate_rollback_request; then
+        reject_unsafe_rollback_request
+        exit 1
+    fi
+    worker_mode=rollback
+fi
 systemctl stop endpoint-agent.service || exit $?
 
 status=0
-"$STABLE_LAUNCHER" --apply-alt-update --no-gui \
-    --data-dir "$DATA_ROOT" --install-root "$INSTALL_ROOT" || status=$?
+if [[ "$worker_mode" == rollback ]]; then
+    "$STABLE_LAUNCHER" --apply-alt-rollback --no-gui \
+        --data-dir "$DATA_ROOT" --install-root "$INSTALL_ROOT" || status=$?
+else
+    "$STABLE_LAUNCHER" --apply-alt-update --no-gui \
+        --data-dir "$DATA_ROOT" --install-root "$INSTALL_ROOT" || status=$?
+fi
 restore_update_state_owner
 
 # The launcher records handled apply failures and exits successfully. Retain
