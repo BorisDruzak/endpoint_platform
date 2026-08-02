@@ -16,6 +16,7 @@ if __package__ in {None, ""} and not getattr(sys, "frozen", False):
 from pc_agent.core import runtime_paths
 from pc_agent.runtime.application import RuntimeSettings, run_runtime
 from pc_agent.runtime.verification import run_verify
+from pc_agent.version import AGENT_VERSION
 
 __all__ = ["RuntimeSettings", "run_runtime", "run_verify"]
 
@@ -114,11 +115,15 @@ def _parser() -> argparse.ArgumentParser:
     modes.add_argument("--windows-restrict-updater-start", action="store_true")
     modes.add_argument("--verify", action="store_true")
     modes.add_argument("--print-safe-status", action="store_true")
+    modes.add_argument("--print-version", action="store_true")
     return parser
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = _parser().parse_args(argv)
+    if args.print_version:
+        print(AGENT_VERSION)
+        return 0
     ca_value = args.ca_file or os.environ.get("ENDPOINT_AGENT_CA_FILE", "")
     if not str(ca_value).strip() and not (
         args.print_safe_status

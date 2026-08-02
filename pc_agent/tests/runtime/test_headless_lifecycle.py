@@ -15,6 +15,7 @@ import pytest
 from endpoint_contracts import AgentCommandV1, GatewayHelloV1
 from pc_agent import endpoint_gateway
 from pc_agent.runtime import application as runtime_application
+from pc_agent.runtime import main as runtime_main
 from pc_agent.runtime.application import (
     RuntimeApplication,
     RuntimeDependencies,
@@ -37,6 +38,14 @@ def _settings(tmp_path: Path) -> RuntimeSettings:
         endpoint_origin="https://endpoint.sosnadmin.local",
         transport_mode="gateway_http_pull",
     )
+
+
+def test_headless_runtime_prints_its_compiled_version_without_runtime_inputs(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """RPM assembly must be able to query the frozen core before publishing it."""
+    assert runtime_main.main(["--print-version"]) == 0
+    assert capsys.readouterr().out.strip() == AGENT_VERSION
 
 
 class _Executor:

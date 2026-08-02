@@ -301,15 +301,15 @@ def test_schema3_runtime_transition_requires_the_pinned_python_hash_seed(
     assert identity.version == "3.1.77"
 
 
-def test_task14_windows_context_uses_a_checked_in_approved_initial_transition() -> None:
-    """Task 14 core bytes require a new MSI-owned runtime identity, not a re-pin."""
+def test_windows_current_product_uses_a_checked_in_approved_initial_transition() -> None:
+    """A source-version change must also advance the MSI-owned immutable runtime."""
     project_root = Path(__file__).resolve().parents[2]
     baseline = project_root / "packaging" / "windows" / "initial-runtime.json"
-    transition = project_root / "packaging" / "windows" / "initial-runtime-3.1.77.json"
+    transition = project_root / "packaging" / "windows" / "initial-runtime-3.1.85.json"
 
     assert transition.is_file()
     payload = json.loads(transition.read_text(encoding="utf-8"))
-    assert payload["version"] == "3.1.77"
+    assert payload["version"] == "3.1.85"
     assert payload["component_guid"] != json.loads(baseline.read_text(encoding="utf-8"))["component_guid"]
 
     validate = _contract_module().validate_initial_runtime

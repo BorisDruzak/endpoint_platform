@@ -219,8 +219,27 @@ PY
 ) || exit $?
 mapfile -t release_details <<< "$details"
 [[ ${#release_details[@]} -eq 2 ]] || die 'release verifier returned invalid metadata'
-version=${release_details[0]}
-revision=${release_details[1]}
+version=${release_details[0]%$'\r'}
+revision=${release_details[1]%$'\r'}
+
+# The RPM version comes from the sidecar.  Query both frozen executables at
+# this boundary so an internally consistent archive cannot mask mismatched
+# compiled runtime or launcher versions.
+identity_root="$temporary/runtime-identity"
+mkdir -p "$identity_root"
+archive_for_tar="$release_archive"
+if [[ "$(uname -s)" != Linux ]] && command -v cygpath >/dev/null 2>&1; then
+    archive_for_tar=$(cygpath -u "$release_archive")
+fi
+tar -xzf "$archive_for_tar" -C "$identity_root"
+core_version=$("$identity_root/endpoint-agent/endpoint-agent" --print-version) || \
+    die 'frozen core did not report a version'
+launcher_version=$("$launcher" --print-version) || \
+    die 'launcher did not report a version'
+[[ "$core_version" == "$version" ]] || \
+    die 'frozen core version does not match release metadata'
+[[ "$launcher_version" == "$version" ]] || \
+    die 'launcher version does not match release metadata'
 
 build_root="$output/rpmbuild"
 [[ ! -e "$build_root" && ! -L "$build_root" ]] || die "build root already exists: $build_root"

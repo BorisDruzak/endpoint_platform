@@ -22,7 +22,7 @@ from pc_agent.alt_update_installer import (
     apply_alt_update,
     write_alt_rollback_request,
 )
-from pc_agent.version import EXIT_UPDATE_PENDING
+from pc_agent.version import AGENT_VERSION, EXIT_UPDATE_PENDING
 
 
 IMMEDIATE_CRASH_WINDOW_SEC = 20.0
@@ -237,7 +237,11 @@ def main() -> None:
         action="store_true",
         help="Apply the fixed ALT rollback request (root worker only)",
     )
+    parser.add_argument("--print-version", action="store_true")
     args = parser.parse_args()
+    if args.print_version:
+        print(AGENT_VERSION)
+        return
     use_gui = args.gui or not args.no_gui  # по умолчанию GUI включён
     data_root = resolve_data_root(cli_value=args.data_dir)
     install_root = resolve_install_root(cli_value=args.install_root)

@@ -37,9 +37,11 @@ def _text(path: Path) -> str:
 def _write_release_fixture(
     root: Path,
     *,
+    core_version: str = "3.1.76",
     directory_mode: int = 0o755,
     entrypoint_mode: int = 0o755,
     extra_payload: bool = False,
+    launcher_version: str = "3.1.76",
     manifest_mode: int = 0o644,
     runtime_mode: int = 0o644,
 ) -> tuple[Path, Path, Path]:
@@ -47,7 +49,14 @@ def _write_release_fixture(
     executable = payload_root / "endpoint-agent" / "endpoint-agent"
     runtime = payload_root / "endpoint-agent" / "_internal" / "runtime.dat"
     runtime.parent.mkdir(parents=True)
-    executable.write_bytes(b"#!/bin/sh\nexit 0\n")
+    executable.write_bytes(
+        (
+            "#!/bin/sh\n"
+            "if [ \"${1:-}\" = \"--print-version\" ]; then\n"
+            f"  printf '%s\\n' '{core_version}'\n"
+            "fi\n"
+        ).encode("ascii")
+    )
     executable.chmod(entrypoint_mode)
     runtime.write_bytes(b"runtime-fixture\n")
     runtime.chmod(runtime_mode)
@@ -125,7 +134,14 @@ def _write_release_fixture(
         encoding="utf-8",
     )
     launcher = root / "launcher"
-    launcher.write_bytes(b"#!/bin/sh\nexit 0\n")
+    launcher.write_bytes(
+        (
+            "#!/bin/sh\n"
+            "if [ \"${1:-}\" = \"--print-version\" ]; then\n"
+            f"  printf '%s\\n' '{launcher_version}'\n"
+            "fi\n"
+        ).encode("ascii")
+    )
     launcher.chmod(0o755)
     return archive, sidecar, launcher
 
@@ -133,12 +149,18 @@ def _write_release_fixture(
 def _prepare_sources(
     tmp_path: Path,
     *,
+    core_version: str = "3.1.76",
     extra_payload: bool = False,
+    launcher_version: str = "3.1.76",
     mutate_archive: bool = False,
     mode_overrides: dict[str, int] | None = None,
 ) -> subprocess.CompletedProcess[str]:
     archive, sidecar, launcher = _write_release_fixture(
-        tmp_path, extra_payload=extra_payload, **(mode_overrides or {})
+        tmp_path,
+        core_version=core_version,
+        extra_payload=extra_payload,
+        launcher_version=launcher_version,
+        **(mode_overrides or {}),
     )
     if mutate_archive:
         archive.write_bytes(archive.read_bytes() + b"tampered")
@@ -176,6 +198,30 @@ def test_prepare_only_accepts_the_task8_archive_and_rejects_changed_bytes(
     assert "prepared=" in accepted.stdout
     assert rejected.returncode != 0
     assert "release archive digest mismatch" in rejected.stderr
+
+
+@pytest.mark.parametrize(
+    ("core_version", "launcher_version", "expected_error"),
+    [
+        ("3.1.75", "3.1.76", "frozen core version"),
+        ("3.1.76", "3.1.75", "launcher version"),
+    ],
+)
+def test_prepare_only_rejects_binaries_whose_compiled_version_disagrees_with_release_metadata(
+    tmp_path: Path,
+    core_version: str,
+    launcher_version: str,
+    expected_error: str,
+) -> None:
+    """A sidecar label must not let mismatched frozen core or launcher reach rpmbuild."""
+    result = _prepare_sources(
+        tmp_path,
+        core_version=core_version,
+        launcher_version=launcher_version,
+    )
+
+    assert result.returncode != 0
+    assert expected_error in result.stderr
 
 
 @pytest.mark.parametrize(

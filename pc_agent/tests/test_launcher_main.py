@@ -8,6 +8,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from pc_agent.launcher import launcher_main
 from pc_agent.launcher import installer as launcher_installer
+from pc_agent.version import AGENT_VERSION
 
 
 def test_find_agent_binary_ignores_a_directory_named_like_the_binary(tmp_path):
@@ -18,6 +19,16 @@ def test_find_agent_binary_ignores_a_directory_named_like_the_binary(tmp_path):
     binary.write_text("binary", encoding="utf-8")
 
     assert launcher_installer._find_agent_binary(version_dir) == binary
+
+
+def test_launcher_prints_its_compiled_version_without_reading_install_state(
+    monkeypatch, capsys
+):
+    """RPM assembly must reject a launcher rebuilt from a different release source."""
+    monkeypatch.setattr(sys, "argv", ["launcher.py", "--print-version"])
+
+    assert launcher_main.main() is None
+    assert capsys.readouterr().out.strip() == AGENT_VERSION
 
 
 def test_launcher_loads_current_json_with_utf8_bom(monkeypatch, tmp_path):
