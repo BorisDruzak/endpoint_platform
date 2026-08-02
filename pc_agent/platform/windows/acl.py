@@ -27,6 +27,7 @@ class WindowsAclError(RuntimeError):
 
 class AclAdapter(Protocol):
     def protect_directory(self, path: Path) -> None: ...
+    def protect_claim(self, path: Path) -> None: ...
     def protect_credential(self, path: Path) -> None: ...
     def assert_protected_file(self, path: Path) -> None: ...
 
@@ -62,12 +63,34 @@ class PyWin32AclAdapter:
     def protect_credential(self, path: Path) -> None:
         self._apply(path, CREDENTIAL_ACL)
 
+    def protect_claim(self, path: Path) -> None:
+        self._apply(path, CREDENTIAL_ACL)
+
     def assert_protected_file(self, path: Path) -> None:
         if not path.is_file():
             raise WindowsAclError("protected enrollment material is missing")
         self._require_windows()
-        # Re-applying the fixed DACL rejects inherited ordinary-user access.
-        self._apply(path, CREDENTIAL_ACL)
+        self._reject_reparse_point(path)
+        win32security, _ntsecuritycon = self._modules()
+        try:
+            descriptor = win32security.GetNamedSecurityInfo(
+                str(path), win32security.SE_FILE_OBJECT, win32security.DACL_SECURITY_INFORMATION
+            )
+            dacl = descriptor.GetSecurityDescriptorDacl()
+            if dacl is None:
+                raise WindowsAclError("protected enrollment material has no DACL")
+            allowed = {
+                win32security.LookupAccountSid(None, dacl.GetAce(index)[2])[0]
+                for index in range(dacl.GetAceCount())
+                if dacl.GetAce(index)[0][0] == win32security.ACCESS_ALLOWED_ACE_TYPE
+            }
+        except WindowsAclError:
+            raise
+        except Exception as error:
+            raise WindowsAclError("could not inspect enrollment material DACL") from error
+        expected_names = {rule.principal.rsplit("\\", 1)[-1] for rule in CREDENTIAL_ACL}
+        if not allowed or not allowed.issubset(expected_names):
+            raise WindowsAclError("enrollment material is not protected")
 
     def _apply(self, path: Path, rules: tuple[AccessRule, ...]) -> None:
         if os.name != "nt":
@@ -91,7 +114,15 @@ class PyWin32AclAdapter:
         try:
             for rule in rules:
                 sid, _domain, _kind = win32security.LookupAccountName(None, rule.principal)
-                acl.AddAccessAllowedAce(win32security.ACL_REVISION, rights[rule.rights], sid)
+                inheritance = 0
+                if path.is_dir():
+                    inheritance = (
+                        win32security.OBJECT_INHERIT_ACE
+                        | win32security.CONTAINER_INHERIT_ACE
+                    )
+                acl.AddAccessAllowedAceEx(
+                    win32security.ACL_REVISION, inheritance, rights[rule.rights], sid
+                )
             win32security.SetNamedSecurityInfo(
                 str(path),
                 win32security.SE_FILE_OBJECT,
@@ -118,6 +149,12 @@ class PyWin32AclAdapter:
     def _require_windows() -> None:
         if os.name != "nt":
             raise WindowsAclError("protected-file ACL inspection requires Windows")
+
+    @staticmethod
+    def _reject_reparse_point(path: Path) -> None:
+        attributes = getattr(path.lstat(), "st_file_attributes", 0)
+        if path.is_symlink() or attributes & 0x400:
+            raise WindowsAclError("protected enrollment material must not be a reparse point")
 
 
 __all__ = [

@@ -6,6 +6,7 @@ import argparse
 import asyncio
 import os
 import secrets
+import ssl
 import sys
 import tempfile
 from dataclasses import dataclass, field
@@ -61,18 +62,27 @@ class ProvisioningRequest:
 
     def validate(self) -> None:
         parsed = urlsplit(self.endpoint_origin)
+        try:
+            port = parsed.port
+        except ValueError as error:
+            raise ValueError("Endpoint origin must be an absolute HTTPS origin") from error
         if (
             parsed.scheme != "https"
-            or not parsed.netloc
+            or not parsed.hostname
             or parsed.username is not None
             or parsed.password is not None
             or parsed.path not in {"", "/"}
             or parsed.query
             or parsed.fragment
+            or (port is not None and not 1 <= port <= 65535)
         ):
             raise ValueError("Endpoint origin must be an absolute HTTPS origin")
-        if not self.ca_file.is_file():
-            raise ValueError("Endpoint CA file is missing")
+        try:
+            if not self.ca_file.is_file() or not self.ca_file.read_bytes().strip():
+                raise ValueError
+            ssl.create_default_context(cafile=str(self.ca_file))
+        except (OSError, ssl.SSLError, ValueError) as error:
+            raise ValueError("Endpoint CA file is missing or invalid") from error
         if not self.installation_id or len(self.installation_id) > 128:
             raise ValueError("installation identifier is invalid")
 
@@ -137,6 +147,9 @@ class WindowsProvisioner:
 
     def provision_from_protected_file(self, path: Path) -> ProvisioningResult:
         source = Path(path)
+        attributes = getattr(source.lstat(), "st_file_attributes", 0)
+        if source.is_symlink() or attributes & 0x400:
+            raise ValueError("protected enrollment material must not be a reparse point")
         self._acl.assert_protected_file(source)
         try:
             raw = source.read_text(encoding="ascii")
@@ -152,6 +165,7 @@ class WindowsProvisioner:
         identity_path = data_root / ENROLLMENT_IDENTITY_FILENAME
         self._acl.protect_directory(data_root)
         _atomic_write(claim_path, claim.encode("ascii"))
+        self._acl.protect_claim(claim_path)
         delivery = self._enrollment.enroll(
             claim=claim,
             endpoint_origin=self._request.endpoint_origin,
@@ -170,6 +184,7 @@ class WindowsProvisioner:
             raise RuntimeError("permanent enrollment credential proof failed")
         self._service.start()
         claim_path.unlink()
+        _flush_directory(data_root)
         return ProvisioningResult(device_id=device_id, claim_removed=True)
 
 
@@ -213,9 +228,39 @@ def _atomic_write(path: Path, payload: bytes) -> None:
             output.flush()
             os.fsync(output.fileno())
         os.replace(temporary, path)
+        _flush_directory(path.parent)
     finally:
         if temporary.exists():
             temporary.unlink()
+
+
+def _flush_directory(path: Path) -> None:
+    """Persist rename/unlink metadata before irreversible claim consumption."""
+    if os.name == "nt":
+        try:
+            import win32con  # type: ignore[import-not-found]
+            import win32file  # type: ignore[import-not-found]
+        except ImportError as error:
+            raise OSError("pywin32 is required for Windows directory durability") from error
+        handle = win32file.CreateFile(
+            str(path),
+            win32con.GENERIC_READ | win32con.GENERIC_WRITE,
+            win32con.FILE_SHARE_READ | win32con.FILE_SHARE_WRITE | win32con.FILE_SHARE_DELETE,
+            None,
+            win32con.OPEN_EXISTING,
+            win32con.FILE_FLAG_BACKUP_SEMANTICS,
+            None,
+        )
+        try:
+            win32file.FlushFileBuffers(handle)
+        finally:
+            handle.Close()
+        return
+    descriptor = os.open(path, os.O_RDONLY)
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
 
 
 def _parser() -> argparse.ArgumentParser:

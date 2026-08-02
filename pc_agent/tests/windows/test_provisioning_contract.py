@@ -26,6 +26,9 @@ class _Acl:
     def protect_credential(self, path: Path) -> None:
         self.events.append(f"acl.credential:{path.name}")
 
+    def protect_claim(self, path: Path) -> None:
+        self.events.append(f"acl.claim:{path.name}")
+
     def assert_protected_file(self, path: Path) -> None:
         self.events.append(f"acl.source:{path.name}")
 
@@ -53,10 +56,11 @@ class _Enrollment:
 
 
 def _request(tmp_path: Path):
+    import certifi
     from pc_agent.platform.windows.provision import ProvisioningRequest
 
     ca_file = tmp_path / "endpoint-ca.crt"
-    ca_file.write_text("test CA", encoding="ascii")
+    ca_file.write_bytes(Path(certifi.where()).read_bytes())
     return ProvisioningRequest(
         endpoint_origin="https://endpoint.sosnadmin.local",
         ca_file=ca_file,
@@ -64,7 +68,7 @@ def _request(tmp_path: Path):
     )
 
 
-@pytest.mark.parametrize("origin", ["http://endpoint.sosnadmin.local", "https://user@endpoint.sosnadmin.local", "https://endpoint.sosnadmin.local/path"])
+@pytest.mark.parametrize("origin", ["http://endpoint.sosnadmin.local", "https://user@endpoint.sosnadmin.local", "https://endpoint.sosnadmin.local/path", "https://:", "https://endpoint.sosnadmin.local:bad"])
 def test_provisioning_rejects_non_origin_https_endpoint(tmp_path: Path, origin: str) -> None:
     """Accepting a route, HTTP, or credentialed URL would widen the enrollment target."""
     from pc_agent.platform.windows.provision import ProvisioningRequest
@@ -81,6 +85,15 @@ def test_provisioning_requires_the_installed_ca_file(tmp_path: Path) -> None:
     """Provisioning without a local CA must fail before reading enrollment material."""
     request = _request(tmp_path)
     request.ca_file.unlink()
+
+    with pytest.raises(ValueError, match="CA file"):
+        request.validate()
+
+
+def test_provisioning_rejects_non_certificate_ca_content(tmp_path: Path) -> None:
+    """A readable arbitrary file must not bypass TLS trust validation."""
+    request = _request(tmp_path)
+    request.ca_file.write_text("not a certificate", encoding="ascii")
 
     with pytest.raises(ValueError, match="CA file"):
         request.validate()
@@ -113,6 +126,7 @@ def test_provisioner_persists_protected_material_proves_credential_then_starts_s
     assert _DEVICE_ID.hex in identity_path.read_text(encoding="ascii").replace("-", "")
     assert events == [
         "acl.directory:protected-data",
+        "acl.claim:enrollment-claim",
         "gateway.enroll",
         "acl.credential:device-credential",
         "service.start",

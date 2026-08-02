@@ -163,3 +163,57 @@ Windows and neutral-runtime suites completed successfully.
 - No live Gateway enrollment occurs in these tests. The HTTPS enrollment client
   sends the existing typed Endpoint request, while tests substitute the
   network boundary and retain no secret output.
+
+## Review fix round 1 (2026-08-02)
+
+### Root cause and changes
+
+- SCM `SvcStop`/`SvcShutdown` may execute on a callback thread. The original
+  coordinator called `Task.cancel()` there directly and had no stop-before-task
+  latch. The coordinator now records the owning asyncio loop, uses
+  `call_soon_threadsafe()` to cancel only from that loop, and returns cleanly
+  without starting a runtime when a stop was latched during startup.
+- The directory DACL now uses object/container inheritance ACE flags, and the
+  provisioner explicitly protects the atomically staged claim as well as the
+  permanent credential. Protected-file input rejects symlink/reparse sources
+  and the pywin32 adapter inspects rather than rewrites its DACL.
+- The pywin32 stopped-status helper reports update exit `42` as a Win32
+  service-specific error (`ERROR_SERVICE_SPECIFIC_ERROR`, `svcExitCode=42`)
+  rather than silently reporting zero.
+- Endpoint origin validation now accesses parsed hostname/port defensively and
+  rejects invalid ports or empty hosts. CA validation requires a nonempty,
+  parseable TLS CA file before an enrollment adapter can be called.
+- Each atomic replacement flushes the containing directory metadata, and claim
+  deletion flushes that directory before the provisioner returns.
+
+### RED / GREEN evidence
+
+```powershell
+python -m pytest pc_agent/tests/windows/test_service_contract.py::test_service_stop_latched_before_runtime_task_prevents_start_race -q
+```
+
+RED result: expected failure because `runtime.start` occurred after a
+pre-task shutdown request.
+
+```powershell
+python -m pytest pc_agent/tests/windows/test_provisioning_contract.py::test_provisioning_rejects_non_origin_https_endpoint pc_agent/tests/windows/test_provisioning_contract.py::test_provisioning_rejects_non_certificate_ca_content -q
+```
+
+RED result: three expected failures: `https://:`, an invalid port, and
+arbitrary CA text were accepted.
+
+```powershell
+python -m pytest pc_agent/tests/windows -q
+```
+
+GREEN result: `22 passed in 1.21s` after the fixes. The worker-thread SCM test
+uses an actual `threading.Thread` and asserts that cancellation completes
+before its watchdog callback.
+
+Final round verification:
+
+```powershell
+Get-ChildItem 'pc_agent\platform\windows' -Filter '*.py' | ForEach-Object { python -m py_compile $_.FullName }; python -m pytest pc_agent/tests/windows pc_agent/tests/runtime/test_headless_imports.py pc_agent/tests/runtime/test_headless_verify.py pc_agent/tests/runtime/test_headless_lifecycle.py -q; git diff --check
+```
+
+Result: `58 passed in 1.54s`; compilation and whitespace checks succeeded.

@@ -6,6 +6,8 @@ import asyncio
 import builtins
 import importlib
 import sys
+import threading
+import time
 from pathlib import Path
 
 import pytest
@@ -59,6 +61,48 @@ async def test_service_stop_controls_cancel_the_headless_runtime(control: str) -
 
 
 @pytest.mark.asyncio
+async def test_service_stop_from_scm_worker_thread_wakes_an_idle_event_loop() -> None:
+    """Direct Task.cancel from a callback thread waits for unrelated loop activity."""
+    from pc_agent.platform.windows.service import ServiceCoordinator
+
+    scm = _Scm()
+    runtime = _BlockingRuntime()
+    coordinator = ServiceCoordinator(runtime.run, scm)
+    task = asyncio.create_task(coordinator.run())
+    await runtime.started.wait()
+    started_at = time.monotonic()
+    worker = threading.Thread(target=coordinator.request_stop)
+    worker.start()
+    worker.join()
+    # This is a watchdog only: the callback-thread control must wake the loop
+    # before it fires, not piggyback on its next scheduled event.
+    asyncio.get_running_loop().call_later(0.35, lambda: None)
+
+    assert await task == 0
+    assert time.monotonic() - started_at < 0.2
+
+
+@pytest.mark.asyncio
+async def test_service_stop_latched_before_runtime_task_prevents_start_race() -> None:
+    """An SCM stop received during startup must not create an unkillable runtime task."""
+    from pc_agent.platform.windows.service import ServiceCoordinator
+
+    scm = _Scm()
+    starts: list[str] = []
+
+    async def runtime() -> int:
+        starts.append("runtime.start")
+        return 0
+
+    coordinator = ServiceCoordinator(runtime, scm)
+    coordinator.request_shutdown()
+
+    assert await coordinator.run() == 0
+    assert starts == []
+    assert scm.states == ["stop_pending", "stopped:0"]
+
+
+@pytest.mark.asyncio
 async def test_service_preserves_update_exit_after_runtime_cleanup() -> None:
     """Changing update exit 42 would prevent the updater from taking over."""
     from pc_agent.platform.windows.service import ServiceCoordinator
@@ -70,6 +114,25 @@ async def test_service_preserves_update_exit_after_runtime_cleanup() -> None:
 
     assert await ServiceCoordinator(update_runtime, scm).run() == EXIT_UPDATE_PENDING
     assert scm.states == ["start_pending", "running", "stop_pending", "stopped:42"]
+
+
+def test_pywin32_service_stopped_status_preserves_update_exit_code() -> None:
+    """Reporting STOPPED with default zero loses the updater's controlled exit."""
+    from types import SimpleNamespace
+    from pc_agent.platform.windows.service import _report_stopped
+
+    calls: list[tuple[object, dict[str, object]]] = []
+    service = SimpleNamespace(
+        ReportServiceStatus=lambda status, **kwargs: calls.append((status, kwargs))
+    )
+    win32service = SimpleNamespace(SERVICE_STOPPED=1)
+    winerror = SimpleNamespace(ERROR_SERVICE_SPECIFIC_ERROR=1066)
+
+    _report_stopped(service, win32service, winerror, EXIT_UPDATE_PENDING)
+
+    assert calls == [
+        (1, {"win32ExitCode": 1066, "svcExitCode": EXIT_UPDATE_PENDING})
+    ]
 
 
 @pytest.mark.asyncio

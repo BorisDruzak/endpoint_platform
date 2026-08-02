@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import threading
 from collections.abc import Awaitable, Callable
 from typing import Protocol, TYPE_CHECKING
 
@@ -35,12 +36,25 @@ class ServiceCoordinator:
         self._run_agent = run_agent
         self._scm = scm
         self._task: asyncio.Task[int] | None = None
+        self._loop: asyncio.AbstractEventLoop | None = None
         self._stop_reported = False
+        self._stop_requested = False
+        self._control_lock = threading.Lock()
 
     async def run(self) -> int:
+        self._loop = asyncio.get_running_loop()
+        with self._control_lock:
+            stop_requested = self._stop_requested
+        if stop_requested:
+            self._scm.report_stopped(0)
+            return 0
         self._scm.report_start_pending()
         self._scm.report_running()
-        self._task = asyncio.create_task(self._run_agent())
+        with self._control_lock:
+            if self._stop_requested:
+                self._scm.report_stopped(0)
+                return 0
+            self._task = asyncio.create_task(self._run_agent())
         exit_code = 0
         try:
             exit_code = await self._task
@@ -59,13 +73,23 @@ class ServiceCoordinator:
 
     def _request_stop(self) -> None:
         self._report_stop_pending()
-        if self._task is not None and not self._task.done():
-            self._task.cancel()
+        with self._control_lock:
+            self._stop_requested = True
+            loop = self._loop
+        if loop is not None:
+            loop.call_soon_threadsafe(self._cancel_runtime_task)
+
+    def _cancel_runtime_task(self) -> None:
+        task = self._task
+        if task is not None and not task.done():
+            task.cancel()
 
     def _report_stop_pending(self) -> None:
-        if not self._stop_reported:
-            self._scm.report_stop_pending()
+        with self._control_lock:
+            already_reported = self._stop_reported
             self._stop_reported = True
+        if not already_reported:
+            self._scm.report_stop_pending()
 
 
 def safe_status(settings: "RuntimeSettings") -> dict[str, object]:
@@ -96,12 +120,24 @@ def print_safe_status(settings: "RuntimeSettings") -> int:
     return 0
 
 
+def _report_stopped(service, win32service, winerror, exit_code: int) -> None:
+    if exit_code == 0:
+        service.ReportServiceStatus(win32service.SERVICE_STOPPED)
+        return
+    service.ReportServiceStatus(
+        win32service.SERVICE_STOPPED,
+        win32ExitCode=winerror.ERROR_SERVICE_SPECIFIC_ERROR,
+        svcExitCode=exit_code,
+    )
+
+
 def run_windows_service(settings: "RuntimeSettings") -> int:
     """Dispatch the MSI-registered service through pywin32 only on Windows."""
     try:
         import servicemanager  # type: ignore[import-not-found]
         import win32service  # type: ignore[import-not-found]
         import win32serviceutil  # type: ignore[import-not-found]
+        import winerror  # type: ignore[import-not-found]
     except ImportError as error:
         raise RuntimeError("pywin32 is required for --windows-service") from error
 
@@ -120,8 +156,8 @@ def run_windows_service(settings: "RuntimeSettings") -> int:
         def report_stop_pending(self) -> None:
             self._service.ReportServiceStatus(win32service.SERVICE_STOP_PENDING)
 
-        def report_stopped(self, _exit_code: int) -> None:
-            self._service.ReportServiceStatus(win32service.SERVICE_STOPPED)
+        def report_stopped(self, exit_code: int) -> None:
+            _report_stopped(self._service, win32service, winerror, exit_code)
 
     class EndpointAgentWindowsService(win32serviceutil.ServiceFramework):
         _svc_name_ = SERVICE_NAME
@@ -136,7 +172,7 @@ def run_windows_service(settings: "RuntimeSettings") -> int:
             self._coordinator = ServiceCoordinator(
                 lambda: run_runtime(settings), _PyWin32StatusAdapter(self)
             )
-            asyncio.run(self._coordinator.run())
+            self._exit_code = asyncio.run(self._coordinator.run())
 
         def SvcStop(self) -> None:
             if self._coordinator is not None:
