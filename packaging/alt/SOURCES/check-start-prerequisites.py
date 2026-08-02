@@ -11,11 +11,14 @@ import pwd
 import re
 import stat
 import sys
+from uuid import RFC_4122, UUID
 
 
 INSTALL_ROOT = Path("/opt/endpoint-agent")
 DATA_ROOT = Path("/var/lib/endpoint-agent")
 VERSION = re.compile(r"[A-Za-z0-9][A-Za-z0-9._+-]{0,63}\Z")
+DEVICE_CREDENTIAL = re.compile(rb"[A-Za-z0-9_-]{43}\Z")
+IDENTITY_SCHEMA = "endpoint_enrollment_identity_v1"
 RUNTIME_DIRECTORIES = (
     (Path("/etc/endpoint-agent"), "root", 0o755),
     (DATA_ROOT, "endpoint-agent", 0o750),
@@ -115,29 +118,90 @@ def _selected_release() -> str:
     return version
 
 
-def _root_secret(path: Path, label: str) -> None:
+def _root_secret(path: Path, label: str, representation: str) -> None:
     details = _regular_file(path)
-    if details.st_uid != 0 or details.st_mode & (stat.S_IRWXG | stat.S_IRWXO):
-        _fail(f"{label} must be root-owned and mode 0600")
+    expected_mode = 0o600 if representation == "source" else 0o440
+    if (
+        details.st_uid != 0
+        or details.st_gid != 0
+        or stat.S_IMODE(details.st_mode) != expected_mode
+    ):
+        _fail(f"{label} has unsafe credential ownership or mode")
 
 
-def _durable_credential() -> bool:
-    path = DATA_ROOT / "device-credential"
+def _service_secret(path: Path) -> bytes | None:
     try:
         details = os.lstat(path)
         account = pwd.getpwnam("endpoint-agent")
+        raw = path.read_bytes()
     except (KeyError, OSError):
-        return False
-    return (
+        return None
+    if not (
         stat.S_ISREG(details.st_mode)
-        and details.st_size > 0
+        and details.st_size == len(raw)
         and details.st_uid == account.pw_uid
         and details.st_gid == account.pw_gid
         and stat.S_IMODE(details.st_mode) == 0o600
+    ):
+        return None
+    return raw
+
+
+def _runtime_credential_is_valid(raw: bytes) -> bool:
+    if raw.endswith(b"\r\n"):
+        token = raw[:-2]
+    elif raw.endswith(b"\n"):
+        token = raw[:-1]
+    else:
+        token = raw
+    return raw in {token, token + b"\n", token + b"\r\n"} and bool(
+        DEVICE_CREDENTIAL.fullmatch(token)
     )
 
 
-def _loaded_claim(path: Path) -> bool:
+def _canonical_identity_is_valid(raw: bytes) -> bool:
+    if not raw or len(raw) > 160:
+        return False
+    try:
+        payload = json.loads(raw)
+        if (
+            not isinstance(payload, dict)
+            or set(payload) != {"device_id", "schema_version"}
+            or payload.get("schema_version") != IDENTITY_SCHEMA
+            or not isinstance(payload.get("device_id"), str)
+        ):
+            return False
+        device_id = payload["device_id"]
+        parsed = UUID(device_id)
+        if (
+            device_id != str(parsed)
+            or parsed.variant != RFC_4122
+            or parsed.version not in range(1, 6)
+        ):
+            return False
+        canonical = json.dumps(
+            {"device_id": device_id, "schema_version": IDENTITY_SCHEMA},
+            separators=(",", ":"),
+            sort_keys=True,
+        ).encode("ascii")
+    except (AttributeError, TypeError, ValueError, UnicodeError, json.JSONDecodeError):
+        return False
+    return raw == canonical
+
+
+def _durable_credential() -> bool:
+    credential = _service_secret(DATA_ROOT / "device-credential")
+    identity = _service_secret(DATA_ROOT / "enrollment-identity.json")
+    return (
+        credential is not None
+        and identity is not None
+        and _runtime_credential_is_valid(credential)
+        and _canonical_identity_is_valid(identity)
+    )
+
+
+def _claim_is_valid(path: Path, representation: str) -> bool:
+    expected_mode = 0o600 if representation == "source" else 0o440
     try:
         details = os.lstat(path)
     except OSError:
@@ -145,7 +209,9 @@ def _loaded_claim(path: Path) -> bool:
     return (
         stat.S_ISREG(details.st_mode)
         and details.st_size > 0
-        and not details.st_mode & (stat.S_IWGRP | stat.S_IWOTH)
+        and details.st_uid == 0
+        and details.st_gid == 0
+        and stat.S_IMODE(details.st_mode) == expected_mode
     )
 
 
@@ -157,6 +223,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--config", type=Path)
     parser.add_argument("--ca", type=Path)
     parser.add_argument("--claim", type=Path)
+    parser.add_argument("--credential-representation", choices=("source", "loaded"))
     args = parser.parse_args(argv)
     if args.prepare_directories:
         _prepare_runtime_directories()
@@ -167,11 +234,19 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.allow_unconfigured:
         return 0
-    if args.config is None or args.ca is None or args.claim is None:
-        _fail("config, CA, and claim credential paths are required")
-    _root_secret(args.config, "endpoint config")
-    _root_secret(args.ca, "endpoint CA")
-    if not (_durable_credential() or _loaded_claim(args.claim)):
+    if (
+        args.config is None
+        or args.ca is None
+        or args.claim is None
+        or args.credential_representation is None
+    ):
+        _fail("config, CA, claim, and credential representation are required")
+    _root_secret(args.config, "endpoint config", args.credential_representation)
+    _root_secret(args.ca, "endpoint CA", args.credential_representation)
+    if not (
+        _durable_credential()
+        or _claim_is_valid(args.claim, args.credential_representation)
+    ):
         _fail("neither durable credential nor enrollment claim is available")
     return 0
 

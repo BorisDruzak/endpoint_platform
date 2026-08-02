@@ -15,6 +15,20 @@ snapshot_digest() {
 run_inside() {
     local initial_rpm=$1 upgrade_rpm=$2 work=$3
     local database="$work/rpmdb" state_before state_after selector_version
+    check_prerequisites() {
+        /usr/lib/endpoint-agent/check-start-prerequisites \
+            --credential-representation source \
+            --config /etc/endpoint-agent/config.yaml \
+            --ca /etc/endpoint-agent/ca.crt \
+            --claim "$work/missing-claim"
+    }
+    expect_prerequisite_rejection() {
+        local scenario=$1
+        if check_prerequisites >/dev/null 2>&1; then
+            die "checker accepted invalid durable state: $scenario"
+        fi
+        printf 'durable-state-rejected=%s\n' "$scenario"
+    }
     mkdir -p "$database"
     /bin/rpm --dbpath "$database" --initdb
 
@@ -31,9 +45,10 @@ run_inside() {
     install -o root -g root -m 0600 /dev/null /etc/endpoint-agent/ca.crt
     printf 'fixture-config\n' > /etc/endpoint-agent/config.yaml
     printf 'fixture-ca\n' > /etc/endpoint-agent/ca.crt
-    install -o root -g root -m 0400 /dev/null "$work/loaded-claim"
+    install -o root -g root -m 0600 /dev/null "$work/loaded-claim"
     printf 'fixture-claim\n' > "$work/loaded-claim"
     /usr/lib/endpoint-agent/check-start-prerequisites \
+        --credential-representation source \
         --config /etc/endpoint-agent/config.yaml \
         --ca /etc/endpoint-agent/ca.crt \
         --claim "$work/loaded-claim"
@@ -42,8 +57,9 @@ run_inside() {
         /var/lib/endpoint-agent/device-credential
     install -o endpoint-agent -g endpoint-agent -m 0600 /dev/null \
         /var/lib/endpoint-agent/enrollment-identity.json
-    printf 'fixture-durable-credential\n' > /var/lib/endpoint-agent/device-credential
-    printf '{"schema_version":"endpoint_enrollment_identity_v1","device_id":"00000000-0000-4000-8000-000000000010"}\n' \
+    printf 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA' \
+        > /var/lib/endpoint-agent/device-credential
+    printf '{"device_id":"00000000-0000-4000-8000-000000000010","schema_version":"endpoint_enrollment_identity_v1"}' \
         > /var/lib/endpoint-agent/enrollment-identity.json
     chown endpoint-agent:endpoint-agent \
         /var/lib/endpoint-agent/device-credential \
@@ -52,10 +68,39 @@ run_inside() {
         /var/lib/endpoint-agent/device-credential \
         /var/lib/endpoint-agent/enrollment-identity.json
     rm -f -- "$work/loaded-claim"
-    /usr/lib/endpoint-agent/check-start-prerequisites \
-        --config /etc/endpoint-agent/config.yaml \
-        --ca /etc/endpoint-agent/ca.crt \
-        --claim "$work/missing-claim"
+    check_prerequisites
+
+    printf 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA' \
+        > /var/lib/endpoint-agent/device-credential
+    expect_prerequisite_rejection credential-truncated
+    printf '!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!' \
+        > /var/lib/endpoint-agent/device-credential
+    expect_prerequisite_rejection credential-format
+    printf 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA' \
+        > /var/lib/endpoint-agent/device-credential
+
+    mv /var/lib/endpoint-agent/device-credential "$work/credential.saved"
+    expect_prerequisite_rejection credential-missing
+    mv "$work/credential.saved" /var/lib/endpoint-agent/device-credential
+    mv /var/lib/endpoint-agent/enrollment-identity.json "$work/identity.saved"
+    expect_prerequisite_rejection identity-missing
+    mv "$work/identity.saved" /var/lib/endpoint-agent/enrollment-identity.json
+    printf '{"device_id":"not-a-uuid","schema_version":"endpoint_enrollment_identity_v1"}\n' \
+        > /var/lib/endpoint-agent/enrollment-identity.json
+    expect_prerequisite_rejection identity-invalid
+    printf '{"schema_version":"endpoint_enrollment_identity_v1","device_id":"00000000-0000-4000-8000-000000000010"}' \
+        > /var/lib/endpoint-agent/enrollment-identity.json
+    expect_prerequisite_rejection identity-noncanonical
+    printf '{"device_id":"00000000-0000-4000-8000-000000000010","schema_version":"endpoint_enrollment_identity_v1"}' \
+        > /var/lib/endpoint-agent/enrollment-identity.json
+    chmod 0640 /var/lib/endpoint-agent/enrollment-identity.json
+    expect_prerequisite_rejection identity-mode
+    chmod 0600 /var/lib/endpoint-agent/enrollment-identity.json
+    chown root:root /var/lib/endpoint-agent/enrollment-identity.json
+    expect_prerequisite_rejection identity-owner
+    chown endpoint-agent:endpoint-agent \
+        /var/lib/endpoint-agent/enrollment-identity.json
+    check_prerequisites
 
     state_before=$(snapshot_digest \
         /etc/endpoint-agent/config.yaml \

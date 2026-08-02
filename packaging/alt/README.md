@@ -48,10 +48,22 @@ systemctl start endpoint-agent.service
 ```
 
 The unit uses optional systemd credential-store loading for the one-time claim.
-Its strict start condition requires readable config and CA credentials plus
-either the service-owned `0600` permanent credential or a non-empty loaded
-claim. After enrollment has produced and verified both the permanent credential
-and enrollment identity, remove the one-time claim and restart. An already
+Its root pre-start condition validates the fixed root-owned `0600` config and CA
+sources plus either the canonical service-owned `0600` permanent
+credential/identity pair or the fixed root-owned `0600`
+`/etc/credstore/endpoint-enrollment-claim` source. The main-process wrapper then
+validates systemd's root-owned `0440` credential copies before it replaces itself
+with the stable launcher. Validation failures use a non-restart status so a bad
+or raced state cannot create a restart loop.
+
+The fixed `/etc/credstore/endpoint-enrollment-claim` path is an intentional
+fail-closed boundary. Although a relative `LoadCredential=` can import inherited
+or alternate-store credentials, those sources are not inspectable by
+`ExecCondition=` on the target systemd and therefore do not satisfy the package
+precondition on their own. Provision the documented fixed source instead.
+
+After enrollment has produced and verified both the permanent credential and
+canonical enrollment identity, remove the one-time claim and restart. An already
 finalized installation therefore upgrades without restoring a mandatory claim
 dependency.
 

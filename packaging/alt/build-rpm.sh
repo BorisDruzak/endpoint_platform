@@ -161,6 +161,19 @@ try:
                 fail("release archive contains path traversal")
             if not (member.isfile() or member.isdir()):
                 fail("release archive contains a non-regular entry")
+            if member.name == "manifest.json":
+                valid_layout = member.isfile()
+            elif member.name in {"endpoint-agent", "endpoint-agent/_internal"}:
+                valid_layout = member.isdir()
+            elif member.name == "endpoint-agent/endpoint-agent":
+                valid_layout = member.isfile()
+            else:
+                valid_layout = member.name.startswith("endpoint-agent/_internal/")
+            if not valid_layout:
+                fail("release archive layout is invalid")
+            expected_mode = 0o755 if member.isdir() or member.name == "endpoint-agent/endpoint-agent" else 0o644
+            if stat.S_IMODE(member.mode) != expected_mode:
+                fail("release archive mode is not normalized")
         if "manifest.json" not in names or "endpoint-agent/endpoint-agent" not in names:
             fail("release archive is missing the Task 8 manifest or entrypoint")
         manifest_stream = bundle.extractfile("manifest.json")
@@ -236,6 +249,7 @@ stage_file 0644 "$project_root/deploy/agent/alt/endpoint-agent-update.service" "
 stage_file 0644 "$project_root/deploy/agent/alt/endpoint-agent-update.path" "$build_root/SOURCES/endpoint-agent-update.path"
 stage_file 0755 "$project_root/deploy/agent/alt/apply-pending-alt-update.sh" "$build_root/SOURCES/apply-pending-alt-update.sh"
 stage_file 0755 "$script_dir/SOURCES/check-start-prerequisites.py" "$build_root/SOURCES/check-start-prerequisites.py"
+stage_file 0755 "$script_dir/SOURCES/start-endpoint-agent.py" "$build_root/SOURCES/start-endpoint-agent.py"
 stage_file 0644 "$script_dir/SOURCES/endpoint-agent.tmpfiles" "$build_root/SOURCES/endpoint-agent.tmpfiles"
 stage_file 0644 "$script_dir/SOURCES/endpoint-agent.logrotate" "$build_root/SOURCES/endpoint-agent.logrotate"
 

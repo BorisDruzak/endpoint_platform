@@ -24,6 +24,9 @@ SERVICE = SOURCES / "endpoint-agent.service"
 TMPFILES = SOURCES / "endpoint-agent.tmpfiles"
 LOGROTATE = SOURCES / "endpoint-agent.logrotate"
 LIFECYCLE_HARNESS = Path(__file__).with_name("verify_alt_rpm_lifecycle.sh")
+SYSTEMD_CREDENTIAL_HARNESS = Path(__file__).with_name(
+    "verify_systemd_credential_gate.sh"
+)
 
 
 def _text(path: Path) -> str:
@@ -31,28 +34,48 @@ def _text(path: Path) -> str:
     return path.read_text(encoding="utf-8")
 
 
-def _write_release_fixture(root: Path) -> tuple[Path, Path, Path]:
+def _write_release_fixture(
+    root: Path,
+    *,
+    directory_mode: int = 0o755,
+    entrypoint_mode: int = 0o755,
+    extra_payload: bool = False,
+    manifest_mode: int = 0o644,
+    runtime_mode: int = 0o644,
+) -> tuple[Path, Path, Path]:
     payload_root = root / "payload"
     executable = payload_root / "endpoint-agent" / "endpoint-agent"
     runtime = payload_root / "endpoint-agent" / "_internal" / "runtime.dat"
     runtime.parent.mkdir(parents=True)
     executable.write_bytes(b"#!/bin/sh\nexit 0\n")
-    executable.chmod(0o755)
+    executable.chmod(entrypoint_mode)
     runtime.write_bytes(b"runtime-fixture\n")
-    runtime.chmod(0o644)
+    runtime.chmod(runtime_mode)
+    manifest_files = [
+        {
+            "mode": f"{runtime_mode:04o}",
+            "path": "endpoint-agent/_internal/runtime.dat",
+            "sha256": hashlib.sha256(runtime.read_bytes()).hexdigest(),
+        },
+        {
+            "mode": f"{entrypoint_mode:04o}",
+            "path": "endpoint-agent/endpoint-agent",
+            "sha256": hashlib.sha256(executable.read_bytes()).hexdigest(),
+        },
+    ]
+    if extra_payload:
+        unexpected = payload_root / "unexpected.bin"
+        unexpected.write_bytes(b"unexpected-fixture\n")
+        unexpected.chmod(runtime_mode)
+        manifest_files.append(
+            {
+                "mode": f"{runtime_mode:04o}",
+                "path": "unexpected.bin",
+                "sha256": hashlib.sha256(unexpected.read_bytes()).hexdigest(),
+            }
+        )
     inner_manifest = {
-        "files": [
-            {
-                "mode": "0644",
-                "path": "endpoint-agent/_internal/runtime.dat",
-                "sha256": hashlib.sha256(runtime.read_bytes()).hexdigest(),
-            },
-            {
-                "mode": "0755",
-                "path": "endpoint-agent/endpoint-agent",
-                "sha256": hashlib.sha256(executable.read_bytes()).hexdigest(),
-            },
-        ],
+        "files": manifest_files,
         "schema_version": 1,
         "source_revision": "967fa56",
         "version": "3.1.76",
@@ -63,11 +86,14 @@ def _write_release_fixture(root: Path) -> tuple[Path, Path, Path]:
     archive = root / "endpoint-agent-linux_amd64-3.1.76.tar.gz"
 
     def normalized_mode(info: tarfile.TarInfo) -> tarfile.TarInfo:
-        info.mode = (
-            0o755
-            if info.isdir() or info.name == "endpoint-agent/endpoint-agent"
-            else 0o644
-        )
+        if info.isdir():
+            info.mode = directory_mode
+        elif info.name == "endpoint-agent/endpoint-agent":
+            info.mode = entrypoint_mode
+        elif info.name == "manifest.json":
+            info.mode = manifest_mode
+        else:
+            info.mode = runtime_mode
         return info
 
     with tarfile.open(archive, "w:gz") as bundle:
@@ -105,9 +131,15 @@ def _write_release_fixture(root: Path) -> tuple[Path, Path, Path]:
 
 
 def _prepare_sources(
-    tmp_path: Path, *, mutate_archive: bool = False
+    tmp_path: Path,
+    *,
+    extra_payload: bool = False,
+    mutate_archive: bool = False,
+    mode_overrides: dict[str, int] | None = None,
 ) -> subprocess.CompletedProcess[str]:
-    archive, sidecar, launcher = _write_release_fixture(tmp_path)
+    archive, sidecar, launcher = _write_release_fixture(
+        tmp_path, extra_payload=extra_payload, **(mode_overrides or {})
+    )
     if mutate_archive:
         archive.write_bytes(archive.read_bytes() + b"tampered")
     output = tmp_path / "output"
@@ -146,6 +178,35 @@ def test_prepare_only_accepts_the_task8_archive_and_rejects_changed_bytes(
     assert "release archive digest mismatch" in rejected.stderr
 
 
+@pytest.mark.parametrize(
+    "mode_overrides",
+    [
+        {"directory_mode": 0o700},
+        {"entrypoint_mode": 0o644},
+        {"manifest_mode": 0o600},
+        {"runtime_mode": 0o755},
+    ],
+)
+def test_prepare_only_rejects_self_consistent_non_normalized_task8_modes(
+    tmp_path: Path, mode_overrides: dict[str, int]
+) -> None:
+    """Trusting manifest-declared modes would admit an unsafe substituted archive."""
+    result = _prepare_sources(tmp_path, mode_overrides=mode_overrides)
+
+    assert result.returncode != 0
+    assert "release archive mode is not normalized" in result.stderr
+
+
+def test_prepare_only_rejects_self_consistent_unexpected_task8_layout(
+    tmp_path: Path,
+) -> None:
+    """Manifesting an extra root payload must not widen the Task 8 package shape."""
+    result = _prepare_sources(tmp_path, extra_payload=True)
+
+    assert result.returncode != 0
+    assert "release archive layout is invalid" in result.stderr
+
+
 def test_rpm_payload_is_limited_to_program_units_and_nonsecret_runtime_scaffolding() -> (
     None
 ):
@@ -168,6 +229,7 @@ def test_rpm_payload_is_limited_to_program_units_and_nonsecret_runtime_scaffoldi
         "/usr/lib/systemd/system/endpoint-agent-update.service",
         "/usr/lib/systemd/system/endpoint-agent-update.path",
         "/usr/lib/endpoint-agent/apply-pending-alt-update",
+        "/usr/lib/endpoint-agent/start-endpoint-agent",
     ):
         assert required in spec
 
@@ -183,8 +245,15 @@ def test_service_requires_config_ca_and_durable_credential_or_loaded_claim() -> 
     assert "LoadCredential=endpoint-agent-ca:/etc/endpoint-agent/ca.crt" in service
     assert "LoadCredential=endpoint-enrollment-claim" in service
     assert "LoadCredential=endpoint-enrollment-claim:/" not in service
-    assert "ExecCondition=/usr/lib/endpoint-agent/check-start-prerequisites" in service
-    assert "ExecStart=/opt/endpoint-agent/launcher " in service
+    assert "ExecCondition=+/usr/lib/endpoint-agent/check-start-prerequisites" in service
+    assert "--credential-representation source" in service
+    assert "--config /etc/endpoint-agent/config.yaml" in service
+    assert "--claim /etc/credstore/endpoint-enrollment-claim" in service
+    assert "ExecStart=/usr/lib/endpoint-agent/start-endpoint-agent" in service
+    assert "RestartPreventExitStatus=78 243" in service
+    assert "%d/endpoint-agent-config" not in next(
+        line for line in service.splitlines() if line.startswith("ExecCondition=")
+    )
     assert "/versions/" not in service
 
 
@@ -298,6 +367,22 @@ def test_lifecycle_harness_uses_private_mounts_and_checks_preserved_state() -> N
         'rpm --dbpath "$database" -e endpoint-agent',
         "identity-preserved-after-upgrade",
         "state-preserved-after-uninstall",
+    ):
+        assert required in harness
+
+
+def test_systemd_harness_exercises_loaded_credentials_without_touching_live_agent() -> (
+    None
+):
+    """A hand-made source fixture cannot reproduce systemd's credential boundary."""
+    harness = _text(SYSTEMD_CREDENTIAL_HARNESS)
+
+    for required in (
+        "LoadCredential=endpoint-agent-config:",
+        "credential-gate-mode=",
+        "0:0:440",
+        "service_before=",
+        '[[ "$service_before" == "$service_after" ]]',
     ):
         assert required in harness
 

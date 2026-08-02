@@ -24,9 +24,10 @@ LoadCredential=endpoint-enrollment-claim
 Environment=ENDPOINT_AGENT_CONFIG=%d/endpoint-agent-config
 Environment=ENDPOINT_AGENT_CA_FILE=%d/endpoint-agent-ca
 Environment=ENDPOINT_AGENT_PROVISIONING_HANDOFF_FILE=%d/endpoint-enrollment-claim
-ExecCondition=/usr/lib/endpoint-agent/check-start-prerequisites --config %d/endpoint-agent-config --ca %d/endpoint-agent-ca --claim %d/endpoint-enrollment-claim
-ExecStart=/opt/endpoint-agent/launcher --no-gui --transport-mode gateway_wss --no-migration-http-pull-fallback --data-dir /var/lib/endpoint-agent --install-root /opt/endpoint-agent
+ExecCondition=+/usr/lib/endpoint-agent/check-start-prerequisites --credential-representation source --config /etc/endpoint-agent/config.yaml --ca /etc/endpoint-agent/ca.crt --claim /etc/credstore/endpoint-enrollment-claim
+ExecStart=/usr/lib/endpoint-agent/start-endpoint-agent
 Restart=on-failure
+RestartPreventExitStatus=78 243
 RestartSec=5s
 TimeoutStartSec=45s
 TimeoutStopSec=30s
