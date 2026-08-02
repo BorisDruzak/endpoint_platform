@@ -64,10 +64,13 @@ access to `/opt/endpoint-agent`. A durable
 `updates/pending_alt_update.json` is therefore consumed by the fixed
 root-owned `endpoint-agent-update.path` and
 `endpoint-agent-update.service`, not by the ordinary launcher loop. The
-one-shot worker stops the agent, strictly resolves the root-owned immutable
-launcher selected by `current.json`, invokes it with `--apply-alt-update`, then
-starts the service again. It must never use a stale fixed launcher from the
-initial installation. A handled artifact or publish failure is recorded
+one-shot worker validates the separately reviewed fixed root launcher, stops
+the agent, invokes that launcher with `--apply-alt-update`, then starts the
+service again. Headless version payloads do not replace the stable launcher.
+The service passes explicit WSS and fallback-off arguments; the launcher sends
+them only to `endpoint-agent/endpoint-agent`, while retained
+`pc_agent/pc_agent` releases receive only their legacy `--no-gui` argument. A
+handled artifact or publish failure is recorded
 locally and must still return the prior selected unprivileged release to
 service; `scheduled` remains non-terminal. A rollback may select an existing
 release only after its manifest, exact regular-file set, hashes and POSIX modes
@@ -76,7 +79,9 @@ restart, the reporter walks durable history newest-first: a newer failure is
 reported ahead of a prior applied operation, while an old failure cannot mask a
 later applied canary. An older release is eligible only when the authenticated controller reason has
 the exact rollback form `rollback of <UUID>; <safe reason>`; ordinary older
-recommendations remain ignored.
+recommendations remain ignored. Update archives must carry the strict embedded
+ALT per-file manifest and contain exactly one approved payload shape: legacy
+`launcher` plus `pc_agent/`, or headless `endpoint-agent/` without a launcher.
 
 Канонический workflow для изменений, которые попадают в распространяемый агент: launcher, `ws_agent`, `ui_bridge`, GUI, self-update, release-артефакты и rollout через сервер.
 

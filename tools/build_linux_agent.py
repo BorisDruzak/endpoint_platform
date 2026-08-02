@@ -143,13 +143,15 @@ def _payload_entries(source: Path) -> list[_PayloadEntry]:
 
 
 def _write_deterministic_archive(
-    destination: Path, entries: list[_PayloadEntry]
+    destination: Path, entries: list[_PayloadEntry], inner_manifest: bytes
 ) -> None:
     with destination.open("xb") as raw_stream:
         with gzip.GzipFile(
             filename="", mode="wb", fileobj=raw_stream, mtime=0, compresslevel=9
         ) as compressed:
-            with tarfile.open(fileobj=compressed, mode="w", format=tarfile.PAX_FORMAT) as bundle:
+            with tarfile.open(
+                fileobj=compressed, mode="w", format=tarfile.PAX_FORMAT
+            ) as bundle:
                 for entry in entries:
                     name = entry.relative.as_posix()
                     info = tarfile.TarInfo(f"{name}/" if entry.is_directory else name)
@@ -163,14 +165,23 @@ def _write_deterministic_archive(
                         info.type = tarfile.DIRTYPE
                         bundle.addfile(info)
                     else:
-                        if name == _BASE_LIBRARY_ARCHIVE_PATH:
-                            payload = _canonical_base_library(entry.source)
+                        payload = _canonical_payload(entry)
+                        if payload is not None:
                             info.size = len(payload)
                             bundle.addfile(info, BytesIO(payload))
                         else:
                             info.size = entry.source.stat().st_size
                             with entry.source.open("rb") as source_stream:
                                 bundle.addfile(info, source_stream)
+                manifest_info = tarfile.TarInfo("manifest.json")
+                manifest_info.uid = 0
+                manifest_info.gid = 0
+                manifest_info.uname = "root"
+                manifest_info.gname = "root"
+                manifest_info.mtime = 0
+                manifest_info.mode = 0o644
+                manifest_info.size = len(inner_manifest)
+                bundle.addfile(manifest_info, BytesIO(inner_manifest))
         raw_stream.flush()
         os.fsync(raw_stream.fileno())
 
@@ -202,6 +213,48 @@ def _canonical_base_library(path: Path) -> bytes:
                     compresslevel=9,
                 )
     return output.getvalue()
+
+
+def _canonical_payload(entry: _PayloadEntry) -> bytes | None:
+    if entry.relative.as_posix() == _BASE_LIBRARY_ARCHIVE_PATH:
+        return _canonical_base_library(entry.source)
+    return None
+
+
+def _entry_sha256(entry: _PayloadEntry) -> str:
+    canonical = _canonical_payload(entry)
+    if canonical is not None:
+        return hashlib.sha256(canonical).hexdigest()
+    digest = hashlib.sha256()
+    with entry.source.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _inner_manifest_bytes(
+    entries: list[_PayloadEntry], *, revision: str, version: str
+) -> bytes:
+    files = [
+        {
+            "mode": f"{entry.mode:04o}",
+            "path": entry.relative.as_posix(),
+            "sha256": _entry_sha256(entry),
+        }
+        for entry in entries
+        if not entry.is_directory
+    ]
+    return json.dumps(
+        {
+            "files": files,
+            "schema_version": 1,
+            "source_revision": revision,
+            "version": version,
+        },
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode("utf-8")
 
 
 def _manifest_bytes(
@@ -252,6 +305,7 @@ def build_release(
     if output.resolve().is_relative_to(source.resolve()):
         raise ValueError("release output must not be inside the artifact source")
     entries = _payload_entries(source)
+    inner_manifest = _inner_manifest_bytes(entries, revision=revision, version=version)
 
     build_identifier = f"endpoint-agent-{PLATFORM}-{version}"
     archive = output / f"{build_identifier}.{ARCHIVE_TYPE}"
@@ -265,7 +319,7 @@ def build_release(
     temporary_archive.unlink()
     temporary_manifest = temporary_archive.with_suffix(".manifest.tmp")
     try:
-        _write_deterministic_archive(temporary_archive, entries)
+        _write_deterministic_archive(temporary_archive, entries, inner_manifest)
         archive_bytes = temporary_archive.read_bytes()
         manifest_bytes = _manifest_bytes(
             archive_name=archive.name,

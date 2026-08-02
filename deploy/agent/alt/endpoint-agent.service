@@ -13,13 +13,15 @@ Environment=PC_AGENT_DATA_DIR=/var/lib/endpoint-agent
 Environment=PC_AGENT_INSTALL_ROOT=/opt/endpoint-agent
 Environment=ENDPOINT_AGENT_ALT_UPDATE_MODE=1
 Environment=ENDPOINT_AGENT_ENROLLMENT_REQUIRED=1
+Environment=ENDPOINT_AGENT_TRANSPORT_MODE=gateway_wss
+Environment=ENDPOINT_AGENT_MIGRATION_HTTP_PULL_FALLBACK=false
 LoadCredential=endpoint-agent-config:/etc/endpoint-agent/config.yaml
 LoadCredential=endpoint-agent-ca:/etc/endpoint-agent/ca.crt
 LoadCredential=endpoint-enrollment-claim:/etc/endpoint-agent/provisioning-claim
 Environment=ENDPOINT_AGENT_CONFIG=%d/endpoint-agent-config
 Environment=ENDPOINT_AGENT_CA_FILE=%d/endpoint-agent-ca
 Environment=ENDPOINT_AGENT_PROVISIONING_HANDOFF_FILE=%d/endpoint-enrollment-claim
-ExecStart=/opt/endpoint-agent/launcher --no-gui --data-dir /var/lib/endpoint-agent --install-root /opt/endpoint-agent
+ExecStart=/opt/endpoint-agent/launcher --no-gui --transport-mode gateway_wss --no-migration-http-pull-fallback --data-dir /var/lib/endpoint-agent --install-root /opt/endpoint-agent
 Restart=on-failure
 RestartSec=5s
 TimeoutStartSec=45s

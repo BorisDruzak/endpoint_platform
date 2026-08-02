@@ -205,8 +205,11 @@ the build identifier, version, source revision, platform, channel, archive
 type/name, SHA-256, and size. It intentionally has no download URL: artifact
 publication and conversion to the server's `UpdateBuildManifestV1` are a later
 release operation. This build step does not create an RPM or install files on
-a host. The builder canonicalizes PyInstaller's generated
+a host. The tar also carries a root strict ALT `manifest.json` whose sorted
+per-file entries cover only the headless `endpoint-agent/` tree. The stable
+launcher remains a separate root-owned deployment asset and is not embedded in
+the headless version payload. The builder canonicalizes PyInstaller's generated
 `_internal/base_library.zip` member order and ZIP metadata before hashing the
-final tar, so two clean builds of the same checkout produce identical release
-bytes; changed embedded module bytes still produce a different immutable
-artifact.
+inner per-file record and final tar, so two clean builds of the same checkout
+produce identical release bytes; changed embedded module bytes still produce a
+different immutable artifact.

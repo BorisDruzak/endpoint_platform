@@ -72,6 +72,12 @@ stable launcher с `--apply-alt-update`, после чего обязатель�
 предыдущий или новый unprivileged service в работу. Нельзя выдавать
 `endpoint-agent` право записи в `/opt/endpoint-agent`.
 
+Stable launcher живёт отдельно от immutable version payload и не заменяется
+canary-архивом. Для ALT допустимы ровно два manifest-verified payload layout:
+legacy `launcher` + `pc_agent/` и новый headless `endpoint-agent/`. Launcher
+передаёт `gateway_wss` и явный fallback-off только новому headless entrypoint;
+legacy release продолжает получать только `--no-gui`.
+
 Для операционного сценария "что менять, как версионировать, что проверять и как катить rollout" используйте канонический playbook: [AGENT_UPDATE_WORKFLOW.md](AGENT_UPDATE_WORKFLOW.md).
 
 Важно: server-side assigned rollout является source of truth и может указывать как на upgrade, так и на controlled rollback. Для агента это один и тот же self-update flow: если рекомендованная release-версия с сервера отличается от текущей, агент после успешного startup handshake один раз автоматически запрашивает recommended build, GUI показывает action/state для ручного контроля, а launcher после restart применяет запрошенный архив и переключает `current.json` на указанную версию.

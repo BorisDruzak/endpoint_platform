@@ -15,6 +15,8 @@ from pathlib import Path
 import pytest
 from PyInstaller.archive.readers import CArchiveReader
 
+from tools import build_linux_agent
+
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 SPEC_PATH = PROJECT_ROOT / "pc_agent" / "pyinstaller_endpoint_core_linux.spec"
@@ -44,7 +46,9 @@ def _capture_spec_outputs() -> dict[str, object]:
         captured["scripts"] = scripts
         captured.update(kwargs)
         return type(
-            "AnalysisResult", (), {"pure": [], "scripts": [], "binaries": [], "datas": []}
+            "AnalysisResult",
+            (),
+            {"pure": [], "scripts": [], "binaries": [], "datas": []},
         )()
 
     def executable(*args: object, **kwargs: object) -> tuple[object, ...]:
@@ -96,8 +100,7 @@ def _valid_verify_state(tmp_path: Path) -> tuple[Path, Path, Path]:
         encoding="utf-8",
     )
     (install_root / "current.json").write_text(
-        '{"schema_version":1,"source_revision":"dc8182f",'
-        '"version":"3.1.76"}',
+        '{"schema_version":1,"source_revision":"dc8182f","version":"3.1.76"}',
         encoding="utf-8",
     )
     return data_root, install_root, ca_file
@@ -179,7 +182,9 @@ def test_linux_spec_names_the_new_headless_artifact_and_core_executable() -> Non
     assert captured["collect_name"] == "endpoint-agent"
 
 
-@pytest.mark.skipif(not sys.platform.startswith("linux"), reason="Linux artifact inspection")
+@pytest.mark.skipif(
+    not sys.platform.startswith("linux"), reason="Linux artifact inspection"
+)
 def test_built_artifact_contains_context_collectors_and_wss_without_gui_or_ticket_code(
     built_artifact_root: Path,
 ) -> None:
@@ -193,7 +198,9 @@ def test_built_artifact_contains_context_collectors_and_wss_without_gui_or_ticke
     assert not {
         forbidden
         for forbidden in FORBIDDEN_MODULE_PREFIXES
-        if any(name == forbidden or name.startswith(f"{forbidden}.") for name in embedded)
+        if any(
+            name == forbidden or name.startswith(f"{forbidden}.") for name in embedded
+        )
     }
     assert "pc_agent.ui_gui.server_api" not in embedded
     artifact_names = _artifact_path_parts(built_artifact_root)
@@ -238,7 +245,9 @@ def test_built_artifact_supports_network_free_verify(
     assert (data_root / "storage.db").is_file()
 
 
-@pytest.mark.skipif(not sys.platform.startswith("linux"), reason="Linux release assembly")
+@pytest.mark.skipif(
+    not sys.platform.startswith("linux"), reason="Linux release assembly"
+)
 def test_release_builder_writes_a_deterministic_immutable_linux_artifact(
     tmp_path: Path,
 ) -> None:
@@ -274,6 +283,7 @@ def test_release_builder_writes_a_deterministic_immutable_linux_artifact(
             "endpoint-agent/_internal",
             "endpoint-agent/_internal/runtime.dat",
             "endpoint-agent/endpoint-agent",
+            "manifest.json",
         ]
         assert all(member.mtime == 0 for member in members)
         assert all(member.uid == 0 and member.gid == 0 for member in members)
@@ -290,7 +300,79 @@ def test_release_builder_writes_a_deterministic_immutable_linux_artifact(
     assert json.loads(manifest_path.read_text(encoding="utf-8")) == manifest
 
 
-@pytest.mark.skipif(not sys.platform.startswith("linux"), reason="Linux release assembly")
+def test_release_archive_embeds_the_strict_alt_per_file_manifest(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Omitting the inner manifest would make the headless tar unverifiable by ALT."""
+    source = tmp_path / "endpoint-agent"
+    output = tmp_path / "release"
+    _write_fixture_artifact(source)
+
+    if not sys.platform.startswith("linux"):
+        executable = source / "endpoint-agent"
+        internal = source / "_internal" / "runtime.dat"
+        path_type = type(executable)
+        original_stat = path_type.stat
+        original_lstat = path_type.lstat
+
+        def stat_with_fixture_execute_bit(path: Path, *args, **kwargs):
+            details = original_stat(path, *args, **kwargs)
+            if path == executable:
+                values = list(details)
+                values[0] |= 0o111
+                return os.stat_result(values)
+            return details
+
+        def lstat_with_fixture_modes(path: Path, *args, **kwargs):
+            details = original_lstat(path, *args, **kwargs)
+            if path in {executable, internal}:
+                values = list(details)
+                values[0] = (values[0] & ~0o777) | (
+                    0o755 if path == executable else 0o644
+                )
+                return os.stat_result(values)
+            return details
+
+        monkeypatch.setattr(path_type, "stat", stat_with_fixture_execute_bit)
+        monkeypatch.setattr(path_type, "lstat", lstat_with_fixture_modes)
+
+    archive, _ = build_linux_agent.build_release(
+        source=source,
+        output=output,
+        version="3.1.76",
+        channel="canary",
+        revision="dc8182f",
+    )
+
+    archive = output / "endpoint-agent-linux_amd64-3.1.76.tar.gz"
+    with tarfile.open(archive, "r:gz") as bundle:
+        manifest_member = bundle.getmember("manifest.json")
+        manifest_stream = bundle.extractfile(manifest_member)
+        assert manifest_stream is not None
+        manifest = json.loads(manifest_stream.read())
+    assert stat.S_IMODE(manifest_member.mode) == 0o644
+    assert manifest == {
+        "files": [
+            {
+                "mode": "0644",
+                "path": "endpoint-agent/_internal/runtime.dat",
+                "sha256": hashlib.sha256(b"runtime\n").hexdigest(),
+            },
+            {
+                "mode": "0755",
+                "path": "endpoint-agent/endpoint-agent",
+                "sha256": hashlib.sha256(b"headless-core\n").hexdigest(),
+            },
+        ],
+        "schema_version": 1,
+        "source_revision": "dc8182f",
+        "version": "3.1.76",
+    }
+
+
+@pytest.mark.skipif(
+    not sys.platform.startswith("linux"), reason="Linux release assembly"
+)
 def test_release_builder_refuses_to_replace_an_existing_immutable_build(
     tmp_path: Path,
 ) -> None:

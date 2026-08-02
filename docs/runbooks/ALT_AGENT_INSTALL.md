@@ -114,21 +114,43 @@ broader rollout.
 
 ## Gateway update pilot
 
-The finalized unit enables `ENDPOINT_AGENT_ALT_UPDATE_MODE=1`.  It polls only
-the Endpoint controller's canary recommendation for `linux_amd64`; it will not
-use an external artifact host.  Before assigning a canary, place the reviewed
-`.tar.gz` file under the controller's root-owned `ARTIFACT_ROOT` using the
-exact `artifact_name` registered in the immutable build manifest.  The
-controller serves it at `/agent/v1/updates/artifacts/{build_identifier}` only
-to the device that has an active target for that build.  Verify the lifecycle
-in this order: `requested`, `scheduled`, service restart, then `applied` (or
-`failed`/`rolled_back`).  A `scheduled` acknowledgement alone is not success.
+The finalized unit enables `ENDPOINT_AGENT_ALT_UPDATE_MODE=1`, selects
+`gateway_wss`, and explicitly disables the migration HTTP-pull fallback. It
+polls only the Endpoint controller's canary recommendation for `linux_amd64`;
+it will not use an external artifact host. Before assigning a canary, place
+the reviewed `.tar.gz` file under the controller's root-owned `ARTIFACT_ROOT`
+using the exact `artifact_name` registered in the immutable build manifest.
+The controller serves it at `/agent/v1/updates/artifacts/{build_identifier}`
+only to the device that has an active target for that build. Verify the
+lifecycle in this order: `requested`, `scheduled`, service restart, then
+`applied` (or `failed`/`rolled_back`). A `scheduled` acknowledgement alone is
+not success.
+
+The fixed root `launcher` is a separately reviewed deployment asset. It is not
+part of a headless version payload and is not replaced by a controller update.
+Build it from the same reviewed checkout with
+`pc_agent/pyinstaller_launcher_linux.spec`, record its digest, and install it
+root-owned, non-writable by group/other, before enabling this unit. The
+launcher accepts the unit's migration arguments but forwards them by selected
+release shape:
+
+- a retained legacy `pc_agent/pc_agent` release receives only `--no-gui`;
+- a headless `endpoint-agent/endpoint-agent` release receives
+  `--transport-mode gateway_wss --no-migration-http-pull-fallback` and no GUI
+  argument.
+
+The Task 8 headless tar has a root `manifest.json` using the existing strict
+ALT schema. Its sorted `files` list covers the exact
+`endpoint-agent/endpoint-agent` onedir tree, including the canonical bytes of
+PyInstaller's generated `base_library.zip`, with SHA-256 and POSIX mode for
+every regular file. The installer accepts either this exact headless shape or
+the retained legacy launcher/`pc_agent` shape, never a mixture.
 
 The agent service itself remains the dedicated unprivileged `endpoint-agent`
 account and cannot write `/opt/endpoint-agent`. A root-owned
 `endpoint-agent-update.path` watches only the fixed ALT pending file and starts
 the companion `endpoint-agent-update.service`. That one-shot worker stops the
-agent, validates and publishes the immutable release through the stable
+agent, validates and publishes the immutable release through the fixed stable
 launcher, and starts the unprivileged service again even after a handled
 artifact failure. Inspect both units during a canary without printing any
 credentials:
@@ -137,3 +159,57 @@ credentials:
 systemctl status endpoint-agent.service endpoint-agent-update.path endpoint-agent-update.service
 journalctl -u endpoint-agent-update.service -u endpoint-agent.service --since '15 minutes ago'
 ```
+
+### Mandatory headless WSS preflight
+
+Stop before changing either host unless every item passes:
+
+1. The local tree is clean and the full focused build, deployment, launcher,
+   update, runtime and transport tests pass.
+2. A clean Linux build reproduces the reviewed outer digest and strict embedded
+   manifest; the version is a fresh SemVer above every controller build and
+   matches the version reported in the WSS hello.
+3. The deployed controller release contains the Gateway WSS route, the active
+   proxy has the exact WebSocket upgrade location, strict HTTPS health passes,
+   and the database is at `0011_gateway_wss` or its reviewed successor.
+4. A new pre-canary database backup exists and its restore/readability check
+   has passed.
+5. The accepted rollback build has both immutable controller metadata and the
+   exact regular artifact whose digest and size match it.
+6. The same rollback release exists on the pilot and verifies its embedded
+   manifest, exact file set, hashes and modes without changing `current.json`.
+7. The service is active through the fixed root launcher; the selector is
+   strict; the permanent credential is service-owned mode `0600`; and the
+   credential-free canonical `enrollment-identity.json` matches the enrolled
+   controller Device. Never copy the token-bearing legacy identity as the new
+   identity record.
+8. No active update target exists for any other device.
+
+If the controller release, WSS route, migration, backup, rollback artifact or
+canonical identity is missing, record a blocked preflight and stop. Do not use
+Helpdesk or HTTP command pull as substitute acceptance.
+
+### Single-device acceptance and rollback
+
+Assign exactly the dedicated `test-agent-lin` Device. Acceptance requires all
+of the following sanitized observations, not raw payloads:
+
+- one authenticated WSS session and a later heartbeat;
+- successful baseline, health and network command results over that session;
+- startup update outcome `applied` for the selected headless version;
+- zero Helpdesk requests and zero calls to the Gateway HTTP command-pull route;
+- no migration fallback transition.
+
+Then publish a distinct, correctly addressed and fully manifest-verified test
+release whose headless process intentionally exits within the launcher's crash
+window. Assign it only to the same pilot. Require the launcher to select the
+already accepted headless release automatically and require the controller to
+record `rolled_back`; a return to the historic Helpdesk monolith is a failure.
+Finally re-check authenticated WSS, heartbeat and the three bounded profiles
+with fallback still disabled.
+
+Write only the sanitized result to
+`docs/verification/ALT_HEADLESS_WSS_CANARY.md`: versions, digests, Boolean
+gates, bounded status names and timestamps are allowed. Do not include
+credentials, network observations, trust-anchor locations, raw context,
+authorization headers, artifact URLs or journal bodies.

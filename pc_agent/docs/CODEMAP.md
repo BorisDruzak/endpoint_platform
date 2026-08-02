@@ -17,7 +17,9 @@
   `dist/endpoint-agent/endpoint-agent`. `tools/build_linux_agent.py` turns the
   reviewed onedir tree into a deterministic `linux_amd64` tar archive and a
   hash/size/channel/revision sidecar manifest without inventing a publication
-  URL or producing an RPM.
+  URL or producing an RPM. The tar itself has the strict ALT per-file manifest
+  for the exact `endpoint-agent/` tree; the stable launcher remains outside the
+  version payload.
 - `pc_agent/runtime/application.py` and `runtime/lifecycle.py` own neutral
   startup, one-time credential loading, command-executor startup, classified
   reconnect, controlled update exit `42`, terminal credential rejection, and
@@ -109,16 +111,19 @@
   controller-hosted artifact URL, verifies the downloaded SHA-256 and size,
   writes a durable ALT pending record, then reports `requested`, `scheduled`,
   and one launcher-derived terminal state without using the legacy Helpdesk
-  update path.  `pc_agent/alt_update_installer.py` validates the immutable
-  `launcher`/`pc_agent` bundle and preserves the ALT selector schema during
-  apply or rollback.
+  update path. `pc_agent/alt_update_installer.py` validates exactly one
+  immutable release shape—retained `launcher`/`pc_agent` or new headless
+  `endpoint-agent`—and preserves the ALT selector schema during apply or
+  rollback.
 - `pc_agent/launcher/launcher_main.py` never lets the `endpoint-agent`
   service publish an ALT release. In ALT mode it exits cleanly when a durable
   pending record exists or the Gateway requests exit `42`. The fixed
   root-owned `endpoint-agent-update.path` starts
   `endpoint-agent-update.service`, whose companion helper invokes the stable
-  launcher with `--apply-alt-update`, then returns execution to the
-  unprivileged service. Packaging for those units and the helper is owned by
+  root launcher with `--apply-alt-update`, then returns execution to the
+  unprivileged service. The launcher detects the selected entrypoint shape and
+  passes explicit `gateway_wss`/fallback-off flags only to the new headless
+  binary. Packaging for those units and the helper is owned by
   `deploy/agent/alt/`; see `docs/runbooks/ALT_AGENT_INSTALL.md`.
 
 ## Device Context map (2026-07-29)
@@ -217,7 +222,7 @@ adapter-only work.
 |------|------------|
 | `pc_agent/ws_agent.py` | Основной runtime: WS-соединение, handshake, команды, UI bridge; auth/connection orchestration (через state machine), Scheduler RPC + runtime loop; now runs as always-on process with sticky `connection_state`, runtime diagnostics/status/log tail callbacks для `ui_bridge`, server-driven update recommendation cache (`is_release`, `release_channel`, `recommended_version`, `update_available`), local trigger recommended update через обычный server update flow, and one-shot startup auto-update after a successful handshake when the server recommends a different build and no `pending_update.json` exists; runtime status now also overlays `pending_update_*` and `update_request_*`, suppresses `update_available` while a request is already in flight, and keeps the GUI aligned with launcher-side pending state; GUI закрытие больше не считается автоматическим shutdown; при auth bootstrap умеет fallback lookup токена по `machine_id -> install_id -> legacy uuid`, after explicit auth rejection (`4003`, invalid-token, token-required) переводит и GUI, и headless режим в automatic reprovision, while transient WSS handshake failures such as proxy `502` stay in reconnect/backoff and must not crash the agent; long-running `run_tool` / `call_tool` dispatch теперь уходит в background tasks, чтобы агент мог принять `cancel_operation` без блокировки WS loop, `handshake_ack.server_capabilities` переключает capability-gated `outbox_items_batch` transport, `handshake_ack.payload.registration` сохраняет локальный статус регистрации пользователя без блокировки агента, successful authenticated sessions upload bounded `agent_observer_batch` telemetry from local action trace with a durable cursor, and the canonical `device_id` is passed into `AgentOrchestrator` so module/toolset lifecycle device events can be emitted in the real runtime |
 | `pc_agent/ws_agent_runtime_helpers.py` | Вынесенные runtime helper-блоки `WSAgent`: restart/update-shutdown, scheduler RPC/runtime loop, auth bootstrap, reprovision/request-connection flow, форматирование uptime |
-| `pc_agent/launcher/launcher_main.py` | Launcher / запускные сценарии; applies pending updates, records failed launches, prunes old version directories after successful publish, and rolls back `current.json` to `previous` after repeated immediate crash of a newly switched version |
+| `pc_agent/launcher/launcher_main.py` | Stable launcher / запускные сценарии; recognizes retained `pc_agent` and new `endpoint-agent/endpoint-agent` layouts, routes GUI versus WSS/fallback arguments by entrypoint, delegates privileged ALT publication, records failed launches, and rolls back `current.json` after repeated immediate crash of a newly switched version |
 | `pc_agent/launcher_portable_main.py` | Портативный launcher; auto-detect install/data roots рядом с exe, импорт токена из primary `%LOCALAPPDATA%\\PCClientAgent\\data` для локального Windows теста и rollback на `previous` при repeated immediate crash новой версии |
 | `pc_agent/ui_gui/main.py` | Запуск Qt GUI, lifecycle окна, minimize-to-tray, start-hidden, явный exit path и cleanup локальных SSE/API ресурсов; before showing the main window, validates the stored machine token through `/api/registry/agent/account-state` and deactivates stale local tokens that return HTTP auth failures so account login is not shown on top of a broken technical agent authorization; installs the optional-by-env `GuiPerformanceProbe` field diagnostic for focused-window CPU investigations; локальные lifecycle/debug сообщения должны оставаться читаемыми русскими строками без mojibake |
 | `pc_agent/build_windows_release_v2.py` | Каноническая Windows release-сборка: launcher.exe + versioned agent layout + update ZIP |

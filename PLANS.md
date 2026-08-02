@@ -7,8 +7,9 @@ Deliver Wave 1 Device Context, then expose normalized projections in web_ovpn wi
 ## Current State
 
 Headless Agent V2 architecture baseline is repository
-`5b53f080d884193189b7458e27ab55a04cb6efe4`. The accepted ALT pilot release is
-`3.1.84`; the accepted immutable rollback release is `3.1.80`.
+`5b53f080d884193189b7458e27ab55a04cb6efe4`. Historical ALT pilot evidence
+covered `3.1.84`; the pilot currently selects the intact immutable `3.1.80`
+rollback release.
 
 6A enrollment and update control-plane work are merged locally. Device Context
 foundation has passed independent review and local acceptance: strict profiles,
@@ -21,32 +22,35 @@ isolated test-agent acceptance harness are complete. A valid wildcard
 `*.sosnadmin.local` certificate is in active use on the TLS source host; its
 private key has not been copied into the workspace.
 
-The production Endpoint Platform release is `9f8f5b49f578` on
-`endpoint-platform-server`: PostgreSQL listens only on loopback, Nginx and the
-API service are enabled, and the database is migrated through
-`0010_session_last_seen_index`. The live `https://endpoint.sosnadmin.local`
-health check passes strict CA and hostname verification.
+The production Endpoint Platform release is `9f8f5b49f578`: the API, database
+and proxy are active, but this release does not contain Gateway WSS, the active
+proxy does not expose the WebSocket upgrade route, and the database remains at
+`0010_session_last_seen_index`. Task 9 live acceptance is blocked until the
+reviewed WSS release/configuration and `0011_gateway_wss` migration are
+deployed, a database backup is verified, and the rollback artifact is restored
+on the controller.
 
 The initial administrator `osn-admin` is active with the explicit
 `updates:write` grant. Bootstrap was audited, and the strict-HTTPS login check
 created then revoked its temporary verification session.
 
-The test-agent pilot has completed one-time enrollment, Gateway delivery and a
-live baseline collection. The permanent credential is owned by
-`endpoint-agent:endpoint-agent`; the finalized unit has no one-time claim
-dependency, stays active with the TLS-only Gateway transport, and produced a
-completed `baseline_v1` snapshot on the production controller. The inherited
-Helpdesk WebSocket/API is no longer used by the ALT systemd runtime.
+The test-agent pilot retains a secure permanent credential and token-bearing
+legacy identity, and its finalized service has no one-time claim dependency.
+The credential-free canonical headless enrollment identity is not present yet;
+it must be created and matched to the controller Device before a WSS canary.
 
-The complete single-device update proof also passed on `test-agent-lin`: the
+Historical single-device update proof on `test-agent-lin` recorded that the
 controller-delivered `3.1.84` canary reached `applied` after the post-restart
 handshake, then an authenticated rollback selected the already immutable
-`3.1.80` release and also reached `applied`. The root worker now resolves and
-verifies the launcher in `current.json` rather than retaining stale updater
-code. A deliberately malformed `3.1.83` archive was rejected without moving
+`3.1.80` release and also reached `applied`. That proof used the pre-WSS
+runtime and does not satisfy the headless WSS gate. The Task 9 root worker uses
+the separately reviewed stable root launcher; headless canary payloads do not
+replace it. A deliberately malformed `3.1.83` archive was rejected without moving
 the selector and recorded as a terminal failed canary; its immutable artifact
 was not overwritten. The post-rollback `baseline_v1` request completed through
-Gateway; its unchanged semantic hash reused the existing current snapshot.
+the former Gateway adapter. The controller metadata for rollback `3.1.80`
+remains, but its artifact file is currently absent, so no new assignment is
+allowed.
 
 Wave 1 is merged and deployed in `BorisDruzak/web_ovpn` at `f1108f4`. The
 `openvpn-web` runtime has the matching typed Endpoint Platform SDK, a

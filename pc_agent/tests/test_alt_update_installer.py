@@ -25,15 +25,32 @@ def _write_bundle(
     version: str = "3.1.77-rc.1",
     source_revision: str = "feedface",
     corrupt_manifest: bool = False,
+    layout: str = "legacy",
 ) -> None:
-    files = {
-        "launcher": (b"launcher", 0o755),
-        "pc_agent/pc_agent": (b"agent", 0o755),
-    }
+    if layout == "legacy":
+        files = {
+            "launcher": (b"launcher", 0o755),
+            "pc_agent/pc_agent": (b"agent", 0o755),
+        }
+    elif layout == "headless":
+        files = {
+            "endpoint-agent/_internal/runtime.dat": (b"runtime", 0o644),
+            "endpoint-agent/endpoint-agent": (b"headless", 0o755),
+        }
+    elif layout == "mixed":
+        files = {
+            "launcher": (b"launcher", 0o755),
+            "pc_agent/pc_agent": (b"agent", 0o755),
+            "endpoint-agent/endpoint-agent": (b"headless", 0o755),
+        }
+    else:
+        raise AssertionError("unknown fixture layout")
     manifest_files = [
         {
             "path": name,
-            "sha256": "0" * 64 if corrupt_manifest and name == "pc_agent/pc_agent" else _sha256(value),
+            "sha256": "0" * 64
+            if corrupt_manifest and name == "pc_agent/pc_agent"
+            else _sha256(value),
             "mode": f"{mode:04o}",
         }
         for name, (value, mode) in sorted(files.items())
@@ -48,7 +65,7 @@ def _write_bundle(
         separators=(",", ":"),
     ).encode()
     with tarfile.open(path, "w:gz") as archive:
-        for name, (value, mode) in files.items():
+        for name, (value, mode) in sorted(files.items()):
             info = tarfile.TarInfo(name)
             info.size = len(value)
             info.mode = mode
@@ -57,6 +74,55 @@ def _write_bundle(
         info.size = len(manifest)
         info.mode = 0o644
         archive.addfile(info, io.BytesIO(manifest))
+
+
+def test_headless_alt_update_selects_task8_layout_without_replacing_stable_launcher(
+    tmp_path: Path,
+) -> None:
+    """Requiring a launcher inside every release would reject the Task 8 artifact."""
+    install_root, data_root = tmp_path / "install", tmp_path / "data"
+    _initial_selector(install_root)
+    stable_launcher = install_root / "launcher"
+    stable_launcher.write_bytes(b"stable-launcher")
+    artifact = data_root / "updates" / "downloads" / "candidate.tar.gz"
+    artifact.parent.mkdir(parents=True)
+    _write_bundle(artifact, layout="headless")
+
+    ok, version = apply_alt_update(
+        install_root, data_root, _pending(data_root, artifact)
+    )
+
+    assert (ok, version) == (True, "3.1.77-rc.1")
+    selected = install_root / "versions" / "3.1.77-rc.1"
+    assert (selected / "endpoint-agent" / "endpoint-agent").read_bytes() == b"headless"
+    assert stable_launcher.read_bytes() == b"stable-launcher"
+    assert json.loads((install_root / "current.json").read_text(encoding="utf-8")) == {
+        "schema_version": 1,
+        "source_revision": "feedface",
+        "version": "3.1.77-rc.1",
+    }
+
+
+def test_alt_update_rejects_a_mixed_legacy_and_headless_release_shape(
+    tmp_path: Path,
+) -> None:
+    """A mixed tree must not let the launcher select an unintended entrypoint."""
+    install_root, data_root = tmp_path / "install", tmp_path / "data"
+    _initial_selector(install_root)
+    artifact = data_root / "updates" / "downloads" / "candidate.tar.gz"
+    artifact.parent.mkdir(parents=True)
+    _write_bundle(artifact, layout="mixed")
+
+    ok, _ = apply_alt_update(install_root, data_root, _pending(data_root, artifact))
+
+    assert ok is False
+    assert (
+        json.loads((install_root / "current.json").read_text(encoding="utf-8"))[
+            "version"
+        ]
+        == "3.1.76"
+    )
+    assert not (install_root / "versions" / "3.1.77-rc.1").exists()
 
 
 def _pending(
@@ -119,7 +185,9 @@ def test_valid_alt_update_preserves_selector_schema_and_prior_release(
 
     monkeypatch.setattr(alt_update_installer.os, "chmod", capture_chmod)
 
-    ok, version = apply_alt_update(install_root, data_root, _pending(data_root, artifact))
+    ok, version = apply_alt_update(
+        install_root, data_root, _pending(data_root, artifact)
+    )
 
     assert (ok, version) == (True, "3.1.77-rc.1")
     assert json.loads((install_root / "current.json").read_text(encoding="utf-8")) == {
@@ -127,7 +195,9 @@ def test_valid_alt_update_preserves_selector_schema_and_prior_release(
         "source_revision": "feedface",
         "version": "3.1.77-rc.1",
     }
-    assert (install_root / "versions" / "3.1.76" / "pc_agent" / "pc_agent").read_bytes() == b"old-agent"
+    assert (
+        install_root / "versions" / "3.1.76" / "pc_agent" / "pc_agent"
+    ).read_bytes() == b"old-agent"
     history = json.loads(
         (data_root / "updates" / "update_history.json").read_text(encoding="utf-8")
     )
@@ -140,7 +210,10 @@ def test_valid_alt_update_preserves_selector_schema_and_prior_release(
         }
     ]
     assert (install_root / "versions" / "3.1.77-rc.1", 0o755) in chmod_calls
-    assert (install_root / "versions" / "3.1.77-rc.1" / "pc_agent", 0o755) in chmod_calls
+    assert (
+        install_root / "versions" / "3.1.77-rc.1" / "pc_agent",
+        0o755,
+    ) in chmod_calls
 
 
 def test_manifest_hash_mismatch_leaves_active_alt_selector_unchanged(
@@ -181,7 +254,9 @@ def test_verified_existing_alt_release_can_be_selected_for_rollback(
     artifact.parent.mkdir(parents=True)
     _write_bundle(artifact)
 
-    ok, version = apply_alt_update(install_root, data_root, _pending(data_root, artifact))
+    ok, version = apply_alt_update(
+        install_root, data_root, _pending(data_root, artifact)
+    )
     assert (ok, version) == (True, "3.1.77-rc.1")
     existing_release = install_root / "versions" / "3.1.77-rc.1"
     existing_launcher = (existing_release / "launcher").read_bytes()

@@ -1,6 +1,7 @@
 """
 Точка входа launcher: запуск текущей версии агента, при exit 42 или наличии pending_update — установка обновления.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -57,7 +58,9 @@ def _log(msg: str) -> None:
     print(f"[launcher] {msg}", flush=True)
 
 
-def _load_current_state(current_path: Path, versions_dir: Path) -> tuple[dict[str, Any], str, str | None, Path]:
+def _load_current_state(
+    current_path: Path, versions_dir: Path
+) -> tuple[dict[str, Any], str, str | None, Path]:
     current = json.loads(current_path.read_text(encoding="utf-8-sig"))
     version = str(current.get("version") or "").strip()
     if not version:
@@ -86,7 +89,9 @@ def _append_update_history(updates_dir: Path, entry: dict[str, Any]) -> None:
         history = []
     history.append(entry)
     history_path.parent.mkdir(parents=True, exist_ok=True)
-    history_path.write_text(json.dumps(history[-100:], ensure_ascii=False, indent=2), encoding="utf-8")
+    history_path.write_text(
+        json.dumps(history[-100:], ensure_ascii=False, indent=2), encoding="utf-8"
+    )
 
 
 def _write_failed_launch_marker(
@@ -117,9 +122,15 @@ def _write_failed_launch_marker(
     )
 
 
-def _rollback_current_version(current_path: Path, *, crashed_version: str, fallback_version: str) -> None:
+def _rollback_current_version(
+    current_path: Path, *, crashed_version: str, fallback_version: str
+) -> None:
     current_path.write_text(
-        json.dumps({"version": fallback_version, "previous": crashed_version}, ensure_ascii=False, indent=2),
+        json.dumps(
+            {"version": fallback_version, "previous": crashed_version},
+            ensure_ascii=False,
+            indent=2,
+        ),
         encoding="utf-8",
     )
 
@@ -128,7 +139,9 @@ def rollback_alt_current_version(
     current_path: Path, *, crashed_version: str, fallback_version: str
 ) -> None:
     """Restore an ALT selector using the prior immutable bundle's source identity."""
-    manifest_path = current_path.parent / "versions" / fallback_version / "manifest.json"
+    manifest_path = (
+        current_path.parent / "versions" / fallback_version / "manifest.json"
+    )
     try:
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
         revision = manifest["source_revision"]
@@ -174,12 +187,66 @@ def _alt_previous_version(data_root: Path, *, current_version: str) -> str | Non
     return None
 
 
+def _is_headless_entrypoint(binary_path: Path) -> bool:
+    return (
+        binary_path.name == "endpoint-agent"
+        and binary_path.parent.name == "endpoint-agent"
+    )
+
+
+def _agent_argv(
+    binary_path: Path,
+    *,
+    use_gui: bool,
+    transport_mode: str | None,
+    migration_http_pull_fallback: bool | None,
+) -> list[str]:
+    argv = [str(binary_path)]
+    if not _is_headless_entrypoint(binary_path):
+        argv.append("--gui" if use_gui else "--no-gui")
+        return argv
+    if transport_mode is not None:
+        argv.extend(["--transport-mode", transport_mode])
+    if migration_http_pull_fallback is not None:
+        argv.append(
+            "--migration-http-pull-fallback"
+            if migration_http_pull_fallback
+            else "--no-migration-http-pull-fallback"
+        )
+    return argv
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="PC Agent Launcher")
-    parser.add_argument("--data-dir", type=str, default=None, help="Data root (default: env/config)")
-    parser.add_argument("--install-root", type=str, default=None, help="Install root (default: env/config)")
-    parser.add_argument("--gui", action="store_true", help="Запустить агент с GUI (по умолчанию)")
-    parser.add_argument("--no-gui", action="store_true", help="Запустить агент без GUI (консольный режим)")
+    parser.add_argument(
+        "--data-dir", type=str, default=None, help="Data root (default: env/config)"
+    )
+    parser.add_argument(
+        "--install-root",
+        type=str,
+        default=None,
+        help="Install root (default: env/config)",
+    )
+    parser.add_argument(
+        "--gui", action="store_true", help="Запустить агент с GUI (по умолчанию)"
+    )
+    parser.add_argument(
+        "--no-gui",
+        action="store_true",
+        help="Запустить агент без GUI (консольный режим)",
+    )
+    parser.add_argument(
+        "--transport-mode",
+        choices=("gateway_http_pull", "gateway_wss"),
+        default=None,
+        help="Transport passed only to the neutral headless entrypoint",
+    )
+    parser.add_argument(
+        "--migration-http-pull-fallback",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Migration fallback passed only to the neutral headless entrypoint",
+    )
     parser.add_argument(
         "--apply-alt-update",
         action="store_true",
@@ -212,11 +279,15 @@ def main() -> None:
         # unprivileged service for outcome reporting.
         raise SystemExit(0)
     if not current_path.exists():
-        _log(f"current.json not found at {current_path}; create it with initial version")
+        _log(
+            f"current.json not found at {current_path}; create it with initial version"
+        )
         sys.exit(1)
 
     try:
-        _, version, previous_version, binary_path = _load_current_state(current_path, versions_dir)
+        _, version, previous_version, binary_path = _load_current_state(
+            current_path, versions_dir
+        )
     except RuntimeError as e:
         _log(str(e))
         sys.exit(1)
@@ -247,19 +318,24 @@ def main() -> None:
                 _log(f"Update failed: {msg}; restarting current version")
             backoff = 1.0
             try:
-                _, version, previous_version, binary_path = _load_current_state(current_path, versions_dir)
+                _, version, previous_version, binary_path = _load_current_state(
+                    current_path, versions_dir
+                )
             except RuntimeError as e:
                 _log(str(e))
                 sys.exit(1)
             if alt_update_mode_enabled():
-                previous_version = _alt_previous_version(data_root, current_version=version)
+                previous_version = _alt_previous_version(
+                    data_root, current_version=version
+                )
             immediate_crash_attempts = 0
             immediate_crash_version = None
-        agent_argv = [str(binary_path)]
-        if use_gui:
-            agent_argv.append("--gui")
-        else:
-            agent_argv.append("--no-gui")
+        agent_argv = _agent_argv(
+            binary_path,
+            use_gui=use_gui,
+            transport_mode=args.transport_mode,
+            migration_http_pull_fallback=args.migration_http_pull_fallback,
+        )
         started_at = time.monotonic()
         proc = subprocess.Popen(
             agent_argv,
@@ -300,7 +376,11 @@ def main() -> None:
                 f"Agent {version} crashed after {elapsed_sec:.1f}s with code {ret} "
                 f"(attempt {immediate_crash_attempts}/{IMMEDIATE_CRASH_RETRY_LIMIT})"
             )
-            if immediate_crash_attempts >= IMMEDIATE_CRASH_RETRY_LIMIT and previous_version and previous_version != version:
+            if (
+                immediate_crash_attempts >= IMMEDIATE_CRASH_RETRY_LIMIT
+                and previous_version
+                and previous_version != version
+            ):
                 _log(
                     f"Terminal startup crash detected for {version}; "
                     f"rolling back to previous version {previous_version}"
@@ -340,7 +420,9 @@ def main() -> None:
                             crashed_version=version,
                             fallback_version=previous_version,
                         )
-                    _, version, previous_version, binary_path = _load_current_state(current_path, versions_dir)
+                    _, version, previous_version, binary_path = _load_current_state(
+                        current_path, versions_dir
+                    )
                 except RuntimeError as e:
                     _log(f"Rollback failed: {e}")
                     sys.exit(1)

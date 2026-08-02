@@ -1,6 +1,7 @@
 """
 Установка версии агента из архива: распаковка с защитой от path traversal, verify, backup/rollback БД.
 """
+
 from __future__ import annotations
 
 import json
@@ -12,7 +13,6 @@ from pathlib import Path
 from datetime import datetime, timezone
 from typing import Any, Callable, Optional, Tuple
 import os
-import sys
 
 # Без зависимостей от pc_agent при импорте (launcher может быть отдельным бинарем)
 
@@ -111,7 +111,9 @@ def extract_artifact(archive_type: str, artifact_path: Path, staging_dir: Path) 
                 elif member.issym():
                     _validate_symlink_target(staging_dir, dest, member.linkname)
                     if os.name == "nt":
-                        raise ValueError(f"Unsupported archive member type on Windows: {name}")
+                        raise ValueError(
+                            f"Unsupported archive member type on Windows: {name}"
+                        )
                     dest.parent.mkdir(parents=True, exist_ok=True)
                     if dest.exists() or dest.is_symlink():
                         dest.unlink()
@@ -133,10 +135,16 @@ def extract_artifact(archive_type: str, artifact_path: Path, staging_dir: Path) 
 
 def _find_agent_binary(version_dir: Path) -> Path:
     """Ищет исполняемый файл агента в version_dir (или в единственной поддиректории)."""
+    headless = version_dir / "endpoint-agent" / "endpoint-agent"
     if os.name == "nt":
         exe_name = "pc_agent.exe"
     else:
         exe_name = "pc_agent"
+    legacy_candidates = [path for path in version_dir.rglob(exe_name) if path.is_file()]
+    if headless.is_file():
+        if legacy_candidates:
+            raise FileNotFoundError(f"Ambiguous agent entrypoint in {version_dir}")
+        return headless
     direct = version_dir / exe_name
     if direct.is_file():
         return direct
@@ -147,9 +155,8 @@ def _find_agent_binary(version_dir: Path) -> Path:
         if candidate.exists():
             return candidate
     # Перебор поддиректорий
-    for d in version_dir.rglob(exe_name):
-        if d.is_file():
-            return d
+    for candidate in legacy_candidates:
+        return candidate
     raise FileNotFoundError(f"Agent binary not found in {version_dir}")
 
 
@@ -180,7 +187,9 @@ def _read_history(history_path: Path) -> list[dict[str, Any]]:
 def _write_history(history_path: Path, items: list[dict[str, Any]]) -> None:
     history_path.parent.mkdir(parents=True, exist_ok=True)
     trimmed = items[-UPDATE_HISTORY_LIMIT:]
-    history_path.write_text(json.dumps(trimmed, ensure_ascii=False, indent=2), encoding="utf-8")
+    history_path.write_text(
+        json.dumps(trimmed, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
 
 
 def _append_history(history_path: Path, entry: dict[str, Any]) -> None:
@@ -209,7 +218,9 @@ def _archive_failed_pending(
         "pending_text": raw_pending,
     }
     updates_dir.mkdir(parents=True, exist_ok=True)
-    archive_path.write_text(json.dumps(archive_payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    archive_path.write_text(
+        json.dumps(archive_payload, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
     try:
         pending_path.unlink()
     except Exception:
@@ -242,7 +253,9 @@ def _cleanup_update_artifacts(updates_dir: Path, artifact_path: Optional[Path]) 
     if downloads_dir.exists():
         _prune_paths(list(downloads_dir.glob("*")), keep=DOWNLOAD_RETENTION_LIMIT)
     if db_backups_dir.exists():
-        _prune_paths(list(db_backups_dir.glob("storage.db.*")), keep=DB_BACKUP_RETENTION_LIMIT)
+        _prune_paths(
+            list(db_backups_dir.glob("storage.db.*")), keep=DB_BACKUP_RETENTION_LIMIT
+        )
 
 
 def _cleanup_old_versions(
@@ -264,7 +277,9 @@ def _cleanup_old_versions(
             child.resolve().relative_to(versions_dir)
         except ValueError:
             continue
-        if child.name in {"_staging", "_backup_publish"} or not child.name.startswith("_"):
+        if child.name in {"_staging", "_backup_publish"} or not child.name.startswith(
+            "_"
+        ):
             shutil.rmtree(child, ignore_errors=True)
 
 
@@ -300,12 +315,18 @@ def run_verify(
         stderr_text = _decode_subprocess_output(result.stderr)
         if result.returncode == 0:
             return True, stdout_text or "verify ok"
-        detail = stderr_text or stdout_text or f"verify exited with code {result.returncode}"
+        detail = (
+            stderr_text or stdout_text or f"verify exited with code {result.returncode}"
+        )
         return False, detail
     except subprocess.TimeoutExpired as exc:
         timed_out_stdout = _decode_subprocess_output(getattr(exc, "stdout", None))
         timed_out_stderr = _decode_subprocess_output(getattr(exc, "stderr", None))
-        detail = timed_out_stderr or timed_out_stdout or f"verify timed out after {timeout_sec}s"
+        detail = (
+            timed_out_stderr
+            or timed_out_stdout
+            or f"verify timed out after {timeout_sec}s"
+        )
         return False, detail
     except Exception as exc:
         return False, f"verify launch failed: {exc}"
@@ -321,7 +342,10 @@ def _publish_staged_version(
     backup_target: Optional[Path] = None
     if target_version_dir.exists():
         backup_dir.mkdir(parents=True, exist_ok=True)
-        backup_target = backup_dir / f"{target_version_dir.name}.{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S_%f')}"
+        backup_target = (
+            backup_dir
+            / f"{target_version_dir.name}.{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S_%f')}"
+        )
         shutil.move(str(target_version_dir), str(backup_target))
     try:
         shutil.move(str(staging_dir), str(target_version_dir))
@@ -335,7 +359,9 @@ def _publish_staged_version(
             except Exception as exc:
                 restore_error = exc
         if restore_error is not None:
-            raise RuntimeError(f"{publish_error}; restore failed: {restore_error}") from publish_error
+            raise RuntimeError(
+                f"{publish_error}; restore failed: {restore_error}"
+            ) from publish_error
         raise
     else:
         if backup_target and backup_target.exists():
@@ -354,6 +380,7 @@ def apply_update(
 
     :return: (success, message)
     """
+
     def log(msg: str) -> None:
         if log_message:
             log_message(msg)
@@ -423,7 +450,9 @@ def apply_update(
             "channel": payload.get("channel"),
         }
         _append_history(history_path, entry)
-        _archive_failed_pending(pending_path, updates_dir, payload=payload, error_message=message)
+        _archive_failed_pending(
+            pending_path, updates_dir, payload=payload, error_message=message
+        )
         if staging.exists():
             shutil.rmtree(staging, ignore_errors=True)
         return False, message
@@ -466,12 +495,18 @@ def apply_update(
         binary_path = _find_agent_binary(staging)
     except FileNotFoundError as e:
         log(str(e))
-        return fail_update("binary_not_found", "Agent binary not found in extracted archive")
+        return fail_update(
+            "binary_not_found", "Agent binary not found in extracted archive"
+        )
     verify_ok, verify_message = run_verify(binary_path, data_root, install_root)
     if not verify_ok:
         log("Verify failed, rolling back DB")
         # Restore DB from latest backup
-        backups = sorted(db_backups_dir.glob("storage.db.*"), key=lambda p: p.stat().st_mtime, reverse=True)
+        backups = sorted(
+            db_backups_dir.glob("storage.db.*"),
+            key=lambda p: p.stat().st_mtime,
+            reverse=True,
+        )
         if backups:
             shutil.copy2(backups[0], data_root / "storage.db")
         return fail_update("verify_failed", f"Verify failed: {verify_message}")
@@ -499,7 +534,11 @@ def apply_update(
             target_version_dir=target_version_dir,
         )
         current_path.write_text(
-            json.dumps({"version": version, "previous": previous or version}, ensure_ascii=False, indent=2),
+            json.dumps(
+                {"version": version, "previous": previous or version},
+                ensure_ascii=False,
+                indent=2,
+            ),
             encoding="utf-8",
         )
         _record_launcher_update_trace(
@@ -508,12 +547,17 @@ def apply_update(
             stage="publish",
             status="ok",
             summary="launcher published new version",
-            details={"version_dir": str(target_version_dir), "previous_version": previous},
+            details={
+                "version_dir": str(target_version_dir),
+                "previous_version": previous,
+            },
         )
     except Exception as e:
         log(f"Publish failed: {e}")
         return fail_update("publish_failed", f"Publish failed: {e}")
-    _cleanup_old_versions(versions_dir, current_version=str(version), previous_version=previous)
+    _cleanup_old_versions(
+        versions_dir, current_version=str(version), previous_version=previous
+    )
     _append_history(
         history_path,
         {

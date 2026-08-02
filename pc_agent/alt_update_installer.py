@@ -52,7 +52,9 @@ def apply_alt_update(
         staging_parent = install_root / "versions" / "_alt_update_staging"
         staging = staging_parent / uuid.uuid4().hex
         manifest = _extract_and_validate(
-            artifact_path=artifact_path, staging=staging, expected_version=payload["version"]
+            artifact_path=artifact_path,
+            staging=staging,
+            expected_version=payload["version"],
         )
         target = install_root / "versions" / manifest.version
         if target.exists() or target.is_symlink():
@@ -95,7 +97,11 @@ def apply_alt_update(
 
 def _load_pending(data_root: Path, pending_path: Path) -> dict[str, Any]:
     expected_path = data_root / "updates" / "pending_alt_update.json"
-    if pending_path != expected_path or not pending_path.is_file() or pending_path.is_symlink():
+    if (
+        pending_path != expected_path
+        or not pending_path.is_file()
+        or pending_path.is_symlink()
+    ):
         raise ValueError("invalid ALT pending path")
     payload = _load_json_no_duplicates(pending_path.read_text(encoding="utf-8"))
     required = {
@@ -197,10 +203,9 @@ def _extract_and_validate(
             for name, member in regular.items()
             if name != "manifest.json"
         }
-        if actual != manifest.files or {"launcher", "pc_agent/pc_agent"} - set(actual):
+        if actual != manifest.files:
             raise ValueError("ALT manifest does not match archive")
-        if any(name != "launcher" and not name.startswith("pc_agent/") for name in actual):
-            raise ValueError("unexpected ALT archive payload")
+        _validate_release_shape(set(actual))
         for name, member in regular.items():
             destination = staging.joinpath(*PurePosixPath(name).parts)
             destination.parent.mkdir(parents=True, exist_ok=True)
@@ -211,6 +216,17 @@ def _extract_and_validate(
                 shutil.copyfileobj(source, output)
             os.chmod(destination, stat.S_IMODE(member.mode))
     return manifest
+
+
+def _validate_release_shape(files: set[str]) -> None:
+    legacy = {"launcher", "pc_agent/pc_agent"}.issubset(files) and all(
+        name == "launcher" or name.startswith("pc_agent/") for name in files
+    )
+    headless = "endpoint-agent/endpoint-agent" in files and all(
+        name.startswith("endpoint-agent/") for name in files
+    )
+    if legacy == headless:
+        raise ValueError("unexpected ALT archive payload")
 
 
 def _parse_manifest(raw: bytes, *, expected_version: str) -> _Manifest:
@@ -333,7 +349,11 @@ def _verify_existing_release(release_root: Path, expected: _Manifest) -> None:
 def _append_history(data_root: Path, entry: dict[str, object]) -> None:
     path = data_root / "updates" / "update_history.json"
     try:
-        history = _load_json_no_duplicates(path.read_text(encoding="utf-8")) if path.exists() else []
+        history = (
+            _load_json_no_duplicates(path.read_text(encoding="utf-8"))
+            if path.exists()
+            else []
+        )
     except (OSError, ValueError, json.JSONDecodeError):
         history = []
     if not isinstance(history, list):
@@ -347,7 +367,11 @@ def _append_history(data_root: Path, entry: dict[str, object]) -> None:
 
 def _archive_failed_pending(data_root: Path, pending_path: Path) -> None:
     expected = data_root / "updates" / "pending_alt_update.json"
-    if pending_path != expected or not pending_path.exists() or pending_path.is_symlink():
+    if (
+        pending_path != expected
+        or not pending_path.exists()
+        or pending_path.is_symlink()
+    ):
         return
     try:
         pending_path.replace(expected.with_name("last_failed_alt_update.json"))
