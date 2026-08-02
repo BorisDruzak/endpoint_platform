@@ -57,7 +57,7 @@ class ReleaseVerifier(Protocol):
 
 
 class StartupConfirmation(Protocol):
-    def is_confirmed(self, *, version: str, operation_id: str, not_before: datetime) -> bool: ...
+    def is_confirmed(self, *, version: str, operation_id: str, attempt_id: str, not_before: datetime) -> bool: ...
 
 
 class PyWin32EndpointAgentService:
@@ -115,7 +115,7 @@ class FileStartupConfirmation:
     def __init__(self, paths: WindowsUpdatePaths) -> None:
         self._path = paths.updates_root / "startup-confirmation.json"
 
-    def is_confirmed(self, *, version: str, operation_id: str, not_before: datetime) -> bool:
+    def is_confirmed(self, *, version: str, operation_id: str, attempt_id: str, not_before: datetime) -> bool:
         try:
             _reject_reparse_path(self._path)
             payload = json.loads(self._path.read_text(encoding="utf-8"))
@@ -123,7 +123,7 @@ class FileStartupConfirmation:
             if confirmed_at.tzinfo is None:
                 return False
             return payload == {
-                "confirmed_at": payload["confirmed_at"], "operation_id": operation_id,
+                "attempt_id": attempt_id, "confirmed_at": payload["confirmed_at"], "operation_id": operation_id,
                 "status": "confirmed", "version": version,
             } and confirmed_at >= not_before
         except (OSError, ValueError, KeyError, TypeError, json.JSONDecodeError):
@@ -202,7 +202,7 @@ def _validate_strict_update_dacl(descriptor, win32security, rights=None) -> None
         ace_type, ace_flags = header
         if (
             ace_type != win32security.ACCESS_ALLOWED_ACE_TYPE
-            or ace_flags & win32security.INHERITED_ACE
+            or ace_flags != 0
         ):
             raise ValueError("wrong owner or ACL on update path")
         sid_text = win32security.ConvertSidToStringSid(sid)
@@ -292,6 +292,7 @@ class WindowsUpdater:
         self._verifier = verifier or SubprocessReleaseVerifier()
         self._confirmation = confirmation or FileStartupConfirmation(self._paths)
         self._deadline_seconds = deadline_seconds
+        self._attempt_id: str | None = None
 
     def run_once(self) -> UpdateResult:
         previous: str | None = None
@@ -312,6 +313,7 @@ class WindowsUpdater:
             _write_json_atomic(self._paths.previous_path, {"version": previous})
             _write_json_atomic(self._paths.current_path, {"version": pending.version})
             self._service.start()
+            self._attempt_id = _write_startup_attempt(self._paths, pending)
             if not self._wait_for_candidate_confirmation(pending):
                 return self._rollback(previous, "startup confirmation failed")
             self._paths.pending_path.unlink()
@@ -334,15 +336,18 @@ class WindowsUpdater:
         staging_parent = self._paths.versions_root / "_staging"
         staging = staging_parent / uuid.uuid4().hex
         staging.mkdir(parents=True, exist_ok=False)
+        artifact_copy: Path | None = None
         try:
             artifact_copy = _pin_artifact(pending, staging_parent)
             with zipfile.ZipFile(artifact_copy) as archive:
                 for member in archive.infolist():
                     _extract_zip_member(archive, member, staging)
-            artifact_copy.unlink(missing_ok=True)
         except Exception:
             shutil.rmtree(staging, ignore_errors=True)
             raise
+        finally:
+            if artifact_copy is not None:
+                artifact_copy.unlink(missing_ok=True)
         return staging
 
     def _publish(self, staging: Path, pending: PendingUpdate) -> Path:
@@ -360,9 +365,16 @@ class WindowsUpdater:
         return target
 
     def _rollback(self, previous: str, reason: str) -> UpdateResult:
-        self._service.stop()
-        if not self._service.wait_stopped():
-            return UpdateResult("rejected", "candidate did not stop for rollback")
+        try:
+            self._service.stop()
+        except Exception:
+            # StopService reports ERROR_SERVICE_NOT_ACTIVE for an early crash;
+            # that is already the desired stopped state.
+            pass
+        try:
+            self._service.wait_stopped()
+        except Exception:
+            pass
         _write_json_atomic(self._paths.current_path, {"version": previous})
         self._service.start()
         return UpdateResult("rolled_back", reason)
@@ -373,7 +385,7 @@ class WindowsUpdater:
             if self._service.crashed_early():
                 return False
             if self._confirmation.is_confirmed(
-                version=pending.version, operation_id=pending.operation_id, not_before=pending.received_at
+                version=pending.version, operation_id=pending.operation_id, attempt_id=self._attempt_id or "", not_before=pending.received_at
             ):
                 return True
             __import__("time").sleep(0.25)
@@ -503,6 +515,15 @@ def _write_json_atomic(path: Path, payload: dict[str, str]) -> None:
         temporary.unlink(missing_ok=True)
 
 
+def _write_startup_attempt(paths: WindowsUpdatePaths, pending: PendingUpdate) -> str:
+    attempt_id = uuid.uuid4().hex
+    _write_json_atomic(
+        paths.updates_root / "startup-attempt.json",
+        {"attempt_id": attempt_id, "operation_id": pending.operation_id, "version": pending.version},
+    )
+    return attempt_id
+
+
 def run_windows_updater_service() -> int:
     """Host the MSI-registered demand-start ``EndpointAgentUpdater`` service."""
     try:
@@ -519,13 +540,27 @@ def run_windows_updater_service() -> int:
 
         def SvcDoRun(self) -> None:
             self.ReportServiceStatus(win32service.SERVICE_RUNNING)
-            WindowsUpdater().run_once()
-            self.ReportServiceStatus(win32service.SERVICE_STOPPED)
+            result = WindowsUpdater().run_once()
+            _report_updater_stopped(
+                self, win32service, 0 if result.status in {"applied", "rolled_back"} else 1
+            )
 
     servicemanager.Initialize()
     servicemanager.PrepareToHostSingle(EndpointAgentUpdaterWindowsService)
     servicemanager.StartServiceCtrlDispatcher()
     return 0
+
+
+def _report_updater_stopped(service, win32service, exit_code: int) -> None:
+    """Emit the one terminal SCM state; no later STOP_PENDING transition exists."""
+    if exit_code == 0:
+        service.ReportServiceStatus(win32service.SERVICE_STOPPED)
+        return
+    service.ReportServiceStatus(
+        win32service.SERVICE_STOPPED,
+        win32ExitCode=getattr(win32service, "ERROR_SERVICE_SPECIFIC_ERROR", 1066),
+        svcExitCode=exit_code,
+    )
 
 
 __all__ = [

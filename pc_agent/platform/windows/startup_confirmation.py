@@ -20,12 +20,16 @@ class StartupProofWriter:
         try:
             pending = json.loads(self._paths.pending_path.read_text(encoding="utf-8"))
             current = json.loads(self._paths.current_path.read_text(encoding="utf-8"))
+            attempt = json.loads((self._paths.updates_root / "startup-attempt.json").read_text(encoding="utf-8"))
             version = pending["version"]
             operation_id = pending["operation_id"]
             if (
                 not isinstance(version, str)
                 or not isinstance(operation_id, str)
                 or current != {"version": version}
+                or attempt.get("operation_id") != operation_id
+                or attempt.get("version") != version
+                or not isinstance(attempt.get("attempt_id"), str)
             ):
                 return False
         except (OSError, ValueError, json.JSONDecodeError, KeyError):
@@ -37,6 +41,7 @@ class StartupProofWriter:
             temporary.write_text(
                 json.dumps(
                     {
+                        "attempt_id": attempt["attempt_id"],
                         "confirmed_at": datetime.now(UTC).isoformat(),
                         "operation_id": operation_id,
                         "status": "confirmed",

@@ -93,6 +93,28 @@ def updater_start_access_policy(*, service_all_access: int, service_start: int) 
     }
 
 
+def trigger_pending_updater() -> None:
+    """Start only the fixed demand-start updater using EndpointAgent's RP ACE."""
+    try:
+        import win32service  # type: ignore[import-not-found]
+    except ImportError as error:
+        raise RuntimeError("pywin32 is required to start EndpointAgentUpdater") from error
+    _trigger_updater_with(win32service)
+
+
+def _trigger_updater_with(win32service) -> None:
+    scm = service = None
+    try:
+        scm = win32service.OpenSCManager(None, None, win32service.SC_MANAGER_CONNECT)
+        service = win32service.OpenService(scm, UPDATER_SERVICE_NAME, win32service.SERVICE_START)
+        win32service.StartService(service, None)
+    finally:
+        if service is not None:
+            win32service.CloseServiceHandle(service)
+        if scm is not None:
+            win32service.CloseServiceHandle(scm)
+
+
 class PyWin32ServiceControl:
     """Start the already-MSI-registered LocalService service."""
 
@@ -118,4 +140,5 @@ __all__ = [
     "WindowsUpdaterServiceInstallSpec",
     "restrict_updater_start_permissions",
     "updater_start_access_policy",
+    "trigger_pending_updater",
 ]

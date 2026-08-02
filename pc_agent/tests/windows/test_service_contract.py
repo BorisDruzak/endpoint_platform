@@ -224,6 +224,35 @@ def test_headless_entrypoint_reaches_the_fixed_updater_service_without_ca(
     assert observed == ["updater"]
 
 
+def test_endpoint_agent_trigger_uses_only_connect_and_start_rights() -> None:
+    """EndpointAgent receives start-only DACL access, so an ALL_ACCESS helper would fail live."""
+    from pc_agent.platform.windows.service_control import _trigger_updater_with
+
+    class _Scm:
+        SC_MANAGER_CONNECT = 1
+        SERVICE_START = 2
+
+        def __init__(self):
+            self.calls = []
+
+        def OpenSCManager(self, *_args):
+            self.calls.append(("scm", _args))
+            return "scm"
+
+        def OpenService(self, *_args):
+            self.calls.append(("service", _args))
+            return "updater"
+
+        def StartService(self, service, _args):
+            self.calls.append(("start", service))
+
+        def CloseServiceHandle(self, _handle):
+            pass
+    scm=_Scm()
+    _trigger_updater_with(scm)
+    assert scm.calls == [("scm", (None, None, 1)), ("service", ("scm", "EndpointAgentUpdater", 2)), ("start", "updater")]
+
+
 def test_safe_status_mode_reports_invalid_setup_without_requiring_a_ca_argument(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

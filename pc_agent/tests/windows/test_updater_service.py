@@ -280,10 +280,14 @@ def test_startup_proof_writer_binds_the_post_handshake_proof_to_pending_operatio
     _pending(paths, artifact, received_at=datetime.now(UTC).isoformat(), operation_id=operation_id)
     paths.install_root.mkdir(parents=True)
     paths.current_path.write_text(json.dumps({"version": "3.2.0"}), encoding="utf-8")
+    (paths.updates_root / "startup-attempt.json").write_text(json.dumps({
+        "attempt_id": "candidate-attempt", "operation_id": operation_id, "version": "3.2.0",
+    }), encoding="utf-8")
 
     assert StartupProofWriter(paths).record_after_server_handshake() is True
     proof = json.loads((paths.updates_root / "startup-confirmation.json").read_text())
     assert proof["operation_id"] == operation_id
+    assert proof["attempt_id"] == "candidate-attempt"
     assert proof["version"] == "3.2.0"
     assert proof["status"] == "confirmed"
 
@@ -307,7 +311,7 @@ def test_confirmation_rejects_a_stale_or_wrong_operation_proof(tmp_path: Path) -
     }), encoding="utf-8")
 
     assert FileStartupConfirmation(paths).is_confirmed(
-        version="3.2.0", operation_id="new", not_before=datetime.now(UTC) - timedelta(seconds=5)
+        version="3.2.0", operation_id="new", attempt_id="new-attempt", not_before=datetime.now(UTC) - timedelta(seconds=5)
     ) is False
 
 
@@ -334,3 +338,84 @@ def test_extraction_rejects_an_artifact_replaced_after_validation(tmp_path: Path
     updater = WindowsUpdater(paths, acl=_Acl(), service=_Service(), verifier=_Verifier(), confirmation=_Confirmation())
     with pytest.raises(ValueError, match="artifact changed"):
         updater._extract_to_staging(pending)
+
+
+def test_corrupt_zip_removes_the_private_pinned_artifact_copy(tmp_path: Path) -> None:
+    """A corrupt archive must not leave a root-owned sibling for a later confused run."""
+    from pc_agent.platform.windows.updater_service import PendingUpdateValidator, WindowsUpdater
+
+    paths = _paths(tmp_path)
+    artifact = paths.downloads_root / "candidate.zip"
+    artifact.parent.mkdir(parents=True)
+    artifact.write_bytes(b"not a zip")
+    _pending(paths, artifact)
+    pending = PendingUpdateValidator(paths, _Acl()).load()
+    class _Service:
+        def stop(self): pass
+        def start(self): pass
+        def wait_stopped(self): return True
+        def crashed_early(self): return False
+    class _Verifier:
+        def verify(self, _path): return True
+    class _Confirmation:
+        def is_confirmed(self, **_kwargs): return True
+    updater = WindowsUpdater(paths, acl=_Acl(), service=_Service(), verifier=_Verifier(), confirmation=_Confirmation())
+    with pytest.raises(Exception):
+        updater._extract_to_staging(pending)
+    assert not list((paths.versions_root / "_staging").glob(".artifact-*.zip"))
+
+
+def test_confirmation_requires_a_new_candidate_attempt_id(tmp_path: Path) -> None:
+    """A previous proof for the same rollout must not confirm a restarted candidate."""
+    from pc_agent.platform.windows.updater_service import FileStartupConfirmation
+
+    paths = _paths(tmp_path)
+    paths.updates_root.mkdir(parents=True)
+    (paths.updates_root / "startup-confirmation.json").write_text(json.dumps({
+        "attempt_id": "old-attempt", "confirmed_at": datetime.now(UTC).isoformat(),
+        "operation_id": "op", "status": "confirmed", "version": "3.2.0",
+    }), encoding="utf-8")
+    assert FileStartupConfirmation(paths).is_confirmed(
+        version="3.2.0", operation_id="op", attempt_id="new-attempt", not_before=datetime.now(UTC) - timedelta(seconds=1)
+    ) is False
+
+
+def test_strict_update_acl_rejects_any_propagation_flag() -> None:
+    """Explicit object/container/inherit-only ACE propagation is not a protected file DACL."""
+    from pc_agent.platform.windows.updater_service import _validate_strict_update_dacl
+
+    class _Dacl:
+        def GetAceCount(self): return 4
+        def GetAce(self, index): return ((0, 0x01 if index == 0 else 0), 0xFF if index < 2 else 0x07, ("S-1-5-18", "S-1-5-32-544", "agent", "updater")[index])
+    class _Descriptor:
+        def GetSecurityDescriptorControl(self): return 0x1000, 1
+        def GetSecurityDescriptorDacl(self): return _Dacl()
+    class _Security:
+        ACCESS_ALLOWED_ACE_TYPE = 0
+        SE_DACL_PROTECTED = 0x1000
+        INHERITED_ACE = 0x10
+        @staticmethod
+        def ConvertSidToStringSid(sid): return sid
+        @staticmethod
+        def LookupAccountName(_server, principal):
+            return {"NT SERVICE\\EndpointAgent": "agent", "NT SERVICE\\EndpointAgentUpdater": "updater"}[principal], None, None
+    class _Rights:
+        FILE_ALL_ACCESS = 0xFF
+        FILE_GENERIC_READ = 1
+        FILE_GENERIC_WRITE = 2
+        DELETE = 4
+    with pytest.raises(ValueError, match="ACL"):
+        _validate_strict_update_dacl(_Descriptor(), _Security(), _Rights())
+
+
+def test_updater_terminal_status_is_reported_once_without_stop_pending_reversal() -> None:
+    """A one-shot service must finish STOPPED; reporting STOP_PENDING afterwards reverses SCM state."""
+    from pc_agent.platform.windows.updater_service import _report_updater_stopped
+
+    calls = []
+    class _Service:
+        def ReportServiceStatus(self, status, **kwargs): calls.append((status, kwargs))
+    class _Scm:
+        SERVICE_STOPPED = 1
+    _report_updater_stopped(_Service(), _Scm(), 7)
+    assert calls == [(1, {"win32ExitCode": 1066, "svcExitCode": 7})]

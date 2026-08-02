@@ -12,7 +12,7 @@ from pc_agent.device_credential import read_device_credential
 from pc_agent.enrollment_identity import ENROLLMENT_IDENTITY_FILENAME, read_enrollment_device_id
 from pc_agent.version import EXIT_UPDATE_PENDING
 
-from .service_control import SERVICE_ACCOUNT, SERVICE_NAME
+from .service_control import SERVICE_ACCOUNT, SERVICE_NAME, trigger_pending_updater
 
 if TYPE_CHECKING:
     from pc_agent.runtime.application import RuntimeSettings
@@ -173,6 +173,8 @@ def run_windows_service(settings: "RuntimeSettings") -> int:
                 lambda: run_runtime(settings), _PyWin32StatusAdapter(self)
             )
             self._exit_code = asyncio.run(self._coordinator.run())
+            if self._exit_code == EXIT_UPDATE_PENDING:
+                trigger_pending_updater()
 
         def SvcStop(self) -> None:
             if self._coordinator is not None:

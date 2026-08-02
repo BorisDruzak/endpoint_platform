@@ -75,8 +75,8 @@ class _FailingVerifier(_Verifier):
 class _Confirmation:
     def __init__(self, events: list[str], *, confirmed: bool) -> None:
         self.events, self.confirmed = events, confirmed
-    def is_confirmed(self, *, version: str, operation_id: str, not_before) -> bool:
-        assert version == "3.2.0" and operation_id
+    def is_confirmed(self, *, version: str, operation_id: str, attempt_id: str, not_before) -> bool:
+        assert version == "3.2.0" and operation_id and attempt_id
         self.events.append("confirmation")
         return self.confirmed
 
@@ -113,6 +113,29 @@ def test_updater_rolls_back_before_confirmation_after_an_early_crash(tmp_path: P
     assert updater.run_once().status == "rolled_back"
     assert service.events == ["stop", "wait_stopped", "verify", "start", "stop", "wait_stopped", "start"]
     assert json.loads(paths.current_path.read_text()) == {"version": "3.1.0"}
+
+
+def test_rollback_starts_previous_when_candidate_already_stopped(tmp_path: Path) -> None:
+    """ERROR_SERVICE_NOT_ACTIVE after a crash is a successful stop, not a rollback blocker."""
+    from pc_agent.platform.windows.updater_service import WindowsUpdater
+
+    paths, service = _setup(tmp_path), _Service(crash=True)
+    original_stop = service.stop
+    calls = 0
+
+    def stopped_candidate() -> None:
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            raise RuntimeError("ERROR_SERVICE_NOT_ACTIVE")
+        original_stop()
+
+    service.stop = stopped_candidate  # type: ignore[method-assign]
+    updater = WindowsUpdater(paths, acl=_Acl(), service=service, verifier=_Verifier(service.events), confirmation=_Confirmation(service.events, confirmed=True))
+
+    assert updater.run_once().status == "rolled_back"
+    assert json.loads(paths.current_path.read_text()) == {"version": "3.1.0"}
+    assert service.events[-1] == "start"
 
 
 def test_updater_restarts_the_previous_agent_when_new_verify_fails(tmp_path: Path) -> None:
