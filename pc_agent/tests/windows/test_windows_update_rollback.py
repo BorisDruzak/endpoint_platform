@@ -8,6 +8,8 @@ import zipfile
 from datetime import UTC, datetime
 from pathlib import Path
 
+import pytest
+
 
 def _setup(tmp_path: Path):
     from pc_agent.platform.windows.update_paths import WindowsUpdatePaths
@@ -81,6 +83,23 @@ class _Confirmation:
         return self.confirmed
 
 
+class _ScmError(Exception):
+    """Import-safe mimic of pywintypes.error's structured fields."""
+
+    def __init__(self, code: int, message: str) -> None:
+        super().__init__(code, "ControlService", message)
+        self.winerror = code
+
+
+def test_service_not_active_classifier_accepts_pywintypes_args_without_importing_it() -> None:
+    """Some pywintypes-compatible errors expose code 1062 only in args[0]."""
+    from pc_agent.platform.windows.updater_service import _is_service_not_active
+
+    assert _is_service_not_active(
+        Exception(1062, "ControlService", "Служба не была запущена")
+    )
+
+
 def test_updater_applies_then_waits_for_server_side_startup_confirmation(tmp_path: Path) -> None:
     from pc_agent.platform.windows.updater_service import WindowsUpdater
 
@@ -116,7 +135,7 @@ def test_updater_rolls_back_before_confirmation_after_an_early_crash(tmp_path: P
 
 
 def test_rollback_starts_previous_when_candidate_already_stopped(tmp_path: Path) -> None:
-    """ERROR_SERVICE_NOT_ACTIVE after a crash is a successful stop, not a rollback blocker."""
+    """Localized pywintypes error 1062 proves an already-crashed candidate is stopped."""
     from pc_agent.platform.windows.updater_service import WindowsUpdater
 
     paths, service = _setup(tmp_path), _Service(crash=True)
@@ -127,7 +146,7 @@ def test_rollback_starts_previous_when_candidate_already_stopped(tmp_path: Path)
         nonlocal calls
         calls += 1
         if calls == 2:
-            raise RuntimeError("ERROR_SERVICE_NOT_ACTIVE")
+            raise _ScmError(1062, "Служба не была запущена")
         original_stop()
 
     service.stop = stopped_candidate  # type: ignore[method-assign]
@@ -151,18 +170,49 @@ def test_updater_restarts_the_previous_agent_when_new_verify_fails(tmp_path: Pat
     assert not list((paths.versions_root / "_staging").glob("*"))
 
 
-def test_attempt_marker_is_durable_before_candidate_start(tmp_path: Path) -> None:
-    """Writing the attempt after StartService races the agent's immediate handshake."""
-    from pc_agent.platform.windows.updater_service import WindowsUpdater
+def test_attempt_marker_is_durable_before_candidate_start(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The candidate must not read a marker whose data or rename can still be lost."""
+    from pc_agent.platform.windows import updater_service
 
     paths = _setup(tmp_path)
+    events: list[str] = []
+    original_fsync = updater_service.os.fsync
+    original_replace = updater_service.os.replace
+
+    def capture_fsync(descriptor: int) -> None:
+        events.append("file_flush")
+        original_fsync(descriptor)
+
+    def capture_replace(source, target) -> None:
+        events.append(f"replace:{Path(target).name}")
+        original_replace(source, target)
+
+    def capture_directory_flush(path: Path) -> None:
+        events.append(f"directory_flush:{Path(path).name}")
+
+    monkeypatch.setattr(updater_service.os, "fsync", capture_fsync)
+    monkeypatch.setattr(updater_service.os, "replace", capture_replace)
+    monkeypatch.setattr(
+        updater_service, "_flush_directory", capture_directory_flush, raising=False
+    )
+
     class _MarkerService(_Service):
         def start(self) -> None:
             assert (paths.updates_root / "startup-attempt.json").is_file()
+            events.append("start")
             super().start()
+
     service = _MarkerService()
-    updater = WindowsUpdater(paths, acl=_Acl(), service=service, verifier=_Verifier(service.events), confirmation=_Confirmation(service.events, confirmed=True))
+    updater = updater_service.WindowsUpdater(paths, acl=_Acl(), service=service, verifier=_Verifier(service.events), confirmation=_Confirmation(service.events, confirmed=True))
     assert updater.run_once().status == "applied"
+    assert events[-4:] == [
+        "file_flush",
+        "replace:startup-attempt.json",
+        "directory_flush:updates",
+        "start",
+    ]
 
 
 def test_rollback_refuses_selector_switch_when_candidate_stop_fails(tmp_path: Path) -> None:
@@ -176,10 +226,41 @@ def test_rollback_refuses_selector_switch_when_candidate_stop_fails(tmp_path: Pa
         nonlocal calls
         calls += 1
         if calls == 2:
-            raise RuntimeError("access denied")
+            raise _ScmError(5, "Отказано в доступе")
         original_stop()
     service.stop = fail_second_stop  # type: ignore[method-assign]
     updater = WindowsUpdater(paths, acl=_Acl(), service=service, verifier=_Verifier(service.events), confirmation=_Confirmation(service.events, confirmed=False), deadline_seconds=0)
+    assert updater.run_once().status == "rejected"
+    assert json.loads(paths.current_path.read_text()) == {"version": "3.2.0"}
+
+
+def test_rollback_rejects_error_name_without_structured_service_not_active_code(
+    tmp_path: Path,
+) -> None:
+    """English error text alone must not authorize a selector rollback."""
+    from pc_agent.platform.windows.updater_service import WindowsUpdater
+
+    paths, service = _setup(tmp_path), _Service()
+    original_stop = service.stop
+    calls = 0
+
+    def fail_second_stop() -> None:
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            raise RuntimeError("ERROR_SERVICE_NOT_ACTIVE")
+        original_stop()
+
+    service.stop = fail_second_stop  # type: ignore[method-assign]
+    updater = WindowsUpdater(
+        paths,
+        acl=_Acl(),
+        service=service,
+        verifier=_Verifier(service.events),
+        confirmation=_Confirmation(service.events, confirmed=False),
+        deadline_seconds=0,
+    )
+
     assert updater.run_once().status == "rejected"
     assert json.loads(paths.current_path.read_text()) == {"version": "3.2.0"}
 

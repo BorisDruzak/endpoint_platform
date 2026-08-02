@@ -37,6 +37,7 @@ _SEMVER = re.compile(
     r"(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$"
 )
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
+_ERROR_SERVICE_NOT_ACTIVE = 1062
 STARTUP_DEADLINE_SECONDS = 120
 UPDATER_START_PRINCIPALS = ("SYSTEM", "Administrators", "NT SERVICE\\EndpointAgent")
 
@@ -544,10 +545,43 @@ def _write_json_atomic(path: Path, payload: dict[str, str]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
     try:
-        temporary.write_text(json.dumps(payload, separators=(",", ":")), encoding="utf-8")
+        with temporary.open("x", encoding="utf-8") as output:
+            output.write(json.dumps(payload, separators=(",", ":")))
+            output.flush()
+            os.fsync(output.fileno())
         os.replace(temporary, path)
+        _flush_directory(path.parent)
     finally:
         temporary.unlink(missing_ok=True)
+
+
+def _flush_directory(path: Path) -> None:
+    """Persist atomic-rename metadata before starting a marker consumer."""
+    if os.name == "nt":
+        try:
+            import win32con  # type: ignore[import-not-found]
+            import win32file  # type: ignore[import-not-found]
+        except ImportError as error:
+            raise OSError("pywin32 is required for Windows directory durability") from error
+        handle = win32file.CreateFile(
+            str(path),
+            win32con.GENERIC_READ | win32con.GENERIC_WRITE,
+            win32con.FILE_SHARE_READ | win32con.FILE_SHARE_WRITE | win32con.FILE_SHARE_DELETE,
+            None,
+            win32con.OPEN_EXISTING,
+            win32con.FILE_FLAG_BACKUP_SEMANTICS,
+            None,
+        )
+        try:
+            win32file.FlushFileBuffers(handle)
+        finally:
+            handle.Close()
+        return
+    descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
 
 
 def _write_startup_attempt(paths: WindowsUpdatePaths, pending: PendingUpdate) -> str:
@@ -564,7 +598,15 @@ def _clear_startup_attempt(paths: WindowsUpdatePaths) -> None:
 
 
 def _is_service_not_active(error: Exception) -> bool:
-    return "ERROR_SERVICE_NOT_ACTIVE" in str(error).upper()
+    winerror = getattr(error, "winerror", None)
+    if isinstance(winerror, int) and not isinstance(winerror, bool):
+        return winerror == _ERROR_SERVICE_NOT_ACTIVE
+    code = error.args[0] if error.args else None
+    return (
+        isinstance(code, int)
+        and not isinstance(code, bool)
+        and code == _ERROR_SERVICE_NOT_ACTIVE
+    )
 
 
 def run_windows_updater_service() -> int:
@@ -581,7 +623,7 @@ def run_windows_updater_service() -> int:
         _svc_display_name_ = "Endpoint Agent Updater"
         _svc_description_ = "Demand-start offline Endpoint Agent update worker"
 
-        def SvcDoRun(self) -> None:
+        def SvcRun(self) -> None:
             class _Status:
                 def report_start_pending(_self) -> None:
                     self.ReportServiceStatus(win32service.SERVICE_START_PENDING)

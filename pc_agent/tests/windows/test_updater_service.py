@@ -5,9 +5,11 @@ from __future__ import annotations
 import hashlib
 import inspect
 import json
+import sys
 import zipfile
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from types import ModuleType, SimpleNamespace
 
 import pytest
 
@@ -421,14 +423,63 @@ def test_updater_terminal_status_is_reported_once_without_stop_pending_reversal(
     assert calls == [(1, {"win32ExitCode": 1066, "svcExitCode": 7})]
 
 
-def test_updater_scm_coordinator_ends_with_terminal_stopped_status() -> None:
-    """The pywin32 wrapper must not append STOP_PENDING after the worker's terminal state."""
-    from pc_agent.platform.windows.updater_service import UpdaterScmCoordinator
+def test_updater_dispatcher_overrides_the_pywin32_base_svc_run_sequence(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Inheriting pywin32's SvcRun appends STOP_PENDING after SvcDoRun returns."""
+    from pc_agent.platform.windows import updater_service
 
-    events = []
-    class _Status:
-        def report_start_pending(self): events.append("start_pending")
-        def report_running(self): events.append("running")
-        def report_stopped(self, code): events.append(f"stopped:{code}")
-    assert UpdaterScmCoordinator(lambda: 7, _Status()).run() == 7
-    assert events == ["start_pending", "running", "stopped:7"]
+    events: list[tuple[int, dict[str, int]]] = []
+    hosted: dict[str, type] = {}
+    win32service = ModuleType("win32service")
+    win32service.SERVICE_STOPPED = 1
+    win32service.SERVICE_START_PENDING = 2
+    win32service.SERVICE_STOP_PENDING = 3
+    win32service.SERVICE_RUNNING = 4
+    win32service.ERROR_SERVICE_SPECIFIC_ERROR = 1066
+
+    class _ServiceFrameworkBaseSequence:
+        """Exact status sequence used by pywin32 ServiceFramework.SvcRun."""
+
+        def __init__(self, _args) -> None:
+            pass
+
+        def ReportServiceStatus(self, status: int, **kwargs: int) -> None:
+            events.append((status, kwargs))
+
+        def SvcRun(self) -> None:
+            self.ReportServiceStatus(win32service.SERVICE_RUNNING)
+            self.SvcDoRun()
+            self.ReportServiceStatus(win32service.SERVICE_STOP_PENDING)
+
+    win32serviceutil = ModuleType("win32serviceutil")
+    win32serviceutil.ServiceFramework = _ServiceFrameworkBaseSequence
+    servicemanager = ModuleType("servicemanager")
+    servicemanager.Initialize = lambda: None
+
+    def prepare(service_class: type) -> None:
+        hosted["service_class"] = service_class
+
+    def dispatch() -> None:
+        hosted["service_class"](["EndpointAgentUpdater"]).SvcRun()
+
+    servicemanager.PrepareToHostSingle = prepare
+    servicemanager.StartServiceCtrlDispatcher = dispatch
+    monkeypatch.setitem(sys.modules, "servicemanager", servicemanager)
+    monkeypatch.setitem(sys.modules, "win32service", win32service)
+    monkeypatch.setitem(sys.modules, "win32serviceutil", win32serviceutil)
+    monkeypatch.setattr(
+        updater_service,
+        "WindowsUpdater",
+        lambda: SimpleNamespace(run_once=lambda: SimpleNamespace(status="rejected")),
+    )
+
+    assert updater_service.run_windows_updater_service() == 0
+    assert events == [
+        (win32service.SERVICE_START_PENDING, {}),
+        (win32service.SERVICE_RUNNING, {}),
+        (
+            win32service.SERVICE_STOPPED,
+            {"win32ExitCode": 1066, "svcExitCode": 1},
+        ),
+    ]
