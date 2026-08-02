@@ -154,6 +154,8 @@ def _parser() -> argparse.ArgumentParser:
     modes.add_argument("--apply-programdata-acl", action="store_true")
     modes.add_argument("--restrict-updater-start", action="store_true")
     modes.add_argument("--migrate-initial-selector", action="store_true")
+    modes.add_argument("--rollback-initial-selector", action="store_true")
+    modes.add_argument("--finalize-initial-selector", action="store_true")
     return parser
 
 
@@ -176,6 +178,18 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
 
         migrate_production_selector()
+        return 0
+    if args.rollback_initial_selector:
+        from pc_agent.platform.windows.selector_migration import rollback_production_selector
+
+        rollback_production_selector()
+        return 0
+    if args.finalize_initial_selector:
+        from pc_agent.platform.windows.selector_migration import (
+            finalize_production_selector_migration,
+        )
+
+        finalize_production_selector_migration()
         return 0
     from pc_agent.platform.windows.service_control import restrict_updater_start_permissions
 

@@ -282,6 +282,43 @@ def test_approved_runtime_transition_migrates_selector_before_service_start() ->
     assert "BaselineInitialRuntimeVersion" in script
 
 
+def test_selector_migration_has_a_no_argument_rollback_pair() -> None:
+    """A later MSI failure must restore current.json before old components are removed."""
+    actions = _all_elements(_trees(), "CustomAction")
+    rollback = _by_id(actions, "RollbackInitialSelector")
+    finalize = _by_id(actions, "FinalizeInitialSelectorMigration")
+    for action, command, execution in (
+        (rollback, "--rollback-initial-selector", "rollback"),
+        (finalize, "--finalize-initial-selector", "commit"),
+    ):
+        assert action.get("FileRef") == "filServiceHost"
+        assert action.get("ExeCommand") == command
+        assert action.get("Execute") == execution
+        assert action.get("Impersonate") == "no"
+        assert action.get("Return") == "check"
+        assert action.get("HideTarget") == "yes"
+
+    sequence = _all_elements(_trees(), "Custom")
+    rollback_sequence = next(item for item in sequence if item.get("Action") == "RollbackInitialSelector")
+    migrate_sequence = next(item for item in sequence if item.get("Action") == "MigrateInitialSelector")
+    finalize_sequence = next(item for item in sequence if item.get("Action") == "FinalizeInitialSelectorMigration")
+    assert rollback_sequence.get("Before") == "MigrateInitialSelector"
+    assert migrate_sequence.get("After") == "RestrictUpdaterServiceStart"
+    assert finalize_sequence.get("After") == "MigrateInitialSelector"
+    assert all(
+        "ENDPOINT_AGENT_INITIAL_RUNTIME_TRANSITION = 1" in item.get("Condition", "")
+        for item in (rollback_sequence, migrate_sequence, finalize_sequence)
+    )
+
+
+def test_initial_runtime_marker_is_staged_for_msi_ownership_provenance() -> None:
+    """A valid executable alone cannot distinguish an old MSI core from an updater release."""
+    script = (WINDOWS_PACKAGING / "build-msi.ps1").read_text(encoding="utf-8")
+
+    assert ".endpoint-msi-runtime.json" in script
+    assert "initial_runtime_component_guid" in script
+
+
 def test_default_uninstall_retains_programdata_and_documents_admin_purge() -> None:
     """Repair/reinstall identity must survive default uninstall while purge remains deliberate."""
     components = _all_elements(_trees(), "Component")

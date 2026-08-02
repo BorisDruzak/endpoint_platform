@@ -16,6 +16,10 @@ TRANSITION_REGISTRY_KEY = (
 )
 _SEMVER = re.compile(r"^(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)$")
 _CONTRACT_FIELDS = {"approved", "from_version", "schema_version", "to_version"}
+MSI_RUNTIME_MARKER_FILENAME = ".endpoint-msi-runtime.json"
+ROLLBACK_SNAPSHOT_FILENAME = ".endpoint-initial-runtime-selector.rollback.json"
+_MARKER_FIELDS = {"component_guid", "schema_version", "version"}
+_SNAPSHOT_FIELDS = {"schema_version", "version"}
 
 
 def _read_exact_json(path: Path, fields: set[str], label: str) -> dict[str, object]:
@@ -46,6 +50,49 @@ def _write_selector_atomic(path: Path, version: str) -> None:
         temporary.unlink(missing_ok=True)
 
 
+def _rollback_path(paths: WindowsUpdatePaths) -> Path:
+    return paths.install_root / ROLLBACK_SNAPSHOT_FILENAME
+
+
+def _write_rollback_snapshot(paths: WindowsUpdatePaths, version: str) -> None:
+    snapshot = _rollback_path(paths)
+    temporary = snapshot.with_name(f".{snapshot.name}.{uuid.uuid4().hex}.tmp")
+    try:
+        with temporary.open("x", encoding="utf-8") as output:
+            output.write(json.dumps({"schema_version": 1, "version": version}, separators=(",", ":")))
+            output.flush()
+            os.fsync(output.fileno())
+        os.replace(temporary, snapshot)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+def _is_msi_owned_runtime(paths: WindowsUpdatePaths, version: str) -> bool:
+    marker = paths.versions_root / version / MSI_RUNTIME_MARKER_FILENAME
+    try:
+        details = marker.lstat()
+    except FileNotFoundError:
+        return False
+    if marker.is_symlink() or getattr(details, "st_file_attributes", 0) & 0x400:
+        raise ValueError("MSI runtime marker is a reparse point")
+    marker_payload = _read_exact_json(marker, _MARKER_FIELDS, "MSI runtime marker")
+    component_guid = marker_payload.get("component_guid")
+    if (
+        marker_payload.get("schema_version") != 1
+        or marker_payload.get("version") != version
+        or not isinstance(component_guid, str)
+    ):
+        raise ValueError("MSI runtime marker is invalid")
+    try:
+        canonical_guid = str(uuid.UUID(component_guid)).upper()
+    except ValueError as error:
+        raise ValueError("MSI runtime marker is invalid") from error
+    if canonical_guid != component_guid:
+        raise ValueError("MSI runtime marker is invalid")
+    _validate_runtime(paths, version)
+    return True
+
+
 def _migrate_versions(
     paths: WindowsUpdatePaths, previous: object, candidate: object
 ) -> str:
@@ -63,8 +110,13 @@ def _migrate_versions(
     if not isinstance(selected, str) or not _SEMVER.fullmatch(selected):
         raise ValueError("current selector is invalid")
     if selected == previous:
+        _write_rollback_snapshot(paths, selected)
         _write_selector_atomic(paths.current_path, candidate)
         return "migrated"
+    if _is_msi_owned_runtime(paths, selected):
+        _write_rollback_snapshot(paths, selected)
+        _write_selector_atomic(paths.current_path, candidate)
+        return "migrated_msi_owned"
     _validate_runtime(paths, selected)
     return "preserved"
 
@@ -101,8 +153,48 @@ def migrate_production_selector() -> str:
     return _migrate_versions(WindowsUpdatePaths.production(), previous, candidate)
 
 
+def rollback_initial_selector(paths: WindowsUpdatePaths) -> str:
+    """Restore the selector snapshot when MSI rolls back after migration."""
+    snapshot = _rollback_path(paths)
+    try:
+        payload = _read_exact_json(snapshot, _SNAPSHOT_FIELDS, "selector rollback snapshot")
+    except ValueError as error:
+        if not snapshot.exists():
+            return "not_migrated"
+        raise error
+    version = payload.get("version")
+    if payload.get("schema_version") != 1 or not isinstance(version, str) or not _SEMVER.fullmatch(version):
+        raise ValueError("selector rollback snapshot is invalid")
+    _write_selector_atomic(paths.current_path, version)
+    snapshot.unlink(missing_ok=True)
+    return "restored"
+
+
+def finalize_initial_selector_migration(paths: WindowsUpdatePaths) -> str:
+    """Discard a rollback snapshot only after MSI commits successfully."""
+    snapshot = _rollback_path(paths)
+    if snapshot.exists():
+        snapshot.unlink()
+        return "finalized"
+    return "not_migrated"
+
+
+def rollback_production_selector() -> str:
+    return rollback_initial_selector(WindowsUpdatePaths.production())
+
+
+def finalize_production_selector_migration() -> str:
+    return finalize_initial_selector_migration(WindowsUpdatePaths.production())
+
+
 __all__ = [
     "TRANSITION_REGISTRY_KEY",
+    "MSI_RUNTIME_MARKER_FILENAME",
+    "ROLLBACK_SNAPSHOT_FILENAME",
+    "finalize_initial_selector_migration",
+    "finalize_production_selector_migration",
     "migrate_initial_selector",
     "migrate_production_selector",
+    "rollback_initial_selector",
+    "rollback_production_selector",
 ]

@@ -261,6 +261,11 @@ Get-ChildItem -LiteralPath $builtCore | ForEach-Object {
     Copy-Item -LiteralPath $_.FullName -Destination $runtimeStage -Recurse -Force
 }
 Move-Item -LiteralPath (Join-Path $runtimeStage 'endpoint_agent_core.exe') -Destination (Join-Path $runtimeStage 'pc_agent.exe')
+Write-Utf8NoBom (Join-Path $runtimeStage '.endpoint-msi-runtime.json') (@{
+    component_guid = $InitialRuntimeComponentGuid
+    schema_version = 1
+    version = $InitialRuntimeVersion
+} | ConvertTo-Json -Compress)
 $artifactValidationJson = & $python @($validationArguments + @('--artifact-root', $runtimeStage))
 if ($LASTEXITCODE -ne 0) {
     throw "Staged initial runtime artifact validation failed."

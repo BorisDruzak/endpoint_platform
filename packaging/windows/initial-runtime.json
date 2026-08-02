@@ -4,8 +4,8 @@
   "agent_version": "3.1.76",
   "component_guid": "980AE24B-57BC-4B59-A18A-65B9B33A7906",
   "artifact": {
-    "file_count": 2492,
-    "tree_sha256": "31dbc29a1dbc74ea5c534c57393555a83f33c76318d973fef3d952381218d6f1"
+    "file_count": 2493,
+    "tree_sha256": "5a523a5c5d4b76c8e000188387edbab7a26ea730b5560a2134d2173e24033fc0"
   },
   "toolchain": {
     "implementation": "CPython",
@@ -53,7 +53,7 @@
     {"path":"pc_agent/runtime/command_executor.py","sha256":"85126524ece965bbc90d8c1bd94ee4f0e6e587594530d8b90d8159749e779303"},
     {"path":"pc_agent/runtime/lifecycle.py","sha256":"a04e50d3ba1b62aa0c0b6b48608e026dfa9079fcc8472fedb850c38a146463b1"},
     {"path":"pc_agent/runtime/local_state.py","sha256":"d51a562abb6b625ff187b059a4c3aee4a21c37adc5a55681a319c068bcb4ddbd"},
-    {"path":"pc_agent/runtime/main.py","sha256":"a3ab029488b8b9ffab55b1d04936f5b3f9c00907daac81846ad776f59a93d866"},
+    {"path":"pc_agent/runtime/main.py","sha256":"6bf2adeb9fef2b56bedd20364cb71b36cc7bbccc6342e6051e50ef3fff6a0577"},
     {"path":"pc_agent/runtime/status.py","sha256":"ac4a7a8237c6b0d6d3ea4f3c8279b4df6b82705db812131cb80ad8cc9bd42c49"},
     {"path":"pc_agent/runtime/verification.py","sha256":"4b2b584ce7c9fc20f201739b86f6075fa60f31e6df81063e9486fc6169149cc8"},
     {"path":"pc_agent/transport/__init__.py","sha256":"0c4166e15693e039181f442ec268abbca2052fed6f87ef6f9d809be2ecbd687b"},

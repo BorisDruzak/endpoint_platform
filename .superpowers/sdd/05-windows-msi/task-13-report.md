@@ -297,11 +297,10 @@ exit `42`, `asyncio.run()` then waited in `shutdown_default_executor()` while
 the fixed host still held stdin open, so the host never observed 42 and never
 started the updater.
 
-The regression uses a real held-open OS pipe and a runtime returning 42 in a
-worker thread. RED recorded `finished_while_pipe_open = False`; cleanup closed
-the pipe only after capturing that failure. The watcher now uses a dedicated
-daemon reader that completes an event-loop Future. Cancelling the Future does
-not put a blocking worker in asyncio's executor, so `asyncio.run()` returns 42
+The regression uses a real held-open OS pipe and a runtime returning 42. RED
+recorded the interpreter's fatal shutdown exit; cleanup closed the pipe only
+after capturing that failure. The final watcher is a nonblocking poll rather
+than either an executor task or a daemon reader, so `asyncio.run()` returns 42
 while the pipe is still open. The focused service/selector suite is GREEN.
 
 ### Approved selector migration before service start
@@ -394,3 +393,34 @@ python -m pytest -q pc_agent/tests/windows tests/packaging/test_windows_msi_cont
 Result: `186 passed, 5 skipped in 48.16s`; skips are platform-specific. The
 same command invocation first revalidated the checked manifest against all
 2,492 staged runtime files and returned the routine, non-transition identity.
+
+### Review round 3: held stdin, rollback pairing, and selector provenance
+
+The prior daemon reader could remain blocked in Python's buffered stdin during
+interpreter shutdown. A real subprocess with its host pipe deliberately held
+open exposed the Windows fatal-shutdown exit status `3221225477`, rather than
+the runtime's `EXIT_UPDATE_PENDING` (42). The child now polls the inherited
+Windows pipe with `PeekNamedPipe` and only reads once data is known available;
+the non-Windows test path uses zero-timeout `select`. No reader thread or
+executor worker remains alive at interpreter shutdown. The real held-open-pipe
+regression now observes exit 42.
+
+Selector migration writes a durable, fsynced snapshot before atomically
+replacing `current.json`. The deferred MSI action has a paired no-argument
+rollback action before it and a commit finalizer after it, all non-impersonated
+and return-checked. Rollback restores the prior selector with the same atomic
+replace before MSI removes candidate components or starts services; commit only
+removes the snapshot.
+
+An MSI-owned runtime is identified by the installed, exact-shape
+`.endpoint-msi-runtime.json` marker (version, schema, and canonical component
+GUID), staged with the immutable initial runtime. An old MSI-owned selector is
+therefore migrated, while an updater-owned independently selected version is
+still preserved. The rebuilt staged tree contains 2,493 files with SHA-256 root
+`5a523a5c5d4b76c8e000188387edbab7a26ea730b5560a2134d2173e24033fc0`.
+
+Focused regressions and the full Windows/packaging contract suite passed
+(`113 passed`). Ruff, compileall, PowerShell AST parsing, and `git diff --check`
+passed. A clean PyInstaller restage and a reuse-stage MSI build both passed
+manifest and binding generation; the latter stopped only at the deliberate,
+environmental WiX 4 command availability gate.

@@ -5,8 +5,8 @@ from __future__ import annotations
 import argparse
 import asyncio
 import os
+import select
 import sys
-import threading
 from pathlib import Path
 from typing import Sequence
 
@@ -21,37 +21,46 @@ __all__ = ["RuntimeSettings", "run_runtime", "run_verify"]
 
 
 async def _wait_for_service_host_pipe() -> bytes:
-    """Return on host-pipe EOF without owning asyncio's blocking executor."""
-    loop = asyncio.get_running_loop()
-    completed: asyncio.Future[bytes] = loop.create_future()
+    """Poll the fixed host pipe without a reader thread or blocking executor."""
+    descriptor = sys.stdin.buffer.fileno()
+    while True:
+        signal = _poll_service_host_pipe(descriptor)
+        if signal is not None:
+            return signal
+        await asyncio.sleep(0.05)
 
-    def read_pipe() -> None:
-        try:
-            value = sys.stdin.buffer.read(1)
-        except BaseException as error:  # propagate native pipe failures to the loop
-            callback = completed.set_exception
-            result: bytes | BaseException = error
-        else:
-            callback = completed.set_result
-            result = value
 
-        def finish() -> None:
-            if completed.cancelled() or completed.done():
-                return
-            callback(result)  # type: ignore[arg-type]
+def _poll_service_host_pipe(descriptor: int) -> bytes | None:
+    """Return pipe data/EOF when available, otherwise ``None`` without blocking."""
+    if os.name != "nt":
+        readable, _writeable, _errors = select.select([descriptor], [], [], 0)
+        return os.read(descriptor, 1) if readable else None
+    import ctypes
+    import msvcrt
+    from ctypes import wintypes
 
-        try:
-            loop.call_soon_threadsafe(finish)
-        except RuntimeError:
-            # The runtime exited first and asyncio.run already closed the loop.
-            return
-
-    threading.Thread(
-        target=read_pipe,
-        name="endpoint-agent-service-stop-pipe",
-        daemon=True,
-    ).start()
-    return await completed
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.PeekNamedPipe.argtypes = (
+        wintypes.HANDLE,
+        wintypes.LPVOID,
+        wintypes.DWORD,
+        ctypes.POINTER(wintypes.DWORD),
+        ctypes.POINTER(wintypes.DWORD),
+        ctypes.POINTER(wintypes.DWORD),
+    )
+    kernel32.PeekNamedPipe.restype = wintypes.BOOL
+    available = wintypes.DWORD()
+    handle = wintypes.HANDLE(msvcrt.get_osfhandle(descriptor))
+    if kernel32.PeekNamedPipe(
+        handle, None, 0, None, ctypes.byref(available), None
+    ):
+        if not available.value:
+            return None
+        return os.read(descriptor, 1)
+    error = ctypes.get_last_error()
+    if error in {109, 232}:  # ERROR_BROKEN_PIPE / ERROR_NO_DATA
+        return b""
+    raise OSError(error, "could not poll EndpointAgent service control pipe")
 
 
 async def _run_service_child(settings: RuntimeSettings) -> int:

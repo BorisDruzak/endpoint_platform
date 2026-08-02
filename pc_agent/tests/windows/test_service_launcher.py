@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import subprocess
 import sys
 import threading
 from pathlib import Path
@@ -177,6 +178,42 @@ def test_service_child_propagates_exit_42_while_host_pipe_remains_open(
     assert result == [EXIT_UPDATE_PENDING]
 
 
+def test_service_child_subprocess_exits_42_with_held_open_host_pipe() -> None:
+    """A real child process must not abort Python shutdown with its host pipe open."""
+    project_root = Path(__file__).resolve().parents[3]
+    code = """
+import asyncio
+from pc_agent.runtime import main
+async def update_pending(_settings):
+    return 42
+main.run_runtime = update_pending
+raise SystemExit(main.main([
+    '--windows-service-child', '--data-dir', 'data', '--install-root', 'install',
+    '--ca-file', 'ca.crt',
+]))
+"""
+    environment = {**os.environ, "PYTHONPATH": str(project_root)}
+    child = subprocess.Popen(
+        [sys.executable, "-c", code],
+        cwd=project_root,
+        env=environment,
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    try:
+        exit_code = child.wait(timeout=4)
+    except subprocess.TimeoutExpired:
+        child.terminate()
+        child.wait(timeout=2)
+        pytest.fail("service child did not exit while the host pipe stayed open")
+    finally:
+        if child.stdin is not None:
+            child.stdin.close()
+
+    assert exit_code == EXIT_UPDATE_PENDING
+
+
 def _transition_contract(path: Path, *, previous: str, new: str) -> Path:
     contract = path / "initial-runtime-transition.json"
     contract.write_text(json.dumps({
@@ -218,6 +255,9 @@ def test_approved_transition_preserves_a_valid_noninitial_selector(
     selected = paths.versions_root / "3.1.75"
     selected.mkdir()
     (selected / "pc_agent.exe").write_bytes(b"selected")
+    (selected / ".endpoint-update.json").write_text(
+        '{"version":"3.1.75"}', encoding="utf-8"
+    )
     paths.current_path.write_text('{"version":"3.1.75"}', encoding="utf-8")
 
     outcome = migrate_initial_selector(
@@ -227,6 +267,54 @@ def test_approved_transition_preserves_a_valid_noninitial_selector(
     assert outcome == "preserved"
     assert json.loads(paths.current_path.read_text(encoding="utf-8")) == {
         "version": "3.1.75"
+    }
+
+
+def test_approved_transition_replaces_an_old_msi_owned_selector(
+    tmp_path: Path,
+) -> None:
+    """A prior MSI initial core must not be preserved until RemoveExistingProducts deletes it."""
+    from pc_agent.platform.windows.selector_migration import migrate_initial_selector
+
+    paths = _paths(tmp_path)
+    old_msi = paths.versions_root / "3.1.75"
+    old_msi.mkdir()
+    (old_msi / "pc_agent.exe").write_bytes(b"old-msi")
+    (old_msi / ".endpoint-msi-runtime.json").write_text(json.dumps({
+        "component_guid": "D53E70D8-CAD1-4755-9AC8-36164A48C9D5",
+        "schema_version": 1,
+        "version": "3.1.75",
+    }), encoding="utf-8")
+    paths.current_path.write_text('{"version":"3.1.75"}', encoding="utf-8")
+
+    outcome = migrate_initial_selector(
+        paths, _transition_contract(tmp_path, previous="3.1.76", new="3.1.77")
+    )
+
+    assert outcome == "migrated_msi_owned"
+    assert json.loads(paths.current_path.read_text(encoding="utf-8")) == {
+        "version": "3.1.77"
+    }
+
+
+def test_transition_rollback_restores_selector_after_later_failure(
+    tmp_path: Path,
+) -> None:
+    """MSI rollback must restore the old selector before its candidate is removed."""
+    from pc_agent.platform.windows.selector_migration import (
+        migrate_initial_selector,
+        rollback_initial_selector,
+    )
+
+    paths = _paths(tmp_path)
+    paths.current_path.write_text('{"version":"3.1.76"}', encoding="utf-8")
+    assert migrate_initial_selector(
+        paths, _transition_contract(tmp_path, previous="3.1.76", new="3.1.77")
+    ) == "migrated"
+
+    assert rollback_initial_selector(paths) == "restored"
+    assert json.loads(paths.current_path.read_text(encoding="utf-8")) == {
+        "version": "3.1.76"
     }
 
 
