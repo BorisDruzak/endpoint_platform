@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Iterable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Protocol
@@ -59,6 +59,12 @@ async def _noop_after_handshake(_settings: object) -> None:
     return None
 
 
+def _no_connected_tasks(
+    _settings: object, _credential: str, _transport: GatewayTransport
+) -> Iterable[Awaitable[None]]:
+    return ()
+
+
 @dataclass(frozen=True, slots=True)
 class RuntimeDependencies:
     load_credential: Callable[[object], str]
@@ -68,6 +74,9 @@ class RuntimeDependencies:
     sleep: Callable[[float], Awaitable[None]] = asyncio.sleep
     heartbeat_sleep: Callable[[float], Awaitable[None]] = asyncio.sleep
     after_server_handshake: Callable[[object], Awaitable[None]] = _noop_after_handshake
+    create_connected_tasks: Callable[
+        [object, str, GatewayTransport], Iterable[Awaitable[None]]
+    ] = _no_connected_tasks
     reconnect_delay: float = 5.0
 
 
@@ -116,12 +125,16 @@ class RuntimeLifecycle:
                     gateway_hello = await transport.connect(hello)
                     self._status.transition(RuntimePhase.RUNNING)
                     await self._dependencies.after_server_handshake(self._settings)
+                    connected_tasks = self._dependencies.create_connected_tasks(
+                        self._settings, credential, transport
+                    )
                     await _run_connected(
                         transport,
                         executor,
                         hello,
                         gateway_hello,
                         self._dependencies.heartbeat_sleep,
+                        connected_tasks=connected_tasks,
                     )
                     raise GatewayTerminalError(
                         "Gateway connected loops stopped unexpectedly"
@@ -181,6 +194,8 @@ async def _run_connected(
     hello: AgentHelloV1,
     gateway_hello: GatewayHelloV1,
     sleep: Callable[[float], Awaitable[None]],
+    *,
+    connected_tasks: Iterable[Awaitable[None]] = (),
 ) -> None:
     """Run receive and heartbeat loops for the lifetime of one connection."""
     tasks = {
@@ -194,6 +209,7 @@ async def _run_connected(
             )
         ),
     }
+    tasks.update(asyncio.ensure_future(task) for task in connected_tasks)
     try:
         done, _pending = await asyncio.wait(
             tasks,

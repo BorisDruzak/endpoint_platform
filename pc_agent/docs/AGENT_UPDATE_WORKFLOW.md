@@ -11,6 +11,13 @@ payload, local path, or traceback. The legacy scheduler and launcher keep their
 existing local path-oriented action traces; the Endpoint-specific claim does
 not describe those pre-existing records.
 
+For the headless `gateway_wss` runtime, command delivery remains on WSS.  Once
+the WSS session is authenticated, the agent checks the existing
+TLS-authenticated HTTPS update-recommendation endpoint immediately and then at
+the fixed five-minute interval for as long as that WSS session remains alive.
+Those bounded update checks do not call the HTTP command receive endpoint; a
+WSS reconnect cancels the previous session's check loop and starts a new one.
+
 Select assignments with `server.update_channel: stable|canary` in the agent
 `settings.yaml`; invalid values fail configuration validation and `stable` is
 the default.

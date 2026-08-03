@@ -19,7 +19,6 @@ from pc_agent.transport.base import GatewayTerminalError, GatewayTransport
 from pc_agent.transport.http_pull import ClassifiedGatewayTransport
 from pc_agent.transport.protocol import (
     AgentHelloV1,
-    GatewayHelloV1,
     compatibility_agent_hello,
 )
 from pc_agent.transport.websocket import (
@@ -107,12 +106,30 @@ def _default_dependencies() -> RuntimeDependencies:
             state=transport_state,
         )
 
+    def create_connected_tasks(
+        settings: object, credential: str, transport: GatewayTransport
+    ):
+        if (
+            isinstance(settings, RuntimeSettings)
+            and settings.transport_mode == "gateway_wss"
+            and isinstance(transport, WebSocketGatewayTransport)
+        ):
+            return (
+                _periodic_https_update_checks(
+                    settings,
+                    credential,
+                    _EndpointHttpPullState(),
+                ),
+            )
+        return ()
+
     return RuntimeDependencies(
         load_credential=_load_credential,
         create_executor=CommandExecutor,
         create_transport=create_transport,
         load_hello=_load_hello,
         after_server_handshake=_startup_proof_hook,
+        create_connected_tasks=create_connected_tasks,
     )
 
 
@@ -168,11 +185,6 @@ def _create_transport(
             ca_file=settings.ca_file,
             credential=credential,
             endpoint_origin=settings.endpoint_origin,
-            on_connected=_https_update_hook(
-                settings,
-                credential,
-                state=runtime_state,
-            ),
         )
         if not settings.migration_http_pull_fallback:
             return primary
@@ -201,13 +213,15 @@ def _create_transport(
     )
 
 
-def _https_update_hook(
+async def _periodic_https_update_checks(
     settings: RuntimeSettings,
     credential: str,
-    *,
     state: "_EndpointHttpPullState",
-):
-    async def poll_updates(_gateway_hello: GatewayHelloV1) -> None:
+    *,
+    sleep=asyncio.sleep,
+) -> None:
+    """Check immutable HTTPS updates while one WSS control session is alive."""
+    while True:
         transport = ClassifiedGatewayTransport(
             _create_http_pull_transport(settings, credential, state=state)
         )
@@ -215,8 +229,7 @@ def _https_update_hook(
             await transport.connect(compatibility_agent_hello())
         finally:
             await transport.close()
-
-    return poll_updates
+        await sleep(endpoint_gateway.GATEWAY_UPDATE_POLL_INTERVAL_SEC)
 
 
 def _create_http_pull_transport(

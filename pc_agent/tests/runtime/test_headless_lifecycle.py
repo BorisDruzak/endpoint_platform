@@ -160,6 +160,40 @@ async def test_runtime_starts_in_order_and_closes_every_started_component(
 
 
 @pytest.mark.asyncio
+async def test_runtime_cancels_connected_background_tasks_before_transport_cleanup(
+    tmp_path: Path,
+) -> None:
+    """A task tied to one WSS session must not survive its transport cleanup."""
+    events: list[str] = []
+
+    class YieldingTransport(_Transport):
+        async def receive(self):
+            self._events.append("transport.receive")
+            await asyncio.sleep(0)
+            raise asyncio.CancelledError()
+
+    async def connected_task() -> None:
+        events.append("connected_task.start")
+        try:
+            await asyncio.Event().wait()
+        finally:
+            events.append("connected_task.cancelled")
+
+    dependencies = RuntimeDependencies(
+        load_credential=lambda _settings: "c" * 43,
+        create_executor=lambda: _Executor(events),
+        create_transport=lambda *_args: YieldingTransport(events),
+        create_connected_tasks=lambda _settings, _credential, _transport: [
+            connected_task()
+        ],
+    )
+    application = RuntimeApplication(_settings(tmp_path), dependencies)
+
+    assert await application.run() == 0
+    assert events.index("connected_task.cancelled") < events.index("transport.close")
+
+
+@pytest.mark.asyncio
 async def test_runtime_returns_controlled_update_exit_after_clean_shutdown(
     tmp_path: Path,
 ) -> None:

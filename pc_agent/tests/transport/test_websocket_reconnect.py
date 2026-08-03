@@ -10,6 +10,7 @@ import aiohttp
 import pytest
 
 from endpoint_contracts import AgentHelloV1, GatewayHelloV1
+from pc_agent import endpoint_gateway
 from pc_agent.transport.base import (
     GatewayCredentialRejected,
     GatewayRetryableError,
@@ -657,15 +658,15 @@ def test_runtime_wss_selection_constructs_only_secure_primary_initially(
     assert observed["ca_file"] == settings.ca_file
     assert observed["credential"] == "d" * 43
     assert observed["endpoint_origin"] == _ORIGIN
-    assert callable(observed["on_connected"])
+    assert "on_connected" not in observed
 
 
 @pytest.mark.asyncio
-async def test_runtime_wss_success_preserves_updates_on_https(
+async def test_runtime_wss_periodically_checks_updates_without_http_command_receive(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    """A WSS control handshake must retain the existing HTTPS update poll."""
+    """One connected WSS session must continue its HTTPS-only update checks."""
     from pc_agent.runtime import application
 
     settings = application.RuntimeSettings(
@@ -675,38 +676,41 @@ async def test_runtime_wss_success_preserves_updates_on_https(
         endpoint_origin=_ORIGIN,
         transport_mode="gateway_wss",
     )
-    observed: dict[str, object] = {}
     update_events: list[str] = []
-
-    def create_wss(**kwargs):
-        observed.update(kwargs)
-        return _RecordingTransport("wss", [])
 
     class UpdateOnlyTransport(_RecordingTransport):
         async def connect(self, hello: AgentHelloV1) -> GatewayHelloV1:
             update_events.append(f"https:connect:{hello.schema_version}")
             return GatewayHelloV1.model_validate(_gateway_hello()["payload"])
 
+        async def receive(self) -> GatewayHelloV1:
+            raise AssertionError("periodic update checks must not receive HTTP commands")
+
         async def close(self) -> None:
             update_events.append("https:close")
 
-    monkeypatch.setattr(application, "WebSocketGatewayTransport", create_wss)
     monkeypatch.setattr(
         application,
         "_create_http_pull_transport",
         lambda *_args, **_kwargs: UpdateOnlyTransport("https", []),
     )
-    application._create_transport(
-        settings,
-        "d" * 43,
-        object(),
-        state=application._EndpointHttpPullState(),
-    )
 
-    hook = observed["on_connected"]
-    await hook(GatewayHelloV1.model_validate(_gateway_hello()["payload"]))
+    sleeps: list[float] = []
+
+    async def stop_after_first_interval(delay: float) -> None:
+        sleeps.append(delay)
+        raise asyncio.CancelledError()
+
+    with pytest.raises(asyncio.CancelledError):
+        await application._periodic_https_update_checks(
+            settings,
+            "d" * 43,
+            application._EndpointHttpPullState(),
+            sleep=stop_after_first_interval,
+        )
 
     assert update_events == ["https:connect:agent_hello_v1", "https:close"]
+    assert sleeps == [endpoint_gateway.GATEWAY_UPDATE_POLL_INTERVAL_SEC]
 
 
 @pytest.mark.asyncio
