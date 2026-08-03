@@ -389,7 +389,14 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--revision")
     args = parser.parse_args(argv)
 
-    version = args.version or _read_agent_version()
+    compiled_version = _read_agent_version()
+    if args.version is not None and args.version != compiled_version:
+        parser.exit(
+            1,
+            "Linux agent release build failed: release version must match "
+            "compiled AGENT_VERSION\n",
+        )
+    version = compiled_version
     revision = args.revision or _source_revision()
     output = args.output or (
         PROJECT_ROOT / "dist" / "release" / PLATFORM / args.channel / version

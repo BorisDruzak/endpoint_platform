@@ -140,6 +140,17 @@ def _run_builder(source: Path, output: Path) -> subprocess.CompletedProcess[str]
     )
 
 
+def test_release_builder_rejects_a_label_that_differs_from_compiled_agent_version(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A release label must not claim a version the frozen agent cannot report."""
+    with pytest.raises(SystemExit) as exited:
+        build_linux_agent.main(["--channel", "canary", "--version", "3.1.84"])
+
+    assert exited.value.code == 1
+    assert "must match compiled AGENT_VERSION" in capsys.readouterr().err
+
+
 @pytest.mark.parametrize(
     ("relative", "source_mode", "expected_mode"),
     [
