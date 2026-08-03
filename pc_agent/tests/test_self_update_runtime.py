@@ -365,6 +365,47 @@ def test_latest_update_handshake_payload_returns_success_when_latest_entry_succe
     }
 
 
+def test_latest_update_handshake_payload_prefers_last_append_only_alt_entry(tmp_path):
+    """A fresh ALT worker failure without legacy ``at`` metadata must be reported."""
+    data_root = tmp_path / "data"
+    updates_dir = data_root / "updates"
+    updates_dir.mkdir(parents=True, exist_ok=True)
+    operation_id = "caa31a48-bf2f-4f1c-8b77-d1be77e12b4e"
+    (updates_dir / "update_history.json").write_text(
+        json.dumps(
+            [
+                {
+                    "version": "2.0.0",
+                    "success": False,
+                    "at": "2026-04-13T10:00:00+00:00",
+                    "operation_id": "legacy-failure",
+                    "reason": "VERIFY_FAILED",
+                },
+                {
+                    "version": "2.1.0",
+                    "success": True,
+                    "at": "2026-04-13T11:00:00+00:00",
+                    "operation_id": "legacy-success",
+                },
+                {
+                    "version": "2.2.0",
+                    "success": False,
+                    "operation_id": operation_id,
+                },
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    agent = WSAgent(data_root=data_root, install_root=tmp_path / "install")
+
+    assert agent._get_latest_update_handshake_payload() == {
+        "failed_update_version": "2.2.0",
+        "failed_update_operation_id": operation_id,
+        "failed_update_reason": "update_failed",
+    }
+
+
 def _update_meta() -> ToolMeta:
     return ToolMeta(
         timestamp_iso=datetime.now(timezone.utc).isoformat(),

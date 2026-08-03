@@ -415,8 +415,7 @@ class WSAgent:
             entries = [item for item in history_raw if isinstance(item, dict)]
             if not entries:
                 return None
-            entries.sort(key=lambda item: item.get("at") or "", reverse=True)
-            latest = entries[0]
+            latest = entries[-1]
             version = latest.get("version")
             operation_id = latest.get("operation_id")
             correlated_handoff: Optional[Dict[str, Any]] = None
