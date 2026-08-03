@@ -325,8 +325,6 @@ class CommandService:
                     .with_for_update()
                 )
                 if stored is None:
-                    if result_sequence <= instance.last_result_sequence:
-                        raise CommandStateRejected("result sequence was already consumed")
                     delivery = await session.scalar(
                         select(CommandDelivery)
                         .where(CommandDelivery.command_id == command.id)
@@ -353,10 +351,6 @@ class CommandService:
                             "result payload conflicts with stored result"
                         )
                     if stored.result_sequence is None:
-                        if result_sequence <= instance.last_result_sequence:
-                            raise CommandStateRejected(
-                                "result sequence was already consumed"
-                            )
                         stored.result_sequence = result_sequence
                     elif stored.result_sequence != result_sequence:
                         raise CommandStateRejected(

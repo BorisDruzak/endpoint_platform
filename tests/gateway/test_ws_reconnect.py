@@ -222,6 +222,130 @@ async def test_terminal_result_is_idempotent_and_ack_advances_durable_sequence(
 
 
 @pytest.mark.asyncio
+async def test_new_result_after_wss_reconnect_accepts_lower_connection_sequence(
+    session_provider: async_sessionmaker[AsyncSession],
+) -> None:
+    """A fresh WSS connection restarts frame numbering without replaying a result."""
+    device = await seed_device(session_provider)
+    instance_id = uuid4()
+    first_presence = await _open_session(session_provider, device.id, instance_id)
+    now = datetime.now(UTC)
+    first_command_id = uuid4()
+    second_command_id = uuid4()
+    service = CommandService(session_provider)
+
+    async with session_provider() as session:
+        session.add(
+            Command(
+                id=first_command_id,
+                command_identifier=f"command-{first_command_id.hex}",
+                device_id=device.id,
+                command_kind="context.baseline.collect",
+                status="running",
+                expires_at=now + timedelta(minutes=5),
+            )
+        )
+        await session.flush()
+        session.add_all(
+            (
+                CommandDelivery(
+                    id=uuid4(),
+                    command_id=first_command_id,
+                    device_session_id=first_presence.session_id,
+                    delivery_identifier=f"delivery-{first_command_id.hex}",
+                    status="running",
+                    acknowledged_at=now,
+                ),
+                ContextCollection(
+                    id=uuid4(),
+                    device_id=device.id,
+                    profile="baseline_v1",
+                    requested_by="gateway-test",
+                    idempotency_key="first-wss-result",
+                    command_id=first_command_id,
+                    status="collecting",
+                    requested_at=now,
+                ),
+            )
+        )
+        await session.commit()
+
+    await service.record_result(
+        device_id=device.id,
+        device_instance_id=first_presence.device_instance_id,
+        session_id=first_presence.session_id,
+        result_sequence=7,
+        result=AgentResultV1(
+            schema_version="agent_result_v1",
+            command_id=first_command_id,
+            device_id=device.id,
+            status="failed",
+            result_items=[],
+            message="first terminal result",
+            completed_at=now + timedelta(seconds=1),
+        ),
+    )
+    second_presence = await _open_session(session_provider, device.id, instance_id)
+
+    async with session_provider() as session:
+        session.add(
+            Command(
+                id=second_command_id,
+                command_identifier=f"command-{second_command_id.hex}",
+                device_id=device.id,
+                command_kind="context.health.collect",
+                status="running",
+                expires_at=now + timedelta(minutes=5),
+            )
+        )
+        await session.flush()
+        session.add_all(
+            (
+                CommandDelivery(
+                    id=uuid4(),
+                    command_id=second_command_id,
+                    device_session_id=second_presence.session_id,
+                    delivery_identifier=f"delivery-{second_command_id.hex}",
+                    status="running",
+                    acknowledged_at=now,
+                ),
+                ContextCollection(
+                    id=uuid4(),
+                    device_id=device.id,
+                    profile="health_v1",
+                    requested_by="gateway-test",
+                    idempotency_key="second-wss-result",
+                    command_id=second_command_id,
+                    status="collecting",
+                    requested_at=now,
+                ),
+            )
+        )
+        await session.commit()
+
+    acknowledgement = await service.record_result(
+        device_id=device.id,
+        device_instance_id=second_presence.device_instance_id,
+        session_id=second_presence.session_id,
+        result_sequence=2,
+        result=AgentResultV1(
+            schema_version="agent_result_v1",
+            command_id=second_command_id,
+            device_id=device.id,
+            status="failed",
+            result_items=[],
+            message="new result on the reconnected socket",
+            completed_at=now + timedelta(seconds=2),
+        ),
+    )
+
+    assert acknowledgement.payload.result_sequence == 2
+    async with session_provider() as session:
+        instance = await session.get(DeviceInstance, second_presence.device_instance_id)
+        assert instance is not None and instance.last_result_sequence == 7
+
+
+@pytest.mark.asyncio
 async def test_identical_https_result_can_be_acknowledged_after_wss_reconnect(
     session_provider: async_sessionmaker[AsyncSession],
 ) -> None:

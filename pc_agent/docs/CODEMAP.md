@@ -12,7 +12,10 @@
   authentication/policy failures, and uses bounded jittered reconnects for
   transport unavailability. The default-false migration HTTP-pull fallback is
   same-origin and activates only for that classified unavailability; it never
-  falls back to the legacy Helpdesk WebSocket.
+  falls back to the legacy Helpdesk WebSocket. Gateway envelope sequences are
+  connection-local; durable terminal-result replay protection is keyed by
+  command identity and the normalized result digest, rather than by a frame
+  number from an earlier WSS session.
 - `pc_agent/pyinstaller_endpoint_core_linux.spec` freezes that entrypoint as
   `dist/endpoint-agent/endpoint-agent`. `tools/build_linux_agent.py` turns the
   reviewed onedir tree into a deterministic `linux_amd64` tar archive and a
