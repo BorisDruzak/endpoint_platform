@@ -139,6 +139,47 @@ async def test_unacknowledged_command_replays_but_running_command_does_not(
 
 
 @pytest.mark.asyncio
+async def test_late_ack_for_terminal_command_does_not_close_live_session(
+    session_provider: async_sessionmaker[AsyncSession],
+) -> None:
+    device = await seed_device(session_provider)
+    presence = await _open_session(session_provider, device.id, uuid4())
+    command_id = uuid4()
+    async with session_provider() as session:
+        session.add(
+            Command(
+                id=command_id,
+                command_identifier=f"command-{command_id.hex}",
+                device_id=device.id,
+                command_kind="context.health.collect",
+                status="succeeded",
+            )
+        )
+        session.add(
+            CommandDelivery(
+                id=uuid4(),
+                command_id=command_id,
+                device_session_id=presence.session_id,
+                delivery_identifier=f"delivery-{command_id.hex}",
+                status="acknowledged",
+            )
+        )
+        await session.commit()
+
+    await CommandService(session_provider).record_ack(
+        device_id=device.id,
+        session_id=presence.session_id,
+        acknowledgement=AgentCommandAckV1(
+            schema_version="agent_command_ack_v1",
+            command_id=command_id,
+            device_id=device.id,
+            status="acknowledged",
+            acknowledged_at=datetime.now(UTC),
+        ),
+    )
+
+
+@pytest.mark.asyncio
 async def test_terminal_result_is_idempotent_and_ack_advances_durable_sequence(
     session_provider: async_sessionmaker[AsyncSession],
 ) -> None:

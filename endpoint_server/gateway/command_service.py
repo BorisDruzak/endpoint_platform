@@ -246,11 +246,7 @@ class CommandService:
                     )
                     .with_for_update()
                 )
-                if gateway_session is None or command is None or command.status not in {
-                    "delivered",
-                    "acknowledged",
-                    "running",
-                }:
+                if gateway_session is None or command is None:
                     raise CommandStateRejected("command is unavailable")
                 delivery = await session.scalar(
                     select(CommandDelivery)
@@ -259,6 +255,11 @@ class CommandService:
                 )
                 if delivery is None or delivery.device_session_id != session_id:
                     raise CommandStateRejected("command delivery is unavailable")
+                if command.status in _TERMINAL_STATUSES:
+                    await session.rollback()
+                    return
+                if command.status not in {"delivered", "acknowledged", "running"}:
+                    raise CommandStateRejected("command is unavailable")
                 if command.status != "running" or acknowledgement.status == "running":
                     command.status = acknowledgement.status
                     delivery.status = acknowledgement.status
