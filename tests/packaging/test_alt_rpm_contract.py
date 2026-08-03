@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import io
 import json
 import os
 from pathlib import Path
@@ -32,6 +33,29 @@ SYSTEMD_CREDENTIAL_HARNESS = Path(__file__).with_name(
 def _text(path: Path) -> str:
     assert path.is_file(), f"missing ALT RPM artifact: {path.relative_to(ROOT)}"
     return path.read_text(encoding="utf-8")
+
+
+def test_git_archive_emits_the_alt_spec_with_lf_line_endings() -> None:
+    """CRLF in the archived spec makes rpmbuild append CR to %{SOURCE0}."""
+    archive = subprocess.run(
+        [
+            "git",
+            "archive",
+            "--format=tar",
+            "HEAD",
+            "packaging/alt/endpoint-agent.spec",
+        ],
+        cwd=ROOT,
+        check=True,
+        capture_output=True,
+    )
+    with tarfile.open(fileobj=io.BytesIO(archive.stdout), mode="r:") as bundle:
+        spec = bundle.extractfile("packaging/alt/endpoint-agent.spec")
+        assert spec is not None
+        payload = spec.read()
+
+    assert b"\r\n" not in payload
+    assert b"\n" in payload
 
 
 def _write_release_fixture(
