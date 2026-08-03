@@ -101,3 +101,26 @@ Before another canary attempt:
 7. repeat every local, controller and pilot preflight item;
 8. assign exactly one target, the authorized pilot, then execute the WSS-only
    success and failed-next-release rollback sequence from the ALT runbook.
+
+## Superseding acceptance — 2026-08-03
+
+**Status:** ACCEPTED for the headless WSS runtime and periodic update-check
+scope.  The blocked preflight above is retained as historical evidence of the
+earlier controller state.
+
+The authorized single pilot completed a clean canary of immutable release
+`3.1.93` (source revision `d7002ea`).  The controller recorded the terminal
+`applied` report only after the new runtime's post-restart handshake.
+
+A distinct, correctly packaged failure-only `3.1.94` canary was then created
+after `3.1.93` had maintained an authenticated WSS session.  No service
+restart was issued between rollout creation and delivery.  At the fixed
+five-minute session interval, the agent acquired the recommendation, the ALT
+root worker applied the candidate, its controlled entrypoint failed, and the
+root worker automatically restored `3.1.93`.  The controller recorded the
+terminal `rolled_back` report for `3.1.93`, and both rollouts were completed.
+
+Fresh post-checks established that the pilot service is active on `3.1.93` and
+that no Gateway HTTP command-pull request occurred from the `3.1.93` release
+window.  HTTPS was used only for the bounded update recommendation/artifact
+flow; commands remain on WSS.
