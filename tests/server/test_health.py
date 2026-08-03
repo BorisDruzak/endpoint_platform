@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import asyncio
+import os
+import subprocess
+import sys
 from contextlib import asynccontextmanager
 from ipaddress import ip_network
 from pathlib import Path
@@ -259,6 +262,33 @@ async def test_worker_exits_when_cancelled() -> None:
 
     with pytest.raises(asyncio.CancelledError):
         await task
+
+
+def test_worker_module_fails_closed_when_runtime_settings_are_missing() -> None:
+    """An executable worker module must load settings instead of exiting idle."""
+    environment = dict(os.environ)
+    for name in (
+        "DATABASE_URL",
+        "PUBLIC_BASE_URL",
+        "DEVICE_TOKEN_PEPPER_FILE",
+        "SERVICE_TOKEN_PEPPER_FILE",
+        "SESSION_SECRET_FILE",
+        "ALLOWED_AGENT_CIDRS",
+        "ALLOWED_ADMIN_CIDRS",
+        "ARTIFACT_ROOT",
+    ):
+        environment.pop(name, None)
+    completed = subprocess.run(
+        [sys.executable, "-m", "endpoint_server.worker"],
+        capture_output=True,
+        cwd=Path(__file__).parents[2],
+        env=environment,
+        text=True,
+        timeout=5,
+    )
+
+    assert completed.returncode != 0
+    assert "DATABASE_URL is required" in completed.stderr
 
 
 @pytest.mark.asyncio
