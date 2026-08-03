@@ -891,8 +891,8 @@ async def record_report(
         if _same_report(existing, validated):
             return existing
         raise UpdateConflict("report key already owns a different result")
-    if rollout.status != "active":
-        raise UpdateStateError("update rollout is not active")
+    if rollout.status not in {"active", "paused"}:
+        raise UpdateStateError("update rollout cannot accept terminal reports")
     if target.status not in _ACTIVE_TARGET_STATUSES:
         raise UpdateStateError("update target is already terminal")
     if validated.status in {"applied", "rolled_back"} and target.status != "scheduled":

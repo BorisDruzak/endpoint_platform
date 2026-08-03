@@ -130,7 +130,9 @@ The controller serves it at `/agent/v1/updates/artifacts/{build_identifier}`
 only to the device that has an active target for that build. Verify the
 lifecycle in this order: `requested`, `scheduled`, service restart, then
 `applied` (or `failed`/`rolled_back`). A `scheduled` acknowledgement alone is
-not success.
+not success. Pausing a rollout stops new recommendations and acknowledgements,
+but an already assigned target may still submit its terminal launcher outcome;
+complete the paused rollout only after every target is terminal.
 
 The fixed root `launcher` is a separately reviewed deployment asset. It is not
 part of a headless version payload and is not replaced by a controller update.
