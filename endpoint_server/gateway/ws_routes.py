@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -38,6 +39,7 @@ from .protocol import (
 
 
 router = APIRouter(tags=["agent-gateway-wss"])
+logger = logging.getLogger(__name__)
 HEARTBEAT_INTERVAL_SECONDS = 30
 MAXIMUM_MESSAGE_BYTES = 64 * 1024
 _HEARTBEAT_TIMEOUT_SECONDS = HEARTBEAT_INTERVAL_SECONDS * 3
@@ -260,7 +262,8 @@ async def connect_agent(websocket: WebSocket) -> None:
     except RegistryCapacityExceeded:
         close_reason = "registry_capacity"
         await websocket.close(code=1013)
-    except (CommandStateRejected, PresenceRejected):
+    except (CommandStateRejected, PresenceRejected) as error:
+        logger.warning("Gateway state rejected: %s: %s", type(error).__name__, error)
         close_reason = "state_rejected"
         await _send_safe_error(websocket, "state_rejected")
         await websocket.close(code=1008)
