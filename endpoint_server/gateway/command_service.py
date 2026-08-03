@@ -347,16 +347,8 @@ class CommandService:
                         await ingest_context_result(session, stored.id, result)
                     command.status = result.status
                 else:
-                    if stored.result_payload_digest != payload_digest:
-                        raise CommandStateRejected(
-                            "result payload conflicts with stored result"
-                        )
                     if stored.result_sequence is None:
                         stored.result_sequence = result_sequence
-                    elif stored.result_sequence != result_sequence:
-                        raise CommandStateRejected(
-                            "result sequence conflicts with stored result"
-                        )
 
                 instance.last_result_sequence = max(
                     instance.last_result_sequence,

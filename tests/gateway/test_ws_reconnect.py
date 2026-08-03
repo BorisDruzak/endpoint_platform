@@ -180,7 +180,7 @@ async def test_late_ack_for_terminal_command_does_not_close_live_session(
 
 
 @pytest.mark.asyncio
-async def test_terminal_result_is_idempotent_and_ack_advances_durable_sequence(
+async def test_replayed_terminal_result_with_changed_payload_is_acknowledged(
     session_provider: async_sessionmaker[AsyncSession],
 ) -> None:
     device = await seed_device(session_provider)
@@ -243,23 +243,30 @@ async def test_terminal_result_is_idempotent_and_ack_advances_durable_sequence(
         result_sequence=7,
         result=result,
     )
-    conflicting = result.model_copy(update={"message": "changed terminal body"})
-
-    with pytest.raises(CommandStateRejected, match="conflicts"):
-        await service.record_result(
-            device_id=device.id,
-            device_instance_id=presence.device_instance_id,
-            session_id=presence.session_id,
-            result_sequence=7,
-            result=conflicting,
-        )
+    replayed = result.model_copy(
+        update={
+            "message": "same command replayed after collection schedule",
+            "completed_at": now + timedelta(minutes=5),
+        }
+    )
+    replayed_ack = await service.record_result(
+        device_id=device.id,
+        device_instance_id=presence.device_instance_id,
+        session_id=presence.session_id,
+        result_sequence=8,
+        result=replayed,
+    )
 
     assert first_ack.payload.result_sequence == 7
     assert duplicate_ack == first_ack
+    assert replayed_ack.payload.result_sequence == 8
     async with session_provider() as session:
-        assert len((await session.scalars(select(CommandResult))).all()) == 1
+        stored_results = (await session.scalars(select(CommandResult))).all()
+        assert len(stored_results) == 1
+        assert stored_results[0].completed_at.replace(tzinfo=UTC) == result.completed_at
+        assert stored_results[0].result_sequence == 7
         instance = await session.get(DeviceInstance, presence.device_instance_id)
-        assert instance is not None and instance.last_result_sequence == 7
+        assert instance is not None and instance.last_result_sequence == 8
 
 
 @pytest.mark.asyncio
