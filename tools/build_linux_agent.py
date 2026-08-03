@@ -57,7 +57,13 @@ def _normalized_payload_mode(relative: Path, source_mode: int, *, is_directory: 
             raise ValueError("headless core executable is not executable")
         return 0o755
     if source_mode & 0o111:
-        raise ValueError(f"non-entrypoint payload must not be executable: {relative.as_posix()}")
+        if relative.parts[:1] == ("_internal",) and (
+            relative.name.endswith(".so") or ".so." in relative.name
+        ):
+            return 0o755
+        raise ValueError(
+            f"non-entrypoint payload must not be executable: {relative.as_posix()}"
+        )
     return 0o644
 
 
