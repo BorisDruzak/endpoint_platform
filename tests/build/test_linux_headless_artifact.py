@@ -156,7 +156,7 @@ def test_release_builder_rejects_a_label_that_differs_from_compiled_agent_versio
     [
         (Path("endpoint-agent"), 0o700, 0o755),
         (Path("_internal/runtime.dat"), 0o600, 0o644),
-        (Path("_internal/native-extension.so"), 0o755, 0o755),
+        (Path("_internal/native-extension.so"), 0o755, 0o644),
     ],
 )
 def test_release_builder_normalizes_safe_source_modes(

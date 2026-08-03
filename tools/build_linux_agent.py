@@ -60,7 +60,7 @@ def _normalized_payload_mode(relative: Path, source_mode: int, *, is_directory: 
         if relative.parts[:1] == ("_internal",) and (
             relative.name.endswith(".so") or ".so." in relative.name
         ):
-            return 0o755
+            return 0o644
         raise ValueError(
             f"non-entrypoint payload must not be executable: {relative.as_posix()}"
         )
