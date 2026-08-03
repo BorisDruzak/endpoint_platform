@@ -125,8 +125,8 @@ configuration symlink for validation only; Nginx remains stopped until the
 loopback API health check passes:
 
 ```powershell
-scp deploy/server/endpoint-platform.service deploy/server/endpoint-platform-migrate.service deploy/server/endpoint-platform.nginx.conf endpoint-platform-server:/tmp/
-ssh endpoint-platform-server "sudo install -o root -g root -m 0644 /tmp/endpoint-platform.service /etc/systemd/system/endpoint-platform.service; sudo install -o root -g root -m 0644 /tmp/endpoint-platform-migrate.service /etc/systemd/system/endpoint-platform-migrate.service; sudo install -o root -g root -m 0644 /tmp/endpoint-platform.nginx.conf /etc/nginx/sites-available/endpoint-platform; sudo ln -sfn /etc/nginx/sites-available/endpoint-platform /etc/nginx/sites-enabled/endpoint-platform; sudo rm -f /tmp/endpoint-platform.service /tmp/endpoint-platform-migrate.service /tmp/endpoint-platform.nginx.conf; sudo systemctl daemon-reload"
+scp deploy/server/endpoint-platform.service deploy/server/endpoint-platform-worker.service deploy/server/endpoint-platform-migrate.service deploy/server/endpoint-platform.nginx.conf endpoint-platform-server:/tmp/
+ssh endpoint-platform-server "sudo install -o root -g root -m 0644 /tmp/endpoint-platform.service /etc/systemd/system/endpoint-platform.service; sudo install -o root -g root -m 0644 /tmp/endpoint-platform-worker.service /etc/systemd/system/endpoint-platform-worker.service; sudo install -o root -g root -m 0644 /tmp/endpoint-platform-migrate.service /etc/systemd/system/endpoint-platform-migrate.service; sudo install -o root -g root -m 0644 /tmp/endpoint-platform.nginx.conf /etc/nginx/sites-available/endpoint-platform; sudo ln -sfn /etc/nginx/sites-available/endpoint-platform /etc/nginx/sites-enabled/endpoint-platform; sudo rm -f /tmp/endpoint-platform.service /tmp/endpoint-platform-worker.service /tmp/endpoint-platform-migrate.service /tmp/endpoint-platform.nginx.conf; sudo systemctl daemon-reload"
 ```
 
 Validate the configured application before any public listener is enabled:
@@ -174,6 +174,7 @@ fails, and do not run an automatic downgrade:
 sudo systemctl start endpoint-platform-migrate.service
 sudo systemctl start endpoint-platform.service
 curl --fail http://127.0.0.1:8000/healthz
+sudo systemctl enable --now endpoint-platform-worker.service
 sudo systemctl enable --now nginx
 sudo systemctl reload nginx
 ```
@@ -181,7 +182,7 @@ sudo systemctl reload nginx
 Check service state and migration revision:
 
 ```bash
-systemctl is-active postgresql endpoint-platform nginx
+systemctl is-active postgresql endpoint-platform endpoint-platform-worker nginx
 sudo systemctl show endpoint-platform-migrate.service -p Result --value
 sudo systemd-run --wait --collect --property=User=endpoint-platform --property=Group=endpoint-platform --property=EnvironmentFile=/etc/endpoint-platform/endpoint-platform.env --working-directory=/opt/endpoint-platform/current /opt/endpoint-platform/current/venv/bin/python -m alembic current
 ```
@@ -214,9 +215,11 @@ directory:
 previous_release="$(sudo cat /etc/endpoint-platform/previous-release)"
 test -d "${previous_release}"
 sudo systemctl stop endpoint-platform.service
+sudo systemctl stop endpoint-platform-worker.service
 sudo ln -sfn "${previous_release}" /opt/endpoint-platform/current
 sudo systemctl start endpoint-platform.service
 curl --fail http://127.0.0.1:8000/healthz
+sudo systemctl start endpoint-platform-worker.service
 ```
 
 Then repeat the strict TLS and HTTPS health commands above. Never downgrade a

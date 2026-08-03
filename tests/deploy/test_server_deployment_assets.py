@@ -20,6 +20,26 @@ def test_api_unit_is_loopback_only_and_hardened() -> None:
     assert "ProtectSystem=strict" in unit
 
 
+def test_worker_unit_runs_scheduler_with_api_hardening() -> None:
+    """The scheduler runs with the API service's least-privilege boundary."""
+    unit = (_DEPLOY_ROOT / "endpoint-platform-worker.service").read_text(
+        encoding="utf-8"
+    )
+
+    assert "User=endpoint-platform" in unit
+    assert "Group=endpoint-platform" in unit
+    assert "WorkingDirectory=/opt/endpoint-platform/current" in unit
+    assert "EnvironmentFile=/etc/endpoint-platform/endpoint-platform.env" in unit
+    assert (
+        "ExecStart=/opt/endpoint-platform/current/venv/bin/python "
+        "-m endpoint_server.worker" in unit
+    )
+    assert "Restart=on-failure" in unit
+    assert "NoNewPrivileges=true" in unit
+    assert "ProtectSystem=strict" in unit
+    assert "ReadWritePaths=/var/lib/endpoint-platform" in unit
+
+
 def test_proxy_limits_callers_and_replaces_forwarded_client_address() -> None:
     """Caller-controlled forwarding chains must not reach the application."""
     config = (_DEPLOY_ROOT / "endpoint-platform.nginx.conf").read_text(
@@ -70,3 +90,7 @@ def test_runbook_preserves_secret_and_tls_boundaries() -> None:
     )
     assert "curl -k" not in runbook
     assert "PRIVATE KEY-----" not in runbook
+    assert "endpoint-platform-worker.service" in runbook
+    assert "enable --now endpoint-platform-worker.service" in runbook
+    assert "systemctl is-active postgresql endpoint-platform endpoint-platform-worker nginx" in runbook
+    assert "stop endpoint-platform-worker.service" in runbook

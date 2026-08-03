@@ -1,0 +1,25 @@
+[Unit]
+Description=Endpoint Platform worker
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=endpoint-platform
+Group=endpoint-platform
+WorkingDirectory=/opt/endpoint-platform/current
+EnvironmentFile=/etc/endpoint-platform/endpoint-platform.env
+ExecStart=/opt/endpoint-platform/current/venv/bin/python -m endpoint_server.worker
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+ReadWritePaths=/var/lib/endpoint-platform
+
+[Install]
+WantedBy=multi-user.target
