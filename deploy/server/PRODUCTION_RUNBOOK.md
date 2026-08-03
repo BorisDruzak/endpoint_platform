@@ -173,7 +173,16 @@ fails, and do not run an automatic downgrade:
 ```bash
 sudo systemctl start endpoint-platform-migrate.service
 sudo systemctl start endpoint-platform.service
-curl --fail http://127.0.0.1:8000/healthz
+for attempt in $(seq 1 10); do
+  if curl --fail --silent --show-error --connect-timeout 1 --max-time 2 http://127.0.0.1:8000/healthz; then
+    break
+  fi
+  if [ "${attempt}" -eq 10 ]; then
+    echo "Endpoint Platform API did not become ready after 10 attempts" >&2
+    exit 1
+  fi
+  sleep 1
+done
 sudo systemctl enable --now endpoint-platform-worker.service
 sudo systemctl enable --now nginx
 sudo systemctl reload nginx

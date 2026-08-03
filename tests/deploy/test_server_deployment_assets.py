@@ -94,3 +94,19 @@ def test_runbook_preserves_secret_and_tls_boundaries() -> None:
     assert "enable --now endpoint-platform-worker.service" in runbook
     assert "systemctl is-active postgresql endpoint-platform endpoint-platform-worker nginx" in runbook
     assert "stop endpoint-platform-worker.service" in runbook
+
+
+def test_runbook_waits_for_loopback_api_readiness_before_enabling_services() -> None:
+    """Startup latency must not trigger a false release rollback."""
+    runbook = (_DEPLOY_ROOT / "PRODUCTION_RUNBOOK.md").read_text(encoding="utf-8")
+
+    readiness_check = (
+        "for attempt in $(seq 1 10); do\n"
+        "  if curl --fail --silent --show-error --connect-timeout 1 --max-time 2 "
+        "http://127.0.0.1:8000/healthz; then"
+    )
+    assert readiness_check in runbook
+    assert "Endpoint Platform API did not become ready after 10 attempts" in runbook
+    assert runbook.index("sudo systemctl start endpoint-platform.service") < runbook.index(
+        readiness_check
+    ) < runbook.index("sudo systemctl enable --now endpoint-platform-worker.service")
