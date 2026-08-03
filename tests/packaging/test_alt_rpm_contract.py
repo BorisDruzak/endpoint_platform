@@ -58,6 +58,28 @@ def test_git_archive_emits_the_alt_spec_with_lf_line_endings() -> None:
     assert b"\n" in payload
 
 
+def test_git_archive_emits_alt_helper_python_files_with_lf_line_endings() -> None:
+    """CRLF shebangs in helpers make RPM dependency discovery reject them."""
+    helper_paths = (
+        "packaging/alt/SOURCES/check-start-prerequisites.py",
+        "packaging/alt/SOURCES/start-endpoint-agent.py",
+    )
+    archive = subprocess.run(
+        ["git", "archive", "--format=tar", "HEAD", *helper_paths],
+        cwd=ROOT,
+        check=True,
+        capture_output=True,
+    )
+    with tarfile.open(fileobj=io.BytesIO(archive.stdout), mode="r:") as bundle:
+        for helper_path in helper_paths:
+            helper = bundle.extractfile(helper_path)
+            assert helper is not None
+            payload = helper.read()
+
+            assert b"\r\n" not in payload
+            assert payload.startswith(b"#!/usr/bin/python3\n")
+
+
 def _write_release_fixture(
     root: Path,
     *,
