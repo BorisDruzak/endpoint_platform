@@ -21,6 +21,8 @@ from datetime import datetime
 from pathlib import Path, PureWindowsPath
 from typing import Any, Protocol
 
+from pc_agent.gateway_update_runtime import _is_eligible_recommendation
+
 from .acl import EXPECTED_PRINCIPALS
 from .service_control import SERVICE_NAME, UPDATER_SERVICE_NAME
 from .update_paths import UPDATE_EXECUTABLE_NAME, WindowsUpdatePaths
@@ -40,6 +42,7 @@ _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 _ERROR_SERVICE_NOT_ACTIVE = 1062
 STARTUP_DEADLINE_SECONDS = 120
 UPDATER_START_PRINCIPALS = ("SYSTEM", "Administrators", "NT SERVICE\\EndpointAgent")
+TERMINAL_OUTCOME_FILENAME = "terminal-outcome.json"
 
 
 class UpdatePathSecurity(Protocol):
@@ -93,12 +96,21 @@ class PyWin32EndpointAgentService:
 
 
 class SubprocessReleaseVerifier:
-    """Run only the fixed candidate executable with its fixed verify argument."""
+    """Run the fixed candidate verifier against the fixed enrolled local state."""
+
+    def __init__(self, paths: WindowsUpdatePaths) -> None:
+        self._data_root = paths.updates_root.parent
+        self._install_root = paths.install_root
+        self._ca_file = self._data_root / "endpoint-ca.crt"
 
     def verify(self, executable: Path) -> bool:
         try:
             return subprocess.run(
-                [str(executable), "--verify"], cwd=str(executable.parent),
+                [
+                    str(executable), "--verify", "--data-dir", str(self._data_root),
+                    "--install-root", str(self._install_root), "--ca-file", str(self._ca_file),
+                ],
+                cwd=str(executable.parent),
                 timeout=90, capture_output=True, check=False,
             ).returncode == 0
         except (OSError, subprocess.SubprocessError):
@@ -140,6 +152,7 @@ class PendingUpdate:
     size: int
     operation_id: str
     received_at: datetime
+    requested_reason: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -166,17 +179,24 @@ class PyWin32UpdatePathSecurity:
                 win32security.OWNER_SECURITY_INFORMATION | win32security.DACL_SECURITY_INFORMATION,
             )
             owner = win32security.ConvertSidToStringSid(descriptor.GetSecurityDescriptorOwner())
-            if owner != "S-1-5-18":
+            if owner not in {"S-1-5-18", "S-1-5-19"}:
                 raise ValueError("wrong owner or ACL on update path")
-            _validate_strict_update_dacl(descriptor, win32security, ntsecuritycon)
+            _validate_strict_update_dacl(
+                descriptor,
+                win32security,
+                ntsecuritycon,
+                allow_child_inheritance=path.is_dir(),
+            )
         except ValueError:
             raise
         except Exception as error:
             raise ValueError("could not inspect update owner or ACL") from error
 
 
-def _validate_strict_update_dacl(descriptor, win32security, rights=None) -> None:
-    """Require Task 11's protected, explicit DACL rather than a SID subset."""
+def _validate_strict_update_dacl(
+    descriptor, win32security, rights=None, *, allow_child_inheritance: bool = False,
+) -> None:
+    """Require Task 11's protected DACL, including only a directory's child ACEs."""
     control, _revision = descriptor.GetSecurityDescriptorControl()
     if not control & win32security.SE_DACL_PROTECTED:
         raise ValueError("wrong owner or ACL on update path")
@@ -198,12 +218,18 @@ def _validate_strict_update_dacl(descriptor, win32security, rights=None) -> None
     for sid in expected_sids - set(expected_masks):
         expected_masks[sid] = limited
     actual: dict[str, int] = {}
+    expected_flags = 0
+    if allow_child_inheritance:
+        expected_flags = (
+            win32security.OBJECT_INHERIT_ACE
+            | win32security.CONTAINER_INHERIT_ACE
+        )
     for index in range(dacl.GetAceCount()):
         header, mask, sid = dacl.GetAce(index)
         ace_type, ace_flags = header
         if (
             ace_type != win32security.ACCESS_ALLOWED_ACE_TYPE
-            or ace_flags != 0
+            or ace_flags != expected_flags
         ):
             raise ValueError("wrong owner or ACL on update path")
         sid_text = win32security.ConvertSidToStringSid(sid)
@@ -253,6 +279,7 @@ class PendingUpdateValidator:
             or not isinstance(payload["size"], int)
             or isinstance(payload["size"], bool)
             or payload["size"] <= 0
+            or not isinstance(payload["requested_reason"], str)
         ):
             raise ValueError("invalid pending update fields")
         artifact_raw = payload["artifact_path"]
@@ -275,7 +302,10 @@ class PendingUpdateValidator:
                 raise ValueError
         except (KeyError, TypeError, ValueError) as error:
             raise ValueError("invalid received_at or operation_id") from error
-        return PendingUpdate(payload["version"], artifact, "zip", digest, details.st_size, payload["operation_id"], received_at)
+        return PendingUpdate(
+            payload["version"], artifact, "zip", digest, details.st_size,
+            payload["operation_id"], received_at, payload["requested_reason"],
+        )
 
 
 class WindowsUpdater:
@@ -290,19 +320,28 @@ class WindowsUpdater:
         self._paths = paths or WindowsUpdatePaths.production()
         self._validator = PendingUpdateValidator(self._paths, acl)
         self._service = service or PyWin32EndpointAgentService()
-        self._verifier = verifier or SubprocessReleaseVerifier()
+        self._verifier = verifier or SubprocessReleaseVerifier(self._paths)
         self._confirmation = confirmation or FileStartupConfirmation(self._paths)
         self._deadline_seconds = deadline_seconds
         self._attempt_id: str | None = None
 
     def run_once(self) -> UpdateResult:
         previous: str | None = None
+        pending: PendingUpdate | None = None
         staging: Path | None = None
         service_stopped = False
         try:
             pending = self._validator.load()
             previous = _load_current(self._paths.current_path)
-            self._service.stop()
+            if not _is_eligible_recommendation(
+                pending.version, previous, pending.requested_reason
+            ):
+                raise ValueError("candidate version is not eligible from current selector")
+            try:
+                self._service.stop()
+            except Exception as error:
+                if not _is_service_not_active(error):
+                    raise
             service_stopped = True
             if not self._service.wait_stopped():
                 raise ValueError("EndpointAgent did not stop")
@@ -320,7 +359,7 @@ class WindowsUpdater:
                 _clear_startup_attempt(self._paths)
                 raise
             if not self._wait_for_candidate_confirmation(pending):
-                return self._rollback(previous, "startup confirmation failed")
+                return self._rollback(pending, previous, "startup confirmation failed")
             self._paths.pending_path.unlink()
             _clear_startup_attempt(self._paths)
             return UpdateResult("applied", str(target))
@@ -333,6 +372,14 @@ class WindowsUpdater:
                     self._service.start()
                 except Exception:
                     pass
+            if pending is not None and previous is not None:
+                _write_terminal_outcome(
+                    self._paths,
+                    operation_id=pending.operation_id,
+                    status="failed",
+                    reported_version=previous,
+                    safe_code="launcher_apply_failed",
+                )
             return UpdateResult("rejected", str(error))
         finally:
             if staging is not None and staging.exists():
@@ -370,7 +417,9 @@ class WindowsUpdater:
         os.replace(staging, target)
         return target
 
-    def _rollback(self, previous: str, reason: str) -> UpdateResult:
+    def _rollback(
+        self, pending: PendingUpdate, previous: str, reason: str
+    ) -> UpdateResult:
         try:
             self._service.stop()
         except Exception as error:
@@ -389,6 +438,13 @@ class WindowsUpdater:
         _write_json_atomic(self._paths.current_path, {"version": previous})
         _clear_startup_attempt(self._paths)
         self._service.start()
+        _write_terminal_outcome(
+            self._paths,
+            operation_id=pending.operation_id,
+            status="rolled_back",
+            reported_version=previous,
+            safe_code="launcher_rolled_back",
+        )
         return UpdateResult("rolled_back", reason)
 
     def _wait_for_candidate_confirmation(self, pending: PendingUpdate) -> bool:
@@ -573,6 +629,26 @@ def _clear_startup_attempt(paths: WindowsUpdatePaths) -> None:
     (paths.updates_root / "startup-attempt.json").unlink(missing_ok=True)
 
 
+def _write_terminal_outcome(
+    paths: WindowsUpdatePaths,
+    *,
+    operation_id: str,
+    status: str,
+    reported_version: str,
+    safe_code: str,
+) -> None:
+    """Leave a bounded outcome for EndpointAgent to report after WSS reconnects."""
+    _write_json_atomic(
+        paths.updates_root / TERMINAL_OUTCOME_FILENAME,
+        {
+            "operation_id": operation_id,
+            "reported_version": reported_version,
+            "safe_code": safe_code,
+            "status": status,
+        },
+    )
+
+
 def _is_service_not_active(error: Exception) -> bool:
     winerror = getattr(error, "winerror", None)
     return (
@@ -602,7 +678,8 @@ def run_windows_updater_service() -> int:
                 # its native service-specific terminal failure.  The native
                 # host owns the sole SERVICE_STOPPED report after SvcRun exits.
                 raise RuntimeError(
-                    f"EndpointAgentUpdater worker failed with status {result.status!r}"
+                    "EndpointAgentUpdater worker failed with "
+                    f"status {result.status!r}: {result.message}"
                 )
 
     servicemanager.Initialize()

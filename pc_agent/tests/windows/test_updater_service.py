@@ -62,6 +62,34 @@ def _paths(tmp_path: Path):
     )
 
 
+def test_release_verifier_uses_fixed_enrolled_state_paths(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The candidate verifier requires the local CA and enrolled durable state."""
+    from pc_agent.platform.windows import updater_service
+    from pc_agent.platform.windows.updater_service import SubprocessReleaseVerifier
+
+    paths = _paths(tmp_path)
+    executable = tmp_path / "candidate" / "pc_agent.exe"
+    calls: list[tuple[list[str], str]] = []
+
+    def run(command: list[str], *, cwd: str, **_kwargs):
+        calls.append((command, cwd))
+        return SimpleNamespace(returncode=0)
+
+    monkeypatch.setattr(updater_service.subprocess, "run", run)
+
+    assert SubprocessReleaseVerifier(paths).verify(executable)
+    assert calls == [(
+        [
+            str(executable), "--verify", "--data-dir", str(paths.updates_root.parent),
+            "--install-root", str(paths.install_root),
+            "--ca-file", str(paths.updates_root.parent / "endpoint-ca.crt"),
+        ],
+        str(executable.parent),
+    )]
+
+
 @pytest.mark.parametrize(
     ("change", "message"),
     [
@@ -167,6 +195,100 @@ def test_pending_validator_rejects_different_bytes_for_existing_target_version(
     staging = updater._extract_to_staging(pending)
     with pytest.raises(ValueError, match="collision"):
         updater._publish(staging, pending)
+
+
+def test_updater_records_a_rejected_handoff_for_the_reconnected_agent(
+    tmp_path: Path,
+) -> None:
+    """A privileged failure must become a bounded local terminal outcome, not a stranded rollout."""
+    from pc_agent.platform.windows.updater_service import WindowsUpdater
+
+    paths = _paths(tmp_path)
+    artifact = paths.downloads_root / "candidate.zip"
+    artifact.parent.mkdir(parents=True)
+    artifact.write_bytes(b"not a ZIP")
+    _pending(paths, artifact)
+    paths.install_root.mkdir(parents=True)
+    paths.current_path.write_text('{"version":"3.1.9"}', encoding="utf-8")
+
+    class _Service:
+        def stop(self): pass
+        def start(self): pass
+        def wait_stopped(self): return True
+        def crashed_early(self): return False
+
+    result = WindowsUpdater(paths, acl=_Acl(), service=_Service()).run_once()
+
+    assert result.status == "rejected"
+    assert json.loads((paths.updates_root / "terminal-outcome.json").read_text()) == {
+        "operation_id": "caa31a48-bf2f-4f1c-8b77-d1be77e12b4e",
+        "reported_version": "3.1.9",
+        "safe_code": "launcher_apply_failed",
+        "status": "failed",
+    }
+
+
+def test_updater_rejects_a_stale_pending_build_after_an_msi_runtime_transition(
+    tmp_path: Path,
+) -> None:
+    """A queued canary cannot downgrade a selector advanced by an MSI repair."""
+    from pc_agent.platform.windows.updater_service import WindowsUpdater
+
+    paths = _paths(tmp_path)
+    artifact = _artifact(paths.downloads_root / "candidate.zip")
+    _pending(paths, artifact, version="3.2.4")
+    paths.install_root.mkdir(parents=True)
+    paths.current_path.write_text('{"version":"3.2.5"}', encoding="utf-8")
+
+    class _Service:
+        def stop(self): pass
+        def start(self): pass
+        def wait_stopped(self): return True
+        def crashed_early(self): return False
+    class _Verifier:
+        def verify(self, _path): return True
+    class _Confirmation:
+        def is_confirmed(self, **_kwargs): return True
+
+    result = WindowsUpdater(
+        paths, acl=_Acl(), service=_Service(), verifier=_Verifier(), confirmation=_Confirmation(),
+    ).run_once()
+
+    assert result.status == "rejected"
+    assert json.loads((paths.updates_root / "terminal-outcome.json").read_text())["status"] == "failed"
+    assert json.loads(paths.current_path.read_text()) == {"version": "3.2.5"}
+
+
+def test_updater_accepts_an_agent_service_already_stopped_by_the_handoff(
+    tmp_path: Path,
+) -> None:
+    """The updater follows an EXIT_UPDATE_PENDING child without racing SCM's stopped state."""
+    from pc_agent.platform.windows.updater_service import WindowsUpdater
+
+    paths = _paths(tmp_path)
+    artifact = _artifact(paths.downloads_root / "candidate.zip")
+    _pending(paths, artifact, version="3.2.7")
+    paths.install_root.mkdir(parents=True)
+    paths.current_path.write_text('{"version":"3.2.6"}', encoding="utf-8")
+
+    class _InactiveServiceError(OSError):
+        winerror = 1062
+    class _Service:
+        def stop(self): raise _InactiveServiceError()
+        def start(self): pass
+        def wait_stopped(self): return True
+        def crashed_early(self): return False
+    class _Verifier:
+        def verify(self, _path): return True
+    class _Confirmation:
+        def is_confirmed(self, **_kwargs): return True
+
+    result = WindowsUpdater(
+        paths, acl=_Acl(), service=_Service(), verifier=_Verifier(), confirmation=_Confirmation(),
+    ).run_once()
+
+    assert result.status == "applied"
+    assert json.loads(paths.current_path.read_text()) == {"version": "3.2.7"}
 
 
 def test_updater_contract_has_fixed_identity_and_no_network_or_listener_api() -> None:
@@ -410,6 +532,38 @@ def test_strict_update_acl_rejects_any_propagation_flag() -> None:
         _validate_strict_update_dacl(_Descriptor(), _Security(), _Rights())
 
 
+def test_strict_update_acl_accepts_explicit_child_inheritance_for_protected_directory() -> None:
+    """The protected updates root must keep its four explicit child-inheritable ACEs."""
+    from pc_agent.platform.windows.updater_service import _validate_strict_update_dacl
+
+    class _Dacl:
+        def GetAceCount(self): return 4
+        def GetAce(self, index): return ((0, 0x03), 0xFF if index < 2 else 0x07, ("S-1-5-18", "S-1-5-32-544", "agent", "updater")[index])
+    class _Descriptor:
+        def GetSecurityDescriptorControl(self): return 0x1000, 1
+        def GetSecurityDescriptorDacl(self): return _Dacl()
+    class _Security:
+        ACCESS_ALLOWED_ACE_TYPE = 0
+        SE_DACL_PROTECTED = 0x1000
+        INHERITED_ACE = 0x10
+        OBJECT_INHERIT_ACE = 0x01
+        CONTAINER_INHERIT_ACE = 0x02
+        @staticmethod
+        def ConvertSidToStringSid(sid): return sid
+        @staticmethod
+        def LookupAccountName(_server, principal):
+            return {"NT SERVICE\\EndpointAgent": "agent", "NT SERVICE\\EndpointAgentUpdater": "updater"}[principal], None, None
+    class _Rights:
+        FILE_ALL_ACCESS = 0xFF
+        FILE_GENERIC_READ = 1
+        FILE_GENERIC_WRITE = 2
+        DELETE = 4
+
+    _validate_strict_update_dacl(
+        _Descriptor(), _Security(), _Rights(), allow_child_inheritance=True,
+    )
+
+
 @pytest.mark.parametrize(
     ("worker_status", "expected_statuses"),
     [
@@ -441,6 +595,7 @@ def test_updater_dispatcher_leaves_single_terminal_status_to_native_pywin32_host
     from pc_agent.platform.windows import updater_service
 
     events: list[tuple[int, dict[str, int]]] = []
+    errors: list[str] = []
     hosted: dict[str, type] = {}
     win32service = ModuleType("win32service")
     win32service.SERVICE_STOPPED = 1
@@ -479,7 +634,8 @@ def test_updater_dispatcher_leaves_single_terminal_status_to_native_pywin32_host
         service.ReportServiceStatus(win32service.SERVICE_START_PENDING)
         try:
             service.SvcRun()
-        except Exception:
+        except Exception as error:
+            errors.append(str(error))
             service.ReportServiceStatus(
                 win32service.SERVICE_STOPPED,
                 win32ExitCode=win32service.ERROR_SERVICE_SPECIFIC_ERROR,
@@ -497,9 +653,18 @@ def test_updater_dispatcher_leaves_single_terminal_status_to_native_pywin32_host
         updater_service,
         "WindowsUpdater",
         lambda: SimpleNamespace(
-            run_once=lambda: SimpleNamespace(status=worker_status)
+            run_once=lambda: SimpleNamespace(
+                status=worker_status, message="candidate validation failed"
+            )
         ),
     )
 
     assert updater_service.run_windows_updater_service() == 0
     assert events == expected_statuses
+    if worker_status == "rejected":
+        assert errors == [
+            "EndpointAgentUpdater worker failed with status 'rejected': "
+            "candidate validation failed"
+        ]
+    else:
+        assert errors == []

@@ -12,7 +12,7 @@ with `WixToolset.Util.wixext` available. From the repository root:
 
 ```powershell
 .\packaging\windows\build-msi.ps1 -Configuration Release -Platform x64 `
-  -InitialRuntimeManifest .\packaging\windows\initial-runtime-3.1.93.json `
+  -InitialRuntimeManifest .\packaging\windows\initial-runtime-3.2.13.json `
   -ApproveInitialRuntimeTransition -ApproveInitialRuntimeSourceChange
 ```
 
@@ -25,12 +25,15 @@ and paths inside the repository are rejected. The build has no parameter for
 enrollment or device material and does not read such input.
 
 The checked-in `initial-runtime.json` remains the immutable `3.1.76` baseline.
-The reviewed `initial-runtime-3.1.93.json` transition pins the Windows Device
-Context runtime with a new component GUID and must be built with both explicit
+The reviewed `initial-runtime-3.2.13.json` transition pins the Windows Device
+Context and WSS update runtime with a new component GUID and must be built with both explicit
 approval switches shown above. Each manifest pins its runtime version,
 component GUID, source-file hashes, complete staged artifact tree identity,
 and the CPython/PyInstaller producer identity, including
 `PYTHONHASHSEED=0` so PyInstaller's `base_library.zip` entry order is stable.
+Each completed build retains a versioned MSI in `<WixBuildRoot>\releases`; use
+that copy for Windows Installer repair because later builds clean transient
+staging and `output` files.
 The manifest version must equal
 `AGENT_VERSION`; every routine build hashes all staged runtime files before MSI
 binding. A different reviewed manifest requires both
@@ -68,6 +71,18 @@ with a partial service installation.
 Default uninstall removes both services and the Program Files binary tree,
 including updater-published version directories. It deliberately preserves
 ProgramData so repair or reinstall retains machine identity and credentials.
+
+## Update handoff
+
+The running `EndpointAgent` is the only Windows update component with a network
+client. It obtains a canary recommendation and artifact only from the
+CA-verified Endpoint origin, validates the ZIP hash and size, then writes the
+fixed protected `pending_update.json` path before exiting with code `42`.
+`EndpointAgentUpdater` is `LocalSystem`, demand-start and offline: it consumes
+only that fixed path, validates all paths/ACLs, updates the immutable selector,
+and rolls it back after failed verification or absent startup proof. A release
+is `applied` only after the new runtime completes Gateway WSS and reports that
+post-restart proof to the controller.
 
 ## Explicit administrator purge
 

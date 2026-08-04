@@ -152,6 +152,7 @@ def _parser() -> argparse.ArgumentParser:
     modes.add_argument("--agent-service", action="store_true")
     modes.add_argument("--updater-service", action="store_true")
     modes.add_argument("--apply-programdata-acl", action="store_true")
+    modes.add_argument("--configure-service-sids", action="store_true")
     modes.add_argument("--restrict-updater-start", action="store_true")
     modes.add_argument("--migrate-initial-selector", action="store_true")
     modes.add_argument("--rollback-initial-selector", action="store_true")
@@ -171,6 +172,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         from pc_agent.platform.windows.acl import apply_machine_data_acl
 
         apply_machine_data_acl()
+        return 0
+    if args.configure_service_sids:
+        from pc_agent.platform.windows.service_control import configure_service_sids
+
+        configure_service_sids()
         return 0
     if args.migrate_initial_selector:
         from pc_agent.platform.windows.selector_migration import (

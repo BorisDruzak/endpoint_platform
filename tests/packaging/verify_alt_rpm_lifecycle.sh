@@ -154,12 +154,26 @@ upgrade_rpm=$(readlink -f -- "$2")
 command -v bwrap >/dev/null 2>&1 || die 'bubblewrap is required'
 sudo --non-interactive true || die 'passwordless sudo is required for mapped service ownership'
 
+mount_targets=(
+    /usr/lib/endpoint-agent
+    /usr/lib/systemd/system
+    /usr/lib/tmpfiles.d
+    /usr/share/doc
+    /var/lib/endpoint-agent
+    /var/log/endpoint-agent
+)
+created_mount_targets=()
+
 work=$(mktemp -d /tmp/endpoint-agent-rpm-lifecycle.XXXXXX)
 case "$work" in
     /tmp/endpoint-agent-rpm-lifecycle.*) ;;
     *) die 'unexpected lifecycle work path' ;;
 esac
 cleanup() {
+    local index
+    for ((index = ${#created_mount_targets[@]} - 1; index >= 0; index -= 1)); do
+        sudo --non-interactive rmdir -- "${created_mount_targets[$index]}" || true
+    done
     case "$work" in
         /tmp/endpoint-agent-rpm-lifecycle.*) \
             sudo --non-interactive rm -rf -- "$work" ;;
@@ -167,6 +181,67 @@ cleanup() {
     esac
 }
 trap cleanup EXIT
+
+mutable_etc="$work/etc"
+sudo --non-interactive install -d -o root -g root -m 0700 -- "$mutable_etc"
+for account_file in passwd group shadow gshadow; do
+    source_file="/etc/$account_file"
+    [[ -f "$source_file" && ! -L "$source_file" ]] || \
+        die "account source is unsafe: $source_file"
+    sudo --non-interactive cp --preserve=mode -- "$source_file" \
+        "$mutable_etc/$account_file"
+done
+for system_file in nsswitch.conf login.defs; do
+    source_file="/etc/$system_file"
+    [[ -f "$source_file" && ! -L "$source_file" ]] || \
+        die "system source is unsafe: $source_file"
+    sudo --non-interactive cp --preserve=mode -- "$source_file" \
+        "$mutable_etc/$system_file"
+done
+for system_directory in pam.d security default; do
+    source_directory="/etc/$system_directory"
+    [[ -d "$source_directory" && ! -L "$source_directory" ]] || \
+        die "system directory is unsafe: $source_directory"
+    sudo --non-interactive cp -a -- "$source_directory" "$mutable_etc/"
+done
+sudo --non-interactive install -d -o root -g root -m 0755 -- \
+    "$mutable_etc/endpoint-agent" "$mutable_etc/logrotate.d"
+sudo --non-interactive install -d -o root -g auth -m 0710 -- \
+    "$mutable_etc/tcb"
+sudo --non-interactive install -d -o root -g root -m 0770 -- \
+    "$mutable_etc/shadow-maint/groupadd-pre.d" \
+    "$mutable_etc/shadow-maint/groupadd-post.d" \
+    "$mutable_etc/shadow-maint/useradd-pre.d"
+# The isolated RPM database needs a resolvable service account for file
+# ownership. Real account creation is accepted separately on the disposable
+# host; invoking ALT's TCB-aware useradd inside an unshared /etc is not a
+# meaningful package lifecycle assertion.
+printf 'endpoint-agent:x:65530:\n' | \
+    sudo --non-interactive tee -a "$mutable_etc/group" >/dev/null
+printf 'endpoint-agent:x:65530:65530:Endpoint Agent:/nonexistent:/sbin/nologin\n' | \
+    sudo --non-interactive tee -a "$mutable_etc/passwd" >/dev/null
+
+ensure_mount_target() {
+    local target=$1 parent
+    if [[ -L "$target" ]]; then
+        die "mount target is a symlink: $target"
+    fi
+    if [[ -e "$target" ]]; then
+        [[ -d "$target" ]] || die "mount target is not a directory: $target"
+        return
+    fi
+    parent=$(dirname -- "$target")
+    [[ -d "$parent" && ! -L "$parent" ]] || \
+        die "mount target parent is unsafe: $parent"
+    sudo --non-interactive mkdir -- "$target" || \
+        die "cannot create mount target: $target"
+    created_mount_targets+=("$target")
+}
+
+for target in "${mount_targets[@]}"; do
+    ensure_mount_target "$target"
+done
+
 mkdir -p "$work/bin" "$work/inputs"
 install -m 0444 "$initial_rpm" "$work/inputs/initial.rpm"
 install -m 0444 "$upgrade_rpm" "$work/inputs/upgrade.rpm"
@@ -187,7 +262,7 @@ sudo --non-interactive chmod 0755 "$work/inputs"
 service_before=$(systemctl is-active endpoint-agent.service 2>/dev/null || true)
 sudo --non-interactive bwrap --unshare-pid --unshare-ipc --unshare-uts \
     --unshare-cgroup --die-with-parent \
-    --ro-bind / / --proc /proc --dev /dev \
+    --ro-bind / / --bind "$mutable_etc" /etc --proc /proc --dev /dev \
     --tmpfs /tmp \
     --bind "$work" /mnt \
     --ro-bind "$work/inputs" /mnt/inputs \

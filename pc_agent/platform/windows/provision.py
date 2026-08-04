@@ -38,6 +38,7 @@ from .service_control import PyWin32ServiceControl, ServiceControl
 
 CLAIM_FILENAME = "enrollment-claim"
 CREDENTIAL_FILENAME = "device-credential"
+ENDPOINT_CA_FILENAME = "endpoint-ca.crt"
 MAX_CLAIM_BYTES = 4096
 
 
@@ -180,6 +181,7 @@ class WindowsProvisioner:
         claim_path = data_root / CLAIM_FILENAME
         credential_path = data_root / CREDENTIAL_FILENAME
         identity_path = data_root / ENROLLMENT_IDENTITY_FILENAME
+        installed_ca_path = data_root / ENDPOINT_CA_FILENAME
         self._acl.protect_directory(data_root)
         _atomic_write(claim_path, claim.encode("ascii"))
         self._acl.protect_claim(claim_path)
@@ -190,6 +192,8 @@ class WindowsProvisioner:
         )
         device_id = canonical_enrollment_device_id(delivery.device_id)
         token = _credential_bytes(delivery.device_token)
+        _atomic_write(installed_ca_path, self._request.ca_file.read_bytes())
+        self._acl.protect_credential(installed_ca_path)
         _atomic_write(credential_path, token)
         self._acl.protect_credential(credential_path)
         _atomic_write(identity_path, serialize_enrollment_identity(device_id))
@@ -304,8 +308,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             provisioner.provision_from_protected_file(Path(args.material_file))
         else:
             provisioner.provision_from_stdin()
-    except Exception:
-        # Do not serialize a claim, credential, or raw server error to stdout.
+    except Exception as error:
+        # Keep diagnostics bounded to a class name: transport and filesystem
+        # exceptions may otherwise contain claims, tokens, or local paths.
+        print(f"Windows provisioning failed: {type(error).__name__}", file=sys.stderr)
         return 1
     return 0
 

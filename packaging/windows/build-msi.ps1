@@ -285,6 +285,7 @@ $stagingRoot = Join-Path $wixBuildRoot 'staging'
 $programFilesStage = Join-Path $stagingRoot 'ProgramFiles'
 $runtimeStage = Join-Path $programFilesStage "versions\$InitialRuntimeVersion"
 $outputRoot = Join-Path $wixBuildRoot 'output'
+$releaseRoot = Join-Path $wixBuildRoot 'releases'
 if ($ReusePythonBuild) {
     foreach ($generatedPath in @($stagingRoot, $outputRoot, (Join-Path $wixBuildRoot 'PayloadComponents.generated.wxs'))) {
         if (Test-Path -LiteralPath $generatedPath) {
@@ -292,22 +293,25 @@ if ($ReusePythonBuild) {
         }
     }
 }
-New-Item -ItemType Directory -Path $runtimeStage, $outputRoot -Force | Out-Null
+New-Item -ItemType Directory -Path $runtimeStage, $outputRoot, $releaseRoot -Force | Out-Null
 
 $coreSpec = Join-Path $repositoryRoot 'pc_agent\pyinstaller_endpoint_core_windows.spec'
 $launcherSpec = Join-Path $repositoryRoot 'pc_agent\pyinstaller_launcher_win.spec'
 $serviceHostSpec = Join-Path $repositoryRoot 'pc_agent\pyinstaller_windows_service_launcher.spec'
+$provisionerSpec = Join-Path $repositoryRoot 'pc_agent\pyinstaller_windows_provision.spec'
 $commonPyInstaller = @('--noconfirm', '--clean', '--distpath', $distRoot, '--workpath', $workRoot)
 if (-not $ReusePythonBuild) {
     Invoke-Checked $python (@('-m', 'PyInstaller') + $commonPyInstaller + @($coreSpec)) $repositoryRoot
     Invoke-Checked $python (@('-m', 'PyInstaller') + $commonPyInstaller + @($launcherSpec)) $repositoryRoot
     Invoke-Checked $python (@('-m', 'PyInstaller') + $commonPyInstaller + @($serviceHostSpec)) $repositoryRoot
+    Invoke-Checked $python (@('-m', 'PyInstaller') + $commonPyInstaller + @($provisionerSpec)) $repositoryRoot
 }
 
 $builtCore = Join-Path $distRoot 'endpoint_agent_core'
 $builtCoreExe = Join-Path $builtCore 'endpoint_agent_core.exe'
 $builtLauncher = Join-Path $distRoot 'launcher.exe'
 $builtServiceHost = Join-Path $distRoot 'endpoint-agent-service.exe'
+$builtProvisioner = Join-Path $distRoot 'endpoint-agent-provision.exe'
 if (-not (Test-Path -LiteralPath $builtCoreExe -PathType Leaf)) {
     throw "Headless core build missing $builtCoreExe"
 }
@@ -317,15 +321,13 @@ if (-not (Test-Path -LiteralPath $builtLauncher -PathType Leaf)) {
 if (-not (Test-Path -LiteralPath $builtServiceHost -PathType Leaf)) {
     throw "Service host build missing $builtServiceHost"
 }
+if (-not (Test-Path -LiteralPath $builtProvisioner -PathType Leaf)) {
+    throw "Provisioning helper build missing $builtProvisioner"
+}
 Get-ChildItem -LiteralPath $builtCore | ForEach-Object {
     Copy-Item -LiteralPath $_.FullName -Destination $runtimeStage -Recurse -Force
 }
 Move-Item -LiteralPath (Join-Path $runtimeStage 'endpoint_agent_core.exe') -Destination (Join-Path $runtimeStage 'pc_agent.exe')
-Write-Utf8NoBom (Join-Path $runtimeStage '.endpoint-msi-runtime.json') (@{
-    component_guid = $InitialRuntimeComponentGuid
-    schema_version = 1
-    version = $InitialRuntimeVersion
-} | ConvertTo-Json -Compress)
 $artifactValidationJson = & $python @($validationArguments + @('--artifact-root', $runtimeStage))
 if ($LASTEXITCODE -ne 0) {
     throw "Staged initial runtime artifact validation failed."
@@ -334,8 +336,14 @@ $artifactValidationIdentity = $artifactValidationJson | ConvertFrom-Json
 if ([string]$artifactValidationIdentity.version -ne $InitialRuntimeVersion) {
     throw "Staged artifact validation returned an unexpected runtime identity."
 }
+Write-Utf8NoBom (Join-Path $runtimeStage '.endpoint-msi-runtime.json') (@{
+    component_guid = $InitialRuntimeComponentGuid
+    schema_version = 1
+    version = $InitialRuntimeVersion
+} | ConvertTo-Json -Compress)
 Copy-Item -LiteralPath $builtLauncher -Destination (Join-Path $programFilesStage 'launcher.exe')
 Copy-Item -LiteralPath $builtServiceHost -Destination (Join-Path $programFilesStage 'endpoint-agent-service.exe')
+Copy-Item -LiteralPath $builtProvisioner -Destination (Join-Path $programFilesStage 'endpoint-agent-provision.exe')
 New-Item -ItemType Directory -Path (Join-Path $programFilesStage 'config'), (Join-Path $programFilesStage 'docs') -Force | Out-Null
 Copy-Item -LiteralPath (Join-Path $packagingRoot 'assets\agent-config.yaml') -Destination (Join-Path $programFilesStage 'config\agent-config.yaml')
 Copy-Item -LiteralPath (Join-Path $packagingRoot 'README.md') -Destination (Join-Path $programFilesStage 'docs\README.md')
@@ -354,7 +362,7 @@ $fileManifest = foreach ($item in $allFiles) {
 $componentManifest = @(
     'cmpLauncher', 'cmpCurrentSelector', 'cmpInitialRuntimeAnchor', 'cmpConfigTemplate', 'cmpPublicReadme',
     'cmpProgramDataRoot', 'cmpInstallRootCleanup', 'cmpInitialRuntimeTransitionState',
-    'cmpServiceEntrypoints'
+    'cmpServiceEntrypoints', 'cmpProvisioner'
 ) + @($generatedItems | ForEach-Object {
     Get-StableId -Prefix 'cmpPayload' -Value (Get-RelativePath $runtimeStage $_.FullName)
 })
@@ -418,4 +426,5 @@ $wixArguments = @(
 ) + $wixSources
 Invoke-Checked $wixCommand.Source $wixArguments $repositoryRoot
 Export-MsiInspection $msiPath (Join-Path $outputRoot 'msi-inspection.json')
+Copy-Item -LiteralPath $msiPath -Destination (Join-Path $releaseRoot (Split-Path -Leaf $msiPath)) -Force
 Write-Host "MSI: $msiPath"

@@ -76,10 +76,27 @@ start complete; any earlier failure leaves the claim available for recovery.
 facts. It never emits the claim, bearer, raw enrollment response, or device
 credential contents.
 
+## Update handoff and confirmation
+
+While a WSS session is healthy, `EndpointAgent` asks only the same Endpoint
+HTTPS origin for a `windows_amd64` canary recommendation. It downloads a ZIP
+only through the configured CA-verified session, verifies the published hash
+and size, then applies the fixed protected DACL to the downloads directory,
+artifact, and `pending_update.json`. The agent exits with code `42`; it never
+selects an updater executable or passes a network URL to the updater.
+
+`EndpointAgentUpdater` remains demand-start `LocalSystem` with no HTTP client
+or listening socket. It accepts only that fixed protected pending path, stops
+the fixed agent service, verifies the candidate, atomically publishes the
+immutable version and selector, and restores the preceding selector on failure.
+After the selected candidate has completed its Gateway WSS handshake, the
+agent writes the operation-bound local startup proof and reports `applied` to
+the Endpoint update API. A local proof without a matching selected version is
+not reportable; a `scheduled` acknowledgement alone is not success.
+
 ## Current delivery boundary
 
 The Python contract is import-safe on non-Windows hosts and has injected SCM,
-ACL, service-control, and enrollment adapters for tests. WiX binding, MSI table
-inspection, real service registration, and a disposable Windows pilot still
-require a build host with WiX 4; this work does not install, stop, or modify a
-real service.
+ACL, service-control, and enrollment adapters for tests. The Windows build
+host produces and inspects the WiX MSI, and the disposable local Windows pilot
+is used for installation, protected enrollment, WSS and update acceptance.

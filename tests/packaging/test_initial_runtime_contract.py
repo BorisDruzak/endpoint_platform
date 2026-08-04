@@ -16,6 +16,10 @@ TOOLCHAIN_A = {
 }
 TOOLCHAIN_B = {**TOOLCHAIN_A, "pyinstaller_version": "6.20.0"}
 TOOLCHAIN_DETERMINISTIC = {**TOOLCHAIN_A, "python_hash_seed": "0"}
+TOOLCHAIN_HOOKS_PINNED = {
+    **TOOLCHAIN_DETERMINISTIC,
+    "pyinstaller_hooks_contrib_version": "2026.2",
+}
 
 
 def _contract_module():
@@ -301,16 +305,83 @@ def test_schema3_runtime_transition_requires_the_pinned_python_hash_seed(
     assert identity.version == "3.1.77"
 
 
+def test_schema4_runtime_transition_requires_the_pinned_contrib_hooks(
+    tmp_path: Path, artifact_root: Path
+) -> None:
+    """Frozen bytes must not silently change with the PyInstaller hook bundle."""
+    validate = _contract_module().validate_initial_runtime
+    baseline = _manifest(
+        tmp_path,
+        version="3.1.76",
+        guid="980AE24B-57BC-4B59-A18A-65B9B33A7906",
+        artifact_root=artifact_root,
+        name="baseline.json",
+    )
+    transition = _manifest(
+        tmp_path,
+        version="3.1.77",
+        guid="D53E70D8-CAD1-4755-9AC8-36164A48C9D5",
+        artifact_root=artifact_root,
+        name="transition.json",
+        source_content="new-runtime-source",
+        toolchain=TOOLCHAIN_HOOKS_PINNED,
+        schema_version=4,
+    )
+
+    with pytest.raises(ValueError, match="toolchain"):
+        validate(
+            tmp_path,
+            transition,
+            baseline,
+            approve_version=True,
+            approve_source=True,
+            observed_toolchain={
+                **TOOLCHAIN_HOOKS_PINNED,
+                "pyinstaller_hooks_contrib_version": "2026.1",
+            },
+        )
+
+    identity = validate(
+        tmp_path,
+        transition,
+        baseline,
+        approve_version=True,
+        approve_source=True,
+        artifact_root=artifact_root,
+        observed_toolchain=TOOLCHAIN_HOOKS_PINNED,
+    )
+
+    assert identity.version == "3.1.77"
+
+
 def test_windows_current_product_uses_a_checked_in_approved_initial_transition() -> None:
     """A source-version change must also advance the MSI-owned immutable runtime."""
     project_root = Path(__file__).resolve().parents[2]
     baseline = project_root / "packaging" / "windows" / "initial-runtime.json"
-    transition = project_root / "packaging" / "windows" / "initial-runtime-3.1.93.json"
+    transition = project_root / "packaging" / "windows" / "initial-runtime-3.2.13.json"
 
     assert transition.is_file()
     payload = json.loads(transition.read_text(encoding="utf-8"))
-    assert payload["version"] == "3.1.93"
+    assert payload["version"] == "3.2.13"
     assert payload["component_guid"] != json.loads(baseline.read_text(encoding="utf-8"))["component_guid"]
+    assert "pc_agent/platform/windows/service_control.py" in {
+        item["path"] for item in payload["source_files"]
+    }
+    assert "pc_agent/platform/windows/provision.py" in {
+        item["path"] for item in payload["source_files"]
+    }
+    assert "pc_agent/platform/windows/acl.py" in {
+        item["path"] for item in payload["source_files"]
+    }
+    assert "pc_agent/runtime/application.py" in {
+        item["path"] for item in payload["source_files"]
+    }
+    assert "pc_agent/platform/windows/online_update_runtime.py" in {
+        item["path"] for item in payload["source_files"]
+    }
+    assert "pc_agent/platform/windows/updater_service.py" in {
+        item["path"] for item in payload["source_files"]
+    }
 
     validate = _contract_module().validate_initial_runtime
     identity = validate(

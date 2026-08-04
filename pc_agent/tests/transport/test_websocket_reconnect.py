@@ -661,6 +661,95 @@ def test_runtime_wss_selection_constructs_only_secure_primary_initially(
     assert "on_connected" not in observed
 
 
+def test_windows_wss_runtime_does_not_start_the_linux_update_poller(tmp_path: Path) -> None:
+    """The ALT selector reader must not terminate a connected Windows service."""
+    from pc_agent.runtime import application
+
+    settings = application.RuntimeSettings(
+        data_root=tmp_path / "data",
+        install_root=tmp_path / "install",
+        ca_file=tmp_path / "endpoint-ca.pem",
+        endpoint_origin=_ORIGIN,
+        transport_mode="gateway_wss",
+    )
+    websocket = object.__new__(application.WebSocketGatewayTransport)
+    tasks = tuple(
+        application._default_dependencies().create_connected_tasks(
+            settings, "d" * 43, websocket
+        )
+    )
+    assert len(tasks) == 1
+    assert tasks[0].cr_code.co_name == "_periodic_windows_update_checks"
+    tasks[0].close()
+
+
+@pytest.mark.asyncio
+async def test_windows_wss_runtime_starts_only_its_fixed_update_stager(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+) -> None:
+    """Windows receives HTTPS recommendations without constructing HTTP command polling."""
+    from pc_agent.runtime import application
+
+    settings = application.RuntimeSettings(
+        data_root=tmp_path / "data",
+        install_root=tmp_path / "install",
+        ca_file=tmp_path / "endpoint-ca.pem",
+        endpoint_origin=_ORIGIN,
+        transport_mode="gateway_wss",
+    )
+    observed: list[tuple[object, str]] = []
+
+    async def staged(settings_arg, credential):
+        observed.append((settings_arg, credential))
+
+    monkeypatch.setattr(application, "_periodic_windows_update_checks", staged)
+    websocket = object.__new__(application.WebSocketGatewayTransport)
+    tasks = tuple(
+        application._default_dependencies().create_connected_tasks(
+            settings, "d" * 43, websocket
+        )
+    )
+
+    assert len(tasks) == 1
+    await tasks[0]
+    assert observed == [(settings, "d" * 43)]
+
+
+@pytest.mark.asyncio
+async def test_windows_update_task_reports_a_confirmed_startup_before_polling(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+) -> None:
+    """An applied report is sent from a WSS-confirmed runtime before another update poll."""
+    from pc_agent.runtime import application
+
+    settings = application.RuntimeSettings(
+        data_root=tmp_path / "data", install_root=tmp_path / "install",
+        ca_file=tmp_path / "endpoint-ca.pem", endpoint_origin=_ORIGIN,
+        transport_mode="gateway_wss",
+    )
+    events: list[str] = []
+
+    async def report(_settings, _credential) -> bool:
+        events.append("report")
+        return True
+
+    async def check(_settings, _credential) -> str:
+        events.append("check")
+        return "idle"
+
+    async def stop_after_interval(_delay: float) -> None:
+        events.append("sleep")
+        raise asyncio.CancelledError()
+
+    monkeypatch.setattr(application, "_run_windows_startup_report", report)
+    monkeypatch.setattr(application, "_run_windows_update_check", check)
+    with pytest.raises(asyncio.CancelledError):
+        await application._periodic_windows_update_checks(
+            settings, "d" * 43, sleep=stop_after_interval
+        )
+    assert events == ["report", "check", "sleep"]
+
+
 @pytest.mark.asyncio
 async def test_runtime_wss_periodically_checks_updates_without_http_command_receive(
     monkeypatch: pytest.MonkeyPatch,

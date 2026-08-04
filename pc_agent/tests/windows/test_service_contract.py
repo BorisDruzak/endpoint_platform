@@ -253,6 +253,57 @@ def test_endpoint_agent_trigger_uses_only_connect_and_start_rights() -> None:
     assert scm.calls == [("scm", (None, None, 1)), ("service", ("scm", "EndpointAgentUpdater", 2)), ("start", "updater")]
 
 
+def test_msi_service_sid_configuration_uses_only_fixed_service_names() -> None:
+    """The installer boundary must not accept caller-selected SCM identities."""
+    from pc_agent.platform.windows.service_control import _configure_service_sids_with
+
+    class _Scm:
+        SC_MANAGER_CONNECT = 1
+        SERVICE_CHANGE_CONFIG = 2
+        SERVICE_CONFIG_SERVICE_SID_INFO = 5
+        SERVICE_SID_TYPE_UNRESTRICTED = 1
+
+        def __init__(self):
+            self.calls = []
+
+        def OpenSCManager(self, *_args):
+            self.calls.append(("scm", _args))
+            return "scm"
+
+        def OpenService(self, *_args):
+            self.calls.append(("service", _args))
+            return _args[1]
+
+        def ChangeServiceConfig2(self, *args):
+            self.calls.append(("sid", args))
+
+        def CloseServiceHandle(self, handle):
+            self.calls.append(("close", handle))
+
+    scm = _Scm()
+    _configure_service_sids_with(scm)
+
+    assert scm.calls == [
+        ("scm", (None, None, 1)),
+        ("service", ("scm", "EndpointAgent", 2)),
+        ("sid", ("EndpointAgent", 5, 1)),
+        ("close", "EndpointAgent"),
+        ("service", ("scm", "EndpointAgentUpdater", 2)),
+        ("sid", ("EndpointAgentUpdater", 5, 1)),
+        ("close", "EndpointAgentUpdater"),
+        ("close", "scm"),
+    ]
+
+
+def test_updater_dacl_open_access_uses_security_descriptor_constants() -> None:
+    """pywin32 exposes READ_CONTROL/WRITE_DAC through win32con."""
+    from pc_agent.platform.windows import service_control
+
+    source = Path(service_control.__file__).read_text(encoding="utf-8")
+    assert "import win32con" in source
+    assert "service_dacl_write_access(win32con)" in source
+
+
 def test_safe_status_mode_reports_invalid_setup_without_requiring_a_ca_argument(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

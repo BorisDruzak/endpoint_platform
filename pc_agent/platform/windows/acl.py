@@ -30,6 +30,7 @@ class AclAdapter(Protocol):
     def protect_directory(self, path: Path) -> None: ...
     def protect_claim(self, path: Path) -> None: ...
     def protect_credential(self, path: Path) -> None: ...
+    def protect_update_path(self, path: Path) -> None: ...
     def assert_protected_file(self, path: Path) -> None: ...
 
 
@@ -69,6 +70,10 @@ class PyWin32AclAdapter:
 
     def protect_credential(self, path: Path) -> None:
         self._apply(path, CREDENTIAL_ACL)
+
+    def protect_update_path(self, path: Path) -> None:
+        """Make agent-created update handoff state readable by the fixed worker only."""
+        self._apply(path, DIRECTORY_ACL)
 
     def protect_claim(self, path: Path) -> None:
         self._apply(path, CREDENTIAL_ACL)
@@ -115,7 +120,14 @@ class PyWin32AclAdapter:
         }
         try:
             for rule in rules:
-                sid, _domain, _kind = win32security.LookupAccountName(None, rule.principal)
+                if rule.principal == SYSTEM_PRINCIPAL:
+                    sid = win32security.ConvertStringSidToSid("S-1-5-18")
+                elif rule.principal == ADMINISTRATORS_PRINCIPAL:
+                    sid = win32security.ConvertStringSidToSid("S-1-5-32-544")
+                else:
+                    sid, _domain, _kind = win32security.LookupAccountName(
+                        None, rule.principal
+                    )
                 inheritance = 0
                 if path.is_dir():
                     inheritance = (

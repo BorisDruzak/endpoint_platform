@@ -8,6 +8,11 @@
         <File Id="filLauncher" Source="$(var.StagingDir)\ProgramFiles\launcher.exe"
               Name="launcher.exe" KeyPath="yes" />
       </Component>
+      <Component Id="cmpProvisioner" Directory="INSTALLFOLDER"
+                 Guid="0BA8B5FD-C0B0-4769-8C70-90E8B47F776D" Bitness="always64">
+        <File Id="filProvisioner" Source="$(var.StagingDir)\ProgramFiles\endpoint-agent-provision.exe"
+              Name="endpoint-agent-provision.exe" KeyPath="yes" />
+      </Component>
       <Component Id="cmpCurrentSelector" Directory="INSTALLFOLDER"
                  Guid="79A86026-5726-49BA-8C91-7EFF35DA0511" Bitness="always64"
                  NeverOverwrite="yes">
@@ -57,12 +62,6 @@
                        Value="$(var.InitialRuntimeVersion)" />
       </Component>
     </ComponentGroup>
-  </Fragment>
-  <Fragment>
-    <Property Id="ENDPOINT_AGENT_REMEMBERED_INSTALLROOT">
-      <RegistrySearch Id="FindEndpointAgentInstallRoot" Root="HKLM"
-                      Key="Software\Endpoint Platform\Endpoint Agent"
-                      Name="InstallRoot" Type="raw" Bitness="always64" />
-    </Property>
+    <Property Id="ENDPOINT_AGENT_REMEMBERED_INSTALLROOT" Value="C:\Program Files\Endpoint Platform\Agent\" />
   </Fragment>
 </Wix>

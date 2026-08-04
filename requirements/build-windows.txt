@@ -1,3 +1,4 @@
 # Build environment for the Windows headless-core artifact.
 -r agent-core.txt
 PyInstaller==6.19.0
+pyinstaller-hooks-contrib==2026.2

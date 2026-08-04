@@ -10,6 +10,7 @@ from typing import Protocol
 SERVICE_NAME = "EndpointAgent"
 SERVICE_ACCOUNT = "NT AUTHORITY\\LocalService"
 UPDATER_SERVICE_NAME = "EndpointAgentUpdater"
+SERVICE_SID_NAMES = (SERVICE_NAME, UPDATER_SERVICE_NAME)
 # Well-known SIDs avoid localized account-name lookups in the service DACL.
 UPDATER_START_PRINCIPALS = ("S-1-5-18", "S-1-5-32-544", "NT SERVICE\\EndpointAgent")
 
@@ -50,6 +51,7 @@ def restrict_updater_start_permissions() -> None:
     if os.name != "nt":
         raise RuntimeError("Windows SCM permissions require Windows")
     try:
+        import win32con  # type: ignore[import-not-found]
         import win32security  # type: ignore[import-not-found]
         import win32service  # type: ignore[import-not-found]
     except ImportError as error:
@@ -58,7 +60,7 @@ def restrict_updater_start_permissions() -> None:
     try:
         scm = win32service.OpenSCManager(None, None, win32service.SC_MANAGER_CONNECT)
         service = win32service.OpenService(
-            scm, UPDATER_SERVICE_NAME, win32service.READ_CONTROL | win32service.WRITE_DAC
+            scm, UPDATER_SERVICE_NAME, service_dacl_write_access(win32con)
         )
         dacl = win32security.ACL()
         for principal, mask in updater_start_access_policy(
@@ -80,6 +82,48 @@ def restrict_updater_start_permissions() -> None:
     finally:
         if service is not None:
             win32service.CloseServiceHandle(service)
+        if scm is not None:
+            win32service.CloseServiceHandle(scm)
+
+
+def service_dacl_write_access(win32security) -> int:
+    """Return the SCM access mask used only to replace a service DACL."""
+    return win32security.READ_CONTROL | win32security.WRITE_DAC
+
+
+def configure_service_sids() -> None:
+    """Apply unrestricted virtual service SIDs to the two MSI-owned services."""
+    if os.name != "nt":
+        raise RuntimeError("Windows SCM service SID configuration requires Windows")
+    try:
+        import win32service  # type: ignore[import-not-found]
+    except ImportError as error:
+        raise RuntimeError("pywin32 is required to configure service SIDs") from error
+    _configure_service_sids_with(win32service)
+
+
+def _configure_service_sids_with(win32service) -> None:
+    """Configure only the fixed service names at the MSI custom-action boundary."""
+    scm = None
+    try:
+        scm = win32service.OpenSCManager(
+            None, None, win32service.SC_MANAGER_CONNECT
+        )
+        for service_name in SERVICE_SID_NAMES:
+            service = None
+            try:
+                service = win32service.OpenService(
+                    scm, service_name, win32service.SERVICE_CHANGE_CONFIG
+                )
+                win32service.ChangeServiceConfig2(
+                    service,
+                    win32service.SERVICE_CONFIG_SERVICE_SID_INFO,
+                    win32service.SERVICE_SID_TYPE_UNRESTRICTED,
+                )
+            finally:
+                if service is not None:
+                    win32service.CloseServiceHandle(service)
+    finally:
         if scm is not None:
             win32service.CloseServiceHandle(scm)
 
@@ -136,9 +180,11 @@ __all__ = [
     "ServiceControl",
     "UPDATER_SERVICE_NAME",
     "UPDATER_START_PRINCIPALS",
+    "configure_service_sids",
     "WindowsServiceInstallSpec",
     "WindowsUpdaterServiceInstallSpec",
     "restrict_updater_start_permissions",
+    "service_dacl_write_access",
     "updater_start_access_policy",
     "trigger_pending_updater",
 ]

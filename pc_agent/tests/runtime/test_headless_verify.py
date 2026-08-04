@@ -76,6 +76,16 @@ def test_verify_migrates_local_database_without_opening_gateway(
         assert connection.execute("PRAGMA user_version").fetchone() == (0,)
 
 
+def test_verify_accepts_the_strict_windows_current_selector(tmp_path: Path) -> None:
+    """The LocalSystem updater verifies a Windows candidate against this selector."""
+    settings = _valid_settings(tmp_path)
+    (settings.install_root / "current.json").write_text(
+        '{"version":"3.2.10"}', encoding="utf-8"
+    )
+
+    assert run_verify(settings) == 0
+
+
 @pytest.mark.parametrize(
     ("filename", "payload"),
     [

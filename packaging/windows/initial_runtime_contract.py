@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import importlib.metadata
 import json
 import os
 import platform
@@ -35,6 +36,9 @@ _TOOLCHAIN_FIELDS_V2 = {
     "source_date_epoch",
 }
 _TOOLCHAIN_FIELDS_V3 = _TOOLCHAIN_FIELDS_V2 | {"python_hash_seed"}
+_TOOLCHAIN_FIELDS_V4 = _TOOLCHAIN_FIELDS_V3 | {
+    "pyinstaller_hooks_contrib_version"
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -98,6 +102,9 @@ def discover_toolchain() -> dict[str, object]:
         "python_version": platform.python_version(),
         "source_date_epoch": int(epoch),
         "python_hash_seed": hash_seed,
+        "pyinstaller_hooks_contrib_version": importlib.metadata.version(
+            "pyinstaller-hooks-contrib"
+        ),
     }
 
 
@@ -135,7 +142,7 @@ def _load_manifest(
     toolchain = payload.get("toolchain")
     schema_version = payload.get("schema_version")
     if (
-        schema_version not in {2, 3}
+        schema_version not in {2, 3, 4}
         or not isinstance(version, str)
         or not _SEMVER.fullmatch(version)
         or agent_version != version
@@ -159,9 +166,11 @@ def _load_manifest(
         or not re.fullmatch(r"[0-9a-f]{64}", artifact["tree_sha256"])
     ):
         raise ValueError("initial runtime artifact identity is invalid")
-    toolchain_fields = (
-        _TOOLCHAIN_FIELDS_V2 if schema_version == 2 else _TOOLCHAIN_FIELDS_V3
-    )
+    toolchain_fields = {
+        2: _TOOLCHAIN_FIELDS_V2,
+        3: _TOOLCHAIN_FIELDS_V3,
+        4: _TOOLCHAIN_FIELDS_V4,
+    }[schema_version]
     if (
         not isinstance(toolchain, dict)
         or set(toolchain) != toolchain_fields
@@ -172,7 +181,7 @@ def _load_manifest(
         or not isinstance(toolchain.get("source_date_epoch"), int)
         or isinstance(toolchain.get("source_date_epoch"), bool)
         or toolchain["source_date_epoch"] <= 0
-        or (schema_version == 3 and toolchain.get("python_hash_seed") != "0")
+        or (schema_version >= 3 and toolchain.get("python_hash_seed") != "0")
     ):
         raise ValueError("initial runtime toolchain identity is invalid")
 

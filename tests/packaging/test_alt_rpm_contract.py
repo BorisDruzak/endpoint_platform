@@ -246,6 +246,39 @@ def test_prepare_only_accepts_the_task8_archive_and_rejects_changed_bytes(
     assert "release archive digest mismatch" in rejected.stderr
 
 
+def test_prepare_only_canonicalizes_relative_output_before_passing_it_to_rpmbuild(
+    tmp_path: Path,
+) -> None:
+    """A relative topdir is rewritten by rpmbuild and breaks its %prep path."""
+    archive, sidecar, launcher = _write_release_fixture(tmp_path)
+    output = tmp_path / "output"
+    relative_output = os.path.relpath(output, ROOT)
+
+    result = subprocess.run(
+        [
+            "bash",
+            BUILD.as_posix(),
+            "--release-archive",
+            archive.as_posix(),
+            "--release-manifest",
+            sidecar.as_posix(),
+            "--launcher",
+            launcher.as_posix(),
+            "--output",
+            relative_output,
+            "--prepare-only",
+        ],
+        cwd=ROOT,
+        env={**os.environ, "PYTHON": sys.executable},
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert f"prepared={output.resolve().as_posix()}/rpmbuild" in result.stdout
+
+
 @pytest.mark.parametrize(
     ("core_version", "launcher_version", "expected_error"),
     [
@@ -459,6 +492,29 @@ def test_lifecycle_harness_uses_private_mounts_and_checks_preserved_state() -> N
         'rpm --dbpath "$database" -e endpoint-agent',
         "identity-preserved-after-upgrade",
         "state-preserved-after-uninstall",
+    ):
+        assert required in harness
+
+
+def test_lifecycle_harness_handles_absent_managed_mount_targets() -> None:
+    """A disposable ALT host need not have prior Endpoint Agent directories."""
+    harness = _text(LIFECYCLE_HARNESS)
+
+    for required in (
+        "mount_targets=(",
+        "created_mount_targets=()",
+        "ensure_mount_target",
+        "rmdir --",
+        "mutable_etc=",
+        "passwd group shadow gshadow",
+        "nsswitch.conf login.defs",
+        "pam.d security default",
+        "shadow-maint/groupadd-pre.d",
+        "tcb",
+        "-g auth -m 0710",
+        "-m 0770",
+        "endpoint-agent:x:65530",
+        '--bind "$mutable_etc" /etc',
     ):
         assert required in harness
 

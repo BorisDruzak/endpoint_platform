@@ -49,6 +49,17 @@ provided=0
 python_command=${PYTHON:-python3}
 command -v "$python_command" >/dev/null 2>&1 || die 'python3 is required'
 
+# rpmbuild treats a relative _topdir as an invalid path after it changes into
+# its build directory. Resolve the operator-provided destination once, before
+# using it for both staging and the RPM macro.
+output=$("$python_command" - "$output" <<'PY'
+from pathlib import Path
+import sys
+
+print(Path(sys.argv[1]).resolve().as_posix())
+PY
+) || die 'output directory path is invalid'
+
 temporary=$(mktemp -d "${TMPDIR:-/tmp}/endpoint-agent-rpm.XXXXXX")
 trap 'rm -rf -- "$temporary"' EXIT
 

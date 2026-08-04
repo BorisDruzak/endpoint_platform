@@ -4,10 +4,13 @@ from __future__ import annotations
 
 import asyncio
 import os
+import ssl
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 from urllib.parse import urlsplit
+
+import aiohttp
 
 from pc_agent import endpoint_gateway
 from pc_agent.device_credential import DeviceCredentialError, read_device_credential
@@ -114,6 +117,8 @@ def _default_dependencies() -> RuntimeDependencies:
             and settings.transport_mode == "gateway_wss"
             and isinstance(transport, WebSocketGatewayTransport)
         ):
+            if os.name == "nt":
+                return (_periodic_windows_update_checks(settings, credential),)
             return (
                 _periodic_https_update_checks(
                     settings,
@@ -230,6 +235,106 @@ async def _periodic_https_update_checks(
         finally:
             await transport.close()
         await sleep(endpoint_gateway.GATEWAY_UPDATE_POLL_INTERVAL_SEC)
+
+
+async def _periodic_windows_update_checks(
+    settings: RuntimeSettings,
+    credential: str,
+    *,
+    sleep=asyncio.sleep,
+) -> None:
+    """Stage Windows updates over HTTPS while WSS remains the sole command channel."""
+    await _run_windows_startup_report(settings, credential)
+    while True:
+        result = await _run_windows_update_check(settings, credential)
+        if result == "scheduled":
+            from pc_agent.version import EXIT_UPDATE_PENDING
+
+            raise SystemExit(EXIT_UPDATE_PENDING)
+        await sleep(endpoint_gateway.GATEWAY_UPDATE_POLL_INTERVAL_SEC)
+
+
+async def _run_windows_startup_report(
+    settings: RuntimeSettings, credential: str
+) -> bool:
+    """Deliver a post-WSS applied result without granting the updater network access."""
+    from pc_agent.platform.windows.acl import PyWin32AclAdapter
+    from pc_agent.platform.windows.online_update_runtime import WindowsOnlineUpdateRuntime
+    from pc_agent.platform.windows.update_paths import WindowsUpdatePaths
+    from pc_agent.transport.http_pull import reject_endpoint_redirect
+    from pc_agent.update_adapter import EndpointUpdateAdapter
+
+    context = ssl.create_default_context(cafile=str(settings.ca_file))
+    connector = aiohttp.TCPConnector(ssl=context)
+    trace = aiohttp.TraceConfig()
+    trace.on_request_redirect.append(reject_endpoint_redirect)
+    async with aiohttp.ClientSession(
+        timeout=aiohttp.ClientTimeout(total=20),
+        connector=connector,
+        trace_configs=[trace],
+    ) as session:
+        adapter = EndpointUpdateAdapter(
+            api_url=settings.endpoint_origin,
+            bearer_token=lambda: credential,
+            session=session,
+            data_root=settings.data_root,
+        )
+        runtime = WindowsOnlineUpdateRuntime(
+            adapter=adapter,
+            paths=WindowsUpdatePaths(
+                settings.install_root, settings.data_root / "updates" / "pending_update.json"
+            ),
+            acl=PyWin32AclAdapter(),
+            download=lambda *_args: _unexpected_windows_startup_download(),
+        )
+        return await runtime.report_startup_outcome()
+
+
+async def _unexpected_windows_startup_download() -> tuple[str, int]:
+    raise RuntimeError("startup report must not download an update artifact")
+
+
+async def _run_windows_update_check(
+    settings: RuntimeSettings, credential: str
+) -> str:
+    """Use the configured CA and Endpoint origin for the unprivileged update stager."""
+    from pc_agent.endpoint_gateway import _download_gateway_artifact
+    from pc_agent.platform.windows.acl import PyWin32AclAdapter
+    from pc_agent.platform.windows.online_update_runtime import WindowsOnlineUpdateRuntime
+    from pc_agent.platform.windows.update_paths import WindowsUpdatePaths
+    from pc_agent.transport.http_pull import reject_endpoint_redirect
+    from pc_agent.update_adapter import EndpointUpdateAdapter
+
+    context = ssl.create_default_context(cafile=str(settings.ca_file))
+    connector = aiohttp.TCPConnector(ssl=context)
+    trace = aiohttp.TraceConfig()
+    trace.on_request_redirect.append(reject_endpoint_redirect)
+    async with aiohttp.ClientSession(
+        timeout=aiohttp.ClientTimeout(total=20),
+        connector=connector,
+        trace_configs=[trace],
+    ) as session:
+        adapter = EndpointUpdateAdapter(
+            api_url=settings.endpoint_origin,
+            bearer_token=lambda: credential,
+            session=session,
+            data_root=settings.data_root,
+        )
+        runtime = WindowsOnlineUpdateRuntime(
+            adapter=adapter,
+            paths=WindowsUpdatePaths(
+                settings.install_root, settings.data_root / "updates" / "pending_update.json"
+            ),
+            acl=PyWin32AclAdapter(),
+            download=lambda item, destination: _download_gateway_artifact(
+                session,
+                item,
+                destination,
+                endpoint_origin=settings.endpoint_origin,
+                credential_source=lambda: credential,
+            ),
+        )
+        return (await runtime.run_once()).status
 
 
 def _create_http_pull_transport(

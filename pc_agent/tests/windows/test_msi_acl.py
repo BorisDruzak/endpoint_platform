@@ -84,6 +84,35 @@ def test_msi_acl_replaces_inheritance_with_exact_machine_policy(tmp_path: Path) 
     ]
 
 
+def test_provisioning_acl_uses_well_known_builtin_sids_on_localized_windows(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A localized Windows host may not resolve the English Administrators label."""
+    from pc_agent.platform.windows.acl import PyWin32AclAdapter
+
+    security = _Security()
+    monkeypatch.setattr(
+        PyWin32AclAdapter,
+        "_modules",
+        staticmethod(lambda: (security, _Rights)),
+    )
+    credential = tmp_path / "device-credential"
+    credential.write_text("placeholder", encoding="ascii")
+
+    PyWin32AclAdapter().protect_credential(credential)
+
+    assert security.lookups == [
+        "NT SERVICE\\EndpointAgent",
+        "NT SERVICE\\EndpointAgentUpdater",
+    ]
+    assert security.acl.aces == [
+        (0, 0x1, "S-1-5-18"),
+        (0, 0x1, "S-1-5-32-544"),
+        (0, 0x2, "NT SERVICE\\EndpointAgent"),
+        (0, 0x4, "NT SERVICE\\EndpointAgentUpdater"),
+    ]
+
+
 def test_msi_acl_rejects_a_reparse_target_before_privileged_write(
     tmp_path: Path,
 ) -> None:

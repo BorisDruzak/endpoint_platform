@@ -144,15 +144,18 @@ def test_provisioner_persists_protected_material_proves_credential_then_starts_s
     claim_path = request.data_root / "enrollment-claim"
     credential_path = request.data_root / "device-credential"
     identity_path = request.data_root / "enrollment-identity.json"
+    installed_ca_path = request.data_root / "endpoint-ca.crt"
     assert result.device_id == _DEVICE_ID
     assert result.claim_removed is True
     assert not claim_path.exists()
+    assert installed_ca_path.read_bytes() == request.ca_file.read_bytes()
     assert credential_path.read_text(encoding="ascii") == _TOKEN
     assert _DEVICE_ID.hex in identity_path.read_text(encoding="ascii").replace("-", "")
     assert events == [
         "acl.directory:protected-data",
         "acl.claim:enrollment-claim",
         "gateway.enroll",
+        "acl.credential:endpoint-ca.crt",
         "acl.credential:device-credential",
         "service.start",
     ]
@@ -181,6 +184,30 @@ def test_provisioner_reads_material_from_a_protected_file_without_echoing_token(
     assert _CLAIM not in capsys.readouterr().out
 
 
+def test_provisioner_cli_reports_only_failure_type_without_enrollment_material(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A failed packaged provisioner must be diagnosable without leaking its claim."""
+    from pc_agent.platform.windows import provision
+
+    class _FailingProvisioner:
+        def provision_from_stdin(self) -> None:
+            raise RuntimeError(_CLAIM)
+
+    monkeypatch.setattr(provision, "WindowsProvisioner", lambda _request: _FailingProvisioner())
+
+    assert provision.main([
+        "--endpoint-origin", "https://endpoint.sosnadmin.local",
+        "--ca-file", str(tmp_path / "endpoint-ca.crt"),
+        "--data-dir", str(tmp_path / "data"),
+        "--installation-id", "diagnostic-contract",
+    ]) == 1
+
+    captured = capsys.readouterr()
+    assert "RuntimeError" in captured.err
+    assert _CLAIM not in captured.out + captured.err
+
+
 def test_provisioner_uses_atomic_replace_for_claim_and_permanent_records(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -207,6 +234,7 @@ def test_provisioner_uses_atomic_replace_for_claim_and_permanent_records(
 
     assert [target.name for _source, target in replacements] == [
         "enrollment-claim",
+        "endpoint-ca.crt",
         "device-credential",
         "enrollment-identity.json",
     ]
