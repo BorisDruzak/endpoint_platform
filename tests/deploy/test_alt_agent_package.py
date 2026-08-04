@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import os
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -65,7 +67,9 @@ def test_installer_requires_https_ca_verified_bundle_and_secure_handoff() -> Non
     assert "curl " not in text
 
 
-@pytest.mark.parametrize("installation_id", [" padded", "padded ", "тест", "x" * 129, "id&rewrite"])
+@pytest.mark.parametrize(
+    "installation_id", [" padded", "padded ", "тест", "x" * 129, "id&rewrite"]
+)
 def test_installer_rejects_invalid_installation_id_before_any_host_mutation(
     installation_id: str,
 ) -> None:
@@ -117,7 +121,9 @@ def test_service_runs_as_dedicated_user_with_durable_paths_and_restart() -> None
         "User=endpoint-agent",
         "Group=endpoint-agent",
         "Environment=ENDPOINT_AGENT_ALT_UPDATE_MODE=1",
-        "ExecStart=/opt/endpoint-agent/launcher",
+        "Environment=ENDPOINT_AGENT_TRANSPORT_MODE=gateway_wss",
+        "Environment=ENDPOINT_AGENT_MIGRATION_HTTP_PULL_FALLBACK=false",
+        "ExecStart=/opt/endpoint-agent/launcher --no-gui --transport-mode gateway_wss --no-migration-http-pull-fallback",
         "Restart=on-failure",
         "RestartSec=5s",
         "StateDirectory=endpoint-agent",
@@ -134,7 +140,9 @@ def test_service_runs_as_dedicated_user_with_durable_paths_and_restart() -> None
         assert required in text
 
 
-def test_root_owned_update_worker_is_limited_to_the_fixed_alt_pending_path() -> None:
+def test_root_owned_update_worker_is_limited_to_fixed_update_and_rollback_paths() -> (
+    None
+):
     update_service = _text(UPDATE_SERVICE)
     update_path = _text(UPDATE_PATH)
     helper = _text(UPDATE_HELPER)
@@ -148,20 +156,74 @@ def test_root_owned_update_worker_is_limited_to_the_fixed_alt_pending_path() -> 
         "ProtectSystem=strict",
     ):
         assert required in update_service
-    assert "PathExists=/var/lib/endpoint-agent/updates/pending_alt_update.json" in update_path
+    assert "ConditionPathExists=" not in update_service
+    assert (
+        "PathExists=/var/lib/endpoint-agent/updates/pending_alt_update.json"
+        in update_path
+    )
+    assert (
+        "PathExists=/var/lib/endpoint-agent/updates/rollback-request.json"
+        in update_path
+    )
     assert "Unit=endpoint-agent-update.service" in update_path
     assert "systemctl stop endpoint-agent.service" in helper
     assert "systemctl start endpoint-agent.service" in helper
     assert "--apply-alt-update" in helper
 
 
-def test_root_owned_update_worker_uses_the_selected_immutable_launcher() -> None:
+def test_root_owned_update_worker_uses_the_fixed_stable_launcher() -> None:
     helper = _text(UPDATE_HELPER)
 
-    assert 'readonly LAUNCHER=/opt/endpoint-agent/launcher' not in helper
-    assert 'current.json' in helper
-    assert 'versions' in helper
-    assert '"$CURRENT_LAUNCHER" --apply-alt-update' in helper
+    assert "readonly STABLE_LAUNCHER=/opt/endpoint-agent/launcher" in helper
+    assert '"$STABLE_LAUNCHER" --apply-alt-update' in helper
+    assert (
+        "readonly ROLLBACK_REQUEST=/var/lib/endpoint-agent/updates/rollback-request.json"
+        in helper
+    )
+    assert '"$STABLE_LAUNCHER" --apply-alt-rollback' in helper
+    assert "validate_updates_directory" in helper
+    assert "stat.S_ISDIR" in helper
+    assert "stat.S_IWGRP | stat.S_IWOTH" in helper
+    assert "reject_unsafe_rollback_request" not in helper
+    assert 'os.replace("updates", quarantine' in helper
+    assert 'os.mkdir("updates", 0o700' in helper
+    worker_body = helper[helper.index("validate_stable_launcher || exit $?") :]
+    assert worker_body.index("systemctl stop endpoint-agent.service") < (
+        worker_body.index("if ! validate_updates_directory")
+    )
+    assert '"$@"' not in helper
+    assert "resolve_current_launcher" not in helper
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX no-follow helper contract")
+def test_update_helper_consumes_symlinked_updates_parent_without_path_loop(
+    tmp_path: Path,
+) -> None:
+    helper = _text(UPDATE_HELPER)
+    marker = "python3 - \"$DATA_ROOT\" <<'PY'\n"
+    validation = helper.split(marker, 1)[1].split("\nPY", 1)[0]
+    data_root = tmp_path / "data"
+    redirected = tmp_path / "redirected"
+    data_root.mkdir(mode=0o750)
+    redirected.mkdir(mode=0o700)
+    (redirected / "rollback-request.json").write_text("attacker redirect")
+    (data_root / "updates").symlink_to(redirected, target_is_directory=True)
+
+    completed = subprocess.run(
+        [sys.executable, "-", str(data_root)],
+        input=validation,
+        text=True,
+        capture_output=True,
+        check=False,
+        timeout=10,
+    )
+
+    assert completed.returncode != 0
+    updates = data_root / "updates"
+    assert updates.is_dir() and not updates.is_symlink()
+    assert not (updates / "rollback-request.json").exists()
+    failure = updates / "last_failed_alt_rollback_request.json"
+    assert failure.is_file() and not failure.is_symlink()
 
 
 def test_root_worker_returns_only_durable_update_state_to_the_service_account() -> None:
@@ -169,6 +231,8 @@ def test_root_worker_returns_only_durable_update_state_to_the_service_account() 
 
     assert "update_history.json" in helper
     assert "last_failed_alt_update.json" in helper
+    assert "last_failed_alt_rollback_request.json" in helper
+    assert "last_failed_launch.json" in helper
     assert "action_trace.jsonl" in helper
     assert "chown endpoint-agent:endpoint-agent" in helper
     assert "chown -R" not in helper
@@ -182,7 +246,7 @@ def test_installer_installs_and_enables_the_root_owned_update_path() -> None:
         "endpoint-agent-update.path",
         "apply-pending-alt-update.sh",
         "readonly UPDATE_HELPER_ROOT=/usr/lib/endpoint-agent",
-        "readonly UPDATE_HELPER_TARGET=\"${UPDATE_HELPER_ROOT}/apply-pending-alt-update\"",
+        'readonly UPDATE_HELPER_TARGET="${UPDATE_HELPER_ROOT}/apply-pending-alt-update"',
         "systemctl enable endpoint-agent-update.path",
         "systemctl start endpoint-agent-update.path",
     ):
@@ -197,7 +261,10 @@ def test_permanent_credential_is_runtime_owned_and_finalize_requires_that_contra
 
     assert "require_service_secret_file 'permanent credential'" in installer
     assert 'owner=$(file_owner_uid "$path")' in installer
-    assert '[[ "$owner" == "$expected_owner" && "$group" == "$expected_group" ]]' in installer
+    assert (
+        '[[ "$owner" == "$expected_owner" && "$group" == "$expected_group" ]]'
+        in installer
+    )
     assert "must be owned by $SERVICE_USER:$SERVICE_GROUP" in installer
     assert "root ownership" not in runbook.lower()
     assert "owned by `endpoint-agent`" in runbook
@@ -207,11 +274,13 @@ def test_finalizer_accepts_only_the_fixed_proven_credential_handoff_protocol() -
     installer = _text(INSTALLER)
 
     for required in (
+        'readonly ENROLLMENT_IDENTITY_TARGET="${DATA_ROOT}/enrollment-identity.json"',
         'readonly HANDOFF_REQUEST_TARGET="${DATA_ROOT}/claim-removal-request.json"',
         "readonly CLAIM_CREDENTIAL_NAME=endpoint-enrollment-claim",
         "readonly HANDOFF_REQUEST_SCHEMA_VERSION=endpoint_claim_removal_request_v1",
         "require_safe_parent_components",
         "require_opaque_permanent_credential",
+        "require_enrollment_identity",
         "validate_handoff_request",
         "credential_sha256",
         "require_root_secret_file 'installed provisioning handoff' \"$HANDOFF_TARGET\"",
@@ -225,20 +294,25 @@ def test_installer_validates_fixed_destinations_before_any_root_write() -> None:
 
     for required in (
         "validate_install_destinations",
-        "validate_fixed_directory_or_absent \"$INSTALL_ROOT\" root 755",
-        "validate_fixed_directory_or_absent \"$CONFIG_ROOT\" root 755",
-        "validate_fixed_directory_or_absent \"$DATA_ROOT\" service 750",
-        "validate_fixed_directory_or_absent \"$LOG_ROOT\" service 750",
-        "validate_fixed_regular_target_or_absent \"$CONFIG_TARGET\" root 600",
-        "validate_fixed_regular_target_or_absent \"$CA_TARGET\" root 600",
-        "validate_fixed_regular_target_or_absent \"$HANDOFF_TARGET\" root 600",
-        "validate_fixed_regular_target_or_absent \"$PERMANENT_CREDENTIAL_TARGET\" service 600",
-        "validate_fixed_regular_target_or_absent \"$HANDOFF_REQUEST_TARGET\" service 600",
+        'validate_fixed_directory_or_absent "$INSTALL_ROOT" root 755',
+        'validate_fixed_directory_or_absent "$CONFIG_ROOT" root 755',
+        'validate_fixed_directory_or_absent "$DATA_ROOT" service 750',
+        'validate_fixed_directory_or_absent "$LOG_ROOT" service 750',
+        'validate_fixed_regular_target_or_absent "$CONFIG_TARGET" root 600',
+        'validate_fixed_regular_target_or_absent "$CA_TARGET" root 600',
+        'validate_fixed_regular_target_or_absent "$HANDOFF_TARGET" root 600',
+        'validate_fixed_regular_target_or_absent "$PERMANENT_CREDENTIAL_TARGET" service 600',
+        'validate_fixed_regular_target_or_absent "$ENROLLMENT_IDENTITY_TARGET" service 600',
+        'validate_fixed_regular_target_or_absent "$HANDOFF_REQUEST_TARGET" service 600',
         'validate_fixed_regular_target_or_absent "/etc/systemd/system/$SERVICE_NAME" root 644',
     ):
         assert required in installer
 
-    install_body = installer[installer.index("install_atomically() {") : installer.index("install_package() {")]
+    install_body = installer[
+        installer.index("install_atomically() {") : installer.index(
+            "install_package() {"
+        )
+    ]
     assert install_body.index("validate_install_destinations") < install_body.index(
         "stage=$(mktemp -d /opt/.endpoint-agent-stage.XXXXXX)"
     )
@@ -251,8 +325,14 @@ def test_installer_preflights_the_bundle_before_account_creation_and_move() -> N
     assert 'readonly LAUNCHER_TARGET="${INSTALL_ROOT}/launcher"' in installer
     assert 'readonly VERSIONS_ROOT="${INSTALL_ROOT}/versions"' in installer
     assert 'readonly CURRENT_TARGET="${INSTALL_ROOT}/current.json"' in installer
-    assert 'validate_fixed_regular_target_or_absent "$LAUNCHER_TARGET" root 755' in installer
-    assert 'validate_fixed_regular_target_or_absent "$CURRENT_TARGET" root 644' in installer
+    assert (
+        'validate_fixed_regular_target_or_absent "$LAUNCHER_TARGET" root 755'
+        in installer
+    )
+    assert (
+        'validate_fixed_regular_target_or_absent "$CURRENT_TARGET" root 644'
+        in installer
+    )
 
     package_body = installer[
         installer.index("install_package() {") : installer.index("finalize_handoff() {")

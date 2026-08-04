@@ -1,0 +1,3 @@
+# Build environment for the Linux headless-core artifact.
+-r agent-core.txt
+PyInstaller==6.19.0

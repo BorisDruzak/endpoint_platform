@@ -24,6 +24,17 @@ from .enrollment import (
     EnrollmentRequestV1,
     EnrollmentResponseV1,
 )
+from .gateway_ws import (
+    AgentHelloV1,
+    CommandCancelV1,
+    GatewayErrorV1,
+    GatewayHelloV1,
+    GatewayInboundV1,
+    GatewayWsEnvelopeV1,
+    PolicyUpdateV1,
+    ResultAckV1,
+    ServerShutdownNoticeV1,
+)
 from .identity import AgentSessionV1, DeviceIdentityV1
 from .telemetry import AgentBuildRecommendationV1, AgentHeartbeatV1
 from .updates import (
@@ -35,6 +46,7 @@ from .updates import (
 )
 
 __all__ = [
+    "AgentHelloV1",
     "AgentBuildRecommendationV1",
     "AgentCommandAckV1",
     "AgentCommandV1",
@@ -46,6 +58,7 @@ __all__ = [
     "AgentUpdateAcknowledgementV1",
     "AgentUpdateRecommendationV1",
     "AgentUpdateReportV1",
+    "CommandCancelV1",
     "CommandCorrelationV1",
     "ContextProfileV1",
     "ContextWarningCodeV1",
@@ -61,6 +74,13 @@ __all__ = [
     "EnrollmentDeliveryProofV1",
     "EnrollmentRequestV1",
     "EnrollmentResponseV1",
+    "GatewayErrorV1",
+    "GatewayHelloV1",
+    "GatewayInboundV1",
+    "GatewayWsEnvelopeV1",
+    "PolicyUpdateV1",
+    "ResultAckV1",
+    "ServerShutdownNoticeV1",
     "UpdateBuildManifestV1",
     "UpdateRolloutCreateV1",
     "validate_context_result_item",

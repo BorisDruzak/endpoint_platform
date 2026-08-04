@@ -6,8 +6,13 @@
 
 Требуется Python 3.12 и PyInstaller в venv агента:
 
+> **Historic Helpdesk/GUI only.** The following launcher and agent build is
+> not a supported path for a new Endpoint core RPM; use the headless-core
+> package instructions at the end of this document instead.
+
 ```bash
 cd /var/chat_bot/pc_client
+# HISTORIC HELPDESK/GUI ONLY: do not use the following specs for new RPM/core packages.
 ./pc_agent/venv/bin/pip install pyinstaller   # если ещё не установлен
 ./pc_agent/venv/bin/pyinstaller pc_agent/pyinstaller_launcher_linux.spec --noconfirm
 ./pc_agent/venv/bin/pyinstaller pc_agent/pyinstaller_agent_linux.spec --noconfirm
@@ -129,17 +134,18 @@ Launcher читает `current.json`, запускает `versions/<version>/pc_
 - **Лаунчер и --gui:** Linux-лаунчер по умолчанию передаёт агенту `--gui`. Если окно не появляется, проверьте логи агента (в data_root или консоль при прямом запуске `pc_agent --gui`).
 Security update 2026-05-23: unauthenticated `POST /api/login` is no longer an agent provisioning path. For new installs use the connection-request flow, or have an authenticated admin issue a manual token through the server UI/API. Manual connection-request polling requires the server-returned `request_id` and `poll_secret`.
 
-## Offline release bundle for ALT Linux
+## Historic Helpdesk/GUI offline release bundle for ALT Linux
 
-Build release bundles only on Linux with the same Python 3.12 environment
-used for PyInstaller. The builder's explicit `--build` mode runs the existing
-`pyinstaller_launcher_linux.spec` and `pyinstaller_agent_linux.spec`, then
-assembles their `dist/` output:
+This section is retained only to reproduce historic Helpdesk/GUI artifacts.
+It is not a route for a new Endpoint core RPM. Build these historic release
+bundles only on Linux with the same Python 3.12 environment used for
+PyInstaller. The builder requires an explicit legacy acknowledgement before it
+runs `pyinstaller_launcher_linux.spec` and `pyinstaller_agent_linux.spec`:
 
 ```bash
 cd /var/chat_bot/pc_client
 ./pc_agent/venv/bin/python -m pc_agent.build_linux_release_bundle \
-  --build --version 3.2.1 --output /tmp/endpoint-agent-releases
+  --build --legacy-helpdesk-gui --version 3.2.1 --output /tmp/endpoint-agent-releases
 ```
 
 The result is the transient directory
@@ -173,3 +179,37 @@ file. Inspect it before handing the bundle to the installer:
 python3 -m json.tool \
   /tmp/endpoint-agent-releases/endpoint-agent-3.2.1/manifest.json
 ```
+
+## Headless Endpoint Agent core packages
+
+New RPM packages must install `requirements/build-linux.txt` and build only
+`pc_agent/pyinstaller_endpoint_core_linux.spec`:
+
+```bash
+python -m pip install -r requirements/build-linux.txt
+python -m PyInstaller --noconfirm pc_agent/pyinstaller_endpoint_core_linux.spec
+python tools/build_linux_agent.py --channel canary
+```
+
+This artifact starts `pc_agent/runtime/main.py` and contains no Qt, Helpdesk
+UI, or Remote Assist assets. The inherited `pyinstaller_agent_linux.spec` and
+`pc_agent/requirements.txt` files are legacy compatibility inputs only; they
+must not be used for a new RPM package.
+
+The PyInstaller output is `dist/endpoint-agent/`, with the core executable at
+`dist/endpoint-agent/endpoint-agent`. The release builder consumes that
+reviewed onedir tree and writes a deterministic
+`endpoint-agent-linux_amd64-VERSION.tar.gz` plus a local immutable sidecar
+manifest under `dist/release/linux_amd64/CHANNEL/VERSION/`. The sidecar records
+the build identifier, version, source revision, platform, channel, archive
+type/name, SHA-256, and size. It intentionally has no download URL: artifact
+publication and conversion to the server's `UpdateBuildManifestV1` are a later
+release operation. This build step does not create an RPM or install files on
+a host. The tar also carries a root strict ALT `manifest.json` whose sorted
+per-file entries cover only the headless `endpoint-agent/` tree. The stable
+launcher remains a separate root-owned deployment asset and is not embedded in
+the headless version payload. The builder canonicalizes PyInstaller's generated
+`_internal/base_library.zip` member order and ZIP metadata before hashing the
+inner per-file record and final tar, so two clean builds of the same checkout
+produce identical release bytes; changed embedded module bytes still produce a
+different immutable artifact.

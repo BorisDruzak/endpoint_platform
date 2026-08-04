@@ -66,11 +66,24 @@ PC Agent поддерживает удалённое обновление чер
 
 **ALT Linux:** для immutable layout `/opt/endpoint-agent` это правило разделено
 по привилегиям. Сервис `endpoint-agent` остаётся непривилегированным, пишет
-только `updates/pending_alt_update.json` и завершается. Root-owned
+только `updates/pending_alt_update.json` или строго типизированный
+`updates/rollback-request.json` и завершается. Root-owned
 `endpoint-agent-update.path` запускает одноразовый worker, который вызывает
-stable launcher с `--apply-alt-update`, после чего обязательно возвращает
+stable launcher с фиксированным update/rollback mode, после чего обязательно возвращает
 предыдущий или новый unprivileged service в работу. Нельзя выдавать
 `endpoint-agent` право записи в `/opt/endpoint-agent`.
+Перед update root worker проверяет текущий immutable release и сохраняет его
+строгую identity в root-owned `/opt/endpoint-agent/previous.json`. Crash
+rollback request не содержит path/command и должен совпасть с root-owned
+`current.json`/`previous.json`; worker повторно проверяет manifest, файлы, hashes
+и modes предыдущего release и только затем атомарно меняет `current.json`.
+Статус `rolled_back` появляется только после terminal marker от root worker.
+
+Stable launcher живёт отдельно от immutable version payload и не заменяется
+canary-архивом. Для ALT допустимы ровно два manifest-verified payload layout:
+legacy `launcher` + `pc_agent/` и новый headless `endpoint-agent/`. Launcher
+передаёт `gateway_wss` и явный fallback-off только новому headless entrypoint;
+legacy release продолжает получать только `--no-gui`.
 
 Для операционного сценария "что менять, как версионировать, что проверять и как катить rollout" используйте канонический playbook: [AGENT_UPDATE_WORKFLOW.md](AGENT_UPDATE_WORKFLOW.md).
 
@@ -132,7 +145,7 @@ Server handshake can also enqueue the same `update` command for older installed 
 - При завершении дочернего процесса:
   - если **exit code 42** или существует **pending_update.json** — выполняет установку обновления (см. ниже);
   - иначе — перезапуск с backoff (tray-режим).
-- Если только что переключённая версия несколько раз подряд падает сразу после старта, launcher пишет причину в `launcher.log`, сохраняет `last_failed_launch.json`, добавляет failure entry в `update_history.json` и откатывает `current.json` на `previous`.
+- Если только что переключённая версия несколько раз подряд падает сразу после старта, legacy launcher сохраняет диагностику и откатывает writable selector на `previous`. ALT launcher вместо записи root-owned selector публикует только fixed rollback request; переключение выполняет описанный выше root worker.
 - **Установка обновления** (модуль `launcher/installer.py`):
   - распаковка архива в `install_root/versions/_staging/<version>/` (защита от path traversal, запрет archive links, восстановление POSIX mode bits для `tar.gz`);
   - backup `storage.db` в `data_root/updates/db_backups/`;

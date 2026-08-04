@@ -1118,3 +1118,56 @@ async def test_applied_report_requires_scheduled_ack(session: AsyncSession) -> N
             request_id="req-premature-success",
             now=NOW,
         )
+
+
+@pytest.mark.asyncio
+async def test_paused_rollout_accepts_terminal_failure_for_scheduled_target(
+    session: AsyncSession,
+) -> None:
+    """Pausing delivery must not strand a target whose launcher has already failed."""
+    build = await _build(session)
+    device = await _device(session, "paused-terminal-failure")
+    rollout = await create_rollout(
+        session,
+        build.id,
+        "canary",
+        [device.id],
+        "paused terminal outcome",
+        ADMIN_ID,
+        "req-paused-terminal-outcome",
+        now=NOW,
+    )
+    target = await session.scalar(
+        select(UpdateTarget).where(UpdateTarget.rollout_id == rollout.id)
+    )
+    assert target is not None
+    for status in ("requested", "scheduled"):
+        await record_ack(
+            session,
+            device_id=device.id,
+            operation_id=target.operation_id,
+            acknowledgement=AgentUpdateAcknowledgementV1(
+                schema_version="agent_update_ack_v1", status=status
+            ),
+            request_id=f"req-paused-{status}",
+            now=NOW,
+        )
+    await pause_rollout(session, rollout.id, ADMIN_ID, "req-pause", now=NOW)
+
+    report = await record_report(
+        session,
+        device_id=device.id,
+        operation_id=target.operation_id,
+        report=AgentUpdateReportV1(
+            schema_version="agent_update_report_v1",
+            report_key="paused-launcher-failure",
+            status="failed",
+            reported_version="2.0.0",
+            safe_code="launcher_apply_failed",
+        ),
+        request_id="req-paused-failure",
+        now=NOW,
+    )
+
+    assert report.status == "failed"
+    assert target.status == "failed"

@@ -24,6 +24,7 @@ readonly CONFIG_TARGET="${CONFIG_ROOT}/config.yaml"
 readonly CA_TARGET="${CONFIG_ROOT}/ca.crt"
 readonly HANDOFF_TARGET="${CONFIG_ROOT}/provisioning-claim"
 readonly PERMANENT_CREDENTIAL_TARGET="${DATA_ROOT}/device-credential"
+readonly ENROLLMENT_IDENTITY_TARGET="${DATA_ROOT}/enrollment-identity.json"
 readonly HANDOFF_REQUEST_TARGET="${DATA_ROOT}/claim-removal-request.json"
 readonly CLAIM_CREDENTIAL_NAME=endpoint-enrollment-claim
 readonly HANDOFF_REQUEST_SCHEMA_VERSION=endpoint_claim_removal_request_v1
@@ -43,6 +44,7 @@ previous_launcher_backed_up=false
 previous_current_backed_up=false
 launcher_published=false
 current_published=false
+enrollment_device_id=''
 dry_run=false
 inspect_layout=false
 finalize_handoff=false
@@ -261,6 +263,7 @@ validate_install_destinations() {
     validate_fixed_regular_target_or_absent "$CA_TARGET" root 600
     validate_fixed_regular_target_or_absent "$HANDOFF_TARGET" root 600
     validate_fixed_regular_target_or_absent "$PERMANENT_CREDENTIAL_TARGET" service 600
+    validate_fixed_regular_target_or_absent "$ENROLLMENT_IDENTITY_TARGET" service 600
     validate_fixed_regular_target_or_absent "$HANDOFF_REQUEST_TARGET" service 600
     validate_fixed_regular_target_or_absent "/etc/systemd/system/$SERVICE_NAME" root 644
     validate_fixed_regular_target_or_absent "/etc/systemd/system/$UPDATE_SERVICE_NAME" root 644
@@ -323,15 +326,29 @@ require_opaque_permanent_credential() {
         die 'permanent credential has an invalid format'
 }
 
+require_enrollment_identity() {
+    local identity identity_pattern
+    require_service_secret_file 'enrollment identity' "$ENROLLMENT_IDENTITY_TARGET"
+    identity=$(<"$ENROLLMENT_IDENTITY_TARGET")
+    [[ ${#identity} -le 160 ]] || die 'enrollment identity is too large'
+    identity_pattern='^\{"device_id":"([0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})","schema_version":"endpoint_enrollment_identity_v1"\}$'
+    [[ "$identity" =~ $identity_pattern ]] || \
+        die 'enrollment identity has an invalid schema'
+    enrollment_device_id=${BASH_REMATCH[1]}
+}
+
 validate_handoff_request() {
-    local request request_pattern credential_digest actual_digest
+    local request request_pattern credential_digest request_device_id actual_digest
     require_service_secret_file 'claim-removal request' "$HANDOFF_REQUEST_TARGET"
     request=$(<"$HANDOFF_REQUEST_TARGET")
     [[ ${#request} -le 512 ]] || die 'claim-removal request is too large'
-    request_pattern='^\{"claim_credential_name":"endpoint-enrollment-claim","credential_path":"/var/lib/endpoint-agent/device-credential","credential_sha256":"([0-9a-f]{64})","device_id":"[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}","schema_version":"endpoint_claim_removal_request_v1"\}$'
+    request_pattern='^\{"claim_credential_name":"endpoint-enrollment-claim","credential_path":"/var/lib/endpoint-agent/device-credential","credential_sha256":"([0-9a-f]{64})","device_id":"([0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})","schema_version":"endpoint_claim_removal_request_v1"\}$'
     [[ "$request" =~ $request_pattern ]] || \
         die 'claim-removal request has an invalid schema or binding'
     credential_digest=${BASH_REMATCH[1]}
+    request_device_id=${BASH_REMATCH[2]}
+    [[ "$request_device_id" == "$enrollment_device_id" ]] || \
+        die 'claim-removal request does not match enrollment identity'
     actual_digest=$(sha256sum -- "$PERMANENT_CREDENTIAL_TARGET" | awk '{ print $1 }')
     [[ "$actual_digest" == "$credential_digest" ]] || \
         die 'claim-removal request does not prove the permanent credential'
@@ -782,18 +799,34 @@ install_package() {
     cleanup_release_backup
 }
 
+finalize_service_unit() {
+    # This fixed transformation is intentionally idempotent. A reviewed unit
+    # replacement may restore the bootstrap template after the one-time claim
+    # was deleted, but it must not restore that credential dependency.
+    sed -i \
+        -e '/^LoadCredential=endpoint-enrollment-claim:/d' \
+        -e '/^Environment=ENDPOINT_AGENT_PROVISIONING_HANDOFF_FILE=/d' \
+        -e 's/^Environment=ENDPOINT_AGENT_ENROLLMENT_REQUIRED=1$/Environment=ENDPOINT_AGENT_GATEWAY_READY=1/' \
+        "/etc/systemd/system/$SERVICE_NAME"
+    systemctl daemon-reload
+}
+
 finalize_handoff() {
     require_root
     validate_existing_service_account
     validate_install_destinations
     if [[ ! -e "$HANDOFF_REQUEST_TARGET" && ! -L "$HANDOFF_REQUEST_TARGET" ]]; then
         if [[ ! -e "$HANDOFF_TARGET" && ! -L "$HANDOFF_TARGET" ]]; then
+            require_opaque_permanent_credential
+            require_enrollment_identity
+            finalize_service_unit
             printf 'one-time provisioning handoff was already finalized\n'
             return
         fi
         die 'no verified claim-removal request exists'
     fi
     require_opaque_permanent_credential
+    require_enrollment_identity
     validate_handoff_request
     if [[ -e "$HANDOFF_TARGET" || -L "$HANDOFF_TARGET" ]]; then
         require_root_secret_file 'installed provisioning handoff' "$HANDOFF_TARGET"
@@ -802,15 +835,9 @@ finalize_handoff() {
     # constants, validated immediately above, and no caller-supplied pathname
     # can reach this finalizer.
     rm -f -- "$HANDOFF_TARGET" "$HANDOFF_REQUEST_TARGET"
-    # The bootstrap claim is intentionally absent after finalization.  Switch
-    # the fixed unit to its post-enrolment form before daemon-reload, otherwise
-    # systemd would reject the missing LoadCredential source on every restart.
-    sed -i \
-        -e '/^LoadCredential=endpoint-enrollment-claim:/d' \
-        -e '/^Environment=ENDPOINT_AGENT_PROVISIONING_HANDOFF_FILE=/d' \
-        -e 's/^Environment=ENDPOINT_AGENT_ENROLLMENT_REQUIRED=1$/Environment=ENDPOINT_AGENT_GATEWAY_READY=1/' \
-        "/etc/systemd/system/$SERVICE_NAME"
-    systemctl daemon-reload
+    # The bootstrap claim is intentionally absent after finalization. Switch
+    # the fixed unit to its post-enrolment form before any service restart.
+    finalize_service_unit
     printf 'one-time provisioning handoff finalized after verified credential proof\n'
 }
 

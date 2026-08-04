@@ -1,7 +1,5 @@
 #!/usr/bin/env python3
-"""
-Build Windows release artifacts using "quiet" specs (no console windows).
-"""
+"""Build the neutral headless Windows core and stable launcher release."""
 from __future__ import annotations
 
 import argparse
@@ -56,13 +54,32 @@ def main() -> int:
         shutil.rmtree(build_dir, ignore_errors=True)
         shutil.rmtree(dist_dir, ignore_errors=True)
 
-    _run([sys.executable, "-m", "PyInstaller", "--noconfirm", "pyinstaller_agent_win_release.spec"], cwd=PC_AGENT_DIR)
-    _run([sys.executable, "-m", "PyInstaller", "--noconfirm", "pyinstaller_launcher_win_release.spec"], cwd=PC_AGENT_DIR)
+    _run(
+        [
+            sys.executable,
+            "-m",
+            "PyInstaller",
+            "--noconfirm",
+            "pyinstaller_endpoint_core_windows.spec",
+        ],
+        cwd=PC_AGENT_DIR,
+    )
+    _run(
+        [
+            sys.executable,
+            "-m",
+            "PyInstaller",
+            "--noconfirm",
+            "pyinstaller_launcher_win.spec",
+        ],
+        cwd=PC_AGENT_DIR,
+    )
 
-    built_agent_dir = dist_dir / "pc_agent"
+    built_agent_dir = dist_dir / "endpoint_agent_core"
+    built_agent_executable = built_agent_dir / "endpoint_agent_core.exe"
     built_launcher = dist_dir / "launcher.exe"
-    if not (built_agent_dir / "pc_agent.exe").exists():
-        raise RuntimeError(f"Agent build missing: {built_agent_dir / 'pc_agent.exe'}")
+    if not built_agent_executable.exists():
+        raise RuntimeError(f"Agent build missing: {built_agent_executable}")
     if not built_launcher.exists():
         raise RuntimeError(f"Launcher build missing: {built_launcher}")
 
@@ -76,7 +93,8 @@ def main() -> int:
 
     shutil.copy2(built_launcher, install_root / "launcher.exe")
     for item in built_agent_dir.iterdir():
-        dst = version_dir / item.name
+        name = "pc_agent.exe" if item == built_agent_executable else item.name
+        dst = version_dir / name
         if item.is_dir():
             shutil.copytree(item, dst, dirs_exist_ok=True)
         else:

@@ -3,6 +3,7 @@ Description=Watch for Endpoint Platform ALT update requests
 
 [Path]
 PathExists=/var/lib/endpoint-agent/updates/pending_alt_update.json
+PathExists=/var/lib/endpoint-agent/updates/rollback-request.json
 Unit=endpoint-agent-update.service
 
 [Install]

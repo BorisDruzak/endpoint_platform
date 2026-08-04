@@ -1,0 +1,3 @@
+d /etc/endpoint-agent 0755 root root - -
+d /var/lib/endpoint-agent 0750 endpoint-agent endpoint-agent - -
+d /var/log/endpoint-agent 0750 endpoint-agent endpoint-agent - -

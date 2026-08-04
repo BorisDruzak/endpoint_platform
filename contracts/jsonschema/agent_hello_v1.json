@@ -1,0 +1,87 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "agent_instance_id": {
+      "format": "uuid",
+      "title": "Agent Instance Id",
+      "type": "string"
+    },
+    "agent_version": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._+-]*$",
+      "title": "Agent Version",
+      "type": "string"
+    },
+    "boot_id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$",
+      "title": "Boot Id",
+      "type": "string"
+    },
+    "capabilities": {
+      "items": {
+        "maxLength": 128,
+        "minLength": 3,
+        "pattern": "^[a-z][a-z0-9]*(?:[._:-][a-z0-9]+)*$",
+        "type": "string"
+      },
+      "maxItems": 64,
+      "title": "Capabilities",
+      "type": "array",
+      "uniqueItems": true
+    },
+    "device_id": {
+      "format": "uuid",
+      "title": "Device Id",
+      "type": "string"
+    },
+    "last_policy_revision": {
+      "maximum": 9223372036854775807,
+      "minimum": 0,
+      "title": "Last Policy Revision",
+      "type": "integer"
+    },
+    "last_result_sequence": {
+      "maximum": 9223372036854775807,
+      "minimum": 0,
+      "title": "Last Result Sequence",
+      "type": "integer"
+    },
+    "launcher_version": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._+-]*$",
+      "title": "Launcher Version",
+      "type": "string"
+    },
+    "platform": {
+      "enum": [
+        "linux_amd64",
+        "windows_amd64"
+      ],
+      "title": "Platform",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "agent_hello_v1",
+      "title": "Schema Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema_version",
+    "device_id",
+    "agent_instance_id",
+    "agent_version",
+    "launcher_version",
+    "platform",
+    "boot_id",
+    "capabilities",
+    "last_result_sequence",
+    "last_policy_revision"
+  ],
+  "title": "AgentHelloV1",
+  "type": "object"
+}

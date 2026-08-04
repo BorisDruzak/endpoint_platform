@@ -24,6 +24,7 @@ SSHD_STATUS_COMMAND = ("systemctl", "is-active", "sshd")
 NETWORK_MANAGER_STATUS_COMMAND = ("systemctl", "is-active", "NetworkManager")
 PROCESS_COMMAND = ("ps", "-eo", "comm=,stat=")
 JOURNAL_COMMAND = ("journalctl", "-n", "100", "--no-pager", "-o", "cat")
+WINDOWS_TASKLIST_COMMAND = ("tasklist", "/FO", "CSV", "/NH")
 
 _ALLOWED_COMMANDS = frozenset(
     {
@@ -35,12 +36,47 @@ _ALLOWED_COMMANDS = frozenset(
         NETWORK_MANAGER_STATUS_COMMAND,
         PROCESS_COMMAND,
         JOURNAL_COMMAND,
+        WINDOWS_TASKLIST_COMMAND,
     }
 )
 
 
 class SystemProbe:
     """Permit only bounded reads and explicitly enumerated local commands."""
+
+    @property
+    def platform_name(self) -> str:
+        return "windows" if os.name == "nt" else "linux"
+
+    def windows_system(self) -> dict[str, object]:
+        from pc_agent.platform.windows.identity import native_system
+
+        return native_system()
+
+    def windows_hardware(self) -> dict[str, object]:
+        from pc_agent.platform.windows.identity import native_hardware
+
+        return native_hardware()
+
+    def windows_health(self) -> dict[str, int]:
+        from pc_agent.platform.windows.identity import native_health
+
+        return native_health()
+
+    def windows_storage(self) -> list[dict[str, object]]:
+        from pc_agent.platform.windows.storage import native_storage
+
+        return native_storage()
+
+    def windows_interfaces(self) -> list[dict[str, object]]:
+        from pc_agent.platform.windows.network import native_interfaces
+
+        return native_interfaces()
+
+    def windows_default_route(self) -> dict[str, str | None]:
+        from pc_agent.platform.windows.network import native_default_route
+
+        return native_default_route()
 
     def read_text(self, path: str, max_bytes: int) -> str:
         limit = _bounded_limit(max_bytes)

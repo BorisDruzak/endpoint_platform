@@ -15,6 +15,8 @@ from .stable_keys import bounded_text, disk_stable_key, interface_stable_key
 
 
 def collect_baseline(probe: object, *, collected_at: datetime | None = None) -> DeviceContextBaselineV1:
+    if str(getattr(probe, "platform_name", "")).lower() == "windows":
+        return _collect_windows_baseline(probe, collected_at=collected_at)
     warnings: list[str] = []
     os_release = _read(probe, "/etc/os-release", warnings)
     system_platform = _platform_for(os_release, probe)
@@ -49,6 +51,28 @@ def collect_baseline(probe: object, *, collected_at: datetime | None = None) -> 
         collected_at=collected_at or datetime.now(timezone.utc),
         sections=sections,
         warnings=_unique_warnings(warnings),
+    )
+
+
+def _collect_windows_baseline(probe: object, *, collected_at: datetime | None) -> DeviceContextBaselineV1:
+    from pc_agent.platform.windows.identity import collect_hardware, collect_system
+    from pc_agent.platform.windows.network import collect_baseline_interfaces
+    from pc_agent.platform.windows.software import collect_software
+    from pc_agent.platform.windows.storage import collect_storage
+
+    system = collect_system(probe)
+    return DeviceContextBaselineV1(
+        schema_version="device_context_v1",
+        profile="baseline_v1",
+        collected_at=collected_at or datetime.now(timezone.utc),
+        sections={
+            "system": {"platform": "windows", **system},
+            "hardware": collect_hardware(probe),
+            "storage": collect_storage(probe),
+            "interfaces": collect_baseline_interfaces(probe),
+            "software": collect_software(),
+        },
+        warnings=[],
     )
 
 

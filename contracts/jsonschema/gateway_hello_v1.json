@@ -1,0 +1,62 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "effective_capabilities": {
+      "items": {
+        "maxLength": 128,
+        "minLength": 3,
+        "pattern": "^[a-z][a-z0-9]*(?:[._:-][a-z0-9]+)*$",
+        "type": "string"
+      },
+      "maxItems": 64,
+      "title": "Effective Capabilities",
+      "type": "array",
+      "uniqueItems": true
+    },
+    "heartbeat_interval_seconds": {
+      "maximum": 3600,
+      "minimum": 1,
+      "title": "Heartbeat Interval Seconds",
+      "type": "integer"
+    },
+    "maximum_message_bytes": {
+      "maximum": 1048576,
+      "minimum": 1024,
+      "title": "Maximum Message Bytes",
+      "type": "integer"
+    },
+    "policy_revision": {
+      "maximum": 9223372036854775807,
+      "minimum": 0,
+      "title": "Policy Revision",
+      "type": "integer"
+    },
+    "schema_version": {
+      "const": "gateway_hello_v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "server_time": {
+      "$comment": "model-only UTC normalization: timezone-aware values are normalized to UTC.",
+      "format": "date-time",
+      "title": "Server Time",
+      "type": "string"
+    },
+    "session_id": {
+      "format": "uuid",
+      "title": "Session Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema_version",
+    "session_id",
+    "heartbeat_interval_seconds",
+    "maximum_message_bytes",
+    "policy_revision",
+    "effective_capabilities",
+    "server_time"
+  ],
+  "title": "GatewayHelloV1",
+  "type": "object"
+}

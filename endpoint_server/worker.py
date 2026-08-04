@@ -71,3 +71,7 @@ async def run_worker(
     finally:
         if owns_provider:
             await provider.close()
+
+
+if __name__ == "__main__":
+    asyncio.run(run_worker(Settings.from_environment()))

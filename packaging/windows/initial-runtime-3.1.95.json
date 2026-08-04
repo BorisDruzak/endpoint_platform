@@ -1,0 +1,32 @@
+{
+  "schema_version": 4,
+  "version": "3.1.95",
+  "agent_version": "3.1.95",
+  "component_guid": "38EBBBFB-7FAF-4D0C-BD61-7D2B6E49C25D",
+  "artifact": {
+    "file_count": 2492,
+    "tree_sha256": "e4de4a4fd11288212b9414a86b1cf398dc2789ca2e4c628378e520b6be09df99"
+  },
+  "toolchain": {
+    "implementation": "CPython",
+    "platform": "win-amd64",
+    "pyinstaller_version": "6.19.0",
+    "python_version": "3.14.3",
+    "source_date_epoch": 1767225600,
+    "python_hash_seed": "0",
+    "pyinstaller_hooks_contrib_version": "2026.2"
+  },
+  "source_files": [
+    {"path": "pc_agent/context_profiles/baseline.py", "sha256": "bda3359e6c657f4c6e94723018686dd72c11a50a95d3cf68a86c6c38f73175d3"},
+    {"path": "pc_agent/context_profiles/diagnostic.py", "sha256": "cfe7f4b30baf18eb141939a07b3dae5fcb35f7a634f513389eb961046e84c0f7"},
+    {"path": "pc_agent/context_profiles/health.py", "sha256": "532964acdd1501d6609f2297f3ba90a3f31a195b8aa7c868194aa4ed9a2282cc"},
+    {"path": "pc_agent/context_profiles/network.py", "sha256": "ee413b5fc7d539fa7843f5d3eb698616800c6cd60ea979e23dbb127daf38dce5"},
+    {"path": "pc_agent/context_profiles/probe.py", "sha256": "4c6e247b725d5cea67b03b763176f07f9c0fa32643382fc8dce2ae38e7a7e6b0"},
+    {"path": "pc_agent/platform/windows/identity.py", "sha256": "3b285a1caecf4b63e041c3a2bfe12980b758d21e39e7c3d86ee7e625aa9113b8"},
+    {"path": "pc_agent/platform/windows/network.py", "sha256": "aa4c841a12565d88f33b70f07a1814586dc46617b9b738630a31a90a43b0744e"},
+    {"path": "pc_agent/platform/windows/service_control.py", "sha256": "4b2a0d41d8fd942ef8296f6352f5f545b3ade94ac145e27ad9f430a2bb02628a"},
+    {"path": "pc_agent/platform/windows/software.py", "sha256": "3fe619e04ef39e558c07600803ee1b8744f9e832ee7db3f21a531a68700a457a"},
+    {"path": "pc_agent/platform/windows/storage.py", "sha256": "0f7374b9992283a1092c91b5eea517c7c29882a9f74f4216e71c69b9a1ed0e79"},
+    {"path": "pc_agent/version.py", "sha256": "aa3562edbe9c588da134bc14417dd3a3d1c54c54a78fa64b903d9d8981c2166f"}
+  ]
+}

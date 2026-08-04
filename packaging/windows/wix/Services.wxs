@@ -1,0 +1,77 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util">
+  <Fragment>
+    <ComponentGroup Id="EndpointAgentServiceComponents">
+      <Component Id="cmpServiceEntrypoints" Directory="INSTALLFOLDER"
+                 Guid="A10A61A1-B511-4A07-9D37-C592515D217E" Bitness="always64">
+        <File Id="filServiceHost" Source="$(var.StagingDir)\ProgramFiles\endpoint-agent-service.exe"
+              Name="endpoint-agent-service.exe" KeyPath="yes" />
+        <ServiceInstall Id="svcEndpointAgent" Name="EndpointAgent"
+                        DisplayName="Endpoint Agent"
+                        Description="Headless Endpoint Platform device agent"
+                        Type="ownProcess" Start="auto" ErrorControl="normal"
+                        Account="NT AUTHORITY\LocalService" Vital="yes"
+                        Arguments="--agent-service">
+          <util:ServiceConfig ServiceName="EndpointAgent"
+                              FirstFailureActionType="restart"
+                              SecondFailureActionType="restart"
+                              ThirdFailureActionType="restart"
+                              RestartServiceDelayInSeconds="60"
+                              ResetPeriodInDays="1" />
+        </ServiceInstall>
+        <ServiceControl Id="ctlEndpointAgent" Name="EndpointAgent"
+                        Stop="both" Remove="uninstall" Wait="yes" />
+
+        <ServiceInstall Id="svcEndpointAgentUpdater" Name="EndpointAgentUpdater"
+                        DisplayName="Endpoint Agent Updater"
+                        Description="Demand-start offline Endpoint Agent update worker"
+                        Type="ownProcess" Start="demand" ErrorControl="normal"
+                        Account="LocalSystem" Vital="yes"
+                        Arguments="--updater-service">
+          <util:ServiceConfig ServiceName="EndpointAgentUpdater"
+                              FirstFailureActionType="restart"
+                              SecondFailureActionType="restart"
+                              ThirdFailureActionType="restart"
+                              RestartServiceDelayInSeconds="60"
+                              ResetPeriodInDays="1" />
+        </ServiceInstall>
+        <ServiceControl Id="ctlEndpointAgentUpdater" Name="EndpointAgentUpdater"
+                        Stop="both" Remove="uninstall" Wait="yes" />
+      </Component>
+    </ComponentGroup>
+
+    <CustomAction Id="ApplyProgramDataAcl" FileRef="filServiceHost"
+                  ExeCommand="--apply-programdata-acl"
+                  Execute="deferred" Impersonate="no" Return="check" HideTarget="yes" />
+    <CustomAction Id="RestrictUpdaterServiceStart" FileRef="filServiceHost"
+                  ExeCommand="--restrict-updater-start"
+                  Execute="deferred" Impersonate="no" Return="check" HideTarget="yes" />
+    <CustomAction Id="ConfigureServiceSids" FileRef="filServiceHost"
+                  ExeCommand="--configure-service-sids"
+                  Execute="deferred" Impersonate="no" Return="check" HideTarget="yes" />
+    <CustomAction Id="MigrateInitialSelector" FileRef="filServiceHost"
+                  ExeCommand="--migrate-initial-selector"
+                  Execute="deferred" Impersonate="no" Return="check" HideTarget="yes" />
+    <CustomAction Id="RollbackInitialSelector" FileRef="filServiceHost"
+                  ExeCommand="--rollback-initial-selector"
+                  Execute="rollback" Impersonate="no" Return="check" HideTarget="yes" />
+    <CustomAction Id="FinalizeInitialSelectorMigration" FileRef="filServiceHost"
+                  ExeCommand="--finalize-initial-selector"
+                  Execute="commit" Impersonate="no" Return="check" HideTarget="yes" />
+    <InstallExecuteSequence>
+      <Custom Action="ApplyProgramDataAcl" After="InstallServices"
+              Condition="NOT REMOVE~=&quot;ALL&quot;" />
+      <Custom Action="ConfigureServiceSids" After="ApplyProgramDataAcl"
+              Condition="NOT REMOVE~=&quot;ALL&quot;" />
+      <Custom Action="RestrictUpdaterServiceStart" After="ConfigureServiceSids"
+              Condition="NOT REMOVE~=&quot;ALL&quot;" />
+      <Custom Action="RollbackInitialSelector" Before="MigrateInitialSelector"
+              Condition="ENDPOINT_AGENT_INITIAL_RUNTIME_TRANSITION = 1 AND NOT REMOVE~=&quot;ALL&quot;" />
+      <Custom Action="MigrateInitialSelector" After="RestrictUpdaterServiceStart"
+              Condition="ENDPOINT_AGENT_INITIAL_RUNTIME_TRANSITION = 1 AND NOT REMOVE~=&quot;ALL&quot;" />
+      <Custom Action="FinalizeInitialSelectorMigration" After="MigrateInitialSelector"
+              Condition="ENDPOINT_AGENT_INITIAL_RUNTIME_TRANSITION = 1 AND NOT REMOVE~=&quot;ALL&quot;" />
+    </InstallExecuteSequence>
+  </Fragment>
+</Wix>

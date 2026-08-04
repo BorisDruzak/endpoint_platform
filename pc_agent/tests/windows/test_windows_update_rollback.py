@@ -1,0 +1,282 @@
+"""Lifecycle and rollback contracts for EndpointAgentUpdater."""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import zipfile
+from datetime import UTC, datetime
+from pathlib import Path
+
+import pytest
+
+
+def _setup(tmp_path: Path):
+    from pc_agent.platform.windows.update_paths import WindowsUpdatePaths
+
+    paths = WindowsUpdatePaths(tmp_path / "install", tmp_path / "data" / "updates" / "pending_update.json")
+    old = paths.versions_root / "3.1.0"
+    old.mkdir(parents=True)
+    (old / "pc_agent.exe").write_bytes(b"old")
+    paths.install_root.mkdir(parents=True, exist_ok=True)
+    paths.current_path.write_text(json.dumps({"version": "3.1.0"}), encoding="utf-8")
+    artifact = paths.downloads_root / "candidate.zip"
+    artifact.parent.mkdir(parents=True)
+    with zipfile.ZipFile(artifact, "w") as archive:
+        archive.writestr("pc_agent.exe", b"new")
+        archive.writestr("_internal/runtime.dat", b"runtime")
+    payload = {
+        "archive_type": "zip", "artifact_path": str(artifact), "channel": "canary",
+        "operation_id": "caa31a48-bf2f-4f1c-8b77-d1be77e12b4e", "requested_by": "gateway",
+        "requested_reason": "scheduled_rollout", "sha256": hashlib.sha256(artifact.read_bytes()).hexdigest(),
+        "size": artifact.stat().st_size, "target": "windows_amd64", "version": "3.2.0", "received_at": datetime.now(UTC).isoformat(),
+    }
+    paths.pending_path.write_text(json.dumps(payload), encoding="utf-8")
+    return paths
+
+
+class _Acl:
+    def assert_update_path(self, _path: Path) -> None: pass
+
+
+class _Service:
+    def __init__(self, *, crash: bool = False) -> None:
+        self.events: list[str] = []
+        self.crash = crash
+        self.running = True
+    def stop(self) -> None:
+        self.events.append("stop")
+        self.running = False
+
+    def start(self) -> None:
+        self.events.append("start")
+        self.running = True
+
+    def wait_stopped(self) -> bool:
+        self.events.append("wait_stopped")
+        return not self.running
+
+    def crashed_early(self) -> bool:
+        return self.crash
+
+
+class _Verifier:
+    def __init__(self, events: list[str]) -> None: self.events = events
+    def verify(self, executable: Path) -> bool:
+        assert executable.name == "pc_agent.exe"
+        self.events.append("verify")
+        return True
+
+
+class _FailingVerifier(_Verifier):
+    def verify(self, executable: Path) -> bool:
+        super().verify(executable)
+        return False
+
+
+class _Confirmation:
+    def __init__(self, events: list[str], *, confirmed: bool) -> None:
+        self.events, self.confirmed = events, confirmed
+    def is_confirmed(self, *, version: str, operation_id: str, attempt_id: str, not_before) -> bool:
+        assert version == "3.2.0" and operation_id and attempt_id
+        self.events.append("confirmation")
+        return self.confirmed
+
+
+class _ScmError(Exception):
+    """Import-safe mimic of pywintypes.error's structured fields."""
+
+    def __init__(self, code: int, message: str) -> None:
+        super().__init__(code, "ControlService", message)
+        self.winerror = code
+
+
+def test_service_not_active_classifier_requires_structured_winerror() -> None:
+    """Numeric Exception args alone must not authorize a selector rollback."""
+    from pc_agent.platform.windows.updater_service import _is_service_not_active
+
+    assert _is_service_not_active(_ScmError(1062, "service is not active"))
+    assert not _is_service_not_active(
+        Exception(1062, "ControlService", "Служба не была запущена")
+    )
+
+
+def test_updater_applies_then_waits_for_server_side_startup_confirmation(tmp_path: Path) -> None:
+    from pc_agent.platform.windows.updater_service import WindowsUpdater
+
+    paths, service = _setup(tmp_path), _Service()
+    updater = WindowsUpdater(paths, acl=_Acl(), service=service, verifier=_Verifier(service.events), confirmation=_Confirmation(service.events, confirmed=True))
+
+    assert updater.run_once().status == "applied"
+    assert service.events == ["stop", "wait_stopped", "verify", "start", "confirmation"]
+    assert json.loads(paths.current_path.read_text()) == {"version": "3.2.0"}
+    assert not paths.pending_path.exists()
+
+
+def test_updater_rolls_back_selector_when_startup_confirmation_deadline_expires(tmp_path: Path) -> None:
+    from pc_agent.platform.windows.updater_service import WindowsUpdater
+
+    paths, service = _setup(tmp_path), _Service()
+    updater = WindowsUpdater(paths, acl=_Acl(), service=service, verifier=_Verifier(service.events), confirmation=_Confirmation(service.events, confirmed=False), deadline_seconds=0)
+
+    assert updater.run_once().status == "rolled_back"
+    assert service.events == ["stop", "wait_stopped", "verify", "start", "stop", "wait_stopped", "start"]
+    assert json.loads(paths.current_path.read_text()) == {"version": "3.1.0"}
+
+
+def test_updater_rolls_back_before_confirmation_after_an_early_crash(tmp_path: Path) -> None:
+    from pc_agent.platform.windows.updater_service import WindowsUpdater
+
+    paths, service = _setup(tmp_path), _Service(crash=True)
+    updater = WindowsUpdater(paths, acl=_Acl(), service=service, verifier=_Verifier(service.events), confirmation=_Confirmation(service.events, confirmed=True))
+
+    assert updater.run_once().status == "rolled_back"
+    assert service.events == ["stop", "wait_stopped", "verify", "start", "stop", "wait_stopped", "start"]
+    assert json.loads(paths.current_path.read_text()) == {"version": "3.1.0"}
+
+
+def test_rollback_starts_previous_when_candidate_already_stopped(tmp_path: Path) -> None:
+    """Localized pywintypes error 1062 proves an already-crashed candidate is stopped."""
+    from pc_agent.platform.windows.updater_service import WindowsUpdater
+
+    paths, service = _setup(tmp_path), _Service(crash=True)
+    original_stop = service.stop
+    calls = 0
+
+    def stopped_candidate() -> None:
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            raise _ScmError(1062, "Служба не была запущена")
+        original_stop()
+
+    service.stop = stopped_candidate  # type: ignore[method-assign]
+    updater = WindowsUpdater(paths, acl=_Acl(), service=service, verifier=_Verifier(service.events), confirmation=_Confirmation(service.events, confirmed=True))
+
+    assert updater.run_once().status == "rolled_back"
+    assert json.loads(paths.current_path.read_text()) == {"version": "3.1.0"}
+    assert service.events[-1] == "start"
+
+
+def test_updater_restarts_the_previous_agent_when_new_verify_fails(tmp_path: Path) -> None:
+    """A failed candidate must not leave EndpointAgent stopped after the handoff."""
+    from pc_agent.platform.windows.updater_service import WindowsUpdater
+
+    paths, service = _setup(tmp_path), _Service()
+    updater = WindowsUpdater(paths, acl=_Acl(), service=service, verifier=_FailingVerifier(service.events), confirmation=_Confirmation(service.events, confirmed=True))
+
+    assert updater.run_once().status == "rejected"
+    assert service.events == ["stop", "wait_stopped", "verify", "start"]
+    assert json.loads(paths.current_path.read_text()) == {"version": "3.1.0"}
+    assert not list((paths.versions_root / "_staging").glob("*"))
+
+
+def test_attempt_marker_is_durable_before_candidate_start(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The candidate must not read a marker whose data or rename can still be lost."""
+    from pc_agent.platform.windows import updater_service
+
+    paths = _setup(tmp_path)
+    events: list[str] = []
+    original_fsync = updater_service.os.fsync
+    original_replace = updater_service.os.replace
+
+    def capture_fsync(descriptor: int) -> None:
+        events.append("file_flush")
+        original_fsync(descriptor)
+
+    def capture_replace(source, target) -> None:
+        events.append(f"replace:{Path(target).name}")
+        original_replace(source, target)
+
+    def capture_directory_flush(path: Path) -> None:
+        events.append(f"directory_flush:{Path(path).name}")
+
+    monkeypatch.setattr(updater_service.os, "fsync", capture_fsync)
+    monkeypatch.setattr(updater_service.os, "replace", capture_replace)
+    monkeypatch.setattr(
+        updater_service, "_flush_directory", capture_directory_flush, raising=False
+    )
+
+    class _MarkerService(_Service):
+        def start(self) -> None:
+            assert (paths.updates_root / "startup-attempt.json").is_file()
+            events.append("start")
+            super().start()
+
+    service = _MarkerService()
+    updater = updater_service.WindowsUpdater(paths, acl=_Acl(), service=service, verifier=_Verifier(service.events), confirmation=_Confirmation(service.events, confirmed=True))
+    assert updater.run_once().status == "applied"
+    assert events[-4:] == [
+        "file_flush",
+        "replace:startup-attempt.json",
+        "directory_flush:updates",
+        "start",
+    ]
+
+
+def test_rollback_refuses_selector_switch_when_candidate_stop_fails(tmp_path: Path) -> None:
+    """An unknown SCM stop failure leaves the candidate state uncertain and cannot be ignored."""
+    from pc_agent.platform.windows.updater_service import WindowsUpdater
+
+    paths, service = _setup(tmp_path), _Service()
+    original_stop = service.stop
+    calls = 0
+    def fail_second_stop() -> None:
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            raise _ScmError(5, "Отказано в доступе")
+        original_stop()
+    service.stop = fail_second_stop  # type: ignore[method-assign]
+    updater = WindowsUpdater(paths, acl=_Acl(), service=service, verifier=_Verifier(service.events), confirmation=_Confirmation(service.events, confirmed=False), deadline_seconds=0)
+    assert updater.run_once().status == "rejected"
+    assert json.loads(paths.current_path.read_text()) == {"version": "3.2.0"}
+
+
+def test_rollback_rejects_error_name_without_structured_service_not_active_code(
+    tmp_path: Path,
+) -> None:
+    """English error text alone must not authorize a selector rollback."""
+    from pc_agent.platform.windows.updater_service import WindowsUpdater
+
+    paths, service = _setup(tmp_path), _Service()
+    original_stop = service.stop
+    calls = 0
+
+    def fail_second_stop() -> None:
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            raise RuntimeError("ERROR_SERVICE_NOT_ACTIVE")
+        original_stop()
+
+    service.stop = fail_second_stop  # type: ignore[method-assign]
+    updater = WindowsUpdater(
+        paths,
+        acl=_Acl(),
+        service=service,
+        verifier=_Verifier(service.events),
+        confirmation=_Confirmation(service.events, confirmed=False),
+        deadline_seconds=0,
+    )
+
+    assert updater.run_once().status == "rejected"
+    assert json.loads(paths.current_path.read_text()) == {"version": "3.2.0"}
+
+
+def test_rollback_refuses_selector_switch_when_stop_wait_is_false(tmp_path: Path) -> None:
+    from pc_agent.platform.windows.updater_service import WindowsUpdater
+
+    paths, service = _setup(tmp_path), _Service()
+    waits = 0
+    original_wait = service.wait_stopped
+    def uncertain_wait() -> bool:
+        nonlocal waits
+        waits += 1
+        return original_wait() if waits == 1 else False
+    service.wait_stopped = uncertain_wait  # type: ignore[method-assign]
+    updater = WindowsUpdater(paths, acl=_Acl(), service=service, verifier=_Verifier(service.events), confirmation=_Confirmation(service.events, confirmed=False), deadline_seconds=0)
+    assert updater.run_once().status == "rejected"
+    assert json.loads(paths.current_path.read_text()) == {"version": "3.2.0"}

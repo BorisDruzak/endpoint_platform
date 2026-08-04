@@ -44,12 +44,13 @@ def test_context_command_serializes_exactly_one_validated_envelope(fake_probe) -
 
 def test_context_command_maps_collector_timeout_to_failed_result(fake_probe, monkeypatch) -> None:
     """An uncaught collection timeout must be terminally reported without a partial payload."""
+    from pc_agent.context_profiles import command_execution
     from pc_agent.core import orchestrator
 
     def timed_out(*_args, **_kwargs):
         raise TimeoutError("probe timed out")
 
-    monkeypatch.setattr(orchestrator, "execute_context_capability", timed_out)
+    monkeypatch.setattr(command_execution, "execute_context_capability", timed_out)
 
     result = execute_context_agent_command(
         _command("context.health.collect"), probe=fake_probe, completed_at=FIXED_TIME
@@ -62,12 +63,13 @@ def test_context_command_maps_collector_timeout_to_failed_result(fake_probe, mon
 
 def test_context_command_maps_cancellation_to_canceled_result(fake_probe, monkeypatch) -> None:
     """Cancellation must preserve the terminal status expected by durable command replay."""
+    from pc_agent.context_profiles import command_execution
     from pc_agent.core import orchestrator
 
     def canceled(*_args, **_kwargs):
         raise asyncio.CancelledError()
 
-    monkeypatch.setattr(orchestrator, "execute_context_capability", canceled)
+    monkeypatch.setattr(command_execution, "execute_context_capability", canceled)
 
     result = execute_context_agent_command(
         _command("context.network.collect"), probe=fake_probe, completed_at=FIXED_TIME

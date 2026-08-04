@@ -1,4 +1,4 @@
-"""Build a self-contained, attestable Linux Endpoint Agent release bundle."""
+"""Build a historic Helpdesk/GUI Linux Agent release bundle."""
 
 from __future__ import annotations
 
@@ -184,13 +184,25 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--build",
         action="store_true",
-        help="run the Linux PyInstaller specs before assembling dist/",
+        help="build a historic Helpdesk/GUI bundle before assembling dist/",
+    )
+    parser.add_argument(
+        "--legacy-helpdesk-gui",
+        action="store_true",
+        help="acknowledge that --build is not valid for new Endpoint core RPMs",
     )
     args = parser.parse_args(argv)
     project_root = _project_root()
     if args.build and args.source is not None:
         parser.error("--build cannot be combined with --source")
+    if args.legacy_helpdesk_gui and not args.build:
+        parser.error("--legacy-helpdesk-gui requires --build")
     if args.build:
+        if not args.legacy_helpdesk_gui:
+            parser.error(
+                "--build is historic Helpdesk/GUI-only; new RPM packages must use "
+                "pyinstaller_endpoint_core_linux.spec directly"
+            )
         _run_pyinstaller_build(project_root)
     source = args.source or project_root / "dist"
     revision = args.revision or _source_revision(project_root)

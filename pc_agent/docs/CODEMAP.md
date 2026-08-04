@@ -1,5 +1,100 @@
 # CODEMAP (pc_agent)
 
+## Neutral headless runtime (2026-08-01)
+
+- `pc_agent/runtime/main.py` is the canonical headless Endpoint Agent
+  entrypoint. `RuntimeSettings` carries the data/install roots, CA file,
+  Endpoint HTTPS origin, and explicit `gateway_http_pull` / `gateway_wss`
+  selection. `gateway_wss` uses `pc_agent/transport/websocket.py` with the
+  configured internal CA and device bearer. It derives only the fixed
+  `/agent/v1/connect` WSS route from the configured DNS HTTPS origin, rejects
+  redirects, IP substitution, other routes, malformed envelopes and terminal
+  authentication/policy failures, and uses bounded jittered reconnects for
+  transport unavailability. The default-false migration HTTP-pull fallback is
+  same-origin and activates only for that classified unavailability; it never
+  falls back to the legacy Helpdesk WebSocket. Gateway envelope sequences are
+  connection-local; durable terminal-result replay protection is keyed by
+  command identity and the normalized result digest, rather than by a frame
+  number from an earlier WSS session.
+- `pc_agent/pyinstaller_endpoint_core_linux.spec` freezes that entrypoint as
+  `dist/endpoint-agent/endpoint-agent`. `tools/build_linux_agent.py` turns the
+  reviewed onedir tree into a deterministic `linux_amd64` tar archive and a
+  hash/size/channel/revision sidecar manifest without inventing a publication
+  URL or producing an RPM. The tar itself has the strict ALT per-file manifest
+  for the exact `endpoint-agent/` tree; the stable launcher remains outside the
+  version payload.
+- `pc_agent/runtime/application.py` and `runtime/lifecycle.py` own neutral
+  startup, one-time credential loading, command-executor startup, classified
+  reconnect, controlled update exit `42`, terminal credential rejection, and
+  clean component shutdown. After a Gateway hello, the lifecycle keeps one
+  transport connected for sequential messages and runs negotiated heartbeats
+  independently of command execution. The production hello loader reads only
+  the protected `enrollment-identity.json` record written from the enrollment
+  response's server-assigned Device UUID; it never substitutes legacy
+  `identity.json.machine_id`, UUID zero, or a generated UUID. Injected tests
+  retain a compatibility hello seam. Cleanup errors cannot replace the
+  selected clean,
+  credential-rejected, or update-pending exit. The transitional HTTP-pull seam
+  delegates one network attempt at a time through
+  `pc_agent/transport/http_pull.py`; that adapter exclusively owns the fixed
+  Endpoint HTTPS command-pull, acknowledgement, and result routes, while
+  `pc_agent/endpoint_gateway.py` remains a compatibility wrapper for existing
+  callers and update-poll integration. A successful WSS hello retains update
+  polling and artifact transfer on this CA-verified HTTPS path. The lifecycle
+  owns normal polling delays and retry of network/HTTP 5xx failures. A
+  completed update poll advances its 300-second deadline before later
+  command/ACK/result work, so a command-path retry cannot repeat update work.
+  TLS verification and credential rejection remain terminal.
+- `pc_agent/transport/base.py` is the runtime transport boundary:
+  `RuntimeLifecycle` directly owns `connect`, `receive`, ACK, result, and
+  close calls on `GatewayTransport`. `ClassifiedGatewayTransport` translates
+  HTTP-library failures to neutral credential/retryable/terminal outcomes, so
+  the runtime package does not import or classify `aiohttp` exceptions.
+- `pc_agent/runtime/command_executor.py` accepts only typed
+  `AgentCommandV1` Device Context commands and rejects unknown capabilities
+  before the fixed collector execution path. The typed executor and fixed
+  capability registry live in neutral `pc_agent/context_profiles` modules;
+  the legacy orchestrator only re-exports the executor for compatibility.
+  `pc_agent/device_credential.py` is the shared credential-file validator.
+  `runtime/local_state.py` owns only the Endpoint Agent V2 SQLite schema and
+  does not import or migrate the Helpdesk Protocol V3 database.
+- `runtime/verification.py` is a network-free preflight for settings, V2 local
+  state migration, identity/credential structure, collector registry,
+  immutable update selector, and import boundaries. Runtime guards reject GUI,
+  Helpdesk auth/ticket code, `ws_agent`, and Protocol V3 database/orchestrator/
+  job/sender modules and their submodules.
+- `pc_agent/ws_agent.py` is now a compatibility entrypoint: accepted ALT
+  Gateway startup delegates to `pc_agent.runtime.main`; its inherited GUI,
+  Helpdesk/Ticket API, Remote Assist UI, and legacy Protocol V3 runtime remain
+  available only to existing development tests during the staged cutover. New
+  platform packages must use `pc_agent/runtime/main.py` and must not import
+  the legacy branch.
+
+## Windows headless service contract (2026-08-02)
+
+- `pc_agent/platform/windows/service.py` supplies the import-safe Windows
+  LocalService boundary. `pc_agent/runtime/main.py` accepts exactly
+  `--windows-service`, `--verify`, and `--print-safe-status`; only the first
+  mode imports pywin32 at execution time. The service coordinator maps SCM
+  stop/shutdown to cancellation while preserving the neutral runtime's Gateway
+  reconnect ownership and update exit `42`, with no desktop/UI imports.
+- `pc_agent/platform/windows/provision.py` is the
+  `endpoint-agent-provision.exe` contract. It takes one-time enrollment
+  material only from stdin or a protected file, validates the Endpoint HTTPS
+  origin and installed CA, atomically persists the bearer plus the existing
+  canonical server-issued `enrollment-identity.json`, proves both records,
+  starts the service, and only then consumes the staged claim. It never prints
+  enrollment secrets.
+- `pc_agent/platform/windows/acl.py` defines the explicit protected DACL for
+  `SYSTEM`, `Administrators`, `NT SERVICE\EndpointAgent`, and
+  `NT SERVICE\EndpointAgentUpdater`. Ordinary users receive no read access to
+  `device-credential`. `service_control.py` exposes an injectable SCM start
+  boundary. `packaging/windows/` owns the WiX 4 machine-wide x64 binding,
+  fixed service registration/recovery, ProgramData preservation, secret-free
+  payload manifest, and final-uninstall versus administrator-purge behavior.
+  `pc_agent/runtime/main.py --windows-restrict-updater-start` is the fixed
+  no-argument deferred MSI boundary for the updater service DACL.
+
 ## ALT first-boot enrollment bootstrap (2026-07-30)
 
 - `pc_agent/linux_enrollment_runtime.py` is the fixed Linux/systemd startup
@@ -16,15 +111,19 @@
   `endpoint-enrollment-claim`, derives and normalizes the hardware proof
   through `endpoint_contracts`, and uses `/agent/v1/enroll` only over HTTPS
   with an explicit CA file.
-- The successful device bearer is atomically written as a service-user owned
-  `0600` credential and rechecked before a non-secret root-removal request is
-  written.  The agent never removes the root-owned claim source.  Temporary
+- The successful device bearer and the canonical server-returned Device UUID
+  record are each atomically written as service-user owned `0600` files and
+  rechecked before a non-secret root-removal request is written. The strict
+  record reader is `pc_agent/enrollment_identity.py`; legacy machine identity
+  is never an enrollment fallback. The agent never removes the root-owned
+  claim source. Temporary
   Gateway failures retry at most three times; denial, replay, expiry, mismatch
   and malformed input fail closed.  No claim, device bearer or raw response is
   written to logs, status, config or the root handoff request.
 - The request is bound to the fixed credential pathname, fixed claim name,
   returned device UUID and a SHA-256 proof of the verified permanent
-  credential. `pc_agent/tests/test_enrollment_bootstrap.py` covers persistence
+  credential. The root finalizer also requires that UUID to match the retained
+  enrollment identity and removes only claim material. `pc_agent/tests/test_enrollment_bootstrap.py` covers persistence
   ordering, bounded retry, terminal denial, restart identity preservation and
   symlink rejection. The operation runbook is
   `docs/runbooks/ALT_AGENT_ENROLLMENT_BOOTSTRAP.md`.
@@ -40,16 +139,27 @@
   controller-hosted artifact URL, verifies the downloaded SHA-256 and size,
   writes a durable ALT pending record, then reports `requested`, `scheduled`,
   and one launcher-derived terminal state without using the legacy Helpdesk
-  update path.  `pc_agent/alt_update_installer.py` validates the immutable
-  `launcher`/`pc_agent` bundle and preserves the ALT selector schema during
-  apply or rollback.
+  update path. `pc_agent/alt_update_installer.py` validates exactly one
+  immutable release shape—retained `launcher`/`pc_agent` or new headless
+  `endpoint-agent`—and preserves the ALT selector schema. Privileged apply
+  verifies the selected release, records its root-owned `previous.json`
+  authority, and validates fixed rollback requests against both selectors and
+  the exact previous immutable tree before atomic publication. Update and
+  rollback selector commits are replay-safe; selectors/full release trees have
+  strict metadata validation, and rollback state uses pinned no-follow I/O.
+  Inconsistent replay authority and unsafe state-parent leaves are quarantined
+  so the systemd path does not repeatedly activate on an unconsumable object.
 - `pc_agent/launcher/launcher_main.py` never lets the `endpoint-agent`
   service publish an ALT release. In ALT mode it exits cleanly when a durable
-  pending record exists or the Gateway requests exit `42`. The fixed
+  pending record exists or the Gateway requests exit `42`; repeated candidate
+  crashes create only fixed `rollback-request.json`, never a selector write.
+  The fixed
   root-owned `endpoint-agent-update.path` starts
   `endpoint-agent-update.service`, whose companion helper invokes the stable
-  launcher with `--apply-alt-update`, then returns execution to the
-  unprivileged service. Packaging for those units and the helper is owned by
+  root launcher with the fixed apply or rollback mode, then returns execution to the
+  unprivileged service. The launcher detects the selected entrypoint shape and
+  passes explicit `gateway_wss`/fallback-off flags only to the new headless
+  binary. Packaging for those units and the helper is owned by
   `deploy/agent/alt/`; see `docs/runbooks/ALT_AGENT_INSTALL.md`.
 
 ## Device Context map (2026-07-29)
@@ -148,10 +258,10 @@ adapter-only work.
 |------|------------|
 | `pc_agent/ws_agent.py` | Основной runtime: WS-соединение, handshake, команды, UI bridge; auth/connection orchestration (через state machine), Scheduler RPC + runtime loop; now runs as always-on process with sticky `connection_state`, runtime diagnostics/status/log tail callbacks для `ui_bridge`, server-driven update recommendation cache (`is_release`, `release_channel`, `recommended_version`, `update_available`), local trigger recommended update через обычный server update flow, and one-shot startup auto-update after a successful handshake when the server recommends a different build and no `pending_update.json` exists; runtime status now also overlays `pending_update_*` and `update_request_*`, suppresses `update_available` while a request is already in flight, and keeps the GUI aligned with launcher-side pending state; GUI закрытие больше не считается автоматическим shutdown; при auth bootstrap умеет fallback lookup токена по `machine_id -> install_id -> legacy uuid`, after explicit auth rejection (`4003`, invalid-token, token-required) переводит и GUI, и headless режим в automatic reprovision, while transient WSS handshake failures such as proxy `502` stay in reconnect/backoff and must not crash the agent; long-running `run_tool` / `call_tool` dispatch теперь уходит в background tasks, чтобы агент мог принять `cancel_operation` без блокировки WS loop, `handshake_ack.server_capabilities` переключает capability-gated `outbox_items_batch` transport, `handshake_ack.payload.registration` сохраняет локальный статус регистрации пользователя без блокировки агента, successful authenticated sessions upload bounded `agent_observer_batch` telemetry from local action trace with a durable cursor, and the canonical `device_id` is passed into `AgentOrchestrator` so module/toolset lifecycle device events can be emitted in the real runtime |
 | `pc_agent/ws_agent_runtime_helpers.py` | Вынесенные runtime helper-блоки `WSAgent`: restart/update-shutdown, scheduler RPC/runtime loop, auth bootstrap, reprovision/request-connection flow, форматирование uptime |
-| `pc_agent/launcher/launcher_main.py` | Launcher / запускные сценарии; applies pending updates, records failed launches, prunes old version directories after successful publish, and rolls back `current.json` to `previous` after repeated immediate crash of a newly switched version |
+| `pc_agent/launcher/launcher_main.py` | Stable launcher / запускные сценарии; recognizes retained `pc_agent` and new `endpoint-agent/endpoint-agent` layouts, routes GUI versus WSS/fallback arguments by entrypoint, delegates privileged ALT publication, records failed launches, retains legacy writable-selector rollback, and emits only the fixed root-worker request for ALT crash rollback |
 | `pc_agent/launcher_portable_main.py` | Портативный launcher; auto-detect install/data roots рядом с exe, импорт токена из primary `%LOCALAPPDATA%\\PCClientAgent\\data` для локального Windows теста и rollback на `previous` при repeated immediate crash новой версии |
 | `pc_agent/ui_gui/main.py` | Запуск Qt GUI, lifecycle окна, minimize-to-tray, start-hidden, явный exit path и cleanup локальных SSE/API ресурсов; before showing the main window, validates the stored machine token through `/api/registry/agent/account-state` and deactivates stale local tokens that return HTTP auth failures so account login is not shown on top of a broken technical agent authorization; installs the optional-by-env `GuiPerformanceProbe` field diagnostic for focused-window CPU investigations; локальные lifecycle/debug сообщения должны оставаться читаемыми русскими строками без mojibake |
-| `pc_agent/build_windows_release_v2.py` | Каноническая Windows release-сборка: launcher.exe + versioned agent layout + update ZIP |
+| `pc_agent/build_windows_release_v2.py` | Canonical Windows headless release: stable non-GUI launcher + `endpoint_agent_core` renamed to the fixed versioned `pc_agent.exe` updater contract + update ZIP |
 
 ---
 

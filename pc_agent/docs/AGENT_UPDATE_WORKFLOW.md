@@ -11,6 +11,13 @@ payload, local path, or traceback. The legacy scheduler and launcher keep their
 existing local path-oriented action traces; the Endpoint-specific claim does
 not describe those pre-existing records.
 
+For the headless `gateway_wss` runtime, command delivery remains on WSS.  Once
+the WSS session is authenticated, the agent checks the existing
+TLS-authenticated HTTPS update-recommendation endpoint immediately and then at
+the fixed five-minute interval for as long as that WSS session remains alive.
+Those bounded update checks do not call the HTTP command receive endpoint; a
+WSS reconnect cancels the previous session's check loop and starts a new one.
+
 Select assignments with `server.update_channel: stable|canary` in the agent
 `settings.yaml`; invalid values fail configuration validation and `stable` is
 the default.
@@ -60,23 +67,43 @@ host.
 ### ALT Linux privilege boundary
 
 The ALT systemd agent runs as `endpoint-agent` and must not receive write
-access to `/opt/endpoint-agent`. A durable
-`updates/pending_alt_update.json` is therefore consumed by the fixed
+access to `/opt/endpoint-agent`. Durable `updates/pending_alt_update.json` and
+`updates/rollback-request.json` records are therefore consumed by the fixed
 root-owned `endpoint-agent-update.path` and
 `endpoint-agent-update.service`, not by the ordinary launcher loop. The
-one-shot worker stops the agent, strictly resolves the root-owned immutable
-launcher selected by `current.json`, invokes it with `--apply-alt-update`, then
-starts the service again. It must never use a stale fixed launcher from the
-initial installation. A handled artifact or publish failure is recorded
+one-shot worker validates the separately reviewed fixed root launcher, stops
+the agent, invokes that launcher with the matching fixed worker mode, then starts the
+service again. Headless version payloads do not replace the stable launcher.
+A successful update re-verifies the current release and records its exact
+selector identity in root-owned `/opt/endpoint-agent/previous.json` before
+publishing the candidate. After repeated immediate crashes, the unprivileged
+launcher writes only an identity-bound rollback request under `/var/lib`; it
+never writes either selector. The root worker accepts only the target in
+`previous.json`, re-verifies that release's exact manifest/tree, and atomically
+replaces `current.json`. Only its post-publication terminal marker is reported
+as `rolled_back`; invalid or tampered requests do not change the selector.
+Update and rollback selector commits are replay-safe: repeated pending work
+preserves the distinct previous selector, and a partially committed rollback
+finishes its terminal marker and fixed cleanup. Both selectors and the complete
+release tree retain strict root metadata. Rollback state I/O pins the fixed
+non-symlinked `updates` directory and never follows a replacement parent or
+request leaf. Invalid committed-update authority is consumed into a fixed
+failure record; an unsafe `updates` parent is quarantined and replaced by an
+empty service-owned directory so the path unit cannot repeatedly reactivate.
+The service passes explicit WSS and fallback-off arguments; the launcher sends
+them only to `endpoint-agent/endpoint-agent`, while retained
+`pc_agent/pc_agent` releases receive only their legacy `--no-gui` argument. A
+handled artifact or publish failure is recorded
 locally and must still return the prior selected unprivileged release to
-service; `scheduled` remains non-terminal. A rollback may select an existing
-release only after its manifest, exact regular-file set, hashes and POSIX modes
-match the newly verified bundle; no immutable release is overwritten. On
+service; `scheduled` and `startup_crash_rollback_requested` remain non-terminal.
+No immutable release is overwritten. On
 restart, the reporter walks durable history newest-first: a newer failure is
 reported ahead of a prior applied operation, while an old failure cannot mask a
 later applied canary. An older release is eligible only when the authenticated controller reason has
 the exact rollback form `rollback of <UUID>; <safe reason>`; ordinary older
-recommendations remain ignored.
+recommendations remain ignored. Update archives must carry the strict embedded
+ALT per-file manifest and contain exactly one approved payload shape: legacy
+`launcher` plus `pc_agent/`, or headless `endpoint-agent/` without a launcher.
 
 Канонический workflow для изменений, которые попадают в распространяемый агент: launcher, `ws_agent`, `ui_bridge`, GUI, self-update, release-артефакты и rollout через сервер.
 
@@ -208,7 +235,7 @@ recommendations remain ignored.
 
 ### 3.4 Сборка release-артефакта
 
-Windows quiet release:
+Windows headless release:
 
 ```powershell
 python pc_agent/build_windows_release_v2.py
@@ -217,9 +244,15 @@ python pc_agent/build_windows_release_v2.py
 Результат:
 
 - launcher: `pc_agent/dist/launcher.exe`
-- agent onedir: `pc_agent/dist/pc_agent/pc_agent.exe`
+- build onedir: `pc_agent/dist/endpoint_agent_core/endpoint_agent_core.exe`
 - release layout: `pc_agent/dist/release/windows_amd64/stable/<version>/install`
+- selected runtime entrypoint: `install/versions/<version>/pc_agent.exe`
 - update artifact: `pc_agent/dist/release/windows_amd64/stable/<version>/pc_agent-windows_amd64-<version>.zip`
+
+The canonical builder uses `pyinstaller_endpoint_core_windows.spec` and the
+stable non-GUI launcher spec. Machine-wide installation is a separate binding
+step documented in `packaging/windows/README.md`; it must not use the legacy
+Helpdesk/GUI agent specs or carry provisioning material.
 
 ### 3.5 Публикация на сервер
 

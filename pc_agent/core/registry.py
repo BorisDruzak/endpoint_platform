@@ -12,6 +12,7 @@ from typing import Dict, Any, List, Optional, Callable, TYPE_CHECKING
 from functools import wraps
 
 from pc_agent.context_profiles.registry import (
+    CONTEXT_COLLECTION_CAPABILITIES,
     ContextCapabilityError,
     execute_context_capability as _execute_context_capability,
 )
@@ -32,18 +33,6 @@ else:
     except ImportError:
         # Fallback для случаев, когда pydantic не установлен
         BaseModel = None
-
-
-# This is deliberately separate from the dynamic module/tool registry below.
-# Device Context commands can only name one of these profile collectors.
-CONTEXT_COLLECTION_CAPABILITIES = frozenset(
-    {
-        "context.baseline.collect",
-        "context.health.collect",
-        "context.network.collect",
-        "context.diagnostic.collect",
-    }
-)
 
 
 def execute_context_capability(

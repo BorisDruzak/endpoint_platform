@@ -62,6 +62,7 @@ def _config(tmp_path: Path) -> BootstrapConfig:
         ca_file=ca_file,
         installation_id="alt-install-001",
         credential_path=enrollment_bootstrap.PERMANENT_CREDENTIAL_PATH,
+        identity_path=enrollment_bootstrap.ENROLLMENT_IDENTITY_PATH,
         handoff_request_path=enrollment_bootstrap.HANDOFF_REQUEST_PATH,
         # The production path is Linux-only.  The unit test runs on Windows,
         # where stat reports the synthetic zero owner/group.
@@ -102,6 +103,25 @@ def _isolated_fixed_production_locations(
         "HANDOFF_REQUEST_PATH",
         state / "claim-removal-request.json",
     )
+    monkeypatch.setattr(
+        enrollment_bootstrap,
+        "ENROLLMENT_IDENTITY_PATH",
+        state / "enrollment-identity.json",
+        raising=False,
+    )
+
+
+def _write_identity(
+    path: Path,
+    device_id: str = "9c83f6de-3435-4fc3-a7e0-7bcddc744f3b",
+) -> bytes:
+    payload = (
+        f'{{"device_id":"{device_id}",'
+        '"schema_version":"endpoint_enrollment_identity_v1"}'
+    ).encode("ascii")
+    path.write_bytes(payload)
+    path.chmod(0o600)
+    return payload
 
 
 def test_bootstrap_configuration_rejects_arbitrary_credential_and_handoff_paths(
@@ -125,7 +145,7 @@ def test_bootstrap_configuration_rejects_arbitrary_credential_and_handoff_paths(
 
 
 @pytest.mark.asyncio
-async def test_success_persists_verified_service_credential_before_nonsecret_root_handoff(
+async def test_success_persists_credential_and_identity_before_root_handoff(
     tmp_path: Path,
 ) -> None:
     """Catches deleting a one-time claim before the durable credential exists."""
@@ -148,6 +168,18 @@ async def test_success_persists_verified_service_credential_before_nonsecret_roo
     if os.name != "nt":
         assert stat.S_IMODE(metadata.st_mode) == 0o600
         assert (metadata.st_uid, metadata.st_gid) == (
+            config.service_uid,
+            config.service_gid,
+        )
+    identity = config.identity_path
+    assert json.loads(identity.read_text(encoding="utf-8")) == {
+        "schema_version": "endpoint_enrollment_identity_v1",
+        "device_id": "9c83f6de-3435-4fc3-a7e0-7bcddc744f3b",
+    }
+    identity_metadata = identity.stat()
+    if os.name != "nt":
+        assert stat.S_IMODE(identity_metadata.st_mode) == 0o600
+        assert (identity_metadata.st_uid, identity_metadata.st_gid) == (
             config.service_uid,
             config.service_gid,
         )
@@ -238,6 +270,12 @@ async def test_existing_verified_credential_preserves_identity_without_rereading
     config.credential_path.parent.mkdir(exist_ok=True)
     config.credential_path.write_text(_TOKEN, encoding="utf-8")
     config.credential_path.chmod(0o600)
+    config.identity_path.write_text(
+        '{"device_id":"9c83f6de-3435-4fc3-a7e0-7bcddc744f3b",'
+        '"schema_version":"endpoint_enrollment_identity_v1"}',
+        encoding="utf-8",
+    )
+    config.identity_path.chmod(0o600)
     transport = _Transport([])
 
     result = await bootstrap_enrollment(
@@ -249,6 +287,217 @@ async def test_existing_verified_credential_preserves_identity_without_rereading
 
     assert result.status == "already_enrolled"
     assert transport.requests == []
+
+
+@pytest.mark.asyncio
+async def test_existing_credential_without_enrollment_identity_fails_closed(
+    tmp_path: Path,
+) -> None:
+    """Catches treating identity.json or a made-up UUID as enrollment identity."""
+    config = _config(tmp_path)
+    config.credential_path.parent.mkdir(exist_ok=True)
+    config.credential_path.write_text(_TOKEN, encoding="utf-8")
+    config.credential_path.chmod(0o600)
+    (config.credential_path.parent / "identity.json").write_text(
+        json.dumps(
+            {
+                "machine_id": "00000000-0000-4000-8000-000000000099",
+                "uuid": "00000000-0000-4000-8000-000000000099",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    result = await bootstrap_enrollment(
+        tmp_path / "no-credentials-directory",
+        config,
+        probe=lambda: _FINGERPRINT,
+        transport=_Transport([]),
+    )
+
+    assert result.status == "credential_invalid"
+    assert not config.identity_path.exists()
+
+
+@pytest.mark.asyncio
+async def test_existing_identity_without_credential_is_preserved_and_fails_closed(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Catches enrolling over authoritative identity when its bearer is missing."""
+    config = _config(tmp_path)
+    config.identity_path.parent.mkdir(exist_ok=True)
+    expected_identity = _write_identity(config.identity_path)
+    transport = _Transport([])
+    caplog.set_level(logging.DEBUG)
+
+    result = await bootstrap_enrollment(
+        tmp_path / "no-credentials-directory",
+        config,
+        probe=lambda: _FINGERPRINT,
+        transport=transport,
+    )
+
+    assert result.status == "credential_invalid"
+    assert config.identity_path.read_bytes() == expected_identity
+    assert not config.credential_path.exists()
+    assert not config.handoff_request_path.exists()
+    assert transport.requests == []
+    rendered_logs = "\n".join(record.getMessage() for record in caplog.records)
+    assert "9c83f6de-3435-4fc3-a7e0-7bcddc744f3b" not in rendered_logs
+    assert _TOKEN not in rendered_logs
+
+
+@pytest.mark.asyncio
+async def test_malformed_existing_identity_is_preserved_and_fails_closed(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Catches overwriting malformed enrollment state through a new claim exchange."""
+    config = _config(tmp_path)
+    config.identity_path.parent.mkdir(exist_ok=True)
+    malformed = b'{"device_id":"not-a-uuid"}'
+    config.identity_path.write_bytes(malformed)
+    config.identity_path.chmod(0o600)
+    transport = _Transport([])
+    caplog.set_level(logging.DEBUG)
+
+    result = await bootstrap_enrollment(
+        tmp_path / "no-credentials-directory",
+        config,
+        probe=lambda: _FINGERPRINT,
+        transport=transport,
+    )
+
+    assert result.status == "credential_invalid"
+    assert config.identity_path.read_bytes() == malformed
+    assert not config.credential_path.exists()
+    assert not config.handoff_request_path.exists()
+    assert transport.requests == []
+    rendered_logs = "\n".join(record.getMessage() for record in caplog.records)
+    assert _TOKEN not in rendered_logs
+
+
+@pytest.mark.asyncio
+async def test_wrongly_protected_existing_identity_is_preserved_and_fails_closed(
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Catches accepting an identity whose owner or mode check failed."""
+    config = _config(tmp_path)
+    config.identity_path.parent.mkdir(exist_ok=True)
+    expected_identity = _write_identity(config.identity_path)
+    real_verify_owned_mode = enrollment_bootstrap._verify_owned_mode
+
+    def reject_identity_protection(path: Path, *, uid: int, gid: int) -> bool:
+        if path == config.identity_path:
+            return False
+        return real_verify_owned_mode(path, uid=uid, gid=gid)
+
+    monkeypatch.setattr(
+        enrollment_bootstrap, "_verify_owned_mode", reject_identity_protection
+    )
+    transport = _Transport([])
+    caplog.set_level(logging.DEBUG)
+
+    result = await bootstrap_enrollment(
+        tmp_path / "no-credentials-directory",
+        config,
+        probe=lambda: _FINGERPRINT,
+        transport=transport,
+    )
+
+    assert result.status == "credential_invalid"
+    assert config.identity_path.read_bytes() == expected_identity
+    assert not config.credential_path.exists()
+    assert not config.handoff_request_path.exists()
+    assert transport.requests == []
+    rendered_logs = "\n".join(record.getMessage() for record in caplog.records)
+    assert "9c83f6de-3435-4fc3-a7e0-7bcddc744f3b" not in rendered_logs
+    assert _TOKEN not in rendered_logs
+
+
+@pytest.mark.asyncio
+async def test_invalid_server_device_id_is_rejected_before_persistence(
+    tmp_path: Path,
+) -> None:
+    """Catches persisting an unparsed server identity beside a valid bearer."""
+    config = _config(tmp_path)
+    delivery = EnrollmentDelivery(  # type: ignore[arg-type]
+        device_id="not-a-uuid",
+        device_token=_TOKEN,
+    )
+
+    result = await bootstrap_enrollment(
+        _credential_dir(tmp_path),
+        config,
+        probe=lambda: _FINGERPRINT,
+        transport=_Transport([delivery]),
+    )
+
+    assert result.status == "denied"
+    assert not config.credential_path.exists()
+    assert not config.identity_path.exists()
+    assert not config.handoff_request_path.exists()
+
+
+@pytest.mark.asyncio
+async def test_identity_atomic_replace_failure_removes_new_credential(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Catches accepting a bearer when its identity was not atomically published."""
+    config = _config(tmp_path)
+    real_replace = enrollment_bootstrap.os.replace
+
+    def fail_identity_publish(source: object, destination: object) -> None:
+        if Path(destination) == config.identity_path:
+            raise OSError("synthetic identity publish failure")
+        real_replace(source, destination)
+
+    monkeypatch.setattr(enrollment_bootstrap.os, "replace", fail_identity_publish)
+
+    result = await bootstrap_enrollment(
+        _credential_dir(tmp_path),
+        config,
+        probe=lambda: _FINGERPRINT,
+        transport=_Transport([_delivery()]),
+    )
+
+    assert result.status == "persistence_failed"
+    assert not config.credential_path.exists()
+    assert not config.identity_path.exists()
+    assert not config.handoff_request_path.exists()
+
+
+@pytest.mark.asyncio
+async def test_identity_postwrite_verification_failure_removes_only_new_pair(
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Catches handing off a bearer whose stored identity did not verify."""
+    config = _config(tmp_path)
+    monkeypatch.setattr(
+        enrollment_bootstrap,
+        "_verified_enrollment_identity_matches",
+        lambda *_, **__: False,
+    )
+    caplog.set_level(logging.DEBUG)
+
+    result = await bootstrap_enrollment(
+        _credential_dir(tmp_path),
+        config,
+        probe=lambda: _FINGERPRINT,
+        transport=_Transport([_delivery()]),
+    )
+
+    assert result.status == "persistence_failed"
+    assert not config.credential_path.exists()
+    assert not config.identity_path.exists()
+    assert not config.handoff_request_path.exists()
+    rendered_logs = "\n".join(record.getMessage() for record in caplog.records)
+    assert _CLAIM not in rendered_logs
+    assert _TOKEN not in rendered_logs
+    assert "9c83f6de-3435-4fc3-a7e0-7bcddc744f3b" not in rendered_logs
 
 
 @pytest.mark.asyncio

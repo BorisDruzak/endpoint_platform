@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Fragment>
+    <StandardDirectory Id="ProgramFiles6432Folder">
+      <Directory Id="VENDORFOLDER" Name="Endpoint Platform">
+        <Directory Id="INSTALLFOLDER" Name="Agent">
+          <Directory Id="CONFIGFOLDER" Name="config" />
+          <Directory Id="DOCSFOLDER" Name="docs" />
+          <Directory Id="VERSIONSFOLDER" Name="versions">
+            <Directory Id="INITIALRUNTIMEDIR" Name="$(var.InitialRuntimeVersion)" />
+          </Directory>
+        </Directory>
+      </Directory>
+    </StandardDirectory>
+    <StandardDirectory Id="CommonAppDataFolder">
+      <Directory Id="PROGRAMDATAVENDOR" Name="Endpoint Platform">
+        <Directory Id="DATAROOT" Name="Agent" />
+      </Directory>
+    </StandardDirectory>
+  </Fragment>
+</Wix>

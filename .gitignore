@@ -3,5 +3,6 @@
 __pycache__/
 *.py[cod]
 artifacts/baseline/local.json
+.gateway-wss-worker.lock
 sdk/python/build/
 sdk/python/*.egg-info/

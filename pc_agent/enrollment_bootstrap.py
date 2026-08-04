@@ -27,6 +27,13 @@ from endpoint_contracts import AgentEnrollmentDeliveryV1, AgentEnrollmentRequest
 from endpoint_contracts.identity import normalize_hardware_fingerprint
 from pydantic import ValidationError
 
+from pc_agent.enrollment_identity import (
+    EnrollmentIdentityError,
+    canonical_enrollment_device_id,
+    read_enrollment_device_id,
+    serialize_enrollment_identity,
+)
+
 
 SYSTEMD_CLAIM_CREDENTIAL_NAME = "endpoint-enrollment-claim"
 # Task 15 used this LoadCredential name.  It remains an explicit, temporary
@@ -36,6 +43,7 @@ _TOKEN_LENGTH = 43
 _FINGERPRINT_CONTEXT = b"endpoint-agent-bootstrap-fingerprint-v1\0"
 _HANDOFF_SCHEMA_VERSION = "endpoint_claim_removal_request_v1"
 PERMANENT_CREDENTIAL_PATH = Path("/var/lib/endpoint-agent/device-credential")
+ENROLLMENT_IDENTITY_PATH = Path("/var/lib/endpoint-agent/enrollment-identity.json")
 HANDOFF_REQUEST_PATH = Path("/var/lib/endpoint-agent/claim-removal-request.json")
 
 
@@ -86,6 +94,7 @@ class BootstrapConfig:
     # are deliberately validated against the fixed production locations below:
     # an unprivileged process must never select a root-finalizer path.
     credential_path: Path = PERMANENT_CREDENTIAL_PATH
+    identity_path: Path = ENROLLMENT_IDENTITY_PATH
     handoff_request_path: Path = HANDOFF_REQUEST_PATH
     service_uid: int | None = None
     service_gid: int | None = None
@@ -125,6 +134,7 @@ class BootstrapConfig:
             raise ValueError("Enrollment retry budget must be between 1 and 3")
         if (
             self.credential_path != PERMANENT_CREDENTIAL_PATH
+            or self.identity_path != ENROLLMENT_IDENTITY_PATH
             or self.handoff_request_path != HANDOFF_REQUEST_PATH
         ):
             raise ValueError(
@@ -266,9 +276,12 @@ async def bootstrap_enrollment(
         return EnrollmentOutcome("credential_invalid")
 
     existing = _existing_credential_state(config.credential_path, uid=uid, gid=gid)
-    if existing == "valid":
+    existing_identity = _existing_enrollment_identity_state(
+        config.identity_path, uid=uid, gid=gid
+    )
+    if existing == "valid" and existing_identity == "valid":
         return EnrollmentOutcome("already_enrolled")
-    if existing == "invalid":
+    if existing != "missing" or existing_identity != "missing":
         return EnrollmentOutcome("credential_invalid")
 
     try:
@@ -307,6 +320,11 @@ async def bootstrap_enrollment(
 
     if delivery is None:
         return EnrollmentOutcome("temporary_failure")
+    try:
+        device_id = canonical_enrollment_device_id(delivery.device_id)
+        identity_payload = serialize_enrollment_identity(device_id)
+    except EnrollmentIdentityError:
+        return EnrollmentOutcome("denied")
     if not _is_opaque_device_token(delivery.device_token):
         return EnrollmentOutcome("denied")
     try:
@@ -316,17 +334,49 @@ async def bootstrap_enrollment(
             uid=uid,
             gid=gid,
         )
+        _atomic_secret_write(
+            config.identity_path,
+            identity_payload,
+            uid=uid,
+            gid=gid,
+        )
     except OSError:
+        _discard_unverified_new_credential(
+            config.credential_path,
+            delivery.device_token,
+            uid=uid,
+            gid=gid,
+        )
+        _discard_unverified_new_identity(
+            config.identity_path,
+            identity_payload,
+            uid=uid,
+            gid=gid,
+        )
         return EnrollmentOutcome("persistence_failed")
-    if not _verified_credential_matches(
-        config.credential_path,
-        delivery.device_token,
-        uid=uid,
-        gid=gid,
+    if (
+        not _verified_credential_matches(
+            config.credential_path,
+            delivery.device_token,
+            uid=uid,
+            gid=gid,
+        )
+        or not _verified_enrollment_identity_matches(
+            config.identity_path,
+            device_id,
+            uid=uid,
+            gid=gid,
+        )
     ):
         _discard_unverified_new_credential(
             config.credential_path,
             delivery.device_token,
+            uid=uid,
+            gid=gid,
+        )
+        _discard_unverified_new_identity(
+            config.identity_path,
+            identity_payload,
             uid=uid,
             gid=gid,
         )
@@ -336,13 +386,13 @@ async def bootstrap_enrollment(
     if not selected_handoff.request_removal(
         claim_credential_name=config.claim_credential_name,
         credential_path=config.credential_path,
-        device_id=delivery.device_id,
+        device_id=device_id,
         credential_sha256=hashlib.sha256(
             delivery.device_token.encode("ascii")
         ).hexdigest(),
     ):
-        return EnrollmentOutcome("handoff_pending", str(delivery.device_id))
-    return EnrollmentOutcome("enrolled", str(delivery.device_id))
+        return EnrollmentOutcome("handoff_pending", str(device_id))
+    return EnrollmentOutcome("enrolled", str(device_id))
 
 
 def _service_identity(config: BootstrapConfig) -> tuple[int, int]:
@@ -434,6 +484,30 @@ def _existing_credential_state(
     return "valid" if _is_opaque_device_token(token) else "invalid"
 
 
+def _existing_enrollment_identity_state(
+    path: Path, *, uid: int, gid: int
+) -> Literal["missing", "valid", "invalid"]:
+    try:
+        _require_safe_parent_path(path)
+    except OSError:
+        return "invalid"
+    try:
+        metadata = path.lstat()
+    except FileNotFoundError:
+        return "missing"
+    except OSError:
+        return "invalid"
+    if not stat.S_ISREG(metadata.st_mode) or not _verify_owned_mode(
+        path, uid=uid, gid=gid
+    ):
+        return "invalid"
+    try:
+        read_enrollment_device_id(path)
+    except EnrollmentIdentityError:
+        return "invalid"
+    return "valid"
+
+
 def _verified_credential_matches(
     path: Path, expected: str, *, uid: int, gid: int
 ) -> bool:
@@ -445,6 +519,17 @@ def _verified_credential_matches(
             == expected
         )
     except (OSError, UnicodeDecodeError):
+        return False
+
+
+def _verified_enrollment_identity_matches(
+    path: Path, expected: UUID, *, uid: int, gid: int
+) -> bool:
+    if _existing_enrollment_identity_state(path, uid=uid, gid=gid) != "valid":
+        return False
+    try:
+        return read_enrollment_device_id(path) == expected
+    except EnrollmentIdentityError:
         return False
 
 
@@ -466,6 +551,24 @@ def _discard_unverified_new_credential(
         path.unlink()
         _fsync_directory(path.parent)
     except (OSError, UnicodeDecodeError):
+        return
+
+
+def _discard_unverified_new_identity(
+    path: Path, expected: bytes, *, uid: int, gid: int
+) -> None:
+    """Remove only the exact identity payload from this enrollment attempt."""
+    try:
+        metadata = path.lstat()
+        if not stat.S_ISREG(metadata.st_mode):
+            return
+        if os.name != "nt" and (metadata.st_uid != uid or metadata.st_gid != gid):
+            return
+        if _read_regular_bytes(path, maximum_bytes=len(expected)) != expected:
+            return
+        path.unlink()
+        _fsync_directory(path.parent)
+    except OSError:
         return
 
 

@@ -1,0 +1,1438 @@
+{
+  "$defs": {
+    "AgentCommandAckV1": {
+      "additionalProperties": false,
+      "properties": {
+        "acknowledged_at": {
+          "$comment": "model-only UTC normalization: timezone-aware values are normalized to UTC.",
+          "format": "date-time",
+          "title": "Acknowledged At",
+          "type": "string"
+        },
+        "command_id": {
+          "format": "uuid",
+          "title": "Command Id",
+          "type": "string"
+        },
+        "device_id": {
+          "format": "uuid",
+          "title": "Device Id",
+          "type": "string"
+        },
+        "message": {
+          "anyOf": [
+            {
+              "maxLength": 4096,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Message"
+        },
+        "schema_version": {
+          "const": "agent_command_ack_v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "queued",
+            "delivered",
+            "acknowledged",
+            "running",
+            "succeeded",
+            "failed",
+            "canceled",
+            "expired"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema_version",
+        "command_id",
+        "device_id",
+        "status",
+        "acknowledged_at"
+      ],
+      "title": "AgentCommandAckV1",
+      "type": "object"
+    },
+    "AgentHeartbeatV1": {
+      "additionalProperties": false,
+      "properties": {
+        "agent_version": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Agent Version",
+          "type": "string"
+        },
+        "device_id": {
+          "format": "uuid",
+          "title": "Device Id",
+          "type": "string"
+        },
+        "platform": {
+          "enum": [
+            "linux",
+            "windows"
+          ],
+          "title": "Platform",
+          "type": "string"
+        },
+        "reported_at": {
+          "$comment": "model-only UTC normalization: timezone-aware values are normalized to UTC.",
+          "format": "date-time",
+          "title": "Reported At",
+          "type": "string"
+        },
+        "schema_version": {
+          "const": "agent_heartbeat_v1",
+          "title": "Schema Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema_version",
+        "device_id",
+        "platform",
+        "agent_version",
+        "reported_at"
+      ],
+      "title": "AgentHeartbeatV1",
+      "type": "object"
+    },
+    "AgentHelloEnvelopeV1": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "agent_hello",
+          "title": "Kind",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/AgentHelloV1"
+        },
+        "schema_version": {
+          "const": "gateway_ws_envelope_v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "sequence": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Sequence",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "schema_version",
+        "sequence",
+        "kind",
+        "payload"
+      ],
+      "title": "AgentHelloEnvelopeV1",
+      "type": "object"
+    },
+    "AgentHelloV1": {
+      "additionalProperties": false,
+      "properties": {
+        "agent_instance_id": {
+          "format": "uuid",
+          "title": "Agent Instance Id",
+          "type": "string"
+        },
+        "agent_version": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._+-]*$",
+          "title": "Agent Version",
+          "type": "string"
+        },
+        "boot_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$",
+          "title": "Boot Id",
+          "type": "string"
+        },
+        "capabilities": {
+          "items": {
+            "maxLength": 128,
+            "minLength": 3,
+            "pattern": "^[a-z][a-z0-9]*(?:[._:-][a-z0-9]+)*$",
+            "type": "string"
+          },
+          "maxItems": 64,
+          "title": "Capabilities",
+          "type": "array",
+          "uniqueItems": true
+        },
+        "device_id": {
+          "format": "uuid",
+          "title": "Device Id",
+          "type": "string"
+        },
+        "last_policy_revision": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Last Policy Revision",
+          "type": "integer"
+        },
+        "last_result_sequence": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Last Result Sequence",
+          "type": "integer"
+        },
+        "launcher_version": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._+-]*$",
+          "title": "Launcher Version",
+          "type": "string"
+        },
+        "platform": {
+          "enum": [
+            "linux_amd64",
+            "windows_amd64"
+          ],
+          "title": "Platform",
+          "type": "string"
+        },
+        "schema_version": {
+          "const": "agent_hello_v1",
+          "title": "Schema Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema_version",
+        "device_id",
+        "agent_instance_id",
+        "agent_version",
+        "launcher_version",
+        "platform",
+        "boot_id",
+        "capabilities",
+        "last_result_sequence",
+        "last_policy_revision"
+      ],
+      "title": "AgentHelloV1",
+      "type": "object"
+    },
+    "AgentResultV1": {
+      "additionalProperties": false,
+      "properties": {
+        "command_id": {
+          "format": "uuid",
+          "title": "Command Id",
+          "type": "string"
+        },
+        "completed_at": {
+          "$comment": "model-only UTC normalization: timezone-aware values are normalized to UTC.",
+          "format": "date-time",
+          "title": "Completed At",
+          "type": "string"
+        },
+        "device_id": {
+          "format": "uuid",
+          "title": "Device Id",
+          "type": "string"
+        },
+        "message": {
+          "anyOf": [
+            {
+              "maxLength": 4096,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Message"
+        },
+        "result_items": {
+          "$comment": "Aggregate node count and serialized byte size are enforced by the Pydantic model only; JSON Schema enforces per-node bounds.",
+          "items": {
+            "$ref": "#/$defs/BoundedJsonValueDepth1"
+          },
+          "maxItems": 32,
+          "title": "Result Items",
+          "type": "array"
+        },
+        "schema_version": {
+          "const": "agent_result_v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "queued",
+            "delivered",
+            "acknowledged",
+            "running",
+            "succeeded",
+            "failed",
+            "canceled",
+            "expired"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema_version",
+        "command_id",
+        "device_id",
+        "status",
+        "completed_at"
+      ],
+      "title": "AgentResultV1",
+      "type": "object"
+    },
+    "BoundedJsonValueDepth1": {
+      "anyOf": [
+        {
+          "maxLength": 4096,
+          "type": "string"
+        },
+        {
+          "type": "integer"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "items": {
+            "$ref": "#/$defs/BoundedJsonValueDepth2"
+          },
+          "maxItems": 32,
+          "type": "array"
+        },
+        {
+          "additionalProperties": {
+            "$ref": "#/$defs/BoundedJsonValueDepth2"
+          },
+          "maxProperties": 32,
+          "propertyNames": {
+            "maxLength": 4096
+          },
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "BoundedJsonValueDepth2": {
+      "anyOf": [
+        {
+          "maxLength": 4096,
+          "type": "string"
+        },
+        {
+          "type": "integer"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "items": {
+            "$ref": "#/$defs/BoundedJsonValueDepth3"
+          },
+          "maxItems": 32,
+          "type": "array"
+        },
+        {
+          "additionalProperties": {
+            "$ref": "#/$defs/BoundedJsonValueDepth3"
+          },
+          "maxProperties": 32,
+          "propertyNames": {
+            "maxLength": 4096
+          },
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "BoundedJsonValueDepth3": {
+      "anyOf": [
+        {
+          "maxLength": 4096,
+          "type": "string"
+        },
+        {
+          "type": "integer"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "items": {
+            "$ref": "#/$defs/BoundedJsonValueDepth4"
+          },
+          "maxItems": 32,
+          "type": "array"
+        },
+        {
+          "additionalProperties": {
+            "$ref": "#/$defs/BoundedJsonValueDepth4"
+          },
+          "maxProperties": 32,
+          "propertyNames": {
+            "maxLength": 4096
+          },
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "BoundedJsonValueDepth4": {
+      "anyOf": [
+        {
+          "maxLength": 4096,
+          "type": "string"
+        },
+        {
+          "type": "integer"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "items": {
+            "$ref": "#/$defs/BoundedJsonValueDepth5"
+          },
+          "maxItems": 32,
+          "type": "array"
+        },
+        {
+          "additionalProperties": {
+            "$ref": "#/$defs/BoundedJsonValueDepth5"
+          },
+          "maxProperties": 32,
+          "propertyNames": {
+            "maxLength": 4096
+          },
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "BoundedJsonValueDepth5": {
+      "anyOf": [
+        {
+          "maxLength": 4096,
+          "type": "string"
+        },
+        {
+          "type": "integer"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "items": {
+            "$ref": "#/$defs/BoundedJsonValueDepth6"
+          },
+          "maxItems": 32,
+          "type": "array"
+        },
+        {
+          "additionalProperties": {
+            "$ref": "#/$defs/BoundedJsonValueDepth6"
+          },
+          "maxProperties": 32,
+          "propertyNames": {
+            "maxLength": 4096
+          },
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "BoundedJsonValueDepth6": {
+      "anyOf": [
+        {
+          "maxLength": 4096,
+          "type": "string"
+        },
+        {
+          "type": "integer"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "items": {
+            "$ref": "#/$defs/BoundedJsonValueDepth7"
+          },
+          "maxItems": 32,
+          "type": "array"
+        },
+        {
+          "additionalProperties": {
+            "$ref": "#/$defs/BoundedJsonValueDepth7"
+          },
+          "maxProperties": 32,
+          "propertyNames": {
+            "maxLength": 4096
+          },
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "BoundedJsonValueDepth7": {
+      "anyOf": [
+        {
+          "maxLength": 4096,
+          "type": "string"
+        },
+        {
+          "type": "integer"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "items": {
+            "$ref": "#/$defs/BoundedJsonValueDepth8"
+          },
+          "maxItems": 32,
+          "type": "array"
+        },
+        {
+          "additionalProperties": {
+            "$ref": "#/$defs/BoundedJsonValueDepth8"
+          },
+          "maxProperties": 32,
+          "propertyNames": {
+            "maxLength": 4096
+          },
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "BoundedJsonValueDepth8": {
+      "anyOf": [
+        {
+          "maxLength": 4096,
+          "type": "string"
+        },
+        {
+          "type": "integer"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "items": {
+            "anyOf": [
+              {
+                "maxLength": 4096,
+                "type": "string"
+              },
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "maxItems": 0,
+          "type": "array"
+        },
+        {
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "maxLength": 4096,
+                "type": "string"
+              },
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "maxProperties": 0,
+          "propertyNames": {
+            "maxLength": 4096
+          },
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "CommandAckEnvelopeV1": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "command_ack",
+          "title": "Kind",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/AgentCommandAckV1"
+        },
+        "schema_version": {
+          "const": "gateway_ws_envelope_v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "sequence": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Sequence",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "schema_version",
+        "sequence",
+        "kind",
+        "payload"
+      ],
+      "title": "CommandAckEnvelopeV1",
+      "type": "object"
+    },
+    "CommandCancelEnvelopeV1": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "command_cancel",
+          "title": "Kind",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/CommandCancelV1"
+        },
+        "schema_version": {
+          "const": "gateway_ws_envelope_v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "sequence": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Sequence",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "schema_version",
+        "sequence",
+        "kind",
+        "payload"
+      ],
+      "title": "CommandCancelEnvelopeV1",
+      "type": "object"
+    },
+    "CommandCancelV1": {
+      "additionalProperties": false,
+      "properties": {
+        "canceled_at": {
+          "$comment": "model-only UTC normalization: timezone-aware values are normalized to UTC.",
+          "format": "date-time",
+          "title": "Canceled At",
+          "type": "string"
+        },
+        "command_id": {
+          "format": "uuid",
+          "title": "Command Id",
+          "type": "string"
+        },
+        "reason": {
+          "enum": [
+            "operator_requested",
+            "expired",
+            "superseded",
+            "policy_changed",
+            "server_shutdown"
+          ],
+          "title": "Reason",
+          "type": "string"
+        },
+        "schema_version": {
+          "const": "command_cancel_v1",
+          "title": "Schema Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema_version",
+        "command_id",
+        "reason",
+        "canceled_at"
+      ],
+      "title": "CommandCancelV1",
+      "type": "object"
+    },
+    "CommandCorrelationV1": {
+      "additionalProperties": false,
+      "properties": {
+        "parent_command_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Parent Command Id"
+        },
+        "request_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Request Id"
+        },
+        "schema_version": {
+          "const": "command_correlation_v1",
+          "default": "command_correlation_v1",
+          "title": "Schema Version",
+          "type": "string"
+        }
+      },
+      "title": "CommandCorrelationV1",
+      "type": "object"
+    },
+    "CommandEnvelopeV1": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "command",
+          "title": "Kind",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/GatewayCommandV1"
+        },
+        "schema_version": {
+          "const": "gateway_ws_envelope_v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "sequence": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Sequence",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "schema_version",
+        "sequence",
+        "kind",
+        "payload"
+      ],
+      "title": "CommandEnvelopeV1",
+      "type": "object"
+    },
+    "CommandResultEnvelopeV1": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "command_result",
+          "title": "Kind",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/AgentResultV1"
+        },
+        "schema_version": {
+          "const": "gateway_ws_envelope_v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "sequence": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Sequence",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "schema_version",
+        "sequence",
+        "kind",
+        "payload"
+      ],
+      "title": "CommandResultEnvelopeV1",
+      "type": "object"
+    },
+    "ErrorEnvelopeV1": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "error",
+          "title": "Kind",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/GatewayErrorV1"
+        },
+        "schema_version": {
+          "const": "gateway_ws_envelope_v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "sequence": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Sequence",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "schema_version",
+        "sequence",
+        "kind",
+        "payload"
+      ],
+      "title": "ErrorEnvelopeV1",
+      "type": "object"
+    },
+    "GatewayCommandV1": {
+      "$comment": "deadline_at must be after created_at; this cross-field ordering rule is enforced by the Pydantic model only.",
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "capability": {
+                "enum": [
+                  "agent.status.read",
+                  "context.baseline.collect",
+                  "context.health.collect",
+                  "context.network.collect"
+                ]
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "parameters": {
+                "maxProperties": 0
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "capability": {
+                "const": "gateway.echo"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "parameters": {
+                "additionalProperties": false,
+                "properties": {
+                  "message": {
+                    "maxLength": 512,
+                    "minLength": 1,
+                    "pattern": "^(?![\\s\\S]*://)[\\s\\S]*$",
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "capability": {
+                "const": "context.diagnostic.collect"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "parameters": {
+                "additionalProperties": false,
+                "properties": {
+                  "reason": {
+                    "maxLength": 256,
+                    "minLength": 1,
+                    "pattern": "^(?![\\s\\S]*://)[\\s\\S]*$",
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              }
+            }
+          }
+        }
+      ],
+      "description": "Existing neutral command contract narrowed for the WSS control channel.",
+      "properties": {
+        "capability": {
+          "enum": [
+            "agent.status.read",
+            "gateway.echo",
+            "context.baseline.collect",
+            "context.health.collect",
+            "context.network.collect",
+            "context.diagnostic.collect"
+          ],
+          "title": "Capability",
+          "type": "string"
+        },
+        "command_id": {
+          "format": "uuid",
+          "title": "Command Id",
+          "type": "string"
+        },
+        "correlation": {
+          "$ref": "#/$defs/CommandCorrelationV1"
+        },
+        "created_at": {
+          "$comment": "model-only UTC normalization: timezone-aware values are normalized to UTC.",
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        },
+        "deadline_at": {
+          "$comment": "model-only UTC normalization: timezone-aware values are normalized to UTC.",
+          "format": "date-time",
+          "title": "Deadline At",
+          "type": "string"
+        },
+        "device_id": {
+          "format": "uuid",
+          "title": "Device Id",
+          "type": "string"
+        },
+        "idempotency_key": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$",
+          "title": "Idempotency Key",
+          "type": "string"
+        },
+        "parameters": {
+          "$comment": "Aggregate node count and serialized byte size are enforced by the Pydantic model only; JSON Schema enforces per-node bounds.",
+          "additionalProperties": {
+            "$ref": "#/$defs/BoundedJsonValueDepth1"
+          },
+          "maxProperties": 32,
+          "propertyNames": {
+            "maxLength": 4096
+          },
+          "title": "Parameters",
+          "type": "object"
+        },
+        "requested_by_service": {
+          "maxLength": 96,
+          "minLength": 3,
+          "title": "Requested By Service",
+          "type": "string"
+        },
+        "schema_version": {
+          "const": "agent_command_v1",
+          "title": "Schema Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema_version",
+        "command_id",
+        "device_id",
+        "capability",
+        "requested_by_service",
+        "idempotency_key",
+        "created_at",
+        "deadline_at"
+      ],
+      "title": "GatewayCommandV1",
+      "type": "object"
+    },
+    "GatewayErrorV1": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "maxLength": 64,
+          "minLength": 1,
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Code",
+          "type": "string"
+        },
+        "message": {
+          "maxLength": 512,
+          "minLength": 1,
+          "title": "Message",
+          "type": "string"
+        },
+        "retryable": {
+          "title": "Retryable",
+          "type": "boolean"
+        },
+        "schema_version": {
+          "const": "gateway_error_v1",
+          "title": "Schema Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema_version",
+        "code",
+        "message",
+        "retryable"
+      ],
+      "title": "GatewayErrorV1",
+      "type": "object"
+    },
+    "GatewayHelloEnvelopeV1": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "gateway_hello",
+          "title": "Kind",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/GatewayHelloV1"
+        },
+        "schema_version": {
+          "const": "gateway_ws_envelope_v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "sequence": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Sequence",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "schema_version",
+        "sequence",
+        "kind",
+        "payload"
+      ],
+      "title": "GatewayHelloEnvelopeV1",
+      "type": "object"
+    },
+    "GatewayHelloV1": {
+      "additionalProperties": false,
+      "properties": {
+        "effective_capabilities": {
+          "items": {
+            "maxLength": 128,
+            "minLength": 3,
+            "pattern": "^[a-z][a-z0-9]*(?:[._:-][a-z0-9]+)*$",
+            "type": "string"
+          },
+          "maxItems": 64,
+          "title": "Effective Capabilities",
+          "type": "array",
+          "uniqueItems": true
+        },
+        "heartbeat_interval_seconds": {
+          "maximum": 3600,
+          "minimum": 1,
+          "title": "Heartbeat Interval Seconds",
+          "type": "integer"
+        },
+        "maximum_message_bytes": {
+          "maximum": 1048576,
+          "minimum": 1024,
+          "title": "Maximum Message Bytes",
+          "type": "integer"
+        },
+        "policy_revision": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Policy Revision",
+          "type": "integer"
+        },
+        "schema_version": {
+          "const": "gateway_hello_v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "server_time": {
+          "$comment": "model-only UTC normalization: timezone-aware values are normalized to UTC.",
+          "format": "date-time",
+          "title": "Server Time",
+          "type": "string"
+        },
+        "session_id": {
+          "format": "uuid",
+          "title": "Session Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema_version",
+        "session_id",
+        "heartbeat_interval_seconds",
+        "maximum_message_bytes",
+        "policy_revision",
+        "effective_capabilities",
+        "server_time"
+      ],
+      "title": "GatewayHelloV1",
+      "type": "object"
+    },
+    "HeartbeatEnvelopeV1": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "heartbeat",
+          "title": "Kind",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/AgentHeartbeatV1"
+        },
+        "schema_version": {
+          "const": "gateway_ws_envelope_v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "sequence": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Sequence",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "schema_version",
+        "sequence",
+        "kind",
+        "payload"
+      ],
+      "title": "HeartbeatEnvelopeV1",
+      "type": "object"
+    },
+    "PolicyUpdateEnvelopeV1": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "policy_update",
+          "title": "Kind",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/PolicyUpdateV1"
+        },
+        "schema_version": {
+          "const": "gateway_ws_envelope_v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "sequence": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Sequence",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "schema_version",
+        "sequence",
+        "kind",
+        "payload"
+      ],
+      "title": "PolicyUpdateEnvelopeV1",
+      "type": "object"
+    },
+    "PolicyUpdateV1": {
+      "additionalProperties": false,
+      "properties": {
+        "effective_capabilities": {
+          "items": {
+            "maxLength": 128,
+            "minLength": 3,
+            "pattern": "^[a-z][a-z0-9]*(?:[._:-][a-z0-9]+)*$",
+            "type": "string"
+          },
+          "maxItems": 64,
+          "title": "Effective Capabilities",
+          "type": "array",
+          "uniqueItems": true
+        },
+        "policy_revision": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Policy Revision",
+          "type": "integer"
+        },
+        "schema_version": {
+          "const": "policy_update_v1",
+          "title": "Schema Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema_version",
+        "policy_revision",
+        "effective_capabilities"
+      ],
+      "title": "PolicyUpdateV1",
+      "type": "object"
+    },
+    "ResultAckEnvelopeV1": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "result_ack",
+          "title": "Kind",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/ResultAckV1"
+        },
+        "schema_version": {
+          "const": "gateway_ws_envelope_v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "sequence": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Sequence",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "schema_version",
+        "sequence",
+        "kind",
+        "payload"
+      ],
+      "title": "ResultAckEnvelopeV1",
+      "type": "object"
+    },
+    "ResultAckV1": {
+      "additionalProperties": false,
+      "properties": {
+        "command_id": {
+          "format": "uuid",
+          "title": "Command Id",
+          "type": "string"
+        },
+        "result_sequence": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Result Sequence",
+          "type": "integer"
+        },
+        "schema_version": {
+          "const": "result_ack_v1",
+          "title": "Schema Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema_version",
+        "command_id",
+        "result_sequence"
+      ],
+      "title": "ResultAckV1",
+      "type": "object"
+    },
+    "ServerShutdownNoticeEnvelopeV1": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "server_shutdown_notice",
+          "title": "Kind",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/ServerShutdownNoticeV1"
+        },
+        "schema_version": {
+          "const": "gateway_ws_envelope_v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "sequence": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Sequence",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "schema_version",
+        "sequence",
+        "kind",
+        "payload"
+      ],
+      "title": "ServerShutdownNoticeEnvelopeV1",
+      "type": "object"
+    },
+    "ServerShutdownNoticeV1": {
+      "additionalProperties": false,
+      "properties": {
+        "reason": {
+          "enum": [
+            "server_restart",
+            "session_replaced",
+            "maintenance",
+            "server_shutdown"
+          ],
+          "title": "Reason",
+          "type": "string"
+        },
+        "retry_after_seconds": {
+          "anyOf": [
+            {
+              "maximum": 86400,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Retry After Seconds"
+        },
+        "schema_version": {
+          "const": "server_shutdown_notice_v1",
+          "title": "Schema Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema_version",
+        "reason"
+      ],
+      "title": "ServerShutdownNoticeV1",
+      "type": "object"
+    }
+  },
+  "discriminator": {
+    "mapping": {
+      "agent_hello": "#/$defs/AgentHelloEnvelopeV1",
+      "command": "#/$defs/CommandEnvelopeV1",
+      "command_ack": "#/$defs/CommandAckEnvelopeV1",
+      "command_cancel": "#/$defs/CommandCancelEnvelopeV1",
+      "command_result": "#/$defs/CommandResultEnvelopeV1",
+      "error": "#/$defs/ErrorEnvelopeV1",
+      "gateway_hello": "#/$defs/GatewayHelloEnvelopeV1",
+      "heartbeat": "#/$defs/HeartbeatEnvelopeV1",
+      "policy_update": "#/$defs/PolicyUpdateEnvelopeV1",
+      "result_ack": "#/$defs/ResultAckEnvelopeV1",
+      "server_shutdown_notice": "#/$defs/ServerShutdownNoticeEnvelopeV1"
+    },
+    "propertyName": "kind"
+  },
+  "oneOf": [
+    {
+      "$ref": "#/$defs/AgentHelloEnvelopeV1"
+    },
+    {
+      "$ref": "#/$defs/GatewayHelloEnvelopeV1"
+    },
+    {
+      "$ref": "#/$defs/HeartbeatEnvelopeV1"
+    },
+    {
+      "$ref": "#/$defs/CommandEnvelopeV1"
+    },
+    {
+      "$ref": "#/$defs/CommandAckEnvelopeV1"
+    },
+    {
+      "$ref": "#/$defs/CommandResultEnvelopeV1"
+    },
+    {
+      "$ref": "#/$defs/CommandCancelEnvelopeV1"
+    },
+    {
+      "$ref": "#/$defs/ResultAckEnvelopeV1"
+    },
+    {
+      "$ref": "#/$defs/PolicyUpdateEnvelopeV1"
+    },
+    {
+      "$ref": "#/$defs/ServerShutdownNoticeEnvelopeV1"
+    },
+    {
+      "$ref": "#/$defs/ErrorEnvelopeV1"
+    }
+  ],
+  "title": "GatewayWsEnvelopeV1"
+}

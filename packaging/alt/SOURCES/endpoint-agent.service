@@ -1,0 +1,53 @@
+[Unit]
+Description=Endpoint Platform ALT agent
+Documentation=file:///usr/share/doc/endpoint-agent/README.md
+Wants=network-online.target
+After=network-online.target
+ConditionPathExists=/opt/endpoint-agent/launcher
+ConditionPathExists=/opt/endpoint-agent/current.json
+
+[Service]
+Type=simple
+User=endpoint-agent
+Group=endpoint-agent
+Environment=PC_AGENT_DATA_DIR=/var/lib/endpoint-agent
+Environment=PC_AGENT_INSTALL_ROOT=/opt/endpoint-agent
+Environment=ENDPOINT_AGENT_ALT_UPDATE_MODE=1
+Environment=ENDPOINT_AGENT_ENROLLMENT_REQUIRED=1
+Environment=ENDPOINT_AGENT_TRANSPORT_MODE=gateway_wss
+Environment=ENDPOINT_AGENT_MIGRATION_HTTP_PULL_FALLBACK=false
+LoadCredential=endpoint-agent-config:/etc/endpoint-agent/config.yaml
+LoadCredential=endpoint-agent-ca:/etc/endpoint-agent/ca.crt
+# A relative credential name is optional when absent. systemd loads an
+# operator-supplied claim from /etc/credstore or an inherited credential.
+LoadCredential=endpoint-enrollment-claim
+Environment=ENDPOINT_AGENT_CONFIG=%d/endpoint-agent-config
+Environment=ENDPOINT_AGENT_CA_FILE=%d/endpoint-agent-ca
+Environment=ENDPOINT_AGENT_PROVISIONING_HANDOFF_FILE=%d/endpoint-enrollment-claim
+ExecCondition=+/usr/lib/endpoint-agent/check-start-prerequisites --credential-representation source --config /etc/endpoint-agent/config.yaml --ca /etc/endpoint-agent/ca.crt --claim /etc/credstore/endpoint-enrollment-claim
+ExecStart=/usr/lib/endpoint-agent/start-endpoint-agent
+Restart=on-failure
+RestartPreventExitStatus=78 243
+RestartSec=5s
+TimeoutStartSec=45s
+TimeoutStopSec=30s
+StateDirectory=endpoint-agent
+StateDirectoryMode=0750
+LogsDirectory=endpoint-agent
+LogsDirectoryMode=0750
+ReadWritePaths=/var/lib/endpoint-agent /var/log/endpoint-agent
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+ProtectKernelModules=true
+LockPersonality=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+SystemCallArchitectures=native
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target
