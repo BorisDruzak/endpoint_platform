@@ -1,0 +1,7 @@
+---
+endpoint_agent_rpm_source: /opt/alt-deploy-control/artifacts/endpoint-agent/endpoint-agent-0.1.0-6.x86_64.rpm
+endpoint_agent_ca_source: /opt/alt-deploy-control/certificates/sosnadmin-local-ca.crt
+endpoint_agent_gateway_ca_path: /opt/alt-deploy-control/certificates/sosnadmin-local-ca.crt
+endpoint_agent_campaign_cidrs:
+  - 192.168.101.0/24
+endpoint_agent_campaign_lifetime_minutes: 20

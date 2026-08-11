@@ -1,0 +1,7 @@
+---
+- name: Enroll Endpoint Agent RPM pilot hosts
+  hosts: endpoint_agent_alt_pilot
+  become: true
+  gather_facts: false
+  roles:
+    - role: endpoint_agent_alt

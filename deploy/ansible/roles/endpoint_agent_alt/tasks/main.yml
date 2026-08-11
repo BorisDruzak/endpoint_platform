@@ -1,0 +1,155 @@
+---
+- name: Verify Gateway DNS resolution
+  ansible.builtin.command: getent hosts endpoint.sosnadmin.local
+  changed_when: false
+
+- name: Copy reviewed Endpoint Agent RPM
+  ansible.builtin.copy:
+    src: "{{ endpoint_agent_rpm_source }}"
+    dest: "{{ endpoint_agent_rpm_path }}"
+    owner: root
+    group: root
+    mode: "0600"
+
+- name: Derive hardware fingerprint from reviewed RPM runtime
+  block:
+    - name: Create private fingerprint extraction directory
+      ansible.builtin.tempfile:
+        state: directory
+        prefix: endpoint-agent-fingerprint-
+      register: endpoint_agent_fingerprint_dir
+      no_log: true
+
+    - name: Extract read-only fingerprint runtime from RPM
+      ansible.builtin.shell: >-
+        set -o pipefail && rpm2cpio {{ endpoint_agent_rpm_path | quote }} |
+        cpio -idm --quiet -D {{ endpoint_agent_fingerprint_dir.path | quote }}
+        './usr/lib64/endpoint-agent/release-bundle/pc_agent/*'
+      args:
+        executable: /bin/bash
+      changed_when: false
+      no_log: true
+
+    - name: Read exact Endpoint Agent hardware fingerprint
+      ansible.builtin.command: >-
+        {{ endpoint_agent_fingerprint_dir.path }}/usr/lib64/endpoint-agent/release-bundle/pc_agent/pc_agent
+        --print-hardware-fingerprint
+      register: endpoint_agent_fingerprint
+      changed_when: false
+      no_log: true
+  always:
+    - name: Remove fingerprint extraction directory
+      ansible.builtin.file:
+        path: "{{ endpoint_agent_fingerprint_dir.path | default('') }}"
+        state: absent
+      when: endpoint_agent_fingerprint_dir is defined
+      no_log: true
+
+- name: Create and use bounded enrollment campaign
+  block:
+    - name: Create rollout campaign on Gateway
+      ansible.builtin.uri:
+        url: https://endpoint.sosnadmin.local/api/v1/provisioning/campaigns
+        method: POST
+        headers:
+          Authorization: "Bearer {{ vault_endpoint_provisioning_token }}"
+        body_format: json
+        body:
+          expires_at: '{{ lookup("pipe", "date -u -d \"+%s minutes\" +%%Y-%%m-%%dT%%H:%%M:%%SZ" % endpoint_agent_campaign_lifetime_minutes) }}'
+          max_uses: 1
+          allowed_cidrs: "{{ endpoint_agent_campaign_cidrs }}"
+          target_platform: linux
+          policy:
+            policy_id: ansible-alt-rollout
+          label: Ansible ALT rollout
+          site: ansible
+        ca_path: "{{ endpoint_agent_gateway_ca_path }}"
+        validate_certs: true
+        status_code: 201
+      delegate_to: localhost
+      register: endpoint_agent_campaign
+      no_log: true
+
+    - name: Request host-bound install claim from Gateway
+      ansible.builtin.uri:
+        url: "{{ endpoint_agent_gateway_url }}/api/v1/provisioning/install-claims"
+        method: POST
+        headers:
+          Authorization: "Bearer {{ vault_endpoint_provisioning_token }}"
+        body_format: json
+        body:
+          campaign_id: "{{ endpoint_agent_campaign.json.id }}"
+          install_session_id: "{{ endpoint_agent_installation_id }}"
+          hardware_fingerprint: "{{ endpoint_agent_fingerprint.stdout }}"
+        ca_path: "{{ endpoint_agent_gateway_ca_path }}"
+        validate_certs: true
+        status_code: 201
+      delegate_to: localhost
+      register: endpoint_agent_install_claim
+      no_log: true
+
+    - name: Create protected RPM bootstrap directory
+      ansible.builtin.file:
+        path: /etc/endpoint-agent/bootstrap
+        state: directory
+        owner: root
+        group: root
+        mode: "0700"
+
+    - name: Copy Gateway CA for RPM enrollment
+      ansible.builtin.copy:
+        src: "{{ endpoint_agent_ca_source }}"
+        dest: /etc/endpoint-agent/bootstrap/ca.crt
+        owner: root
+        group: root
+        mode: "0600"
+
+    - name: Write RPM installation identity
+      ansible.builtin.copy:
+        content: "{{ endpoint_agent_installation_id }}\n"
+        dest: /etc/endpoint-agent/bootstrap/installation-id
+        owner: root
+        group: root
+        mode: "0600"
+
+    - name: Write one-time RPM enrollment claim
+      ansible.builtin.copy:
+        content: "{{ endpoint_agent_install_claim.json.claim }}"
+        dest: /etc/endpoint-agent/bootstrap/provisioning-claim
+        owner: root
+        group: root
+        mode: "0600"
+      no_log: true
+
+    - name: Install Endpoint Agent RPM immediately after claim issuance
+      ansible.builtin.command: rpm -Uvh {{ endpoint_agent_rpm_path }}
+      register: endpoint_agent_rpm_install
+      changed_when: endpoint_agent_rpm_install.rc == 0
+      no_log: true
+
+    - name: Wait for durable Gateway enrollment proof
+      ansible.builtin.shell: >-
+        test -s /var/lib/endpoint-agent/device-credential &&
+        test ! -e /etc/endpoint-agent/provisioning-claim &&
+        systemctl is-active --quiet endpoint-agent.service &&
+        systemctl is-active --quiet endpoint-agent-update.path &&
+        systemctl is-active --quiet endpoint-agent-finalize.path
+      register: endpoint_agent_enrollment_status
+      retries: "{{ endpoint_agent_enrollment_retries }}"
+      delay: "{{ endpoint_agent_enrollment_delay_seconds }}"
+      until: endpoint_agent_enrollment_status.rc == 0
+      changed_when: false
+  no_log: true
+  always:
+    - name: Revoke rollout campaign on Gateway
+      ansible.builtin.uri:
+        url: "https://endpoint.sosnadmin.local/api/v1/provisioning/campaigns/{{ endpoint_agent_campaign.json.id }}/revoke"
+        method: POST
+        headers:
+          Authorization: "Bearer {{ vault_endpoint_provisioning_token }}"
+        ca_path: "{{ endpoint_agent_gateway_ca_path }}"
+        validate_certs: true
+        status_code: 204
+      delegate_to: localhost
+      when: endpoint_agent_campaign is defined and endpoint_agent_campaign.json.id is defined
+      no_log: true

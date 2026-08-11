@@ -53,12 +53,12 @@ pilot playbook.  Inputs are the RPM path, Gateway CA path, target CIDRs,
 campaign lifetime, and `vault_endpoint_provisioning_token`.
 
 The playbook delegates Gateway API calls to the controller.  It creates one
-campaign for the play, determines each target's Linux hardware fingerprint,
-requests a per-host claim, writes the three RPM bootstrap files with root-only
-permissions, and installs the local RPM immediately.  The claim task and all
-derived results use `no_log: true`.  It waits for the durable credential,
-absence of the handoff, and the three active systemd units.  In an `always`
-block it revokes the campaign, including when a host fails.
+single-use campaign per target, determines that target's Linux hardware
+fingerprint, requests its claim, writes the three RPM bootstrap files with
+root-only permissions, and installs the local RPM immediately.  The claim task
+and all derived results use `no_log: true`.  It waits for the durable
+credential, absence of the handoff, and the three active systemd units.  In an
+`always` block it revokes that host's campaign, including when the host fails.
 
 The role performs no direct database access and never disables TLS verification
 or substitutes an IP address for `endpoint.sosnadmin.local`.  DNS resolution is

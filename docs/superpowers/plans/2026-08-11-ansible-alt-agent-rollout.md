@@ -4,7 +4,7 @@
 
 **Goal:** Enable an external Ansible controller to create a narrow Gateway campaign, issue host claims, install the ALT RPM, and revoke the campaign without an admin session.
 
-**Architecture:** Gateway gets service-authenticated campaign create/revoke routes and stores the owning service client. The portable Ansible role calls only those HTTPS APIs, uses `no_log` for claims, and supplies the existing RPM first-boot contract. An administrator creates the limited token once and places it in the external controller's Vault.
+**Architecture:** Gateway gets service-authenticated campaign create/revoke routes and stores the owning service client. The portable Ansible role calls only those HTTPS APIs, creates one single-use campaign per target, uses `no_log` for claims, and supplies the existing RPM first-boot contract. An administrator creates the limited token once and places it in the external controller's Vault.
 
 **Tech Stack:** FastAPI, Pydantic, SQLAlchemy/Alembic/PostgreSQL, Ansible core, ALT Linux RPM/systemd.
 
@@ -111,7 +111,7 @@ Expected: PASS. Commit with `feat: add scoped provisioning campaigns`.
 - Create: `deploy/ansible/group_vars/endpoint_agent_alt_pilot.example.yml`
 - Test: `tests/deploy/test_ansible_alt_agent_rollout.py`
 
-**Interfaces:** Controller input is `vault_endpoint_provisioning_token`; host inputs are RPM and CA sources. Campaign variables include CIDRs, lifetime, and max uses. The role uses controller-delegated HTTPS calls, exact root-only modes, enrollment wait, and an `always` revoke block.
+**Interfaces:** Controller input is `vault_endpoint_provisioning_token`; host inputs are RPM and CA sources. Campaign variables include CIDRs and lifetime. The role creates one `max_uses: 1` campaign per target, uses controller-delegated HTTPS calls, exact root-only modes, enrollment wait, and an `always` revoke block.
 
 - [ ] **Step 1: Write failing role tests**
 
