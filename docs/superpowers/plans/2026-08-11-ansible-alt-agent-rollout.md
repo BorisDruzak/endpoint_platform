@@ -13,7 +13,7 @@
 - The deployment token has exactly `provisioning.campaigns.create`, `provisioning.campaigns.revoke`, and `provisioning.install-claims.issue`.
 - Never log or persist a raw service token, campaign bearer, or install claim outside the Ansible Vault input and protected target file.
 - Use `https://endpoint.sosnadmin.local` with certificate validation; never substitute an IP address or disable TLS verification.
-- A service may revoke only campaigns it owns. Legacy/admin campaigns remain ownerless.
+- A service may revoke only campaigns it owns. A service-owned campaign may issue claims only to that same service client. Legacy/admin campaigns remain ownerless and retain the existing claim-issuance compatibility.
 - Do not apply production migrations until deployed code and the current Alembic revision are verified on the server.
 
 ---
@@ -93,7 +93,7 @@ Expected: FAIL because the routes/scopes do not exist.
 
 - [ ] **Step 3: Implement strict service handlers**
 
-Use `ConfigDict(extra="forbid")`, `require_service_scope`, `issue_campaign`, and `append_audit_event`. Set owner only in this service route, preserve ownerless admin behavior, and never return `IssuedCampaign.token`.
+Use `ConfigDict(extra="forbid")`, `require_service_scope`, `issue_campaign`, and `append_audit_event`. Set owner only in this service route, preserve ownerless admin behavior, and never return `IssuedCampaign.token`. In the existing claim route, deny a claim when a non-null campaign owner differs from the authenticated service client.
 
 - [ ] **Step 4: Verify GREEN and commit**
 
