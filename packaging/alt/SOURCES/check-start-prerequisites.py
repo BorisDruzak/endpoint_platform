@@ -127,7 +127,10 @@ def _root_secret(path: Path, label: str, representation: str) -> None:
         or details.st_gid != expected_gid
         or stat.S_IMODE(details.st_mode) != expected_mode
     ):
-        _fail(f"{label} has unsafe credential ownership or mode")
+        _fail(
+            f"{label} has unsafe credential ownership or mode "
+            f"({details.st_uid}:{details.st_gid}:{stat.S_IMODE(details.st_mode):03o})"
+        )
 
 
 def _service_secret(path: Path) -> bytes | None:
