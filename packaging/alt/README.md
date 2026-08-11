@@ -52,13 +52,14 @@ Its root pre-start condition validates the fixed root-owned `0600` config and CA
 sources plus either the canonical service-owned `0600` permanent
 credential/identity pair or the fixed root-owned `0600`
 `/etc/credstore/endpoint-enrollment-claim` source. A root-only pre-start helper
-copies them only into the unit's systemd-managed `RuntimeDirectory` (tmpfs), as
-`root:endpoint-agent`: `0550` for the directory and `0440` for files. systemd
-removes that directory when the unit stops; no credential is persisted outside
-the existing permanent device credential. The unprivileged main-process wrapper
-validates that read-only delegated representation before it replaces itself with
-the stable launcher. Validation failures use a non-restart status so a bad or
-raced state cannot create a restart loop.
+copies them only into the unit's systemd-managed `RuntimeDirectory` (tmpfs).
+ALT systemd assigns this directory and its contents to the unit account, with
+`0550` for the directory and `0440` for files. systemd removes that directory
+when the unit stops; no credential is persisted outside the existing permanent
+device credential. The unprivileged main-process wrapper validates that
+read-only delegated representation before it replaces itself with the stable
+launcher. Validation failures use a non-restart status so a bad or raced state
+cannot create a restart loop.
 
 The fixed `/etc/credstore/endpoint-enrollment-claim` path is an intentional
 fail-closed boundary. Although a relative `LoadCredential=` can import inherited

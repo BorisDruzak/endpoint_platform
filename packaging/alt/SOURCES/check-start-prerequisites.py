@@ -121,9 +121,13 @@ def _selected_release() -> str:
 def _root_secret(path: Path, label: str, representation: str) -> None:
     details = _regular_file(path)
     expected_mode = 0o600 if representation == "source" else 0o440
-    expected_gid = 0 if representation == "source" else pwd.getpwnam("endpoint-agent").pw_gid
+    if representation == "source":
+        expected_uid = expected_gid = 0
+    else:
+        account = pwd.getpwnam("endpoint-agent")
+        expected_uid, expected_gid = account.pw_uid, account.pw_gid
     if (
-        details.st_uid != 0
+        details.st_uid != expected_uid
         or details.st_gid != expected_gid
         or stat.S_IMODE(details.st_mode) != expected_mode
     ):
@@ -208,15 +212,17 @@ def _claim_is_valid(path: Path, representation: str) -> bool:
     expected_mode = 0o600 if representation == "source" else 0o440
     try:
         details = os.lstat(path)
-        expected_gid = (
-            0 if representation == "source" else pwd.getpwnam("endpoint-agent").pw_gid
-        )
+        if representation == "source":
+            expected_uid = expected_gid = 0
+        else:
+            account = pwd.getpwnam("endpoint-agent")
+            expected_uid, expected_gid = account.pw_uid, account.pw_gid
     except (KeyError, OSError):
         return False
     return (
         stat.S_ISREG(details.st_mode)
         and details.st_size > 0
-        and details.st_uid == 0
+        and details.st_uid == expected_uid
         and details.st_gid == expected_gid
         and stat.S_IMODE(details.st_mode) == expected_mode
     )

@@ -24,6 +24,7 @@ unit_name=endpoint-task10-credential-gate.service
 unit_path="/run/systemd/system/$unit_name"
 probe_token=$(basename -- "$probe")
 account_gid=$(id -g endpoint-agent)
+account_uid=$(id -u endpoint-agent)
 service_before=$(systemctl is-active endpoint-agent.service 2>/dev/null || true)
 journal_count() {
     sudo --non-interactive journalctl -u "$unit_name" --no-pager | \
@@ -125,8 +126,8 @@ if ! wait_for_journal_count "credential-gate-launcher=$probe_token" 1; then
     sudo --non-interactive journalctl -u "$unit_name" -n 15 --no-pager
     die 'package pre-start gate did not reach the launcher'
 fi
-[[ $(journal_count "credential-gate-mode=$probe_token:0:$account_gid:440") -eq 3 ]] || \
-    die 'systemd credentials were not delegated root:agent-group 0440'
+[[ $(journal_count "credential-gate-mode=$probe_token:$account_uid:$account_gid:440") -eq 3 ]] || \
+    die 'systemd credentials were not delegated to the service account 0440'
 
 sudo --non-interactive systemctl stop "$unit_name"
 sudo --non-interactive sed -i \
@@ -150,7 +151,7 @@ sudo --non-interactive systemctl daemon-reload
 sudo --non-interactive systemctl start "$unit_name"
 wait_for_journal_count "credential-gate-launcher=$probe_token" 2 || \
     die 'canonical durable pair did not satisfy claim-free start'
-[[ $(journal_count "credential-gate-mode=$probe_token:0:$account_gid:440") -eq 5 ]] || \
+[[ $(journal_count "credential-gate-mode=$probe_token:$account_uid:$account_gid:440") -eq 5 ]] || \
     die 'claim-free start did not receive config and CA credentials'
 
 sudo --non-interactive systemctl stop "$unit_name"

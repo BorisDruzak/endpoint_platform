@@ -416,6 +416,8 @@ def test_service_grants_agent_read_only_access_to_loaded_credentials() -> None:
     assert "endpoint-agent-ca" in helper
     assert "endpoint-enrollment-claim" in helper
     assert "/run/endpoint-agent-credentials" in helper
+    checker = _text(SOURCES / "check-start-prerequisites.py")
+    assert "expected_uid, expected_gid = account.pw_uid, account.pw_gid" in checker
 
 
 def test_service_account_is_nonlogin_and_reused_without_password_material() -> None:
@@ -565,7 +567,8 @@ def test_systemd_harness_exercises_loaded_credentials_without_touching_live_agen
         "LoadCredential=endpoint-agent-config:",
         "credential-gate-mode=",
         "account_gid=$(id -g endpoint-agent)",
-        "0:$account_gid:440",
+        "account_uid=$(id -u endpoint-agent)",
+        "$account_uid:$account_gid:440",
         "service_before=",
         '[[ "$service_before" == "$service_after" ]]',
     ):
