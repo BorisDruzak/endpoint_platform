@@ -1,0 +1,9 @@
+[Unit]
+Description=Finalize Endpoint agent enrollment credential handoff
+After=endpoint-agent.service
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+ExecStart=/usr/lib64/endpoint-agent/provision/install-endpoint-agent.sh --finalize-handoff

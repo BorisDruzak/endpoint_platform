@@ -21,8 +21,11 @@ _PROVISIONING_ASSETS = {
     "default-config.yaml": "provision/default-config.yaml",
     "endpoint-agent-update.path": "provision/endpoint-agent-update.path",
     "endpoint-agent-update.service": "provision/endpoint-agent-update.service",
+    "endpoint-agent-finalize.path": "provision/endpoint-agent-finalize.path",
+    "endpoint-agent-finalize.service": "provision/endpoint-agent-finalize.service",
     "endpoint-agent.service": "provision/endpoint-agent.service",
     "install-endpoint-agent.sh": "provision/install-endpoint-agent.sh",
+    "rpm-auto-provision.sh": "provision/rpm-auto-provision.sh",
 }
 
 

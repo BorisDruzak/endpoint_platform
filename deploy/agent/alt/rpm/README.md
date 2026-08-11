@@ -1,9 +1,9 @@
 # Endpoint Agent RPM for ALT Linux
 
-This package is an offline, unprovisioned bootstrap artifact for ALT Linux
-11.4 x86_64. It contains a manifest-attested launcher/agent release bundle and
-the existing provisioning assets. It never contains endpoint configuration,
-CA certificates, enrollment claims, credentials, or tokens.
+This package is an offline ALT Linux 11.4 x86_64 bootstrap artifact. It
+contains a manifest-attested launcher/agent release bundle and the provisioning
+assets, but never a reusable Gateway secret, CA certificate, enrollment claim,
+credential, or token.
 
 ## Build
 
@@ -32,31 +32,45 @@ rpm -qp --scripts /tmp/endpoint-agent-rpm-out/endpoint-agent-0.1.0-1.x86_64.rpm
 sudo rpm -Uvh --test /tmp/endpoint-agent-rpm-out/endpoint-agent-0.1.0-1.x86_64.rpm
 ```
 
-The payload must be limited to `/usr/lib64/endpoint-agent` and documentation;
-the scriptlets must not control a systemd service.
+The payload must be limited to `/usr/lib64/endpoint-agent` and documentation.
+On a first install, RPM scriptlets require a securely staged device claim and
+then start the verified provisioner; upgrades do not consume bootstrap input.
 
 ## Install and provision
 
-Install the RPM normally:
+Before the first install, the deployment controller must issue a claim for this
+specific device and stage the three inputs. The directory and every file must
+be root-owned and have the exact modes below; do not put these inputs in the
+RPM, command line, or a shared image.
 
 ```bash
+sudo install -d -o root -g root -m 0755 /etc/endpoint-agent
+sudo install -d -o root -g root -m 0700 /etc/endpoint-agent/bootstrap
+sudo install -o root -g root -m 0600 /secure/endpoint-ca.crt \
+  /etc/endpoint-agent/bootstrap/ca.crt
+sudo install -o root -g root -m 0600 /secure/device-claim \
+  /etc/endpoint-agent/bootstrap/provisioning-claim
+sudo install -o root -g root -m 0600 /secure/installation-id \
+  /etc/endpoint-agent/bootstrap/installation-id
 sudo rpm -Uvh /tmp/endpoint-agent-rpm-out/endpoint-agent-0.1.0-1.x86_64.rpm
 ```
 
-The transaction only creates the `endpoint-agent` service account and durable
-operator directories. It does not create an active `/opt/endpoint-agent`
-release and does not control systemd.
+The transaction verifies the package bundle, creates the immutable
+`/opt/endpoint-agent` release, enables the agent/update/finalizer systemd
+units, and starts enrollment automatically. The first-boot claim is exchanged
+for a durable device credential bound to the hardware fingerprint. The
+root-owned finalizer removes the installed handoff only after verifying that
+credential, switches the unit to Gateway-ready mode, and restarts the agent.
 
-Provision with local, root-owned inputs. The bundle comes from the package:
+Verify the completed transition without exposing secrets:
 
 ```bash
-sudo /usr/lib64/endpoint-agent/provision/install-endpoint-agent.sh \
-  --endpoint https://endpoint.sosnadmin.local \
-  --installation-id example-agent-001 \
-  --ca-file /secure/path/ca.crt \
-  --handoff-file /secure/path/provisioning-claim \
-  --agent-bundle /usr/lib64/endpoint-agent/release-bundle
+systemctl is-active endpoint-agent.service
+sudo test -s /var/lib/endpoint-agent/device-credential
+sudo test ! -e /etc/endpoint-agent/provisioning-claim
 ```
 
-Do not store the CA, handoff claim, a credential, or any rendered configuration
-in the package or source archive.
+Later RPM upgrades do not require bootstrap files and must not overwrite the
+device credential or current immutable selector. Gateway-directed updates use
+the existing root-only update worker, manifest verification, rollback, and
+post-restart handshake evidence.

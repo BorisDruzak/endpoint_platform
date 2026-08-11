@@ -16,6 +16,8 @@ SERVICE = ROOT / "deploy" / "agent" / "alt" / "endpoint-agent.service"
 UPDATE_SERVICE = ROOT / "deploy" / "agent" / "alt" / "endpoint-agent-update.service"
 UPDATE_PATH = ROOT / "deploy" / "agent" / "alt" / "endpoint-agent-update.path"
 UPDATE_HELPER = ROOT / "deploy" / "agent" / "alt" / "apply-pending-alt-update.sh"
+FINALIZE_SERVICE = ROOT / "deploy" / "agent" / "alt" / "endpoint-agent-finalize.service"
+FINALIZE_PATH = ROOT / "deploy" / "agent" / "alt" / "endpoint-agent-finalize.path"
 CONFIG = ROOT / "deploy" / "agent" / "alt" / "default-config.yaml"
 RUNBOOK = ROOT / "docs" / "runbooks" / "ALT_AGENT_INSTALL.md"
 
@@ -251,6 +253,22 @@ def test_installer_installs_and_enables_the_root_owned_update_path() -> None:
         "systemctl start endpoint-agent-update.path",
     ):
         assert required in installer
+
+
+def test_installer_activates_root_only_finalizer_after_enrollment_proof() -> None:
+    """A successful claim exchange must transition to Gateway mode without operator action."""
+    installer = _text(INSTALLER)
+    finalizer_service = _text(FINALIZE_SERVICE)
+    finalizer_path = _text(FINALIZE_PATH)
+
+    assert "PathExists=/var/lib/endpoint-agent/claim-removal-request.json" in finalizer_path
+    assert "Unit=endpoint-agent-finalize.service" in finalizer_path
+    assert "User=root" in finalizer_service
+    assert "install-endpoint-agent.sh --finalize-handoff" in finalizer_service
+    assert "endpoint-agent-finalize.service" in installer
+    assert "endpoint-agent-finalize.path" in installer
+    assert "systemctl enable endpoint-agent-finalize.path" in installer
+    assert "systemctl start endpoint-agent-finalize.path" in installer
 
 
 def test_permanent_credential_is_runtime_owned_and_finalize_requires_that_contract() -> (

@@ -173,7 +173,10 @@ ID
 chmod 700 "$root/bin/getent" "$root/bin/id"
 cat > "$root/bin/systemctl" <<'SYSTEMCTL'
 #!/usr/bin/env bash
-[[ "$1" == daemon-reload ]]
+case "$1" in
+  daemon-reload|restart|is-active) exit 0 ;;
+  *) exit 2 ;;
+esac
 SYSTEMCTL
 chmod 700 "$root/bin/systemctl"
 credential="$root/var/lib/endpoint-agent/device-credential"

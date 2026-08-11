@@ -84,3 +84,16 @@ def test_alt_linux_rpm_spec_declares_the_required_package_group() -> None:
 def test_alt_linux_rpm_spec_skips_autodependency_scans_of_the_frozen_payload() -> None:
     """Scanning every embedded Qt library makes the self-contained package build unbounded."""
     assert "AutoReq:        no" in RPM_SPEC.read_text(encoding="utf-8")
+
+
+def test_alt_linux_rpm_first_install_requires_secure_bootstrap_and_provisions() -> None:
+    """A missing first-boot claim must stop RPM before it can expose an inactive agent."""
+    spec = RPM_SPEC.read_text(encoding="utf-8")
+
+    assert "%pre" in spec
+    assert 'if [ "$1" -eq 1 ]; then' in spec
+    assert "bootstrap_root=/etc/endpoint-agent/bootstrap" in spec
+    assert "for input in installation-id ca.crt provisioning-claim" in spec
+    assert '[ "$(stat -c %g -- "$parent")" = 0 ]' in spec
+    assert '[ "$(stat -c %a -- "$bootstrap_root")" = 700 ]' in spec
+    assert "%{_libdir}/endpoint-agent/provision/rpm-auto-provision.sh" in spec
