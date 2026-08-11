@@ -60,4 +60,3 @@ sudo /usr/lib64/endpoint-agent/provision/install-endpoint-agent.sh \
 
 Do not store the CA, handoff claim, a credential, or any rendered configuration
 in the package or source archive.
-

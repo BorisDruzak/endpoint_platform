@@ -179,4 +179,3 @@ Expected: exit code zero.
 Run: \`git diff main...HEAD --check && git status --short\`
 
 Expected: no whitespace errors and no uncommitted files.
-
