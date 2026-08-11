@@ -121,9 +121,10 @@ def _selected_release() -> str:
 def _root_secret(path: Path, label: str, representation: str) -> None:
     details = _regular_file(path)
     expected_mode = 0o600 if representation == "source" else 0o440
+    expected_gid = 0 if representation == "source" else pwd.getpwnam("endpoint-agent").pw_gid
     if (
         details.st_uid != 0
-        or details.st_gid != 0
+        or details.st_gid != expected_gid
         or stat.S_IMODE(details.st_mode) != expected_mode
     ):
         _fail(f"{label} has unsafe credential ownership or mode")
@@ -204,13 +205,16 @@ def _claim_is_valid(path: Path, representation: str) -> bool:
     expected_mode = 0o600 if representation == "source" else 0o440
     try:
         details = os.lstat(path)
-    except OSError:
+        expected_gid = (
+            0 if representation == "source" else pwd.getpwnam("endpoint-agent").pw_gid
+        )
+    except (KeyError, OSError):
         return False
     return (
         stat.S_ISREG(details.st_mode)
         and details.st_size > 0
         and details.st_uid == 0
-        and details.st_gid == 0
+        and details.st_gid == expected_gid
         and stat.S_IMODE(details.st_mode) == expected_mode
     )
 
@@ -223,7 +227,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--config", type=Path)
     parser.add_argument("--ca", type=Path)
     parser.add_argument("--claim", type=Path)
-    parser.add_argument("--credential-representation", choices=("source", "loaded"))
+    parser.add_argument("--credential-representation", choices=("source", "delegated"))
     args = parser.parse_args(argv)
     if args.prepare_directories:
         _prepare_runtime_directories()

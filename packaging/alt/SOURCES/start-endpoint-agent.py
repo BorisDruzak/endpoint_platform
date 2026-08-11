@@ -25,7 +25,7 @@ def main() -> int:
         [
             str(CHECKER),
             "--credential-representation",
-            "loaded",
+            "delegated",
             "--config",
             str(credential_root / "endpoint-agent-config"),
             "--ca",

@@ -25,6 +25,7 @@ Environment=ENDPOINT_AGENT_CONFIG=%d/endpoint-agent-config
 Environment=ENDPOINT_AGENT_CA_FILE=%d/endpoint-agent-ca
 Environment=ENDPOINT_AGENT_PROVISIONING_HANDOFF_FILE=%d/endpoint-enrollment-claim
 ExecCondition=+/usr/lib/endpoint-agent/check-start-prerequisites --credential-representation source --config /etc/endpoint-agent/config.yaml --ca /etc/endpoint-agent/ca.crt --claim /etc/credstore/endpoint-enrollment-claim
+ExecStartPre=+/usr/lib/endpoint-agent/authorize-loaded-credentials --credentials-directory %d
 ExecStart=/usr/lib/endpoint-agent/start-endpoint-agent
 Restart=on-failure
 RestartPreventExitStatus=78 243

@@ -23,6 +23,7 @@ README = PACKAGE_ROOT / "README.md"
 SOURCES = PACKAGE_ROOT / "SOURCES"
 SERVICE = SOURCES / "endpoint-agent.service"
 FINGERPRINT_HELPER = SOURCES / "endpoint-agent-fingerprint"
+LOADED_CREDENTIAL_AUTHORIZER = SOURCES / "authorize-loaded-credentials.py"
 TMPFILES = SOURCES / "endpoint-agent.tmpfiles"
 LOGROTATE = SOURCES / "endpoint-agent.logrotate"
 LIFECYCLE_HARNESS = Path(__file__).with_name("verify_alt_rpm_lifecycle.sh")
@@ -357,6 +358,7 @@ def test_rpm_payload_is_limited_to_program_units_and_nonsecret_runtime_scaffoldi
         "/usr/lib/endpoint-agent/apply-pending-alt-update",
         "/usr/lib/endpoint-agent/start-endpoint-agent",
         "/usr/lib/endpoint-agent/endpoint-agent-fingerprint",
+        "/usr/lib/endpoint-agent/authorize-loaded-credentials",
     ):
         assert required in spec
 
@@ -388,11 +390,29 @@ def test_service_requires_config_ca_and_durable_credential_or_loaded_claim() -> 
     assert "--config /etc/endpoint-agent/config.yaml" in service
     assert "--claim /etc/credstore/endpoint-enrollment-claim" in service
     assert "ExecStart=/usr/lib/endpoint-agent/start-endpoint-agent" in service
+    assert (
+        "ExecStartPre=+/usr/lib/endpoint-agent/authorize-loaded-credentials "
+        "--credentials-directory %d"
+    ) in service
     assert "RestartPreventExitStatus=78 243" in service
     assert "%d/endpoint-agent-config" not in next(
         line for line in service.splitlines() if line.startswith("ExecCondition=")
     )
     assert "/versions/" not in service
+
+
+def test_service_grants_agent_read_only_access_to_loaded_credentials() -> None:
+    """ALT's root-owned credential directory must not make first boot exit 75."""
+    helper = _text(LOADED_CREDENTIAL_AUTHORIZER)
+
+    assert "os.chown(path, 0, account.pw_gid)" in helper
+    assert "os.chmod(path, 0o440)" in helper
+    assert "os.chown(credentials_dir, 0, account.pw_gid)" in helper
+    assert "os.chmod(credentials_dir, 0o550)" in helper
+    assert "endpoint-agent-config" in helper
+    assert "endpoint-agent-ca" in helper
+    assert "endpoint-enrollment-claim" in helper
+    assert "group root" not in helper.lower()
 
 
 def test_service_account_is_nonlogin_and_reused_without_password_material() -> None:
@@ -541,7 +561,8 @@ def test_systemd_harness_exercises_loaded_credentials_without_touching_live_agen
     for required in (
         "LoadCredential=endpoint-agent-config:",
         "credential-gate-mode=",
-        "0:0:440",
+        "account_gid=$(id -g endpoint-agent)",
+        "0:$account_gid:440",
         "service_before=",
         '[[ "$service_before" == "$service_after" ]]',
     ):

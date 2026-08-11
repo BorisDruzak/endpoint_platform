@@ -3,3 +3,4 @@
 *.service text eol=lf
 packaging/alt/SOURCES/*.py text eol=lf
 packaging/alt/SOURCES/endpoint-agent-fingerprint text eol=lf
+packaging/alt/SOURCES/authorize-loaded-credentials.py text eol=lf
