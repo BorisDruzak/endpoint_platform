@@ -79,3 +79,8 @@ def test_build_wrapper_rejects_a_path_like_version_before_building(tmp_path: Pat
 def test_alt_linux_rpm_spec_declares_the_required_package_group() -> None:
     """ALT rpmbuild rejects package metadata without Group before an RPM is created."""
     assert "Group:          System/Monitoring" in RPM_SPEC.read_text(encoding="utf-8")
+
+
+def test_alt_linux_rpm_spec_skips_autodependency_scans_of_the_frozen_payload() -> None:
+    """Scanning every embedded Qt library makes the self-contained package build unbounded."""
+    assert "AutoReq:        no" in RPM_SPEC.read_text(encoding="utf-8")

@@ -5,6 +5,7 @@ Summary:        Endpoint Platform agent bootstrap bundle
 License:        Proprietary
 Group:          System/Monitoring
 BuildArch:      x86_64
+AutoReq:        no
 Source0:        endpoint-agent-%{version}.tar.gz
 
 %description
