@@ -1,0 +1,54 @@
+#!/usr/bin/python3
+"""Print the selected frozen agent's canonical enrollment fingerprint."""
+
+from __future__ import annotations
+
+import json
+import os
+from pathlib import Path
+import re
+import stat
+import sys
+
+
+SELECTOR = Path("/opt/endpoint-agent/current.json")
+CORE_ROOT = Path("/opt/endpoint-agent/versions")
+VERSION = re.compile(r"[A-Za-z0-9][A-Za-z0-9._+-]{0,63}\Z")
+
+
+def _fail() -> None:
+    raise SystemExit(78)
+
+
+def _safe_root_regular(path: Path, *, executable: bool = False) -> None:
+    try:
+        details = os.lstat(path)
+    except OSError:
+        _fail()
+    if not (
+        stat.S_ISREG(details.st_mode)
+        and details.st_uid == 0
+        and details.st_gid == 0
+        and not details.st_mode & (stat.S_IWGRP | stat.S_IWOTH)
+        and (not executable or details.st_mode & stat.S_IXUSR)
+    ):
+        _fail()
+
+
+def main() -> int:
+    _safe_root_regular(SELECTOR)
+    try:
+        selector = json.loads(SELECTOR.read_text(encoding="utf-8"))
+        version = selector["version"] if isinstance(selector, dict) else None
+    except (KeyError, OSError, UnicodeDecodeError, json.JSONDecodeError):
+        _fail()
+    if not isinstance(version, str) or not VERSION.fullmatch(version):
+        _fail()
+    core = CORE_ROOT / version / "endpoint-agent" / "endpoint-agent"
+    _safe_root_regular(core, executable=True)
+    os.execv(core, [str(core), "--print-hardware-fingerprint"])
+    return 78
+
+
+if __name__ == "__main__":
+    sys.exit(main())

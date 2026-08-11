@@ -48,6 +48,21 @@ def test_headless_runtime_prints_its_compiled_version_without_runtime_inputs(
     assert capsys.readouterr().out.strip() == AGENT_VERSION
 
 
+def test_headless_runtime_prints_enrollment_fingerprint_without_runtime_inputs(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Claim tooling must reuse enrollment identity derivation before config exists."""
+    fingerprint = "sha256:" + "a" * 64
+    monkeypatch.setattr(
+        runtime_main,
+        "derive_linux_hardware_fingerprint",
+        lambda: fingerprint,
+    )
+
+    assert runtime_main.main(["--print-hardware-fingerprint"]) == 0
+    assert capsys.readouterr().out == fingerprint + "\n"
+
+
 class _Executor:
     def __init__(self, events: list[str]) -> None:
         self._events = events

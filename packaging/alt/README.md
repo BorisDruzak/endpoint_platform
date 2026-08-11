@@ -67,6 +67,11 @@ canonical enrollment identity, remove the one-time claim and restart. An already
 finalized installation therefore upgrades without restoring a mandatory claim
 dependency.
 
+Before issuing a host-bound claim, a provisioning controller may run
+`/usr/lib/endpoint-agent/endpoint-agent-fingerprint`. It prints exactly the
+canonical `sha256:` fingerprint from the selected frozen core, does not access
+the network or enrollment inputs, and does not change host state.
+
 ## Upgrade and removal
 
 Upgrade replaces package-owned launcher, units, helper, and immutable release

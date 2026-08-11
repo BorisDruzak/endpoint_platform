@@ -22,6 +22,7 @@ BUILD = PACKAGE_ROOT / "build-rpm.sh"
 README = PACKAGE_ROOT / "README.md"
 SOURCES = PACKAGE_ROOT / "SOURCES"
 SERVICE = SOURCES / "endpoint-agent.service"
+FINGERPRINT_HELPER = SOURCES / "endpoint-agent-fingerprint"
 TMPFILES = SOURCES / "endpoint-agent.tmpfiles"
 LOGROTATE = SOURCES / "endpoint-agent.logrotate"
 LIFECYCLE_HARNESS = Path(__file__).with_name("verify_alt_rpm_lifecycle.sh")
@@ -355,8 +356,20 @@ def test_rpm_payload_is_limited_to_program_units_and_nonsecret_runtime_scaffoldi
         "/usr/lib/systemd/system/endpoint-agent-update.path",
         "/usr/lib/endpoint-agent/apply-pending-alt-update",
         "/usr/lib/endpoint-agent/start-endpoint-agent",
+        "/usr/lib/endpoint-agent/endpoint-agent-fingerprint",
     ):
         assert required in spec
+
+
+def test_rpm_fingerprint_helper_executes_only_the_selected_frozen_core() -> None:
+    """Claim binding must not duplicate the agent algorithm or read enrollment secrets."""
+    helper = _text(FINGERPRINT_HELPER)
+
+    assert "--print-hardware-fingerprint" in helper
+    assert "/opt/endpoint-agent/current.json" in helper
+    assert "/opt/endpoint-agent/versions" in helper
+    for forbidden in ("config.yaml", "ca.crt", "provisioning-claim", "credential"):
+        assert forbidden not in helper
 
 
 def test_service_requires_config_ca_and_durable_credential_or_loaded_claim() -> None:

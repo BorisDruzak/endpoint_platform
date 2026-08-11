@@ -16,6 +16,7 @@ Source12: endpoint-agent-update.path
 Source13: apply-pending-alt-update.sh
 Source14: check-start-prerequisites.py
 Source15: start-endpoint-agent.py
+Source16: endpoint-agent-fingerprint
 Source20: endpoint-agent.tmpfiles
 Source21: endpoint-agent.logrotate
 BuildArch: x86_64
@@ -55,6 +56,7 @@ install -m 0644 %{SOURCE12} %buildroot/usr/lib/systemd/system/endpoint-agent-upd
 install -m 0755 %{SOURCE13} %buildroot/usr/lib/endpoint-agent/apply-pending-alt-update
 install -m 0755 %{SOURCE14} %buildroot/usr/lib/endpoint-agent/check-start-prerequisites
 install -m 0755 %{SOURCE15} %buildroot/usr/lib/endpoint-agent/start-endpoint-agent
+install -m 0755 %{SOURCE16} %buildroot/usr/lib/endpoint-agent/endpoint-agent-fingerprint
 install -m 0644 %{SOURCE20} %buildroot/usr/lib/tmpfiles.d/endpoint-agent.conf
 install -m 0644 %{SOURCE21} %buildroot/etc/logrotate.d/endpoint-agent
 install -m 0644 %{_sourcedir}/README.md %buildroot/usr/share/doc/endpoint-agent/README.md
@@ -137,6 +139,7 @@ systemctl daemon-reload || :
 /usr/lib/endpoint-agent/apply-pending-alt-update
 /usr/lib/endpoint-agent/check-start-prerequisites
 /usr/lib/endpoint-agent/start-endpoint-agent
+/usr/lib/endpoint-agent/endpoint-agent-fingerprint
 /usr/lib/systemd/system/endpoint-agent.service
 /usr/lib/systemd/system/endpoint-agent-update.service
 /usr/lib/systemd/system/endpoint-agent-update.path

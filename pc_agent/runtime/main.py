@@ -14,6 +14,7 @@ if __package__ in {None, ""} and not getattr(sys, "frozen", False):
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from pc_agent.core import runtime_paths
+from pc_agent.linux_enrollment_runtime import derive_linux_hardware_fingerprint
 from pc_agent.runtime.application import RuntimeSettings, run_runtime
 from pc_agent.runtime.verification import run_verify
 from pc_agent.version import AGENT_VERSION
@@ -116,6 +117,7 @@ def _parser() -> argparse.ArgumentParser:
     modes.add_argument("--verify", action="store_true")
     modes.add_argument("--print-safe-status", action="store_true")
     modes.add_argument("--print-version", action="store_true")
+    modes.add_argument("--print-hardware-fingerprint", action="store_true")
     return parser
 
 
@@ -123,6 +125,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     if args.print_version:
         print(AGENT_VERSION)
+        return 0
+    if args.print_hardware_fingerprint:
+        print(derive_linux_hardware_fingerprint())
         return 0
     ca_value = args.ca_file or os.environ.get("ENDPOINT_AGENT_CA_FILE", "")
     if not str(ca_value).strip() and not (

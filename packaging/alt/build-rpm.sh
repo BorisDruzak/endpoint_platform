@@ -280,6 +280,7 @@ stage_file 0644 "$project_root/deploy/agent/alt/endpoint-agent-update.path" "$bu
 stage_file 0755 "$project_root/deploy/agent/alt/apply-pending-alt-update.sh" "$build_root/SOURCES/apply-pending-alt-update.sh"
 stage_file 0755 "$script_dir/SOURCES/check-start-prerequisites.py" "$build_root/SOURCES/check-start-prerequisites.py"
 stage_file 0755 "$script_dir/SOURCES/start-endpoint-agent.py" "$build_root/SOURCES/start-endpoint-agent.py"
+stage_file 0755 "$script_dir/SOURCES/endpoint-agent-fingerprint" "$build_root/SOURCES/endpoint-agent-fingerprint"
 stage_file 0644 "$script_dir/SOURCES/endpoint-agent.tmpfiles" "$build_root/SOURCES/endpoint-agent.tmpfiles"
 stage_file 0644 "$script_dir/SOURCES/endpoint-agent.logrotate" "$build_root/SOURCES/endpoint-agent.logrotate"
 
