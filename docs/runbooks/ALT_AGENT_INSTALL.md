@@ -51,6 +51,44 @@ root-owned mode `0600`.
 
 ## Installation
 
+### External Ansible controller
+
+For repeatable first installs, use the portable role in
+`deploy/ansible/roles/endpoint_agent_alt` from a separate Ansible controller.
+The controller keeps only `vault_endpoint_provisioning_token` in its existing
+Vault. A Gateway administrator creates that service credential once with these
+exact scopes: `provisioning.campaigns.create`,
+`provisioning.campaigns.revoke`, and `provisioning.install-claims.issue`.
+The role creates and revokes one single-use campaign per host; it never stores
+an enrollment claim in Vault or inventory. Configure the reviewed RPM, Gateway
+CA and permitted source CIDRs from
+`deploy/ansible/group_vars/endpoint_agent_alt_pilot.example.yml`, then run
+`deploy/ansible/playbooks/endpoint_agent_alt_pilot.yml` from that controller.
+The target host must resolve `endpoint.sosnadmin.local`; the role has no IP
+endpoint override and keeps TLS verification enabled.
+
+### RPM automatic enrollment
+
+For the packaged path, prepare the root-only bootstrap directory before the
+first `rpm -Uvh`. The CA, installation ID, and claim are all regular
+`root:root` files with mode `0600`; the directory is `root:root` mode `0700`.
+The claim must be one-time, short-lived, bound by the controller to this
+installation ID, ALT platform, allowed network and hardware fingerprint.
+
+```bash
+sudo install -d -o root -g root -m 0755 /etc/endpoint-agent
+sudo install -d -o root -g root -m 0700 /etc/endpoint-agent/bootstrap
+sudo install -o root -g root -m 0600 /root/input/installation-id /etc/endpoint-agent/bootstrap/installation-id
+sudo install -o root -g root -m 0600 /root/input/sosnadmin-local-ca.crt /etc/endpoint-agent/bootstrap/ca.crt
+sudo install -o root -g root -m 0600 /root/input/endpoint-agent-one-time-claim /etc/endpoint-agent/bootstrap/provisioning-claim
+sudo rpm -Uvh endpoint-agent-VERSION.x86_64.rpm
+```
+
+The `%pre` gate rejects absent, symlinked, wrong-owner, or wrong-mode bootstrap
+inputs before unpacking. `%post` invokes the same verified installer described
+below, starts `endpoint-agent.service`, `endpoint-agent-update.path`, and
+`endpoint-agent-finalize.path`; it never sends a claim to Helpdesk.
+
 Run the same command without `--dry-run`. The installer creates only these
 runtime roots: `/opt/endpoint-agent`, `/var/lib/endpoint-agent`,
 `/etc/endpoint-agent`, and `/var/log/endpoint-agent`. It creates the dedicated

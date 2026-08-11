@@ -62,6 +62,12 @@ for a durable device credential bound to the hardware fingerprint. The
 root-owned finalizer removes the installed handoff only after verifying that
 credential, switches the unit to Gateway-ready mode, and restarts the agent.
 
+For repeatable remote installation, the repository also provides the external
+controller role at `deploy/ansible/roles/endpoint_agent_alt`. It creates a
+single-use enrollment campaign and host-bound claim for each target through the
+Gateway service API, then revokes the campaign after that host's attempt. Store
+only the narrow deployment service token in Ansible Vault; never store a claim.
+
 Verify the completed transition without exposing secrets:
 
 ```bash
