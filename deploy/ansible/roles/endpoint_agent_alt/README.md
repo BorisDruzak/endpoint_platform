@@ -23,7 +23,8 @@ single-use bounded campaign for each host, obtains that host-bound claim over
 TLS immediately before RPM installation, and revokes the campaign in its
 `always` block.
 
-Copy the reviewed RPM to the controller at the path in
+Build a new reviewed RPM from this rollout revision (it includes the automatic
+enrollment finalizer) and copy it to the controller at the path in
 `group_vars/endpoint_agent_alt_pilot.example.yml`, copy the Gateway CA to the
 two indicated controller paths, then provide inventory and Vault files outside
 this repository. Make `endpoint_agent_campaign_cidrs` include each target's
