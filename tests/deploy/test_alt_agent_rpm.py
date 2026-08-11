@@ -10,6 +10,7 @@ from pc_agent.build_alt_rpm_source import build_source_archive
 
 ROOT = Path(__file__).resolve().parents[2]
 BUILD_RPM = ROOT / "deploy" / "agent" / "alt" / "rpm" / "build-rpm.sh"
+RPM_SPEC = ROOT / "deploy" / "agent" / "alt" / "rpm" / "endpoint-agent.spec"
 
 
 def _write(path: Path, content: bytes, mode: int = 0o644) -> None:
@@ -74,3 +75,7 @@ def test_build_wrapper_rejects_a_path_like_version_before_building(tmp_path: Pat
     assert result.returncode == 2
     assert "version must be a bounded RPM identifier" in result.stderr
 
+
+def test_alt_linux_rpm_spec_declares_the_required_package_group() -> None:
+    """ALT rpmbuild rejects package metadata without Group before an RPM is created."""
+    assert "Group:          System/Monitoring" in RPM_SPEC.read_text(encoding="utf-8")
