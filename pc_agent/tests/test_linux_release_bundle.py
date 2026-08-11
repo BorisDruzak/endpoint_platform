@@ -28,13 +28,10 @@ def test_assemble_bundle_writes_a_complete_sorted_schema_one_manifest(tmp_path: 
     """Removing, reordering, or changing a payload file must invalidate this release record."""
     source = _valid_source(tmp_path)
     source_modes = {
-        relative: f"{stat.S_IMODE((source / relative).lstat().st_mode):04o}"
-        for relative in (
-            "launcher",
-            "pc_agent/_internal/a.dat",
-            "pc_agent/_internal/z.dat",
-            "pc_agent/pc_agent",
-        )
+        "launcher": "0755",
+        "pc_agent/_internal/a.dat": "0644",
+        "pc_agent/_internal/z.dat": "0644",
+        "pc_agent/pc_agent": "0755",
     }
 
     bundle = assemble_bundle(source, tmp_path / "output", "3.2.1", "6985dd0b89ff6626")
@@ -94,6 +91,20 @@ def test_assemble_bundle_normalizes_an_in_tree_payload_symlink(tmp_path: Path) -
     assert {entry["path"] for entry in manifest["files"]} >= {
         "pc_agent/_internal/runtime-link.so"
     }
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX permission semantics are required")
+def test_assemble_bundle_normalizes_runtime_file_and_directory_permissions(tmp_path: Path) -> None:
+    """A root-owned release must remain readable and traversable by the service account."""
+    source = _valid_source(tmp_path)
+    _write_payload(source / "pc_agent" / "_internal" / "private.pyc", b"private\n", 0o600)
+    _write_payload(source / "pc_agent" / "_internal" / "tool", b"tool\n", 0o700)
+
+    bundle = assemble_bundle(source, tmp_path / "output", "3.2.1", "6985dd0b89ff6626")
+
+    assert stat.S_IMODE((bundle / "pc_agent" / "_internal" / "private.pyc").stat().st_mode) == 0o644
+    assert stat.S_IMODE((bundle / "pc_agent" / "_internal" / "tool").stat().st_mode) == 0o755
+    assert stat.S_IMODE((bundle / "pc_agent" / "_internal").stat().st_mode) == 0o755
 
 
 def test_assemble_bundle_rejects_an_unexpected_source_entry(tmp_path: Path) -> None:

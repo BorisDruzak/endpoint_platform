@@ -91,13 +91,18 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def _manifest_entry(source_file: Path, relative_path: str) -> dict[str, str]:
-    mode = stat.S_IMODE(source_file.lstat().st_mode)
+def _manifest_entry(source_file: Path, relative_path: str, mode: int) -> dict[str, str]:
     return {
         "path": relative_path,
         "sha256": _sha256(source_file),
         "mode": f"{mode:04o}",
     }
+
+
+def _runtime_mode(source_file: Path, relative_path: str) -> int:
+    """Return a root-owned release mode that the unprivileged service can use."""
+    source_mode = stat.S_IMODE(source_file.lstat().st_mode)
+    return 0o755 if relative_path in _REQUIRED_PAYLOAD_FILES or source_mode & 0o111 else 0o644
 
 
 def _write_manifest_atomically(destination: Path, manifest: dict[str, object]) -> None:
@@ -129,15 +134,22 @@ def assemble_bundle(source: Path, output: Path, version: str, revision: str) -> 
         raise ValueError(f"bundle output already exists: {bundle}")
     output.mkdir(parents=True, exist_ok=True)
     staging = Path(tempfile.mkdtemp(prefix=f".endpoint-agent-{version}.", dir=output))
+    staging.chmod(0o755)
     try:
         manifest_files: list[dict[str, str]] = []
         for source_file, relative_path in source_files:
             destination = staging / Path(relative_path)
             destination.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(source_file, destination)
-            mode = stat.S_IMODE(source_file.lstat().st_mode)
+            mode = _runtime_mode(source_file, relative_path)
             destination.chmod(mode)
-            manifest_files.append(_manifest_entry(destination, relative_path))
+            manifest_files.append(_manifest_entry(destination, relative_path, mode))
+        for directory in sorted(
+            (path for path in staging.rglob("*") if path.is_dir()),
+            key=lambda path: len(path.parts),
+            reverse=True,
+        ):
+            directory.chmod(0o755)
         _write_manifest_atomically(
             staging / "manifest.json",
             {
