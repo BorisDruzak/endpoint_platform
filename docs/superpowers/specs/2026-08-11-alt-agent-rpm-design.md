@@ -16,17 +16,20 @@ or device-specific configuration.
 
 ## Installation model
 
-The package owns static files under `/opt/endpoint-agent`, `/usr/lib/endpoint-agent`,
-`/usr/share/doc/endpoint-agent`, and `/usr/lib/systemd/system`. RPM scriptlets
-create the `endpoint-agent` system user and the persistent state directories:
+The package owns only the immutable, unprovisioned payload under
+`/usr/lib/endpoint-agent`, including `release-bundle/`, the provisioning script,
+the unit-file templates, and the update helper. RPM scriptlets create the
+`endpoint-agent` system user and the persistent state directories:
 `/etc/endpoint-agent`, `/var/lib/endpoint-agent`, and `/var/log/endpoint-agent`.
-It must not enable or start the agent service: provisioning material is absent
-until the operator supplies it.
+The production release under `/opt/endpoint-agent` is created only by the
+provisioning script. RPM must not enable or start the agent service: provisioning
+material is absent until the operator supplies it.
 
 The existing `install-endpoint-agent.sh` remains the privileged provisioning
-entry point. A separate RPM helper will create the static filesystem and
-service-account prerequisites; it will not duplicate, weaken, or bypass the
-installer's validation, immutable-release selection, or service activation.
+entry point. Operators run it from `/usr/lib/endpoint-agent` and pass the
+bundled `/usr/lib/endpoint-agent/release-bundle` as `--agent-bundle`. It will
+not duplicate, weaken, or bypass the installer’s validation, immutable-release
+selection, or service activation.
 
 ## Build and artifact contract
 
@@ -42,11 +45,11 @@ missing its launcher, agent binary, manifest, or contains symbolic links.
 
 ## Upgrade and removal
 
-Package upgrades replace only package-owned static code and unit/helper files.
-They preserve `/etc/endpoint-agent`, `/var/lib/endpoint-agent`, and
-`/var/log/endpoint-agent`; RPM removal also preserves these operator data
-directories. No scriptlet starts, stops, enables, disables, or restarts the
-agent automatically.
+Package upgrades replace only the unprovisioned bundle and provisioning assets
+under `/usr/lib/endpoint-agent`. They preserve `/opt/endpoint-agent`,
+`/etc/endpoint-agent`, `/var/lib/endpoint-agent`, and `/var/log/endpoint-agent`;
+RPM removal also preserves these operator data directories. No scriptlet starts,
+stops, enables, disables, or restarts the agent automatically.
 
 ## Validation
 
