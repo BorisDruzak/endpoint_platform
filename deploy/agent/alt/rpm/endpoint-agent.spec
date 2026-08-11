@@ -6,6 +6,9 @@ License:        Proprietary
 Group:          System/Monitoring
 BuildArch:      x86_64
 AutoReq:        no
+# The release manifest attests every frozen onedir byte.  ALT's brp policy
+# strips embedded ELF files after %install, which would invalidate that record.
+%global __os_install_post %{nil}
 Source0:        endpoint-agent-%{version}.tar.gz
 
 %description

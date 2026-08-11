@@ -86,6 +86,11 @@ def test_alt_linux_rpm_spec_skips_autodependency_scans_of_the_frozen_payload() -
     assert "AutoReq:        no" in RPM_SPEC.read_text(encoding="utf-8")
 
 
+def test_alt_linux_rpm_spec_preserves_manifest_attested_frozen_payload_bytes() -> None:
+    """ALT brp post-processing must not strip embedded libraries after their hashes are attested."""
+    assert "%global __os_install_post %{nil}" in RPM_SPEC.read_text(encoding="utf-8")
+
+
 def test_alt_linux_rpm_first_install_requires_secure_bootstrap_and_provisions() -> None:
     """A missing first-boot claim must stop RPM before it can expose an inactive agent."""
     spec = RPM_SPEC.read_text(encoding="utf-8")
