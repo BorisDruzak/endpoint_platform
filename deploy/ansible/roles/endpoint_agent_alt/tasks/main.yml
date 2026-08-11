@@ -1,22 +1,111 @@
 ---
+- name: Validate Endpoint Agent controller inputs
+  ansible.builtin.assert:
+    that:
+      - endpoint_agent_rpm_source | length > 0
+      - endpoint_agent_rpm_sha256 is match('^[a-f0-9]{64}$')
+      - endpoint_agent_ca_source | length > 0
+      - endpoint_agent_gateway_ca_path | length > 0
+      - endpoint_agent_campaign_cidrs | length > 0
+      - vault_endpoint_provisioning_token | length > 0
+    fail_msg: Endpoint Agent rollout inputs are incomplete or invalid.
+  no_log: true
+
 - name: Verify Gateway DNS resolution
   ansible.builtin.command: getent hosts endpoint.sosnadmin.local
   changed_when: false
 
-- name: Require clean Endpoint Agent host
+- name: Verify RPM tools
+  ansible.builtin.shell: "command -v {{ item }}"
+  loop:
+    - rpm
+    - rpm2cpio
+    - cpio
+  changed_when: false
+
+- name: Detect a previously failed Endpoint Agent pre-stage
+  ansible.builtin.command: rpm -q endpoint-agent
+  register: endpoint_agent_partial_rpm
+  changed_when: false
+  failed_when: false
+  when: endpoint_agent_recover_partial_install | bool
+
+- name: Detect an unmanaged legacy Endpoint Agent service shadow
   ansible.builtin.shell: >-
-    ! rpm -q endpoint-agent >/dev/null 2>&1 &&
+    test -f /etc/systemd/system/endpoint-agent.service &&
+    ! rpm -qf /etc/systemd/system/endpoint-agent.service >/dev/null 2>&1 &&
+    grep -Fxq 'ExecStart=/opt/endpoint-agent/launcher --no-gui --data-dir /var/lib/endpoint-agent --install-root /opt/endpoint-agent'
+    /etc/systemd/system/endpoint-agent.service
+  args:
+    executable: /bin/bash
+  register: endpoint_agent_legacy_unit
+  changed_when: false
+  failed_when: false
+  when: endpoint_agent_recover_partial_install | bool
+
+- name: Verify partial Endpoint Agent state has no durable identity before recovery
+  ansible.builtin.shell: >-
     ! test -e /var/lib/endpoint-agent/device-credential &&
-    ! test -e /etc/endpoint-agent/bootstrap/provisioning-claim
+    ! test -e /var/lib/endpoint-agent/enrollment-identity.json
   args:
     executable: /bin/bash
   changed_when: false
+  when:
+    - endpoint_agent_recover_partial_install | bool
+    - endpoint_agent_partial_rpm.rc | default(1) == 0 or endpoint_agent_legacy_unit.rc | default(1) == 0
 
-- name: Verify RPM extraction dependencies
-  ansible.builtin.command: "{{ item }}"
+- name: Stop partial Endpoint Agent service before recovery
+  ansible.builtin.systemd_service:
+    name: endpoint-agent.service
+    state: stopped
+  when:
+    - endpoint_agent_recover_partial_install | bool
+    - endpoint_agent_partial_rpm.rc | default(1) == 0 or endpoint_agent_legacy_unit.rc | default(1) == 0
+
+- name: Remove partial Endpoint Agent enrollment inputs
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
   loop:
-    - rpm2cpio --help
-    - cpio --version
+    - /etc/endpoint-agent/config.yaml
+    - /etc/endpoint-agent/ca.crt
+    - /etc/credstore/endpoint-enrollment-claim
+  when:
+    - endpoint_agent_recover_partial_install | bool
+    - endpoint_agent_partial_rpm.rc | default(1) == 0 or endpoint_agent_legacy_unit.rc | default(1) == 0
+
+- name: Remove verified unmanaged legacy Endpoint Agent service shadow
+  ansible.builtin.file:
+    path: /etc/systemd/system/endpoint-agent.service
+    state: absent
+  when:
+    - endpoint_agent_recover_partial_install | bool
+    - endpoint_agent_legacy_unit.rc | default(1) == 0
+
+- name: Reload systemd after legacy Endpoint Agent service shadow removal
+  ansible.builtin.systemd_service:
+    daemon_reload: true
+  when:
+    - endpoint_agent_recover_partial_install | bool
+    - endpoint_agent_legacy_unit.rc | default(1) == 0
+
+- name: Remove verified incomplete Endpoint Agent pre-stage
+  ansible.builtin.command: rpm -e endpoint-agent
+  when:
+    - endpoint_agent_recover_partial_install | bool
+    - endpoint_agent_partial_rpm.rc | default(1) == 0
+
+- name: Require clean Endpoint Agent host
+  ansible.builtin.shell: >-
+    ! rpm -q endpoint-agent >/dev/null 2>&1 &&
+    ! test -e /etc/endpoint-agent/config.yaml &&
+    ! test -e /etc/endpoint-agent/ca.crt &&
+    ! test -e /etc/credstore/endpoint-enrollment-claim &&
+    ! test -e /var/lib/endpoint-agent/device-credential &&
+    ! test -e /var/lib/endpoint-agent/enrollment-identity.json &&
+    ! test -e /etc/systemd/system/endpoint-agent.service
+  args:
+    executable: /bin/bash
   changed_when: false
 
 - name: Copy reviewed Endpoint Agent RPM
@@ -27,43 +116,57 @@
     group: root
     mode: "0600"
 
-- name: Derive hardware fingerprint from reviewed RPM runtime
+- name: Calculate copied RPM SHA-256
+  ansible.builtin.stat:
+    path: "{{ endpoint_agent_rpm_path }}"
+    checksum_algorithm: sha256
+  register: endpoint_agent_rpm_stat
+  changed_when: false
+
+- name: Verify copied RPM SHA-256
+  ansible.builtin.assert:
+    that:
+      - endpoint_agent_rpm_stat.stat.checksum == endpoint_agent_rpm_sha256
+    fail_msg: Endpoint Agent RPM SHA-256 does not match the reviewed artifact.
+
+- name: Test reviewed Endpoint Agent RPM transaction
+  ansible.builtin.command: "rpm -Uvh --test {{ endpoint_agent_rpm_path }}"
+  changed_when: false
+
+- name: Install reviewed Endpoint Agent RPM before enrollment
+  ansible.builtin.command: "rpm -Uvh {{ endpoint_agent_rpm_path }}"
+  register: endpoint_agent_rpm_install
+  changed_when: endpoint_agent_rpm_install.rc == 0
+
+- name: Read pre-staged Endpoint Agent service state
+  ansible.builtin.command: systemctl show --property=ActiveState --value endpoint-agent.service
+  register: endpoint_agent_pre_enrollment_service_state
+  changed_when: false
+
+- name: Require inactive Endpoint Agent before bootstrap files exist
+  ansible.builtin.assert:
+    that:
+      - endpoint_agent_pre_enrollment_service_state.stdout == 'inactive'
+    fail_msg: Endpoint Agent service started before config, CA, and claim were installed.
+
+- name: Read canonical frozen-core hardware fingerprint
+  ansible.builtin.command: /usr/lib/endpoint-agent/endpoint-agent-fingerprint
+  become_user: endpoint-agent
+  register: endpoint_agent_fingerprint
+  changed_when: false
+  no_log: true
+
+- name: Validate canonical frozen-core hardware fingerprint
+  ansible.builtin.assert:
+    that:
+      - endpoint_agent_fingerprint.stdout_lines | length == 1
+      - endpoint_agent_fingerprint.stdout is match('^sha256:[a-f0-9]{64}$')
+    fail_msg: Endpoint Agent fingerprint helper did not return one canonical SHA-256 value.
+  no_log: true
+
+- name: Create and use host-bound Endpoint Agent claim
   block:
-    - name: Create private fingerprint extraction directory
-      ansible.builtin.tempfile:
-        state: directory
-        prefix: endpoint-agent-fingerprint-
-      register: endpoint_agent_fingerprint_dir
-      no_log: true
-
-    - name: Extract read-only fingerprint runtime from RPM
-      ansible.builtin.shell: >-
-        set -o pipefail && rpm2cpio {{ endpoint_agent_rpm_path | quote }} |
-        cpio -idm --quiet -D {{ endpoint_agent_fingerprint_dir.path | quote }}
-        './usr/lib64/endpoint-agent/release-bundle/pc_agent/*'
-      args:
-        executable: /bin/bash
-      changed_when: false
-      no_log: true
-
-    - name: Read exact Endpoint Agent hardware fingerprint
-      ansible.builtin.command: >-
-        {{ endpoint_agent_fingerprint_dir.path }}/usr/lib64/endpoint-agent/release-bundle/pc_agent/pc_agent
-        --print-hardware-fingerprint
-      register: endpoint_agent_fingerprint
-      changed_when: false
-      no_log: true
-  always:
-    - name: Remove fingerprint extraction directory
-      ansible.builtin.file:
-        path: "{{ endpoint_agent_fingerprint_dir.path | default('') }}"
-        state: absent
-      when: endpoint_agent_fingerprint_dir is defined
-      no_log: true
-
-- name: Create and use bounded enrollment campaign
-  block:
-    - name: Create rollout campaign on Gateway
+    - name: Create per-host rollout campaign
       ansible.builtin.uri:
         url: https://endpoint.sosnadmin.local/api/v1/provisioning/campaigns
         method: POST
@@ -71,24 +174,27 @@
           Authorization: "Bearer {{ vault_endpoint_provisioning_token }}"
         body_format: json
         body:
-          expires_at: '{{ lookup("pipe", "date -u -d \"+%s minutes\" +%%Y-%%m-%%dT%%H:%%M:%%SZ" % endpoint_agent_campaign_lifetime_minutes) }}'
+          expires_at: >-
+            {{ lookup('pipe', 'date --utc --date="+' ~ endpoint_agent_campaign_lifetime_minutes ~ ' minutes" +%Y-%m-%dT%H:%M:%SZ') }}
           max_uses: 1
           allowed_cidrs: "{{ endpoint_agent_campaign_cidrs }}"
           target_platform: linux
-          policy:
-            policy_id: ansible-alt-rollout
-          label: Ansible ALT rollout
-          site: ansible
+          policy: "{{ endpoint_agent_campaign_policy }}"
+          label: "{{ endpoint_agent_campaign_label }} {{ inventory_hostname }}"
+          site: "{{ endpoint_agent_campaign_site }}"
         ca_path: "{{ endpoint_agent_gateway_ca_path }}"
         validate_certs: true
+        use_proxy: false
         status_code: 201
+        return_content: false
       delegate_to: localhost
+      become: false
       register: endpoint_agent_campaign
       no_log: true
 
     - name: Request host-bound install claim from Gateway
       ansible.builtin.uri:
-        url: "{{ endpoint_agent_gateway_url }}/api/v1/provisioning/install-claims"
+        url: https://endpoint.sosnadmin.local/api/v1/provisioning/install-claims
         method: POST
         headers:
           Authorization: "Bearer {{ vault_endpoint_provisioning_token }}"
@@ -99,71 +205,131 @@
           hardware_fingerprint: "{{ endpoint_agent_fingerprint.stdout }}"
         ca_path: "{{ endpoint_agent_gateway_ca_path }}"
         validate_certs: true
+        use_proxy: false
         status_code: 201
+        return_content: false
       delegate_to: localhost
+      become: false
       register: endpoint_agent_install_claim
       no_log: true
 
-    - name: Create protected RPM bootstrap directory
+    - name: Create Endpoint Agent configuration directory
       ansible.builtin.file:
-        path: /etc/endpoint-agent/bootstrap
+        path: /etc/endpoint-agent
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Create protected Endpoint Agent credential directory
+      ansible.builtin.file:
+        path: /etc/credstore
         state: directory
         owner: root
         group: root
         mode: "0700"
 
-    - name: Copy Gateway CA for RPM enrollment
+    - name: Install non-secret Endpoint Agent configuration
+      ansible.builtin.template:
+        src: config.yaml.j2
+        dest: /etc/endpoint-agent/config.yaml
+        owner: root
+        group: root
+        mode: "0600"
+
+    - name: Install Gateway CA for Endpoint Agent enrollment
       ansible.builtin.copy:
         src: "{{ endpoint_agent_ca_source }}"
-        dest: /etc/endpoint-agent/bootstrap/ca.crt
+        dest: /etc/endpoint-agent/ca.crt
         owner: root
         group: root
         mode: "0600"
 
-    - name: Write RPM installation identity
-      ansible.builtin.copy:
-        content: "{{ endpoint_agent_installation_id }}\n"
-        dest: /etc/endpoint-agent/bootstrap/installation-id
-        owner: root
-        group: root
-        mode: "0600"
-
-    - name: Write one-time RPM enrollment claim
+    - name: Install one-time Endpoint Agent claim
       ansible.builtin.copy:
         content: "{{ endpoint_agent_install_claim.json.claim }}"
-        dest: /etc/endpoint-agent/bootstrap/provisioning-claim
+        dest: /etc/credstore/endpoint-enrollment-claim
         owner: root
         group: root
         mode: "0600"
       no_log: true
 
-    - name: Install Endpoint Agent RPM immediately after claim issuance
-      ansible.builtin.command: rpm -Uvh {{ endpoint_agent_rpm_path }}
-      register: endpoint_agent_rpm_install
-      changed_when: endpoint_agent_rpm_install.rc == 0
-      no_log: true
+    - name: Start Endpoint Agent update path
+      ansible.builtin.systemd:
+        name: endpoint-agent-update.path
+        state: started
+        enabled: true
 
-    - name: Wait for durable Gateway enrollment proof
+    - name: Start Endpoint Agent enrollment service
+      ansible.builtin.systemd:
+        name: endpoint-agent.service
+        state: started
+        enabled: true
+
+    - name: Wait for durable Endpoint Agent enrollment state
       ansible.builtin.shell: >-
         test -s /var/lib/endpoint-agent/device-credential &&
-        test ! -e /etc/endpoint-agent/provisioning-claim &&
+        test -s /var/lib/endpoint-agent/enrollment-identity.json &&
         systemctl is-active --quiet endpoint-agent.service &&
-        systemctl is-active --quiet endpoint-agent-update.path &&
-        systemctl is-active --quiet endpoint-agent-finalize.path
-      register: endpoint_agent_enrollment_status
+        systemctl is-active --quiet endpoint-agent-update.path
+      args:
+        executable: /bin/bash
+      register: endpoint_agent_enrollment_state
       retries: "{{ endpoint_agent_enrollment_retries }}"
       delay: "{{ endpoint_agent_enrollment_delay_seconds }}"
-      until: endpoint_agent_enrollment_status.rc == 0
+      until: endpoint_agent_enrollment_state.rc == 0
       changed_when: false
-  no_log: true
-  always:
-    - name: Remove unused bootstrap claim after rollout
+      no_log: true
+
+    - name: Verify durable Endpoint Agent state ownership and mode
+      ansible.builtin.stat:
+        path: "{{ item }}"
+      loop:
+        - /var/lib/endpoint-agent/device-credential
+        - /var/lib/endpoint-agent/enrollment-identity.json
+      register: endpoint_agent_durable_state
+      changed_when: false
+      no_log: true
+
+    - name: Require protected durable Endpoint Agent state
+      ansible.builtin.assert:
+        that:
+          - item.stat.exists
+          - item.stat.pw_name == 'endpoint-agent'
+          - item.stat.gr_name == 'endpoint-agent'
+          - item.stat.mode == '0600'
+        fail_msg: Endpoint Agent durable enrollment state is missing or insecure.
+      loop: "{{ endpoint_agent_durable_state.results }}"
+      no_log: true
+
+    - name: Remove local one-time claim after durable enrollment
       ansible.builtin.file:
-        path: /etc/endpoint-agent/bootstrap/provisioning-claim
+        path: /etc/credstore/endpoint-enrollment-claim
         state: absent
       no_log: true
 
-    - name: Revoke rollout campaign on Gateway
+    - name: Restart Endpoint Agent after durable enrollment
+      ansible.builtin.systemd:
+        name: endpoint-agent.service
+        state: restarted
+
+    - name: Verify Endpoint Agent runs without enrollment claim
+      ansible.builtin.shell: >-
+        test ! -e /etc/credstore/endpoint-enrollment-claim &&
+        systemctl is-active --quiet endpoint-agent.service &&
+        systemctl is-active --quiet endpoint-agent-update.path
+      args:
+        executable: /bin/bash
+      changed_when: false
+      no_log: true
+  always:
+    - name: Remove local one-time claim after Endpoint Agent rollout failure
+      ansible.builtin.file:
+        path: /etc/credstore/endpoint-enrollment-claim
+        state: absent
+      no_log: true
+
+    - name: Revoke per-host rollout campaign
       ansible.builtin.uri:
         url: "https://endpoint.sosnadmin.local/api/v1/provisioning/campaigns/{{ endpoint_agent_campaign.json.id }}/revoke"
         method: POST
@@ -171,7 +337,13 @@
           Authorization: "Bearer {{ vault_endpoint_provisioning_token }}"
         ca_path: "{{ endpoint_agent_gateway_ca_path }}"
         validate_certs: true
+        use_proxy: false
         status_code: 204
       delegate_to: localhost
-      when: endpoint_agent_campaign is defined and endpoint_agent_campaign.json.id is defined
+      become: false
+      when:
+        - endpoint_agent_campaign is defined
+        - endpoint_agent_campaign.json is defined
+        - endpoint_agent_campaign.json.id is defined
       no_log: true
+  no_log: true

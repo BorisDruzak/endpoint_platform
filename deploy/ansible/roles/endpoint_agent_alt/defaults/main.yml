@@ -1,10 +1,16 @@
 ---
-endpoint_agent_gateway_ca_path: ""
 endpoint_agent_rpm_source: ""
+endpoint_agent_rpm_sha256: ""
 endpoint_agent_ca_source: ""
+endpoint_agent_gateway_ca_path: ""
 endpoint_agent_rpm_path: /var/tmp/endpoint-agent.rpm
+endpoint_agent_recover_partial_install: false
 endpoint_agent_installation_id: "endpoint-{{ inventory_hostname }}"
 endpoint_agent_campaign_cidrs: []
-endpoint_agent_campaign_lifetime_minutes: 20
+endpoint_agent_campaign_lifetime_minutes: 15
+endpoint_agent_campaign_policy:
+  policy_id: ansible-alt-rollout
+endpoint_agent_campaign_label: Ansible ALT rollout
+endpoint_agent_campaign_site: ansible
 endpoint_agent_enrollment_retries: 30
 endpoint_agent_enrollment_delay_seconds: 2

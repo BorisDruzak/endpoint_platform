@@ -67,7 +67,8 @@ canonical enrollment identity, remove the one-time claim and restart. An already
 finalized installation therefore upgrades without restoring a mandatory claim
 dependency.
 
-Before issuing a host-bound claim, a provisioning controller may run
+After pre-staging the RPM but before issuing a host-bound claim or starting the
+service, a provisioning controller may run
 `/usr/lib/endpoint-agent/endpoint-agent-fingerprint`. It prints exactly the
 canonical `sha256:` fingerprint from the selected frozen core, does not access
 the network or enrollment inputs, and does not change host state.

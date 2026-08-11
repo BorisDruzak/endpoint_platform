@@ -63,6 +63,42 @@ def test_headless_runtime_prints_enrollment_fingerprint_without_runtime_inputs(
     assert capsys.readouterr().out == fingerprint + "\n"
 
 
+def test_headless_runtime_enrolls_before_starting_gateway(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A first install must exchange its systemd claim before loading a device token."""
+    credentials = tmp_path / "credentials"
+    paths = (
+        credentials / "endpoint-agent-config",
+        credentials / "endpoint-agent-ca",
+        credentials / "endpoint-enrollment-claim",
+    )
+    events: list[str] = []
+
+    async def fake_enrollment_gate(**kwargs: object):
+        assert (
+            kwargs["config_path"],
+            kwargs["ca_file"],
+            kwargs["claim_file"],
+        ) == paths
+        events.append("enroll")
+        return runtime_main.EnrollmentOutcome("enrolled", "device-1")
+
+    async def fake_runtime(settings: RuntimeSettings) -> int:
+        assert settings.transport_mode == "gateway_wss"
+        events.append("runtime")
+        return 0
+
+    monkeypatch.setenv("ENDPOINT_AGENT_ENROLLMENT_REQUIRED", "1")
+    monkeypatch.setenv("ENDPOINT_AGENT_CA_FILE", str(paths[1]))
+    monkeypatch.setattr(runtime_main, "systemd_runtime_paths", lambda: paths)
+    monkeypatch.setattr(runtime_main, "run_linux_enrollment_gate", fake_enrollment_gate)
+    monkeypatch.setattr(runtime_main, "run_runtime", fake_runtime)
+
+    assert runtime_main.main(["--transport-mode", "gateway_wss"]) == 0
+    assert events == ["enroll", "runtime"]
+
+
 class _Executor:
     def __init__(self, events: list[str]) -> None:
         self._events = events

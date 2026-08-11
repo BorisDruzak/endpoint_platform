@@ -1,13 +1,11 @@
 # Endpoint Agent ALT Ansible role
 
-Run `playbooks/endpoint_agent_alt_pilot.yml` from an external Ansible
-controller. The controller must be Linux with GNU `date`, and needs network
-access to the target hosts and to
+Run `playbooks/endpoint_agent_alt_pilot.yml` from an external Linux Ansible
+controller with GNU `date`, access to ALT hosts, and access to
 `https://endpoint.sosnadmin.local`.
 
-Before the first rollout, a Gateway administrator creates one service client
-named `ansible-alt-deployer` and one active credential with exactly these
-scopes:
+Before rollout, a Gateway administrator creates one service credential with
+only these scopes:
 
 - `provisioning.campaigns.create`
 - `provisioning.campaigns.revoke`
@@ -19,22 +17,64 @@ Store its raw token only in the controller's existing Ansible Vault:
 vault_endpoint_provisioning_token: "svc_..."
 ```
 
-Do not store an enrollment claim in Vault. The role creates a separate
-single-use bounded campaign for each host, obtains that host-bound claim over
-TLS immediately before RPM installation, and revokes the campaign in its
-`always` block.
+Do not store an enrollment claim, campaign bearer, or device credential in
+Vault, inventory, or Git. The Gateway CA is an external controller file and
+is also not committed.
 
-Build a new reviewed RPM from this rollout revision (it includes the automatic
-enrollment finalizer) and copy it to the controller at the path in
-`group_vars/endpoint_agent_alt_pilot.example.yml`, copy the Gateway CA to the
-two indicated controller paths, then provide inventory and Vault files outside
-this repository. Make `endpoint_agent_campaign_cidrs` include each target's
-source network. The target must resolve `endpoint.sosnadmin.local`; the role
-rejects an IP-address endpoint by not accepting one.
-The ALT targets must provide the standard `rpm2cpio` and `cpio` utilities; the
-role checks them before it requests any campaign or claim.
+## First-install order
 
-Example invocation from that controller:
+For a pristine target, the role verifies the reviewed RPM SHA-256 and installs
+the RPM without configuration, CA, or claim. The RPM creates the
+`endpoint-agent` service account and enables its units, but the agent stays
+inactive because the required bootstrap inputs do not exist.
+
+The role then runs the RPM-shipped
+`/usr/lib/endpoint-agent/endpoint-agent-fingerprint` as `endpoint-agent`. It
+therefore receives the exact fingerprint produced by the selected frozen core,
+without a duplicate helper or an external Python dependency.
+
+Only after that pre-stage phase does the role create a unique `max_uses: 1`
+campaign, request the host-bound one-time claim, and install the bootstrap
+files. The claim is created immediately before its first service start and is
+written only to:
+
+```text
+/etc/credstore/endpoint-enrollment-claim
+```
+
+with `root:root` ownership and `0600` permissions. `config.yaml` and the CA
+are at `/etc/endpoint-agent/`, also root-owned `0600` files.
+
+After enrollment creates the durable credential and identity, the role removes
+the claim, restarts the service, and verifies it is active without a claim. A
+campaign is revoked from the role's `always` block even if any installation
+step fails. All claim, fingerprint, Gateway request, and Gateway response
+handling is `no_log`.
+
+The role intentionally rejects a partial or already-enrolled installation.
+For a failed rollout, an operator may explicitly set
+`endpoint_agent_recover_partial_install: true`. The role first proves that no
+durable credential or enrollment identity exists, then stops the partial
+service, removes only its config, CA, one-time claim and RPM. It also removes a
+strictly recognized, unowned legacy unit that would shadow the packaged unit.
+It never recovers an enrolled machine automatically; do not use this option
+while another rollout is in progress.
+
+## Controller inputs
+
+Copy `group_vars/endpoint_agent_alt_pilot.example.yml` outside this repository
+and provide:
+
+- the reviewed RPM path and its SHA-256;
+- the CA path on the controller for target copy and TLS validation;
+- the CIDRs from which each target reaches Gateway;
+- the Vault file containing `vault_endpoint_provisioning_token`.
+
+The role uses only the named HTTPS Gateway, with certificate verification and
+proxy use disabled. It never creates service credentials and does not use
+Helpdesk.
+
+Example invocation:
 
 ```bash
 ansible-playbook -i inventory.ini playbooks/endpoint_agent_alt_pilot.yml --ask-vault-pass

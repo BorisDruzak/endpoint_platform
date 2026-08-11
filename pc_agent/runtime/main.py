@@ -14,12 +14,41 @@ if __package__ in {None, ""} and not getattr(sys, "frozen", False):
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from pc_agent.core import runtime_paths
+from pc_agent.enrollment_bootstrap import EnrollmentOutcome
 from pc_agent.linux_enrollment_runtime import derive_linux_hardware_fingerprint
+from pc_agent.linux_enrollment_runtime import (
+    run_linux_enrollment_gate,
+    systemd_runtime_paths,
+)
 from pc_agent.runtime.application import RuntimeSettings, run_runtime
 from pc_agent.runtime.verification import run_verify
 from pc_agent.version import AGENT_VERSION
 
 __all__ = ["RuntimeSettings", "run_runtime", "run_verify"]
+
+
+async def _run_runtime_after_first_boot_enrollment(settings: RuntimeSettings) -> int:
+    """Exchange the systemd-only first-boot claim before Gateway WSS starts."""
+    if os.environ.get("ENDPOINT_AGENT_ENROLLMENT_REQUIRED", "") != "1":
+        return await run_runtime(settings)
+    try:
+        paths = systemd_runtime_paths()
+    except ValueError:
+        return 75
+    if paths is None:
+        return 75
+    config_path, ca_file, claim_file = paths
+    try:
+        outcome = await run_linux_enrollment_gate(
+            config_path=config_path,
+            ca_file=ca_file,
+            claim_file=claim_file,
+        )
+    except (OSError, ValueError):
+        return 75
+    if outcome.status not in {"enrolled", "already_enrolled", "handoff_pending"}:
+        return 75
+    return await run_runtime(settings)
 
 
 async def _wait_for_service_host_pipe() -> bytes:
@@ -167,7 +196,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         from pc_agent.platform.windows.service import print_safe_status
 
         return print_safe_status(settings)
-    return asyncio.run(run_runtime(settings))
+    return asyncio.run(_run_runtime_after_first_boot_enrollment(settings))
 
 
 if __name__ == "__main__":

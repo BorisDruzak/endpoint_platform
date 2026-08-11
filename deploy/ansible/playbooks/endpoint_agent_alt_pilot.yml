@@ -3,5 +3,7 @@
   hosts: endpoint_agent_alt_pilot
   become: true
   gather_facts: false
+  vars_files:
+    - ../group_vars/vault.yml
   roles:
     - role: endpoint_agent_alt
