@@ -3,6 +3,15 @@
   ansible.builtin.command: getent hosts endpoint.sosnadmin.local
   changed_when: false
 
+- name: Require clean Endpoint Agent host
+  ansible.builtin.shell: >-
+    ! rpm -q endpoint-agent >/dev/null 2>&1 &&
+    ! test -e /var/lib/endpoint-agent/device-credential &&
+    ! test -e /etc/endpoint-agent/bootstrap/provisioning-claim
+  args:
+    executable: /bin/bash
+  changed_when: false
+
 - name: Copy reviewed Endpoint Agent RPM
   ansible.builtin.copy:
     src: "{{ endpoint_agent_rpm_source }}"
@@ -141,6 +150,12 @@
       changed_when: false
   no_log: true
   always:
+    - name: Remove unused bootstrap claim after rollout
+      ansible.builtin.file:
+        path: /etc/endpoint-agent/bootstrap/provisioning-claim
+        state: absent
+      no_log: true
+
     - name: Revoke rollout campaign on Gateway
       ansible.builtin.uri:
         url: "https://endpoint.sosnadmin.local/api/v1/provisioning/campaigns/{{ endpoint_agent_campaign.json.id }}/revoke"

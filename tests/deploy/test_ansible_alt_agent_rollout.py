@@ -58,3 +58,12 @@ def test_role_uses_named_tls_gateway_and_documents_vault_only() -> None:
     assert "https://endpoint.sosnadmin.local" in rendered
     assert "vault_endpoint_provisioning_token" in readme
     assert "endpoint_install_claim:" not in readme
+
+
+def test_role_requires_a_clean_host_and_removes_claim_on_failure() -> None:
+    """A rerun must not consume a claim for an already-enrolled host or leave it behind."""
+    all_tasks = _walk_tasks(_tasks())
+    task_names = [str(task.get("name", "")) for task in all_tasks]
+
+    assert any("clean Endpoint Agent host" in name for name in task_names)
+    assert any("unused bootstrap claim" in name.lower() for name in task_names)
