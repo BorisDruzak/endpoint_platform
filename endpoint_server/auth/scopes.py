@@ -23,6 +23,8 @@ DEVICES_READ_SCOPE = "devices.read"
 CONTEXT_READ_SCOPE = "context.read"
 CONTEXT_COLLECT_SCOPE = "context.collect"
 PROVISIONING_INSTALL_CLAIMS_ISSUE_SCOPE = "provisioning.install-claims.issue"
+PROVISIONING_CAMPAIGNS_CREATE_SCOPE = "provisioning.campaigns.create"
+PROVISIONING_CAMPAIGNS_REVOKE_SCOPE = "provisioning.campaigns.revoke"
 
 
 @dataclass(frozen=True, slots=True)

@@ -37,6 +37,8 @@ NOW = datetime.now(UTC)
 DEVICE_PEPPER = b"provisioning-claim-device-pepper"
 SERVICE_PEPPER = b"provisioning-claim-service-pepper"
 PROVISIONING_SCOPE = "provisioning.install-claims.issue"
+CAMPAIGN_CREATE_SCOPE = "provisioning.campaigns.create"
+CAMPAIGN_REVOKE_SCOPE = "provisioning.campaigns.revoke"
 
 
 def _settings() -> Settings:
@@ -161,6 +163,97 @@ def _campaign() -> EnrollmentCampaign:
         policy={},
         now=NOW,
     ).record
+
+
+@pytest.mark.asyncio
+async def test_scoped_service_creates_owned_campaign_without_bearer() -> None:
+    """Returning the campaign bearer would let an automation token escape its scope."""
+    session, token = await _authorized_session(
+        scopes=(CAMPAIGN_CREATE_SCOPE,), campaign=None
+    )
+    app = create_app(_settings(), session_provider=_Provider(session))
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="https://endpoint.sosnadmin.local",
+    ) as client:
+        response = await client.post(
+            "/api/v1/provisioning/campaigns",
+            headers={"Authorization": f"Bearer {token}"},
+            json={
+                "expires_at": (NOW + timedelta(hours=1)).isoformat(),
+                "max_uses": 1,
+                "allowed_cidrs": ["192.168.101.0/24"],
+                "target_platform": "linux",
+                "policy": {"policy_id": "ansible-pilot"},
+                "label": "Ansible ALT pilot",
+                "site": "test-lan",
+            },
+        )
+
+    assert response.status_code == 201
+    assert "token" not in response.json()
+    campaign = next(value for value in session.added if isinstance(value, EnrollmentCampaign))
+    assert campaign.owner_service_client_id == session.client.id
+    audit = next(value for value in session.added if isinstance(value, AuditEvent))
+    assert audit.action == "provisioning_campaign.created"
+    assert audit.actor_kind == "service"
+
+
+@pytest.mark.asyncio
+async def test_service_cannot_issue_claim_for_another_services_campaign() -> None:
+    """Removing owner matching would let one deployment token spend another's quota."""
+    campaign = _campaign()
+    campaign.owner_service_client_id = uuid4()
+    session, token = await _authorized_session(
+        scopes=(PROVISIONING_SCOPE,), campaign=campaign
+    )
+    app = create_app(_settings(), session_provider=_Provider(session))
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="https://endpoint.sosnadmin.local",
+    ) as client:
+        response = await client.post(
+            "/api/v1/provisioning/install-claims",
+            headers={"Authorization": f"Bearer {token}"},
+            json={
+                "campaign_id": str(campaign.id),
+                "install_session_id": "other-service-session",
+                "hardware_fingerprint": "sha256:other-service-hardware",
+            },
+        )
+
+    assert response.status_code == 404
+    assert session.added == []
+
+
+@pytest.mark.asyncio
+async def test_service_revokes_its_owned_campaign() -> None:
+    """Removing the owner-bound revoke route would leave rollout authority active."""
+    campaign = _campaign()
+    session, token = await _authorized_session(
+        scopes=(CAMPAIGN_REVOKE_SCOPE,), campaign=campaign
+    )
+    campaign.owner_service_client_id = session.client.id
+    app = create_app(_settings(), session_provider=_Provider(session))
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="https://endpoint.sosnadmin.local",
+    ) as client:
+        response = await client.post(
+            f"/api/v1/provisioning/campaigns/{campaign.id}/revoke",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+    assert response.status_code == 204
+    assert campaign.revoked_at is not None
+    assert session.commit_calls == 1
+    audit = next(value for value in session.added if isinstance(value, AuditEvent))
+    assert audit.action == "enrollment_campaign.revoked"
+    assert audit.actor_kind == "service"
+    assert audit.actor_identifier == str(session.client.id)
 
 
 @pytest.mark.asyncio

@@ -178,6 +178,7 @@ def issue_campaign(
     policy: Mapping[str, object],
     label: str | None = None,
     site: str | None = None,
+    owner_service_client_id: UUID | None = None,
     now: datetime | None = None,
 ) -> IssuedCampaign:
     """Create a bounded campaign record and return its raw bearer once."""
@@ -207,6 +208,7 @@ def issue_campaign(
         label=_validated_text(label, name="label", maximum=256, required=False),
         site=_validated_text(site, name="site", maximum=128, required=False),
         revoked_at=None,
+        owner_service_client_id=owner_service_client_id,
     )
     return IssuedCampaign(token=token, record=record)
 
@@ -357,6 +359,7 @@ async def revoke_campaign(
     session: AsyncSession,
     campaign_id: UUID,
     *,
+    actor_kind: str = "admin",
     actor_identifier: str,
     request_id: str,
     now: datetime | None = None,
@@ -375,7 +378,7 @@ async def revoke_campaign(
         campaign.revoked_at = revoked_at
         await append_audit_event(
             session,
-            actor_kind="admin",
+            actor_kind=actor_kind,
             actor_identifier=actor_identifier,
             action="enrollment_campaign.revoked",
             object_kind="enrollment_campaign",
