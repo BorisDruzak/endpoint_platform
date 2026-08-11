@@ -67,3 +67,4 @@ def test_role_requires_a_clean_host_and_removes_claim_on_failure() -> None:
 
     assert any("clean Endpoint Agent host" in name for name in task_names)
     assert any("unused bootstrap claim" in name.lower() for name in task_names)
+    assert any("RPM extraction dependencies" in name for name in task_names)

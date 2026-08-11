@@ -1,7 +1,8 @@
 # Endpoint Agent ALT Ansible role
 
 Run `playbooks/endpoint_agent_alt_pilot.yml` from an external Ansible
-controller. The controller needs network access to the target hosts and to
+controller. The controller must be Linux with GNU `date`, and needs network
+access to the target hosts and to
 `https://endpoint.sosnadmin.local`.
 
 Before the first rollout, a Gateway administrator creates one service client
@@ -30,6 +31,8 @@ two indicated controller paths, then provide inventory and Vault files outside
 this repository. Make `endpoint_agent_campaign_cidrs` include each target's
 source network. The target must resolve `endpoint.sosnadmin.local`; the role
 rejects an IP-address endpoint by not accepting one.
+The ALT targets must provide the standard `rpm2cpio` and `cpio` utilities; the
+role checks them before it requests any campaign or claim.
 
 Example invocation from that controller:
 

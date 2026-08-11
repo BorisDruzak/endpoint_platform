@@ -12,6 +12,13 @@
     executable: /bin/bash
   changed_when: false
 
+- name: Verify RPM extraction dependencies
+  ansible.builtin.command: "{{ item }}"
+  loop:
+    - rpm2cpio --help
+    - cpio --version
+  changed_when: false
+
 - name: Copy reviewed Endpoint Agent RPM
   ansible.builtin.copy:
     src: "{{ endpoint_agent_rpm_source }}"
