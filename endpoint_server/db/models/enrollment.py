@@ -41,6 +41,11 @@ class EnrollmentCampaign(OwnershipRecord, Base):
     label: Mapped[str | None] = mapped_column(String(256))
     site: Mapped[str | None] = mapped_column(String(128))
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    owner_service_client_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("service_clients.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
 
 
 class EnrollmentClaim(OwnershipRecord, Base):
