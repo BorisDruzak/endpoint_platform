@@ -392,8 +392,9 @@ def test_service_requires_config_ca_and_durable_credential_or_loaded_claim() -> 
     assert "ExecStart=/usr/lib/endpoint-agent/start-endpoint-agent" in service
     assert (
         "ExecStartPre=+/usr/lib/endpoint-agent/authorize-loaded-credentials "
-        "--credentials-directory %d"
+        "--credentials-directory %d --runtime-directory /run/endpoint-agent-credentials"
     ) in service
+    assert "RuntimeDirectory=endpoint-agent-credentials" in service
     assert "RestartPreventExitStatus=78 243" in service
     assert "%d/endpoint-agent-config" not in next(
         line for line in service.splitlines() if line.startswith("ExecCondition=")
@@ -405,14 +406,16 @@ def test_service_grants_agent_read_only_access_to_loaded_credentials() -> None:
     """ALT's root-owned credential directory must not make first boot exit 75."""
     helper = _text(LOADED_CREDENTIAL_AUTHORIZER)
 
-    assert "os.chown(path, 0, account.pw_gid)" in helper
-    assert "os.chmod(path, 0o440)" in helper
-    assert "os.chown(credentials_dir, 0, account.pw_gid)" in helper
-    assert "os.chmod(credentials_dir, 0o550)" in helper
+    assert "_write_runtime_file" in helper
+    assert "os.fchown(descriptor, 0, account.pw_gid)" in helper
+    assert "os.fchmod(descriptor, 0o440)" in helper
+    assert "os.chown(runtime_dir, 0, account.pw_gid)" in helper
+    assert "os.chmod(runtime_dir, 0o550)" in helper
+    assert "credentials_dir, 0" not in helper
     assert "endpoint-agent-config" in helper
     assert "endpoint-agent-ca" in helper
     assert "endpoint-enrollment-claim" in helper
-    assert "group root" not in helper.lower()
+    assert "/run/endpoint-agent-credentials" in helper
 
 
 def test_service_account_is_nonlogin_and_reused_without_password_material() -> None:

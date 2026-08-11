@@ -21,11 +21,11 @@ LoadCredential=endpoint-agent-ca:/etc/endpoint-agent/ca.crt
 # A relative credential name is optional when absent. systemd loads an
 # operator-supplied claim from /etc/credstore or an inherited credential.
 LoadCredential=endpoint-enrollment-claim
-Environment=ENDPOINT_AGENT_CONFIG=%d/endpoint-agent-config
-Environment=ENDPOINT_AGENT_CA_FILE=%d/endpoint-agent-ca
-Environment=ENDPOINT_AGENT_PROVISIONING_HANDOFF_FILE=%d/endpoint-enrollment-claim
+Environment=ENDPOINT_AGENT_CONFIG=/run/endpoint-agent-credentials/endpoint-agent-config
+Environment=ENDPOINT_AGENT_CA_FILE=/run/endpoint-agent-credentials/endpoint-agent-ca
+Environment=ENDPOINT_AGENT_PROVISIONING_HANDOFF_FILE=/run/endpoint-agent-credentials/endpoint-enrollment-claim
 ExecCondition=+/usr/lib/endpoint-agent/check-start-prerequisites --credential-representation source --config /etc/endpoint-agent/config.yaml --ca /etc/endpoint-agent/ca.crt --claim /etc/credstore/endpoint-enrollment-claim
-ExecStartPre=+/usr/lib/endpoint-agent/authorize-loaded-credentials --credentials-directory %d
+ExecStartPre=+/usr/lib/endpoint-agent/authorize-loaded-credentials --credentials-directory %d --runtime-directory /run/endpoint-agent-credentials
 ExecStart=/usr/lib/endpoint-agent/start-endpoint-agent
 Restart=on-failure
 RestartPreventExitStatus=78 243
@@ -36,6 +36,8 @@ StateDirectory=endpoint-agent
 StateDirectoryMode=0750
 LogsDirectory=endpoint-agent
 LogsDirectoryMode=0750
+RuntimeDirectory=endpoint-agent-credentials
+RuntimeDirectoryMode=0750
 ReadWritePaths=/var/lib/endpoint-agent /var/log/endpoint-agent
 NoNewPrivileges=true
 PrivateTmp=true

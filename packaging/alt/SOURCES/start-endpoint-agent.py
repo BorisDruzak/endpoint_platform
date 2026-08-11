@@ -15,11 +15,15 @@ NO_RESTART_STATUS = 78
 
 
 def main() -> int:
-    credential_root_value = os.environ.get("CREDENTIALS_DIRECTORY")
-    if not credential_root_value:
+    config_value = os.environ.get("ENDPOINT_AGENT_CONFIG")
+    ca_value = os.environ.get("ENDPOINT_AGENT_CA_FILE")
+    claim_value = os.environ.get("ENDPOINT_AGENT_PROVISIONING_HANDOFF_FILE")
+    if not config_value or not ca_value or not claim_value:
         return NO_RESTART_STATUS
-    credential_root = Path(credential_root_value)
-    if not credential_root.is_absolute():
+    config_path = Path(config_value)
+    ca_path = Path(ca_value)
+    claim_path = Path(claim_value)
+    if not all(path.is_absolute() for path in (config_path, ca_path, claim_path)):
         return NO_RESTART_STATUS
     result = subprocess.run(
         [
@@ -27,11 +31,11 @@ def main() -> int:
             "--credential-representation",
             "delegated",
             "--config",
-            str(credential_root / "endpoint-agent-config"),
+            str(config_path),
             "--ca",
-            str(credential_root / "endpoint-agent-ca"),
+            str(ca_path),
             "--claim",
-            str(credential_root / "endpoint-enrollment-claim"),
+            str(claim_path),
         ],
         check=False,
     )

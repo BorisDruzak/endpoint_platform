@@ -77,11 +77,11 @@ install -m 0755 /usr/bin/true \
     "$probe/install/versions/3.1.76/endpoint-agent/endpoint-agent"
 printf '%s\n' '#!/usr/bin/env bash' 'set -euo pipefail' \
     "printf 'credential-gate-launcher=%s\\n' '$probe_token'" \
-    'for name in endpoint-agent-config endpoint-agent-ca; do' \
-    "    printf 'credential-gate-mode=$probe_token:%s\\n' \"\$(stat -c '%u:%g:%a' \"\$CREDENTIALS_DIRECTORY/\$name\")\"" \
+    'for path in "$ENDPOINT_AGENT_CONFIG" "$ENDPOINT_AGENT_CA_FILE"; do' \
+    "    printf 'credential-gate-mode=$probe_token:%s\\n' \"\$(stat -c '%u:%g:%a' \"\$path\")\"" \
     'done' \
-    'if [[ -e "$CREDENTIALS_DIRECTORY/endpoint-enrollment-claim" ]]; then' \
-    "    printf 'credential-gate-mode=$probe_token:%s\\n' \"\$(stat -c '%u:%g:%a' \"\$CREDENTIALS_DIRECTORY/endpoint-enrollment-claim\")\"" \
+    'if [[ -e "$ENDPOINT_AGENT_PROVISIONING_HANDOFF_FILE" ]]; then' \
+    "    printf 'credential-gate-mode=$probe_token:%s\\n' \"\$(stat -c '%u:%g:%a' \"\$ENDPOINT_AGENT_PROVISIONING_HANDOFF_FILE\")\"" \
     'fi' \
     > "$probe/install/launcher"
 chmod 0755 "$probe/install/launcher"
