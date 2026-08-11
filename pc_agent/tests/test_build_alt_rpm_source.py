@@ -51,6 +51,7 @@ def test_source_archive_contains_only_release_and_required_offline_provisioning_
         "endpoint-agent-1.2.3/agent-bundle/manifest.json",
         "endpoint-agent-1.2.3/agent-bundle/pc_agent/pc_agent",
         "endpoint-agent-1.2.3/docs/ALT_AGENT_INSTALL.md",
+        "endpoint-agent-1.2.3/packaging/endpoint-agent.spec",
         "endpoint-agent-1.2.3/provision/apply-pending-alt-update.sh",
         "endpoint-agent-1.2.3/provision/default-config.yaml",
         "endpoint-agent-1.2.3/provision/endpoint-agent-update.path",
@@ -58,4 +59,3 @@ def test_source_archive_contains_only_release_and_required_offline_provisioning_
         "endpoint-agent-1.2.3/provision/endpoint-agent.service",
         "endpoint-agent-1.2.3/provision/install-endpoint-agent.sh",
     ]
-

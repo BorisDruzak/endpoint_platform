@@ -83,7 +83,8 @@ def _manifest_matches(bundle: Path, version: str, revision: str) -> None:
 def _asset_files(project_root: Path) -> list[tuple[Path, str]]:
     agent_root = project_root / "deploy" / "agent" / "alt"
     assets = [
-        (project_root / "docs" / "runbooks" / "ALT_AGENT_INSTALL.md", "docs/ALT_AGENT_INSTALL.md")
+        (project_root / "docs" / "runbooks" / "ALT_AGENT_INSTALL.md", "docs/ALT_AGENT_INSTALL.md"),
+        (agent_root / "rpm" / "endpoint-agent.spec", "packaging/endpoint-agent.spec"),
     ]
     assets.extend(
         (agent_root / source_name, target_name)
@@ -148,4 +149,3 @@ def main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
