@@ -86,7 +86,7 @@ def test_assemble_bundle_normalizes_an_in_tree_payload_symlink(tmp_path: Path) -
     assert not copied_link.is_symlink()
     assert copied_link.read_bytes() == b"runtime\n"
     if os.name != "nt":
-        assert stat.S_IMODE(copied_link.stat().st_mode) == 0o755
+        assert stat.S_IMODE(copied_link.stat().st_mode) == 0o644
     manifest = json.loads((bundle / "manifest.json").read_text(encoding="utf-8"))
     assert {entry["path"] for entry in manifest["files"]} >= {
         "pc_agent/_internal/runtime-link.so"
@@ -103,7 +103,7 @@ def test_assemble_bundle_normalizes_runtime_file_and_directory_permissions(tmp_p
     bundle = assemble_bundle(source, tmp_path / "output", "3.2.1", "6985dd0b89ff6626")
 
     assert stat.S_IMODE((bundle / "pc_agent" / "_internal" / "private.pyc").stat().st_mode) == 0o644
-    assert stat.S_IMODE((bundle / "pc_agent" / "_internal" / "tool").stat().st_mode) == 0o755
+    assert stat.S_IMODE((bundle / "pc_agent" / "_internal" / "tool").stat().st_mode) == 0o644
     assert stat.S_IMODE((bundle / "pc_agent" / "_internal").stat().st_mode) == 0o755
 
 

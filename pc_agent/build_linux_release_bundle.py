@@ -100,9 +100,12 @@ def _manifest_entry(source_file: Path, relative_path: str, mode: int) -> dict[st
 
 
 def _runtime_mode(source_file: Path, relative_path: str) -> int:
-    """Return a root-owned release mode that the unprivileged service can use."""
-    source_mode = stat.S_IMODE(source_file.lstat().st_mode)
-    return 0o755 if relative_path in _REQUIRED_PAYLOAD_FILES or source_mode & 0o111 else 0o644
+    """Return a package-stable release mode that the unprivileged service can use."""
+    del source_file
+    # RPM normalizes shared-library payloads to non-executable files.  The
+    # manifest must describe that installed form, so only the two runtime
+    # entrypoints retain an executable mode.
+    return 0o755 if relative_path in _REQUIRED_PAYLOAD_FILES else 0o644
 
 
 def _write_manifest_atomically(destination: Path, manifest: dict[str, object]) -> None:
