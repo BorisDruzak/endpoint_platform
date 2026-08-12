@@ -6,7 +6,6 @@ import base64
 import hashlib
 import hmac
 import ipaddress
-import logging
 import secrets
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
@@ -32,8 +31,6 @@ _CAMPAIGN_CONTEXT = b"endpoint-enrollment-campaign-v1\0"
 _CLAIM_CONTEXT = b"endpoint-install-claim-v1\0"
 _INSTALL_SESSION_CONTEXT = b"endpoint-install-session-v1\0"
 _FINGERPRINT_CONTEXT = b"endpoint-enrollment-fingerprint-v1\0"
-logger = logging.getLogger("uvicorn.error")
-
 EnrollmentDenialCategory = Literal[
     "campaign",
     "claim",
@@ -92,15 +89,6 @@ def campaign_token_digest(token: str, pepper: bytes) -> str:
 def claim_token_digest(token: str, pepper: bytes) -> str:
     """Return the contextual HMAC digest stored for an install claim."""
     return _digest(token, pepper, _CLAIM_CONTEXT)
-
-
-def _claim_lookup_denial_reason(claim: EnrollmentClaim | None) -> str | None:
-    """Classify only non-secret claim lookup state for service diagnostics."""
-    if claim is None:
-        return "record_absent"
-    if claim.claimed_at is not None:
-        return "already_claimed"
-    return None
 
 
 def install_claim_bindings_match(
@@ -495,13 +483,7 @@ async def consume_install_claim(
         .with_for_update()
     )
     claim = claim_result.scalar_one_or_none()
-    lookup_reason = _claim_lookup_denial_reason(claim)
-    if lookup_reason is not None:
-        logger.warning(
-            "Endpoint enrollment install claim consumption was denied "
-            "(lookup_state=%s)",
-            lookup_reason,
-        )
+    if claim is None or claim.claimed_at is not None:
         raise EnrollmentDenied("Enrollment denied", category="claim")
     if claim.expires_at.tzinfo is None:
         raise EnrollmentDenied("Enrollment denied", category="claim")
