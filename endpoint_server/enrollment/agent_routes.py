@@ -60,7 +60,7 @@ from .delivery import ExpiredEnrollmentDelivery, derive_enrollment_receipt
 router = APIRouter(prefix="/agent/v1", tags=["agent-enrollment"])
 _DEVICE_IDENTIFIER_CONTEXT = b"endpoint-device-identity-v1\0"
 _INSTALL_CLAIM_IDENTIFIER = re.compile(r"ic_([0-9a-f]{32})\.")
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("uvicorn.error")
 
 
 def _denied() -> HTTPException:
