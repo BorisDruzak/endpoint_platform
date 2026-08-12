@@ -96,10 +96,11 @@ def test_runtime_gate_uses_existing_bootstrap_with_fixed_credential_directory(
     config, credentials = _write_runtime_inputs(tmp_path)
     observed: dict[str, object] = {}
 
-    async def fake_bootstrap(credentials_dir, bootstrap_config, probe):
+    async def fake_bootstrap(credentials_dir, bootstrap_config, probe, **kwargs):
         observed["credentials_dir"] = credentials_dir
         observed["config"] = bootstrap_config
         observed["probe"] = probe
+        observed["hardware_fingerprint"] = kwargs["hardware_fingerprint"]
         return EnrollmentOutcome("already_enrolled", "device-1")
 
     monkeypatch.setattr(runtime, "bootstrap_enrollment", fake_bootstrap)
@@ -117,6 +118,8 @@ def test_runtime_gate_uses_existing_bootstrap_with_fixed_credential_directory(
 
     assert outcome.status == "already_enrolled"
     assert observed["credentials_dir"] == credentials
+    assert isinstance(observed["hardware_fingerprint"], str)
+    assert observed["hardware_fingerprint"].startswith("sha256:")
 
 
 def test_fingerprint_is_canonical_and_contains_no_raw_probe_value(
@@ -132,3 +135,20 @@ def test_fingerprint_is_canonical_and_contains_no_raw_probe_value(
 
     assert value == "sha256:" + "a" * 64
     assert "secret" not in value
+
+
+def test_enrollment_binding_uses_the_canonical_fingerprint_and_installation_id(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Claim issuance must receive the exact binding the frozen core later sends."""
+    fingerprint = "sha256:" + "b" * 64
+    monkeypatch.setattr(runtime, "_derive_hardware_fingerprint", lambda _probe: fingerprint)
+
+    binding = runtime.derive_linux_enrollment_binding(
+        "endpoint-test-agent-001", lambda: {"serial": "never exposed"}
+    )
+
+    assert binding == {
+        "hardware_fingerprint": fingerprint,
+        "installation_id": "endpoint-test-agent-001",
+    }

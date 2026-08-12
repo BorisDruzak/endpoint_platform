@@ -28,10 +28,12 @@ the RPM without configuration, CA, or claim. The RPM creates the
 `endpoint-agent` service account and enables its units, but the agent stays
 inactive because the required bootstrap inputs do not exist.
 
-The role then runs the RPM-shipped
-`/usr/lib/endpoint-agent/endpoint-agent-fingerprint` as `endpoint-agent`. It
-therefore receives the exact fingerprint produced by the selected frozen core,
-without a duplicate helper or an external Python dependency.
+The role renders the fixed non-secret config and then runs the RPM-shipped
+`/usr/lib/endpoint-agent/endpoint-agent-fingerprint --enrollment-binding` as
+root. The helper reads only the root-owned `installation_id`, drops to
+`endpoint-agent`, and asks the selected frozen core for the binding. Gateway
+claim issuance uses both returned values, so the claim and the later agent
+request cannot use independently rendered fingerprint or installation-ID data.
 
 Only after that pre-stage phase does the role create a unique `max_uses: 1`
 campaign, request the host-bound one-time claim, and install the bootstrap

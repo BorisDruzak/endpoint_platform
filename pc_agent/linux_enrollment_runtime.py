@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
+from endpoint_contracts.identity import normalize_install_session_id
 
 from pc_agent.core.device_fingerprint import collect_device_fingerprint
 from pc_agent.enrollment_bootstrap import (
@@ -127,6 +128,17 @@ def derive_linux_hardware_fingerprint(
     return _derive_hardware_fingerprint(probe)
 
 
+def derive_linux_enrollment_binding(
+    installation_id: str,
+    probe: Callable[[], object] = collect_device_fingerprint,
+) -> dict[str, str]:
+    """Return the exact non-secret pair bound into a Linux install claim."""
+    return {
+        "hardware_fingerprint": _derive_hardware_fingerprint(probe),
+        "installation_id": normalize_install_session_id(installation_id),
+    }
+
+
 async def run_linux_enrollment_gate(
     *,
     config_path: Path,
@@ -146,11 +158,18 @@ async def run_linux_enrollment_gate(
         uid=resolved_uid,
         gid=resolved_gid,
     )
-    return await bootstrap_enrollment(claim_file.parent, config, probe)
+    binding = derive_linux_enrollment_binding(config.installation_id, probe)
+    return await bootstrap_enrollment(
+        claim_file.parent,
+        config,
+        probe,
+        hardware_fingerprint=binding["hardware_fingerprint"],
+    )
 
 
 __all__ = [
     "PRODUCTION_ENDPOINT_ORIGIN",
+    "derive_linux_enrollment_binding",
     "derive_linux_hardware_fingerprint",
     "load_linux_bootstrap_config",
     "run_linux_enrollment_gate",

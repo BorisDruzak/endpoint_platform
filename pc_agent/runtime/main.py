@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import json
 import os
 import select
 import sys
@@ -15,7 +16,10 @@ if __package__ in {None, ""} and not getattr(sys, "frozen", False):
 
 from pc_agent.core import runtime_paths
 from pc_agent.enrollment_bootstrap import EnrollmentOutcome
-from pc_agent.linux_enrollment_runtime import derive_linux_hardware_fingerprint
+from pc_agent.linux_enrollment_runtime import (
+    derive_linux_enrollment_binding,
+    derive_linux_hardware_fingerprint,
+)
 from pc_agent.linux_enrollment_runtime import (
     run_linux_enrollment_gate,
     systemd_runtime_paths,
@@ -156,6 +160,8 @@ def _parser() -> argparse.ArgumentParser:
     modes.add_argument("--print-safe-status", action="store_true")
     modes.add_argument("--print-version", action="store_true")
     modes.add_argument("--print-hardware-fingerprint", action="store_true")
+    modes.add_argument("--print-enrollment-binding", action="store_true")
+    parser.add_argument("--installation-id", default=None)
     return parser
 
 
@@ -166,6 +172,17 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0
     if args.print_hardware_fingerprint:
         print(derive_linux_hardware_fingerprint())
+        return 0
+    if args.print_enrollment_binding:
+        if args.installation_id is None:
+            parser.error("--print-enrollment-binding requires --installation-id")
+        print(
+            json.dumps(
+                derive_linux_enrollment_binding(args.installation_id),
+                separators=(",", ":"),
+                sort_keys=True,
+            )
+        )
         return 0
     ca_value = args.ca_file or os.environ.get("ENDPOINT_AGENT_CA_FILE", "")
     if not str(ca_value).strip() and not (

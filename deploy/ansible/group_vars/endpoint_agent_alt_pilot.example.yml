@@ -1,6 +1,6 @@
 ---
-# Use the reviewed RPM 3.2.20 or a later reviewed artifact; do not reuse 0.1.0-6.
-endpoint_agent_rpm_source: /opt/alt-deploy-control/artifacts/endpoint-agent/endpoint-agent-3.2.20-alt1.x86_64.rpm
+# Use the reviewed RPM 3.2.21 or a later reviewed artifact; do not reuse 0.1.0-6.
+endpoint_agent_rpm_source: /opt/alt-deploy-control/artifacts/endpoint-agent/endpoint-agent-3.2.21-alt1.x86_64.rpm
 endpoint_agent_rpm_sha256: 1e0107354f3fce8ddf9d50de709aaee02be9cf3eea6daa141fe030c5dd60e5a1
 endpoint_agent_ca_source: /opt/alt-deploy-control/certificates/sosnadmin-local-ca.crt
 endpoint_agent_gateway_ca_path: /opt/alt-deploy-control/certificates/sosnadmin-local-ca.crt

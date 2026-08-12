@@ -115,8 +115,12 @@ def test_role_pre_stages_rpm_before_issuing_claim_and_uses_official_helper() -> 
     assert rendered.index("Install reviewed Endpoint Agent RPM before enrollment") < rendered.index(
         "Create per-host rollout campaign"
     )
-    assert "/usr/lib/endpoint-agent/endpoint-agent-fingerprint" in rendered
-    assert "become_user: endpoint-agent" in rendered
+    assert "/usr/lib/endpoint-agent/endpoint-agent-fingerprint --enrollment-binding" in rendered
+    assert rendered.index("Install non-secret Endpoint Agent configuration") < rendered.index(
+        "Create per-host rollout campaign"
+    )
+    assert "endpoint_agent_enrollment_binding.hardware_fingerprint" in rendered
+    assert "endpoint_agent_enrollment_binding.installation_id" in rendered
     assert "/etc/credstore/endpoint-enrollment-claim" in rendered
     assert "/etc/endpoint-agent/bootstrap/provisioning-claim" not in rendered
     assert "endpoint-agent-finalize.path" not in rendered

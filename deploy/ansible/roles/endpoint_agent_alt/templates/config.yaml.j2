@@ -4,7 +4,7 @@ gateway:
   endpoint: "https://endpoint.sosnadmin.local"
   ca_file: "/etc/endpoint-agent/ca.crt"
 provisioning:
-  installation_id: "{{ endpoint_agent_installation_id }}"
+  installation_id: {{ endpoint_agent_installation_id | to_json }}
   systemd_claim_credential_name: "endpoint-enrollment-claim"
   permanent_credential_file: "/var/lib/endpoint-agent/device-credential"
 runtime:

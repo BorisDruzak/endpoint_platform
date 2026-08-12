@@ -259,6 +259,7 @@ async def bootstrap_enrollment(
     config: BootstrapConfig,
     probe: Callable[[], object],
     *,
+    hardware_fingerprint: str | None = None,
     transport: EnrollmentTransport | None = None,
     handoff: ClaimRemovalHandoff | None = None,
     sleep: Callable[[float], Awaitable[object]] = asyncio.sleep,
@@ -286,11 +287,15 @@ async def bootstrap_enrollment(
 
     try:
         claim = _read_systemd_claim(Path(credentials_dir), config.claim_credential_name)
-        hardware_fingerprint = _derive_hardware_fingerprint(probe)
+        request_fingerprint = (
+            _derive_hardware_fingerprint(probe)
+            if hardware_fingerprint is None
+            else normalize_hardware_fingerprint(hardware_fingerprint)
+        )
         request = AgentEnrollmentRequestV1(
             schema_version="agent_enrollment_request_v1",
             platform="linux",
-            hardware_fingerprint=hardware_fingerprint,
+            hardware_fingerprint=request_fingerprint,
             installation_id=config.installation_id,
             delivery_nonce=secrets.token_urlsafe(32),
             requested_at=datetime.now(UTC),

@@ -77,11 +77,14 @@ canonical enrollment identity, remove the one-time claim and restart. An already
 finalized installation therefore upgrades without restoring a mandatory claim
 dependency.
 
-After pre-staging the RPM but before issuing a host-bound claim or starting the
-service, a provisioning controller may run
-`/usr/lib/endpoint-agent/endpoint-agent-fingerprint`. It prints exactly the
-canonical `sha256:` fingerprint from the selected frozen core, does not access
-the network or enrollment inputs, and does not change host state.
+After rendering `/etc/endpoint-agent/config.yaml` but before issuing a
+host-bound claim or starting the service, a provisioning controller runs
+`/usr/lib/endpoint-agent/endpoint-agent-fingerprint --enrollment-binding` as
+root. It reads only the fixed root-owned non-secret `installation_id`, drops to
+the service account, and asks the selected frozen core for exactly one JSON
+binding containing the canonical fingerprint and installation ID. It does not
+access the network, claim, CA, or durable credential and does not change host
+state.
 
 ## Upgrade and removal
 

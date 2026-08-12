@@ -149,19 +149,42 @@
       - endpoint_agent_pre_enrollment_service_state.stdout == 'inactive'
     fail_msg: Endpoint Agent service started before config, CA, and claim were installed.
 
-- name: Read canonical frozen-core hardware fingerprint
-  ansible.builtin.command: /usr/lib/endpoint-agent/endpoint-agent-fingerprint
-  become_user: endpoint-agent
-  register: endpoint_agent_fingerprint
+- name: Create Endpoint Agent configuration directory before claim binding
+  ansible.builtin.file:
+    path: /etc/endpoint-agent
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  no_log: true
+
+- name: Install non-secret Endpoint Agent configuration before claim binding
+  ansible.builtin.template:
+    src: config.yaml.j2
+    dest: /etc/endpoint-agent/config.yaml
+    owner: root
+    group: root
+    mode: "0600"
+  no_log: true
+
+- name: Read canonical frozen-core enrollment binding
+  ansible.builtin.command: /usr/lib/endpoint-agent/endpoint-agent-fingerprint --enrollment-binding
+  register: endpoint_agent_enrollment_binding_raw
   changed_when: false
   no_log: true
 
-- name: Validate canonical frozen-core hardware fingerprint
+- name: Decode canonical frozen-core enrollment binding
+  ansible.builtin.set_fact:
+    endpoint_agent_enrollment_binding: "{{ endpoint_agent_enrollment_binding_raw.stdout | from_json }}"
+  no_log: true
+
+- name: Validate canonical frozen-core enrollment binding
   ansible.builtin.assert:
     that:
-      - endpoint_agent_fingerprint.stdout_lines | length == 1
-      - endpoint_agent_fingerprint.stdout is match('^sha256:[a-f0-9]{64}$')
-    fail_msg: Endpoint Agent fingerprint helper did not return one canonical SHA-256 value.
+      - endpoint_agent_enrollment_binding is mapping
+      - endpoint_agent_enrollment_binding.hardware_fingerprint is match('^sha256:[a-f0-9]{64}$')
+      - endpoint_agent_enrollment_binding.installation_id == endpoint_agent_installation_id
+    fail_msg: Endpoint Agent frozen-core claim binding is invalid or does not match rendered configuration.
   no_log: true
 
 - name: Create and use host-bound Endpoint Agent claim
@@ -201,8 +224,8 @@
         body_format: json
         body:
           campaign_id: "{{ endpoint_agent_campaign.json.id }}"
-          install_session_id: "{{ endpoint_agent_installation_id }}"
-          hardware_fingerprint: "{{ endpoint_agent_fingerprint.stdout }}"
+          install_session_id: "{{ endpoint_agent_enrollment_binding.installation_id }}"
+          hardware_fingerprint: "{{ endpoint_agent_enrollment_binding.hardware_fingerprint }}"
         ca_path: "{{ endpoint_agent_gateway_ca_path }}"
         validate_certs: true
         use_proxy: false
@@ -213,14 +236,6 @@
       register: endpoint_agent_install_claim
       no_log: true
 
-    - name: Create Endpoint Agent configuration directory
-      ansible.builtin.file:
-        path: /etc/endpoint-agent
-        state: directory
-        owner: root
-        group: root
-        mode: "0755"
-
     - name: Create protected Endpoint Agent credential directory
       ansible.builtin.file:
         path: /etc/credstore
@@ -228,14 +243,6 @@
         owner: root
         group: root
         mode: "0700"
-
-    - name: Install non-secret Endpoint Agent configuration
-      ansible.builtin.template:
-        src: config.yaml.j2
-        dest: /etc/endpoint-agent/config.yaml
-        owner: root
-        group: root
-        mode: "0600"
 
     - name: Install Gateway CA for Endpoint Agent enrollment
       ansible.builtin.copy:
@@ -279,6 +286,11 @@
       delay: "{{ endpoint_agent_enrollment_delay_seconds }}"
       until: endpoint_agent_enrollment_state.rc == 0
       changed_when: false
+      no_log: true
+
+    - name: Mark Endpoint Agent enrollment as durable
+      ansible.builtin.set_fact:
+        endpoint_agent_enrollment_complete: true
       no_log: true
 
     - name: Verify durable Endpoint Agent state ownership and mode
@@ -327,6 +339,16 @@
       ansible.builtin.file:
         path: /etc/credstore/endpoint-enrollment-claim
         state: absent
+      no_log: true
+
+    - name: Remove bootstrap configuration after Endpoint Agent rollout failure
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /etc/endpoint-agent/config.yaml
+        - /etc/endpoint-agent/ca.crt
+      when: not (endpoint_agent_enrollment_complete | default(false) | bool)
       no_log: true
 
     - name: Revoke per-host rollout campaign

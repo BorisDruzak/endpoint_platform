@@ -1,11 +1,12 @@
 #!/usr/bin/python3
-"""Print the selected frozen agent's canonical enrollment fingerprint."""
+"""Print canonical frozen-core enrollment values for the ALT claim controller."""
 
 from __future__ import annotations
 
 import json
 import os
 from pathlib import Path
+import pwd
 import re
 import stat
 import sys
@@ -13,6 +14,7 @@ import sys
 
 SELECTOR = Path("/opt/endpoint-agent/current.json")
 CORE_ROOT = Path("/opt/endpoint-agent/versions")
+CONFIG = Path("/etc/endpoint-agent/config.yaml")
 VERSION = re.compile(r"[A-Za-z0-9][A-Za-z0-9._+-]{0,63}\Z")
 
 
@@ -35,7 +37,31 @@ def _safe_root_regular(path: Path, *, executable: bool = False) -> None:
         _fail()
 
 
-def main() -> int:
+def _installation_id() -> str:
+    _safe_root_regular(CONFIG)
+    details = os.lstat(CONFIG)
+    if (
+        stat.S_IMODE(details.st_mode) != 0o600
+        or details.st_mode & (stat.S_IRGRP | stat.S_IROTH)
+    ):
+        _fail()
+    try:
+        matching = [
+            line.removeprefix("  installation_id: ")
+            for line in CONFIG.read_text(encoding="utf-8").splitlines()
+            if line.startswith("  installation_id: ")
+        ]
+        if len(matching) != 1:
+            _fail()
+        value = json.loads(matching[0])
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        _fail()
+    if not isinstance(value, str):
+        _fail()
+    return value
+
+
+def _selected_core() -> Path:
     _safe_root_regular(SELECTOR)
     try:
         selector = json.loads(SELECTOR.read_text(encoding="utf-8"))
@@ -46,7 +72,38 @@ def main() -> int:
         _fail()
     core = CORE_ROOT / version / "endpoint-agent" / "endpoint-agent"
     _safe_root_regular(core, executable=True)
-    os.execv(core, [str(core), "--print-hardware-fingerprint"])
+    return core
+
+
+def _exec_as_service_account(core: Path, installation_id: str) -> None:
+    if os.geteuid() != 0:
+        _fail()
+    try:
+        account = pwd.getpwnam("endpoint-agent")
+        os.setgroups([account.pw_gid])
+        os.setgid(account.pw_gid)
+        os.setuid(account.pw_uid)
+    except (KeyError, OSError):
+        _fail()
+    os.execv(
+        core,
+        [
+            str(core),
+            "--print-enrollment-binding",
+            "--installation-id",
+            installation_id,
+        ],
+    )
+
+
+def main(argv: list[str] | None = None) -> int:
+    arguments = list(sys.argv[1:] if argv is None else argv)
+    core = _selected_core()
+    if not arguments:
+        os.execv(core, [str(core), "--print-hardware-fingerprint"])
+    if arguments == ["--enrollment-binding"]:
+        _exec_as_service_account(core, _installation_id())
+    _fail()
     return 78
 
 

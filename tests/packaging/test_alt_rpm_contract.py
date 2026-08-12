@@ -363,14 +363,16 @@ def test_rpm_payload_is_limited_to_program_units_and_nonsecret_runtime_scaffoldi
         assert required in spec
 
 
-def test_rpm_fingerprint_helper_executes_only_the_selected_frozen_core() -> None:
-    """Claim binding must not duplicate the agent algorithm or read enrollment secrets."""
+def test_rpm_fingerprint_helper_executes_the_selected_frozen_core_for_claim_binding() -> None:
+    """Claim binding must come from core and only read the non-secret installation id."""
     helper = _text(FINGERPRINT_HELPER)
 
     assert "--print-hardware-fingerprint" in helper
+    assert "--print-enrollment-binding" in helper
+    assert "installation_id" in helper
     assert "/opt/endpoint-agent/current.json" in helper
     assert "/opt/endpoint-agent/versions" in helper
-    for forbidden in ("config.yaml", "ca.crt", "provisioning-claim", "credential"):
+    for forbidden in ("ca.crt", "provisioning-claim", "endpoint-enrollment-claim"):
         assert forbidden not in helper
 
 

@@ -63,6 +63,28 @@ def test_headless_runtime_prints_enrollment_fingerprint_without_runtime_inputs(
     assert capsys.readouterr().out == fingerprint + "\n"
 
 
+def test_headless_runtime_prints_the_same_claim_binding_it_will_enroll(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The RPM helper must be able to obtain both claim-bound values from core."""
+    monkeypatch.setattr(
+        runtime_main,
+        "derive_linux_enrollment_binding",
+        lambda installation_id: {
+            "hardware_fingerprint": "sha256:" + "c" * 64,
+            "installation_id": installation_id,
+        },
+    )
+
+    assert runtime_main.main(
+        ["--print-enrollment-binding", "--installation-id", "endpoint-test-agent-002"]
+    ) == 0
+    assert json.loads(capsys.readouterr().out) == {
+        "hardware_fingerprint": "sha256:" + "c" * 64,
+        "installation_id": "endpoint-test-agent-002",
+    }
+
+
 def test_headless_runtime_enrolls_before_starting_gateway(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
