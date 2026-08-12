@@ -26,7 +26,7 @@ SYSTEMD_CONFIG_CREDENTIAL_NAME = "endpoint-agent-config"
 SYSTEMD_CA_CREDENTIAL_NAME = "endpoint-agent-ca"
 _CONFIGURED_CA_PATH = "/etc/endpoint-agent/ca.crt"
 _PERMANENT_CREDENTIAL_CONFIG_PATH = "/var/lib/endpoint-agent/device-credential"
-_SYSTEMD_CREDENTIALS_DIRECTORY = "/run/credentials/endpoint-agent.service"
+_SYSTEMD_CREDENTIALS_DIRECTORY = "/run/endpoint-agent-credentials"
 
 
 def _mapping(value: object, *, name: str) -> Mapping[str, object]:

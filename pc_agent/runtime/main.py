@@ -27,6 +27,11 @@ from pc_agent.version import AGENT_VERSION
 __all__ = ["RuntimeSettings", "run_runtime", "run_verify"]
 
 
+def _log_enrollment_refusal(reason: str) -> None:
+    """Emit a journal-safe first-boot refusal reason without runtime inputs."""
+    print(f"endpoint-agent enrollment refused: reason={reason}", file=sys.stderr)
+
+
 async def _run_runtime_after_first_boot_enrollment(settings: RuntimeSettings) -> int:
     """Exchange the systemd-only first-boot claim before Gateway WSS starts."""
     if os.environ.get("ENDPOINT_AGENT_ENROLLMENT_REQUIRED", "") != "1":
@@ -34,8 +39,10 @@ async def _run_runtime_after_first_boot_enrollment(settings: RuntimeSettings) ->
     try:
         paths = systemd_runtime_paths()
     except ValueError:
+        _log_enrollment_refusal("invalid_runtime_paths")
         return 75
     if paths is None:
+        _log_enrollment_refusal("credentials_missing")
         return 75
     config_path, ca_file, claim_file = paths
     try:
@@ -45,8 +52,10 @@ async def _run_runtime_after_first_boot_enrollment(settings: RuntimeSettings) ->
             claim_file=claim_file,
         )
     except (OSError, ValueError):
+        _log_enrollment_refusal("runtime_input_error")
         return 75
     if outcome.status not in {"enrolled", "already_enrolled", "handoff_pending"}:
+        _log_enrollment_refusal(outcome.status)
         return 75
     return await run_runtime(settings)
 

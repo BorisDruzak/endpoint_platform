@@ -61,6 +61,11 @@ read-only delegated representation before it replaces itself with the stable
 launcher. Validation failures use a non-restart status so a bad or raced state
 cannot create a restart loop.
 
+When first-boot enrollment stops before Gateway startup, `journalctl -u
+endpoint-agent.service` records only `endpoint-agent enrollment refused:
+reason=<safe-status>`. It never prints a credential, claim, CA content, runtime
+path, or gateway response body.
+
 The fixed `/etc/credstore/endpoint-enrollment-claim` path is an intentional
 fail-closed boundary. Although a relative `LoadCredential=` can import inherited
 or alternate-store credentials, those sources are not inspectable by

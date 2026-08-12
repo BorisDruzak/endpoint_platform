@@ -70,15 +70,15 @@ def test_load_config_rejects_credential_paths_from_different_directories(
 
 def test_systemd_paths_are_all_or_nothing_and_cannot_be_renamed() -> None:
     environment = {
-        "ENDPOINT_AGENT_CONFIG": "/run/credentials/endpoint-agent.service/endpoint-agent-config",
-        "ENDPOINT_AGENT_CA_FILE": "/run/credentials/endpoint-agent.service/endpoint-agent-ca",
-        "ENDPOINT_AGENT_PROVISIONING_HANDOFF_FILE": "/run/credentials/endpoint-agent.service/endpoint-enrollment-claim",
+        "ENDPOINT_AGENT_CONFIG": "/run/endpoint-agent-credentials/endpoint-agent-config",
+        "ENDPOINT_AGENT_CA_FILE": "/run/endpoint-agent-credentials/endpoint-agent-ca",
+        "ENDPOINT_AGENT_PROVISIONING_HANDOFF_FILE": "/run/endpoint-agent-credentials/endpoint-enrollment-claim",
     }
 
     assert runtime.systemd_runtime_paths(environment) == (
-        Path("/run/credentials/endpoint-agent.service/endpoint-agent-config"),
-        Path("/run/credentials/endpoint-agent.service/endpoint-agent-ca"),
-        Path("/run/credentials/endpoint-agent.service/endpoint-enrollment-claim"),
+        Path("/run/endpoint-agent-credentials/endpoint-agent-config"),
+        Path("/run/endpoint-agent-credentials/endpoint-agent-ca"),
+        Path("/run/endpoint-agent-credentials/endpoint-enrollment-claim"),
     )
 
     with pytest.raises(ValueError, match="all Endpoint agent systemd credentials"):

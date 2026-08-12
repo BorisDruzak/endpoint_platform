@@ -99,6 +99,35 @@ def test_headless_runtime_enrolls_before_starting_gateway(
     assert events == ["enroll", "runtime"]
 
 
+def test_headless_runtime_logs_safe_enrollment_refusal_reason(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """First boot failures must be diagnosable without exposing credential material."""
+    credentials = tmp_path / "credentials"
+    paths = (
+        credentials / "endpoint-agent-config",
+        credentials / "endpoint-agent-ca",
+        credentials / "endpoint-enrollment-claim",
+    )
+
+    async def denied_enrollment_gate(**_kwargs: object):
+        return runtime_main.EnrollmentOutcome("denied")
+
+    async def runtime_must_not_start(_settings: RuntimeSettings) -> int:
+        raise AssertionError("Gateway runtime started after enrollment refusal")
+
+    monkeypatch.setenv("ENDPOINT_AGENT_ENROLLMENT_REQUIRED", "1")
+    monkeypatch.setenv("ENDPOINT_AGENT_CA_FILE", str(paths[1]))
+    monkeypatch.setattr(runtime_main, "systemd_runtime_paths", lambda: paths)
+    monkeypatch.setattr(runtime_main, "run_linux_enrollment_gate", denied_enrollment_gate)
+    monkeypatch.setattr(runtime_main, "run_runtime", runtime_must_not_start)
+
+    assert runtime_main.main(["--transport-mode", "gateway_wss"]) == 75
+    assert "endpoint-agent enrollment refused: reason=denied" in capsys.readouterr().err
+
+
 class _Executor:
     def __init__(self, events: list[str]) -> None:
         self._events = events
