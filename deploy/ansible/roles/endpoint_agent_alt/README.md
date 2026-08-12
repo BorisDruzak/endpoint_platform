@@ -47,6 +47,11 @@ written only to:
 with `root:root` ownership and `0600` permissions. `config.yaml` and the CA
 are at `/etc/endpoint-agent/`, also root-owned `0600` files.
 
+Before copying a fresh claim to ALT, the controller calls the Gateway
+non-consuming claim preflight. It returns only success or a generic failure;
+the bearer is neither logged, stored, nor consumed. If the preflight fails,
+the role stops before installing bootstrap authority or starting the RPM.
+
 After enrollment creates the durable credential and identity, the role removes
 the claim, restarts the service, and verifies it is active without a claim. A
 campaign is revoked from the role's `always` block even if any installation

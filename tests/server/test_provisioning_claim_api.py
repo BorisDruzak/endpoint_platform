@@ -88,6 +88,20 @@ class _Session:
         raise AssertionError(f"unexpected scalar query: {entity}")
 
     async def execute(self, statement: object) -> _Result:
+        entity = statement.column_descriptions[0]["entity"]
+        if entity is EnrollmentClaim:
+            parameters = statement.compile().params
+            expected_digest = next(iter(parameters.values()))
+            claim = next(
+                (
+                    value
+                    for value in self.added
+                    if isinstance(value, EnrollmentClaim)
+                    and value.claim_digest == expected_digest
+                ),
+                None,
+            )
+            return _Result(claim)
         return _Result(self.campaign)
 
     def add(self, value: object) -> None:
@@ -222,6 +236,66 @@ async def test_service_cannot_issue_claim_for_another_services_campaign() -> Non
                 "install_session_id": "other-service-session",
                 "hardware_fingerprint": "sha256:other-service-hardware",
             },
+        )
+
+    assert response.status_code == 404
+    assert session.added == []
+
+
+@pytest.mark.asyncio
+async def test_service_preflight_accepts_its_fresh_install_claim_without_consuming_it() -> None:
+    """Removing the preflight lookup would let Ansible install a claim Gateway cannot read."""
+    campaign = _campaign()
+    session, token = await _authorized_session(
+        scopes=(PROVISIONING_SCOPE,), campaign=campaign
+    )
+    campaign.owner_service_client_id = session.client.id
+    app = create_app(_settings(), session_provider=_Provider(session))
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="https://endpoint.sosnadmin.local",
+    ) as client:
+        issued = await client.post(
+            "/api/v1/provisioning/install-claims",
+            headers={"Authorization": f"Bearer {token}"},
+            json={
+                "campaign_id": str(campaign.id),
+                "install_session_id": "alt-preflight-001",
+                "hardware_fingerprint": "sha256:alt-preflight-fingerprint",
+            },
+        )
+        checked = await client.post(
+            "/api/v1/provisioning/install-claims/validate",
+            headers={"Authorization": f"Bearer {token}"},
+            json={"claim": issued.json()["claim"]},
+        )
+
+    claim = next(value for value in session.added if isinstance(value, EnrollmentClaim))
+    assert issued.status_code == 201
+    assert checked.status_code == 204
+    assert claim.claimed_at is None
+    assert campaign.use_count == 0
+
+
+@pytest.mark.asyncio
+async def test_service_preflight_rejects_unknown_install_claim() -> None:
+    """Returning success for an unknown bearer would hide a broken claim handoff."""
+    campaign = _campaign()
+    session, token = await _authorized_session(
+        scopes=(PROVISIONING_SCOPE,), campaign=campaign
+    )
+    campaign.owner_service_client_id = session.client.id
+    app = create_app(_settings(), session_provider=_Provider(session))
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="https://endpoint.sosnadmin.local",
+    ) as client:
+        response = await client.post(
+            "/api/v1/provisioning/install-claims/validate",
+            headers={"Authorization": f"Bearer {token}"},
+            json={"claim": "ic_unknown-install-claim"},
         )
 
     assert response.status_code == 404

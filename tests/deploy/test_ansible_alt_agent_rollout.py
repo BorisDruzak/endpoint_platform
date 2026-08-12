@@ -108,6 +108,27 @@ def test_role_writes_the_claim_without_trailing_whitespace() -> None:
     assert claim_task["ansible.builtin.copy"]["content"] == "{{ endpoint_agent_install_claim.json.claim }}"
 
 
+def test_role_preflights_a_fresh_claim_before_copying_it_to_alt() -> None:
+    """Removing this request would again let the role install a Gateway-unreadable claim."""
+    tasks = _walk_tasks(_tasks())
+    task = next(
+        item
+        for item in tasks
+        if item.get("name") == "Preflight fresh Endpoint Agent claim with Gateway"
+    )
+    uri = task["ansible.builtin.uri"]
+    rendered = TASKS_PATH.read_text(encoding="utf-8")
+
+    assert uri["url"] == "https://endpoint.sosnadmin.local/api/v1/provisioning/install-claims/validate"
+    assert uri["status_code"] == 204
+    assert uri["body"] == {"claim": "{{ endpoint_agent_install_claim.json.claim }}"}
+    assert task["delegate_to"] == "localhost"
+    assert task["no_log"] is True
+    assert rendered.index("Request host-bound install claim from Gateway") < rendered.index(
+        "Preflight fresh Endpoint Agent claim with Gateway"
+    ) < rendered.index("Install one-time Endpoint Agent claim")
+
+
 def test_role_pre_stages_rpm_before_issuing_claim_and_uses_official_helper() -> None:
     """The first-install flow must get the fingerprint from the reviewed RPM itself."""
     rendered = TASKS_PATH.read_text(encoding="utf-8")

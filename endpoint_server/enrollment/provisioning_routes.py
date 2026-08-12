@@ -23,13 +23,19 @@ from endpoint_server.auth.scopes import (
     ServicePrincipal,
     require_service_scope,
 )
-from endpoint_server.db.models import EnrollmentCampaign
+from endpoint_server.db.models import EnrollmentCampaign, EnrollmentClaim
 from endpoint_server.provisioning.pilot_service import (
     PILOT_SERVICE_CLIENT_IDENTIFIER,
     pilot_credential_identifier,
 )
 
-from .campaigns import EnrollmentDenied, issue_campaign, issue_install_claim, revoke_campaign
+from .campaigns import (
+    EnrollmentDenied,
+    claim_token_digest,
+    issue_campaign,
+    issue_install_claim,
+    revoke_campaign,
+)
 
 
 router = APIRouter(prefix="/api/v1/provisioning", tags=["provisioning"])
@@ -63,6 +69,14 @@ class ProvisioningInstallClaimResponse(BaseModel):
     claim: str
     expires_at: datetime
     install_session_id: str
+
+
+class ProvisioningInstallClaimValidationRequest(BaseModel):
+    """Show-once claim supplied only for a non-consuming controller preflight."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    claim: SecretStr = Field(min_length=1, max_length=512)
 
 
 class ProvisioningCampaignCreateRequest(BaseModel):
@@ -328,6 +342,53 @@ async def issue_provisioning_install_claim(
         expires_at=issued.record.expires_at,
         install_session_id=install_session_id,
     )
+
+
+@router.post(
+    "/install-claims/validate",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_class=Response,
+    response_model=None,
+)
+async def validate_provisioning_install_claim(
+    body: ProvisioningInstallClaimValidationRequest,
+    request: Request,
+    principal: Annotated[
+        ServicePrincipal,
+        Depends(require_service_scope(PROVISIONING_INSTALL_CLAIMS_ISSUE_SCOPE)),
+    ],
+) -> None:
+    """Confirm that a newly issued claim is still readable without consuming it."""
+    try:
+        claim_digest = claim_token_digest(
+            body.claim.get_secret_value(),
+            request.app.state.settings.device_token_pepper,
+        )
+    except ValueError as error:
+        raise _not_found() from error
+
+    async with request.app.state.session_provider() as session:
+        claim_result = await session.execute(
+            select(EnrollmentClaim).where(EnrollmentClaim.claim_digest == claim_digest)
+        )
+        claim = claim_result.scalar_one_or_none()
+        if claim is None or claim.claimed_at is not None:
+            raise _not_found()
+        campaign_result = await session.execute(
+            select(EnrollmentCampaign).where(EnrollmentCampaign.id == claim.campaign_id)
+        )
+        campaign = campaign_result.scalar_one_or_none()
+        if (
+            campaign is None
+            or campaign.owner_service_client_id != principal.client.id
+            or campaign.revoked_at is not None
+            or campaign.disabled_at is not None
+            or campaign.expires_at is None
+            or campaign.expires_at.tzinfo is None
+            or datetime.now(UTC) >= claim.expires_at
+            or datetime.now(UTC) >= campaign.expires_at
+        ):
+            raise _not_found()
 
 
 __all__ = ["router"]

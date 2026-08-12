@@ -236,6 +236,24 @@
       register: endpoint_agent_install_claim
       no_log: true
 
+    - name: Preflight fresh Endpoint Agent claim with Gateway
+      ansible.builtin.uri:
+        url: https://endpoint.sosnadmin.local/api/v1/provisioning/install-claims/validate
+        method: POST
+        headers:
+          Authorization: "Bearer {{ vault_endpoint_provisioning_token }}"
+        body_format: json
+        body:
+          claim: "{{ endpoint_agent_install_claim.json.claim }}"
+        ca_path: "{{ endpoint_agent_gateway_ca_path }}"
+        validate_certs: true
+        use_proxy: false
+        status_code: 204
+        return_content: false
+      delegate_to: localhost
+      become: false
+      no_log: true
+
     - name: Create protected Endpoint Agent credential directory
       ansible.builtin.file:
         path: /etc/credstore
