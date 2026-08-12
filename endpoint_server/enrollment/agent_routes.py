@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import logging
+import re
 import secrets
 from datetime import UTC, datetime
 from uuid import uuid4
@@ -57,6 +59,8 @@ from .delivery import ExpiredEnrollmentDelivery, derive_enrollment_receipt
 
 router = APIRouter(prefix="/agent/v1", tags=["agent-enrollment"])
 _DEVICE_IDENTIFIER_CONTEXT = b"endpoint-device-identity-v1\0"
+_INSTALL_CLAIM_IDENTIFIER = re.compile(r"ic_([0-9a-f]{32})\.")
+logger = logging.getLogger(__name__)
 
 
 def _denied() -> HTTPException:
@@ -78,6 +82,23 @@ def _invalid_device_credential() -> HTTPException:
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Invalid device credential",
     )
+
+
+def _claim_identifier(token: str) -> str | None:
+    """Return only the non-secret identifier segment of a well-formed claim."""
+    matched = _INSTALL_CLAIM_IDENTIFIER.match(token)
+    return matched.group(1) if matched is not None else None
+
+
+async def _known_claim_identifier(session, token: str) -> bool:
+    """Diagnose a failed digest lookup without persisting or logging a bearer."""
+    identifier = _claim_identifier(token)
+    if identifier is None:
+        return False
+    result = await session.execute(
+        select(EnrollmentClaim.id).where(EnrollmentClaim.claim_identifier == identifier)
+    )
+    return result.scalar_one_or_none() is not None
 
 
 def _bearer_token(
@@ -187,6 +208,11 @@ async def _load_enrollment_authority(
             )
             claim = claim_result.scalar_one_or_none()
             if claim is None:
+                logger.warning(
+                    "Endpoint enrollment install claim was not recognized "
+                    "(claim_identifier_known=%s)",
+                    await _known_claim_identifier(session, token),
+                )
                 raise EnrollmentDenied("Enrollment denied", category="claim")
             campaign_result = await session.execute(
                 select(EnrollmentCampaign)
