@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import hmac
 import os
 from pathlib import Path
 import pwd
@@ -14,6 +15,7 @@ import sys
 CREDENTIALS_PARENT = Path("/run/credentials")
 REQUIRED_CREDENTIALS = ("endpoint-agent-config", "endpoint-agent-ca")
 OPTIONAL_CREDENTIALS = ("endpoint-enrollment-claim",)
+CLAIM_SOURCE = Path("/etc/credstore/endpoint-enrollment-claim")
 
 
 def _fail(message: str) -> None:
@@ -65,6 +67,22 @@ def _read_source_file(path: Path) -> bytes:
         return path.read_bytes()
     except OSError:
         _fail("loaded credential cannot be read")
+
+
+def _read_fixed_claim_source() -> bytes:
+    details = _details(CLAIM_SOURCE)
+    if (
+        not stat.S_ISREG(details.st_mode)
+        or details.st_uid != 0
+        or details.st_gid != 0
+        or stat.S_IMODE(details.st_mode) != 0o600
+        or details.st_size == 0
+    ):
+        _fail("unsafe configured enrollment claim")
+    try:
+        return CLAIM_SOURCE.read_bytes()
+    except OSError:
+        _fail("configured enrollment claim cannot be read")
 
 
 def _runtime_directory(value: str, account: pwd.struct_passwd) -> Path:
@@ -143,8 +161,16 @@ def main(argv: list[str] | None = None) -> int:
         credentials[name] = _read_source_file(credentials_dir / name)
     for name in OPTIONAL_CREDENTIALS:
         path = credentials_dir / name
-        if path.exists():
-            credentials[name] = _read_source_file(path)
+        loaded_exists = path.exists()
+        configured_exists = CLAIM_SOURCE.exists()
+        if loaded_exists != configured_exists:
+            _fail("loaded enrollment claim does not match configured source")
+        if loaded_exists:
+            loaded = _read_source_file(path)
+            configured = _read_fixed_claim_source()
+            if not hmac.compare_digest(loaded, configured):
+                _fail("loaded enrollment claim does not match configured source")
+            credentials[name] = loaded
     _remove_previous_files(runtime_dir, account)
     os.chown(runtime_dir, 0, account.pw_gid)
     os.chmod(runtime_dir, 0o550)

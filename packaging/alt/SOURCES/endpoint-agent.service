@@ -18,8 +18,8 @@ Environment=ENDPOINT_AGENT_TRANSPORT_MODE=gateway_wss
 Environment=ENDPOINT_AGENT_MIGRATION_HTTP_PULL_FALLBACK=false
 LoadCredential=endpoint-agent-config:/etc/endpoint-agent/config.yaml
 LoadCredential=endpoint-agent-ca:/etc/endpoint-agent/ca.crt
-# A relative credential name is optional when absent. systemd loads an
-# operator-supplied claim from /etc/credstore or an inherited credential.
+# A relative credential name is optional when absent. The root pre-start
+# authorizer rejects a loaded claim unless it matches the fixed source.
 LoadCredential=endpoint-enrollment-claim
 Environment=ENDPOINT_AGENT_CONFIG=/run/endpoint-agent-credentials/endpoint-agent-config
 Environment=ENDPOINT_AGENT_CA_FILE=/run/endpoint-agent-credentials/endpoint-agent-ca

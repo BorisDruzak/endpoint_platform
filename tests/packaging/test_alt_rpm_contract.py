@@ -377,7 +377,7 @@ def test_rpm_fingerprint_helper_executes_the_selected_frozen_core_for_claim_bind
 
 
 def test_service_requires_config_ca_and_durable_credential_or_loaded_claim() -> None:
-    """A package install must not start an unconfigured or unauthenticated agent."""
+    """An optional claim must be bound to the source validated by the guard."""
     service = _text(SERVICE)
 
     assert (
@@ -402,6 +402,9 @@ def test_service_requires_config_ca_and_durable_credential_or_loaded_claim() -> 
         line for line in service.splitlines() if line.startswith("ExecCondition=")
     )
     assert "/versions/" not in service
+    authorizer = _text(LOADED_CREDENTIAL_AUTHORIZER)
+    assert "CLAIM_SOURCE = Path(\"/etc/credstore/endpoint-enrollment-claim\")" in authorizer
+    assert "hmac.compare_digest" in authorizer
 
 
 def test_service_grants_agent_read_only_access_to_loaded_credentials() -> None:

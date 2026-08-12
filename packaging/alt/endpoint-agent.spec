@@ -2,7 +2,7 @@
 
 Name: endpoint-agent
 Version: %{agent_version}
-Release: alt1
+Release: alt2
 Summary: Endpoint Platform headless management agent for ALT Linux
 License: Proprietary
 Group: System/Servers

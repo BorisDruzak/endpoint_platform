@@ -67,10 +67,10 @@ reason=<safe-status>`. It never prints a credential, claim, CA content, runtime
 path, or gateway response body.
 
 The fixed `/etc/credstore/endpoint-enrollment-claim` path is an intentional
-fail-closed boundary. Although a relative `LoadCredential=` can import inherited
-or alternate-store credentials, those sources are not inspectable by
-`ExecCondition=` on the target systemd and therefore do not satisfy the package
-precondition on their own. Provision the documented fixed source instead.
+fail-closed boundary. A root-only pre-start authorizer compares the loaded
+credential with that exact source before it is handed to the service account.
+An inherited or alternate-store value with the same name is rejected; absence
+of both is accepted only for a valid durable enrollment pair.
 
 After enrollment has produced and verified both the permanent credential and
 canonical enrollment identity, remove the one-time claim and restart. An already
