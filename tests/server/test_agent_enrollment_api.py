@@ -222,6 +222,102 @@ def _enrollment_body(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("overrides", "expected_category"),
+    (
+        ({"installation_id": "installation-session-b"}, "installation_id"),
+        ({"hardware_fingerprint": "sha256:agent-device-b"}, "fingerprint"),
+    ),
+)
+async def test_install_claim_denial_audits_category_without_exposing_bindings(
+    overrides: dict[str, str],
+    expected_category: str,
+) -> None:
+    """A rejected bound claim must preserve the generic response but audit its cause."""
+    claim_token, campaign, claim = _claim()
+    session = _AgentEnrollmentSession(campaign=campaign, claim=claim)
+    app = create_app(_settings(), session_provider=_Provider(session))
+    body = _enrollment_body()
+    body.update(overrides)
+
+    async with AsyncClient(
+        transport=ASGITransport(
+            app=app,
+            client=("192.168.100.20", 43100),
+        ),
+        base_url="https://endpoint.sosnadmin.local",
+    ) as client:
+        response = await client.post(
+            "/agent/v1/enroll",
+            headers={"Authorization": f"Bearer {claim_token}"},
+            json=body,
+        )
+
+    assert response.status_code == 403
+    assert response.json() == {"detail": "Enrollment denied"}
+    audits = [value for value in session.added if isinstance(value, AuditEvent)]
+    assert [(audit.action, audit.details) for audit in audits] == [
+        ("enrollment.denied", {"category": expected_category})
+    ]
+    assert claim_token not in repr(audits)
+    assert "installation-session-b" not in repr(audits)
+    assert "sha256:agent-device-b" not in repr(audits)
+    assert claim.claimed_at is None
+    assert campaign.use_count == 0
+    assert session.rollback_calls == 1
+    assert session.commit_calls == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("denial", "expected_category"),
+    (
+        ("claim", "claim"),
+        ("cidr", "cidr"),
+        ("expired", "expired"),
+        ("campaign", "campaign"),
+    ),
+)
+async def test_enrollment_denial_audits_requested_safe_categories(
+    denial: str,
+    expected_category: str,
+) -> None:
+    """Claim, campaign lifetime and CIDR denials need distinct internal evidence."""
+    claim_token, campaign, claim = _claim()
+    if denial == "claim":
+        session = _AgentEnrollmentSession(campaign=campaign, claim=None)
+    else:
+        session = _AgentEnrollmentSession(campaign=campaign, claim=claim)
+    client_address = "192.168.100.20"
+    if denial == "cidr":
+        campaign.allowed_cidrs = ["192.168.100.0/25"]
+        client_address = "192.168.100.200"
+    elif denial == "expired":
+        campaign.expires_at = datetime.now(UTC) - timedelta(seconds=1)
+    elif denial == "campaign":
+        campaign.revoked_at = datetime.now(UTC)
+    app = create_app(_settings(), session_provider=_Provider(session))
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app, client=(client_address, 43100)),
+        base_url="https://endpoint.sosnadmin.local",
+    ) as client:
+        response = await client.post(
+            "/agent/v1/enroll",
+            headers={"Authorization": f"Bearer {claim_token}"},
+            json=_enrollment_body(),
+        )
+
+    assert response.status_code == 403
+    assert response.json() == {"detail": "Enrollment denied"}
+    audits = [value for value in session.added if isinstance(value, AuditEvent)]
+    assert [(audit.action, audit.details) for audit in audits] == [
+        ("enrollment.denied", {"category": expected_category})
+    ]
+    assert claim_token not in repr(audits)
+
+
+@pytest.mark.asyncio
 async def test_campaign_enrollment_returns_show_once_delivery_and_audits_atomically() -> (
     None
 ):
@@ -455,8 +551,11 @@ async def test_enrollment_rechecks_campaign_expiry_after_authority_lock() -> Non
     assert response.status_code == 403
     assert response.json() == {"detail": "Enrollment denied"}
     assert campaign.use_count == 0
-    assert session.added == []
-    assert session.commit_calls == 0
+    audits = [value for value in session.added if isinstance(value, AuditEvent)]
+    assert [(audit.action, audit.details) for audit in audits] == [
+        ("enrollment.denied", {"category": "expired"})
+    ]
+    assert session.commit_calls == 1
 
 
 @pytest.mark.asyncio
@@ -485,8 +584,11 @@ async def test_enrollment_rechecks_campaign_expiry_after_advisory_lock() -> None
     assert response.status_code == 403
     assert response.json() == {"detail": "Enrollment denied"}
     assert campaign.use_count == 0
-    assert session.added == []
-    assert session.commit_calls == 0
+    audits = [value for value in session.added if isinstance(value, AuditEvent)]
+    assert [(audit.action, audit.details) for audit in audits] == [
+        ("enrollment.denied", {"category": "expired"})
+    ]
+    assert session.commit_calls == 1
 
 
 @pytest.mark.asyncio
@@ -517,8 +619,11 @@ async def test_enrollment_rechecks_claim_expiry_after_advisory_lock() -> None:
     assert response.json() == {"detail": "Enrollment denied"}
     assert claim.claimed_at is None
     assert campaign.use_count == 0
-    assert session.added == []
-    assert session.commit_calls == 0
+    audits = [value for value in session.added if isinstance(value, AuditEvent)]
+    assert [(audit.action, audit.details) for audit in audits] == [
+        ("enrollment.denied", {"category": "expired"})
+    ]
+    assert session.commit_calls == 1
 
 
 @pytest.mark.asyncio
@@ -1372,5 +1477,8 @@ async def test_unbounded_campaign_policy_is_denied_before_quota_mutation() -> No
     assert response.status_code == 403
     assert response.json() == {"detail": "Enrollment denied"}
     assert campaign.use_count == 0
-    assert session.added == []
-    assert session.commit_calls == 0
+    audits = [value for value in session.added if isinstance(value, AuditEvent)]
+    assert [(audit.action, audit.details) for audit in audits] == [
+        ("enrollment.denied", {"category": "campaign"})
+    ]
+    assert session.commit_calls == 1

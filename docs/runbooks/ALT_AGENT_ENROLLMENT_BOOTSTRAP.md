@@ -63,6 +63,20 @@ Re-running after both claim files were removed is idempotent. If this handoff
 request cannot be written, the durable identity remains valid and the claim is
 not removed automatically.
 
+## Gateway denial diagnostics
+
+`POST /agent/v1/enroll` always returns the same external response,
+`403 Enrollment denied`, for an enrollment refusal. It never returns a claim,
+installation ID, hardware fingerprint, campaign state or CIDR-specific reason
+to the agent.
+
+Gateway writes a separate `enrollment.denied` audit event after rolling back
+the rejected enrollment transaction. Its `details` object contains only one
+safe category: `claim`, `installation_id`, `fingerprint`, `cidr`, `expired`,
+`campaign`, or `platform`. It contains no raw token, binding value, source
+address or durable device credential. Operators can use that category to
+diagnose a failed Ansible rollout without creating another claim manually.
+
 ## Verification before a live pilot
 
 Run locally first:

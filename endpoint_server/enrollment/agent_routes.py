@@ -32,11 +32,11 @@ from endpoint_server.network import observed_client_address
 
 from .campaigns import (
     EnrollmentDenied,
-    campaign_request_matches,
+    campaign_request_denial_category,
     campaign_token_digest,
     claim_token_digest,
     consume_install_claim,
-    install_claim_bindings_match,
+    install_claim_binding_denial_category,
     reserve_campaign_use,
 )
 from .credentials import (
@@ -157,7 +157,7 @@ def _validated_delivery_policy(
     try:
         validate_bounded_json(policy)
     except (TypeError, ValueError) as error:
-        raise EnrollmentDenied("Enrollment denied") from error
+        raise EnrollmentDenied("Enrollment denied", category="campaign") from error
     return policy
 
 
@@ -176,7 +176,7 @@ async def _load_enrollment_authority(
             )
             campaign = result.scalar_one_or_none()
             if campaign is None:
-                raise EnrollmentDenied("Enrollment denied")
+                raise EnrollmentDenied("Enrollment denied", category="campaign")
             return campaign, None
         if token.startswith("ic_"):
             digest = claim_token_digest(token, pepper)
@@ -187,7 +187,7 @@ async def _load_enrollment_authority(
             )
             claim = claim_result.scalar_one_or_none()
             if claim is None:
-                raise EnrollmentDenied("Enrollment denied")
+                raise EnrollmentDenied("Enrollment denied", category="claim")
             campaign_result = await session.execute(
                 select(EnrollmentCampaign)
                 .where(EnrollmentCampaign.id == claim.campaign_id)
@@ -195,11 +195,11 @@ async def _load_enrollment_authority(
             )
             campaign = campaign_result.scalar_one_or_none()
             if campaign is None:
-                raise EnrollmentDenied("Enrollment denied")
+                raise EnrollmentDenied("Enrollment denied", category="campaign")
             return campaign, claim
     except ValueError as error:
-        raise EnrollmentDenied("Enrollment denied") from error
-    raise EnrollmentDenied("Enrollment denied")
+        raise EnrollmentDenied("Enrollment denied", category="claim") from error
+    raise EnrollmentDenied("Enrollment denied", category="claim")
 
 
 async def _load_existing_device(session, device_identifier: str) -> Device | None:
@@ -245,14 +245,44 @@ def _campaign_allows_delivery(
     )
 
 
-def _claim_allows_enrollment(
+def _claim_enrollment_denial_category(
     claim: EnrollmentClaim | None,
     *,
     now: datetime,
-) -> bool:
-    return claim is None or (
-        claim.expires_at.tzinfo is not None and now < claim.expires_at.astimezone(UTC)
-    )
+) -> str | None:
+    """Return the internal category for a claim that became unavailable."""
+    if claim is None:
+        return None
+    if claim.expires_at.tzinfo is None:
+        return "claim"
+    if now >= claim.expires_at.astimezone(UTC):
+        return "expired"
+    return None
+
+
+async def _audit_enrollment_denial(
+    session,
+    *,
+    request: Request,
+    request_id: str,
+    category: str,
+) -> None:
+    """Persist a non-secret denial category after the enrollment rollback."""
+    try:
+        await append_audit_event(
+            session,
+            actor_kind="agent",
+            actor_identifier=None,
+            action="enrollment.denied",
+            object_kind="agent_enrollment",
+            object_identifier="denied",
+            request_id=request_id,
+            details={"category": category},
+            occurred_at=datetime.now(UTC),
+        )
+        await session.commit()
+    except Exception:
+        await session.rollback()
 
 
 def _raise_if_delivery_expired(
@@ -426,13 +456,14 @@ async def enroll_agent(
                 settings.device_token_pepper,
             )
             issued_at = datetime.now(UTC)
-            if not campaign_request_matches(
+            category = campaign_request_denial_category(
                 campaign,
                 now=issued_at,
                 source_address=source_address,
                 platform=body.platform,
-            ):
-                raise EnrollmentDenied("Enrollment denied")
+            )
+            if category is not None:
+                raise EnrollmentDenied("Enrollment denied", category=category)
             policy = _validated_delivery_policy(campaign)
             device_identifier = _device_identifier(
                 body.installation_id,
@@ -454,24 +485,33 @@ async def enroll_agent(
                 device_identifier,
             )
             issued_at = datetime.now(UTC)
-            if not campaign_request_matches(
+            category = campaign_request_denial_category(
                 campaign,
                 now=issued_at,
                 source_address=source_address,
                 platform=body.platform,
-            ) or not _claim_allows_enrollment(claim, now=issued_at):
-                raise EnrollmentDenied("Enrollment denied")
+            )
+            if category is not None:
+                raise EnrollmentDenied("Enrollment denied", category=category)
+            category = _claim_enrollment_denial_category(claim, now=issued_at)
+            if category is not None:
+                raise EnrollmentDenied("Enrollment denied", category=category)
             if existing_device is not None:
-                bindings_match = claim is None or (
-                    claim.device_id == existing_device.id
-                    and install_claim_bindings_match(
+                if claim is not None and claim.device_id != existing_device.id:
+                    raise EnrollmentDenied("Enrollment denied", category="claim")
+                category = (
+                    install_claim_binding_denial_category(
                         claim,
                         settings.device_token_pepper,
                         installation_session=body.installation_id,
                         hardware_fingerprint=body.hardware_fingerprint,
                     )
+                    if claim is not None
+                    else None
                 )
-                if bindings_match and await _existing_enrollment_matches(
+                if category is not None:
+                    raise EnrollmentDenied("Enrollment denied", category=category)
+                if await _existing_enrollment_matches(
                     session,
                     existing_device,
                     campaign,
@@ -527,7 +567,7 @@ async def enroll_agent(
                         device_token=raw_device_token,
                         issued_at=issued_at,
                     )
-                raise EnrollmentDenied("Enrollment denied")
+                raise EnrollmentDenied("Enrollment denied", category="claim")
             if claim is None:
                 campaign = await reserve_campaign_use(
                     session,
@@ -619,6 +659,12 @@ async def enroll_agent(
             await session.commit()
         except EnrollmentDenied as error:
             await session.rollback()
+            await _audit_enrollment_denial(
+                session,
+                request=request,
+                request_id=request_id,
+                category=error.category,
+            )
             raise _denied() from error
         except HTTPException:
             if not expired_cleanup_committed:

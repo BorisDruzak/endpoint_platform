@@ -11,6 +11,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from ipaddress import IPv4Address, IPv6Address
+from typing import Literal
 from uuid import UUID, uuid4
 
 from sqlalchemy import select
@@ -31,9 +32,28 @@ _CLAIM_CONTEXT = b"endpoint-install-claim-v1\0"
 _INSTALL_SESSION_CONTEXT = b"endpoint-install-session-v1\0"
 _FINGERPRINT_CONTEXT = b"endpoint-enrollment-fingerprint-v1\0"
 
+EnrollmentDenialCategory = Literal[
+    "campaign",
+    "claim",
+    "cidr",
+    "expired",
+    "fingerprint",
+    "installation_id",
+    "platform",
+]
+
 
 class EnrollmentDenied(Exception):
     """Generic fail-closed enrollment denial without credential oracle details."""
+
+    def __init__(
+        self,
+        message: str = "Enrollment denied",
+        *,
+        category: EnrollmentDenialCategory = "claim",
+    ) -> None:
+        super().__init__(message)
+        self.category = category
 
 
 @dataclass(frozen=True, slots=True)
@@ -80,27 +100,47 @@ def install_claim_bindings_match(
     hardware_fingerprint: str,
 ) -> bool:
     """Check stored claim bindings without exposing which input mismatched."""
+    return (
+        install_claim_binding_denial_category(
+            claim,
+            pepper,
+            installation_session=installation_session,
+            hardware_fingerprint=hardware_fingerprint,
+        )
+        is None
+    )
+
+
+def install_claim_binding_denial_category(
+    claim: EnrollmentClaim,
+    pepper: bytes,
+    *,
+    installation_session: str,
+    hardware_fingerprint: str,
+) -> EnrollmentDenialCategory | None:
+    """Classify a bound-claim mismatch for internal audit only."""
     try:
-        canonical_fingerprint = normalize_hardware_fingerprint(hardware_fingerprint)
         session_digest = _bound_digest(
             installation_session,
             pepper,
             _INSTALL_SESSION_CONTEXT,
         )
+    except ValueError:
+        return "installation_id"
+    if not _digest_matches(session_digest, claim.installation_session_digest):
+        return "installation_id"
+    try:
+        canonical_fingerprint = normalize_hardware_fingerprint(hardware_fingerprint)
         fingerprint_digest = _bound_digest(
             canonical_fingerprint,
             pepper,
             _FINGERPRINT_CONTEXT,
         )
     except ValueError:
-        return False
-    return _digest_matches(
-        session_digest,
-        claim.installation_session_digest,
-    ) and _digest_matches(
-        fingerprint_digest,
-        claim.fingerprint_digest,
-    )
+        return "fingerprint"
+    if not _digest_matches(fingerprint_digest, claim.fingerprint_digest):
+        return "fingerprint"
+    return None
 
 
 def _bound_digest(value: str, pepper: bytes, context: bytes) -> str:
@@ -272,23 +312,43 @@ def campaign_request_matches(
     platform: str,
 ) -> bool:
     """Validate immutable request context without considering remaining quota."""
+    return (
+        campaign_request_denial_category(
+            campaign,
+            now=now,
+            source_address=source_address,
+            platform=platform,
+        )
+        is None
+    )
+
+
+def campaign_request_denial_category(
+    campaign: EnrollmentCampaign,
+    *,
+    now: datetime,
+    source_address: IPv4Address | IPv6Address,
+    platform: str,
+) -> EnrollmentDenialCategory | None:
+    """Classify immutable campaign context failures for internal audit only."""
     expiry = campaign.expires_at
-    if not (
-        campaign.revoked_at is None
-        and campaign.disabled_at is None
-        and expiry is not None
-        and expiry.tzinfo is not None
-        and now < expiry
-        and platform == campaign.target_platform
-    ):
-        return False
+    if campaign.revoked_at is not None or campaign.disabled_at is not None:
+        return "campaign"
+    if expiry is None or expiry.tzinfo is None:
+        return "campaign"
+    if now >= expiry:
+        return "expired"
+    if platform != campaign.target_platform:
+        return "platform"
     try:
         networks = tuple(
             ipaddress.ip_network(value, strict=True) for value in campaign.allowed_cidrs
         )
     except ValueError:
-        return False
-    return any(source_address in network for network in networks)
+        return "campaign"
+    if not any(source_address in network for network in networks):
+        return "cidr"
+    return None
 
 
 def _campaign_allows(
@@ -298,11 +358,14 @@ def _campaign_allows(
     source_address: IPv4Address | IPv6Address,
     platform: str,
 ) -> bool:
-    return campaign.use_count < campaign.max_uses and campaign_request_matches(
-        campaign,
-        now=now,
-        source_address=source_address,
-        platform=platform,
+    return campaign.use_count < campaign.max_uses and (
+        campaign_request_denial_category(
+            campaign,
+            now=now,
+            source_address=source_address,
+            platform=platform,
+        )
+        is None
     )
 
 
@@ -330,13 +393,18 @@ async def reserve_campaign_use(
         .with_for_update()
     )
     campaign = result.scalar_one_or_none()
-    if campaign is None or not _campaign_allows(
+    if campaign is None:
+        raise EnrollmentDenied("Enrollment denied", category="campaign")
+    if campaign.use_count >= campaign.max_uses:
+        raise EnrollmentDenied("Enrollment denied", category="campaign")
+    category = campaign_request_denial_category(
         campaign,
         now=checked_at,
         source_address=source_address,
         platform=platform,
-    ):
-        raise EnrollmentDenied("Enrollment denied")
+    )
+    if category is not None:
+        raise EnrollmentDenied("Enrollment denied", category=category)
     campaign.use_count += 1
     await append_audit_event(
         session,
@@ -416,33 +484,38 @@ async def consume_install_claim(
         .with_for_update()
     )
     claim = claim_result.scalar_one_or_none()
-    valid_bindings = claim is not None and install_claim_bindings_match(
+    if claim is None or claim.claimed_at is not None:
+        raise EnrollmentDenied("Enrollment denied", category="claim")
+    if claim.expires_at.tzinfo is None:
+        raise EnrollmentDenied("Enrollment denied", category="claim")
+    if checked_at >= claim.expires_at:
+        raise EnrollmentDenied("Enrollment denied", category="expired")
+    category = install_claim_binding_denial_category(
         claim,
         pepper,
         installation_session=installation_session,
         hardware_fingerprint=hardware_fingerprint,
     )
-    if (
-        claim is None
-        or claim.claimed_at is not None
-        or claim.expires_at.tzinfo is None
-        or checked_at >= claim.expires_at
-        or not valid_bindings
-    ):
-        raise EnrollmentDenied("Enrollment denied")
+    if category is not None:
+        raise EnrollmentDenied("Enrollment denied", category=category)
     campaign_result = await session.execute(
         select(EnrollmentCampaign)
         .where(EnrollmentCampaign.id == claim.campaign_id)
         .with_for_update()
     )
     campaign = campaign_result.scalar_one_or_none()
-    if campaign is None or not _campaign_allows(
+    if campaign is None:
+        raise EnrollmentDenied("Enrollment denied", category="campaign")
+    if campaign.use_count >= campaign.max_uses:
+        raise EnrollmentDenied("Enrollment denied", category="campaign")
+    category = campaign_request_denial_category(
         campaign,
         now=checked_at,
         source_address=source_address,
         platform=platform,
-    ):
-        raise EnrollmentDenied("Enrollment denied")
+    )
+    if category is not None:
+        raise EnrollmentDenied("Enrollment denied", category=category)
     claim.claimed_at = checked_at
     campaign.use_count += 1
     await append_audit_event(
