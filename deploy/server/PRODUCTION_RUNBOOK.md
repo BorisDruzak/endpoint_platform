@@ -214,6 +214,24 @@ sudo systemd-run --pty --wait --collect --property=User=endpoint-platform --prop
 
 Replace `ADMIN_USERNAME` with the administrator login approved by the operator.
 
+### Runtime diagnostic target integration
+
+Provision the Helpdesk service credential through the existing protected
+service-credential administration flow. Its service client identifier must be
+exactly `helpdesk` and its scopes must include exactly
+`helpdesk.diagnostic_target.read`; no other client identifier is authorized by
+this route. Deliver the bearer only through the approved secret channel and do
+not paste it into a shell command, ticket, audit record, or this runbook.
+
+Helpdesk calls `GET /service/v1/runtime/devices/{device_ref}` only over
+`https://endpoint.sosnadmin.local`, with its service bearer and a non-empty
+`X-Correlation-ID`. `device_ref` is the Endpoint UUID already selected by
+Helpdesk; Endpoint does not resolve Registry data. An installed agent records
+`POST /agent/v1/runtime/heartbeat` through its device bearer. The server marks
+the device online only for 90 seconds after its server-observed heartbeat.
+Malformed, unavailable, or correlation-mismatched results are fail-closed and
+are not equivalent to the correlated `endpoint_device_not_found` response.
+
 ## 7. Release rollback
 
 If the API release fails after migrations have succeeded, use the recorded
