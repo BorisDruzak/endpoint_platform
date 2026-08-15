@@ -23,6 +23,8 @@ DEVICES_READ_SCOPE = "devices.read"
 CONTEXT_READ_SCOPE = "context.read"
 CONTEXT_COLLECT_SCOPE = "context.collect"
 PROVISIONING_INSTALL_CLAIMS_ISSUE_SCOPE = "provisioning.install-claims.issue"
+HELPDESK_DIAGNOSTIC_TARGET_READ_SCOPE = "helpdesk.diagnostic_target.read"
+HELPDESK_SERVICE_CLIENT_IDENTIFIER = "helpdesk"
 
 
 @dataclass(frozen=True, slots=True)
@@ -100,3 +102,16 @@ def require_service_scope(
         return principal
 
     return dependency
+
+
+async def require_helpdesk_diagnostic_target_read(request: Request) -> ServicePrincipal:
+    """Require the sole service principal entitled to read runtime targets."""
+    principal = await require_service_scope(HELPDESK_DIAGNOSTIC_TARGET_READ_SCOPE)(
+        request
+    )
+    if principal.client.client_identifier != HELPDESK_SERVICE_CLIENT_IDENTIFIER:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Runtime diagnostic target access is restricted",
+        )
+    return principal
