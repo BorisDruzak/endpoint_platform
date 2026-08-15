@@ -7,7 +7,7 @@ from datetime import datetime
 from typing import Annotated, Literal
 from uuid import UUID
 
-from pydantic import Field, StrictBool, ValidationError
+from pydantic import AwareDatetime, Field, StrictBool, ValidationError, field_validator
 
 from .base import ContractModelV1
 
@@ -28,9 +28,16 @@ class RuntimeDiagnosticTargetV1(ContractModelV1):
     device_ref: UUID
     online: StrictBool
     connection_state: Literal["online", "offline"]
-    last_seen_at: datetime | None
-    last_handshake_at: datetime | None
+    last_seen_at: AwareDatetime | None
+    last_handshake_at: AwareDatetime | None
     agent_version: Annotated[str, Field(min_length=1, max_length=128)] | None
+
+    @field_validator("last_seen_at", "last_handshake_at", mode="before")
+    @classmethod
+    def require_rfc3339_timestamp_string(cls, value: object) -> object:
+        if value is not None and not isinstance(value, str):
+            raise ValueError("runtime timestamp must be an RFC3339 string")
+        return value
 
 
 class RuntimeDiagnosticTargetEnvelopeV1(ContractModelV1):

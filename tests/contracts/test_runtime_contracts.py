@@ -80,3 +80,15 @@ def test_adapter_rejects_coerced_online_values(online: object) -> None:
 
     with pytest.raises(RuntimeDiagnosticTargetUnavailable):
         parse_runtime_diagnostic_target_response(payload, _CORRELATION_ID)
+
+
+@pytest.mark.parametrize("timestamp", (0, "2026-08-16T10:00:00"))
+def test_adapter_rejects_numeric_or_timezone_less_runtime_timestamps(
+    timestamp: object,
+) -> None:
+    """Only RFC3339 timestamp strings with an explicit timezone may cross the adapter."""
+    payload = _success_payload()
+    payload["data"] = {**payload["data"], "last_seen_at": timestamp}
+
+    with pytest.raises(RuntimeDiagnosticTargetUnavailable):
+        parse_runtime_diagnostic_target_response(payload, _CORRELATION_ID)
