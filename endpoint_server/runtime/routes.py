@@ -55,6 +55,14 @@ def _validated_correlation_id(value: str | None) -> str:
     return value
 
 
+def _rfc3339_timestamp(value: datetime | None) -> str | None:
+    """Serialize a durable timestamp before it crosses the strict HTTP contract."""
+    if value is None:
+        return None
+    normalized = value if value.tzinfo is not None else value.replace(tzinfo=UTC)
+    return normalized.astimezone(UTC).isoformat().replace("+00:00", "Z")
+
+
 @router.post(
     "/agent/v1/runtime/heartbeat",
     status_code=status.HTTP_204_NO_CONTENT,
@@ -201,11 +209,11 @@ async def read_runtime_diagnostic_target(
                     device_ref=device.id,
                     online=online,
                     connection_state="online" if online else "offline",
-                    last_seen_at=instance.last_seen_at if instance is not None else None,
-                    last_handshake_at=(
-                        runtime_session.last_handshake_at
-                        if runtime_session is not None
-                        else None
+                    last_seen_at=_rfc3339_timestamp(
+                        instance.last_seen_at if instance is not None else None
+                    ),
+                    last_handshake_at=_rfc3339_timestamp(
+                        runtime_session.last_handshake_at if runtime_session is not None else None
                     ),
                     agent_version=instance.agent_version if instance is not None else None,
                 ),
