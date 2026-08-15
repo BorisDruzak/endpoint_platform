@@ -65,6 +65,54 @@ paths:
             "application/json":
               schema:
                 "$ref": "#/components/schemas/DeviceCredentialRotationV1"
+  "/agent/v1/runtime/heartbeat":
+    post:
+      security:
+        -
+          AgentBearer: []
+      requestBody:
+        required: true
+        content:
+          "application/json":
+            schema:
+              "$ref": "#/components/schemas/AgentHeartbeatV1"
+      responses:
+        "204":
+          description: "Runtime heartbeat recorded"
+  "/service/v1/runtime/devices/{device_ref}":
+    get:
+      security:
+        -
+          ServiceBearer: []
+      parameters:
+        -
+          name: "device_ref"
+          in: "path"
+          required: true
+          schema:
+            type: "string"
+            format: "uuid"
+        -
+          name: "X-Correlation-ID"
+          in: "header"
+          required: true
+          schema:
+            type: "string"
+            minLength: 1
+            maxLength: 128
+      responses:
+        "200":
+          description: "Endpoint-owned runtime diagnostic target"
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/RuntimeDiagnosticTargetEnvelopeV1"
+        "404":
+          description: "Endpoint device not found"
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/RuntimeDiagnosticTargetNotFoundEnvelopeV1"
   "/agent/v1/credentials/activate":
     post:
       security:
@@ -2234,7 +2282,118 @@ components:
         - "summary"
       title: "DeviceContextDiffChangeV1"
       type: "object"
+    RuntimeDiagnosticTargetEnvelopeV1:
+      additionalProperties: false
+      description: "Successful runtime target response bound to a caller correlation ID."
+      properties:
+        schema_version:
+          const: "endpoint_runtime_v1"
+          title: "Schema Version"
+          type: "string"
+        correlation_id:
+          maxLength: 128
+          minLength: 1
+          pattern: "^[\\x20-\\x7e]+$"
+          title: "Correlation Id"
+          type: "string"
+        data:
+          "$ref": "#/components/schemas/RuntimeDiagnosticTargetEnvelopeV1__RuntimeDiagnosticTargetV1"
+      required:
+        - "schema_version"
+        - "correlation_id"
+        - "data"
+      title: "RuntimeDiagnosticTargetEnvelopeV1"
+      type: "object"
+    RuntimeDiagnosticTargetEnvelopeV1__RuntimeDiagnosticTargetV1:
+      additionalProperties: false
+      description: "The complete allowlist that a Helpdesk diagnostic target may expose."
+      properties:
+        device_ref:
+          format: "uuid"
+          title: "Device Ref"
+          type: "string"
+        online:
+          title: "Online"
+          type: "boolean"
+        connection_state:
+          enum:
+            - "online"
+            - "offline"
+          title: "Connection State"
+          type: "string"
+        last_seen_at:
+          anyOf:
+            -
+              format: "date-time"
+              type: "string"
+              "$comment": "model-only UTC normalization: timezone-aware values are normalized to UTC."
+            -
+              type: "null"
+          title: "Last Seen At"
+        last_handshake_at:
+          anyOf:
+            -
+              format: "date-time"
+              type: "string"
+              "$comment": "model-only UTC normalization: timezone-aware values are normalized to UTC."
+            -
+              type: "null"
+          title: "Last Handshake At"
+        agent_version:
+          anyOf:
+            -
+              maxLength: 64
+              minLength: 1
+              type: "string"
+            -
+              type: "null"
+          title: "Agent Version"
+      required:
+        - "device_ref"
+        - "online"
+        - "connection_state"
+        - "last_seen_at"
+        - "last_handshake_at"
+        - "agent_version"
+      title: "RuntimeDiagnosticTargetV1"
+      type: "object"
+    RuntimeDiagnosticTargetNotFoundEnvelopeV1:
+      additionalProperties: false
+      description: "The only valid 404 body for the runtime diagnostic target endpoint."
+      properties:
+        correlation_id:
+          maxLength: 128
+          minLength: 1
+          pattern: "^[\\x20-\\x7e]+$"
+          title: "Correlation Id"
+          type: "string"
+        data:
+          "$ref": "#/components/schemas/RuntimeDiagnosticTargetNotFoundEnvelopeV1__RuntimeDiagnosticTargetNotFoundDataV1"
+      required:
+        - "correlation_id"
+        - "data"
+      title: "RuntimeDiagnosticTargetNotFoundEnvelopeV1"
+      type: "object"
+    RuntimeDiagnosticTargetNotFoundEnvelopeV1__RuntimeDiagnosticTargetNotFoundDataV1:
+      additionalProperties: false
+      properties:
+        status:
+          const: "not_found"
+          title: "Status"
+          type: "string"
+        code:
+          const: "endpoint_device_not_found"
+          title: "Code"
+          type: "string"
+      required:
+        - "status"
+        - "code"
+      title: "RuntimeDiagnosticTargetNotFoundDataV1"
+      type: "object"
   securitySchemes:
     AgentBearer:
+      type: "http"
+      scheme: "bearer"
+    ServiceBearer:
       type: "http"
       scheme: "bearer"

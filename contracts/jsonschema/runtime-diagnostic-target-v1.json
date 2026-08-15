@@ -1,0 +1,102 @@
+{
+  "$defs": {
+    "RuntimeDiagnosticTargetV1": {
+      "additionalProperties": false,
+      "description": "The complete allowlist that a Helpdesk diagnostic target may expose.",
+      "properties": {
+        "agent_version": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Agent Version"
+        },
+        "connection_state": {
+          "enum": [
+            "online",
+            "offline"
+          ],
+          "title": "Connection State",
+          "type": "string"
+        },
+        "device_ref": {
+          "format": "uuid",
+          "title": "Device Ref",
+          "type": "string"
+        },
+        "last_handshake_at": {
+          "anyOf": [
+            {
+              "$comment": "model-only UTC normalization: timezone-aware values are normalized to UTC.",
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Last Handshake At"
+        },
+        "last_seen_at": {
+          "anyOf": [
+            {
+              "$comment": "model-only UTC normalization: timezone-aware values are normalized to UTC.",
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Last Seen At"
+        },
+        "online": {
+          "title": "Online",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "device_ref",
+        "online",
+        "connection_state",
+        "last_seen_at",
+        "last_handshake_at",
+        "agent_version"
+      ],
+      "title": "RuntimeDiagnosticTargetV1",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Successful runtime target response bound to a caller correlation ID.",
+  "properties": {
+    "correlation_id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[\\x20-\\x7e]+$",
+      "title": "Correlation Id",
+      "type": "string"
+    },
+    "data": {
+      "$ref": "#/$defs/RuntimeDiagnosticTargetV1"
+    },
+    "schema_version": {
+      "const": "endpoint_runtime_v1",
+      "title": "Schema Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema_version",
+    "correlation_id",
+    "data"
+  ],
+  "title": "RuntimeDiagnosticTargetEnvelopeV1",
+  "type": "object"
+}

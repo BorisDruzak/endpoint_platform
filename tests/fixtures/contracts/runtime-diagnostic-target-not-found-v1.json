@@ -1,0 +1,7 @@
+{
+  "correlation_id": "fixture-runtime-diagnostic-01",
+  "data": {
+    "code": "endpoint_device_not_found",
+    "status": "not_found"
+  }
+}

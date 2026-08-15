@@ -1,0 +1,45 @@
+{
+  "$defs": {
+    "RuntimeDiagnosticTargetNotFoundDataV1": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "const": "endpoint_device_not_found",
+          "title": "Code",
+          "type": "string"
+        },
+        "status": {
+          "const": "not_found",
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "status",
+        "code"
+      ],
+      "title": "RuntimeDiagnosticTargetNotFoundDataV1",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "The only valid 404 body for the runtime diagnostic target endpoint.",
+  "properties": {
+    "correlation_id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[\\x20-\\x7e]+$",
+      "title": "Correlation Id",
+      "type": "string"
+    },
+    "data": {
+      "$ref": "#/$defs/RuntimeDiagnosticTargetNotFoundDataV1"
+    }
+  },
+  "required": [
+    "correlation_id",
+    "data"
+  ],
+  "title": "RuntimeDiagnosticTargetNotFoundEnvelopeV1",
+  "type": "object"
+}
