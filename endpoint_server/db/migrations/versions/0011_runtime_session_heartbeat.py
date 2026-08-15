@@ -19,6 +19,13 @@ depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
+    op.alter_column(
+        "device_instances",
+        "agent_version",
+        type_=sa.String(length=128),
+        existing_type=sa.String(length=64),
+        existing_nullable=False,
+    )
     op.add_column(
         "device_sessions",
         sa.Column("last_handshake_at", sa.DateTime(timezone=True), nullable=True),
@@ -35,3 +42,10 @@ def downgrade() -> None:
         "ix_device_sessions_device_handshake_id_desc", table_name="device_sessions"
     )
     op.drop_column("device_sessions", "last_handshake_at")
+    op.alter_column(
+        "device_instances",
+        "agent_version",
+        type_=sa.String(length=64),
+        existing_type=sa.String(length=128),
+        existing_nullable=False,
+    )

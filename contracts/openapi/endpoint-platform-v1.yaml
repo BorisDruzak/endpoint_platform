@@ -2342,7 +2342,7 @@ components:
         agent_version:
           anyOf:
             -
-              maxLength: 64
+              maxLength: 128
               minLength: 1
               type: "string"
             -

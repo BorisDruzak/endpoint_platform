@@ -70,3 +70,13 @@ def test_adapter_fails_closed_for_invalid_or_mismatched_runtime_response(
     """Extra data, schema loss, or correlation substitution must make target unavailable."""
     with pytest.raises(RuntimeDiagnosticTargetUnavailable):
         parse_runtime_diagnostic_target_response(payload, expected_correlation)
+
+
+@pytest.mark.parametrize("online", ("true", 1))
+def test_adapter_rejects_coerced_online_values(online: object) -> None:
+    """A non-JSON boolean must be unavailable rather than silently coerced online."""
+    payload = _success_payload()
+    payload["data"] = {**payload["data"], "online": online}
+
+    with pytest.raises(RuntimeDiagnosticTargetUnavailable):
+        parse_runtime_diagnostic_target_response(payload, _CORRELATION_ID)

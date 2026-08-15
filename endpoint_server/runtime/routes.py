@@ -167,7 +167,10 @@ async def read_runtime_diagnostic_target(
                 )
             instance = await session.scalar(
                 select(DeviceInstance)
-                .where(DeviceInstance.device_id == device.id)
+                .where(
+                    DeviceInstance.device_id == device.id,
+                    DeviceInstance.instance_identifier == _RUNTIME_INSTANCE_IDENTIFIER,
+                )
                 .order_by(DeviceInstance.last_seen_at.desc(), DeviceInstance.id.desc())
                 .limit(1)
             )
@@ -185,7 +188,12 @@ async def read_runtime_diagnostic_target(
             expires_at = runtime_session.expires_at if runtime_session is not None else None
             if expires_at is not None and expires_at.tzinfo is None:
                 expires_at = expires_at.replace(tzinfo=UTC)
-            online = expires_at is not None and expires_at > now
+            online = (
+                runtime_session is not None
+                and runtime_session.closed_at is None
+                and expires_at is not None
+                and expires_at > now
+            )
             envelope = RuntimeDiagnosticTargetEnvelopeV1(
                 schema_version="endpoint_runtime_v1",
                 correlation_id=correlation_id,

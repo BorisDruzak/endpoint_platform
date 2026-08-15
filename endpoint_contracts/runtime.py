@@ -7,7 +7,7 @@ from datetime import datetime
 from typing import Annotated, Literal
 from uuid import UUID
 
-from pydantic import Field, ValidationError
+from pydantic import Field, StrictBool, ValidationError
 
 from .base import ContractModelV1
 
@@ -26,11 +26,11 @@ class RuntimeDiagnosticTargetV1(ContractModelV1):
     """The complete allowlist that a Helpdesk diagnostic target may expose."""
 
     device_ref: UUID
-    online: bool
+    online: StrictBool
     connection_state: Literal["online", "offline"]
     last_seen_at: datetime | None
     last_handshake_at: datetime | None
-    agent_version: Annotated[str, Field(min_length=1, max_length=64)] | None
+    agent_version: Annotated[str, Field(min_length=1, max_length=128)] | None
 
 
 class RuntimeDiagnosticTargetEnvelopeV1(ContractModelV1):

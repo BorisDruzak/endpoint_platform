@@ -420,3 +420,43 @@ async def test_runtime_api_and_audit_exclude_device_credentials_and_network_iden
     exposed = response.text + str(audit.details)
     for marker in (token, "install-secret-marker", "aabbccddeeff", "192.0.2.10"):
         assert marker not in exposed
+
+
+@pytest.mark.asyncio
+async def test_runtime_read_uses_runtime_instance_and_excludes_closed_sessions(
+    session_provider: async_sessionmaker[AsyncSession], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Other instances and closed sessions must not assert runtime presence."""
+    device = await _device_with_bearer(session_provider, "runtime-device-token")
+    now = datetime.now(UTC)
+    await _store_runtime_state(session_provider, device, seen_at=now, handshake_at=now, expires_at=now + timedelta(seconds=90))
+    async with session_provider() as session:
+        runtime_session = await session.scalar(select(DeviceSession).where(DeviceSession.device_id == device.id))
+        assert runtime_session is not None
+        runtime_session.closed_at = now
+        session.add(DeviceInstance(id=uuid4(), device_id=device.id, instance_identifier="non-runtime", agent_version="9.9.9", last_seen_at=now + timedelta(seconds=1)))
+        await session.commit()
+    _install_principals(monkeypatch, {"helpdesk": _principal(client_identifier="helpdesk", scopes=["helpdesk.diagnostic_target.read"])})
+    app = create_app(_settings(), session_provider)
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="https://endpoint.sosnadmin.local") as client:
+        response = await client.get(f"/service/v1/runtime/devices/{device.id}", headers={"Authorization": "Bearer helpdesk", "X-Correlation-ID": "diag-closed"})
+
+    assert response.status_code == 200
+    assert response.json()["data"]["online"] is False
+    assert response.json()["data"]["agent_version"] == "3.2.11"
+
+
+@pytest.mark.asyncio
+async def test_heartbeat_accepts_maximum_contract_agent_version(
+    session_provider: async_sessionmaker[AsyncSession],
+) -> None:
+    """A valid 128-character contract version must persist without database truncation."""
+    token = "runtime-device-token"
+    device = await _device_with_bearer(session_provider, token)
+    version = "v" * 128
+    app = create_app(_settings(), session_provider)
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app, client=("127.0.0.1", 12345)), base_url="https://endpoint.sosnadmin.local") as client:
+        response = await client.post("/agent/v1/runtime/heartbeat", headers={"Authorization": f"Bearer {token}"}, json={"schema_version": "agent_heartbeat_v1", "device_id": str(device.id), "platform": "linux", "agent_version": version, "reported_at": "2026-08-16T10:00:00Z"})
+
+    assert response.status_code == 204
+    assert DeviceInstance.__table__.columns["agent_version"].type.length == 128
