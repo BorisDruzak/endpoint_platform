@@ -38,11 +38,13 @@ from .gateway_ws import (
 from .identity import AgentSessionV1, DeviceIdentityV1
 from .runtime import (
     RuntimeDiagnosticTargetEnvelopeV1,
+    RuntimeDiagnosticTargetInvalid,
     RuntimeDiagnosticTargetNotFoundDataV1,
     RuntimeDiagnosticTargetNotFoundEnvelopeV1,
     RuntimeDiagnosticTargetUnavailable,
     RuntimeDiagnosticTargetV1,
     parse_runtime_diagnostic_target_response,
+    parse_runtime_diagnostic_target_http_response,
     redacted_runtime_diagnostic_target_shadow,
 )
 from .telemetry import AgentBuildRecommendationV1, AgentHeartbeatV1
@@ -91,6 +93,7 @@ __all__ = [
     "ResultAckV1",
     "ServerShutdownNoticeV1",
     "RuntimeDiagnosticTargetEnvelopeV1",
+    "RuntimeDiagnosticTargetInvalid",
     "RuntimeDiagnosticTargetNotFoundDataV1",
     "RuntimeDiagnosticTargetNotFoundEnvelopeV1",
     "RuntimeDiagnosticTargetUnavailable",
@@ -99,5 +102,6 @@ __all__ = [
     "UpdateRolloutCreateV1",
     "validate_context_result_item",
     "parse_runtime_diagnostic_target_response",
+    "parse_runtime_diagnostic_target_http_response",
     "redacted_runtime_diagnostic_target_shadow",
 ]

@@ -503,17 +503,40 @@ def _agent_http_paths() -> dict[str, object]:
                         "name": "X-Correlation-ID",
                         "in": "header",
                         "required": True,
-                        "schema": {"type": "string", "minLength": 1, "maxLength": 128},
+                        "schema": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 128,
+                            "pattern": "^[\\x20-\\x7e]+$",
+                        },
                     },
                 ],
                 "responses": {
                     "200": {
                         "description": "Endpoint-owned runtime diagnostic target",
                         "content": _json_content("RuntimeDiagnosticTargetEnvelopeV1"),
+                        "headers": {
+                            "X-Correlation-ID": {
+                                "required": True,
+                                "schema": {
+                                    "type": "string",
+                                    "pattern": "^[\\x20-\\x7e]+$",
+                                },
+                            },
+                        },
                     },
                     "404": {
                         "description": "Endpoint device not found",
                         "content": _json_content("RuntimeDiagnosticTargetNotFoundEnvelopeV1"),
+                        "headers": {
+                            "X-Correlation-ID": {
+                                "required": True,
+                                "schema": {
+                                    "type": "string",
+                                    "pattern": "^[\\x20-\\x7e]+$",
+                                },
+                            },
+                        },
                     },
                 },
             }

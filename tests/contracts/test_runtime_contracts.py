@@ -8,8 +8,10 @@ from uuid import UUID
 import pytest
 
 from endpoint_contracts.runtime import (
+    RuntimeDiagnosticTargetInvalid,
     RuntimeDiagnosticTargetUnavailable,
     parse_runtime_diagnostic_target_response,
+    parse_runtime_diagnostic_target_http_response,
     redacted_runtime_diagnostic_target_shadow,
 )
 
@@ -92,3 +94,66 @@ def test_adapter_rejects_numeric_or_timezone_less_runtime_timestamps(
 
     with pytest.raises(RuntimeDiagnosticTargetUnavailable):
         parse_runtime_diagnostic_target_response(payload, _CORRELATION_ID)
+
+
+def test_adapter_accepts_only_exact_correlated_404_envelope() -> None:
+    payload = {
+        "correlation_id": _CORRELATION_ID,
+        "data": {
+            "status": "not_found",
+            "code": "endpoint_device_not_found",
+        },
+    }
+
+    parsed = parse_runtime_diagnostic_target_http_response(
+        404, payload, _CORRELATION_ID
+    )
+
+    assert parsed.data.status == "not_found"
+    assert parsed.data.code == "endpoint_device_not_found"
+
+
+@pytest.mark.parametrize(
+    "payload",
+    (
+        "not valid JSON",
+        {"correlation_id": _CORRELATION_ID, "data": {}},
+        {
+            "correlation_id": _CORRELATION_ID,
+            "data": {"status": "offline", "code": "endpoint_device_not_found"},
+        },
+        {
+            "correlation_id": _CORRELATION_ID,
+            "data": {"status": "not_found", "code": "wrong_code"},
+        },
+        {
+            "correlation_id": _CORRELATION_ID,
+            "data": {
+                "status": "not_found",
+                "code": "endpoint_device_not_found",
+            },
+            "extra": True,
+        },
+        {
+            "correlation_id": _CORRELATION_ID,
+            "data": {
+                "status": "not_found",
+                "code": "endpoint_device_not_found",
+                "extra": True,
+            },
+        },
+        {
+            "correlation_id": "wrong-correlation",
+            "data": {
+                "status": "not_found",
+                "code": "endpoint_device_not_found",
+            },
+        },
+    ),
+)
+def test_adapter_classifies_malformed_404_envelopes_as_invalid(
+    payload: object,
+) -> None:
+    """Only the exact correlated 404 protocol body maps to not-found."""
+    with pytest.raises(RuntimeDiagnosticTargetInvalid):
+        parse_runtime_diagnostic_target_http_response(404, payload, _CORRELATION_ID)

@@ -64,6 +64,29 @@ class RuntimeDiagnosticTargetUnavailable(ValueError):
     """Fail-closed classification for unusable diagnostic target inputs."""
 
 
+class RuntimeDiagnosticTargetInvalid(ValueError):
+    """Fail-closed classification for a malformed correlated API response."""
+
+
+def parse_runtime_diagnostic_target_http_response(
+    status_code: int, payload: object, correlation_id: str
+) -> RuntimeDiagnosticTargetEnvelopeV1 | RuntimeDiagnosticTargetNotFoundEnvelopeV1:
+    """Parse only exact 200 or strict correlated 404 runtime responses."""
+    if status_code == 200:
+        return parse_runtime_diagnostic_target_response(payload, correlation_id)
+    if status_code != 404:
+        raise RuntimeDiagnosticTargetUnavailable("runtime diagnostic target unavailable")
+    try:
+        parsed = RuntimeDiagnosticTargetNotFoundEnvelopeV1.model_validate(payload)
+    except ValidationError as error:
+        raise RuntimeDiagnosticTargetInvalid(
+            "invalid runtime diagnostic target not-found"
+        ) from error
+    if not hmac.compare_digest(parsed.correlation_id, correlation_id):
+        raise RuntimeDiagnosticTargetInvalid("runtime diagnostic target correlation mismatch")
+    return parsed
+
+
 def parse_runtime_diagnostic_target_response(
     payload: object, correlation_id: str
 ) -> RuntimeDiagnosticTargetEnvelopeV1:
@@ -99,10 +122,12 @@ def redacted_runtime_diagnostic_target_shadow(
 __all__ = [
     "CorrelationID",
     "RuntimeDiagnosticTargetEnvelopeV1",
+    "RuntimeDiagnosticTargetInvalid",
     "RuntimeDiagnosticTargetNotFoundDataV1",
     "RuntimeDiagnosticTargetNotFoundEnvelopeV1",
     "RuntimeDiagnosticTargetUnavailable",
     "RuntimeDiagnosticTargetV1",
     "parse_runtime_diagnostic_target_response",
+    "parse_runtime_diagnostic_target_http_response",
     "redacted_runtime_diagnostic_target_shadow",
 ]

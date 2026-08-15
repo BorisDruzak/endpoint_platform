@@ -191,7 +191,7 @@ def test_gateway_downgrade_guards_long_agent_versions_before_metadata_drop() -> 
 
     command.downgrade(
         config,
-        "0012_gateway_campaign_merge:0013_runtime_session_heartbeat",
+        "0011_gateway_wss:0010_session_last_seen_index",
         sql=True,
     )
 
@@ -263,9 +263,50 @@ def test_runtime_session_heartbeat_migration_is_additive_and_indexed() -> None:
     output = io.StringIO()
     config = Config(REPOSITORY_ROOT / "alembic.ini", output_buffer=output)
     config.set_main_option("sqlalchemy.url", "postgresql+asyncpg://unused@127.0.0.1/unused")
-    command.upgrade(config, "0011_gateway_wss:0011_runtime_session_heartbeat", sql=True)
+    command.upgrade(
+        config,
+        "0012_gateway_campaign_merge:0013_runtime_session_heartbeat",
+        sql=True,
+    )
     rendered = " ".join(output.getvalue().split())
     assert "ADD COLUMN last_handshake_at TIMESTAMP WITH TIME ZONE" in rendered
+    assert "CREATE INDEX ix_device_sessions_device_handshake_id_desc" in rendered
+
+
+def test_runtime_session_heartbeat_upgrade_runs_on_disposable_postgresql(
+    empty_database_url: str,
+) -> None:
+    """The runtime revision upgrades the merged production predecessor on PostgreSQL."""
+    config = _alembic_config(empty_database_url)
+    plain_url = (
+        make_url(empty_database_url)
+        .set(drivername="postgresql")
+        .render_as_string(hide_password=False)
+    )
+
+    command.upgrade(config, "0012_gateway_campaign_merge")
+    before = asyncio.run(_fetch(plain_url, "SELECT version_num FROM alembic_version"))
+    assert [row["version_num"] for row in before] == ["0012_gateway_campaign_merge"]
+
+    command.upgrade(config, "head")
+    columns = asyncio.run(
+        _fetch(
+            plain_url,
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_name = 'device_sessions' "
+            "AND column_name = 'last_handshake_at'",
+        )
+    )
+    indexes = asyncio.run(
+        _fetch(
+            plain_url,
+            "SELECT indexname FROM pg_indexes "
+            "WHERE tablename = 'device_sessions' "
+            "AND indexname = 'ix_device_sessions_device_handshake_id_desc'",
+        )
+    )
+    assert len(columns) == 1
+    assert len(indexes) == 1
 
 
 def test_device_context_migration_binds_current_pointer_to_snapshot_identity() -> None:
