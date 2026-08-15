@@ -258,6 +258,16 @@ def test_gateway_downgrade_rejects_valid_long_version_on_postgresql(
     command.downgrade(config, "base")
 
 
+def test_runtime_session_heartbeat_migration_is_additive_and_indexed() -> None:
+    """Presence reads need durable server-observed handshake ordering."""
+    output = io.StringIO()
+    config = Config(REPOSITORY_ROOT / "alembic.ini", output_buffer=output)
+    config.set_main_option("sqlalchemy.url", "postgresql+asyncpg://unused@127.0.0.1/unused")
+    command.upgrade(config, "0011_gateway_wss:0011_runtime_session_heartbeat", sql=True)
+    rendered = " ".join(output.getvalue().split())
+    assert "ADD COLUMN last_handshake_at TIMESTAMP WITH TIME ZONE" in rendered
+
+
 def test_device_context_migration_binds_current_pointer_to_snapshot_identity() -> None:
     """A snapshot-id-only FK would allow a cross-device/profile current row."""
     output = io.StringIO()

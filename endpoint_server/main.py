@@ -31,6 +31,7 @@ from endpoint_server.gateway.ws_routes import (
     assert_single_gateway_worker,
     router as gateway_ws_router,
 )
+from endpoint_server.runtime.routes import router as runtime_router
 from endpoint_server.updates.admin_routes import router as updates_admin_router
 from endpoint_server.updates.agent_routes import router as updates_agent_router
 
@@ -72,6 +73,7 @@ def create_app(
     app.include_router(enrollment_agent_router)
     app.include_router(gateway_router)
     app.include_router(gateway_ws_router)
+    app.include_router(runtime_router)
     app.include_router(provisioning_router)
     app.include_router(provisioning_admin_router)
     app.include_router(updates_admin_router)
