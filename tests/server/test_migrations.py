@@ -128,7 +128,7 @@ def test_migration_history_has_exactly_one_head() -> None:
         _alembic_config("postgresql+asyncpg://unused@127.0.0.1/unused")
     )
 
-    assert script.get_heads() == ["0011_gateway_wss"]
+    assert script.get_heads() == ["0013_runtime_session_heartbeat"]
 
 
 def test_migration_revisions_fit_alembic_version_storage() -> None:
@@ -191,7 +191,7 @@ def test_gateway_downgrade_guards_long_agent_versions_before_metadata_drop() -> 
 
     command.downgrade(
         config,
-        "0011_gateway_wss:0010_session_last_seen_index",
+        "0012_gateway_campaign_merge:0013_runtime_session_heartbeat",
         sql=True,
     )
 
