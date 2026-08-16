@@ -87,6 +87,12 @@ class DeviceSession(OwnershipRecord, Base):
             desc("created_at"),
             desc("id"),
         ),
+        Index(
+            "ix_device_sessions_device_handshake_id_desc",
+            "device_id",
+            desc("last_handshake_at"),
+            desc("id"),
+        ),
     )
 
     device_id: Mapped[UUID] = mapped_column(
@@ -100,6 +106,9 @@ class DeviceSession(OwnershipRecord, Base):
     )
     expires_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False
+    )
+    last_handshake_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True)
     )
     closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

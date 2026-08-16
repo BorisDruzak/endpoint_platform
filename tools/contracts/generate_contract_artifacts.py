@@ -36,6 +36,8 @@ from endpoint_contracts import (  # noqa: E402
     EnrollmentResponseV1,
     GatewayHelloV1,
     GatewayWsEnvelopeV1,
+    RuntimeDiagnosticTargetEnvelopeV1,
+    RuntimeDiagnosticTargetNotFoundEnvelopeV1,
     AgentUpdateAcknowledgementV1,
     AgentUpdateRecommendationV1,
     AgentUpdateReportV1,
@@ -69,6 +71,8 @@ PUBLIC_MODELS: dict[str, type[ContractModelV1]] = {
     "device_context_network_v1.json": DeviceContextNetworkV1,
     "device_context_diagnostic_v1.json": DeviceContextDiagnosticV1,
     "device_context_diff_v1.json": DeviceContextDiffV1,
+    "runtime-diagnostic-target-v1.json": RuntimeDiagnosticTargetEnvelopeV1,
+    "runtime-diagnostic-target-not-found-v1.json": RuntimeDiagnosticTargetNotFoundEnvelopeV1,
 }
 
 GATEWAY_WS_MODELS: dict[str, type[BaseModel]] = {
@@ -143,6 +147,25 @@ FIXTURES: dict[str, dict[str, Any]] = {
         "platform": "linux",
         "agent_version": "1.2.3-fixture",
         "reported_at": "2026-07-28T12:00:00Z",
+    },
+    "runtime-diagnostic-target-v1.json": {
+        "schema_version": "endpoint_runtime_v1",
+        "correlation_id": "fixture-runtime-diagnostic-01",
+        "data": {
+            "device_ref": "11111111-1111-4111-8111-111111111111",
+            "online": True,
+            "connection_state": "online",
+            "last_seen_at": "2026-08-16T10:00:00Z",
+            "last_handshake_at": "2026-08-16T10:00:00Z",
+            "agent_version": "3.2.11",
+        },
+    },
+    "runtime-diagnostic-target-not-found-v1.json": {
+        "correlation_id": "fixture-runtime-diagnostic-01",
+        "data": {
+            "status": "not_found",
+            "code": "endpoint_device_not_found",
+        },
     },
     "agent-build-recommendation-v1.json": {
         "schema_version": "agent_build_recommendation_v1",
@@ -399,6 +422,7 @@ def _json_content(component_name: str) -> dict[str, object]:
 
 def _agent_http_paths() -> dict[str, object]:
     bearer_security = [{"AgentBearer": []}]
+    service_bearer_security = [{"ServiceBearer": []}]
     return {
         "/agent/v1/enroll": {
             "post": {
@@ -452,6 +476,68 @@ def _agent_http_paths() -> dict[str, object]:
                         "description": "Created pending device credential",
                         "content": _json_content("DeviceCredentialRotationV1"),
                     }
+                },
+            }
+        },
+        "/agent/v1/runtime/heartbeat": {
+            "post": {
+                "security": bearer_security,
+                "requestBody": {
+                    "required": True,
+                    "content": _json_content("AgentHeartbeatV1"),
+                },
+                "responses": {"204": {"description": "Runtime heartbeat recorded"}},
+            }
+        },
+        "/service/v1/runtime/devices/{device_ref}": {
+            "get": {
+                "security": service_bearer_security,
+                "parameters": [
+                    {
+                        "name": "device_ref",
+                        "in": "path",
+                        "required": True,
+                        "schema": {"type": "string", "format": "uuid"},
+                    },
+                    {
+                        "name": "X-Correlation-ID",
+                        "in": "header",
+                        "required": True,
+                        "schema": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 128,
+                            "pattern": "^[\\x20-\\x7e]+$",
+                        },
+                    },
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Endpoint-owned runtime diagnostic target",
+                        "content": _json_content("RuntimeDiagnosticTargetEnvelopeV1"),
+                        "headers": {
+                            "X-Correlation-ID": {
+                                "required": True,
+                                "schema": {
+                                    "type": "string",
+                                    "pattern": "^[\\x20-\\x7e]+$",
+                                },
+                            },
+                        },
+                    },
+                    "404": {
+                        "description": "Endpoint device not found",
+                        "content": _json_content("RuntimeDiagnosticTargetNotFoundEnvelopeV1"),
+                        "headers": {
+                            "X-Correlation-ID": {
+                                "required": True,
+                                "schema": {
+                                    "type": "string",
+                                    "pattern": "^[\\x20-\\x7e]+$",
+                                },
+                            },
+                        },
+                    },
                 },
             }
         },
@@ -566,7 +652,11 @@ def render_artifacts(output_root: Path) -> dict[Path, str]:
                 "AgentBearer": {
                     "type": "http",
                     "scheme": "bearer",
-                }
+                },
+                "ServiceBearer": {
+                    "type": "http",
+                    "scheme": "bearer",
+                },
             },
         },
     }
