@@ -14,7 +14,8 @@ def test_api_unit_is_loopback_only_and_hardened() -> None:
     assert "Group=endpoint-platform" in unit
     assert "EnvironmentFile=/etc/endpoint-platform/endpoint-platform.env" in unit
     assert "--host 127.0.0.1 --port 8000" in unit
-    assert "--no-proxy-headers" in unit
+    assert "--proxy-headers" in unit
+    assert "--no-proxy-headers" not in unit
     assert "--no-access-log" in unit
     assert "--workers 1" in unit
     assert "ProtectSystem=strict" in unit
