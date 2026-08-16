@@ -6,3 +6,6 @@ artifacts/baseline/local.json
 .gateway-wss-worker.lock
 sdk/python/build/
 sdk/python/*.egg-info/
+
+alt-ansible-playbooks-2026-08-12.tar.gz
+temp/
