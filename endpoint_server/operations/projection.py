@@ -4,7 +4,12 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from endpoint_contracts import EndpointOperationV1
+from endpoint_contracts import (
+    DeviceContextDiagnosticV1,
+    EndpointDiagnosticResultV1,
+    EndpointOperationV1,
+)
+from endpoint_server.context.models import ContextSnapshot
 from endpoint_server.db.models.operations import EndpointOperation
 
 
@@ -37,4 +42,29 @@ def project_operation(operation: EndpointOperation) -> EndpointOperationV1:
     )
 
 
-__all__ = ["project_operation"]
+def project_diagnostic_result(
+    snapshot: ContextSnapshot,
+) -> EndpointDiagnosticResultV1 | None:
+    """Validate one diagnostic snapshot into the smaller service-safe contract."""
+    if snapshot.profile != "diagnostic_v1":
+        return None
+    try:
+        envelope = DeviceContextDiagnosticV1.model_validate(
+            snapshot.normalized_projection
+        )
+        return EndpointDiagnosticResultV1.model_validate(
+            {
+                "schema_version": "endpoint_diagnostic_result_v1",
+                "profile": envelope.profile,
+                "collected_at": envelope.collected_at,
+                "reason": envelope.sections.reason,
+                "warnings": envelope.warnings,
+                "processes": envelope.sections.processes,
+                "log_excerpt": envelope.sections.log_excerpt,
+            }
+        )
+    except Exception:
+        return None
+
+
+__all__ = ["project_diagnostic_result", "project_operation"]

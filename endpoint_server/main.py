@@ -22,6 +22,7 @@ from endpoint_server.provisioning.admin_routes import (
     router as provisioning_admin_router,
 )
 from endpoint_server.health.routes import router as health_router
+from endpoint_server.operations.routes import router as operations_router
 from endpoint_server.gateway.routes import router as gateway_router
 from endpoint_server.gateway.connection_registry import (
     ConnectionRegistry,
@@ -77,4 +78,6 @@ def create_app(
     app.include_router(updates_admin_router)
     app.include_router(updates_agent_router)
     app.include_router(context_router)
+    if settings.endpoint_operations_api_enabled:
+        app.include_router(operations_router)
     return app

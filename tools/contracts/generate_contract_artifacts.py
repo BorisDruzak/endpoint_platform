@@ -452,6 +452,172 @@ def _json_content(component_name: str) -> dict[str, object]:
     }
 
 
+def _operation_response_content() -> dict[str, object]:
+    return {
+        "application/json": {
+            "schema": {
+                "type": "object",
+                "additionalProperties": False,
+                "required": ["data"],
+                "properties": {
+                    "data": {
+                        "type": "object",
+                        "additionalProperties": False,
+                        "required": ["operation", "result"],
+                        "properties": {
+                            "operation": {
+                                "$ref": "#/components/schemas/EndpointOperationV1"
+                            },
+                            "result": {
+                                "anyOf": [
+                                    {
+                                        "$ref": (
+                                            "#/components/schemas/"
+                                            "EndpointDiagnosticResultV1"
+                                        )
+                                    },
+                                    {"type": "null"},
+                                ]
+                            },
+                        },
+                    }
+                },
+            }
+        }
+    }
+
+
+def _service_operation_paths() -> dict[str, object]:
+    service_security = [{"ServiceBearer": []}]
+    device_parameter = {
+        "name": "device_id",
+        "in": "path",
+        "required": True,
+        "schema": {"type": "string", "format": "uuid"},
+    }
+    operation_parameter = {
+        "name": "operation_id",
+        "in": "path",
+        "required": True,
+        "schema": {"type": "string", "format": "uuid"},
+    }
+    return {
+        "/api/v1/devices/{device_id}/capabilities": {
+            "get": {
+                "security": service_security,
+                "x-required-scopes": ["devices.read"],
+                "parameters": [device_parameter],
+                "responses": {
+                    "200": {
+                        "description": "Safe endpoint operation availability",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": False,
+                                    "required": ["data"],
+                                    "properties": {
+                                        "data": {
+                                            "type": "object",
+                                            "additionalProperties": False,
+                                            "required": [
+                                                "device_id",
+                                                "capabilities",
+                                            ],
+                                            "properties": {
+                                                "device_id": {
+                                                    "type": "string",
+                                                    "format": "uuid",
+                                                },
+                                                "capabilities": {
+                                                    "type": "array",
+                                                    "maxItems": 1,
+                                                    "items": {
+                                                        "type": "object",
+                                                        "additionalProperties": False,
+                                                        "required": [
+                                                            "capability",
+                                                            "available",
+                                                        ],
+                                                        "properties": {
+                                                            "capability": {
+                                                                "const": (
+                                                                    "context."
+                                                                    "diagnostic."
+                                                                    "collect"
+                                                                )
+                                                            },
+                                                            "available": {
+                                                                "type": "boolean"
+                                                            },
+                                                        },
+                                                    },
+                                                },
+                                            },
+                                        }
+                                    },
+                                }
+                            }
+                        },
+                    },
+                    "404": {"description": "Active device not found"},
+                },
+            }
+        },
+        "/api/v1/devices/{device_id}/operations": {
+            "post": {
+                "security": service_security,
+                "x-required-scopes": ["operations.create"],
+                "parameters": [
+                    device_parameter,
+                    {
+                        "name": "Idempotency-Key",
+                        "in": "header",
+                        "required": True,
+                        "schema": {
+                            "type": "string",
+                            "minLength": 8,
+                            "maxLength": 128,
+                        },
+                    },
+                ],
+                "requestBody": {
+                    "required": True,
+                    "content": _json_content("EndpointOperationCreateV1"),
+                },
+                "responses": {
+                    "200": {
+                        "description": "Replayed endpoint operation",
+                        "content": _operation_response_content(),
+                    },
+                    "201": {
+                        "description": "Created endpoint operation",
+                        "content": _operation_response_content(),
+                    },
+                    "409": {"description": "Idempotency key conflict"},
+                    "422": {"description": "Invalid endpoint operation request"},
+                    "503": {"description": "Safe result unavailable"},
+                },
+            }
+        },
+        "/api/v1/operations/{operation_id}": {
+            "get": {
+                "security": service_security,
+                "x-required-scopes": ["operations.read"],
+                "parameters": [operation_parameter],
+                "responses": {
+                    "200": {
+                        "description": "Safe endpoint operation projection",
+                        "content": _operation_response_content(),
+                    },
+                    "404": {"description": "Endpoint operation not found"},
+                    "503": {"description": "Safe result unavailable"},
+                },
+            }
+        },
+    }
+
+
 def _agent_http_paths() -> dict[str, object]:
     bearer_security = [{"AgentBearer": []}]
     return {
@@ -586,6 +752,7 @@ def _agent_http_paths() -> dict[str, object]:
                 "responses": {"200": {"description": "Update report recorded"}},
             }
         },
+        **_service_operation_paths(),
     }
 
 
@@ -613,7 +780,7 @@ def render_artifacts(output_root: Path) -> dict[Path, str]:
 
     openapi = {
         "openapi": "3.1.0",
-        "info": {"title": "Endpoint Platform Gateway API", "version": "v1"},
+        "info": {"title": "Endpoint Platform API", "version": "v1"},
         "paths": _agent_http_paths(),
         "components": {
             "schemas": _openapi_component_schemas(schemas),
@@ -621,7 +788,11 @@ def render_artifacts(output_root: Path) -> dict[Path, str]:
                 "AgentBearer": {
                     "type": "http",
                     "scheme": "bearer",
-                }
+                },
+                "ServiceBearer": {
+                    "type": "http",
+                    "scheme": "bearer",
+                },
             },
         },
     }

@@ -94,6 +94,15 @@ def _parse_cidrs(name: str, value: str) -> tuple[Network, ...]:
         raise ValueError(f"{name} must contain valid CIDRs") from error
 
 
+def _parse_optional_boolean(name: str, value: str) -> bool:
+    normalized = value.strip().lower()
+    if normalized in ("", "false", "0", "no", "off"):
+        return False
+    if normalized in ("true", "1", "yes", "on"):
+        return True
+    raise ValueError(f"{name} must be a boolean")
+
+
 @dataclass(frozen=True, slots=True)
 class Settings:
     """Runtime values loaded once during server startup."""
@@ -107,6 +116,7 @@ class Settings:
     allowed_admin_cidrs: tuple[Network, ...]
     artifact_root: Path
     trusted_proxy_cidrs: tuple[Network, ...] = ()
+    endpoint_operations_api_enabled: bool = False
 
     @classmethod
     def from_environment(cls, environment: Mapping[str, str] | None = None) -> Settings:
@@ -139,6 +149,10 @@ class Settings:
             if trusted_proxy_value
             else ()
         )
+        endpoint_operations_api_enabled = _parse_optional_boolean(
+            "ENDPOINT_OPERATIONS_API_ENABLED",
+            values.get("ENDPOINT_OPERATIONS_API_ENABLED", ""),
+        )
 
         return cls(
             database_url=database_url,
@@ -150,4 +164,5 @@ class Settings:
             allowed_admin_cidrs=allowed_admin_cidrs,
             artifact_root=artifact_root,
             trusted_proxy_cidrs=trusted_proxy_cidrs,
+            endpoint_operations_api_enabled=endpoint_operations_api_enabled,
         )

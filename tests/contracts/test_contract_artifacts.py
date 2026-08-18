@@ -462,6 +462,50 @@ def test_secret_agent_transport_is_published_without_golden_credentials(
     )
 
 
+def test_endpoint_operation_service_openapi_documents_scopes_and_safe_models(
+    tmp_path: Path,
+) -> None:
+    """Published service routes must name scopes without exposing private models."""
+    openapi = yaml.safe_load(
+        render_artifacts(tmp_path)[
+            Path("contracts/openapi/endpoint-platform-v1.yaml")
+        ]
+    )
+    paths = openapi["paths"]
+    capabilities = paths["/api/v1/devices/{device_id}/capabilities"]["get"]
+    create = paths["/api/v1/devices/{device_id}/operations"]["post"]
+    read = paths["/api/v1/operations/{operation_id}"]["get"]
+
+    assert capabilities["security"] == [{"ServiceBearer": []}]
+    assert capabilities["x-required-scopes"] == ["devices.read"]
+    assert create["security"] == [{"ServiceBearer": []}]
+    assert create["x-required-scopes"] == ["operations.create"]
+    assert read["security"] == [{"ServiceBearer": []}]
+    assert read["x-required-scopes"] == ["operations.read"]
+    assert any(
+        parameter["name"] == "Idempotency-Key" and parameter["required"] is True
+        for parameter in create["parameters"]
+    )
+    assert (
+        create["requestBody"]["content"]["application/json"]["schema"]["$ref"]
+        == "#/components/schemas/EndpointOperationCreateV1"
+    )
+    response_text = json.dumps(
+        {"create": create["responses"], "read": read["responses"]},
+        sort_keys=True,
+    )
+    assert "EndpointOperationV1" in response_text
+    assert "EndpointDiagnosticResultV1" in response_text
+    for private_name in (
+        "ContextCollection",
+        "CommandResult",
+        "ServiceCredential",
+        "raw_payload",
+        "raw_result_payload",
+    ):
+        assert private_name not in response_text
+
+
 def test_agent_response_schemas_require_every_canonical_wire_field() -> None:
     """Defaults must not make mandatory discriminator or policy fields optional."""
     delivery = json.loads(

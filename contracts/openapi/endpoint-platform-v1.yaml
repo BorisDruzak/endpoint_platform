@@ -1,6 +1,6 @@
 openapi: "3.1.0"
 info:
-  title: "Endpoint Platform Gateway API"
+  title: "Endpoint Platform API"
   version: "v1"
 paths:
   "/agent/v1/enroll":
@@ -150,6 +150,189 @@ paths:
       responses:
         "200":
           description: "Update report recorded"
+  "/api/v1/devices/{device_id}/capabilities":
+    get:
+      security:
+        -
+          ServiceBearer: []
+      x-required-scopes:
+        - "devices.read"
+      parameters:
+        -
+          name: "device_id"
+          in: "path"
+          required: true
+          schema:
+            type: "string"
+            format: "uuid"
+      responses:
+        "200":
+          description: "Safe endpoint operation availability"
+          content:
+            "application/json":
+              schema:
+                type: "object"
+                additionalProperties: false
+                required:
+                  - "data"
+                properties:
+                  data:
+                    type: "object"
+                    additionalProperties: false
+                    required:
+                      - "device_id"
+                      - "capabilities"
+                    properties:
+                      device_id:
+                        type: "string"
+                        format: "uuid"
+                      capabilities:
+                        type: "array"
+                        maxItems: 1
+                        items:
+                          type: "object"
+                          additionalProperties: false
+                          required:
+                            - "capability"
+                            - "available"
+                          properties:
+                            capability:
+                              const: "context.diagnostic.collect"
+                            available:
+                              type: "boolean"
+        "404":
+          description: "Active device not found"
+  "/api/v1/devices/{device_id}/operations":
+    post:
+      security:
+        -
+          ServiceBearer: []
+      x-required-scopes:
+        - "operations.create"
+      parameters:
+        -
+          name: "device_id"
+          in: "path"
+          required: true
+          schema:
+            type: "string"
+            format: "uuid"
+        -
+          name: "Idempotency-Key"
+          in: "header"
+          required: true
+          schema:
+            type: "string"
+            minLength: 8
+            maxLength: 128
+      requestBody:
+        required: true
+        content:
+          "application/json":
+            schema:
+              "$ref": "#/components/schemas/EndpointOperationCreateV1"
+      responses:
+        "200":
+          description: "Replayed endpoint operation"
+          content:
+            "application/json":
+              schema:
+                type: "object"
+                additionalProperties: false
+                required:
+                  - "data"
+                properties:
+                  data:
+                    type: "object"
+                    additionalProperties: false
+                    required:
+                      - "operation"
+                      - "result"
+                    properties:
+                      operation:
+                        "$ref": "#/components/schemas/EndpointOperationV1"
+                      result:
+                        anyOf:
+                          -
+                            "$ref": "#/components/schemas/EndpointDiagnosticResultV1"
+                          -
+                            type: "null"
+        "201":
+          description: "Created endpoint operation"
+          content:
+            "application/json":
+              schema:
+                type: "object"
+                additionalProperties: false
+                required:
+                  - "data"
+                properties:
+                  data:
+                    type: "object"
+                    additionalProperties: false
+                    required:
+                      - "operation"
+                      - "result"
+                    properties:
+                      operation:
+                        "$ref": "#/components/schemas/EndpointOperationV1"
+                      result:
+                        anyOf:
+                          -
+                            "$ref": "#/components/schemas/EndpointDiagnosticResultV1"
+                          -
+                            type: "null"
+        "409":
+          description: "Idempotency key conflict"
+        "422":
+          description: "Invalid endpoint operation request"
+        "503":
+          description: "Safe result unavailable"
+  "/api/v1/operations/{operation_id}":
+    get:
+      security:
+        -
+          ServiceBearer: []
+      x-required-scopes:
+        - "operations.read"
+      parameters:
+        -
+          name: "operation_id"
+          in: "path"
+          required: true
+          schema:
+            type: "string"
+            format: "uuid"
+      responses:
+        "200":
+          description: "Safe endpoint operation projection"
+          content:
+            "application/json":
+              schema:
+                type: "object"
+                additionalProperties: false
+                required:
+                  - "data"
+                properties:
+                  data:
+                    type: "object"
+                    additionalProperties: false
+                    required:
+                      - "operation"
+                      - "result"
+                    properties:
+                      operation:
+                        "$ref": "#/components/schemas/EndpointOperationV1"
+                      result:
+                        anyOf:
+                          -
+                            "$ref": "#/components/schemas/EndpointDiagnosticResultV1"
+                          -
+                            type: "null"
+        "404":
+          description: "Endpoint operation not found"
+        "503":
+          description: "Safe result unavailable"
 components:
   schemas:
     DeviceIdentityV1:
@@ -2532,5 +2715,8 @@ components:
       type: "object"
   securitySchemes:
     AgentBearer:
+      type: "http"
+      scheme: "bearer"
+    ServiceBearer:
       type: "http"
       scheme: "bearer"

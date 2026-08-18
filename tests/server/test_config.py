@@ -45,6 +45,30 @@ def test_from_environment_loads_secret_bytes_and_parses_cidrs(tmp_path: Path) ->
         "192.168.100.0/24",
     )
     assert settings.trusted_proxy_cidrs == ()
+    assert settings.endpoint_operations_api_enabled is False
+
+
+def test_from_environment_enables_endpoint_operations_only_explicitly(
+    tmp_path: Path,
+) -> None:
+    """A missing flag must stay disabled while one explicit true value opts in."""
+    environment = _environment(tmp_path)
+    environment["ENDPOINT_OPERATIONS_API_ENABLED"] = "true"
+
+    settings = Settings.from_environment(environment)
+
+    assert settings.endpoint_operations_api_enabled is True
+
+
+def test_from_environment_rejects_ambiguous_endpoint_operations_flag(
+    tmp_path: Path,
+) -> None:
+    """Typos must not accidentally expose or silently disable the service API."""
+    environment = _environment(tmp_path)
+    environment["ENDPOINT_OPERATIONS_API_ENABLED"] = "sometimes"
+
+    with pytest.raises(ValueError, match="ENDPOINT_OPERATIONS_API_ENABLED"):
+        Settings.from_environment(environment)
 
 
 def test_from_environment_parses_optional_trusted_proxy_cidrs(

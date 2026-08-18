@@ -22,6 +22,8 @@ from .service_tokens import (
 DEVICES_READ_SCOPE = "devices.read"
 CONTEXT_READ_SCOPE = "context.read"
 CONTEXT_COLLECT_SCOPE = "context.collect"
+OPERATIONS_CREATE_SCOPE = "operations.create"
+OPERATIONS_READ_SCOPE = "operations.read"
 PROVISIONING_INSTALL_CLAIMS_ISSUE_SCOPE = "provisioning.install-claims.issue"
 
 
