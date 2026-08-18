@@ -234,7 +234,7 @@ executed checks; it does not claim production or test-agent changes.
 - `python -m pytest tests/operations -q`: 30 passed, 4 skipped (the optional
   PostgreSQL integration cases were not configured).
 - `python -m pytest tests/context -q`: 36 passed, 1 skipped.
-- `python -m pytest tests/architecture -q`: 65 passed, including the released
+- `python -m pytest tests/architecture -q`: 67 passed, including the released
   RPM/MSI surface guard and typed diagnostic execution proof.
 - `python -m pytest pc_agent/tests/transport -q`: 55 passed.
 - `python -m pytest tests/gateway -q`: 54 passed, 2 failed. Both failures are
