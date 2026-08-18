@@ -9,12 +9,13 @@ from sqlalchemy import (
     CheckConstraint,
     DateTime,
     ForeignKey,
+    ForeignKeyConstraint,
     Index,
     JSON,
     String,
     UniqueConstraint,
 )
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import JSONB, UUID as PostgreSQLUUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from endpoint_server.db.base import Base
@@ -53,6 +54,13 @@ class EndpointOperation(OwnershipRecord, Base):
             "id",
             "context_collection_id",
             name="uq_endpoint_operations_collection_identity",
+        ),
+        ForeignKeyConstraint(
+            ["id", "context_collection_id"],
+            ["context_collections.operation_id", "context_collections.id"],
+            name="fk_endpoint_operations_collection_identity",
+            deferrable=True,
+            initially="DEFERRED",
         ),
         CheckConstraint(
             "capability = 'context.diagnostic.collect'",
@@ -102,11 +110,7 @@ class EndpointOperation(OwnershipRecord, Base):
     )
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     context_collection_id: Mapped[UUID | None] = mapped_column(
-        ForeignKey(
-            "context_collections.id",
-            deferrable=True,
-            initially="DEFERRED",
-        )
+        PostgreSQLUUID(as_uuid=True)
     )
     command_id: Mapped[UUID | None] = mapped_column(ForeignKey("commands.id"))
 

@@ -171,6 +171,15 @@ def test_endpoint_operation_migration_enforces_scoped_one_to_one_ownership() -> 
         "CONSTRAINT uq_context_collections_operation UNIQUE (operation_id)"
     ) in rendered
     assert (
+        "CONSTRAINT uq_context_collections_operation_identity UNIQUE "
+        "(operation_id, id)"
+    ) in rendered
+    assert (
+        "CONSTRAINT fk_endpoint_operations_collection_identity FOREIGN KEY"
+        "(id, context_collection_id) REFERENCES context_collections "
+        "(operation_id, id) DEFERRABLE INITIALLY DEFERRED"
+    ) in rendered
+    assert (
         "CONSTRAINT fk_context_collections_operation_identity FOREIGN KEY"
         "(operation_id, id) REFERENCES endpoint_operations "
         "(id, context_collection_id) DEFERRABLE INITIALLY DEFERRED"

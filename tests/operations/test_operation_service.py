@@ -10,6 +10,7 @@ from uuid import UUID, uuid4
 import pytest
 import pytest_asyncio
 from sqlalchemy import ForeignKeyConstraint, UniqueConstraint, select, text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import (
     AsyncSession,
     async_sessionmaker,
@@ -454,13 +455,68 @@ def test_model_relations_enforce_unambiguous_one_to_one_ownership() -> None:
         for constraint in ContextCollection.__table__.constraints
         if isinstance(constraint, ForeignKeyConstraint)
     }
+    operation_foreign_keys = {
+        (
+            tuple(constraint.columns.keys()),
+            tuple(element.target_fullname for element in constraint.elements),
+        )
+        for constraint in EndpointOperation.__table__.constraints
+        if isinstance(constraint, ForeignKeyConstraint)
+    }
 
     assert ("requested_by_service_client_id", "idempotency_key") in operation_uniques
     assert ("context_collection_id",) in operation_uniques
     assert ("command_id",) in operation_uniques
     assert ("id", "context_collection_id") in operation_uniques
     assert ("operation_id",) in collection_uniques
+    assert ("operation_id", "id") in collection_uniques
+    assert (
+        ("id", "context_collection_id"),
+        ("context_collections.operation_id", "context_collections.id"),
+    ) in operation_foreign_keys
     assert (
         ("operation_id", "id"),
         ("endpoint_operations.id", "endpoint_operations.context_collection_id"),
     ) in collection_foreign_keys
+
+
+@pytest.mark.asyncio
+async def test_operation_collection_pointer_requires_reciprocal_collection_owner(
+    session: AsyncSession,
+) -> None:
+    """A null collection owner must not bypass a non-null operation pointer."""
+    client, device = await _ownership(session)
+    operation_id = uuid4()
+    collection = ContextCollection(
+        id=uuid4(),
+        created_at=NOW,
+        device_id=device.id,
+        profile="diagnostic_v1",
+        requested_by=f"endpoint-operation:{client.id.hex}",
+        idempotency_key="one-sided-collection",
+        operation_id=None,
+        status="requested",
+        requested_at=NOW,
+        expires_at=NOW + timedelta(minutes=15),
+    )
+    operation = EndpointOperation(
+        id=operation_id,
+        created_at=NOW,
+        requested_by_service_client_id=client.id,
+        device_id=device.id,
+        idempotency_key="one-sided-operation",
+        capability="context.diagnostic.collect",
+        parameters={"reason": "Reject one-sided ownership"},
+        correlation=None,
+        status="queued",
+        deadline_at=NOW + timedelta(minutes=15),
+        completed_at=None,
+        context_collection_id=collection.id,
+        command_id=None,
+    )
+    session.add_all((collection, operation))
+
+    await session.flush()
+    with pytest.raises(IntegrityError):
+        await session.commit()
+    await session.rollback()

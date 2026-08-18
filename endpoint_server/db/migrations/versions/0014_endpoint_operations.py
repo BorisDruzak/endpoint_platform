@@ -16,6 +16,20 @@ depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
+    op.add_column(
+        "context_collections",
+        sa.Column("operation_id", postgresql.UUID(as_uuid=True), nullable=True),
+    )
+    op.create_unique_constraint(
+        "uq_context_collections_operation",
+        "context_collections",
+        ["operation_id"],
+    )
+    op.create_unique_constraint(
+        "uq_context_collections_operation_identity",
+        "context_collections",
+        ["operation_id", "id"],
+    )
     op.create_table(
         "endpoint_operations",
         sa.Column("id", postgresql.UUID(as_uuid=True), nullable=False),
@@ -48,8 +62,9 @@ def upgrade() -> None:
         ),
         sa.ForeignKeyConstraint(["device_id"], ["devices.id"]),
         sa.ForeignKeyConstraint(
-            ["context_collection_id"],
-            ["context_collections.id"],
+            ["id", "context_collection_id"],
+            ["context_collections.operation_id", "context_collections.id"],
+            name="fk_endpoint_operations_collection_identity",
             deferrable=True,
             initially="DEFERRED",
         ),
@@ -98,15 +113,6 @@ def upgrade() -> None:
         "endpoint_operations",
         ["requested_by_service_client_id", "status"],
     )
-    op.add_column(
-        "context_collections",
-        sa.Column("operation_id", postgresql.UUID(as_uuid=True), nullable=True),
-    )
-    op.create_unique_constraint(
-        "uq_context_collections_operation",
-        "context_collections",
-        ["operation_id"],
-    )
     op.create_foreign_key(
         "fk_context_collections_operation_identity",
         "context_collections",
@@ -124,12 +130,6 @@ def downgrade() -> None:
         "context_collections",
         type_="foreignkey",
     )
-    op.drop_constraint(
-        "uq_context_collections_operation",
-        "context_collections",
-        type_="unique",
-    )
-    op.drop_column("context_collections", "operation_id")
     op.drop_index(
         "ix_endpoint_operations_client_status", table_name="endpoint_operations"
     )
@@ -137,3 +137,14 @@ def downgrade() -> None:
         "ix_endpoint_operations_status_deadline", table_name="endpoint_operations"
     )
     op.drop_table("endpoint_operations")
+    op.drop_constraint(
+        "uq_context_collections_operation_identity",
+        "context_collections",
+        type_="unique",
+    )
+    op.drop_constraint(
+        "uq_context_collections_operation",
+        "context_collections",
+        type_="unique",
+    )
+    op.drop_column("context_collections", "operation_id")

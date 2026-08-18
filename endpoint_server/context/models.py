@@ -51,6 +51,11 @@ class ContextCollection(OwnershipRecord, Base):
         UniqueConstraint("command_id", name="uq_context_collections_command"),
         UniqueConstraint("command_result_id", name="uq_context_collections_result"),
         UniqueConstraint("operation_id", name="uq_context_collections_operation"),
+        UniqueConstraint(
+            "operation_id",
+            "id",
+            name="uq_context_collections_operation_identity",
+        ),
         _OPERATION_IDENTITY_FOREIGN_KEY,
         CheckConstraint(
             "status IN ('requested', 'queued', 'delivered', 'collecting', "
