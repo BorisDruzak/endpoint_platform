@@ -1,0 +1,7 @@
+{
+  "capability": "context.diagnostic.collect",
+  "parameters": {
+    "reason": "https://untrusted.example.test/run"
+  },
+  "schema_version": "endpoint_operation_create_v1"
+}

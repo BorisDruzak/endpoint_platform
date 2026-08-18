@@ -41,6 +41,9 @@ from endpoint_contracts import (  # noqa: E402
     AgentUpdateReportV1,
     UpdateBuildManifestV1,
     UpdateRolloutCreateV1,
+    EndpointDiagnosticResultV1,
+    EndpointOperationCreateV1,
+    EndpointOperationV1,
 )
 from endpoint_contracts.base import ContractModelV1  # noqa: E402
 
@@ -69,6 +72,9 @@ PUBLIC_MODELS: dict[str, type[ContractModelV1]] = {
     "device_context_network_v1.json": DeviceContextNetworkV1,
     "device_context_diagnostic_v1.json": DeviceContextDiagnosticV1,
     "device_context_diff_v1.json": DeviceContextDiffV1,
+    "endpoint-operation-create-v1.json": EndpointOperationCreateV1,
+    "endpoint-operation-v1.json": EndpointOperationV1,
+    "endpoint-operation-diagnostic-result-v1.json": EndpointDiagnosticResultV1,
 }
 
 GATEWAY_WS_MODELS: dict[str, type[BaseModel]] = {
@@ -246,11 +252,60 @@ GATEWAY_WS_FIXTURES: dict[str, dict[str, Any]] = {
     },
 }
 
+ENDPOINT_OPERATION_FIXTURES: dict[Path, dict[str, Any]] = {
+    Path("endpoint-operation-create-v1.json"): {
+        "schema_version": "endpoint_operation_create_v1",
+        "capability": "context.diagnostic.collect",
+        "parameters": {"reason": "Fixture diagnostic request."},
+        "correlation": {
+            "schema_version": "endpoint_operation_correlation_v1",
+            "source_system": "helpdesk",
+            "source_entity_type": "ticket",
+            "source_entity_id": "fixture-ticket-01",
+            "request_id": "33333333-3333-4333-8333-333333333333",
+        },
+    },
+    Path("endpoint-operation-v1.json"): {
+        "schema_version": "endpoint_operation_v1",
+        "operation_id": "22222222-2222-4222-8222-222222222222",
+        "device_id": "11111111-1111-4111-8111-111111111111",
+        "capability": "context.diagnostic.collect",
+        "status": "succeeded",
+        "created_at": "2026-08-09T11:59:00Z",
+        "deadline_at": "2026-08-09T12:30:00Z",
+        "completed_at": "2026-08-09T12:00:00Z",
+        "correlation": {
+            "schema_version": "endpoint_operation_correlation_v1",
+            "source_system": "helpdesk",
+            "source_entity_type": "ticket",
+            "source_entity_id": "fixture-ticket-01",
+            "request_id": "33333333-3333-4333-8333-333333333333",
+        },
+        "result_available": True,
+        "warnings": ["redaction_applied"],
+    },
+    Path("endpoint-operation-diagnostic-result-v1.json"): {
+        "schema_version": "endpoint_diagnostic_result_v1",
+        "profile": "diagnostic_v1",
+        "collected_at": "2026-08-09T12:00:00Z",
+        "reason": "Fixture diagnostic request.",
+        "warnings": ["redaction_applied"],
+        "processes": [{"name": "fixture-process", "state": "running"}],
+        "log_excerpt": "Fixture redacted diagnostic excerpt.",
+    },
+    Path("invalid/endpoint-operation-create-url-reason-v1.json"): {
+        "schema_version": "endpoint_operation_create_v1",
+        "capability": "context.diagnostic.collect",
+        "parameters": {"reason": "https://untrusted.example.test/run"},
+    },
+}
+
 GENERATED_ARTIFACT_DIRECTORIES = (
     Path("contracts/jsonschema"),
     Path("contracts/openapi"),
     Path("tests/fixtures/contracts"),
     Path("tests/fixtures/gateway_ws"),
+    Path("tests/fixtures/endpoint_operations"),
 )
 
 _PLAIN_YAML_KEY = re.compile(r"^[A-Za-z_][A-Za-z0-9_-]*$")
@@ -578,6 +633,10 @@ def render_artifacts(output_root: Path) -> dict[Path, str]:
         rendered[Path("tests/fixtures/contracts") / filename] = _json_document(fixture)
     for filename, fixture in GATEWAY_WS_FIXTURES.items():
         rendered[Path("tests/fixtures/gateway_ws") / filename] = _json_document(fixture)
+    for relative_path, fixture in ENDPOINT_OPERATION_FIXTURES.items():
+        rendered[Path("tests/fixtures/endpoint_operations") / relative_path] = (
+            _json_document(fixture)
+        )
     return rendered
 
 

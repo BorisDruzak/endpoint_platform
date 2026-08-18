@@ -36,6 +36,14 @@ from .gateway_ws import (
     ServerShutdownNoticeV1,
 )
 from .identity import AgentSessionV1, DeviceIdentityV1
+from .operations import (
+    DiagnosticCollectionParametersV1,
+    EndpointDiagnosticResultV1,
+    EndpointOperationCorrelationV1,
+    EndpointOperationCreateV1,
+    EndpointOperationStatusV1,
+    EndpointOperationV1,
+)
 from .telemetry import AgentBuildRecommendationV1, AgentHeartbeatV1
 from .updates import (
     AgentUpdateAcknowledgementV1,
@@ -71,6 +79,12 @@ __all__ = [
     "DeviceContextNetworkV1",
     "DeviceIdentityV1",
     "DeviceCredentialRotationV1",
+    "DiagnosticCollectionParametersV1",
+    "EndpointDiagnosticResultV1",
+    "EndpointOperationCorrelationV1",
+    "EndpointOperationCreateV1",
+    "EndpointOperationStatusV1",
+    "EndpointOperationV1",
     "EnrollmentDeliveryProofV1",
     "EnrollmentRequestV1",
     "EnrollmentResponseV1",

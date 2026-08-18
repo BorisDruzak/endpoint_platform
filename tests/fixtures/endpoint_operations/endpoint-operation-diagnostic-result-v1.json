@@ -1,0 +1,16 @@
+{
+  "collected_at": "2026-08-09T12:00:00Z",
+  "log_excerpt": "Fixture redacted diagnostic excerpt.",
+  "processes": [
+    {
+      "name": "fixture-process",
+      "state": "running"
+    }
+  ],
+  "profile": "diagnostic_v1",
+  "reason": "Fixture diagnostic request.",
+  "schema_version": "endpoint_diagnostic_result_v1",
+  "warnings": [
+    "redaction_applied"
+  ]
+}

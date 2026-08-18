@@ -1,0 +1,106 @@
+{
+  "$defs": {
+    "DiagnosticProcessV1": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "state": {
+          "enum": [
+            "running",
+            "sleeping",
+            "stopped",
+            "unknown"
+          ],
+          "title": "State",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "state"
+      ],
+      "title": "DiagnosticProcessV1",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Safe, redacted diagnostic snapshot exposed outside Endpoint Platform.",
+  "properties": {
+    "collected_at": {
+      "$comment": "model-only UTC normalization: timezone-aware values are normalized to UTC.",
+      "format": "date-time",
+      "title": "Collected At",
+      "type": "string"
+    },
+    "log_excerpt": {
+      "anyOf": [
+        {
+          "maxLength": 8192,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "pattern": "^(?![A-Za-z]:[\\\\/])(?![\\\\/])[\\s\\S]{0,8192}(?![\\s\\S])",
+      "title": "Log Excerpt"
+    },
+    "processes": {
+      "items": {
+        "$ref": "#/$defs/DiagnosticProcessV1"
+      },
+      "maxItems": 64,
+      "title": "Processes",
+      "type": "array"
+    },
+    "profile": {
+      "const": "diagnostic_v1",
+      "title": "Profile",
+      "type": "string"
+    },
+    "reason": {
+      "maxLength": 256,
+      "minLength": 1,
+      "pattern": "^(?![\\s\\S]*://)[^\\x00-\\x1f\\x7f]{1,256}(?![\\s\\S])",
+      "title": "Reason",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "endpoint_diagnostic_result_v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "warnings": {
+      "items": {
+        "enum": [
+          "command_failed",
+          "command_timed_out",
+          "data_truncated",
+          "permission_denied",
+          "probe_unavailable",
+          "redaction_applied",
+          "source_unavailable",
+          "unsupported_platform"
+        ],
+        "type": "string"
+      },
+      "maxItems": 16,
+      "title": "Warnings",
+      "type": "array"
+    }
+  },
+  "required": [
+    "schema_version",
+    "profile",
+    "collected_at",
+    "reason"
+  ],
+  "title": "EndpointDiagnosticResultV1",
+  "type": "object"
+}
