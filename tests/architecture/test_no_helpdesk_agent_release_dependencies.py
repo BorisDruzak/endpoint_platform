@@ -7,33 +7,59 @@ then follow only imports that those artifacts can include.
 
 from __future__ import annotations
 
+import asyncio
 import ast
 from collections import deque
 from collections.abc import Iterable
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
+import sys
+from uuid import UUID
+
+import pytest
+
+from endpoint_contracts.commands import AgentCommandV1
+from pc_agent.runtime.command_executor import CommandExecutor
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
+_WINDOWS_INITIAL_RUNTIME_MANIFESTS = tuple(
+    sorted((REPOSITORY_ROOT / "packaging" / "windows").glob("initial-runtime*.json"))
+)
 
 RELEASED_PATHS = (
     REPOSITORY_ROOT / "pc_agent" / "runtime",
     REPOSITORY_ROOT / "pc_agent" / "transport",
     REPOSITORY_ROOT / "pc_agent" / "pyinstaller_endpoint_core_linux.spec",
+    REPOSITORY_ROOT / "pc_agent" / "pyinstaller_launcher_linux.spec",
     REPOSITORY_ROOT / "pc_agent" / "pyinstaller_endpoint_core_windows.spec",
     REPOSITORY_ROOT / "pc_agent" / "pyinstaller_windows_service_launcher.spec",
+    REPOSITORY_ROOT / "pc_agent" / "pyinstaller_windows_provision.spec",
     REPOSITORY_ROOT / "pc_agent" / "platform" / "windows" / "service_launcher.py",
+    REPOSITORY_ROOT / "pc_agent" / "platform" / "windows" / "provision_entry.py",
     REPOSITORY_ROOT / "packaging" / "alt" / "build-rpm.sh",
     REPOSITORY_ROOT / "packaging" / "alt" / "endpoint-agent.spec",
     REPOSITORY_ROOT / "packaging" / "alt" / "SOURCES" / "endpoint-agent.service",
+    REPOSITORY_ROOT / "packaging" / "alt" / "SOURCES" / "endpoint-agent.tmpfiles",
+    REPOSITORY_ROOT / "packaging" / "alt" / "SOURCES" / "endpoint-agent.logrotate",
+    REPOSITORY_ROOT / "packaging" / "alt" / "SOURCES" / "start-endpoint-agent.py",
+    REPOSITORY_ROOT / "packaging" / "alt" / "SOURCES" / "check-start-prerequisites.py",
+    REPOSITORY_ROOT / "deploy" / "agent" / "alt" / "endpoint-agent-update.service",
+    REPOSITORY_ROOT / "deploy" / "agent" / "alt" / "endpoint-agent-update.path",
+    REPOSITORY_ROOT / "deploy" / "agent" / "alt" / "apply-pending-alt-update.sh",
     REPOSITORY_ROOT / "packaging" / "windows" / "build-msi.ps1",
     REPOSITORY_ROOT / "packaging" / "windows" / "wix" / "Services.wxs",
-)
+) + _WINDOWS_INITIAL_RUNTIME_MANIFESTS
 
 _SPEC_ENTRYPOINTS = {
     "pc_agent/pyinstaller_endpoint_core_linux.spec": ("pc_agent.runtime.main",),
     "pc_agent/pyinstaller_endpoint_core_windows.spec": ("pc_agent.runtime.main",),
     "pc_agent/pyinstaller_windows_service_launcher.spec": (
         "pc_agent.platform.windows.service_launcher",
+    ),
+    "pc_agent/pyinstaller_launcher_linux.spec": ("pc_agent.launcher.launcher_main",),
+    "pc_agent/pyinstaller_windows_provision.spec": (
+        "pc_agent.platform.windows.provision_entry",
     ),
 }
 _CORE_SPECS = (
@@ -80,6 +106,38 @@ _TYPED_DIAGNOSTIC_REFERENCES = {
     "pc_agent.context_profiles.diagnostic",
 }
 _ARBITRARY_EXECUTION_COMMANDS = {"exec_script", "run_recipe", "run_tool"}
+_FORBIDDEN_TEXT_MARKERS = frozenset(
+    (*_FORBIDDEN_MODULE_PREFIXES, *_FORBIDDEN_LEGACY_NAMES, "pyside6", "qasync")
+)
+_RELEASED_ARTIFACT_PATHS = tuple(path for path in RELEASED_PATHS if path.is_file())
+
+
+@pytest.mark.parametrize(
+    "source",
+    _RELEASED_ARTIFACT_PATHS,
+    ids=lambda path: path.relative_to(REPOSITORY_ROOT).as_posix(),
+)
+def test_every_shipped_package_artifact_rejects_a_forbidden_marker(
+    source: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Each shipped artifact must be scanned instead of bypassing the release guard."""
+    relative = source.relative_to(REPOSITORY_ROOT)
+    marker = tmp_path / relative
+    marker.parent.mkdir(parents=True)
+    source_text = source.read_text(encoding="utf-8-sig")
+    if _is_pyinstaller_spec(source):
+        source_text = source_text.replace(
+            "hiddenimports=[", 'hiddenimports=["TicketApiClient",', 1
+        )
+    else:
+        source_text += "\nTicketApiClient\n"
+    marker.write_text(source_text, encoding="utf-8")
+    monkeypatch.setattr(sys.modules[__name__], "REPOSITORY_ROOT", tmp_path)
+
+    assert any(
+        value.casefold() == "ticketapiclient"
+        for _path, value in _release_package_references((marker,))
+    )
 
 
 def _python_files(path: Path) -> tuple[Path, ...]:
@@ -89,7 +147,11 @@ def _python_files(path: Path) -> tuple[Path, ...]:
 
 
 def _is_pyinstaller_spec(path: Path) -> bool:
-    return path.relative_to(REPOSITORY_ROOT).as_posix() in _SPEC_ENTRYPOINTS
+    try:
+        relative = path.relative_to(REPOSITORY_ROOT).as_posix()
+    except ValueError:
+        return False
+    return relative in _SPEC_ENTRYPOINTS
 
 
 def _module_name(path: Path) -> str | None:
@@ -175,6 +237,11 @@ def _operation_references(tree: ast.AST) -> set[str]:
     return references
 
 
+def _text_references(path: Path) -> set[str]:
+    text = path.read_text(encoding="utf-8-sig", errors="replace").casefold()
+    return {marker for marker in _FORBIDDEN_TEXT_MARKERS if marker in text}
+
+
 def _is_forbidden(reference: str) -> bool:
     normalized = reference.casefold()
     return any(
@@ -186,13 +253,12 @@ def _is_forbidden(reference: str) -> bool:
 def _release_package_references(paths: Iterable[Path]) -> set[tuple[Path, str]]:
     references: set[tuple[Path, str]] = set()
     for path in paths:
-        if path.suffix != ".py" and not _is_pyinstaller_spec(path):
+        if path.is_dir():
             continue
         if _is_pyinstaller_spec(path):
             references.update((path, value) for value in _spec_hiddenimports(path))
-        elif path.suffix == ".py":
-            tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
-            references.update((path, value) for value in _operation_references(tree))
+            continue
+        references.update((path, value) for value in _text_references(path))
     return references
 
 
@@ -282,6 +348,49 @@ def test_release_packaging_uses_only_headless_entrypoints() -> None:
     assert "ExecStart=/usr/lib/endpoint-agent/start-endpoint-agent" in systemd_unit
     assert 'Name="EndpointAgent"' in wix_services
     assert "endpoint-agent-service.exe" in wix_services
+
+
+class _DiagnosticProbe:
+    platform_name = "linux"
+
+    def run(self, command: tuple[str, ...], _timeout: float, _limit: int) -> str:
+        if command[0] == "ps":
+            return "101 R\n"
+        return "Authorization: Bearer release-guard-secret"
+
+
+def _diagnostic_command() -> AgentCommandV1:
+    created_at = datetime(2026, 8, 18, tzinfo=UTC)
+    return AgentCommandV1(
+        schema_version="agent_command_v1",
+        command_id=UUID("00000000-0000-4000-8000-000000000501"),
+        device_id=UUID("00000000-0000-4000-8000-000000000502"),
+        capability="context.diagnostic.collect",
+        parameters={"reason": "release guard"},
+        requested_by_service="architecture-test",
+        idempotency_key="release-guard-diagnostic-501",
+        created_at=created_at,
+        deadline_at=created_at + timedelta(minutes=5),
+    )
+
+
+def test_released_command_executor_runs_a_bounded_typed_diagnostic() -> None:
+    """The released headless command path must execute the typed diagnostic contract."""
+
+    async def execute() -> object:
+        executor = CommandExecutor(probe_factory=_DiagnosticProbe)
+        await executor.start()
+        try:
+            return await executor.execute(_diagnostic_command())
+        finally:
+            await executor.stop()
+
+    result = asyncio.run(execute())
+
+    assert result.status == "succeeded"
+    assert result.result_items[0]["profile"] == "diagnostic_v1"
+    assert result.result_items[0]["sections"]["reason"] == "release guard"
+    assert result.result_items[0]["sections"]["log_excerpt"] == "Authorization: Bearer <redacted>"
 
 
 def test_linux_and_windows_core_specs_include_typed_diagnostics_without_gui() -> None:
