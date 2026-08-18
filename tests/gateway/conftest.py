@@ -17,7 +17,12 @@ from sqlalchemy.pool import NullPool
 from starlette.datastructures import Address, Headers
 
 from endpoint_server.config import Settings
-from endpoint_server.context.models import ContextCollection
+from endpoint_server.context.models import (
+    ContextCollection,
+    ContextCurrent,
+    ContextDiff,
+    ContextSnapshot,
+)
 from endpoint_server.db.models import (
     AuditEvent,
     Command,
@@ -27,6 +32,8 @@ from endpoint_server.db.models import (
     DeviceCredential,
     DeviceInstance,
     DeviceSession,
+    EndpointOperation,
+    ServiceClient,
 )
 from endpoint_server.enrollment.credentials import device_token_digest
 
@@ -34,6 +41,7 @@ from endpoint_server.enrollment.credentials import device_token_digest
 PEPPER = b"gateway-device-pepper"
 VALID_TOKEN = "gateway-valid-device-token"
 _GATEWAY_TABLES = (
+    ServiceClient.__table__,
     Device.__table__,
     DeviceCredential.__table__,
     DeviceInstance.__table__,
@@ -42,6 +50,10 @@ _GATEWAY_TABLES = (
     CommandDelivery.__table__,
     CommandResult.__table__,
     ContextCollection.__table__,
+    ContextSnapshot.__table__,
+    ContextDiff.__table__,
+    ContextCurrent.__table__,
+    EndpointOperation.__table__,
     AuditEvent.__table__,
 )
 

@@ -12,6 +12,7 @@ from endpoint_server.context.retention import retain_context_snapshots
 from endpoint_server.context.scheduler import schedule_due_collections
 from endpoint_server.db.session import SessionProvider, create_session_provider
 from endpoint_server.enrollment.delivery import cleanup_expired_retry_envelopes
+from endpoint_server.operations.service import expire_operations
 
 
 async def _run_transactional_job(
@@ -60,6 +61,7 @@ async def run_worker(
                     session, request_id=f"server_{uuid4().hex}"
                 ),
             )
+            await _run_transactional_job(provider, expire_operations)
             elapsed = loop.time()
             if elapsed - last_schedule >= context_schedule_interval_seconds:
                 await _run_transactional_job(provider, schedule_due_collections)

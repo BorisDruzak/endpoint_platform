@@ -59,6 +59,8 @@ async def acknowledge(command_id: UUID, body: AgentCommandAckV1, request: Reques
                 .where(ContextCollection.command_id == command.id)
                 .with_for_update()
             )
+            if collection is not None and collection.operation_id is not None:
+                raise _unavailable()
             if collection is not None:
                 collection.status = "collecting"
             delivery = await session.scalar(
@@ -85,6 +87,13 @@ async def submit_result(command_id: UUID, body: AgentResultV1, request: Request)
             principal = await _authenticate_device(session, request)
             command = await session.scalar(select(Command).where(Command.id == command_id, Command.device_id == principal.device.id).with_for_update())
             if command is None or body.command_id != command.id or body.device_id != principal.device.id:
+                raise _unavailable()
+            collection = await session.scalar(
+                select(ContextCollection)
+                .where(ContextCollection.command_id == command.id)
+                .with_for_update()
+            )
+            if collection is not None and collection.operation_id is not None:
                 raise _unavailable()
             result_identifier = f"result-{command.id.hex}"
             result = await session.scalar(

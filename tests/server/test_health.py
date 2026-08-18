@@ -67,20 +67,35 @@ class WorkerSession:
         self.commit_calls = 0
         self.rollback_calls = 0
         self.finished = asyncio.Event()
+        self.operation_expiry_finished = asyncio.Event()
+        self._job: str | None = None
 
     async def execute(self, statement: object) -> _WorkerResult:
         del statement
+        self._job = "cleanup"
         if self.fail_cleanup:
             raise RuntimeError("database password=worker-secret")
         return _WorkerResult()
 
+    async def scalars(self, statement: object) -> _WorkerResult._Scalars:
+        del statement
+        self._job = "operation_expiry"
+        return _WorkerResult._Scalars()
+
+    async def flush(self) -> None:
+        return None
+
     async def commit(self) -> None:
         self.commit_calls += 1
         self.finished.set()
+        if self._job == "operation_expiry":
+            self.operation_expiry_finished.set()
 
     async def rollback(self) -> None:
         self.rollback_calls += 1
         self.finished.set()
+        if self._job == "operation_expiry":
+            self.operation_expiry_finished.set()
 
 
 class WorkerSessionProvider:
@@ -302,13 +317,16 @@ async def test_worker_commits_cleanup_and_does_not_close_injected_provider() -> 
             cleanup_interval_seconds=60,
         )
     )
-    await asyncio.wait_for(provider.session.finished.wait(), timeout=1)
+    await asyncio.wait_for(
+        provider.session.operation_expiry_finished.wait(),
+        timeout=1,
+    )
 
     task.cancel()
     with pytest.raises(asyncio.CancelledError):
         await task
 
-    assert provider.session.commit_calls == 1
+    assert provider.session.commit_calls == 2
     assert provider.session.rollback_calls == 0
     assert provider.close_calls == 0
 
@@ -324,13 +342,16 @@ async def test_worker_rolls_back_failed_cleanup_and_remains_cancellable() -> Non
             cleanup_interval_seconds=60,
         )
     )
-    await asyncio.wait_for(provider.session.finished.wait(), timeout=1)
+    await asyncio.wait_for(
+        provider.session.operation_expiry_finished.wait(),
+        timeout=1,
+    )
 
     task.cancel()
     with pytest.raises(asyncio.CancelledError):
         await task
 
-    assert provider.session.commit_calls == 0
+    assert provider.session.commit_calls == 1
     assert provider.session.rollback_calls == 1
     assert provider.close_calls == 0
 

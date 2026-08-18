@@ -12,7 +12,13 @@ from uuid import UUID, uuid4
 
 from sqlalchemy import select
 
-from endpoint_contracts import AgentCommandAckV1, AgentResultV1
+from endpoint_contracts import (
+    AgentCommandAckV1,
+    AgentResultV1,
+    CommandCorrelationV1,
+    DeviceContextDiagnosticV1,
+    DiagnosticCollectionParametersV1,
+)
 from endpoint_contracts.gateway_ws import (
     CommandEnvelopeV1,
     GatewayCommandV1,
@@ -20,7 +26,7 @@ from endpoint_contracts.gateway_ws import (
     ResultAckV1,
 )
 from endpoint_server.context.ingestion import ingest_context_result
-from endpoint_server.context.models import ContextCollection
+from endpoint_server.context.models import ContextCollection, ContextSnapshot
 from endpoint_server.context.repository import link_collection_command
 from endpoint_server.context.service import ContextError
 from endpoint_server.db.models import (
@@ -29,8 +35,12 @@ from endpoint_server.db.models import (
     CommandResult,
     DeviceInstance,
     DeviceSession,
+    EndpointOperation,
 )
 from endpoint_server.db.session import SessionProvider
+from endpoint_server.operations.projection import project_diagnostic_result
+from endpoint_server.operations.redaction import sanitize_agent_public_text
+from endpoint_server.operations.service import append_operation_terminal_audit
 
 SendCommand = Callable[[CommandEnvelopeV1], Awaitable[None] | None]
 _TERMINAL_STATUSES = frozenset({"succeeded", "failed", "canceled", "expired"})
@@ -50,21 +60,44 @@ def _command_payload(
     command: Command,
     collection: ContextCollection,
     capability: str,
+    operation: EndpointOperation | None = None,
 ) -> GatewayCommandV1:
     created_at = _as_utc(command.created_at)
     deadline_at = _as_utc(command.expires_at)
     if created_at is None or deadline_at is None:
         raise CommandStateRejected("command timing is unavailable")
+    parameters: dict[str, object] = {}
+    requested_by_service = collection.requested_by
+    idempotency_key = f"context-{collection.id.hex}"
+    correlation = CommandCorrelationV1()
+    if operation is not None:
+        if capability != "context.diagnostic.collect":
+            raise CommandStateRejected("operation capability is unavailable")
+        try:
+            parameters = DiagnosticCollectionParametersV1.model_validate(
+                operation.parameters
+            ).model_dump(mode="json")
+        except Exception as error:
+            raise CommandStateRejected(
+                "operation parameters are unavailable"
+            ) from error
+        requested_by_service = "endpoint-platform"
+        idempotency_key = f"endpoint-operation:{operation.id.hex}"
+        correlation = CommandCorrelationV1(request_id=operation.id)
+        deadline_at = _as_utc(operation.deadline_at)
+        if deadline_at is None:
+            raise CommandStateRejected("operation timing is unavailable")
     return GatewayCommandV1(
         schema_version="agent_command_v1",
         command_id=command.id,
         device_id=command.device_id,
         capability=capability,
-        parameters={},
-        requested_by_service=collection.requested_by,
-        idempotency_key=f"context-{collection.id.hex}",
+        parameters=parameters,
+        requested_by_service=requested_by_service,
+        idempotency_key=idempotency_key,
         created_at=created_at,
         deadline_at=deadline_at,
+        correlation=correlation,
     )
 
 
@@ -89,12 +122,116 @@ def result_payload_digest(result: AgentResultV1) -> str:
     return hashlib.sha256(payload).hexdigest()
 
 
+async def _operation_for_collection(
+    session,
+    collection: ContextCollection,
+    *,
+    command: Command | None = None,
+) -> EndpointOperation | None:
+    if collection.operation_id is None:
+        return None
+    operation = await session.scalar(
+        select(EndpointOperation)
+        .where(EndpointOperation.id == collection.operation_id)
+        .with_for_update()
+    )
+    expected_capability = _CAPABILITIES.get(collection.profile)
+    if (
+        operation is None
+        or operation.context_collection_id != collection.id
+        or operation.device_id != collection.device_id
+        or operation.capability != expected_capability
+        or collection.profile != "diagnostic_v1"
+    ):
+        raise CommandStateRejected("operation collection relation is unavailable")
+    if command is not None and (
+        operation.command_id != command.id
+        or command.device_id != operation.device_id
+        or command.command_kind != operation.capability
+    ):
+        raise CommandStateRejected("operation command relation is unavailable")
+    return operation
+
+
+def _safe_operation_result(
+    operation: EndpointOperation,
+    result: AgentResultV1,
+) -> AgentResultV1:
+    try:
+        parameters = DiagnosticCollectionParametersV1.model_validate(
+            operation.parameters
+        )
+    except Exception as error:
+        raise CommandStateRejected("operation parameters are unavailable") from error
+
+    safe_message = result.message
+    if safe_message is not None:
+        safe_message, _ = sanitize_agent_public_text(
+            safe_message,
+            limit=4096,
+            allow_multiline=True,
+        )
+    if result.status != "succeeded":
+        if result.result_items:
+            raise CommandStateRejected(
+                "failed diagnostic result must not contain context"
+            )
+        return result.model_copy(update={"message": safe_message})
+    if len(result.result_items) != 1:
+        raise CommandStateRejected(
+            "successful diagnostic result must contain one context envelope"
+        )
+    try:
+        diagnostic = DeviceContextDiagnosticV1.model_validate(result.result_items[0])
+    except Exception as error:
+        raise CommandStateRejected("diagnostic context is unavailable") from error
+    if diagnostic.sections.reason != parameters.reason:
+        raise CommandStateRejected("diagnostic reason does not match operation")
+
+    redaction_applied = False
+    safe_processes = []
+    for process in diagnostic.sections.processes:
+        name, changed = sanitize_agent_public_text(process.name, limit=128)
+        redaction_applied = redaction_applied or changed
+        safe_processes.append(process.model_copy(update={"name": name}))
+    safe_excerpt = diagnostic.sections.log_excerpt
+    if safe_excerpt is not None:
+        safe_excerpt, changed = sanitize_agent_public_text(
+            safe_excerpt,
+            limit=8192,
+            allow_multiline=True,
+        )
+        redaction_applied = redaction_applied or changed
+    warnings = list(diagnostic.warnings)
+    if redaction_applied and "redaction_applied" not in warnings:
+        warnings = [*warnings[:15], "redaction_applied"]
+    safe_sections = diagnostic.sections.model_copy(
+        update={
+            "processes": safe_processes,
+            "log_excerpt": safe_excerpt,
+        }
+    )
+    safe_diagnostic = diagnostic.model_copy(
+        update={"sections": safe_sections, "warnings": warnings}
+    )
+    return result.model_copy(
+        update={
+            "result_items": [safe_diagnostic.model_dump(mode="json")],
+            "message": safe_message,
+        }
+    )
+
+
 async def next_pending_command(
     session,
     device_id: UUID,
     allowed_capabilities: AbstractSet[str] | None = None,
+    *,
+    transport: str = "http_pull",
 ) -> GatewayCommandV1 | None:
     """Replay only unacknowledged deliveries before creating a new command."""
+    if transport not in {"http_pull", "gateway_wss"}:
+        raise ValueError("unsupported gateway transport")
     collections = (
         await session.scalars(
             select(ContextCollection)
@@ -108,12 +245,15 @@ async def next_pending_command(
     ).all()
     now = datetime.now(UTC)
     for collection in collections:
+        if collection.operation_id is not None and transport != "gateway_wss":
+            continue
         capability = _CAPABILITIES.get(collection.profile)
         if capability is None or (
             allowed_capabilities is not None
             and capability not in allowed_capabilities
         ):
             continue
+        operation = await _operation_for_collection(session, collection)
         if collection.command_id is not None:
             command = await session.scalar(
                 select(Command)
@@ -124,15 +264,35 @@ async def next_pending_command(
                 .with_for_update()
             )
             if command is not None and command.status == "delivered":
+                operation = await _operation_for_collection(
+                    session,
+                    collection,
+                    command=command,
+                )
+                if operation is not None and operation.status != "delivered":
+                    raise CommandStateRejected(
+                        "operation delivery state is unavailable"
+                    )
                 if command.expires_at is None:
                     created_at = _as_utc(command.created_at)
                     if created_at is None:
                         raise CommandStateRejected("command timing is unavailable")
                     command.expires_at = created_at + timedelta(minutes=15)
                     await session.flush()
-                return _command_payload(command, collection, capability)
+                return _command_payload(
+                    command,
+                    collection,
+                    capability,
+                    operation,
+                )
             continue
-        deadline_at = collection.expires_at or now + timedelta(minutes=15)
+        if operation is not None and operation.status != "queued":
+            raise CommandStateRejected("operation is not queued for delivery")
+        deadline_at = (
+            operation.deadline_at
+            if operation is not None
+            else collection.expires_at or now + timedelta(minutes=15)
+        )
         command = Command(
             id=uuid4(),
             created_at=now,
@@ -146,6 +306,9 @@ async def next_pending_command(
         await session.flush()
         await link_collection_command(session, collection.id, command.id)
         collection.status = "delivered"
+        if operation is not None:
+            operation.command_id = command.id
+            operation.status = "delivered"
         session.add(
             CommandDelivery(
                 id=uuid4(),
@@ -156,7 +319,7 @@ async def next_pending_command(
                 acknowledged_at=None,
             )
         )
-        return _command_payload(command, collection, capability)
+        return _command_payload(command, collection, capability, operation)
     return None
 
 
@@ -179,6 +342,7 @@ class CommandService:
                     session,
                     device_id,
                     allowed_capabilities,
+                    transport="gateway_wss",
                 )
                 if payload is None:
                     await session.rollback()
@@ -255,21 +419,45 @@ class CommandService:
                 )
                 if delivery is None or delivery.device_session_id != session_id:
                     raise CommandStateRejected("command delivery is unavailable")
-                if command.status in _TERMINAL_STATUSES:
-                    await session.rollback()
-                    return
-                if command.status not in {"delivered", "acknowledged", "running"}:
-                    raise CommandStateRejected("command is unavailable")
-                if command.status != "running" or acknowledgement.status == "running":
-                    command.status = acknowledgement.status
-                    delivery.status = acknowledgement.status
-                if delivery.acknowledged_at is None:
-                    delivery.acknowledged_at = acknowledgement.acknowledged_at
                 collection = await session.scalar(
                     select(ContextCollection)
                     .where(ContextCollection.command_id == command.id)
                     .with_for_update()
                 )
+                operation = (
+                    await _operation_for_collection(
+                        session,
+                        collection,
+                        command=command,
+                    )
+                    if collection is not None
+                    else None
+                )
+                if command.status in _TERMINAL_STATUSES:
+                    if operation is not None and operation.status != command.status:
+                        raise CommandStateRejected(
+                            "operation terminal state is unavailable"
+                        )
+                    await session.rollback()
+                    return
+                if command.status not in {"delivered", "acknowledged", "running"}:
+                    raise CommandStateRejected("command is unavailable")
+                if operation is not None and operation.status not in {
+                    "delivered",
+                    "acknowledged",
+                    "running",
+                }:
+                    raise CommandStateRejected("operation is unavailable")
+                if command.status != "running" or acknowledgement.status == "running":
+                    command.status = acknowledgement.status
+                    delivery.status = acknowledgement.status
+                if operation is not None and (
+                    operation.status != "running"
+                    or acknowledgement.status == "running"
+                ):
+                    operation.status = acknowledgement.status
+                if delivery.acknowledged_at is None:
+                    delivery.acknowledged_at = acknowledgement.acknowledged_at
                 if collection is not None:
                     collection.status = "collecting"
                 await session.commit()
@@ -319,6 +507,26 @@ class CommandService:
                 if gateway_session is None or instance is None or command is None:
                     raise CommandStateRejected("result ownership is unavailable")
 
+                delivery = await session.scalar(
+                    select(CommandDelivery)
+                    .where(CommandDelivery.command_id == command.id)
+                    .with_for_update()
+                )
+                collection = await session.scalar(
+                    select(ContextCollection)
+                    .where(ContextCollection.command_id == command.id)
+                    .with_for_update()
+                )
+                operation = (
+                    await _operation_for_collection(
+                        session,
+                        collection,
+                        command=command,
+                    )
+                    if collection is not None
+                    else None
+                )
+
                 result_identifier = f"result-{command.id.hex}"
                 stored = await session.scalar(
                     select(CommandResult)
@@ -326,11 +534,30 @@ class CommandService:
                     .with_for_update()
                 )
                 if stored is None:
-                    delivery = await session.scalar(
-                        select(CommandDelivery)
-                        .where(CommandDelivery.command_id == command.id)
-                        .with_for_update()
-                    )
+                    accepted_result = result
+                    if operation is not None:
+                        if (
+                            delivery is None
+                            or delivery.device_session_id != session_id
+                            or command.status
+                            not in {"delivered", "acknowledged", "running"}
+                            or operation.status
+                            not in {"delivered", "acknowledged", "running"}
+                        ):
+                            raise CommandStateRejected(
+                                "operation result delivery is unavailable"
+                            )
+                        completed_at = _as_utc(result.completed_at)
+                        created_at = _as_utc(operation.created_at)
+                        if (
+                            completed_at is None
+                            or created_at is None
+                            or completed_at < created_at
+                        ):
+                            raise CommandStateRejected(
+                                "operation result timing is unavailable"
+                            )
+                        accepted_result = _safe_operation_result(operation, result)
                     stored = CommandResult(
                         id=uuid4(),
                         command_id=command.id,
@@ -344,10 +571,86 @@ class CommandService:
                     session.add(stored)
                     await session.flush()
                     if command.command_kind.startswith("context."):
-                        await ingest_context_result(session, stored.id, result)
+                        ingested_collection = await ingest_context_result(
+                            session,
+                            stored.id,
+                            accepted_result,
+                        )
+                        if operation is not None and (
+                            ingested_collection.id != collection.id
+                            or ingested_collection.operation_id != operation.id
+                            or (
+                                result.status == "succeeded"
+                                and ingested_collection.status != "completed"
+                            )
+                            or (
+                                result.status != "succeeded"
+                                and ingested_collection.status != "failed"
+                            )
+                        ):
+                            raise CommandStateRejected(
+                                "operation context result is unavailable"
+                            )
                     command.status = result.status
+                    if operation is not None:
+                        operation.status = result.status
+                        operation.completed_at = result.completed_at
+                        await append_operation_terminal_audit(
+                            session,
+                            operation,
+                            occurred_at=result.completed_at,
+                        )
                 else:
-                    if stored.result_sequence is None:
+                    if operation is not None:
+                        delivery_session = (
+                            await session.scalar(
+                                select(DeviceSession)
+                                .where(
+                                    DeviceSession.id == delivery.device_session_id,
+                                    DeviceSession.device_id == device_id,
+                                )
+                                .with_for_update()
+                            )
+                            if delivery is not None
+                            and delivery.device_session_id is not None
+                            else None
+                        )
+                        if (
+                            delivery is None
+                            or delivery_session is None
+                            or delivery_session.device_instance_id
+                            != device_instance_id
+                            or stored.command_id != command.id
+                            or stored.delivery_id != delivery.id
+                            or stored.result_sequence is None
+                            or stored.result_sequence < 0
+                            or stored.result_payload_digest != payload_digest
+                            or operation.status != result.status
+                            or operation.completed_at is None
+                            or collection.command_result_id != stored.id
+                        ):
+                            raise CommandStateRejected(
+                                "operation result replay conflicts with stored result"
+                            )
+                        if result.status == "succeeded":
+                            snapshot = await session.scalar(
+                                select(ContextSnapshot).where(
+                                    ContextSnapshot.collection_id == collection.id
+                                )
+                            )
+                            if (
+                                collection.status != "completed"
+                                or snapshot is None
+                                or project_diagnostic_result(operation, snapshot) is None
+                            ):
+                                raise CommandStateRejected(
+                                    "operation result replay is unavailable"
+                                )
+                        elif collection.status != "failed":
+                            raise CommandStateRejected(
+                                "operation failure replay is unavailable"
+                            )
+                    elif stored.result_sequence is None:
                         stored.result_sequence = result_sequence
 
                 instance.last_result_sequence = max(
