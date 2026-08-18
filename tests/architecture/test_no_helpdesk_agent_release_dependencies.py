@@ -33,6 +33,7 @@ RELEASED_PATHS = (
     REPOSITORY_ROOT / "pc_agent" / "pyinstaller_endpoint_core_linux.spec",
     REPOSITORY_ROOT / "pc_agent" / "pyinstaller_launcher_linux.spec",
     REPOSITORY_ROOT / "pc_agent" / "pyinstaller_endpoint_core_windows.spec",
+    REPOSITORY_ROOT / "pc_agent" / "pyinstaller_launcher_win.spec",
     REPOSITORY_ROOT / "pc_agent" / "pyinstaller_windows_service_launcher.spec",
     REPOSITORY_ROOT / "pc_agent" / "pyinstaller_windows_provision.spec",
     REPOSITORY_ROOT / "pc_agent" / "platform" / "windows" / "service_launcher.py",
@@ -58,6 +59,7 @@ _SPEC_ENTRYPOINTS = {
         "pc_agent.platform.windows.service_launcher",
     ),
     "pc_agent/pyinstaller_launcher_linux.spec": ("pc_agent.launcher.launcher_main",),
+    "pc_agent/pyinstaller_launcher_win.spec": ("pc_agent.launcher.launcher_main",),
     "pc_agent/pyinstaller_windows_provision.spec": (
         "pc_agent.platform.windows.provision_entry",
     ),
@@ -339,6 +341,7 @@ def test_release_packaging_uses_only_headless_entrypoints() -> None:
 
     assert "pyinstaller_endpoint_core_linux.spec" in rpm_builder
     assert "pyinstaller_endpoint_core_windows.spec" in msi_builder
+    assert "pyinstaller_launcher_win.spec" in msi_builder
     assert "pyinstaller_windows_service_launcher.spec" in msi_builder
     assert "pyinstaller_agent_linux.spec" not in rpm_builder
     assert "pyinstaller_agent_win" not in msi_builder
@@ -348,6 +351,13 @@ def test_release_packaging_uses_only_headless_entrypoints() -> None:
     assert "ExecStart=/usr/lib/endpoint-agent/start-endpoint-agent" in systemd_unit
     assert 'Name="EndpointAgent"' in wix_services
     assert "endpoint-agent-service.exe" in wix_services
+
+
+def test_windows_msi_launcher_spec_is_a_guarded_release_root() -> None:
+    """The launcher built by the MSI must participate in release-surface scanning."""
+    assert (
+        REPOSITORY_ROOT / "pc_agent" / "pyinstaller_launcher_win.spec"
+    ) in RELEASED_PATHS
 
 
 class _DiagnosticProbe:
