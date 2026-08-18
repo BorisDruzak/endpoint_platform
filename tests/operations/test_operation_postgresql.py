@@ -58,6 +58,7 @@ def _upgrade_disposable_database(
     if (
         parsed.get_backend_name() != "postgresql"
         or parsed.host not in {"127.0.0.1", "localhost", "::1"}
+        or bool(parsed.query)
         or parsed.database != expected_database_name
         or not expected_database_name.startswith(prefix)
         or len(suffix) != 32
@@ -102,6 +103,33 @@ def test_disposable_migration_target_overrides_ambient_database_url(
     assert os.environ["DATABASE_URL"] == ambient_url
 
 
+def test_fixture_rejects_query_target_override_before_database_use(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """asyncpg query fields must not redirect setup away from loopback."""
+    calls: list[str] = []
+    monkeypatch.setenv(
+        "ENDPOINT_TEST_POSTGRES_URL",
+        "postgresql+asyncpg://local@127.0.0.1/postgres"
+        "?host=production.invalid&database=production",
+    )
+
+    async def unexpected_execute(database_url: str, statement: str) -> None:
+        calls.append(f"connection:{database_url}:{statement}")
+
+    def unexpected_upgrade(config: Config, revision: str) -> None:
+        calls.append(f"migration:{revision}")
+
+    monkeypatch.setitem(globals(), "_execute", unexpected_execute)
+    monkeypatch.setattr(command, "upgrade", unexpected_upgrade)
+    fixture_body = operation_database_url.__wrapped__
+
+    with pytest.raises(ValueError, match="query parameters"):
+        next(fixture_body())
+
+    assert calls == []
+
+
 @pytest.fixture(scope="module")
 def operation_database_url() -> Iterator[str]:
     """Create a disposable loopback database migrated through the real head."""
@@ -111,15 +139,21 @@ def operation_database_url() -> Iterator[str]:
             "set ENDPOINT_TEST_POSTGRES_URL to a disposable local PostgreSQL server"
         )
     parsed = make_url(admin_url)
+    if parsed.query:
+        raise ValueError(
+            "ENDPOINT_TEST_POSTGRES_URL must not contain query parameters"
+        )
     if parsed.host not in {"127.0.0.1", "localhost", "::1"}:
         pytest.fail("operation tests may only use a loopback PostgreSQL server")
-    plain_admin_url = parsed.set(drivername="postgresql").render_as_string(
+    plain_admin_url = parsed.set(drivername="postgresql", query={}).render_as_string(
         hide_password=False
     )
     database_name = f"endpoint_operations_{uuid4().hex}"
     asyncio.run(_execute(plain_admin_url, f'CREATE DATABASE "{database_name}"'))
     database_url = parsed.set(
-        drivername="postgresql+asyncpg", database=database_name
+        drivername="postgresql+asyncpg",
+        database=database_name,
+        query={},
     ).render_as_string(hide_password=False)
     try:
         _upgrade_disposable_database(
