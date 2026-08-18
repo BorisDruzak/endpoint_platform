@@ -164,6 +164,41 @@ def _diagnostic_result(
     )
 
 
+async def _corrupt_collection_command_relation(
+    provider: async_sessionmaker[AsyncSession],
+    *,
+    operation: EndpointOperation,
+    operation_command_id: UUID,
+    device_id: UUID,
+    corruption: str,
+) -> None:
+    """Break only the collection side while preserving the operation command link."""
+    async with provider() as session:
+        collection = await session.get(
+            ContextCollection,
+            operation.context_collection_id,
+        )
+        persisted = await session.get(EndpointOperation, operation.id)
+        assert collection is not None and persisted is not None
+        assert persisted.command_id == operation_command_id
+        if corruption == "cleared":
+            collection.command_id = None
+        else:
+            decoy = Command(
+                id=uuid4(),
+                created_at=datetime.now(UTC),
+                command_identifier=f"decoy-{uuid4().hex}",
+                device_id=device_id,
+                command_kind="context.baseline.collect",
+                status="delivered",
+                expires_at=datetime.now(UTC) + timedelta(minutes=15),
+            )
+            session.add(decoy)
+            await session.flush()
+            collection.command_id = decoy.id
+        await session.commit()
+
+
 @pytest.mark.asyncio
 async def test_operation_is_absent_from_http_pull_and_committed_before_wss_send(
     session_provider: async_sessionmaker[AsyncSession],
@@ -380,6 +415,86 @@ async def test_operation_command_cannot_submit_terminal_result_over_http(
     assert result_count == 0
 
 
+@pytest.mark.parametrize("corruption", ["cleared", "mismatched"])
+@pytest.mark.asyncio
+async def test_http_rejects_operation_command_when_collection_command_link_is_corrupt(
+    session_provider: async_sessionmaker[AsyncSession],
+    corruption: str,
+) -> None:
+    """A direct operation command link must never fall through to legacy HTTP."""
+    device = await seed_device(session_provider)
+    operation = await _seed_operation(session_provider, device_id=device.id)
+    presence = await _open_session(session_provider, device_id=device.id)
+    envelope = await _deliver_operation(
+        session_provider,
+        device_id=device.id,
+        session_id=presence.session_id,
+    )
+    command_id = envelope.payload.command_id
+    await _corrupt_collection_command_relation(
+        session_provider,
+        operation=operation,
+        operation_command_id=command_id,
+        device_id=device.id,
+        corruption=corruption,
+    )
+    timestamp = datetime.now(UTC)
+    app = create_app(gateway_settings(), session_provider)
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(
+            app=app,
+            client=("127.0.0.1", 12345),
+        ),
+        base_url="https://endpoint.sosnadmin.local",
+    ) as client:
+        ack_response = await client.post(
+            f"/agent/v1/gateway/commands/{command_id}/ack",
+            headers={
+                "Authorization": f"Bearer {VALID_TOKEN}",
+                "X-Forwarded-For": "192.168.101.20",
+            },
+            json={
+                "schema_version": "agent_command_ack_v1",
+                "command_id": str(command_id),
+                "device_id": str(device.id),
+                "status": "acknowledged",
+                "acknowledged_at": timestamp.isoformat(),
+                "message": None,
+            },
+        )
+        result_response = await client.post(
+            f"/agent/v1/gateway/commands/{command_id}/results",
+            headers={
+                "Authorization": f"Bearer {VALID_TOKEN}",
+                "X-Forwarded-For": "192.168.101.20",
+            },
+            json={
+                "schema_version": "agent_result_v1",
+                "command_id": str(command_id),
+                "device_id": str(device.id),
+                "status": "failed",
+                "result_items": [],
+                "message": "diagnostic unavailable",
+                "completed_at": timestamp.isoformat(),
+            },
+        )
+
+    assert ack_response.status_code == 404
+    assert result_response.status_code == 404
+    async with session_provider() as session:
+        persisted = await session.get(EndpointOperation, operation.id)
+        command = await session.get(Command, command_id)
+        delivery = await session.scalar(
+            select(CommandDelivery).where(CommandDelivery.command_id == command_id)
+        )
+        result_count = await session.scalar(
+            select(func.count()).select_from(CommandResult)
+        )
+    assert persisted is not None and command is not None and delivery is not None
+    assert persisted.status == command.status == delivery.status == "delivered"
+    assert result_count == 0
+
+
 @pytest.mark.asyncio
 async def test_acknowledgements_monotonically_mirror_operation_lifecycle(
     session_provider: async_sessionmaker[AsyncSession],
@@ -537,6 +652,111 @@ async def test_operation_result_requires_reciprocal_command_relation(
         assert await session.scalar(select(func.count()).select_from(ContextSnapshot)) == 0
 
 
+@pytest.mark.parametrize("corruption", ["cleared", "mismatched"])
+@pytest.mark.asyncio
+async def test_wss_ack_rejects_operation_when_collection_command_link_is_corrupt(
+    session_provider: async_sessionmaker[AsyncSession],
+    corruption: str,
+) -> None:
+    """WSS ACK classification must honor the direct operation command owner."""
+    device = await seed_device(session_provider)
+    operation = await _seed_operation(session_provider, device_id=device.id)
+    presence = await _open_session(session_provider, device_id=device.id)
+    envelope = await _deliver_operation(
+        session_provider,
+        device_id=device.id,
+        session_id=presence.session_id,
+    )
+    command_id = envelope.payload.command_id
+    await _corrupt_collection_command_relation(
+        session_provider,
+        operation=operation,
+        operation_command_id=command_id,
+        device_id=device.id,
+        corruption=corruption,
+    )
+
+    with pytest.raises(CommandStateRejected):
+        await CommandService(session_provider).record_ack(
+            device_id=device.id,
+            session_id=presence.session_id,
+            acknowledgement=AgentCommandAckV1(
+                schema_version="agent_command_ack_v1",
+                command_id=command_id,
+                device_id=device.id,
+                status="acknowledged",
+                acknowledged_at=datetime.now(UTC),
+            ),
+        )
+
+    async with session_provider() as session:
+        persisted = await session.get(EndpointOperation, operation.id)
+        command = await session.get(Command, command_id)
+        delivery = await session.scalar(
+            select(CommandDelivery).where(CommandDelivery.command_id == command_id)
+        )
+    assert persisted is not None and command is not None and delivery is not None
+    assert persisted.status == command.status == delivery.status == "delivered"
+
+
+@pytest.mark.parametrize("corruption", ["cleared", "mismatched"])
+@pytest.mark.asyncio
+async def test_wss_result_rejects_without_ack_when_collection_command_link_is_corrupt(
+    session_provider: async_sessionmaker[AsyncSession],
+    corruption: str,
+) -> None:
+    """A corrupt operation relation must roll back before a WSS result ACK exists."""
+    device = await seed_device(session_provider)
+    operation = await _seed_operation(session_provider, device_id=device.id)
+    presence = await _open_session(session_provider, device_id=device.id)
+    envelope = await _deliver_operation(
+        session_provider,
+        device_id=device.id,
+        session_id=presence.session_id,
+    )
+    command_id = envelope.payload.command_id
+    await _corrupt_collection_command_relation(
+        session_provider,
+        operation=operation,
+        operation_command_id=command_id,
+        device_id=device.id,
+        corruption=corruption,
+    )
+
+    with pytest.raises(CommandStateRejected):
+        await CommandService(session_provider).record_result(
+            device_id=device.id,
+            device_instance_id=presence.device_instance_id,
+            session_id=presence.session_id,
+            result_sequence=1,
+            result=AgentResultV1(
+                schema_version="agent_result_v1",
+                command_id=command_id,
+                device_id=device.id,
+                status="failed",
+                result_items=[],
+                message="diagnostic unavailable",
+                completed_at=datetime.now(UTC),
+            ),
+        )
+
+    async with session_provider() as session:
+        persisted = await session.get(EndpointOperation, operation.id)
+        command = await session.get(Command, command_id)
+        delivery = await session.scalar(
+            select(CommandDelivery).where(CommandDelivery.command_id == command_id)
+        )
+        result_count = await session.scalar(
+            select(func.count()).select_from(CommandResult)
+        )
+        snapshot_count = await session.scalar(
+            select(func.count()).select_from(ContextSnapshot)
+        )
+    assert persisted is not None and command is not None and delivery is not None
+    assert persisted.status == command.status == delivery.status == "delivered"
+    assert result_count == snapshot_count == 0
+
+
 @pytest.mark.asyncio
 async def test_success_result_is_validated_redacted_and_persisted_before_ack(
     session_provider: async_sessionmaker[AsyncSession],
@@ -573,6 +793,11 @@ async def test_success_result_is_validated_redacted_and_persisted_before_ack(
             ContextCollection,
             operation.context_collection_id,
         )
+        delivery = await session.scalar(
+            select(CommandDelivery).where(
+                CommandDelivery.command_id == envelope.payload.command_id
+            )
+        )
         snapshots = (await session.scalars(select(ContextSnapshot))).all()
         stored_results = (await session.scalars(select(CommandResult))).all()
         terminal_audits = (
@@ -582,9 +807,9 @@ async def test_success_result_is_validated_redacted_and_persisted_before_ack(
                 )
             )
         ).all()
-    assert persisted is not None and collection is not None
-    assert persisted.status == "succeeded"
-    assert _utc(persisted.completed_at) == completed_at
+    assert persisted is not None and collection is not None and delivery is not None
+    assert persisted.status == delivery.status == "succeeded"
+    assert _utc(persisted.completed_at) >= completed_at
     assert collection.status == "completed"
     assert len(snapshots) == len(stored_results) == 1
     assert len(terminal_audits) == 1
@@ -642,6 +867,11 @@ async def test_failed_result_safely_terminalizes_operation_without_snapshot(
             ContextCollection,
             operation.context_collection_id,
         )
+        delivery = await session.scalar(
+            select(CommandDelivery).where(
+                CommandDelivery.command_id == envelope.payload.command_id
+            )
+        )
         snapshots = (await session.scalars(select(ContextSnapshot))).all()
         terminal_audits = (
             await session.scalars(
@@ -650,15 +880,175 @@ async def test_failed_result_safely_terminalizes_operation_without_snapshot(
                 )
             )
         ).all()
-    assert persisted is not None and collection is not None
-    assert persisted.status == "failed"
-    assert _utc(persisted.completed_at) == completed_at
+    assert persisted is not None and collection is not None and delivery is not None
+    assert persisted.status == delivery.status == "failed"
+    assert _utc(persisted.completed_at) >= completed_at
     assert collection.status == "failed"
     assert collection.failure_code == "command_failed"
     assert snapshots == []
     assert len(terminal_audits) == 1
     serialized = json.dumps(collection.raw_result_payload, sort_keys=True).lower()
     assert "agent-failure-secret" not in serialized
+
+
+@pytest.mark.asyncio
+async def test_result_received_after_server_deadline_cannot_complete_operation(
+    session_provider: async_sessionmaker[AsyncSession],
+) -> None:
+    """The locked server deadline, not the agent timestamp, decides acceptance."""
+    server_now = datetime.now(UTC)
+    device = await seed_device(session_provider)
+    operation = await _seed_operation(
+        session_provider,
+        device_id=device.id,
+        now=server_now - timedelta(minutes=1),
+    )
+    presence = await _open_session(session_provider, device_id=device.id)
+    envelope = await _deliver_operation(
+        session_provider,
+        device_id=device.id,
+        session_id=presence.session_id,
+    )
+    async with session_provider() as session:
+        persisted = await session.get(EndpointOperation, operation.id)
+        command = await session.get(Command, envelope.payload.command_id)
+        assert persisted is not None and command is not None
+        persisted.deadline_at = server_now - timedelta(seconds=1)
+        command.expires_at = persisted.deadline_at
+        await session.commit()
+
+    with pytest.raises(CommandStateRejected):
+        await CommandService(session_provider).record_result(
+            device_id=device.id,
+            device_instance_id=presence.device_instance_id,
+            session_id=presence.session_id,
+            result_sequence=1,
+            result=_diagnostic_result(
+                command_id=envelope.payload.command_id,
+                device_id=device.id,
+                completed_at=server_now - timedelta(seconds=2),
+            ),
+        )
+
+    async with session_provider() as session:
+        persisted = await session.get(EndpointOperation, operation.id)
+        command = await session.get(Command, envelope.payload.command_id)
+        delivery = await session.scalar(
+            select(CommandDelivery).where(
+                CommandDelivery.command_id == envelope.payload.command_id
+            )
+        )
+        result_count = await session.scalar(
+            select(func.count()).select_from(CommandResult)
+        )
+    assert persisted is not None and command is not None and delivery is not None
+    assert persisted.status == command.status == delivery.status == "delivered"
+    assert result_count == 0
+
+
+@pytest.mark.asyncio
+async def test_terminal_operation_uses_server_acceptance_time_not_agent_future_time(
+    session_provider: async_sessionmaker[AsyncSession],
+) -> None:
+    """Permitted clock skew must not control public or audit completion time."""
+    device = await seed_device(session_provider)
+    operation = await _seed_operation(session_provider, device_id=device.id)
+    presence = await _open_session(session_provider, device_id=device.id)
+    envelope = await _deliver_operation(
+        session_provider,
+        device_id=device.id,
+        session_id=presence.session_id,
+    )
+    acceptance_lower_bound = datetime.now(UTC)
+    agent_completed_at = acceptance_lower_bound + timedelta(seconds=30)
+
+    await CommandService(session_provider).record_result(
+        device_id=device.id,
+        device_instance_id=presence.device_instance_id,
+        session_id=presence.session_id,
+        result_sequence=1,
+        result=_diagnostic_result(
+            command_id=envelope.payload.command_id,
+            device_id=device.id,
+            completed_at=agent_completed_at,
+        ),
+    )
+    acceptance_upper_bound = datetime.now(UTC)
+
+    async with session_provider() as session:
+        persisted = await session.get(EndpointOperation, operation.id)
+        stored = await session.scalar(select(CommandResult))
+        collection = await session.get(
+            ContextCollection,
+            operation.context_collection_id,
+        )
+        audit = await session.scalar(
+            select(AuditEvent).where(
+                AuditEvent.action == "endpoint.operation_succeeded"
+            )
+        )
+    assert persisted is not None and stored is not None and collection is not None
+    assert audit is not None
+    for server_owned_timestamp in (
+        persisted.completed_at,
+        stored.completed_at,
+        collection.completed_at,
+        audit.created_at,
+    ):
+        assert server_owned_timestamp is not None
+        assert (
+            acceptance_lower_bound
+            <= _utc(server_owned_timestamp)
+            <= acceptance_upper_bound
+        )
+        assert _utc(server_owned_timestamp) != agent_completed_at
+
+
+@pytest.mark.asyncio
+async def test_materially_future_operation_completion_time_is_rejected(
+    session_provider: async_sessionmaker[AsyncSession],
+) -> None:
+    """An agent clock far in the future must not create terminal state or audits."""
+    device = await seed_device(session_provider)
+    operation = await _seed_operation(session_provider, device_id=device.id)
+    presence = await _open_session(session_provider, device_id=device.id)
+    envelope = await _deliver_operation(
+        session_provider,
+        device_id=device.id,
+        session_id=presence.session_id,
+    )
+
+    with pytest.raises(CommandStateRejected):
+        await CommandService(session_provider).record_result(
+            device_id=device.id,
+            device_instance_id=presence.device_instance_id,
+            session_id=presence.session_id,
+            result_sequence=1,
+            result=_diagnostic_result(
+                command_id=envelope.payload.command_id,
+                device_id=device.id,
+                completed_at=datetime.now(UTC) + timedelta(hours=1),
+            ),
+        )
+
+    async with session_provider() as session:
+        persisted = await session.get(EndpointOperation, operation.id)
+        delivery = await session.scalar(
+            select(CommandDelivery).where(
+                CommandDelivery.command_id == envelope.payload.command_id
+            )
+        )
+        result_count = await session.scalar(
+            select(func.count()).select_from(CommandResult)
+        )
+        terminal_audit_count = await session.scalar(
+            select(func.count())
+            .select_from(AuditEvent)
+            .where(AuditEvent.action == "endpoint.operation_succeeded")
+        )
+    assert persisted is not None and delivery is not None
+    assert persisted.status == delivery.status == "delivered"
+    assert result_count == terminal_audit_count == 0
 
 
 @pytest.mark.asyncio
@@ -766,7 +1156,13 @@ async def test_reconnect_duplicate_is_idempotent_but_conflicting_result_rejects(
 
     async with session_provider() as session:
         persisted = await session.get(EndpointOperation, operation.id)
+        delivery = await session.scalar(
+            select(CommandDelivery).where(
+                CommandDelivery.command_id == first_delivery.payload.command_id
+            )
+        )
         assert persisted is not None and persisted.status == "succeeded"
+        assert delivery is not None and delivery.status == "succeeded"
         assert await session.scalar(select(func.count()).select_from(Command)) == 1
         assert await session.scalar(select(func.count()).select_from(CommandDelivery)) == 1
         assert await session.scalar(select(func.count()).select_from(CommandResult)) == 1

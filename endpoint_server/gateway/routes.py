@@ -9,11 +9,15 @@ from sqlalchemy import select
 
 from endpoint_contracts import AgentCommandAckV1, AgentCommandV1, AgentResultV1
 from endpoint_server.context.ingestion import ingest_context_result
-from endpoint_server.context.models import ContextCollection
 from endpoint_server.db.models import Command, CommandDelivery, CommandResult
 from endpoint_server.updates.agent_routes import _authenticate_device
 
-from .command_service import next_pending_command, result_payload_digest
+from .command_service import (
+    CommandStateRejected,
+    next_pending_command,
+    resolve_command_context_relation,
+    result_payload_digest,
+)
 
 
 router = APIRouter(prefix="/agent/v1/gateway", tags=["agent-gateway"])
@@ -53,14 +57,16 @@ async def acknowledge(command_id: UUID, body: AgentCommandAckV1, request: Reques
                 or body.status != "acknowledged"
             ):
                 raise _unavailable()
-            command.status = body.status
-            collection = await session.scalar(
-                select(ContextCollection)
-                .where(ContextCollection.command_id == command.id)
-                .with_for_update()
-            )
-            if collection is not None and collection.operation_id is not None:
+            try:
+                collection, operation = await resolve_command_context_relation(
+                    session,
+                    command,
+                )
+            except CommandStateRejected as error:
+                raise _unavailable() from error
+            if operation is not None:
                 raise _unavailable()
+            command.status = body.status
             if collection is not None:
                 collection.status = "collecting"
             delivery = await session.scalar(
@@ -88,12 +94,14 @@ async def submit_result(command_id: UUID, body: AgentResultV1, request: Request)
             command = await session.scalar(select(Command).where(Command.id == command_id, Command.device_id == principal.device.id).with_for_update())
             if command is None or body.command_id != command.id or body.device_id != principal.device.id:
                 raise _unavailable()
-            collection = await session.scalar(
-                select(ContextCollection)
-                .where(ContextCollection.command_id == command.id)
-                .with_for_update()
-            )
-            if collection is not None and collection.operation_id is not None:
+            try:
+                _collection, operation = await resolve_command_context_relation(
+                    session,
+                    command,
+                )
+            except CommandStateRejected as error:
+                raise _unavailable() from error
+            if operation is not None:
                 raise _unavailable()
             result_identifier = f"result-{command.id.hex}"
             result = await session.scalar(

@@ -44,6 +44,7 @@ from endpoint_server.operations.service import append_operation_terminal_audit
 
 SendCommand = Callable[[CommandEnvelopeV1], Awaitable[None] | None]
 _TERMINAL_STATUSES = frozenset({"succeeded", "failed", "canceled", "expired"})
+_MAX_AGENT_CLOCK_SKEW = timedelta(minutes=5)
 _CAPABILITIES = {
     "baseline_v1": "context.baseline.collect",
     "health_v1": "context.health.collect",
@@ -135,9 +136,20 @@ async def _operation_for_collection(
         .where(EndpointOperation.id == collection.operation_id)
         .with_for_update()
     )
+
+    return _validate_operation_relation(collection, operation, command=command)
+
+
+def _validate_operation_relation(
+    collection: ContextCollection,
+    operation: EndpointOperation | None,
+    *,
+    command: Command | None = None,
+) -> EndpointOperation:
     expected_capability = _CAPABILITIES.get(collection.profile)
     if (
         operation is None
+        or collection.operation_id != operation.id
         or operation.context_collection_id != collection.id
         or operation.device_id != collection.device_id
         or operation.capability != expected_capability
@@ -145,12 +157,58 @@ async def _operation_for_collection(
     ):
         raise CommandStateRejected("operation collection relation is unavailable")
     if command is not None and (
-        operation.command_id != command.id
+        collection.command_id != command.id
+        or operation.command_id != command.id
         or command.device_id != operation.device_id
         or command.command_kind != operation.capability
     ):
         raise CommandStateRejected("operation command relation is unavailable")
     return operation
+
+
+async def resolve_command_context_relation(
+    session,
+    command: Command,
+) -> tuple[ContextCollection | None, EndpointOperation | None]:
+    """Classify a context command from both sides of the operation relation."""
+    collection = await session.scalar(
+        select(ContextCollection)
+        .where(ContextCollection.command_id == command.id)
+        .with_for_update()
+    )
+    direct_operation = await session.scalar(
+        select(EndpointOperation)
+        .where(EndpointOperation.command_id == command.id)
+        .with_for_update()
+    )
+    if direct_operation is None:
+        if collection is None or collection.operation_id is None:
+            return collection, None
+        return collection, await _operation_for_collection(
+            session,
+            collection,
+            command=command,
+        )
+
+    canonical_collection = collection
+    if (
+        canonical_collection is None
+        or canonical_collection.id != direct_operation.context_collection_id
+    ):
+        canonical_collection = await session.scalar(
+            select(ContextCollection)
+            .where(ContextCollection.id == direct_operation.context_collection_id)
+            .with_for_update()
+        )
+    if canonical_collection is None or (
+        collection is not None and collection.id != canonical_collection.id
+    ):
+        raise CommandStateRejected("operation collection relation is unavailable")
+    return canonical_collection, _validate_operation_relation(
+        canonical_collection,
+        direct_operation,
+        command=command,
+    )
 
 
 def _safe_operation_result(
@@ -419,19 +477,9 @@ class CommandService:
                 )
                 if delivery is None or delivery.device_session_id != session_id:
                     raise CommandStateRejected("command delivery is unavailable")
-                collection = await session.scalar(
-                    select(ContextCollection)
-                    .where(ContextCollection.command_id == command.id)
-                    .with_for_update()
-                )
-                operation = (
-                    await _operation_for_collection(
-                        session,
-                        collection,
-                        command=command,
-                    )
-                    if collection is not None
-                    else None
+                collection, operation = await resolve_command_context_relation(
+                    session,
+                    command,
                 )
                 if command.status in _TERMINAL_STATUSES:
                     if operation is not None and operation.status != command.status:
@@ -512,19 +560,9 @@ class CommandService:
                     .where(CommandDelivery.command_id == command.id)
                     .with_for_update()
                 )
-                collection = await session.scalar(
-                    select(ContextCollection)
-                    .where(ContextCollection.command_id == command.id)
-                    .with_for_update()
-                )
-                operation = (
-                    await _operation_for_collection(
-                        session,
-                        collection,
-                        command=command,
-                    )
-                    if collection is not None
-                    else None
+                collection, operation = await resolve_command_context_relation(
+                    session,
+                    command,
                 )
 
                 result_identifier = f"result-{command.id.hex}"
@@ -535,6 +573,7 @@ class CommandService:
                 )
                 if stored is None:
                     accepted_result = result
+                    accepted_at: datetime | None = None
                     if operation is not None:
                         if (
                             delivery is None
@@ -549,22 +588,30 @@ class CommandService:
                             )
                         completed_at = _as_utc(result.completed_at)
                         created_at = _as_utc(operation.created_at)
+                        deadline_at = _as_utc(operation.deadline_at)
+                        accepted_at = datetime.now(UTC)
                         if (
                             completed_at is None
                             or created_at is None
+                            or deadline_at is None
                             or completed_at < created_at
+                            or completed_at > accepted_at + _MAX_AGENT_CLOCK_SKEW
+                            or accepted_at >= deadline_at
                         ):
                             raise CommandStateRejected(
                                 "operation result timing is unavailable"
                             )
-                        accepted_result = _safe_operation_result(operation, result)
+                        accepted_result = _safe_operation_result(
+                            operation,
+                            result,
+                        ).model_copy(update={"completed_at": accepted_at})
                     stored = CommandResult(
                         id=uuid4(),
                         command_id=command.id,
                         delivery_id=delivery.id if delivery is not None else None,
                         result_identifier=result_identifier,
                         status=result.status,
-                        completed_at=result.completed_at,
+                        completed_at=accepted_result.completed_at,
                         result_sequence=result_sequence,
                         result_payload_digest=payload_digest,
                     )
@@ -575,6 +622,7 @@ class CommandService:
                             session,
                             stored.id,
                             accepted_result,
+                            now=accepted_at,
                         )
                         if operation is not None and (
                             ingested_collection.id != collection.id
@@ -592,13 +640,15 @@ class CommandService:
                                 "operation context result is unavailable"
                             )
                     command.status = result.status
+                    if delivery is not None:
+                        delivery.status = result.status
                     if operation is not None:
                         operation.status = result.status
-                        operation.completed_at = result.completed_at
+                        operation.completed_at = accepted_at
                         await append_operation_terminal_audit(
                             session,
                             operation,
-                            occurred_at=result.completed_at,
+                            occurred_at=accepted_at,
                         )
                 else:
                     if operation is not None:
@@ -625,8 +675,13 @@ class CommandService:
                             or stored.result_sequence is None
                             or stored.result_sequence < 0
                             or stored.result_payload_digest != payload_digest
+                            or stored.status != result.status
+                            or command.status != result.status
+                            or delivery.status != result.status
                             or operation.status != result.status
                             or operation.completed_at is None
+                            or _as_utc(stored.completed_at)
+                            != _as_utc(operation.completed_at)
                             or collection.command_result_id != stored.id
                         ):
                             raise CommandStateRejected(
@@ -683,5 +738,6 @@ __all__ = [
     "CommandService",
     "CommandStateRejected",
     "next_pending_command",
+    "resolve_command_context_relation",
     "result_payload_digest",
 ]
