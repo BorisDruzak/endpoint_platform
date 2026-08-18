@@ -91,10 +91,15 @@ call.
 
 ## Next Steps
 
-1. Treat the Gateway/update/rollback pilot as accepted only for the dedicated
+1. Implement the approved Endpoint Operations API v1 design in
+   `docs/superpowers/specs/2026-08-09-endpoint-operation-v1-design.md` using
+   `docs/superpowers/plans/2026-08-09-endpoint-operation-v1.md`. The first
+   typed operation is `context.diagnostic.collect`; it must be feature-gated,
+   WSS-only and safe for Helpdesk service callers.
+2. Treat the Gateway/update/rollback pilot as accepted only for the dedicated
    `test-agent-lin`; do not assign a production endpoint or run a bulk rollout
    without a separate change decision.
-2. Keep the `web_ovpn` Endpoint Platform integration feature-gated. Any
+3. Keep the `web_ovpn` Endpoint Platform integration feature-gated. Any
    credential-expiry policy, production endpoint assignment, bulk rollout,
    IP-only correlation, or exposure of raw agent result payloads requires a
    separate approved change.
