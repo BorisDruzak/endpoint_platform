@@ -133,6 +133,19 @@ def test_create_rejects_unbounded_or_unsafe_reasons(reason: str) -> None:
         )
 
 
+def test_create_accepts_non_url_double_slash_reason() -> None:
+    contracts = _contracts()
+    request = {
+        **_create_request(),
+        "parameters": {"reason": "Fixture review // operator note."},
+    }
+
+    assert contracts.EndpointOperationCreateV1.model_validate(
+        request
+    ).parameters.reason == request["parameters"]["reason"]
+    _schema_validator("endpoint-operation-create-v1.json").validate(request)
+
+
 def test_operation_exposes_only_safe_projection() -> None:
     contracts = _contracts()
     operation = contracts.EndpointOperationV1.model_validate(_operation())
@@ -158,14 +171,20 @@ def test_diagnostic_result_exposes_only_redacted_snapshot_fields() -> None:
             {**_result(), "raw_result": {}}
         )
 
-    for raw_path in ("/var/log/endpoint/raw.log", r"C:\\endpoint\\raw.log"):
+    unsafe_excerpts = (
+        "/var/log/endpoint/raw.log",
+        r"C:\\endpoint\\raw.log",
+        "Traceback (most recent call last): /srv/app/x.py",
+        "Bearer tok_12345678",
+    )
+    for unsafe_excerpt in unsafe_excerpts:
         with pytest.raises(ValidationError):
             contracts.EndpointDiagnosticResultV1.model_validate(
-                {**_result(), "log_excerpt": raw_path}
+                {**_result(), "log_excerpt": unsafe_excerpt}
             )
         with pytest.raises(JsonSchemaValidationError):
             _schema_validator("endpoint-operation-diagnostic-result-v1.json").validate(
-                {**_result(), "log_excerpt": raw_path}
+                {**_result(), "log_excerpt": unsafe_excerpt}
             )
 
 

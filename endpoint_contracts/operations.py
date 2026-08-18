@@ -32,10 +32,22 @@ _REASON_JSON_SCHEMA_PATTERN = r"^(?![\s\S]*://)[^\x00-\x1f\x7f]{1,256}(?![\s\S])
 _NORMALIZED_IDENTIFIER_PATTERN = r"^[a-z][a-z0-9._-]{0,63}$"
 _OPAQUE_IDENTIFIER_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
 _CONTROL_CHARACTER_PATTERN = re.compile(r"[\x00-\x1f\x7f]")
-_ABSOLUTE_PATH_PATTERN = re.compile(r"^(?:[A-Za-z]:[\\/]|[\\/])")
 _LOG_EXCERPT_JSON_SCHEMA_PATTERN = (
-    r"^(?![A-Za-z]:[\\/])(?![\\/])[\s\S]{0,8192}(?![\s\S])"
+    r"^(?![\s\S]*(?:"
+    r"[Tt][Rr][Aa][Cc][Ee][Bb][Aa][Cc][Kk]|"
+    r"[Bb][Ee][Aa][Rr][Ee][Rr]\s+\S+|"
+    r"(?:[Aa][Cc][Cc][Ee][Ss][Ss][_ -]?[Tt][Oo][Kk][Ee][Nn]|"
+    r"[Aa][Pp][Ii][_ -]?[Kk][Ee][Yy]|"
+    r"[Cc][Ll][Ii][Ee][Nn][Tt][_ -]?[Ss][Ee][Cc][Rr][Ee][Tt]|"
+    r"[Pp][Aa][Ss][Ss][Ww][Oo][Rr][Dd]|"
+    r"[Cc][Rr][Ee][Dd][Ee][Nn][Tt][Ii][Aa][Ll]|"
+    r"[Aa][Uu][Tt][Hh][Oo][Rr][Ii][Zz][Aa][Tt][Ii][Oo][Nn])\s*(?:[:=]|\s+)\S+|"
+    r"(?:[Tt][Oo][Kk]|[Ss][Ee][Cc][Rr][Ee][Tt]|[Aa][Pp][Ii]|[Ss][Kk]|[Pp][Kk])_"
+    r"[A-Za-z0-9_-]{8,}|"
+    r"(?:[A-Za-z]:[\\/]|/(?:[A-Za-z0-9._-]+/)+[A-Za-z0-9._-]+)"
+    r"))[\s\S]{0,8192}(?![\s\S])"
 )
+_REDACTED_LOG_EXCERPT_PATTERN = re.compile(_LOG_EXCERPT_JSON_SCHEMA_PATTERN)
 
 DiagnosticReasonV1 = Annotated[
     str,
@@ -67,7 +79,7 @@ OpaqueIdentifierV1 = Annotated[
 
 
 def _validate_safe_reason(value: str) -> str:
-    if "//" in value or _CONTROL_CHARACTER_PATTERN.search(value):
+    if "://" in value or _CONTROL_CHARACTER_PATTERN.search(value):
         raise ValueError("reason must be control-character- and URL-free")
     return value
 
@@ -136,8 +148,10 @@ class EndpointDiagnosticResultV1(ContractModelV1):
     @field_validator("log_excerpt")
     @classmethod
     def validate_redacted_log_excerpt(cls, value: str | None) -> str | None:
-        if value is not None and _ABSOLUTE_PATH_PATTERN.match(value):
-            raise ValueError("log_excerpt must not expose an absolute path")
+        if value is not None and not _REDACTED_LOG_EXCERPT_PATTERN.fullmatch(value):
+            raise ValueError(
+                "log_excerpt must not expose exception, path, or credential text"
+            )
         return value
 
     @field_validator("warnings")
