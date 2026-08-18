@@ -227,6 +227,43 @@ def test_diagnostic_result_allows_redaction_prose(redacted_excerpt: str) -> None
 
 
 @pytest.mark.parametrize(
+    "unsafe_excerpt",
+    ["token: redacted actual-secret", "secret=absent supersecret"],
+)
+def test_diagnostic_result_rejects_redaction_label_bypasses(
+    unsafe_excerpt: str,
+) -> None:
+    contracts = _contracts()
+
+    with pytest.raises(ValidationError):
+        contracts.EndpointDiagnosticResultV1.model_validate(
+            {**_result(), "log_excerpt": unsafe_excerpt}
+        )
+    with pytest.raises(JsonSchemaValidationError):
+        _schema_validator("endpoint-operation-diagnostic-result-v1.json").validate(
+            {**_result(), "log_excerpt": unsafe_excerpt}
+        )
+
+
+@pytest.mark.parametrize(
+    "redacted_excerpt",
+    ["Bearer auth was redacted.", "Bearer authentication was redacted."],
+)
+def test_diagnostic_result_allows_complete_bearer_redaction_prose(
+    redacted_excerpt: str,
+) -> None:
+    contracts = _contracts()
+    payload = {**_result(), "log_excerpt": redacted_excerpt}
+
+    assert contracts.EndpointDiagnosticResultV1.model_validate(
+        payload
+    ).log_excerpt == redacted_excerpt
+    _schema_validator("endpoint-operation-diagnostic-result-v1.json").validate(
+        payload
+    )
+
+
+@pytest.mark.parametrize(
     ("schema_name", "fixture_name", "model_name"),
     [
         (
