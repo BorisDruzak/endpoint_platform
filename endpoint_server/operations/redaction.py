@@ -24,9 +24,9 @@ _TRACEBACK = re.compile(r"(?i)traceback\s*\(\s*most\s+recent\s+call\s+last\s*\)\
 _PYTHON_FILE_LINE = re.compile(r"(?i)file\s+[\"'][^\r\n\"']+[\"']\s*,\s*line\s+\d+")
 _BEARER = re.compile(r"(?i)\bbearer\s+\S+")
 _SAFE_BEARER = re.compile(
-    r"(?i)\bbearer\s+(?:(?:auth|authentication)\s+(?:was\s+)?"
+    r"(?im)\bbearer\s+(?:(?:auth|authentication)\s+(?:was\s+)?"
     r"(?:\[redacted\]|redacted|absent|none|null)|"
-    r"(?:\[redacted\]|redacted|absent|none|null))(?:[.,;)]?(?:\s|$))"
+    r"(?:\[redacted\]|redacted|absent|none|null))[.,;)]?[ \t]*(?=\r?$)"
 )
 
 

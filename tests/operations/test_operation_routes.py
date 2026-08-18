@@ -33,6 +33,7 @@ from endpoint_server.db.models import (
     ServiceCredential,
 )
 from endpoint_server.main import create_app
+from endpoint_server.operations.projection import project_diagnostic_result
 from pc_agent.context_profiles.diagnostic import collect_diagnostic
 from pc_agent.context_profiles.probe import JOURNAL_COMMAND, PROCESS_COMMAND
 
@@ -620,6 +621,37 @@ async def test_public_reason_is_always_derived_from_server_request(
 
 
 @pytest.mark.asyncio
+async def test_direct_projection_redacts_secret_after_bearer_marker(
+    route_fixture: RouteFixture,
+) -> None:
+    """A marker prefix must not bless a trailing credential in a process name."""
+    create_path = f"/api/v1/devices/{route_fixture.device.id}/operations"
+    async with _client(route_fixture) as client:
+        created = await client.post(
+            create_path, json=CREATE_BODY, headers=_create_headers("creator-old")
+        )
+    operation_id = created.json()["data"]["operation"]["operation_id"]
+    completed_at = datetime(2026, 8, 18, 12, 0, tzinfo=UTC)
+    operation, _, snapshot = await _complete_operation(
+        route_fixture,
+        operation_id,
+        normalized_projection=_diagnostic_projection(
+            completed_at=completed_at,
+            processes=[
+                {"name": "Bearer redacted actual-secret", "state": "running"}
+            ],
+            log_excerpt=None,
+        ),
+    )
+
+    result = project_diagnostic_result(operation, snapshot)
+
+    assert result is not None
+    assert [process.name for process in result.processes] == ["[REDACTED]"]
+    assert "actual-secret" not in result.model_dump_json()
+
+
+@pytest.mark.asyncio
 async def test_actual_agent_diagnostic_is_normalized_to_safe_success(
     route_fixture: RouteFixture,
 ) -> None:
@@ -746,7 +778,7 @@ async def test_result_requires_consistent_completed_diagnostic_relationship(
     )
 
 
-def test_enabled_runtime_openapi_matches_committed_operation_api_facets(
+def test_enabled_runtime_openapi_exactly_matches_committed_operation_routes(
     route_fixture: RouteFixture,
 ) -> None:
     """Runtime docs and the published API artifact must describe one boundary."""
@@ -756,56 +788,11 @@ def test_enabled_runtime_openapi_matches_committed_operation_api_facets(
     committed = yaml.safe_load(
         Path("contracts/openapi/endpoint-platform-v1.yaml").read_text(encoding="utf-8")
     )
-    route_scopes = {
-        ("/api/v1/devices/{device_id}/capabilities", "get"): "devices.read",
-        ("/api/v1/devices/{device_id}/operations", "post"): "operations.create",
-        ("/api/v1/operations/{operation_id}", "get"): "operations.read",
-    }
-    assert (
-        runtime["components"]["securitySchemes"]["ServiceBearer"]
-        == committed["components"]["securitySchemes"]["ServiceBearer"]
+    operation_paths = (
+        "/api/v1/devices/{device_id}/capabilities",
+        "/api/v1/devices/{device_id}/operations",
+        "/api/v1/operations/{operation_id}",
     )
-    for (path, method), scope in route_scopes.items():
-        runtime_operation = runtime["paths"][path][method]
-        committed_operation = committed["paths"][path][method]
-        assert runtime_operation["security"] == committed_operation["security"]
-        assert runtime_operation["x-required-scopes"] == [scope]
-        assert (
-            runtime_operation["x-required-scopes"]
-            == committed_operation["x-required-scopes"]
-        )
-
-    runtime_create = runtime["paths"]["/api/v1/devices/{device_id}/operations"]["post"]
-    committed_create = committed["paths"]["/api/v1/devices/{device_id}/operations"][
-        "post"
-    ]
-    runtime_header = next(
-        parameter
-        for parameter in runtime_create["parameters"]
-        if parameter["name"] == "Idempotency-Key"
-    )
-    committed_header = next(
-        parameter
-        for parameter in committed_create["parameters"]
-        if parameter["name"] == "Idempotency-Key"
-    )
-    expected_header_schema = {
-        "type": "string",
-        "minLength": 8,
-        "maxLength": 128,
-        "pattern": r"^[!-~][ -~]{6,126}[!-~]$",
-    }
-    assert runtime_header["required"] is True
-    assert committed_header["required"] is True
     assert {
-        key: runtime_header["schema"][key] for key in expected_header_schema
-    } == expected_header_schema
-    assert {
-        key: committed_header["schema"][key] for key in expected_header_schema
-    } == expected_header_schema
-    assert {"200", "201", "409", "503"} <= set(runtime_create["responses"])
-    assert {"200", "201", "409", "503"} <= set(committed_create["responses"])
-    runtime_read = runtime["paths"]["/api/v1/operations/{operation_id}"]["get"]
-    committed_read = committed["paths"]["/api/v1/operations/{operation_id}"]["get"]
-    assert {"200", "503"} <= set(runtime_read["responses"])
-    assert {"200", "503"} <= set(committed_read["responses"])
+        path: runtime["paths"][path] for path in operation_paths
+    } == {path: committed["paths"][path] for path in operation_paths}

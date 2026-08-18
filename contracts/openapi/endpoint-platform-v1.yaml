@@ -152,11 +152,14 @@ paths:
           description: "Update report recorded"
   "/api/v1/devices/{device_id}/capabilities":
     get:
+      tags:
+        - "endpoint-operations"
+      summary: "Read Device Operation Capabilities"
+      description: "Report only server acceptance for an active device and fixed capability."
+      operationId: "read_device_operation_capabilities_api_v1_devices__device_id__capabilities_get"
       security:
         -
           ServiceBearer: []
-      x-required-scopes:
-        - "devices.read"
       parameters:
         -
           name: "device_id"
@@ -165,50 +168,34 @@ paths:
           schema:
             type: "string"
             format: "uuid"
+            title: "Device Id"
       responses:
         "200":
-          description: "Safe endpoint operation availability"
+          description: "Successful Response"
           content:
             "application/json":
               schema:
-                type: "object"
-                additionalProperties: false
-                required:
-                  - "data"
-                properties:
-                  data:
-                    type: "object"
-                    additionalProperties: false
-                    required:
-                      - "device_id"
-                      - "capabilities"
-                    properties:
-                      device_id:
-                        type: "string"
-                        format: "uuid"
-                      capabilities:
-                        type: "array"
-                        maxItems: 1
-                        items:
-                          type: "object"
-                          additionalProperties: false
-                          required:
-                            - "capability"
-                            - "available"
-                          properties:
-                            capability:
-                              const: "context.diagnostic.collect"
-                            available:
-                              type: "boolean"
+                "$ref": "#/components/schemas/DeviceCapabilitiesEnvelope"
         "404":
           description: "Active device not found"
+        "422":
+          description: "Validation Error"
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/HTTPValidationError"
+      x-required-scopes:
+        - "devices.read"
   "/api/v1/devices/{device_id}/operations":
     post:
+      tags:
+        - "endpoint-operations"
+      summary: "Create Device Operation"
+      description: "Create or replay one operation owned by the authenticated service client."
+      operationId: "create_device_operation_api_v1_devices__device_id__operations_post"
       security:
         -
           ServiceBearer: []
-      x-required-scopes:
-        - "operations.create"
       parameters:
         -
           name: "device_id"
@@ -217,6 +204,7 @@ paths:
           schema:
             type: "string"
             format: "uuid"
+            title: "Device Id"
         -
           name: "Idempotency-Key"
           in: "header"
@@ -226,6 +214,7 @@ paths:
             minLength: 8
             maxLength: 128
             pattern: "^[!-~][ -~]{6,126}[!-~]$"
+            title: "Idempotency-Key"
       requestBody:
         required: true
         content:
@@ -233,69 +222,40 @@ paths:
             schema:
               "$ref": "#/components/schemas/EndpointOperationCreateV1"
       responses:
+        "201":
+          description: "Successful Response"
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/OperationResponseEnvelope"
         "200":
           description: "Replayed endpoint operation"
           content:
             "application/json":
               schema:
-                type: "object"
-                additionalProperties: false
-                required:
-                  - "data"
-                properties:
-                  data:
-                    type: "object"
-                    additionalProperties: false
-                    required:
-                      - "operation"
-                      - "result"
-                    properties:
-                      operation:
-                        "$ref": "#/components/schemas/EndpointOperationV1"
-                      result:
-                        anyOf:
-                          -
-                            "$ref": "#/components/schemas/EndpointDiagnosticResultV1"
-                          -
-                            type: "null"
-        "201":
-          description: "Created endpoint operation"
+                "$ref": "#/components/schemas/OperationResponseEnvelope"
+        "409":
+          description: "Idempotency key conflict"
+        "503":
+          description: "Safe result unavailable"
+        "422":
+          description: "Validation Error"
           content:
             "application/json":
               schema:
-                type: "object"
-                additionalProperties: false
-                required:
-                  - "data"
-                properties:
-                  data:
-                    type: "object"
-                    additionalProperties: false
-                    required:
-                      - "operation"
-                      - "result"
-                    properties:
-                      operation:
-                        "$ref": "#/components/schemas/EndpointOperationV1"
-                      result:
-                        anyOf:
-                          -
-                            "$ref": "#/components/schemas/EndpointDiagnosticResultV1"
-                          -
-                            type: "null"
-        "409":
-          description: "Idempotency key conflict"
-        "422":
-          description: "Invalid endpoint operation request"
-        "503":
-          description: "Safe result unavailable"
+                "$ref": "#/components/schemas/HTTPValidationError"
+      x-required-scopes:
+        - "operations.create"
   "/api/v1/operations/{operation_id}":
     get:
+      tags:
+        - "endpoint-operations"
+      summary: "Read Endpoint Operation"
+      description: "Read one operation through stable service-client ownership."
+      operationId: "read_endpoint_operation_api_v1_operations__operation_id__get"
       security:
         -
           ServiceBearer: []
-      x-required-scopes:
-        - "operations.read"
       parameters:
         -
           name: "operation_id"
@@ -304,36 +264,26 @@ paths:
           schema:
             type: "string"
             format: "uuid"
+            title: "Operation Id"
       responses:
         "200":
-          description: "Safe endpoint operation projection"
+          description: "Successful Response"
           content:
             "application/json":
               schema:
-                type: "object"
-                additionalProperties: false
-                required:
-                  - "data"
-                properties:
-                  data:
-                    type: "object"
-                    additionalProperties: false
-                    required:
-                      - "operation"
-                      - "result"
-                    properties:
-                      operation:
-                        "$ref": "#/components/schemas/EndpointOperationV1"
-                      result:
-                        anyOf:
-                          -
-                            "$ref": "#/components/schemas/EndpointDiagnosticResultV1"
-                          -
-                            type: "null"
+                "$ref": "#/components/schemas/OperationResponseEnvelope"
         "404":
           description: "Endpoint operation not found"
         "503":
           description: "Safe result unavailable"
+        "422":
+          description: "Validation Error"
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/HTTPValidationError"
+      x-required-scopes:
+        - "operations.read"
 components:
   schemas:
     DeviceIdentityV1:
@@ -2714,6 +2664,184 @@ components:
         - "state"
       title: "DiagnosticProcessV1"
       type: "object"
+    CapabilityAvailability:
+      properties:
+        capability:
+          type: "string"
+          const: "context.diagnostic.collect"
+          title: "Capability"
+        available:
+          type: "boolean"
+          title: "Available"
+      additionalProperties: false
+      type: "object"
+      required:
+        - "capability"
+        - "available"
+      title: "CapabilityAvailability"
+      description: "One server-supported capability without endpoint or session internals."
+    DeviceCapabilities:
+      properties:
+        device_id:
+          type: "string"
+          format: "uuid"
+          title: "Device Id"
+        capabilities:
+          items:
+            "$ref": "#/components/schemas/CapabilityAvailability"
+          type: "array"
+          maxItems: 1
+          title: "Capabilities"
+      additionalProperties: false
+      type: "object"
+      required:
+        - "device_id"
+        - "capabilities"
+      title: "DeviceCapabilities"
+      description: "Safe operation availability for one active route device."
+    DeviceCapabilitiesEnvelope:
+      properties:
+        data:
+          "$ref": "#/components/schemas/DeviceCapabilities"
+      additionalProperties: false
+      type: "object"
+      required:
+        - "data"
+      title: "DeviceCapabilitiesEnvelope"
+    DiagnosticCollectionParametersV1:
+      properties:
+        reason:
+          type: "string"
+          maxLength: 256
+          minLength: 1
+          pattern: "^(?![\\s\\S]*://)[^\\x00-\\x1f\\x7f]{1,256}(?![\\s\\S])"
+          title: "Reason"
+      additionalProperties: false
+      type: "object"
+      required:
+        - "reason"
+      title: "DiagnosticCollectionParametersV1"
+      description: "The only public operation input supported in v1."
+    DiagnosticProcessV1:
+      properties:
+        name:
+          type: "string"
+          maxLength: 128
+          minLength: 1
+          title: "Name"
+        state:
+          type: "string"
+          enum:
+            - "running"
+            - "sleeping"
+            - "stopped"
+            - "unknown"
+          title: "State"
+      additionalProperties: false
+      type: "object"
+      required:
+        - "name"
+        - "state"
+      title: "DiagnosticProcessV1"
+    EndpointOperationCorrelationV1:
+      properties:
+        schema_version:
+          type: "string"
+          const: "endpoint_operation_correlation_v1"
+          title: "Schema Version"
+        source_system:
+          type: "string"
+          maxLength: 64
+          minLength: 1
+          pattern: "^[a-z][a-z0-9._-]{0,63}$"
+          title: "Source System"
+        source_entity_type:
+          type: "string"
+          maxLength: 64
+          minLength: 1
+          pattern: "^[a-z][a-z0-9._-]{0,63}$"
+          title: "Source Entity Type"
+        source_entity_id:
+          type: "string"
+          maxLength: 128
+          minLength: 1
+          pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+          title: "Source Entity Id"
+        request_id:
+          anyOf:
+            -
+              type: "string"
+              format: "uuid"
+            -
+              type: "null"
+          title: "Request Id"
+      additionalProperties: false
+      type: "object"
+      required:
+        - "schema_version"
+        - "source_system"
+        - "source_entity_type"
+        - "source_entity_id"
+      title: "EndpointOperationCorrelationV1"
+      description: "Opaque caller correlation that never reaches the endpoint agent."
+    HTTPValidationError:
+      properties:
+        detail:
+          items:
+            "$ref": "#/components/schemas/ValidationError"
+          type: "array"
+          title: "Detail"
+      type: "object"
+      title: "HTTPValidationError"
+    OperationResponseData:
+      properties:
+        operation:
+          "$ref": "#/components/schemas/EndpointOperationV1"
+        result:
+          anyOf:
+            -
+              "$ref": "#/components/schemas/EndpointDiagnosticResultV1"
+            -
+              type: "null"
+      additionalProperties: false
+      type: "object"
+      required:
+        - "operation"
+        - "result"
+      title: "OperationResponseData"
+      description: "Public operation lifecycle and its optional validated safe result."
+    OperationResponseEnvelope:
+      properties:
+        data:
+          "$ref": "#/components/schemas/OperationResponseData"
+      additionalProperties: false
+      type: "object"
+      required:
+        - "data"
+      title: "OperationResponseEnvelope"
+    ValidationError:
+      properties:
+        loc:
+          items:
+            anyOf:
+              -
+                type: "string"
+              -
+                type: "integer"
+          type: "array"
+          title: "Location"
+        msg:
+          type: "string"
+          title: "Message"
+        type:
+          type: "string"
+          title: "Error Type"
+      type: "object"
+      required:
+        - "loc"
+        - "msg"
+        - "type"
+      title: "ValidationError"
   securitySchemes:
     AgentBearer:
       type: "http"

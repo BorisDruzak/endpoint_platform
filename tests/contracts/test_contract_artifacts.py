@@ -491,7 +491,14 @@ def test_endpoint_operation_service_openapi_documents_scopes_and_safe_models(
         == "#/components/schemas/EndpointOperationCreateV1"
     )
     response_text = json.dumps(
-        {"create": create["responses"], "read": read["responses"]},
+        {
+            "create": create["responses"],
+            "read": read["responses"],
+            "envelope": openapi["components"]["schemas"][
+                "OperationResponseEnvelope"
+            ],
+            "data": openapi["components"]["schemas"]["OperationResponseData"],
+        },
         sort_keys=True,
     )
     assert "EndpointOperationV1" in response_text
