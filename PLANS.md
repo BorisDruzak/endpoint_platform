@@ -114,7 +114,7 @@ per device/profile and expires bounded offline work; retention preserves the
 current snapshot, its prior snapshot and explicit pins.
 
 Endpoint Operation v1 local acceptance on 2026-08-18 recorded 265 contract,
-30 operation (4 PostgreSQL-dependent skips), 36 context (1 skip), 67
+30 operation (4 PostgreSQL-dependent skips), 36 context (1 skip), 70
 architecture and 55 transport tests passing. `tests/gateway` has 54 passing
 tests but two pre-existing tests that monkeypatch the removed
 `pc_agent.runtime.application._https_update_hook`; `tests/packaging` has 57
