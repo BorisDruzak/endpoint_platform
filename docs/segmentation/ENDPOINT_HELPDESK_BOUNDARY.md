@@ -78,6 +78,34 @@ Offline operations remain `queued`; they never fall back to
 `/agent/v1/gateway/commands/next`. Server-controlled expiry makes them
 `expired`.
 
+## Implementation and acceptance record (2026-08-18)
+
+- The public contracts are `EndpointOperationCreateV1`,
+  `EndpointOperationV1`, `EndpointDiagnosticResultV1`, and
+  `EndpointOperationStatusV1`; generated JSON Schema and the committed OpenAPI
+  artifact are in `contracts/jsonschema/` and
+  `contracts/openapi/endpoint-platform-v1.yaml`.
+- Alembic revision `0014_endpoint_operations` follows
+  `0013_runtime_session_heartbeat`. Its upgrade adds `endpoint_operations` and
+  reciprocal private collection ownership constraints; its downgrade removes
+  those constraints, table and private `context_collections.operation_id` in
+  reverse order. It was not applied to any remote database for this package.
+- The routes are included only when `ENDPOINT_OPERATIONS_API_ENABLED=true`.
+  The default is false. The capability route requires `devices.read`; creation
+  requires `operations.create`; reads require `operations.read` and the same
+  stable ServiceClient identity, allowing credential rotation without
+  cross-client reads.
+- The supported profile is only `diagnostic_v1`. Safe result projection uses
+  the stored operation reason and the validated ContextSnapshot, allows only
+  bounded process name/state fields, and centrally redacts diagnostic excerpt
+  secrets. Raw transport data is neither stored in the public operation
+  projection nor returned to Helpdesk.
+- Local operation tests cover creation/replay, ownership, expiration,
+  migration shape and route/OpenAPI behavior. Gateway tests cover WSS-only
+  selection, committed-before-send delivery, ACK/result ownership and digest
+  checks, server-side deadlines, terminal state synchronization, and result
+  ACK only after the transaction commits.
+
 ## Non-goals and excluded legacy paths
 
 - No generic `run_tool`, shell, PowerShell, Python, executable path, URL,
@@ -86,4 +114,3 @@ Offline operations remain `queued`; they never fall back to
   payload.
 - No production, database, Nginx, systemd, rollout or test-agent change is
   part of this package.
-

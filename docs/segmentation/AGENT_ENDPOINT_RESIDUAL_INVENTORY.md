@@ -48,3 +48,14 @@ those release paths, not merely present in the repository.
 The current release scan must inspect imported/package/service surface, rather
 than treating the presence of these historical files as a defect.
 
+## Release-boundary guard (2026-08-18)
+
+`tests/architecture/test_no_helpdesk_agent_release_dependencies.py` now scans
+the actual released RPM/MSI surface: core and launcher/provisioner specs,
+runtime and transport import closure, ALT build/spec/service/helper/update
+files, Windows build/WiX/service files, and checked-in initial-runtime
+manifests. It rejects Helpdesk, GUI, legacy Protocol V3 and arbitrary-execution
+markers in each shipped artifact, while deliberately leaving legacy source
+outside that release-root scan. The same guard executes the released typed
+`GatewayCommandV1` diagnostic path and checks bounded redaction; it does not
+turn historical Helpdesk modules into Endpoint dependencies.

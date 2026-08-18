@@ -208,17 +208,17 @@ Commit: `test: guard released agent from helpdesk dependencies`
 **Files:**
 - Modify: `PLANS.md`, segmentation documents, service API/OpenAPI docs, `pc_agent/docs/CODEMAP.md` when Task 5 changes agent behavior
 
-- [ ] **Step 1: Record actual lifecycle, migration, route/scope and release-scan evidence**
+- [x] **Step 1: Record actual lifecycle, migration, route/scope and release-scan evidence**
 
 ```markdown
 Operation creation is atomic; HTTP pull excludes linked operations; WSS result ACK follows the database commit.
 ```
 
-- [ ] **Step 2: Run focused and full verification**
+- [x] **Step 2: Run focused and full verification**
 
 Run: `python -m pytest tests/contracts -q; python -m pytest tests/operations -q; python -m pytest tests/gateway -q; python -m pytest tests/context -q; python -m pytest tests/architecture -q; python -m pytest tests/packaging -q; python -m pytest pc_agent/tests/runtime -q; python -m pytest pc_agent/tests/transport -q; python -m compileall -q endpoint_contracts endpoint_server pc_agent; git diff --check; python -m pytest -q`
 
-- [ ] **Step 3: Commit acceptance evidence**
+- [x] **Step 3: Commit acceptance evidence**
 
 Commit: `docs: record endpoint operation acceptance`
 
@@ -228,3 +228,29 @@ Tasks 1–5 map respectively to the required contract, persistence, service API,
 WSS delivery, and release guard commits. Task 6 records only evidence from
 executed checks; it does not claim production or test-agent changes.
 
+### Acceptance evidence (2026-08-18)
+
+- `python -m pytest tests/contracts -q`: 265 passed (66 warnings).
+- `python -m pytest tests/operations -q`: 30 passed, 4 skipped (the optional
+  PostgreSQL integration cases were not configured).
+- `python -m pytest tests/context -q`: 36 passed, 1 skipped.
+- `python -m pytest tests/architecture -q`: 65 passed, including the released
+  RPM/MSI surface guard and typed diagnostic execution proof.
+- `python -m pytest pc_agent/tests/transport -q`: 55 passed.
+- `python -m pytest tests/gateway -q`: 54 passed, 2 failed. Both failures are
+  in `test_agent_runtime_wss_identity_asgi.py`, which monkeypatches the absent
+  `pc_agent.runtime.application._https_update_hook`; they do not exercise the
+  Endpoint Operation delivery tests.
+- `python -m pytest tests/packaging -q`: 57 passed, 1 skipped, 1 failed:
+  `initial-runtime-3.2.13.json` has a stale hash for
+  `pc_agent/context_profiles/baseline.py`.
+- `python -m pytest pc_agent/tests/runtime -q` did not complete within the
+  30-second local command limit: the first 31 tests ran, then
+  `test_windows_core_artifact_excludes_all_optional_runtime_packages` remained
+  running. The independent completed subsets were 14 gateway characterization,
+  10 update characterization, and 39 headless import/lifecycle/verification
+  tests passing. This is not recorded as a full runtime-suite pass.
+- `python -m compileall -q endpoint_contracts endpoint_server pc_agent` and
+  `git diff --check` completed successfully before the full-suite invocation.
+  `python -m pytest -q` stopped at collection with two missing legacy imports:
+  `scripts.build_module_zip` and `scripts.register_support_modules`.

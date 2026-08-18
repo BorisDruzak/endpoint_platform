@@ -91,11 +91,12 @@ call.
 
 ## Next Steps
 
-1. Implement the approved Endpoint Operations API v1 design in
-   `docs/superpowers/specs/2026-08-09-endpoint-operation-v1-design.md` using
+1. Review and merge the local Endpoint Operations API v1 package described in
+   `docs/superpowers/specs/2026-08-09-endpoint-operation-v1-design.md` and
    `docs/superpowers/plans/2026-08-09-endpoint-operation-v1.md`. The first
-   typed operation is `context.diagnostic.collect`; it must be feature-gated,
-   WSS-only and safe for Helpdesk service callers.
+   typed operation, `context.diagnostic.collect`, is feature-gated and
+   default-disabled; no production enablement, database migration, agent
+   rollout, or Helpdesk integration is included in this package.
 2. Treat the Gateway/update/rollback pilot as accepted only for the dedicated
    `test-agent-lin`; do not assign a production endpoint or run a bulk rollout
    without a separate change decision.
@@ -111,6 +112,17 @@ PostgreSQL lifecycle/idempotency, semantic hash/diff, scheduler/retention,
 safe projection and generated-schema tests. Scheduler keeps one active request
 per device/profile and expires bounded offline work; retention preserves the
 current snapshot, its prior snapshot and explicit pins.
+
+Endpoint Operation v1 local acceptance on 2026-08-18 recorded 265 contract,
+30 operation (4 PostgreSQL-dependent skips), 36 context (1 skip), 65
+architecture and 55 transport tests passing. `tests/gateway` has 54 passing
+tests but two pre-existing tests that monkeypatch the removed
+`pc_agent.runtime.application._https_update_hook`; `tests/packaging` has 57
+passing tests and one pre-existing stale hash for
+`pc_agent/context_profiles/baseline.py` in `initial-runtime-3.2.13.json`.
+The full suite stops at collection because two legacy agent tests import absent
+`scripts.build_module_zip` and `scripts.register_support_modules`. These are
+separate baseline repairs, not evidence to enable the feature.
 
 ## Handoff
 

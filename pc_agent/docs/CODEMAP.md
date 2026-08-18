@@ -58,6 +58,12 @@
   `pc_agent/device_credential.py` is the shared credential-file validator.
   `runtime/local_state.py` owns only the Endpoint Agent V2 SQLite schema and
   does not import or migrate the Helpdesk Protocol V3 database.
+- Endpoint Operations use that same typed executor for
+  `context.diagnostic.collect`. The server alone links an operation to a
+  private command and sends it through `/agent/v1/connect`; operation commands
+  never use the transitional HTTP pull. The agent receives no Helpdesk
+  correlation and emits its normal typed ACK/result. The server validates,
+  redacts and commits the result before acknowledging it over WSS.
 - `runtime/verification.py` is a network-free preflight for settings, V2 local
   state migration, identity/credential structure, collector registry,
   immutable update selector, and import boundaries. Runtime guards reject GUI,
@@ -69,6 +75,12 @@
   available only to existing development tests during the staged cutover. New
   platform packages must use `pc_agent/runtime/main.py` and must not import
   the legacy branch.
+- `tests/architecture/test_no_helpdesk_agent_release_dependencies.py` is the
+  release guard for the Linux RPM and Windows MSI roots, launchers, provisioner
+  and service/package manifests. It follows only shipped imports, rejects
+  Helpdesk/GUI/Protocol V3/arbitrary-execution markers, and executes the
+  bounded typed diagnostic command as a headless proof; it does not classify
+  retained legacy source as a released dependency.
 
 ## Windows headless service contract (2026-08-02)
 
