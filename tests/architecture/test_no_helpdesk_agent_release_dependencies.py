@@ -48,6 +48,8 @@ RELEASED_PATHS = (
     REPOSITORY_ROOT / "deploy" / "agent" / "alt" / "endpoint-agent-update.service",
     REPOSITORY_ROOT / "deploy" / "agent" / "alt" / "endpoint-agent-update.path",
     REPOSITORY_ROOT / "deploy" / "agent" / "alt" / "apply-pending-alt-update.sh",
+    REPOSITORY_ROOT / "deploy" / "agent" / "alt" / "install-endpoint-agent.sh",
+    REPOSITORY_ROOT / "deploy" / "agent" / "alt" / "endpoint-agent.service",
     REPOSITORY_ROOT / "packaging" / "windows" / "build-msi.ps1",
     REPOSITORY_ROOT / "packaging" / "windows" / "wix" / "Services.wxs",
 ) + _WINDOWS_INITIAL_RUNTIME_MANIFESTS
@@ -358,6 +360,22 @@ def test_windows_msi_launcher_spec_is_a_guarded_release_root() -> None:
     assert (
         REPOSITORY_ROOT / "pc_agent" / "pyinstaller_launcher_win.spec"
     ) in RELEASED_PATHS
+
+
+def test_alt_pilot_installer_and_its_service_are_guarded_release_artifacts() -> None:
+    """The pilot installer installs the adjacent headless service declaration."""
+    installer = REPOSITORY_ROOT / "deploy" / "agent" / "alt" / "install-endpoint-agent.sh"
+    service = REPOSITORY_ROOT / "deploy" / "agent" / "alt" / "endpoint-agent.service"
+
+    assert installer in RELEASED_PATHS
+    assert service in RELEASED_PATHS
+    assert '"$(dirname "$0")/endpoint-agent.service"' in installer.read_text(
+        encoding="utf-8"
+    )
+    pilot_provisioner = REPOSITORY_ROOT / "tools" / "provision_alt_test_agent.py"
+    assert "install-endpoint-agent.sh --prepare-service-account" in pilot_provisioner.read_text(
+        encoding="utf-8"
+    )
 
 
 class _DiagnosticProbe:
