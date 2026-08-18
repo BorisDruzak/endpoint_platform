@@ -48,7 +48,7 @@
         }
       ],
       "default": null,
-      "pattern": "^(?![\\s\\S]*(?:[Tt][Rr][Aa][Cc][Ee][Bb][Aa][Cc][Kk]|[Bb][Ee][Aa][Rr][Ee][Rr]\\s+\\S+|(?:[Aa][Cc][Cc][Ee][Ss][Ss][_ -]?[Tt][Oo][Kk][Ee][Nn]|[Aa][Pp][Ii][_ -]?[Kk][Ee][Yy]|[Cc][Ll][Ii][Ee][Nn][Tt][_ -]?[Ss][Ee][Cc][Rr][Ee][Tt]|[Pp][Aa][Ss][Ss][Ww][Oo][Rr][Dd]|[Cc][Rr][Ee][Dd][Ee][Nn][Tt][Ii][Aa][Ll]|[Aa][Uu][Tt][Hh][Oo][Rr][Ii][Zz][Aa][Tt][Ii][Oo][Nn])\\s*(?:[:=]|\\s+)\\S+|(?:[Tt][Oo][Kk]|[Ss][Ee][Cc][Rr][Ee][Tt]|[Aa][Pp][Ii]|[Ss][Kk]|[Pp][Kk])_[A-Za-z0-9_-]{8,}|(?:[A-Za-z]:[\\\\/]|/(?:[A-Za-z0-9._-]+/)+[A-Za-z0-9._-]+)))[\\s\\S]{0,8192}(?![\\s\\S])",
+      "pattern": "^(?![\\s\\S]*(?:[Tt][Rr][Aa][Cc][Ee][Bb][Aa][Cc][Kk]\\s*\\(\\s*[Mm]ost\\s+[Rr]ecent\\s+[Cc]all\\s+[Ll]ast\\s*\\)\\s*:|[Ff]ile\\s+[\\\"'][^\\r\\n\\\"']+[\\\"']\\s*,\\s*[Ll]ine\\s+\\d+|[Bb][Ee][Aa][Rr][Ee][Rr]\\s+(?!(?:[Aa]uthentication\\s+(?:[Ww]as\\s+)?(?:\\[[Rr]edacted\\]|[Rr]edacted|[Aa]bsent|[Nn]one|[Nn]ull)|\\[[Rr]edacted\\]|[Rr]edacted|[Aa]bsent|[Nn]one|[Nn]ull)(?=\\s|[.,;)]|$))\\S+|\\b(?:[Tt]oken|[Ss]ecret|[Aa][Cc][Cc][Ee][Ss][Ss][_ -]?[Tt][Oo][Kk][Ee][Nn]|[Aa][Pp][Ii][_ -]?[Kk][Ee][Yy]|[Cc][Ll][Ii][Ee][Nn][Tt][_ -]?[Ss][Ee][Cc][Rr][Ee][Tt]|[Pp][Aa][Ss][Ss][Ww][Oo][Rr][Dd]|[Cc][Rr][Ee][Dd][Ee][Nn][Tt][Ii][Aa][Ll]|[Aa][Uu][Tt][Hh][Oo][Rr][Ii][Zz][Aa][Tt][Ii][Oo][Nn])\\s*(?:[:=]|\\s+)\\s*(?!(?:\\[[Rr]edacted\\]|[Rr]edacted|[Aa]bsent|[Nn]one|[Nn]ull)(?=\\s|[.,;)]|$))\\S+|(?:[Tt][Oo][Kk]|[Ss][Ee][Cc][Rr][Ee][Tt]|[Aa][Pp][Ii]|[Ss][Kk]|[Pp][Kk])_[A-Za-z0-9_-]{8,}|(?:[A-Za-z]:[\\\\/]|/[A-Za-z0-9._-]+(?:/[A-Za-z0-9._-]+)*)))[\\s\\S]{0,8192}(?![\\s\\S])",
       "title": "Log Excerpt"
     },
     "processes": {

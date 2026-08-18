@@ -189,6 +189,44 @@ def test_diagnostic_result_exposes_only_redacted_snapshot_fields() -> None:
 
 
 @pytest.mark.parametrize(
+    "unsafe_excerpt",
+    ["/tmp", "token: secretvalue", "secret=topsecret"],
+)
+def test_diagnostic_result_rejects_structural_leakage(
+    unsafe_excerpt: str,
+) -> None:
+    contracts = _contracts()
+
+    with pytest.raises(ValidationError):
+        contracts.EndpointDiagnosticResultV1.model_validate(
+            {**_result(), "log_excerpt": unsafe_excerpt}
+        )
+    with pytest.raises(JsonSchemaValidationError):
+        _schema_validator("endpoint-operation-diagnostic-result-v1.json").validate(
+            {**_result(), "log_excerpt": unsafe_excerpt}
+        )
+
+
+@pytest.mark.parametrize(
+    "redacted_excerpt",
+    [
+        "No traceback was retained; details were redacted.",
+        "Bearer authentication was redacted.",
+    ],
+)
+def test_diagnostic_result_allows_redaction_prose(redacted_excerpt: str) -> None:
+    contracts = _contracts()
+    payload = {**_result(), "log_excerpt": redacted_excerpt}
+
+    assert contracts.EndpointDiagnosticResultV1.model_validate(
+        payload
+    ).log_excerpt == redacted_excerpt
+    _schema_validator("endpoint-operation-diagnostic-result-v1.json").validate(
+        payload
+    )
+
+
+@pytest.mark.parametrize(
     ("schema_name", "fixture_name", "model_name"),
     [
         (
