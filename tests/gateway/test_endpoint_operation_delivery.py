@@ -268,6 +268,53 @@ async def test_operation_is_absent_from_http_pull_and_committed_before_wss_send(
 
 
 @pytest.mark.asyncio
+async def test_operation_expired_before_first_wss_delivery_is_never_sent(
+    session_provider: async_sessionmaker[AsyncSession],
+) -> None:
+    """A connect after the deadline must expire queued work before materializing it."""
+    device = await seed_device(session_provider)
+    operation = await _seed_operation(
+        session_provider,
+        device_id=device.id,
+        now=datetime.now(UTC) - timedelta(minutes=16),
+    )
+    presence = await _open_session(session_provider, device_id=device.id)
+    sent: list[CommandEnvelopeV1] = []
+
+    delivered = await CommandService(session_provider).deliver_next(
+        device.id,
+        presence.session_id,
+        sent.append,
+        allowed_capabilities=frozenset({"context.diagnostic.collect"}),
+    )
+
+    assert delivered is False
+    assert sent == []
+    async with session_provider() as session:
+        persisted = await session.get(EndpointOperation, operation.id)
+        collection = await session.get(
+            ContextCollection,
+            operation.context_collection_id,
+        )
+        command_count = await session.scalar(select(func.count()).select_from(Command))
+        delivery_count = await session.scalar(
+            select(func.count()).select_from(CommandDelivery)
+        )
+        expiry_audit_count = await session.scalar(
+            select(func.count())
+            .select_from(AuditEvent)
+            .where(AuditEvent.action == "endpoint.operation_expired")
+        )
+    assert persisted is not None and collection is not None
+    assert persisted.status == collection.status == "expired"
+    assert persisted.completed_at is not None
+    assert _utc(persisted.completed_at) >= _utc(operation.deadline_at)
+    assert collection.failure_code == "operation_expired"
+    assert command_count == delivery_count == 0
+    assert expiry_audit_count == 1
+
+
+@pytest.mark.asyncio
 async def test_legacy_collection_remains_available_to_http_pull(
     session_provider: async_sessionmaker[AsyncSession],
 ) -> None:
@@ -580,6 +627,77 @@ async def test_unacknowledged_operation_reconnect_reuses_persisted_command_ident
     assert persisted is not None and delivery is not None
     assert replayed_envelope.payload.command_id == persisted.command_id
     assert delivery.device_session_id == reconnected.session_id
+
+
+@pytest.mark.asyncio
+async def test_operation_expired_before_wss_replay_is_terminalized_not_resent(
+    session_provider: async_sessionmaker[AsyncSession],
+) -> None:
+    """Reconnect replay must re-check server time before exposing durable work."""
+    device = await seed_device(session_provider)
+    operation = await _seed_operation(session_provider, device_id=device.id)
+    instance_id = uuid4()
+    first = await _open_session(
+        session_provider,
+        device_id=device.id,
+        instance_id=instance_id,
+    )
+    first_envelope = await _deliver_operation(
+        session_provider,
+        device_id=device.id,
+        session_id=first.session_id,
+    )
+    expired_at = datetime.now(UTC) - timedelta(seconds=1)
+    async with session_provider() as session:
+        persisted = await session.get(EndpointOperation, operation.id)
+        command = await session.get(Command, first_envelope.payload.command_id)
+        assert persisted is not None and command is not None
+        persisted.created_at = expired_at - timedelta(minutes=15)
+        persisted.deadline_at = expired_at
+        command.created_at = expired_at - timedelta(minutes=14)
+        command.expires_at = expired_at
+        await session.commit()
+    reconnected = await _open_session(
+        session_provider,
+        device_id=device.id,
+        instance_id=instance_id,
+    )
+    replayed: list[CommandEnvelopeV1] = []
+
+    delivered = await CommandService(session_provider).deliver_next(
+        device.id,
+        reconnected.session_id,
+        replayed.append,
+        allowed_capabilities=frozenset({"context.diagnostic.collect"}),
+    )
+
+    assert delivered is False
+    assert replayed == []
+    async with session_provider() as session:
+        persisted = await session.get(EndpointOperation, operation.id)
+        collection = await session.get(
+            ContextCollection,
+            operation.context_collection_id,
+        )
+        command = await session.get(Command, first_envelope.payload.command_id)
+        deliveries = (await session.scalars(select(CommandDelivery))).all()
+        expiry_audit_count = await session.scalar(
+            select(func.count())
+            .select_from(AuditEvent)
+            .where(AuditEvent.action == "endpoint.operation_expired")
+        )
+    assert persisted is not None and collection is not None and command is not None
+    assert len(deliveries) == 1
+    assert (
+        persisted.status
+        == collection.status
+        == command.status
+        == deliveries[0].status
+        == "expired"
+    )
+    assert persisted.command_id == first_envelope.payload.command_id
+    assert collection.command_id == first_envelope.payload.command_id
+    assert expiry_audit_count == 1
 
 
 @pytest.mark.asyncio

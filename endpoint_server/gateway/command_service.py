@@ -40,7 +40,10 @@ from endpoint_server.db.models import (
 from endpoint_server.db.session import SessionProvider
 from endpoint_server.operations.projection import project_diagnostic_result
 from endpoint_server.operations.redaction import sanitize_agent_public_text
-from endpoint_server.operations.service import append_operation_terminal_audit
+from endpoint_server.operations.service import (
+    append_operation_terminal_audit,
+    expire_operation_if_due,
+)
 
 SendCommand = Callable[[CommandEnvelopeV1], Awaitable[None] | None]
 _TERMINAL_STATUSES = frozenset({"succeeded", "failed", "canceled", "expired"})
@@ -327,6 +330,13 @@ async def next_pending_command(
                     collection,
                     command=command,
                 )
+                if operation is not None and await expire_operation_if_due(
+                    session,
+                    operation,
+                    now=datetime.now(UTC),
+                    collection=collection,
+                ):
+                    continue
                 if operation is not None and operation.status != "delivered":
                     raise CommandStateRejected(
                         "operation delivery state is unavailable"
@@ -343,6 +353,13 @@ async def next_pending_command(
                     capability,
                     operation,
                 )
+            continue
+        if operation is not None and await expire_operation_if_due(
+            session,
+            operation,
+            now=datetime.now(UTC),
+            collection=collection,
+        ):
             continue
         if operation is not None and operation.status != "queued":
             raise CommandStateRejected("operation is not queued for delivery")
@@ -403,7 +420,7 @@ class CommandService:
                     transport="gateway_wss",
                 )
                 if payload is None:
-                    await session.rollback()
+                    await session.commit()
                     return False
                 delivery = await session.scalar(
                     select(CommandDelivery)

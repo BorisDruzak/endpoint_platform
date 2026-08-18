@@ -63,6 +63,12 @@ def _now(value: datetime | None = None) -> datetime:
     return timestamp.astimezone(UTC)
 
 
+def _stored_utc(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value.replace(tzinfo=UTC)
+    return value.astimezone(UTC)
+
+
 def _idempotency_key(value: str) -> str:
     if (
         not isinstance(value, str)
@@ -308,6 +314,81 @@ async def append_operation_terminal_audit(
     )
 
 
+async def expire_operation_if_due(
+    session: AsyncSession,
+    operation: EndpointOperation,
+    *,
+    now: datetime | None = None,
+    collection: ContextCollection | None = None,
+) -> bool:
+    """Expire one locked active operation and its transport relation if due."""
+    expired_at = _now(now)
+    if (
+        operation.status not in _ACTIVE_STATUSES
+        or _stored_utc(operation.deadline_at) > expired_at
+    ):
+        return False
+    operation.status = "expired"
+    operation.completed_at = expired_at
+    if collection is None:
+        collection = await session.scalar(
+            select(ContextCollection)
+            .where(ContextCollection.operation_id == operation.id)
+            .with_for_update()
+        )
+    elif (
+        collection.id != operation.context_collection_id
+        or collection.operation_id != operation.id
+    ):
+        raise OperationValidationError("operation collection relation is unavailable")
+    if collection is not None and collection.status not in {
+        "completed",
+        "failed",
+        "expired",
+    }:
+        collection.status = "expired"
+        collection.failed_at = expired_at
+        collection.failure_code = "operation_expired"
+    if operation.command_id is not None:
+        command = await session.scalar(
+            select(Command)
+            .where(
+                Command.id == operation.command_id,
+                Command.device_id == operation.device_id,
+            )
+            .with_for_update()
+        )
+        if command is not None and command.status not in {
+            "succeeded",
+            "failed",
+            "canceled",
+            "expired",
+        }:
+            command.status = "expired"
+        delivery = await session.scalar(
+            select(CommandDelivery)
+            .where(CommandDelivery.command_id == operation.command_id)
+            .with_for_update()
+        )
+        if delivery is not None and delivery.status not in {
+            "succeeded",
+            "failed",
+            "canceled",
+            "expired",
+        }:
+            delivery.status = "expired"
+    await _append_operation_audit(
+        session,
+        operation=operation,
+        action="endpoint.operation_expired",
+        actor_kind="system",
+        actor_identifier=None,
+        occurred_at=expired_at,
+    )
+    await session.flush()
+    return True
+
+
 async def expire_operations(
     session: AsyncSession,
     *,
@@ -331,58 +412,11 @@ async def expire_operations(
         )
     ).all()
     for operation in operations:
-        operation.status = "expired"
-        operation.completed_at = expired_at
-        collection = await session.scalar(
-            select(ContextCollection)
-            .where(ContextCollection.operation_id == operation.id)
-            .with_for_update()
-        )
-        if collection is not None and collection.status not in {
-            "completed",
-            "failed",
-            "expired",
-        }:
-            collection.status = "expired"
-            collection.failed_at = expired_at
-            collection.failure_code = "operation_expired"
-        if operation.command_id is not None:
-            command = await session.scalar(
-                select(Command)
-                .where(
-                    Command.id == operation.command_id,
-                    Command.device_id == operation.device_id,
-                )
-                .with_for_update()
-            )
-            if command is not None and command.status not in {
-                "succeeded",
-                "failed",
-                "canceled",
-                "expired",
-            }:
-                command.status = "expired"
-            delivery = await session.scalar(
-                select(CommandDelivery)
-                .where(CommandDelivery.command_id == operation.command_id)
-                .with_for_update()
-            )
-            if delivery is not None and delivery.status not in {
-                "succeeded",
-                "failed",
-                "canceled",
-                "expired",
-            }:
-                delivery.status = "expired"
-        await _append_operation_audit(
+        await expire_operation_if_due(
             session,
-            operation=operation,
-            action="endpoint.operation_expired",
-            actor_kind="system",
-            actor_identifier=None,
-            occurred_at=expired_at,
+            operation,
+            now=expired_at,
         )
-    await session.flush()
     return len(operations)
 
 
@@ -394,6 +428,7 @@ __all__ = [
     "OperationValidationError",
     "append_operation_terminal_audit",
     "create_operation_outcome",
+    "expire_operation_if_due",
     "expire_operations",
     "read_operation_for_service",
 ]
