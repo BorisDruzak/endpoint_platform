@@ -12,6 +12,7 @@ from uuid import UUID, uuid4
 import httpx
 import pytest
 import pytest_asyncio
+import yaml
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import (
     AsyncSession,
@@ -32,6 +33,8 @@ from endpoint_server.db.models import (
     ServiceCredential,
 )
 from endpoint_server.main import create_app
+from pc_agent.context_profiles.diagnostic import collect_diagnostic
+from pc_agent.context_profiles.probe import JOURNAL_COMMAND, PROCESS_COMMAND
 
 
 CREATE_BODY = {
@@ -190,6 +193,61 @@ def _create_headers(token: str) -> dict[str, str]:
     }
 
 
+def _diagnostic_projection(
+    *,
+    completed_at: datetime,
+    reason: str = CREATE_BODY["parameters"]["reason"],
+    processes: list[dict[str, str]] | None = None,
+    log_excerpt: str | None = "Bearer authentication was redacted.",
+) -> dict[str, object]:
+    return {
+        "schema_version": "device_context_v1",
+        "profile": "diagnostic_v1",
+        "collected_at": completed_at.isoformat(),
+        "warnings": ["redaction_applied"],
+        "sections": {
+            "reason": reason,
+            "processes": processes
+            if processes is not None
+            else [{"name": "endpoint-agent", "state": "running"}],
+            "log_excerpt": log_excerpt,
+        },
+    }
+
+
+async def _complete_operation(
+    route_fixture: RouteFixture,
+    operation_id: str,
+    *,
+    normalized_projection: dict[str, object],
+) -> tuple[EndpointOperation, ContextCollection, ContextSnapshot]:
+    completed_at = datetime(2026, 8, 18, 12, 0, tzinfo=UTC)
+    async with route_fixture.session_provider() as session:
+        operation = await session.get(EndpointOperation, UUID(operation_id))
+        assert operation is not None
+        collection = await session.get(
+            ContextCollection, operation.context_collection_id
+        )
+        assert collection is not None
+        operation.status = "succeeded"
+        operation.completed_at = completed_at
+        collection.status = "completed"
+        collection.completed_at = completed_at
+        snapshot = ContextSnapshot(
+            id=uuid4(),
+            collection_id=collection.id,
+            device_id=route_fixture.device.id,
+            profile="diagnostic_v1",
+            collected_at=completed_at,
+            semantic_hash="a" * 64,
+            raw_payload={},
+            normalized_projection=normalized_projection,
+        )
+        session.add(snapshot)
+        await session.commit()
+        return operation, collection, snapshot
+
+
 @pytest.mark.asyncio
 async def test_default_false_feature_flag_registers_no_operation_routes(
     route_fixture: RouteFixture,
@@ -282,6 +340,21 @@ async def test_create_requires_scope_and_idempotency_then_returns_201_and_200(
                 "Idempotency-Key": "short",
             },
         )
+        unsafe_keys = [
+            await client.post(
+                path,
+                json=CREATE_BODY,
+                headers={
+                    **_authorization("creator-old"),
+                    "Idempotency-Key": key,
+                },
+            )
+            for key in (
+                " leading-operation-key",
+                "trailing-operation-key ",
+                "operation-key-with-del\x7f",
+            )
+        ]
         first = await client.post(
             path, json=CREATE_BODY, headers=_create_headers("creator-old")
         )
@@ -293,6 +366,7 @@ async def test_create_requires_scope_and_idempotency_then_returns_201_and_200(
     assert wrong_scope.status_code == 403
     assert missing_key.status_code == 422
     assert invalid_key.status_code == 422
+    assert [response.status_code for response in unsafe_keys] == [422, 422, 422]
     assert first.status_code == 201
     assert replay.status_code == 200
     assert replay.json() == first.json()
@@ -509,3 +583,229 @@ async def test_completed_read_returns_only_validated_safe_result_projection(
         "session_id",
     ):
         assert forbidden not in serialized
+
+
+@pytest.mark.asyncio
+async def test_public_reason_is_always_derived_from_server_request(
+    route_fixture: RouteFixture,
+) -> None:
+    """Agent output must not replace the safe reason accepted by the server."""
+    create_path = f"/api/v1/devices/{route_fixture.device.id}/operations"
+    async with _client(route_fixture) as client:
+        created = await client.post(
+            create_path, json=CREATE_BODY, headers=_create_headers("creator-old")
+        )
+    operation_id = created.json()["data"]["operation"]["operation_id"]
+    completed_at = datetime(2026, 8, 18, 12, 0, tzinfo=UTC)
+    await _complete_operation(
+        route_fixture,
+        operation_id,
+        normalized_projection=_diagnostic_projection(
+            completed_at=completed_at,
+            reason="agent supplied reason with password=super-secret",
+        ),
+    )
+
+    async with _client(route_fixture) as client:
+        response = await client.get(
+            f"/api/v1/operations/{operation_id}",
+            headers=_authorization("reader-rotated"),
+        )
+
+    assert response.status_code == 200
+    assert response.json()["data"]["result"]["reason"] == (
+        CREATE_BODY["parameters"]["reason"]
+    )
+    assert "super-secret" not in response.text
+
+
+@pytest.mark.asyncio
+async def test_actual_agent_diagnostic_is_normalized_to_safe_success(
+    route_fixture: RouteFixture,
+) -> None:
+    """Canonical agent ``<redacted>`` output must remain safely consumable."""
+
+    class DiagnosticProbe:
+        platform_name = "linux"
+
+        def run(
+            self,
+            command: tuple[str, ...],
+            _timeout: float,
+            _max_output: int,
+        ) -> str:
+            if command == PROCESS_COMMAND:
+                return (
+                    "/srv/private/endpoint-agent R\n"
+                    "AWS_SECRET_ACCESS_KEY=process-secret R\n"
+                    "endpoint-agent S\n"
+                )
+            if command == JOURNAL_COMMAND:
+                return "Authorization: Bearer log-secret token=another-secret"
+            raise AssertionError(f"unexpected command: {command!r}")
+
+    create_path = f"/api/v1/devices/{route_fixture.device.id}/operations"
+    async with _client(route_fixture) as client:
+        created = await client.post(
+            create_path, json=CREATE_BODY, headers=_create_headers("creator-old")
+        )
+    operation_id = created.json()["data"]["operation"]["operation_id"]
+    completed_at = datetime(2026, 8, 18, 12, 0, tzinfo=UTC)
+    produced = collect_diagnostic(
+        DiagnosticProbe(),
+        reason=CREATE_BODY["parameters"]["reason"],
+        collected_at=completed_at,
+    )
+    assert "<redacted>" in produced.sections.log_excerpt
+    await _complete_operation(
+        route_fixture,
+        operation_id,
+        normalized_projection=produced.model_dump(mode="json"),
+    )
+
+    async with _client(route_fixture) as client:
+        response = await client.get(
+            f"/api/v1/operations/{operation_id}",
+            headers=_authorization("reader-rotated"),
+        )
+
+    assert response.status_code == 200
+    result = response.json()["data"]["result"]
+    assert result["reason"] == CREATE_BODY["parameters"]["reason"]
+    assert result["log_excerpt"] == "[REDACTED]"
+    assert result["processes"] == [
+        {"name": "[REDACTED]", "state": "running"},
+        {"name": "[REDACTED]", "state": "running"},
+        {"name": "endpoint-agent", "state": "sleeping"},
+    ]
+    serialized = response.text.lower()
+    for forbidden in (
+        "<redacted>",
+        "log-secret",
+        "another-secret",
+        "process-secret",
+        "/srv/private",
+    ):
+        assert forbidden not in serialized
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "malformation",
+    [
+        "snapshot_device",
+        "snapshot_profile",
+        "collection_device",
+        "collection_profile",
+        "collection_status",
+    ],
+)
+async def test_result_requires_consistent_completed_diagnostic_relationship(
+    route_fixture: RouteFixture,
+    malformation: str,
+) -> None:
+    """Cross-device, cross-profile, and inconsistent relationships fail closed."""
+    create_path = f"/api/v1/devices/{route_fixture.device.id}/operations"
+    async with _client(route_fixture) as client:
+        created = await client.post(
+            create_path, json=CREATE_BODY, headers=_create_headers("creator-old")
+        )
+    operation_id = created.json()["data"]["operation"]["operation_id"]
+    completed_at = datetime(2026, 8, 18, 12, 0, tzinfo=UTC)
+    operation, collection, snapshot = await _complete_operation(
+        route_fixture,
+        operation_id,
+        normalized_projection=_diagnostic_projection(completed_at=completed_at),
+    )
+    async with route_fixture.session_provider() as session:
+        persistent_collection = await session.get(ContextCollection, collection.id)
+        persistent_snapshot = await session.get(ContextSnapshot, snapshot.id)
+        assert persistent_collection is not None
+        assert persistent_snapshot is not None
+        if malformation == "snapshot_device":
+            persistent_snapshot.device_id = route_fixture.other_device.id
+        elif malformation == "snapshot_profile":
+            persistent_snapshot.profile = "baseline_v1"
+        elif malformation == "collection_device":
+            persistent_collection.device_id = route_fixture.other_device.id
+        elif malformation == "collection_profile":
+            persistent_collection.profile = "baseline_v1"
+        else:
+            persistent_collection.status = "validated"
+        await session.commit()
+
+    async with _client(route_fixture) as client:
+        response = await client.get(
+            f"/api/v1/operations/{operation.id}",
+            headers=_authorization("reader-rotated"),
+        )
+
+    assert response.status_code == 503
+    assert response.json()["detail"]["code"] == (
+        "endpoint_operation_result_unavailable"
+    )
+
+
+def test_enabled_runtime_openapi_matches_committed_operation_api_facets(
+    route_fixture: RouteFixture,
+) -> None:
+    """Runtime docs and the published API artifact must describe one boundary."""
+    runtime = create_app(
+        _settings(enabled=True), route_fixture.session_provider
+    ).openapi()
+    committed = yaml.safe_load(
+        Path("contracts/openapi/endpoint-platform-v1.yaml").read_text(encoding="utf-8")
+    )
+    route_scopes = {
+        ("/api/v1/devices/{device_id}/capabilities", "get"): "devices.read",
+        ("/api/v1/devices/{device_id}/operations", "post"): "operations.create",
+        ("/api/v1/operations/{operation_id}", "get"): "operations.read",
+    }
+    assert (
+        runtime["components"]["securitySchemes"]["ServiceBearer"]
+        == committed["components"]["securitySchemes"]["ServiceBearer"]
+    )
+    for (path, method), scope in route_scopes.items():
+        runtime_operation = runtime["paths"][path][method]
+        committed_operation = committed["paths"][path][method]
+        assert runtime_operation["security"] == committed_operation["security"]
+        assert runtime_operation["x-required-scopes"] == [scope]
+        assert (
+            runtime_operation["x-required-scopes"]
+            == committed_operation["x-required-scopes"]
+        )
+
+    runtime_create = runtime["paths"]["/api/v1/devices/{device_id}/operations"]["post"]
+    committed_create = committed["paths"]["/api/v1/devices/{device_id}/operations"][
+        "post"
+    ]
+    runtime_header = next(
+        parameter
+        for parameter in runtime_create["parameters"]
+        if parameter["name"] == "Idempotency-Key"
+    )
+    committed_header = next(
+        parameter
+        for parameter in committed_create["parameters"]
+        if parameter["name"] == "Idempotency-Key"
+    )
+    expected_header_schema = {
+        "type": "string",
+        "minLength": 8,
+        "maxLength": 128,
+        "pattern": r"^[!-~][ -~]{6,126}[!-~]$",
+    }
+    assert runtime_header["required"] is True
+    assert committed_header["required"] is True
+    assert {
+        key: runtime_header["schema"][key] for key in expected_header_schema
+    } == expected_header_schema
+    assert {
+        key: committed_header["schema"][key] for key in expected_header_schema
+    } == expected_header_schema
+    assert {"200", "201", "409", "503"} <= set(runtime_create["responses"])
+    assert {"200", "201", "409", "503"} <= set(committed_create["responses"])
+    runtime_read = runtime["paths"]["/api/v1/operations/{operation_id}"]["get"]
+    committed_read = committed["paths"]["/api/v1/operations/{operation_id}"]["get"]
+    assert {"200", "503"} <= set(runtime_read["responses"])
+    assert {"200", "503"} <= set(committed_read["responses"])

@@ -12,8 +12,10 @@ from fastapi import (
     HTTPException,
     Request,
     Response,
+    Security,
     status,
 )
+from fastapi.security import HTTPBearer
 from pydantic import BaseModel, ConfigDict, Field, StrictBool
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -30,7 +32,7 @@ from endpoint_server.auth.scopes import (
     ServicePrincipal,
     require_service_scope,
 )
-from endpoint_server.context.models import ContextSnapshot
+from endpoint_server.context.models import ContextCollection, ContextSnapshot
 from endpoint_server.db.models import Device, EndpointOperation
 
 from .capabilities import SUPPORTED_CAPABILITIES
@@ -46,6 +48,8 @@ from .service import (
 
 
 router = APIRouter(prefix="/api/v1", tags=["endpoint-operations"])
+service_bearer = HTTPBearer(auto_error=False, scheme_name="ServiceBearer")
+IDEMPOTENCY_KEY_PATTERN = r"^[!-~][ -~]{6,126}[!-~]$"
 
 
 class CapabilityAvailability(BaseModel):
@@ -109,12 +113,23 @@ async def _response_data(
     if operation.status == "succeeded":
         if operation.context_collection_id is not None:
             snapshot = await session.scalar(
-                select(ContextSnapshot).where(
-                    ContextSnapshot.collection_id == operation.context_collection_id
+                select(ContextSnapshot)
+                .join(
+                    ContextCollection,
+                    ContextCollection.id == ContextSnapshot.collection_id,
+                )
+                .where(
+                    ContextSnapshot.collection_id == operation.context_collection_id,
+                    ContextSnapshot.device_id == operation.device_id,
+                    ContextSnapshot.profile == "diagnostic_v1",
+                    ContextCollection.operation_id == operation.id,
+                    ContextCollection.device_id == operation.device_id,
+                    ContextCollection.profile == "diagnostic_v1",
+                    ContextCollection.status == "completed",
                 )
             )
             if snapshot is not None:
-                safe_result = project_diagnostic_result(snapshot)
+                safe_result = project_diagnostic_result(operation, snapshot)
         if safe_result is None:
             raise _api_error(
                 status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -129,6 +144,9 @@ async def _response_data(
 @router.get(
     "/devices/{device_id}/capabilities",
     response_model=DeviceCapabilitiesEnvelope,
+    dependencies=[Security(service_bearer, scopes=[DEVICES_READ_SCOPE])],
+    responses={404: {"description": "Active device not found"}},
+    openapi_extra={"x-required-scopes": [DEVICES_READ_SCOPE]},
 )
 async def read_device_operation_capabilities(
     device_id: UUID,
@@ -166,6 +184,16 @@ async def read_device_operation_capabilities(
     "/devices/{device_id}/operations",
     status_code=status.HTTP_201_CREATED,
     response_model=OperationResponseEnvelope,
+    dependencies=[Security(service_bearer, scopes=[OPERATIONS_CREATE_SCOPE])],
+    responses={
+        200: {
+            "model": OperationResponseEnvelope,
+            "description": "Replayed endpoint operation",
+        },
+        409: {"description": "Idempotency key conflict"},
+        503: {"description": "Safe result unavailable"},
+    },
+    openapi_extra={"x-required-scopes": [OPERATIONS_CREATE_SCOPE]},
 )
 async def create_device_operation(
     device_id: UUID,
@@ -178,7 +206,12 @@ async def create_device_operation(
     ],
     idempotency_key: Annotated[
         str,
-        Header(alias="Idempotency-Key", min_length=8, max_length=128),
+        Header(
+            alias="Idempotency-Key",
+            min_length=8,
+            max_length=128,
+            pattern=IDEMPOTENCY_KEY_PATTERN,
+        ),
     ],
 ) -> OperationResponseEnvelope:
     """Create or replay one operation owned by the authenticated service client."""
@@ -207,6 +240,12 @@ async def create_device_operation(
 @router.get(
     "/operations/{operation_id}",
     response_model=OperationResponseEnvelope,
+    dependencies=[Security(service_bearer, scopes=[OPERATIONS_READ_SCOPE])],
+    responses={
+        404: {"description": "Endpoint operation not found"},
+        503: {"description": "Safe result unavailable"},
+    },
+    openapi_extra={"x-required-scopes": [OPERATIONS_READ_SCOPE]},
 )
 async def read_endpoint_operation(
     operation_id: UUID,

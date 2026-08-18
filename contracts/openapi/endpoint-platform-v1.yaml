@@ -225,6 +225,7 @@ paths:
             type: "string"
             minLength: 8
             maxLength: 128
+            pattern: "^[!-~][ -~]{6,126}[!-~]$"
       requestBody:
         required: true
         content:

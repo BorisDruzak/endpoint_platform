@@ -578,6 +578,7 @@ def _service_operation_paths() -> dict[str, object]:
                             "type": "string",
                             "minLength": 8,
                             "maxLength": 128,
+                            "pattern": r"^[!-~][ -~]{6,126}[!-~]$",
                         },
                     },
                 ],
