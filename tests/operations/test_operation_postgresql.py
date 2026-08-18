@@ -20,6 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from endpoint_contracts import EndpointOperationCreateV1
 from endpoint_server.context.models import ContextCollection
+from endpoint_server.db.migrations.runtime_config import configure_database_url
 from endpoint_server.db.models import (
     AuditEvent,
     Device,
@@ -45,6 +46,62 @@ async def _execute(database_url: str, statement: str) -> None:
         await connection.close()
 
 
+def _upgrade_disposable_database(
+    database_url: str,
+    *,
+    expected_database_name: str,
+) -> None:
+    """Run Alembic only while its ambient URL names the random test database."""
+    parsed = make_url(database_url)
+    prefix = "endpoint_operations_"
+    suffix = expected_database_name.removeprefix(prefix)
+    if (
+        parsed.get_backend_name() != "postgresql"
+        or parsed.host not in {"127.0.0.1", "localhost", "::1"}
+        or parsed.database != expected_database_name
+        or not expected_database_name.startswith(prefix)
+        or len(suffix) != 32
+        or any(character not in "0123456789abcdef" for character in suffix)
+    ):
+        raise ValueError(
+            "Alembic target must be the expected random loopback operation database"
+        )
+
+    config = Config(REPOSITORY_ROOT / "alembic.ini")
+    config.set_main_option("sqlalchemy.url", database_url.replace("%", "%%"))
+    with pytest.MonkeyPatch.context() as migration_environment:
+        migration_environment.setenv("DATABASE_URL", database_url)
+        command.upgrade(config, "head")
+
+
+def test_disposable_migration_target_overrides_ambient_database_url(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Alembic env.py must only see the validated random loopback database."""
+    ambient_url = "postgresql+asyncpg://ambient@production.invalid/endpoint"
+    database_name = "endpoint_operations_0123456789abcdef0123456789abcdef"
+    disposable_url = f"postgresql+asyncpg://local@127.0.0.1/{database_name}"
+    observed: dict[str, str] = {}
+    monkeypatch.setenv("DATABASE_URL", ambient_url)
+
+    def fake_upgrade(config: Config, revision: str) -> None:
+        observed["revision"] = revision
+        observed["database_url"] = configure_database_url(config, os.environ)
+
+    monkeypatch.setattr(command, "upgrade", fake_upgrade)
+
+    _upgrade_disposable_database(
+        disposable_url,
+        expected_database_name=database_name,
+    )
+
+    assert observed == {
+        "revision": "head",
+        "database_url": disposable_url,
+    }
+    assert os.environ["DATABASE_URL"] == ambient_url
+
+
 @pytest.fixture(scope="module")
 def operation_database_url() -> Iterator[str]:
     """Create a disposable loopback database migrated through the real head."""
@@ -64,10 +121,11 @@ def operation_database_url() -> Iterator[str]:
     database_url = parsed.set(
         drivername="postgresql+asyncpg", database=database_name
     ).render_as_string(hide_password=False)
-    config = Config(REPOSITORY_ROOT / "alembic.ini")
-    config.set_main_option("sqlalchemy.url", database_url.replace("%", "%%"))
-    command.upgrade(config, "head")
     try:
+        _upgrade_disposable_database(
+            database_url,
+            expected_database_name=database_name,
+        )
         yield database_url
     finally:
         asyncio.run(
