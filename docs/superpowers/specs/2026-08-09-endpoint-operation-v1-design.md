@@ -77,4 +77,3 @@ No production operation is required. The design has one service capability,
 one private transport relation, no helpdesk-specific WSS field and no generic
 execution path. Its only external dependency is the existing Pydantic v2,
 FastAPI and SQLAlchemy 2 patterns already pinned by the repository.
-
