@@ -17,6 +17,7 @@ from sqlalchemy import (
     UniqueConstraint,
 )
 from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.dialects.postgresql import UUID as PostgreSQLUUID
 
 from endpoint_server.db.base import Base
 from endpoint_server.db.ownership import OwnershipRecord
@@ -26,6 +27,16 @@ CONTEXT_COLLECTION_STATUSES = (
     "requested", "queued", "delivered", "collecting", "result_received",
     "validated", "completed", "failed", "expired",
 )
+
+_OPERATION_IDENTITY_FOREIGN_KEY = ForeignKeyConstraint(
+    ["operation_id", "id"],
+    ["endpoint_operations.id", "endpoint_operations.context_collection_id"],
+    name="fk_context_collections_operation_identity",
+    deferrable=True,
+    initially="DEFERRED",
+).ddl_if(dialect="postgresql")
+# PostgreSQL owns the cross-table pair invariant. SQLite context tests create
+# legacy table subsets without the operation table, so they keep this DDL out.
 
 
 class ContextCollection(OwnershipRecord, Base):
@@ -39,6 +50,8 @@ class ContextCollection(OwnershipRecord, Base):
         ),
         UniqueConstraint("command_id", name="uq_context_collections_command"),
         UniqueConstraint("command_result_id", name="uq_context_collections_result"),
+        UniqueConstraint("operation_id", name="uq_context_collections_operation"),
+        _OPERATION_IDENTITY_FOREIGN_KEY,
         CheckConstraint(
             "status IN ('requested', 'queued', 'delivered', 'collecting', "
             "'result_received', 'validated', 'completed', 'failed', 'expired')",
@@ -54,6 +67,7 @@ class ContextCollection(OwnershipRecord, Base):
     idempotency_key: Mapped[str] = mapped_column(String(128), nullable=False)
     command_id: Mapped[UUID | None] = mapped_column(ForeignKey("commands.id", ondelete="SET NULL"))
     command_result_id: Mapped[UUID | None] = mapped_column(ForeignKey("command_results.id", ondelete="SET NULL"))
+    operation_id: Mapped[UUID | None] = mapped_column(PostgreSQLUUID(as_uuid=True))
     status: Mapped[str] = mapped_column(String(32), nullable=False)
     requested_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     result_received_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

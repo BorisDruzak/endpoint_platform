@@ -22,6 +22,7 @@ from .enrollment import (
     EnrollmentEvent,
     EnrollmentRetryEnvelope,
 )
+from .operations import EndpointOperation
 from .updates import UpdateBuild, UpdateReport, UpdateRollout, UpdateTarget
 
 __all__ = [
@@ -44,6 +45,7 @@ __all__ = [
     "EnrollmentClaim",
     "EnrollmentEvent",
     "EnrollmentRetryEnvelope",
+    "EndpointOperation",
     "ServiceClient",
     "ServiceCredential",
     "UpdateBuild",

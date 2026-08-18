@@ -43,6 +43,7 @@ APPLICATION_TABLES = {
     "enrollment_claims",
     "enrollment_events",
     "enrollment_retry_envelopes",
+    "endpoint_operations",
     "service_clients",
     "service_credentials",
     "update_builds",
@@ -128,7 +129,7 @@ def test_migration_history_has_exactly_one_head() -> None:
         _alembic_config("postgresql+asyncpg://unused@127.0.0.1/unused")
     )
 
-    assert script.get_heads() == ["0011_gateway_wss"]
+    assert script.get_heads() == ["0014_endpoint_operations"]
 
 
 def test_migration_revisions_fit_alembic_version_storage() -> None:
@@ -138,6 +139,42 @@ def test_migration_revisions_fit_alembic_version_storage() -> None:
     )
 
     assert all(len(revision.revision) <= 32 for revision in script.walk_revisions())
+
+
+def test_endpoint_operation_migration_enforces_scoped_one_to_one_ownership() -> None:
+    """Nullable private links still need database-enforced unambiguous ownership."""
+    output = io.StringIO()
+    config = Config(REPOSITORY_ROOT / "alembic.ini", output_buffer=output)
+    config.set_main_option(
+        "sqlalchemy.url",
+        "postgresql+asyncpg://unused@127.0.0.1/unused",
+    )
+
+    command.upgrade(
+        config,
+        "0013_runtime_session_heartbeat:0014_endpoint_operations",
+        sql=True,
+    )
+
+    rendered = " ".join(output.getvalue().split())
+    assert "CREATE TABLE endpoint_operations" in rendered
+    assert (
+        "CONSTRAINT uq_endpoint_operations_client_key UNIQUE "
+        "(requested_by_service_client_id, idempotency_key)"
+    ) in rendered
+    assert (
+        "CONSTRAINT uq_endpoint_operations_collection UNIQUE "
+        "(context_collection_id)"
+    ) in rendered
+    assert "CONSTRAINT uq_endpoint_operations_command UNIQUE (command_id)" in rendered
+    assert (
+        "CONSTRAINT uq_context_collections_operation UNIQUE (operation_id)"
+    ) in rendered
+    assert (
+        "CONSTRAINT fk_context_collections_operation_identity FOREIGN KEY"
+        "(operation_id, id) REFERENCES endpoint_operations "
+        "(id, context_collection_id) DEFERRABLE INITIALLY DEFERRED"
+    ) in rendered
 
 
 def test_device_session_last_seen_index_migration_is_additive_and_ordered() -> None:
@@ -571,7 +608,7 @@ def test_initial_revision_upgrades_and_downgrades_empty_postgresql(
         _fetch(plain_url, "SELECT version_num FROM alembic_version")
     )
     assert [row["version_num"] for row in revision_rows] == [
-        "0011_gateway_wss"
+        "0014_endpoint_operations"
     ]
 
     column_rows = asyncio.run(
