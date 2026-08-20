@@ -201,12 +201,33 @@ paths:
                 type: "string"
                 minLength: 1
                 maxLength: 128
+        "401":
+          description: "Service authentication failed"
+          headers:
+            X-Correlation-ID:
+              description: "Exact echo of the request tracing header."
+              schema:
+                type: "string"
+                minLength: 1
+                maxLength: 128
+        "403":
+          description: "Service scope is insufficient"
+          headers:
+            X-Correlation-ID:
+              description: "Exact echo of the request tracing header."
+              schema:
+                type: "string"
+                minLength: 1
+                maxLength: 128
         "422":
           description: "Validation Error"
-          content:
-            "application/json":
+          headers:
+            X-Correlation-ID:
+              description: "Exact echo of the request tracing header."
               schema:
-                "$ref": "#/components/schemas/HTTPValidationError"
+                type: "string"
+                minLength: 1
+                maxLength: 128
       x-required-scopes:
         - "devices.read"
   "/api/v1/devices/{device_id}/capabilities":
@@ -260,12 +281,33 @@ paths:
                 type: "string"
                 minLength: 1
                 maxLength: 128
+        "401":
+          description: "Service authentication failed"
+          headers:
+            X-Correlation-ID:
+              description: "Exact echo of the request tracing header."
+              schema:
+                type: "string"
+                minLength: 1
+                maxLength: 128
+        "403":
+          description: "Service scope is insufficient"
+          headers:
+            X-Correlation-ID:
+              description: "Exact echo of the request tracing header."
+              schema:
+                type: "string"
+                minLength: 1
+                maxLength: 128
         "422":
           description: "Validation Error"
-          content:
-            "application/json":
+          headers:
+            X-Correlation-ID:
+              description: "Exact echo of the request tracing header."
               schema:
-                "$ref": "#/components/schemas/HTTPValidationError"
+                type: "string"
+                minLength: 1
+                maxLength: 128
       x-required-scopes:
         - "devices.read"
   "/api/v1/devices/{device_id}/operations":
@@ -357,12 +399,33 @@ paths:
                 type: "string"
                 minLength: 1
                 maxLength: 128
+        "401":
+          description: "Service authentication failed"
+          headers:
+            X-Correlation-ID:
+              description: "Exact echo of the request tracing header."
+              schema:
+                type: "string"
+                minLength: 1
+                maxLength: 128
+        "403":
+          description: "Service scope is insufficient"
+          headers:
+            X-Correlation-ID:
+              description: "Exact echo of the request tracing header."
+              schema:
+                type: "string"
+                minLength: 1
+                maxLength: 128
         "422":
           description: "Validation Error"
-          content:
-            "application/json":
+          headers:
+            X-Correlation-ID:
+              description: "Exact echo of the request tracing header."
               schema:
-                "$ref": "#/components/schemas/HTTPValidationError"
+                type: "string"
+                minLength: 1
+                maxLength: 128
       x-required-scopes:
         - "operations.create"
   "/api/v1/operations/{operation_id}":
@@ -425,12 +488,33 @@ paths:
                 type: "string"
                 minLength: 1
                 maxLength: 128
+        "401":
+          description: "Service authentication failed"
+          headers:
+            X-Correlation-ID:
+              description: "Exact echo of the request tracing header."
+              schema:
+                type: "string"
+                minLength: 1
+                maxLength: 128
+        "403":
+          description: "Service scope is insufficient"
+          headers:
+            X-Correlation-ID:
+              description: "Exact echo of the request tracing header."
+              schema:
+                type: "string"
+                minLength: 1
+                maxLength: 128
         "422":
           description: "Validation Error"
-          content:
-            "application/json":
+          headers:
+            X-Correlation-ID:
+              description: "Exact echo of the request tracing header."
               schema:
-                "$ref": "#/components/schemas/HTTPValidationError"
+                type: "string"
+                minLength: 1
+                maxLength: 128
       x-required-scopes:
         - "operations.read"
 components:
@@ -2901,15 +2985,6 @@ components:
         - "parameter_schema_version"
       title: "EndpointCapabilityAvailabilityV1"
       description: "One versioned safe capability descriptor for an exact device."
-    HTTPValidationError:
-      properties:
-        detail:
-          items:
-            "$ref": "#/components/schemas/ValidationError"
-          type: "array"
-          title: "Detail"
-      type: "object"
-      title: "HTTPValidationError"
     OperationResponseData:
       properties:
         operation:
@@ -2936,29 +3011,6 @@ components:
       required:
         - "data"
       title: "OperationResponseEnvelope"
-    ValidationError:
-      properties:
-        loc:
-          items:
-            anyOf:
-              -
-                type: "string"
-              -
-                type: "integer"
-          type: "array"
-          title: "Location"
-        msg:
-          type: "string"
-          title: "Message"
-        type:
-          type: "string"
-          title: "Error Type"
-      type: "object"
-      required:
-        - "loc"
-        - "msg"
-        - "type"
-      title: "ValidationError"
   securitySchemes:
     AgentBearer:
       type: "http"

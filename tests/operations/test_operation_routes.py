@@ -474,6 +474,7 @@ async def test_operation_correlation_is_header_only_and_never_serialized(
         )
 
     assert rejected.status_code == 422
+    assert rejected.headers["X-Correlation-ID"] == create_correlation
     assert created.status_code == 201
     assert created.headers["X-Correlation-ID"] == create_correlation
     assert read.status_code == 200
@@ -935,9 +936,28 @@ def test_operation_openapi_declares_required_correlation_response_headers(
 
     for path, method, response_status in (
         ("/api/v1/devices/{device_id}", "get", "200"),
+        ("/api/v1/devices/{device_id}", "get", "401"),
+        ("/api/v1/devices/{device_id}", "get", "403"),
+        ("/api/v1/devices/{device_id}", "get", "404"),
+        ("/api/v1/devices/{device_id}", "get", "422"),
         ("/api/v1/devices/{device_id}/capabilities", "get", "200"),
+        ("/api/v1/devices/{device_id}/capabilities", "get", "401"),
+        ("/api/v1/devices/{device_id}/capabilities", "get", "403"),
+        ("/api/v1/devices/{device_id}/capabilities", "get", "404"),
+        ("/api/v1/devices/{device_id}/capabilities", "get", "422"),
+        ("/api/v1/devices/{device_id}/operations", "post", "200"),
         ("/api/v1/devices/{device_id}/operations", "post", "201"),
+        ("/api/v1/devices/{device_id}/operations", "post", "401"),
+        ("/api/v1/devices/{device_id}/operations", "post", "403"),
+        ("/api/v1/devices/{device_id}/operations", "post", "409"),
+        ("/api/v1/devices/{device_id}/operations", "post", "422"),
+        ("/api/v1/devices/{device_id}/operations", "post", "503"),
         ("/api/v1/operations/{operation_id}", "get", "200"),
+        ("/api/v1/operations/{operation_id}", "get", "401"),
+        ("/api/v1/operations/{operation_id}", "get", "403"),
+        ("/api/v1/operations/{operation_id}", "get", "404"),
+        ("/api/v1/operations/{operation_id}", "get", "422"),
+        ("/api/v1/operations/{operation_id}", "get", "503"),
     ):
         operation = document["paths"][path][method]
         assert any(

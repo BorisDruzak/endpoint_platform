@@ -58,6 +58,20 @@ _CORRELATION_RESPONSE_HEADERS = {
         "schema": {"type": "string", "minLength": 1, "maxLength": 128},
     }
 }
+_COMMON_ERROR_RESPONSES = {
+    401: {
+        "description": "Service authentication failed",
+        "headers": _CORRELATION_RESPONSE_HEADERS,
+    },
+    403: {
+        "description": "Service scope is insufficient",
+        "headers": _CORRELATION_RESPONSE_HEADERS,
+    },
+    422: {
+        "description": "Validation Error",
+        "headers": _CORRELATION_RESPONSE_HEADERS,
+    },
+}
 
 
 class DeviceCapabilitiesEnvelope(BaseModel):
@@ -152,6 +166,7 @@ async def _response_data(
             "description": "Device not found",
             "headers": _CORRELATION_RESPONSE_HEADERS,
         },
+        **_COMMON_ERROR_RESPONSES,
     },
     openapi_extra={"x-required-scopes": [DEVICES_READ_SCOPE]},
 )
@@ -200,6 +215,7 @@ async def read_endpoint_device(
             "description": "Active device not found",
             "headers": _CORRELATION_RESPONSE_HEADERS,
         },
+        **_COMMON_ERROR_RESPONSES,
     },
     openapi_extra={"x-required-scopes": [DEVICES_READ_SCOPE]},
 )
@@ -269,6 +285,7 @@ async def read_device_operation_capabilities(
             "description": "Safe result unavailable",
             "headers": _CORRELATION_RESPONSE_HEADERS,
         },
+        **_COMMON_ERROR_RESPONSES,
     },
     openapi_extra={"x-required-scopes": [OPERATIONS_CREATE_SCOPE]},
 )
@@ -333,6 +350,7 @@ async def create_device_operation(
             "description": "Safe result unavailable",
             "headers": _CORRELATION_RESPONSE_HEADERS,
         },
+        **_COMMON_ERROR_RESPONSES,
     },
     openapi_extra={"x-required-scopes": [OPERATIONS_READ_SCOPE]},
 )
