@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 from pathlib import Path
 from types import SimpleNamespace
 from uuid import UUID
@@ -147,11 +148,18 @@ async def test_default_runtime_wss_accepts_persisted_authoritative_device_id(
     bridge: _AsgiClientSession
     updates: list[object] = []
 
-    async def skip_update_poll(gateway_hello: object) -> None:
-        updates.append(gateway_hello)
+    async def skip_update_poll() -> None:
+        updates.append("periodic-update-check")
+        await asyncio.Event().wait()
 
     def no_http_pull(*_args: object, **_kwargs: object) -> object:
         raise AssertionError("WSS acceptance must not construct an HTTP pull fallback")
+
+    update_hook = (
+        "_periodic_windows_update_checks"
+        if os.name == "nt"
+        else "_periodic_https_update_checks"
+    )
 
     app = create_app(gateway_route_harness.settings, gateway_route_harness.provider)
     with TestClient(FixedWebSocketPeerApp(app)) as client:
@@ -162,8 +170,8 @@ async def test_default_runtime_wss_accepts_persisted_authoritative_device_id(
         )
         monkeypatch.setattr(
             runtime_application,
-            "_https_update_hook",
-            lambda *_args, **_kwargs: skip_update_poll,
+            update_hook,
+            lambda *_args, **_kwargs: skip_update_poll(),
         )
         monkeypatch.setattr(
             endpoint_gateway,
@@ -200,8 +208,14 @@ async def test_default_runtime_wss_rejects_a_non_authoritative_identity_for_vali
         serialize_enrollment_identity(non_authoritative_id)
     )
 
-    async def skip_update_poll(_gateway_hello: object) -> None:
+    async def skip_update_poll() -> None:
         return None
+
+    update_hook = (
+        "_periodic_windows_update_checks"
+        if os.name == "nt"
+        else "_periodic_https_update_checks"
+    )
 
     app = create_app(gateway_route_harness.settings, gateway_route_harness.provider)
     with TestClient(FixedWebSocketPeerApp(app)) as client:
@@ -212,8 +226,8 @@ async def test_default_runtime_wss_rejects_a_non_authoritative_identity_for_vali
         )
         monkeypatch.setattr(
             runtime_application,
-            "_https_update_hook",
-            lambda *_args, **_kwargs: skip_update_poll,
+            update_hook,
+            lambda *_args, **_kwargs: skip_update_poll(),
         )
 
         application = RuntimeApplication(settings)
