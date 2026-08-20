@@ -254,3 +254,12 @@ executed checks; it does not claim production or test-agent changes.
   `git diff --check` completed successfully before the full-suite invocation.
   `python -m pytest -q` stopped at collection with two missing legacy imports:
   `scripts.build_module_zip` and `scripts.register_support_modules`.
+
+### Release-gate repair (2026-08-20)
+
+- The WSS identity acceptance tests now patch the active platform-specific
+  periodic update task rather than the retired pre-WSS callback.
+- `3.2.14` supersedes the stale `3.2.13` Windows initial-runtime transition.
+  Its source hashes are canonical-LF, its component GUID is new, and its staged
+  payload identity is recorded from a local verified build. No agent artifact
+  was uploaded or rolled out as part of that repair.

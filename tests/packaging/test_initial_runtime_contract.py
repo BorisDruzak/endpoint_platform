@@ -47,6 +47,10 @@ def _artifact_identity(root: Path) -> dict[str, object]:
     return {"file_count": len(files), "tree_sha256": digest.hexdigest()}
 
 
+def _source_hash(content: bytes) -> str:
+    return hashlib.sha256(content.replace(b"\r\n", b"\n")).hexdigest()
+
+
 def _manifest(
     root: Path,
     *,
@@ -72,11 +76,11 @@ def _manifest(
         "source_files": [
             {
                 "path": "pc_agent/version.py",
-                "sha256": hashlib.sha256(version_file.read_bytes()).hexdigest(),
+                "sha256": _source_hash(version_file.read_bytes()),
             },
             {
                 "path": "runtime.py",
-                "sha256": hashlib.sha256(source_content.encode()).hexdigest(),
+                "sha256": _source_hash(source_content.encode()),
             },
         ],
         "toolchain": toolchain,
@@ -119,6 +123,30 @@ def test_routine_build_accepts_only_the_checked_in_identity(
     (tmp_path / "runtime.py").write_text("rebuilt-behind-same-label", encoding="utf-8")
     with pytest.raises(ValueError, match="source hash"):
         validate(tmp_path, baseline, baseline, observed_toolchain=TOOLCHAIN_A)
+
+
+def test_source_hash_validation_canonicalizes_python_line_endings(
+    tmp_path: Path, artifact_root: Path
+) -> None:
+    """A Windows checkout must validate the same reviewed Python source bytes."""
+    validate = _contract_module().validate_initial_runtime
+    baseline = _manifest(
+        tmp_path,
+        version="3.1.76",
+        guid="980AE24B-57BC-4B59-A18A-65B9B33A7906",
+        artifact_root=artifact_root,
+        source_content="runtime-source\n",
+    )
+    (tmp_path / "runtime.py").write_bytes(b"runtime-source\r\n")
+
+    identity = validate(
+        tmp_path,
+        baseline,
+        baseline,
+        observed_toolchain=TOOLCHAIN_A,
+    )
+
+    assert identity.version == "3.1.76"
 
 
 def test_manifest_version_must_match_agent_version_constant(
@@ -358,11 +386,11 @@ def test_windows_current_product_uses_a_checked_in_approved_initial_transition()
     """A source-version change must also advance the MSI-owned immutable runtime."""
     project_root = Path(__file__).resolve().parents[2]
     baseline = project_root / "packaging" / "windows" / "initial-runtime.json"
-    transition = project_root / "packaging" / "windows" / "initial-runtime-3.2.13.json"
+    transition = project_root / "packaging" / "windows" / "initial-runtime-3.2.14.json"
 
     assert transition.is_file()
     payload = json.loads(transition.read_text(encoding="utf-8"))
-    assert payload["version"] == "3.2.13"
+    assert payload["version"] == "3.2.14"
     assert payload["component_guid"] != json.loads(baseline.read_text(encoding="utf-8"))["component_guid"]
     assert "pc_agent/platform/windows/service_control.py" in {
         item["path"] for item in payload["source_files"]
