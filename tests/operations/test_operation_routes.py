@@ -505,6 +505,26 @@ async def test_provider_errors_echo_received_correlation_header(
 
 
 @pytest.mark.asyncio
+async def test_invalid_correlation_is_rejected_without_reflection(
+    route_fixture: RouteFixture,
+) -> None:
+    """Only the documented safe ASCII tracing grammar may cross HTTP boundaries."""
+    unsafe_correlation = "helpdesk/ticket-42"
+    async with _client(route_fixture) as client:
+        response = await client.get(
+            f"/api/v1/devices/{route_fixture.device.id}",
+            headers={
+                **_authorization("devices-reader"),
+                "X-Correlation-ID": unsafe_correlation,
+            },
+        )
+
+    assert response.status_code == 422
+    assert "X-Correlation-ID" not in response.headers
+    assert unsafe_correlation not in response.text
+
+
+@pytest.mark.asyncio
 async def test_same_key_mismatch_returns_409_with_stable_code(
     route_fixture: RouteFixture,
 ) -> None:
