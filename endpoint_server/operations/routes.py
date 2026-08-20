@@ -58,6 +58,22 @@ _CORRELATION_RESPONSE_HEADERS = {
         "schema": {"type": "string", "minLength": 1, "maxLength": 128},
     }
 }
+
+
+class ValidationError(BaseModel):
+    """OpenAPI shape of FastAPI's standard request validation item."""
+
+    loc: list[str | int]
+    msg: str
+    type: str
+
+
+class HTTPValidationError(BaseModel):
+    """OpenAPI shape of FastAPI's standard request validation response."""
+
+    detail: list[ValidationError]
+
+
 _COMMON_ERROR_RESPONSES = {
     401: {
         "description": "Service authentication failed",
@@ -69,6 +85,7 @@ _COMMON_ERROR_RESPONSES = {
     },
     422: {
         "description": "Validation Error",
+        "model": HTTPValidationError,
         "headers": _CORRELATION_RESPONSE_HEADERS,
     },
 }

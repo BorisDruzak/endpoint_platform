@@ -228,6 +228,10 @@ paths:
                 type: "string"
                 minLength: 1
                 maxLength: 128
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/HTTPValidationError"
       x-required-scopes:
         - "devices.read"
   "/api/v1/devices/{device_id}/capabilities":
@@ -308,6 +312,10 @@ paths:
                 type: "string"
                 minLength: 1
                 maxLength: 128
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/HTTPValidationError"
       x-required-scopes:
         - "devices.read"
   "/api/v1/devices/{device_id}/operations":
@@ -426,6 +434,10 @@ paths:
                 type: "string"
                 minLength: 1
                 maxLength: 128
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/HTTPValidationError"
       x-required-scopes:
         - "operations.create"
   "/api/v1/operations/{operation_id}":
@@ -515,6 +527,10 @@ paths:
                 type: "string"
                 minLength: 1
                 maxLength: 128
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/HTTPValidationError"
       x-required-scopes:
         - "operations.read"
 components:
@@ -2985,6 +3001,18 @@ components:
         - "parameter_schema_version"
       title: "EndpointCapabilityAvailabilityV1"
       description: "One versioned safe capability descriptor for an exact device."
+    HTTPValidationError:
+      properties:
+        detail:
+          items:
+            "$ref": "#/components/schemas/ValidationError"
+          type: "array"
+          title: "Detail"
+      type: "object"
+      required:
+        - "detail"
+      title: "HTTPValidationError"
+      description: "OpenAPI shape of FastAPI's standard request validation response."
     OperationResponseData:
       properties:
         operation:
@@ -3011,6 +3039,30 @@ components:
       required:
         - "data"
       title: "OperationResponseEnvelope"
+    ValidationError:
+      properties:
+        loc:
+          items:
+            anyOf:
+              -
+                type: "string"
+              -
+                type: "integer"
+          type: "array"
+          title: "Loc"
+        msg:
+          type: "string"
+          title: "Msg"
+        type:
+          type: "string"
+          title: "Type"
+      type: "object"
+      required:
+        - "loc"
+        - "msg"
+        - "type"
+      title: "ValidationError"
+      description: "OpenAPI shape of FastAPI's standard request validation item."
   securitySchemes:
     AgentBearer:
       type: "http"
