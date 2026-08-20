@@ -1,0 +1,14 @@
+{
+  "capabilities": [
+    {
+      "available": true,
+      "capability": "context.diagnostic.collect",
+      "consent_required": false,
+      "parameter_schema_version": "diagnostic_collection_parameters_v1",
+      "risk": "read_only",
+      "transport": "gateway_wss"
+    }
+  ],
+  "device_id": "11111111-1111-4111-8111-111111111111",
+  "schema_version": "endpoint_device_capabilities_v1"
+}

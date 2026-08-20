@@ -43,6 +43,8 @@ from endpoint_contracts import (  # noqa: E402
     UpdateBuildManifestV1,
     UpdateRolloutCreateV1,
     EndpointDiagnosticResultV1,
+    EndpointDeviceCapabilitiesV1,
+    EndpointDeviceSummaryV1,
     EndpointOperationCreateV1,
     EndpointOperationV1,
 )
@@ -51,6 +53,7 @@ from endpoint_server.operations.routes import router as operations_router  # noq
 
 
 _SERVICE_OPERATION_PATHS = (
+    "/api/v1/devices/{device_id}",
     "/api/v1/devices/{device_id}/capabilities",
     "/api/v1/devices/{device_id}/operations",
     "/api/v1/operations/{operation_id}",
@@ -82,6 +85,8 @@ PUBLIC_MODELS: dict[str, type[ContractModelV1]] = {
     "device_context_diagnostic_v1.json": DeviceContextDiagnosticV1,
     "device_context_diff_v1.json": DeviceContextDiffV1,
     "endpoint-operation-create-v1.json": EndpointOperationCreateV1,
+    "endpoint-device-summary-v1.json": EndpointDeviceSummaryV1,
+    "endpoint-device-capabilities-v1.json": EndpointDeviceCapabilitiesV1,
     "endpoint-operation-v1.json": EndpointOperationV1,
     "endpoint-operation-diagnostic-result-v1.json": EndpointDiagnosticResultV1,
 }
@@ -262,17 +267,31 @@ GATEWAY_WS_FIXTURES: dict[str, dict[str, Any]] = {
 }
 
 ENDPOINT_OPERATION_FIXTURES: dict[Path, dict[str, Any]] = {
+    Path("endpoint-device-summary-v1.json"): {
+        "schema_version": "endpoint_device_summary_v1",
+        "device_id": "11111111-1111-4111-8111-111111111111",
+        "display_name": "Fixture endpoint",
+        "retired": False,
+        "last_seen_at": "2026-08-09T12:00:00Z",
+    },
+    Path("endpoint-device-capabilities-v1.json"): {
+        "schema_version": "endpoint_device_capabilities_v1",
+        "device_id": "11111111-1111-4111-8111-111111111111",
+        "capabilities": [
+            {
+                "capability": "context.diagnostic.collect",
+                "available": True,
+                "transport": "gateway_wss",
+                "risk": "read_only",
+                "consent_required": False,
+                "parameter_schema_version": "diagnostic_collection_parameters_v1",
+            }
+        ],
+    },
     Path("endpoint-operation-create-v1.json"): {
         "schema_version": "endpoint_operation_create_v1",
         "capability": "context.diagnostic.collect",
         "parameters": {"reason": "Fixture diagnostic request."},
-        "correlation": {
-            "schema_version": "endpoint_operation_correlation_v1",
-            "source_system": "helpdesk",
-            "source_entity_type": "ticket",
-            "source_entity_id": "fixture-ticket-01",
-            "request_id": "33333333-3333-4333-8333-333333333333",
-        },
     },
     Path("endpoint-operation-v1.json"): {
         "schema_version": "endpoint_operation_v1",
@@ -283,13 +302,6 @@ ENDPOINT_OPERATION_FIXTURES: dict[Path, dict[str, Any]] = {
         "created_at": "2026-08-09T11:59:00Z",
         "deadline_at": "2026-08-09T12:30:00Z",
         "completed_at": "2026-08-09T12:00:00Z",
-        "correlation": {
-            "schema_version": "endpoint_operation_correlation_v1",
-            "source_system": "helpdesk",
-            "source_entity_type": "ticket",
-            "source_entity_id": "fixture-ticket-01",
-            "request_id": "33333333-3333-4333-8333-333333333333",
-        },
         "result_available": True,
         "warnings": ["redaction_applied"],
     },

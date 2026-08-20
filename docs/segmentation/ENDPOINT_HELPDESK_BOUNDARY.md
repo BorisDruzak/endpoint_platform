@@ -19,32 +19,27 @@ execution path.
 POST /api/v1/devices/{endpoint_device_id}/operations
 Authorization: Bearer <Endpoint service credential>
 Idempotency-Key: <bounded-key>
+X-Correlation-ID: <opaque request UUID>
 Content-Type: application/json
 
 {
   "schema_version": "endpoint_operation_create_v1",
   "capability": "context.diagnostic.collect",
-  "parameters": {"reason": "Диагностика по обращению"},
-  "correlation": {
-    "schema_version": "endpoint_operation_correlation_v1",
-    "source_system": "helpdesk",
-    "source_entity_type": "ticket",
-    "source_entity_id": "<opaque-ticket-id>",
-    "request_id": "<uuid>"
-  }
+  "parameters": {"reason": "Диагностика по обращению"}
 }
 ```
 
-`source_entity_id` is an opaque reference. Endpoint Platform never resolves it
-against Helpdesk and has no Ticket model. Correlation is stored only with the
-service operation; it is neither an authorization input nor part of the agent
-payload. Helpdesk polls `GET /api/v1/operations/{endpoint_operation_id}` and
-stores the returned safe diagnostic snapshot rather than a raw agent result.
+Every Operations API response, including provider errors, echoes the exact
+`X-Correlation-ID` value. It never appears in a JSON envelope, operation,
+agent command, authorization lookup, or ticket field. Helpdesk polls
+`GET /api/v1/operations/{endpoint_operation_id}` and stores the returned safe
+diagnostic snapshot rather than a raw agent result.
 
 ## API and ownership rules
 
 | Surface | Owner | Contract |
 | --- | --- | --- |
+| `GET /api/v1/devices/{device_id}` | Endpoint Platform | `devices.read`; exact `EndpointDeviceSummaryV1` |
 | `GET /api/v1/devices/{device_id}/capabilities` | Endpoint Platform | `devices.read`; safe availability only |
 | `POST /api/v1/devices/{device_id}/operations` | Endpoint Platform | `operations.create`; route device and verified ServicePrincipal only |
 | `GET /api/v1/operations/{operation_id}` | Endpoint Platform | `operations.read`; same service client only |
@@ -80,7 +75,8 @@ Offline operations remain `queued`; they never fall back to
 
 ## Implementation and acceptance record (2026-08-18)
 
-- The public contracts are `EndpointOperationCreateV1`,
+- The public contracts are `EndpointDeviceSummaryV1`,
+  `EndpointDeviceCapabilitiesV1`, `EndpointOperationCreateV1`,
   `EndpointOperationV1`, `EndpointDiagnosticResultV1`, and
   `EndpointOperationStatusV1`; generated JSON Schema and the committed OpenAPI
   artifact are in `contracts/jsonschema/` and

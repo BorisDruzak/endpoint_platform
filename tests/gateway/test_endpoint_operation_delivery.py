@@ -66,13 +66,6 @@ async def _seed_operation(
             "schema_version": "endpoint_operation_create_v1",
             "capability": "context.diagnostic.collect",
             "parameters": {"reason": reason},
-            "correlation": {
-                "schema_version": "endpoint_operation_correlation_v1",
-                "source_system": "helpdesk",
-                "source_entity_type": "ticket",
-                "source_entity_id": "ticket-private-123",
-                "request_id": str(uuid4()),
-            },
         }
     )
     async with provider() as session:
@@ -263,8 +256,8 @@ async def test_operation_is_absent_from_http_pull_and_committed_before_wss_send(
     assert payload.correlation.request_id == operation.id
     assert payload.correlation.parent_command_id is None
     assert _utc(payload.deadline_at) == _utc(operation.deadline_at)
+    assert operation.correlation is None
     assert "helpdesk" not in serialized.lower()
-    assert "ticket-private-123" not in serialized
 
 
 @pytest.mark.asyncio

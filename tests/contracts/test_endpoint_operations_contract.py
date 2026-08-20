@@ -17,7 +17,6 @@ SCHEMA_ROOT = Path("contracts/jsonschema")
 FORMAT_CHECKER = FormatChecker()
 DEVICE_ID = "11111111-1111-4111-8111-111111111111"
 OPERATION_ID = "22222222-2222-4222-8222-222222222222"
-REQUEST_ID = "33333333-3333-4333-8333-333333333333"
 
 
 def _contracts() -> Any:
@@ -26,6 +25,8 @@ def _contracts() -> Any:
     except ModuleNotFoundError:
         pytest.fail("endpoint_contracts.operations must define endpoint operation v1")
     for name in (
+        "EndpointDeviceCapabilitiesV1",
+        "EndpointDeviceSummaryV1",
         "EndpointDiagnosticResultV1",
         "EndpointOperationCreateV1",
         "EndpointOperationStatusV1",
@@ -50,13 +51,6 @@ def _create_request() -> dict[str, object]:
         "schema_version": "endpoint_operation_create_v1",
         "capability": "context.diagnostic.collect",
         "parameters": {"reason": "Fixture diagnostic request."},
-        "correlation": {
-            "schema_version": "endpoint_operation_correlation_v1",
-            "source_system": "helpdesk",
-            "source_entity_type": "ticket",
-            "source_entity_id": "fixture-ticket-01",
-            "request_id": REQUEST_ID,
-        },
     }
 
 
@@ -72,6 +66,33 @@ def _result() -> dict[str, object]:
     }
 
 
+def _device_summary() -> dict[str, object]:
+    return {
+        "schema_version": "endpoint_device_summary_v1",
+        "device_id": DEVICE_ID,
+        "display_name": "Fixture endpoint",
+        "retired": False,
+        "last_seen_at": "2026-08-09T12:00:00Z",
+    }
+
+
+def _device_capabilities() -> dict[str, object]:
+    return {
+        "schema_version": "endpoint_device_capabilities_v1",
+        "device_id": DEVICE_ID,
+        "capabilities": [
+            {
+                "capability": "context.diagnostic.collect",
+                "available": True,
+                "transport": "gateway_wss",
+                "risk": "read_only",
+                "consent_required": False,
+                "parameter_schema_version": "diagnostic_collection_parameters_v1",
+            }
+        ],
+    }
+
+
 def _operation() -> dict[str, object]:
     return {
         "schema_version": "endpoint_operation_v1",
@@ -82,7 +103,6 @@ def _operation() -> dict[str, object]:
         "created_at": "2026-08-09T11:59:00Z",
         "deadline_at": "2026-08-09T12:30:00Z",
         "completed_at": "2026-08-09T12:00:00Z",
-        "correlation": _create_request()["correlation"],
         "result_available": True,
         "warnings": ["redaction_applied"],
     }
@@ -100,6 +120,29 @@ def test_create_rejects_extra_and_url_like_reason() -> None:
         )
 
 
+def test_device_contracts_are_strict_versioned_safe_projections() -> None:
+    contracts = _contracts()
+    summary = _device_summary()
+    capabilities = _device_capabilities()
+
+    assert (
+        contracts.EndpointDeviceSummaryV1.model_validate(summary).model_dump(mode="json")
+        == summary
+    )
+    assert (
+        contracts.EndpointDeviceCapabilitiesV1.model_validate(
+            capabilities
+        ).model_dump(mode="json")
+        == capabilities
+    )
+    with pytest.raises(ValidationError):
+        contracts.EndpointDeviceSummaryV1.model_validate({**summary, "hostname": "host"})
+    with pytest.raises(ValidationError):
+        contracts.EndpointDeviceCapabilitiesV1.model_validate(
+            {**capabilities, "session_id": "session"}
+        )
+
+
 @pytest.mark.parametrize(
     ("field_name", "value"),
     [
@@ -107,6 +150,7 @@ def test_create_rejects_extra_and_url_like_reason() -> None:
         ("target_url", "https://untrusted.example.test/run"),
         ("executable", "powershell.exe"),
         ("arguments", ["-Command", "whoami"]),
+        ("correlation", {"source_entity_id": "helpdesk-ticket"}),
     ],
 )
 def test_create_rejects_helpdesk_and_generic_execution_fields(
@@ -153,7 +197,7 @@ def test_operation_exposes_only_safe_projection() -> None:
     assert operation.model_dump(mode="json", exclude_none=True) == _operation()
     with pytest.raises(ValidationError):
         contracts.EndpointOperationV1.model_validate(
-            {**_operation(), "command_id": REQUEST_ID}
+            {**_operation(), "command_id": OPERATION_ID}
         )
     with pytest.raises(ValidationError):
         contracts.EndpointOperationV1.model_validate(
@@ -266,6 +310,16 @@ def test_diagnostic_result_allows_complete_bearer_redaction_prose(
 @pytest.mark.parametrize(
     ("schema_name", "fixture_name", "model_name"),
     [
+        (
+            "endpoint-device-summary-v1.json",
+            "endpoint-device-summary-v1.json",
+            "EndpointDeviceSummaryV1",
+        ),
+        (
+            "endpoint-device-capabilities-v1.json",
+            "endpoint-device-capabilities-v1.json",
+            "EndpointDeviceCapabilitiesV1",
+        ),
         (
             "endpoint-operation-create-v1.json",
             "endpoint-operation-create-v1.json",

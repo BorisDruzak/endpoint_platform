@@ -38,7 +38,6 @@ def project_operation(operation: EndpointOperation) -> EndpointOperationV1:
                 if operation.completed_at is not None
                 else None
             ),
-            "correlation": operation.correlation,
             "result_available": operation.status == "succeeded",
             "warnings": [],
         }

@@ -28,6 +28,7 @@ from endpoint_server.db.models import (
     Command,
     CommandResult,
     Device,
+    DeviceInstance,
     EndpointOperation,
     ServiceClient,
     ServiceCredential,
@@ -42,12 +43,6 @@ CREATE_BODY = {
     "schema_version": "endpoint_operation_create_v1",
     "capability": "context.diagnostic.collect",
     "parameters": {"reason": "Collect bounded diagnostic context"},
-    "correlation": {
-        "schema_version": "endpoint_operation_correlation_v1",
-        "source_system": "helpdesk",
-        "source_entity_type": "ticket",
-        "source_entity_id": "ticket-123",
-    },
 }
 IDEMPOTENCY_KEY = "operation-route-key-0001"
 
@@ -97,6 +92,7 @@ async def route_fixture(
     tables = (
         ServiceClient.__table__,
         Device.__table__,
+        DeviceInstance.__table__,
         Command.__table__,
         CommandResult.__table__,
         AuditEvent.__table__,
@@ -184,13 +180,17 @@ def _client(route_fixture: RouteFixture, *, enabled: bool = True) -> httpx.Async
 
 
 def _authorization(token: str) -> dict[str, str]:
-    return {"Authorization": f"Bearer {token}"}
+    return {
+        "Authorization": f"Bearer {token}",
+        "X-Correlation-ID": "test-correlation-id",
+    }
 
 
 def _create_headers(token: str) -> dict[str, str]:
     return {
         **_authorization(token),
         "Idempotency-Key": IDEMPOTENCY_KEY,
+        "X-Correlation-ID": str(uuid4()),
     }
 
 
@@ -222,7 +222,7 @@ async def _complete_operation(
     *,
     normalized_projection: dict[str, object],
 ) -> tuple[EndpointOperation, ContextCollection, ContextSnapshot]:
-    completed_at = datetime(2026, 8, 18, 12, 0, tzinfo=UTC)
+    completed_at = datetime.now(UTC)
     async with route_fixture.session_provider() as session:
         operation = await session.get(EndpointOperation, UUID(operation_id))
         assert operation is not None
@@ -302,9 +302,19 @@ async def test_capabilities_requires_devices_read_and_exposes_only_safe_availabi
     assert allowed.status_code == 200
     assert allowed.json() == {
         "data": {
+            "schema_version": "endpoint_device_capabilities_v1",
             "device_id": str(route_fixture.device.id),
             "capabilities": [
-                {"capability": "context.diagnostic.collect", "available": True}
+                {
+                    "capability": "context.diagnostic.collect",
+                    "available": True,
+                    "transport": "gateway_wss",
+                    "risk": "read_only",
+                    "consent_required": False,
+                    "parameter_schema_version": (
+                        "diagnostic_collection_parameters_v1"
+                    ),
+                }
             ],
         }
     }
@@ -315,6 +325,58 @@ async def test_capabilities_requires_devices_read_and_exposes_only_safe_availabi
         "effective_capabilities",
     }:
         assert forbidden not in allowed.text
+
+
+@pytest.mark.asyncio
+async def test_device_read_and_capabilities_are_versioned_and_echo_correlation(
+    route_fixture: RouteFixture,
+) -> None:
+    """The Helpdesk provider contract is strict and correlation is HTTP-only."""
+    correlation_id = str(uuid4())
+    headers = {
+        **_authorization("devices-reader"),
+        "X-Correlation-ID": correlation_id,
+    }
+    async with _client(route_fixture) as client:
+        device = await client.get(
+            f"/api/v1/devices/{route_fixture.device.id}",
+            headers=headers,
+        )
+        capabilities = await client.get(
+            f"/api/v1/devices/{route_fixture.device.id}/capabilities",
+            headers=headers,
+        )
+
+    assert [device.status_code, capabilities.status_code] == [200, 200]
+    assert device.headers["X-Correlation-ID"] == correlation_id
+    assert capabilities.headers["X-Correlation-ID"] == correlation_id
+    assert device.json() == {
+        "data": {
+            "schema_version": "endpoint_device_summary_v1",
+            "device_id": str(route_fixture.device.id),
+            "display_name": "Route device",
+            "retired": False,
+            "last_seen_at": None,
+        }
+    }
+    assert capabilities.json() == {
+        "data": {
+            "schema_version": "endpoint_device_capabilities_v1",
+            "device_id": str(route_fixture.device.id),
+            "capabilities": [
+                {
+                    "capability": "context.diagnostic.collect",
+                    "available": True,
+                    "transport": "gateway_wss",
+                    "risk": "read_only",
+                    "consent_required": False,
+                    "parameter_schema_version": (
+                        "diagnostic_collection_parameters_v1"
+                    ),
+                }
+            ],
+        }
+    }
 
 
 @pytest.mark.asyncio
@@ -373,6 +435,72 @@ async def test_create_requires_scope_and_idempotency_then_returns_201_and_200(
     assert replay.json() == first.json()
     assert first.json()["data"]["result"] is None
     assert first.json()["data"]["operation"]["result_available"] is False
+
+
+@pytest.mark.asyncio
+async def test_operation_correlation_is_header_only_and_never_serialized(
+    route_fixture: RouteFixture,
+) -> None:
+    """Helpdesk ticket/correlation data cannot enter an Endpoint operation body."""
+    create_path = f"/api/v1/devices/{route_fixture.device.id}/operations"
+    create_correlation = str(uuid4())
+    create_headers = {
+        **_authorization("creator-old"),
+        "Idempotency-Key": IDEMPOTENCY_KEY,
+        "X-Correlation-ID": create_correlation,
+    }
+    async with _client(route_fixture) as client:
+        rejected = await client.post(
+            create_path,
+            json={
+                **CREATE_BODY,
+                "correlation": {"source_entity_id": "helpdesk-ticket"},
+            },
+            headers=create_headers,
+        )
+        created = await client.post(
+            create_path,
+            json=CREATE_BODY,
+            headers=create_headers,
+        )
+        operation_id = created.json()["data"]["operation"]["operation_id"]
+        read_correlation = str(uuid4())
+        read = await client.get(
+            f"/api/v1/operations/{operation_id}",
+            headers={
+                **_authorization("reader-rotated"),
+                "X-Correlation-ID": read_correlation,
+            },
+        )
+
+    assert rejected.status_code == 422
+    assert created.status_code == 201
+    assert created.headers["X-Correlation-ID"] == create_correlation
+    assert read.status_code == 200
+    assert read.headers["X-Correlation-ID"] == read_correlation
+    assert "correlation" not in created.json()["data"]["operation"]
+    assert "correlation" not in read.json()["data"]["operation"]
+
+
+@pytest.mark.asyncio
+async def test_provider_errors_echo_received_correlation_header(
+    route_fixture: RouteFixture,
+) -> None:
+    """A consumer can correlate failed provider calls without an error envelope field."""
+    correlation_id = str(uuid4())
+    headers = {
+        **_authorization("devices-reader"),
+        "X-Correlation-ID": correlation_id,
+    }
+    async with _client(route_fixture) as client:
+        response = await client.get(
+            f"/api/v1/devices/{uuid4()}",
+            headers=headers,
+        )
+
+    assert response.status_code == 404
+    assert response.headers["X-Correlation-ID"] == correlation_id
+    assert response.json()["detail"] == {"code": "endpoint_operation_device_not_found"}
 
 
 @pytest.mark.asyncio
@@ -465,7 +593,7 @@ async def test_succeeded_operation_without_safe_result_fails_closed(
         operation = await session.get(EndpointOperation, UUID(operation_id))
         assert operation is not None
         operation.status = "succeeded"
-        operation.completed_at = datetime(2026, 8, 18, 12, 0, tzinfo=UTC)
+        operation.completed_at = datetime.now(UTC)
         operation.context_collection_id = None
         await session.commit()
 
@@ -494,7 +622,7 @@ async def test_completed_read_returns_only_validated_safe_result_projection(
         )
         operation_id = created.json()["data"]["operation"]["operation_id"]
 
-    completed_at = datetime(2026, 8, 18, 12, 0, tzinfo=UTC)
+    completed_at = datetime.now(UTC)
     async with route_fixture.session_provider() as session:
         operation = await session.get(EndpointOperation, UUID(operation_id))
         assert operation is not None
@@ -557,7 +685,6 @@ async def test_completed_read_returns_only_validated_safe_result_projection(
         "created_at",
         "deadline_at",
         "completed_at",
-        "correlation",
         "result_available",
         "warnings",
     }
@@ -597,7 +724,7 @@ async def test_public_reason_is_always_derived_from_server_request(
             create_path, json=CREATE_BODY, headers=_create_headers("creator-old")
         )
     operation_id = created.json()["data"]["operation"]["operation_id"]
-    completed_at = datetime(2026, 8, 18, 12, 0, tzinfo=UTC)
+    completed_at = datetime.now(UTC)
     await _complete_operation(
         route_fixture,
         operation_id,
@@ -631,7 +758,7 @@ async def test_direct_projection_redacts_secret_after_bearer_marker(
             create_path, json=CREATE_BODY, headers=_create_headers("creator-old")
         )
     operation_id = created.json()["data"]["operation"]["operation_id"]
-    completed_at = datetime(2026, 8, 18, 12, 0, tzinfo=UTC)
+    completed_at = datetime.now(UTC)
     operation, _, snapshot = await _complete_operation(
         route_fixture,
         operation_id,
@@ -682,7 +809,7 @@ async def test_actual_agent_diagnostic_is_normalized_to_safe_success(
             create_path, json=CREATE_BODY, headers=_create_headers("creator-old")
         )
     operation_id = created.json()["data"]["operation"]["operation_id"]
-    completed_at = datetime(2026, 8, 18, 12, 0, tzinfo=UTC)
+    completed_at = datetime.now(UTC)
     produced = collect_diagnostic(
         DiagnosticProbe(),
         reason=CREATE_BODY["parameters"]["reason"],
@@ -743,7 +870,7 @@ async def test_result_requires_consistent_completed_diagnostic_relationship(
             create_path, json=CREATE_BODY, headers=_create_headers("creator-old")
         )
     operation_id = created.json()["data"]["operation"]["operation_id"]
-    completed_at = datetime(2026, 8, 18, 12, 0, tzinfo=UTC)
+    completed_at = datetime.now(UTC)
     operation, collection, snapshot = await _complete_operation(
         route_fixture,
         operation_id,
@@ -789,6 +916,7 @@ def test_enabled_runtime_openapi_exactly_matches_committed_operation_routes(
         Path("contracts/openapi/endpoint-platform-v1.yaml").read_text(encoding="utf-8")
     )
     operation_paths = (
+        "/api/v1/devices/{device_id}",
         "/api/v1/devices/{device_id}/capabilities",
         "/api/v1/devices/{device_id}/operations",
         "/api/v1/operations/{operation_id}",
@@ -796,3 +924,24 @@ def test_enabled_runtime_openapi_exactly_matches_committed_operation_routes(
     assert {
         path: runtime["paths"][path] for path in operation_paths
     } == {path: committed["paths"][path] for path in operation_paths}
+
+
+def test_operation_openapi_declares_required_correlation_response_headers(
+    route_fixture: RouteFixture,
+) -> None:
+    document = create_app(
+        _settings(enabled=True), route_fixture.session_provider
+    ).openapi()
+
+    for path, method, response_status in (
+        ("/api/v1/devices/{device_id}", "get", "200"),
+        ("/api/v1/devices/{device_id}/capabilities", "get", "200"),
+        ("/api/v1/devices/{device_id}/operations", "post", "201"),
+        ("/api/v1/operations/{operation_id}", "get", "200"),
+    ):
+        operation = document["paths"][path][method]
+        assert any(
+            parameter["name"] == "X-Correlation-ID" and parameter["required"]
+            for parameter in operation["parameters"]
+        )
+        assert "X-Correlation-ID" in operation["responses"][response_status]["headers"]

@@ -38,8 +38,10 @@ from .gateway_ws import (
 from .identity import AgentSessionV1, DeviceIdentityV1
 from .operations import (
     DiagnosticCollectionParametersV1,
+    EndpointCapabilityAvailabilityV1,
+    EndpointDeviceCapabilitiesV1,
+    EndpointDeviceSummaryV1,
     EndpointDiagnosticResultV1,
-    EndpointOperationCorrelationV1,
     EndpointOperationCreateV1,
     EndpointOperationStatusV1,
     EndpointOperationV1,
@@ -80,8 +82,10 @@ __all__ = [
     "DeviceIdentityV1",
     "DeviceCredentialRotationV1",
     "DiagnosticCollectionParametersV1",
+    "EndpointCapabilityAvailabilityV1",
+    "EndpointDeviceCapabilitiesV1",
+    "EndpointDeviceSummaryV1",
     "EndpointDiagnosticResultV1",
-    "EndpointOperationCorrelationV1",
     "EndpointOperationCreateV1",
     "EndpointOperationStatusV1",
     "EndpointOperationV1",
