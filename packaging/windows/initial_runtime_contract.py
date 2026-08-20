@@ -67,6 +67,11 @@ def _hash_file(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _hash_source_file(path: Path) -> str:
+    """Hash reviewed source independent of Git's CRLF checkout conversion."""
+    return hashlib.sha256(path.read_bytes().replace(b"\r\n", b"\n")).hexdigest()
+
+
 def artifact_identity(root: Path) -> dict[str, object]:
     """Hash every staged runtime file with its canonical relative path and size."""
     if root.is_symlink() or not root.is_dir():
@@ -210,7 +215,7 @@ def _load_manifest(
             source = repository_root / relative
             if source.is_symlink() or not source.is_file():
                 raise ValueError(f"initial runtime source is missing: {relative}")
-            if _hash_file(source) != expected:
+            if _hash_source_file(source) != expected:
                 raise ValueError(f"initial runtime source hash mismatch: {relative}")
         normalized.append({"path": relative, "sha256": expected})
     if [item["path"] for item in normalized] != sorted(observed):
