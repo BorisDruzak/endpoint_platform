@@ -5,8 +5,9 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 from typing import AsyncIterator
 
-from fastapi import FastAPI, Request, Response
+from fastapi import FastAPI, Request, Response, status
 from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
 from starlette.middleware.base import RequestResponseEndpoint
 
 from endpoint_server.auth.admin_sessions import router as admin_auth_router
@@ -23,6 +24,10 @@ from endpoint_server.provisioning.admin_routes import (
     router as provisioning_admin_router,
 )
 from endpoint_server.health.routes import router as health_router
+from endpoint_server.http.correlation import (
+    is_operation_api_path,
+    is_safe_correlation_id,
+)
 from endpoint_server.operations.routes import router as operations_router
 from endpoint_server.gateway.routes import router as gateway_router
 from endpoint_server.gateway.connection_registry import (
@@ -75,11 +80,22 @@ def create_app(
         call_next: RequestResponseEndpoint,
     ) -> Response:
         """Keep the service tracing header out of JSON success and error bodies."""
-        response = await call_next(request)
         correlation_id = request.headers.get("X-Correlation-ID")
-        if correlation_id and (
-            request.url.path.startswith("/api/v1/devices/")
-            or request.url.path.startswith("/api/v1/operations/")
+        if (
+            is_operation_api_path(request.url.path)
+            and correlation_id is not None
+            and not is_safe_correlation_id(correlation_id)
+        ):
+            return JSONResponse(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                content={"detail": {"code": "endpoint_operation_invalid_correlation_id"}},
+            )
+
+        response = await call_next(request)
+        if (
+            is_operation_api_path(request.url.path)
+            and correlation_id is not None
+            and is_safe_correlation_id(correlation_id)
         ):
             response.headers["X-Correlation-ID"] = correlation_id
         return response

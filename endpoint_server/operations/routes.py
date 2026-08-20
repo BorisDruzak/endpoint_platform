@@ -36,6 +36,7 @@ from endpoint_server.auth.scopes import (
 )
 from endpoint_server.context.models import ContextCollection, ContextSnapshot
 from endpoint_server.db.models import Device, DeviceInstance, EndpointOperation
+from endpoint_server.http.correlation import CORRELATION_ID_PATTERN
 
 from .capabilities import SUPPORTED_CAPABILITIES
 from .projection import project_diagnostic_result, project_operation
@@ -193,7 +194,12 @@ async def read_endpoint_device(
     response: Response,
     correlation_id: Annotated[
         str,
-        Header(alias="X-Correlation-ID", min_length=1, max_length=128),
+        Header(
+            alias="X-Correlation-ID",
+            min_length=1,
+            max_length=128,
+            pattern=CORRELATION_ID_PATTERN,
+        ),
     ],
     _: Annotated[
         ServicePrincipal,
@@ -242,7 +248,12 @@ async def read_device_operation_capabilities(
     response: Response,
     correlation_id: Annotated[
         str,
-        Header(alias="X-Correlation-ID", min_length=1, max_length=128),
+        Header(
+            alias="X-Correlation-ID",
+            min_length=1,
+            max_length=128,
+            pattern=CORRELATION_ID_PATTERN,
+        ),
     ],
     _: Annotated[
         ServicePrincipal,
@@ -326,7 +337,12 @@ async def create_device_operation(
     ],
     correlation_id: Annotated[
         str,
-        Header(alias="X-Correlation-ID", min_length=1, max_length=128),
+        Header(
+            alias="X-Correlation-ID",
+            min_length=1,
+            max_length=128,
+            pattern=CORRELATION_ID_PATTERN,
+        ),
     ],
 ) -> OperationResponseEnvelope:
     """Create or replay one operation owned by the authenticated service client."""
@@ -377,7 +393,12 @@ async def read_endpoint_operation(
     response: Response,
     correlation_id: Annotated[
         str,
-        Header(alias="X-Correlation-ID", min_length=1, max_length=128),
+        Header(
+            alias="X-Correlation-ID",
+            min_length=1,
+            max_length=128,
+            pattern=CORRELATION_ID_PATTERN,
+        ),
     ],
     principal: Annotated[
         ServicePrincipal,
