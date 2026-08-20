@@ -84,26 +84,16 @@ def _idempotency_key(value: str) -> str:
 
 def _normalized_request(
     request: EndpointOperationCreateV1,
-) -> tuple[str, dict[str, object], dict[str, object] | None]:
+) -> tuple[str, dict[str, object]]:
     if not isinstance(request, EndpointOperationCreateV1):
         raise OperationValidationError(
             "request must be an EndpointOperationCreateV1 contract"
         )
     parameters = request.parameters.model_dump(mode="json")
-    correlation = (
-        request.correlation.model_dump(mode="json")
-        if request.correlation is not None
-        else None
-    )
-    return request.capability, parameters, correlation
+    return request.capability, parameters
 
 
-def _audit_request_id(
-    correlation: dict[str, object] | None,
-    operation_id: UUID,
-) -> str:
-    if correlation is not None and correlation.get("request_id") is not None:
-        return str(correlation["request_id"])
+def _audit_request_id(operation_id: UUID) -> str:
     return f"operation-{operation_id.hex}"
 
 
@@ -131,7 +121,7 @@ async def _append_operation_audit(
         action=action,
         object_kind="endpoint_operation",
         object_identifier=str(operation.id),
-        request_id=_audit_request_id(operation.correlation, operation.id),
+        request_id=_audit_request_id(operation.id),
         details={
             "capability": operation.capability,
             "device_id": operation.device_id,
@@ -154,7 +144,7 @@ async def create_operation_outcome(
     checked_client_id = _uuid(service_client_id, "service client id")
     checked_device_id = _uuid(device_id, "device id")
     checked_key = _idempotency_key(idempotency_key)
-    capability, parameters, correlation = _normalized_request(request)
+    capability, parameters = _normalized_request(request)
     profile = profile_for_capability(capability)
     occurred_at = _now(now)
 
@@ -186,7 +176,6 @@ async def create_operation_outcome(
             existing.device_id != checked_device_id
             or existing.capability != capability
             or existing.parameters != parameters
-            or existing.correlation != correlation
         ):
             raise OperationConflict(
                 "idempotency key already owns a different endpoint operation"
@@ -224,7 +213,7 @@ async def create_operation_outcome(
         idempotency_key=checked_key,
         capability=capability,
         parameters=parameters,
-        correlation=correlation,
+        correlation=None,
         status="queued",
         deadline_at=deadline_at,
         completed_at=None,

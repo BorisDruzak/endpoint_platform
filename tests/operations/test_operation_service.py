@@ -48,23 +48,12 @@ def _utc(value: datetime) -> datetime:
 def _request(
     *,
     reason: str = "Collect bounded diagnostic context",
-    source_entity_id: str = "ticket-123",
-    request_id: UUID | None = None,
 ) -> EndpointOperationCreateV1:
-    correlation: dict[str, object] = {
-        "schema_version": "endpoint_operation_correlation_v1",
-        "source_system": "helpdesk",
-        "source_entity_type": "ticket",
-        "source_entity_id": source_entity_id,
-    }
-    if request_id is not None:
-        correlation["request_id"] = request_id
     return EndpointOperationCreateV1.model_validate(
         {
             "schema_version": "endpoint_operation_create_v1",
             "capability": "context.diagnostic.collect",
             "parameters": {"reason": reason},
-            "correlation": correlation,
         }
     )
 
@@ -171,7 +160,7 @@ async def test_same_key_is_independent_across_service_clients(
 
     first, first_created = await create_operation_outcome(
         session,
-        request=_request(source_entity_id="ticket-a"),
+        request=_request(),
         service_client_id=first_client.id,
         device_id=device.id,
         idempotency_key=KEY,
@@ -179,7 +168,7 @@ async def test_same_key_is_independent_across_service_clients(
     )
     second, second_created = await create_operation_outcome(
         session,
-        request=_request(source_entity_id="ticket-b"),
+        request=_request(),
         service_client_id=second_client.id,
         device_id=device.id,
         idempotency_key=KEY,
@@ -261,19 +250,13 @@ async def test_creation_requires_an_existing_active_device(
 async def test_creation_persists_bounded_private_request_and_redacted_audit_together(
     session: AsyncSession,
 ) -> None:
-    """Audit storage must not copy reason, caller correlation, or idempotency."""
+    """Audit storage must not copy request parameters or idempotency."""
     client, device = await _ownership(session)
-    audit_request_id = uuid4()
     reason = "Inspect token: this-must-stay-out-of-audit"
-    source_entity_id = "ticket-private-456"
 
     operation, created = await create_operation_outcome(
         session,
-        request=_request(
-            reason=reason,
-            source_entity_id=source_entity_id,
-            request_id=audit_request_id,
-        ),
+        request=_request(reason=reason),
         service_client_id=client.id,
         device_id=device.id,
         idempotency_key=KEY,
@@ -283,13 +266,7 @@ async def test_creation_persists_bounded_private_request_and_redacted_audit_toge
 
     assert created is True
     assert operation.parameters == {"reason": reason}
-    assert operation.correlation == {
-        "schema_version": "endpoint_operation_correlation_v1",
-        "source_system": "helpdesk",
-        "source_entity_type": "ticket",
-        "source_entity_id": source_entity_id,
-        "request_id": str(audit_request_id),
-    }
+    assert operation.correlation is None
     collection = await session.scalar(
         select(ContextCollection).where(ContextCollection.operation_id == operation.id)
     )
@@ -302,11 +279,10 @@ async def test_creation_persists_bounded_private_request_and_redacted_audit_toge
     assert collection.expires_at is not None
     assert _utc(collection.expires_at) == _utc(operation.deadline_at)
     assert event is not None
-    assert event.request_id == str(audit_request_id)
+    assert event.request_id == f"operation-{operation.id.hex}"
     assert event.object_identifier == str(operation.id)
     audit_json = json.dumps(event.details, sort_keys=True)
     assert reason not in audit_json
-    assert source_entity_id not in audit_json
     assert KEY not in audit_json
 
 
@@ -425,7 +401,7 @@ async def test_projection_excludes_private_operation_storage(
     projected = project_operation(operation).model_dump(mode="json")
 
     assert projected["operation_id"] == str(operation.id)
-    assert projected["correlation"] == operation.correlation
+    assert "correlation" not in projected
     assert not {
         "parameters",
         "idempotency_key",

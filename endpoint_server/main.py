@@ -5,8 +5,9 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 from typing import AsyncIterator
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request, Response
 from fastapi.exceptions import RequestValidationError
+from starlette.middleware.base import RequestResponseEndpoint
 
 from endpoint_server.auth.admin_sessions import router as admin_auth_router
 from endpoint_server.auth.validation import redacting_validation_exception_handler
@@ -67,6 +68,22 @@ def create_app(
         RequestValidationError,
         redacting_validation_exception_handler,
     )
+
+    @app.middleware("http")
+    async def echo_operation_correlation(
+        request: Request,
+        call_next: RequestResponseEndpoint,
+    ) -> Response:
+        """Keep the service tracing header out of JSON success and error bodies."""
+        response = await call_next(request)
+        correlation_id = request.headers.get("X-Correlation-ID")
+        if correlation_id and (
+            request.url.path.startswith("/api/v1/devices/")
+            or request.url.path.startswith("/api/v1/operations/")
+        ):
+            response.headers["X-Correlation-ID"] = correlation_id
+        return response
+
     app.include_router(health_router)
     app.include_router(admin_auth_router)
     app.include_router(enrollment_admin_router)

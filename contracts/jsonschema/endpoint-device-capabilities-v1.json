@@ -1,0 +1,78 @@
+{
+  "$defs": {
+    "EndpointCapabilityAvailabilityV1": {
+      "additionalProperties": false,
+      "description": "One versioned safe capability descriptor for an exact device.",
+      "properties": {
+        "available": {
+          "title": "Available",
+          "type": "boolean"
+        },
+        "capability": {
+          "const": "context.diagnostic.collect",
+          "title": "Capability",
+          "type": "string"
+        },
+        "consent_required": {
+          "const": false,
+          "title": "Consent Required",
+          "type": "boolean"
+        },
+        "parameter_schema_version": {
+          "const": "diagnostic_collection_parameters_v1",
+          "title": "Parameter Schema Version",
+          "type": "string"
+        },
+        "risk": {
+          "const": "read_only",
+          "title": "Risk",
+          "type": "string"
+        },
+        "transport": {
+          "const": "gateway_wss",
+          "title": "Transport",
+          "type": "string"
+        }
+      },
+      "required": [
+        "capability",
+        "available",
+        "transport",
+        "risk",
+        "consent_required",
+        "parameter_schema_version"
+      ],
+      "title": "EndpointCapabilityAvailabilityV1",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Versioned capabilities response with no agent/session internals.",
+  "properties": {
+    "capabilities": {
+      "items": {
+        "$ref": "#/$defs/EndpointCapabilityAvailabilityV1"
+      },
+      "maxItems": 1,
+      "title": "Capabilities",
+      "type": "array"
+    },
+    "device_id": {
+      "format": "uuid",
+      "title": "Device Id",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "endpoint_device_capabilities_v1",
+      "title": "Schema Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema_version",
+    "device_id",
+    "capabilities"
+  ],
+  "title": "EndpointDeviceCapabilitiesV1",
+  "type": "object"
+}

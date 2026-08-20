@@ -175,19 +175,12 @@ def operation_database_url() -> Iterator[str]:
 def _request(
     *,
     reason: str = "Collect PostgreSQL diagnostic context",
-    source_entity_id: str = "postgres-ticket",
 ) -> EndpointOperationCreateV1:
     return EndpointOperationCreateV1.model_validate(
         {
             "schema_version": "endpoint_operation_create_v1",
             "capability": "context.diagnostic.collect",
             "parameters": {"reason": reason},
-            "correlation": {
-                "schema_version": "endpoint_operation_correlation_v1",
-                "source_system": "helpdesk",
-                "source_entity_type": "ticket",
-                "source_entity_id": source_entity_id,
-            },
         }
     )
 
@@ -267,7 +260,7 @@ async def test_same_client_key_concurrency_replays_and_conflicts_in_postgresql(
     engine = create_async_engine(operation_database_url)
     factory = async_sessionmaker(engine, expire_on_commit=False)
     key = f"postgres-race-{uuid4().hex}"
-    request = _request(source_entity_id=f"race-{uuid4().hex}")
+    request = _request()
     try:
         async with factory() as session:
             client, device = await _ownership(
@@ -396,7 +389,7 @@ async def test_expiry_skips_locked_operation_then_finishes_after_release_in_post
             )
             first, _ = await create_operation_outcome(
                 session,
-                request=_request(source_entity_id="expiry-first"),
+                request=_request(),
                 service_client_id=client.id,
                 device_id=device.id,
                 idempotency_key=f"expiry-first-{uuid4().hex}",
@@ -404,7 +397,7 @@ async def test_expiry_skips_locked_operation_then_finishes_after_release_in_post
             )
             second, _ = await create_operation_outcome(
                 session,
-                request=_request(source_entity_id="expiry-second"),
+                request=_request(),
                 service_client_id=client.id,
                 device_id=device.id,
                 idempotency_key=f"expiry-second-{uuid4().hex}",

@@ -1,60 +1,5 @@
 {
   "$comment": "Model-only constraints: deadline_at must be after created_at; completed_at is set only for terminal states; succeeded operations expose an available safe diagnostic result.",
-  "$defs": {
-    "EndpointOperationCorrelationV1": {
-      "additionalProperties": false,
-      "description": "Opaque caller correlation that never reaches the endpoint agent.",
-      "properties": {
-        "request_id": {
-          "anyOf": [
-            {
-              "format": "uuid",
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Request Id"
-        },
-        "schema_version": {
-          "const": "endpoint_operation_correlation_v1",
-          "title": "Schema Version",
-          "type": "string"
-        },
-        "source_entity_id": {
-          "maxLength": 128,
-          "minLength": 1,
-          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$",
-          "title": "Source Entity Id",
-          "type": "string"
-        },
-        "source_entity_type": {
-          "maxLength": 64,
-          "minLength": 1,
-          "pattern": "^[a-z][a-z0-9._-]{0,63}$",
-          "title": "Source Entity Type",
-          "type": "string"
-        },
-        "source_system": {
-          "maxLength": 64,
-          "minLength": 1,
-          "pattern": "^[a-z][a-z0-9._-]{0,63}$",
-          "title": "Source System",
-          "type": "string"
-        }
-      },
-      "required": [
-        "schema_version",
-        "source_system",
-        "source_entity_type",
-        "source_entity_id"
-      ],
-      "title": "EndpointOperationCorrelationV1",
-      "type": "object"
-    }
-  },
   "additionalProperties": false,
   "description": "Service-visible operation lifecycle without command or agent internals.",
   "properties": {
@@ -76,17 +21,6 @@
       ],
       "default": null,
       "title": "Completed At"
-    },
-    "correlation": {
-      "anyOf": [
-        {
-          "$ref": "#/$defs/EndpointOperationCorrelationV1"
-        },
-        {
-          "type": "null"
-        }
-      ],
-      "default": null
     },
     "created_at": {
       "$comment": "model-only UTC normalization: timezone-aware values are normalized to UTC.",

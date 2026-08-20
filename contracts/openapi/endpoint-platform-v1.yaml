@@ -150,6 +150,90 @@ paths:
       responses:
         "200":
           description: "Update report recorded"
+  "/api/v1/devices/{device_id}":
+    get:
+      tags:
+        - "endpoint-operations"
+      summary: "Read Endpoint Device"
+      description: "Read one exact safe device summary for verified consumer mapping."
+      operationId: "read_endpoint_device_api_v1_devices__device_id__get"
+      security:
+        -
+          ServiceBearer: []
+      parameters:
+        -
+          name: "device_id"
+          in: "path"
+          required: true
+          schema:
+            type: "string"
+            format: "uuid"
+            title: "Device Id"
+        -
+          name: "X-Correlation-ID"
+          in: "header"
+          required: true
+          schema:
+            type: "string"
+            minLength: 1
+            maxLength: 128
+            title: "X-Correlation-Id"
+      responses:
+        "200":
+          description: "Successful Response"
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/DeviceSummaryEnvelope"
+          headers:
+            X-Correlation-ID:
+              description: "Exact echo of the request tracing header."
+              schema:
+                type: "string"
+                minLength: 1
+                maxLength: 128
+        "404":
+          description: "Device not found"
+          headers:
+            X-Correlation-ID:
+              description: "Exact echo of the request tracing header."
+              schema:
+                type: "string"
+                minLength: 1
+                maxLength: 128
+        "401":
+          description: "Service authentication failed"
+          headers:
+            X-Correlation-ID:
+              description: "Exact echo of the request tracing header."
+              schema:
+                type: "string"
+                minLength: 1
+                maxLength: 128
+        "403":
+          description: "Service scope is insufficient"
+          headers:
+            X-Correlation-ID:
+              description: "Exact echo of the request tracing header."
+              schema:
+                type: "string"
+                minLength: 1
+                maxLength: 128
+        "422":
+          description: "Validation Error"
+          headers:
+            X-Correlation-ID:
+              description: "Exact echo of the request tracing header."
+              schema:
+                type: "string"
+                minLength: 1
+                maxLength: 128
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/HTTPValidationError"
+      x-required-scopes:
+        - "devices.read"
   "/api/v1/devices/{device_id}/capabilities":
     get:
       tags:
@@ -169,6 +253,15 @@ paths:
             type: "string"
             format: "uuid"
             title: "Device Id"
+        -
+          name: "X-Correlation-ID"
+          in: "header"
+          required: true
+          schema:
+            type: "string"
+            minLength: 1
+            maxLength: 128
+            title: "X-Correlation-Id"
       responses:
         "200":
           description: "Successful Response"
@@ -176,10 +269,49 @@ paths:
             "application/json":
               schema:
                 "$ref": "#/components/schemas/DeviceCapabilitiesEnvelope"
+          headers:
+            X-Correlation-ID:
+              description: "Exact echo of the request tracing header."
+              schema:
+                type: "string"
+                minLength: 1
+                maxLength: 128
         "404":
           description: "Active device not found"
+          headers:
+            X-Correlation-ID:
+              description: "Exact echo of the request tracing header."
+              schema:
+                type: "string"
+                minLength: 1
+                maxLength: 128
+        "401":
+          description: "Service authentication failed"
+          headers:
+            X-Correlation-ID:
+              description: "Exact echo of the request tracing header."
+              schema:
+                type: "string"
+                minLength: 1
+                maxLength: 128
+        "403":
+          description: "Service scope is insufficient"
+          headers:
+            X-Correlation-ID:
+              description: "Exact echo of the request tracing header."
+              schema:
+                type: "string"
+                minLength: 1
+                maxLength: 128
         "422":
           description: "Validation Error"
+          headers:
+            X-Correlation-ID:
+              description: "Exact echo of the request tracing header."
+              schema:
+                type: "string"
+                minLength: 1
+                maxLength: 128
           content:
             "application/json":
               schema:
@@ -215,6 +347,15 @@ paths:
             maxLength: 128
             pattern: "^[!-~][ -~]{6,126}[!-~]$"
             title: "Idempotency-Key"
+        -
+          name: "X-Correlation-ID"
+          in: "header"
+          required: true
+          schema:
+            type: "string"
+            minLength: 1
+            maxLength: 128
+            title: "X-Correlation-Id"
       requestBody:
         required: true
         content:
@@ -228,18 +369,71 @@ paths:
             "application/json":
               schema:
                 "$ref": "#/components/schemas/OperationResponseEnvelope"
+          headers:
+            X-Correlation-ID:
+              description: "Exact echo of the request tracing header."
+              schema:
+                type: "string"
+                minLength: 1
+                maxLength: 128
         "200":
           description: "Replayed endpoint operation"
+          headers:
+            X-Correlation-ID:
+              description: "Exact echo of the request tracing header."
+              schema:
+                type: "string"
+                minLength: 1
+                maxLength: 128
           content:
             "application/json":
               schema:
                 "$ref": "#/components/schemas/OperationResponseEnvelope"
         "409":
           description: "Idempotency key conflict"
+          headers:
+            X-Correlation-ID:
+              description: "Exact echo of the request tracing header."
+              schema:
+                type: "string"
+                minLength: 1
+                maxLength: 128
         "503":
           description: "Safe result unavailable"
+          headers:
+            X-Correlation-ID:
+              description: "Exact echo of the request tracing header."
+              schema:
+                type: "string"
+                minLength: 1
+                maxLength: 128
+        "401":
+          description: "Service authentication failed"
+          headers:
+            X-Correlation-ID:
+              description: "Exact echo of the request tracing header."
+              schema:
+                type: "string"
+                minLength: 1
+                maxLength: 128
+        "403":
+          description: "Service scope is insufficient"
+          headers:
+            X-Correlation-ID:
+              description: "Exact echo of the request tracing header."
+              schema:
+                type: "string"
+                minLength: 1
+                maxLength: 128
         "422":
           description: "Validation Error"
+          headers:
+            X-Correlation-ID:
+              description: "Exact echo of the request tracing header."
+              schema:
+                type: "string"
+                minLength: 1
+                maxLength: 128
           content:
             "application/json":
               schema:
@@ -265,6 +459,15 @@ paths:
             type: "string"
             format: "uuid"
             title: "Operation Id"
+        -
+          name: "X-Correlation-ID"
+          in: "header"
+          required: true
+          schema:
+            type: "string"
+            minLength: 1
+            maxLength: 128
+            title: "X-Correlation-Id"
       responses:
         "200":
           description: "Successful Response"
@@ -272,12 +475,58 @@ paths:
             "application/json":
               schema:
                 "$ref": "#/components/schemas/OperationResponseEnvelope"
+          headers:
+            X-Correlation-ID:
+              description: "Exact echo of the request tracing header."
+              schema:
+                type: "string"
+                minLength: 1
+                maxLength: 128
         "404":
           description: "Endpoint operation not found"
+          headers:
+            X-Correlation-ID:
+              description: "Exact echo of the request tracing header."
+              schema:
+                type: "string"
+                minLength: 1
+                maxLength: 128
         "503":
           description: "Safe result unavailable"
+          headers:
+            X-Correlation-ID:
+              description: "Exact echo of the request tracing header."
+              schema:
+                type: "string"
+                minLength: 1
+                maxLength: 128
+        "401":
+          description: "Service authentication failed"
+          headers:
+            X-Correlation-ID:
+              description: "Exact echo of the request tracing header."
+              schema:
+                type: "string"
+                minLength: 1
+                maxLength: 128
+        "403":
+          description: "Service scope is insufficient"
+          headers:
+            X-Correlation-ID:
+              description: "Exact echo of the request tracing header."
+              schema:
+                type: "string"
+                minLength: 1
+                maxLength: 128
         "422":
           description: "Validation Error"
+          headers:
+            X-Correlation-ID:
+              description: "Exact echo of the request tracing header."
+              schema:
+                type: "string"
+                minLength: 1
+                maxLength: 128
           content:
             "application/json":
               schema:
@@ -2382,13 +2631,6 @@ components:
           type: "string"
         parameters:
           "$ref": "#/components/schemas/EndpointOperationCreateV1__DiagnosticCollectionParametersV1"
-        correlation:
-          anyOf:
-            -
-              "$ref": "#/components/schemas/EndpointOperationCreateV1__EndpointOperationCorrelationV1"
-            -
-              type: "null"
-          default: null
       required:
         - "schema_version"
         - "capability"
@@ -2409,47 +2651,102 @@ components:
         - "reason"
       title: "DiagnosticCollectionParametersV1"
       type: "object"
-    EndpointOperationCreateV1__EndpointOperationCorrelationV1:
+    EndpointDeviceSummaryV1:
       additionalProperties: false
-      description: "Opaque caller correlation that never reaches the endpoint agent."
+      description: "Strict device projection used for external verified-reference reads."
       properties:
         schema_version:
-          const: "endpoint_operation_correlation_v1"
+          const: "endpoint_device_summary_v1"
           title: "Schema Version"
           type: "string"
-        source_system:
-          maxLength: 64
-          minLength: 1
-          pattern: "^[a-z][a-z0-9._-]{0,63}$"
-          title: "Source System"
+        device_id:
+          format: "uuid"
+          title: "Device Id"
           type: "string"
-        source_entity_type:
-          maxLength: 64
+        display_name:
+          maxLength: 256
           minLength: 1
-          pattern: "^[a-z][a-z0-9._-]{0,63}$"
-          title: "Source Entity Type"
+          title: "Display Name"
           type: "string"
-        source_entity_id:
-          maxLength: 128
-          minLength: 1
-          pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
-          title: "Source Entity Id"
-          type: "string"
-        request_id:
+        retired:
+          title: "Retired"
+          type: "boolean"
+        last_seen_at:
           anyOf:
             -
-              format: "uuid"
+              format: "date-time"
               type: "string"
+              "$comment": "model-only UTC normalization: timezone-aware values are normalized to UTC."
             -
               type: "null"
           default: null
-          title: "Request Id"
+          title: "Last Seen At"
       required:
         - "schema_version"
-        - "source_system"
-        - "source_entity_type"
-        - "source_entity_id"
-      title: "EndpointOperationCorrelationV1"
+        - "device_id"
+        - "display_name"
+        - "retired"
+      title: "EndpointDeviceSummaryV1"
+      type: "object"
+    EndpointDeviceCapabilitiesV1:
+      additionalProperties: false
+      description: "Versioned capabilities response with no agent/session internals."
+      properties:
+        schema_version:
+          const: "endpoint_device_capabilities_v1"
+          title: "Schema Version"
+          type: "string"
+        device_id:
+          format: "uuid"
+          title: "Device Id"
+          type: "string"
+        capabilities:
+          items:
+            "$ref": "#/components/schemas/EndpointDeviceCapabilitiesV1__EndpointCapabilityAvailabilityV1"
+          maxItems: 1
+          title: "Capabilities"
+          type: "array"
+      required:
+        - "schema_version"
+        - "device_id"
+        - "capabilities"
+      title: "EndpointDeviceCapabilitiesV1"
+      type: "object"
+    EndpointDeviceCapabilitiesV1__EndpointCapabilityAvailabilityV1:
+      additionalProperties: false
+      description: "One versioned safe capability descriptor for an exact device."
+      properties:
+        capability:
+          const: "context.diagnostic.collect"
+          title: "Capability"
+          type: "string"
+        available:
+          title: "Available"
+          type: "boolean"
+        transport:
+          const: "gateway_wss"
+          title: "Transport"
+          type: "string"
+        risk:
+          const: "read_only"
+          title: "Risk"
+          type: "string"
+        consent_required:
+          const: false
+          title: "Consent Required"
+          type: "boolean"
+        parameter_schema_version:
+          const: "diagnostic_collection_parameters_v1"
+          title: "Parameter Schema Version"
+          type: "string"
+      required:
+        - "capability"
+        - "available"
+        - "transport"
+        - "risk"
+        - "consent_required"
+        - "parameter_schema_version"
+      title: "EndpointCapabilityAvailabilityV1"
       type: "object"
     EndpointOperationV1:
       "$comment": "Model-only constraints: deadline_at must be after created_at; completed_at is set only for terminal states; succeeded operations expose an available safe diagnostic result."
@@ -2504,13 +2801,6 @@ components:
               type: "null"
           default: null
           title: "Completed At"
-        correlation:
-          anyOf:
-            -
-              "$ref": "#/components/schemas/EndpointOperationV1__EndpointOperationCorrelationV1"
-            -
-              type: "null"
-          default: null
         result_available:
           title: "Result Available"
           type: "boolean"
@@ -2539,48 +2829,6 @@ components:
         - "deadline_at"
         - "result_available"
       title: "EndpointOperationV1"
-      type: "object"
-    EndpointOperationV1__EndpointOperationCorrelationV1:
-      additionalProperties: false
-      description: "Opaque caller correlation that never reaches the endpoint agent."
-      properties:
-        schema_version:
-          const: "endpoint_operation_correlation_v1"
-          title: "Schema Version"
-          type: "string"
-        source_system:
-          maxLength: 64
-          minLength: 1
-          pattern: "^[a-z][a-z0-9._-]{0,63}$"
-          title: "Source System"
-          type: "string"
-        source_entity_type:
-          maxLength: 64
-          minLength: 1
-          pattern: "^[a-z][a-z0-9._-]{0,63}$"
-          title: "Source Entity Type"
-          type: "string"
-        source_entity_id:
-          maxLength: 128
-          minLength: 1
-          pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
-          title: "Source Entity Id"
-          type: "string"
-        request_id:
-          anyOf:
-            -
-              format: "uuid"
-              type: "string"
-            -
-              type: "null"
-          default: null
-          title: "Request Id"
-      required:
-        - "schema_version"
-        - "source_system"
-        - "source_entity_type"
-        - "source_entity_id"
-      title: "EndpointOperationCorrelationV1"
       type: "object"
     EndpointDiagnosticResultV1:
       additionalProperties: false
@@ -2664,50 +2912,24 @@ components:
         - "state"
       title: "DiagnosticProcessV1"
       type: "object"
-    CapabilityAvailability:
-      properties:
-        capability:
-          type: "string"
-          const: "context.diagnostic.collect"
-          title: "Capability"
-        available:
-          type: "boolean"
-          title: "Available"
-      additionalProperties: false
-      type: "object"
-      required:
-        - "capability"
-        - "available"
-      title: "CapabilityAvailability"
-      description: "One server-supported capability without endpoint or session internals."
-    DeviceCapabilities:
-      properties:
-        device_id:
-          type: "string"
-          format: "uuid"
-          title: "Device Id"
-        capabilities:
-          items:
-            "$ref": "#/components/schemas/CapabilityAvailability"
-          type: "array"
-          maxItems: 1
-          title: "Capabilities"
-      additionalProperties: false
-      type: "object"
-      required:
-        - "device_id"
-        - "capabilities"
-      title: "DeviceCapabilities"
-      description: "Safe operation availability for one active route device."
     DeviceCapabilitiesEnvelope:
       properties:
         data:
-          "$ref": "#/components/schemas/DeviceCapabilities"
+          "$ref": "#/components/schemas/EndpointDeviceCapabilitiesV1"
       additionalProperties: false
       type: "object"
       required:
         - "data"
       title: "DeviceCapabilitiesEnvelope"
+    DeviceSummaryEnvelope:
+      properties:
+        data:
+          "$ref": "#/components/schemas/EndpointDeviceSummaryV1"
+      additionalProperties: false
+      type: "object"
+      required:
+        - "data"
+      title: "DeviceSummaryEnvelope"
     DiagnosticCollectionParametersV1:
       properties:
         reason:
@@ -2743,47 +2965,42 @@ components:
         - "name"
         - "state"
       title: "DiagnosticProcessV1"
-    EndpointOperationCorrelationV1:
+    EndpointCapabilityAvailabilityV1:
       properties:
-        schema_version:
+        capability:
           type: "string"
-          const: "endpoint_operation_correlation_v1"
-          title: "Schema Version"
-        source_system:
+          const: "context.diagnostic.collect"
+          title: "Capability"
+        available:
+          type: "boolean"
+          title: "Available"
+        transport:
           type: "string"
-          maxLength: 64
-          minLength: 1
-          pattern: "^[a-z][a-z0-9._-]{0,63}$"
-          title: "Source System"
-        source_entity_type:
+          const: "gateway_wss"
+          title: "Transport"
+        risk:
           type: "string"
-          maxLength: 64
-          minLength: 1
-          pattern: "^[a-z][a-z0-9._-]{0,63}$"
-          title: "Source Entity Type"
-        source_entity_id:
+          const: "read_only"
+          title: "Risk"
+        consent_required:
+          type: "boolean"
+          const: false
+          title: "Consent Required"
+        parameter_schema_version:
           type: "string"
-          maxLength: 128
-          minLength: 1
-          pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
-          title: "Source Entity Id"
-        request_id:
-          anyOf:
-            -
-              type: "string"
-              format: "uuid"
-            -
-              type: "null"
-          title: "Request Id"
+          const: "diagnostic_collection_parameters_v1"
+          title: "Parameter Schema Version"
       additionalProperties: false
       type: "object"
       required:
-        - "schema_version"
-        - "source_system"
-        - "source_entity_type"
-        - "source_entity_id"
-      title: "EndpointOperationCorrelationV1"
-      description: "Opaque caller correlation that never reaches the endpoint agent."
+        - "capability"
+        - "available"
+        - "transport"
+        - "risk"
+        - "consent_required"
+        - "parameter_schema_version"
+      title: "EndpointCapabilityAvailabilityV1"
+      description: "One versioned safe capability descriptor for an exact device."
     HTTPValidationError:
       properties:
         detail:
@@ -2792,7 +3009,10 @@ components:
           type: "array"
           title: "Detail"
       type: "object"
+      required:
+        - "detail"
       title: "HTTPValidationError"
+      description: "OpenAPI shape of FastAPI's standard request validation response."
     OperationResponseData:
       properties:
         operation:
@@ -2829,19 +3049,20 @@ components:
               -
                 type: "integer"
           type: "array"
-          title: "Location"
+          title: "Loc"
         msg:
           type: "string"
-          title: "Message"
+          title: "Msg"
         type:
           type: "string"
-          title: "Error Type"
+          title: "Type"
       type: "object"
       required:
         - "loc"
         - "msg"
         - "type"
       title: "ValidationError"
+      description: "OpenAPI shape of FastAPI's standard request validation item."
   securitySchemes:
     AgentBearer:
       type: "http"
