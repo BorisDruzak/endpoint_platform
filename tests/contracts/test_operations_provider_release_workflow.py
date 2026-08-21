@@ -33,3 +33,8 @@ def test_operations_provider_release_workflow_covers_required_gate_surface() -> 
         "endpoint-operations-provider",
     ):
         assert required in workflow
+
+
+def test_ci_requirements_pin_fastapi_to_the_committed_contract_renderer() -> None:
+    requirements = Path("requirements-ci.txt").read_text(encoding="utf-8")
+    assert "fastapi==0.115.6" in requirements
