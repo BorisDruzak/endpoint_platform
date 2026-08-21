@@ -1,0 +1,70 @@
+name: Endpoint Operations provider release gate
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "endpoint_contracts/**"
+      - "endpoint_server/http/**"
+      - "endpoint_server/operations/**"
+      - "endpoint_server/gateway/**"
+      - "contracts/**"
+      - "tools/contracts/**"
+      - "tests/contracts/**"
+      - "tests/operations/**"
+      - "tests/gateway/**"
+      - ".github/workflows/endpoint-operations-provider.yml"
+  push:
+    branches:
+      - main
+    paths:
+      - "endpoint_contracts/**"
+      - "endpoint_server/http/**"
+      - "endpoint_server/operations/**"
+      - "endpoint_server/gateway/**"
+      - "contracts/**"
+      - "tools/contracts/**"
+      - "tests/contracts/**"
+      - "tests/operations/**"
+      - "tests/gateway/**"
+      - ".github/workflows/endpoint-operations-provider.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  provider-release-gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install CI dependencies
+        run: python -m pip install -r requirements-ci.txt
+
+      - name: Run provider contract, operations, and Gateway suites
+        run: >-
+          python -m pytest tests/contracts tests/operations tests/gateway -q
+          --junitxml=artifacts/endpoint-operations-provider.xml
+
+      - name: Check generated contract artifacts
+        run: python tools/contracts/generate_contract_artifacts.py --check
+
+      - name: Compile provider and headless-agent modules
+        run: python -m compileall -q endpoint_contracts endpoint_server pc_agent
+
+      - name: Check for whitespace errors
+        run: git diff --check
+
+      - name: Upload provider release-gate evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: endpoint-operations-provider
+          path: artifacts/endpoint-operations-provider.xml
+          if-no-files-found: error
