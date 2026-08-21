@@ -25,7 +25,7 @@ from endpoint_server.provisioning.admin_routes import (
 )
 from endpoint_server.health.routes import router as health_router
 from endpoint_server.http.correlation import (
-    is_operation_api_path,
+    is_operation_api_request,
     is_safe_correlation_id,
 )
 from endpoint_server.operations.routes import router as operations_router
@@ -82,7 +82,7 @@ def create_app(
         """Keep the service tracing header out of JSON success and error bodies."""
         correlation_id = request.headers.get("X-Correlation-ID")
         if (
-            is_operation_api_path(request.url.path)
+            is_operation_api_request(request.method, request.url.path)
             and correlation_id is not None
             and not is_safe_correlation_id(correlation_id)
         ):
@@ -93,7 +93,7 @@ def create_app(
 
         response = await call_next(request)
         if (
-            is_operation_api_path(request.url.path)
+            is_operation_api_request(request.method, request.url.path)
             and correlation_id is not None
             and is_safe_correlation_id(correlation_id)
         ):

@@ -120,3 +120,19 @@ dispatch occurred.
 
 No production deployment, migration, credential change, process restart, or
 agent rollout is part of this contract work.
+
+## Provider release-gate evidence
+
+The provider correlation middleware applies only to the four routes in the
+required route table, matched by HTTP method and exact path shape. It does not
+apply the Operations API correlation policy to other device routes, including
+network-identity, context, or update surfaces. Router UUID validation remains
+the route-layer responsibility.
+
+`endpoint-operations-provider.yml` verifies this provider surface on pull
+requests to `main`, pushes to `main`, and manual dispatches. For a relevant
+change it runs the contracts, operations, and Gateway suites; checks generated
+contract artifacts; compiles the provider and agent packages; and checks the
+Git diff. The workflow uploads JUnit XML as the
+`endpoint-operations-provider` artifact. It uses no production credential,
+configuration, deployment, or agent rollout.

@@ -33,6 +33,7 @@ from endpoint_server.db.models import (
     ServiceClient,
     ServiceCredential,
 )
+from endpoint_server.http import correlation
 from endpoint_server.main import create_app
 from endpoint_server.operations.projection import project_diagnostic_result
 from pc_agent.context_profiles.diagnostic import collect_diagnostic
@@ -45,6 +46,42 @@ CREATE_BODY = {
     "parameters": {"reason": "Collect bounded diagnostic context"},
 }
 IDEMPOTENCY_KEY = "operation-route-key-0001"
+
+
+@pytest.mark.parametrize(
+    ("method", "path"),
+    (
+        ("GET", "/api/v1/devices/one-segment"),
+        ("GET", "/api/v1/devices/one-segment/capabilities"),
+        ("POST", "/api/v1/devices/one-segment/operations"),
+        ("GET", "/api/v1/operations/one-segment"),
+    ),
+)
+def test_operation_api_request_recognizes_only_contract_route_shapes(
+    method: str,
+    path: str,
+) -> None:
+    assert correlation.is_operation_api_request(method, path)
+
+
+@pytest.mark.parametrize(
+    ("method", "path"),
+    (
+        ("POST", "/api/v1/devices/one-segment"),
+        ("GET", "/api/v1/devices/one-segment/operations"),
+        ("POST", "/api/v1/operations/one-segment"),
+        ("GET", "/api/v1/devices"),
+        ("GET", "/api/v1/devices/network-identities"),
+        ("GET", "/api/v1/devices/one-segment/context"),
+        ("GET", "/api/v1/devices/one-segment/context/history"),
+        ("GET", "/api/v1/devices/one-segment/updates"),
+    ),
+)
+def test_operation_api_request_excludes_unrelated_or_wrong_method_paths(
+    method: str,
+    path: str,
+) -> None:
+    assert not correlation.is_operation_api_request(method, path)
 
 
 def _settings(*, enabled: bool) -> Settings:
@@ -520,6 +557,26 @@ async def test_invalid_correlation_is_rejected_without_reflection(
         )
 
     assert response.status_code == 422
+    assert "X-Correlation-ID" not in response.headers
+    assert unsafe_correlation not in response.text
+
+
+@pytest.mark.asyncio
+async def test_operation_correlation_middleware_does_not_intercept_unrelated_route(
+    route_fixture: RouteFixture,
+) -> None:
+    """The Operations-only policy must not alter another device API response."""
+    unsafe_correlation = "helpdesk/ticket-42"
+    async with _client(route_fixture) as client:
+        response = await client.get(
+            "/api/v1/devices/network-identities",
+            headers={
+                **_authorization("devices-reader"),
+                "X-Correlation-ID": unsafe_correlation,
+            },
+        )
+
+    assert response.status_code != 422
     assert "X-Correlation-ID" not in response.headers
     assert unsafe_correlation not in response.text
 
