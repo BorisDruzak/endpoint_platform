@@ -14,11 +14,63 @@ if __package__ in {None, ""} and not getattr(sys, "frozen", False):
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from pc_agent.core import runtime_paths
+from pc_agent.linux_enrollment_runtime import (
+    configured_endpoint_origin,
+    derive_linux_hardware_fingerprint,
+    run_linux_enrollment_gate,
+    systemd_runtime_paths,
+)
 from pc_agent.runtime.application import RuntimeSettings, run_runtime
 from pc_agent.runtime.verification import run_verify
 from pc_agent.version import AGENT_VERSION
 
 __all__ = ["RuntimeSettings", "run_runtime", "run_verify"]
+
+
+def _log_enrollment_refusal(reason: str) -> None:
+    """Emit only a bounded, credential-free first-boot refusal reason."""
+    print(f"endpoint-agent enrollment refused: reason={reason}", file=sys.stderr)
+
+
+async def _run_runtime_after_first_boot_enrollment(settings: RuntimeSettings) -> int:
+    """Exchange the fixed systemd claim before starting the Gateway runtime."""
+    if os.environ.get("ENDPOINT_AGENT_ENROLLMENT_REQUIRED", "") != "1":
+        return await run_runtime(settings)
+    try:
+        paths = systemd_runtime_paths()
+    except ValueError:
+        _log_enrollment_refusal("invalid_runtime_paths")
+        return 75
+    if paths is None:
+        _log_enrollment_refusal("credentials_missing")
+        return 75
+    config_path, ca_file, claim_file = paths
+    try:
+        outcome = await run_linux_enrollment_gate(
+            config_path=config_path,
+            ca_file=ca_file,
+            claim_file=claim_file,
+        )
+    except (OSError, ValueError):
+        _log_enrollment_refusal("runtime_input_error")
+        return 75
+    if outcome.status not in {"enrolled", "already_enrolled", "handoff_pending"}:
+        _log_enrollment_refusal(outcome.status)
+        return 75
+    return await run_runtime(settings)
+
+
+def _service_endpoint_origin(value: str) -> str:
+    """Validate the runtime origin whenever the ALT service contract is active."""
+    if not (
+        os.environ.get("ENDPOINT_AGENT_ENROLLMENT_REQUIRED", "") == "1"
+        or os.environ.get("ENDPOINT_AGENT_GATEWAY_READY", "") == "1"
+    ):
+        return value
+    expected = configured_endpoint_origin()
+    if value != expected:
+        raise ValueError("Endpoint agent service origin does not match deployment allowlist")
+    return expected
 
 
 async def _wait_for_service_host_pipe() -> bytes:
@@ -116,6 +168,7 @@ def _parser() -> argparse.ArgumentParser:
     modes.add_argument("--verify", action="store_true")
     modes.add_argument("--print-safe-status", action="store_true")
     modes.add_argument("--print-version", action="store_true")
+    modes.add_argument("--print-hardware-fingerprint", action="store_true")
     return parser
 
 
@@ -123,6 +176,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     if args.print_version:
         print(AGENT_VERSION)
+        return 0
+    if args.print_hardware_fingerprint:
+        print(derive_linux_hardware_fingerprint())
         return 0
     ca_value = args.ca_file or os.environ.get("ENDPOINT_AGENT_CA_FILE", "")
     if not str(ca_value).strip() and not (
@@ -142,11 +198,16 @@ def main(argv: Sequence[str] | None = None) -> int:
         from pc_agent.platform.windows.updater_service import run_windows_updater_service
 
         return run_windows_updater_service()
+    try:
+        endpoint_origin = _service_endpoint_origin(args.endpoint_origin)
+    except ValueError:
+        _log_enrollment_refusal("invalid_service_origin")
+        return 75
     settings = RuntimeSettings(
         data_root=runtime_paths.resolve_data_root(cli_value=args.data_dir),
         install_root=runtime_paths.resolve_install_root(cli_value=args.install_root),
         ca_file=Path(ca_value),
-        endpoint_origin=args.endpoint_origin,
+        endpoint_origin=endpoint_origin,
         transport_mode=args.transport_mode,
         migration_http_pull_fallback=args.migration_http_pull_fallback,
     )
@@ -162,7 +223,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         from pc_agent.platform.windows.service import print_safe_status
 
         return print_safe_status(settings)
-    return asyncio.run(run_runtime(settings))
+    return asyncio.run(_run_runtime_after_first_boot_enrollment(settings))
 
 
 if __name__ == "__main__":

@@ -115,6 +115,9 @@
   are present; incomplete or renamed input fails closed. Its hidden
   `--print-hardware-fingerprint` mode writes only the canonical SHA-256 proof
   for a root-side controller and does not start the agent.
+- Its gateway allowlist remains production by default.  The only staging origin
+  is `https://endpoint-staging.sosnadmin.local`, accepted only when all three
+  explicit unit markers select and approve the staging canary.
 - `pc_agent/enrollment_bootstrap.py` performs the one-time Endpoint Platform
   install claim when that runtime boundary explicitly calls
   `bootstrap_enrollment(credentials_dir, config, probe)`; importing either

@@ -62,6 +62,13 @@ or alternate-store credentials, those sources are not inspectable by
 `ExecCondition=` on the target systemd and therefore do not satisfy the package
 precondition on their own. Provision the documented fixed source instead.
 
+For the approved staging canary only, a root-owned service drop-in must set
+`ENDPOINT_AGENT_DEPLOYMENT_ENVIRONMENT=staging`,
+`CANARY_ENVIRONMENT=staging`, `CANARY_APPROVED=true`, and the exact
+`ENDPOINT_AGENT_ORIGIN=https://endpoint-staging.sosnadmin.local`. The frozen
+runtime rejects that staging origin unless all three markers are present; the
+default remains the production Endpoint origin.
+
 After enrollment has produced and verified both the permanent credential and
 canonical enrollment identity, remove the one-time claim and restart. An already
 finalized installation therefore upgrades without restoring a mandatory claim

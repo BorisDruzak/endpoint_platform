@@ -9,14 +9,16 @@ from pc_agent.enrollment_bootstrap import EnrollmentOutcome
 import pc_agent.linux_enrollment_runtime as runtime
 
 
-def _write_runtime_inputs(tmp_path: Path) -> tuple[Path, Path]:
+def _write_runtime_inputs(
+    tmp_path: Path, *, endpoint: str = "https://endpoint.sosnadmin.local"
+) -> tuple[Path, Path]:
     credentials = tmp_path / "credentials"
     credentials.mkdir()
     config = credentials / "endpoint-agent-config"
     config.write_text(
-        """schema_version: 1
+        f"""schema_version: 1
 gateway:
-  endpoint: https://endpoint.sosnadmin.local
+  endpoint: {endpoint}
   ca_file: /etc/endpoint-agent/ca.crt
 provisioning:
   installation_id: alt-test-agent-001
@@ -62,6 +64,58 @@ def test_load_config_rejects_credential_paths_from_different_directories(
         runtime.load_linux_bootstrap_config(
             config_path=config,
             ca_file=ca_file,
+            claim_file=credentials / "endpoint-enrollment-claim",
+            uid=0,
+            gid=0,
+        )
+
+
+def test_load_config_accepts_the_exact_staging_origin_only_with_canary_markers(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    config, credentials = _write_runtime_inputs(
+        tmp_path, endpoint="https://endpoint-staging.sosnadmin.local"
+    )
+    monkeypatch.setenv("ENDPOINT_AGENT_DEPLOYMENT_ENVIRONMENT", "staging")
+    monkeypatch.setenv("CANARY_ENVIRONMENT", "staging")
+    monkeypatch.setenv("CANARY_APPROVED", "true")
+
+    loaded = runtime.load_linux_bootstrap_config(
+        config_path=config,
+        ca_file=credentials / "endpoint-agent-ca",
+        claim_file=credentials / "endpoint-enrollment-claim",
+        uid=0,
+        gid=0,
+    )
+
+    assert loaded.endpoint_url == "https://endpoint-staging.sosnadmin.local"
+
+
+@pytest.mark.parametrize(
+    "markers",
+    (
+        {},
+        {"ENDPOINT_AGENT_DEPLOYMENT_ENVIRONMENT": "staging"},
+        {
+            "ENDPOINT_AGENT_DEPLOYMENT_ENVIRONMENT": "staging",
+            "CANARY_ENVIRONMENT": "staging",
+            "CANARY_APPROVED": "false",
+        },
+    ),
+)
+def test_load_config_rejects_staging_origin_without_exact_canary_markers(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, markers: dict[str, str]
+) -> None:
+    config, credentials = _write_runtime_inputs(
+        tmp_path, endpoint="https://endpoint-staging.sosnadmin.local"
+    )
+    for name, value in markers.items():
+        monkeypatch.setenv(name, value)
+
+    with pytest.raises(ValueError, match="configured HTTPS|staging"):
+        runtime.load_linux_bootstrap_config(
+            config_path=config,
+            ca_file=credentials / "endpoint-agent-ca",
             claim_file=credentials / "endpoint-enrollment-claim",
             uid=0,
             gid=0,
