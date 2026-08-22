@@ -124,6 +124,48 @@ def test_from_environment_rejects_non_production_https_public_url(
         Settings.from_environment(environment)
 
 
+def test_from_environment_accepts_exact_staging_origin_only_with_canary_markers(
+    tmp_path: Path,
+) -> None:
+    environment = _environment(tmp_path)
+    environment.update(
+        {
+            "PUBLIC_BASE_URL": "https://endpoint-staging.sosnadmin.local",
+            "ENDPOINT_DEPLOYMENT_ENVIRONMENT": "staging",
+            "CANARY_ENVIRONMENT": "staging",
+            "CANARY_APPROVED": "true",
+        }
+    )
+
+    settings = Settings.from_environment(environment)
+
+    assert settings.public_base_url == "https://endpoint-staging.sosnadmin.local"
+
+
+@pytest.mark.parametrize(
+    "marker_overrides",
+    [
+        {},
+        {"CANARY_APPROVED": "false"},
+        {"CANARY_ENVIRONMENT": "production", "CANARY_APPROVED": "true"},
+    ],
+)
+def test_from_environment_rejects_staging_origin_without_exact_canary_markers(
+    tmp_path: Path, marker_overrides: dict[str, str]
+) -> None:
+    environment = _environment(tmp_path)
+    environment.update(
+        {
+            "PUBLIC_BASE_URL": "https://endpoint-staging.sosnadmin.local",
+            "ENDPOINT_DEPLOYMENT_ENVIRONMENT": "staging",
+        }
+    )
+    environment.update(marker_overrides)
+
+    with pytest.raises(ValueError, match="staging"):
+        Settings.from_environment(environment)
+
+
 @pytest.mark.parametrize(
     "variable",
     [

@@ -15,6 +15,7 @@ from urllib.parse import urlsplit
 Network: TypeAlias = ipaddress.IPv4Network | ipaddress.IPv6Network
 
 _PRODUCTION_PUBLIC_HOST = "endpoint.sosnadmin.local"
+_STAGING_PUBLIC_HOST = "endpoint-staging.sosnadmin.local"
 _SECRET_MODE_MASK = stat.S_IRGRP | stat.S_IROTH
 
 
@@ -61,12 +62,12 @@ def load_secret_file(path: Path) -> bytes:
     return secret
 
 
-def _parse_public_base_url(value: str) -> str:
+def _parse_public_base_url(value: str, *, expected_host: str) -> str:
     try:
         parsed = urlsplit(value)
         valid = (
             parsed.scheme == "https"
-            and parsed.hostname == _PRODUCTION_PUBLIC_HOST
+            and parsed.hostname == expected_host
             and parsed.port in (None, 443)
             and not parsed.username
             and not parsed.password
@@ -79,9 +80,23 @@ def _parse_public_base_url(value: str) -> str:
 
     if not valid:
         raise ValueError(
-            f"PUBLIC_BASE_URL must be the HTTPS origin for {_PRODUCTION_PUBLIC_HOST}"
+            f"PUBLIC_BASE_URL must be the HTTPS origin for {expected_host}"
         )
-    return f"https://{_PRODUCTION_PUBLIC_HOST}"
+    return f"https://{expected_host}"
+
+
+def _public_host_for_environment(values: Mapping[str, str]) -> str:
+    """Keep production pinned while permitting one explicitly marked staging host."""
+    environment = values.get("ENDPOINT_DEPLOYMENT_ENVIRONMENT", "production").strip().lower()
+    if environment == "production":
+        return _PRODUCTION_PUBLIC_HOST
+    if environment != "staging":
+        raise ValueError("ENDPOINT_DEPLOYMENT_ENVIRONMENT must be production or staging")
+    if values.get("CANARY_ENVIRONMENT", "").strip().lower() != "staging":
+        raise ValueError("staging deployment requires CANARY_ENVIRONMENT=staging")
+    if values.get("CANARY_APPROVED", "").strip().lower() != "true":
+        raise ValueError("staging deployment requires CANARY_APPROVED=true")
+    return _STAGING_PUBLIC_HOST
 
 
 def _parse_cidrs(name: str, value: str) -> tuple[Network, ...]:
@@ -125,7 +140,8 @@ class Settings:
         )
         database_url = _require_setting("DATABASE_URL", values)
         public_base_url = _parse_public_base_url(
-            _require_setting("PUBLIC_BASE_URL", values)
+            _require_setting("PUBLIC_BASE_URL", values),
+            expected_host=_public_host_for_environment(values),
         )
         device_token_pepper = load_secret_file(
             Path(_require_setting("DEVICE_TOKEN_PEPPER_FILE", values))

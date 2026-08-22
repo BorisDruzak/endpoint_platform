@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import logging
+import time
 from collections.abc import Awaitable, Callable, Iterable
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -27,6 +29,9 @@ from pc_agent.transport.protocol import GatewayInboundV1, compatibility_agent_he
 from pc_agent.version import EXIT_UPDATE_PENDING
 
 from .status import RuntimePhase, RuntimeStatus
+
+
+logger = logging.getLogger(__name__)
 
 
 CredentialRejected = GatewayCredentialRejected
@@ -294,5 +299,36 @@ async def _handle_inbound(
         acknowledged_at=datetime.now(UTC),
     )
     await transport.send_ack(ack)
+    started_at = time.monotonic()
     result = await executor.execute(command)
+    emit_command_completed_marker(
+        command,
+        result,
+        duration_ms=max(0, int((time.monotonic() - started_at) * 1000)),
+    )
     await transport.send_result(result)
+
+
+def emit_command_completed_marker(
+    command: AgentCommandV1,
+    result: AgentResultV1,
+    *,
+    duration_ms: int,
+) -> None:
+    """Emit the bounded local proof required for a real agent canary.
+
+    The marker deliberately excludes command parameters and result content.  It
+    is emitted before transport delivery, so a later network failure cannot
+    erase the fact that the installed runtime executed the typed capability.
+    """
+    logger.info(
+        "endpoint_agent_command_completed",
+        extra={
+            "command_id": str(command.command_id),
+            "capability": command.capability,
+            "status": result.status,
+            "duration_ms": duration_ms,
+            "result_item_count": len(result.result_items),
+            "timestamp": result.completed_at.isoformat(),
+        },
+    )
