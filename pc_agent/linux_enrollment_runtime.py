@@ -22,6 +22,7 @@ from pc_agent.enrollment_bootstrap import (
 
 
 PRODUCTION_ENDPOINT_ORIGIN = "https://endpoint.sosnadmin.local"
+STAGING_ENDPOINT_ORIGIN = "https://endpoint-staging.sosnadmin.local"
 SYSTEMD_CONFIG_CREDENTIAL_NAME = "endpoint-agent-config"
 SYSTEMD_CA_CREDENTIAL_NAME = "endpoint-agent-ca"
 _CONFIGURED_CA_PATH = "/etc/endpoint-agent/ca.crt"
@@ -39,6 +40,23 @@ def _text(value: object, *, name: str) -> str:
     if not isinstance(value, str) or not value:
         raise ValueError(f"{name} must be a non-empty string")
     return value
+
+
+def configured_endpoint_origin(
+    environment: Mapping[str, str] | None = None,
+) -> str:
+    """Return the sole allowed origin for the explicitly selected deployment."""
+    values = os.environ if environment is None else environment
+    deployment = values.get("ENDPOINT_AGENT_DEPLOYMENT_ENVIRONMENT", "production").strip().lower()
+    if deployment == "production":
+        return PRODUCTION_ENDPOINT_ORIGIN
+    if deployment != "staging":
+        raise ValueError("ENDPOINT_AGENT_DEPLOYMENT_ENVIRONMENT must be production or staging")
+    if values.get("CANARY_ENVIRONMENT", "").strip().lower() != "staging":
+        raise ValueError("staging agent requires CANARY_ENVIRONMENT=staging")
+    if values.get("CANARY_APPROVED", "").strip().lower() != "true":
+        raise ValueError("staging agent requires CANARY_APPROVED=true")
+    return STAGING_ENDPOINT_ORIGIN
 
 
 def _credentials_directory(
@@ -71,7 +89,7 @@ def load_linux_bootstrap_config(
     gateway = _mapping(root.get("gateway"), name="gateway")
     provisioning = _mapping(root.get("provisioning"), name="provisioning")
     endpoint_url = _text(gateway.get("endpoint"), name="gateway.endpoint")
-    if endpoint_url != PRODUCTION_ENDPOINT_ORIGIN:
+    if endpoint_url != configured_endpoint_origin():
         raise ValueError("gateway.endpoint must be the configured HTTPS origin")
     if gateway.get("ca_file") != _CONFIGURED_CA_PATH:
         raise ValueError("gateway.ca_file must be the fixed installed CA path")
@@ -151,6 +169,8 @@ async def run_linux_enrollment_gate(
 
 __all__ = [
     "PRODUCTION_ENDPOINT_ORIGIN",
+    "STAGING_ENDPOINT_ORIGIN",
+    "configured_endpoint_origin",
     "derive_linux_hardware_fingerprint",
     "load_linux_bootstrap_config",
     "run_linux_enrollment_gate",

@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
+import subprocess
+import sys
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
@@ -13,6 +16,7 @@ import aiohttp
 import pytest
 
 from endpoint_contracts import AgentCommandV1, GatewayHelloV1
+from pc_agent.enrollment_bootstrap import EnrollmentOutcome
 from pc_agent import endpoint_gateway
 from pc_agent.runtime import application as runtime_application
 from pc_agent.runtime import main as runtime_main
@@ -46,6 +50,99 @@ def test_headless_runtime_prints_its_compiled_version_without_runtime_inputs(
     """RPM assembly must be able to query the frozen core before publishing it."""
     assert runtime_main.main(["--print-version"]) == 0
     assert capsys.readouterr().out.strip() == AGENT_VERSION
+
+
+def test_headless_runtime_prints_one_canonical_hardware_fingerprint_without_runtime_inputs(
+) -> None:
+    """The RPM claim controller must query the frozen core before any network work."""
+    completed = subprocess.run(
+        [sys.executable, "-m", "pc_agent.runtime.main", "--print-hardware-fingerprint"],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode == 0
+    assert re.fullmatch(r"sha256:[0-9a-f]{64}\n?", completed.stdout)
+    assert completed.stderr == ""
+
+
+def test_headless_runtime_defines_a_first_boot_enrollment_boundary() -> None:
+    """The RPM entrypoint must gate first start before the Gateway runtime."""
+    assert hasattr(runtime_main, "_run_runtime_after_first_boot_enrollment")
+
+
+@pytest.mark.asyncio
+async def test_headless_runtime_exchanges_systemd_claim_before_gateway_start(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """No Gateway component may start until the first-boot exchange is accepted."""
+    events: list[str] = []
+    settings = _settings(tmp_path)
+    paths = (Path("/run/config"), Path("/run/ca"), Path("/run/claim"))
+    monkeypatch.setenv("ENDPOINT_AGENT_ENROLLMENT_REQUIRED", "1")
+    monkeypatch.setattr(runtime_main, "systemd_runtime_paths", lambda: paths)
+
+    async def enroll(**kwargs: object) -> EnrollmentOutcome:
+        assert kwargs == {
+            "config_path": paths[0],
+            "ca_file": paths[1],
+            "claim_file": paths[2],
+        }
+        events.append("enroll")
+        return EnrollmentOutcome("already_enrolled", "device-1")
+
+    async def start_gateway(observed: RuntimeSettings) -> int:
+        assert observed is settings
+        events.append("gateway")
+        return 0
+
+    monkeypatch.setattr(runtime_main, "run_linux_enrollment_gate", enroll)
+    monkeypatch.setattr(runtime_main, "run_runtime", start_gateway)
+
+    assert await runtime_main._run_runtime_after_first_boot_enrollment(settings) == 0
+    assert events == ["enroll", "gateway"]
+
+
+def test_headless_runtime_rejects_unapproved_staging_origin_before_gateway_start(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A unit override alone must not redirect a production agent to staging."""
+    settings: list[RuntimeSettings] = []
+    monkeypatch.setenv("ENDPOINT_AGENT_GATEWAY_READY", "1")
+    monkeypatch.setenv("ENDPOINT_AGENT_ORIGIN", "https://endpoint-staging.sosnadmin.local")
+
+    async def forbidden_gateway(observed: RuntimeSettings) -> int:
+        settings.append(observed)
+        return 0
+
+    monkeypatch.setattr(runtime_main, "run_runtime", forbidden_gateway)
+
+    assert runtime_main.main(["--ca-file", str(tmp_path / "ca.crt")]) == 75
+    assert settings == []
+
+
+def test_headless_runtime_accepts_explicitly_approved_staging_origin(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The only staging path is the marker-bound canary origin."""
+    settings: list[RuntimeSettings] = []
+    monkeypatch.setenv("ENDPOINT_AGENT_GATEWAY_READY", "1")
+    monkeypatch.setenv("ENDPOINT_AGENT_ORIGIN", "https://endpoint-staging.sosnadmin.local")
+    monkeypatch.setenv("ENDPOINT_AGENT_DEPLOYMENT_ENVIRONMENT", "staging")
+    monkeypatch.setenv("CANARY_ENVIRONMENT", "staging")
+    monkeypatch.setenv("CANARY_APPROVED", "true")
+
+    async def gateway(observed: RuntimeSettings) -> int:
+        settings.append(observed)
+        return 0
+
+    monkeypatch.setattr(runtime_main, "run_runtime", gateway)
+
+    assert runtime_main.main(["--ca-file", str(tmp_path / "ca.crt")]) == 0
+    assert [item.endpoint_origin for item in settings] == [
+        "https://endpoint-staging.sosnadmin.local"
+    ]
 
 
 class _Executor:
