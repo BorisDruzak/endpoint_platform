@@ -7,12 +7,15 @@ from datetime import datetime, timezone
 import re
 
 from endpoint_contracts.context import DeviceContextDiagnosticV1
+from endpoint_contracts.json_types import MAX_JSON_LIST_ITEMS
 
 from .probe import JOURNAL_COMMAND, PROCESS_COMMAND
 from .stable_keys import bounded_text
 
 
-DIAGNOSTIC_PROCESS_LIMIT = 64
+# Context envelopes travel inside AgentResultV1, whose bounded JSON list contract
+# is the narrowest allowed representation for process entries.
+DIAGNOSTIC_PROCESS_LIMIT = MAX_JSON_LIST_ITEMS
 DIAGNOSTIC_LOG_BYTES = 8192
 _SENSITIVE_ASSIGNMENT = re.compile(
     r"(?i)\b(password|passphrase|token|secret|api[_-]?key|cookie)\s*([:=])\s*[^\s,;]+"

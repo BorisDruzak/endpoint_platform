@@ -42,6 +42,21 @@ def test_context_command_serializes_exactly_one_validated_envelope(fake_probe) -
     assert result.result_items[0]["collected_at"] == "2026-07-29T12:00:00Z"
 
 
+def test_diagnostic_processes_are_bounded_for_agent_result_transport(fake_probe) -> None:
+    """Manual diagnostics must stay within the generic result JSON list bound."""
+    fake_probe.outputs[("ps", "-eo", "comm=,stat=")] = "worker S\n" * 33
+
+    result = execute_context_agent_command(
+        _command("context.diagnostic.collect", {"reason": "operator check"}),
+        probe=fake_probe,
+        completed_at=FIXED_TIME,
+    )
+
+    assert result.status == "succeeded"
+    assert len(result.result_items[0]["sections"]["processes"]) == 32
+    assert "data_truncated" in result.result_items[0]["warnings"]
+
+
 def test_context_command_maps_collector_timeout_to_failed_result(fake_probe, monkeypatch) -> None:
     """An uncaught collection timeout must be terminally reported without a partial payload."""
     from pc_agent.context_profiles import command_execution
