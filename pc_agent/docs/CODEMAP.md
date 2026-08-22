@@ -179,6 +179,11 @@
 - `pc_agent/context_profiles/` owns bounded, read-only ALT profile collectors
   and `SystemProbe`; it never receives an arbitrary module, method, shell
   command or network target from a caller.
+- `pc_agent/runtime/lifecycle.py` emits the bounded
+  `endpoint_agent_command_completed` marker after the fixed executor returns
+  and before the Gateway result is sent. It contains only command ID,
+  capability, status, duration, result-item count and timestamp; command
+  parameters and raw results are never logged.
 - `pc_agent/core/registry.py` and `pc_agent/core/orchestrator.py` expose only
   `context.baseline.collect`, `context.health.collect`,
   `context.network.collect`, and `context.diagnostic.collect`. Every success
