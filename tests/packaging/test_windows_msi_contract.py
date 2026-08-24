@@ -328,6 +328,7 @@ def test_approved_runtime_transition_migrates_selector_before_service_start() ->
     assert {item.get("Name"): item.get("Value") for item in registry_values} == {
         "Approved": "$(var.InitialRuntimeTransitionApproved)",
         "FromVersion": "$(var.BaselineInitialRuntimeVersion)",
+        "SourceRevision": "$(var.SourceRevision)",
         "ToVersion": "$(var.InitialRuntimeVersion)",
     }
 

@@ -445,6 +445,7 @@ $wixArguments = @(
     "-d", "InitialRuntimeComponentGuid=$InitialRuntimeComponentGuid",
     "-d", "InitialRuntimeTransitionApproved=$InitialRuntimeTransitionApproved",
     "-d", "BaselineInitialRuntimeVersion=$BaselineInitialRuntimeVersion",
+    "-d", "SourceRevision=$sourceRevision",
     "-d", "PackageVersion=$Version", '-out', $msiPath
 ) + $wixSources
 Invoke-Checked $wixCommand.Source $wixArguments $repositoryRoot

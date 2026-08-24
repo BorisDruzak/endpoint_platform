@@ -236,9 +236,43 @@ def _transition_contract(path: Path, *, previous: str, new: str) -> Path:
         "approved": True,
         "from_version": previous,
         "schema_version": 1,
+        "source_revision": "a" * 40,
         "to_version": new,
     }), encoding="utf-8")
     return contract
+
+
+def _provenance_transition_contract(path: Path, *, previous: str, new: str) -> Path:
+    contract = path / "initial-runtime-transition-provenance.json"
+    contract.write_text(json.dumps({
+        "approved": True,
+        "from_version": previous,
+        "schema_version": 1,
+        "source_revision": "b" * 40,
+        "to_version": new,
+    }), encoding="utf-8")
+    return contract
+
+
+def test_approved_transition_seals_a_legacy_selector_with_candidate_revision(
+    tmp_path: Path,
+) -> None:
+    """A normal MSI upgrade must not turn its selected runtime into legacy state."""
+    from pc_agent.platform.windows.selector_migration import migrate_initial_selector
+
+    paths = _paths(tmp_path)
+    paths.current_path.write_text('{"version":"3.1.76"}', encoding="utf-8")
+
+    assert migrate_initial_selector(
+        paths, _provenance_transition_contract(
+            tmp_path, previous="3.1.76", new="3.1.77"
+        )
+    ) == "migrated"
+    assert json.loads(paths.current_path.read_text(encoding="utf-8")) == {
+        "schema_version": 1,
+        "source_revision": "b" * 40,
+        "version": "3.1.77",
+    }
 
 
 def test_approved_transition_atomically_migrates_old_initial_selector(
@@ -256,6 +290,8 @@ def test_approved_transition_atomically_migrates_old_initial_selector(
 
     assert outcome == "migrated"
     assert json.loads(paths.current_path.read_text(encoding="utf-8")) == {
+        "schema_version": 1,
+        "source_revision": "a" * 40,
         "version": "3.1.77"
     }
     assert not list(paths.install_root.glob(".current.json.*.tmp"))
@@ -356,6 +392,8 @@ def test_approved_transition_replaces_an_old_msi_owned_selector(
 
     assert outcome == "migrated_msi_owned"
     assert json.loads(paths.current_path.read_text(encoding="utf-8")) == {
+        "schema_version": 1,
+        "source_revision": "a" * 40,
         "version": "3.1.77"
     }
 
