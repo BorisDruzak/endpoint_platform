@@ -14,7 +14,7 @@ packaged bytes. From the repository root:
 
 ```powershell
 .\packaging\windows\build-msi.ps1 -Configuration Release -Platform x64 `
-  -InitialRuntimeManifest .\packaging\windows\initial-runtime-3.2.19.json `
+  -InitialRuntimeManifest .\packaging\windows\initial-runtime-3.2.20.json `
   -ApproveInitialRuntimeTransition -ApproveInitialRuntimeSourceChange
 ```
 
@@ -27,7 +27,7 @@ and paths inside the repository are rejected. The build has no parameter for
 enrollment or device material and does not read such input.
 
 The checked-in `initial-runtime.json` remains the immutable `3.1.76` baseline.
-The reviewed `initial-runtime-3.2.19.json` transition pins the Windows Device
+The reviewed `initial-runtime-3.2.20.json` transition pins the Windows Device
 Context and WSS update runtime with a new component GUID and must be built with both explicit
 approval switches shown above. Each manifest pins its runtime version,
 component GUID, canonical-LF source-file hashes, complete staged artifact tree identity,
@@ -56,7 +56,8 @@ with a partial service installation.
 - `EndpointAgentUpdater` runs as `LocalSystem` and is demand-start only.
 - Both registrations enable unrestricted per-service SIDs. Their fixed
   `endpoint-agent-service.exe` SCM binary resolves the strict `current.json`
-  selector on every agent-service start, so apply and rollback select the
+  selector on every agent-service start and retains the protected provisioned
+  Endpoint origin, so apply and rollback select the
   corresponding immutable runtime.
 - Program Files inherits the standard administrator-only write policy; the
   installer adds no ordinary-user write ACL.
