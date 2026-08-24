@@ -7,7 +7,7 @@
       "hardware": {"manufacturer": "Example Systems", "model": "Example Workstation", "cpu_model": "Example CPU", "memory_bytes": 17179869184},
       "storage": [{"stable_key": "serial-a1b2c3d4", "model": "Windows volume", "size_bytes": 512110190592}],
       "interfaces": [{"stable_key": "mac-001122334455", "name": "Ethernet", "link_type": "ethernet"}],
-      "software": [{"name": "endpoint-agent", "version": "3.2.16", "source": "installer"}]
+      "software": [{"name": "endpoint-agent", "version": "3.2.17", "source": "installer"}]
     },
     "warnings": []
   },

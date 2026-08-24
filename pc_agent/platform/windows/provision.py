@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import ipaddress
+import json
 import os
 import re
 import secrets
@@ -286,16 +287,50 @@ def _flush_directory(path: Path) -> None:
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="endpoint-agent-provision.exe")
-    parser.add_argument("--endpoint-origin", required=True)
-    parser.add_argument("--ca-file", required=True)
-    parser.add_argument("--data-dir", required=True)
-    parser.add_argument("--installation-id", required=True)
+    parser.add_argument("--print-safe-fingerprint", action="store_true")
+    parser.add_argument("--endpoint-origin")
+    parser.add_argument("--ca-file")
+    parser.add_argument("--data-dir")
+    parser.add_argument("--installation-id")
     parser.add_argument("--material-file")
     return parser
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    args = _parser().parse_args(argv)
+    parser = _parser()
+    args = parser.parse_args(argv)
+    if args.print_safe_fingerprint:
+        if any(
+            value is not None
+            for value in (
+                args.endpoint_origin,
+                args.ca_file,
+                args.data_dir,
+                args.installation_id,
+                args.material_file,
+            )
+        ):
+            parser.error("--print-safe-fingerprint cannot be combined with provisioning options")
+        print(
+            json.dumps(
+                {"hardware_fingerprint": _derive_hardware_fingerprint(collect_device_fingerprint)},
+                separators=(",", ":"),
+            )
+        )
+        return 0
+
+    if any(
+        value is None
+        for value in (
+            args.endpoint_origin,
+            args.ca_file,
+            args.data_dir,
+            args.installation_id,
+        )
+    ):
+        parser.error(
+            "provisioning requires --endpoint-origin, --ca-file, --data-dir, and --installation-id"
+        )
     request = ProvisioningRequest(
         endpoint_origin=args.endpoint_origin,
         ca_file=Path(args.ca_file),
