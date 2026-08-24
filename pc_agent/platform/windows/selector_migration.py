@@ -136,6 +136,8 @@ def _migrate_versions(
         return "migrated"
     if _is_msi_owned_runtime(paths, selected):
         _write_rollback_snapshot(paths, selected)
+        if selected == candidate and "source_revision" in current:
+            return "migrated_msi_owned"
         _write_selector_atomic(paths.current_path, candidate)
         return "migrated_msi_owned"
     _validate_runtime(paths, selected)

@@ -279,6 +279,35 @@ def test_approved_transition_accepts_a_revision_bound_initial_selector(
     ) == "migrated"
 
 
+def test_approved_transition_keeps_a_sealed_candidate_selector(
+    tmp_path: Path,
+) -> None:
+    """The migration must not erase MSI provenance already selected by WiX."""
+    from pc_agent.platform.windows.selector_migration import migrate_initial_selector
+
+    paths = _paths(tmp_path)
+    candidate = paths.versions_root / "3.1.77"
+    candidate.mkdir(exist_ok=True)
+    (candidate / "pc_agent.exe").write_bytes(b"candidate")
+    (candidate / ".endpoint-msi-runtime.json").write_text(json.dumps({
+        "component_guid": "D53E70D8-CAD1-4755-9AC8-36164A48C9D5",
+        "schema_version": 1,
+        "version": "3.1.77",
+    }), encoding="utf-8")
+    expected = {
+        "schema_version": 1,
+        "source_revision": "a" * 40,
+        "version": "3.1.77",
+    }
+    paths.current_path.write_text(json.dumps(expected), encoding="utf-8")
+
+    assert migrate_initial_selector(
+        paths, _transition_contract(tmp_path, previous="3.1.76", new="3.1.77")
+    ) == "migrated_msi_owned"
+
+    assert json.loads(paths.current_path.read_text(encoding="utf-8")) == expected
+
+
 def test_approved_transition_preserves_a_valid_noninitial_selector(
     tmp_path: Path,
 ) -> None:
