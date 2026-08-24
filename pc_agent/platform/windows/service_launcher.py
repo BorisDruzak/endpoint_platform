@@ -9,6 +9,7 @@ import subprocess
 import threading
 from pathlib import Path
 from typing import Sequence
+from urllib.parse import urlsplit
 
 from pc_agent.version import EXIT_UPDATE_PENDING
 
@@ -18,6 +19,7 @@ from pc_agent.platform.windows.update_paths import UPDATE_EXECUTABLE_NAME, Windo
 
 _SEMVER_TRIPLET = re.compile(r"^(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)$")
 _SOURCE_REVISION = re.compile(r"^[0-9a-f]{40}$")
+_DEFAULT_ENDPOINT_ORIGIN = "https://endpoint.sosnadmin.local"
 
 
 def _reject_reparse_chain(root: Path, leaf: Path) -> None:
@@ -62,15 +64,45 @@ def build_agent_child_command(paths: WindowsUpdatePaths | None = None) -> list[s
         raise ValueError("current selector is invalid")
     executable = validate_runtime_executable(paths, version)
     data_root = paths.pending_path.parents[1]
+    endpoint_origin = _provisioned_endpoint_origin(data_root)
     return [
         str(executable),
         "--windows-service-child",
         "--data-dir", str(data_root),
         "--install-root", str(paths.install_root),
         "--ca-file", str(data_root / "endpoint-ca.crt"),
+        "--endpoint-origin", endpoint_origin,
         "--transport-mode", "gateway_wss",
         "--no-migration-http-pull-fallback",
     ]
+
+
+def _provisioned_endpoint_origin(data_root: Path) -> str:
+    """Read the protected Windows provisioning origin, with a safe production default."""
+    origin_path = data_root / "endpoint-origin"
+    try:
+        origin = origin_path.read_text(encoding="utf-8").strip()
+    except FileNotFoundError:
+        return _DEFAULT_ENDPOINT_ORIGIN
+    except OSError as error:
+        raise ValueError("provisioned endpoint origin is unreadable") from error
+    parsed = urlsplit(origin)
+    try:
+        port = parsed.port
+    except ValueError as error:
+        raise ValueError("provisioned endpoint origin is invalid") from error
+    if (
+        parsed.scheme != "https"
+        or not parsed.hostname
+        or parsed.username is not None
+        or parsed.password is not None
+        or parsed.path not in {"", "/"}
+        or parsed.query
+        or parsed.fragment
+        or (port is not None and not 1 <= port <= 65535)
+    ):
+        raise ValueError("provisioned endpoint origin is invalid")
+    return origin
 
 
 def validate_runtime_executable(paths: WindowsUpdatePaths, version: str) -> Path:
