@@ -8,7 +8,9 @@ are not MSI inputs.
 ## Build
 
 Prerequisites are Python with PyInstaller and the WiX Toolset 4 `wix` command
-with `WixToolset.Util.wixext` available. From the repository root:
+with `WixToolset.Util.wixext` available. The source tree must be Git-clean;
+the builder refuses a dirty tree so its selector revision identifies the
+packaged bytes. From the repository root:
 
 ```powershell
 .\packaging\windows\build-msi.ps1 -Configuration Release -Platform x64 `

@@ -378,6 +378,8 @@ def test_msi_builder_seals_the_initial_selector_to_the_exact_source_revision() -
     script = (WINDOWS_PACKAGING / "build-msi.ps1").read_text(encoding="utf-8")
 
     assert "function Get-SourceRevision" in script
+    assert "function Assert-CleanSourceTree" in script
+    assert "git -C $RepositoryRoot status --porcelain --untracked-files=all" in script
     assert "source_revision = $sourceRevision" in script
     assert "schema_version = 1" in script
 

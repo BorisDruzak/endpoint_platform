@@ -44,6 +44,14 @@ function Get-SourceRevision {
     return $revision
 }
 
+function Assert-CleanSourceTree {
+    param([Parameter(Mandatory)][string]$RepositoryRoot)
+    $changes = @(git -C $RepositoryRoot status --porcelain --untracked-files=all)
+    if ($LASTEXITCODE -ne 0 -or $changes.Count -ne 0) {
+        throw "Refusing to build an MSI whose source revision cannot exactly identify its bytes."
+    }
+}
+
 function Get-StableId {
     param([Parameter(Mandatory)][string]$Prefix, [Parameter(Mandatory)][string]$Value)
     $bytes = [Text.Encoding]::UTF8.GetBytes($Value.ToLowerInvariant())
@@ -229,6 +237,7 @@ function Export-MsiInspection {
 }
 
 $repositoryRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..'))
+Assert-CleanSourceTree -RepositoryRoot $repositoryRoot
 $sourceRevision = Get-SourceRevision -RepositoryRoot $repositoryRoot
 $packagingRoot = [IO.Path]::GetFullPath($PSScriptRoot)
 $buildRoot = [IO.Path]::GetFullPath((Join-Path $packagingRoot "build\$Configuration-$Platform"))
