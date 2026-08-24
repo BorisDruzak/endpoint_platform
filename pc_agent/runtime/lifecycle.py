@@ -70,6 +70,10 @@ def _no_connected_tasks(
     return ()
 
 
+def _no_completion_sink(_settings: object) -> Callable[[dict[str, object]], None] | None:
+    return None
+
+
 @dataclass(frozen=True, slots=True)
 class RuntimeDependencies:
     load_credential: Callable[[object], str]
@@ -82,6 +86,9 @@ class RuntimeDependencies:
     create_connected_tasks: Callable[
         [object, str, GatewayTransport], Iterable[Awaitable[None]]
     ] = _no_connected_tasks
+    create_completion_sink: Callable[
+        [object], Callable[[dict[str, object]], None] | None
+    ] = _no_completion_sink
     reconnect_delay: float = 5.0
 
 
@@ -120,6 +127,7 @@ class RuntimeLifecycle:
         try:
             await executor.start()
             executor_started = True
+            completion_sink = self._dependencies.create_completion_sink(self._settings)
             while True:
                 transport = self._dependencies.create_transport(
                     self._settings, credential, executor
@@ -140,6 +148,7 @@ class RuntimeLifecycle:
                         gateway_hello,
                         self._dependencies.heartbeat_sleep,
                         connected_tasks=connected_tasks,
+                        completion_sink=completion_sink,
                     )
                     raise GatewayTerminalError(
                         "Gateway connected loops stopped unexpectedly"
@@ -201,10 +210,11 @@ async def _run_connected(
     sleep: Callable[[float], Awaitable[None]],
     *,
     connected_tasks: Iterable[Awaitable[None]] = (),
+    completion_sink: Callable[[dict[str, object]], None] | None = None,
 ) -> None:
     """Run receive and heartbeat loops for the lifetime of one connection."""
     tasks = {
-        asyncio.create_task(_receive_loop(transport, executor)),
+        asyncio.create_task(_receive_loop(transport, executor, completion_sink)),
         asyncio.create_task(
             _heartbeat_loop(
                 transport,
@@ -240,10 +250,11 @@ async def _run_connected(
 async def _receive_loop(
     transport: GatewayTransport,
     executor: RuntimeExecutor,
+    completion_sink: Callable[[dict[str, object]], None] | None,
 ) -> None:
     while True:
         inbound = await transport.receive()
-        await _handle_inbound(transport, executor, inbound)
+        await _handle_inbound(transport, executor, inbound, completion_sink)
 
 
 async def _heartbeat_loop(
@@ -270,6 +281,7 @@ async def _handle_inbound(
     transport: GatewayTransport,
     executor: RuntimeExecutor,
     inbound: GatewayInboundV1,
+    completion_sink: Callable[[dict[str, object]], None] | None = None,
 ) -> None:
     """Handle the bounded server-to-agent messages owned by the common runtime."""
     if inbound.root.kind == "result_ack":
@@ -305,6 +317,7 @@ async def _handle_inbound(
         command,
         result,
         duration_ms=max(0, int((time.monotonic() - started_at) * 1000)),
+        completion_sink=completion_sink,
     )
     await transport.send_result(result)
 
@@ -314,6 +327,7 @@ def emit_command_completed_marker(
     result: AgentResultV1,
     *,
     duration_ms: int,
+    completion_sink: Callable[[dict[str, object]], None] | None = None,
 ) -> None:
     """Emit the bounded local proof required for a real agent canary.
 
@@ -321,14 +335,17 @@ def emit_command_completed_marker(
     is emitted before transport delivery, so a later network failure cannot
     erase the fact that the installed runtime executed the typed capability.
     """
+    marker = {
+        "command_id": str(command.command_id),
+        "capability": command.capability,
+        "status": result.status,
+        "duration_ms": duration_ms,
+        "result_item_count": len(result.result_items),
+        "timestamp": result.completed_at.isoformat(),
+    }
     logger.info(
         "endpoint_agent_command_completed",
-        extra={
-            "command_id": str(command.command_id),
-            "capability": command.capability,
-            "status": result.status,
-            "duration_ms": duration_ms,
-            "result_item_count": len(result.result_items),
-            "timestamp": result.completed_at.isoformat(),
-        },
+        extra=marker,
     )
+    if completion_sink is not None:
+        completion_sink(marker)

@@ -186,7 +186,10 @@
   `endpoint_agent_command_completed` marker after the fixed executor returns
   and before the Gateway result is sent. It contains only command ID,
   capability, status, duration, result-item count and timestamp; command
-  parameters and raw results are never logged.
+  parameters and raw results are never logged. On the Windows service it also
+  writes the same bounded fields through the fixed protected
+  `command-completions.jsonl` sink below the agent data root; no Gateway DTO is
+  changed and the sink never stores a command parameter or result item.
 - `pc_agent/core/registry.py` and `pc_agent/core/orchestrator.py` expose only
   `context.baseline.collect`, `context.health.collect`,
   `context.network.collect`, and `context.diagnostic.collect`. Every success
