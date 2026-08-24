@@ -58,7 +58,12 @@ def _validate_record(value: object) -> dict[str, object]:
         raise CompletionProofError("completion proof identity is invalid")
     if not isinstance(value["status"], str) or not isinstance(value["timestamp"], str):
         raise CompletionProofError("completion proof status is invalid")
-    if not isinstance(value["duration_ms"], int) or not isinstance(value["result_item_count"], int):
+    if (
+        not isinstance(value["duration_ms"], int)
+        or not isinstance(value["result_item_count"], int)
+        or value["duration_ms"] < 0
+        or value["result_item_count"] < 0
+    ):
         raise CompletionProofError("completion proof counts are invalid")
     return dict(value)
 
