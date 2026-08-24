@@ -135,7 +135,18 @@ def _default_dependencies() -> RuntimeDependencies:
         load_hello=_load_hello,
         after_server_handshake=_startup_proof_hook,
         create_connected_tasks=create_connected_tasks,
+        create_completion_sink=_create_completion_sink,
     )
+
+
+def _create_completion_sink(settings: object):
+    """Persist the bounded marker only for the Windows service runtime."""
+    if os.name != "nt" or not isinstance(settings, RuntimeSettings):
+        return None
+    from pc_agent.platform.windows.completion_proof import WindowsCompletionProofWriter
+
+    writer = WindowsCompletionProofWriter(settings.data_root)
+    return writer.append_marker
 
 
 async def _startup_proof_hook(settings: object) -> None:

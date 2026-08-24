@@ -57,3 +57,24 @@ def test_command_completed_marker_is_bounded_and_excludes_sensitive_payloads(
     assert "raw-result" not in caplog.text
     assert not hasattr(record, "parameters")
     assert not hasattr(record, "result_items")
+
+
+def test_command_completed_marker_forwards_only_bounded_values_to_windows_sink() -> None:
+    command = _command()
+    observed: list[dict[str, object]] = []
+
+    emit_command_completed_marker(
+        command,
+        _result(command),
+        duration_ms=27,
+        completion_sink=observed.append,
+    )
+
+    assert observed == [{
+        "command_id": str(command.command_id),
+        "capability": "context.diagnostic.collect",
+        "status": "succeeded",
+        "duration_ms": 27,
+        "result_item_count": 1,
+        "timestamp": "2026-08-23T00:01:00+00:00",
+    }]
