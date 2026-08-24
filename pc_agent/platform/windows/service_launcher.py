@@ -68,7 +68,6 @@ def build_agent_child_command(paths: WindowsUpdatePaths | None = None) -> list[s
         "--data-dir", str(data_root),
         "--install-root", str(paths.install_root),
         "--ca-file", str(data_root / "endpoint-ca.crt"),
-        "--endpoint-origin", "https://endpoint.sosnadmin.local",
         "--transport-mode", "gateway_wss",
         "--no-migration-http-pull-fallback",
     ]

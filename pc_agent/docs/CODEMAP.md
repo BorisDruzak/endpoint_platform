@@ -107,7 +107,9 @@
   Its initial `current.json` selector is sealed as schema version 1 with the
   exact source revision used to build the MSI; the Windows service host accepts
   legacy version-only selectors only for safe upgrade compatibility, while
-  diagnostic-canary provenance requires the revision-bound schema.
+  diagnostic-canary provenance requires the revision-bound schema. Its child
+  command preserves the protected provisioned Endpoint origin, so staging
+  enrollment is never redirected to the production FQDN.
   `pc_agent/runtime/main.py --windows-restrict-updater-start` is the fixed
   no-argument deferred MSI boundary for the updater service DACL.
 
