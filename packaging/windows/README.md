@@ -12,7 +12,7 @@ with `WixToolset.Util.wixext` available. From the repository root:
 
 ```powershell
 .\packaging\windows\build-msi.ps1 -Configuration Release -Platform x64 `
-  -InitialRuntimeManifest .\packaging\windows\initial-runtime-3.2.16.json `
+  -InitialRuntimeManifest .\packaging\windows\initial-runtime-3.2.17.json `
   -ApproveInitialRuntimeTransition -ApproveInitialRuntimeSourceChange
 ```
 
@@ -25,8 +25,8 @@ and paths inside the repository are rejected. The build has no parameter for
 enrollment or device material and does not read such input.
 
 The checked-in `initial-runtime.json` remains the immutable `3.1.76` baseline.
-The reviewed `initial-runtime-3.2.16.json` transition pins the Windows Device
-Context and WSS update runtime with a new component GUID and must be built with both explicit
+The reviewed `initial-runtime-3.2.17.json` transition adds the safe provisioning
+fingerprint status mode with a new component GUID and must be built with both explicit
 approval switches shown above. Each manifest pins its runtime version,
 component GUID, canonical-LF source-file hashes, complete staged artifact tree identity,
 and the CPython/PyInstaller producer identity, including

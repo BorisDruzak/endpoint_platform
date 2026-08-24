@@ -208,6 +208,51 @@ def test_provisioner_cli_reports_only_failure_type_without_enrollment_material(
     assert _CLAIM not in captured.out + captured.err
 
 
+def test_provisioner_cli_prints_only_canonical_hardware_fingerprint(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Operators need the exact claim binding without exposing raw hardware facts."""
+    from pc_agent.platform.windows import provision
+
+    raw_probe = {"machine_guid": "raw-machine-guid", "mac": "00:11:22:33:44:55"}
+    expected = "sha256:" + "b" * 64
+    monkeypatch.setattr(provision, "collect_device_fingerprint", lambda: raw_probe)
+    monkeypatch.setattr(
+        provision,
+        "_derive_hardware_fingerprint",
+        lambda probe: expected if probe() == raw_probe else "unexpected",
+    )
+
+    assert provision.main(["--print-safe-fingerprint"]) == 0
+
+    captured = capsys.readouterr()
+    assert captured.out == '{"hardware_fingerprint":"' + expected + '"}\n'
+    assert captured.err == ""
+    assert "raw-machine-guid" not in captured.out + captured.err
+    assert "00:11:22:33:44:55" not in captured.out + captured.err
+
+
+def test_provisioner_safe_fingerprint_mode_refuses_provisioning_options(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from pc_agent.platform.windows import provision
+
+    monkeypatch.setattr(
+        provision,
+        "collect_device_fingerprint",
+        lambda: pytest.fail("safe fingerprint mode must not enter provisioning"),
+    )
+
+    with pytest.raises(SystemExit, match="2"):
+        provision.main(
+            [
+                "--print-safe-fingerprint",
+                "--material-file",
+                "C:/not-read.json",
+            ]
+        )
+
+
 def test_provisioner_uses_atomic_replace_for_claim_and_permanent_records(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
