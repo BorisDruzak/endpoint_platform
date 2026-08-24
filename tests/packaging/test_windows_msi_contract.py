@@ -373,6 +373,15 @@ def test_initial_runtime_marker_is_staged_for_msi_ownership_provenance() -> None
     assert "initial_runtime_component_guid" in script
 
 
+def test_msi_builder_seals_the_initial_selector_to_the_exact_source_revision() -> None:
+    """A Windows canary must reject an MSI whose selector cannot prove its source SHA."""
+    script = (WINDOWS_PACKAGING / "build-msi.ps1").read_text(encoding="utf-8")
+
+    assert "function Get-SourceRevision" in script
+    assert "source_revision = $sourceRevision" in script
+    assert "schema_version = 1" in script
+
+
 def test_initial_runtime_payload_is_validated_before_msi_provenance_marker() -> None:
     """The immutable runtime manifest covers frozen payload bytes, not generated MSI metadata."""
     script = (WINDOWS_PACKAGING / "build-msi.ps1").read_text(encoding="utf-8")

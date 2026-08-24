@@ -50,6 +50,22 @@ def test_service_host_resolves_current_selector_on_each_start(tmp_path: Path) ->
     ]
 
 
+def test_service_host_accepts_revision_bound_current_selector(tmp_path: Path) -> None:
+    """A freshly installed immutable MSI selector binds a runtime to its source SHA."""
+    from pc_agent.platform.windows.service_launcher import build_agent_child_command
+
+    paths = _paths(tmp_path)
+    paths.current_path.write_text(json.dumps({
+        "schema_version": 1,
+        "source_revision": "a" * 40,
+        "version": "3.1.77",
+    }), encoding="utf-8")
+
+    command = build_agent_child_command(paths)
+
+    assert command[0] == str(paths.versions_root / "3.1.77" / "pc_agent.exe")
+
+
 @pytest.mark.parametrize(
     "payload",
     [

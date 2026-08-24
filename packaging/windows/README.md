@@ -67,6 +67,11 @@ with a partial service installation.
 - The MSI contains only binaries, the immutable initial selector, this public
   documentation, and a public configuration template. Provisioning happens
   after installation through the separately reviewed protected handoff.
+- Each newly built MSI seals that initial selector as schema version 1 with the
+  exact 40-character Git revision used for the build. Older installed
+  version-only selectors remain launch-compatible for upgrade safety, but they
+  do not provide the immutable provenance required by the Windows diagnostic
+  canary; recover those hosts with a freshly built and installed MSI.
 
 Default uninstall removes both services and the Program Files binary tree,
 including updater-published version directories. It deliberately preserves

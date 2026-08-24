@@ -35,6 +35,15 @@ function Get-AgentVersion {
     return $match.Groups[1].Value
 }
 
+function Get-SourceRevision {
+    param([Parameter(Mandatory)][string]$RepositoryRoot)
+    $revision = (& git -C $RepositoryRoot rev-parse HEAD).Trim()
+    if ($LASTEXITCODE -ne 0 -or $revision -notmatch '^[0-9a-f]{40}$') {
+        throw "Could not read the exact Git source revision for the MSI selector."
+    }
+    return $revision
+}
+
 function Get-StableId {
     param([Parameter(Mandatory)][string]$Prefix, [Parameter(Mandatory)][string]$Value)
     $bytes = [Text.Encoding]::UTF8.GetBytes($Value.ToLowerInvariant())
@@ -220,6 +229,7 @@ function Export-MsiInspection {
 }
 
 $repositoryRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..'))
+$sourceRevision = Get-SourceRevision -RepositoryRoot $repositoryRoot
 $packagingRoot = [IO.Path]::GetFullPath($PSScriptRoot)
 $buildRoot = [IO.Path]::GetFullPath((Join-Path $packagingRoot "build\$Configuration-$Platform"))
 $allowedBuildParent = [IO.Path]::GetFullPath((Join-Path $packagingRoot 'build'))
@@ -347,7 +357,11 @@ Copy-Item -LiteralPath $builtProvisioner -Destination (Join-Path $programFilesSt
 New-Item -ItemType Directory -Path (Join-Path $programFilesStage 'config'), (Join-Path $programFilesStage 'docs') -Force | Out-Null
 Copy-Item -LiteralPath (Join-Path $packagingRoot 'assets\agent-config.yaml') -Destination (Join-Path $programFilesStage 'config\agent-config.yaml')
 Copy-Item -LiteralPath (Join-Path $packagingRoot 'README.md') -Destination (Join-Path $programFilesStage 'docs\README.md')
-Write-Utf8NoBom (Join-Path $programFilesStage 'current.json') (@{ version = $InitialRuntimeVersion } | ConvertTo-Json -Compress)
+Write-Utf8NoBom (Join-Path $programFilesStage 'current.json') (@{
+    schema_version = 1
+    source_revision = $sourceRevision
+    version = $InitialRuntimeVersion
+} | ConvertTo-Json -Compress)
 
 $generatedWix = Join-Path $wixBuildRoot 'PayloadComponents.generated.wxs'
 $generatedItems = Write-GeneratedPayloadWix $runtimeStage $generatedWix
