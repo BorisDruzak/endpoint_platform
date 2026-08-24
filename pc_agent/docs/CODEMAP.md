@@ -104,6 +104,10 @@
   boundary. `packaging/windows/` owns the WiX 4 machine-wide x64 binding,
   fixed service registration/recovery, ProgramData preservation, secret-free
   payload manifest, and final-uninstall versus administrator-purge behavior.
+  Its initial `current.json` selector is sealed as schema version 1 with the
+  exact source revision used to build the MSI; the Windows service host accepts
+  legacy version-only selectors only for safe upgrade compatibility, while
+  diagnostic-canary provenance requires the revision-bound schema.
   `pc_agent/runtime/main.py --windows-restrict-updater-start` is the fixed
   no-argument deferred MSI boundary for the updater service DACL.
 

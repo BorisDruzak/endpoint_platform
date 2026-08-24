@@ -17,6 +17,7 @@ from pc_agent.platform.windows.update_paths import UPDATE_EXECUTABLE_NAME, Windo
 
 
 _SEMVER_TRIPLET = re.compile(r"^(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)$")
+_SOURCE_REVISION = re.compile(r"^[0-9a-f]{40}$")
 
 
 def _reject_reparse_chain(root: Path, leaf: Path) -> None:
@@ -43,14 +44,23 @@ def build_agent_child_command(paths: WindowsUpdatePaths | None = None) -> list[s
         payload = json.loads(paths.current_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as error:
         raise ValueError("current selector is unreadable") from error
-    if (
-        not isinstance(payload, dict)
-        or set(payload) != {"version"}
-        or not isinstance(payload["version"], str)
-        or not _SEMVER_TRIPLET.fullmatch(payload["version"])
-    ):
+    if not isinstance(payload, dict):
         raise ValueError("current selector is invalid")
-    executable = validate_runtime_executable(paths, payload["version"])
+    if set(payload) == {"version"}:
+        version = payload["version"]
+    elif set(payload) == {"schema_version", "source_revision", "version"}:
+        if (
+            payload.get("schema_version") != 1
+            or not isinstance(payload.get("source_revision"), str)
+            or not _SOURCE_REVISION.fullmatch(payload["source_revision"])
+        ):
+            raise ValueError("current selector is invalid")
+        version = payload["version"]
+    else:
+        raise ValueError("current selector is invalid")
+    if not isinstance(version, str) or not _SEMVER_TRIPLET.fullmatch(version):
+        raise ValueError("current selector is invalid")
+    executable = validate_runtime_executable(paths, version)
     data_root = paths.pending_path.parents[1]
     return [
         str(executable),

@@ -39,6 +39,7 @@ _SEMVER = re.compile(
     r"(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$"
 )
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
+_SOURCE_REVISION = re.compile(r"^[0-9a-f]{40}$")
 _ERROR_SERVICE_NOT_ACTIVE = 1062
 STARTUP_DEADLINE_SECONDS = 120
 UPDATER_START_PRINCIPALS = ("SYSTEM", "Administrators", "NT SERVICE\\EndpointAgent")
@@ -567,7 +568,20 @@ def _load_current(path: Path) -> str:
         payload = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as error:
         raise ValueError("current selector is unreadable") from error
-    version = payload.get("version") if isinstance(payload, dict) else None
+    if not isinstance(payload, dict):
+        raise ValueError("current selector is invalid")
+    if set(payload) == {"version"}:
+        version = payload["version"]
+    elif set(payload) == {"schema_version", "source_revision", "version"}:
+        if (
+            payload.get("schema_version") != 1
+            or not isinstance(payload.get("source_revision"), str)
+            or not _SOURCE_REVISION.fullmatch(payload["source_revision"])
+        ):
+            raise ValueError("current selector is invalid")
+        version = payload["version"]
+    else:
+        raise ValueError("current selector is invalid")
     if not isinstance(version, str) or not _SEMVER.fullmatch(version):
         raise ValueError("current selector is invalid")
     return version

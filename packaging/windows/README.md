@@ -8,11 +8,13 @@ are not MSI inputs.
 ## Build
 
 Prerequisites are Python with PyInstaller and the WiX Toolset 4 `wix` command
-with `WixToolset.Util.wixext` available. From the repository root:
+with `WixToolset.Util.wixext` available. The source tree must be Git-clean;
+the builder refuses a dirty tree so its selector revision identifies the
+packaged bytes. From the repository root:
 
 ```powershell
 .\packaging\windows\build-msi.ps1 -Configuration Release -Platform x64 `
-  -InitialRuntimeManifest .\packaging\windows\initial-runtime-3.2.16.json `
+  -InitialRuntimeManifest .\packaging\windows\initial-runtime-3.2.17.json `
   -ApproveInitialRuntimeTransition -ApproveInitialRuntimeSourceChange
 ```
 
@@ -25,7 +27,7 @@ and paths inside the repository are rejected. The build has no parameter for
 enrollment or device material and does not read such input.
 
 The checked-in `initial-runtime.json` remains the immutable `3.1.76` baseline.
-The reviewed `initial-runtime-3.2.16.json` transition pins the Windows Device
+The reviewed `initial-runtime-3.2.17.json` transition pins the Windows Device
 Context and WSS update runtime with a new component GUID and must be built with both explicit
 approval switches shown above. Each manifest pins its runtime version,
 component GUID, canonical-LF source-file hashes, complete staged artifact tree identity,
@@ -67,6 +69,11 @@ with a partial service installation.
 - The MSI contains only binaries, the immutable initial selector, this public
   documentation, and a public configuration template. Provisioning happens
   after installation through the separately reviewed protected handoff.
+- Each newly built MSI seals that initial selector as schema version 1 with the
+  exact 40-character Git revision used for the build. Older installed
+  version-only selectors remain launch-compatible for upgrade safety, but they
+  do not provide the immutable provenance required by the Windows diagnostic
+  canary; recover those hosts with a freshly built and installed MSI.
 
 Default uninstall removes both services and the Program Files binary tree,
 including updater-published version directories. It deliberately preserves

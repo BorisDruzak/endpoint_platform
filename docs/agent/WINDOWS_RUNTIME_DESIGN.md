@@ -9,7 +9,12 @@ endpoint-agent-service.exe --agent-service
 
 The host strictly reads `current.json` on every service start, rejects unknown
 fields, non-triplet versions, traversal, and reparse points, and supervises
-`versions/<version>/pc_agent.exe --windows-service-child`. Stop and shutdown
+`versions/<version>/pc_agent.exe --windows-service-child`. A newly built MSI
+installs selector schema version 1 (`schema_version`, `source_revision`, and
+`version`), where `source_revision` is the exact 40-character Git revision
+used for the MSI build. A legacy version-only selector remains launch-compatible
+only to make an in-place upgrade safe; it is not provenance-complete and cannot
+pass the Windows diagnostic-canary preflight. Stop and shutdown
 controls close the child's private stdin control pipe. The child watches that
 pipe with a dedicated daemon reader rather than asyncio's default executor, so
 a runtime exit `42` cannot hang `asyncio.run()` while the host pipe remains

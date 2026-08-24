@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -23,6 +24,7 @@ _TERMINAL_OUTCOME_CODES = {
     "rolled_back": "launcher_rolled_back",
 }
 _TERMINAL_OUTCOME_FILENAME = "terminal-outcome.json"
+_SOURCE_REVISION = re.compile(r"^[0-9a-f]{40}$")
 
 
 @dataclass(frozen=True, slots=True)
@@ -182,9 +184,20 @@ def _load_current_version(path: Path) -> str:
         payload = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as error:
         raise ValueError("Windows current selector is unreadable") from error
-    if not isinstance(payload, dict) or set(payload) != {"version"}:
+    if not isinstance(payload, dict):
         raise ValueError("Windows current selector is invalid")
-    version = payload.get("version")
+    if set(payload) == {"version"}:
+        version = payload["version"]
+    elif set(payload) == {"schema_version", "source_revision", "version"}:
+        if (
+            payload.get("schema_version") != 1
+            or not isinstance(payload.get("source_revision"), str)
+            or not _SOURCE_REVISION.fullmatch(payload["source_revision"])
+        ):
+            raise ValueError("Windows current selector is invalid")
+        version = payload["version"]
+    else:
+        raise ValueError("Windows current selector is invalid")
     if not isinstance(version, str):
         raise ValueError("Windows current selector is invalid")
     return version

@@ -15,6 +15,7 @@ TRANSITION_REGISTRY_KEY = (
     r"Software\Endpoint Platform\Endpoint Agent\InitialRuntimeTransition"
 )
 _SEMVER = re.compile(r"^(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)$")
+_SOURCE_REVISION = re.compile(r"^[0-9a-f]{40}$")
 _CONTRACT_FIELDS = {"approved", "from_version", "schema_version", "to_version"}
 MSI_RUNTIME_MARKER_FILENAME = ".endpoint-msi-runtime.json"
 ROLLBACK_SNAPSHOT_FILENAME = ".endpoint-initial-runtime-selector.rollback.json"
@@ -30,6 +31,26 @@ def _read_exact_json(path: Path, fields: set[str], label: str) -> dict[str, obje
     if not isinstance(payload, dict) or set(payload) != fields:
         raise ValueError(f"{label} is invalid")
     return payload
+
+
+def _read_current_selector(path: Path) -> dict[str, object]:
+    """Accept legacy selectors and the immutable provenance schema emitted by new MSIs."""
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        raise ValueError("current selector is unreadable") from error
+    if not isinstance(payload, dict):
+        raise ValueError("current selector is invalid")
+    if set(payload) == {"version"}:
+        return payload
+    if (
+        set(payload) == {"schema_version", "source_revision", "version"}
+        and payload.get("schema_version") == 1
+        and isinstance(payload.get("source_revision"), str)
+        and _SOURCE_REVISION.fullmatch(payload["source_revision"])
+    ):
+        return payload
+    raise ValueError("current selector is invalid")
 
 
 def _validate_runtime(paths: WindowsUpdatePaths, version: str) -> None:
@@ -105,7 +126,7 @@ def _migrate_versions(
     ):
         raise ValueError("transition contract is invalid")
     _validate_runtime(paths, candidate)
-    current = _read_exact_json(paths.current_path, {"version"}, "current selector")
+    current = _read_current_selector(paths.current_path)
     selected = current.get("version")
     if not isinstance(selected, str) or not _SEMVER.fullmatch(selected):
         raise ValueError("current selector is invalid")
