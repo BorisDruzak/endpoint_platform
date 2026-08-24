@@ -44,21 +44,27 @@ def test_service_host_resolves_current_selector_on_each_start(tmp_path: Path) ->
         "--data-dir", str(paths.pending_path.parents[1]),
         "--install-root", str(paths.install_root),
         "--ca-file", str(paths.pending_path.parents[1] / "endpoint-ca.crt"),
+        "--endpoint-origin", "https://endpoint.sosnadmin.local",
         "--transport-mode", "gateway_wss",
         "--no-migration-http-pull-fallback",
     ]
 
 
-def test_service_host_preserves_provisioned_endpoint_origin(tmp_path: Path) -> None:
+def test_service_host_uses_provisioned_endpoint_origin(tmp_path: Path) -> None:
     """A staging enrollment must not be redirected to the production endpoint."""
     from pc_agent.platform.windows.service_launcher import build_agent_child_command
 
     paths = _paths(tmp_path)
     paths.current_path.write_text('{"version":"3.1.77"}', encoding="utf-8")
+    (paths.pending_path.parents[1] / "endpoint-origin").write_text(
+        "https://endpoint-staging.sosnadmin.local", encoding="utf-8"
+    )
 
     command = build_agent_child_command(paths)
 
-    assert "--endpoint-origin" not in command
+    assert command[command.index("--endpoint-origin") + 1] == (
+        "https://endpoint-staging.sosnadmin.local"
+    )
 
 
 def test_service_host_accepts_revision_bound_current_selector(tmp_path: Path) -> None:
