@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+from pathlib import Path
 
 import pytest
 
@@ -8,6 +9,9 @@ from tools.canary.verify_installed_windows_agent import (
     WindowsPreflightError,
     validate_preflight,
 )
+
+
+COLLECTOR = Path(__file__).resolve().parents[2] / "tools" / "canary" / "Collect-WindowsAgentPreflight.ps1"
 
 
 def _manifest() -> dict[str, object]:
@@ -143,3 +147,12 @@ def test_unsafe_projection_is_rejected(mutate) -> None:
 
     with pytest.raises(WindowsPreflightError):
         validate_preflight(projection, _manifest())
+
+
+def test_collector_has_fixed_services_and_never_reads_protected_files() -> None:
+    source = COLLECTOR.read_text(encoding="utf-8")
+
+    assert "EndpointAgent" in source
+    assert "EndpointAgentUpdater" in source
+    assert "Get-Content.*device-credential" not in source
+    assert "Get-Content.*enrollment-identity.json" not in source
