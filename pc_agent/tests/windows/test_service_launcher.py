@@ -261,6 +261,24 @@ def test_approved_transition_atomically_migrates_old_initial_selector(
     assert not list(paths.install_root.glob(".current.json.*.tmp"))
 
 
+def test_approved_transition_accepts_a_revision_bound_initial_selector(
+    tmp_path: Path,
+) -> None:
+    """A later MSI transition cannot strand an initial selector sealed by a new MSI."""
+    from pc_agent.platform.windows.selector_migration import migrate_initial_selector
+
+    paths = _paths(tmp_path)
+    paths.current_path.write_text(json.dumps({
+        "schema_version": 1,
+        "source_revision": "a" * 40,
+        "version": "3.1.76",
+    }), encoding="utf-8")
+
+    assert migrate_initial_selector(
+        paths, _transition_contract(tmp_path, previous="3.1.76", new="3.1.77")
+    ) == "migrated"
+
+
 def test_approved_transition_preserves_a_valid_noninitial_selector(
     tmp_path: Path,
 ) -> None:

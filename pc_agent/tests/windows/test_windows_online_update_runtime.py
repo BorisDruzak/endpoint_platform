@@ -74,7 +74,11 @@ async def test_windows_agent_stages_a_verified_pending_update_for_the_fixed_upda
         tmp_path / "install", tmp_path / "data" / "updates" / "pending_update.json"
     )
     paths.install_root.mkdir(parents=True)
-    paths.current_path.write_text('{"version":"3.2.1"}', encoding="utf-8")
+    paths.current_path.write_text(json.dumps({
+        "schema_version": 1,
+        "source_revision": "a" * 40,
+        "version": "3.2.1",
+    }), encoding="utf-8")
     acl = _Acl()
 
     async def download(item: EndpointRecommendation, destination: Path) -> tuple[str, int]:
