@@ -52,7 +52,7 @@
 
 ```python
 def test_status_round_trip_contains_only_bounded_public_fields(tmp_path: Path) -> None:
-    writer = CanaryStatusWriter(tmp_path, {"version": "3.2.22", "source_revision": "a" * 40})
+    writer = CanaryStatusWriter(tmp_path, {"version": "3.2.23", "source_revision": "a" * 40}, "endpoint-staging.sosnadmin.local")
     writer.write_transport(strict_tls=True, hostname_valid=True, redirected=False, gateway_wss=True, http_fallback=False)
     status = read_canary_status(tmp_path)
     assert set(status) == {"schema_version", "release", "transport", "capability", "completion_proof"}
@@ -213,8 +213,8 @@ git commit -m "feat(agent): publish canary runtime facts"
 
 **Interfaces:**
 - Produces detached `EndpointAgent-<version>-x64.release.json` with exact keys `schema_version`, `version`, `product_code`, `source_revision`, `initial_runtime_tree_sha256`, `package_sha256`.
-- Produces a PowerShell `Install-EndpointAgentCanary.ps1 -MsiPath <path> -ReleaseManifest <path>` boundary that writes only fixed cache/provenance paths beneath the local ProgramData root.
-- Contract: wrapper validates detached manifest and computed hash, stores fixed cache/provenance artifacts below ProgramData, then calls `msiexec`; it accepts no claims/tokens/credentials.
+- Produces a PowerShell `Install-EndpointAgentCanary.ps1 -MsiPath <path> -ReleaseManifest <path>` boundary that executes only from a protected Program Files cache, then writes fixed cache/provenance evidence beneath the MSI-protected ProgramData root.
+- Contract: wrapper validates detached manifest and computed hash, secures the execution cache before `msiexec`, records the verified copy below ProgramData only after MSI ACL installation, and accepts no claims/tokens/credentials.
 
 - [ ] **Step 1: Write failing provenance tests**
 

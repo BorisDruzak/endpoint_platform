@@ -14,7 +14,7 @@ packaged bytes. From the repository root:
 
 ```powershell
 .\packaging\windows\build-msi.ps1 -Configuration Release -Platform x64 `
-  -InitialRuntimeManifest .\packaging\windows\initial-runtime-3.2.22.json `
+  -InitialRuntimeManifest .\packaging\windows\initial-runtime-3.2.23.json `
   -ApproveInitialRuntimeTransition -ApproveInitialRuntimeSourceChange
 ```
 
@@ -27,7 +27,7 @@ and paths inside the repository are rejected. The build has no parameter for
 enrollment or device material and does not read such input.
 
 The checked-in `initial-runtime.json` remains the immutable `3.1.76` baseline.
-The reviewed `initial-runtime-3.2.22.json` transition pins the Windows Device
+The reviewed `initial-runtime-3.2.23.json` transition pins the Windows Device
 Context and WSS diagnostic-canary runtime with a new component GUID and must be built with both explicit
 approval switches shown above. Each manifest pins its runtime version,
 component GUID, canonical-LF source-file hashes, complete staged artifact tree identity,
@@ -55,9 +55,10 @@ with a partial service installation.
 Use `Install-EndpointAgentCanary.ps1` only from an elevated PowerShell session
 with the versioned MSI and its adjacent `*.release.json` sidecar. The wrapper
 verifies the exact release manifest and MSI hash, copies that verified MSI to
-the fixed protected ProgramData installer cache, invokes Windows Installer
-from that cache, and records secret-free local provenance. It never accepts an
-arbitrary cache path or enrollment material.
+a protected Program Files execution cache before invoking Windows Installer,
+then records the same verified bytes and secret-free provenance in the
+MSI-protected ProgramData evidence cache. It never accepts an arbitrary cache
+path or enrollment material.
 
 After the agent has completed a strict Gateway WSS connection, collect a
 redacted readiness projection with

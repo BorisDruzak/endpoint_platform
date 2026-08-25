@@ -38,15 +38,15 @@ The reviewed Windows installation wrapper accepts the MSI and its detached
 manifest, verifies that the MSI's computed SHA-256 equals the manifest value,
 and then:
 
-1. copies the exact MSI bytes to the fixed protected installer-cache directory
-   beneath the existing agent ProgramData root;
-2. writes a small provenance record with the release-manifest fields and cache
-   filename; and
-3. invokes the normal MSI install path.
+1. copies the exact MSI bytes to a protected Program Files execution cache;
+2. invokes the normal MSI install path from that cache; and
+3. after MSI ACL setup, writes the same verified bytes and a small provenance
+   record to the protected ProgramData evidence cache.
 
 The wrapper fails before installation if the input, manifest schema, hash,
-cache target, or DACL/reparse checks are invalid. The cache and provenance
-record are regular non-reparse files. They are readable only by the reviewed
+cache target, or DACL/reparse checks are invalid. The execution cache and the
+ProgramData evidence cache/provenance records are regular non-reparse files.
+They are readable only by the reviewed
 machine/service principals already allowed for the agent data root. A direct
 `msiexec` installation remains possible for ordinary product installation, but
 it is deliberately ineligible for this strict canary until installed through
