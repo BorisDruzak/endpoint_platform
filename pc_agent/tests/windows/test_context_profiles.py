@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 
 from pc_agent.context_profiles.registry import execute_context_capability
+from pc_agent.version import AGENT_VERSION
 
 
 FIXED_TIME = datetime(2026, 8, 3, 12, 0, tzinfo=timezone.utc)
@@ -48,6 +49,16 @@ class WindowsGoldenProbe:
 
 def _golden() -> dict[str, object]:
     return json.loads(FIXTURE.read_text(encoding="utf-8"))
+
+
+def test_windows_context_golden_profile_tracks_agent_version() -> None:
+    """The golden profile must remain valid after every packaged agent bump."""
+    golden = _golden()
+    software = golden["baseline_v1"]["sections"]["software"]
+
+    assert software == [
+        {"name": "endpoint-agent", "version": AGENT_VERSION, "source": "installer"}
+    ]
 
 
 def test_windows_collectors_match_sanitized_golden_profile_contracts() -> None:
