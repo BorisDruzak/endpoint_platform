@@ -332,6 +332,84 @@ async def test_retryable_transport_failure_reconnects_without_reloading_credenti
 
 
 @pytest.mark.asyncio
+async def test_strict_windows_wss_lifecycle_clears_then_publishes_transport_readiness(
+    tmp_path: Path,
+) -> None:
+    """A stale ready status must not survive reconnect and precede a fresh WSS handshake."""
+    events: list[str] = []
+
+    class CanaryStatusRecorder:
+        def write_not_ready(self) -> None:
+            events.append("canary.not_ready")
+
+        def write_wss_ready(self) -> None:
+            events.append("canary.wss_ready")
+
+    settings = RuntimeSettings(
+        data_root=tmp_path / "data",
+        install_root=tmp_path / "install",
+        ca_file=tmp_path / "endpoint-ca.crt",
+        endpoint_origin="https://endpoint.sosnadmin.local",
+        transport_mode="gateway_wss",
+        migration_http_pull_fallback=False,
+    )
+    base = _dependencies(events, [None])
+    dependencies = RuntimeDependencies(
+        load_credential=base.load_credential,
+        create_executor=base.create_executor,
+        create_transport=base.create_transport,
+        sleep=base.sleep,
+        reconnect_delay=base.reconnect_delay,
+        create_canary_status_writer=lambda _settings: CanaryStatusRecorder(),
+    )
+
+    assert await RuntimeApplication(settings, dependencies).run() == 0
+    assert events.index("canary.not_ready") < events.index("transport.connect")
+    assert events.index("transport.connect") < events.index("canary.wss_ready")
+
+
+def test_default_runtime_creates_canary_status_only_for_strict_wss(
+    tmp_path: Path,
+) -> None:
+    """HTTP-pull and migration fallback agents must stay ineligible for the strict canary."""
+    data_root = tmp_path / "data"
+    install_root = tmp_path / "install"
+    data_root.mkdir()
+    install_root.mkdir()
+    (install_root / "current.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "source_revision": "a" * 40,
+                "version": AGENT_VERSION,
+            }
+        ),
+        encoding="utf-8",
+    )
+    strict = RuntimeSettings(
+        data_root=data_root,
+        install_root=install_root,
+        ca_file=tmp_path / "endpoint-ca.crt",
+        endpoint_origin="https://endpoint.sosnadmin.local",
+        transport_mode="gateway_wss",
+        migration_http_pull_fallback=False,
+    )
+    fallback = RuntimeSettings(
+        data_root=data_root,
+        install_root=install_root,
+        ca_file=tmp_path / "endpoint-ca.crt",
+        endpoint_origin="https://endpoint.sosnadmin.local",
+        transport_mode="gateway_wss",
+        migration_http_pull_fallback=True,
+    )
+
+    writer = runtime_application._create_canary_status_writer(strict)
+
+    assert writer is not None
+    assert runtime_application._create_canary_status_writer(fallback) is None
+
+
+@pytest.mark.asyncio
 async def test_gateway_credential_rejection_is_terminal_in_process(
     tmp_path: Path,
 ) -> None:

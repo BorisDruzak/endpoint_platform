@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import os
+import re
 import ssl
+import stat
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
@@ -38,6 +41,9 @@ from .lifecycle import (
     RuntimeLifecycle,
 )
 from .status import RuntimeStatus
+
+
+_SOURCE_REVISION = re.compile(r"^[0-9a-f]{40}$")
 
 
 @dataclass(frozen=True, slots=True)
@@ -136,6 +142,43 @@ def _default_dependencies() -> RuntimeDependencies:
         after_server_handshake=_startup_proof_hook,
         create_connected_tasks=create_connected_tasks,
         create_completion_sink=_create_completion_sink,
+        create_canary_status_writer=_create_canary_status_writer,
+    )
+
+
+def _create_canary_status_writer(settings: object):
+    """Enable strict canary evidence only for the no-fallback Windows WSS runtime."""
+    if (
+        os.name != "nt"
+        or not isinstance(settings, RuntimeSettings)
+        or settings.transport_mode != "gateway_wss"
+        or settings.migration_http_pull_fallback
+    ):
+        return None
+    from pc_agent.platform.windows.canary_status import CanaryStatusWriter
+
+    selector = settings.install_root / "current.json"
+    try:
+        details = selector.lstat()
+        if selector.is_symlink() or getattr(details, "st_file_attributes", 0) & 0x400:
+            raise ValueError("current selector is unsafe")
+        if not stat.S_ISREG(details.st_mode):
+            raise ValueError("current selector is unsafe")
+        payload = json.loads(selector.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    if (
+        not isinstance(payload, dict)
+        or set(payload) != {"schema_version", "source_revision", "version"}
+        or payload.get("schema_version") != 1
+        or not isinstance(payload.get("source_revision"), str)
+        or not _SOURCE_REVISION.fullmatch(payload["source_revision"])
+        or payload.get("version") != AGENT_VERSION
+    ):
+        return None
+    return CanaryStatusWriter(
+        settings.data_root,
+        {"version": AGENT_VERSION, "source_revision": payload["source_revision"]},
     )
 
 
@@ -146,7 +189,14 @@ def _create_completion_sink(settings: object):
     from pc_agent.platform.windows.completion_proof import WindowsCompletionProofWriter
 
     writer = WindowsCompletionProofWriter(settings.data_root)
-    return writer.append_marker
+    canary_status_writer = _create_canary_status_writer(settings)
+
+    def append(marker: dict[str, object]) -> None:
+        writer.append_marker(marker)
+        if canary_status_writer is not None:
+            canary_status_writer.with_completion(str(marker["command_id"]))
+
+    return append
 
 
 async def _startup_proof_hook(settings: object) -> None:

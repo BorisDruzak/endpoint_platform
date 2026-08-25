@@ -58,6 +58,29 @@ def test_writer_persists_only_redacted_truthful_transport_facts(tmp_path: Path) 
     }
 
 
+def test_writer_marks_disconnected_and_connected_states_explicitly(tmp_path: Path) -> None:
+    """A reconnect must clear readiness before a later verified WSS handshake restores it."""
+    writer = CanaryStatusWriter(tmp_path, _release())
+
+    writer.write_not_ready()
+    assert read_canary_status(tmp_path)["transport"] == {
+        "strict_tls": False,
+        "hostname_valid": False,
+        "redirected": False,
+        "gateway_wss": False,
+        "http_fallback": False,
+    }
+
+    writer.write_wss_ready()
+    assert read_canary_status(tmp_path)["transport"] == {
+        "strict_tls": True,
+        "hostname_valid": True,
+        "redirected": False,
+        "gateway_wss": True,
+        "http_fallback": False,
+    }
+
+
 def test_reader_rejects_unknown_status_fields(tmp_path: Path) -> None:
     """An operator-supplied URL or other field must never enter the evidence projection."""
     path = tmp_path / CANARY_STATUS_FILENAME

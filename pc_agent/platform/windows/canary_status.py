@@ -183,6 +183,26 @@ class CanaryStatusWriter:
             }
         )
 
+    def write_not_ready(self) -> None:
+        """Clear all affirmative transport evidence before and after a disconnect."""
+        self.write_transport(
+            strict_tls=False,
+            hostname_valid=False,
+            redirected=False,
+            gateway_wss=False,
+            http_fallback=False,
+        )
+
+    def write_wss_ready(self) -> None:
+        """Record one verified WSS connection with fallback disabled."""
+        self.write_transport(
+            strict_tls=True,
+            hostname_valid=True,
+            redirected=False,
+            gateway_wss=True,
+            http_fallback=False,
+        )
+
     def with_completion(self, command_id: str) -> None:
         if not isinstance(command_id, str) or not command_id:
             raise CanaryStatusError("canary completion command id is invalid")
