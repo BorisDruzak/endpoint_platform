@@ -151,6 +151,22 @@ def test_writer_preserves_selected_completion_across_a_transport_reconnect(
     assert read_canary_status(tmp_path)["completion_proof"] == _marker("command-current")
 
 
+def test_writer_does_not_erase_completion_from_a_stale_transport_payload(
+    tmp_path: Path,
+) -> None:
+    """A concurrent WSS state write must not replace terminal diagnostic proof."""
+    WindowsCompletionProofWriter(tmp_path).append_marker(_marker("command-current"))
+    writer = CanaryStatusWriter(tmp_path, _release(), _endpoint_host())
+    writer.write_wss_ready()
+    writer.with_completion("command-current")
+    stale_status = read_canary_status(tmp_path)
+    stale_status["completion_proof"] = None
+
+    writer._write(stale_status)
+
+    assert read_canary_status(tmp_path)["completion_proof"] == _marker("command-current")
+
+
 def test_writer_rejects_ambiguous_completion_records(tmp_path: Path) -> None:
     """Duplicated command markers must fail closed rather than pick an arbitrary result."""
     proof_writer = WindowsCompletionProofWriter(tmp_path)

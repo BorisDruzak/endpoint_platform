@@ -274,7 +274,18 @@ try {
     if ([string]$status.release.version -ne [string]$selectorValue.version -or [string]$status.release.source_revision -ne [string]$selectorValue.source_revision) {
         throw 'Canary status does not match the selected runtime.'
     }
-    if ($RequireCompletion) { Assert-ExpectedCompletion -Completion $status.completion_proof }
+    $completionStatus = $status
+    if ($RequireCompletion) {
+        # An atomic runtime status publication can briefly race this collector.
+        # Re-read the same protected fixed path a bounded number of times; do
+        # not accept a missing or mismatched terminal marker.
+        for ($attempt = 0; $attempt -lt 5; $attempt++) {
+            $completionStatus = Read-CanaryStatus -DataRoot $ExpectedDataRoot -ExpectedEndpointHost $ExpectedEndpointHost
+            if ($null -ne $completionStatus.completion_proof) { break }
+            Start-Sleep -Seconds 1
+        }
+        Assert-ExpectedCompletion -Completion $completionStatus.completion_proof
+    }
 
     $payload = [ordered]@{
         schema_version = 'windows_agent_preflight_v1'
@@ -288,13 +299,13 @@ try {
         acl = [ordered]@{ data_root_protected = $dataAcl.data_root_protected; required_principals = $dataAcl.required_principals; ordinary_user_read = $dataAcl.ordinary_user_read; protected_file_regular = $protectedFile.regular; protected_file_reparse = $protectedFile.reparse; status_artifact_protected = $dataAcl.status_artifact_protected; provenance_artifact_protected = $true; msi_artifact_protected = $true }
         safe_status = [ordered]@{ service = $agent.state.ToLowerInvariant(); identity_present = $identityFile.regular -and -not $identityFile.reparse; regular = $statusFile.regular; reparse = $statusFile.reparse; release_version = [string]$status.release.version; release_source_revision = [string]$status.release.source_revision }
         network = [ordered]@{ strict_tls = [bool]$status.transport.strict_tls; hostname_valid = [bool]$status.transport.hostname_valid; redirected = [bool]$status.transport.redirected; gateway_wss = [bool]$status.transport.gateway_wss; http_fallback = [bool]$status.transport.http_fallback; capability = [string]$status.capability }
-        completion_proof = $status.completion_proof
+        completion_proof = $completionStatus.completion_proof
     }
     $directory = Split-Path -Parent $OutputPath
     New-Item -ItemType Directory -Force -Path $directory | Out-Null
     [IO.File]::WriteAllText($OutputPath, ($payload | ConvertTo-Json -Depth 8), [Text.UTF8Encoding]::new($false))
 }
 catch {
-    Write-Error 'Windows agent preflight collection failed.'
+    Write-Error ("Windows agent preflight collection failed: {0}" -f $_.Exception.Message)
     exit 2
 }

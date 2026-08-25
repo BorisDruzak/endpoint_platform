@@ -185,6 +185,7 @@ def test_collector_has_fixed_services_and_never_reads_protected_files() -> None:
     assert "Split-Path -Parent $current.FullName" in source
     assert "$current.Parent" not in source
     assert "$ConsoleHostPath" in source
+    assert "$completionStatus = Read-CanaryStatus" in source
 
 
 def test_preflight_allows_no_completion_before_an_operation() -> None:

@@ -168,6 +168,9 @@ class CanaryStatusWriter:
         target = self._data_root / CANARY_STATUS_FILENAME
         if target.exists():
             _require_regular_file(target)
+            existing_completion = read_canary_status(self._data_root)["completion_proof"]
+            if value["completion_proof"] is None and existing_completion is not None:
+                value["completion_proof"] = existing_completion
         temporary = self._data_root / f".{CANARY_STATUS_FILENAME}.{uuid.uuid4().hex}.tmp"
         descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         try:
