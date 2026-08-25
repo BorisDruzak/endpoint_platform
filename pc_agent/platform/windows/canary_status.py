@@ -10,6 +10,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Final
 
+from .acl import PyWin32AclAdapter
 from .completion_proof import CompletionProofError, read_completion_proofs
 
 
@@ -33,6 +34,11 @@ _TRANSPORT_FIELDS: Final = frozenset(
 _COMPLETION_FIELDS: Final = frozenset(
     {"command_id", "capability", "status", "duration_ms", "result_item_count", "timestamp"}
 )
+
+
+def _protect_status_file(path: Path) -> None:
+    """Restore the explicit service DACL lost by os.replace()."""
+    PyWin32AclAdapter().protect_machine_data_file(path)
 
 
 class CanaryStatusError(RuntimeError):
@@ -170,6 +176,7 @@ class CanaryStatusWriter:
                 stream.flush()
                 os.fsync(stream.fileno())
             os.replace(temporary, target)
+            _protect_status_file(target)
         except BaseException:
             try:
                 temporary.unlink()

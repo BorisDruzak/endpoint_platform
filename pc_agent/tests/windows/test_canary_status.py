@@ -64,6 +64,21 @@ def test_writer_persists_only_redacted_truthful_transport_facts(tmp_path: Path) 
     }
 
 
+def test_writer_protects_replaced_status_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The atomic replacement must not inherit the data-root DACL."""
+    protected: list[Path] = []
+    monkeypatch.setattr(
+        "pc_agent.platform.windows.canary_status._protect_status_file",
+        protected.append,
+    )
+
+    CanaryStatusWriter(tmp_path, _release(), _endpoint_host()).write_wss_ready()
+
+    assert protected == [tmp_path / CANARY_STATUS_FILENAME]
+
+
 def test_writer_marks_disconnected_and_connected_states_explicitly(tmp_path: Path) -> None:
     """A reconnect must clear readiness before a later verified WSS handshake restores it."""
     writer = CanaryStatusWriter(tmp_path, _release(), _endpoint_host())
