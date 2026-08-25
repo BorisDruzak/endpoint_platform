@@ -69,7 +69,9 @@ collector with `-RequireCompletion`, the exact command ID, and
 `context.diagnostic.collect`; the validator then accepts only that successful
 bounded completion marker. Both stages verify the selector, installed MSI
 provenance, protected local artifacts, and strict WSS status without reading
-or reporting credential contents.
+or reporting credential contents. The protected status retains only the
+configured hostname so the collector can reject a connection to another FQDN;
+it never records a full endpoint URL or authentication material.
 
 ## Installed security boundary
 

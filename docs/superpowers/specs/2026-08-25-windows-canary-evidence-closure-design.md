@@ -73,9 +73,10 @@ All transport booleans are written from the agent's actual verified connection
 state. Unknown, stale, failed, or fallback states are recorded as non-ready;
 they are never inferred as successful merely because the service is running.
 The status writer uses atomic replacement and validates the fixed path and
-parent against reparse points. The record is bounded and redacted: it contains
-no endpoint address, certificate material, authentication information, tool
-payload, or raw diagnostic output.
+parent against reparse points. The record is bounded and redacted: it retains
+only the configured hostname (not a full origin, path, certificate material,
+authentication information, tool payload, or raw diagnostic output) so the
+collector can bind the proof to the approved staging FQDN.
 
 The agent reuses the existing protected `command-completions.jsonl` mechanism
 for completion records. The safe status exposes at most the selected record's

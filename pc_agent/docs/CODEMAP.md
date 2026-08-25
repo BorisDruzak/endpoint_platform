@@ -114,8 +114,9 @@
   no-argument deferred MSI boundary for the updater service DACL.
 - `pc_agent/platform/windows/canary_status.py` is the Windows-only protected,
   redacted canary status record. The normal lifecycle writes `not-ready` before
-  connecting and strict WSS facts after connection; its completion sink then
-  selects one bounded `context.diagnostic.collect` marker from
+  connecting and strict WSS facts after connection, including only the
+  configured hostname (never a full origin or authentication data); its
+  completion sink then selects one bounded `context.diagnostic.collect` marker from
   `command-completions.jsonl`. `tools/canary/Collect-WindowsAgentPreflight.ps1`
   cross-checks that record with the immutable selector and installer
   provenance, while `tools/canary/verify_installed_windows_agent.py` separates
