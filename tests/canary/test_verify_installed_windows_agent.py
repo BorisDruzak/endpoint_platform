@@ -188,6 +188,14 @@ def test_collector_has_fixed_services_and_never_reads_protected_files() -> None:
     assert "$completionStatus = Read-CanaryStatus" in source
 
 
+def test_preflight_collector_accepts_json_int32_completion_metrics() -> None:
+    """Small JSON numbers deserialize as Int32 in PowerShell 7 on Windows."""
+    source = COLLECTOR.read_text(encoding="utf-8")
+
+    assert "($Completion.duration_ms -is [int] -or $Completion.duration_ms -is [long])" in source
+    assert "($Completion.result_item_count -is [int] -or $Completion.result_item_count -is [long])" in source
+
+
 def test_preflight_allows_no_completion_before_an_operation() -> None:
     """A readiness gate cannot require evidence that only the future operation can create."""
     projection = _valid_projection()

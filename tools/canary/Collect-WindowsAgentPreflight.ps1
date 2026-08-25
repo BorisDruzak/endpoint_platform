@@ -220,8 +220,8 @@ function Assert-ExpectedCompletion {
         [string]$Completion.command_id -ne $ExpectedCommandId -or
         [string]$Completion.capability -ne $ExpectedCapability -or
         [string]$Completion.status -ne 'succeeded' -or
-        -not ($Completion.duration_ms -is [long]) -or $Completion.duration_ms -lt 0 -or
-        -not ($Completion.result_item_count -is [long]) -or $Completion.result_item_count -lt 0 -or
+        -not ($Completion.duration_ms -is [int] -or $Completion.duration_ms -is [long]) -or $Completion.duration_ms -lt 0 -or
+        -not ($Completion.result_item_count -is [int] -or $Completion.result_item_count -is [long]) -or $Completion.result_item_count -lt 0 -or
         -not [DateTimeOffset]::TryParse([string]$Completion.timestamp, [ref]$parsedTimestamp)
     ) { throw 'Expected completion proof is invalid.' }
 }
