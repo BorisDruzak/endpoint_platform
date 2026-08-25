@@ -91,3 +91,11 @@ def test_wrapper_starts_only_the_fixed_windows_installer_service_before_msi() ->
     assert "function Start-WindowsInstaller" in source
     install = source.index("Start-Process -FilePath 'msiexec.exe'")
     assert source.index("Start-WindowsInstaller", source.index("$previousServiceStates")) < install
+
+
+def test_wrapper_quotes_the_protected_msi_path_for_windows_installer() -> None:
+    """Program Files is part of the fixed execution cache, so msiexec needs quotes."""
+    source = WRAPPER.read_text(encoding="utf-8")
+
+    assert "$quotedExecutionCachePath = '\"{0}\"' -f $executionCachePath" in source
+    assert "@('/i', $quotedExecutionCachePath, '/qn', '/norestart')" in source

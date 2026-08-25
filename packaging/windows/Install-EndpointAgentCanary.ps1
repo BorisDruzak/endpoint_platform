@@ -300,7 +300,8 @@ $previousServiceStates = Stop-ManagedAgentServices
 $installationCompleted = $false
 try {
     Start-WindowsInstaller
-    $installer = Start-Process -FilePath 'msiexec.exe' -ArgumentList @('/i', $executionCachePath, '/qn', '/norestart') -Wait -PassThru
+    $quotedExecutionCachePath = '"{0}"' -f $executionCachePath
+    $installer = Start-Process -FilePath 'msiexec.exe' -ArgumentList @('/i', $quotedExecutionCachePath, '/qn', '/norestart') -Wait -PassThru
     if ($installer.ExitCode -ne 0) {
         throw "MSI installation failed with exit code $($installer.ExitCode)."
     }
