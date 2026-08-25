@@ -9,6 +9,7 @@ import sys
 import threading
 import time
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -293,6 +294,57 @@ def test_msi_service_sid_configuration_uses_only_fixed_service_names() -> None:
         ("close", "EndpointAgentUpdater"),
         ("close", "scm"),
     ]
+
+
+def test_msi_service_recovery_configuration_uses_only_fixed_restart_policy() -> None:
+    """The elevated installer boundary must not accept caller-selected recovery actions."""
+    from pc_agent.platform.windows.service_control import _configure_service_recovery_with
+
+    calls: list[tuple[list[str], dict[str, object]]] = []
+
+    def run(command: list[str], **kwargs: object) -> SimpleNamespace:
+        calls.append((command, kwargs))
+        return SimpleNamespace(returncode=0)
+
+    _configure_service_recovery_with(run, Path(r"C:\Windows\System32\sc.exe"))
+
+    assert calls == [
+        (
+            [
+                r"C:\Windows\System32\sc.exe",
+                "failure",
+                "EndpointAgent",
+                "reset=",
+                "86400",
+                "actions=",
+                "restart/60000/restart/60000/restart/60000",
+            ],
+            {"check": False, "stderr": -3, "stdin": -3, "stdout": -3, "timeout": 15},
+        ),
+        (
+            [
+                r"C:\Windows\System32\sc.exe",
+                "failure",
+                "EndpointAgentUpdater",
+                "reset=",
+                "86400",
+                "actions=",
+                "restart/60000/restart/60000/restart/60000",
+            ],
+            {"check": False, "stderr": -3, "stdin": -3, "stdout": -3, "timeout": 15},
+        ),
+    ]
+
+
+def test_msi_service_recovery_configuration_rejects_scm_failure() -> None:
+    """A silent SCM failure would leave a newly installed service without recovery."""
+    from pc_agent.platform.windows.service_control import _configure_service_recovery_with
+
+    with pytest.raises(RuntimeError, match="recovery configuration failed"):
+        _configure_service_recovery_with(
+            lambda *_args, **_kwargs: SimpleNamespace(returncode=1),
+            Path(r"C:\Windows\System32\sc.exe"),
+        )
 
 
 def test_updater_dacl_open_access_uses_security_descriptor_constants() -> None:

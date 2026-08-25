@@ -30,6 +30,7 @@ class AclAdapter(Protocol):
     def protect_directory(self, path: Path) -> None: ...
     def protect_claim(self, path: Path) -> None: ...
     def protect_credential(self, path: Path) -> None: ...
+    def protect_machine_data_file(self, path: Path) -> None: ...
     def protect_update_path(self, path: Path) -> None: ...
     def assert_protected_file(self, path: Path) -> None: ...
 
@@ -70,6 +71,10 @@ class PyWin32AclAdapter:
 
     def protect_credential(self, path: Path) -> None:
         self._apply(path, CREDENTIAL_ACL)
+
+    def protect_machine_data_file(self, path: Path) -> None:
+        """Protect a service-managed data file after an atomic replacement."""
+        self._apply(path, MACHINE_DATA_ACL)
 
     def protect_update_path(self, path: Path) -> None:
         """Make agent-created update handoff state readable by the fixed worker only."""
@@ -117,6 +122,7 @@ class PyWin32AclAdapter:
             | ntsecuritycon.DELETE,
             "read": ntsecuritycon.FILE_GENERIC_READ,
             "write": ntsecuritycon.FILE_GENERIC_WRITE,
+            "write_delete": ntsecuritycon.FILE_GENERIC_WRITE | ntsecuritycon.DELETE,
         }
         try:
             for rule in rules:

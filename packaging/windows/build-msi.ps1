@@ -449,6 +449,26 @@ $wixArguments = @(
     "-d", "PackageVersion=$Version", '-out', $msiPath
 ) + $wixSources
 Invoke-Checked $wixCommand.Source $wixArguments $repositoryRoot
-Export-MsiInspection $msiPath (Join-Path $outputRoot 'msi-inspection.json')
+$inspectionPath = Join-Path $outputRoot 'msi-inspection.json'
+Export-MsiInspection $msiPath $inspectionPath
+$inspection = Get-Content -LiteralPath $inspectionPath -Raw | ConvertFrom-Json
+$productCodes = @(
+    $inspection.properties |
+        Where-Object { $_.property -eq 'ProductCode' } |
+        ForEach-Object { [string]$_.value }
+)
+if ($productCodes.Count -ne 1 -or $productCodes[0] -notmatch '^\{[0-9A-F-]{36}\}$') {
+    throw "MSI inspection did not yield one canonical ProductCode."
+}
+$packageSha256 = (Get-FileHash -LiteralPath $msiPath -Algorithm SHA256).Hash.ToLowerInvariant()
 Copy-Item -LiteralPath $msiPath -Destination (Join-Path $releaseRoot (Split-Path -Leaf $msiPath)) -Force
+$releaseManifestPath = Join-Path $releaseRoot "EndpointAgent-$Version-x64.release.json"
+Write-Utf8NoBom $releaseManifestPath (@{
+    initial_runtime_tree_sha256 = [string]$manifestPreview.artifact.tree_sha256
+    package_sha256 = $packageSha256
+    product_code = $productCodes[0]
+    schema_version = 'endpoint_windows_release_v1'
+    source_revision = $sourceRevision
+    version = $Version
+} | ConvertTo-Json -Compress)
 Write-Host "MSI: $msiPath"

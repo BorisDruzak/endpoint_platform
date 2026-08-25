@@ -113,6 +113,33 @@ def test_provisioning_acl_uses_well_known_builtin_sids_on_localized_windows(
     ]
 
 
+def test_machine_data_file_acl_allows_the_updater_to_replace_status(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Status files must be protected explicitly after os.replace()."""
+    from pc_agent.platform.windows.acl import PyWin32AclAdapter
+
+    security = _Security()
+    monkeypatch.setattr(
+        PyWin32AclAdapter,
+        "_modules",
+        staticmethod(lambda: (security, _Rights)),
+    )
+    status = tmp_path / "canary-status.json"
+    status.write_text("{}", encoding="ascii")
+
+    PyWin32AclAdapter().protect_machine_data_file(status)
+
+    assert security.applied is not None
+    assert security.applied[2] == 12
+    assert security.acl.aces == [
+        (0, 0x1, "S-1-5-18"),
+        (0, 0x1, "S-1-5-32-544"),
+        (0, 0xE, "NT SERVICE\\EndpointAgent"),
+        (0, 0xC, "NT SERVICE\\EndpointAgentUpdater"),
+    ]
+
+
 def test_msi_acl_rejects_a_reparse_target_before_privileged_write(
     tmp_path: Path,
 ) -> None:

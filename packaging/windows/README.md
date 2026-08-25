@@ -14,7 +14,7 @@ packaged bytes. From the repository root:
 
 ```powershell
 .\packaging\windows\build-msi.ps1 -Configuration Release -Platform x64 `
-  -InitialRuntimeManifest .\packaging\windows\initial-runtime-3.2.21.json `
+  -InitialRuntimeManifest .\packaging\windows\initial-runtime-3.2.26.json `
   -ApproveInitialRuntimeTransition -ApproveInitialRuntimeSourceChange
 ```
 
@@ -27,8 +27,8 @@ and paths inside the repository are rejected. The build has no parameter for
 enrollment or device material and does not read such input.
 
 The checked-in `initial-runtime.json` remains the immutable `3.1.76` baseline.
-The reviewed `initial-runtime-3.2.21.json` transition pins the Windows Device
-Context and WSS update runtime with a new component GUID and must be built with both explicit
+The reviewed `initial-runtime-3.2.26.json` transition pins the Windows Device
+Context and WSS diagnostic-canary runtime with a new component GUID and must be built with both explicit
 approval switches shown above. Each manifest pins its runtime version,
 component GUID, canonical-LF source-file hashes, complete staged artifact tree identity,
 and the CPython/PyInstaller producer identity, including
@@ -49,6 +49,33 @@ MSI-owned launcher/service metadata while keeping ProgramData and a valid
 `RemoveExistingProducts` runs inside the MSI transaction; vital service
 installation and the ACL actions fail the transaction instead of continuing
 with a partial service installation.
+
+## Staging diagnostic canary
+
+Use `Install-EndpointAgentCanary.ps1` only from an elevated PowerShell session
+with the versioned MSI and its adjacent `*.release.json` sidecar. The wrapper
+verifies the exact release manifest and MSI hash, copies that verified MSI to
+a protected Program Files execution cache before invoking Windows Installer,
+then records the same verified bytes and secret-free provenance in the
+MSI-protected ProgramData evidence cache. It never accepts an arbitrary cache
+location or enrollment material. Before invoking the MSI it stops only the
+fixed `EndpointAgent` and `EndpointAgentUpdater` services and the system
+Windows Installer service, starts
+`EndpointAgent` after recording provenance, and restores a previously running
+core agent if installation fails.
+
+After the agent has completed a strict Gateway WSS connection, collect a
+redacted readiness projection with
+`tools/canary/Collect-WindowsAgentPreflight.ps1` and validate it with
+`tools/canary/verify_installed_windows_agent.py`. A readiness projection may
+have no command completion. After the one diagnostic operation, rerun the
+collector with `-RequireCompletion`, the exact command ID, and
+`context.diagnostic.collect`; the validator then accepts only that successful
+bounded completion marker. Both stages verify the selector, installed MSI
+provenance, protected local artifacts, and strict WSS status without reading
+or reporting credential contents. The protected status retains only the
+configured hostname so the collector can reject a connection to another FQDN;
+it never records a full endpoint URL or authentication material.
 
 ## Installed security boundary
 

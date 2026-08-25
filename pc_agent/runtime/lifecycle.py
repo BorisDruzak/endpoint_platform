@@ -56,6 +56,13 @@ class RuntimeExecutor(Protocol):
     async def execute(self, command: AgentCommandV1) -> AgentResultV1: ...
 
 
+class CanaryStatusWriter(Protocol):
+    """Minimal runtime boundary for redacted Windows canary transport facts."""
+
+    def write_not_ready(self) -> None: ...
+    def write_wss_ready(self) -> None: ...
+
+
 def _compatibility_hello(_settings: object) -> AgentHelloV1:
     return compatibility_agent_hello()
 
@@ -74,6 +81,10 @@ def _no_completion_sink(_settings: object) -> Callable[[dict[str, object]], None
     return None
 
 
+def _no_canary_status_writer(_settings: object) -> CanaryStatusWriter | None:
+    return None
+
+
 @dataclass(frozen=True, slots=True)
 class RuntimeDependencies:
     load_credential: Callable[[object], str]
@@ -89,6 +100,9 @@ class RuntimeDependencies:
     create_completion_sink: Callable[
         [object], Callable[[dict[str, object]], None] | None
     ] = _no_completion_sink
+    create_canary_status_writer: Callable[[object], CanaryStatusWriter | None] = (
+        _no_canary_status_writer
+    )
     reconnect_delay: float = 5.0
 
 
@@ -128,15 +142,22 @@ class RuntimeLifecycle:
             await executor.start()
             executor_started = True
             completion_sink = self._dependencies.create_completion_sink(self._settings)
+            canary_status_writer = self._dependencies.create_canary_status_writer(
+                self._settings
+            )
             while True:
                 transport = self._dependencies.create_transport(
                     self._settings, credential, executor
                 )
                 next_delay: float | None = None
                 try:
+                    if canary_status_writer is not None:
+                        canary_status_writer.write_not_ready()
                     self._status.transition(RuntimePhase.CONNECTING)
                     gateway_hello = await transport.connect(hello)
                     self._status.transition(RuntimePhase.RUNNING)
+                    if canary_status_writer is not None:
+                        canary_status_writer.write_wss_ready()
                     await self._dependencies.after_server_handshake(self._settings)
                     connected_tasks = self._dependencies.create_connected_tasks(
                         self._settings, credential, transport
@@ -165,6 +186,8 @@ class RuntimeLifecycle:
                     self._status.transition(terminal_phase, error=error)
                     return 75
                 except RetryableTransportError as error:
+                    if canary_status_writer is not None:
+                        canary_status_writer.write_not_ready()
                     self._status.record_reconnect(error)
                     next_delay = self._dependencies.reconnect_delay
                 except TerminalTransportError as error:
@@ -176,6 +199,8 @@ class RuntimeLifecycle:
                     self._status.transition(RuntimePhase.STOPPING)
                     return 0
                 except GatewayIdle as idle:
+                    if canary_status_writer is not None:
+                        canary_status_writer.write_not_ready()
                     self._status.transition(RuntimePhase.RUNNING)
                     next_delay = idle.delay
                 finally:
@@ -348,4 +373,7 @@ def emit_command_completed_marker(
         extra=marker,
     )
     if completion_sink is not None:
-        completion_sink(marker)
+        try:
+            completion_sink(marker)
+        except Exception:
+            logger.warning("endpoint_agent_completion_sink_failed")

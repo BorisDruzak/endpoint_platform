@@ -15,7 +15,7 @@ from uuid import UUID
 import aiohttp
 import pytest
 
-from endpoint_contracts import AgentCommandV1, GatewayHelloV1
+from endpoint_contracts import AgentCommandV1, AgentResultV1, GatewayHelloV1
 from pc_agent.enrollment_bootstrap import EnrollmentOutcome
 from pc_agent import endpoint_gateway
 from pc_agent.runtime import application as runtime_application
@@ -27,7 +27,12 @@ from pc_agent.runtime.application import (
     run_runtime,
 )
 from pc_agent.runtime.command_executor import CommandExecutor
-from pc_agent.runtime.lifecycle import CredentialRejected, RetryableTransportError
+from pc_agent.runtime.lifecycle import (
+    CredentialRejected,
+    RetryableTransportError,
+    _handle_inbound,
+)
+from pc_agent.transport.protocol import GatewayInboundV1
 from pc_agent.runtime.status import RuntimePhase
 from pc_agent.tests.context.conftest import FakeProbe
 from pc_agent.transport.protocol import compatibility_agent_hello
@@ -332,6 +337,84 @@ async def test_retryable_transport_failure_reconnects_without_reloading_credenti
 
 
 @pytest.mark.asyncio
+async def test_strict_windows_wss_lifecycle_clears_then_publishes_transport_readiness(
+    tmp_path: Path,
+) -> None:
+    """A stale ready status must not survive reconnect and precede a fresh WSS handshake."""
+    events: list[str] = []
+
+    class CanaryStatusRecorder:
+        def write_not_ready(self) -> None:
+            events.append("canary.not_ready")
+
+        def write_wss_ready(self) -> None:
+            events.append("canary.wss_ready")
+
+    settings = RuntimeSettings(
+        data_root=tmp_path / "data",
+        install_root=tmp_path / "install",
+        ca_file=tmp_path / "endpoint-ca.crt",
+        endpoint_origin="https://endpoint.sosnadmin.local",
+        transport_mode="gateway_wss",
+        migration_http_pull_fallback=False,
+    )
+    base = _dependencies(events, [None])
+    dependencies = RuntimeDependencies(
+        load_credential=base.load_credential,
+        create_executor=base.create_executor,
+        create_transport=base.create_transport,
+        sleep=base.sleep,
+        reconnect_delay=base.reconnect_delay,
+        create_canary_status_writer=lambda _settings: CanaryStatusRecorder(),
+    )
+
+    assert await RuntimeApplication(settings, dependencies).run() == 0
+    assert events.index("canary.not_ready") < events.index("transport.connect")
+    assert events.index("transport.connect") < events.index("canary.wss_ready")
+
+
+def test_default_runtime_creates_canary_status_only_for_strict_wss(
+    tmp_path: Path,
+) -> None:
+    """HTTP-pull and migration fallback agents must stay ineligible for the strict canary."""
+    data_root = tmp_path / "data"
+    install_root = tmp_path / "install"
+    data_root.mkdir()
+    install_root.mkdir()
+    (install_root / "current.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "source_revision": "a" * 40,
+                "version": AGENT_VERSION,
+            }
+        ),
+        encoding="utf-8",
+    )
+    strict = RuntimeSettings(
+        data_root=data_root,
+        install_root=install_root,
+        ca_file=tmp_path / "endpoint-ca.crt",
+        endpoint_origin="https://endpoint.sosnadmin.local",
+        transport_mode="gateway_wss",
+        migration_http_pull_fallback=False,
+    )
+    fallback = RuntimeSettings(
+        data_root=data_root,
+        install_root=install_root,
+        ca_file=tmp_path / "endpoint-ca.crt",
+        endpoint_origin="https://endpoint.sosnadmin.local",
+        transport_mode="gateway_wss",
+        migration_http_pull_fallback=True,
+    )
+
+    writer = runtime_application._create_canary_status_writer(strict)
+
+    assert writer is not None
+    assert runtime_application._create_canary_status_writer(fallback) is None
+
+
+@pytest.mark.asyncio
 async def test_gateway_credential_rejection_is_terminal_in_process(
     tmp_path: Path,
 ) -> None:
@@ -467,6 +550,50 @@ async def test_command_executor_uses_existing_typed_context_path() -> None:
     assert result.status == "succeeded"
     assert len(result.result_items) == 1
     assert result.result_items[0]["profile"] == "baseline_v1"
+
+
+@pytest.mark.asyncio
+async def test_completion_sink_failure_does_not_suppress_command_result() -> None:
+    """A local canary artifact failure is never allowed to lose an executed result."""
+    command = _command("context.diagnostic.collect")
+    result = AgentResultV1(
+        schema_version="agent_result_v1",
+        command_id=command.command_id,
+        device_id=command.device_id,
+        status="succeeded",
+        result_items=[],
+        completed_at=datetime(2026, 8, 1, 9, 1, tzinfo=UTC),
+    )
+    sent: list[str] = []
+
+    class Transport:
+        async def send_ack(self, _ack) -> None:
+            sent.append("ack")
+
+        async def send_result(self, observed: AgentResultV1) -> None:
+            assert observed is result
+            sent.append("result")
+
+    class Executor:
+        async def execute(self, observed: AgentCommandV1) -> AgentResultV1:
+            assert observed.command_id == command.command_id
+            return result
+
+    def broken_sink(_marker: dict[str, object]) -> None:
+        raise RuntimeError("canary status storage failed")
+
+    inbound = GatewayInboundV1.model_validate(
+        {
+            "schema_version": "gateway_ws_envelope_v1",
+            "sequence": 1,
+            "kind": "command",
+            "payload": command.model_dump(mode="json"),
+        }
+    )
+
+    await _handle_inbound(Transport(), Executor(), inbound, broken_sink)
+
+    assert sent == ["ack", "result"]
 
 
 @pytest.mark.asyncio
