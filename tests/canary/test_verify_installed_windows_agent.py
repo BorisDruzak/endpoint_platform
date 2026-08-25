@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from tools.canary.verify_installed_windows_agent import (
+    CompletionExpectation,
     WindowsPreflightError,
     validate_preflight,
 )
@@ -81,12 +82,20 @@ def _valid_projection() -> dict[str, object]:
             "protected_file_regular": True,
             "protected_file_reparse": False,
         },
-        "safe_status": {"service": "running", "identity_present": True},
+        "safe_status": {
+            "service": "running",
+            "identity_present": True,
+            "regular": True,
+            "reparse": False,
+            "release_version": "3.2.16",
+            "release_source_revision": "a" * 40,
+        },
         "network": {
             "strict_tls": True,
             "hostname_valid": True,
             "redirected": False,
             "gateway_wss": True,
+            "http_fallback": False,
             "capability": "context.diagnostic.collect",
         },
         "completion_proof": {
@@ -138,7 +147,10 @@ def test_unknown_projection_field_fails_closed() -> None:
         lambda value: value["runtime"].update(helpdesk_reference=True),
         lambda value: value["network"].update(strict_tls=False),
         lambda value: value["network"].update(hostname_valid=False),
+        lambda value: value["network"].update(http_fallback=True),
         lambda value: value["network"].update(capability="context.baseline.collect"),
+        lambda value: value["safe_status"].update(regular=False),
+        lambda value: value["safe_status"].update(reparse=True),
     ],
 )
 def test_unsafe_projection_is_rejected(mutate) -> None:
@@ -156,3 +168,35 @@ def test_collector_has_fixed_services_and_never_reads_protected_files() -> None:
     assert "EndpointAgentUpdater" in source
     assert "Get-Content.*device-credential" not in source
     assert "Get-Content.*enrollment-identity.json" not in source
+    assert "ConvertTo-CanonicalServiceStartMode" in source
+    assert "installer-provenance.json" in source
+    assert "canary-status.json" in source
+    assert "sha256 = ''" not in source
+    assert "$RequireCompletion" in source
+
+
+def test_preflight_allows_no_completion_before_an_operation() -> None:
+    """A readiness gate cannot require evidence that only the future operation can create."""
+    projection = _valid_projection()
+    projection["completion_proof"] = None
+
+    assert validate_preflight(projection, _manifest()) == {
+        "status": "READY",
+        "platform": "windows_amd64",
+    }
+
+
+def test_post_operation_requires_exact_succeeded_diagnostic_completion() -> None:
+    """A stale, failed, or unrelated result must not prove a newly scheduled canary."""
+    expectation = CompletionExpectation(
+        command_id="00000000-0000-4000-8000-000000000001",
+        capability="context.diagnostic.collect",
+    )
+    projection = _valid_projection()
+
+    assert validate_preflight(
+        projection, _manifest(), require_completion=expectation
+    )["status"] == "READY"
+    projection["completion_proof"] = None
+    with pytest.raises(WindowsPreflightError, match="completion"):
+        validate_preflight(projection, _manifest(), require_completion=expectation)
