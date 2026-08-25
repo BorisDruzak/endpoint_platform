@@ -14,6 +14,8 @@ Set-StrictMode -Version Latest
 $SystemSid = 'S-1-5-18'
 $AdministratorsSid = 'S-1-5-32-544'
 $CacheSids = @($SystemSid, $AdministratorsSid)
+$ManagedServiceNames = @('EndpointAgent', 'EndpointAgentUpdater')
+$ManagedServiceTimeout = [TimeSpan]::FromSeconds(45)
 
 function Assert-RegularNonReparseFile {
     param([Parameter(Mandatory = $true)][string]$Path, [Parameter(Mandatory = $true)][string]$Label)
@@ -165,6 +167,42 @@ function Set-CacheArtifactProtection {
     Assert-CacheArtifactProtection -Path $Path
 }
 
+function Stop-ManagedAgentServices {
+    $previousStates = @{}
+    foreach ($serviceName in $ManagedServiceNames) {
+        $service = Get-Service -Name $serviceName -ErrorAction SilentlyContinue
+        if ($null -eq $service) {
+            continue
+        }
+        $previousStates[$serviceName] = $service.Status
+        if ($service.Status -eq [ServiceProcess.ServiceControllerStatus]::Stopped) {
+            continue
+        }
+        Stop-Service -Name $serviceName -ErrorAction Stop
+        $service.WaitForStatus([ServiceProcess.ServiceControllerStatus]::Stopped, $ManagedServiceTimeout)
+        $service.Refresh()
+        if ($service.Status -ne [ServiceProcess.ServiceControllerStatus]::Stopped) {
+            throw "Managed service $serviceName did not stop before MSI installation."
+        }
+    }
+    return $previousStates
+}
+
+function Start-ManagedEndpointAgent {
+    $service = Get-Service -Name 'EndpointAgent' -ErrorAction SilentlyContinue
+    if ($null -eq $service) {
+        return
+    }
+    if ($service.Status -ne [ServiceProcess.ServiceControllerStatus]::Running) {
+        Start-Service -Name 'EndpointAgent' -ErrorAction Stop
+        $service.WaitForStatus([ServiceProcess.ServiceControllerStatus]::Running, $ManagedServiceTimeout)
+        $service.Refresh()
+    }
+    if ($service.Status -ne [ServiceProcess.ServiceControllerStatus]::Running) {
+        throw 'EndpointAgent did not start after MSI installation.'
+    }
+}
+
 function Read-ReleaseManifest {
     param([Parameter(Mandatory = $true)][string]$Path)
     Assert-RegularNonReparseFile -Path $Path -Label 'Release manifest'
@@ -245,45 +283,56 @@ Assert-InstallerCacheProtection -Path $executionCacheRoot
 Assert-InstallerCacheProtection -Path $executionCacheDirectory
 Assert-CacheArtifactProtection -Path $executionCachePath
 
-$installer = Start-Process -FilePath 'msiexec.exe' -ArgumentList @('/i', $executionCachePath, '/qn', '/norestart') -Wait -PassThru
-if ($installer.ExitCode -ne 0) {
-    throw "MSI installation failed with exit code $($installer.ExitCode)."
-}
+$previousServiceStates = Stop-ManagedAgentServices
+$installationCompleted = $false
+try {
+    $installer = Start-Process -FilePath 'msiexec.exe' -ArgumentList @('/i', $executionCachePath, '/qn', '/norestart') -Wait -PassThru
+    if ($installer.ExitCode -ne 0) {
+        throw "MSI installation failed with exit code $($installer.ExitCode)."
+    }
 
-$programData = [Environment]::GetFolderPath([Environment+SpecialFolder]::CommonApplicationData)
-$dataRoot = Join-Path $programData 'Endpoint Platform\Agent'
-$cacheRoot = Join-Path $dataRoot 'installer-cache'
-$cacheDirectory = Join-Path $cacheRoot "msi-$($manifest.package_sha256)"
-$cachePath = Join-Path $cacheDirectory 'EndpointAgent.msi'
-$provenancePath = Join-Path $cacheRoot 'installer-provenance.json'
-Assert-InstalledDataProtection -Path $dataRoot
-if (-not (Test-Path -LiteralPath $cacheRoot)) {
-    New-ProtectedDirectory -Path $cacheRoot
-}
-Assert-InstallerCacheProtection -Path $cacheRoot
-if (-not (Test-Path -LiteralPath $cacheDirectory)) {
-    New-ProtectedDirectory -Path $cacheDirectory
-}
-Assert-InstallerCacheProtection -Path $cacheDirectory
-Copy-Item -LiteralPath $executionCachePath -Destination $cachePath
-Set-CacheArtifactProtection -Path $cachePath
-if ((Get-FileHash -LiteralPath $cachePath -Algorithm SHA256).Hash.ToLowerInvariant() -ne $inputHash) {
-    throw 'Installed MSI cache SHA-256 does not match release manifest.'
-}
+    $programData = [Environment]::GetFolderPath([Environment+SpecialFolder]::CommonApplicationData)
+    $dataRoot = Join-Path $programData 'Endpoint Platform\Agent'
+    $cacheRoot = Join-Path $dataRoot 'installer-cache'
+    $cacheDirectory = Join-Path $cacheRoot "msi-$($manifest.package_sha256)"
+    $cachePath = Join-Path $cacheDirectory 'EndpointAgent.msi'
+    $provenancePath = Join-Path $cacheRoot 'installer-provenance.json'
+    Assert-InstalledDataProtection -Path $dataRoot
+    if (-not (Test-Path -LiteralPath $cacheRoot)) {
+        New-ProtectedDirectory -Path $cacheRoot
+    }
+    Assert-InstallerCacheProtection -Path $cacheRoot
+    if (-not (Test-Path -LiteralPath $cacheDirectory)) {
+        New-ProtectedDirectory -Path $cacheDirectory
+    }
+    Assert-InstallerCacheProtection -Path $cacheDirectory
+    Copy-Item -LiteralPath $executionCachePath -Destination $cachePath
+    Set-CacheArtifactProtection -Path $cachePath
+    if ((Get-FileHash -LiteralPath $cachePath -Algorithm SHA256).Hash.ToLowerInvariant() -ne $inputHash) {
+        throw 'Installed MSI cache SHA-256 does not match release manifest.'
+    }
 
-$provenance = [ordered]@{
-    cache_file = "msi-$($manifest.package_sha256)/EndpointAgent.msi"
-    initial_runtime_tree_sha256 = [string]$manifest.initial_runtime_tree_sha256
-    package_sha256 = [string]$manifest.package_sha256
-    product_code = [string]$manifest.product_code
-    release_manifest_schema_version = [string]$manifest.schema_version
-    schema_version = 'endpoint_windows_installer_provenance_v1'
-    source_revision = [string]$manifest.source_revision
-    version = [string]$manifest.version
+    $provenance = [ordered]@{
+        cache_file = "msi-$($manifest.package_sha256)/EndpointAgent.msi"
+        initial_runtime_tree_sha256 = [string]$manifest.initial_runtime_tree_sha256
+        package_sha256 = [string]$manifest.package_sha256
+        product_code = [string]$manifest.product_code
+        release_manifest_schema_version = [string]$manifest.schema_version
+        schema_version = 'endpoint_windows_installer_provenance_v1'
+        source_revision = [string]$manifest.source_revision
+        version = [string]$manifest.version
+    }
+    [IO.File]::WriteAllText(
+        $provenancePath,
+        ($provenance | ConvertTo-Json -Compress),
+        [Text.UTF8Encoding]::new($false)
+    )
+    Set-CacheArtifactProtection -Path $provenancePath
+    Start-ManagedEndpointAgent
+    $installationCompleted = $true
 }
-[IO.File]::WriteAllText(
-    $provenancePath,
-    ($provenance | ConvertTo-Json -Compress),
-    [Text.UTF8Encoding]::new($false)
-)
-Set-CacheArtifactProtection -Path $provenancePath
+finally {
+    if (-not $installationCompleted -and $previousServiceStates['EndpointAgent'] -eq [ServiceProcess.ServiceControllerStatus]::Running) {
+        Start-ManagedEndpointAgent
+    }
+}

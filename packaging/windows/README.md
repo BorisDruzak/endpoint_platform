@@ -58,7 +58,10 @@ verifies the exact release manifest and MSI hash, copies that verified MSI to
 a protected Program Files execution cache before invoking Windows Installer,
 then records the same verified bytes and secret-free provenance in the
 MSI-protected ProgramData evidence cache. It never accepts an arbitrary cache
-path or enrollment material.
+location or enrollment material. Before invoking the MSI it stops only the
+fixed `EndpointAgent` and `EndpointAgentUpdater` services, starts
+`EndpointAgent` after recording provenance, and restores a previously running
+core agent if installation fails.
 
 After the agent has completed a strict Gateway WSS connection, collect a
 redacted readiness projection with

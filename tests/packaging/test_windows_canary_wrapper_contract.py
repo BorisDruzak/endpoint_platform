@@ -66,3 +66,18 @@ def test_wrapper_protects_a_hash_addressed_cache_before_privileged_execution() -
     assert source[:install].rindex(
         "Assert-InstallerCacheProtection -Path $executionCacheRoot"
     ) < install
+
+
+def test_wrapper_stops_only_fixed_agent_services_and_restores_core_agent() -> None:
+    """An in-use binary must not stall MSI, nor leave the prior agent stopped on failure."""
+    source = WRAPPER.read_text(encoding="utf-8")
+
+    assert "$ManagedServiceNames = @('EndpointAgent', 'EndpointAgentUpdater')" in source
+    assert "function Stop-ManagedAgentServices" in source
+    assert "function Start-ManagedEndpointAgent" in source
+    assert "Stop-ManagedAgentServices" in source
+    assert "Start-ManagedEndpointAgent" in source
+    assert "finally" in source
+    install = source.index("Start-Process -FilePath 'msiexec.exe'")
+    assert source.index("$previousServiceStates = Stop-ManagedAgentServices") < install
+    assert source.index("Start-ManagedEndpointAgent", install) > install
