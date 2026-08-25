@@ -182,6 +182,9 @@ def test_collector_has_fixed_services_and_never_reads_protected_files() -> None:
     assert "S-1-5-18" in source
     assert "S-1-5-32-544" in source
     assert "ExpectedEndpointHost" in source
+    assert "Split-Path -Parent $current.FullName" in source
+    assert "$current.Parent" not in source
+    assert "$ConsoleHostPath" in source
 
 
 def test_preflight_allows_no_completion_before_an_operation() -> None:

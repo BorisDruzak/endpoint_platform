@@ -22,6 +22,7 @@ $CanaryCapability = 'context.diagnostic.collect'
 $SystemSid = 'S-1-5-18'
 $AdministratorsSid = 'S-1-5-32-544'
 $LocalServiceSid = 'S-1-5-19'
+$ConsoleHostPath = Join-Path $env:WINDIR 'System32\conhost.exe'
 
 function Assert-NoReparsePointInPath {
     param([Parameter(Mandatory = $true)][string]$Path)
@@ -30,9 +31,9 @@ function Assert-NoReparsePointInPath {
         if ([bool]($current.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
             throw 'A required path contains a reparse point.'
         }
-        $parent = $current.Parent
-        if ($null -eq $parent -or $parent.FullName -eq $current.FullName) { break }
-        $current = $parent
+        $parentPath = Split-Path -Parent $current.FullName
+        if ([string]::IsNullOrEmpty($parentPath) -or $parentPath -eq $current.FullName) { break }
+        $current = Get-Item -LiteralPath $parentPath -Force
     }
 }
 
@@ -246,7 +247,9 @@ try {
     $runtimePath = Join-Path (Join-Path (Join-Path $ExpectedInstallRoot 'versions') $selectorValue.version) 'pc_agent.exe'
     $runtimeFact = Get-SafeFileFact -Path $runtimePath
     $children = @(
-        Get-CimInstance Win32_Process -Filter "ParentProcessId=$($agent.pid)" | ForEach-Object {
+        Get-CimInstance Win32_Process -Filter "ParentProcessId=$($agent.pid)" | Where-Object {
+            -not ([string]$_.ExecutablePath).Equals($ConsoleHostPath, [StringComparison]::OrdinalIgnoreCase)
+        } | ForEach-Object {
             $childFact = Get-SafeFileFact -Path $_.ExecutablePath
             [ordered]@{
                 path = $_.ExecutablePath
