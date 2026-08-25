@@ -126,7 +126,14 @@ def _validate_msi_acl_network(
     _require(msi.get("sha256"), name="MSI SHA-256", expected=manifest_agent.get("package_sha256"))
     _require(msi.get("owned_files"), name="MSI ownership")
     acl = _mapping(projection.get("acl"), name="ACL")
-    for key in ("data_root_protected", "required_principals", "protected_file_regular"):
+    for key in (
+        "data_root_protected",
+        "required_principals",
+        "protected_file_regular",
+        "status_artifact_protected",
+        "provenance_artifact_protected",
+        "msi_artifact_protected",
+    ):
         _require(acl.get(key), name=f"ACL {key}")
     for key in ("ordinary_user_read", "protected_file_reparse"):
         _require(acl.get(key), name=f"ACL {key}", expected=False)

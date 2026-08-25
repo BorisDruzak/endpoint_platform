@@ -20,6 +20,10 @@ def _release() -> dict[str, str]:
     return {"version": "3.2.22", "source_revision": "a" * 40}
 
 
+def _endpoint_host() -> str:
+    return "endpoint-staging.sosnadmin.local"
+
+
 def _marker(command_id: str) -> dict[str, object]:
     return {
         "command_id": command_id,
@@ -33,7 +37,7 @@ def _marker(command_id: str) -> dict[str, object]:
 
 def test_writer_persists_only_redacted_truthful_transport_facts(tmp_path: Path) -> None:
     """Removing a transport fact or serializing an origin would weaken preflight proof."""
-    writer = CanaryStatusWriter(tmp_path, _release())
+    writer = CanaryStatusWriter(tmp_path, _release(), _endpoint_host())
 
     writer.write_transport(
         strict_tls=True,
@@ -52,6 +56,8 @@ def test_writer_persists_only_redacted_truthful_transport_facts(tmp_path: Path) 
             "redirected": False,
             "gateway_wss": True,
             "http_fallback": False,
+            "endpoint_host": _endpoint_host(),
+            "endpoint_host": _endpoint_host(),
         },
         "capability": "context.diagnostic.collect",
         "completion_proof": None,
@@ -60,7 +66,7 @@ def test_writer_persists_only_redacted_truthful_transport_facts(tmp_path: Path) 
 
 def test_writer_marks_disconnected_and_connected_states_explicitly(tmp_path: Path) -> None:
     """A reconnect must clear readiness before a later verified WSS handshake restores it."""
-    writer = CanaryStatusWriter(tmp_path, _release())
+    writer = CanaryStatusWriter(tmp_path, _release(), _endpoint_host())
 
     writer.write_not_ready()
     assert read_canary_status(tmp_path)["transport"] == {
@@ -69,6 +75,7 @@ def test_writer_marks_disconnected_and_connected_states_explicitly(tmp_path: Pat
         "redirected": False,
         "gateway_wss": False,
         "http_fallback": False,
+        "endpoint_host": _endpoint_host(),
     }
 
     writer.write_wss_ready()
@@ -78,6 +85,7 @@ def test_writer_marks_disconnected_and_connected_states_explicitly(tmp_path: Pat
         "redirected": False,
         "gateway_wss": True,
         "http_fallback": False,
+        "endpoint_host": _endpoint_host(),
     }
 
 
@@ -98,7 +106,7 @@ def test_writer_selects_exact_existing_completion_record(tmp_path: Path) -> None
     proof_writer = WindowsCompletionProofWriter(tmp_path)
     proof_writer.append_marker(_marker("command-before"))
     proof_writer.append_marker(_marker("command-current"))
-    status_writer = CanaryStatusWriter(tmp_path, _release())
+    status_writer = CanaryStatusWriter(tmp_path, _release(), _endpoint_host())
     status_writer.write_transport(
         strict_tls=True,
         hostname_valid=True,
@@ -112,12 +120,28 @@ def test_writer_selects_exact_existing_completion_record(tmp_path: Path) -> None
     assert read_canary_status(tmp_path)["completion_proof"] == _marker("command-current")
 
 
+def test_writer_preserves_selected_completion_across_a_transport_reconnect(
+    tmp_path: Path,
+) -> None:
+    """A retry after the one command must not erase its bounded terminal proof."""
+    proof_writer = WindowsCompletionProofWriter(tmp_path)
+    proof_writer.append_marker(_marker("command-current"))
+    status_writer = CanaryStatusWriter(tmp_path, _release(), _endpoint_host())
+    status_writer.write_wss_ready()
+    status_writer.with_completion("command-current")
+
+    status_writer.write_not_ready()
+    status_writer.write_wss_ready()
+
+    assert read_canary_status(tmp_path)["completion_proof"] == _marker("command-current")
+
+
 def test_writer_rejects_ambiguous_completion_records(tmp_path: Path) -> None:
     """Duplicated command markers must fail closed rather than pick an arbitrary result."""
     proof_writer = WindowsCompletionProofWriter(tmp_path)
     proof_writer.append_marker(_marker("command-duplicate"))
     proof_writer.append_marker(_marker("command-duplicate"))
-    status_writer = CanaryStatusWriter(tmp_path, _release())
+    status_writer = CanaryStatusWriter(tmp_path, _release(), _endpoint_host())
 
     with pytest.raises(CanaryStatusError, match="ambiguous"):
         status_writer.with_completion("command-duplicate")
@@ -127,7 +151,7 @@ def test_writer_ignores_non_diagnostic_completion_record(tmp_path: Path) -> None
     """A baseline result must not overwrite diagnostic-canary completion evidence."""
     marker = {**_marker("command-baseline"), "capability": "context.baseline.collect"}
     WindowsCompletionProofWriter(tmp_path).append_marker(marker)
-    status_writer = CanaryStatusWriter(tmp_path, _release())
+    status_writer = CanaryStatusWriter(tmp_path, _release(), _endpoint_host())
     status_writer.write_transport(
         strict_tls=True,
         hostname_valid=True,

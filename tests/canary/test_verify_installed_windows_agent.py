@@ -81,6 +81,9 @@ def _valid_projection() -> dict[str, object]:
             "ordinary_user_read": False,
             "protected_file_regular": True,
             "protected_file_reparse": False,
+            "status_artifact_protected": True,
+            "provenance_artifact_protected": True,
+            "msi_artifact_protected": True,
         },
         "safe_status": {
             "service": "running",
@@ -151,6 +154,9 @@ def test_unknown_projection_field_fails_closed() -> None:
         lambda value: value["network"].update(capability="context.baseline.collect"),
         lambda value: value["safe_status"].update(regular=False),
         lambda value: value["safe_status"].update(reparse=True),
+        lambda value: value["acl"].update(status_artifact_protected=False),
+        lambda value: value["acl"].update(provenance_artifact_protected=False),
+        lambda value: value["acl"].update(msi_artifact_protected=False),
     ],
 )
 def test_unsafe_projection_is_rejected(mutate) -> None:
@@ -173,6 +179,9 @@ def test_collector_has_fixed_services_and_never_reads_protected_files() -> None:
     assert "canary-status.json" in source
     assert "sha256 = ''" not in source
     assert "$RequireCompletion" in source
+    assert "S-1-5-18" in source
+    assert "S-1-5-32-544" in source
+    assert "ExpectedEndpointHost" in source
 
 
 def test_preflight_allows_no_completion_before_an_operation() -> None:

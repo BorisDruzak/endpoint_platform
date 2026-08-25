@@ -179,6 +179,7 @@ def _create_canary_status_writer(settings: object):
     return CanaryStatusWriter(
         settings.data_root,
         {"version": AGENT_VERSION, "source_revision": payload["source_revision"]},
+        urlsplit(settings.endpoint_origin).hostname or "",
     )
 
 

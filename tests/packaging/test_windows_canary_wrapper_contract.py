@@ -45,7 +45,24 @@ def test_wrapper_verifies_cache_hash_and_machine_protection_after_install() -> N
     """An unchecked cached MSI or ordinary-user-readable evidence cannot satisfy strict preflight."""
     source = WRAPPER.read_text(encoding="utf-8")
 
-    assert "Assert-ProgramDataProtection" in source
+    assert "Assert-InstalledDataProtection" in source
     assert "Assert-RegularNonReparseFile" in source
     assert "MSI cache SHA-256 does not match release manifest" in source
     assert "MSI installation failed" in source
+
+
+def test_wrapper_protects_a_hash_addressed_cache_before_privileged_execution() -> None:
+    """A user-controlled ProgramData cache must never reach msiexec as an admin."""
+    source = WRAPPER.read_text(encoding="utf-8")
+
+    assert "S-1-5-18" in source
+    assert "S-1-5-32-544" in source
+    assert "Assert-InstallerCacheProtection" in source
+    assert "msi-$($manifest.package_sha256)" in source
+    assert source.index("Assert-InstallerCacheProtection -Path $executionCacheRoot") < source.index(
+        "Copy-Item -LiteralPath $MsiPath"
+    )
+    install = source.index("Start-Process -FilePath 'msiexec.exe'")
+    assert source[:install].rindex(
+        "Assert-InstallerCacheProtection -Path $executionCacheRoot"
+    ) < install

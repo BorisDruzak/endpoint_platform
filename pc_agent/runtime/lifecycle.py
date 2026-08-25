@@ -373,4 +373,7 @@ def emit_command_completed_marker(
         extra=marker,
     )
     if completion_sink is not None:
-        completion_sink(marker)
+        try:
+            completion_sink(marker)
+        except Exception:
+            logger.warning("endpoint_agent_completion_sink_failed")

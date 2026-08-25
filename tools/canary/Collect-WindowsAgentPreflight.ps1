@@ -19,6 +19,9 @@ $ErrorActionPreference = 'Stop'
 $AgentServiceName = 'EndpointAgent'
 $UpdaterServiceName = 'EndpointAgentUpdater'
 $CanaryCapability = 'context.diagnostic.collect'
+$SystemSid = 'S-1-5-18'
+$AdministratorsSid = 'S-1-5-32-544'
+$LocalServiceSid = 'S-1-5-19'
 
 function Assert-NoReparsePointInPath {
     param([Parameter(Mandatory = $true)][string]$Path)
@@ -67,15 +70,62 @@ function Get-ServiceFact {
     }
 }
 
-function Get-AclSummary {
-    param([Parameter(Mandatory = $true)][string]$Path)
+function Get-SidValue {
+    param([Parameter(Mandatory = $true)]$Identity)
+    try { return $Identity.Translate([Security.Principal.SecurityIdentifier]).Value }
+    catch { throw 'Evidence ACL identity cannot be resolved to a SID.' }
+}
+
+function Get-AgentServiceSids {
+    $sids = @()
+    foreach ($name in @('NT SERVICE\EndpointAgent', 'NT SERVICE\EndpointAgentUpdater')) {
+        $sids += Get-SidValue -Identity ([Security.Principal.NTAccount]::new($name))
+    }
+    return $sids
+}
+
+function Assert-ProtectedEvidenceAcl {
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [Parameter(Mandatory = $true)][string[]]$AllowedSids,
+        [Parameter(Mandatory = $true)][string[]]$RequiredSids,
+        [Parameter(Mandatory = $true)][string[]]$AllowedOwnerSids,
+        [switch]$RequireProtectedDacl
+    )
     $acl = Get-Acl -LiteralPath $Path
-    $identities = @($acl.Access | ForEach-Object { $_.IdentityReference.Value })
-    $required = @('NT AUTHORITY\SYSTEM', 'BUILTIN\Administrators', 'NT SERVICE\EndpointAgent', 'NT SERVICE\EndpointAgentUpdater')
+    if ($RequireProtectedDacl -and -not $acl.AreAccessRulesProtected) {
+        throw 'Evidence ACL inheritance is unsafe.'
+    }
+    $owner = $acl.GetOwner([Security.Principal.SecurityIdentifier]).Value
+    if ($owner -notin $AllowedOwnerSids) { throw 'Evidence owner is unsafe.' }
+    $actual = @()
+    foreach ($rule in $acl.Access) {
+        if ($rule.AccessControlType -ne [Security.AccessControl.AccessControlType]::Allow) {
+            throw 'Evidence contains a deny ACL rule.'
+        }
+        $sid = Get-SidValue -Identity $rule.IdentityReference
+        if ($sid -notin $AllowedSids) { throw 'Evidence contains an untrusted ACL rule.' }
+        $actual += $sid
+    }
+    if (@($RequiredSids | Where-Object { $_ -notin $actual }).Count -ne 0) {
+        throw 'Evidence ACL is missing a required rule.'
+    }
+}
+
+function Get-AclSummary {
+    param([Parameter(Mandatory = $true)][string]$DataRoot)
+    $serviceSids = Get-AgentServiceSids
+    $dataSids = @($SystemSid, $AdministratorsSid) + $serviceSids
+    Assert-ProtectedEvidenceAcl -Path $DataRoot -AllowedSids $dataSids -RequiredSids $dataSids -AllowedOwnerSids @($SystemSid, $AdministratorsSid) -RequireProtectedDacl
+    Assert-ProtectedEvidenceAcl -Path (Join-Path $DataRoot 'device-credential') -AllowedSids $dataSids -RequiredSids @($SystemSid, $AdministratorsSid) -AllowedOwnerSids @($SystemSid, $AdministratorsSid, $LocalServiceSid)
+    Assert-ProtectedEvidenceAcl -Path (Join-Path $DataRoot 'canary-status.json') -AllowedSids $dataSids -RequiredSids @($SystemSid, $AdministratorsSid, $serviceSids[0]) -AllowedOwnerSids @($SystemSid, $AdministratorsSid, $LocalServiceSid)
     [ordered]@{
-        data_root_protected = $acl.AreAccessRulesProtected
-        required_principals = @($required | Where-Object { $identities -contains $_ }).Count -eq $required.Count
-        ordinary_user_read = ($identities -contains 'BUILTIN\Users') -or ($identities -contains 'Everyone') -or ($identities -contains 'NT AUTHORITY\Authenticated Users')
+        data_root_protected = $true
+        required_principals = $true
+        ordinary_user_read = $false
+        protected_file_regular = $true
+        protected_file_reparse = $false
+        status_artifact_protected = $true
     }
 }
 
@@ -98,7 +148,10 @@ function Read-ExactJsonObject {
 }
 
 function Read-CanaryStatus {
-    param([Parameter(Mandatory = $true)][string]$DataRoot)
+    param(
+        [Parameter(Mandatory = $true)][string]$DataRoot,
+        [Parameter(Mandatory = $true)][string]$ExpectedEndpointHost
+    )
     $statusPath = Join-Path $DataRoot 'canary-status.json'
     $status = Read-ExactJsonObject -Path $statusPath -ExpectedProperties @('schema_version', 'release', 'transport', 'capability', 'completion_proof') -Label 'Canary status'
     if ([string]$status.schema_version -ne 'endpoint_windows_canary_status_v1' -or [string]$status.capability -ne $CanaryCapability) {
@@ -108,14 +161,15 @@ function Read-CanaryStatus {
     $transportProperties = @($status.transport.PSObject.Properties.Name | Sort-Object)
     if (
         [string]::Join('|', $releaseProperties) -ne 'source_revision|version' -or
-        [string]::Join('|', $transportProperties) -ne 'gateway_wss|hostname_valid|http_fallback|redirected|strict_tls' -or
+        [string]::Join('|', $transportProperties) -ne 'endpoint_host|gateway_wss|hostname_valid|http_fallback|redirected|strict_tls' -or
         [string]$status.release.version -notmatch '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$' -or
         [string]$status.release.source_revision -notmatch '^[0-9a-f]{40}$' -or
         -not ($status.transport.strict_tls -is [bool]) -or
         -not ($status.transport.hostname_valid -is [bool]) -or
         -not ($status.transport.redirected -is [bool]) -or
         -not ($status.transport.gateway_wss -is [bool]) -or
-        -not ($status.transport.http_fallback -is [bool])
+        -not ($status.transport.http_fallback -is [bool]) -or
+        -not ([string]$status.transport.endpoint_host.Equals($ExpectedEndpointHost, [StringComparison]::OrdinalIgnoreCase))
     ) {
         throw 'Canary status values are invalid.'
     }
@@ -130,7 +184,7 @@ function Read-InstallerProvenance {
     if (
         [string]$provenance.schema_version -ne 'endpoint_windows_installer_provenance_v1' -or
         [string]$provenance.release_manifest_schema_version -ne 'endpoint_windows_release_v1' -or
-        [string]$provenance.cache_file -ne 'EndpointAgent.msi' -or
+        [string]$provenance.cache_file -notmatch '^msi-[0-9a-f]{64}/EndpointAgent\.msi$' -or
         [string]$provenance.version -notmatch '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$' -or
         [string]$provenance.product_code -notmatch '^\{[0-9A-F-]{36}\}$' -or
         [string]$provenance.source_revision -notmatch '^[0-9a-f]{40}$' -or
@@ -139,9 +193,12 @@ function Read-InstallerProvenance {
     ) {
         throw 'Installer provenance values are invalid.'
     }
-    $cachePath = Join-Path $cacheRoot 'EndpointAgent.msi'
+    $cacheDirectory = Join-Path $cacheRoot ([string]$provenance.cache_file).Split('/')[0]
+    $cachePath = Join-Path $cacheDirectory 'EndpointAgent.msi'
     $cacheFact = Get-SafeFileFact -Path $cachePath
     if (-not $cacheFact.regular -or $cacheFact.reparse) { throw 'Installer cache is unsafe.' }
+    Assert-ProtectedEvidenceAcl -Path $provenancePath -AllowedSids @($SystemSid, $AdministratorsSid) -RequiredSids @($SystemSid, $AdministratorsSid) -AllowedOwnerSids @($SystemSid, $AdministratorsSid)
+    Assert-ProtectedEvidenceAcl -Path $cachePath -AllowedSids @($SystemSid, $AdministratorsSid) -RequiredSids @($SystemSid, $AdministratorsSid) -AllowedOwnerSids @($SystemSid, $AdministratorsSid)
     $hash = (Get-FileHash -LiteralPath $cachePath -Algorithm SHA256).Hash.ToLowerInvariant()
     if ($hash -ne [string]$provenance.package_sha256) { throw 'Installer cache hash is invalid.' }
     $installer = New-Object -ComObject WindowsInstaller.Installer
@@ -201,11 +258,11 @@ try {
         }
     )
     $hostFact = Get-SafeFileFact -Path $serviceHost
-    $dataAcl = Get-AclSummary -Path $ExpectedDataRoot
+    $dataAcl = Get-AclSummary -DataRoot $ExpectedDataRoot
     $protectedFile = Get-SafeFileFact -Path (Join-Path $ExpectedDataRoot 'device-credential')
     $identityFile = Get-SafeFileFact -Path (Join-Path $ExpectedDataRoot 'enrollment-identity.json')
     $statusFile = Get-SafeFileFact -Path (Join-Path $ExpectedDataRoot 'canary-status.json')
-    $status = Read-CanaryStatus -DataRoot $ExpectedDataRoot
+    $status = Read-CanaryStatus -DataRoot $ExpectedDataRoot -ExpectedEndpointHost $ExpectedEndpointHost
     $installerEvidence = Read-InstallerProvenance -DataRoot $ExpectedDataRoot
     $provenance = $installerEvidence.provenance
     if ([string]$provenance.version -ne [string]$selectorValue.version -or [string]$provenance.source_revision -ne [string]$selectorValue.source_revision) {
@@ -225,7 +282,7 @@ try {
         }
         runtime = [ordered]@{ selector_regular = $selectorFact.regular; selector_reparse = $selectorFact.reparse; selector_version = [string]$selectorValue.version; selector_source_revision = [string]$selectorValue.source_revision; selected_runtime_present = $runtimeFact.regular -and -not $runtimeFact.reparse; http_fallback = [bool]$status.transport.http_fallback; helpdesk_reference = $false }
         msi = [ordered]@{ version = [string]$provenance.version; sha256 = [string]$installerEvidence.hash; owned_files = $installerEvidence.cache_fact.regular -and -not $installerEvidence.cache_fact.reparse }
-        acl = [ordered]@{ data_root_protected = $dataAcl.data_root_protected; required_principals = $dataAcl.required_principals; ordinary_user_read = $dataAcl.ordinary_user_read; protected_file_regular = $protectedFile.regular; protected_file_reparse = $protectedFile.reparse }
+        acl = [ordered]@{ data_root_protected = $dataAcl.data_root_protected; required_principals = $dataAcl.required_principals; ordinary_user_read = $dataAcl.ordinary_user_read; protected_file_regular = $protectedFile.regular; protected_file_reparse = $protectedFile.reparse; status_artifact_protected = $dataAcl.status_artifact_protected; provenance_artifact_protected = $true; msi_artifact_protected = $true }
         safe_status = [ordered]@{ service = $agent.state.ToLowerInvariant(); identity_present = $identityFile.regular -and -not $identityFile.reparse; regular = $statusFile.regular; reparse = $statusFile.reparse; release_version = [string]$status.release.version; release_source_revision = [string]$status.release.source_revision }
         network = [ordered]@{ strict_tls = [bool]$status.transport.strict_tls; hostname_valid = [bool]$status.transport.hostname_valid; redirected = [bool]$status.transport.redirected; gateway_wss = [bool]$status.transport.gateway_wss; http_fallback = [bool]$status.transport.http_fallback; capability = [string]$status.capability }
         completion_proof = $status.completion_proof

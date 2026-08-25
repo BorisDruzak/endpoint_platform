@@ -21,7 +21,14 @@ _TOP_LEVEL_FIELDS: Final = frozenset(
 )
 _RELEASE_FIELDS: Final = frozenset({"version", "source_revision"})
 _TRANSPORT_FIELDS: Final = frozenset(
-    {"strict_tls", "hostname_valid", "redirected", "gateway_wss", "http_fallback"}
+    {
+        "strict_tls",
+        "hostname_valid",
+        "redirected",
+        "gateway_wss",
+        "http_fallback",
+        "endpoint_host",
+    }
 )
 _COMPLETION_FIELDS: Final = frozenset(
     {"command_id", "capability", "status", "duration_ms", "result_item_count", "timestamp"}
@@ -76,13 +83,20 @@ def _release(value: object) -> dict[str, str]:
     return {"version": version, "source_revision": revision}
 
 
-def _transport(value: object) -> dict[str, bool]:
+def _transport(value: object) -> dict[str, object]:
     transport = _mapping(value, name="transport")
-    if set(transport) != _TRANSPORT_FIELDS or not all(
-        isinstance(transport.get(field), bool) for field in _TRANSPORT_FIELDS
+    boolean_fields = _TRANSPORT_FIELDS - {"endpoint_host"}
+    if (
+        set(transport) != _TRANSPORT_FIELDS
+        or not all(isinstance(transport.get(field), bool) for field in boolean_fields)
+        or not isinstance(transport.get("endpoint_host"), str)
+        or not transport["endpoint_host"]
     ):
         raise CanaryStatusError("canary status transport schema is invalid")
-    return {field: bool(transport[field]) for field in _TRANSPORT_FIELDS}
+    return {
+        **{field: bool(transport[field]) for field in boolean_fields},
+        "endpoint_host": str(transport["endpoint_host"]),
+    }
 
 
 def _completion(value: object) -> dict[str, object] | None:
@@ -132,10 +146,15 @@ def read_canary_status(data_root: Path) -> dict[str, object]:
 class CanaryStatusWriter:
     """Publish atomically replaced, bounded facts from the Windows runtime."""
 
-    def __init__(self, data_root: Path, release: Mapping[str, object]) -> None:
+    def __init__(
+        self, data_root: Path, release: Mapping[str, object], endpoint_host: str
+    ) -> None:
         _require_data_root(data_root)
+        if not isinstance(endpoint_host, str) or not endpoint_host:
+            raise CanaryStatusError("canary status endpoint host is invalid")
         self._data_root = data_root
         self._release = _release(release)
+        self._endpoint_host = endpoint_host
 
     def _write(self, status: Mapping[str, object]) -> None:
         _require_data_root(self._data_root)
@@ -158,6 +177,13 @@ class CanaryStatusWriter:
                 pass
             raise
 
+    def _existing_completion(self) -> dict[str, object] | None:
+        """Keep a bounded terminal marker across a transient reconnect."""
+        target = self._data_root / CANARY_STATUS_FILENAME
+        if not target.exists() and not target.is_symlink():
+            return None
+        return read_canary_status(self._data_root)["completion_proof"]
+
     def write_transport(
         self,
         *,
@@ -177,9 +203,10 @@ class CanaryStatusWriter:
                     "redirected": redirected,
                     "gateway_wss": gateway_wss,
                     "http_fallback": http_fallback,
+                    "endpoint_host": self._endpoint_host,
                 },
                 "capability": CANARY_CAPABILITY,
-                "completion_proof": None,
+                "completion_proof": self._existing_completion(),
             }
         )
 
