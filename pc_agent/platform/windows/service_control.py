@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import os
+import subprocess
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Protocol
 
 
@@ -13,6 +15,11 @@ UPDATER_SERVICE_NAME = "EndpointAgentUpdater"
 SERVICE_SID_NAMES = (SERVICE_NAME, UPDATER_SERVICE_NAME)
 # Well-known SIDs avoid localized account-name lookups in the service DACL.
 UPDATER_START_PRINCIPALS = ("S-1-5-18", "S-1-5-32-544", "NT SERVICE\\EndpointAgent")
+SERVICE_RECOVERY_RESET_SECONDS = 24 * 60 * 60
+SERVICE_RECOVERY_RESTART_DELAY_MS = 60 * 1000
+SERVICE_RECOVERY_ACTIONS = "/".join(
+    (f"restart/{SERVICE_RECOVERY_RESTART_DELAY_MS}",) * 3
+)
 
 
 class ServiceControl(Protocol):
@@ -92,7 +99,7 @@ def service_dacl_write_access(win32security) -> int:
 
 
 def configure_service_sids() -> None:
-    """Apply unrestricted virtual service SIDs to the two MSI-owned services."""
+    """Apply the fixed virtual-SID and recovery policies to MSI-owned services."""
     if os.name != "nt":
         raise RuntimeError("Windows SCM service SID configuration requires Windows")
     try:
@@ -100,6 +107,7 @@ def configure_service_sids() -> None:
     except ImportError as error:
         raise RuntimeError("pywin32 is required to configure service SIDs") from error
     _configure_service_sids_with(win32service)
+    configure_service_recovery()
 
 
 def _configure_service_sids_with(win32service) -> None:
@@ -126,6 +134,41 @@ def _configure_service_sids_with(win32service) -> None:
     finally:
         if scm is not None:
             win32service.CloseServiceHandle(scm)
+
+
+def _windows_sc_executable() -> Path:
+    """Return the system SCM utility without resolving it through a mutable PATH."""
+    return Path(os.environ.get("SystemRoot", r"C:\\Windows")) / "System32" / "sc.exe"
+
+
+def configure_service_recovery() -> None:
+    """Set the fixed restart policy after MSI has registered both services."""
+    if os.name != "nt":
+        raise RuntimeError("Windows SCM recovery configuration requires Windows")
+    _configure_service_recovery_with(subprocess.run, _windows_sc_executable())
+
+
+def _configure_service_recovery_with(run, executable: Path) -> None:
+    """Invoke only the fixed SCM recovery policy; no MSI property controls it."""
+    for service_name in SERVICE_SID_NAMES:
+        completed = run(
+            [
+                str(executable),
+                "failure",
+                service_name,
+                "reset=",
+                str(SERVICE_RECOVERY_RESET_SECONDS),
+                "actions=",
+                SERVICE_RECOVERY_ACTIONS,
+            ],
+            check=False,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=15,
+        )
+        if completed.returncode != 0:
+            raise RuntimeError("Windows SCM recovery configuration failed")
 
 
 def updater_start_access_policy(*, service_all_access: int, service_start: int) -> dict[str, int]:
@@ -180,6 +223,7 @@ __all__ = [
     "ServiceControl",
     "UPDATER_SERVICE_NAME",
     "UPDATER_START_PRINCIPALS",
+    "configure_service_recovery",
     "configure_service_sids",
     "WindowsServiceInstallSpec",
     "WindowsUpdaterServiceInstallSpec",

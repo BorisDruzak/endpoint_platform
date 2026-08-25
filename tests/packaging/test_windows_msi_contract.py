@@ -136,19 +136,7 @@ def test_services_use_fixed_accounts_start_modes_and_recovery() -> None:
         if item.tag == f"{{{WIX_NS}}}ServiceConfig"
     ]
 
-    recovery = [
-        item for item in _all_elements(trees, "ServiceConfig")
-        if item.tag == f"{{{UTIL_NS}}}ServiceConfig"
-    ]
-    assert {item.get("ServiceName") for item in recovery} == {
-        "EndpointAgent",
-        "EndpointAgentUpdater",
-    }
-    for item in recovery:
-        assert item.get("FirstFailureActionType") == "restart"
-        assert item.get("SecondFailureActionType") == "restart"
-        assert item.get("ThirdFailureActionType") == "restart"
-        assert int(item.get("RestartServiceDelayInSeconds", "0")) > 0
+    assert not _all_elements(trees, "ServiceConfig")
 
 
 def test_service_components_remove_services_and_fail_the_transaction_on_error() -> None:

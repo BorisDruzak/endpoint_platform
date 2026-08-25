@@ -110,8 +110,11 @@
   diagnostic-canary provenance requires the revision-bound schema. Its child
   command preserves the protected provisioned Endpoint origin, so staging
   enrollment is never redirected to the production FQDN.
-  `pc_agent/runtime/main.py --windows-restrict-updater-start` is the fixed
-  no-argument deferred MSI boundary for the updater service DACL.
+  `pc_agent/platform/windows/service_launcher.py --configure-service-sids` is the fixed
+  no-argument deferred MSI boundary for both service SIDs and the fixed SCM
+  recovery policy (three 60-second restarts, daily reset); it avoids the WiX
+  recovery custom action during in-place upgrades. The separate
+  `--windows-restrict-updater-start` boundary replaces the updater service DACL.
 - `pc_agent/platform/windows/canary_status.py` is the Windows-only protected,
   redacted canary status record. The normal lifecycle writes `not-ready` before
   connecting and strict WSS facts after connection, including only the
