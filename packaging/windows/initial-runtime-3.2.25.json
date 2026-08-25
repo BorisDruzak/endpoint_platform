@@ -4,8 +4,8 @@
   "agent_version": "3.2.25",
   "component_guid": "9C89A78C-28AE-4D26-A64C-8D8BA141C418",
   "artifact": {
-    "file_count": 2495,
-    "tree_sha256": "d09b4cc3bd6d6d36eaa8ba1ca915a80389894ceae943d8e74c7931c8f54f345d"
+    "file_count": 2494,
+    "tree_sha256": "8d468f7f8fa93943922d3982e6a3ce69598e960f44718c6ef90e5ae1c91e09a3"
   },
   "toolchain": {
     "implementation": "CPython",
