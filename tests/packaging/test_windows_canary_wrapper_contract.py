@@ -81,3 +81,13 @@ def test_wrapper_stops_only_fixed_agent_services_and_restores_core_agent() -> No
     install = source.index("Start-Process -FilePath 'msiexec.exe'")
     assert source.index("$previousServiceStates = Stop-ManagedAgentServices") < install
     assert source.index("Start-ManagedEndpointAgent", install) > install
+
+
+def test_wrapper_starts_only_the_fixed_windows_installer_service_before_msi() -> None:
+    """The canary must not depend on demand-start behavior that this VM does not provide."""
+    source = WRAPPER.read_text(encoding="utf-8")
+
+    assert "$WindowsInstallerServiceName = 'msiserver'" in source
+    assert "function Start-WindowsInstaller" in source
+    install = source.index("Start-Process -FilePath 'msiexec.exe'")
+    assert source.index("Start-WindowsInstaller", source.index("$previousServiceStates")) < install

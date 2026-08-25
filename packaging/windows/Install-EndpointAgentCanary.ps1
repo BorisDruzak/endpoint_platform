@@ -15,6 +15,7 @@ $SystemSid = 'S-1-5-18'
 $AdministratorsSid = 'S-1-5-32-544'
 $CacheSids = @($SystemSid, $AdministratorsSid)
 $ManagedServiceNames = @('EndpointAgent', 'EndpointAgentUpdater')
+$WindowsInstallerServiceName = 'msiserver'
 $ManagedServiceTimeout = [TimeSpan]::FromSeconds(45)
 
 function Assert-RegularNonReparseFile {
@@ -203,6 +204,18 @@ function Start-ManagedEndpointAgent {
     }
 }
 
+function Start-WindowsInstaller {
+    $service = Get-Service -Name $WindowsInstallerServiceName -ErrorAction Stop
+    if ($service.Status -ne [ServiceProcess.ServiceControllerStatus]::Running) {
+        Start-Service -Name $WindowsInstallerServiceName -ErrorAction Stop
+        $service.WaitForStatus([ServiceProcess.ServiceControllerStatus]::Running, $ManagedServiceTimeout)
+        $service.Refresh()
+    }
+    if ($service.Status -ne [ServiceProcess.ServiceControllerStatus]::Running) {
+        throw 'Windows Installer service did not start before MSI installation.'
+    }
+}
+
 function Read-ReleaseManifest {
     param([Parameter(Mandatory = $true)][string]$Path)
     Assert-RegularNonReparseFile -Path $Path -Label 'Release manifest'
@@ -286,6 +299,7 @@ Assert-CacheArtifactProtection -Path $executionCachePath
 $previousServiceStates = Stop-ManagedAgentServices
 $installationCompleted = $false
 try {
+    Start-WindowsInstaller
     $installer = Start-Process -FilePath 'msiexec.exe' -ArgumentList @('/i', $executionCachePath, '/qn', '/norestart') -Wait -PassThru
     if ($installer.ExitCode -ne 0) {
         throw "MSI installation failed with exit code $($installer.ExitCode)."

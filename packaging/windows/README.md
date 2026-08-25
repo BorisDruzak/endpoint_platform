@@ -59,7 +59,8 @@ a protected Program Files execution cache before invoking Windows Installer,
 then records the same verified bytes and secret-free provenance in the
 MSI-protected ProgramData evidence cache. It never accepts an arbitrary cache
 location or enrollment material. Before invoking the MSI it stops only the
-fixed `EndpointAgent` and `EndpointAgentUpdater` services, starts
+fixed `EndpointAgent` and `EndpointAgentUpdater` services and the system
+Windows Installer service, starts
 `EndpointAgent` after recording provenance, and restores a previously running
 core agent if installation fails.
 
