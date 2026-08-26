@@ -677,6 +677,10 @@ async def test_module_publish_requires_lab_evidence_and_dedicated_scope(
             f"{version_path}/publish",
             headers=_authorization("modules-publisher"),
         )
+        deprecated = await client.post(
+            f"{version_path}/deprecate",
+            headers=_authorization("modules-publisher"),
+        )
 
     assert published.status_code == 200
     assert published.json()["data"] == {
@@ -684,6 +688,13 @@ async def test_module_publish_requires_lab_evidence_and_dedicated_scope(
         "module_key": "network.basic.check",
         "version": "1.0.0",
         "state": "published",
+    }
+    assert deprecated.status_code == 200
+    assert deprecated.json()["data"] == {
+        "schema_version": "module_version_state_v1",
+        "module_key": "network.basic.check",
+        "version": "1.0.0",
+        "state": "deprecated",
     }
 
 
