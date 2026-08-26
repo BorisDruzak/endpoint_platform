@@ -112,11 +112,27 @@ class ModuleValidationRunV1(ContractModelV1):
     completed_at: datetime
 
 
+class ModuleVersionStateV1(ContractModelV1):
+    schema_version: Literal["module_version_state_v1"]
+    module_key: ModuleKeyV1
+    version: Annotated[str, Field(strict=True, min_length=5, max_length=64, pattern=r"^\d+\.\d+\.\d+$")]
+    state: Literal[
+        "draft",
+        "validation_failed",
+        "validated",
+        "lab_accepted",
+        "published",
+        "deprecated",
+        "revoked",
+    ]
+
+
 __all__ = [
     "EndpointRecipeModuleSpecV1",
     "EndpointRecipeStepV1",
     "ModuleRecipeInputV1",
     "ModuleValidationRunV1",
+    "ModuleVersionStateV1",
     "RecipeInputBindingV1",
     "RecipeLiteralBindingV1",
     "RecipeParameterBindingV1",
