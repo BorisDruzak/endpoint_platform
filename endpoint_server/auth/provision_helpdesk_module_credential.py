@@ -107,6 +107,7 @@ async def _helpdesk_module_service_client(
     )
     if client is None:
         client = ServiceClient(
+            id=uuid4(),
             client_identifier=HELPDESK_MODULE_SERVICE_CLIENT_IDENTIFIER,
             display_name=_HELPDESK_MODULE_SERVICE_DISPLAY_NAME,
             disabled_at=None,

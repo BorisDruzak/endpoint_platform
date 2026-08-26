@@ -85,6 +85,7 @@ async def test_provisioning_creates_the_fixed_client_and_commits_only_after_priv
 
     assert session.client is not None
     assert session.client.client_identifier == HELPDESK_MODULE_SERVICE_CLIENT_IDENTIFIER
+    assert session.client.id is not None
     assert summary.scopes == HELPDESK_MODULE_SCOPES
     assert summary.token_prefix.startswith("svc_")
     assert session.commit_calls == 1
