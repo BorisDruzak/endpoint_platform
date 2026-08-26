@@ -296,6 +296,29 @@ def _authorization(token: str) -> dict[str, str]:
     }
 
 
+@pytest.mark.asyncio
+async def test_module_catalog_echoes_safe_correlation_for_external_adapter(
+    route_fixture: RouteFixture,
+) -> None:
+    """The typed Helpdesk adapter rejects a module response without correlation."""
+    app = create_app(
+        _settings(enabled=False, module_platform_enabled=True),
+        route_fixture.session_provider,
+    )
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app),
+        base_url="https://endpoint.sosnadmin.local",
+    ) as client:
+        response = await client.get(
+            "/api/v1/modules",
+            headers=_authorization("modules-reader"),
+        )
+
+    assert response.status_code == 200
+    assert response.headers["X-Correlation-ID"] == "test-correlation-id"
+    assert response.json() == {"data": []}
+
+
 def _create_headers(token: str) -> dict[str, str]:
     return {
         **_authorization(token),

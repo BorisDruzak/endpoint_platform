@@ -33,6 +33,18 @@ def is_operation_api_request(method: str, path: str) -> bool:
     return False
 
 
+def is_module_api_request(method: str, path: str) -> bool:
+    """Return whether a request belongs to the typed Module Platform API."""
+    return method in {"GET", "POST"} and (
+        path == "/api/v1/modules" or path.startswith("/api/v1/modules/")
+    )
+
+
+def is_correlation_api_request(method: str, path: str) -> bool:
+    """Return whether a public typed API must validate and echo correlation."""
+    return is_operation_api_request(method, path) or is_module_api_request(method, path)
+
+
 def is_safe_correlation_id(value: str) -> bool:
     """Accept the bounded ASCII grammar documented by the public API only."""
     return _CORRELATION_ID_RE.fullmatch(value) is not None
