@@ -23,6 +23,7 @@ from sqlalchemy.ext.asyncio import (
 from endpoint_server.auth.scopes import ServicePrincipal
 from endpoint_server.config import Settings
 from endpoint_server.context.models import ContextCollection, ContextSnapshot
+from endpoint_server.gateway.connection_registry import GatewayConnection
 from endpoint_server.db.models import (
     AuditEvent,
     Command,
@@ -84,7 +85,11 @@ def test_operation_api_request_excludes_unrelated_or_wrong_method_paths(
     assert not correlation.is_operation_api_request(method, path)
 
 
-def _settings(*, enabled: bool) -> Settings:
+def _settings(
+    *,
+    enabled: bool,
+    network_primitives_enabled: bool = False,
+) -> Settings:
     return Settings(
         database_url="sqlite+aiosqlite:///:memory:",
         public_base_url="https://endpoint.sosnadmin.local",
@@ -95,6 +100,12 @@ def _settings(*, enabled: bool) -> Settings:
         allowed_admin_cidrs=(ipaddress.ip_network("127.0.0.0/8"),),
         artifact_root=Path("artifacts"),
         endpoint_operations_api_enabled=enabled,
+        endpoint_network_primitives_enabled=network_primitives_enabled,
+        endpoint_network_probe_allowed_cidrs=(
+            (ipaddress.ip_network("10.20.0.0/16"),)
+            if network_primitives_enabled
+            else ()
+        ),
     )
 
 
@@ -362,6 +373,45 @@ async def test_capabilities_requires_devices_read_and_exposes_only_safe_availabi
         "effective_capabilities",
     }:
         assert forbidden not in allowed.text
+
+
+@pytest.mark.asyncio
+async def test_capabilities_project_active_typed_network_primitive_without_connection_internals(
+    route_fixture: RouteFixture,
+) -> None:
+    app = create_app(
+        _settings(enabled=True, network_primitives_enabled=True),
+        route_fixture.session_provider,
+    )
+    await app.state.gateway_connection_registry.register(
+        GatewayConnection(
+            device_id=route_fixture.device.id,
+            session_id=uuid4(),
+            websocket=object(),
+            agent_version="3.2.27",
+            platform="linux_amd64",
+            effective_capabilities=frozenset({"network.ping"}),
+        )
+    )
+
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app),
+        base_url="https://endpoint.sosnadmin.local",
+    ) as client:
+        response = await client.get(
+            f"/api/v1/devices/{route_fixture.device.id}/capabilities",
+            headers=_authorization("devices-reader"),
+        )
+
+    assert response.status_code == 200
+    capabilities = response.json()["data"]["capabilities"]
+    assert [item["capability"] for item in capabilities] == [
+        "context.diagnostic.collect",
+        "network.ping",
+    ]
+    assert "session_id" not in response.text
+    assert "agent_version" not in response.text
+    assert "effective_capabilities" not in response.text
 
 
 @pytest.mark.asyncio

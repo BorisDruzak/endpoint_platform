@@ -118,6 +118,28 @@ def _parse_optional_boolean(name: str, value: str) -> bool:
     raise ValueError(f"{name} must be a boolean")
 
 
+def _parse_optional_network_probe_cidrs(
+    name: str, value: str
+) -> tuple[Network, ...]:
+    return _parse_cidrs(name, value) if value.strip() else ()
+
+
+def _parse_network_probe_suffixes(name: str, value: str) -> tuple[str, ...]:
+    if not value.strip():
+        return ()
+    from endpoint_server.policy.network_targets import NetworkTargetPolicyV1
+
+    entries = tuple(entry.strip() for entry in value.split(","))
+    if any(not entry for entry in entries):
+        raise ValueError(f"{name} must not contain empty suffixes")
+    try:
+        return NetworkTargetPolicyV1.from_values(
+            allowed_cidrs=(), allowed_suffixes=entries
+        ).allowed_suffixes
+    except ValueError as error:
+        raise ValueError(f"{name} must contain valid dotted domain suffixes") from error
+
+
 @dataclass(frozen=True, slots=True)
 class Settings:
     """Runtime values loaded once during server startup."""
@@ -132,6 +154,9 @@ class Settings:
     artifact_root: Path
     trusted_proxy_cidrs: tuple[Network, ...] = ()
     endpoint_operations_api_enabled: bool = False
+    endpoint_network_primitives_enabled: bool = False
+    endpoint_network_probe_allowed_cidrs: tuple[Network, ...] = ()
+    endpoint_network_probe_allowed_suffixes: tuple[str, ...] = ()
 
     @classmethod
     def from_environment(cls, environment: Mapping[str, str] | None = None) -> Settings:
@@ -169,6 +194,18 @@ class Settings:
             "ENDPOINT_OPERATIONS_API_ENABLED",
             values.get("ENDPOINT_OPERATIONS_API_ENABLED", ""),
         )
+        endpoint_network_primitives_enabled = _parse_optional_boolean(
+            "ENDPOINT_NETWORK_PRIMITIVES_ENABLED",
+            values.get("ENDPOINT_NETWORK_PRIMITIVES_ENABLED", ""),
+        )
+        endpoint_network_probe_allowed_cidrs = _parse_optional_network_probe_cidrs(
+            "ENDPOINT_NETWORK_PROBE_ALLOWED_CIDRS",
+            values.get("ENDPOINT_NETWORK_PROBE_ALLOWED_CIDRS", ""),
+        )
+        endpoint_network_probe_allowed_suffixes = _parse_network_probe_suffixes(
+            "ENDPOINT_NETWORK_PROBE_ALLOWED_SUFFIXES",
+            values.get("ENDPOINT_NETWORK_PROBE_ALLOWED_SUFFIXES", ""),
+        )
 
         return cls(
             database_url=database_url,
@@ -181,4 +218,7 @@ class Settings:
             artifact_root=artifact_root,
             trusted_proxy_cidrs=trusted_proxy_cidrs,
             endpoint_operations_api_enabled=endpoint_operations_api_enabled,
+            endpoint_network_primitives_enabled=endpoint_network_primitives_enabled,
+            endpoint_network_probe_allowed_cidrs=endpoint_network_probe_allowed_cidrs,
+            endpoint_network_probe_allowed_suffixes=endpoint_network_probe_allowed_suffixes,
         )

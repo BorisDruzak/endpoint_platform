@@ -9,7 +9,12 @@
           "type": "boolean"
         },
         "capability": {
-          "const": "context.diagnostic.collect",
+          "enum": [
+            "context.diagnostic.collect",
+            "dns.resolve",
+            "network.ping",
+            "tcp.connect"
+          ],
           "title": "Capability",
           "type": "string"
         },
@@ -19,12 +24,20 @@
           "type": "boolean"
         },
         "parameter_schema_version": {
-          "const": "diagnostic_collection_parameters_v1",
+          "enum": [
+            "diagnostic_collection_parameters_v1",
+            "dns_resolve_parameters_v1",
+            "network_ping_parameters_v1",
+            "tcp_connect_parameters_v1"
+          ],
           "title": "Parameter Schema Version",
           "type": "string"
         },
         "risk": {
-          "const": "read_only",
+          "enum": [
+            "read_only",
+            "safe_read"
+          ],
           "title": "Risk",
           "type": "string"
         },
@@ -53,7 +66,7 @@
       "items": {
         "$ref": "#/$defs/EndpointCapabilityAvailabilityV1"
       },
-      "maxItems": 1,
+      "maxItems": 4,
       "title": "Capabilities",
       "type": "array"
     },
