@@ -1,9 +1,11 @@
 from datetime import UTC, datetime
+from uuid import uuid4
 
 import pytest
 from pydantic import ValidationError
 
 import endpoint_contracts as contracts
+from endpoint_contracts.gateway_ws import GatewayCommandV1
 from endpoint_contracts.network_primitives import (
     DnsResolveParametersV1,
     DnsResolveResultV1,
@@ -18,6 +20,34 @@ def test_network_primitive_contracts_are_publicly_exported() -> None:
     assert contracts.DnsResolveParametersV1 is DnsResolveParametersV1
     assert contracts.NetworkPingParametersV1 is NetworkPingParametersV1
     assert contracts.TcpConnectParametersV1 is TcpConnectParametersV1
+
+
+def test_gateway_command_accepts_only_typed_network_ping_parameters() -> None:
+    command = GatewayCommandV1(
+        schema_version="agent_command_v1",
+        command_id=uuid4(),
+        device_id=uuid4(),
+        capability="network.ping",
+        parameters={"target": "10.20.1.10", "count": 4, "timeout_ms": 1000},
+        requested_by_service="helpdesk-runtime",
+        idempotency_key="network-ping-command-0001",
+        created_at=datetime.now(UTC),
+        deadline_at=datetime.now(UTC).replace(year=2030),
+    )
+
+    assert command.parameters["count"] == 4
+    with pytest.raises(ValidationError):
+        GatewayCommandV1.model_validate(
+            {
+                **command.model_dump(),
+                "parameters": {
+                    "target": "10.20.1.10",
+                    "count": 4,
+                    "timeout_ms": 1000,
+                    "script_body": "forbidden",
+                },
+            }
+        )
 
 
 def test_dns_resolve_contract_accepts_bounded_safe_result() -> None:

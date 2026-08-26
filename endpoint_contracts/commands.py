@@ -27,6 +27,9 @@ AgentCapabilityV1 = Literal[
     "context.health.collect",
     "context.network.collect",
     "context.diagnostic.collect",
+    "dns.resolve",
+    "network.ping",
+    "tcp.connect",
 ]
 
 
