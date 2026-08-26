@@ -6,6 +6,9 @@ from endpoint_contracts.network_primitives import (
     NetworkPingParametersV1,
     TcpConnectParametersV1,
 )
+from endpoint_contracts import AgentCommandV1
+from pc_agent.primitives.network.command_execution import execute_network_agent_command
+from pc_agent.primitives.network.policy import AgentNetworkProbePolicy
 from pc_agent.primitives.network.handlers import (
     ping_host,
     resolve_dns,
@@ -103,3 +106,32 @@ def test_ping_handler_normalizes_fixed_adapter_output_without_raw_stdout() -> No
     assert result.packet_loss_percent == 25.0
     assert result.avg_ms == 2.0
     assert "stdout" not in result.model_dump()
+
+
+def test_network_command_execution_applies_policy_before_invoking_handler() -> None:
+    command = AgentCommandV1.model_validate(
+        {
+            "schema_version": "agent_command_v1",
+            "command_id": "00000000-0000-4000-8000-000000000501",
+            "device_id": "00000000-0000-4000-8000-000000000502",
+            "capability": "dns.resolve",
+            "parameters": {"target": "127.0.0.1", "family": "any"},
+            "requested_by_service": "test-runtime",
+            "idempotency_key": "network-command-test-501",
+            "created_at": "2026-08-26T00:00:00Z",
+            "deadline_at": "2026-08-26T00:05:00Z",
+        }
+    )
+    calls: list[str] = []
+
+    result = execute_network_agent_command(
+        command,
+        policy=AgentNetworkProbePolicy.from_values(
+            allowed_cidrs=("0.0.0.0/0",), allowed_suffixes=()
+        ),
+        dns_handler=lambda _parameters: calls.append("dns"),
+    )
+
+    assert result.status == "failed"
+    assert result.message == "network_target_forbidden_address"
+    assert calls == []
