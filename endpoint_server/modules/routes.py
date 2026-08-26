@@ -24,6 +24,7 @@ from .service import (
     ModuleServiceError,
     persist_draft_version,
     publish_persisted_module_version,
+    transition_persisted_version,
     validate_persisted_module_version,
 )
 
@@ -210,5 +211,69 @@ async def publish_module_version(
             module_key=module_key,
             version=version,
             state=published.state,
+        )
+    )
+
+
+@router.post(
+    "/{module_key}/versions/{version}/deprecate",
+    response_model=ModuleVersionStateEnvelope,
+)
+async def deprecate_module_version(
+    module_key: str,
+    version: str,
+    request: Request,
+    principal: ServicePrincipal = Depends(require_service_scope(MODULES_PUBLISH_SCOPE)),
+) -> ModuleVersionStateEnvelope:
+    """Stop new module operations from using one immutable published version."""
+    async with request.app.state.session_provider() as session:
+        module_version = await session.scalar(
+            select(ModuleVersion)
+            .join(ModuleDefinition)
+            .where(
+                ModuleDefinition.module_key == module_key,
+                ModuleVersion.version == version,
+            )
+        )
+        if module_version is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail={"code": "endpoint_module_version_not_found"},
+            )
+        try:
+            deprecated = await transition_persisted_version(
+                session, module_version, "deprecated"
+            )
+        except ModuleServiceError as error:
+            await session.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={"code": "endpoint_module_deprecation_conflict"},
+            ) from error
+        try:
+            await append_audit_event(
+                session,
+                actor_kind="service",
+                actor_identifier=principal.client.client_identifier,
+                action="endpoint.module_deprecated",
+                object_kind="module_version",
+                object_identifier=str(deprecated.id),
+                request_id=audit_request_id(request),
+                details={
+                    "module_key": module_key,
+                    "version": version,
+                    "state": deprecated.state,
+                },
+            )
+            await session.commit()
+        except Exception:
+            await session.rollback()
+            raise
+    return ModuleVersionStateEnvelope(
+        data=ModuleVersionStateV1(
+            schema_version="module_version_state_v1",
+            module_key=module_key,
+            version=version,
+            state=deprecated.state,
         )
     )
