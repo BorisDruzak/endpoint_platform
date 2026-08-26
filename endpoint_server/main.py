@@ -29,6 +29,7 @@ from endpoint_server.http.correlation import (
     is_safe_correlation_id,
 )
 from endpoint_server.operations.routes import router as operations_router
+from endpoint_server.modules.routes import router as modules_router
 from endpoint_server.gateway.routes import router as gateway_router
 from endpoint_server.gateway.connection_registry import (
     ConnectionRegistry,
@@ -113,4 +114,6 @@ def create_app(
     app.include_router(context_router)
     if settings.endpoint_operations_api_enabled:
         app.include_router(operations_router)
+    if settings.endpoint_module_platform_enabled:
+        app.include_router(modules_router)
     return app

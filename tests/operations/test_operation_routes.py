@@ -31,6 +31,8 @@ from endpoint_server.db.models import (
     Device,
     DeviceInstance,
     EndpointOperation,
+    ModuleDefinition,
+    ModuleVersion,
     ServiceClient,
     ServiceCredential,
 )
@@ -47,6 +49,27 @@ CREATE_BODY = {
     "parameters": {"reason": "Collect bounded diagnostic context"},
 }
 IDEMPOTENCY_KEY = "operation-route-key-0001"
+MODULE_CREATE_BODY = {
+    "schema_version": "module_version_create_v1",
+    "display_name": "Network",
+    "version": "1.0.0",
+    "recipe": {
+        "schema_version": "endpoint_recipe_module_v1",
+        "module_key": "network.basic.check",
+        "supported_platforms": ["linux_amd64"],
+        "inputs": [{"name": "target", "value_type": "string"}],
+        "steps": [
+            {
+                "step_id": "dns",
+                "capability": "dns.resolve",
+                "parameters": {
+                    "target": {"kind": "input", "name": "target"},
+                    "family": {"kind": "literal", "value": "any"},
+                },
+            }
+        ],
+    },
+}
 
 
 @pytest.mark.parametrize(
@@ -89,6 +112,7 @@ def _settings(
     *,
     enabled: bool,
     network_primitives_enabled: bool = False,
+    module_platform_enabled: bool = False,
 ) -> Settings:
     return Settings(
         database_url="sqlite+aiosqlite:///:memory:",
@@ -106,6 +130,7 @@ def _settings(
             if network_primitives_enabled
             else ()
         ),
+        endpoint_module_platform_enabled=module_platform_enabled,
     )
 
 
@@ -147,6 +172,8 @@ async def route_fixture(
         ContextCollection.__table__,
         ContextSnapshot.__table__,
         EndpointOperation.__table__,
+        ModuleDefinition.__table__,
+        ModuleVersion.__table__,
     )
     async with engine.begin() as connection:
         await connection.execute(text("PRAGMA foreign_keys=ON"))
@@ -193,6 +220,10 @@ async def route_fixture(
         "reader-rotated": ServicePrincipal(
             client=owner,
             credential=_credential(owner, ["operations.read"]),
+        ),
+        "modules-writer": ServicePrincipal(
+            client=owner,
+            credential=_credential(owner, ["modules.write"]),
         ),
         "foreign-reader": ServicePrincipal(
             client=foreign,
@@ -412,6 +443,77 @@ async def test_capabilities_project_active_typed_network_primitive_without_conne
     assert "session_id" not in response.text
     assert "agent_version" not in response.text
     assert "effective_capabilities" not in response.text
+
+
+@pytest.mark.asyncio
+async def test_default_false_module_platform_flag_registers_no_module_routes(
+    route_fixture: RouteFixture,
+) -> None:
+    app = create_app(
+        _settings(enabled=True, module_platform_enabled=False),
+        route_fixture.session_provider,
+    )
+    assert "/api/v1/modules/versions" not in app.openapi()["paths"]
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app),
+        base_url="https://endpoint.sosnadmin.local",
+    ) as client:
+        response = await client.post("/api/v1/modules/versions")
+    assert response.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_module_create_requires_dedicated_scope_and_persists_draft(
+    route_fixture: RouteFixture,
+) -> None:
+    app = create_app(
+        _settings(enabled=True, module_platform_enabled=True),
+        route_fixture.session_provider,
+    )
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app),
+        base_url="https://endpoint.sosnadmin.local",
+    ) as client:
+        forbidden = await client.post(
+            "/api/v1/modules/versions",
+            json=MODULE_CREATE_BODY,
+            headers=_authorization("creator-old"),
+        )
+        created = await client.post(
+            "/api/v1/modules/versions",
+            json=MODULE_CREATE_BODY,
+            headers=_authorization("modules-writer"),
+        )
+    assert forbidden.status_code == 403
+    assert created.status_code == 201
+    assert created.json()["data"]["state"] == "draft"
+
+
+@pytest.mark.asyncio
+async def test_module_create_returns_safe_conflict_for_duplicate_version(
+    route_fixture: RouteFixture,
+) -> None:
+    app = create_app(
+        _settings(enabled=True, module_platform_enabled=True),
+        route_fixture.session_provider,
+    )
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app),
+        base_url="https://endpoint.sosnadmin.local",
+    ) as client:
+        first = await client.post(
+            "/api/v1/modules/versions",
+            json=MODULE_CREATE_BODY,
+            headers=_authorization("modules-writer"),
+        )
+        duplicate = await client.post(
+            "/api/v1/modules/versions",
+            json=MODULE_CREATE_BODY,
+            headers=_authorization("modules-writer"),
+        )
+    assert first.status_code == 201
+    assert duplicate.status_code == 409
+    assert duplicate.json() == {"detail": {"code": "endpoint_module_version_conflict"}}
 
 
 @pytest.mark.asyncio
