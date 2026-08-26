@@ -236,6 +236,10 @@ async def route_fixture(
             client=owner,
             credential=_credential(owner, ["modules.write"]),
         ),
+        "modules-reader": ServicePrincipal(
+            client=owner,
+            credential=_credential(owner, ["modules.read"]),
+        ),
         "modules-validator": ServicePrincipal(
             client=owner,
             credential=_credential(owner, ["modules.validate"]),
@@ -514,6 +518,55 @@ async def test_module_create_requires_dedicated_scope_and_persists_draft(
     assert forbidden.status_code == 403
     assert created.status_code == 201
     assert created.json()["data"]["state"] == "draft"
+
+
+@pytest.mark.asyncio
+async def test_module_catalog_reads_are_scoped_and_return_only_recipe_metadata(
+    route_fixture: RouteFixture,
+) -> None:
+    app = create_app(
+        _settings(enabled=True, module_platform_enabled=True),
+        route_fixture.session_provider,
+    )
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app),
+        base_url="https://endpoint.sosnadmin.local",
+    ) as client:
+        created = await client.post(
+            "/api/v1/modules/versions",
+            json=MODULE_CREATE_BODY,
+            headers=_authorization("modules-writer"),
+        )
+        forbidden = await client.get(
+            "/api/v1/modules", headers=_authorization("modules-writer")
+        )
+        listed = await client.get(
+            "/api/v1/modules", headers=_authorization("modules-reader")
+        )
+        latest = await client.get(
+            "/api/v1/modules/network.basic.check",
+            headers=_authorization("modules-reader"),
+        )
+        exact = await client.get(
+            "/api/v1/modules/network.basic.check/versions/1.0.0",
+            headers=_authorization("modules-reader"),
+        )
+
+    assert created.status_code == 201
+    assert forbidden.status_code == 403
+    assert listed.json() == {
+        "data": [
+            {"module_key": "network.basic.check", "display_name": "Network"}
+        ]
+    }
+    assert latest.json() == exact.json()
+    payload = exact.json()["data"]
+    assert payload["module_key"] == "network.basic.check"
+    assert payload["state"] == "draft"
+    assert payload["recipe"] == MODULE_CREATE_BODY["recipe"]
+    assert not {"command_id", "inputs", "idempotency_key", "service_client"}.intersection(
+        json.dumps(payload)
+    )
 
 
 @pytest.mark.asyncio

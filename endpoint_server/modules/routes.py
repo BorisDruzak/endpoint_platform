@@ -5,7 +5,9 @@ from pydantic import BaseModel, ConfigDict
 from sqlalchemy import select
 
 from endpoint_contracts.modules import (
+    ModuleSummaryV1,
     ModuleValidationRunV1,
+    ModuleVersionViewV1,
     ModuleVersionCreateV1,
     ModuleVersionStateV1,
 )
@@ -13,6 +15,7 @@ from endpoint_server.audit.request_ids import audit_request_id
 from endpoint_server.audit.service import append_audit_event
 from endpoint_server.auth.scopes import (
     MODULES_PUBLISH_SCOPE,
+    MODULES_READ_SCOPE,
     MODULES_VALIDATE_SCOPE,
     MODULES_WRITE_SCOPE,
     ServicePrincipal,
@@ -42,6 +45,116 @@ class ModuleVersionStateEnvelope(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     data: ModuleVersionStateV1
+
+
+class ModuleListEnvelope(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    data: list[ModuleSummaryV1]
+
+
+class ModuleVersionViewEnvelope(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    data: ModuleVersionViewV1
+
+
+def _module_version_view(
+    definition: ModuleDefinition, version: ModuleVersion
+) -> ModuleVersionViewV1:
+    return ModuleVersionViewV1(
+        module_key=definition.module_key,
+        display_name=definition.display_name,
+        version=version.version,
+        state=version.state,
+        recipe=version.recipe,
+    )
+
+
+@router.get("", response_model=ModuleListEnvelope)
+async def list_modules(
+    request: Request,
+    _: ServicePrincipal = Depends(require_service_scope(MODULES_READ_SCOPE)),
+) -> ModuleListEnvelope:
+    async with request.app.state.session_provider() as session:
+        definitions = (
+            await session.scalars(
+                select(ModuleDefinition).order_by(
+                    ModuleDefinition.module_key, ModuleDefinition.id
+                )
+            )
+        ).all()
+    return ModuleListEnvelope(
+        data=[
+            ModuleSummaryV1(
+                module_key=definition.module_key,
+                display_name=definition.display_name,
+            )
+            for definition in definitions
+        ]
+    )
+
+
+@router.get("/{module_key}", response_model=ModuleVersionViewEnvelope)
+async def read_module(
+    module_key: str,
+    request: Request,
+    _: ServicePrincipal = Depends(require_service_scope(MODULES_READ_SCOPE)),
+) -> ModuleVersionViewEnvelope:
+    async with request.app.state.session_provider() as session:
+        definition = await session.scalar(
+            select(ModuleDefinition).where(ModuleDefinition.module_key == module_key)
+        )
+        if definition is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail={"code": "endpoint_module_not_found"},
+            )
+        version = await session.scalar(
+            select(ModuleVersion)
+            .where(ModuleVersion.module_definition_id == definition.id)
+            .order_by(ModuleVersion.created_at.desc(), ModuleVersion.id.desc())
+        )
+        if version is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail={"code": "endpoint_module_version_not_found"},
+            )
+    return ModuleVersionViewEnvelope(data=_module_version_view(definition, version))
+
+
+@router.get(
+    "/{module_key}/versions/{version}", response_model=ModuleVersionViewEnvelope
+)
+async def read_module_version(
+    module_key: str,
+    version: str,
+    request: Request,
+    _: ServicePrincipal = Depends(require_service_scope(MODULES_READ_SCOPE)),
+) -> ModuleVersionViewEnvelope:
+    async with request.app.state.session_provider() as session:
+        definition = await session.scalar(
+            select(ModuleDefinition).where(ModuleDefinition.module_key == module_key)
+        )
+        if definition is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail={"code": "endpoint_module_not_found"},
+            )
+        module_version = await session.scalar(
+            select(ModuleVersion).where(
+                ModuleVersion.module_definition_id == definition.id,
+                ModuleVersion.version == version,
+            )
+        )
+        if module_version is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail={"code": "endpoint_module_version_not_found"},
+            )
+    return ModuleVersionViewEnvelope(
+        data=_module_version_view(definition, module_version)
+    )
 
 
 @router.post("/versions", status_code=status.HTTP_201_CREATED)
