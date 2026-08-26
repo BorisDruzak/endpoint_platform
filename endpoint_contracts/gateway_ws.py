@@ -15,6 +15,11 @@ from pydantic import (
 
 from .base import ContractModelV1
 from .commands import AgentCommandAckV1, AgentCommandV1, AgentResultV1
+from .network_primitives import (
+    DnsResolveParametersV1,
+    NetworkPingParametersV1,
+    TcpConnectParametersV1,
+)
 from .telemetry import AgentHeartbeatV1
 
 
@@ -122,6 +127,56 @@ def _gateway_command_schema_extra(schema: dict[str, object]) -> None:
             "then": {"properties": {"parameters": {"maxProperties": 0}}},
         },
         {
+            "if": {"properties": {"capability": {"const": "dns.resolve"}}},
+            "then": {
+                "properties": {
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "target": {**safe_text, "maxLength": 253},
+                            "family": {"enum": ["any", "ipv4", "ipv6"]},
+                        },
+                        "required": ["target", "family"],
+                        "additionalProperties": False,
+                    }
+                }
+            },
+        },
+        {
+            "if": {"properties": {"capability": {"const": "network.ping"}}},
+            "then": {
+                "properties": {
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "target": {**safe_text, "maxLength": 253},
+                            "count": {"type": "integer", "minimum": 1, "maximum": 5},
+                            "timeout_ms": {"type": "integer", "minimum": 100, "maximum": 5000},
+                        },
+                        "required": ["target", "count", "timeout_ms"],
+                        "additionalProperties": False,
+                    }
+                }
+            },
+        },
+        {
+            "if": {"properties": {"capability": {"const": "tcp.connect"}}},
+            "then": {
+                "properties": {
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "target": {**safe_text, "maxLength": 253},
+                            "port": {"type": "integer", "minimum": 1, "maximum": 65535},
+                            "timeout_ms": {"type": "integer", "minimum": 100, "maximum": 10000},
+                        },
+                        "required": ["target", "port", "timeout_ms"],
+                        "additionalProperties": False,
+                    }
+                }
+            },
+        },
+        {
             "if": {"properties": {"capability": {"const": "gateway.echo"}}},
             "then": {
                 "properties": {
@@ -164,12 +219,27 @@ class GatewayCommandV1(AgentCommandV1):
             "context.health.collect": frozenset(),
             "context.network.collect": frozenset(),
             "context.diagnostic.collect": frozenset({"reason"}),
+            "dns.resolve": frozenset({"target", "family"}),
+            "network.ping": frozenset({"target", "count", "timeout_ms"}),
+            "tcp.connect": frozenset({"target", "port", "timeout_ms"}),
         }
         unexpected = set(self.parameters) - allowed_keys[self.capability]
         if unexpected:
             raise ValueError(
                 "gateway command parameters are not allowed for this capability"
             )
+        network_parameter_models = {
+            "dns.resolve": ("dns_resolve_parameters_v1", DnsResolveParametersV1),
+            "network.ping": ("network_ping_parameters_v1", NetworkPingParametersV1),
+            "tcp.connect": ("tcp_connect_parameters_v1", TcpConnectParametersV1),
+        }
+        network_model = network_parameter_models.get(self.capability)
+        if network_model is not None:
+            schema_version, model = network_model
+            model.model_validate(
+                {"schema_version": schema_version, **self.parameters}
+            )
+            return self
         for key, value in self.parameters.items():
             limit = 256 if key == "reason" else 512
             if (
