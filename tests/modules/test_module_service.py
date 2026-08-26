@@ -6,6 +6,7 @@ from endpoint_contracts.modules import EndpointRecipeModuleSpecV1
 from endpoint_server.db.models.modules import ModuleDefinition, ModuleVersion
 from endpoint_server.modules.service import ModuleServiceError, create_draft_version
 from endpoint_server.modules.service import persist_draft_version
+from endpoint_server.modules.service import transition_persisted_version
 
 
 def test_module_service_requires_validated_recipe_before_draft_creation() -> None:
@@ -28,6 +29,9 @@ async def test_persist_draft_version_reuses_definition_without_committing() -> N
         first = await persist_draft_version(session, recipe=recipe, display_name="Network", version="1.0.0")
         second = await persist_draft_version(session, recipe=recipe, display_name="Ignored", version="1.0.1")
         assert first.module_definition_id == second.module_definition_id
+        persisted_recipe = first.recipe
+        await transition_persisted_version(session, first, "validated")
+        assert (first.state, first.version, first.recipe) == ("validated", "1.0.0", persisted_recipe)
         assert await session.scalar(select(func.count()).select_from(ModuleDefinition)) == 1
         with pytest.raises(ModuleServiceError, match="already exists"):
             await persist_draft_version(session, recipe=recipe, display_name="Network", version="1.0.1")
