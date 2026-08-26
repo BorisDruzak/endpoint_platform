@@ -766,6 +766,157 @@ paths:
             "application/json":
               schema:
                 "$ref": "#/components/schemas/HTTPValidationError"
+  "/api/v1/modules/{module_key}/versions/{version}/lab-operations/{device_id}":
+    post:
+      tags:
+        - "endpoint-module-execution"
+      summary: "Create Module Lab Operation"
+      description: "Create a lab-only module parent while its immutable version is validated."
+      operationId: "create_module_lab_operation_api_v1_modules__module_key__versions__version__lab_operations__device_id__post"
+      parameters:
+        -
+          name: "module_key"
+          in: "path"
+          required: true
+          schema:
+            type: "string"
+            title: "Module Key"
+        -
+          name: "version"
+          in: "path"
+          required: true
+          schema:
+            type: "string"
+            title: "Version"
+        -
+          name: "device_id"
+          in: "path"
+          required: true
+          schema:
+            type: "string"
+            format: "uuid"
+            title: "Device Id"
+        -
+          name: "Idempotency-Key"
+          in: "header"
+          required: true
+          schema:
+            type: "string"
+            minLength: 8
+            maxLength: 128
+            pattern: "^[!-~][ -~]{6,126}[!-~]$"
+            title: "Idempotency-Key"
+        -
+          name: "X-Correlation-ID"
+          in: "header"
+          required: true
+          schema:
+            type: "string"
+            minLength: 1
+            maxLength: 128
+            pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+            title: "X-Correlation-Id"
+      requestBody:
+        required: true
+        content:
+          "application/json":
+            schema:
+              "$ref": "#/components/schemas/ModuleLabOperationCreateV1"
+      responses:
+        "201":
+          description: "Successful Response"
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/ModuleOperationEnvelope"
+        "422":
+          description: "Validation Error"
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/HTTPValidationError"
+  "/api/v1/modules/{module_key}/versions/{version}/live-tests/{operation_id}":
+    post:
+      tags:
+        - "endpoint-modules"
+      summary: "Record Module Live Test Route"
+      operationId: "record_module_live_test_route_api_v1_modules__module_key__versions__version__live_tests__operation_id__post"
+      parameters:
+        -
+          name: "module_key"
+          in: "path"
+          required: true
+          schema:
+            type: "string"
+            title: "Module Key"
+        -
+          name: "version"
+          in: "path"
+          required: true
+          schema:
+            type: "string"
+            title: "Version"
+        -
+          name: "operation_id"
+          in: "path"
+          required: true
+          schema:
+            type: "string"
+            format: "uuid"
+            title: "Operation Id"
+      requestBody:
+        required: true
+        content:
+          "application/json":
+            schema:
+              "$ref": "#/components/schemas/ModuleLiveTestRecordV1"
+      responses:
+        "201":
+          description: "Successful Response"
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/ModuleLiveTestEnvelope"
+        "422":
+          description: "Validation Error"
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/HTTPValidationError"
+  "/api/v1/modules/{module_key}/versions/{version}/accept-labs":
+    post:
+      tags:
+        - "endpoint-modules"
+      summary: "Accept Module Labs"
+      operationId: "accept_module_labs_api_v1_modules__module_key__versions__version__accept_labs_post"
+      parameters:
+        -
+          name: "module_key"
+          in: "path"
+          required: true
+          schema:
+            type: "string"
+            title: "Module Key"
+        -
+          name: "version"
+          in: "path"
+          required: true
+          schema:
+            type: "string"
+            title: "Version"
+      responses:
+        "200":
+          description: "Successful Response"
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/ModuleVersionStateEnvelope"
+        "422":
+          description: "Validation Error"
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/HTTPValidationError"
   "/api/v1/modules/{module_key}/versions/{version}/publish":
     post:
       tags:
@@ -3227,6 +3378,91 @@ components:
         - "state"
       title: "DiagnosticProcessV1"
       type: "object"
+    ModuleLabOperationCreateV1:
+      additionalProperties: false
+      description: "Inputs for a validated-only Endpoint-owned module lab parent."
+      properties:
+        schema_version:
+          const: "endpoint_module_lab_operation_create_v1"
+          title: "Schema Version"
+          type: "string"
+        inputs:
+          maxProperties: 8
+          minProperties: 1
+          patternProperties:
+            "^[a-z][a-z0-9_]{0,63}$":
+              anyOf:
+                -
+                  type: "string"
+                -
+                  type: "integer"
+          propertyNames:
+            maxLength: 64
+            minLength: 1
+          title: "Inputs"
+          type: "object"
+      required:
+        - "schema_version"
+        - "inputs"
+      title: "ModuleLabOperationCreateV1"
+      type: "object"
+    ModuleLiveTestRecordV1:
+      additionalProperties: false
+      description: "Request recording immutable evidence from one completed lab parent."
+      properties:
+        schema_version:
+          const: "module_live_test_record_v1"
+          title: "Schema Version"
+          type: "string"
+      required:
+        - "schema_version"
+      title: "ModuleLiveTestRecordV1"
+      type: "object"
+    ModuleLiveTestRecordedV1:
+      additionalProperties: false
+      properties:
+        schema_version:
+          const: "module_live_test_recorded_v1"
+          title: "Schema Version"
+          type: "string"
+        module_key:
+          maxLength: 128
+          minLength: 3
+          pattern: "^[a-z][a-z0-9]*(?:\\.[a-z][a-z0-9]*){1,7}$"
+          title: "Module Key"
+          type: "string"
+        version:
+          maxLength: 64
+          minLength: 5
+          pattern: "^\\d+\\.\\d+\\.\\d+$"
+          title: "Version"
+          type: "string"
+        platform:
+          enum:
+            - "linux_amd64"
+            - "windows_amd64"
+          title: "Platform"
+          type: "string"
+        status:
+          enum:
+            - "passed"
+            - "failed"
+          title: "Status"
+          type: "string"
+        tested_at:
+          format: "date-time"
+          title: "Tested At"
+          type: "string"
+          "$comment": "model-only UTC normalization: timezone-aware values are normalized to UTC."
+      required:
+        - "schema_version"
+        - "module_key"
+        - "version"
+        - "platform"
+        - "status"
+        - "tested_at"
+      title: "ModuleLiveTestRecordedV1"
+      type: "object"
     ModuleOperationCreateV1:
       additionalProperties: false
       properties:
@@ -4249,6 +4485,15 @@ components:
       required:
         - "data"
       title: "ModuleListEnvelope"
+    ModuleLiveTestEnvelope:
+      properties:
+        data:
+          "$ref": "#/components/schemas/ModuleLiveTestRecordedV1"
+      additionalProperties: false
+      type: "object"
+      required:
+        - "data"
+      title: "ModuleLiveTestEnvelope"
     ModuleOperationDetailEnvelope:
       properties:
         data:

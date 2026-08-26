@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 import json
-from typing import Literal
 from uuid import UUID
 
 from endpoint_contracts.modules import EndpointRecipeModuleSpecV1
@@ -12,6 +11,7 @@ from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from endpoint_server.db.models.operations import EndpointOperation, ModuleOperationStep
 from endpoint_server.db.models.modules import (
     ModuleDefinition,
     ModuleLiveTest,
@@ -107,7 +107,9 @@ async def validate_persisted_module_version(
 ) -> ModuleValidationRun:
     """Persist one bounded static validation outcome and its lifecycle transition."""
     if module_version.state not in {"draft", "validation_failed"}:
-        raise ModuleServiceError("module version cannot be validated in its current state")
+        raise ModuleServiceError(
+            "module version cannot be validated in its current state"
+        )
 
     error_codes: list[str] = []
     try:
@@ -123,7 +125,9 @@ async def validate_persisted_module_version(
     validation_status = "failed" if error_codes else "succeeded"
     target_state = "validation_failed" if error_codes else "validated"
     if module_version.state != target_state:
-        module_version.state = transition_module_version(module_version.state, target_state)
+        module_version.state = transition_module_version(
+            module_version.state, target_state
+        )
 
     validation_run = ModuleValidationRun(
         module_version_id=module_version.id,
@@ -154,7 +158,9 @@ def _validate_safe_lab_snapshot(snapshot: dict[str, object]) -> None:
     try:
         encoded = json.dumps(snapshot, separators=(",", ":"), sort_keys=True)
     except (TypeError, ValueError) as error:
-        raise ModuleServiceError("lab result snapshot must be JSON serializable") from error
+        raise ModuleServiceError(
+            "lab result snapshot must be JSON serializable"
+        ) from error
     if len(encoded.encode("utf-8")) > _SAFE_LAB_SNAPSHOT_MAX_BYTES:
         raise ModuleServiceError("lab result snapshot exceeds the safe size limit")
 
@@ -175,27 +181,71 @@ async def record_module_live_test(
     session: AsyncSession,
     module_version: ModuleVersion,
     *,
-    platform: Literal["linux_amd64", "windows_amd64"],
-    endpoint_device_id: UUID,
     operation_id: UUID,
-    status: Literal["passed", "failed"],
-    safe_result_snapshot: dict[str, object],
     tested_at: datetime | None = None,
 ) -> ModuleLiveTest:
     """Record bounded lab evidence from an Endpoint-owned module operation."""
     if module_version.state not in {"validated", "lab_accepted"}:
         raise ModuleServiceError("module version is not ready for lab acceptance")
-    if platform not in _declared_platforms(module_version):
-        raise ModuleServiceError("lab platform is not declared by the module version")
-    if status not in {"passed", "failed"}:
-        raise ModuleServiceError("lab status is not supported")
+    operation = await session.scalar(
+        select(EndpointOperation).where(EndpointOperation.id == operation_id)
+    )
+    execution_mode = (
+        operation.parameters.get("execution_mode")
+        if operation is not None and isinstance(operation.parameters, dict)
+        else None
+    )
+    platform = (
+        operation.parameters.get("execution_platform")
+        if operation is not None and isinstance(operation.parameters, dict)
+        else None
+    )
+    if (
+        operation is None
+        or operation.capability != "endpoint.module.recipe"
+        or operation.module_version_id != module_version.id
+        or execution_mode != "lab"
+        or platform not in {"linux_amd64", "windows_amd64"}
+        or platform not in _declared_platforms(module_version)
+        or operation.status != "succeeded"
+        or operation.completed_at is None
+    ):
+        raise ModuleServiceError(
+            "lab operation is not a matching terminal module operation"
+        )
+    steps = (
+        await session.scalars(
+            select(ModuleOperationStep)
+            .where(ModuleOperationStep.operation_id == operation.id)
+            .order_by(ModuleOperationStep.sequence)
+        )
+    ).all()
+    if not steps or any(
+        step.status not in {"succeeded", "failed", "canceled", "expired"}
+        for step in steps
+    ):
+        raise ModuleServiceError("lab operation steps are not terminal")
+    safe_result_snapshot = {
+        "schema_version": "module_live_test_snapshot_v1",
+        "operation_status": operation.status,
+        "steps": [
+            {
+                "sequence": step.sequence,
+                "capability": step.capability,
+                "status": step.status,
+                "error_code": step.error_code,
+                "safe_result": step.safe_result_json,
+            }
+            for step in steps
+        ],
+    }
     _validate_safe_lab_snapshot(safe_result_snapshot)
     live_test = ModuleLiveTest(
         module_version_id=module_version.id,
         platform=platform,
-        endpoint_device_id=endpoint_device_id,
+        endpoint_device_id=operation.device_id,
         operation_id=operation_id,
-        status=status,
+        status="passed",
         safe_result_snapshot=safe_result_snapshot,
         tested_at=tested_at or datetime.now(UTC),
     )

@@ -153,6 +153,7 @@ async def _next_pending_module_command(
     session,
     device_id: UUID,
     allowed_capabilities: AbstractSet[str] | None,
+    agent_platform: str | None,
 ) -> GatewayCommandV1 | None:
     """Materialize at most one WSS-only child command for a module parent."""
     operations = (
@@ -173,6 +174,34 @@ async def _next_pending_module_command(
     for operation in operations:
         if operation.module_version_id is None or operation.module_inputs is None:
             raise CommandStateRejected("module operation shape is unavailable")
+        execution_mode = (
+            operation.parameters.get("execution_mode", "published")
+            if isinstance(operation.parameters, dict)
+            else None
+        )
+        expected_version_state = {
+            "published": "published",
+            "lab": "validated",
+        }.get(execution_mode)
+        if expected_version_state is None:
+            raise CommandStateRejected("module execution mode is unavailable")
+        lab_execution_platform: str | None = None
+        if execution_mode == "lab":
+            if agent_platform not in {"linux_amd64", "windows_amd64"}:
+                raise CommandStateRejected("lab agent platform is unavailable")
+            lab_execution_platform = operation.parameters.get("execution_platform")
+            if (
+                lab_execution_platform is not None
+                and lab_execution_platform != agent_platform
+            ):
+                raise CommandStateRejected(
+                    "lab agent platform changed before completion"
+                )
+        module_version = await session.get(ModuleVersion, operation.module_version_id)
+        if module_version is None or module_version.state != expected_version_state:
+            raise CommandStateRejected(
+                "module version is unavailable for execution mode"
+            )
         if _as_utc(operation.deadline_at) is None or now >= _as_utc(
             operation.deadline_at
         ):
@@ -249,9 +278,11 @@ async def _next_pending_module_command(
             and step.capability not in allowed_capabilities
         ):
             continue
-        module_version = await session.get(ModuleVersion, operation.module_version_id)
-        if module_version is None or module_version.state != "published":
-            raise CommandStateRejected("published module version is unavailable")
+        if execution_mode == "lab" and lab_execution_platform is None:
+            operation.parameters = {
+                **operation.parameters,
+                "execution_platform": agent_platform,
+            }
         try:
             recipe = EndpointRecipeModuleSpecV1.model_validate(module_version.recipe)
             plan = build_recipe_command_plan(recipe, operation.module_inputs)
@@ -661,6 +692,7 @@ async def next_pending_command(
     allowed_capabilities: AbstractSet[str] | None = None,
     *,
     transport: str = "http_pull",
+    agent_platform: str | None = None,
 ) -> GatewayCommandV1 | None:
     """Replay only unacknowledged deliveries before creating a new command."""
     if transport not in {"http_pull", "gateway_wss"}:
@@ -670,6 +702,7 @@ async def next_pending_command(
             session,
             device_id,
             allowed_capabilities,
+            agent_platform,
         )
         if module_payload is not None:
             return module_payload
@@ -788,6 +821,7 @@ class CommandService:
         send: SendCommand,
         *,
         allowed_capabilities: AbstractSet[str] | None = None,
+        agent_platform: str | None = None,
     ) -> bool:
         """Commit one delivery before exposing it to the network callback."""
         async with self._session_provider() as session:
@@ -797,6 +831,7 @@ class CommandService:
                     device_id,
                     allowed_capabilities,
                     transport="gateway_wss",
+                    agent_platform=agent_platform,
                 )
                 if payload is None:
                     await session.commit()

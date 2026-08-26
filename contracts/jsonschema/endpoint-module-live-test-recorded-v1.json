@@ -1,0 +1,56 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "module_key": {
+      "maxLength": 128,
+      "minLength": 3,
+      "pattern": "^[a-z][a-z0-9]*(?:\\.[a-z][a-z0-9]*){1,7}$",
+      "title": "Module Key",
+      "type": "string"
+    },
+    "platform": {
+      "enum": [
+        "linux_amd64",
+        "windows_amd64"
+      ],
+      "title": "Platform",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "module_live_test_recorded_v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "status": {
+      "enum": [
+        "passed",
+        "failed"
+      ],
+      "title": "Status",
+      "type": "string"
+    },
+    "tested_at": {
+      "$comment": "model-only UTC normalization: timezone-aware values are normalized to UTC.",
+      "format": "date-time",
+      "title": "Tested At",
+      "type": "string"
+    },
+    "version": {
+      "maxLength": 64,
+      "minLength": 5,
+      "pattern": "^\\d+\\.\\d+\\.\\d+$",
+      "title": "Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema_version",
+    "module_key",
+    "version",
+    "platform",
+    "status",
+    "tested_at"
+  ],
+  "title": "ModuleLiveTestRecordedV1",
+  "type": "object"
+}

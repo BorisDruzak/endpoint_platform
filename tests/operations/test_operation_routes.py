@@ -264,9 +264,7 @@ async def route_fixture(
 
     import endpoint_server.auth.scopes as scopes_module
 
-    async def load(
-        _: AsyncSession, token: str, __: bytes
-    ) -> ServicePrincipal | None:
+    async def load(_: AsyncSession, token: str, __: bytes) -> ServicePrincipal | None:
         return principals.get(token)
 
     monkeypatch.setattr(scopes_module, "_load_service_principal", load)
@@ -444,9 +442,7 @@ async def test_capabilities_requires_devices_read_and_exposes_only_safe_availabi
                     "transport": "gateway_wss",
                     "risk": "read_only",
                     "consent_required": False,
-                    "parameter_schema_version": (
-                        "diagnostic_collection_parameters_v1"
-                    ),
+                    "parameter_schema_version": ("diagnostic_collection_parameters_v1"),
                 }
             ],
         }
@@ -578,18 +574,19 @@ async def test_module_catalog_reads_are_scoped_and_return_only_recipe_metadata(
     assert created.status_code == 201
     assert forbidden.status_code == 403
     assert listed.json() == {
-        "data": [
-            {"module_key": "network.basic.check", "display_name": "Network"}
-        ]
+        "data": [{"module_key": "network.basic.check", "display_name": "Network"}]
     }
     assert latest.json() == exact.json()
     payload = exact.json()["data"]
     assert payload["module_key"] == "network.basic.check"
     assert payload["state"] == "draft"
     assert payload["recipe"] == MODULE_CREATE_BODY["recipe"]
-    assert not {"command_id", "inputs", "idempotency_key", "service_client"}.intersection(
-        json.dumps(payload)
-    )
+    assert not {
+        "command_id",
+        "inputs",
+        "idempotency_key",
+        "service_client",
+    }.intersection(json.dumps(payload))
 
 
 @pytest.mark.asyncio
@@ -666,7 +663,9 @@ async def test_module_validate_requires_dedicated_scope_and_returns_typed_result
                 )
             ).all()
         )
-    assert [(event.action, event.actor_kind, event.actor_identifier) for event in events] == [
+    assert [
+        (event.action, event.actor_kind, event.actor_identifier) for event in events
+    ] == [
         ("endpoint.module_version_created", "service", "helpdesk"),
         ("endpoint.module_validation_completed", "service", "helpdesk"),
     ]
@@ -677,11 +676,6 @@ async def test_module_validate_requires_dedicated_scope_and_returns_typed_result
 async def test_module_publish_requires_lab_evidence_and_dedicated_scope(
     route_fixture: RouteFixture,
 ) -> None:
-    from endpoint_server.modules.service import (
-        accept_persisted_module_labs,
-        record_module_live_test,
-    )
-
     app = create_app(
         _settings(enabled=True, module_platform_enabled=True),
         route_fixture.session_provider,
@@ -718,37 +712,68 @@ async def test_module_publish_requires_lab_evidence_and_dedicated_scope(
             )
         )
         assert module_version is not None
+        completed_at = datetime.now(UTC)
         lab_operation = EndpointOperation(
             id=uuid4(),
+            created_at=completed_at,
             requested_by_service_client_id=route_fixture.owner.id,
             device_id=route_fixture.device.id,
             idempotency_key="module-lab-operation-key",
-            capability="context.diagnostic.collect",
-            parameters={"reason": "module lab acceptance"},
+            capability="endpoint.module.recipe",
+            parameters={
+                "execution_mode": "lab",
+                "execution_platform": "linux_amd64",
+            },
             correlation=None,
-            status="queued",
-            deadline_at=datetime.now(UTC) + timedelta(minutes=5),
-            completed_at=None,
+            status="succeeded",
+            deadline_at=completed_at + timedelta(minutes=5),
+            completed_at=completed_at,
             context_collection_id=None,
             command_id=None,
+            module_version_id=module_version.id,
+            module_inputs={"target": "endpoint-staging.sosnadmin.local"},
         )
         session.add(lab_operation)
-        await session.flush()
-        await record_module_live_test(
-            session,
-            module_version,
-            platform="linux_amd64",
-            endpoint_device_id=route_fixture.device.id,
-            operation_id=lab_operation.id,
-            status="passed",
-            safe_result_snapshot={"status": "succeeded"},
+        session.add(
+            ModuleOperationStep(
+                id=uuid4(),
+                created_at=completed_at,
+                operation_id=lab_operation.id,
+                sequence=0,
+                recipe_step_key="dns",
+                capability="dns.resolve",
+                status="succeeded",
+                command_id=None,
+                safe_result_json={"status": "succeeded"},
+                error_code=None,
+                started_at=completed_at,
+                completed_at=completed_at,
+            )
         )
-        await accept_persisted_module_labs(session, module_version)
+        await session.flush()
         await session.commit()
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app),
         base_url="https://endpoint.sosnadmin.local",
     ) as client:
+        unrelated_live_test = await client.post(
+            f"{version_path}/live-tests/{uuid4()}",
+            json={"schema_version": "module_live_test_record_v1"},
+            headers=_authorization("modules-validator"),
+        )
+        live_test = await client.post(
+            f"{version_path}/live-tests/{lab_operation.id}",
+            json={"schema_version": "module_live_test_record_v1"},
+            headers=_authorization("modules-validator"),
+        )
+        forbidden_accept = await client.post(
+            f"{version_path}/accept-labs",
+            headers=_authorization("modules-validator"),
+        )
+        accepted = await client.post(
+            f"{version_path}/accept-labs",
+            headers=_authorization("modules-publisher"),
+        )
         published = await client.post(
             f"{version_path}/publish",
             headers=_authorization("modules-publisher"),
@@ -758,6 +783,22 @@ async def test_module_publish_requires_lab_evidence_and_dedicated_scope(
             headers=_authorization("modules-publisher"),
         )
 
+    assert unrelated_live_test.status_code == 409
+    assert unrelated_live_test.json()["detail"] == {
+        "code": "endpoint_module_live_test_conflict"
+    }
+    assert live_test.status_code == 201
+    assert live_test.json()["data"] == {
+        "schema_version": "module_live_test_recorded_v1",
+        "module_key": "network.basic.check",
+        "version": "1.0.0",
+        "platform": "linux_amd64",
+        "status": "passed",
+        "tested_at": live_test.json()["data"]["tested_at"],
+    }
+    assert forbidden_accept.status_code == 403
+    assert accepted.status_code == 200
+    assert accepted.json()["data"]["state"] == "lab_accepted"
     assert published.status_code == 200
     assert published.json()["data"] == {
         "schema_version": "module_version_state_v1",
@@ -775,6 +816,68 @@ async def test_module_publish_requires_lab_evidence_and_dedicated_scope(
 
 
 @pytest.mark.asyncio
+async def test_validated_module_lab_operation_route_is_scoped_and_creates_parent(
+    route_fixture: RouteFixture,
+) -> None:
+    app = create_app(
+        _settings(
+            enabled=True,
+            network_primitives_enabled=True,
+            module_platform_enabled=True,
+            module_execution_enabled=True,
+        ),
+        route_fixture.session_provider,
+    )
+    version_path = "/api/v1/modules/network.basic.check/versions/1.0.0"
+    lab_path = f"{version_path}/lab-operations/{route_fixture.device.id}"
+    headers = {
+        **_authorization("modules-validator"),
+        "Idempotency-Key": "module-lab-route-key-0001",
+        "X-Correlation-ID": "module-lab-route-0001",
+    }
+    body = {
+        "schema_version": "endpoint_module_lab_operation_create_v1",
+        "inputs": {"target": "10.20.0.10"},
+    }
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app),
+        base_url="https://endpoint.sosnadmin.local",
+    ) as client:
+        created = await client.post(
+            "/api/v1/modules/versions",
+            json=MODULE_CREATE_BODY,
+            headers=_authorization("modules-writer"),
+        )
+        validated = await client.post(
+            f"{version_path}/validate",
+            headers=_authorization("modules-validator"),
+        )
+        forbidden = await client.post(
+            lab_path, json=body, headers=_authorization("modules-writer")
+        )
+        lab = await client.post(lab_path, json=body, headers=headers)
+        replay = await client.post(lab_path, json=body, headers=headers)
+
+    assert created.status_code == 201
+    assert validated.status_code == 200
+    assert forbidden.status_code == 403
+    assert lab.status_code == 201
+    assert replay.status_code == 200
+    assert replay.json()["data"]["operation_id"] == lab.json()["data"]["operation_id"]
+    assert lab.json()["data"] == {
+        "schema_version": "endpoint_module_operation_v1",
+        "operation_id": lab.json()["data"]["operation_id"],
+        "device_id": str(route_fixture.device.id),
+        "module_key": "network.basic.check",
+        "version": "1.0.0",
+        "status": "queued",
+        "created_at": lab.json()["data"]["created_at"],
+        "deadline_at": lab.json()["data"]["deadline_at"],
+        "completed_at": None,
+    }
+
+
+@pytest.mark.asyncio
 async def test_module_operation_execution_route_is_flagged_scoped_and_idempotent(
     route_fixture: RouteFixture,
 ) -> None:
@@ -783,7 +886,10 @@ async def test_module_operation_execution_route_is_flagged_scoped_and_idempotent
         _settings(enabled=True, module_platform_enabled=True),
         route_fixture.session_provider,
     )
-    assert path.replace(str(route_fixture.device.id), "{device_id}") not in disabled.openapi()["paths"]
+    assert (
+        path.replace(str(route_fixture.device.id), "{device_id}")
+        not in disabled.openapi()["paths"]
+    )
 
     app = create_app(
         _settings(
@@ -825,7 +931,9 @@ async def test_module_operation_execution_route_is_flagged_scoped_and_idempotent
         transport=httpx.ASGITransport(app=app),
         base_url="https://endpoint.sosnadmin.local",
     ) as client:
-        forbidden = await client.post(path, json=body, headers={**headers, **_authorization("modules-writer")})
+        forbidden = await client.post(
+            path, json=body, headers={**headers, **_authorization("modules-writer")}
+        )
         created = await client.post(path, json=body, headers=headers)
         replay = await client.post(path, json=body, headers=headers)
         read = await client.get(
@@ -911,9 +1019,7 @@ async def test_device_read_and_capabilities_are_versioned_and_echo_correlation(
                     "transport": "gateway_wss",
                     "risk": "read_only",
                     "consent_required": False,
-                    "parameter_schema_version": (
-                        "diagnostic_collection_parameters_v1"
-                    ),
+                    "parameter_schema_version": ("diagnostic_collection_parameters_v1"),
                 }
             ],
         }
@@ -1141,15 +1247,9 @@ async def test_read_uses_service_client_identity_across_credential_rotation(
         operation_id = created.json()["data"]["operation"]["operation_id"]
         read_path = f"/api/v1/operations/{operation_id}"
         unauthenticated = await client.get(read_path)
-        wrong_scope = await client.get(
-            read_path, headers=_authorization("creator-old")
-        )
-        rotated = await client.get(
-            read_path, headers=_authorization("reader-rotated")
-        )
-        foreign = await client.get(
-            read_path, headers=_authorization("foreign-reader")
-        )
+        wrong_scope = await client.get(read_path, headers=_authorization("creator-old"))
+        rotated = await client.get(read_path, headers=_authorization("reader-rotated"))
+        foreign = await client.get(read_path, headers=_authorization("foreign-reader"))
 
     assert created.status_code == 201
     assert unauthenticated.status_code == 401
@@ -1240,9 +1340,7 @@ async def test_completed_read_returns_only_validated_safe_result_projection(
                     "warnings": ["redaction_applied"],
                     "sections": {
                         "reason": CREATE_BODY["parameters"]["reason"],
-                        "processes": [
-                            {"name": "endpoint-agent", "state": "running"}
-                        ],
+                        "processes": [{"name": "endpoint-agent", "state": "running"}],
                         "log_excerpt": "Bearer authentication was redacted.",
                     },
                 },
@@ -1323,8 +1421,9 @@ async def test_public_reason_is_always_derived_from_server_request(
         )
 
     assert response.status_code == 200
-    assert response.json()["data"]["result"]["reason"] == (
-        CREATE_BODY["parameters"]["reason"]
+    assert (
+        response.json()["data"]["result"]["reason"]
+        == (CREATE_BODY["parameters"]["reason"])
     )
     assert "super-secret" not in response.text
 
@@ -1346,9 +1445,7 @@ async def test_direct_projection_redacts_secret_after_bearer_marker(
         operation_id,
         normalized_projection=_diagnostic_projection(
             completed_at=completed_at,
-            processes=[
-                {"name": "Bearer redacted actual-secret", "state": "running"}
-            ],
+            processes=[{"name": "Bearer redacted actual-secret", "state": "running"}],
             log_excerpt=None,
         ),
     )
@@ -1503,9 +1600,9 @@ def test_enabled_runtime_openapi_exactly_matches_committed_operation_routes(
         "/api/v1/devices/{device_id}/operations",
         "/api/v1/operations/{operation_id}",
     )
-    assert {
-        path: runtime["paths"][path] for path in operation_paths
-    } == {path: committed["paths"][path] for path in operation_paths}
+    assert {path: runtime["paths"][path] for path in operation_paths} == {
+        path: committed["paths"][path] for path in operation_paths
+    }
 
 
 def test_operation_openapi_declares_required_correlation_response_headers(
