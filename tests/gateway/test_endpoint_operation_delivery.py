@@ -19,6 +19,7 @@ from endpoint_contracts import (
     DeviceContextDiagnosticV1,
     EndpointOperationCreateV1,
 )
+from endpoint_contracts.modules import EndpointRecipeModuleSpecV1
 from endpoint_contracts.gateway_ws import CommandEnvelopeV1
 from endpoint_server.context.models import ContextCollection, ContextSnapshot
 from endpoint_server.db.models import (
@@ -27,6 +28,9 @@ from endpoint_server.db.models import (
     CommandDelivery,
     CommandResult,
     EndpointOperation,
+    ModuleDefinition,
+    ModuleOperationStep,
+    ModuleVersion,
     ServiceClient,
 )
 from endpoint_server.gateway.command_service import (
@@ -37,6 +41,8 @@ from endpoint_server.gateway.presence_service import GatewayPresence, PresenceSe
 from endpoint_server.main import create_app
 from endpoint_server.operations.projection import project_diagnostic_result
 from endpoint_server.operations.service import create_operation_outcome
+from endpoint_server.modules.operation_service import create_module_parent_operation
+from endpoint_server.policy.network_targets import NetworkTargetPolicyV1
 from endpoint_server.worker import run_worker
 
 from .conftest import (
@@ -89,14 +95,90 @@ async def _seed_operation(
         return operation
 
 
+async def _seed_module_operation(
+    provider: async_sessionmaker[AsyncSession],
+    *,
+    device_id: UUID,
+) -> EndpointOperation:
+    recipe = EndpointRecipeModuleSpecV1.model_validate(
+        {
+            "schema_version": "endpoint_recipe_module_v1",
+            "module_key": "network.dnsping",
+            "supported_platforms": ["linux_amd64"],
+            "inputs": [{"name": "target", "value_type": "string"}],
+            "steps": [
+                {
+                    "step_id": "resolve",
+                    "capability": "dns.resolve",
+                    "parameters": {
+                        "target": {"kind": "input", "name": "target"},
+                        "family": {"kind": "literal", "value": "any"},
+                    },
+                },
+                {
+                    "step_id": "ping",
+                    "capability": "network.ping",
+                    "parameters": {
+                        "target": {"kind": "input", "name": "target"},
+                        "count": {"kind": "literal", "value": 1},
+                        "timeout_ms": {"kind": "literal", "value": 500},
+                    },
+                },
+            ],
+        }
+    )
+    async with provider() as session:
+        client = ServiceClient(
+            id=uuid4(),
+            client_identifier=f"module-helpdesk-{uuid4().hex}",
+            display_name="Module Helpdesk",
+        )
+        definition = ModuleDefinition(
+            id=uuid4(),
+            created_at=datetime.now(UTC),
+            module_key=recipe.module_key,
+            display_name="DNS then ping",
+        )
+        session.add_all((client, definition))
+        await session.flush()
+        session.add(
+            ModuleVersion(
+                id=uuid4(),
+                created_at=datetime.now(UTC),
+                module_definition_id=definition.id,
+                version="1.0.0",
+                recipe=recipe.model_dump(mode="json"),
+                state="published",
+            )
+        )
+        await session.flush()
+        operation, created = await create_module_parent_operation(
+            session,
+            service_client_id=client.id,
+            device_id=device_id,
+            module_key=recipe.module_key,
+            version="1.0.0",
+            inputs={"target": "probe.example.test"},
+            idempotency_key=f"module-operation-{uuid4().hex}",
+            network_policy=NetworkTargetPolicyV1.from_values(
+                allowed_suffixes=(".example.test",),
+                allowed_cidrs=(),
+            ),
+        )
+        assert created is True
+        await session.commit()
+        return operation
+
+
 async def _open_session(
     provider: async_sessionmaker[AsyncSession],
     *,
     device_id: UUID,
     instance_id: UUID | None = None,
+    capabilities: list[str] | None = None,
 ) -> GatewayPresence:
     hello = agent_hello(device_id, instance_id=instance_id)
-    hello["capabilities"] = ["context.diagnostic.collect"]
+    hello["capabilities"] = capabilities or ["context.diagnostic.collect"]
     return await PresenceService(provider).open_session(
         device_id=device_id,
         hello=AgentHelloV1.model_validate(hello),
@@ -258,6 +340,85 @@ async def test_operation_is_absent_from_http_pull_and_committed_before_wss_send(
     assert _utc(payload.deadline_at) == _utc(operation.deadline_at)
     assert operation.correlation is None
     assert "helpdesk" not in serialized.lower()
+
+
+@pytest.mark.asyncio
+async def test_module_parent_is_absent_from_http_pull_and_wss_delivers_one_typed_child(
+    session_provider: async_sessionmaker[AsyncSession],
+) -> None:
+    """The agent receives a single primitive and cannot observe the module recipe."""
+    device = await seed_device(session_provider)
+    operation = await _seed_module_operation(session_provider, device_id=device.id)
+    app = create_app(gateway_settings(), session_provider)
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app, client=("127.0.0.1", 12345)),
+        base_url="https://endpoint.sosnadmin.local",
+    ) as client:
+        response = await client.get(
+            "/agent/v1/gateway/commands/next",
+            headers={
+                "Authorization": f"Bearer {VALID_TOKEN}",
+                "X-Forwarded-For": "192.168.101.20",
+            },
+        )
+    assert response.status_code == 204
+    async with session_provider() as session:
+        assert await session.scalar(select(func.count()).select_from(Command)) == 0
+
+    presence = await _open_session(
+        session_provider,
+        device_id=device.id,
+        capabilities=["dns.resolve", "network.ping"],
+    )
+    sent: list[CommandEnvelopeV1] = []
+    assert await CommandService(session_provider).deliver_next(
+        device.id,
+        presence.session_id,
+        sent.append,
+        allowed_capabilities=frozenset({"dns.resolve", "network.ping"}),
+    )
+    assert len(sent) == 1
+    payload = sent[0].payload
+    serialized = json.dumps(payload.model_dump(mode="json"), sort_keys=True)
+    assert payload.capability == "dns.resolve"
+    assert payload.parameters == {"target": "probe.example.test", "family": "any"}
+    assert payload.requested_by_service == "endpoint-platform"
+    assert payload.idempotency_key.startswith(f"endpoint-module:{operation.id.hex}:")
+    assert payload.correlation.request_id == operation.id
+    assert payload.correlation.parent_command_id is None
+    assert "recipe" not in serialized.lower()
+    assert "network.ping" not in serialized
+
+    replayed: list[CommandEnvelopeV1] = []
+    assert await CommandService(session_provider).deliver_next(
+        device.id,
+        presence.session_id,
+        replayed.append,
+        allowed_capabilities=frozenset({"dns.resolve", "network.ping"}),
+    )
+    assert [item.payload.command_id for item in replayed] == [payload.command_id]
+
+    async with session_provider() as session:
+        persisted = await session.get(EndpointOperation, operation.id)
+        steps = (
+            await session.scalars(
+                select(ModuleOperationStep)
+                .where(ModuleOperationStep.operation_id == operation.id)
+                .order_by(ModuleOperationStep.sequence)
+            )
+        ).all()
+        command = await session.get(Command, payload.command_id)
+        delivery = await session.scalar(
+            select(CommandDelivery).where(CommandDelivery.command_id == payload.command_id)
+        )
+        command_count = await session.scalar(select(func.count()).select_from(Command))
+    assert persisted is not None and command is not None and delivery is not None
+    assert persisted.status == "delivered"
+    assert persisted.command_id is None
+    assert [step.status for step in steps] == ["delivered", "queued"]
+    assert steps[0].command_id == command.id
+    assert delivery.device_session_id == presence.session_id
+    assert command_count == 1
 
 
 @pytest.mark.asyncio

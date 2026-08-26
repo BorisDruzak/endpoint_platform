@@ -19,6 +19,7 @@ from endpoint_contracts import (
     DeviceContextDiagnosticV1,
     DiagnosticCollectionParametersV1,
 )
+from endpoint_contracts.modules import EndpointRecipeModuleSpecV1
 from endpoint_contracts.gateway_ws import (
     CommandEnvelopeV1,
     GatewayCommandV1,
@@ -36,13 +37,19 @@ from endpoint_server.db.models import (
     DeviceInstance,
     DeviceSession,
     EndpointOperation,
+    ModuleOperationStep,
 )
+from endpoint_server.db.models.modules import ModuleVersion
 from endpoint_server.db.session import SessionProvider
 from endpoint_server.operations.projection import project_diagnostic_result
 from endpoint_server.operations.redaction import sanitize_agent_public_text
 from endpoint_server.operations.service import (
     append_operation_terminal_audit,
     expire_operation_if_due,
+)
+from endpoint_server.modules.recipe_engine import (
+    RecipeExecutionError,
+    build_recipe_command_plan,
 )
 
 SendCommand = Callable[[CommandEnvelopeV1], Awaitable[None] | None]
@@ -103,6 +110,145 @@ def _command_payload(
         deadline_at=deadline_at,
         correlation=correlation,
     )
+
+
+def _module_step_payload(
+    command: Command,
+    operation: EndpointOperation,
+    step: ModuleOperationStep,
+    *,
+    parameters: dict[str, str | int],
+) -> GatewayCommandV1:
+    """Expose one previously-expanded primitive, never its containing recipe."""
+    created_at = _as_utc(command.created_at)
+    deadline_at = _as_utc(operation.deadline_at)
+    if created_at is None or deadline_at is None:
+        raise CommandStateRejected("module command timing is unavailable")
+    if command.command_kind != step.capability or command.device_id != operation.device_id:
+        raise CommandStateRejected("module command relation is unavailable")
+    return GatewayCommandV1(
+        schema_version="agent_command_v1",
+        command_id=command.id,
+        device_id=operation.device_id,
+        capability=step.capability,
+        parameters=parameters,
+        requested_by_service="endpoint-platform",
+        idempotency_key=f"endpoint-module:{operation.id.hex}:{step.id.hex}",
+        created_at=created_at,
+        deadline_at=deadline_at,
+        correlation=CommandCorrelationV1(request_id=operation.id),
+    )
+
+
+async def _next_pending_module_command(
+    session,
+    device_id: UUID,
+    allowed_capabilities: AbstractSet[str] | None,
+) -> GatewayCommandV1 | None:
+    """Materialize at most one WSS-only child command for a module parent."""
+    operations = (
+        await session.scalars(
+            select(EndpointOperation)
+            .where(
+                EndpointOperation.device_id == device_id,
+                EndpointOperation.capability == "endpoint.module.recipe",
+                EndpointOperation.status.in_(("queued", "delivered", "acknowledged", "running")),
+            )
+            .order_by(EndpointOperation.created_at, EndpointOperation.id)
+            .with_for_update(skip_locked=True)
+        )
+    ).all()
+    now = datetime.now(UTC)
+    for operation in operations:
+        if operation.module_version_id is None or operation.module_inputs is None:
+            raise CommandStateRejected("module operation shape is unavailable")
+        if _as_utc(operation.deadline_at) is None or now >= _as_utc(operation.deadline_at):
+            continue
+        steps = (
+            await session.scalars(
+                select(ModuleOperationStep)
+                .where(ModuleOperationStep.operation_id == operation.id)
+                .order_by(ModuleOperationStep.sequence, ModuleOperationStep.id)
+                .with_for_update(skip_locked=True)
+            )
+        ).all()
+        if not steps:
+            raise CommandStateRejected("module operation has no durable steps")
+        active_steps = [step for step in steps if step.status in {"delivered", "acknowledged", "running"}]
+        if active_steps:
+            if len(active_steps) != 1 or active_steps[0].status != "delivered":
+                continue
+            step = active_steps[0]
+            if step.command_id is None:
+                raise CommandStateRejected("module step command is unavailable")
+            command = await session.scalar(
+                select(Command)
+                .where(Command.id == step.command_id, Command.device_id == device_id)
+                .with_for_update()
+            )
+            if command is None or command.status != "delivered":
+                raise CommandStateRejected("module step delivery is unavailable")
+        else:
+            queued_steps = [step for step in steps if step.status == "queued"]
+            if not queued_steps:
+                continue
+            step = queued_steps[0]
+            if any(previous.status != "succeeded" for previous in steps[: step.sequence]):
+                continue
+            if allowed_capabilities is not None and step.capability not in allowed_capabilities:
+                continue
+            command = Command(
+                id=uuid4(),
+                created_at=now,
+                command_identifier=f"module-{operation.id.hex}-{step.id.hex}",
+                device_id=device_id,
+                command_kind=step.capability,
+                status="delivered",
+                expires_at=operation.deadline_at,
+            )
+            session.add(command)
+            await session.flush()
+            step.command_id = command.id
+            step.status = "delivered"
+            operation.status = "delivered"
+            session.add(
+                CommandDelivery(
+                    id=uuid4(),
+                    command_id=command.id,
+                    device_session_id=None,
+                    delivery_identifier=f"delivery-{command.id.hex}",
+                    status="delivered",
+                    acknowledged_at=None,
+                )
+            )
+
+        if allowed_capabilities is not None and step.capability not in allowed_capabilities:
+            continue
+        module_version = await session.get(ModuleVersion, operation.module_version_id)
+        if module_version is None or module_version.state != "published":
+            raise CommandStateRejected("published module version is unavailable")
+        try:
+            recipe = EndpointRecipeModuleSpecV1.model_validate(module_version.recipe)
+            plan = build_recipe_command_plan(recipe, operation.module_inputs)
+        except (RecipeExecutionError, ValueError) as error:
+            raise CommandStateRejected("module recipe plan is unavailable") from error
+        plan_item = next(
+            (
+                item
+                for item in plan
+                if item.sequence == step.sequence and item.step_id == step.recipe_step_key
+            ),
+            None,
+        )
+        if plan_item is None or plan_item.capability != step.capability:
+            raise CommandStateRejected("module step plan is unavailable")
+        return _module_step_payload(
+            command,
+            operation,
+            step,
+            parameters=plan_item.parameters,
+        )
+    return None
 
 
 def _as_utc(value: datetime | None) -> datetime | None:
@@ -293,6 +439,14 @@ async def next_pending_command(
     """Replay only unacknowledged deliveries before creating a new command."""
     if transport not in {"http_pull", "gateway_wss"}:
         raise ValueError("unsupported gateway transport")
+    if transport == "gateway_wss":
+        module_payload = await _next_pending_module_command(
+            session,
+            device_id,
+            allowed_capabilities,
+        )
+        if module_payload is not None:
+            return module_payload
     collections = (
         await session.scalars(
             select(ContextCollection)
