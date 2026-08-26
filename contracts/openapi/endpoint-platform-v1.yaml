@@ -631,6 +631,210 @@ paths:
             "application/json":
               schema:
                 "$ref": "#/components/schemas/HTTPValidationError"
+  "/api/v1/modules":
+    get:
+      tags:
+        - "endpoint-modules"
+      summary: "List Modules"
+      operationId: "list_modules_api_v1_modules_get"
+      responses:
+        "200":
+          description: "Successful Response"
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/ModuleListEnvelope"
+  "/api/v1/modules/{module_key}":
+    get:
+      tags:
+        - "endpoint-modules"
+      summary: "Read Module"
+      operationId: "read_module_api_v1_modules__module_key__get"
+      parameters:
+        -
+          name: "module_key"
+          in: "path"
+          required: true
+          schema:
+            type: "string"
+            title: "Module Key"
+      responses:
+        "200":
+          description: "Successful Response"
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/ModuleVersionViewEnvelope"
+        "422":
+          description: "Validation Error"
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/HTTPValidationError"
+  "/api/v1/modules/versions":
+    post:
+      tags:
+        - "endpoint-modules"
+      summary: "Create Module Version"
+      operationId: "create_module_version_api_v1_modules_versions_post"
+      requestBody:
+        content:
+          "application/json":
+            schema:
+              "$ref": "#/components/schemas/ModuleVersionCreateV1"
+        required: true
+      responses:
+        "201":
+          description: "Successful Response"
+          content:
+            "application/json":
+              schema:
+                additionalProperties: true
+                type: "object"
+                title: "Response Create Module Version Api V1 Modules Versions Post"
+        "422":
+          description: "Validation Error"
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/HTTPValidationError"
+  "/api/v1/modules/{module_key}/versions/{version}":
+    get:
+      tags:
+        - "endpoint-modules"
+      summary: "Read Module Version"
+      operationId: "read_module_version_api_v1_modules__module_key__versions__version__get"
+      parameters:
+        -
+          name: "module_key"
+          in: "path"
+          required: true
+          schema:
+            type: "string"
+            title: "Module Key"
+        -
+          name: "version"
+          in: "path"
+          required: true
+          schema:
+            type: "string"
+            title: "Version"
+      responses:
+        "200":
+          description: "Successful Response"
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/ModuleVersionViewEnvelope"
+        "422":
+          description: "Validation Error"
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/HTTPValidationError"
+  "/api/v1/modules/{module_key}/versions/{version}/validate":
+    post:
+      tags:
+        - "endpoint-modules"
+      summary: "Validate Module Version"
+      operationId: "validate_module_version_api_v1_modules__module_key__versions__version__validate_post"
+      parameters:
+        -
+          name: "module_key"
+          in: "path"
+          required: true
+          schema:
+            type: "string"
+            title: "Module Key"
+        -
+          name: "version"
+          in: "path"
+          required: true
+          schema:
+            type: "string"
+            title: "Version"
+      responses:
+        "200":
+          description: "Successful Response"
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/ModuleValidationEnvelope"
+        "422":
+          description: "Validation Error"
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/HTTPValidationError"
+  "/api/v1/modules/{module_key}/versions/{version}/publish":
+    post:
+      tags:
+        - "endpoint-modules"
+      summary: "Publish Module Version"
+      operationId: "publish_module_version_api_v1_modules__module_key__versions__version__publish_post"
+      parameters:
+        -
+          name: "module_key"
+          in: "path"
+          required: true
+          schema:
+            type: "string"
+            title: "Module Key"
+        -
+          name: "version"
+          in: "path"
+          required: true
+          schema:
+            type: "string"
+            title: "Version"
+      responses:
+        "200":
+          description: "Successful Response"
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/ModuleVersionStateEnvelope"
+        "422":
+          description: "Validation Error"
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/HTTPValidationError"
+  "/api/v1/modules/{module_key}/versions/{version}/deprecate":
+    post:
+      tags:
+        - "endpoint-modules"
+      summary: "Deprecate Module Version"
+      description: "Stop new module operations from using one immutable published version."
+      operationId: "deprecate_module_version_api_v1_modules__module_key__versions__version__deprecate_post"
+      parameters:
+        -
+          name: "module_key"
+          in: "path"
+          required: true
+          schema:
+            type: "string"
+            title: "Module Key"
+        -
+          name: "version"
+          in: "path"
+          required: true
+          schema:
+            type: "string"
+            title: "Version"
+      responses:
+        "200":
+          description: "Successful Response"
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/ModuleVersionStateEnvelope"
+        "422":
+          description: "Validation Error"
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/HTTPValidationError"
 components:
   schemas:
     DeviceIdentityV1:
@@ -3532,6 +3736,209 @@ components:
         - "collected_at"
       title: "TcpConnectResultV1"
       type: "object"
+    ModuleSummaryV1:
+      additionalProperties: false
+      properties:
+        module_key:
+          maxLength: 128
+          minLength: 3
+          pattern: "^[a-z][a-z0-9]*(?:\\.[a-z][a-z0-9]*){1,7}$"
+          title: "Module Key"
+          type: "string"
+        display_name:
+          maxLength: 128
+          minLength: 1
+          title: "Display Name"
+          type: "string"
+      required:
+        - "module_key"
+        - "display_name"
+      title: "ModuleSummaryV1"
+      type: "object"
+    ModuleVersionViewV1:
+      additionalProperties: false
+      properties:
+        module_key:
+          maxLength: 128
+          minLength: 3
+          pattern: "^[a-z][a-z0-9]*(?:\\.[a-z][a-z0-9]*){1,7}$"
+          title: "Module Key"
+          type: "string"
+        display_name:
+          maxLength: 128
+          minLength: 1
+          title: "Display Name"
+          type: "string"
+        version:
+          maxLength: 64
+          minLength: 5
+          pattern: "^\\d+\\.\\d+\\.\\d+$"
+          title: "Version"
+          type: "string"
+        state:
+          enum:
+            - "draft"
+            - "validation_failed"
+            - "validated"
+            - "lab_accepted"
+            - "published"
+            - "deprecated"
+            - "revoked"
+          title: "State"
+          type: "string"
+        recipe:
+          "$ref": "#/components/schemas/ModuleVersionViewV1__EndpointRecipeModuleSpecV1"
+      required:
+        - "module_key"
+        - "display_name"
+        - "version"
+        - "state"
+        - "recipe"
+      title: "ModuleVersionViewV1"
+      type: "object"
+    ModuleVersionViewV1__EndpointRecipeModuleSpecV1:
+      additionalProperties: false
+      description: "A declarative, no-branching recipe expanded only by Endpoint Platform."
+      properties:
+        schema_version:
+          const: "endpoint_recipe_module_v1"
+          title: "Schema Version"
+          type: "string"
+        module_key:
+          maxLength: 128
+          minLength: 3
+          pattern: "^[a-z][a-z0-9]*(?:\\.[a-z][a-z0-9]*){1,7}$"
+          title: "Module Key"
+          type: "string"
+        supported_platforms:
+          items:
+            enum:
+              - "linux_amd64"
+              - "windows_amd64"
+            type: "string"
+          maxItems: 2
+          minItems: 1
+          title: "Supported Platforms"
+          type: "array"
+        inputs:
+          items:
+            "$ref": "#/components/schemas/ModuleVersionViewV1__ModuleRecipeInputV1"
+          maxItems: 8
+          title: "Inputs"
+          type: "array"
+        steps:
+          items:
+            "$ref": "#/components/schemas/ModuleVersionViewV1__EndpointRecipeStepV1"
+          maxItems: 8
+          minItems: 1
+          title: "Steps"
+          type: "array"
+      required:
+        - "schema_version"
+        - "module_key"
+        - "supported_platforms"
+        - "steps"
+      title: "EndpointRecipeModuleSpecV1"
+      type: "object"
+    ModuleVersionViewV1__EndpointRecipeStepV1:
+      additionalProperties: false
+      properties:
+        step_id:
+          maxLength: 64
+          minLength: 1
+          pattern: "^[a-z][a-z0-9_]{0,63}$"
+          title: "Step Id"
+          type: "string"
+        capability:
+          enum:
+            - "dns.resolve"
+            - "network.ping"
+            - "tcp.connect"
+          title: "Capability"
+          type: "string"
+        parameters:
+          maxProperties: 3
+          minProperties: 1
+          patternProperties:
+            "^[a-z][a-z0-9_]{0,63}$":
+              discriminator:
+                mapping:
+                  input: "#/$defs/RecipeInputBindingV1"
+                  literal: "#/$defs/RecipeLiteralBindingV1"
+                propertyName: "kind"
+              oneOf:
+                -
+                  "$ref": "#/components/schemas/ModuleVersionViewV1__RecipeInputBindingV1"
+                -
+                  "$ref": "#/components/schemas/ModuleVersionViewV1__RecipeLiteralBindingV1"
+          propertyNames:
+            maxLength: 64
+            minLength: 1
+          title: "Parameters"
+          type: "object"
+      required:
+        - "step_id"
+        - "capability"
+        - "parameters"
+      title: "EndpointRecipeStepV1"
+      type: "object"
+    ModuleVersionViewV1__ModuleRecipeInputV1:
+      additionalProperties: false
+      properties:
+        name:
+          maxLength: 64
+          minLength: 1
+          pattern: "^[a-z][a-z0-9_]{0,63}$"
+          title: "Name"
+          type: "string"
+        value_type:
+          enum:
+            - "string"
+            - "integer"
+          title: "Value Type"
+          type: "string"
+      required:
+        - "name"
+        - "value_type"
+      title: "ModuleRecipeInputV1"
+      type: "object"
+    ModuleVersionViewV1__RecipeInputBindingV1:
+      additionalProperties: false
+      properties:
+        kind:
+          const: "input"
+          title: "Kind"
+          type: "string"
+        name:
+          maxLength: 64
+          minLength: 1
+          pattern: "^[a-z][a-z0-9_]{0,63}$"
+          title: "Name"
+          type: "string"
+      required:
+        - "kind"
+        - "name"
+      title: "RecipeInputBindingV1"
+      type: "object"
+    ModuleVersionViewV1__RecipeLiteralBindingV1:
+      additionalProperties: false
+      properties:
+        kind:
+          const: "literal"
+          title: "Kind"
+          type: "string"
+        value:
+          anyOf:
+            -
+              type: "string"
+            -
+              type: "integer"
+          title: "Value"
+      required:
+        - "kind"
+        - "value"
+      title: "RecipeLiteralBindingV1"
+      type: "object"
     DeviceCapabilitiesEnvelope:
       properties:
         data:
@@ -3691,6 +4098,136 @@ components:
         - "parameter_schema_version"
       title: "EndpointCapabilityAvailabilityV1"
       description: "One versioned safe capability descriptor for an exact device."
+    EndpointRecipeModuleSpecV1-Input:
+      properties:
+        schema_version:
+          type: "string"
+          const: "endpoint_recipe_module_v1"
+          title: "Schema Version"
+        module_key:
+          type: "string"
+          maxLength: 128
+          minLength: 3
+          pattern: "^[a-z][a-z0-9]*(?:\\.[a-z][a-z0-9]*){1,7}$"
+          title: "Module Key"
+        supported_platforms:
+          items:
+            type: "string"
+            enum:
+              - "linux_amd64"
+              - "windows_amd64"
+          type: "array"
+          maxItems: 2
+          minItems: 1
+          title: "Supported Platforms"
+        inputs:
+          items:
+            "$ref": "#/components/schemas/ModuleRecipeInputV1"
+          type: "array"
+          maxItems: 8
+          title: "Inputs"
+        steps:
+          items:
+            "$ref": "#/components/schemas/EndpointRecipeStepV1"
+          type: "array"
+          maxItems: 8
+          minItems: 1
+          title: "Steps"
+      additionalProperties: false
+      type: "object"
+      required:
+        - "schema_version"
+        - "module_key"
+        - "supported_platforms"
+        - "steps"
+      title: "EndpointRecipeModuleSpecV1"
+      description: "A declarative, no-branching recipe expanded only by Endpoint Platform."
+    EndpointRecipeModuleSpecV1-Output:
+      properties:
+        schema_version:
+          type: "string"
+          const: "endpoint_recipe_module_v1"
+          title: "Schema Version"
+        module_key:
+          type: "string"
+          maxLength: 128
+          minLength: 3
+          pattern: "^[a-z][a-z0-9]*(?:\\.[a-z][a-z0-9]*){1,7}$"
+          title: "Module Key"
+        supported_platforms:
+          items:
+            type: "string"
+            enum:
+              - "linux_amd64"
+              - "windows_amd64"
+          type: "array"
+          maxItems: 2
+          minItems: 1
+          title: "Supported Platforms"
+        inputs:
+          items:
+            "$ref": "#/components/schemas/ModuleRecipeInputV1"
+          type: "array"
+          maxItems: 8
+          title: "Inputs"
+        steps:
+          items:
+            "$ref": "#/components/schemas/EndpointRecipeStepV1"
+          type: "array"
+          maxItems: 8
+          minItems: 1
+          title: "Steps"
+      additionalProperties: false
+      type: "object"
+      required:
+        - "schema_version"
+        - "module_key"
+        - "supported_platforms"
+        - "steps"
+      title: "EndpointRecipeModuleSpecV1"
+      description: "A declarative, no-branching recipe expanded only by Endpoint Platform."
+    EndpointRecipeStepV1:
+      properties:
+        step_id:
+          type: "string"
+          maxLength: 64
+          minLength: 1
+          pattern: "^[a-z][a-z0-9_]{0,63}$"
+          title: "Step Id"
+        capability:
+          type: "string"
+          enum:
+            - "dns.resolve"
+            - "network.ping"
+            - "tcp.connect"
+          title: "Capability"
+        parameters:
+          patternProperties:
+            "^[a-z][a-z0-9_]{0,63}$":
+              oneOf:
+                -
+                  "$ref": "#/components/schemas/RecipeInputBindingV1"
+                -
+                  "$ref": "#/components/schemas/RecipeLiteralBindingV1"
+              discriminator:
+                propertyName: "kind"
+                mapping:
+                  input: "#/components/schemas/RecipeInputBindingV1"
+                  literal: "#/components/schemas/RecipeLiteralBindingV1"
+          propertyNames:
+            maxLength: 64
+            minLength: 1
+          type: "object"
+          maxProperties: 3
+          minProperties: 1
+          title: "Parameters"
+      additionalProperties: false
+      type: "object"
+      required:
+        - "step_id"
+        - "capability"
+        - "parameters"
+      title: "EndpointRecipeStepV1"
     HTTPValidationError:
       properties:
         detail:
@@ -3700,6 +4237,18 @@ components:
           title: "Detail"
       type: "object"
       title: "HTTPValidationError"
+    ModuleListEnvelope:
+      properties:
+        data:
+          items:
+            "$ref": "#/components/schemas/ModuleSummaryV1"
+          type: "array"
+          title: "Data"
+      additionalProperties: false
+      type: "object"
+      required:
+        - "data"
+      title: "ModuleListEnvelope"
     ModuleOperationDetailEnvelope:
       properties:
         data:
@@ -3780,6 +4329,174 @@ components:
         - "capability"
         - "status"
       title: "ModuleOperationStepV1"
+    ModuleRecipeInputV1:
+      properties:
+        name:
+          type: "string"
+          maxLength: 64
+          minLength: 1
+          pattern: "^[a-z][a-z0-9_]{0,63}$"
+          title: "Name"
+        value_type:
+          type: "string"
+          enum:
+            - "string"
+            - "integer"
+          title: "Value Type"
+      additionalProperties: false
+      type: "object"
+      required:
+        - "name"
+        - "value_type"
+      title: "ModuleRecipeInputV1"
+    ModuleValidationEnvelope:
+      properties:
+        data:
+          "$ref": "#/components/schemas/ModuleValidationRunV1"
+      additionalProperties: false
+      type: "object"
+      required:
+        - "data"
+      title: "ModuleValidationEnvelope"
+    ModuleValidationRunV1:
+      properties:
+        schema_version:
+          type: "string"
+          const: "module_validation_run_v1"
+          title: "Schema Version"
+        module_key:
+          type: "string"
+          maxLength: 128
+          minLength: 3
+          pattern: "^[a-z][a-z0-9]*(?:\\.[a-z][a-z0-9]*){1,7}$"
+          title: "Module Key"
+        version:
+          type: "string"
+          maxLength: 64
+          minLength: 5
+          pattern: "^\\d+\\.\\d+\\.\\d+$"
+          title: "Version"
+        status:
+          type: "string"
+          enum:
+            - "succeeded"
+            - "failed"
+          title: "Status"
+        error_codes:
+          items:
+            type: "string"
+            maxLength: 64
+            minLength: 3
+            pattern: "^[a-z][a-z0-9_]{1,63}$"
+          type: "array"
+          maxItems: 32
+          title: "Error Codes"
+        warning_codes:
+          items:
+            type: "string"
+            maxLength: 64
+            minLength: 3
+            pattern: "^[a-z][a-z0-9_]{1,63}$"
+          type: "array"
+          maxItems: 32
+          title: "Warning Codes"
+        completed_at:
+          type: "string"
+          format: "date-time"
+          title: "Completed At"
+      additionalProperties: false
+      type: "object"
+      required:
+        - "schema_version"
+        - "module_key"
+        - "version"
+        - "status"
+        - "error_codes"
+        - "warning_codes"
+        - "completed_at"
+      title: "ModuleValidationRunV1"
+    ModuleVersionCreateV1:
+      properties:
+        schema_version:
+          type: "string"
+          const: "module_version_create_v1"
+          title: "Schema Version"
+        display_name:
+          type: "string"
+          maxLength: 128
+          minLength: 1
+          title: "Display Name"
+        version:
+          type: "string"
+          maxLength: 64
+          minLength: 5
+          pattern: "^\\d+\\.\\d+\\.\\d+$"
+          title: "Version"
+        recipe:
+          "$ref": "#/components/schemas/EndpointRecipeModuleSpecV1-Input"
+      additionalProperties: false
+      type: "object"
+      required:
+        - "schema_version"
+        - "display_name"
+        - "version"
+        - "recipe"
+      title: "ModuleVersionCreateV1"
+    ModuleVersionStateEnvelope:
+      properties:
+        data:
+          "$ref": "#/components/schemas/ModuleVersionStateV1"
+      additionalProperties: false
+      type: "object"
+      required:
+        - "data"
+      title: "ModuleVersionStateEnvelope"
+    ModuleVersionStateV1:
+      properties:
+        schema_version:
+          type: "string"
+          const: "module_version_state_v1"
+          title: "Schema Version"
+        module_key:
+          type: "string"
+          maxLength: 128
+          minLength: 3
+          pattern: "^[a-z][a-z0-9]*(?:\\.[a-z][a-z0-9]*){1,7}$"
+          title: "Module Key"
+        version:
+          type: "string"
+          maxLength: 64
+          minLength: 5
+          pattern: "^\\d+\\.\\d+\\.\\d+$"
+          title: "Version"
+        state:
+          type: "string"
+          enum:
+            - "draft"
+            - "validation_failed"
+            - "validated"
+            - "lab_accepted"
+            - "published"
+            - "deprecated"
+            - "revoked"
+          title: "State"
+      additionalProperties: false
+      type: "object"
+      required:
+        - "schema_version"
+        - "module_key"
+        - "version"
+        - "state"
+      title: "ModuleVersionStateV1"
+    ModuleVersionViewEnvelope:
+      properties:
+        data:
+          "$ref": "#/components/schemas/ModuleVersionViewV1"
+      additionalProperties: false
+      type: "object"
+      required:
+        - "data"
+      title: "ModuleVersionViewEnvelope"
     NetworkAddressV1:
       properties:
         family:
@@ -3922,6 +4639,43 @@ components:
       required:
         - "data"
       title: "OperationResponseEnvelope"
+    RecipeInputBindingV1:
+      properties:
+        kind:
+          type: "string"
+          const: "input"
+          title: "Kind"
+        name:
+          type: "string"
+          maxLength: 64
+          minLength: 1
+          pattern: "^[a-z][a-z0-9_]{0,63}$"
+          title: "Name"
+      additionalProperties: false
+      type: "object"
+      required:
+        - "kind"
+        - "name"
+      title: "RecipeInputBindingV1"
+    RecipeLiteralBindingV1:
+      properties:
+        kind:
+          type: "string"
+          const: "literal"
+          title: "Kind"
+        value:
+          anyOf:
+            -
+              type: "string"
+            -
+              type: "integer"
+          title: "Value"
+      additionalProperties: false
+      type: "object"
+      required:
+        - "kind"
+        - "value"
+      title: "RecipeLiteralBindingV1"
     TcpConnectResultV1:
       properties:
         schema_version:
