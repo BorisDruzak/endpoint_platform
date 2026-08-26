@@ -73,6 +73,17 @@ def _service_endpoint_origin(value: str) -> str:
     return expected
 
 
+def _network_probe_values(
+    cli_values: list[str] | None,
+    environment_name: str,
+) -> tuple[str, ...]:
+    """Use repeated CLI entries or one comma-delimited protected-service value."""
+    if cli_values is not None:
+        return tuple(cli_values)
+    raw_value = os.environ.get(environment_name, "")
+    return tuple(raw_value.split(",")) if raw_value else ()
+
+
 async def _wait_for_service_host_pipe() -> bytes:
     """Poll the fixed host pipe without a reader thread or blocking executor."""
     descriptor = sys.stdin.buffer.fileno()
@@ -160,6 +171,18 @@ def _parser() -> argparse.ArgumentParser:
         in {"1", "true", "yes"},
         help="temporarily use same-origin HTTP pull only when WSS is unavailable",
     )
+    parser.add_argument(
+        "--network-probe-allowed-cidr",
+        action="append",
+        dest="network_probe_allowed_cidrs",
+        help="allow one exact CIDR for typed network probes; repeat as needed",
+    )
+    parser.add_argument(
+        "--network-probe-allowed-suffix",
+        action="append",
+        dest="network_probe_allowed_suffixes",
+        help="allow one dotted DNS suffix for typed network probes; repeat as needed",
+    )
     modes = parser.add_mutually_exclusive_group()
     modes.add_argument("--windows-service", action="store_true")
     modes.add_argument("--windows-service-child", action="store_true")
@@ -210,6 +233,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         endpoint_origin=endpoint_origin,
         transport_mode=args.transport_mode,
         migration_http_pull_fallback=args.migration_http_pull_fallback,
+        network_probe_allowed_cidrs=_network_probe_values(
+            args.network_probe_allowed_cidrs,
+            "ENDPOINT_AGENT_NETWORK_PROBE_ALLOWED_CIDRS",
+        ),
+        network_probe_allowed_suffixes=_network_probe_values(
+            args.network_probe_allowed_suffixes,
+            "ENDPOINT_AGENT_NETWORK_PROBE_ALLOWED_SUFFIXES",
+        ),
     )
     if args.windows_service:
         from pc_agent.platform.windows.service import run_windows_service
