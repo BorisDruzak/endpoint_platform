@@ -84,6 +84,36 @@ def test_from_environment_loads_network_primitive_flag_and_allowlists(
     )
 
 
+def test_from_environment_keeps_module_platform_and_execution_default_closed(
+    tmp_path: Path,
+) -> None:
+    default_settings = Settings.from_environment(_environment(tmp_path))
+    environment = _environment(tmp_path)
+    environment.update(
+        {
+            "ENDPOINT_MODULE_PLATFORM_ENABLED": "true",
+            "ENDPOINT_MODULE_EXECUTION_ENABLED": "true",
+        }
+    )
+
+    enabled_settings = Settings.from_environment(environment)
+
+    assert default_settings.endpoint_module_platform_enabled is False
+    assert default_settings.endpoint_module_execution_enabled is False
+    assert enabled_settings.endpoint_module_platform_enabled is True
+    assert enabled_settings.endpoint_module_execution_enabled is True
+
+
+def test_from_environment_rejects_module_execution_without_platform_flag(
+    tmp_path: Path,
+) -> None:
+    environment = _environment(tmp_path)
+    environment["ENDPOINT_MODULE_EXECUTION_ENABLED"] = "true"
+
+    with pytest.raises(ValueError, match="ENDPOINT_MODULE_PLATFORM_ENABLED"):
+        Settings.from_environment(environment)
+
+
 def test_from_environment_rejects_ambiguous_endpoint_operations_flag(
     tmp_path: Path,
 ) -> None:

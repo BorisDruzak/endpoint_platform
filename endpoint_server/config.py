@@ -157,6 +157,8 @@ class Settings:
     endpoint_network_primitives_enabled: bool = False
     endpoint_network_probe_allowed_cidrs: tuple[Network, ...] = ()
     endpoint_network_probe_allowed_suffixes: tuple[str, ...] = ()
+    endpoint_module_platform_enabled: bool = False
+    endpoint_module_execution_enabled: bool = False
 
     @classmethod
     def from_environment(cls, environment: Mapping[str, str] | None = None) -> Settings:
@@ -206,6 +208,22 @@ class Settings:
             "ENDPOINT_NETWORK_PROBE_ALLOWED_SUFFIXES",
             values.get("ENDPOINT_NETWORK_PROBE_ALLOWED_SUFFIXES", ""),
         )
+        endpoint_module_platform_enabled = _parse_optional_boolean(
+            "ENDPOINT_MODULE_PLATFORM_ENABLED",
+            values.get("ENDPOINT_MODULE_PLATFORM_ENABLED", ""),
+        )
+        endpoint_module_execution_enabled = _parse_optional_boolean(
+            "ENDPOINT_MODULE_EXECUTION_ENABLED",
+            values.get("ENDPOINT_MODULE_EXECUTION_ENABLED", ""),
+        )
+        if (
+            endpoint_module_execution_enabled
+            and not endpoint_module_platform_enabled
+        ):
+            raise ValueError(
+                "ENDPOINT_MODULE_PLATFORM_ENABLED must be true when "
+                "ENDPOINT_MODULE_EXECUTION_ENABLED is true"
+            )
 
         return cls(
             database_url=database_url,
@@ -221,4 +239,6 @@ class Settings:
             endpoint_network_primitives_enabled=endpoint_network_primitives_enabled,
             endpoint_network_probe_allowed_cidrs=endpoint_network_probe_allowed_cidrs,
             endpoint_network_probe_allowed_suffixes=endpoint_network_probe_allowed_suffixes,
+            endpoint_module_platform_enabled=endpoint_module_platform_enabled,
+            endpoint_module_execution_enabled=endpoint_module_execution_enabled,
         )
