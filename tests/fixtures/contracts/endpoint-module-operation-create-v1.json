@@ -1,0 +1,8 @@
+{
+  "inputs": {
+    "target": "probe.example.test"
+  },
+  "module_key": "network.basic.check",
+  "schema_version": "endpoint_module_operation_create_v1",
+  "version": "1.0.0"
+}

@@ -83,6 +83,7 @@ MODULE_CREATE_BODY = {
         ("GET", "/api/v1/devices/one-segment/capabilities"),
         ("POST", "/api/v1/devices/one-segment/operations"),
         ("POST", "/api/v1/devices/one-segment/module-operations"),
+        ("GET", "/api/v1/module-operations/one-segment"),
         ("GET", "/api/v1/operations/one-segment"),
     ),
 )
@@ -246,6 +247,10 @@ async def route_fixture(
         "module-operator": ServicePrincipal(
             client=owner,
             credential=_credential(owner, ["module_operations.create"]),
+        ),
+        "module-reader": ServicePrincipal(
+            client=owner,
+            credential=_credential(owner, ["module_operations.read"]),
         ),
         "foreign-reader": ServicePrincipal(
             client=foreign,
@@ -736,6 +741,13 @@ async def test_module_operation_execution_route_is_flagged_scoped_and_idempotent
         forbidden = await client.post(path, json=body, headers={**headers, **_authorization("modules-writer")})
         created = await client.post(path, json=body, headers=headers)
         replay = await client.post(path, json=body, headers=headers)
+        read = await client.get(
+            f"/api/v1/module-operations/{created.json()['data']['operation_id']}",
+            headers={
+                **_authorization("module-reader"),
+                "X-Correlation-ID": "module-operation-read-1",
+            },
+        )
 
     assert forbidden.status_code == 403
     assert created.status_code == 201
@@ -753,6 +765,20 @@ async def test_module_operation_execution_route_is_flagged_scoped_and_idempotent
         "completed_at": None,
     }
     assert replay.json() == created.json()
+    assert read.status_code == 200
+    assert read.headers["X-Correlation-ID"] == "module-operation-read-1"
+    assert read.json()["data"]["steps"] == [
+        {
+            "sequence": 0,
+            "capability": "dns.resolve",
+            "status": "queued",
+            "error_code": None,
+            "safe_result": None,
+        }
+    ]
+    assert not {"recipe", "inputs", "idempotency_key", "command_id"}.intersection(
+        json.dumps(read.json())
+    )
 
 
 @pytest.mark.asyncio

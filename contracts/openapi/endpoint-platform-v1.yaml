@@ -537,6 +537,100 @@ paths:
                 "$ref": "#/components/schemas/HTTPValidationError"
       x-required-scopes:
         - "operations.read"
+  "/api/v1/devices/{device_id}/module-operations":
+    post:
+      tags:
+        - "endpoint-module-execution"
+      summary: "Create Module Operation"
+      description: "Create/replay a module parent; only Gateway WSS can deliver its children."
+      operationId: "create_module_operation_api_v1_devices__device_id__module_operations_post"
+      parameters:
+        -
+          name: "device_id"
+          in: "path"
+          required: true
+          schema:
+            type: "string"
+            format: "uuid"
+            title: "Device Id"
+        -
+          name: "Idempotency-Key"
+          in: "header"
+          required: true
+          schema:
+            type: "string"
+            minLength: 8
+            maxLength: 128
+            pattern: "^[!-~][ -~]{6,126}[!-~]$"
+            title: "Idempotency-Key"
+        -
+          name: "X-Correlation-ID"
+          in: "header"
+          required: true
+          schema:
+            type: "string"
+            minLength: 1
+            maxLength: 128
+            pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+            title: "X-Correlation-Id"
+      requestBody:
+        required: true
+        content:
+          "application/json":
+            schema:
+              "$ref": "#/components/schemas/ModuleOperationCreateV1"
+      responses:
+        "201":
+          description: "Successful Response"
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/ModuleOperationEnvelope"
+        "422":
+          description: "Validation Error"
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/HTTPValidationError"
+  "/api/v1/module-operations/{operation_id}":
+    get:
+      tags:
+        - "endpoint-module-execution"
+      summary: "Read Module Operation"
+      description: "Read only a caller-owned parent and its safe typed child summaries."
+      operationId: "read_module_operation_api_v1_module_operations__operation_id__get"
+      parameters:
+        -
+          name: "operation_id"
+          in: "path"
+          required: true
+          schema:
+            type: "string"
+            format: "uuid"
+            title: "Operation Id"
+        -
+          name: "X-Correlation-ID"
+          in: "header"
+          required: true
+          schema:
+            type: "string"
+            minLength: 1
+            maxLength: 128
+            pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+            title: "X-Correlation-Id"
+      responses:
+        "200":
+          description: "Successful Response"
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/ModuleOperationDetailEnvelope"
+        "422":
+          description: "Validation Error"
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/HTTPValidationError"
 components:
   schemas:
     DeviceIdentityV1:
@@ -2929,6 +3023,515 @@ components:
         - "state"
       title: "DiagnosticProcessV1"
       type: "object"
+    ModuleOperationCreateV1:
+      additionalProperties: false
+      properties:
+        schema_version:
+          const: "endpoint_module_operation_create_v1"
+          title: "Schema Version"
+          type: "string"
+        module_key:
+          maxLength: 128
+          minLength: 3
+          pattern: "^[a-z][a-z0-9]*(?:\\.[a-z][a-z0-9]*){1,7}$"
+          title: "Module Key"
+          type: "string"
+        version:
+          maxLength: 64
+          minLength: 5
+          pattern: "^\\d+\\.\\d+\\.\\d+$"
+          title: "Version"
+          type: "string"
+        inputs:
+          maxProperties: 8
+          minProperties: 1
+          patternProperties:
+            "^[a-z][a-z0-9_]{0,63}$":
+              anyOf:
+                -
+                  type: "string"
+                -
+                  type: "integer"
+          propertyNames:
+            maxLength: 64
+            minLength: 1
+          title: "Inputs"
+          type: "object"
+      required:
+        - "schema_version"
+        - "module_key"
+        - "version"
+        - "inputs"
+      title: "ModuleOperationCreateV1"
+      type: "object"
+    ModuleOperationV1:
+      additionalProperties: false
+      properties:
+        schema_version:
+          const: "endpoint_module_operation_v1"
+          title: "Schema Version"
+          type: "string"
+        operation_id:
+          format: "uuid"
+          title: "Operation Id"
+          type: "string"
+        device_id:
+          format: "uuid"
+          title: "Device Id"
+          type: "string"
+        module_key:
+          maxLength: 128
+          minLength: 3
+          pattern: "^[a-z][a-z0-9]*(?:\\.[a-z][a-z0-9]*){1,7}$"
+          title: "Module Key"
+          type: "string"
+        version:
+          maxLength: 64
+          minLength: 5
+          pattern: "^\\d+\\.\\d+\\.\\d+$"
+          title: "Version"
+          type: "string"
+        status:
+          enum:
+            - "queued"
+            - "delivered"
+            - "acknowledged"
+            - "running"
+            - "succeeded"
+            - "failed"
+            - "canceled"
+            - "expired"
+          title: "Status"
+          type: "string"
+        created_at:
+          format: "date-time"
+          title: "Created At"
+          type: "string"
+          "$comment": "model-only UTC normalization: timezone-aware values are normalized to UTC."
+        deadline_at:
+          format: "date-time"
+          title: "Deadline At"
+          type: "string"
+          "$comment": "model-only UTC normalization: timezone-aware values are normalized to UTC."
+        completed_at:
+          anyOf:
+            -
+              format: "date-time"
+              type: "string"
+              "$comment": "model-only UTC normalization: timezone-aware values are normalized to UTC."
+            -
+              type: "null"
+          default: null
+          title: "Completed At"
+      required:
+        - "schema_version"
+        - "operation_id"
+        - "device_id"
+        - "module_key"
+        - "version"
+        - "status"
+        - "created_at"
+        - "deadline_at"
+      title: "ModuleOperationV1"
+      type: "object"
+    ModuleOperationDetailV1:
+      additionalProperties: false
+      properties:
+        schema_version:
+          const: "endpoint_module_operation_v1"
+          title: "Schema Version"
+          type: "string"
+        operation_id:
+          format: "uuid"
+          title: "Operation Id"
+          type: "string"
+        device_id:
+          format: "uuid"
+          title: "Device Id"
+          type: "string"
+        module_key:
+          maxLength: 128
+          minLength: 3
+          pattern: "^[a-z][a-z0-9]*(?:\\.[a-z][a-z0-9]*){1,7}$"
+          title: "Module Key"
+          type: "string"
+        version:
+          maxLength: 64
+          minLength: 5
+          pattern: "^\\d+\\.\\d+\\.\\d+$"
+          title: "Version"
+          type: "string"
+        status:
+          enum:
+            - "queued"
+            - "delivered"
+            - "acknowledged"
+            - "running"
+            - "succeeded"
+            - "failed"
+            - "canceled"
+            - "expired"
+          title: "Status"
+          type: "string"
+        created_at:
+          format: "date-time"
+          title: "Created At"
+          type: "string"
+          "$comment": "model-only UTC normalization: timezone-aware values are normalized to UTC."
+        deadline_at:
+          format: "date-time"
+          title: "Deadline At"
+          type: "string"
+          "$comment": "model-only UTC normalization: timezone-aware values are normalized to UTC."
+        completed_at:
+          anyOf:
+            -
+              format: "date-time"
+              type: "string"
+              "$comment": "model-only UTC normalization: timezone-aware values are normalized to UTC."
+            -
+              type: "null"
+          default: null
+          title: "Completed At"
+        steps:
+          items:
+            "$ref": "#/components/schemas/ModuleOperationDetailV1__ModuleOperationStepV1"
+          maxItems: 8
+          minItems: 1
+          title: "Steps"
+          type: "array"
+      required:
+        - "schema_version"
+        - "operation_id"
+        - "device_id"
+        - "module_key"
+        - "version"
+        - "status"
+        - "created_at"
+        - "deadline_at"
+        - "steps"
+      title: "ModuleOperationDetailV1"
+      type: "object"
+    ModuleOperationDetailV1__DnsResolveResultV1:
+      additionalProperties: false
+      properties:
+        schema_version:
+          const: "dns_resolve_result_v1"
+          title: "Schema Version"
+          type: "string"
+        target:
+          maxLength: 253
+          minLength: 1
+          title: "Target"
+          type: "string"
+        canonical_name:
+          anyOf:
+            -
+              maxLength: 253
+              minLength: 1
+              type: "string"
+            -
+              type: "null"
+          default: null
+          title: "Canonical Name"
+        addresses:
+          items:
+            "$ref": "#/components/schemas/ModuleOperationDetailV1__NetworkAddressV1"
+          maxItems: 16
+          title: "Addresses"
+          type: "array"
+        address_count:
+          maximum: 16
+          minimum: 0
+          title: "Address Count"
+          type: "integer"
+        status:
+          enum:
+            - "succeeded"
+            - "failed"
+          title: "Status"
+          type: "string"
+        error_code:
+          anyOf:
+            -
+              maxLength: 64
+              minLength: 1
+              pattern: "^[a-z][a-z0-9_]{0,63}$"
+              type: "string"
+            -
+              type: "null"
+          default: null
+          title: "Error Code"
+        collected_at:
+          format: "date-time"
+          title: "Collected At"
+          type: "string"
+          "$comment": "model-only UTC normalization: timezone-aware values are normalized to UTC."
+      required:
+        - "schema_version"
+        - "target"
+        - "address_count"
+        - "status"
+        - "collected_at"
+      title: "DnsResolveResultV1"
+      type: "object"
+    ModuleOperationDetailV1__ModuleOperationStepV1:
+      additionalProperties: false
+      properties:
+        sequence:
+          maximum: 7
+          minimum: 0
+          title: "Sequence"
+          type: "integer"
+        capability:
+          enum:
+            - "dns.resolve"
+            - "network.ping"
+            - "tcp.connect"
+          title: "Capability"
+          type: "string"
+        status:
+          enum:
+            - "queued"
+            - "delivered"
+            - "acknowledged"
+            - "running"
+            - "succeeded"
+            - "failed"
+            - "canceled"
+            - "expired"
+          title: "Status"
+          type: "string"
+        error_code:
+          anyOf:
+            -
+              maxLength: 64
+              minLength: 3
+              pattern: "^[a-z][a-z0-9_]{1,63}$"
+              type: "string"
+            -
+              type: "null"
+          default: null
+          title: "Error Code"
+        safe_result:
+          anyOf:
+            -
+              discriminator:
+                mapping:
+                  dns_resolve_result_v1: "#/$defs/DnsResolveResultV1"
+                  network_ping_result_v1: "#/$defs/NetworkPingResultV1"
+                  tcp_connect_result_v1: "#/$defs/TcpConnectResultV1"
+                propertyName: "schema_version"
+              oneOf:
+                -
+                  "$ref": "#/components/schemas/ModuleOperationDetailV1__DnsResolveResultV1"
+                -
+                  "$ref": "#/components/schemas/ModuleOperationDetailV1__NetworkPingResultV1"
+                -
+                  "$ref": "#/components/schemas/ModuleOperationDetailV1__TcpConnectResultV1"
+            -
+              type: "null"
+          default: null
+          title: "Safe Result"
+      required:
+        - "sequence"
+        - "capability"
+        - "status"
+      title: "ModuleOperationStepV1"
+      type: "object"
+    ModuleOperationDetailV1__NetworkAddressV1:
+      additionalProperties: false
+      properties:
+        family:
+          enum:
+            - "ipv4"
+            - "ipv6"
+          title: "Family"
+          type: "string"
+        address:
+          maxLength: 253
+          minLength: 1
+          title: "Address"
+          type: "string"
+      required:
+        - "family"
+        - "address"
+      title: "NetworkAddressV1"
+      type: "object"
+    ModuleOperationDetailV1__NetworkPingResultV1:
+      additionalProperties: false
+      properties:
+        schema_version:
+          const: "network_ping_result_v1"
+          title: "Schema Version"
+          type: "string"
+        target:
+          maxLength: 253
+          minLength: 1
+          title: "Target"
+          type: "string"
+        resolved_ip:
+          anyOf:
+            -
+              maxLength: 253
+              minLength: 1
+              type: "string"
+            -
+              type: "null"
+          default: null
+          title: "Resolved Ip"
+        transmitted:
+          maximum: 5
+          minimum: 0
+          title: "Transmitted"
+          type: "integer"
+        received:
+          maximum: 5
+          minimum: 0
+          title: "Received"
+          type: "integer"
+        packet_loss_percent:
+          maximum: 100
+          minimum: 0
+          title: "Packet Loss Percent"
+          type: "number"
+        min_ms:
+          anyOf:
+            -
+              maximum: 60000
+              minimum: 0
+              type: "number"
+            -
+              type: "null"
+          default: null
+          title: "Min Ms"
+        avg_ms:
+          anyOf:
+            -
+              maximum: 60000
+              minimum: 0
+              type: "number"
+            -
+              type: "null"
+          default: null
+          title: "Avg Ms"
+        max_ms:
+          anyOf:
+            -
+              maximum: 60000
+              minimum: 0
+              type: "number"
+            -
+              type: "null"
+          default: null
+          title: "Max Ms"
+        reachable:
+          title: "Reachable"
+          type: "boolean"
+        status:
+          enum:
+            - "succeeded"
+            - "failed"
+          title: "Status"
+          type: "string"
+        error_code:
+          anyOf:
+            -
+              maxLength: 64
+              minLength: 1
+              pattern: "^[a-z][a-z0-9_]{0,63}$"
+              type: "string"
+            -
+              type: "null"
+          default: null
+          title: "Error Code"
+        collected_at:
+          format: "date-time"
+          title: "Collected At"
+          type: "string"
+          "$comment": "model-only UTC normalization: timezone-aware values are normalized to UTC."
+      required:
+        - "schema_version"
+        - "target"
+        - "transmitted"
+        - "received"
+        - "packet_loss_percent"
+        - "reachable"
+        - "status"
+        - "collected_at"
+      title: "NetworkPingResultV1"
+      type: "object"
+    ModuleOperationDetailV1__TcpConnectResultV1:
+      additionalProperties: false
+      properties:
+        schema_version:
+          const: "tcp_connect_result_v1"
+          title: "Schema Version"
+          type: "string"
+        target:
+          maxLength: 253
+          minLength: 1
+          title: "Target"
+          type: "string"
+        resolved_ip:
+          anyOf:
+            -
+              maxLength: 253
+              minLength: 1
+              type: "string"
+            -
+              type: "null"
+          default: null
+          title: "Resolved Ip"
+        port:
+          maximum: 65535
+          minimum: 1
+          title: "Port"
+          type: "integer"
+        reachable:
+          title: "Reachable"
+          type: "boolean"
+        latency_ms:
+          anyOf:
+            -
+              maximum: 60000
+              minimum: 0
+              type: "number"
+            -
+              type: "null"
+          default: null
+          title: "Latency Ms"
+        status:
+          enum:
+            - "succeeded"
+            - "failed"
+          title: "Status"
+          type: "string"
+        error_code:
+          anyOf:
+            -
+              maxLength: 64
+              minLength: 1
+              pattern: "^[a-z][a-z0-9_]{0,63}$"
+              type: "string"
+            -
+              type: "null"
+          default: null
+          title: "Error Code"
+        collected_at:
+          format: "date-time"
+          title: "Collected At"
+          type: "string"
+          "$comment": "model-only UTC normalization: timezone-aware values are normalized to UTC."
+      required:
+        - "schema_version"
+        - "target"
+        - "port"
+        - "reachable"
+        - "status"
+        - "collected_at"
+      title: "TcpConnectResultV1"
+      type: "object"
     DeviceCapabilitiesEnvelope:
       properties:
         data:
@@ -2982,6 +3585,66 @@ components:
         - "name"
         - "state"
       title: "DiagnosticProcessV1"
+    DnsResolveResultV1:
+      properties:
+        schema_version:
+          type: "string"
+          const: "dns_resolve_result_v1"
+          title: "Schema Version"
+        target:
+          type: "string"
+          maxLength: 253
+          minLength: 1
+          title: "Target"
+        canonical_name:
+          anyOf:
+            -
+              type: "string"
+              maxLength: 253
+              minLength: 1
+            -
+              type: "null"
+          title: "Canonical Name"
+        addresses:
+          items:
+            "$ref": "#/components/schemas/NetworkAddressV1"
+          type: "array"
+          maxItems: 16
+          title: "Addresses"
+        address_count:
+          type: "integer"
+          maximum: 16.0
+          minimum: 0.0
+          title: "Address Count"
+        status:
+          type: "string"
+          enum:
+            - "succeeded"
+            - "failed"
+          title: "Status"
+        error_code:
+          anyOf:
+            -
+              type: "string"
+              maxLength: 64
+              minLength: 1
+              pattern: "^[a-z][a-z0-9_]{0,63}$"
+            -
+              type: "null"
+          title: "Error Code"
+        collected_at:
+          type: "string"
+          format: "date-time"
+          title: "Collected At"
+      additionalProperties: false
+      type: "object"
+      required:
+        - "schema_version"
+        - "target"
+        - "address_count"
+        - "status"
+        - "collected_at"
+      title: "DnsResolveResultV1"
     EndpointCapabilityAvailabilityV1:
       properties:
         capability:
@@ -3036,10 +3699,203 @@ components:
           type: "array"
           title: "Detail"
       type: "object"
-      required:
-        - "detail"
       title: "HTTPValidationError"
-      description: "OpenAPI shape of FastAPI's standard request validation response."
+    ModuleOperationDetailEnvelope:
+      properties:
+        data:
+          "$ref": "#/components/schemas/ModuleOperationDetailV1"
+      additionalProperties: false
+      type: "object"
+      required:
+        - "data"
+      title: "ModuleOperationDetailEnvelope"
+    ModuleOperationEnvelope:
+      properties:
+        data:
+          "$ref": "#/components/schemas/ModuleOperationV1"
+      additionalProperties: false
+      type: "object"
+      required:
+        - "data"
+      title: "ModuleOperationEnvelope"
+    ModuleOperationStepV1:
+      properties:
+        sequence:
+          type: "integer"
+          maximum: 7.0
+          minimum: 0.0
+          title: "Sequence"
+        capability:
+          type: "string"
+          enum:
+            - "dns.resolve"
+            - "network.ping"
+            - "tcp.connect"
+          title: "Capability"
+        status:
+          type: "string"
+          enum:
+            - "queued"
+            - "delivered"
+            - "acknowledged"
+            - "running"
+            - "succeeded"
+            - "failed"
+            - "canceled"
+            - "expired"
+          title: "Status"
+        error_code:
+          anyOf:
+            -
+              type: "string"
+              maxLength: 64
+              minLength: 3
+              pattern: "^[a-z][a-z0-9_]{1,63}$"
+            -
+              type: "null"
+          title: "Error Code"
+        safe_result:
+          anyOf:
+            -
+              oneOf:
+                -
+                  "$ref": "#/components/schemas/DnsResolveResultV1"
+                -
+                  "$ref": "#/components/schemas/NetworkPingResultV1"
+                -
+                  "$ref": "#/components/schemas/TcpConnectResultV1"
+              discriminator:
+                propertyName: "schema_version"
+                mapping:
+                  dns_resolve_result_v1: "#/components/schemas/DnsResolveResultV1"
+                  network_ping_result_v1: "#/components/schemas/NetworkPingResultV1"
+                  tcp_connect_result_v1: "#/components/schemas/TcpConnectResultV1"
+            -
+              type: "null"
+          title: "Safe Result"
+      additionalProperties: false
+      type: "object"
+      required:
+        - "sequence"
+        - "capability"
+        - "status"
+      title: "ModuleOperationStepV1"
+    NetworkAddressV1:
+      properties:
+        family:
+          type: "string"
+          enum:
+            - "ipv4"
+            - "ipv6"
+          title: "Family"
+        address:
+          type: "string"
+          maxLength: 253
+          minLength: 1
+          title: "Address"
+      additionalProperties: false
+      type: "object"
+      required:
+        - "family"
+        - "address"
+      title: "NetworkAddressV1"
+    NetworkPingResultV1:
+      properties:
+        schema_version:
+          type: "string"
+          const: "network_ping_result_v1"
+          title: "Schema Version"
+        target:
+          type: "string"
+          maxLength: 253
+          minLength: 1
+          title: "Target"
+        resolved_ip:
+          anyOf:
+            -
+              type: "string"
+              maxLength: 253
+              minLength: 1
+            -
+              type: "null"
+          title: "Resolved Ip"
+        transmitted:
+          type: "integer"
+          maximum: 5.0
+          minimum: 0.0
+          title: "Transmitted"
+        received:
+          type: "integer"
+          maximum: 5.0
+          minimum: 0.0
+          title: "Received"
+        packet_loss_percent:
+          type: "number"
+          maximum: 100.0
+          minimum: 0.0
+          title: "Packet Loss Percent"
+        min_ms:
+          anyOf:
+            -
+              type: "number"
+              maximum: 60000.0
+              minimum: 0.0
+            -
+              type: "null"
+          title: "Min Ms"
+        avg_ms:
+          anyOf:
+            -
+              type: "number"
+              maximum: 60000.0
+              minimum: 0.0
+            -
+              type: "null"
+          title: "Avg Ms"
+        max_ms:
+          anyOf:
+            -
+              type: "number"
+              maximum: 60000.0
+              minimum: 0.0
+            -
+              type: "null"
+          title: "Max Ms"
+        reachable:
+          type: "boolean"
+          title: "Reachable"
+        status:
+          type: "string"
+          enum:
+            - "succeeded"
+            - "failed"
+          title: "Status"
+        error_code:
+          anyOf:
+            -
+              type: "string"
+              maxLength: 64
+              minLength: 1
+              pattern: "^[a-z][a-z0-9_]{0,63}$"
+            -
+              type: "null"
+          title: "Error Code"
+        collected_at:
+          type: "string"
+          format: "date-time"
+          title: "Collected At"
+      additionalProperties: false
+      type: "object"
+      required:
+        - "schema_version"
+        - "target"
+        - "transmitted"
+        - "received"
+        - "packet_loss_percent"
+        - "reachable"
+        - "status"
+        - "collected_at"
+      title: "NetworkPingResultV1"
     OperationResponseData:
       properties:
         operation:
@@ -3066,6 +3922,73 @@ components:
       required:
         - "data"
       title: "OperationResponseEnvelope"
+    TcpConnectResultV1:
+      properties:
+        schema_version:
+          type: "string"
+          const: "tcp_connect_result_v1"
+          title: "Schema Version"
+        target:
+          type: "string"
+          maxLength: 253
+          minLength: 1
+          title: "Target"
+        resolved_ip:
+          anyOf:
+            -
+              type: "string"
+              maxLength: 253
+              minLength: 1
+            -
+              type: "null"
+          title: "Resolved Ip"
+        port:
+          type: "integer"
+          maximum: 65535.0
+          minimum: 1.0
+          title: "Port"
+        reachable:
+          type: "boolean"
+          title: "Reachable"
+        latency_ms:
+          anyOf:
+            -
+              type: "number"
+              maximum: 60000.0
+              minimum: 0.0
+            -
+              type: "null"
+          title: "Latency Ms"
+        status:
+          type: "string"
+          enum:
+            - "succeeded"
+            - "failed"
+          title: "Status"
+        error_code:
+          anyOf:
+            -
+              type: "string"
+              maxLength: 64
+              minLength: 1
+              pattern: "^[a-z][a-z0-9_]{0,63}$"
+            -
+              type: "null"
+          title: "Error Code"
+        collected_at:
+          type: "string"
+          format: "date-time"
+          title: "Collected At"
+      additionalProperties: false
+      type: "object"
+      required:
+        - "schema_version"
+        - "target"
+        - "port"
+        - "reachable"
+        - "status"
+        - "collected_at"
+      title: "TcpConnectResultV1"
     ValidationError:
       properties:
         loc:
@@ -3076,20 +3999,19 @@ components:
               -
                 type: "integer"
           type: "array"
-          title: "Loc"
+          title: "Location"
         msg:
           type: "string"
-          title: "Msg"
+          title: "Message"
         type:
           type: "string"
-          title: "Type"
+          title: "Error Type"
       type: "object"
       required:
         - "loc"
         - "msg"
         - "type"
       title: "ValidationError"
-      description: "OpenAPI shape of FastAPI's standard request validation item."
   securitySchemes:
     AgentBearer:
       type: "http"
