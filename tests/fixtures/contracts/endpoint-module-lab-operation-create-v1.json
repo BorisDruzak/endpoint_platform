@@ -1,0 +1,6 @@
+{
+  "inputs": {
+    "target": "probe.example.test"
+  },
+  "schema_version": "endpoint_module_lab_operation_create_v1"
+}

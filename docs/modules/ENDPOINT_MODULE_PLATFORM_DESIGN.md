@@ -38,14 +38,22 @@ service credentials to an agent. The browser never receives an Endpoint token.
 1. A privileged Helpdesk service client creates a ModuleDefinition and an
    immutable ModuleVersion through the typed Endpoint API.
 2. Endpoint validates an `EndpointRecipeModuleSpecV1` against its published
-   capability catalog. Validation and lab acceptance are recorded separately.
-3. Publication requires validation plus every declared platform's successful
-   lab test. A version is never updated in place.
-4. Helpdesk creates one local facade operation and durable link, commits, then
+   capability catalog. A `validated` version may create a lab-only parent at
+   `POST /api/v1/modules/{module_key}/versions/{version}/lab-operations/{device_id}`.
+   The regular module-operation path remains `published`-only.
+3. Gateway WSS latches the authenticated agent's declared platform when it
+   first delivers that lab parent. Endpoint accepts a lab test only from the
+   terminal, successful lab parent and its terminal typed child steps; the
+   record endpoint never accepts a caller-supplied platform or raw result.
+4. `POST /api/v1/modules/{module_key}/versions/{version}/accept-labs` changes
+   a version to `lab_accepted` only after each declared platform has that
+   immutable Endpoint-derived evidence. Publication then requires
+   `lab_accepted`. A version is never updated in place.
+5. Helpdesk creates one local facade operation and durable link, commits, then
    its reconciler requests one Endpoint parent module operation.
-5. Endpoint expands the recipe sequentially. Each step becomes exactly one
+6. Endpoint expands the recipe sequentially. Each step becomes exactly one
    WSS command for the target device and records a terminal typed result.
-6. Endpoint aggregates bounded step summaries. Helpdesk projects exactly one
+7. Endpoint aggregates bounded step summaries. Helpdesk projects exactly one
    `endpoint.module.recipe` DiagnosticEvidence and does not alter ticket
    status.
 
@@ -94,6 +102,11 @@ PR-EP2 adds `endpoint_contracts/modules.py`, the `endpoint_server/modules/`
 bounded context, database migrations, validation/lifecycle/audit, recipe
 engine, compatibility projection, parent/step operations, module API scopes,
 and tests. It consumes only the PR-EP1 typed built-ins.
+
+PR-EP3 makes the existing lab gate executable: it adds scoped typed lab
+operation, live-test-record and lab-acceptance routes; validates that all lab
+evidence belongs to the exact terminal Endpoint parent; and stores the
+Gateway-observed platform privately with that parent before accepting it.
 
 ## Audit findings and migration rule
 

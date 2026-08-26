@@ -84,9 +84,7 @@ def assert_single_gateway_worker(
         try:
             workers = int(raw)
         except ValueError as error:
-            raise RuntimeError(
-                "Gateway WSS requires exactly one API worker"
-            ) from error
+            raise RuntimeError("Gateway WSS requires exactly one API worker") from error
         if workers != 1:
             raise RuntimeError("Gateway WSS requires exactly one API worker")
 
@@ -99,8 +97,7 @@ def _require_secure_transport(websocket: WebSocket) -> None:
     except ValueError as error:
         raise GatewayHandshakeRejected(4401) from error
     trusted_proxy = any(
-        peer in network
-        for network in websocket.app.state.settings.trusted_proxy_cidrs
+        peer in network for network in websocket.app.state.settings.trusted_proxy_cidrs
     )
     if trusted_proxy:
         forwarded = websocket.headers.getlist("x-forwarded-proto")
@@ -224,6 +221,7 @@ async def connect_agent(websocket: WebSocket) -> None:
             presence.session_id,
             lambda envelope: send_envelope(websocket, envelope),
             allowed_capabilities=frozenset(effective_capabilities),
+            agent_platform=first.payload.platform,
         )
 
         while True:
@@ -262,6 +260,7 @@ async def connect_agent(websocket: WebSocket) -> None:
                 presence.session_id,
                 lambda message: send_envelope(websocket, message),
                 allowed_capabilities=frozenset(effective_capabilities),
+                agent_platform=first.payload.platform,
             )
     except WebSocketDisconnect:
         pass

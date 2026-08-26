@@ -9,11 +9,17 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from endpoint_contracts.modules import EndpointRecipeModuleSpecV1
-from endpoint_server.db.models import AuditEvent, Device, EndpointOperation, ServiceClient
+from endpoint_server.db.models import (
+    AuditEvent,
+    Device,
+    EndpointOperation,
+    ServiceClient,
+)
 from endpoint_server.db.models.modules import ModuleDefinition, ModuleVersion
 from endpoint_server.db.models.operations import ModuleOperationStep
 from endpoint_server.modules.operation_service import (
     ModuleOperationConflict,
+    ModuleOperationNotFound,
     create_module_parent_operation,
 )
 from endpoint_server.operations.service import expire_operations
@@ -54,7 +60,9 @@ def _recipe() -> EndpointRecipeModuleSpecV1:
 
 
 @pytest.mark.asyncio
-async def test_module_parent_operation_is_idempotent_and_materializes_queued_steps() -> None:
+async def test_module_parent_operation_is_idempotent_and_materializes_queued_steps() -> (
+    None
+):
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
     tables = (
         ServiceClient.__table__,
@@ -66,11 +74,25 @@ async def test_module_parent_operation_is_idempotent_and_materializes_queued_ste
         ModuleOperationStep.__table__,
     )
     async with engine.begin() as connection:
-        await connection.run_sync(lambda sync: Device.metadata.create_all(sync, tables=tables))
+        await connection.run_sync(
+            lambda sync: Device.metadata.create_all(sync, tables=tables)
+        )
     provider = async_sessionmaker(engine, expire_on_commit=False)
-    client = ServiceClient(id=uuid4(), client_identifier="helpdesk", display_name="Helpdesk", disabled_at=None)
-    device = Device(id=uuid4(), device_identifier="module-device", display_name="Module device", retired_at=None)
-    definition = ModuleDefinition(id=uuid4(), module_key="network.basic.check", display_name="Network")
+    client = ServiceClient(
+        id=uuid4(),
+        client_identifier="helpdesk",
+        display_name="Helpdesk",
+        disabled_at=None,
+    )
+    device = Device(
+        id=uuid4(),
+        device_identifier="module-device",
+        display_name="Module device",
+        retired_at=None,
+    )
+    definition = ModuleDefinition(
+        id=uuid4(), module_key="network.basic.check", display_name="Network"
+    )
     version = ModuleVersion(
         id=uuid4(),
         module_definition_id=definition.id,
@@ -78,7 +100,9 @@ async def test_module_parent_operation_is_idempotent_and_materializes_queued_ste
         recipe=_recipe().model_dump(mode="json"),
         state="published",
     )
-    policy = NetworkTargetPolicyV1.from_values(allowed_cidrs=[], allowed_suffixes=[".example.test"])
+    policy = NetworkTargetPolicyV1.from_values(
+        allowed_cidrs=[], allowed_suffixes=[".example.test"]
+    )
     now = datetime(2026, 8, 26, tzinfo=UTC)
     async with provider() as session:
         session.add_all((client, device, definition, version))
@@ -118,7 +142,11 @@ async def test_module_parent_operation_is_idempotent_and_materializes_queued_ste
                 now=now,
             )
         steps = list(
-            (await session.scalars(select(ModuleOperationStep).order_by(ModuleOperationStep.sequence))).all()
+            (
+                await session.scalars(
+                    select(ModuleOperationStep).order_by(ModuleOperationStep.sequence)
+                )
+            ).all()
         )
         audit = await session.scalar(select(AuditEvent))
 
@@ -128,7 +156,10 @@ async def test_module_parent_operation_is_idempotent_and_materializes_queued_ste
     assert operation.capability == "endpoint.module.recipe"
     assert operation.module_version_id == version.id
     assert operation.module_inputs == {"target": "api.example.test", "port": 443}
-    assert [(step.sequence, step.recipe_step_key, step.capability, step.status) for step in steps] == [
+    assert [
+        (step.sequence, step.recipe_step_key, step.capability, step.status)
+        for step in steps
+    ] == [
         (0, "dns", "dns.resolve", "queued"),
         (1, "tcp", "tcp.connect", "queued"),
     ]
@@ -139,6 +170,75 @@ async def test_module_parent_operation_is_idempotent_and_materializes_queued_ste
         "helpdesk",
     )
     assert "api.example.test" not in json.dumps(audit.details)
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_validated_module_allows_only_an_explicit_lab_parent_operation() -> None:
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    tables = (
+        ServiceClient.__table__,
+        Device.__table__,
+        AuditEvent.__table__,
+        ModuleDefinition.__table__,
+        ModuleVersion.__table__,
+        EndpointOperation.__table__,
+        ModuleOperationStep.__table__,
+    )
+    async with engine.begin() as connection:
+        await connection.run_sync(
+            lambda sync: Device.metadata.create_all(sync, tables=tables)
+        )
+    provider = async_sessionmaker(engine, expire_on_commit=False)
+    client = ServiceClient(
+        id=uuid4(), client_identifier="module-lab", display_name="Module lab"
+    )
+    device = Device(
+        id=uuid4(),
+        device_identifier="module-lab-device",
+        display_name="Module lab device",
+    )
+    definition = ModuleDefinition(
+        id=uuid4(), module_key="network.basic.check", display_name="Network"
+    )
+    version = ModuleVersion(
+        id=uuid4(),
+        module_definition_id=definition.id,
+        version="1.0.0",
+        recipe=_recipe().model_dump(mode="json"),
+        state="validated",
+    )
+    policy = NetworkTargetPolicyV1.from_values(
+        allowed_cidrs=[], allowed_suffixes=[".example.test"]
+    )
+    async with provider() as session:
+        session.add_all((client, device, definition, version))
+        await session.flush()
+        with pytest.raises(ModuleOperationNotFound):
+            await create_module_parent_operation(
+                session,
+                service_client_id=client.id,
+                device_id=device.id,
+                module_key=definition.module_key,
+                version=version.version,
+                inputs={"target": "api.example.test", "port": 443},
+                idempotency_key="module-normal-validated-0001",
+                network_policy=policy,
+            )
+        operation, created = await create_module_parent_operation(
+            session,
+            service_client_id=client.id,
+            device_id=device.id,
+            module_key=definition.module_key,
+            version=version.version,
+            inputs={"target": "api.example.test", "port": 443},
+            idempotency_key="module-lab-validated-0001",
+            network_policy=policy,
+            execution_mode="lab",
+        )
+
+    assert created is True
+    assert operation.parameters == {"execution_mode": "lab"}
     await engine.dispose()
 
 
@@ -160,9 +260,15 @@ async def test_module_operation_deadline_expires_each_remaining_child_step() -> 
         )
     provider = async_sessionmaker(engine, expire_on_commit=False)
     now = datetime(2026, 8, 26, tzinfo=UTC)
-    client = ServiceClient(id=uuid4(), client_identifier="expiry-helpdesk", display_name="Helpdesk")
-    device = Device(id=uuid4(), device_identifier="expiry-device", display_name="Module device")
-    definition = ModuleDefinition(id=uuid4(), module_key="network.basic.check", display_name="Network")
+    client = ServiceClient(
+        id=uuid4(), client_identifier="expiry-helpdesk", display_name="Helpdesk"
+    )
+    device = Device(
+        id=uuid4(), device_identifier="expiry-device", display_name="Module device"
+    )
+    definition = ModuleDefinition(
+        id=uuid4(), module_key="network.basic.check", display_name="Network"
+    )
     version = ModuleVersion(
         id=uuid4(),
         module_definition_id=definition.id,
@@ -186,9 +292,12 @@ async def test_module_operation_deadline_expires_each_remaining_child_step() -> 
             ),
             now=now,
         )
-        assert await expire_operations(
-            session, now=operation.deadline_at + timedelta(seconds=1), limit=10
-        ) == 1
+        assert (
+            await expire_operations(
+                session, now=operation.deadline_at + timedelta(seconds=1), limit=10
+            )
+            == 1
+        )
         steps = list(
             await session.scalars(
                 select(ModuleOperationStep)
@@ -204,6 +313,9 @@ async def test_module_operation_deadline_expires_each_remaining_child_step() -> 
     assert operation.status == "expired"
     assert operation.completed_at == operation.deadline_at + timedelta(seconds=1)
     assert [step.status for step in steps] == ["expired", "expired"]
-    assert [step.error_code for step in steps] == ["operation_expired", "operation_expired"]
+    assert [step.error_code for step in steps] == [
+        "operation_expired",
+        "operation_expired",
+    ]
     assert audit is not None
     await engine.dispose()

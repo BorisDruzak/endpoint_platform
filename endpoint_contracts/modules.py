@@ -93,7 +93,9 @@ class EndpointRecipeModuleSpecV1(ContractModelV1):
 class ModuleVersionCreateV1(ContractModelV1):
     schema_version: Literal["module_version_create_v1"]
     display_name: Annotated[str, Field(strict=True, min_length=1, max_length=128)]
-    version: Annotated[str, Field(strict=True, min_length=5, max_length=64, pattern=r"^\d+\.\d+\.\d+$")]
+    version: Annotated[
+        str, Field(strict=True, min_length=5, max_length=64, pattern=r"^\d+\.\d+\.\d+$")
+    ]
     recipe: EndpointRecipeModuleSpecV1
 
 
@@ -111,7 +113,9 @@ ModuleValidationCodeV1 = Annotated[
 class ModuleValidationRunV1(ContractModelV1):
     schema_version: Literal["module_validation_run_v1"]
     module_key: ModuleKeyV1
-    version: Annotated[str, Field(strict=True, min_length=5, max_length=64, pattern=r"^\d+\.\d+\.\d+$")]
+    version: Annotated[
+        str, Field(strict=True, min_length=5, max_length=64, pattern=r"^\d+\.\d+\.\d+$")
+    ]
     status: Literal["succeeded", "failed"]
     error_codes: list[ModuleValidationCodeV1] = Field(max_length=32)
     warning_codes: list[ModuleValidationCodeV1] = Field(max_length=32)
@@ -121,7 +125,9 @@ class ModuleValidationRunV1(ContractModelV1):
 class ModuleVersionStateV1(ContractModelV1):
     schema_version: Literal["module_version_state_v1"]
     module_key: ModuleKeyV1
-    version: Annotated[str, Field(strict=True, min_length=5, max_length=64, pattern=r"^\d+\.\d+\.\d+$")]
+    version: Annotated[
+        str, Field(strict=True, min_length=5, max_length=64, pattern=r"^\d+\.\d+\.\d+$")
+    ]
     state: Literal[
         "draft",
         "validation_failed",
@@ -141,7 +147,9 @@ class ModuleSummaryV1(ContractModelV1):
 class ModuleVersionViewV1(ContractModelV1):
     module_key: ModuleKeyV1
     display_name: Annotated[str, Field(strict=True, min_length=1, max_length=128)]
-    version: Annotated[str, Field(strict=True, min_length=5, max_length=64, pattern=r"^\d+\.\d+\.\d+$")]
+    version: Annotated[
+        str, Field(strict=True, min_length=5, max_length=64, pattern=r"^\d+\.\d+\.\d+$")
+    ]
     state: Literal[
         "draft",
         "validation_failed",
@@ -160,11 +168,40 @@ ModuleOperationInputValueV1 = StrictStr | StrictInt
 class ModuleOperationCreateV1(ContractModelV1):
     schema_version: Literal["endpoint_module_operation_create_v1"]
     module_key: ModuleKeyV1
-    version: Annotated[str, Field(strict=True, min_length=5, max_length=64, pattern=r"^\d+\.\d+\.\d+$")]
+    version: Annotated[
+        str, Field(strict=True, min_length=5, max_length=64, pattern=r"^\d+\.\d+\.\d+$")
+    ]
     inputs: dict[ModuleInputNameV1, ModuleOperationInputValueV1] = Field(
         min_length=1,
         max_length=8,
     )
+
+
+class ModuleLabOperationCreateV1(ContractModelV1):
+    """Inputs for a validated-only Endpoint-owned module lab parent."""
+
+    schema_version: Literal["endpoint_module_lab_operation_create_v1"]
+    inputs: dict[ModuleInputNameV1, ModuleOperationInputValueV1] = Field(
+        min_length=1,
+        max_length=8,
+    )
+
+
+class ModuleLiveTestRecordV1(ContractModelV1):
+    """Request recording immutable evidence from one completed lab parent."""
+
+    schema_version: Literal["module_live_test_record_v1"]
+
+
+class ModuleLiveTestRecordedV1(ContractModelV1):
+    schema_version: Literal["module_live_test_recorded_v1"]
+    module_key: ModuleKeyV1
+    version: Annotated[
+        str, Field(strict=True, min_length=5, max_length=64, pattern=r"^\d+\.\d+\.\d+$")
+    ]
+    platform: Literal["linux_amd64", "windows_amd64"]
+    status: Literal["passed", "failed"]
+    tested_at: datetime
 
 
 class ModuleOperationV1(ContractModelV1):
@@ -172,8 +209,19 @@ class ModuleOperationV1(ContractModelV1):
     operation_id: UUID
     device_id: UUID
     module_key: ModuleKeyV1
-    version: Annotated[str, Field(strict=True, min_length=5, max_length=64, pattern=r"^\d+\.\d+\.\d+$")]
-    status: Literal["queued", "delivered", "acknowledged", "running", "succeeded", "failed", "canceled", "expired"]
+    version: Annotated[
+        str, Field(strict=True, min_length=5, max_length=64, pattern=r"^\d+\.\d+\.\d+$")
+    ]
+    status: Literal[
+        "queued",
+        "delivered",
+        "acknowledged",
+        "running",
+        "succeeded",
+        "failed",
+        "canceled",
+        "expired",
+    ]
     created_at: datetime
     deadline_at: datetime
     completed_at: datetime | None = None
@@ -211,6 +259,9 @@ __all__ = [
     "EndpointRecipeStepV1",
     "ModuleRecipeInputV1",
     "ModuleOperationCreateV1",
+    "ModuleLabOperationCreateV1",
+    "ModuleLiveTestRecordV1",
+    "ModuleLiveTestRecordedV1",
     "ModuleOperationDetailV1",
     "ModuleOperationStepV1",
     "ModuleOperationV1",

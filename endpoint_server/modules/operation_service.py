@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from datetime import UTC, datetime, timedelta
+from typing import Literal
 from uuid import UUID, uuid4
 
 from sqlalchemy import select
@@ -73,6 +74,7 @@ async def create_module_parent_operation(
     inputs: Mapping[str, object],
     idempotency_key: str,
     network_policy: NetworkTargetPolicyV1,
+    execution_mode: Literal["published", "lab"] = "published",
     now: datetime | None = None,
 ) -> tuple[EndpointOperation, bool]:
     """Persist a parent and every queued typed step before gateway delivery."""
@@ -89,7 +91,9 @@ async def create_module_parent_operation(
     if client is None:
         raise ModuleOperationNotFound("active service client was not found")
     device = await session.scalar(
-        select(Device).where(Device.id == checked_device_id, Device.retired_at.is_(None))
+        select(Device).where(
+            Device.id == checked_device_id, Device.retired_at.is_(None)
+        )
     )
     if device is None:
         raise ModuleOperationNotFound("active device was not found")
@@ -101,8 +105,13 @@ async def create_module_parent_operation(
             ModuleVersion.version == version,
         )
     )
-    if module_version is None or module_version.state != "published":
-        raise ModuleOperationNotFound("published module version was not found")
+    expected_state = "published" if execution_mode == "published" else "validated"
+    if execution_mode not in {"published", "lab"}:
+        raise ModuleOperationError("module operation execution mode is invalid")
+    if module_version is None or module_version.state != expected_state:
+        raise ModuleOperationNotFound(
+            "module version is not executable in the requested mode"
+        )
     try:
         recipe = EndpointRecipeModuleSpecV1.model_validate(module_version.recipe)
         plan = build_recipe_command_plan(recipe, inputs)
@@ -130,8 +139,11 @@ async def create_module_parent_operation(
             or existing.device_id != checked_device_id
             or existing.module_version_id != module_version.id
             or existing.module_inputs != normalized_inputs
+            or existing.parameters != {"execution_mode": execution_mode}
         ):
-            raise ModuleOperationConflict("idempotency key owns a different module operation")
+            raise ModuleOperationConflict(
+                "idempotency key owns a different module operation"
+            )
         return existing, False
 
     operation = EndpointOperation(
@@ -141,7 +153,7 @@ async def create_module_parent_operation(
         device_id=checked_device_id,
         idempotency_key=checked_key,
         capability="endpoint.module.recipe",
-        parameters={},
+        parameters={"execution_mode": execution_mode},
         correlation=None,
         status="queued",
         deadline_at=occurred_at + MODULE_OPERATION_TTL,
@@ -182,6 +194,7 @@ async def create_module_parent_operation(
             "module_version": version,
             "device_id": device.id,
             "step_count": len(plan),
+            "execution_mode": execution_mode,
         },
         occurred_at=occurred_at,
     )

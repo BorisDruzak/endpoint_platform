@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+from uuid import UUID
+
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import select
 
 from endpoint_contracts.modules import (
     ModuleSummaryV1,
+    ModuleLiveTestRecordV1,
+    ModuleLiveTestRecordedV1,
     ModuleValidationRunV1,
     ModuleVersionViewV1,
     ModuleVersionCreateV1,
@@ -27,6 +31,8 @@ from .service import (
     ModuleServiceError,
     persist_draft_version,
     publish_persisted_module_version,
+    accept_persisted_module_labs,
+    record_module_live_test,
     transition_persisted_version,
     validate_persisted_module_version,
 )
@@ -57,6 +63,12 @@ class ModuleVersionViewEnvelope(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     data: ModuleVersionViewV1
+
+
+class ModuleLiveTestEnvelope(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    data: ModuleLiveTestRecordedV1
 
 
 def _module_version_view(
@@ -207,7 +219,9 @@ async def validate_module_version(
     module_key: str,
     version: str,
     request: Request,
-    principal: ServicePrincipal = Depends(require_service_scope(MODULES_VALIDATE_SCOPE)),
+    principal: ServicePrincipal = Depends(
+        require_service_scope(MODULES_VALIDATE_SCOPE)
+    ),
 ) -> ModuleValidationEnvelope:
     async with request.app.state.session_provider() as session:
         module_version = await session.scalar(
@@ -324,6 +338,140 @@ async def publish_module_version(
             module_key=module_key,
             version=version,
             state=published.state,
+        )
+    )
+
+
+@router.post(
+    "/{module_key}/versions/{version}/live-tests/{operation_id}",
+    status_code=status.HTTP_201_CREATED,
+    response_model=ModuleLiveTestEnvelope,
+)
+async def record_module_live_test_route(
+    module_key: str,
+    version: str,
+    operation_id: UUID,
+    body: ModuleLiveTestRecordV1,
+    request: Request,
+    principal: ServicePrincipal = Depends(
+        require_service_scope(MODULES_VALIDATE_SCOPE)
+    ),
+) -> ModuleLiveTestEnvelope:
+    async with request.app.state.session_provider() as session:
+        module_version = await session.scalar(
+            select(ModuleVersion)
+            .join(ModuleDefinition)
+            .where(
+                ModuleDefinition.module_key == module_key,
+                ModuleVersion.version == version,
+            )
+        )
+        if module_version is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail={"code": "endpoint_module_version_not_found"},
+            )
+        try:
+            live_test = await record_module_live_test(
+                session,
+                module_version,
+                operation_id=operation_id,
+            )
+        except ModuleServiceError as error:
+            await session.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={"code": "endpoint_module_live_test_conflict"},
+            ) from error
+        try:
+            await append_audit_event(
+                session,
+                actor_kind="service",
+                actor_identifier=principal.client.client_identifier,
+                action="endpoint.module_live_test_recorded",
+                object_kind="module_version",
+                object_identifier=str(module_version.id),
+                request_id=audit_request_id(request),
+                details={
+                    "module_key": module_key,
+                    "version": version,
+                    "platform": live_test.platform,
+                    "status": live_test.status,
+                },
+            )
+            await session.commit()
+        except Exception:
+            await session.rollback()
+            raise
+    return ModuleLiveTestEnvelope(
+        data=ModuleLiveTestRecordedV1(
+            schema_version="module_live_test_recorded_v1",
+            module_key=module_key,
+            version=version,
+            platform=live_test.platform,
+            status=live_test.status,
+            tested_at=live_test.tested_at,
+        )
+    )
+
+
+@router.post(
+    "/{module_key}/versions/{version}/accept-labs",
+    response_model=ModuleVersionStateEnvelope,
+)
+async def accept_module_labs(
+    module_key: str,
+    version: str,
+    request: Request,
+    principal: ServicePrincipal = Depends(require_service_scope(MODULES_PUBLISH_SCOPE)),
+) -> ModuleVersionStateEnvelope:
+    async with request.app.state.session_provider() as session:
+        module_version = await session.scalar(
+            select(ModuleVersion)
+            .join(ModuleDefinition)
+            .where(
+                ModuleDefinition.module_key == module_key,
+                ModuleVersion.version == version,
+            )
+        )
+        if module_version is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail={"code": "endpoint_module_version_not_found"},
+            )
+        try:
+            accepted = await accept_persisted_module_labs(session, module_version)
+        except ModuleServiceError as error:
+            await session.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={"code": "endpoint_module_lab_acceptance_conflict"},
+            ) from error
+        try:
+            await append_audit_event(
+                session,
+                actor_kind="service",
+                actor_identifier=principal.client.client_identifier,
+                action="endpoint.module_labs_accepted",
+                object_kind="module_version",
+                object_identifier=str(accepted.id),
+                request_id=audit_request_id(request),
+                details={
+                    "module_key": module_key,
+                    "version": version,
+                    "state": accepted.state,
+                },
+            )
+            await session.commit()
+        except Exception:
+            await session.rollback()
+            raise
+    return ModuleVersionStateEnvelope(
+        data=ModuleVersionStateV1(
+            schema_version="module_version_state_v1",
+            module_key=module_key,
+            version=version,
+            state=accepted.state,
         )
     )
 

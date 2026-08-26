@@ -47,6 +47,9 @@ from endpoint_contracts import (  # noqa: E402
     EndpointDeviceSummaryV1,
     EndpointOperationCreateV1,
     EndpointOperationV1,
+    ModuleLabOperationCreateV1,
+    ModuleLiveTestRecordV1,
+    ModuleLiveTestRecordedV1,
     ModuleOperationCreateV1,
     ModuleOperationDetailV1,
     ModuleOperationV1,
@@ -71,6 +74,9 @@ _SERVICE_OPERATION_PATHS = (
     "/api/v1/modules/versions",
     "/api/v1/modules/{module_key}/versions/{version}",
     "/api/v1/modules/{module_key}/versions/{version}/validate",
+    "/api/v1/modules/{module_key}/versions/{version}/lab-operations/{device_id}",
+    "/api/v1/modules/{module_key}/versions/{version}/live-tests/{operation_id}",
+    "/api/v1/modules/{module_key}/versions/{version}/accept-labs",
     "/api/v1/modules/{module_key}/versions/{version}/publish",
     "/api/v1/modules/{module_key}/versions/{version}/deprecate",
 )
@@ -105,6 +111,9 @@ PUBLIC_MODELS: dict[str, type[ContractModelV1]] = {
     "endpoint-device-capabilities-v1.json": EndpointDeviceCapabilitiesV1,
     "endpoint-operation-v1.json": EndpointOperationV1,
     "endpoint-operation-diagnostic-result-v1.json": EndpointDiagnosticResultV1,
+    "endpoint-module-lab-operation-create-v1.json": ModuleLabOperationCreateV1,
+    "endpoint-module-live-test-record-v1.json": ModuleLiveTestRecordV1,
+    "endpoint-module-live-test-recorded-v1.json": ModuleLiveTestRecordedV1,
     "endpoint-module-operation-create-v1.json": ModuleOperationCreateV1,
     "endpoint-module-operation-v1.json": ModuleOperationV1,
     "endpoint-module-operation-detail-v1.json": ModuleOperationDetailV1,
@@ -247,6 +256,21 @@ FIXTURES: dict[str, dict[str, Any]] = {
         "module_key": "network.basic.check",
         "version": "1.0.0",
         "inputs": {"target": "probe.example.test"},
+    },
+    "endpoint-module-lab-operation-create-v1.json": {
+        "schema_version": "endpoint_module_lab_operation_create_v1",
+        "inputs": {"target": "probe.example.test"},
+    },
+    "endpoint-module-live-test-record-v1.json": {
+        "schema_version": "module_live_test_record_v1",
+    },
+    "endpoint-module-live-test-recorded-v1.json": {
+        "schema_version": "module_live_test_recorded_v1",
+        "module_key": "network.basic.check",
+        "version": "1.0.0",
+        "platform": "linux_amd64",
+        "status": "passed",
+        "tested_at": "2026-08-26T12:00:00Z",
     },
     "endpoint-module-operation-v1.json": {
         "schema_version": "endpoint_module_operation_v1",
@@ -574,9 +598,7 @@ def _service_operation_openapi() -> dict[str, object]:
     application.include_router(module_execution_router)
     generated = application.openapi()
     return {
-        "paths": {
-            path: generated["paths"][path] for path in _SERVICE_OPERATION_PATHS
-        },
+        "paths": {path: generated["paths"][path] for path in _SERVICE_OPERATION_PATHS},
         "components": generated["components"],
     }
 

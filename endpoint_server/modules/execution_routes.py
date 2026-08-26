@@ -11,6 +11,7 @@ from pydantic import BaseModel, ConfigDict
 from sqlalchemy import select
 
 from endpoint_contracts.modules import (
+    ModuleLabOperationCreateV1,
     ModuleOperationCreateV1,
     ModuleOperationDetailV1,
     ModuleOperationStepV1,
@@ -19,6 +20,7 @@ from endpoint_contracts.modules import (
 from endpoint_server.auth.scopes import (
     MODULE_OPERATIONS_CREATE_SCOPE,
     MODULE_OPERATIONS_READ_SCOPE,
+    MODULES_VALIDATE_SCOPE,
     ServicePrincipal,
     require_service_scope,
 )
@@ -182,6 +184,85 @@ async def create_module_operation(
             device_id=operation.device_id,
             module_key=body.module_key,
             version=body.version,
+            status=operation.status,
+            created_at=_stored_utc(operation.created_at),
+            deadline_at=_stored_utc(operation.deadline_at),
+            completed_at=_stored_utc(operation.completed_at),
+        )
+    )
+
+
+@router.post(
+    "/modules/{module_key}/versions/{version}/lab-operations/{device_id}",
+    status_code=status.HTTP_201_CREATED,
+    response_model=ModuleOperationEnvelope,
+)
+async def create_module_lab_operation(
+    module_key: str,
+    version: str,
+    device_id: UUID,
+    body: ModuleLabOperationCreateV1,
+    request: Request,
+    response: Response,
+    principal: Annotated[
+        ServicePrincipal,
+        Depends(require_service_scope(MODULES_VALIDATE_SCOPE)),
+    ],
+    idempotency_key: Annotated[
+        str,
+        Header(
+            alias="Idempotency-Key",
+            min_length=8,
+            max_length=128,
+            pattern=_IDEMPOTENCY_KEY_PATTERN,
+        ),
+    ],
+    correlation_id: Annotated[
+        str,
+        Header(
+            alias="X-Correlation-ID",
+            min_length=1,
+            max_length=128,
+            pattern=CORRELATION_ID_PATTERN,
+        ),
+    ],
+) -> ModuleOperationEnvelope:
+    """Create a lab-only module parent while its immutable version is validated."""
+    settings = request.app.state.settings
+    policy = NetworkTargetPolicyV1(
+        allowed_cidrs=settings.endpoint_network_probe_allowed_cidrs,
+        allowed_suffixes=settings.endpoint_network_probe_allowed_suffixes,
+    )
+    async with request.app.state.session_provider() as session:
+        try:
+            operation, created = await create_module_parent_operation(
+                session,
+                service_client_id=principal.client.id,
+                device_id=device_id,
+                module_key=module_key,
+                version=version,
+                inputs=body.inputs,
+                idempotency_key=idempotency_key,
+                network_policy=policy,
+                execution_mode="lab",
+            )
+            await session.commit()
+        except ModuleOperationError as error:
+            await session.rollback()
+            raise _module_operation_error(error) from error
+        except Exception:
+            await session.rollback()
+            raise
+    if not created:
+        response.status_code = status.HTTP_200_OK
+    response.headers["X-Correlation-ID"] = correlation_id
+    return ModuleOperationEnvelope(
+        data=ModuleOperationV1(
+            schema_version="endpoint_module_operation_v1",
+            operation_id=operation.id,
+            device_id=operation.device_id,
+            module_key=module_key,
+            version=version,
             status=operation.status,
             created_at=_stored_utc(operation.created_at),
             deadline_at=_stored_utc(operation.deadline_at),

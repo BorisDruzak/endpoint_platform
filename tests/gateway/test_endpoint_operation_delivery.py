@@ -103,6 +103,8 @@ async def _seed_module_operation(
     provider: async_sessionmaker[AsyncSession],
     *,
     device_id: UUID,
+    version_state: str = "published",
+    execution_mode: str = "published",
 ) -> EndpointOperation:
     recipe = EndpointRecipeModuleSpecV1.model_validate(
         {
@@ -152,7 +154,7 @@ async def _seed_module_operation(
                 module_definition_id=definition.id,
                 version="1.0.0",
                 recipe=recipe.model_dump(mode="json"),
-                state="published",
+                state=version_state,
             )
         )
         await session.flush()
@@ -168,6 +170,7 @@ async def _seed_module_operation(
                 allowed_suffixes=(".example.test",),
                 allowed_cidrs=(),
             ),
+            execution_mode=execution_mode,
         )
         assert created is True
         await session.commit()
@@ -344,6 +347,84 @@ async def test_operation_is_absent_from_http_pull_and_committed_before_wss_send(
     assert _utc(payload.deadline_at) == _utc(operation.deadline_at)
     assert operation.correlation is None
     assert "helpdesk" not in serialized.lower()
+
+
+@pytest.mark.asyncio
+async def test_validated_lab_parent_delivers_only_its_typed_child(
+    session_provider: async_sessionmaker[AsyncSession],
+) -> None:
+    device = await seed_device(session_provider)
+    await _seed_module_operation(
+        session_provider,
+        device_id=device.id,
+        version_state="validated",
+        execution_mode="lab",
+    )
+    presence = await _open_session(
+        session_provider,
+        device_id=device.id,
+        capabilities=["dns.resolve", "network.ping"],
+    )
+    sent: list[CommandEnvelopeV1] = []
+
+    delivered = await CommandService(session_provider).deliver_next(
+        device.id,
+        presence.session_id,
+        sent.append,
+        allowed_capabilities=frozenset({"dns.resolve", "network.ping"}),
+        agent_platform="linux_amd64",
+    )
+
+    assert delivered is True
+    assert len(sent) == 1
+    assert sent[0].payload.capability == "dns.resolve"
+    async with session_provider() as session:
+        operation = await session.scalar(
+            select(EndpointOperation).where(
+                EndpointOperation.capability == "endpoint.module.recipe"
+            )
+        )
+    assert operation is not None
+    assert operation.parameters == {
+        "execution_mode": "lab",
+        "execution_platform": "linux_amd64",
+    }
+
+
+@pytest.mark.asyncio
+async def test_lab_parent_latches_platform_only_when_a_child_is_delivered(
+    session_provider: async_sessionmaker[AsyncSession],
+) -> None:
+    device = await seed_device(session_provider)
+    await _seed_module_operation(
+        session_provider,
+        device_id=device.id,
+        version_state="validated",
+        execution_mode="lab",
+    )
+    presence = await _open_session(
+        session_provider,
+        device_id=device.id,
+        capabilities=["network.ping"],
+    )
+
+    delivered = await CommandService(session_provider).deliver_next(
+        device.id,
+        presence.session_id,
+        lambda _: None,
+        allowed_capabilities=frozenset({"network.ping"}),
+        agent_platform="linux_amd64",
+    )
+
+    assert delivered is False
+    async with session_provider() as session:
+        operation = await session.scalar(
+            select(EndpointOperation).where(
+                EndpointOperation.capability == "endpoint.module.recipe"
+            )
+        )
+    assert operation is not None
+    assert operation.parameters == {"execution_mode": "lab"}
 
 
 @pytest.mark.asyncio
