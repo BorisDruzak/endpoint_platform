@@ -133,6 +133,27 @@ class ModuleVersionStateV1(ContractModelV1):
     ]
 
 
+class ModuleSummaryV1(ContractModelV1):
+    module_key: ModuleKeyV1
+    display_name: Annotated[str, Field(strict=True, min_length=1, max_length=128)]
+
+
+class ModuleVersionViewV1(ContractModelV1):
+    module_key: ModuleKeyV1
+    display_name: Annotated[str, Field(strict=True, min_length=1, max_length=128)]
+    version: Annotated[str, Field(strict=True, min_length=5, max_length=64, pattern=r"^\d+\.\d+\.\d+$")]
+    state: Literal[
+        "draft",
+        "validation_failed",
+        "validated",
+        "lab_accepted",
+        "published",
+        "deprecated",
+        "revoked",
+    ]
+    recipe: EndpointRecipeModuleSpecV1
+
+
 ModuleOperationInputValueV1 = StrictStr | StrictInt
 
 
@@ -193,7 +214,9 @@ __all__ = [
     "ModuleOperationDetailV1",
     "ModuleOperationStepV1",
     "ModuleOperationV1",
+    "ModuleSummaryV1",
     "ModuleValidationRunV1",
+    "ModuleVersionViewV1",
     "ModuleVersionStateV1",
     "RecipeInputBindingV1",
     "RecipeLiteralBindingV1",
