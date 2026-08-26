@@ -83,6 +83,13 @@ class EndpointRecipeModuleSpecV1(ContractModelV1):
         return self
 
 
+class ModuleVersionCreateV1(ContractModelV1):
+    schema_version: Literal["module_version_create_v1"]
+    display_name: Annotated[str, Field(strict=True, min_length=1, max_length=128)]
+    version: Annotated[str, Field(strict=True, min_length=5, max_length=64, pattern=r"^\d+\.\d+\.\d+$")]
+    recipe: EndpointRecipeModuleSpecV1
+
+
 __all__ = [
     "EndpointRecipeModuleSpecV1",
     "EndpointRecipeStepV1",

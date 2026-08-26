@@ -7,7 +7,7 @@ import copy
 import pytest
 from pydantic import ValidationError
 
-from endpoint_contracts.modules import EndpointRecipeModuleSpecV1
+from endpoint_contracts.modules import EndpointRecipeModuleSpecV1, ModuleVersionCreateV1
 from endpoint_server.modules.recipes import RecipeValidationError, validate_recipe_spec
 
 
@@ -57,6 +57,14 @@ def test_recipe_contract_and_catalog_validation_accept_network_basic_check() -> 
     validate_recipe_spec(recipe)
 
     assert [step.step_id for step in recipe.steps] == ["dns", "ping", "tcp"]
+
+
+def test_module_version_create_contract_requires_semantic_version() -> None:
+    payload = {"schema_version": "module_version_create_v1", "display_name": "Network", "version": "1.0.0", "recipe": _recipe()}
+    assert ModuleVersionCreateV1.model_validate(payload).version == "1.0.0"
+    payload["version"] = "latest"
+    with pytest.raises(ValidationError):
+        ModuleVersionCreateV1.model_validate(payload)
 
 
 def test_recipe_contract_rejects_undeclared_executable_fields() -> None:
