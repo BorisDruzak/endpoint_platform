@@ -6,6 +6,7 @@ from pydantic import ValidationError
 
 import endpoint_contracts as contracts
 from endpoint_contracts.gateway_ws import GatewayCommandV1
+from endpoint_contracts.operations import EndpointDeviceCapabilitiesV1
 from endpoint_contracts.network_primitives import (
     DnsResolveParametersV1,
     DnsResolveResultV1,
@@ -48,6 +49,27 @@ def test_gateway_command_accepts_only_typed_network_ping_parameters() -> None:
                 },
             }
         )
+
+
+def test_device_capabilities_contract_projects_network_primitive_metadata() -> None:
+    response = EndpointDeviceCapabilitiesV1.model_validate(
+        {
+            "schema_version": "endpoint_device_capabilities_v1",
+            "device_id": "00000000-0000-4000-8000-000000000601",
+            "capabilities": [
+                {
+                    "capability": "network.ping",
+                    "available": True,
+                    "transport": "gateway_wss",
+                    "risk": "safe_read",
+                    "consent_required": False,
+                    "parameter_schema_version": "network_ping_parameters_v1",
+                }
+            ],
+        }
+    )
+
+    assert response.capabilities[0].capability == "network.ping"
 
 
 def test_dns_resolve_contract_accepts_bounded_safe_result() -> None:

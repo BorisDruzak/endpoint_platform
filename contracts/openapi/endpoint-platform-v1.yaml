@@ -2710,7 +2710,7 @@ components:
         capabilities:
           items:
             "$ref": "#/components/schemas/EndpointDeviceCapabilitiesV1__EndpointCapabilityAvailabilityV1"
-          maxItems: 1
+          maxItems: 4
           title: "Capabilities"
           type: "array"
       required:
@@ -2724,7 +2724,11 @@ components:
       description: "One versioned safe capability descriptor for an exact device."
       properties:
         capability:
-          const: "context.diagnostic.collect"
+          enum:
+            - "context.diagnostic.collect"
+            - "dns.resolve"
+            - "network.ping"
+            - "tcp.connect"
           title: "Capability"
           type: "string"
         available:
@@ -2735,7 +2739,9 @@ components:
           title: "Transport"
           type: "string"
         risk:
-          const: "read_only"
+          enum:
+            - "read_only"
+            - "safe_read"
           title: "Risk"
           type: "string"
         consent_required:
@@ -2743,7 +2749,11 @@ components:
           title: "Consent Required"
           type: "boolean"
         parameter_schema_version:
-          const: "diagnostic_collection_parameters_v1"
+          enum:
+            - "diagnostic_collection_parameters_v1"
+            - "dns_resolve_parameters_v1"
+            - "network_ping_parameters_v1"
+            - "tcp_connect_parameters_v1"
           title: "Parameter Schema Version"
           type: "string"
       required:
@@ -2976,7 +2986,11 @@ components:
       properties:
         capability:
           type: "string"
-          const: "context.diagnostic.collect"
+          enum:
+            - "context.diagnostic.collect"
+            - "dns.resolve"
+            - "network.ping"
+            - "tcp.connect"
           title: "Capability"
         available:
           type: "boolean"
@@ -2987,7 +3001,9 @@ components:
           title: "Transport"
         risk:
           type: "string"
-          const: "read_only"
+          enum:
+            - "read_only"
+            - "safe_read"
           title: "Risk"
         consent_required:
           type: "boolean"
@@ -2995,7 +3011,11 @@ components:
           title: "Consent Required"
         parameter_schema_version:
           type: "string"
-          const: "diagnostic_collection_parameters_v1"
+          enum:
+            - "diagnostic_collection_parameters_v1"
+            - "dns_resolve_parameters_v1"
+            - "network_ping_parameters_v1"
+            - "tcp_connect_parameters_v1"
           title: "Parameter Schema Version"
       additionalProperties: false
       type: "object"

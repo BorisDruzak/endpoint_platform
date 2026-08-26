@@ -131,12 +131,22 @@ class EndpointCapabilityAvailabilityV1(ContractModelV1):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    capability: Literal["context.diagnostic.collect"]
+    capability: Literal[
+        "context.diagnostic.collect",
+        "dns.resolve",
+        "network.ping",
+        "tcp.connect",
+    ]
     available: StrictBool
     transport: Literal["gateway_wss"]
-    risk: Literal["read_only"]
+    risk: Literal["read_only", "safe_read"]
     consent_required: Literal[False]
-    parameter_schema_version: Literal["diagnostic_collection_parameters_v1"]
+    parameter_schema_version: Literal[
+        "diagnostic_collection_parameters_v1",
+        "dns_resolve_parameters_v1",
+        "network_ping_parameters_v1",
+        "tcp_connect_parameters_v1",
+    ]
 
 
 class EndpointDeviceCapabilitiesV1(ContractModelV1):
@@ -146,7 +156,7 @@ class EndpointDeviceCapabilitiesV1(ContractModelV1):
 
     schema_version: Literal["endpoint_device_capabilities_v1"]
     device_id: UUID
-    capabilities: list[EndpointCapabilityAvailabilityV1] = Field(max_length=1)
+    capabilities: list[EndpointCapabilityAvailabilityV1] = Field(max_length=4)
 
 
 class EndpointDiagnosticResultV1(ContractModelV1):

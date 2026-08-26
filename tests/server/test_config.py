@@ -60,6 +60,30 @@ def test_from_environment_enables_endpoint_operations_only_explicitly(
     assert settings.endpoint_operations_api_enabled is True
 
 
+def test_from_environment_loads_network_primitive_flag_and_allowlists(
+    tmp_path: Path,
+) -> None:
+    environment = _environment(tmp_path)
+    environment.update(
+        {
+            "ENDPOINT_NETWORK_PRIMITIVES_ENABLED": "true",
+            "ENDPOINT_NETWORK_PROBE_ALLOWED_CIDRS": "10.20.0.0/16",
+            "ENDPOINT_NETWORK_PROBE_ALLOWED_SUFFIXES": ".example.test,.internal.test",
+        }
+    )
+
+    settings = Settings.from_environment(environment)
+
+    assert settings.endpoint_network_primitives_enabled is True
+    assert tuple(str(item) for item in settings.endpoint_network_probe_allowed_cidrs) == (
+        "10.20.0.0/16",
+    )
+    assert settings.endpoint_network_probe_allowed_suffixes == (
+        ".example.test",
+        ".internal.test",
+    )
+
+
 def test_from_environment_rejects_ambiguous_endpoint_operations_flag(
     tmp_path: Path,
 ) -> None:
