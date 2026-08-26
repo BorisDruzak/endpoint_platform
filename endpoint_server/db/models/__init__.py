@@ -22,7 +22,7 @@ from .enrollment import (
     EnrollmentEvent,
     EnrollmentRetryEnvelope,
 )
-from .operations import EndpointOperation
+from .operations import EndpointOperation, ModuleOperationStep
 from .modules import (
     ModuleDefinition,
     ModuleLiveTest,
@@ -52,6 +52,7 @@ __all__ = [
     "EnrollmentEvent",
     "EnrollmentRetryEnvelope",
     "EndpointOperation",
+    "ModuleOperationStep",
     "ModuleDefinition",
     "ModuleLiveTest",
     "ModuleValidationRun",
