@@ -25,10 +25,12 @@ from endpoint_server.provisioning.admin_routes import (
 )
 from endpoint_server.health.routes import router as health_router
 from endpoint_server.http.correlation import (
-    is_operation_api_request,
+    is_correlation_api_request,
     is_safe_correlation_id,
 )
 from endpoint_server.operations.routes import router as operations_router
+from endpoint_server.modules.routes import router as modules_router
+from endpoint_server.modules.execution_routes import router as module_execution_router
 from endpoint_server.gateway.routes import router as gateway_router
 from endpoint_server.gateway.connection_registry import (
     ConnectionRegistry,
@@ -82,7 +84,7 @@ def create_app(
         """Keep the service tracing header out of JSON success and error bodies."""
         correlation_id = request.headers.get("X-Correlation-ID")
         if (
-            is_operation_api_request(request.method, request.url.path)
+            is_correlation_api_request(request.method, request.url.path)
             and correlation_id is not None
             and not is_safe_correlation_id(correlation_id)
         ):
@@ -93,7 +95,7 @@ def create_app(
 
         response = await call_next(request)
         if (
-            is_operation_api_request(request.method, request.url.path)
+            is_correlation_api_request(request.method, request.url.path)
             and correlation_id is not None
             and is_safe_correlation_id(correlation_id)
         ):
@@ -113,4 +115,8 @@ def create_app(
     app.include_router(context_router)
     if settings.endpoint_operations_api_enabled:
         app.include_router(operations_router)
+    if settings.endpoint_module_platform_enabled:
+        app.include_router(modules_router)
+    if settings.endpoint_module_execution_enabled:
+        app.include_router(module_execution_router)
     return app

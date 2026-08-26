@@ -47,8 +47,15 @@ from endpoint_contracts import (  # noqa: E402
     EndpointDeviceSummaryV1,
     EndpointOperationCreateV1,
     EndpointOperationV1,
+    ModuleOperationCreateV1,
+    ModuleOperationDetailV1,
+    ModuleOperationV1,
+    ModuleSummaryV1,
+    ModuleVersionViewV1,
 )
 from endpoint_contracts.base import ContractModelV1  # noqa: E402
+from endpoint_server.modules.routes import router as modules_router  # noqa: E402
+from endpoint_server.modules.execution_routes import router as module_execution_router  # noqa: E402
 from endpoint_server.operations.routes import router as operations_router  # noqa: E402
 
 
@@ -57,6 +64,15 @@ _SERVICE_OPERATION_PATHS = (
     "/api/v1/devices/{device_id}/capabilities",
     "/api/v1/devices/{device_id}/operations",
     "/api/v1/operations/{operation_id}",
+    "/api/v1/devices/{device_id}/module-operations",
+    "/api/v1/module-operations/{operation_id}",
+    "/api/v1/modules",
+    "/api/v1/modules/{module_key}",
+    "/api/v1/modules/versions",
+    "/api/v1/modules/{module_key}/versions/{version}",
+    "/api/v1/modules/{module_key}/versions/{version}/validate",
+    "/api/v1/modules/{module_key}/versions/{version}/publish",
+    "/api/v1/modules/{module_key}/versions/{version}/deprecate",
 )
 
 
@@ -89,6 +105,11 @@ PUBLIC_MODELS: dict[str, type[ContractModelV1]] = {
     "endpoint-device-capabilities-v1.json": EndpointDeviceCapabilitiesV1,
     "endpoint-operation-v1.json": EndpointOperationV1,
     "endpoint-operation-diagnostic-result-v1.json": EndpointDiagnosticResultV1,
+    "endpoint-module-operation-create-v1.json": ModuleOperationCreateV1,
+    "endpoint-module-operation-v1.json": ModuleOperationV1,
+    "endpoint-module-operation-detail-v1.json": ModuleOperationDetailV1,
+    "endpoint-module-summary-v1.json": ModuleSummaryV1,
+    "endpoint-module-version-view-v1.json": ModuleVersionViewV1,
 }
 
 GATEWAY_WS_MODELS: dict[str, type[BaseModel]] = {
@@ -220,6 +241,78 @@ FIXTURES: dict[str, dict[str, Any]] = {
         "status": "applied",
         "reported_version": "1.2.3",
         "safe_code": "post_restart_handshake",
+    },
+    "endpoint-module-operation-create-v1.json": {
+        "schema_version": "endpoint_module_operation_create_v1",
+        "module_key": "network.basic.check",
+        "version": "1.0.0",
+        "inputs": {"target": "probe.example.test"},
+    },
+    "endpoint-module-operation-v1.json": {
+        "schema_version": "endpoint_module_operation_v1",
+        "operation_id": "22222222-2222-4222-8222-222222222222",
+        "device_id": "11111111-1111-4111-8111-111111111111",
+        "module_key": "network.basic.check",
+        "version": "1.0.0",
+        "status": "succeeded",
+        "created_at": "2026-08-09T11:59:00Z",
+        "deadline_at": "2026-08-09T12:30:00Z",
+        "completed_at": "2026-08-09T12:00:00Z",
+    },
+    "endpoint-module-operation-detail-v1.json": {
+        "schema_version": "endpoint_module_operation_v1",
+        "operation_id": "22222222-2222-4222-8222-222222222222",
+        "device_id": "11111111-1111-4111-8111-111111111111",
+        "module_key": "network.basic.check",
+        "version": "1.0.0",
+        "status": "succeeded",
+        "created_at": "2026-08-09T11:59:00Z",
+        "deadline_at": "2026-08-09T12:30:00Z",
+        "completed_at": "2026-08-09T12:00:00Z",
+        "steps": [
+            {
+                "sequence": 0,
+                "capability": "dns.resolve",
+                "status": "succeeded",
+                "error_code": None,
+                "safe_result": {
+                    "schema_version": "dns_resolve_result_v1",
+                    "target": "probe.example.test",
+                    "canonical_name": None,
+                    "addresses": [],
+                    "address_count": 0,
+                    "status": "succeeded",
+                    "error_code": None,
+                    "collected_at": "2026-08-09T12:00:00Z",
+                },
+            }
+        ],
+    },
+    "endpoint-module-summary-v1.json": {
+        "module_key": "network.basic.check",
+        "display_name": "Fixture network check",
+    },
+    "endpoint-module-version-view-v1.json": {
+        "module_key": "network.basic.check",
+        "display_name": "Fixture network check",
+        "version": "1.0.0",
+        "state": "published",
+        "recipe": {
+            "schema_version": "endpoint_recipe_module_v1",
+            "module_key": "network.basic.check",
+            "supported_platforms": ["linux_amd64"],
+            "inputs": [{"name": "target", "value_type": "string"}],
+            "steps": [
+                {
+                    "step_id": "dns",
+                    "capability": "dns.resolve",
+                    "parameters": {
+                        "target": {"kind": "input", "name": "target"},
+                        "family": {"kind": "literal", "value": "any"},
+                    },
+                }
+            ],
+        },
     },
 }
 
@@ -477,6 +570,8 @@ def _service_operation_openapi() -> dict[str, object]:
     """Generate service-operation paths/components from the runtime router."""
     application = FastAPI()
     application.include_router(operations_router)
+    application.include_router(modules_router)
+    application.include_router(module_execution_router)
     generated = application.openapi()
     return {
         "paths": {

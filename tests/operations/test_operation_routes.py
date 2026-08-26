@@ -4,8 +4,9 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 import ipaddress
+import json
 from pathlib import Path
 from uuid import UUID, uuid4
 
@@ -31,6 +32,11 @@ from endpoint_server.db.models import (
     Device,
     DeviceInstance,
     EndpointOperation,
+    ModuleDefinition,
+    ModuleLiveTest,
+    ModuleOperationStep,
+    ModuleValidationRun,
+    ModuleVersion,
     ServiceClient,
     ServiceCredential,
 )
@@ -47,6 +53,27 @@ CREATE_BODY = {
     "parameters": {"reason": "Collect bounded diagnostic context"},
 }
 IDEMPOTENCY_KEY = "operation-route-key-0001"
+MODULE_CREATE_BODY = {
+    "schema_version": "module_version_create_v1",
+    "display_name": "Network",
+    "version": "1.0.0",
+    "recipe": {
+        "schema_version": "endpoint_recipe_module_v1",
+        "module_key": "network.basic.check",
+        "supported_platforms": ["linux_amd64"],
+        "inputs": [{"name": "target", "value_type": "string"}],
+        "steps": [
+            {
+                "step_id": "dns",
+                "capability": "dns.resolve",
+                "parameters": {
+                    "target": {"kind": "input", "name": "target"},
+                    "family": {"kind": "literal", "value": "any"},
+                },
+            }
+        ],
+    },
+}
 
 
 @pytest.mark.parametrize(
@@ -55,6 +82,8 @@ IDEMPOTENCY_KEY = "operation-route-key-0001"
         ("GET", "/api/v1/devices/one-segment"),
         ("GET", "/api/v1/devices/one-segment/capabilities"),
         ("POST", "/api/v1/devices/one-segment/operations"),
+        ("POST", "/api/v1/devices/one-segment/module-operations"),
+        ("GET", "/api/v1/module-operations/one-segment"),
         ("GET", "/api/v1/operations/one-segment"),
     ),
 )
@@ -89,6 +118,8 @@ def _settings(
     *,
     enabled: bool,
     network_primitives_enabled: bool = False,
+    module_platform_enabled: bool = False,
+    module_execution_enabled: bool = False,
 ) -> Settings:
     return Settings(
         database_url="sqlite+aiosqlite:///:memory:",
@@ -106,6 +137,8 @@ def _settings(
             if network_primitives_enabled
             else ()
         ),
+        endpoint_module_platform_enabled=module_platform_enabled,
+        endpoint_module_execution_enabled=module_execution_enabled,
     )
 
 
@@ -147,6 +180,11 @@ async def route_fixture(
         ContextCollection.__table__,
         ContextSnapshot.__table__,
         EndpointOperation.__table__,
+        ModuleDefinition.__table__,
+        ModuleLiveTest.__table__,
+        ModuleOperationStep.__table__,
+        ModuleValidationRun.__table__,
+        ModuleVersion.__table__,
     )
     async with engine.begin() as connection:
         await connection.execute(text("PRAGMA foreign_keys=ON"))
@@ -194,6 +232,30 @@ async def route_fixture(
             client=owner,
             credential=_credential(owner, ["operations.read"]),
         ),
+        "modules-writer": ServicePrincipal(
+            client=owner,
+            credential=_credential(owner, ["modules.write"]),
+        ),
+        "modules-reader": ServicePrincipal(
+            client=owner,
+            credential=_credential(owner, ["modules.read"]),
+        ),
+        "modules-validator": ServicePrincipal(
+            client=owner,
+            credential=_credential(owner, ["modules.validate"]),
+        ),
+        "modules-publisher": ServicePrincipal(
+            client=owner,
+            credential=_credential(owner, ["modules.publish"]),
+        ),
+        "module-operator": ServicePrincipal(
+            client=owner,
+            credential=_credential(owner, ["module_operations.create"]),
+        ),
+        "module-reader": ServicePrincipal(
+            client=owner,
+            credential=_credential(owner, ["module_operations.read"]),
+        ),
         "foreign-reader": ServicePrincipal(
             client=foreign,
             credential=_credential(foreign, ["operations.read"]),
@@ -232,6 +294,29 @@ def _authorization(token: str) -> dict[str, str]:
         "Authorization": f"Bearer {token}",
         "X-Correlation-ID": "test-correlation-id",
     }
+
+
+@pytest.mark.asyncio
+async def test_module_catalog_echoes_safe_correlation_for_external_adapter(
+    route_fixture: RouteFixture,
+) -> None:
+    """The typed Helpdesk adapter rejects a module response without correlation."""
+    app = create_app(
+        _settings(enabled=False, module_platform_enabled=True),
+        route_fixture.session_provider,
+    )
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app),
+        base_url="https://endpoint.sosnadmin.local",
+    ) as client:
+        response = await client.get(
+            "/api/v1/modules",
+            headers=_authorization("modules-reader"),
+        )
+
+    assert response.status_code == 200
+    assert response.headers["X-Correlation-ID"] == "test-correlation-id"
+    assert response.json() == {"data": []}
 
 
 def _create_headers(token: str) -> dict[str, str]:
@@ -412,6 +497,375 @@ async def test_capabilities_project_active_typed_network_primitive_without_conne
     assert "session_id" not in response.text
     assert "agent_version" not in response.text
     assert "effective_capabilities" not in response.text
+
+
+@pytest.mark.asyncio
+async def test_default_false_module_platform_flag_registers_no_module_routes(
+    route_fixture: RouteFixture,
+) -> None:
+    app = create_app(
+        _settings(enabled=True, module_platform_enabled=False),
+        route_fixture.session_provider,
+    )
+    assert "/api/v1/modules/versions" not in app.openapi()["paths"]
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app),
+        base_url="https://endpoint.sosnadmin.local",
+    ) as client:
+        response = await client.post("/api/v1/modules/versions")
+    assert response.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_module_create_requires_dedicated_scope_and_persists_draft(
+    route_fixture: RouteFixture,
+) -> None:
+    app = create_app(
+        _settings(enabled=True, module_platform_enabled=True),
+        route_fixture.session_provider,
+    )
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app),
+        base_url="https://endpoint.sosnadmin.local",
+    ) as client:
+        forbidden = await client.post(
+            "/api/v1/modules/versions",
+            json=MODULE_CREATE_BODY,
+            headers=_authorization("creator-old"),
+        )
+        created = await client.post(
+            "/api/v1/modules/versions",
+            json=MODULE_CREATE_BODY,
+            headers=_authorization("modules-writer"),
+        )
+    assert forbidden.status_code == 403
+    assert created.status_code == 201
+    assert created.json()["data"]["state"] == "draft"
+
+
+@pytest.mark.asyncio
+async def test_module_catalog_reads_are_scoped_and_return_only_recipe_metadata(
+    route_fixture: RouteFixture,
+) -> None:
+    app = create_app(
+        _settings(enabled=True, module_platform_enabled=True),
+        route_fixture.session_provider,
+    )
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app),
+        base_url="https://endpoint.sosnadmin.local",
+    ) as client:
+        created = await client.post(
+            "/api/v1/modules/versions",
+            json=MODULE_CREATE_BODY,
+            headers=_authorization("modules-writer"),
+        )
+        forbidden = await client.get(
+            "/api/v1/modules", headers=_authorization("modules-writer")
+        )
+        listed = await client.get(
+            "/api/v1/modules", headers=_authorization("modules-reader")
+        )
+        latest = await client.get(
+            "/api/v1/modules/network.basic.check",
+            headers=_authorization("modules-reader"),
+        )
+        exact = await client.get(
+            "/api/v1/modules/network.basic.check/versions/1.0.0",
+            headers=_authorization("modules-reader"),
+        )
+
+    assert created.status_code == 201
+    assert forbidden.status_code == 403
+    assert listed.json() == {
+        "data": [
+            {"module_key": "network.basic.check", "display_name": "Network"}
+        ]
+    }
+    assert latest.json() == exact.json()
+    payload = exact.json()["data"]
+    assert payload["module_key"] == "network.basic.check"
+    assert payload["state"] == "draft"
+    assert payload["recipe"] == MODULE_CREATE_BODY["recipe"]
+    assert not {"command_id", "inputs", "idempotency_key", "service_client"}.intersection(
+        json.dumps(payload)
+    )
+
+
+@pytest.mark.asyncio
+async def test_module_create_returns_safe_conflict_for_duplicate_version(
+    route_fixture: RouteFixture,
+) -> None:
+    app = create_app(
+        _settings(enabled=True, module_platform_enabled=True),
+        route_fixture.session_provider,
+    )
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app),
+        base_url="https://endpoint.sosnadmin.local",
+    ) as client:
+        first = await client.post(
+            "/api/v1/modules/versions",
+            json=MODULE_CREATE_BODY,
+            headers=_authorization("modules-writer"),
+        )
+        duplicate = await client.post(
+            "/api/v1/modules/versions",
+            json=MODULE_CREATE_BODY,
+            headers=_authorization("modules-writer"),
+        )
+    assert first.status_code == 201
+    assert duplicate.status_code == 409
+    assert duplicate.json() == {"detail": {"code": "endpoint_module_version_conflict"}}
+
+
+@pytest.mark.asyncio
+async def test_module_validate_requires_dedicated_scope_and_returns_typed_result(
+    route_fixture: RouteFixture,
+) -> None:
+    app = create_app(
+        _settings(enabled=True, module_platform_enabled=True),
+        route_fixture.session_provider,
+    )
+    validation_path = "/api/v1/modules/network.basic.check/versions/1.0.0/validate"
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app),
+        base_url="https://endpoint.sosnadmin.local",
+    ) as client:
+        created = await client.post(
+            "/api/v1/modules/versions",
+            json=MODULE_CREATE_BODY,
+            headers=_authorization("modules-writer"),
+        )
+        forbidden = await client.post(
+            validation_path,
+            headers=_authorization("modules-writer"),
+        )
+        validated = await client.post(
+            validation_path,
+            headers=_authorization("modules-validator"),
+        )
+
+    assert created.status_code == 201
+    assert forbidden.status_code == 403
+    assert validated.status_code == 200
+    assert validated.json()["data"] == {
+        "schema_version": "module_validation_run_v1",
+        "module_key": "network.basic.check",
+        "version": "1.0.0",
+        "status": "succeeded",
+        "error_codes": [],
+        "warning_codes": [],
+        "completed_at": validated.json()["data"]["completed_at"],
+    }
+    async with route_fixture.session_provider() as session:
+        events = list(
+            (
+                await session.scalars(
+                    select(AuditEvent).order_by(AuditEvent.created_at)
+                )
+            ).all()
+        )
+    assert [(event.action, event.actor_kind, event.actor_identifier) for event in events] == [
+        ("endpoint.module_version_created", "service", "helpdesk"),
+        ("endpoint.module_validation_completed", "service", "helpdesk"),
+    ]
+    assert all("recipe" not in json.dumps(event.details) for event in events)
+
+
+@pytest.mark.asyncio
+async def test_module_publish_requires_lab_evidence_and_dedicated_scope(
+    route_fixture: RouteFixture,
+) -> None:
+    from endpoint_server.modules.service import (
+        accept_persisted_module_labs,
+        record_module_live_test,
+    )
+
+    app = create_app(
+        _settings(enabled=True, module_platform_enabled=True),
+        route_fixture.session_provider,
+    )
+    version_path = "/api/v1/modules/network.basic.check/versions/1.0.0"
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app),
+        base_url="https://endpoint.sosnadmin.local",
+    ) as client:
+        created = await client.post(
+            "/api/v1/modules/versions",
+            json=MODULE_CREATE_BODY,
+            headers=_authorization("modules-writer"),
+        )
+        validated = await client.post(
+            f"{version_path}/validate",
+            headers=_authorization("modules-validator"),
+        )
+        forbidden = await client.post(
+            f"{version_path}/publish",
+            headers=_authorization("modules-validator"),
+        )
+
+    assert created.status_code == 201
+    assert validated.status_code == 200
+    assert forbidden.status_code == 403
+    async with route_fixture.session_provider() as session:
+        module_version = await session.scalar(
+            select(ModuleVersion)
+            .join(ModuleDefinition)
+            .where(
+                ModuleDefinition.module_key == "network.basic.check",
+                ModuleVersion.version == "1.0.0",
+            )
+        )
+        assert module_version is not None
+        lab_operation = EndpointOperation(
+            id=uuid4(),
+            requested_by_service_client_id=route_fixture.owner.id,
+            device_id=route_fixture.device.id,
+            idempotency_key="module-lab-operation-key",
+            capability="context.diagnostic.collect",
+            parameters={"reason": "module lab acceptance"},
+            correlation=None,
+            status="queued",
+            deadline_at=datetime.now(UTC) + timedelta(minutes=5),
+            completed_at=None,
+            context_collection_id=None,
+            command_id=None,
+        )
+        session.add(lab_operation)
+        await session.flush()
+        await record_module_live_test(
+            session,
+            module_version,
+            platform="linux_amd64",
+            endpoint_device_id=route_fixture.device.id,
+            operation_id=lab_operation.id,
+            status="passed",
+            safe_result_snapshot={"status": "succeeded"},
+        )
+        await accept_persisted_module_labs(session, module_version)
+        await session.commit()
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app),
+        base_url="https://endpoint.sosnadmin.local",
+    ) as client:
+        published = await client.post(
+            f"{version_path}/publish",
+            headers=_authorization("modules-publisher"),
+        )
+        deprecated = await client.post(
+            f"{version_path}/deprecate",
+            headers=_authorization("modules-publisher"),
+        )
+
+    assert published.status_code == 200
+    assert published.json()["data"] == {
+        "schema_version": "module_version_state_v1",
+        "module_key": "network.basic.check",
+        "version": "1.0.0",
+        "state": "published",
+    }
+    assert deprecated.status_code == 200
+    assert deprecated.json()["data"] == {
+        "schema_version": "module_version_state_v1",
+        "module_key": "network.basic.check",
+        "version": "1.0.0",
+        "state": "deprecated",
+    }
+
+
+@pytest.mark.asyncio
+async def test_module_operation_execution_route_is_flagged_scoped_and_idempotent(
+    route_fixture: RouteFixture,
+) -> None:
+    path = f"/api/v1/devices/{route_fixture.device.id}/module-operations"
+    disabled = create_app(
+        _settings(enabled=True, module_platform_enabled=True),
+        route_fixture.session_provider,
+    )
+    assert path.replace(str(route_fixture.device.id), "{device_id}") not in disabled.openapi()["paths"]
+
+    app = create_app(
+        _settings(
+            enabled=True,
+            network_primitives_enabled=True,
+            module_platform_enabled=True,
+            module_execution_enabled=True,
+        ),
+        route_fixture.session_provider,
+    )
+    async with route_fixture.session_provider() as session:
+        definition = ModuleDefinition(
+            id=uuid4(),
+            module_key="network.basic.check",
+            display_name="Network",
+        )
+        version = ModuleVersion(
+            id=uuid4(),
+            module_definition_id=definition.id,
+            version="1.0.0",
+            recipe=MODULE_CREATE_BODY["recipe"],
+            state="published",
+        )
+        session.add_all((definition, version))
+        await session.commit()
+
+    body = {
+        "schema_version": "endpoint_module_operation_create_v1",
+        "module_key": "network.basic.check",
+        "version": "1.0.0",
+        "inputs": {"target": "10.20.1.10"},
+    }
+    headers = {
+        **_authorization("module-operator"),
+        "Idempotency-Key": "module-operation-http-key",
+        "X-Correlation-ID": "module-operation-1",
+    }
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app),
+        base_url="https://endpoint.sosnadmin.local",
+    ) as client:
+        forbidden = await client.post(path, json=body, headers={**headers, **_authorization("modules-writer")})
+        created = await client.post(path, json=body, headers=headers)
+        replay = await client.post(path, json=body, headers=headers)
+        read = await client.get(
+            f"/api/v1/module-operations/{created.json()['data']['operation_id']}",
+            headers={
+                **_authorization("module-reader"),
+                "X-Correlation-ID": "module-operation-read-1",
+            },
+        )
+
+    assert forbidden.status_code == 403
+    assert created.status_code == 201
+    assert replay.status_code == 200
+    assert created.headers["X-Correlation-ID"] == "module-operation-1"
+    assert created.json()["data"] == {
+        "schema_version": "endpoint_module_operation_v1",
+        "operation_id": created.json()["data"]["operation_id"],
+        "device_id": str(route_fixture.device.id),
+        "module_key": "network.basic.check",
+        "version": "1.0.0",
+        "status": "queued",
+        "created_at": created.json()["data"]["created_at"],
+        "deadline_at": created.json()["data"]["deadline_at"],
+        "completed_at": None,
+    }
+    assert replay.json() == created.json()
+    assert read.status_code == 200
+    assert read.headers["X-Correlation-ID"] == "module-operation-read-1"
+    assert read.json()["data"]["steps"] == [
+        {
+            "sequence": 0,
+            "capability": "dns.resolve",
+            "status": "queued",
+            "error_code": None,
+            "safe_result": None,
+        }
+    ]
+    assert not {"recipe", "inputs", "idempotency_key", "command_id"}.intersection(
+        json.dumps(read.json())
+    )
 
 
 @pytest.mark.asyncio

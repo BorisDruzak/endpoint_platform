@@ -19,15 +19,30 @@ def is_operation_api_request(method: str, path: str) -> bool:
     if len(segments) == 5 and segments[0] == "" and segments[1:3] == ["api", "v1"]:
         if method != "GET" or not segments[4]:
             return False
-        if segments[3] == "operations":
+        if segments[3] in {"operations", "module-operations"}:
             return True
         return segments[3] == "devices" and segments[4] != "network-identities"
     if len(segments) == 6 and segments[:4] == ["", "api", "v1", "devices"]:
         return bool(segments[4]) and (
             (method == "GET" and segments[5] == "capabilities")
-            or (method == "POST" and segments[5] == "operations")
+            or (
+                method == "POST"
+                and segments[5] in {"operations", "module-operations"}
+            )
         )
     return False
+
+
+def is_module_api_request(method: str, path: str) -> bool:
+    """Return whether a request belongs to the typed Module Platform API."""
+    return method in {"GET", "POST"} and (
+        path == "/api/v1/modules" or path.startswith("/api/v1/modules/")
+    )
+
+
+def is_correlation_api_request(method: str, path: str) -> bool:
+    """Return whether a public typed API must validate and echo correlation."""
+    return is_operation_api_request(method, path) or is_module_api_request(method, path)
 
 
 def is_safe_correlation_id(value: str) -> bool:

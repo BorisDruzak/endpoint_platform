@@ -24,6 +24,12 @@ CONTEXT_READ_SCOPE = "context.read"
 CONTEXT_COLLECT_SCOPE = "context.collect"
 OPERATIONS_CREATE_SCOPE = "operations.create"
 OPERATIONS_READ_SCOPE = "operations.read"
+MODULES_WRITE_SCOPE = "modules.write"
+MODULES_READ_SCOPE = "modules.read"
+MODULES_VALIDATE_SCOPE = "modules.validate"
+MODULES_PUBLISH_SCOPE = "modules.publish"
+MODULE_OPERATIONS_CREATE_SCOPE = "module_operations.create"
+MODULE_OPERATIONS_READ_SCOPE = "module_operations.read"
 PROVISIONING_INSTALL_CLAIMS_ISSUE_SCOPE = "provisioning.install-claims.issue"
 
 

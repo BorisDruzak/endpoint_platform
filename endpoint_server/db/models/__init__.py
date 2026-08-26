@@ -22,7 +22,13 @@ from .enrollment import (
     EnrollmentEvent,
     EnrollmentRetryEnvelope,
 )
-from .operations import EndpointOperation
+from .operations import EndpointOperation, ModuleOperationStep
+from .modules import (
+    ModuleDefinition,
+    ModuleLiveTest,
+    ModuleValidationRun,
+    ModuleVersion,
+)
 from .updates import UpdateBuild, UpdateReport, UpdateRollout, UpdateTarget
 
 __all__ = [
@@ -46,6 +52,11 @@ __all__ = [
     "EnrollmentEvent",
     "EnrollmentRetryEnvelope",
     "EndpointOperation",
+    "ModuleOperationStep",
+    "ModuleDefinition",
+    "ModuleLiveTest",
+    "ModuleValidationRun",
+    "ModuleVersion",
     "ServiceClient",
     "ServiceCredential",
     "UpdateBuild",

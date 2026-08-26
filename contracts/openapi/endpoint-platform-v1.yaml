@@ -537,6 +537,304 @@ paths:
                 "$ref": "#/components/schemas/HTTPValidationError"
       x-required-scopes:
         - "operations.read"
+  "/api/v1/devices/{device_id}/module-operations":
+    post:
+      tags:
+        - "endpoint-module-execution"
+      summary: "Create Module Operation"
+      description: "Create/replay a module parent; only Gateway WSS can deliver its children."
+      operationId: "create_module_operation_api_v1_devices__device_id__module_operations_post"
+      parameters:
+        -
+          name: "device_id"
+          in: "path"
+          required: true
+          schema:
+            type: "string"
+            format: "uuid"
+            title: "Device Id"
+        -
+          name: "Idempotency-Key"
+          in: "header"
+          required: true
+          schema:
+            type: "string"
+            minLength: 8
+            maxLength: 128
+            pattern: "^[!-~][ -~]{6,126}[!-~]$"
+            title: "Idempotency-Key"
+        -
+          name: "X-Correlation-ID"
+          in: "header"
+          required: true
+          schema:
+            type: "string"
+            minLength: 1
+            maxLength: 128
+            pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+            title: "X-Correlation-Id"
+      requestBody:
+        required: true
+        content:
+          "application/json":
+            schema:
+              "$ref": "#/components/schemas/ModuleOperationCreateV1"
+      responses:
+        "201":
+          description: "Successful Response"
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/ModuleOperationEnvelope"
+        "422":
+          description: "Validation Error"
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/HTTPValidationError"
+  "/api/v1/module-operations/{operation_id}":
+    get:
+      tags:
+        - "endpoint-module-execution"
+      summary: "Read Module Operation"
+      description: "Read only a caller-owned parent and its safe typed child summaries."
+      operationId: "read_module_operation_api_v1_module_operations__operation_id__get"
+      parameters:
+        -
+          name: "operation_id"
+          in: "path"
+          required: true
+          schema:
+            type: "string"
+            format: "uuid"
+            title: "Operation Id"
+        -
+          name: "X-Correlation-ID"
+          in: "header"
+          required: true
+          schema:
+            type: "string"
+            minLength: 1
+            maxLength: 128
+            pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+            title: "X-Correlation-Id"
+      responses:
+        "200":
+          description: "Successful Response"
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/ModuleOperationDetailEnvelope"
+        "422":
+          description: "Validation Error"
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/HTTPValidationError"
+  "/api/v1/modules":
+    get:
+      tags:
+        - "endpoint-modules"
+      summary: "List Modules"
+      operationId: "list_modules_api_v1_modules_get"
+      responses:
+        "200":
+          description: "Successful Response"
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/ModuleListEnvelope"
+  "/api/v1/modules/{module_key}":
+    get:
+      tags:
+        - "endpoint-modules"
+      summary: "Read Module"
+      operationId: "read_module_api_v1_modules__module_key__get"
+      parameters:
+        -
+          name: "module_key"
+          in: "path"
+          required: true
+          schema:
+            type: "string"
+            title: "Module Key"
+      responses:
+        "200":
+          description: "Successful Response"
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/ModuleVersionViewEnvelope"
+        "422":
+          description: "Validation Error"
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/HTTPValidationError"
+  "/api/v1/modules/versions":
+    post:
+      tags:
+        - "endpoint-modules"
+      summary: "Create Module Version"
+      operationId: "create_module_version_api_v1_modules_versions_post"
+      requestBody:
+        content:
+          "application/json":
+            schema:
+              "$ref": "#/components/schemas/ModuleVersionCreateV1"
+        required: true
+      responses:
+        "201":
+          description: "Successful Response"
+          content:
+            "application/json":
+              schema:
+                additionalProperties: true
+                type: "object"
+                title: "Response Create Module Version Api V1 Modules Versions Post"
+        "422":
+          description: "Validation Error"
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/HTTPValidationError"
+  "/api/v1/modules/{module_key}/versions/{version}":
+    get:
+      tags:
+        - "endpoint-modules"
+      summary: "Read Module Version"
+      operationId: "read_module_version_api_v1_modules__module_key__versions__version__get"
+      parameters:
+        -
+          name: "module_key"
+          in: "path"
+          required: true
+          schema:
+            type: "string"
+            title: "Module Key"
+        -
+          name: "version"
+          in: "path"
+          required: true
+          schema:
+            type: "string"
+            title: "Version"
+      responses:
+        "200":
+          description: "Successful Response"
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/ModuleVersionViewEnvelope"
+        "422":
+          description: "Validation Error"
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/HTTPValidationError"
+  "/api/v1/modules/{module_key}/versions/{version}/validate":
+    post:
+      tags:
+        - "endpoint-modules"
+      summary: "Validate Module Version"
+      operationId: "validate_module_version_api_v1_modules__module_key__versions__version__validate_post"
+      parameters:
+        -
+          name: "module_key"
+          in: "path"
+          required: true
+          schema:
+            type: "string"
+            title: "Module Key"
+        -
+          name: "version"
+          in: "path"
+          required: true
+          schema:
+            type: "string"
+            title: "Version"
+      responses:
+        "200":
+          description: "Successful Response"
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/ModuleValidationEnvelope"
+        "422":
+          description: "Validation Error"
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/HTTPValidationError"
+  "/api/v1/modules/{module_key}/versions/{version}/publish":
+    post:
+      tags:
+        - "endpoint-modules"
+      summary: "Publish Module Version"
+      operationId: "publish_module_version_api_v1_modules__module_key__versions__version__publish_post"
+      parameters:
+        -
+          name: "module_key"
+          in: "path"
+          required: true
+          schema:
+            type: "string"
+            title: "Module Key"
+        -
+          name: "version"
+          in: "path"
+          required: true
+          schema:
+            type: "string"
+            title: "Version"
+      responses:
+        "200":
+          description: "Successful Response"
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/ModuleVersionStateEnvelope"
+        "422":
+          description: "Validation Error"
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/HTTPValidationError"
+  "/api/v1/modules/{module_key}/versions/{version}/deprecate":
+    post:
+      tags:
+        - "endpoint-modules"
+      summary: "Deprecate Module Version"
+      description: "Stop new module operations from using one immutable published version."
+      operationId: "deprecate_module_version_api_v1_modules__module_key__versions__version__deprecate_post"
+      parameters:
+        -
+          name: "module_key"
+          in: "path"
+          required: true
+          schema:
+            type: "string"
+            title: "Module Key"
+        -
+          name: "version"
+          in: "path"
+          required: true
+          schema:
+            type: "string"
+            title: "Version"
+      responses:
+        "200":
+          description: "Successful Response"
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/ModuleVersionStateEnvelope"
+        "422":
+          description: "Validation Error"
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/HTTPValidationError"
 components:
   schemas:
     DeviceIdentityV1:
@@ -2929,6 +3227,718 @@ components:
         - "state"
       title: "DiagnosticProcessV1"
       type: "object"
+    ModuleOperationCreateV1:
+      additionalProperties: false
+      properties:
+        schema_version:
+          const: "endpoint_module_operation_create_v1"
+          title: "Schema Version"
+          type: "string"
+        module_key:
+          maxLength: 128
+          minLength: 3
+          pattern: "^[a-z][a-z0-9]*(?:\\.[a-z][a-z0-9]*){1,7}$"
+          title: "Module Key"
+          type: "string"
+        version:
+          maxLength: 64
+          minLength: 5
+          pattern: "^\\d+\\.\\d+\\.\\d+$"
+          title: "Version"
+          type: "string"
+        inputs:
+          maxProperties: 8
+          minProperties: 1
+          patternProperties:
+            "^[a-z][a-z0-9_]{0,63}$":
+              anyOf:
+                -
+                  type: "string"
+                -
+                  type: "integer"
+          propertyNames:
+            maxLength: 64
+            minLength: 1
+          title: "Inputs"
+          type: "object"
+      required:
+        - "schema_version"
+        - "module_key"
+        - "version"
+        - "inputs"
+      title: "ModuleOperationCreateV1"
+      type: "object"
+    ModuleOperationV1:
+      additionalProperties: false
+      properties:
+        schema_version:
+          const: "endpoint_module_operation_v1"
+          title: "Schema Version"
+          type: "string"
+        operation_id:
+          format: "uuid"
+          title: "Operation Id"
+          type: "string"
+        device_id:
+          format: "uuid"
+          title: "Device Id"
+          type: "string"
+        module_key:
+          maxLength: 128
+          minLength: 3
+          pattern: "^[a-z][a-z0-9]*(?:\\.[a-z][a-z0-9]*){1,7}$"
+          title: "Module Key"
+          type: "string"
+        version:
+          maxLength: 64
+          minLength: 5
+          pattern: "^\\d+\\.\\d+\\.\\d+$"
+          title: "Version"
+          type: "string"
+        status:
+          enum:
+            - "queued"
+            - "delivered"
+            - "acknowledged"
+            - "running"
+            - "succeeded"
+            - "failed"
+            - "canceled"
+            - "expired"
+          title: "Status"
+          type: "string"
+        created_at:
+          format: "date-time"
+          title: "Created At"
+          type: "string"
+          "$comment": "model-only UTC normalization: timezone-aware values are normalized to UTC."
+        deadline_at:
+          format: "date-time"
+          title: "Deadline At"
+          type: "string"
+          "$comment": "model-only UTC normalization: timezone-aware values are normalized to UTC."
+        completed_at:
+          anyOf:
+            -
+              format: "date-time"
+              type: "string"
+              "$comment": "model-only UTC normalization: timezone-aware values are normalized to UTC."
+            -
+              type: "null"
+          default: null
+          title: "Completed At"
+      required:
+        - "schema_version"
+        - "operation_id"
+        - "device_id"
+        - "module_key"
+        - "version"
+        - "status"
+        - "created_at"
+        - "deadline_at"
+      title: "ModuleOperationV1"
+      type: "object"
+    ModuleOperationDetailV1:
+      additionalProperties: false
+      properties:
+        schema_version:
+          const: "endpoint_module_operation_v1"
+          title: "Schema Version"
+          type: "string"
+        operation_id:
+          format: "uuid"
+          title: "Operation Id"
+          type: "string"
+        device_id:
+          format: "uuid"
+          title: "Device Id"
+          type: "string"
+        module_key:
+          maxLength: 128
+          minLength: 3
+          pattern: "^[a-z][a-z0-9]*(?:\\.[a-z][a-z0-9]*){1,7}$"
+          title: "Module Key"
+          type: "string"
+        version:
+          maxLength: 64
+          minLength: 5
+          pattern: "^\\d+\\.\\d+\\.\\d+$"
+          title: "Version"
+          type: "string"
+        status:
+          enum:
+            - "queued"
+            - "delivered"
+            - "acknowledged"
+            - "running"
+            - "succeeded"
+            - "failed"
+            - "canceled"
+            - "expired"
+          title: "Status"
+          type: "string"
+        created_at:
+          format: "date-time"
+          title: "Created At"
+          type: "string"
+          "$comment": "model-only UTC normalization: timezone-aware values are normalized to UTC."
+        deadline_at:
+          format: "date-time"
+          title: "Deadline At"
+          type: "string"
+          "$comment": "model-only UTC normalization: timezone-aware values are normalized to UTC."
+        completed_at:
+          anyOf:
+            -
+              format: "date-time"
+              type: "string"
+              "$comment": "model-only UTC normalization: timezone-aware values are normalized to UTC."
+            -
+              type: "null"
+          default: null
+          title: "Completed At"
+        steps:
+          items:
+            "$ref": "#/components/schemas/ModuleOperationDetailV1__ModuleOperationStepV1"
+          maxItems: 8
+          minItems: 1
+          title: "Steps"
+          type: "array"
+      required:
+        - "schema_version"
+        - "operation_id"
+        - "device_id"
+        - "module_key"
+        - "version"
+        - "status"
+        - "created_at"
+        - "deadline_at"
+        - "steps"
+      title: "ModuleOperationDetailV1"
+      type: "object"
+    ModuleOperationDetailV1__DnsResolveResultV1:
+      additionalProperties: false
+      properties:
+        schema_version:
+          const: "dns_resolve_result_v1"
+          title: "Schema Version"
+          type: "string"
+        target:
+          maxLength: 253
+          minLength: 1
+          title: "Target"
+          type: "string"
+        canonical_name:
+          anyOf:
+            -
+              maxLength: 253
+              minLength: 1
+              type: "string"
+            -
+              type: "null"
+          default: null
+          title: "Canonical Name"
+        addresses:
+          items:
+            "$ref": "#/components/schemas/ModuleOperationDetailV1__NetworkAddressV1"
+          maxItems: 16
+          title: "Addresses"
+          type: "array"
+        address_count:
+          maximum: 16
+          minimum: 0
+          title: "Address Count"
+          type: "integer"
+        status:
+          enum:
+            - "succeeded"
+            - "failed"
+          title: "Status"
+          type: "string"
+        error_code:
+          anyOf:
+            -
+              maxLength: 64
+              minLength: 1
+              pattern: "^[a-z][a-z0-9_]{0,63}$"
+              type: "string"
+            -
+              type: "null"
+          default: null
+          title: "Error Code"
+        collected_at:
+          format: "date-time"
+          title: "Collected At"
+          type: "string"
+          "$comment": "model-only UTC normalization: timezone-aware values are normalized to UTC."
+      required:
+        - "schema_version"
+        - "target"
+        - "address_count"
+        - "status"
+        - "collected_at"
+      title: "DnsResolveResultV1"
+      type: "object"
+    ModuleOperationDetailV1__ModuleOperationStepV1:
+      additionalProperties: false
+      properties:
+        sequence:
+          maximum: 7
+          minimum: 0
+          title: "Sequence"
+          type: "integer"
+        capability:
+          enum:
+            - "dns.resolve"
+            - "network.ping"
+            - "tcp.connect"
+          title: "Capability"
+          type: "string"
+        status:
+          enum:
+            - "queued"
+            - "delivered"
+            - "acknowledged"
+            - "running"
+            - "succeeded"
+            - "failed"
+            - "canceled"
+            - "expired"
+          title: "Status"
+          type: "string"
+        error_code:
+          anyOf:
+            -
+              maxLength: 64
+              minLength: 3
+              pattern: "^[a-z][a-z0-9_]{1,63}$"
+              type: "string"
+            -
+              type: "null"
+          default: null
+          title: "Error Code"
+        safe_result:
+          anyOf:
+            -
+              discriminator:
+                mapping:
+                  dns_resolve_result_v1: "#/$defs/DnsResolveResultV1"
+                  network_ping_result_v1: "#/$defs/NetworkPingResultV1"
+                  tcp_connect_result_v1: "#/$defs/TcpConnectResultV1"
+                propertyName: "schema_version"
+              oneOf:
+                -
+                  "$ref": "#/components/schemas/ModuleOperationDetailV1__DnsResolveResultV1"
+                -
+                  "$ref": "#/components/schemas/ModuleOperationDetailV1__NetworkPingResultV1"
+                -
+                  "$ref": "#/components/schemas/ModuleOperationDetailV1__TcpConnectResultV1"
+            -
+              type: "null"
+          default: null
+          title: "Safe Result"
+      required:
+        - "sequence"
+        - "capability"
+        - "status"
+      title: "ModuleOperationStepV1"
+      type: "object"
+    ModuleOperationDetailV1__NetworkAddressV1:
+      additionalProperties: false
+      properties:
+        family:
+          enum:
+            - "ipv4"
+            - "ipv6"
+          title: "Family"
+          type: "string"
+        address:
+          maxLength: 253
+          minLength: 1
+          title: "Address"
+          type: "string"
+      required:
+        - "family"
+        - "address"
+      title: "NetworkAddressV1"
+      type: "object"
+    ModuleOperationDetailV1__NetworkPingResultV1:
+      additionalProperties: false
+      properties:
+        schema_version:
+          const: "network_ping_result_v1"
+          title: "Schema Version"
+          type: "string"
+        target:
+          maxLength: 253
+          minLength: 1
+          title: "Target"
+          type: "string"
+        resolved_ip:
+          anyOf:
+            -
+              maxLength: 253
+              minLength: 1
+              type: "string"
+            -
+              type: "null"
+          default: null
+          title: "Resolved Ip"
+        transmitted:
+          maximum: 5
+          minimum: 0
+          title: "Transmitted"
+          type: "integer"
+        received:
+          maximum: 5
+          minimum: 0
+          title: "Received"
+          type: "integer"
+        packet_loss_percent:
+          maximum: 100
+          minimum: 0
+          title: "Packet Loss Percent"
+          type: "number"
+        min_ms:
+          anyOf:
+            -
+              maximum: 60000
+              minimum: 0
+              type: "number"
+            -
+              type: "null"
+          default: null
+          title: "Min Ms"
+        avg_ms:
+          anyOf:
+            -
+              maximum: 60000
+              minimum: 0
+              type: "number"
+            -
+              type: "null"
+          default: null
+          title: "Avg Ms"
+        max_ms:
+          anyOf:
+            -
+              maximum: 60000
+              minimum: 0
+              type: "number"
+            -
+              type: "null"
+          default: null
+          title: "Max Ms"
+        reachable:
+          title: "Reachable"
+          type: "boolean"
+        status:
+          enum:
+            - "succeeded"
+            - "failed"
+          title: "Status"
+          type: "string"
+        error_code:
+          anyOf:
+            -
+              maxLength: 64
+              minLength: 1
+              pattern: "^[a-z][a-z0-9_]{0,63}$"
+              type: "string"
+            -
+              type: "null"
+          default: null
+          title: "Error Code"
+        collected_at:
+          format: "date-time"
+          title: "Collected At"
+          type: "string"
+          "$comment": "model-only UTC normalization: timezone-aware values are normalized to UTC."
+      required:
+        - "schema_version"
+        - "target"
+        - "transmitted"
+        - "received"
+        - "packet_loss_percent"
+        - "reachable"
+        - "status"
+        - "collected_at"
+      title: "NetworkPingResultV1"
+      type: "object"
+    ModuleOperationDetailV1__TcpConnectResultV1:
+      additionalProperties: false
+      properties:
+        schema_version:
+          const: "tcp_connect_result_v1"
+          title: "Schema Version"
+          type: "string"
+        target:
+          maxLength: 253
+          minLength: 1
+          title: "Target"
+          type: "string"
+        resolved_ip:
+          anyOf:
+            -
+              maxLength: 253
+              minLength: 1
+              type: "string"
+            -
+              type: "null"
+          default: null
+          title: "Resolved Ip"
+        port:
+          maximum: 65535
+          minimum: 1
+          title: "Port"
+          type: "integer"
+        reachable:
+          title: "Reachable"
+          type: "boolean"
+        latency_ms:
+          anyOf:
+            -
+              maximum: 60000
+              minimum: 0
+              type: "number"
+            -
+              type: "null"
+          default: null
+          title: "Latency Ms"
+        status:
+          enum:
+            - "succeeded"
+            - "failed"
+          title: "Status"
+          type: "string"
+        error_code:
+          anyOf:
+            -
+              maxLength: 64
+              minLength: 1
+              pattern: "^[a-z][a-z0-9_]{0,63}$"
+              type: "string"
+            -
+              type: "null"
+          default: null
+          title: "Error Code"
+        collected_at:
+          format: "date-time"
+          title: "Collected At"
+          type: "string"
+          "$comment": "model-only UTC normalization: timezone-aware values are normalized to UTC."
+      required:
+        - "schema_version"
+        - "target"
+        - "port"
+        - "reachable"
+        - "status"
+        - "collected_at"
+      title: "TcpConnectResultV1"
+      type: "object"
+    ModuleSummaryV1:
+      additionalProperties: false
+      properties:
+        module_key:
+          maxLength: 128
+          minLength: 3
+          pattern: "^[a-z][a-z0-9]*(?:\\.[a-z][a-z0-9]*){1,7}$"
+          title: "Module Key"
+          type: "string"
+        display_name:
+          maxLength: 128
+          minLength: 1
+          title: "Display Name"
+          type: "string"
+      required:
+        - "module_key"
+        - "display_name"
+      title: "ModuleSummaryV1"
+      type: "object"
+    ModuleVersionViewV1:
+      additionalProperties: false
+      properties:
+        module_key:
+          maxLength: 128
+          minLength: 3
+          pattern: "^[a-z][a-z0-9]*(?:\\.[a-z][a-z0-9]*){1,7}$"
+          title: "Module Key"
+          type: "string"
+        display_name:
+          maxLength: 128
+          minLength: 1
+          title: "Display Name"
+          type: "string"
+        version:
+          maxLength: 64
+          minLength: 5
+          pattern: "^\\d+\\.\\d+\\.\\d+$"
+          title: "Version"
+          type: "string"
+        state:
+          enum:
+            - "draft"
+            - "validation_failed"
+            - "validated"
+            - "lab_accepted"
+            - "published"
+            - "deprecated"
+            - "revoked"
+          title: "State"
+          type: "string"
+        recipe:
+          "$ref": "#/components/schemas/ModuleVersionViewV1__EndpointRecipeModuleSpecV1"
+      required:
+        - "module_key"
+        - "display_name"
+        - "version"
+        - "state"
+        - "recipe"
+      title: "ModuleVersionViewV1"
+      type: "object"
+    ModuleVersionViewV1__EndpointRecipeModuleSpecV1:
+      additionalProperties: false
+      description: "A declarative, no-branching recipe expanded only by Endpoint Platform."
+      properties:
+        schema_version:
+          const: "endpoint_recipe_module_v1"
+          title: "Schema Version"
+          type: "string"
+        module_key:
+          maxLength: 128
+          minLength: 3
+          pattern: "^[a-z][a-z0-9]*(?:\\.[a-z][a-z0-9]*){1,7}$"
+          title: "Module Key"
+          type: "string"
+        supported_platforms:
+          items:
+            enum:
+              - "linux_amd64"
+              - "windows_amd64"
+            type: "string"
+          maxItems: 2
+          minItems: 1
+          title: "Supported Platforms"
+          type: "array"
+        inputs:
+          items:
+            "$ref": "#/components/schemas/ModuleVersionViewV1__ModuleRecipeInputV1"
+          maxItems: 8
+          title: "Inputs"
+          type: "array"
+        steps:
+          items:
+            "$ref": "#/components/schemas/ModuleVersionViewV1__EndpointRecipeStepV1"
+          maxItems: 8
+          minItems: 1
+          title: "Steps"
+          type: "array"
+      required:
+        - "schema_version"
+        - "module_key"
+        - "supported_platforms"
+        - "steps"
+      title: "EndpointRecipeModuleSpecV1"
+      type: "object"
+    ModuleVersionViewV1__EndpointRecipeStepV1:
+      additionalProperties: false
+      properties:
+        step_id:
+          maxLength: 64
+          minLength: 1
+          pattern: "^[a-z][a-z0-9_]{0,63}$"
+          title: "Step Id"
+          type: "string"
+        capability:
+          enum:
+            - "dns.resolve"
+            - "network.ping"
+            - "tcp.connect"
+          title: "Capability"
+          type: "string"
+        parameters:
+          maxProperties: 3
+          minProperties: 1
+          patternProperties:
+            "^[a-z][a-z0-9_]{0,63}$":
+              discriminator:
+                mapping:
+                  input: "#/$defs/RecipeInputBindingV1"
+                  literal: "#/$defs/RecipeLiteralBindingV1"
+                propertyName: "kind"
+              oneOf:
+                -
+                  "$ref": "#/components/schemas/ModuleVersionViewV1__RecipeInputBindingV1"
+                -
+                  "$ref": "#/components/schemas/ModuleVersionViewV1__RecipeLiteralBindingV1"
+          propertyNames:
+            maxLength: 64
+            minLength: 1
+          title: "Parameters"
+          type: "object"
+      required:
+        - "step_id"
+        - "capability"
+        - "parameters"
+      title: "EndpointRecipeStepV1"
+      type: "object"
+    ModuleVersionViewV1__ModuleRecipeInputV1:
+      additionalProperties: false
+      properties:
+        name:
+          maxLength: 64
+          minLength: 1
+          pattern: "^[a-z][a-z0-9_]{0,63}$"
+          title: "Name"
+          type: "string"
+        value_type:
+          enum:
+            - "string"
+            - "integer"
+          title: "Value Type"
+          type: "string"
+      required:
+        - "name"
+        - "value_type"
+      title: "ModuleRecipeInputV1"
+      type: "object"
+    ModuleVersionViewV1__RecipeInputBindingV1:
+      additionalProperties: false
+      properties:
+        kind:
+          const: "input"
+          title: "Kind"
+          type: "string"
+        name:
+          maxLength: 64
+          minLength: 1
+          pattern: "^[a-z][a-z0-9_]{0,63}$"
+          title: "Name"
+          type: "string"
+      required:
+        - "kind"
+        - "name"
+      title: "RecipeInputBindingV1"
+      type: "object"
+    ModuleVersionViewV1__RecipeLiteralBindingV1:
+      additionalProperties: false
+      properties:
+        kind:
+          const: "literal"
+          title: "Kind"
+          type: "string"
+        value:
+          anyOf:
+            -
+              type: "string"
+            -
+              type: "integer"
+          title: "Value"
+      required:
+        - "kind"
+        - "value"
+      title: "RecipeLiteralBindingV1"
+      type: "object"
     DeviceCapabilitiesEnvelope:
       properties:
         data:
@@ -2982,6 +3992,66 @@ components:
         - "name"
         - "state"
       title: "DiagnosticProcessV1"
+    DnsResolveResultV1:
+      properties:
+        schema_version:
+          type: "string"
+          const: "dns_resolve_result_v1"
+          title: "Schema Version"
+        target:
+          type: "string"
+          maxLength: 253
+          minLength: 1
+          title: "Target"
+        canonical_name:
+          anyOf:
+            -
+              type: "string"
+              maxLength: 253
+              minLength: 1
+            -
+              type: "null"
+          title: "Canonical Name"
+        addresses:
+          items:
+            "$ref": "#/components/schemas/NetworkAddressV1"
+          type: "array"
+          maxItems: 16
+          title: "Addresses"
+        address_count:
+          type: "integer"
+          maximum: 16.0
+          minimum: 0.0
+          title: "Address Count"
+        status:
+          type: "string"
+          enum:
+            - "succeeded"
+            - "failed"
+          title: "Status"
+        error_code:
+          anyOf:
+            -
+              type: "string"
+              maxLength: 64
+              minLength: 1
+              pattern: "^[a-z][a-z0-9_]{0,63}$"
+            -
+              type: "null"
+          title: "Error Code"
+        collected_at:
+          type: "string"
+          format: "date-time"
+          title: "Collected At"
+      additionalProperties: false
+      type: "object"
+      required:
+        - "schema_version"
+        - "target"
+        - "address_count"
+        - "status"
+        - "collected_at"
+      title: "DnsResolveResultV1"
     EndpointCapabilityAvailabilityV1:
       properties:
         capability:
@@ -3028,6 +4098,136 @@ components:
         - "parameter_schema_version"
       title: "EndpointCapabilityAvailabilityV1"
       description: "One versioned safe capability descriptor for an exact device."
+    EndpointRecipeModuleSpecV1-Input:
+      properties:
+        schema_version:
+          type: "string"
+          const: "endpoint_recipe_module_v1"
+          title: "Schema Version"
+        module_key:
+          type: "string"
+          maxLength: 128
+          minLength: 3
+          pattern: "^[a-z][a-z0-9]*(?:\\.[a-z][a-z0-9]*){1,7}$"
+          title: "Module Key"
+        supported_platforms:
+          items:
+            type: "string"
+            enum:
+              - "linux_amd64"
+              - "windows_amd64"
+          type: "array"
+          maxItems: 2
+          minItems: 1
+          title: "Supported Platforms"
+        inputs:
+          items:
+            "$ref": "#/components/schemas/ModuleRecipeInputV1"
+          type: "array"
+          maxItems: 8
+          title: "Inputs"
+        steps:
+          items:
+            "$ref": "#/components/schemas/EndpointRecipeStepV1"
+          type: "array"
+          maxItems: 8
+          minItems: 1
+          title: "Steps"
+      additionalProperties: false
+      type: "object"
+      required:
+        - "schema_version"
+        - "module_key"
+        - "supported_platforms"
+        - "steps"
+      title: "EndpointRecipeModuleSpecV1"
+      description: "A declarative, no-branching recipe expanded only by Endpoint Platform."
+    EndpointRecipeModuleSpecV1-Output:
+      properties:
+        schema_version:
+          type: "string"
+          const: "endpoint_recipe_module_v1"
+          title: "Schema Version"
+        module_key:
+          type: "string"
+          maxLength: 128
+          minLength: 3
+          pattern: "^[a-z][a-z0-9]*(?:\\.[a-z][a-z0-9]*){1,7}$"
+          title: "Module Key"
+        supported_platforms:
+          items:
+            type: "string"
+            enum:
+              - "linux_amd64"
+              - "windows_amd64"
+          type: "array"
+          maxItems: 2
+          minItems: 1
+          title: "Supported Platforms"
+        inputs:
+          items:
+            "$ref": "#/components/schemas/ModuleRecipeInputV1"
+          type: "array"
+          maxItems: 8
+          title: "Inputs"
+        steps:
+          items:
+            "$ref": "#/components/schemas/EndpointRecipeStepV1"
+          type: "array"
+          maxItems: 8
+          minItems: 1
+          title: "Steps"
+      additionalProperties: false
+      type: "object"
+      required:
+        - "schema_version"
+        - "module_key"
+        - "supported_platforms"
+        - "steps"
+      title: "EndpointRecipeModuleSpecV1"
+      description: "A declarative, no-branching recipe expanded only by Endpoint Platform."
+    EndpointRecipeStepV1:
+      properties:
+        step_id:
+          type: "string"
+          maxLength: 64
+          minLength: 1
+          pattern: "^[a-z][a-z0-9_]{0,63}$"
+          title: "Step Id"
+        capability:
+          type: "string"
+          enum:
+            - "dns.resolve"
+            - "network.ping"
+            - "tcp.connect"
+          title: "Capability"
+        parameters:
+          patternProperties:
+            "^[a-z][a-z0-9_]{0,63}$":
+              oneOf:
+                -
+                  "$ref": "#/components/schemas/RecipeInputBindingV1"
+                -
+                  "$ref": "#/components/schemas/RecipeLiteralBindingV1"
+              discriminator:
+                propertyName: "kind"
+                mapping:
+                  input: "#/components/schemas/RecipeInputBindingV1"
+                  literal: "#/components/schemas/RecipeLiteralBindingV1"
+          propertyNames:
+            maxLength: 64
+            minLength: 1
+          type: "object"
+          maxProperties: 3
+          minProperties: 1
+          title: "Parameters"
+      additionalProperties: false
+      type: "object"
+      required:
+        - "step_id"
+        - "capability"
+        - "parameters"
+      title: "EndpointRecipeStepV1"
     HTTPValidationError:
       properties:
         detail:
@@ -3036,10 +4236,383 @@ components:
           type: "array"
           title: "Detail"
       type: "object"
-      required:
-        - "detail"
       title: "HTTPValidationError"
-      description: "OpenAPI shape of FastAPI's standard request validation response."
+    ModuleListEnvelope:
+      properties:
+        data:
+          items:
+            "$ref": "#/components/schemas/ModuleSummaryV1"
+          type: "array"
+          title: "Data"
+      additionalProperties: false
+      type: "object"
+      required:
+        - "data"
+      title: "ModuleListEnvelope"
+    ModuleOperationDetailEnvelope:
+      properties:
+        data:
+          "$ref": "#/components/schemas/ModuleOperationDetailV1"
+      additionalProperties: false
+      type: "object"
+      required:
+        - "data"
+      title: "ModuleOperationDetailEnvelope"
+    ModuleOperationEnvelope:
+      properties:
+        data:
+          "$ref": "#/components/schemas/ModuleOperationV1"
+      additionalProperties: false
+      type: "object"
+      required:
+        - "data"
+      title: "ModuleOperationEnvelope"
+    ModuleOperationStepV1:
+      properties:
+        sequence:
+          type: "integer"
+          maximum: 7.0
+          minimum: 0.0
+          title: "Sequence"
+        capability:
+          type: "string"
+          enum:
+            - "dns.resolve"
+            - "network.ping"
+            - "tcp.connect"
+          title: "Capability"
+        status:
+          type: "string"
+          enum:
+            - "queued"
+            - "delivered"
+            - "acknowledged"
+            - "running"
+            - "succeeded"
+            - "failed"
+            - "canceled"
+            - "expired"
+          title: "Status"
+        error_code:
+          anyOf:
+            -
+              type: "string"
+              maxLength: 64
+              minLength: 3
+              pattern: "^[a-z][a-z0-9_]{1,63}$"
+            -
+              type: "null"
+          title: "Error Code"
+        safe_result:
+          anyOf:
+            -
+              oneOf:
+                -
+                  "$ref": "#/components/schemas/DnsResolveResultV1"
+                -
+                  "$ref": "#/components/schemas/NetworkPingResultV1"
+                -
+                  "$ref": "#/components/schemas/TcpConnectResultV1"
+              discriminator:
+                propertyName: "schema_version"
+                mapping:
+                  dns_resolve_result_v1: "#/components/schemas/DnsResolveResultV1"
+                  network_ping_result_v1: "#/components/schemas/NetworkPingResultV1"
+                  tcp_connect_result_v1: "#/components/schemas/TcpConnectResultV1"
+            -
+              type: "null"
+          title: "Safe Result"
+      additionalProperties: false
+      type: "object"
+      required:
+        - "sequence"
+        - "capability"
+        - "status"
+      title: "ModuleOperationStepV1"
+    ModuleRecipeInputV1:
+      properties:
+        name:
+          type: "string"
+          maxLength: 64
+          minLength: 1
+          pattern: "^[a-z][a-z0-9_]{0,63}$"
+          title: "Name"
+        value_type:
+          type: "string"
+          enum:
+            - "string"
+            - "integer"
+          title: "Value Type"
+      additionalProperties: false
+      type: "object"
+      required:
+        - "name"
+        - "value_type"
+      title: "ModuleRecipeInputV1"
+    ModuleValidationEnvelope:
+      properties:
+        data:
+          "$ref": "#/components/schemas/ModuleValidationRunV1"
+      additionalProperties: false
+      type: "object"
+      required:
+        - "data"
+      title: "ModuleValidationEnvelope"
+    ModuleValidationRunV1:
+      properties:
+        schema_version:
+          type: "string"
+          const: "module_validation_run_v1"
+          title: "Schema Version"
+        module_key:
+          type: "string"
+          maxLength: 128
+          minLength: 3
+          pattern: "^[a-z][a-z0-9]*(?:\\.[a-z][a-z0-9]*){1,7}$"
+          title: "Module Key"
+        version:
+          type: "string"
+          maxLength: 64
+          minLength: 5
+          pattern: "^\\d+\\.\\d+\\.\\d+$"
+          title: "Version"
+        status:
+          type: "string"
+          enum:
+            - "succeeded"
+            - "failed"
+          title: "Status"
+        error_codes:
+          items:
+            type: "string"
+            maxLength: 64
+            minLength: 3
+            pattern: "^[a-z][a-z0-9_]{1,63}$"
+          type: "array"
+          maxItems: 32
+          title: "Error Codes"
+        warning_codes:
+          items:
+            type: "string"
+            maxLength: 64
+            minLength: 3
+            pattern: "^[a-z][a-z0-9_]{1,63}$"
+          type: "array"
+          maxItems: 32
+          title: "Warning Codes"
+        completed_at:
+          type: "string"
+          format: "date-time"
+          title: "Completed At"
+      additionalProperties: false
+      type: "object"
+      required:
+        - "schema_version"
+        - "module_key"
+        - "version"
+        - "status"
+        - "error_codes"
+        - "warning_codes"
+        - "completed_at"
+      title: "ModuleValidationRunV1"
+    ModuleVersionCreateV1:
+      properties:
+        schema_version:
+          type: "string"
+          const: "module_version_create_v1"
+          title: "Schema Version"
+        display_name:
+          type: "string"
+          maxLength: 128
+          minLength: 1
+          title: "Display Name"
+        version:
+          type: "string"
+          maxLength: 64
+          minLength: 5
+          pattern: "^\\d+\\.\\d+\\.\\d+$"
+          title: "Version"
+        recipe:
+          "$ref": "#/components/schemas/EndpointRecipeModuleSpecV1-Input"
+      additionalProperties: false
+      type: "object"
+      required:
+        - "schema_version"
+        - "display_name"
+        - "version"
+        - "recipe"
+      title: "ModuleVersionCreateV1"
+    ModuleVersionStateEnvelope:
+      properties:
+        data:
+          "$ref": "#/components/schemas/ModuleVersionStateV1"
+      additionalProperties: false
+      type: "object"
+      required:
+        - "data"
+      title: "ModuleVersionStateEnvelope"
+    ModuleVersionStateV1:
+      properties:
+        schema_version:
+          type: "string"
+          const: "module_version_state_v1"
+          title: "Schema Version"
+        module_key:
+          type: "string"
+          maxLength: 128
+          minLength: 3
+          pattern: "^[a-z][a-z0-9]*(?:\\.[a-z][a-z0-9]*){1,7}$"
+          title: "Module Key"
+        version:
+          type: "string"
+          maxLength: 64
+          minLength: 5
+          pattern: "^\\d+\\.\\d+\\.\\d+$"
+          title: "Version"
+        state:
+          type: "string"
+          enum:
+            - "draft"
+            - "validation_failed"
+            - "validated"
+            - "lab_accepted"
+            - "published"
+            - "deprecated"
+            - "revoked"
+          title: "State"
+      additionalProperties: false
+      type: "object"
+      required:
+        - "schema_version"
+        - "module_key"
+        - "version"
+        - "state"
+      title: "ModuleVersionStateV1"
+    ModuleVersionViewEnvelope:
+      properties:
+        data:
+          "$ref": "#/components/schemas/ModuleVersionViewV1"
+      additionalProperties: false
+      type: "object"
+      required:
+        - "data"
+      title: "ModuleVersionViewEnvelope"
+    NetworkAddressV1:
+      properties:
+        family:
+          type: "string"
+          enum:
+            - "ipv4"
+            - "ipv6"
+          title: "Family"
+        address:
+          type: "string"
+          maxLength: 253
+          minLength: 1
+          title: "Address"
+      additionalProperties: false
+      type: "object"
+      required:
+        - "family"
+        - "address"
+      title: "NetworkAddressV1"
+    NetworkPingResultV1:
+      properties:
+        schema_version:
+          type: "string"
+          const: "network_ping_result_v1"
+          title: "Schema Version"
+        target:
+          type: "string"
+          maxLength: 253
+          minLength: 1
+          title: "Target"
+        resolved_ip:
+          anyOf:
+            -
+              type: "string"
+              maxLength: 253
+              minLength: 1
+            -
+              type: "null"
+          title: "Resolved Ip"
+        transmitted:
+          type: "integer"
+          maximum: 5.0
+          minimum: 0.0
+          title: "Transmitted"
+        received:
+          type: "integer"
+          maximum: 5.0
+          minimum: 0.0
+          title: "Received"
+        packet_loss_percent:
+          type: "number"
+          maximum: 100.0
+          minimum: 0.0
+          title: "Packet Loss Percent"
+        min_ms:
+          anyOf:
+            -
+              type: "number"
+              maximum: 60000.0
+              minimum: 0.0
+            -
+              type: "null"
+          title: "Min Ms"
+        avg_ms:
+          anyOf:
+            -
+              type: "number"
+              maximum: 60000.0
+              minimum: 0.0
+            -
+              type: "null"
+          title: "Avg Ms"
+        max_ms:
+          anyOf:
+            -
+              type: "number"
+              maximum: 60000.0
+              minimum: 0.0
+            -
+              type: "null"
+          title: "Max Ms"
+        reachable:
+          type: "boolean"
+          title: "Reachable"
+        status:
+          type: "string"
+          enum:
+            - "succeeded"
+            - "failed"
+          title: "Status"
+        error_code:
+          anyOf:
+            -
+              type: "string"
+              maxLength: 64
+              minLength: 1
+              pattern: "^[a-z][a-z0-9_]{0,63}$"
+            -
+              type: "null"
+          title: "Error Code"
+        collected_at:
+          type: "string"
+          format: "date-time"
+          title: "Collected At"
+      additionalProperties: false
+      type: "object"
+      required:
+        - "schema_version"
+        - "target"
+        - "transmitted"
+        - "received"
+        - "packet_loss_percent"
+        - "reachable"
+        - "status"
+        - "collected_at"
+      title: "NetworkPingResultV1"
     OperationResponseData:
       properties:
         operation:
@@ -3066,6 +4639,110 @@ components:
       required:
         - "data"
       title: "OperationResponseEnvelope"
+    RecipeInputBindingV1:
+      properties:
+        kind:
+          type: "string"
+          const: "input"
+          title: "Kind"
+        name:
+          type: "string"
+          maxLength: 64
+          minLength: 1
+          pattern: "^[a-z][a-z0-9_]{0,63}$"
+          title: "Name"
+      additionalProperties: false
+      type: "object"
+      required:
+        - "kind"
+        - "name"
+      title: "RecipeInputBindingV1"
+    RecipeLiteralBindingV1:
+      properties:
+        kind:
+          type: "string"
+          const: "literal"
+          title: "Kind"
+        value:
+          anyOf:
+            -
+              type: "string"
+            -
+              type: "integer"
+          title: "Value"
+      additionalProperties: false
+      type: "object"
+      required:
+        - "kind"
+        - "value"
+      title: "RecipeLiteralBindingV1"
+    TcpConnectResultV1:
+      properties:
+        schema_version:
+          type: "string"
+          const: "tcp_connect_result_v1"
+          title: "Schema Version"
+        target:
+          type: "string"
+          maxLength: 253
+          minLength: 1
+          title: "Target"
+        resolved_ip:
+          anyOf:
+            -
+              type: "string"
+              maxLength: 253
+              minLength: 1
+            -
+              type: "null"
+          title: "Resolved Ip"
+        port:
+          type: "integer"
+          maximum: 65535.0
+          minimum: 1.0
+          title: "Port"
+        reachable:
+          type: "boolean"
+          title: "Reachable"
+        latency_ms:
+          anyOf:
+            -
+              type: "number"
+              maximum: 60000.0
+              minimum: 0.0
+            -
+              type: "null"
+          title: "Latency Ms"
+        status:
+          type: "string"
+          enum:
+            - "succeeded"
+            - "failed"
+          title: "Status"
+        error_code:
+          anyOf:
+            -
+              type: "string"
+              maxLength: 64
+              minLength: 1
+              pattern: "^[a-z][a-z0-9_]{0,63}$"
+            -
+              type: "null"
+          title: "Error Code"
+        collected_at:
+          type: "string"
+          format: "date-time"
+          title: "Collected At"
+      additionalProperties: false
+      type: "object"
+      required:
+        - "schema_version"
+        - "target"
+        - "port"
+        - "reachable"
+        - "status"
+        - "collected_at"
+      title: "TcpConnectResultV1"
     ValidationError:
       properties:
         loc:
@@ -3076,20 +4753,19 @@ components:
               -
                 type: "integer"
           type: "array"
-          title: "Loc"
+          title: "Location"
         msg:
           type: "string"
-          title: "Msg"
+          title: "Message"
         type:
           type: "string"
-          title: "Type"
+          title: "Error Type"
       type: "object"
       required:
         - "loc"
         - "msg"
         - "type"
       title: "ValidationError"
-      description: "OpenAPI shape of FastAPI's standard request validation item."
   securitySchemes:
     AgentBearer:
       type: "http"
