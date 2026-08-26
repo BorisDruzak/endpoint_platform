@@ -34,6 +34,7 @@ from endpoint_server.db.models import (
     EndpointOperation,
     ModuleDefinition,
     ModuleLiveTest,
+    ModuleOperationStep,
     ModuleValidationRun,
     ModuleVersion,
     ServiceClient,
@@ -81,6 +82,7 @@ MODULE_CREATE_BODY = {
         ("GET", "/api/v1/devices/one-segment"),
         ("GET", "/api/v1/devices/one-segment/capabilities"),
         ("POST", "/api/v1/devices/one-segment/operations"),
+        ("POST", "/api/v1/devices/one-segment/module-operations"),
         ("GET", "/api/v1/operations/one-segment"),
     ),
 )
@@ -116,6 +118,7 @@ def _settings(
     enabled: bool,
     network_primitives_enabled: bool = False,
     module_platform_enabled: bool = False,
+    module_execution_enabled: bool = False,
 ) -> Settings:
     return Settings(
         database_url="sqlite+aiosqlite:///:memory:",
@@ -134,6 +137,7 @@ def _settings(
             else ()
         ),
         endpoint_module_platform_enabled=module_platform_enabled,
+        endpoint_module_execution_enabled=module_execution_enabled,
     )
 
 
@@ -177,6 +181,7 @@ async def route_fixture(
         EndpointOperation.__table__,
         ModuleDefinition.__table__,
         ModuleLiveTest.__table__,
+        ModuleOperationStep.__table__,
         ModuleValidationRun.__table__,
         ModuleVersion.__table__,
     )
@@ -237,6 +242,10 @@ async def route_fixture(
         "modules-publisher": ServicePrincipal(
             client=owner,
             credential=_credential(owner, ["modules.publish"]),
+        ),
+        "module-operator": ServicePrincipal(
+            client=owner,
+            credential=_credential(owner, ["module_operations.create"]),
         ),
         "foreign-reader": ServicePrincipal(
             client=foreign,
@@ -671,6 +680,79 @@ async def test_module_publish_requires_lab_evidence_and_dedicated_scope(
         "version": "1.0.0",
         "state": "published",
     }
+
+
+@pytest.mark.asyncio
+async def test_module_operation_execution_route_is_flagged_scoped_and_idempotent(
+    route_fixture: RouteFixture,
+) -> None:
+    path = f"/api/v1/devices/{route_fixture.device.id}/module-operations"
+    disabled = create_app(
+        _settings(enabled=True, module_platform_enabled=True),
+        route_fixture.session_provider,
+    )
+    assert path.replace(str(route_fixture.device.id), "{device_id}") not in disabled.openapi()["paths"]
+
+    app = create_app(
+        _settings(
+            enabled=True,
+            network_primitives_enabled=True,
+            module_platform_enabled=True,
+            module_execution_enabled=True,
+        ),
+        route_fixture.session_provider,
+    )
+    async with route_fixture.session_provider() as session:
+        definition = ModuleDefinition(
+            id=uuid4(),
+            module_key="network.basic.check",
+            display_name="Network",
+        )
+        version = ModuleVersion(
+            id=uuid4(),
+            module_definition_id=definition.id,
+            version="1.0.0",
+            recipe=MODULE_CREATE_BODY["recipe"],
+            state="published",
+        )
+        session.add_all((definition, version))
+        await session.commit()
+
+    body = {
+        "schema_version": "endpoint_module_operation_create_v1",
+        "module_key": "network.basic.check",
+        "version": "1.0.0",
+        "inputs": {"target": "10.20.1.10"},
+    }
+    headers = {
+        **_authorization("module-operator"),
+        "Idempotency-Key": "module-operation-http-key",
+        "X-Correlation-ID": "module-operation-1",
+    }
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app),
+        base_url="https://endpoint.sosnadmin.local",
+    ) as client:
+        forbidden = await client.post(path, json=body, headers={**headers, **_authorization("modules-writer")})
+        created = await client.post(path, json=body, headers=headers)
+        replay = await client.post(path, json=body, headers=headers)
+
+    assert forbidden.status_code == 403
+    assert created.status_code == 201
+    assert replay.status_code == 200
+    assert created.headers["X-Correlation-ID"] == "module-operation-1"
+    assert created.json()["data"] == {
+        "schema_version": "endpoint_module_operation_v1",
+        "operation_id": created.json()["data"]["operation_id"],
+        "device_id": str(route_fixture.device.id),
+        "module_key": "network.basic.check",
+        "version": "1.0.0",
+        "status": "queued",
+        "created_at": created.json()["data"]["created_at"],
+        "deadline_at": created.json()["data"]["deadline_at"],
+        "completed_at": None,
+    }
+    assert replay.json() == created.json()
 
 
 @pytest.mark.asyncio

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from typing import Annotated, Literal
+from uuid import UUID
 
 from pydantic import Field, StrictInt, StrictStr, model_validator
 
@@ -127,10 +128,37 @@ class ModuleVersionStateV1(ContractModelV1):
     ]
 
 
+ModuleOperationInputValueV1 = StrictStr | StrictInt
+
+
+class ModuleOperationCreateV1(ContractModelV1):
+    schema_version: Literal["endpoint_module_operation_create_v1"]
+    module_key: ModuleKeyV1
+    version: Annotated[str, Field(strict=True, min_length=5, max_length=64, pattern=r"^\d+\.\d+\.\d+$")]
+    inputs: dict[ModuleInputNameV1, ModuleOperationInputValueV1] = Field(
+        min_length=1,
+        max_length=8,
+    )
+
+
+class ModuleOperationV1(ContractModelV1):
+    schema_version: Literal["endpoint_module_operation_v1"]
+    operation_id: UUID
+    device_id: UUID
+    module_key: ModuleKeyV1
+    version: Annotated[str, Field(strict=True, min_length=5, max_length=64, pattern=r"^\d+\.\d+\.\d+$")]
+    status: Literal["queued", "delivered", "acknowledged", "running", "succeeded", "failed", "canceled", "expired"]
+    created_at: datetime
+    deadline_at: datetime
+    completed_at: datetime | None = None
+
+
 __all__ = [
     "EndpointRecipeModuleSpecV1",
     "EndpointRecipeStepV1",
     "ModuleRecipeInputV1",
+    "ModuleOperationCreateV1",
+    "ModuleOperationV1",
     "ModuleValidationRunV1",
     "ModuleVersionStateV1",
     "RecipeInputBindingV1",
