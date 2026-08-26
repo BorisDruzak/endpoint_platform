@@ -108,6 +108,39 @@ def test_ping_handler_normalizes_fixed_adapter_output_without_raw_stdout() -> No
     assert "stdout" not in result.model_dump()
 
 
+def test_ping_handler_uses_fixed_windows_adapter_without_raw_output() -> None:
+    parameters = NetworkPingParametersV1(
+        schema_version="network_ping_parameters_v1",
+        target="10.20.1.10",
+        count=2,
+        timeout_ms=1500,
+    )
+    observed_argv: list[tuple[str, ...]] = []
+
+    def runner(argv: tuple[str, ...], _timeout: float) -> tuple[int, str]:
+        observed_argv.append(argv)
+        return (
+            0,
+            "Packets: Sent = 2, Received = 2, Lost = 0 (0% loss),\n"
+            "Minimum = 1ms, Maximum = 3ms, Average = 2ms\n",
+        )
+
+    result = ping_host(
+        parameters,
+        platform_name="windows",
+        runner=runner,
+        resolve=lambda *_args: [
+            (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("10.20.1.10", 0))
+        ],
+        collected_at=datetime(2026, 8, 26, tzinfo=UTC),
+    )
+
+    assert observed_argv == [("ping", "-n", "2", "-w", "1500", "10.20.1.10")]
+    assert result.status == "succeeded"
+    assert (result.min_ms, result.avg_ms, result.max_ms) == (1.0, 2.0, 3.0)
+    assert "Packets:" not in str(result.model_dump())
+
+
 def test_network_command_execution_applies_policy_before_invoking_handler() -> None:
     command = AgentCommandV1.model_validate(
         {
