@@ -20,6 +20,10 @@ from endpoint_contracts import (
     EndpointOperationCreateV1,
 )
 from endpoint_contracts.modules import EndpointRecipeModuleSpecV1
+from endpoint_contracts.network_primitives import (
+    DnsResolveResultV1,
+    NetworkPingResultV1,
+)
 from endpoint_contracts.gateway_ws import CommandEnvelopeV1
 from endpoint_server.context.models import ContextCollection, ContextSnapshot
 from endpoint_server.db.models import (
@@ -409,7 +413,9 @@ async def test_module_parent_is_absent_from_http_pull_and_wss_delivers_one_typed
         ).all()
         command = await session.get(Command, payload.command_id)
         delivery = await session.scalar(
-            select(CommandDelivery).where(CommandDelivery.command_id == payload.command_id)
+            select(CommandDelivery).where(
+                CommandDelivery.command_id == payload.command_id
+            )
         )
         command_count = await session.scalar(select(func.count()).select_from(Command))
     assert persisted is not None and command is not None and delivery is not None
@@ -419,6 +425,204 @@ async def test_module_parent_is_absent_from_http_pull_and_wss_delivers_one_typed
     assert steps[0].command_id == command.id
     assert delivery.device_session_id == presence.session_id
     assert command_count == 1
+
+
+@pytest.mark.asyncio
+async def test_module_child_ack_and_result_advance_the_next_typed_step(
+    session_provider: async_sessionmaker[AsyncSession],
+) -> None:
+    device = await seed_device(session_provider)
+    operation = await _seed_module_operation(session_provider, device_id=device.id)
+    presence = await _open_session(
+        session_provider,
+        device_id=device.id,
+        capabilities=["dns.resolve", "network.ping"],
+    )
+    first: list[CommandEnvelopeV1] = []
+    assert await CommandService(session_provider).deliver_next(
+        device.id,
+        presence.session_id,
+        first.append,
+        allowed_capabilities=frozenset({"dns.resolve", "network.ping"}),
+    )
+    first_payload = first[0].payload
+    acknowledged_at = datetime.now(UTC)
+    await CommandService(session_provider).record_ack(
+        device_id=device.id,
+        session_id=presence.session_id,
+        acknowledgement=AgentCommandAckV1(
+            schema_version="agent_command_ack_v1",
+            command_id=first_payload.command_id,
+            device_id=device.id,
+            status="running",
+            acknowledged_at=acknowledged_at,
+        ),
+    )
+    dns_result = DnsResolveResultV1(
+        schema_version="dns_resolve_result_v1",
+        target="probe.example.test",
+        canonical_name=None,
+        addresses=[],
+        address_count=0,
+        status="succeeded",
+        error_code=None,
+        collected_at=acknowledged_at,
+    )
+    await CommandService(session_provider).record_result(
+        device_id=device.id,
+        device_instance_id=presence.device_instance_id,
+        session_id=presence.session_id,
+        result_sequence=1,
+        result=AgentResultV1(
+            schema_version="agent_result_v1",
+            command_id=first_payload.command_id,
+            device_id=device.id,
+            status="succeeded",
+            result_items=[dns_result.model_dump(mode="json")],
+            completed_at=acknowledged_at,
+        ),
+    )
+    second: list[CommandEnvelopeV1] = []
+    assert await CommandService(session_provider).deliver_next(
+        device.id,
+        presence.session_id,
+        second.append,
+        allowed_capabilities=frozenset({"dns.resolve", "network.ping"}),
+    )
+    second_payload = second[0].payload
+    assert second_payload.command_id != first_payload.command_id
+    assert second_payload.capability == "network.ping"
+    assert second_payload.parameters == {
+        "target": "probe.example.test",
+        "count": 1,
+        "timeout_ms": 500,
+    }
+
+    await CommandService(session_provider).record_ack(
+        device_id=device.id,
+        session_id=presence.session_id,
+        acknowledgement=AgentCommandAckV1(
+            schema_version="agent_command_ack_v1",
+            command_id=second_payload.command_id,
+            device_id=device.id,
+            status="running",
+            acknowledged_at=acknowledged_at,
+        ),
+    )
+    ping_result = NetworkPingResultV1(
+        schema_version="network_ping_result_v1",
+        target="probe.example.test",
+        resolved_ip=None,
+        transmitted=1,
+        received=0,
+        packet_loss_percent=100.0,
+        min_ms=None,
+        avg_ms=None,
+        max_ms=None,
+        reachable=False,
+        status="succeeded",
+        error_code=None,
+        collected_at=acknowledged_at,
+    )
+    await CommandService(session_provider).record_result(
+        device_id=device.id,
+        device_instance_id=presence.device_instance_id,
+        session_id=presence.session_id,
+        result_sequence=2,
+        result=AgentResultV1(
+            schema_version="agent_result_v1",
+            command_id=second_payload.command_id,
+            device_id=device.id,
+            status="succeeded",
+            result_items=[ping_result.model_dump(mode="json")],
+            completed_at=acknowledged_at,
+        ),
+    )
+    async with session_provider() as session:
+        persisted = await session.get(EndpointOperation, operation.id)
+        steps = (
+            await session.scalars(
+                select(ModuleOperationStep)
+                .where(ModuleOperationStep.operation_id == operation.id)
+                .order_by(ModuleOperationStep.sequence)
+            )
+        ).all()
+        audit = await session.scalar(
+            select(AuditEvent).where(
+                AuditEvent.action == "endpoint.module_operation_completed",
+                AuditEvent.object_identifier == str(operation.id),
+            )
+        )
+    assert persisted is not None
+    assert persisted.status == "succeeded"
+    assert persisted.completed_at is not None
+    assert [step.status for step in steps] == ["succeeded", "succeeded"]
+    assert all(step.safe_result_json is not None for step in steps)
+    assert audit is not None
+
+
+@pytest.mark.asyncio
+async def test_failed_module_child_stops_the_remaining_recipe_steps(
+    session_provider: async_sessionmaker[AsyncSession],
+) -> None:
+    device = await seed_device(session_provider)
+    operation = await _seed_module_operation(session_provider, device_id=device.id)
+    presence = await _open_session(
+        session_provider,
+        device_id=device.id,
+        capabilities=["dns.resolve", "network.ping"],
+    )
+    delivered: list[CommandEnvelopeV1] = []
+    assert await CommandService(session_provider).deliver_next(
+        device.id,
+        presence.session_id,
+        delivered.append,
+        allowed_capabilities=frozenset({"dns.resolve", "network.ping"}),
+    )
+    payload = delivered[0].payload
+    completed_at = datetime.now(UTC)
+    await CommandService(session_provider).record_result(
+        device_id=device.id,
+        device_instance_id=presence.device_instance_id,
+        session_id=presence.session_id,
+        result_sequence=1,
+        result=AgentResultV1(
+            schema_version="agent_result_v1",
+            command_id=payload.command_id,
+            device_id=device.id,
+            status="failed",
+            result_items=[],
+            message="untrusted raw detail is intentionally ignored",
+            completed_at=completed_at,
+        ),
+    )
+    next_delivery: list[CommandEnvelopeV1] = []
+    assert not await CommandService(session_provider).deliver_next(
+        device.id,
+        presence.session_id,
+        next_delivery.append,
+        allowed_capabilities=frozenset({"dns.resolve", "network.ping"}),
+    )
+    async with session_provider() as session:
+        persisted = await session.get(EndpointOperation, operation.id)
+        steps = (
+            await session.scalars(
+                select(ModuleOperationStep)
+                .where(ModuleOperationStep.operation_id == operation.id)
+                .order_by(ModuleOperationStep.sequence)
+            )
+        ).all()
+        audit = await session.scalar(
+            select(AuditEvent).where(
+                AuditEvent.action == "endpoint.module_operation_failed",
+                AuditEvent.object_identifier == str(operation.id),
+            )
+        )
+    assert persisted is not None and persisted.status == "failed"
+    assert [step.status for step in steps] == ["failed", "queued"]
+    assert steps[0].safe_result_json is None
+    assert steps[0].error_code == "module_step_failed"
+    assert audit is not None
 
 
 @pytest.mark.asyncio
@@ -776,7 +980,9 @@ async def test_unacknowledged_operation_reconnect_reuses_persisted_command_ident
     async with session_provider() as session:
         persisted = await session.get(EndpointOperation, operation.id)
         assert await session.scalar(select(func.count()).select_from(Command)) == 1
-        assert await session.scalar(select(func.count()).select_from(CommandDelivery)) == 1
+        assert (
+            await session.scalar(select(func.count()).select_from(CommandDelivery)) == 1
+        )
         delivery = await session.scalar(select(CommandDelivery))
     assert persisted is not None and delivery is not None
     assert replayed_envelope.payload.command_id == persisted.command_id
@@ -885,7 +1091,9 @@ async def test_first_operation_result_requires_current_delivery_session_and_rela
     async with session_provider() as session:
         persisted = await session.get(EndpointOperation, operation.id)
         assert persisted is not None and persisted.status == "delivered"
-        assert await session.scalar(select(func.count()).select_from(CommandResult)) == 0
+        assert (
+            await session.scalar(select(func.count()).select_from(CommandResult)) == 0
+        )
 
 
 @pytest.mark.asyncio
@@ -920,8 +1128,12 @@ async def test_operation_result_requires_reciprocal_command_relation(
         )
 
     async with session_provider() as session:
-        assert await session.scalar(select(func.count()).select_from(CommandResult)) == 0
-        assert await session.scalar(select(func.count()).select_from(ContextSnapshot)) == 0
+        assert (
+            await session.scalar(select(func.count()).select_from(CommandResult)) == 0
+        )
+        assert (
+            await session.scalar(select(func.count()).select_from(ContextSnapshot)) == 0
+        )
 
 
 @pytest.mark.parametrize("corruption", ["cleared", "mismatched"])
@@ -1353,8 +1565,12 @@ async def test_mismatched_diagnostic_reason_rolls_back_without_result_ack(
     async with session_provider() as session:
         persisted = await session.get(EndpointOperation, operation.id)
         assert persisted is not None and persisted.status == "delivered"
-        assert await session.scalar(select(func.count()).select_from(CommandResult)) == 0
-        assert await session.scalar(select(func.count()).select_from(ContextSnapshot)) == 0
+        assert (
+            await session.scalar(select(func.count()).select_from(CommandResult)) == 0
+        )
+        assert (
+            await session.scalar(select(func.count()).select_from(ContextSnapshot)) == 0
+        )
 
 
 @pytest.mark.asyncio
@@ -1401,9 +1617,7 @@ async def test_reconnect_duplicate_is_idempotent_but_conflicting_result_rejects(
         result=result,
     )
     assert duplicate_ack.payload.result_sequence == 1
-    conflicting = result.model_copy(
-        update={"message": "conflicting terminal replay"}
-    )
+    conflicting = result.model_copy(update={"message": "conflicting terminal replay"})
     with pytest.raises(CommandStateRejected):
         await service.record_result(
             device_id=device.id,
@@ -1436,9 +1650,15 @@ async def test_reconnect_duplicate_is_idempotent_but_conflicting_result_rejects(
         assert persisted is not None and persisted.status == "succeeded"
         assert delivery is not None and delivery.status == "succeeded"
         assert await session.scalar(select(func.count()).select_from(Command)) == 1
-        assert await session.scalar(select(func.count()).select_from(CommandDelivery)) == 1
-        assert await session.scalar(select(func.count()).select_from(CommandResult)) == 1
-        assert await session.scalar(select(func.count()).select_from(ContextSnapshot)) == 1
+        assert (
+            await session.scalar(select(func.count()).select_from(CommandDelivery)) == 1
+        )
+        assert (
+            await session.scalar(select(func.count()).select_from(CommandResult)) == 1
+        )
+        assert (
+            await session.scalar(select(func.count()).select_from(ContextSnapshot)) == 1
+        )
 
 
 @pytest.mark.asyncio
