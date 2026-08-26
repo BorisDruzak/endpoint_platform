@@ -16,6 +16,7 @@ from endpoint_server.db.models import (
     CommandDelivery,
     Device,
     EndpointOperation,
+    ModuleOperationStep,
     ServiceClient,
 )
 
@@ -317,6 +318,65 @@ async def expire_operation_if_due(
         or _stored_utc(operation.deadline_at) > expired_at
     ):
         return False
+    if operation.capability == "endpoint.module.recipe":
+        if collection is not None or operation.command_id is not None:
+            raise OperationValidationError("module operation relation is unavailable")
+        steps = (
+            await session.scalars(
+                select(ModuleOperationStep)
+                .where(ModuleOperationStep.operation_id == operation.id)
+                .with_for_update()
+            )
+        ).all()
+        if not steps:
+            raise OperationValidationError("module operation steps are unavailable")
+        operation.status = "expired"
+        operation.completed_at = expired_at
+        for step in steps:
+            if step.status in {"succeeded", "failed", "canceled", "expired"}:
+                continue
+            step.status = "expired"
+            step.error_code = "operation_expired"
+            step.completed_at = expired_at
+            if step.command_id is None:
+                continue
+            command = await session.scalar(
+                select(Command)
+                .where(Command.id == step.command_id, Command.device_id == operation.device_id)
+                .with_for_update()
+            )
+            if command is not None and command.status not in {
+                "succeeded",
+                "failed",
+                "canceled",
+                "expired",
+            }:
+                command.status = "expired"
+            delivery = await session.scalar(
+                select(CommandDelivery)
+                .where(CommandDelivery.command_id == step.command_id)
+                .with_for_update()
+            )
+            if delivery is not None and delivery.status not in {
+                "succeeded",
+                "failed",
+                "canceled",
+                "expired",
+            }:
+                delivery.status = "expired"
+        await append_audit_event(
+            session,
+            actor_kind="system",
+            actor_identifier=None,
+            action="endpoint.module_operation_expired",
+            object_kind="endpoint_operation",
+            object_identifier=str(operation.id),
+            request_id=f"module-operation-{operation.id.hex}",
+            details={"status": operation.status},
+            occurred_at=expired_at,
+        )
+        await session.flush()
+        return True
     operation.status = "expired"
     operation.completed_at = expired_at
     if collection is None:
