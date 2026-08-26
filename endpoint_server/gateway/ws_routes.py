@@ -23,6 +23,10 @@ from endpoint_contracts.gateway_ws import (
     HeartbeatEnvelopeV1,
 )
 from endpoint_server.network import observed_client_address
+from endpoint_server.operations.capabilities import (
+    NETWORK_PRIMITIVE_CAPABILITIES,
+    network_primitives_enabled,
+)
 from endpoint_server.updates.agent_routes import DevicePrincipal, _authenticate_device
 
 from .command_service import CommandService, CommandStateRejected
@@ -51,6 +55,7 @@ _SUPPORTED_CAPABILITIES = frozenset(
         "context.health.collect",
         "context.network.collect",
         "context.diagnostic.collect",
+        *NETWORK_PRIMITIVE_CAPABILITIES,
     }
 )
 
@@ -178,14 +183,25 @@ async def connect_agent(websocket: WebSocket) -> None:
             hello=first.payload,
             source_address=str(authenticated.source_address),
         )
-        await websocket.app.state.gateway_connection_registry.register(
-            GatewayConnection(device_id, presence.session_id, websocket)
-        )
         effective_capabilities = [
             capability
             for capability in first.payload.capabilities
             if capability in _SUPPORTED_CAPABILITIES
+            and (
+                capability not in NETWORK_PRIMITIVE_CAPABILITIES
+                or network_primitives_enabled(websocket.app.state.settings)
+            )
         ]
+        await websocket.app.state.gateway_connection_registry.register(
+            GatewayConnection(
+                device_id=device_id,
+                session_id=presence.session_id,
+                websocket=websocket,
+                agent_version=first.payload.agent_version,
+                platform=first.payload.platform,
+                effective_capabilities=frozenset(effective_capabilities),
+            )
+        )
         await send_envelope(
             websocket,
             GatewayHelloEnvelopeV1(

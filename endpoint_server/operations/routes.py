@@ -38,7 +38,7 @@ from endpoint_server.context.models import ContextCollection, ContextSnapshot
 from endpoint_server.db.models import Device, DeviceInstance, EndpointOperation
 from endpoint_server.http.correlation import CORRELATION_ID_PATTERN
 
-from .capabilities import SUPPORTED_CAPABILITIES
+from .capabilities import project_available_capabilities
 from .projection import project_diagnostic_result, project_operation
 from .service import (
     OperationConflict,
@@ -273,22 +273,17 @@ async def read_device_operation_capabilities(
             status.HTTP_404_NOT_FOUND,
             "endpoint_operation_device_not_found",
         )
+    connection = await request.app.state.gateway_connection_registry.get(
+        active_device_id
+    )
     _echo_correlation(response, correlation_id)
     return DeviceCapabilitiesEnvelope(
         data=EndpointDeviceCapabilitiesV1(
             schema_version="endpoint_device_capabilities_v1",
             device_id=active_device_id,
-            capabilities=[
-                {
-                    "capability": capability,
-                    "available": True,
-                    "transport": "gateway_wss",
-                    "risk": "read_only",
-                    "consent_required": False,
-                    "parameter_schema_version": "diagnostic_collection_parameters_v1",
-                }
-                for capability in sorted(SUPPORTED_CAPABILITIES)
-            ],
+            capabilities=project_available_capabilities(
+                request.app.state.settings, connection
+            ),
         )
     )
 

@@ -75,6 +75,9 @@ class GatewayConnection:
     device_id: UUID
     session_id: UUID
     websocket: object
+    agent_version: str = ""
+    platform: str = ""
+    effective_capabilities: frozenset[str] = frozenset()
 
 
 class ConnectionRegistry:
@@ -109,6 +112,11 @@ class ConnectionRegistry:
             current = self._connections.get(device_id)
             if current is not None and current.session_id == session_id:
                 del self._connections[device_id]
+
+    async def get(self, device_id: UUID) -> GatewayConnection | None:
+        """Return a metadata snapshot for one active connection."""
+        async with self._lock:
+            return self._connections.get(device_id)
 
     async def shutdown_all(self) -> None:
         async with self._lock:

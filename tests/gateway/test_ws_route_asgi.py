@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import ipaddress
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
@@ -87,6 +89,41 @@ def test_route_does_not_send_command_outside_negotiated_capabilities(
             return await session.scalar(select(func.count()).select_from(Command))
 
     assert asyncio.run(command_count()) == 0
+
+
+def test_route_negotiates_typed_network_capability_only_after_full_server_opt_in(
+    gateway_route_harness: GatewayRouteHarness,
+) -> None:
+    provider = gateway_route_harness.provider
+    device = asyncio.run(seed_device(provider))
+    hello = _hello_envelope(device.id, ["network.ping"])
+
+    disabled_app = create_app(gateway_route_harness.settings, provider)
+    with TestClient(FixedWebSocketPeerApp(disabled_app)) as client:
+        with client.websocket_connect(
+            "/agent/v1/connect",
+            headers=_headers(),
+        ) as websocket:
+            websocket.send_json(hello)
+            assert websocket.receive_json()["payload"]["effective_capabilities"] == []
+
+    enabled_settings = replace(
+        gateway_route_harness.settings,
+        endpoint_network_primitives_enabled=True,
+        endpoint_network_probe_allowed_cidrs=(
+            ipaddress.ip_network("10.20.0.0/16"),
+        ),
+    )
+    enabled_app = create_app(enabled_settings, provider)
+    with TestClient(FixedWebSocketPeerApp(enabled_app)) as client:
+        with client.websocket_connect(
+            "/agent/v1/connect",
+            headers=_headers(),
+        ) as websocket:
+            websocket.send_json(hello)
+            assert websocket.receive_json()["payload"]["effective_capabilities"] == [
+                "network.ping"
+            ]
 
 
 def test_route_maps_semantically_invalid_context_result_to_safe_error(

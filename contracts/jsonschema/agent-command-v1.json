@@ -380,7 +380,10 @@
         "context.baseline.collect",
         "context.health.collect",
         "context.network.collect",
-        "context.diagnostic.collect"
+        "context.diagnostic.collect",
+        "dns.resolve",
+        "network.ping",
+        "tcp.connect"
       ],
       "title": "Capability",
       "type": "string"

@@ -36,6 +36,15 @@ from .gateway_ws import (
     ServerShutdownNoticeV1,
 )
 from .identity import AgentSessionV1, DeviceIdentityV1
+from .network_primitives import (
+    DnsResolveParametersV1,
+    DnsResolveResultV1,
+    NetworkAddressV1,
+    NetworkPingParametersV1,
+    NetworkPingResultV1,
+    TcpConnectParametersV1,
+    TcpConnectResultV1,
+)
 from .operations import (
     DiagnosticCollectionParametersV1,
     EndpointCapabilityAvailabilityV1,
@@ -81,6 +90,8 @@ __all__ = [
     "DeviceContextNetworkV1",
     "DeviceIdentityV1",
     "DeviceCredentialRotationV1",
+    "DnsResolveParametersV1",
+    "DnsResolveResultV1",
     "DiagnosticCollectionParametersV1",
     "EndpointCapabilityAvailabilityV1",
     "EndpointDeviceCapabilitiesV1",
@@ -96,9 +107,14 @@ __all__ = [
     "GatewayHelloV1",
     "GatewayInboundV1",
     "GatewayWsEnvelopeV1",
+    "NetworkAddressV1",
+    "NetworkPingParametersV1",
+    "NetworkPingResultV1",
     "PolicyUpdateV1",
     "ResultAckV1",
     "ServerShutdownNoticeV1",
+    "TcpConnectParametersV1",
+    "TcpConnectResultV1",
     "UpdateBuildManifestV1",
     "UpdateRolloutCreateV1",
     "validate_context_result_item",

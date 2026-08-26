@@ -894,6 +894,122 @@
           "if": {
             "properties": {
               "capability": {
+                "const": "dns.resolve"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "parameters": {
+                "additionalProperties": false,
+                "properties": {
+                  "family": {
+                    "enum": [
+                      "any",
+                      "ipv4",
+                      "ipv6"
+                    ]
+                  },
+                  "target": {
+                    "maxLength": 253,
+                    "minLength": 1,
+                    "pattern": "^(?![\\s\\S]*://)[\\s\\S]*$",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "target",
+                  "family"
+                ],
+                "type": "object"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "capability": {
+                "const": "network.ping"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "parameters": {
+                "additionalProperties": false,
+                "properties": {
+                  "count": {
+                    "maximum": 5,
+                    "minimum": 1,
+                    "type": "integer"
+                  },
+                  "target": {
+                    "maxLength": 253,
+                    "minLength": 1,
+                    "pattern": "^(?![\\s\\S]*://)[\\s\\S]*$",
+                    "type": "string"
+                  },
+                  "timeout_ms": {
+                    "maximum": 5000,
+                    "minimum": 100,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "target",
+                  "count",
+                  "timeout_ms"
+                ],
+                "type": "object"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "capability": {
+                "const": "tcp.connect"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "parameters": {
+                "additionalProperties": false,
+                "properties": {
+                  "port": {
+                    "maximum": 65535,
+                    "minimum": 1,
+                    "type": "integer"
+                  },
+                  "target": {
+                    "maxLength": 253,
+                    "minLength": 1,
+                    "pattern": "^(?![\\s\\S]*://)[\\s\\S]*$",
+                    "type": "string"
+                  },
+                  "timeout_ms": {
+                    "maximum": 10000,
+                    "minimum": 100,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "target",
+                  "port",
+                  "timeout_ms"
+                ],
+                "type": "object"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "capability": {
                 "const": "gateway.echo"
               }
             }
@@ -950,7 +1066,10 @@
             "context.baseline.collect",
             "context.health.collect",
             "context.network.collect",
-            "context.diagnostic.collect"
+            "context.diagnostic.collect",
+            "dns.resolve",
+            "network.ping",
+            "tcp.connect"
           ],
           "title": "Capability",
           "type": "string"
