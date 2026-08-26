@@ -25,6 +25,7 @@ CONTEXT_COLLECT_SCOPE = "context.collect"
 OPERATIONS_CREATE_SCOPE = "operations.create"
 OPERATIONS_READ_SCOPE = "operations.read"
 MODULES_WRITE_SCOPE = "modules.write"
+MODULES_VALIDATE_SCOPE = "modules.validate"
 PROVISIONING_INSTALL_CLAIMS_ISSUE_SCOPE = "provisioning.install-claims.issue"
 
 

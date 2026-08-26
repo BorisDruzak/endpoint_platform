@@ -32,6 +32,7 @@ from endpoint_server.db.models import (
     DeviceInstance,
     EndpointOperation,
     ModuleDefinition,
+    ModuleValidationRun,
     ModuleVersion,
     ServiceClient,
     ServiceCredential,
@@ -173,6 +174,7 @@ async def route_fixture(
         ContextSnapshot.__table__,
         EndpointOperation.__table__,
         ModuleDefinition.__table__,
+        ModuleValidationRun.__table__,
         ModuleVersion.__table__,
     )
     async with engine.begin() as connection:
@@ -224,6 +226,10 @@ async def route_fixture(
         "modules-writer": ServicePrincipal(
             client=owner,
             credential=_credential(owner, ["modules.write"]),
+        ),
+        "modules-validator": ServicePrincipal(
+            client=owner,
+            credential=_credential(owner, ["modules.validate"]),
         ),
         "foreign-reader": ServicePrincipal(
             client=foreign,
@@ -514,6 +520,47 @@ async def test_module_create_returns_safe_conflict_for_duplicate_version(
     assert first.status_code == 201
     assert duplicate.status_code == 409
     assert duplicate.json() == {"detail": {"code": "endpoint_module_version_conflict"}}
+
+
+@pytest.mark.asyncio
+async def test_module_validate_requires_dedicated_scope_and_returns_typed_result(
+    route_fixture: RouteFixture,
+) -> None:
+    app = create_app(
+        _settings(enabled=True, module_platform_enabled=True),
+        route_fixture.session_provider,
+    )
+    validation_path = "/api/v1/modules/network.basic.check/versions/1.0.0/validate"
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app),
+        base_url="https://endpoint.sosnadmin.local",
+    ) as client:
+        created = await client.post(
+            "/api/v1/modules/versions",
+            json=MODULE_CREATE_BODY,
+            headers=_authorization("modules-writer"),
+        )
+        forbidden = await client.post(
+            validation_path,
+            headers=_authorization("modules-writer"),
+        )
+        validated = await client.post(
+            validation_path,
+            headers=_authorization("modules-validator"),
+        )
+
+    assert created.status_code == 201
+    assert forbidden.status_code == 403
+    assert validated.status_code == 200
+    assert validated.json()["data"] == {
+        "schema_version": "module_validation_run_v1",
+        "module_key": "network.basic.check",
+        "version": "1.0.0",
+        "status": "succeeded",
+        "error_codes": [],
+        "warning_codes": [],
+        "completed_at": validated.json()["data"]["completed_at"],
+    }
 
 
 @pytest.mark.asyncio

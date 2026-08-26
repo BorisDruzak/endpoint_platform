@@ -7,7 +7,13 @@ import copy
 import pytest
 from pydantic import ValidationError
 
-from endpoint_contracts.modules import EndpointRecipeModuleSpecV1, ModuleVersionCreateV1
+from datetime import UTC, datetime
+
+from endpoint_contracts.modules import (
+    EndpointRecipeModuleSpecV1,
+    ModuleValidationRunV1,
+    ModuleVersionCreateV1,
+)
 from endpoint_server.modules.recipes import RecipeValidationError, validate_recipe_spec
 
 
@@ -65,6 +71,21 @@ def test_module_version_create_contract_requires_semantic_version() -> None:
     payload["version"] = "latest"
     with pytest.raises(ValidationError):
         ModuleVersionCreateV1.model_validate(payload)
+
+
+def test_module_validation_result_contract_is_bounded_and_versioned() -> None:
+    outcome = ModuleValidationRunV1.model_validate(
+        {
+            "schema_version": "module_validation_run_v1",
+            "module_key": "network.basic.check",
+            "version": "1.0.0",
+            "status": "succeeded",
+            "error_codes": [],
+            "warning_codes": [],
+            "completed_at": datetime(2026, 8, 26, tzinfo=UTC),
+        }
+    )
+    assert outcome.schema_version == "module_validation_run_v1"
 
 
 def test_recipe_contract_rejects_undeclared_executable_fields() -> None:

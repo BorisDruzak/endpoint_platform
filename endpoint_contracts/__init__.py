@@ -45,7 +45,11 @@ from .network_primitives import (
     TcpConnectParametersV1,
     TcpConnectResultV1,
 )
-from .modules import EndpointRecipeModuleSpecV1, ModuleVersionCreateV1
+from .modules import (
+    EndpointRecipeModuleSpecV1,
+    ModuleValidationRunV1,
+    ModuleVersionCreateV1,
+)
 from .operations import (
     DiagnosticCollectionParametersV1,
     EndpointCapabilityAvailabilityV1,
@@ -102,6 +106,7 @@ __all__ = [
     "EndpointOperationStatusV1",
     "EndpointOperationV1",
     "EndpointRecipeModuleSpecV1",
+    "ModuleValidationRunV1",
     "ModuleVersionCreateV1",
     "EnrollmentDeliveryProofV1",
     "EnrollmentRequestV1",

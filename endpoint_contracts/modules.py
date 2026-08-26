@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Annotated, Literal
 
 from pydantic import Field, StrictInt, StrictStr, model_validator
@@ -90,10 +91,32 @@ class ModuleVersionCreateV1(ContractModelV1):
     recipe: EndpointRecipeModuleSpecV1
 
 
+ModuleValidationCodeV1 = Annotated[
+    str,
+    Field(
+        strict=True,
+        min_length=3,
+        max_length=64,
+        pattern=r"^[a-z][a-z0-9_]{1,63}$",
+    ),
+]
+
+
+class ModuleValidationRunV1(ContractModelV1):
+    schema_version: Literal["module_validation_run_v1"]
+    module_key: ModuleKeyV1
+    version: Annotated[str, Field(strict=True, min_length=5, max_length=64, pattern=r"^\d+\.\d+\.\d+$")]
+    status: Literal["succeeded", "failed"]
+    error_codes: list[ModuleValidationCodeV1] = Field(max_length=32)
+    warning_codes: list[ModuleValidationCodeV1] = Field(max_length=32)
+    completed_at: datetime
+
+
 __all__ = [
     "EndpointRecipeModuleSpecV1",
     "EndpointRecipeStepV1",
     "ModuleRecipeInputV1",
+    "ModuleValidationRunV1",
     "RecipeInputBindingV1",
     "RecipeLiteralBindingV1",
     "RecipeParameterBindingV1",
