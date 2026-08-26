@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+import json
+from typing import Literal
+from uuid import UUID
 
 from endpoint_contracts.modules import EndpointRecipeModuleSpecV1
 from pydantic import ValidationError
@@ -11,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from endpoint_server.db.models.modules import (
     ModuleDefinition,
+    ModuleLiveTest,
     ModuleValidationRun,
     ModuleVersion,
 )
@@ -24,6 +28,17 @@ class ModuleServiceError(ValueError):
 
 
 STATIC_RECIPE_VALIDATOR_VERSION = "endpoint_recipe_static_v1"
+_SAFE_LAB_SNAPSHOT_MAX_BYTES = 128 * 1024
+_FORBIDDEN_LAB_SNAPSHOT_KEYS = frozenset(
+    {
+        "command_payload",
+        "raw_command",
+        "raw_stderr",
+        "raw_stdout",
+        "recipe",
+        "user_function_body",
+    }
+)
 
 
 def create_draft_version(recipe: EndpointRecipeModuleSpecV1 | None) -> str:
@@ -123,11 +138,120 @@ async def validate_persisted_module_version(
     return validation_run
 
 
+def _declared_platforms(module_version: ModuleVersion) -> frozenset[str]:
+    try:
+        recipe = EndpointRecipeModuleSpecV1.model_validate(module_version.recipe)
+    except ValidationError as error:
+        raise ModuleServiceError("module version recipe is invalid") from error
+    return frozenset(recipe.supported_platforms)
+
+
+def _validate_safe_lab_snapshot(snapshot: dict[str, object]) -> None:
+    if not isinstance(snapshot, dict):
+        raise ModuleServiceError("lab result snapshot must be an object")
+    if _contains_forbidden_lab_snapshot_key(snapshot):
+        raise ModuleServiceError("lab result snapshot contains forbidden data")
+    try:
+        encoded = json.dumps(snapshot, separators=(",", ":"), sort_keys=True)
+    except (TypeError, ValueError) as error:
+        raise ModuleServiceError("lab result snapshot must be JSON serializable") from error
+    if len(encoded.encode("utf-8")) > _SAFE_LAB_SNAPSHOT_MAX_BYTES:
+        raise ModuleServiceError("lab result snapshot exceeds the safe size limit")
+
+
+def _contains_forbidden_lab_snapshot_key(value: object) -> bool:
+    if isinstance(value, dict):
+        return any(
+            str(key).lower() in _FORBIDDEN_LAB_SNAPSHOT_KEYS
+            or _contains_forbidden_lab_snapshot_key(child)
+            for key, child in value.items()
+        )
+    if isinstance(value, (list, tuple)):
+        return any(_contains_forbidden_lab_snapshot_key(child) for child in value)
+    return False
+
+
+async def record_module_live_test(
+    session: AsyncSession,
+    module_version: ModuleVersion,
+    *,
+    platform: Literal["linux_amd64", "windows_amd64"],
+    endpoint_device_id: UUID,
+    operation_id: UUID,
+    status: Literal["passed", "failed"],
+    safe_result_snapshot: dict[str, object],
+    tested_at: datetime | None = None,
+) -> ModuleLiveTest:
+    """Record bounded lab evidence from an Endpoint-owned module operation."""
+    if module_version.state not in {"validated", "lab_accepted"}:
+        raise ModuleServiceError("module version is not ready for lab acceptance")
+    if platform not in _declared_platforms(module_version):
+        raise ModuleServiceError("lab platform is not declared by the module version")
+    if status not in {"passed", "failed"}:
+        raise ModuleServiceError("lab status is not supported")
+    _validate_safe_lab_snapshot(safe_result_snapshot)
+    live_test = ModuleLiveTest(
+        module_version_id=module_version.id,
+        platform=platform,
+        endpoint_device_id=endpoint_device_id,
+        operation_id=operation_id,
+        status=status,
+        safe_result_snapshot=safe_result_snapshot,
+        tested_at=tested_at or datetime.now(UTC),
+    )
+    session.add(live_test)
+    await session.flush()
+    return live_test
+
+
+async def _missing_passed_lab_platforms(
+    session: AsyncSession,
+    module_version: ModuleVersion,
+) -> frozenset[str]:
+    declared = _declared_platforms(module_version)
+    passed = frozenset(
+        await session.scalars(
+            select(ModuleLiveTest.platform).where(
+                ModuleLiveTest.module_version_id == module_version.id,
+                ModuleLiveTest.status == "passed",
+            )
+        )
+    )
+    return declared - passed
+
+
+async def accept_persisted_module_labs(
+    session: AsyncSession,
+    module_version: ModuleVersion,
+) -> ModuleVersion:
+    """Accept a validated version only when each declared platform passed lab."""
+    if module_version.state != "validated":
+        raise ModuleServiceError("module version is not ready for lab acceptance")
+    if await _missing_passed_lab_platforms(session, module_version):
+        raise ModuleServiceError("module version lacks required passed lab evidence")
+    return await transition_persisted_version(session, module_version, "lab_accepted")
+
+
+async def publish_persisted_module_version(
+    session: AsyncSession,
+    module_version: ModuleVersion,
+) -> ModuleVersion:
+    """Publish only a lab-accepted version that still has complete evidence."""
+    if module_version.state != "lab_accepted":
+        raise ModuleServiceError("module version is not ready for publication")
+    if await _missing_passed_lab_platforms(session, module_version):
+        raise ModuleServiceError("module version lacks required passed lab evidence")
+    return await transition_persisted_version(session, module_version, "published")
+
+
 __all__ = [
     "ModuleServiceError",
     "STATIC_RECIPE_VALIDATOR_VERSION",
+    "accept_persisted_module_labs",
     "create_draft_version",
     "persist_draft_version",
+    "publish_persisted_module_version",
+    "record_module_live_test",
     "transition_persisted_version",
     "validate_persisted_module_version",
 ]
