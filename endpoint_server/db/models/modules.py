@@ -2,9 +2,17 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import ForeignKey, JSON, String, UniqueConstraint
+from sqlalchemy import (
+    CheckConstraint,
+    DateTime,
+    ForeignKey,
+    JSON,
+    String,
+    UniqueConstraint,
+)
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -22,6 +30,9 @@ MODULE_VERSION_STATES = (
     "deprecated",
     "revoked",
 )
+
+MODULE_VALIDATION_RUN_STATUSES = ("succeeded", "failed")
+MODULE_LIVE_TEST_STATUSES = ("passed", "failed")
 
 
 class ModuleDefinition(OwnershipRecord, Base):
@@ -43,4 +54,71 @@ class ModuleVersion(OwnershipRecord, Base):
     state: Mapped[str] = mapped_column(String(32), nullable=False)
 
 
-__all__ = ["MODULE_VERSION_STATES", "ModuleDefinition", "ModuleVersion"]
+class ModuleValidationRun(OwnershipRecord, Base):
+    """One completed static validation result with bounded diagnostic codes."""
+
+    __tablename__ = "module_validation_runs"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('succeeded', 'failed')",
+            name="ck_module_validation_runs_status",
+        ),
+    )
+
+    module_version_id: Mapped[UUID] = mapped_column(
+        ForeignKey("module_versions.id"), nullable=False
+    )
+    validator_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False)
+    error_codes: Mapped[list[str]] = mapped_column(
+        JSON().with_variant(JSONB(), "postgresql"), nullable=False
+    )
+    warning_codes: Mapped[list[str]] = mapped_column(
+        JSON().with_variant(JSONB(), "postgresql"), nullable=False
+    )
+    completed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+
+
+class ModuleLiveTest(OwnershipRecord, Base):
+    """One lab execution acceptance result for a declared target platform."""
+
+    __tablename__ = "module_live_tests"
+    __table_args__ = (
+        CheckConstraint(
+            "platform IN ('linux_amd64', 'windows_amd64')",
+            name="ck_module_live_tests_platform",
+        ),
+        CheckConstraint(
+            "status IN ('passed', 'failed')",
+            name="ck_module_live_tests_status",
+        ),
+    )
+
+    module_version_id: Mapped[UUID] = mapped_column(
+        ForeignKey("module_versions.id"), nullable=False
+    )
+    platform: Mapped[str] = mapped_column(String(32), nullable=False)
+    endpoint_device_id: Mapped[UUID] = mapped_column(
+        ForeignKey("devices.id"), nullable=False
+    )
+    operation_id: Mapped[UUID] = mapped_column(
+        ForeignKey("endpoint_operations.id"), nullable=False
+    )
+    status: Mapped[str] = mapped_column(String(16), nullable=False)
+    safe_result_snapshot: Mapped[dict[str, object]] = mapped_column(
+        JSON().with_variant(JSONB(), "postgresql"), nullable=False
+    )
+    tested_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+__all__ = [
+    "MODULE_LIVE_TEST_STATUSES",
+    "MODULE_VALIDATION_RUN_STATUSES",
+    "MODULE_VERSION_STATES",
+    "ModuleDefinition",
+    "ModuleLiveTest",
+    "ModuleValidationRun",
+    "ModuleVersion",
+]
