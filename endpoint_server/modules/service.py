@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from endpoint_server.db.models.modules import ModuleDefinition, ModuleVersion
 
 from .recipes import RecipeValidationError, validate_recipe_spec
+from .lifecycle import transition_module_version
 
 
 class ModuleServiceError(ValueError):
@@ -64,4 +65,13 @@ async def persist_draft_version(
     return module_version
 
 
-__all__ = ["ModuleServiceError", "create_draft_version", "persist_draft_version"]
+async def transition_persisted_version(
+    session: AsyncSession, module_version: ModuleVersion, target_state: str
+) -> ModuleVersion:
+    """Move lifecycle state only; recipe/version fields remain immutable."""
+    module_version.state = transition_module_version(module_version.state, target_state)
+    await session.flush()
+    return module_version
+
+
+__all__ = ["ModuleServiceError", "create_draft_version", "persist_draft_version", "transition_persisted_version"]
