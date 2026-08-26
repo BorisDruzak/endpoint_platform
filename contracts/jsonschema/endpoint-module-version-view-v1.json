@@ -1,0 +1,241 @@
+{
+  "$defs": {
+    "EndpointRecipeModuleSpecV1": {
+      "additionalProperties": false,
+      "description": "A declarative, no-branching recipe expanded only by Endpoint Platform.",
+      "properties": {
+        "inputs": {
+          "items": {
+            "$ref": "#/$defs/ModuleRecipeInputV1"
+          },
+          "maxItems": 8,
+          "title": "Inputs",
+          "type": "array"
+        },
+        "module_key": {
+          "maxLength": 128,
+          "minLength": 3,
+          "pattern": "^[a-z][a-z0-9]*(?:\\.[a-z][a-z0-9]*){1,7}$",
+          "title": "Module Key",
+          "type": "string"
+        },
+        "schema_version": {
+          "const": "endpoint_recipe_module_v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "steps": {
+          "items": {
+            "$ref": "#/$defs/EndpointRecipeStepV1"
+          },
+          "maxItems": 8,
+          "minItems": 1,
+          "title": "Steps",
+          "type": "array"
+        },
+        "supported_platforms": {
+          "items": {
+            "enum": [
+              "linux_amd64",
+              "windows_amd64"
+            ],
+            "type": "string"
+          },
+          "maxItems": 2,
+          "minItems": 1,
+          "title": "Supported Platforms",
+          "type": "array"
+        }
+      },
+      "required": [
+        "schema_version",
+        "module_key",
+        "supported_platforms",
+        "steps"
+      ],
+      "title": "EndpointRecipeModuleSpecV1",
+      "type": "object"
+    },
+    "EndpointRecipeStepV1": {
+      "additionalProperties": false,
+      "properties": {
+        "capability": {
+          "enum": [
+            "dns.resolve",
+            "network.ping",
+            "tcp.connect"
+          ],
+          "title": "Capability",
+          "type": "string"
+        },
+        "parameters": {
+          "maxProperties": 3,
+          "minProperties": 1,
+          "patternProperties": {
+            "^[a-z][a-z0-9_]{0,63}$": {
+              "discriminator": {
+                "mapping": {
+                  "input": "#/$defs/RecipeInputBindingV1",
+                  "literal": "#/$defs/RecipeLiteralBindingV1"
+                },
+                "propertyName": "kind"
+              },
+              "oneOf": [
+                {
+                  "$ref": "#/$defs/RecipeInputBindingV1"
+                },
+                {
+                  "$ref": "#/$defs/RecipeLiteralBindingV1"
+                }
+              ]
+            }
+          },
+          "propertyNames": {
+            "maxLength": 64,
+            "minLength": 1
+          },
+          "title": "Parameters",
+          "type": "object"
+        },
+        "step_id": {
+          "maxLength": 64,
+          "minLength": 1,
+          "pattern": "^[a-z][a-z0-9_]{0,63}$",
+          "title": "Step Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "step_id",
+        "capability",
+        "parameters"
+      ],
+      "title": "EndpointRecipeStepV1",
+      "type": "object"
+    },
+    "ModuleRecipeInputV1": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "maxLength": 64,
+          "minLength": 1,
+          "pattern": "^[a-z][a-z0-9_]{0,63}$",
+          "title": "Name",
+          "type": "string"
+        },
+        "value_type": {
+          "enum": [
+            "string",
+            "integer"
+          ],
+          "title": "Value Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "value_type"
+      ],
+      "title": "ModuleRecipeInputV1",
+      "type": "object"
+    },
+    "RecipeInputBindingV1": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "input",
+          "title": "Kind",
+          "type": "string"
+        },
+        "name": {
+          "maxLength": 64,
+          "minLength": 1,
+          "pattern": "^[a-z][a-z0-9_]{0,63}$",
+          "title": "Name",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "name"
+      ],
+      "title": "RecipeInputBindingV1",
+      "type": "object"
+    },
+    "RecipeLiteralBindingV1": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "literal",
+          "title": "Kind",
+          "type": "string"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "integer"
+            }
+          ],
+          "title": "Value"
+        }
+      },
+      "required": [
+        "kind",
+        "value"
+      ],
+      "title": "RecipeLiteralBindingV1",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "display_name": {
+      "maxLength": 128,
+      "minLength": 1,
+      "title": "Display Name",
+      "type": "string"
+    },
+    "module_key": {
+      "maxLength": 128,
+      "minLength": 3,
+      "pattern": "^[a-z][a-z0-9]*(?:\\.[a-z][a-z0-9]*){1,7}$",
+      "title": "Module Key",
+      "type": "string"
+    },
+    "recipe": {
+      "$ref": "#/$defs/EndpointRecipeModuleSpecV1"
+    },
+    "state": {
+      "enum": [
+        "draft",
+        "validation_failed",
+        "validated",
+        "lab_accepted",
+        "published",
+        "deprecated",
+        "revoked"
+      ],
+      "title": "State",
+      "type": "string"
+    },
+    "version": {
+      "maxLength": 64,
+      "minLength": 5,
+      "pattern": "^\\d+\\.\\d+\\.\\d+$",
+      "title": "Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "module_key",
+    "display_name",
+    "version",
+    "state",
+    "recipe"
+  ],
+  "title": "ModuleVersionViewV1",
+  "type": "object"
+}
