@@ -29,5 +29,7 @@ async def test_persist_draft_version_reuses_definition_without_committing() -> N
         second = await persist_draft_version(session, recipe=recipe, display_name="Ignored", version="1.0.1")
         assert first.module_definition_id == second.module_definition_id
         assert await session.scalar(select(func.count()).select_from(ModuleDefinition)) == 1
+        with pytest.raises(ModuleServiceError, match="already exists"):
+            await persist_draft_version(session, recipe=recipe, display_name="Network", version="1.0.1")
         await session.commit()
     await engine.dispose()

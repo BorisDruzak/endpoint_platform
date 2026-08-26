@@ -45,6 +45,14 @@ async def persist_draft_version(
         )
         session.add(definition)
         await session.flush()
+    existing = await session.scalar(
+        select(ModuleVersion).where(
+            ModuleVersion.module_definition_id == definition.id,
+            ModuleVersion.version == version,
+        )
+    )
+    if existing is not None:
+        raise ModuleServiceError("module version already exists")
     module_version = ModuleVersion(
         module_definition_id=definition.id,
         version=version,
