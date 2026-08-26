@@ -21,6 +21,7 @@ from pc_agent.enrollment_identity import (
     ENROLLMENT_IDENTITY_FILENAME,
     read_enrollment_device_id,
 )
+from pc_agent.primitives.network.policy import AgentNetworkProbePolicy
 from pc_agent.transport.base import GatewayTerminalError, GatewayTransport
 from pc_agent.transport.http_pull import ClassifiedGatewayTransport
 from pc_agent.transport.protocol import (
@@ -54,6 +55,8 @@ class RuntimeSettings:
     endpoint_origin: str
     transport_mode: Literal["gateway_wss", "gateway_http_pull"]
     migration_http_pull_fallback: bool = False
+    network_probe_allowed_cidrs: tuple[str, ...] = ()
+    network_probe_allowed_suffixes: tuple[str, ...] = ()
 
     def validate(self) -> None:
         for name in ("data_root", "install_root", "ca_file"):
@@ -74,8 +77,25 @@ class RuntimeSettings:
             raise ValueError("unsupported Endpoint transport mode")
         if not isinstance(self.migration_http_pull_fallback, bool):
             raise ValueError("migration HTTP pull fallback must be boolean")
+        for name in (
+            "network_probe_allowed_cidrs",
+            "network_probe_allowed_suffixes",
+        ):
+            values = getattr(self, name)
+            if not isinstance(values, tuple) or not all(
+                isinstance(value, str) for value in values
+            ):
+                raise ValueError(f"{name} must be a tuple of strings")
+        self.network_probe_policy()
         if not self.ca_file.is_file():
             raise ValueError("Endpoint CA file is missing")
+
+    def network_probe_policy(self) -> AgentNetworkProbePolicy:
+        """Build the local fail-closed allowlist for typed network commands."""
+        return AgentNetworkProbePolicy.from_values(
+            allowed_cidrs=self.network_probe_allowed_cidrs,
+            allowed_suffixes=self.network_probe_allowed_suffixes,
+        )
 
 
 class RuntimeApplication:
@@ -85,7 +105,7 @@ class RuntimeApplication:
         dependencies: RuntimeDependencies | None = None,
     ) -> None:
         self.settings = settings
-        self.dependencies = dependencies or _default_dependencies()
+        self.dependencies = dependencies or _default_dependencies(settings)
         self.status = RuntimeStatus()
 
     async def run(self) -> int:
@@ -102,7 +122,9 @@ async def run_runtime(settings: RuntimeSettings) -> int:
     return await RuntimeApplication(settings).run()
 
 
-def _default_dependencies() -> RuntimeDependencies:
+def _default_dependencies(
+    settings: RuntimeSettings | None = None,
+) -> RuntimeDependencies:
     transport_state = _EndpointHttpPullState()
 
     def create_transport(
@@ -134,9 +156,18 @@ def _default_dependencies() -> RuntimeDependencies:
             )
         return ()
 
+    create_executor = CommandExecutor
+    if settings is not None:
+        def create_configured_executor() -> CommandExecutor:
+            return CommandExecutor(
+                network_probe_policy=settings.network_probe_policy()
+            )
+
+        create_executor = create_configured_executor
+
     return RuntimeDependencies(
         load_credential=_load_credential,
-        create_executor=CommandExecutor,
+        create_executor=create_executor,
         create_transport=create_transport,
         load_hello=_load_hello,
         after_server_handshake=_startup_proof_hook,
