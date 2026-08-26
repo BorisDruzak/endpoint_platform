@@ -9,6 +9,11 @@ from uuid import UUID
 from pydantic import Field, StrictInt, StrictStr, model_validator
 
 from .base import ContractModelV1
+from .network_primitives import (
+    DnsResolveResultV1,
+    NetworkPingResultV1,
+    TcpConnectResultV1,
+)
 
 
 ModuleInputNameV1 = Annotated[
@@ -153,11 +158,40 @@ class ModuleOperationV1(ContractModelV1):
     completed_at: datetime | None = None
 
 
+ModuleStepSafeResultV1 = Annotated[
+    DnsResolveResultV1 | NetworkPingResultV1 | TcpConnectResultV1,
+    Field(discriminator="schema_version"),
+]
+
+
+class ModuleOperationStepV1(ContractModelV1):
+    sequence: Annotated[int, Field(strict=True, ge=0, le=7)]
+    capability: Literal["dns.resolve", "network.ping", "tcp.connect"]
+    status: Literal[
+        "queued",
+        "delivered",
+        "acknowledged",
+        "running",
+        "succeeded",
+        "failed",
+        "canceled",
+        "expired",
+    ]
+    error_code: ModuleValidationCodeV1 | None = None
+    safe_result: ModuleStepSafeResultV1 | None = None
+
+
+class ModuleOperationDetailV1(ModuleOperationV1):
+    steps: list[ModuleOperationStepV1] = Field(min_length=1, max_length=8)
+
+
 __all__ = [
     "EndpointRecipeModuleSpecV1",
     "EndpointRecipeStepV1",
     "ModuleRecipeInputV1",
     "ModuleOperationCreateV1",
+    "ModuleOperationDetailV1",
+    "ModuleOperationStepV1",
     "ModuleOperationV1",
     "ModuleValidationRunV1",
     "ModuleVersionStateV1",

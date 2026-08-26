@@ -19,7 +19,7 @@ def is_operation_api_request(method: str, path: str) -> bool:
     if len(segments) == 5 and segments[0] == "" and segments[1:3] == ["api", "v1"]:
         if method != "GET" or not segments[4]:
             return False
-        if segments[3] == "operations":
+        if segments[3] in {"operations", "module-operations"}:
             return True
         return segments[3] == "devices" and segments[4] != "network-identities"
     if len(segments) == 6 and segments[:4] == ["", "api", "v1", "devices"]:

@@ -1,0 +1,54 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "inputs": {
+      "maxProperties": 8,
+      "minProperties": 1,
+      "patternProperties": {
+        "^[a-z][a-z0-9_]{0,63}$": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "integer"
+            }
+          ]
+        }
+      },
+      "propertyNames": {
+        "maxLength": 64,
+        "minLength": 1
+      },
+      "title": "Inputs",
+      "type": "object"
+    },
+    "module_key": {
+      "maxLength": 128,
+      "minLength": 3,
+      "pattern": "^[a-z][a-z0-9]*(?:\\.[a-z][a-z0-9]*){1,7}$",
+      "title": "Module Key",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "endpoint_module_operation_create_v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "version": {
+      "maxLength": 64,
+      "minLength": 5,
+      "pattern": "^\\d+\\.\\d+\\.\\d+$",
+      "title": "Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema_version",
+    "module_key",
+    "version",
+    "inputs"
+  ],
+  "title": "ModuleOperationCreateV1",
+  "type": "object"
+}

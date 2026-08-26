@@ -1,0 +1,519 @@
+{
+  "$defs": {
+    "DnsResolveResultV1": {
+      "additionalProperties": false,
+      "properties": {
+        "address_count": {
+          "maximum": 16,
+          "minimum": 0,
+          "title": "Address Count",
+          "type": "integer"
+        },
+        "addresses": {
+          "items": {
+            "$ref": "#/$defs/NetworkAddressV1"
+          },
+          "maxItems": 16,
+          "title": "Addresses",
+          "type": "array"
+        },
+        "canonical_name": {
+          "anyOf": [
+            {
+              "maxLength": 253,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Canonical Name"
+        },
+        "collected_at": {
+          "$comment": "model-only UTC normalization: timezone-aware values are normalized to UTC.",
+          "format": "date-time",
+          "title": "Collected At",
+          "type": "string"
+        },
+        "error_code": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "minLength": 1,
+              "pattern": "^[a-z][a-z0-9_]{0,63}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Error Code"
+        },
+        "schema_version": {
+          "const": "dns_resolve_result_v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "succeeded",
+            "failed"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "target": {
+          "maxLength": 253,
+          "minLength": 1,
+          "title": "Target",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema_version",
+        "target",
+        "address_count",
+        "status",
+        "collected_at"
+      ],
+      "title": "DnsResolveResultV1",
+      "type": "object"
+    },
+    "ModuleOperationStepV1": {
+      "additionalProperties": false,
+      "properties": {
+        "capability": {
+          "enum": [
+            "dns.resolve",
+            "network.ping",
+            "tcp.connect"
+          ],
+          "title": "Capability",
+          "type": "string"
+        },
+        "error_code": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "minLength": 3,
+              "pattern": "^[a-z][a-z0-9_]{1,63}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Error Code"
+        },
+        "safe_result": {
+          "anyOf": [
+            {
+              "discriminator": {
+                "mapping": {
+                  "dns_resolve_result_v1": "#/$defs/DnsResolveResultV1",
+                  "network_ping_result_v1": "#/$defs/NetworkPingResultV1",
+                  "tcp_connect_result_v1": "#/$defs/TcpConnectResultV1"
+                },
+                "propertyName": "schema_version"
+              },
+              "oneOf": [
+                {
+                  "$ref": "#/$defs/DnsResolveResultV1"
+                },
+                {
+                  "$ref": "#/$defs/NetworkPingResultV1"
+                },
+                {
+                  "$ref": "#/$defs/TcpConnectResultV1"
+                }
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Safe Result"
+        },
+        "sequence": {
+          "maximum": 7,
+          "minimum": 0,
+          "title": "Sequence",
+          "type": "integer"
+        },
+        "status": {
+          "enum": [
+            "queued",
+            "delivered",
+            "acknowledged",
+            "running",
+            "succeeded",
+            "failed",
+            "canceled",
+            "expired"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "sequence",
+        "capability",
+        "status"
+      ],
+      "title": "ModuleOperationStepV1",
+      "type": "object"
+    },
+    "NetworkAddressV1": {
+      "additionalProperties": false,
+      "properties": {
+        "address": {
+          "maxLength": 253,
+          "minLength": 1,
+          "title": "Address",
+          "type": "string"
+        },
+        "family": {
+          "enum": [
+            "ipv4",
+            "ipv6"
+          ],
+          "title": "Family",
+          "type": "string"
+        }
+      },
+      "required": [
+        "family",
+        "address"
+      ],
+      "title": "NetworkAddressV1",
+      "type": "object"
+    },
+    "NetworkPingResultV1": {
+      "additionalProperties": false,
+      "properties": {
+        "avg_ms": {
+          "anyOf": [
+            {
+              "maximum": 60000,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Avg Ms"
+        },
+        "collected_at": {
+          "$comment": "model-only UTC normalization: timezone-aware values are normalized to UTC.",
+          "format": "date-time",
+          "title": "Collected At",
+          "type": "string"
+        },
+        "error_code": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "minLength": 1,
+              "pattern": "^[a-z][a-z0-9_]{0,63}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Error Code"
+        },
+        "max_ms": {
+          "anyOf": [
+            {
+              "maximum": 60000,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Ms"
+        },
+        "min_ms": {
+          "anyOf": [
+            {
+              "maximum": 60000,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Min Ms"
+        },
+        "packet_loss_percent": {
+          "maximum": 100,
+          "minimum": 0,
+          "title": "Packet Loss Percent",
+          "type": "number"
+        },
+        "reachable": {
+          "title": "Reachable",
+          "type": "boolean"
+        },
+        "received": {
+          "maximum": 5,
+          "minimum": 0,
+          "title": "Received",
+          "type": "integer"
+        },
+        "resolved_ip": {
+          "anyOf": [
+            {
+              "maxLength": 253,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Resolved Ip"
+        },
+        "schema_version": {
+          "const": "network_ping_result_v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "succeeded",
+            "failed"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "target": {
+          "maxLength": 253,
+          "minLength": 1,
+          "title": "Target",
+          "type": "string"
+        },
+        "transmitted": {
+          "maximum": 5,
+          "minimum": 0,
+          "title": "Transmitted",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "schema_version",
+        "target",
+        "transmitted",
+        "received",
+        "packet_loss_percent",
+        "reachable",
+        "status",
+        "collected_at"
+      ],
+      "title": "NetworkPingResultV1",
+      "type": "object"
+    },
+    "TcpConnectResultV1": {
+      "additionalProperties": false,
+      "properties": {
+        "collected_at": {
+          "$comment": "model-only UTC normalization: timezone-aware values are normalized to UTC.",
+          "format": "date-time",
+          "title": "Collected At",
+          "type": "string"
+        },
+        "error_code": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "minLength": 1,
+              "pattern": "^[a-z][a-z0-9_]{0,63}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Error Code"
+        },
+        "latency_ms": {
+          "anyOf": [
+            {
+              "maximum": 60000,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Latency Ms"
+        },
+        "port": {
+          "maximum": 65535,
+          "minimum": 1,
+          "title": "Port",
+          "type": "integer"
+        },
+        "reachable": {
+          "title": "Reachable",
+          "type": "boolean"
+        },
+        "resolved_ip": {
+          "anyOf": [
+            {
+              "maxLength": 253,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Resolved Ip"
+        },
+        "schema_version": {
+          "const": "tcp_connect_result_v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "succeeded",
+            "failed"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "target": {
+          "maxLength": 253,
+          "minLength": 1,
+          "title": "Target",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema_version",
+        "target",
+        "port",
+        "reachable",
+        "status",
+        "collected_at"
+      ],
+      "title": "TcpConnectResultV1",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "completed_at": {
+      "anyOf": [
+        {
+          "$comment": "model-only UTC normalization: timezone-aware values are normalized to UTC.",
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Completed At"
+    },
+    "created_at": {
+      "$comment": "model-only UTC normalization: timezone-aware values are normalized to UTC.",
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
+    },
+    "deadline_at": {
+      "$comment": "model-only UTC normalization: timezone-aware values are normalized to UTC.",
+      "format": "date-time",
+      "title": "Deadline At",
+      "type": "string"
+    },
+    "device_id": {
+      "format": "uuid",
+      "title": "Device Id",
+      "type": "string"
+    },
+    "module_key": {
+      "maxLength": 128,
+      "minLength": 3,
+      "pattern": "^[a-z][a-z0-9]*(?:\\.[a-z][a-z0-9]*){1,7}$",
+      "title": "Module Key",
+      "type": "string"
+    },
+    "operation_id": {
+      "format": "uuid",
+      "title": "Operation Id",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "endpoint_module_operation_v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "status": {
+      "enum": [
+        "queued",
+        "delivered",
+        "acknowledged",
+        "running",
+        "succeeded",
+        "failed",
+        "canceled",
+        "expired"
+      ],
+      "title": "Status",
+      "type": "string"
+    },
+    "steps": {
+      "items": {
+        "$ref": "#/$defs/ModuleOperationStepV1"
+      },
+      "maxItems": 8,
+      "minItems": 1,
+      "title": "Steps",
+      "type": "array"
+    },
+    "version": {
+      "maxLength": 64,
+      "minLength": 5,
+      "pattern": "^\\d+\\.\\d+\\.\\d+$",
+      "title": "Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema_version",
+    "operation_id",
+    "device_id",
+    "module_key",
+    "version",
+    "status",
+    "created_at",
+    "deadline_at",
+    "steps"
+  ],
+  "title": "ModuleOperationDetailV1",
+  "type": "object"
+}

@@ -28,6 +28,7 @@ MODULES_WRITE_SCOPE = "modules.write"
 MODULES_VALIDATE_SCOPE = "modules.validate"
 MODULES_PUBLISH_SCOPE = "modules.publish"
 MODULE_OPERATIONS_CREATE_SCOPE = "module_operations.create"
+MODULE_OPERATIONS_READ_SCOPE = "module_operations.read"
 PROVISIONING_INSTALL_CLAIMS_ISSUE_SCOPE = "provisioning.install-claims.issue"
 
 

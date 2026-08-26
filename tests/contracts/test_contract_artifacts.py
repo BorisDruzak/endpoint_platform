@@ -100,7 +100,7 @@ def _assert_synthetic_fixture(value: Any) -> None:
         assert not _contains_url_credentials(child), path
         if UUID_PATTERN.fullmatch(child):
             assert child in SYNTHETIC_UUIDS, path
-        elif field_name != "sha256":
+        elif field_name not in {"sha256", "schema_version"}:
             assert not OPAQUE_VALUE_PATTERN.fullmatch(child), path
         if field_name.lower() in DEVICE_DATA_FIELDS or any(
             marker in field_name.lower() for marker in DEVICE_DATA_MARKERS
