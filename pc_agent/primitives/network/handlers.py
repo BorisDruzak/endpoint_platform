@@ -258,8 +258,14 @@ def _parse_ping_output(
         counts = re.search(r"(\d+)\s+packets transmitted,\s*(\d+)\s+(?:packets )?received", output)
         timings = re.search(r"=\s*([0-9.]+)/([0-9.]+)/([0-9.]+)/", output)
     else:
-        counts = re.search(r"Sent\s*=\s*(\d+),\s*Received\s*=\s*(\d+)", output, re.IGNORECASE)
-        timings = re.search(r"Minimum\s*=\s*([0-9.]+)ms,\s*Maximum\s*=\s*([0-9.]+)ms,\s*Average\s*=\s*([0-9.]+)ms", output, re.IGNORECASE)
+        counts = re.search(r"=\s*(\d+)\s*,\s*[^=\r\n]+=\s*(\d+)", output)
+        timings = re.search(
+            r"=\s*([0-9.]+)\s*(?:ms|мс(?:ек)?)\s*,\s*"
+            r"[^=\r\n]+=\s*([0-9.]+)\s*(?:ms|мс(?:ек)?)\s*,\s*"
+            r"[^=\r\n]+=\s*([0-9.]+)\s*(?:ms|мс(?:ек)?)",
+            output,
+            re.IGNORECASE,
+        )
     if counts is None:
         return None
     transmitted, received = int(counts.group(1)), int(counts.group(2))
