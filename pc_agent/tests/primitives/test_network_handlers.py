@@ -10,6 +10,7 @@ from endpoint_contracts import AgentCommandV1
 from pc_agent.primitives.network.command_execution import execute_network_agent_command
 from pc_agent.primitives.network.policy import AgentNetworkProbePolicy
 from pc_agent.primitives.network.handlers import (
+    _windows_ping_output_encoding,
     ping_host,
     resolve_dns,
     tcp_connect,
@@ -166,6 +167,10 @@ def test_ping_handler_parses_localized_windows_summary() -> None:
     assert result.status == "succeeded"
     assert result.reachable is True
     assert (result.min_ms, result.avg_ms, result.max_ms) == (0.0, 0.0, 0.0)
+
+
+def test_windows_ping_uses_the_oem_output_encoding() -> None:
+    assert _windows_ping_output_encoding(get_oemcp=lambda: 866) == "cp866"
 
 
 def test_network_command_execution_applies_policy_before_invoking_handler() -> None:

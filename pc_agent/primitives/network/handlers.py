@@ -8,6 +8,7 @@ import re
 import socket
 import subprocess
 import time
+import ctypes
 from collections.abc import Callable, Iterator
 from datetime import UTC, datetime
 
@@ -234,19 +235,32 @@ def ping_host(
 
 
 def _run_fixed_ping(argv: tuple[str, ...], timeout_seconds: float) -> tuple[int, str]:
+    options: dict[str, object] = {
+        "check": False,
+        "stdin": subprocess.DEVNULL,
+        "stdout": subprocess.PIPE,
+        "stderr": subprocess.DEVNULL,
+        "text": True,
+        "timeout": timeout_seconds,
+    }
+    if os.name == "nt":
+        options["encoding"] = _windows_ping_output_encoding()
     try:
         completed = subprocess.run(
             argv,
-            check=False,
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL,
-            text=True,
-            timeout=timeout_seconds,
+            **options,
         )
     except subprocess.TimeoutExpired as error:
         raise TimeoutError("fixed ping adapter timed out") from error
     return completed.returncode, completed.stdout
+
+
+def _windows_ping_output_encoding(
+    *, get_oemcp: Callable[[], int] | None = None
+) -> str:
+    """Return the Windows OEM code page used by ping.exe summaries."""
+    code_page = (get_oemcp or ctypes.windll.kernel32.GetOEMCP)()
+    return f"cp{code_page}" if code_page > 0 else "utf-8"
 
 
 def _parse_ping_output(
