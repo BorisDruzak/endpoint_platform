@@ -129,7 +129,7 @@ def test_migration_history_has_exactly_one_head() -> None:
         _alembic_config("postgresql+asyncpg://unused@127.0.0.1/unused")
     )
 
-    assert script.get_heads() == ["0016_module_validation_evidence"]
+    assert script.get_heads() == ["0017_module_operation_steps"]
 
 
 def test_migration_revisions_fit_alembic_version_storage() -> None:
@@ -139,6 +139,30 @@ def test_migration_revisions_fit_alembic_version_storage() -> None:
     )
 
     assert all(len(revision.revision) <= 32 for revision in script.walk_revisions())
+
+
+def test_module_operation_step_migration_preserves_context_boundary() -> None:
+    output = io.StringIO()
+    config = Config(REPOSITORY_ROOT / "alembic.ini", output_buffer=output)
+    config.set_main_option(
+        "sqlalchemy.url",
+        "postgresql+asyncpg://unused@127.0.0.1/unused",
+    )
+
+    command.upgrade(
+        config,
+        "0016_module_validation_evidence:0017_module_operation_steps",
+        sql=True,
+    )
+
+    rendered = " ".join(output.getvalue().split())
+    assert "ADD COLUMN module_version_id UUID" in rendered
+    assert "ADD COLUMN module_inputs JSONB" in rendered
+    assert "CREATE TABLE endpoint_operation_steps" in rendered
+    assert "CONSTRAINT uq_endpoint_operation_steps_sequence UNIQUE (operation_id, sequence)" in rendered
+    assert "CONSTRAINT uq_endpoint_operation_steps_recipe_key UNIQUE (operation_id, recipe_step_key)" in rendered
+    assert "CONSTRAINT ck_endpoint_operation_steps_capability CHECK (capability IN ('dns.resolve', 'network.ping', 'tcp.connect'))" in rendered
+    assert "endpoint.module.recipe" in rendered
 
 
 def test_endpoint_operation_migration_enforces_scoped_one_to_one_ownership() -> None:
