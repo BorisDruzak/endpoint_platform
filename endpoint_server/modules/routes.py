@@ -1,18 +1,32 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
+from pydantic import BaseModel, ConfigDict
+from sqlalchemy import select
 
-from endpoint_contracts.modules import ModuleVersionCreateV1
+from endpoint_contracts.modules import ModuleValidationRunV1, ModuleVersionCreateV1
 from endpoint_server.auth.scopes import (
+    MODULES_VALIDATE_SCOPE,
     MODULES_WRITE_SCOPE,
     ServicePrincipal,
     require_service_scope,
 )
+from endpoint_server.db.models import ModuleDefinition, ModuleVersion
 
-from .service import ModuleServiceError, persist_draft_version
+from .service import (
+    ModuleServiceError,
+    persist_draft_version,
+    validate_persisted_module_version,
+)
 
 
 router = APIRouter(prefix="/api/v1/modules", tags=["endpoint-modules"])
+
+
+class ModuleValidationEnvelope(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    data: ModuleValidationRunV1
 
 
 @router.post("/versions", status_code=status.HTTP_201_CREATED)
@@ -37,3 +51,52 @@ async def create_module_version(
                 detail={"code": "endpoint_module_version_conflict"},
             ) from error
     return {"data": {"module_version_id": str(version.id), "state": version.state}}
+
+
+@router.post(
+    "/{module_key}/versions/{version}/validate",
+    response_model=ModuleValidationEnvelope,
+)
+async def validate_module_version(
+    module_key: str,
+    version: str,
+    request: Request,
+    _: ServicePrincipal = Depends(require_service_scope(MODULES_VALIDATE_SCOPE)),
+) -> ModuleValidationEnvelope:
+    async with request.app.state.session_provider() as session:
+        module_version = await session.scalar(
+            select(ModuleVersion)
+            .join(ModuleDefinition)
+            .where(
+                ModuleDefinition.module_key == module_key,
+                ModuleVersion.version == version,
+            )
+        )
+        if module_version is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail={"code": "endpoint_module_version_not_found"},
+            )
+        try:
+            validation_run = await validate_persisted_module_version(
+                session,
+                module_version,
+            )
+            await session.commit()
+        except ModuleServiceError as error:
+            await session.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={"code": "endpoint_module_validation_conflict"},
+            ) from error
+    return ModuleValidationEnvelope(
+        data=ModuleValidationRunV1(
+            schema_version="module_validation_run_v1",
+            module_key=module_key,
+            version=version,
+            status=validation_run.status,
+            error_codes=validation_run.error_codes,
+            warning_codes=validation_run.warning_codes,
+            completed_at=validation_run.completed_at,
+        )
+    )
