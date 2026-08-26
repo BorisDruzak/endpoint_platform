@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 import ipaddress
 import json
 from pathlib import Path
@@ -33,6 +33,7 @@ from endpoint_server.db.models import (
     DeviceInstance,
     EndpointOperation,
     ModuleDefinition,
+    ModuleLiveTest,
     ModuleValidationRun,
     ModuleVersion,
     ServiceClient,
@@ -175,6 +176,7 @@ async def route_fixture(
         ContextSnapshot.__table__,
         EndpointOperation.__table__,
         ModuleDefinition.__table__,
+        ModuleLiveTest.__table__,
         ModuleValidationRun.__table__,
         ModuleVersion.__table__,
     )
@@ -231,6 +233,10 @@ async def route_fixture(
         "modules-validator": ServicePrincipal(
             client=owner,
             credential=_credential(owner, ["modules.validate"]),
+        ),
+        "modules-publisher": ServicePrincipal(
+            client=owner,
+            credential=_credential(owner, ["modules.publish"]),
         ),
         "foreign-reader": ServicePrincipal(
             client=foreign,
@@ -575,6 +581,96 @@ async def test_module_validate_requires_dedicated_scope_and_returns_typed_result
         ("endpoint.module_validation_completed", "service", "helpdesk"),
     ]
     assert all("recipe" not in json.dumps(event.details) for event in events)
+
+
+@pytest.mark.asyncio
+async def test_module_publish_requires_lab_evidence_and_dedicated_scope(
+    route_fixture: RouteFixture,
+) -> None:
+    from endpoint_server.modules.service import (
+        accept_persisted_module_labs,
+        record_module_live_test,
+    )
+
+    app = create_app(
+        _settings(enabled=True, module_platform_enabled=True),
+        route_fixture.session_provider,
+    )
+    version_path = "/api/v1/modules/network.basic.check/versions/1.0.0"
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app),
+        base_url="https://endpoint.sosnadmin.local",
+    ) as client:
+        created = await client.post(
+            "/api/v1/modules/versions",
+            json=MODULE_CREATE_BODY,
+            headers=_authorization("modules-writer"),
+        )
+        validated = await client.post(
+            f"{version_path}/validate",
+            headers=_authorization("modules-validator"),
+        )
+        forbidden = await client.post(
+            f"{version_path}/publish",
+            headers=_authorization("modules-validator"),
+        )
+
+    assert created.status_code == 201
+    assert validated.status_code == 200
+    assert forbidden.status_code == 403
+    async with route_fixture.session_provider() as session:
+        module_version = await session.scalar(
+            select(ModuleVersion)
+            .join(ModuleDefinition)
+            .where(
+                ModuleDefinition.module_key == "network.basic.check",
+                ModuleVersion.version == "1.0.0",
+            )
+        )
+        assert module_version is not None
+        lab_operation = EndpointOperation(
+            id=uuid4(),
+            requested_by_service_client_id=route_fixture.owner.id,
+            device_id=route_fixture.device.id,
+            idempotency_key="module-lab-operation-key",
+            capability="context.diagnostic.collect",
+            parameters={"reason": "module lab acceptance"},
+            correlation=None,
+            status="queued",
+            deadline_at=datetime.now(UTC) + timedelta(minutes=5),
+            completed_at=None,
+            context_collection_id=None,
+            command_id=None,
+        )
+        session.add(lab_operation)
+        await session.flush()
+        await record_module_live_test(
+            session,
+            module_version,
+            platform="linux_amd64",
+            endpoint_device_id=route_fixture.device.id,
+            operation_id=lab_operation.id,
+            status="passed",
+            safe_result_snapshot={"status": "succeeded"},
+        )
+        await accept_persisted_module_labs(session, module_version)
+        await session.commit()
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app),
+        base_url="https://endpoint.sosnadmin.local",
+    ) as client:
+        published = await client.post(
+            f"{version_path}/publish",
+            headers=_authorization("modules-publisher"),
+        )
+
+    assert published.status_code == 200
+    assert published.json()["data"] == {
+        "schema_version": "module_version_state_v1",
+        "module_key": "network.basic.check",
+        "version": "1.0.0",
+        "state": "published",
+    }
 
 
 @pytest.mark.asyncio

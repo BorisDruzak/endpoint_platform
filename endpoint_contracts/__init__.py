@@ -48,6 +48,7 @@ from .network_primitives import (
 from .modules import (
     EndpointRecipeModuleSpecV1,
     ModuleValidationRunV1,
+    ModuleVersionStateV1,
     ModuleVersionCreateV1,
 )
 from .operations import (
@@ -107,6 +108,7 @@ __all__ = [
     "EndpointOperationV1",
     "EndpointRecipeModuleSpecV1",
     "ModuleValidationRunV1",
+    "ModuleVersionStateV1",
     "ModuleVersionCreateV1",
     "EnrollmentDeliveryProofV1",
     "EnrollmentRequestV1",
