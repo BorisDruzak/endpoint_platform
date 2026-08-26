@@ -5,6 +5,8 @@ from pydantic import BaseModel, ConfigDict
 from sqlalchemy import select
 
 from endpoint_contracts.modules import ModuleValidationRunV1, ModuleVersionCreateV1
+from endpoint_server.audit.request_ids import audit_request_id
+from endpoint_server.audit.service import append_audit_event
 from endpoint_server.auth.scopes import (
     MODULES_VALIDATE_SCOPE,
     MODULES_WRITE_SCOPE,
@@ -33,7 +35,7 @@ class ModuleValidationEnvelope(BaseModel):
 async def create_module_version(
     body: ModuleVersionCreateV1,
     request: Request,
-    _: ServicePrincipal = Depends(require_service_scope(MODULES_WRITE_SCOPE)),
+    principal: ServicePrincipal = Depends(require_service_scope(MODULES_WRITE_SCOPE)),
 ) -> dict[str, object]:
     async with request.app.state.session_provider() as session:
         try:
@@ -43,13 +45,31 @@ async def create_module_version(
                 display_name=body.display_name,
                 version=body.version,
             )
-            await session.commit()
         except ModuleServiceError as error:
             await session.rollback()
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail={"code": "endpoint_module_version_conflict"},
             ) from error
+        try:
+            await append_audit_event(
+                session,
+                actor_kind="service",
+                actor_identifier=principal.client.client_identifier,
+                action="endpoint.module_version_created",
+                object_kind="module_version",
+                object_identifier=str(version.id),
+                request_id=audit_request_id(request),
+                details={
+                    "module_key": body.recipe.module_key,
+                    "version": body.version,
+                    "state": version.state,
+                },
+            )
+            await session.commit()
+        except Exception:
+            await session.rollback()
+            raise
     return {"data": {"module_version_id": str(version.id), "state": version.state}}
 
 
@@ -61,7 +81,7 @@ async def validate_module_version(
     module_key: str,
     version: str,
     request: Request,
-    _: ServicePrincipal = Depends(require_service_scope(MODULES_VALIDATE_SCOPE)),
+    principal: ServicePrincipal = Depends(require_service_scope(MODULES_VALIDATE_SCOPE)),
 ) -> ModuleValidationEnvelope:
     async with request.app.state.session_provider() as session:
         module_version = await session.scalar(
@@ -82,13 +102,32 @@ async def validate_module_version(
                 session,
                 module_version,
             )
-            await session.commit()
         except ModuleServiceError as error:
             await session.rollback()
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail={"code": "endpoint_module_validation_conflict"},
             ) from error
+        try:
+            await append_audit_event(
+                session,
+                actor_kind="service",
+                actor_identifier=principal.client.client_identifier,
+                action="endpoint.module_validation_completed",
+                object_kind="module_version",
+                object_identifier=str(module_version.id),
+                request_id=audit_request_id(request),
+                details={
+                    "module_key": module_key,
+                    "version": version,
+                    "status": validation_run.status,
+                    "error_codes": validation_run.error_codes,
+                },
+            )
+            await session.commit()
+        except Exception:
+            await session.rollback()
+            raise
     return ModuleValidationEnvelope(
         data=ModuleValidationRunV1(
             schema_version="module_validation_run_v1",

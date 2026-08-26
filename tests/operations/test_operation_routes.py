@@ -6,6 +6,7 @@ from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from datetime import UTC, datetime
 import ipaddress
+import json
 from pathlib import Path
 from uuid import UUID, uuid4
 
@@ -561,6 +562,19 @@ async def test_module_validate_requires_dedicated_scope_and_returns_typed_result
         "warning_codes": [],
         "completed_at": validated.json()["data"]["completed_at"],
     }
+    async with route_fixture.session_provider() as session:
+        events = list(
+            (
+                await session.scalars(
+                    select(AuditEvent).order_by(AuditEvent.created_at)
+                )
+            ).all()
+        )
+    assert [(event.action, event.actor_kind, event.actor_identifier) for event in events] == [
+        ("endpoint.module_version_created", "service", "helpdesk"),
+        ("endpoint.module_validation_completed", "service", "helpdesk"),
+    ]
+    assert all("recipe" not in json.dumps(event.details) for event in events)
 
 
 @pytest.mark.asyncio
