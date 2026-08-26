@@ -3,6 +3,10 @@
 from __future__ import annotations
 
 from endpoint_contracts.modules import EndpointRecipeModuleSpecV1
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from endpoint_server.db.models.modules import ModuleDefinition, ModuleVersion
 
 from .recipes import RecipeValidationError, validate_recipe_spec
 
@@ -22,4 +26,34 @@ def create_draft_version(recipe: EndpointRecipeModuleSpecV1 | None) -> str:
     return "draft"
 
 
-__all__ = ["ModuleServiceError", "create_draft_version"]
+async def persist_draft_version(
+    session: AsyncSession,
+    *,
+    recipe: EndpointRecipeModuleSpecV1,
+    display_name: str,
+    version: str,
+) -> ModuleVersion:
+    """Compose one immutable draft version without committing the caller transaction."""
+    create_draft_version(recipe)
+    definition = await session.scalar(
+        select(ModuleDefinition).where(ModuleDefinition.module_key == recipe.module_key)
+    )
+    if definition is None:
+        definition = ModuleDefinition(
+            module_key=recipe.module_key,
+            display_name=display_name,
+        )
+        session.add(definition)
+        await session.flush()
+    module_version = ModuleVersion(
+        module_definition_id=definition.id,
+        version=version,
+        recipe=recipe.model_dump(mode="json"),
+        state="draft",
+    )
+    session.add(module_version)
+    await session.flush()
+    return module_version
+
+
+__all__ = ["ModuleServiceError", "create_draft_version", "persist_draft_version"]
