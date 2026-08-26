@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+import os
 import re
 import socket
 import subprocess
@@ -187,7 +188,7 @@ def ping_host(
     """Run a fixed OS ping adapter and map only bounded measurements."""
     finished_at = _completed_at(collected_at)
     resolved_ip = _resolve_first_ip(parameters.target, resolve)
-    platform = platform_name or ("windows" if __import__("os").name == "nt" else "linux")
+    platform = platform_name or ("windows" if os.name == "nt" else "linux")
     if platform == "windows":
         argv = ("ping", "-n", str(parameters.count), "-w", str(parameters.timeout_ms), parameters.target)
     elif platform == "linux":

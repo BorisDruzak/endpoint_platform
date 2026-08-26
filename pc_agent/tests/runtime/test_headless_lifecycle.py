@@ -27,6 +27,7 @@ from pc_agent.runtime.application import (
     run_runtime,
 )
 from pc_agent.runtime.command_executor import CommandExecutor
+from pc_agent.primitives.network.policy import AgentNetworkProbePolicy
 from pc_agent.runtime.lifecycle import (
     CredentialRejected,
     RetryableTransportError,
@@ -550,6 +551,50 @@ async def test_command_executor_uses_existing_typed_context_path() -> None:
     assert result.status == "succeeded"
     assert len(result.result_items) == 1
     assert result.result_items[0]["profile"] == "baseline_v1"
+
+
+@pytest.mark.asyncio
+async def test_command_executor_routes_network_capability_only_through_registered_handler() -> None:
+    calls: list[str] = []
+    command = AgentCommandV1.model_validate(
+        {
+            "schema_version": "agent_command_v1",
+            "command_id": "00000000-0000-4000-8000-000000000411",
+            "device_id": "00000000-0000-4000-8000-000000000412",
+            "capability": "dns.resolve",
+            "parameters": {"target": "api.example.test", "family": "any"},
+            "requested_by_service": "runtime-test",
+            "idempotency_key": "runtime-network-command-411",
+            "created_at": "2026-08-26T00:00:00Z",
+            "deadline_at": "2026-08-26T00:05:00Z",
+        }
+    )
+
+    def execute_network(observed: AgentCommandV1, *, policy: AgentNetworkProbePolicy) -> AgentResultV1:
+        policy.require_allowed("api.example.test")
+        calls.append(observed.capability)
+        return AgentResultV1(
+            schema_version="agent_result_v1",
+            command_id=observed.command_id,
+            device_id=observed.device_id,
+            status="succeeded",
+            result_items=[],
+            completed_at=datetime(2026, 8, 26, tzinfo=UTC),
+        )
+
+    executor = CommandExecutor(
+        probe_factory=object,
+        execute_network_command=execute_network,
+        network_probe_policy=AgentNetworkProbePolicy.from_values(
+            allowed_cidrs=(), allowed_suffixes=(".example.test",)
+        ),
+    )
+    await executor.start()
+
+    result = await executor.execute(command)
+
+    assert result.status == "succeeded"
+    assert calls == ["dns.resolve"]
 
 
 @pytest.mark.asyncio
