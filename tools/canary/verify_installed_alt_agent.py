@@ -58,6 +58,8 @@ def _regular_file(path: Path, *, name: str) -> None:
         details = path.lstat()
     except FileNotFoundError as error:
         raise CanaryPreflightError(f"{name} is missing") from error
+    except PermissionError as error:
+        raise CanaryPreflightError(f"{name} is unreadable to the preflight principal") from error
     if stat.S_ISLNK(details.st_mode) or not stat.S_ISREG(details.st_mode):
         raise CanaryPreflightError(f"{name} must be a regular file")
 

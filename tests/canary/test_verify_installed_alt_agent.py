@@ -10,6 +10,7 @@ import pytest
 from tools.canary.evidence_models import CanaryEvidenceError, validate_evidence_payload
 from tools.canary.verify_installed_alt_agent import (
     CanaryPreflightError,
+    _regular_file,
     validate_release_selector,
     validate_service_unit,
 )
@@ -72,6 +73,20 @@ def test_service_unit_accepts_the_reviewed_rpm_start_wrapper(tmp_path: Path) -> 
         "no_new_privileges": True,
         "protect_system": "strict",
     }
+
+
+def test_regular_file_reports_protected_state_without_a_traceback(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    protected = tmp_path / "device-credential"
+    protected.write_text("secret", encoding="utf-8")
+
+    def _deny(_self: Path):
+        raise PermissionError("denied")
+
+    monkeypatch.setattr(Path, "lstat", _deny)
+    with pytest.raises(CanaryPreflightError, match="unreadable"):
+        _regular_file(protected, name="device-credential")
 
 
 def test_release_selector_requires_expected_revision_and_regular_launcher(
