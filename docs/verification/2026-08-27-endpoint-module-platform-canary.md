@@ -120,6 +120,6 @@ revision `334107fc7d0544bc8750fe876c4dd47270ae1569`; последующий comm
   ресурсом. Для окончательного закрытия отдельного staging-окружения требуется
   штатная процедура отзыва или ротации credential, а не удаление файла без
   revoke.
-- Два исключённых теста требуют отсутствующие в ветке `scripts.build_module_zip`
-  и `scripts.register_support_modules`; это известная неполнота checkout, не
-  результат данного изменения.
+- Два orphaned agent-package теста, импортировавшие намеренно исключённый из
+  Endpoint Helpdesk `scripts/`, удалены перед полным CI. Они не могли
+  выполняться в минимальном Endpoint checkout и не покрывали Endpoint runtime.
