@@ -24,6 +24,16 @@ NoNewPrivileges=true
 ProtectSystem=strict
 """
 
+_GOOD_WRAPPER_UNIT = _GOOD_UNIT.replace(
+    "/opt/endpoint-agent/launcher --no-gui --transport-mode gateway_wss --no-migration-http-pull-fallback --data-dir /var/lib/endpoint-agent --install-root /opt/endpoint-agent",
+    "/usr/lib/endpoint-agent/start-endpoint-agent",
+)
+_GOOD_WRAPPER = """#!/usr/bin/python3
+CHECKER = Path(\"/usr/lib/endpoint-agent/check-start-prerequisites\")
+LAUNCHER = Path(\"/opt/endpoint-agent/launcher\")
+os.execv(LAUNCHER, [str(LAUNCHER), \"--no-gui\", \"--transport-mode\", \"gateway_wss\", \"--no-migration-http-pull-fallback\", \"--data-dir\", \"/var/lib/endpoint-agent\", \"--install-root\", \"/opt/endpoint-agent\"])
+"""
+
 
 @pytest.mark.parametrize(
     "unsafe_fragment",
@@ -43,6 +53,19 @@ def test_service_unit_rejects_non_headless_or_fallback_configuration(
 
 def test_service_unit_accepts_the_immutable_wss_launcher_contract() -> None:
     assert validate_service_unit(_GOOD_UNIT) == {
+        "user": "endpoint-agent",
+        "group": "endpoint-agent",
+        "restart": "on-failure",
+        "no_new_privileges": True,
+        "protect_system": "strict",
+    }
+
+
+def test_service_unit_accepts_the_reviewed_rpm_start_wrapper(tmp_path: Path) -> None:
+    wrapper = tmp_path / "start-endpoint-agent"
+    wrapper.write_text(_GOOD_WRAPPER, encoding="utf-8")
+
+    assert validate_service_unit(_GOOD_WRAPPER_UNIT, start_wrapper=wrapper) == {
         "user": "endpoint-agent",
         "group": "endpoint-agent",
         "restart": "on-failure",
