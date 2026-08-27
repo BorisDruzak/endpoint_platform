@@ -259,7 +259,10 @@ def _load_hello(settings: object) -> AgentHelloV1:
     device_id = read_enrollment_device_id(
         settings.data_root / ENROLLMENT_IDENTITY_FILENAME
     )
-    values: dict[str, object] = {"device_id": device_id}
+    values: dict[str, object] = {
+        "device_id": device_id,
+        "platform": "windows_amd64" if os.name == "nt" else "linux_amd64",
+    }
     if settings.transport_mode == "gateway_wss":
         values.update(
             agent_version=AGENT_VERSION,
