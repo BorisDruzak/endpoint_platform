@@ -104,6 +104,25 @@ def test_release_selector_requires_expected_revision_and_regular_launcher(
         validate_release_selector(install_root, "b" * 40)
 
 
+def test_release_selector_accepts_the_packaged_pyinstaller_executable(tmp_path: Path) -> None:
+    install_root = tmp_path / "opt" / "endpoint-agent"
+    release = install_root / "versions" / "3.2.30"
+    executable = release / "endpoint-agent" / "endpoint-agent"
+    executable.parent.mkdir(parents=True)
+    (install_root / "launcher").write_text("#!/bin/sh\n", encoding="utf-8")
+    executable.write_text("binary", encoding="utf-8")
+    (release / "manifest.json").write_text("{}", encoding="utf-8")
+    (install_root / "current.json").write_text(
+        json.dumps({"schema_version": 1, "version": "3.2.30", "source_revision": "c" * 40}),
+        encoding="utf-8",
+    )
+
+    assert validate_release_selector(install_root, "c" * 40) == {
+        "version": "3.2.30",
+        "source_revision": "c" * 40,
+    }
+
+
 def test_evidence_rejects_secrets_and_unknown_fields() -> None:
     safe = {"schema_version": "endpoint_diagnostic_canary_v1", "status": "ready"}
     validate_evidence_payload(safe, allowed_keys=frozenset(safe))

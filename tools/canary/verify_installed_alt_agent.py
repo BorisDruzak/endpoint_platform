@@ -132,7 +132,18 @@ def validate_release_selector(install_root: Path, expected_source_revision: str)
     if release.is_symlink() or not release.is_dir():
         raise CanaryPreflightError("selected immutable release directory is missing")
     _regular_file(install_root / "launcher", name="selected launcher")
-    _regular_file(release / "launcher", name="release launcher")
+    release_launchers = (
+        (release / "launcher", "release launcher"),
+        (release / "endpoint-agent" / "endpoint-agent", "packaged release executable"),
+    )
+    for candidate, name in release_launchers:
+        try:
+            _regular_file(candidate, name=name)
+            break
+        except CanaryPreflightError:
+            continue
+    else:
+        raise CanaryPreflightError("selected release executable is missing")
     _regular_file(release / "manifest.json", name="release manifest")
     return {"version": selection["version"], "source_revision": source_revision}
 
