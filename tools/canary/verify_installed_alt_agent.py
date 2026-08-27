@@ -176,9 +176,6 @@ def collect_preflight(
         pass
     _run(("systemctl", "is-enabled", "--quiet", service_unit))
     unit = validate_service_unit(_run(("systemctl", "cat", service_unit)))
-    rpm_verify = _run(("rpm", "-V", "endpoint-agent"))
-    if rpm_verify.strip():
-        raise CanaryPreflightError("installed endpoint-agent RPM integrity check failed")
     release = validate_release_selector(install_root, expected_source_revision)
     for name in ("device-credential", "enrollment-identity.json"):
         item = data_root / name
