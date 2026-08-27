@@ -8,6 +8,7 @@ import re
 import socket
 import subprocess
 import time
+import ctypes
 from collections.abc import Callable, Iterator
 from datetime import UTC, datetime
 
@@ -234,19 +235,32 @@ def ping_host(
 
 
 def _run_fixed_ping(argv: tuple[str, ...], timeout_seconds: float) -> tuple[int, str]:
+    options: dict[str, object] = {
+        "check": False,
+        "stdin": subprocess.DEVNULL,
+        "stdout": subprocess.PIPE,
+        "stderr": subprocess.DEVNULL,
+        "text": True,
+        "timeout": timeout_seconds,
+    }
+    if os.name == "nt":
+        options["encoding"] = _windows_ping_output_encoding()
     try:
         completed = subprocess.run(
             argv,
-            check=False,
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL,
-            text=True,
-            timeout=timeout_seconds,
+            **options,
         )
     except subprocess.TimeoutExpired as error:
         raise TimeoutError("fixed ping adapter timed out") from error
     return completed.returncode, completed.stdout
+
+
+def _windows_ping_output_encoding(
+    *, get_oemcp: Callable[[], int] | None = None
+) -> str:
+    """Return the Windows OEM code page used by ping.exe summaries."""
+    code_page = (get_oemcp or ctypes.windll.kernel32.GetOEMCP)()
+    return f"cp{code_page}" if code_page > 0 else "utf-8"
 
 
 def _parse_ping_output(
@@ -258,8 +272,14 @@ def _parse_ping_output(
         counts = re.search(r"(\d+)\s+packets transmitted,\s*(\d+)\s+(?:packets )?received", output)
         timings = re.search(r"=\s*([0-9.]+)/([0-9.]+)/([0-9.]+)/", output)
     else:
-        counts = re.search(r"Sent\s*=\s*(\d+),\s*Received\s*=\s*(\d+)", output, re.IGNORECASE)
-        timings = re.search(r"Minimum\s*=\s*([0-9.]+)ms,\s*Maximum\s*=\s*([0-9.]+)ms,\s*Average\s*=\s*([0-9.]+)ms", output, re.IGNORECASE)
+        counts = re.search(r"=\s*(\d+)\s*,\s*[^=\r\n]+=\s*(\d+)", output)
+        timings = re.search(
+            r"=\s*([0-9.]+)\s*(?:ms|мс(?:ек)?)\s*,\s*"
+            r"[^=\r\n]+=\s*([0-9.]+)\s*(?:ms|мс(?:ек)?)\s*,\s*"
+            r"[^=\r\n]+=\s*([0-9.]+)\s*(?:ms|мс(?:ек)?)",
+            output,
+            re.IGNORECASE,
+        )
     if counts is None:
         return None
     transmitted, received = int(counts.group(1)), int(counts.group(2))

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import re
 import subprocess
 import sys
@@ -745,7 +746,10 @@ async def test_default_lifecycle_hello_uses_exact_stored_enrollment_device_id(
 
     assert await RuntimeApplication(settings, dependencies).run() == 0
     expected = compatibility_agent_hello().model_copy(
-        update={"device_id": stored_device_id}
+        update={
+            "device_id": stored_device_id,
+            "platform": "windows_amd64" if os.name == "nt" else "linux_amd64",
+        }
     )
     assert observed == [expected]
     assert expected.agent_version == "http-pull"
@@ -803,6 +807,38 @@ async def test_default_wss_composition_binds_bearer_to_stored_server_device_id(
     assert hello.device_id == stored_device_id
     assert hello.agent_version == AGENT_VERSION
     assert hello.launcher_version == AGENT_VERSION
+
+
+def test_default_hello_loader_reports_windows_gateway_platform(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The Windows runtime must not inherit the Linux compatibility platform."""
+    stored_device_id = UUID("00000000-0000-4000-8000-000000000437")
+    settings = RuntimeSettings(
+        data_root=tmp_path / "data",
+        install_root=tmp_path / "install",
+        ca_file=tmp_path / "endpoint-ca.crt",
+        endpoint_origin="https://endpoint.sosnadmin.local",
+        transport_mode="gateway_wss",
+    )
+    settings.data_root.mkdir()
+    (settings.data_root / "enrollment-identity.json").write_text(
+        json.dumps(
+            {
+                "device_id": str(stored_device_id),
+                "schema_version": "endpoint_enrollment_identity_v1",
+            },
+            separators=(",", ":"),
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(runtime_application.os, "name", "nt")
+
+    hello = runtime_application._default_dependencies().load_hello(settings)
+
+    assert hello.device_id == stored_device_id
+    assert hello.platform == "windows_amd64"
 
 
 @pytest.mark.parametrize(

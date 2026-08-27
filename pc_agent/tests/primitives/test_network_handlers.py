@@ -10,6 +10,7 @@ from endpoint_contracts import AgentCommandV1
 from pc_agent.primitives.network.command_execution import execute_network_agent_command
 from pc_agent.primitives.network.policy import AgentNetworkProbePolicy
 from pc_agent.primitives.network.handlers import (
+    _windows_ping_output_encoding,
     ping_host,
     resolve_dns,
     tcp_connect,
@@ -139,6 +140,37 @@ def test_ping_handler_uses_fixed_windows_adapter_without_raw_output() -> None:
     assert result.status == "succeeded"
     assert (result.min_ms, result.avg_ms, result.max_ms) == (1.0, 2.0, 3.0)
     assert "Packets:" not in str(result.model_dump())
+
+
+def test_ping_handler_parses_localized_windows_summary() -> None:
+    parameters = NetworkPingParametersV1(
+        schema_version="network_ping_parameters_v1",
+        target="192.168.101.118",
+        count=1,
+        timeout_ms=1000,
+    )
+
+    result = ping_host(
+        parameters,
+        platform_name="windows",
+        runner=lambda _argv, _timeout: (
+            0,
+            "Пакетов: отправлено = 1, получено = 1, потеряно = 0\n"
+            "Минимальное = 0мсек, Максимальное = 0 мсек, Среднее = 0 мсек\n",
+        ),
+        resolve=lambda *_args: [
+            (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("192.168.101.118", 0))
+        ],
+        collected_at=datetime(2026, 8, 26, tzinfo=UTC),
+    )
+
+    assert result.status == "succeeded"
+    assert result.reachable is True
+    assert (result.min_ms, result.avg_ms, result.max_ms) == (0.0, 0.0, 0.0)
+
+
+def test_windows_ping_uses_the_oem_output_encoding() -> None:
+    assert _windows_ping_output_encoding(get_oemcp=lambda: 866) == "cp866"
 
 
 def test_network_command_execution_applies_policy_before_invoking_handler() -> None:

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import re
 import socket
 import ssl
@@ -13,7 +12,6 @@ import subprocess
 import sys
 from collections.abc import Sequence
 from pathlib import Path
-from typing import Any
 from urllib.parse import urlsplit
 
 from tools.canary.evidence_models import write_secure_json
@@ -32,6 +30,27 @@ _REQUIRED_UNIT_VALUES = {
     "NoNewPrivileges": "true",
     "ProtectSystem": "strict",
 }
+_START_WRAPPER_PATH = "/usr/lib/endpoint-agent/start-endpoint-agent"
+_START_WRAPPER = Path(_START_WRAPPER_PATH)
+_DIRECT_LAUNCHER_FRAGMENTS = (
+    "/opt/endpoint-agent/launcher",
+    "--no-gui",
+    "--transport-mode gateway_wss",
+    "--no-migration-http-pull-fallback",
+)
+_WRAPPER_REQUIRED_FRAGMENTS = (
+    'CHECKER = Path("/usr/lib/endpoint-agent/check-start-prerequisites")',
+    'LAUNCHER = Path("/opt/endpoint-agent/launcher")',
+    "os.execv(",
+    '"--no-gui"',
+    '"--transport-mode"',
+    '"gateway_wss"',
+    '"--no-migration-http-pull-fallback"',
+    '"--data-dir"',
+    '"/var/lib/endpoint-agent"',
+    '"--install-root"',
+    '"/opt/endpoint-agent"',
+)
 
 
 def _regular_file(path: Path, *, name: str) -> None:
@@ -39,11 +58,30 @@ def _regular_file(path: Path, *, name: str) -> None:
         details = path.lstat()
     except FileNotFoundError as error:
         raise CanaryPreflightError(f"{name} is missing") from error
+    except PermissionError as error:
+        raise CanaryPreflightError(f"{name} is unreadable to the preflight principal") from error
     if stat.S_ISLNK(details.st_mode) or not stat.S_ISREG(details.st_mode):
         raise CanaryPreflightError(f"{name} must be a regular file")
 
 
-def validate_service_unit(unit_text: str) -> dict[str, object]:
+def _validate_start_wrapper(path: Path) -> None:
+    """Accept only the packaged wrapper that executes the WSS-only launcher."""
+
+    _regular_file(path, name="RPM start wrapper")
+    try:
+        content = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as error:
+        raise CanaryPreflightError("RPM start wrapper is unreadable") from error
+    if any(fragment not in content for fragment in _WRAPPER_REQUIRED_FRAGMENTS):
+        raise CanaryPreflightError("RPM start wrapper is not the required WSS headless launcher")
+    prohibited = ("gateway_http_pull", "--migration-http-pull-fallback", "pc_agent.ws_agent", "helpdesk")
+    if any(fragment in content.casefold() for fragment in prohibited):
+        raise CanaryPreflightError("RPM start wrapper contains a prohibited fallback or legacy reference")
+
+
+def validate_service_unit(
+    unit_text: str, *, start_wrapper: Path = _START_WRAPPER
+) -> dict[str, object]:
     """Parse only the safe subset of the installed unit without Environment dumps."""
     values: dict[str, str] = {}
     for raw_line in unit_text.splitlines():
@@ -57,13 +95,9 @@ def validate_service_unit(unit_text: str) -> dict[str, object]:
         if values.get(key, "").casefold() != expected:
             raise CanaryPreflightError(f"service unit requires {key}={expected}")
     exec_start = values.get("ExecStart", "")
-    required_fragments = (
-        "/opt/endpoint-agent/launcher",
-        "--no-gui",
-        "--transport-mode gateway_wss",
-        "--no-migration-http-pull-fallback",
-    )
-    if any(fragment not in exec_start for fragment in required_fragments):
+    if exec_start == _START_WRAPPER_PATH:
+        _validate_start_wrapper(start_wrapper)
+    elif any(fragment not in exec_start for fragment in _DIRECT_LAUNCHER_FRAGMENTS):
         raise CanaryPreflightError("service unit is not the required WSS headless launcher")
     prohibited = ("gateway_http_pull", "--migration-http-pull-fallback", "pc_agent.ws_agent", "helpdesk")
     if any(fragment in unit_text.casefold() for fragment in prohibited):
@@ -100,7 +134,18 @@ def validate_release_selector(install_root: Path, expected_source_revision: str)
     if release.is_symlink() or not release.is_dir():
         raise CanaryPreflightError("selected immutable release directory is missing")
     _regular_file(install_root / "launcher", name="selected launcher")
-    _regular_file(release / "launcher", name="release launcher")
+    release_launchers = (
+        (release / "launcher", "release launcher"),
+        (release / "endpoint-agent" / "endpoint-agent", "packaged release executable"),
+    )
+    for candidate, name in release_launchers:
+        try:
+            _regular_file(candidate, name=name)
+            break
+        except CanaryPreflightError:
+            continue
+    else:
+        raise CanaryPreflightError("selected release executable is missing")
     _regular_file(release / "manifest.json", name="release manifest")
     return {"version": selection["version"], "source_revision": source_revision}
 
@@ -155,7 +200,7 @@ def collect_preflight(
         "schema_version": "endpoint_installed_alt_agent_preflight_v1",
         "service": unit,
         "release": release,
-        "local_state": {"data_root": "present", "credential_metadata": "protected"},
+        "local_state": {"data_root": "present", "state_metadata": "protected"},
         "network": _verify_origin(expected_endpoint_origin, ca_file),
     }
 
