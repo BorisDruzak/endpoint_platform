@@ -200,7 +200,7 @@ def collect_preflight(
         "schema_version": "endpoint_installed_alt_agent_preflight_v1",
         "service": unit,
         "release": release,
-        "local_state": {"data_root": "present", "credential_metadata": "protected"},
+        "local_state": {"data_root": "present", "state_metadata": "protected"},
         "network": _verify_origin(expected_endpoint_origin, ca_file),
     }
 

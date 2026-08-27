@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import json
+import stat
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
+import tools.canary.verify_installed_alt_agent as preflight
 from tools.canary.evidence_models import CanaryEvidenceError, validate_evidence_payload
 from tools.canary.verify_installed_alt_agent import (
     CanaryPreflightError,
@@ -136,6 +139,46 @@ def test_release_selector_accepts_the_packaged_pyinstaller_executable(tmp_path: 
         "version": "3.2.30",
         "source_revision": "c" * 40,
     }
+
+
+def test_collect_preflight_projects_protected_credential_state_without_naming_it(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    data_root = tmp_path / "data"
+    data_root.mkdir()
+    for name in ("device-credential", "enrollment-identity.json"):
+        item = data_root / name
+        item.write_text("not inspected", encoding="utf-8")
+        item.chmod(0o600)
+
+    monkeypatch.setattr(preflight, "_run", lambda _command: "")
+    monkeypatch.setattr(preflight, "validate_service_unit", lambda _unit: {"user": "endpoint-agent"})
+    monkeypatch.setattr(
+        preflight,
+        "validate_release_selector",
+        lambda _root, _revision: {"version": "3.2.30", "source_revision": "c" * 40},
+    )
+    monkeypatch.setattr(preflight, "_verify_origin", lambda _origin, _ca: {"strict_tls": "passed"})
+    monkeypatch.setattr(
+        Path,
+        "stat",
+        lambda _self: SimpleNamespace(st_mode=stat.S_IFREG | 0o600),
+    )
+
+    payload = preflight.collect_preflight(
+        expected_endpoint_origin="https://endpoint-staging.sosnadmin.local",
+        expected_source_revision="c" * 40,
+        service_unit="endpoint-agent.service",
+        install_root=tmp_path / "install",
+        config_root=tmp_path / "config",
+        data_root=data_root,
+    )
+
+    assert payload["local_state"] == {"data_root": "present", "state_metadata": "protected"}
+    validate_evidence_payload(
+        payload,
+        allowed_keys=frozenset({"schema_version", "service", "release", "local_state", "network"}),
+    )
 
 
 def test_evidence_rejects_secrets_and_unknown_fields() -> None:
