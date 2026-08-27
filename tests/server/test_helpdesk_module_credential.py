@@ -5,21 +5,25 @@ from __future__ import annotations
 import os
 from pathlib import Path
 from types import SimpleNamespace
+from datetime import UTC, datetime
+from uuid import uuid4
 
 import pytest
 
+import endpoint_server.auth.provision_helpdesk_module_credential as credential_module
 from endpoint_server.auth.provision_helpdesk_module_credential import (
     HELPDESK_MODULE_SCOPES,
     HELPDESK_MODULE_SERVICE_CLIENT_IDENTIFIER,
     provision_helpdesk_module_credential,
     write_private_token_file,
 )
-from endpoint_server.db.models import ServiceClient
+from endpoint_server.db.models import AuditEvent, ServiceClient, ServiceCredential
 
 
 class _Session:
     def __init__(self) -> None:
         self.client: ServiceClient | None = None
+        self.credentials: list[ServiceCredential] = []
         self.added: list[object] = []
         self.commit_calls = 0
         self.rollback_calls = 0
@@ -29,6 +33,21 @@ class _Session:
         if entity is ServiceClient:
             return self.client
         raise AssertionError(f"unexpected scalar query: {entity}")
+
+    async def scalars(self, statement: object) -> object:
+        entity = statement.column_descriptions[0]["entity"]
+        assert entity is ServiceCredential
+
+        class _Rows:
+            def __init__(self, values: list[ServiceCredential]) -> None:
+                self.values = values
+
+            def all(self) -> list[ServiceCredential]:
+                return self.values
+
+        return _Rows(
+            [credential for credential in self.credentials if credential.revoked_at is None]
+        )
 
     def add(self, value: object) -> None:
         self.added.append(value)
@@ -93,3 +112,55 @@ async def test_provisioning_creates_the_fixed_client_and_commits_only_after_priv
     stored = destination.read_text(encoding="ascii")
     assert stored.startswith(summary.token_prefix + ".")
     assert summary.token_prefix != stored.strip()
+
+
+@pytest.mark.asyncio
+async def test_revocation_disables_all_active_helpdesk_module_credentials_and_audits() -> None:
+    """Closure must revoke the staging bridge without reprinting bearer material."""
+    session = _Session()
+    client = ServiceClient(
+        id=uuid4(),
+        client_identifier=HELPDESK_MODULE_SERVICE_CLIENT_IDENTIFIER,
+        display_name="Helpdesk Endpoint Module workbench (staging)",
+        disabled_at=None,
+    )
+    session.client = client
+    active = ServiceCredential(
+        id=uuid4(),
+        service_client_id=client.id,
+        credential_identifier="a" * 32,
+        token_prefix="svc_" + "a" * 32,
+        secret_digest="a" * 64,
+        scopes=list(HELPDESK_MODULE_SCOPES),
+        expires_at=None,
+        revoked_at=None,
+    )
+    already_revoked = ServiceCredential(
+        id=uuid4(),
+        service_client_id=client.id,
+        credential_identifier="b" * 32,
+        token_prefix="svc_" + "b" * 32,
+        secret_digest="b" * 64,
+        scopes=list(HELPDESK_MODULE_SCOPES),
+        expires_at=None,
+        revoked_at=datetime(2026, 8, 1, tzinfo=UTC),
+    )
+    session.credentials = [active, already_revoked]
+
+    revoke = getattr(credential_module, "revoke_helpdesk_module_credentials", None)
+    assert callable(revoke)
+    revoked = await revoke(
+        session,
+        request_id="test-helpdesk-module-revocation",
+        now=datetime(2026, 8, 27, tzinfo=UTC),
+    )
+
+    assert revoked == 1
+    assert active.revoked_at == datetime(2026, 8, 27, tzinfo=UTC)
+    assert already_revoked.revoked_at == datetime(2026, 8, 1, tzinfo=UTC)
+    audits = [value for value in session.added if isinstance(value, AuditEvent)]
+    assert [audit.action for audit in audits] == [
+        "helpdesk_module_credential.revoked"
+    ]
+    assert audits[0].details == {"scopes": list(HELPDESK_MODULE_SCOPES)}
+    assert session.commit_calls == 1

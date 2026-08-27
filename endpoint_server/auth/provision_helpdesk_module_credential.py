@@ -6,6 +6,7 @@ import argparse
 import asyncio
 import os
 import sys
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Protocol, Sequence
 from uuid import uuid4
@@ -23,10 +24,12 @@ from endpoint_server.auth.scopes import (
 from endpoint_server.auth.service_tokens import (
     ServiceCredentialSummary,
     create_service_credential,
+    revoke_service_credential,
     service_credential_summary,
 )
+from endpoint_server.audit.service import append_audit_event
 from endpoint_server.config import Settings
-from endpoint_server.db.models import ServiceClient
+from endpoint_server.db.models import ServiceClient, ServiceCredential
 from endpoint_server.db.session import create_session_provider
 
 
@@ -45,6 +48,8 @@ HELPDESK_MODULE_SCOPES = (
 class _ProvisioningSession(Protocol):
     async def scalar(self, statement: object) -> object | None: ...
 
+    async def scalars(self, statement: object) -> object: ...
+
     def add(self, instance: object) -> None: ...
 
     async def commit(self) -> None: ...
@@ -61,12 +66,14 @@ class _SecretSafeArgumentParser(argparse.ArgumentParser):
 
 
 def parse_arguments(arguments: Sequence[str] | None = None) -> argparse.Namespace:
-    """Accept only a root-controlled private destination path."""
+    """Accept one root-controlled credential lifecycle action."""
     parser = _SecretSafeArgumentParser(
         prog="python -m endpoint_server.auth.provision_helpdesk_module_credential",
         description="Provision the staging Helpdesk module service credential",
     )
-    parser.add_argument("--output-file", required=True, type=Path)
+    action = parser.add_mutually_exclusive_group(required=True)
+    action.add_argument("--output-file", type=Path)
+    action.add_argument("--revoke", action="store_true")
     return parser.parse_args(arguments)
 
 
@@ -154,6 +161,56 @@ async def provision_helpdesk_module_credential(
         raise
 
 
+async def revoke_helpdesk_module_credentials(
+    session: _ProvisioningSession,
+    *,
+    request_id: str,
+    now: datetime | None = None,
+) -> int:
+    """Revoke every active staging bridge credential and append redacted audit rows."""
+    revoked_at = now or datetime.now(UTC)
+    if revoked_at.tzinfo is None:
+        raise ValueError("revocation time must be timezone-aware")
+    try:
+        client = await session.scalar(
+            select(ServiceClient).where(
+                ServiceClient.client_identifier
+                == HELPDESK_MODULE_SERVICE_CLIENT_IDENTIFIER
+            )
+        )
+        if client is None:
+            return 0
+        assert isinstance(client, ServiceClient)
+        credentials = list(
+            (
+                await session.scalars(
+                    select(ServiceCredential).where(
+                        ServiceCredential.service_client_id == client.id,
+                        ServiceCredential.revoked_at.is_(None),
+                    )
+                )
+            ).all()
+        )
+        for credential in credentials:
+            revoke_service_credential(credential, now=revoked_at)
+            await append_audit_event(
+                session,  # type: ignore[arg-type]
+                actor_kind="system",
+                actor_identifier="helpdesk-module-revoke-cli",
+                action="helpdesk_module_credential.revoked",
+                object_kind="service_credential",
+                object_identifier=str(credential.id),
+                request_id=request_id,
+                details={"scopes": credential.scopes},
+                occurred_at=revoked_at,
+            )
+        await session.commit()
+        return len(credentials)
+    except Exception:
+        await session.rollback()
+        raise
+
+
 def _is_root() -> bool:
     return os.name != "nt" and os.geteuid() == 0
 
@@ -166,15 +223,26 @@ async def _run(arguments: Sequence[str] | None = None) -> int:
     provider = create_session_provider(settings.database_url)
     try:
         async with provider() as session:
-            await provision_helpdesk_module_credential(
-                session,
-                settings=settings,
-                output_path=parsed.output_file,
-                request_id=f"helpdesk-module-provision-{uuid4().hex}",
-            )
+            request_id = f"helpdesk-module-provision-{uuid4().hex}"
+            if parsed.revoke:
+                revoked = await revoke_helpdesk_module_credentials(
+                    session,
+                    request_id=request_id,
+                )
+            else:
+                assert parsed.output_file is not None
+                await provision_helpdesk_module_credential(
+                    session,
+                    settings=settings,
+                    output_path=parsed.output_file,
+                    request_id=request_id,
+                )
     finally:
         await provider.close()
-    print("Provisioned Helpdesk module service credential.")
+    if parsed.revoke:
+        print(f"Revoked {revoked} Helpdesk module service credential(s).")
+    else:
+        print("Provisioned Helpdesk module service credential.")
     return 0
 
 
