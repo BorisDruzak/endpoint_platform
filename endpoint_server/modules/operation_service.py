@@ -140,6 +140,7 @@ async def create_module_parent_operation(
             or existing.module_version_id != module_version.id
             or existing.module_inputs != normalized_inputs
             or existing.parameters != {"execution_mode": execution_mode}
+            or existing.expected_step_count != len(plan)
         ):
             raise ModuleOperationConflict(
                 "idempotency key owns a different module operation"
@@ -162,6 +163,7 @@ async def create_module_parent_operation(
         command_id=None,
         module_version_id=module_version.id,
         module_inputs=normalized_inputs,
+        expected_step_count=len(plan),
     )
     session.add(operation)
     for item in plan:

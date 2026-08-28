@@ -26,6 +26,7 @@ def test_module_parent_and_step_models_have_closed_runtime_shape() -> None:
     assert {column.name for column in EndpointOperation.__table__.columns} >= {
         "module_version_id",
         "module_inputs",
+        "expected_step_count",
     }
     assert {column.name for column in ModuleOperationStep.__table__.columns} == {
         "id",

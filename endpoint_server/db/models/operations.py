@@ -82,6 +82,10 @@ class EndpointOperation(OwnershipRecord, Base):
             name="ck_endpoint_operations_module_shape",
         ),
         CheckConstraint(
+            "expected_step_count IS NULL OR expected_step_count BETWEEN 1 AND 8",
+            name="ck_endpoint_operations_expected_step_count",
+        ),
+        CheckConstraint(
             "status IN ('queued', 'delivered', 'acknowledged', 'running', "
             "'succeeded', 'failed', 'canceled', 'expired')",
             name="ck_endpoint_operations_status",
@@ -134,6 +138,7 @@ class EndpointOperation(OwnershipRecord, Base):
     module_inputs: Mapped[dict[str, object] | None] = mapped_column(
         JSON().with_variant(JSONB(), "postgresql")
     )
+    expected_step_count: Mapped[int | None] = mapped_column(BigInteger)
 
 
 class ModuleOperationStep(OwnershipRecord, Base):

@@ -261,7 +261,18 @@ class ModuleOperationStepV1(ContractModelV1):
 
 
 class ModuleOperationDetailV1(ModuleOperationV1):
+    expected_step_count: Annotated[int, Field(strict=True, ge=1, le=8)]
     steps: list[ModuleOperationStepV1] = Field(min_length=1, max_length=8)
+
+    @model_validator(mode="after")
+    def validate_expected_step_sequence(self) -> "ModuleOperationDetailV1":
+        if len(self.steps) != self.expected_step_count:
+            raise ValueError("steps must match expected_step_count")
+        if [step.sequence for step in self.steps] != list(
+            range(self.expected_step_count)
+        ):
+            raise ValueError("steps must use contiguous sequences from zero")
+        return self
 
 
 __all__ = [

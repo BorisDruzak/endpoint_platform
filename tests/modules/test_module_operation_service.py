@@ -156,6 +156,8 @@ async def test_module_parent_operation_is_idempotent_and_materializes_queued_ste
     assert operation.capability == "endpoint.module.recipe"
     assert operation.module_version_id == version.id
     assert operation.module_inputs == {"target": "api.example.test", "port": 443}
+    assert operation.expected_step_count == 2
+    assert replay.expected_step_count == 2
     assert [
         (step.sequence, step.recipe_step_key, step.capability, step.status)
         for step in steps

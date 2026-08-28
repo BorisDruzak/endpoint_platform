@@ -91,7 +91,14 @@ async def _project_module_operation(
             .order_by(ModuleOperationStep.sequence)
         )
     ).all()
-    if not steps:
+    expected_step_count = operation.expected_step_count
+    if (
+        isinstance(expected_step_count, bool)
+        or not isinstance(expected_step_count, int)
+        or not 1 <= expected_step_count <= 8
+        or len(steps) != expected_step_count
+        or [step.sequence for step in steps] != list(range(expected_step_count))
+    ):
         raise ModuleOperationNotFound("module operation was not found")
     return ModuleOperationDetailV1(
         schema_version="endpoint_module_operation_v1",
@@ -103,6 +110,7 @@ async def _project_module_operation(
         created_at=_stored_utc(operation.created_at),
         deadline_at=_stored_utc(operation.deadline_at),
         completed_at=_stored_utc(operation.completed_at),
+        expected_step_count=expected_step_count,
         steps=[
             ModuleOperationStepV1(
                 sequence=step.sequence,
