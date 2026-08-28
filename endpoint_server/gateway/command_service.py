@@ -19,12 +19,8 @@ from endpoint_contracts import (
     DeviceContextDiagnosticV1,
     DiagnosticCollectionParametersV1,
 )
+from endpoint_contracts.capabilities import module_capability_descriptor
 from endpoint_contracts.modules import EndpointRecipeModuleSpecV1
-from endpoint_contracts.network_primitives import (
-    DnsResolveResultV1,
-    NetworkPingResultV1,
-    TcpConnectResultV1,
-)
 from endpoint_contracts.gateway_ws import (
     CommandEnvelopeV1,
     GatewayCommandV1,
@@ -362,14 +358,10 @@ def _safe_module_step_result(
     result: AgentResultV1,
 ) -> tuple[dict[str, object] | None, str | None]:
     """Accept only the declared result DTO; persist no raw agent message or trace."""
-    models = {
-        "dns.resolve": DnsResolveResultV1,
-        "network.ping": NetworkPingResultV1,
-        "tcp.connect": TcpConnectResultV1,
-    }
-    result_model = models.get(step.capability)
-    if result_model is None:
-        raise CommandStateRejected("module step capability is unavailable")
+    try:
+        result_model = module_capability_descriptor(step.capability).result_model
+    except ValueError as error:
+        raise CommandStateRejected("module step capability is unavailable") from error
     if result.status == "succeeded":
         if len(result.result_items) != 1:
             raise CommandStateRejected("successful module step must contain one result")

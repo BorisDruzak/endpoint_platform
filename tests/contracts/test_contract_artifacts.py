@@ -481,6 +481,7 @@ def test_endpoint_operation_service_openapi_documents_scopes_and_safe_models(
     capabilities = paths["/api/v1/devices/{device_id}/capabilities"]["get"]
     create = paths["/api/v1/devices/{device_id}/operations"]["post"]
     read = paths["/api/v1/operations/{operation_id}"]["get"]
+    module_capabilities = paths["/api/v1/module-capabilities"]["get"]
 
     assert capabilities["security"] == [{"ServiceBearer": []}]
     assert capabilities["x-required-scopes"] == ["devices.read"]
@@ -488,6 +489,8 @@ def test_endpoint_operation_service_openapi_documents_scopes_and_safe_models(
     assert create["x-required-scopes"] == ["operations.create"]
     assert read["security"] == [{"ServiceBearer": []}]
     assert read["x-required-scopes"] == ["operations.read"]
+    assert module_capabilities["security"] == [{"ServiceBearer": []}]
+    assert module_capabilities["x-required-scopes"] == ["modules.read"]
     assert any(
         parameter["name"] == "Idempotency-Key" and parameter["required"] is True
         for parameter in create["parameters"]

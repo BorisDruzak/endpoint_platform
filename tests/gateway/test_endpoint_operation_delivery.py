@@ -40,6 +40,7 @@ from endpoint_server.db.models import (
 from endpoint_server.gateway.command_service import (
     CommandService,
     CommandStateRejected,
+    _safe_module_step_result,
 )
 from endpoint_server.gateway.presence_service import GatewayPresence, PresenceService
 from endpoint_server.main import create_app
@@ -640,6 +641,78 @@ async def test_module_child_ack_and_result_advance_the_next_typed_step(
     assert [step.status for step in steps] == ["succeeded", "succeeded"]
     assert all(step.safe_result_json is not None for step in steps)
     assert audit is not None
+
+
+@pytest.mark.parametrize(
+    ("capability", "result_item", "expected_schema_version"),
+    [
+        (
+            "route.get",
+            {
+                "schema_version": "route_get_result_v1",
+                "target": "probe.example.test",
+                "resolved_ip": "192.0.2.10",
+                "family": "ipv4",
+                "port": 443,
+                "source_ip": "192.0.2.20",
+                "interface_name": "eth0",
+                "strategy": "udp_socket_inference",
+                "status": "succeeded",
+                "error_code": None,
+                "collected_at": "2026-08-28T00:00:00Z",
+            },
+            "route_get_result_v1",
+        ),
+        (
+            "adapter.list",
+            {
+                "schema_version": "adapter_list_result_v1",
+                "adapters": [],
+                "adapter_count": 0,
+                "up_count": 0,
+                "status": "succeeded",
+                "error_code": None,
+                "collected_at": "2026-08-28T00:00:00Z",
+            },
+            "adapter_list_result_v1",
+        ),
+        (
+            "system.service_status",
+            {
+                "schema_version": "service_status_result_v1",
+                "service_key": "endpoint_agent",
+                "installed": False,
+                "state": "not_found",
+                "start_mode": "unknown",
+                "status": "succeeded",
+                "error_code": None,
+                "collected_at": "2026-08-28T00:00:00Z",
+            },
+            "service_status_result_v1",
+        ),
+    ],
+)
+def test_module_result_processing_accepts_every_read_only_registry_dto(
+    capability: str,
+    result_item: dict[str, object],
+    expected_schema_version: str,
+) -> None:
+    """A completed registered read-only step persists its declared DTO only."""
+    result, error_code = _safe_module_step_result(
+        ModuleOperationStep(capability=capability),
+        AgentResultV1(
+            schema_version="agent_result_v1",
+            command_id=UUID("11111111-1111-4111-8111-111111111111"),
+            device_id=UUID("22222222-2222-4222-8222-222222222222"),
+            status="succeeded",
+            result_items=[result_item],
+            completed_at=datetime(2026, 8, 28, tzinfo=UTC),
+        ),
+    )
+
+    assert error_code is None
+    assert result is not None
+    assert result["schema_version"] == expected_schema_version
 
 
 @pytest.mark.asyncio

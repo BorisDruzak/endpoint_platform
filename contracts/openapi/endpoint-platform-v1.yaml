@@ -645,6 +645,11 @@ paths:
             "application/json":
               schema:
                 "$ref": "#/components/schemas/ModuleCapabilityCatalogEnvelope"
+      security:
+        -
+          ServiceBearer: []
+      x-required-scopes:
+        - "modules.read"
   "/api/v1/modules":
     get:
       tags:
