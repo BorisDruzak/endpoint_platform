@@ -374,22 +374,31 @@
   "additionalProperties": false,
   "properties": {
     "capability": {
-      "enum": [
-        "agent.status.read",
-        "gateway.echo",
-        "context.baseline.collect",
-        "context.health.collect",
-        "context.network.collect",
-        "context.diagnostic.collect",
-        "dns.resolve",
-        "network.ping",
-        "tcp.connect",
-        "route.get",
-        "adapter.list",
-        "system.service_status"
+      "anyOf": [
+        {
+          "enum": [
+            "agent.status.read",
+            "gateway.echo",
+            "context.baseline.collect",
+            "context.health.collect",
+            "context.network.collect",
+            "context.diagnostic.collect"
+          ],
+          "type": "string"
+        },
+        {
+          "enum": [
+            "dns.resolve",
+            "network.ping",
+            "tcp.connect",
+            "route.get",
+            "adapter.list",
+            "system.service_status"
+          ],
+          "type": "string"
+        }
       ],
-      "title": "Capability",
-      "type": "string"
+      "title": "Capability"
     },
     "command_id": {
       "format": "uuid",

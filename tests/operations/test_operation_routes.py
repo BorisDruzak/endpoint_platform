@@ -513,6 +513,48 @@ async def test_default_false_module_platform_flag_registers_no_module_routes(
 
 
 @pytest.mark.asyncio
+async def test_module_capability_catalog_is_flagged_scoped_and_closed(
+    route_fixture: RouteFixture,
+) -> None:
+    disabled = create_app(
+        _settings(enabled=True, module_platform_enabled=False),
+        route_fixture.session_provider,
+    )
+    assert "/api/v1/module-capabilities" not in disabled.openapi()["paths"]
+
+    app = create_app(
+        _settings(enabled=True, module_platform_enabled=True),
+        route_fixture.session_provider,
+    )
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app),
+        base_url="https://endpoint.sosnadmin.local",
+    ) as client:
+        forbidden = await client.get(
+            "/api/v1/module-capabilities",
+            headers=_authorization("modules-writer"),
+        )
+        allowed = await client.get(
+            "/api/v1/module-capabilities",
+            headers=_authorization("modules-reader"),
+        )
+
+    assert forbidden.status_code == 403
+    assert allowed.status_code == 200
+    payload = allowed.json()["data"]
+    assert payload["schema_version"] == "module_capability_catalog_v1"
+    assert [item["capability"] for item in payload["capabilities"]] == [
+        "dns.resolve",
+        "network.ping",
+        "tcp.connect",
+        "route.get",
+        "adapter.list",
+        "system.service_status",
+    ]
+    assert all("service_name" not in item for item in payload["capabilities"])
+
+
+@pytest.mark.asyncio
 async def test_module_create_requires_dedicated_scope_and_persists_draft(
     route_fixture: RouteFixture,
 ) -> None:

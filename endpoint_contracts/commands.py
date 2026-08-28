@@ -4,6 +4,11 @@ from uuid import UUID
 from pydantic import AwareDatetime, ConfigDict, Field, model_validator
 
 from .base import ContractModelV1
+from .capabilities import (
+    MODULE_CAPABILITY_REGISTRY,
+    ModuleCapabilityNameV1,
+    validate_module_capability_parameters,
+)
 from .json_types import (
     BoundedJsonKeyV1,
     BoundedJsonValueV1,
@@ -20,20 +25,15 @@ CommandStatusV1 = Literal[
     "canceled",
     "expired",
 ]
-AgentCapabilityV1 = Literal[
+LegacyAgentCapabilityV1 = Literal[
     "agent.status.read",
     "gateway.echo",
     "context.baseline.collect",
     "context.health.collect",
     "context.network.collect",
     "context.diagnostic.collect",
-    "dns.resolve",
-    "network.ping",
-    "tcp.connect",
-    "route.get",
-    "adapter.list",
-    "system.service_status",
 ]
+AgentCapabilityV1 = LegacyAgentCapabilityV1 | ModuleCapabilityNameV1
 
 
 class CommandCorrelationV1(ContractModelV1):
@@ -80,6 +80,8 @@ class AgentCommandV1(ContractModelV1):
         if self.deadline_at <= self.created_at:
             raise ValueError("deadline_at must be after created_at")
         validate_bounded_json(self.parameters)
+        if self.capability in MODULE_CAPABILITY_REGISTRY:
+            validate_module_capability_parameters(self.capability, self.parameters)
         return self
 
 

@@ -54,6 +54,11 @@ from .read_only_primitives import (
     ServiceStatusParametersV1,
     ServiceStatusResultV1,
 )
+from .capabilities import (
+    ModuleCapabilityAuthoringV1,
+    ModuleCapabilityCatalogV1,
+    ModuleCapabilityNameV1,
+)
 from .modules import (
     EndpointRecipeModuleSpecV1,
     ModuleLabOperationCreateV1,
@@ -159,6 +164,9 @@ __all__ = [
     "RouteGetResultV1",
     "ServiceStatusParametersV1",
     "ServiceStatusResultV1",
+    "ModuleCapabilityAuthoringV1",
+    "ModuleCapabilityCatalogV1",
+    "ModuleCapabilityNameV1",
     "UpdateBuildManifestV1",
     "UpdateRolloutCreateV1",
     "validate_context_result_item",

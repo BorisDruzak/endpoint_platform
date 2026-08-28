@@ -136,6 +136,9 @@ class EndpointCapabilityAvailabilityV1(ContractModelV1):
         "dns.resolve",
         "network.ping",
         "tcp.connect",
+        "route.get",
+        "adapter.list",
+        "system.service_status",
     ]
     available: StrictBool
     transport: Literal["gateway_wss"]
@@ -146,6 +149,9 @@ class EndpointCapabilityAvailabilityV1(ContractModelV1):
         "dns_resolve_parameters_v1",
         "network_ping_parameters_v1",
         "tcp_connect_parameters_v1",
+        "route_get_parameters_v1",
+        "adapter_list_parameters_v1",
+        "service_status_parameters_v1",
     ]
 
 
@@ -156,7 +162,7 @@ class EndpointDeviceCapabilitiesV1(ContractModelV1):
 
     schema_version: Literal["endpoint_device_capabilities_v1"]
     device_id: UUID
-    capabilities: list[EndpointCapabilityAvailabilityV1] = Field(max_length=4)
+    capabilities: list[EndpointCapabilityAvailabilityV1] = Field(max_length=7)
 
 
 class EndpointDiagnosticResultV1(ContractModelV1):

@@ -13,7 +13,10 @@
             "context.diagnostic.collect",
             "dns.resolve",
             "network.ping",
-            "tcp.connect"
+            "tcp.connect",
+            "route.get",
+            "adapter.list",
+            "system.service_status"
           ],
           "title": "Capability",
           "type": "string"
@@ -28,7 +31,10 @@
             "diagnostic_collection_parameters_v1",
             "dns_resolve_parameters_v1",
             "network_ping_parameters_v1",
-            "tcp_connect_parameters_v1"
+            "tcp_connect_parameters_v1",
+            "route_get_parameters_v1",
+            "adapter_list_parameters_v1",
+            "service_status_parameters_v1"
           ],
           "title": "Parameter Schema Version",
           "type": "string"
@@ -66,7 +72,7 @@
       "items": {
         "$ref": "#/$defs/EndpointCapabilityAvailabilityV1"
       },
-      "maxItems": 4,
+      "maxItems": 7,
       "title": "Capabilities",
       "type": "array"
     },

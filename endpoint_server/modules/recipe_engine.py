@@ -4,17 +4,14 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Literal
-
+from endpoint_contracts.capabilities import (
+    ModuleCapabilityNameV1,
+    validate_module_capability_parameters,
+)
 from endpoint_contracts.modules import (
     EndpointRecipeModuleSpecV1,
     RecipeInputBindingV1,
     RecipeLiteralBindingV1,
-)
-from endpoint_contracts.network_primitives import (
-    DnsResolveParametersV1,
-    NetworkPingParametersV1,
-    TcpConnectParametersV1,
 )
 from pydantic import ValidationError
 
@@ -29,7 +26,7 @@ class RecipeExecutionError(ValueError):
 class RecipeCommandPlanItem:
     sequence: int
     step_id: str
-    capability: Literal["dns.resolve", "network.ping", "tcp.connect"]
+    capability: ModuleCapabilityNameV1
     parameters: dict[str, str | int]
 
 
@@ -94,23 +91,9 @@ def _validate_primitive_parameters(
     parameters: dict[str, str | int],
 ) -> dict[str, str | int]:
     try:
-        if capability == "dns.resolve":
-            model = DnsResolveParametersV1.model_validate(
-                {"schema_version": "dns_resolve_parameters_v1", **parameters}
-            )
-        elif capability == "network.ping":
-            model = NetworkPingParametersV1.model_validate(
-                {"schema_version": "network_ping_parameters_v1", **parameters}
-            )
-        elif capability == "tcp.connect":
-            model = TcpConnectParametersV1.model_validate(
-                {"schema_version": "tcp_connect_parameters_v1", **parameters}
-            )
-        else:
-            raise RecipeExecutionError("module capability is not supported")
+        validated = validate_module_capability_parameters(capability, parameters)
     except ValidationError as error:
         raise RecipeExecutionError("module inputs do not satisfy primitive bounds") from error
-    validated = model.model_dump(mode="json", exclude={"schema_version"})
     return {key: value for key, value in validated.items() if type(value) in {str, int}}
 
 

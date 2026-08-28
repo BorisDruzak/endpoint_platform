@@ -70,6 +70,21 @@ The first recipe is `network.basic.check@1.0.0`: `dns.resolve`,
 `network.ping`, then `tcp.connect`. Its `target` and `port` originate from
 declared inputs, not from Helpdesk ticket data.
 
+## Canonical capability catalog
+
+Endpoint owns one closed registry for recipe authoring and expansion, Gateway
+command validation, compatible-device projection, generated contract artifacts,
+and `GET /api/v1/module-capabilities`. The route is registered only when
+`ENDPOINT_MODULE_PLATFORM_ENABLED=true` and requires `modules.read`.
+
+The catalog contains exactly `dns.resolve`, `network.ping`, `tcp.connect`,
+`route.get`, `adapter.list`, and `system.service_status`. Every entry publishes
+fixed parameter and result schema versions, supported platforms, minimum agent
+version, `safe_read` risk, no-consent, its feature gate, and either the
+closed network-target policy or no target policy. It exposes no shell,
+PowerShell, Python, executable, path, URL, raw service name, arbitrary
+command, or generic execution input.
+
 ## Lifecycle and rollout
 
 ModuleVersion lifecycle states are `draft`, `validation_failed`, `validated`,
@@ -81,7 +96,8 @@ All feature flags default closed:
 
 - Endpoint: `ENDPOINT_MODULE_PLATFORM_ENABLED=false`,
   `ENDPOINT_MODULE_EXECUTION_ENABLED=false`, and
-  `ENDPOINT_NETWORK_PRIMITIVES_ENABLED=false`.
+  `ENDPOINT_NETWORK_PRIMITIVES_ENABLED=false`, and
+  `ENDPOINT_READ_ONLY_PRIMITIVES_ENABLED=false`.
 - Helpdesk: `ENDPOINT_MODULE_PORT_MODE=unavailable`,
   `MODULE_WORKBENCH_AUTHORITY=legacy`,
   `ENDPOINT_MODULE_EXECUTION_MODE=disabled`, and

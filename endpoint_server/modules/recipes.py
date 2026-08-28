@@ -3,49 +3,29 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass
 from typing import Literal
 
+from endpoint_contracts.capabilities import (
+    module_capability_descriptor,
+    validate_module_capability_parameters,
+)
 from endpoint_contracts.modules import (
     EndpointRecipeModuleSpecV1,
     RecipeInputBindingV1,
     RecipeLiteralBindingV1,
 )
-from endpoint_contracts.network_primitives import (
-    DnsResolveParametersV1,
-    NetworkPingParametersV1,
-    TcpConnectParametersV1,
-)
-
-
 class RecipeValidationError(ValueError):
     """Stable server-side rejection of a declarative module recipe."""
-
-
-@dataclass(frozen=True, slots=True)
-class _CatalogEntry:
-    parameters: Mapping[str, Literal["string", "integer"]]
-
-
-_CAPABILITY_CATALOG: Mapping[str, _CatalogEntry] = {
-    "dns.resolve": _CatalogEntry({"target": "string", "family": "string"}),
-    "network.ping": _CatalogEntry(
-        {"target": "string", "count": "integer", "timeout_ms": "integer"}
-    ),
-    "tcp.connect": _CatalogEntry(
-        {"target": "string", "port": "integer", "timeout_ms": "integer"}
-    ),
-}
 
 
 def validate_recipe_spec(recipe: EndpointRecipeModuleSpecV1) -> None:
     """Reject any recipe that cannot expand to a fixed typed primitive command."""
     input_types = {item.name: item.value_type for item in recipe.inputs}
     for step in recipe.steps:
-        catalog_entry = _CAPABILITY_CATALOG[step.capability]
-        if set(step.parameters) != set(catalog_entry.parameters):
+        catalog_entry = module_capability_descriptor(step.capability)
+        if set(step.parameters) != set(catalog_entry.authoring_parameters):
             raise RecipeValidationError("recipe parameter shape is not catalog-defined")
-        for parameter_name, expected_type in catalog_entry.parameters.items():
+        for parameter_name, expected_type in catalog_entry.authoring_parameters.items():
             binding = step.parameters[parameter_name]
             if isinstance(binding, RecipeInputBindingV1):
                 if input_types.get(binding.name) != expected_type:
@@ -76,20 +56,7 @@ def _validate_literal_parameter_bounds(
         for name, binding in parameters.items()
     }
     try:
-        if capability == "dns.resolve":
-            DnsResolveParametersV1(
-                schema_version="dns_resolve_parameters_v1", **values
-            )
-        elif capability == "network.ping":
-            NetworkPingParametersV1(
-                schema_version="network_ping_parameters_v1", **values
-            )
-        elif capability == "tcp.connect":
-            TcpConnectParametersV1(
-                schema_version="tcp_connect_parameters_v1", **values
-            )
-        else:
-            raise RecipeValidationError("recipe capability is not catalog-defined")
+        validate_module_capability_parameters(capability, values)
     except ValueError as error:
         raise RecipeValidationError("recipe literal does not satisfy primitive bounds") from error
 
@@ -101,6 +68,7 @@ def _placeholder_for_input(parameter_name: str) -> str | int:
         "count": 1,
         "timeout_ms": 1000,
         "port": 443,
+        "service_key": "endpoint_agent",
     }[parameter_name]
 
 

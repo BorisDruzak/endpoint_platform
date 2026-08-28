@@ -9,10 +9,16 @@ from uuid import UUID
 from pydantic import Field, StrictInt, StrictStr, model_validator
 
 from .base import ContractModelV1
+from .capabilities import ModuleCapabilityNameV1
 from .network_primitives import (
     DnsResolveResultV1,
     NetworkPingResultV1,
     TcpConnectResultV1,
+)
+from .read_only_primitives import (
+    AdapterListResultV1,
+    RouteGetResultV1,
+    ServiceStatusResultV1,
 )
 
 
@@ -58,10 +64,9 @@ RecipeParameterBindingV1 = Annotated[
 
 class EndpointRecipeStepV1(ContractModelV1):
     step_id: ModuleStepNameV1
-    capability: Literal["dns.resolve", "network.ping", "tcp.connect"]
+    capability: ModuleCapabilityNameV1
     parameters: dict[ModuleInputNameV1, RecipeParameterBindingV1] = Field(
-        min_length=1,
-        max_length=3,
+        max_length=4,
     )
 
 
@@ -228,14 +233,19 @@ class ModuleOperationV1(ContractModelV1):
 
 
 ModuleStepSafeResultV1 = Annotated[
-    DnsResolveResultV1 | NetworkPingResultV1 | TcpConnectResultV1,
+    DnsResolveResultV1
+    | NetworkPingResultV1
+    | TcpConnectResultV1
+    | RouteGetResultV1
+    | AdapterListResultV1
+    | ServiceStatusResultV1,
     Field(discriminator="schema_version"),
 ]
 
 
 class ModuleOperationStepV1(ContractModelV1):
     sequence: Annotated[int, Field(strict=True, ge=0, le=7)]
-    capability: Literal["dns.resolve", "network.ping", "tcp.connect"]
+    capability: ModuleCapabilityNameV1
     status: Literal[
         "queued",
         "delivered",

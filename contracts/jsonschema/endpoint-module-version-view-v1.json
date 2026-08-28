@@ -63,14 +63,16 @@
           "enum": [
             "dns.resolve",
             "network.ping",
-            "tcp.connect"
+            "tcp.connect",
+            "route.get",
+            "adapter.list",
+            "system.service_status"
           ],
           "title": "Capability",
           "type": "string"
         },
         "parameters": {
-          "maxProperties": 3,
-          "minProperties": 1,
+          "maxProperties": 4,
           "patternProperties": {
             "^[a-z][a-z0-9_]{0,63}$": {
               "discriminator": {

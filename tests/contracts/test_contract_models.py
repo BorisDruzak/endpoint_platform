@@ -374,6 +374,31 @@ def test_command_accepts_only_documented_safe_v1_capabilities(
 
 
 @pytest.mark.parametrize(
+    ("capability", "parameters"),
+    [
+        ("dns.resolve", {"target": "api.example.test", "family": "any"}),
+        ("network.ping", {"target": "api.example.test", "count": 1, "timeout_ms": 1000}),
+        ("tcp.connect", {"target": "api.example.test", "port": 443, "timeout_ms": 1000}),
+        ("route.get", {"target": "api.example.test", "port": 443, "family": "any", "timeout_ms": 1000}),
+        ("adapter.list", {}),
+        ("system.service_status", {"service_key": "endpoint_agent"}),
+    ],
+)
+def test_command_registry_capabilities_require_exact_typed_parameters(
+    capability: str,
+    parameters: dict[str, object],
+) -> None:
+    payload = valid_agent_command()
+    payload["capability"] = capability
+    payload["parameters"] = parameters
+
+    assert AgentCommandV1.model_validate(payload).parameters == parameters
+
+    with pytest.raises(ValidationError):
+        AgentCommandV1.model_validate({**payload, "parameters": {**parameters, "shell": "blocked"}})
+
+
+@pytest.mark.parametrize(
     "capability",
     [
         "shell.execute",
