@@ -376,6 +376,14 @@ def test_msi_builder_seals_the_initial_selector_to_the_exact_source_revision() -
     assert "schema_version = 1" in script
 
 
+def test_msi_builder_preserves_the_legacy_baseline_source_revision_fallback() -> None:
+    """A schema-v2 baseline stays buildable while schema-v5 seals staged bytes."""
+    script = (WINDOWS_PACKAGING / "build-msi.ps1").read_text(encoding="utf-8")
+
+    assert "if ([int]$manifestPreview.schema_version -ge 5)" in script
+    assert "$initialRuntimeSourceRevision = $checkedOutSourceRevision" in script
+
+
 def test_initial_runtime_payload_is_validated_before_msi_provenance_marker() -> None:
     """The immutable runtime manifest covers frozen payload bytes, not generated MSI metadata."""
     script = (WINDOWS_PACKAGING / "build-msi.ps1").read_text(encoding="utf-8")

@@ -255,13 +255,16 @@ if (-not $InitialRuntimeManifest) {
 }
 $initialRuntimeManifestPath = [IO.Path]::GetFullPath($InitialRuntimeManifest)
 $manifestPreview = Get-Content -LiteralPath $initialRuntimeManifestPath -Raw | ConvertFrom-Json
-$initialRuntimeSourceRevision = [string]$manifestPreview.source_revision
-if ($initialRuntimeSourceRevision -notmatch '^[0-9a-f]{40}$') {
-    throw "Initial runtime manifest has an invalid source revision."
-}
-& git -C $repositoryRoot merge-base --is-ancestor $initialRuntimeSourceRevision $checkedOutSourceRevision
-if ($LASTEXITCODE -ne 0) {
-    throw "Initial runtime source revision is not an ancestor of the clean build source."
+$initialRuntimeSourceRevision = $checkedOutSourceRevision
+if ([int]$manifestPreview.schema_version -ge 5) {
+    $initialRuntimeSourceRevision = [string]$manifestPreview.source_revision
+    if ($initialRuntimeSourceRevision -notmatch '^[0-9a-f]{40}$') {
+        throw "Initial runtime manifest has an invalid source revision."
+    }
+    & git -C $repositoryRoot merge-base --is-ancestor $initialRuntimeSourceRevision $checkedOutSourceRevision
+    if ($LASTEXITCODE -ne 0) {
+        throw "Initial runtime source revision is not an ancestor of the clean build source."
+    }
 }
 $sourceDateEpoch = [string]$manifestPreview.toolchain.source_date_epoch
 if ($sourceDateEpoch -notmatch '^[1-9][0-9]*$') {
@@ -294,7 +297,10 @@ $InitialRuntimeVersion = [string]$initialRuntimeIdentity.version
 $InitialRuntimeComponentGuid = [string]$initialRuntimeIdentity.component_guid
 $BaselineInitialRuntimeVersion = [string]$initialRuntimeIdentity.baseline_version
 $InitialRuntimeTransitionApproved = if ([bool]$initialRuntimeIdentity.transition_approved) { '1' } else { '0' }
-if ([string]$initialRuntimeIdentity.source_revision -ne $initialRuntimeSourceRevision) {
+if (
+    [int]$manifestPreview.schema_version -ge 5 -and
+    [string]$initialRuntimeIdentity.source_revision -ne $initialRuntimeSourceRevision
+) {
     throw "Initial runtime manifest validation returned an unexpected source revision."
 }
 if (-not $Version) {
