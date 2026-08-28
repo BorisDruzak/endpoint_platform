@@ -6,6 +6,8 @@ param(
     [string]$Platform = "x64",
     [string]$Version,
     [string]$InitialRuntimeManifest,
+    [string]$InitialRuntimeStageRoot,
+    [string]$InitialRuntimeStageEvidence,
     [switch]$ApproveInitialRuntimeTransition,
     [switch]$ApproveInitialRuntimeSourceChange,
     [switch]$ReusePythonBuild,
@@ -238,7 +240,7 @@ function Export-MsiInspection {
 
 $repositoryRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..'))
 Assert-CleanSourceTree -RepositoryRoot $repositoryRoot
-$sourceRevision = Get-SourceRevision -RepositoryRoot $repositoryRoot
+$checkedOutSourceRevision = Get-SourceRevision -RepositoryRoot $repositoryRoot
 $packagingRoot = [IO.Path]::GetFullPath($PSScriptRoot)
 $buildRoot = [IO.Path]::GetFullPath((Join-Path $packagingRoot "build\$Configuration-$Platform"))
 $allowedBuildParent = [IO.Path]::GetFullPath((Join-Path $packagingRoot 'build'))
@@ -255,6 +257,15 @@ if (-not $InitialRuntimeManifest) {
 }
 $initialRuntimeManifestPath = [IO.Path]::GetFullPath($InitialRuntimeManifest)
 $manifestPreview = Get-Content -LiteralPath $initialRuntimeManifestPath -Raw | ConvertFrom-Json
+$initialRuntimeSourceRevision = $checkedOutSourceRevision
+if ([int]$manifestPreview.schema_version -ge 5) {
+    if (
+        [string]::IsNullOrWhiteSpace($InitialRuntimeStageRoot) -or
+        [string]::IsNullOrWhiteSpace($InitialRuntimeStageEvidence)
+    ) {
+        throw "Initial runtime stage evidence is required for a schema-v5 manifest."
+    }
+}
 $sourceDateEpoch = [string]$manifestPreview.toolchain.source_date_epoch
 if ($sourceDateEpoch -notmatch '^[1-9][0-9]*$') {
     throw "Initial runtime manifest has an invalid SOURCE_DATE_EPOCH."
@@ -270,6 +281,12 @@ $validationArguments = @(
     '--manifest', $initialRuntimeManifestPath,
     '--baseline', $baselineInitialRuntimeManifest
 )
+if ([int]$manifestPreview.schema_version -ge 5) {
+    $validationArguments += @(
+        '--stage-root', $InitialRuntimeStageRoot,
+        '--stage-evidence', $InitialRuntimeStageEvidence
+    )
+}
 if ($ApproveInitialRuntimeTransition) {
     $validationArguments += '--approve-version'
 }
@@ -285,6 +302,16 @@ $InitialRuntimeVersion = [string]$initialRuntimeIdentity.version
 $InitialRuntimeComponentGuid = [string]$initialRuntimeIdentity.component_guid
 $BaselineInitialRuntimeVersion = [string]$initialRuntimeIdentity.baseline_version
 $InitialRuntimeTransitionApproved = if ([bool]$initialRuntimeIdentity.transition_approved) { '1' } else { '0' }
+if ([int]$manifestPreview.schema_version -ge 5) {
+    $initialRuntimeSourceRevision = [string]$initialRuntimeIdentity.source_revision
+    if ($initialRuntimeSourceRevision -notmatch '^[0-9a-f]{40}$') {
+        throw "Initial runtime manifest validation did not return a staged source revision."
+    }
+    & git -C $repositoryRoot merge-base --is-ancestor $initialRuntimeSourceRevision $checkedOutSourceRevision
+    if ($LASTEXITCODE -ne 0) {
+        throw "Initial runtime stage source revision is not an ancestor of the clean build source."
+    }
+}
 if (-not $Version) {
     $Version = Get-AgentVersion (Join-Path $repositoryRoot 'pc_agent\version.py')
 }
@@ -368,7 +395,7 @@ Copy-Item -LiteralPath (Join-Path $packagingRoot 'assets\agent-config.yaml') -De
 Copy-Item -LiteralPath (Join-Path $packagingRoot 'README.md') -Destination (Join-Path $programFilesStage 'docs\README.md')
 Write-Utf8NoBom (Join-Path $programFilesStage 'current.json') (@{
     schema_version = 1
-    source_revision = $sourceRevision
+    source_revision = $initialRuntimeSourceRevision
     version = $InitialRuntimeVersion
 } | ConvertTo-Json -Compress)
 
@@ -445,7 +472,7 @@ $wixArguments = @(
     "-d", "InitialRuntimeComponentGuid=$InitialRuntimeComponentGuid",
     "-d", "InitialRuntimeTransitionApproved=$InitialRuntimeTransitionApproved",
     "-d", "BaselineInitialRuntimeVersion=$BaselineInitialRuntimeVersion",
-    "-d", "SourceRevision=$sourceRevision",
+    "-d", "SourceRevision=$initialRuntimeSourceRevision",
     "-d", "PackageVersion=$Version", '-out', $msiPath
 ) + $wixSources
 Invoke-Checked $wixCommand.Source $wixArguments $repositoryRoot
@@ -468,7 +495,7 @@ Write-Utf8NoBom $releaseManifestPath (@{
     package_sha256 = $packageSha256
     product_code = $productCodes[0]
     schema_version = 'endpoint_windows_release_v1'
-    source_revision = $sourceRevision
+    source_revision = $initialRuntimeSourceRevision
     version = $Version
 } | ConvertTo-Json -Compress)
 Write-Host "MSI: $msiPath"

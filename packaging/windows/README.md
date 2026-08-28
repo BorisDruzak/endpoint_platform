@@ -9,12 +9,14 @@ are not MSI inputs.
 
 Prerequisites are Python with PyInstaller and the WiX Toolset 4 `wix` command
 with `WixToolset.Util.wixext` available. The source tree must be Git-clean;
-the builder refuses a dirty tree so its selector revision identifies the
-packaged bytes. From the repository root:
+the builder refuses a dirty tree. A schema-5 manifest also requires independent
+evidence for the retained initial-runtime stage. From the repository root:
 
 ```powershell
 .\packaging\windows\build-msi.ps1 -Configuration Release -Platform x64 `
   -InitialRuntimeManifest .\packaging\windows\initial-runtime-3.2.26.json `
+  -InitialRuntimeStageRoot <retained-runtime-stage> `
+  -InitialRuntimeStageEvidence <stage-evidence.json> `
   -ApproveInitialRuntimeTransition -ApproveInitialRuntimeSourceChange
 ```
 
@@ -49,6 +51,28 @@ MSI-owned launcher/service metadata while keeping ProgramData and a valid
 `RemoveExistingProducts` runs inside the MSI transaction; vital service
 installation and the ACL actions fail the transaction instead of continuing
 with a partial service installation.
+
+## Schema-5 runtime provenance
+
+Before a schema-5 MSI build, create the retained headless runtime stage from a
+clean checkout and write evidence beside (not inside) that stage:
+
+```powershell
+python .\packaging\windows\initial_runtime_contract.py `
+  --repository-root . `
+  --artifact-root <retained-runtime-stage> `
+  --write-stage-evidence <stage-evidence.json>
+```
+
+The evidence is generated without reading the release manifest. It records the
+clean staging checkout's Git HEAD and the complete stage-tree identity. The MSI
+builder rehashes the retained stage, verifies that evidence, and requires its
+source revision to equal the manifest's `source_revision`; it then verifies
+every manifest source hash against Git blobs at that revision. The revision
+must be an ancestor of the clean MSI build checkout, but may precede the MSI
+build commit when later commits change only release metadata or tests. Thus the
+schema-1 selector, binding, and release sidecar identify the runtime-stage
+source, not an unrelated later MSI-wrapper commit.
 
 ## Staging diagnostic canary
 
@@ -98,7 +122,7 @@ it never records a full endpoint URL or authentication material.
   documentation, and a public configuration template. Provisioning happens
   after installation through the separately reviewed protected handoff.
 - Each newly built MSI seals that initial selector as schema version 1 with the
-  exact 40-character Git revision used for the build. Older installed
+  exact 40-character Git revision that staged the selected runtime. Older installed
   version-only selectors remain launch-compatible for upgrade safety, but they
   do not provide the immutable provenance required by the Windows diagnostic
   canary; recover those hosts with a freshly built and installed MSI.

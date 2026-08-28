@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from pathlib import Path
+import subprocess
+import sys
 
 import pytest
 
@@ -35,6 +38,18 @@ def _contract_module():
     return module
 
 
+def _contract_cli(*arguments: str) -> subprocess.CompletedProcess[str]:
+    script = Path(__file__).resolve().parents[2] / "packaging" / "windows" / "initial_runtime_contract.py"
+    environment = {**os.environ, "PYTHONHASHSEED": "0", "SOURCE_DATE_EPOCH": "1767225600"}
+    return subprocess.run(
+        (sys.executable, str(script), *arguments),
+        capture_output=True,
+        check=False,
+        encoding="utf-8",
+        env=environment,
+    )
+
+
 def _artifact_identity(root: Path) -> dict[str, object]:
     digest = hashlib.sha256()
     files = sorted(path for path in root.rglob("*") if path.is_file())
@@ -49,6 +64,30 @@ def _artifact_identity(root: Path) -> dict[str, object]:
 
 def _source_hash(content: bytes) -> str:
     return hashlib.sha256(content.replace(b"\r\n", b"\n")).hexdigest()
+
+
+def _git(root: Path, *arguments: str) -> str:
+    completed = subprocess.run(
+        ("git", "-C", str(root), *arguments),
+        capture_output=True,
+        check=False,
+        encoding="utf-8",
+    )
+    assert completed.returncode == 0, completed.stderr
+    return completed.stdout.strip()
+
+
+def _commit_source_tree(root: Path) -> str:
+    _git(root, "init")
+    _git(root, "config", "user.email", "initial-runtime-tests@example.invalid")
+    _git(root, "config", "user.name", "Initial Runtime Tests")
+    return _commit_all(root, "test runtime source")
+
+
+def _commit_all(root: Path, message: str) -> str:
+    _git(root, "add", "--all")
+    _git(root, "commit", "-m", message)
+    return _git(root, "rev-parse", "HEAD")
 
 
 def _manifest(
@@ -147,6 +186,149 @@ def test_source_hash_validation_canonicalizes_python_line_endings(
     )
 
     assert identity.version == "3.1.76"
+
+
+def test_schema5_manifest_requires_the_staged_source_revision(
+    tmp_path: Path, artifact_root: Path
+) -> None:
+    """A frozen runtime must name the exact immutable source HEAD that staged it."""
+    contract = _contract_module()
+    validate = contract.validate_initial_runtime
+    manifest = _manifest(
+        tmp_path,
+        version="3.1.76",
+        guid="980AE24B-57BC-4B59-A18A-65B9B33A7906",
+        artifact_root=artifact_root,
+        toolchain=TOOLCHAIN_HOOKS_PINNED,
+        schema_version=4,
+    )
+    payload = json.loads(manifest.read_text(encoding="utf-8"))
+    payload["schema_version"] = 5
+    payload["source_revision"] = _commit_source_tree(tmp_path)
+    evidence = tmp_path / "initial-runtime-stage-evidence.json"
+    evidence_write = _contract_cli(
+        "--repository-root", str(tmp_path),
+        "--artifact-root", str(artifact_root),
+        "--write-stage-evidence", str(evidence),
+    )
+    assert evidence_write.returncode == 0, evidence_write.stderr
+    manifest.write_text(json.dumps(payload), encoding="utf-8")
+
+    identity = validate(
+        tmp_path,
+        manifest,
+        manifest,
+        stage_root=artifact_root,
+        stage_evidence_path=evidence,
+        observed_toolchain=TOOLCHAIN_HOOKS_PINNED,
+    )
+
+    assert identity.source_revision == payload["source_revision"]
+    evidence_payload = json.loads(evidence.read_text(encoding="utf-8"))
+    evidence_payload["source_revision"] = "b" * 40
+    evidence.write_text(json.dumps(evidence_payload), encoding="utf-8")
+    with pytest.raises(ValueError, match="source revision"):
+        validate(
+            tmp_path,
+            manifest,
+            manifest,
+            stage_root=artifact_root,
+            stage_evidence_path=evidence,
+            observed_toolchain=TOOLCHAIN_HOOKS_PINNED,
+        )
+
+
+def test_schema5_manifest_rejects_hashes_not_from_the_declared_revision(
+    tmp_path: Path, artifact_root: Path
+) -> None:
+    """A descendant checkout cannot relabel newer runtime bytes as an old source SHA."""
+    manifest = _manifest(
+        tmp_path,
+        version="3.1.76",
+        guid="980AE24B-57BC-4B59-A18A-65B9B33A7906",
+        artifact_root=artifact_root,
+        source_content="staged-runtime-source",
+        toolchain=TOOLCHAIN_HOOKS_PINNED,
+        schema_version=4,
+    )
+    staged_revision = _commit_source_tree(tmp_path)
+    evidence = tmp_path / "initial-runtime-stage-evidence.json"
+    evidence_write = _contract_cli(
+        "--repository-root", str(tmp_path),
+        "--artifact-root", str(artifact_root),
+        "--write-stage-evidence", str(evidence),
+    )
+    assert evidence_write.returncode == 0, evidence_write.stderr
+    manifest = _manifest(
+        tmp_path,
+        version="3.1.76",
+        guid="980AE24B-57BC-4B59-A18A-65B9B33A7906",
+        artifact_root=artifact_root,
+        source_content="descendant-runtime-source",
+        toolchain=TOOLCHAIN_HOOKS_PINNED,
+        schema_version=4,
+    )
+    payload = json.loads(manifest.read_text(encoding="utf-8"))
+    payload["schema_version"] = 5
+    payload["source_revision"] = staged_revision
+    manifest.write_text(json.dumps(payload), encoding="utf-8")
+    descendant_revision = _commit_all(tmp_path, "test descendant runtime source")
+    assert _git(tmp_path, "merge-base", "--is-ancestor", staged_revision, descendant_revision) == ""
+
+    production_validation = _contract_cli(
+        "--repository-root", str(tmp_path),
+        "--manifest", str(manifest),
+        "--baseline", str(manifest),
+        "--stage-root", str(artifact_root),
+        "--stage-evidence", str(evidence),
+    )
+    assert production_validation.returncode != 0
+    assert "source revision" in production_validation.stderr
+
+
+def test_schema5_production_validation_rejects_evidence_for_another_artifact(
+    tmp_path: Path, artifact_root: Path
+) -> None:
+    """A retained stage cannot lend provenance to a different candidate tree."""
+    candidate_artifact = tmp_path / "candidate-artifact"
+    (candidate_artifact / "_internal").mkdir(parents=True)
+    (candidate_artifact / "pc_agent.exe").write_bytes(b"candidate-exe")
+    (candidate_artifact / "_internal" / "python314.dll").write_bytes(b"candidate-runtime")
+    manifest = _manifest(
+        tmp_path,
+        version="3.1.76",
+        guid="980AE24B-57BC-4B59-A18A-65B9B33A7906",
+        artifact_root=candidate_artifact,
+        toolchain=TOOLCHAIN_HOOKS_PINNED,
+        schema_version=4,
+    )
+    staged_revision = _commit_source_tree(tmp_path)
+    evidence = tmp_path / "initial-runtime-stage-evidence.json"
+    evidence_write = _contract_cli(
+        "--repository-root", str(tmp_path),
+        "--artifact-root", str(artifact_root),
+        "--write-stage-evidence", str(evidence),
+    )
+    assert evidence_write.returncode == 0, evidence_write.stderr
+    payload = json.loads(manifest.read_text(encoding="utf-8"))
+    payload["schema_version"] = 5
+    payload["source_revision"] = staged_revision
+    manifest.write_text(json.dumps(payload), encoding="utf-8")
+
+    for arguments in (
+        (),
+        ("--artifact-root", str(candidate_artifact)),
+    ):
+        production_validation = _contract_cli(
+            "--repository-root", str(tmp_path),
+            "--manifest", str(manifest),
+            "--baseline", str(manifest),
+            "--stage-root", str(artifact_root),
+            "--stage-evidence", str(evidence),
+            *arguments,
+        )
+        assert production_validation.returncode != 0
+        assert "stage evidence" in production_validation.stderr
 
 
 def test_manifest_version_must_match_agent_version_constant(
@@ -386,11 +568,14 @@ def test_windows_current_product_uses_a_checked_in_approved_initial_transition()
     """A source-version change must also advance the MSI-owned immutable runtime."""
     project_root = Path(__file__).resolve().parents[2]
     baseline = project_root / "packaging" / "windows" / "initial-runtime.json"
-    transition = project_root / "packaging" / "windows" / "initial-runtime-3.2.34.json"
+    transition = project_root / "packaging" / "windows" / "initial-runtime-3.2.35.json"
 
     assert transition.is_file()
     payload = json.loads(transition.read_text(encoding="utf-8"))
-    assert payload["version"] == "3.2.34"
+    assert payload["version"] == "3.2.35"
+    assert payload["agent_version"] == "3.2.35"
+    assert payload["schema_version"] == 5
+    assert payload["source_revision"] == "d010c81972a2df03c62ff4427c37f5b4d12d456e"
     assert payload["component_guid"] != json.loads(baseline.read_text(encoding="utf-8"))["component_guid"]
     assert "pc_agent/platform/windows/service_control.py" in {
         item["path"] for item in payload["source_files"]
@@ -433,7 +618,9 @@ def test_windows_current_product_uses_a_checked_in_approved_initial_transition()
         baseline,
         approve_version=True,
         approve_source=True,
+        observed_source_revision=payload["source_revision"],
         observed_toolchain=payload["toolchain"],
     )
 
     assert identity.transition_approved is True
+    assert identity.source_revision == payload["source_revision"]

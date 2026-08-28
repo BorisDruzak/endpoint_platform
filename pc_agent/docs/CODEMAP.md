@@ -116,7 +116,11 @@
   fixed service registration/recovery, ProgramData preservation, secret-free
   payload manifest, and final-uninstall versus administrator-purge behavior.
   Its initial `current.json` selector is sealed as schema version 1 with the
-  exact source revision used to build the MSI; the Windows service host accepts
+  exact source revision that staged the selected runtime. Schema-5 packaging
+  independently records the clean staging HEAD plus staged-tree identity in a
+  stage-evidence sidecar before reading its manifest, then verifies that evidence, the manifest source hashes,
+  and the retained stage; this source revision can precede a clean MSI-wrapper
+  commit. The Windows service host accepts
   legacy version-only selectors only for safe upgrade compatibility, while
   diagnostic-canary provenance requires the revision-bound schema. Its child
   command preserves the protected provisioned Endpoint origin, so staging
