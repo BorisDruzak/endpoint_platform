@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 from pathlib import Path
+import subprocess
 
 import pytest
 
@@ -49,6 +50,26 @@ def _artifact_identity(root: Path) -> dict[str, object]:
 
 def _source_hash(content: bytes) -> str:
     return hashlib.sha256(content.replace(b"\r\n", b"\n")).hexdigest()
+
+
+def _git(root: Path, *arguments: str) -> str:
+    completed = subprocess.run(
+        ("git", "-C", str(root), *arguments),
+        capture_output=True,
+        check=False,
+        encoding="utf-8",
+    )
+    assert completed.returncode == 0, completed.stderr
+    return completed.stdout.strip()
+
+
+def _commit_source_tree(root: Path) -> str:
+    _git(root, "init")
+    _git(root, "config", "user.email", "initial-runtime-tests@example.invalid")
+    _git(root, "config", "user.name", "Initial Runtime Tests")
+    _git(root, "add", "--all")
+    _git(root, "commit", "-m", "test runtime source")
+    return _git(root, "rev-parse", "HEAD")
 
 
 def _manifest(
@@ -164,24 +185,63 @@ def test_schema5_manifest_requires_the_staged_source_revision(
     )
     payload = json.loads(manifest.read_text(encoding="utf-8"))
     payload["schema_version"] = 5
-    payload["source_revision"] = "a" * 40
+    payload["source_revision"] = _commit_source_tree(tmp_path)
     manifest.write_text(json.dumps(payload), encoding="utf-8")
 
     identity = validate(
         tmp_path,
         manifest,
         manifest,
-        observed_source_revision="a" * 40,
+        observed_source_revision=payload["source_revision"],
         observed_toolchain=TOOLCHAIN_HOOKS_PINNED,
     )
 
-    assert identity.source_revision == "a" * 40
+    assert identity.source_revision == payload["source_revision"]
     with pytest.raises(ValueError, match="source revision"):
         validate(
             tmp_path,
             manifest,
             manifest,
             observed_source_revision="b" * 40,
+            observed_toolchain=TOOLCHAIN_HOOKS_PINNED,
+        )
+
+
+def test_schema5_manifest_rejects_hashes_not_from_the_declared_revision(
+    tmp_path: Path, artifact_root: Path
+) -> None:
+    """A descendant checkout cannot relabel newer runtime bytes as an old source SHA."""
+    validate = _contract_module().validate_initial_runtime
+    manifest = _manifest(
+        tmp_path,
+        version="3.1.76",
+        guid="980AE24B-57BC-4B59-A18A-65B9B33A7906",
+        artifact_root=artifact_root,
+        source_content="staged-runtime-source",
+        toolchain=TOOLCHAIN_HOOKS_PINNED,
+        schema_version=4,
+    )
+    staged_revision = _commit_source_tree(tmp_path)
+    manifest = _manifest(
+        tmp_path,
+        version="3.1.76",
+        guid="980AE24B-57BC-4B59-A18A-65B9B33A7906",
+        artifact_root=artifact_root,
+        source_content="descendant-runtime-source",
+        toolchain=TOOLCHAIN_HOOKS_PINNED,
+        schema_version=4,
+    )
+    payload = json.loads(manifest.read_text(encoding="utf-8"))
+    payload["schema_version"] = 5
+    payload["source_revision"] = staged_revision
+    manifest.write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="source revision"):
+        validate(
+            tmp_path,
+            manifest,
+            manifest,
+            observed_source_revision=staged_revision,
             observed_toolchain=TOOLCHAIN_HOOKS_PINNED,
         )
 

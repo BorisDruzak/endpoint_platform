@@ -9,6 +9,7 @@ import json
 import os
 import platform
 import re
+import subprocess
 import sysconfig
 import uuid
 from dataclasses import dataclass
@@ -73,6 +74,21 @@ def _hash_file(path: Path) -> str:
 def _hash_source_file(path: Path) -> str:
     """Hash reviewed source independent of Git's CRLF checkout conversion."""
     return hashlib.sha256(path.read_bytes().replace(b"\r\n", b"\n")).hexdigest()
+
+
+def _hash_source_blob(repository_root: Path, revision: str, relative: str) -> str:
+    """Hash the canonical committed blob that the immutable manifest names."""
+    try:
+        completed = subprocess.run(
+            ("git", "-C", str(repository_root), "show", f"{revision}:{relative}"),
+            capture_output=True,
+            check=False,
+        )
+    except OSError as error:
+        raise ValueError("initial runtime source revision is unavailable") from error
+    if completed.returncode != 0:
+        raise ValueError("initial runtime source revision is unavailable")
+    return hashlib.sha256(completed.stdout.replace(b"\r\n", b"\n")).hexdigest()
 
 
 def artifact_identity(root: Path) -> dict[str, object]:
@@ -237,6 +253,10 @@ def _load_manifest(
         normalized.append({"path": relative, "sha256": expected})
     if [item["path"] for item in normalized] != sorted(observed):
         raise ValueError("initial runtime source entries must be sorted")
+    if validate_inputs and source_revision is not None:
+        for item in normalized:
+            if _hash_source_blob(repository_root, source_revision, item["path"]) != item["sha256"]:
+                raise ValueError("initial runtime source revision does not match source hashes")
 
     if validate_inputs:
         actual_toolchain = observed_toolchain or discover_toolchain()
