@@ -23,7 +23,7 @@ from .network_primitives import (
 from .read_only_primitives import (
     AdapterListParametersV1,
     RouteGetParametersV1,
-    SystemServiceStatusParametersV1,
+    ServiceStatusParametersV1,
 )
 from .telemetry import AgentHeartbeatV1
 
@@ -187,8 +187,13 @@ def _gateway_command_schema_extra(schema: dict[str, object]) -> None:
                 "properties": {
                     "parameters": {
                         "type": "object",
-                        "properties": {"target": {**safe_text, "maxLength": 253}},
-                        "required": ["target"],
+                        "properties": {
+                            "target": {**safe_text, "maxLength": 253},
+                            "port": {"type": "integer", "minimum": 1, "maximum": 65535},
+                            "family": {"enum": ["any", "ipv4", "ipv6"]},
+                            "timeout_ms": {"type": "integer", "minimum": 100, "maximum": 5000},
+                        },
+                        "required": ["target", "port", "family", "timeout_ms"],
                         "additionalProperties": False,
                     }
                 }
@@ -259,7 +264,7 @@ class GatewayCommandV1(AgentCommandV1):
             "dns.resolve": frozenset({"target", "family"}),
             "network.ping": frozenset({"target", "count", "timeout_ms"}),
             "tcp.connect": frozenset({"target", "port", "timeout_ms"}),
-            "route.get": frozenset({"target"}),
+            "route.get": frozenset({"target", "port", "family", "timeout_ms"}),
             "adapter.list": frozenset(),
             "system.service_status": frozenset({"service_key"}),
         }
@@ -275,8 +280,8 @@ class GatewayCommandV1(AgentCommandV1):
             "route.get": ("route_get_parameters_v1", RouteGetParametersV1),
             "adapter.list": ("adapter_list_parameters_v1", AdapterListParametersV1),
             "system.service_status": (
-                "system_service_status_parameters_v1",
-                SystemServiceStatusParametersV1,
+                "service_status_parameters_v1",
+                ServiceStatusParametersV1,
             ),
         }
         network_model = network_parameter_models.get(self.capability)

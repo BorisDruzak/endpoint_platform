@@ -1,127 +1,270 @@
-"""Platform adapters for bounded, non-mutating Endpoint diagnostics."""
+"""Fixed native collectors for bounded, non-mutating Endpoint diagnostics."""
 
 from __future__ import annotations
 
+import ipaddress
 import os
 import socket
 import subprocess
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from datetime import UTC, datetime
+from typing import Any, Literal
 
 from pydantic import ValidationError
 
 from endpoint_contracts.read_only_primitives import (
     AdapterListParametersV1,
     AdapterListResultV1,
-    AdapterSummaryV1,
+    AdapterSummaryItemV1,
     RouteGetParametersV1,
     RouteGetResultV1,
-    SystemServiceStatusParametersV1,
-    SystemServiceStatusResultV1,
+    ServiceStatusParametersV1,
+    ServiceStatusResultV1,
 )
+from pc_agent.primitives.network.policy import AgentNetworkProbePolicy, NetworkProbeDenied
 
 
 _MAX_ADAPTERS = 32
-_ALT_RPM = "/usr/bin/rpm"
-_LINUX_UNITS = {
-    "endpoint_agent": "endpoint-agent.service",
-    "endpoint_agent_updater": "endpoint-agent-update.service",
-}
+_LINUX_UNITS = {"endpoint_agent": "endpoint-agent.service"}
 _WINDOWS_SERVICES = {
     "endpoint_agent": "EndpointAgent",
     "endpoint_agent_updater": "EndpointAgentUpdater",
 }
+_WINDOWS_ERROR_SERVICE_DOES_NOT_EXIST = 1060
+
+
+class _FixedWindowsServiceNotFound(OSError):
+    """Private marker for the one SCM absence condition exposed by the contract."""
 
 
 def _completed_at(value: datetime | None) -> datetime:
     return value or datetime.now(UTC)
 
 
-def _route_source(target: str) -> tuple[str, str]:
-    records = socket.getaddrinfo(target, 9, socket.AF_UNSPEC, socket.SOCK_DGRAM)
-    for family, _socket_type, _protocol, _canonical, address in records:
-        if family not in {socket.AF_INET, socket.AF_INET6}:
+def _socket_family(family: Literal["any", "ipv4", "ipv6"]) -> int:
+    return {"any": socket.AF_UNSPEC, "ipv4": socket.AF_INET, "ipv6": socket.AF_INET6}[family]
+
+
+def _resolve_candidates(
+    target: str, port: int, family: Literal["any", "ipv4", "ipv6"]
+) -> tuple[tuple[Literal["ipv4", "ipv6"], str], ...]:
+    records = socket.getaddrinfo(target, port, _socket_family(family), socket.SOCK_DGRAM)
+    candidates: list[tuple[Literal["ipv4", "ipv6"], str]] = []
+    for address_family, _type, _protocol, _canonical, address in records:
+        if address_family not in {socket.AF_INET, socket.AF_INET6}:
             continue
-        connection = socket.socket(family, socket.SOCK_DGRAM)
-        try:
-            connection.connect(address)
-            local_address = str(connection.getsockname()[0])
-        finally:
-            connection.close()
-        return ("ipv4" if family == socket.AF_INET else "ipv6", local_address)
-    raise OSError("no routable address family")
+        candidate_family: Literal["ipv4", "ipv6"] = (
+            "ipv4" if address_family == socket.AF_INET else "ipv6"
+        )
+        candidate_ip = str(address[0])
+        item = (candidate_family, candidate_ip)
+        if item not in candidates:
+            candidates.append(item)
+    if not candidates:
+        raise OSError("no supported DNS candidates")
+    return tuple(candidates)
+
+
+def _infer_source(
+    resolved_ip: str,
+    port: int,
+    family: Literal["ipv4", "ipv6"],
+    timeout_ms: int,
+) -> str:
+    address_family = socket.AF_INET if family == "ipv4" else socket.AF_INET6
+    connection = socket.socket(address_family, socket.SOCK_DGRAM)
+    try:
+        connection.settimeout(timeout_ms / 1000)
+        connection.connect((resolved_ip, port))
+        return str(connection.getsockname()[0])
+    finally:
+        connection.close()
+
+
+def _interface_for_source(source_ip: str) -> str | None:
+    try:
+        import psutil
+    except ImportError:
+        return None
+    for name, addresses in psutil.net_if_addrs().items():
+        for address in addresses:
+            candidate = getattr(address, "address", "").split("%", 1)[0]
+            if candidate == source_ip:
+                return name
+    return None
 
 
 def route_get(
     parameters: RouteGetParametersV1,
     *,
-    route_source: Callable[[str], tuple[str, str]] = _route_source,
+    policy: AgentNetworkProbePolicy,
+    resolve_candidates: Callable[
+        [str, int, Literal["any", "ipv4", "ipv6"]],
+        tuple[tuple[Literal["ipv4", "ipv6"], str], ...],
+    ] = _resolve_candidates,
+    infer_source: Callable[[str, int, Literal["ipv4", "ipv6"], int], str] = _infer_source,
+    interface_for_source: Callable[[str], str | None] = _interface_for_source,
     collected_at: datetime | None = None,
 ) -> RouteGetResultV1:
-    """Read one selected route without running a command or sending a packet."""
+    """Infer a selected source address only after DNS candidates are allowed."""
     finished_at = _completed_at(collected_at)
     try:
-        family, local_address = route_source(parameters.target)
-        return RouteGetResultV1(
-            schema_version="route_get_result_v1",
-            target=parameters.target,
-            family=family,
-            local_address=local_address,
-            status="succeeded",
-            collected_at=finished_at,
-        )
+        candidates = resolve_candidates(parameters.target, parameters.port, parameters.family)
     except (OSError, UnicodeError, ValueError):
-        return RouteGetResultV1(
-            schema_version="route_get_result_v1",
-            target=parameters.target,
-            status="failed",
-            error_code="route_unavailable",
-            collected_at=finished_at,
-        )
+        return _failed_route(parameters, "route_unavailable", finished_at)
+
+    allowed_candidates: list[tuple[Literal["ipv4", "ipv6"], str]] = []
+    for family, resolved_ip in candidates:
+        try:
+            policy.require_allowed(resolved_ip)
+        except NetworkProbeDenied:
+            continue
+        allowed_candidates.append((family, resolved_ip))
+    if not allowed_candidates:
+        return _failed_route(parameters, "network_target_denied", finished_at)
+
+    for family, resolved_ip in allowed_candidates:
+        try:
+            source_ip = infer_source(resolved_ip, parameters.port, family, parameters.timeout_ms)
+            interface_name = interface_for_source(source_ip)
+            return RouteGetResultV1(
+                schema_version="route_get_result_v1",
+                target=parameters.target,
+                resolved_ip=resolved_ip,
+                family=family,
+                port=parameters.port,
+                source_ip=source_ip,
+                interface_name=interface_name,
+                status="succeeded",
+                collected_at=finished_at,
+            )
+        except (OSError, UnicodeError, ValueError, ValidationError):
+            continue
+    return _failed_route(parameters, "route_unavailable", finished_at)
+
+
+def _failed_route(
+    parameters: RouteGetParametersV1, error_code: str, collected_at: datetime
+) -> RouteGetResultV1:
+    return RouteGetResultV1(
+        schema_version="route_get_result_v1",
+        target=parameters.target,
+        port=parameters.port,
+        status="failed",
+        error_code=error_code,
+        collected_at=collected_at,
+    )
+
+
+def _psutil_interface_addresses() -> Mapping[str, list[Any]]:
+    import psutil
+
+    return psutil.net_if_addrs()
+
+
+def _psutil_interface_stats() -> Mapping[str, Any]:
+    import psutil
+
+    return psutil.net_if_stats()
+
+
+def _adapter_kind(name: str) -> Literal[
+    "ethernet", "wifi", "loopback", "tunnel", "virtual", "unknown"
+]:
+    normalized = name.lower()
+    if normalized in {"lo", "loopback"} or "loopback" in normalized:
+        return "loopback"
+    if any(value in normalized for value in ("wifi", "wi-fi", "wlan", "wireless")):
+        return "wifi"
+    if any(value in normalized for value in ("tun", "tap", "vpn", "ppp")):
+        return "tunnel"
+    if any(value in normalized for value in ("virtual", "veth", "docker", "vmnet")):
+        return "virtual"
+    return "ethernet" if normalized else "unknown"
+
+
+def _addresses_for_adapter(addresses: list[Any]) -> tuple[list[str], list[str]]:
+    ipv4: list[str] = []
+    ipv6: list[str] = []
+    for address in addresses:
+        value = getattr(address, "address", "")
+        if not isinstance(value, str):
+            continue
+        value = value.split("%", 1)[0]
+        try:
+            parsed = ipaddress.ip_address(value)
+        except ValueError:
+            continue
+        destination = ipv4 if parsed.version == 4 else ipv6
+        normalized = str(parsed)
+        if normalized not in destination and len(destination) < 4:
+            destination.append(normalized)
+    return ipv4, ipv6
+
+
+def _bounded_stat(value: object, maximum: int) -> int:
+    if type(value) is not int:
+        return 0
+    return min(max(value, 0), maximum)
 
 
 def adapter_list(
     _parameters: AdapterListParametersV1,
     *,
-    list_interfaces: Callable[[], list[tuple[int, str]]] = socket.if_nameindex,
+    interface_addresses: Callable[[], Mapping[str, list[Any]]] = _psutil_interface_addresses,
+    interface_stats: Callable[[], Mapping[str, Any]] = _psutil_interface_stats,
+    primary_interface_name: str | None = None,
     collected_at: datetime | None = None,
 ) -> AdapterListResultV1:
-    """Return a capped list of OS interface indexes and safe names only."""
+    """Project a capped psutil interface view with no MAC or profile data."""
     finished_at = _completed_at(collected_at)
     try:
-        seen_names: set[str] = set()
-        adapters: list[AdapterSummaryV1] = []
-        for index, name in list_interfaces():
+        addresses = interface_addresses()
+        stats = interface_stats()
+        adapters: list[AdapterSummaryItemV1] = []
+        for name in sorted(addresses):
+            stat = stats.get(name)
+            state = "unknown" if stat is None else ("up" if stat.isup else "down")
+            ipv4, ipv6 = _addresses_for_adapter(addresses[name])
             try:
-                item = AdapterSummaryV1(index=index, name=name)
+                adapters.append(
+                    AdapterSummaryItemV1(
+                        name=name,
+                        state=state,
+                        kind=_adapter_kind(name),
+                        primary=name == primary_interface_name,
+                        ipv4_addresses=ipv4,
+                        ipv6_addresses=ipv6,
+                        mtu=_bounded_stat(getattr(stat, "mtu", 0), 65535),
+                        speed_mbps=_bounded_stat(getattr(stat, "speed", 0), 1_000_000),
+                    )
+                )
             except ValidationError:
                 continue
-            if item.name in seen_names:
-                continue
-            seen_names.add(item.name)
-            adapters.append(item)
-        adapters.sort(key=lambda item: (item.index, item.name))
-        adapters = adapters[:_MAX_ADAPTERS]
+            if len(adapters) == _MAX_ADAPTERS:
+                break
         return AdapterListResultV1(
             schema_version="adapter_list_result_v1",
             adapters=adapters,
             adapter_count=len(adapters),
+            up_count=sum(item.state == "up" for item in adapters),
             status="succeeded",
             collected_at=finished_at,
         )
-    except OSError:
+    except (ImportError, OSError):
         return AdapterListResultV1(
             schema_version="adapter_list_result_v1",
             adapter_count=0,
+            up_count=0,
             status="failed",
             error_code="adapter_enumeration_failed",
             collected_at=finished_at,
         )
 
 
-def _linux_service_status(unit: str) -> str:
+def _linux_service_details(unit: str) -> tuple[bool, str, str]:
     completed = subprocess.run(
-        ("/usr/bin/systemctl", "show", unit, "--property=ActiveState,LoadState", "--no-page"),
+        ("/usr/bin/systemctl", "show", unit, "--property=ActiveState,LoadState,UnitFileState", "--no-pager"),
         check=False,
         stdin=subprocess.DEVNULL,
         stdout=subprocess.PIPE,
@@ -129,151 +272,94 @@ def _linux_service_status(unit: str) -> str:
         text=True,
         timeout=5,
     )
-    values = dict(
-        line.split("=", 1)
-        for line in completed.stdout.splitlines()
-        if "=" in line
+    values = dict(line.split("=", 1) for line in completed.stdout.splitlines() if "=" in line)
+    installed = values.get("LoadState") != "not-found"
+    state = {"active": "running", "inactive": "stopped", "failed": "failed"}.get(
+        values.get("ActiveState"), "not_found" if not installed else "unknown"
     )
-    if values.get("LoadState") == "not-found":
-        return "missing"
-    return {
-        "active": "active",
-        "inactive": "inactive",
-        "failed": "failed",
-    }.get(values.get("ActiveState"), "unknown")
+    start_mode = {"enabled": "automatic", "disabled": "disabled"}.get(
+        values.get("UnitFileState"), "manual" if installed else "unknown"
+    )
+    return installed, state, start_mode
 
 
-def _windows_service_status(service_name: str) -> str:
+def _windows_service_details(service_name: str) -> tuple[bool, str, str]:
     try:
         import win32serviceutil  # type: ignore[import-not-found]
     except ImportError as error:
-        raise OSError("Windows service query is unavailable") from error
-    status = win32serviceutil.QueryServiceStatus(service_name)[1]
-    return {4: "active", 1: "inactive", 7: "inactive"}.get(status, "unknown")
-
-
-def _alt_package_version() -> str | None:
+        raise OSError("Windows SCM query is unavailable") from error
     try:
-        completed = subprocess.run(
-            (_ALT_RPM, "-q", "--qf", "%{VERSION}", "endpoint-agent"),
-            check=False,
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL,
-            text=True,
-            timeout=5,
-        )
-    except OSError:
-        return None
-    if completed.returncode != 0:
-        return None
-    return completed.stdout.strip()
+        state_code = win32serviceutil.QueryServiceStatus(service_name)[1]
+        start_type = win32serviceutil.QueryServiceConfig(service_name)[1]
+    except OSError as error:
+        if getattr(error, "winerror", None) == _WINDOWS_ERROR_SERVICE_DOES_NOT_EXIST:
+            raise _FixedWindowsServiceNotFound from error
+        raise
+    state = {1: "stopped", 4: "running", 7: "paused"}.get(state_code, "unknown")
+    start_mode = {2: "automatic", 3: "manual", 4: "disabled"}.get(start_type, "unknown")
+    return True, state, start_mode
 
 
-def _windows_package_version() -> str | None:
-    try:
-        import winreg
-    except ImportError:
-        return None
-    uninstall_key = r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall"
-    try:
-        with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, uninstall_key) as root:
-            index = 0
-            while True:
-                try:
-                    child_name = winreg.EnumKey(root, index)
-                except OSError:
-                    return None
-                index += 1
-                with winreg.OpenKey(root, child_name) as item:
-                    try:
-                        display_name, _ = winreg.QueryValueEx(item, "DisplayName")
-                        display_version, _ = winreg.QueryValueEx(item, "DisplayVersion")
-                        windows_installer, _ = winreg.QueryValueEx(item, "WindowsInstaller")
-                    except OSError:
-                        continue
-                    if (
-                        display_name == "Endpoint Agent"
-                        and windows_installer == 1
-                        and isinstance(display_version, str)
-                    ):
-                        return display_version.strip()
-    except OSError:
-        return None
-
-
-def _bounded_package_version(value: str | None) -> str | None:
-    if not isinstance(value, str):
-        return None
-    try:
-        return SystemServiceStatusResultV1.model_validate(
-            {
-                "schema_version": "system_service_status_result_v1",
-                "service_key": "endpoint_agent",
-                "platform": "linux_amd64",
-                "state": "unknown",
-                "package_kind": "alt_rpm",
-                "package_version": value,
-                "status": "succeeded",
-                "collected_at": datetime.now(UTC),
-            }
-        ).package_version
-    except ValidationError:
-        return None
-
-
-def system_service_status(
-    parameters: SystemServiceStatusParametersV1,
+def service_status(
+    parameters: ServiceStatusParametersV1,
     *,
     platform_name: str | None = None,
-    linux_service_status: Callable[[str], str] = _linux_service_status,
-    windows_service_status: Callable[[str], str] = _windows_service_status,
-    alt_package_version: Callable[[], str | None] = _alt_package_version,
-    windows_package_version: Callable[[], str | None] = _windows_package_version,
+    linux_service_details: Callable[[str], tuple[bool, str, str]] = _linux_service_details,
+    windows_service_details: Callable[[str], tuple[bool, str, str]] = _windows_service_details,
     collected_at: datetime | None = None,
-) -> SystemServiceStatusResultV1:
-    """Read only a fixed Endpoint service and its fixed package projection."""
+) -> ServiceStatusResultV1:
+    """Read a fixed logical Endpoint service without exposing OS identifiers."""
     finished_at = _completed_at(collected_at)
     platform = platform_name or ("windows" if os.name == "nt" else "linux")
+    if platform == "linux" and parameters.service_key == "endpoint_agent_updater":
+        return ServiceStatusResultV1(
+            schema_version="service_status_result_v1",
+            service_key=parameters.service_key,
+            installed=False,
+            state="not_found",
+            start_mode="unknown",
+            status="failed",
+            error_code="service_unsupported",
+            collected_at=finished_at,
+        )
     try:
         if platform == "linux":
-            state = linux_service_status(_LINUX_UNITS[parameters.service_key])
-            package_version = _bounded_package_version(alt_package_version())
-            return SystemServiceStatusResultV1(
-                schema_version="system_service_status_result_v1",
-                service_key=parameters.service_key,
-                platform="linux_amd64",
-                state=state,
-                package_kind="alt_rpm",
-                package_version=package_version,
-                status="succeeded",
-                collected_at=finished_at,
-            )
-        if platform == "windows":
-            state = windows_service_status(_WINDOWS_SERVICES[parameters.service_key])
-            package_version = _bounded_package_version(windows_package_version())
-            return SystemServiceStatusResultV1(
-                schema_version="system_service_status_result_v1",
-                service_key=parameters.service_key,
-                platform="windows_amd64",
-                state=state,
-                package_kind="windows_msi",
-                package_version=package_version,
-                status="succeeded",
-                collected_at=finished_at,
-            )
-    except (OSError, subprocess.TimeoutExpired, ValueError):
-        pass
-    return SystemServiceStatusResultV1(
-        schema_version="system_service_status_result_v1",
-        service_key=parameters.service_key,
-        platform="windows_amd64" if platform == "windows" else "linux_amd64",
-        state="unknown",
-        package_kind="windows_msi" if platform == "windows" else "alt_rpm",
-        status="failed",
-        error_code="service_query_failed",
-        collected_at=finished_at,
-    )
+            details = linux_service_details(_LINUX_UNITS[parameters.service_key])
+        elif platform == "windows":
+            details = windows_service_details(_WINDOWS_SERVICES[parameters.service_key])
+        else:
+            raise OSError("unsupported platform")
+        installed, state, start_mode = details
+        return ServiceStatusResultV1(
+            schema_version="service_status_result_v1",
+            service_key=parameters.service_key,
+            installed=installed,
+            state=state,
+            start_mode=start_mode,
+            status="succeeded",
+            collected_at=finished_at,
+        )
+    except _FixedWindowsServiceNotFound:
+        return ServiceStatusResultV1(
+            schema_version="service_status_result_v1",
+            service_key=parameters.service_key,
+            installed=False,
+            state="not_found",
+            start_mode="unknown",
+            status="succeeded",
+            collected_at=finished_at,
+        )
+    except (KeyError, OSError, subprocess.TimeoutExpired, ValueError):
+        return ServiceStatusResultV1(
+            schema_version="service_status_result_v1",
+            service_key=parameters.service_key,
+            installed=False,
+            state="unknown",
+            start_mode="unknown",
+            status="failed",
+            error_code="service_query_failed",
+            collected_at=finished_at,
+        )
 
 
-__all__ = ["adapter_list", "route_get", "system_service_status"]
+__all__ = ["adapter_list", "route_get", "service_status"]

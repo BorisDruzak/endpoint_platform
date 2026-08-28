@@ -1,0 +1,145 @@
+{
+  "$defs": {
+    "AdapterSummaryItemV1": {
+      "additionalProperties": false,
+      "properties": {
+        "ipv4_addresses": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 4,
+          "title": "Ipv4 Addresses",
+          "type": "array"
+        },
+        "ipv6_addresses": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 4,
+          "title": "Ipv6 Addresses",
+          "type": "array"
+        },
+        "kind": {
+          "enum": [
+            "ethernet",
+            "wifi",
+            "loopback",
+            "tunnel",
+            "virtual",
+            "unknown"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "mtu": {
+          "maximum": 65535,
+          "minimum": 0,
+          "title": "Mtu",
+          "type": "integer"
+        },
+        "name": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9 ._:-]{0,127}$",
+          "title": "Name",
+          "type": "string"
+        },
+        "primary": {
+          "title": "Primary",
+          "type": "boolean"
+        },
+        "speed_mbps": {
+          "maximum": 1000000,
+          "minimum": 0,
+          "title": "Speed Mbps",
+          "type": "integer"
+        },
+        "state": {
+          "enum": [
+            "up",
+            "down",
+            "unknown"
+          ],
+          "title": "State",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "state",
+        "kind",
+        "primary",
+        "mtu",
+        "speed_mbps"
+      ],
+      "title": "AdapterSummaryItemV1",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "adapter_count": {
+      "maximum": 32,
+      "minimum": 0,
+      "title": "Adapter Count",
+      "type": "integer"
+    },
+    "adapters": {
+      "items": {
+        "$ref": "#/$defs/AdapterSummaryItemV1"
+      },
+      "maxItems": 32,
+      "title": "Adapters",
+      "type": "array"
+    },
+    "collected_at": {
+      "$comment": "model-only UTC normalization: timezone-aware values are normalized to UTC.",
+      "format": "date-time",
+      "title": "Collected At",
+      "type": "string"
+    },
+    "error_code": {
+      "anyOf": [
+        {
+          "maxLength": 64,
+          "minLength": 1,
+          "pattern": "^[a-z][a-z0-9_]{0,63}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Error Code"
+    },
+    "schema_version": {
+      "const": "adapter_list_result_v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "status": {
+      "enum": [
+        "succeeded",
+        "failed"
+      ],
+      "title": "Status",
+      "type": "string"
+    },
+    "up_count": {
+      "maximum": 32,
+      "minimum": 0,
+      "title": "Up Count",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "schema_version",
+    "adapter_count",
+    "up_count",
+    "status",
+    "collected_at"
+  ],
+  "title": "AdapterListResultV1",
+  "type": "object"
+}

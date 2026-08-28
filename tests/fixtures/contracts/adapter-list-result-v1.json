@@ -1,0 +1,24 @@
+{
+  "adapter_count": 1,
+  "adapters": [
+    {
+      "ipv4_addresses": [
+        "10.20.0.20"
+      ],
+      "ipv6_addresses": [
+        "2001:db8::20"
+      ],
+      "kind": "ethernet",
+      "mtu": 1500,
+      "name": "eth0",
+      "primary": true,
+      "speed_mbps": 1000,
+      "state": "up"
+    }
+  ],
+  "collected_at": "2026-08-28T00:00:00Z",
+  "error_code": null,
+  "schema_version": "adapter_list_result_v1",
+  "status": "succeeded",
+  "up_count": 1
+}

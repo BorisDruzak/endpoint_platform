@@ -1,0 +1,7 @@
+{
+  "family": "ipv4",
+  "port": 443,
+  "schema_version": "route_get_parameters_v1",
+  "target": "router.example.test",
+  "timeout_ms": 1000
+}

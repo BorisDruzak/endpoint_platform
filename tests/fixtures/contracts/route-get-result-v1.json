@@ -1,0 +1,13 @@
+{
+  "collected_at": "2026-08-28T00:00:00Z",
+  "error_code": null,
+  "family": "ipv4",
+  "interface_name": "eth0",
+  "port": 443,
+  "resolved_ip": "10.20.0.15",
+  "schema_version": "route_get_result_v1",
+  "source_ip": "10.20.0.20",
+  "status": "succeeded",
+  "strategy": "udp_socket_inference",
+  "target": "router.example.test"
+}

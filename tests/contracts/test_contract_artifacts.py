@@ -20,6 +20,12 @@ from endpoint_contracts import (
     AgentUpdateAcknowledgementV1,
     AgentUpdateRecommendationV1,
     AgentUpdateReportV1,
+    AdapterListParametersV1,
+    AdapterListResultV1,
+    RouteGetParametersV1,
+    RouteGetResultV1,
+    ServiceStatusParametersV1,
+    ServiceStatusResultV1,
     UpdateBuildManifestV1,
     UpdateRolloutCreateV1,
 )
@@ -567,7 +573,6 @@ def test_update_contract_artifacts_publish_strict_safe_control_plane_schemas() -
     assert "traceback" not in report_schema["properties"]
     assert "logs" not in report_schema["properties"]
     assert "safe_message" not in report_schema["properties"]
-
     manifest_schema = json.loads(
         Path("contracts/jsonschema/update-build-manifest-v1.json").read_text(
             encoding="utf-8"
@@ -624,6 +629,19 @@ def test_update_contract_artifacts_publish_strict_safe_control_plane_schemas() -
     ]["responses"]["200"]
     assert ack_success == {"description": "Update acknowledgement recorded"}
     assert report_success == {"description": "Update report recorded"}
+
+
+def test_read_only_primitive_contract_artifacts_publish_repaired_dtos() -> None:
+    expected_models = {
+        "route-get-parameters-v1.json": RouteGetParametersV1,
+        "route-get-result-v1.json": RouteGetResultV1,
+        "adapter-list-parameters-v1.json": AdapterListParametersV1,
+        "adapter-list-result-v1.json": AdapterListResultV1,
+        "service-status-parameters-v1.json": ServiceStatusParametersV1,
+        "service-status-result-v1.json": ServiceStatusResultV1,
+    }
+
+    assert {name: PUBLIC_MODELS[name] for name in expected_models} == expected_models
 
 
 @pytest.mark.parametrize(

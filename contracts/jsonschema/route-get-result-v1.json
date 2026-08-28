@@ -1,0 +1,121 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "collected_at": {
+      "$comment": "model-only UTC normalization: timezone-aware values are normalized to UTC.",
+      "format": "date-time",
+      "title": "Collected At",
+      "type": "string"
+    },
+    "error_code": {
+      "anyOf": [
+        {
+          "maxLength": 64,
+          "minLength": 1,
+          "pattern": "^[a-z][a-z0-9_]{0,63}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Error Code"
+    },
+    "family": {
+      "anyOf": [
+        {
+          "enum": [
+            "ipv4",
+            "ipv6"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Family"
+    },
+    "interface_name": {
+      "anyOf": [
+        {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9 ._:-]{0,127}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Interface Name"
+    },
+    "port": {
+      "maximum": 65535,
+      "minimum": 1,
+      "title": "Port",
+      "type": "integer"
+    },
+    "resolved_ip": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Resolved Ip"
+    },
+    "schema_version": {
+      "const": "route_get_result_v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "source_ip": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Source Ip"
+    },
+    "status": {
+      "enum": [
+        "succeeded",
+        "failed"
+      ],
+      "title": "Status",
+      "type": "string"
+    },
+    "strategy": {
+      "const": "udp_socket_inference",
+      "default": "udp_socket_inference",
+      "title": "Strategy",
+      "type": "string"
+    },
+    "target": {
+      "maxLength": 253,
+      "minLength": 1,
+      "title": "Target",
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema_version",
+    "target",
+    "port",
+    "status",
+    "collected_at"
+  ],
+  "title": "RouteGetResultV1",
+  "type": "object"
+}
