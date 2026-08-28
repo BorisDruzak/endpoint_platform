@@ -7,7 +7,8 @@ from datetime import UTC, datetime, timedelta
 from typing import Literal
 from uuid import UUID, uuid4
 
-from sqlalchemy import select
+from sqlalchemy import select, text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from pydantic import ValidationError
 
@@ -62,6 +63,78 @@ def _require_idempotency_key(value: str) -> str:
     ):
         raise ModuleOperationError("module operation idempotency key is invalid")
     return value
+
+
+async def _advisory_lock(session: AsyncSession, key: str) -> None:
+    """Serialize absent PostgreSQL idempotency rows before they can race."""
+    if session.get_bind().dialect.name == "postgresql":
+        await session.execute(
+            text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"),
+            {"key": key},
+        )
+
+
+async def _exact_existing_step_sequences(
+    session: AsyncSession,
+    operation: EndpointOperation,
+    *,
+    expected_step_count: int,
+) -> bool:
+    if operation.expected_step_count != expected_step_count:
+        return False
+    sequences = list(
+        await session.scalars(
+            select(ModuleOperationStep.sequence)
+            .where(ModuleOperationStep.operation_id == operation.id)
+            .order_by(ModuleOperationStep.sequence)
+            .with_for_update()
+        )
+    )
+    return sequences == list(range(expected_step_count))
+
+
+async def _matching_existing_operation(
+    session: AsyncSession,
+    *,
+    client_id: UUID,
+    idempotency_key: str,
+    device_id: UUID,
+    module_version_id: UUID,
+    inputs: dict[str, object],
+    execution_mode: Literal["published", "lab"],
+    expected_step_count: int,
+) -> EndpointOperation | None:
+    existing = await session.scalar(
+        select(EndpointOperation)
+        .where(
+            EndpointOperation.requested_by_service_client_id == client_id,
+            EndpointOperation.idempotency_key == idempotency_key,
+        )
+        .with_for_update()
+    )
+    if existing is None:
+        return None
+    if (
+        existing.capability != "endpoint.module.recipe"
+        or existing.device_id != device_id
+        or existing.module_version_id != module_version_id
+        or existing.module_inputs != inputs
+        or existing.parameters != {"execution_mode": execution_mode}
+        or not await _exact_existing_step_sequences(
+            session, existing, expected_step_count=expected_step_count
+        )
+    ):
+        raise ModuleOperationConflict(
+            "idempotency key owns a different or incomplete module operation"
+        )
+    return existing
+
+
+def _is_idempotency_constraint(error: IntegrityError) -> bool:
+    diagnostic = getattr(getattr(error, "orig", None), "diag", None)
+    return getattr(diagnostic, "constraint_name", None) == (
+        "uq_endpoint_operations_client_key"
+    )
 
 
 async def create_module_parent_operation(
@@ -126,25 +199,21 @@ async def create_module_parent_operation(
     except NetworkTargetPolicyError as error:
         raise ModuleOperationError("module operation target is denied") from error
 
-    existing = await session.scalar(
-        select(EndpointOperation).where(
-            EndpointOperation.requested_by_service_client_id == client_id,
-            EndpointOperation.idempotency_key == checked_key,
-        )
+    await _advisory_lock(
+        session, f"endpoint.module_operation:{client_id}:{checked_key}"
     )
     normalized_inputs = dict(inputs)
+    existing = await _matching_existing_operation(
+        session,
+        client_id=client_id,
+        idempotency_key=checked_key,
+        device_id=checked_device_id,
+        module_version_id=module_version.id,
+        inputs=normalized_inputs,
+        execution_mode=execution_mode,
+        expected_step_count=len(plan),
+    )
     if existing is not None:
-        if (
-            existing.capability != "endpoint.module.recipe"
-            or existing.device_id != checked_device_id
-            or existing.module_version_id != module_version.id
-            or existing.module_inputs != normalized_inputs
-            or existing.parameters != {"execution_mode": execution_mode}
-            or existing.expected_step_count != len(plan)
-        ):
-            raise ModuleOperationConflict(
-                "idempotency key owns a different module operation"
-            )
         return existing, False
 
     operation = EndpointOperation(
@@ -165,42 +234,62 @@ async def create_module_parent_operation(
         module_inputs=normalized_inputs,
         expected_step_count=len(plan),
     )
-    session.add(operation)
-    for item in plan:
-        session.add(
-            ModuleOperationStep(
-                id=uuid4(),
-                created_at=occurred_at,
-                operation_id=operation.id,
-                sequence=item.sequence,
-                recipe_step_key=item.step_id,
-                capability=item.capability,
-                status="queued",
-                command_id=None,
-                safe_result_json=None,
-                error_code=None,
-                started_at=None,
-                completed_at=None,
+    try:
+        async with session.begin_nested():
+            session.add(operation)
+            for item in plan:
+                session.add(
+                    ModuleOperationStep(
+                        id=uuid4(),
+                        created_at=occurred_at,
+                        operation_id=operation.id,
+                        sequence=item.sequence,
+                        recipe_step_key=item.step_id,
+                        capability=item.capability,
+                        status="queued",
+                        command_id=None,
+                        safe_result_json=None,
+                        error_code=None,
+                        started_at=None,
+                        completed_at=None,
+                    )
+                )
+            await append_audit_event(
+                session,
+                actor_kind="service",
+                actor_identifier=client.client_identifier,
+                action="endpoint.module_operation_created",
+                object_kind="endpoint_operation",
+                object_identifier=str(operation.id),
+                request_id=f"module-operation-{operation.id.hex}",
+                details={
+                    "module_key": module_key,
+                    "module_version": version,
+                    "device_id": device.id,
+                    "step_count": len(plan),
+                    "execution_mode": execution_mode,
+                },
+                occurred_at=occurred_at,
             )
+            await session.flush()
+    except IntegrityError as error:
+        if not _is_idempotency_constraint(error):
+            raise
+        existing = await _matching_existing_operation(
+            session,
+            client_id=client_id,
+            idempotency_key=checked_key,
+            device_id=checked_device_id,
+            module_version_id=module_version.id,
+            inputs=normalized_inputs,
+            execution_mode=execution_mode,
+            expected_step_count=len(plan),
         )
-    await append_audit_event(
-        session,
-        actor_kind="service",
-        actor_identifier=client.client_identifier,
-        action="endpoint.module_operation_created",
-        object_kind="endpoint_operation",
-        object_identifier=str(operation.id),
-        request_id=f"module-operation-{operation.id.hex}",
-        details={
-            "module_key": module_key,
-            "module_version": version,
-            "device_id": device.id,
-            "step_count": len(plan),
-            "execution_mode": execution_mode,
-        },
-        occurred_at=occurred_at,
-    )
-    await session.flush()
+        if existing is None:
+            raise ModuleOperationConflict(
+                "idempotency key operation is unavailable after a creation race"
+            ) from error
+        return existing, False
     return operation, True
 
 

@@ -131,7 +131,7 @@ def test_migration_history_has_exactly_one_head() -> None:
         _alembic_config("postgresql+asyncpg://unused@127.0.0.1/unused")
     )
 
-    assert script.get_heads() == ["0018_module_step_count"]
+    assert script.get_heads() == ["0019_module_step_count_backfill"]
 
 
 def test_migration_revisions_fit_alembic_version_storage() -> None:
@@ -187,11 +187,29 @@ def test_module_operation_expected_step_count_migration_is_bounded() -> None:
         "CONSTRAINT ck_endpoint_operations_expected_step_count CHECK "
         "(expected_step_count IS NULL OR expected_step_count BETWEEN 1 AND 8)"
     ) in rendered
+    assert "UPDATE endpoint_operations AS operation" not in rendered
+
+
+def test_module_operation_step_count_backfill_uses_a_new_revision() -> None:
+    output = io.StringIO()
+    config = Config(REPOSITORY_ROOT / "alembic.ini", output_buffer=output)
+    config.set_main_option(
+        "sqlalchemy.url",
+        "postgresql+asyncpg://unused@127.0.0.1/unused",
+    )
+
+    command.upgrade(
+        config,
+        "0018_module_step_count:0019_module_step_count_backfill",
+        sql=True,
+    )
+
+    rendered = " ".join(output.getvalue().split())
     assert "UPDATE endpoint_operations AS operation SET expected_step_count" in rendered
     assert "jsonb_array_length(version.recipe -> 'steps')" in rendered
 
 
-def test_module_step_count_migration_backfills_a_populated_0017_operation(
+def test_module_step_count_backfill_upgrades_a_populated_original_0018_operation(
     empty_database_url: str,
 ) -> None:
     """Historical immutable recipes, not remaining child rows, determine the count."""
@@ -208,7 +226,7 @@ def test_module_step_count_migration_backfills_a_populated_0017_operation(
     operation_id = uuid4()
     first_step_id = uuid4()
     second_step_id = uuid4()
-    command.upgrade(config, "0017_module_operation_steps")
+    command.upgrade(config, "0018_module_step_count")
     asyncio.run(
         _execute(
             plain_url,
@@ -240,7 +258,7 @@ def test_module_step_count_migration_backfills_a_populated_0017_operation(
             "NULL, NULL, NULL, NULL, NULL)",
         )
     )
-    command.upgrade(config, "0018_module_step_count")
+    command.upgrade(config, "0019_module_step_count_backfill")
 
     async def project() -> tuple[int, list[int]]:
         engine = create_async_engine(empty_database_url)

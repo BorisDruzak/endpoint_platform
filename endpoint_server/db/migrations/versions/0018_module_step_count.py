@@ -19,19 +19,6 @@ def upgrade() -> None:
         "endpoint_operations",
         sa.Column("expected_step_count", sa.BigInteger(), nullable=True),
     )
-    op.execute(
-        """
-        UPDATE endpoint_operations AS operation
-        SET expected_step_count = jsonb_array_length(version.recipe -> 'steps')
-        FROM module_versions AS version
-        WHERE operation.capability = 'endpoint.module.recipe'
-          AND operation.module_version_id = version.id
-          AND operation.expected_step_count IS NULL
-          AND version.recipe ->> 'schema_version' = 'endpoint_recipe_module_v1'
-          AND jsonb_typeof(version.recipe -> 'steps') = 'array'
-          AND jsonb_array_length(version.recipe -> 'steps') BETWEEN 1 AND 8
-        """
-    )
     op.create_check_constraint(
         "ck_endpoint_operations_expected_step_count",
         "endpoint_operations",

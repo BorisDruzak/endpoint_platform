@@ -5,7 +5,7 @@ import json
 from uuid import uuid4
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from endpoint_contracts.modules import EndpointRecipeModuleSpecV1
@@ -57,6 +57,22 @@ def _recipe() -> EndpointRecipeModuleSpecV1:
             ],
         }
     )
+
+
+def _three_step_recipe() -> EndpointRecipeModuleSpecV1:
+    payload = _recipe().model_dump(mode="json")
+    payload["steps"].append(
+        {
+            "step_id": "ping",
+            "capability": "network.ping",
+            "parameters": {
+                "target": {"kind": "input", "name": "target"},
+                "count": {"kind": "literal", "value": 1},
+                "timeout_ms": {"kind": "literal", "value": 1000},
+            },
+        }
+    )
+    return EndpointRecipeModuleSpecV1.model_validate(payload)
 
 
 @pytest.mark.asyncio
@@ -173,6 +189,89 @@ async def test_module_parent_operation_is_idempotent_and_materializes_queued_ste
     )
     assert "api.example.test" not in json.dumps(audit.details)
     await engine.dispose()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("missing_sequence", "position"),
+    [(0, "prefix"), (1, "internal"), (2, "tail")],
+)
+async def test_module_operation_replay_rejects_a_missing_authoritative_child(
+    missing_sequence: int,
+    position: str,
+) -> None:
+    """The replay boundary cannot bless a truncated persisted recipe expansion."""
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    tables = (
+        ServiceClient.__table__,
+        Device.__table__,
+        AuditEvent.__table__,
+        ModuleDefinition.__table__,
+        ModuleVersion.__table__,
+        EndpointOperation.__table__,
+        ModuleOperationStep.__table__,
+    )
+    async with engine.begin() as connection:
+        await connection.run_sync(
+            lambda sync: Device.metadata.create_all(sync, tables=tables)
+        )
+    provider = async_sessionmaker(engine, expire_on_commit=False)
+    client = ServiceClient(
+        id=uuid4(), client_identifier=f"replay-{position}", display_name="Replay"
+    )
+    device = Device(
+        id=uuid4(), device_identifier=f"replay-{position}", display_name="Replay"
+    )
+    definition = ModuleDefinition(
+        id=uuid4(), module_key=f"network.replay.{position}", display_name="Replay"
+    )
+    version = ModuleVersion(
+        id=uuid4(),
+        module_definition_id=definition.id,
+        version="1.0.0",
+        recipe=_three_step_recipe().model_copy(
+            update={"module_key": definition.module_key}
+        ).model_dump(mode="json"),
+        state="published",
+    )
+    policy = NetworkTargetPolicyV1.from_values(
+        allowed_cidrs=[], allowed_suffixes=[".example.test"]
+    )
+    try:
+        async with provider() as session:
+            session.add_all((client, device, definition, version))
+            await session.flush()
+            operation, created = await create_module_parent_operation(
+                session,
+                service_client_id=client.id,
+                device_id=device.id,
+                module_key=definition.module_key,
+                version=version.version,
+                inputs={"target": "api.example.test", "port": 443},
+                idempotency_key=f"replay-missing-{position}-0001",
+                network_policy=policy,
+            )
+            assert created is True
+            await session.execute(
+                delete(ModuleOperationStep).where(
+                    ModuleOperationStep.operation_id == operation.id,
+                    ModuleOperationStep.sequence == missing_sequence,
+                )
+            )
+            with pytest.raises(ModuleOperationConflict) as rejected:
+                await create_module_parent_operation(
+                    session,
+                    service_client_id=client.id,
+                    device_id=device.id,
+                    module_key=definition.module_key,
+                    version=version.version,
+                    inputs={"target": "api.example.test", "port": 443},
+                    idempotency_key=f"replay-missing-{position}-0001",
+                    network_policy=policy,
+                )
+            assert rejected.value.code == "endpoint_module_operation_idempotency_conflict"
+    finally:
+        await engine.dispose()
 
 
 @pytest.mark.asyncio
