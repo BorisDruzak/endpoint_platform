@@ -330,20 +330,29 @@ async def resolve_module_step_relation(
     command: Command,
 ) -> tuple[ModuleOperationStep, EndpointOperation] | None:
     """Return a fully-owned module child relation, or classify it as non-module."""
-    step = await session.scalar(
-        select(ModuleOperationStep)
-        .where(ModuleOperationStep.command_id == command.id)
-        .with_for_update()
+    operation_id = await session.scalar(
+        select(ModuleOperationStep.operation_id).where(
+            ModuleOperationStep.command_id == command.id
+        )
     )
-    if step is None:
+    if operation_id is None:
         return None
     operation = await session.scalar(
         select(EndpointOperation)
-        .where(EndpointOperation.id == step.operation_id)
+        .where(EndpointOperation.id == operation_id)
+        .with_for_update()
+    )
+    step = await session.scalar(
+        select(ModuleOperationStep)
+        .where(
+            ModuleOperationStep.command_id == command.id,
+            ModuleOperationStep.operation_id == operation_id,
+        )
         .with_for_update()
     )
     if (
         operation is None
+        or step is None
         or operation.capability != "endpoint.module.recipe"
         or operation.device_id != command.device_id
         or operation.command_id is not None

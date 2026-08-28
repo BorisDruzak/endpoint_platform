@@ -41,6 +41,7 @@ from endpoint_server.gateway.command_service import (
     CommandService,
     CommandStateRejected,
     _safe_module_step_result,
+    resolve_module_step_relation,
 )
 from endpoint_server.gateway.presence_service import GatewayPresence, PresenceService
 from endpoint_server.main import create_app
@@ -704,6 +705,60 @@ async def test_module_terminal_result_rejects_a_truncated_authoritative_child_se
                 completed_at=completed_at,
             ),
         )
+
+
+@pytest.mark.asyncio
+async def test_module_result_relation_locks_parent_before_child_like_replay() -> None:
+    """Gateway result handling must share the replay path's parent-to-child order."""
+    device_id = uuid4()
+    operation_id = uuid4()
+    step = ModuleOperationStep(
+        id=uuid4(),
+        operation_id=operation_id,
+        command_id=uuid4(),
+        capability="dns.resolve",
+    )
+    operation = EndpointOperation(
+        id=operation_id,
+        device_id=device_id,
+        capability="endpoint.module.recipe",
+        command_id=None,
+    )
+    command = Command(
+        id=step.command_id,
+        device_id=device_id,
+        command_kind="dns.resolve",
+    )
+
+    class RecordingSession:
+        def __init__(self) -> None:
+            self.statements: list[object] = []
+
+        async def scalar(self, statement: object) -> object:
+            self.statements.append(statement)
+            descriptions = getattr(statement, "column_descriptions")
+            entity = descriptions[0].get("entity")
+            if entity is EndpointOperation:
+                return operation
+            if getattr(statement, "_for_update_arg") is None:
+                return operation_id
+            return step
+
+    session = RecordingSession()
+    relation = await resolve_module_step_relation(session, command)
+
+    assert relation == (step, operation)
+    assert [
+        (
+            statement.column_descriptions[0].get("entity"),
+            statement._for_update_arg is not None,
+        )
+        for statement in session.statements
+    ] == [
+        (ModuleOperationStep, False),
+        (EndpointOperation, True),
+        (ModuleOperationStep, True),
+    ]
 
 
 @pytest.mark.asyncio
