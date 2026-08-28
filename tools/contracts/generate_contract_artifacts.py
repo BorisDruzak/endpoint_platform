@@ -372,6 +372,7 @@ FIXTURES: dict[str, dict[str, Any]] = {
         "created_at": "2026-08-09T11:59:00Z",
         "deadline_at": "2026-08-09T12:30:00Z",
         "completed_at": "2026-08-09T12:00:00Z",
+        "expected_step_count": 1,
         "steps": [
             {
                 "sequence": 0,

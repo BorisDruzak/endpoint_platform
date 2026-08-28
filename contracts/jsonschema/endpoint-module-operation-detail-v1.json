@@ -818,6 +818,12 @@
       "title": "Device Id",
       "type": "string"
     },
+    "expected_step_count": {
+      "maximum": 8,
+      "minimum": 1,
+      "title": "Expected Step Count",
+      "type": "integer"
+    },
     "module_key": {
       "maxLength": 128,
       "minLength": 3,
@@ -875,6 +881,7 @@
     "status",
     "created_at",
     "deadline_at",
+    "expected_step_count",
     "steps"
   ],
   "title": "ModuleOperationDetailV1",

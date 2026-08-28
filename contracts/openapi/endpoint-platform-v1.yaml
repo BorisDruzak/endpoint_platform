@@ -4001,6 +4001,11 @@ components:
               type: "null"
           default: null
           title: "Completed At"
+        expected_step_count:
+          maximum: 8
+          minimum: 1
+          title: "Expected Step Count"
+          type: "integer"
         steps:
           items:
             "$ref": "#/components/schemas/ModuleOperationDetailV1__ModuleOperationStepV1"
@@ -4017,6 +4022,7 @@ components:
         - "status"
         - "created_at"
         - "deadline_at"
+        - "expected_step_count"
         - "steps"
       title: "ModuleOperationDetailV1"
       type: "object"

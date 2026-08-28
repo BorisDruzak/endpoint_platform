@@ -14,7 +14,7 @@ import httpx
 import pytest
 import pytest_asyncio
 import yaml
-from sqlalchemy import select, text
+from sqlalchemy import delete, select, text
 from sqlalchemy.ext.asyncio import (
     AsyncSession,
     async_sessionmaker,
@@ -1018,6 +1018,7 @@ async def test_module_operation_execution_route_is_flagged_scoped_and_idempotent
     assert replay.json() == created.json()
     assert read.status_code == 200
     assert read.headers["X-Correlation-ID"] == "module-operation-read-1"
+    assert read.json()["data"]["expected_step_count"] == 1
     assert read.json()["data"]["steps"] == [
         {
             "sequence": 0,
@@ -1030,6 +1031,104 @@ async def test_module_operation_execution_route_is_flagged_scoped_and_idempotent
     assert not {"recipe", "inputs", "idempotency_key", "command_id"}.intersection(
         json.dumps(read.json())
     )
+
+
+@pytest.mark.asyncio
+async def test_module_operation_detail_fails_closed_when_a_persisted_tail_is_missing(
+    route_fixture: RouteFixture,
+) -> None:
+    """A detail response never represents a truncated immutable recipe expansion."""
+    app = create_app(
+        _settings(
+            enabled=True,
+            network_primitives_enabled=True,
+            module_platform_enabled=True,
+            module_execution_enabled=True,
+        ),
+        route_fixture.session_provider,
+    )
+    async with route_fixture.session_provider() as session:
+        definition = ModuleDefinition(
+            id=uuid4(),
+            module_key="network.complete.check",
+            display_name="Network complete",
+        )
+        version = ModuleVersion(
+            id=uuid4(),
+            module_definition_id=definition.id,
+            version="1.0.0",
+            recipe={
+                **MODULE_CREATE_BODY["recipe"],
+                "module_key": "network.complete.check",
+                "inputs": [
+                    {"name": "target", "value_type": "string"},
+                    {"name": "port", "value_type": "integer"},
+                ],
+                "steps": [
+                    *MODULE_CREATE_BODY["recipe"]["steps"],
+                    {
+                        "step_id": "tcp",
+                        "capability": "tcp.connect",
+                        "parameters": {
+                            "target": {"kind": "input", "name": "target"},
+                            "port": {"kind": "input", "name": "port"},
+                            "timeout_ms": {"kind": "literal", "value": 1000},
+                        },
+                    },
+                ],
+            },
+            state="published",
+        )
+        session.add_all((definition, version))
+        await session.commit()
+
+    headers = {
+        **_authorization("module-operator"),
+        "Idempotency-Key": "module-operation-tail-key",
+        "X-Correlation-ID": "module-operation-tail-create",
+    }
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app),
+        base_url="https://endpoint.sosnadmin.local",
+    ) as client:
+        created = await client.post(
+            f"/api/v1/devices/{route_fixture.device.id}/module-operations",
+            json={
+                "schema_version": "endpoint_module_operation_create_v1",
+                "module_key": "network.complete.check",
+                "version": "1.0.0",
+                "inputs": {"target": "10.20.1.10", "port": 443},
+            },
+            headers=headers,
+        )
+
+    assert created.status_code == 201
+    operation_id = UUID(created.json()["data"]["operation_id"])
+    async with route_fixture.session_provider() as session:
+        await session.execute(
+            delete(ModuleOperationStep).where(
+                ModuleOperationStep.operation_id == operation_id,
+                ModuleOperationStep.sequence == 1,
+            )
+        )
+        await session.commit()
+
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app),
+        base_url="https://endpoint.sosnadmin.local",
+    ) as client:
+        read = await client.get(
+            f"/api/v1/module-operations/{operation_id}",
+            headers={
+                **_authorization("module-reader"),
+                "X-Correlation-ID": "module-operation-tail-read",
+            },
+        )
+
+    assert read.status_code == 404
+    assert read.json() == {
+        "detail": {"code": "endpoint_module_operation_not_found"}
+    }
 
 
 @pytest.mark.asyncio
