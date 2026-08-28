@@ -4831,20 +4831,99 @@ components:
       description: "Versioned, closed discovery response without an execution surface."
       properties:
         schema_version:
-          const: "module_capability_catalog_v1"
+          const: "endpoint_module_capability_catalog_v1"
           title: "Schema Version"
           type: "string"
-        capabilities:
+        items:
           items:
             "$ref": "#/components/schemas/ModuleCapabilityCatalogV1__ModuleCapabilityAuthoringV1"
           maxItems: 6
           minItems: 6
-          title: "Capabilities"
+          title: "Items"
           type: "array"
       required:
         - "schema_version"
-        - "capabilities"
+        - "items"
       title: "ModuleCapabilityCatalogV1"
+      type: "object"
+    ModuleCapabilityCatalogV1__EndpointCapabilityParameterDescriptorV1:
+      additionalProperties: false
+      description: "Public, bounded authoring rule for one fixed primitive parameter."
+      properties:
+        name:
+          maxLength: 64
+          minLength: 1
+          pattern: "^[a-z][a-z0-9_]{0,63}$"
+          title: "Name"
+          type: "string"
+        value_type:
+          enum:
+            - "string"
+            - "integer"
+            - "enum"
+          title: "Value Type"
+          type: "string"
+        required:
+          title: "Required"
+          type: "boolean"
+        allowed_sources:
+          items:
+            enum:
+              - "input"
+              - "literal"
+            type: "string"
+          maxItems: 2
+          minItems: 1
+          title: "Allowed Sources"
+          type: "array"
+        enum_values:
+          anyOf:
+            -
+              items:
+                type: "string"
+              maxItems: 8
+              type: "array"
+            -
+              type: "null"
+          title: "Enum Values"
+        minimum:
+          anyOf:
+            -
+              type: "integer"
+            -
+              type: "null"
+          title: "Minimum"
+        maximum:
+          anyOf:
+            -
+              type: "integer"
+            -
+              type: "null"
+          title: "Maximum"
+        default_literal:
+          anyOf:
+            -
+              type: "string"
+            -
+              type: "integer"
+            -
+              type: "null"
+          title: "Default Literal"
+        secret:
+          const: false
+          title: "Secret"
+          type: "boolean"
+      required:
+        - "name"
+        - "value_type"
+        - "required"
+        - "allowed_sources"
+        - "enum_values"
+        - "minimum"
+        - "maximum"
+        - "default_literal"
+        - "secret"
+      title: "EndpointCapabilityParameterDescriptorV1"
       type: "object"
     ModuleCapabilityCatalogV1__ModuleCapabilityAuthoringV1:
       additionalProperties: false
@@ -4906,6 +4985,12 @@ components:
             - "none"
           title: "Policy"
           type: "string"
+        parameters:
+          items:
+            "$ref": "#/components/schemas/ModuleCapabilityCatalogV1__EndpointCapabilityParameterDescriptorV1"
+          maxItems: 4
+          title: "Parameters"
+          type: "array"
       required:
         - "capability"
         - "parameter_schema_version"
@@ -4916,6 +5001,7 @@ components:
         - "consent_required"
         - "feature_flag"
         - "policy"
+        - "parameters"
       title: "ModuleCapabilityAuthoringV1"
       type: "object"
     AdapterSummaryItemV1:
@@ -5143,6 +5229,85 @@ components:
         - "parameter_schema_version"
       title: "EndpointCapabilityAvailabilityV1"
       description: "One versioned safe capability descriptor for an exact device."
+    EndpointCapabilityParameterDescriptorV1:
+      properties:
+        name:
+          type: "string"
+          maxLength: 64
+          minLength: 1
+          pattern: "^[a-z][a-z0-9_]{0,63}$"
+          title: "Name"
+        value_type:
+          type: "string"
+          enum:
+            - "string"
+            - "integer"
+            - "enum"
+          title: "Value Type"
+        required:
+          type: "boolean"
+          title: "Required"
+        allowed_sources:
+          items:
+            type: "string"
+            enum:
+              - "input"
+              - "literal"
+          type: "array"
+          maxItems: 2
+          minItems: 1
+          title: "Allowed Sources"
+        enum_values:
+          anyOf:
+            -
+              items:
+                type: "string"
+              type: "array"
+              maxItems: 8
+            -
+              type: "null"
+          title: "Enum Values"
+        minimum:
+          anyOf:
+            -
+              type: "integer"
+            -
+              type: "null"
+          title: "Minimum"
+        maximum:
+          anyOf:
+            -
+              type: "integer"
+            -
+              type: "null"
+          title: "Maximum"
+        default_literal:
+          anyOf:
+            -
+              type: "string"
+            -
+              type: "integer"
+            -
+              type: "null"
+          title: "Default Literal"
+        secret:
+          type: "boolean"
+          const: false
+          title: "Secret"
+      additionalProperties: false
+      type: "object"
+      required:
+        - "name"
+        - "value_type"
+        - "required"
+        - "allowed_sources"
+        - "enum_values"
+        - "minimum"
+        - "maximum"
+        - "default_literal"
+        - "secret"
+      title: "EndpointCapabilityParameterDescriptorV1"
+      description: "Public, bounded authoring rule for one fixed primitive parameter."
     EndpointRecipeModuleSpecV1-Input:
       properties:
         schema_version:
@@ -5342,6 +5507,12 @@ components:
             - "network_target_policy"
             - "none"
           title: "Policy"
+        parameters:
+          items:
+            "$ref": "#/components/schemas/EndpointCapabilityParameterDescriptorV1"
+          type: "array"
+          maxItems: 4
+          title: "Parameters"
       additionalProperties: false
       type: "object"
       required:
@@ -5354,6 +5525,7 @@ components:
         - "consent_required"
         - "feature_flag"
         - "policy"
+        - "parameters"
       title: "ModuleCapabilityAuthoringV1"
       description: "Stable public metadata for one fixed recipe-capable primitive."
     ModuleCapabilityCatalogEnvelope:

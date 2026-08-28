@@ -111,6 +111,30 @@ def test_recipe_validation_rejects_wrong_input_type_and_parameter_shape() -> Non
         validate_recipe_spec(recipe)
 
 
+def test_recipe_validation_rejects_input_for_literal_only_service_key() -> None:
+    """A recipe cannot turn an internal service key into caller-controlled input."""
+    recipe = EndpointRecipeModuleSpecV1.model_validate(
+        {
+            "schema_version": "endpoint_recipe_module_v1",
+            "module_key": "system.service.check",
+            "supported_platforms": ["linux_amd64"],
+            "inputs": [{"name": "service_key", "value_type": "string"}],
+            "steps": [
+                {
+                    "step_id": "service",
+                    "capability": "system.service_status",
+                    "parameters": {
+                        "service_key": {"kind": "input", "name": "service_key"}
+                    },
+                }
+            ],
+        }
+    )
+
+    with pytest.raises(RecipeValidationError, match="input source"):
+        validate_recipe_spec(recipe)
+
+
 def test_recipe_contract_limits_steps_and_rejects_duplicate_step_ids() -> None:
     duplicate = _recipe()
     duplicate["steps"].append(copy.deepcopy(duplicate["steps"][0]))  # type: ignore[index]

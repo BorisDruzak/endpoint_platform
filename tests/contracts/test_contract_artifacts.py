@@ -95,9 +95,19 @@ def _contains_url_credentials(value: str) -> bool:
     )
 
 
+def test_fixture_safety_allows_only_a_false_public_secret_marker() -> None:
+    """Public non-secret metadata may state that a descriptor is never secret."""
+    _assert_synthetic_fixture({"secret": False})
+    for unsafe_value in (True, "redacted"):
+        with pytest.raises(AssertionError):
+            _assert_synthetic_fixture({"secret": unsafe_value})
+
+
 def _assert_synthetic_fixture(value: Any) -> None:
     for path, child in _walk_json(value):
         field_name = path[-1]
+        if field_name == "secret" and child is False:
+            continue
         assert not SENSITIVE_KEY_PATTERN.search(field_name), path
         if not isinstance(child, str):
             continue
