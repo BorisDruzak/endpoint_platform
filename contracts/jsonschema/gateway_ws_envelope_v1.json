@@ -1010,6 +1010,78 @@
           "if": {
             "properties": {
               "capability": {
+                "const": "route.get"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "parameters": {
+                "additionalProperties": false,
+                "properties": {
+                  "target": {
+                    "maxLength": 253,
+                    "minLength": 1,
+                    "pattern": "^(?![\\s\\S]*://)[\\s\\S]*$",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "target"
+                ],
+                "type": "object"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "capability": {
+                "const": "adapter.list"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "parameters": {
+                "maxProperties": 0
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "capability": {
+                "const": "system.service_status"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "parameters": {
+                "additionalProperties": false,
+                "properties": {
+                  "service_key": {
+                    "enum": [
+                      "endpoint_agent",
+                      "endpoint_agent_updater"
+                    ]
+                  }
+                },
+                "required": [
+                  "service_key"
+                ],
+                "type": "object"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "capability": {
                 "const": "gateway.echo"
               }
             }
@@ -1069,7 +1141,10 @@
             "context.diagnostic.collect",
             "dns.resolve",
             "network.ping",
-            "tcp.connect"
+            "tcp.connect",
+            "route.get",
+            "adapter.list",
+            "system.service_status"
           ],
           "title": "Capability",
           "type": "string"

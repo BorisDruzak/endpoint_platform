@@ -1516,6 +1516,9 @@ components:
             - "dns.resolve"
             - "network.ping"
             - "tcp.connect"
+            - "route.get"
+            - "adapter.list"
+            - "system.service_status"
           title: "Capability"
           type: "string"
         parameters:

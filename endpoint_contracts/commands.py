@@ -30,6 +30,9 @@ AgentCapabilityV1 = Literal[
     "dns.resolve",
     "network.ping",
     "tcp.connect",
+    "route.get",
+    "adapter.list",
+    "system.service_status",
 ]
 
 
