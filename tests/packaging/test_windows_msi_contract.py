@@ -369,7 +369,10 @@ def test_msi_builder_seals_the_initial_selector_to_the_exact_source_revision() -
     assert "function Get-SourceRevision" in script
     assert "function Assert-CleanSourceTree" in script
     assert "git -C $RepositoryRoot status --porcelain --untracked-files=all" in script
-    assert "source_revision = $sourceRevision" in script
+    assert "$initialRuntimeSourceRevision = [string]$manifestPreview.source_revision" in script
+    assert "merge-base --is-ancestor $initialRuntimeSourceRevision $checkedOutSourceRevision" in script
+    assert "'--source-revision', $initialRuntimeSourceRevision" in script
+    assert script.count("source_revision = $initialRuntimeSourceRevision") == 2
     assert "schema_version = 1" in script
 
 

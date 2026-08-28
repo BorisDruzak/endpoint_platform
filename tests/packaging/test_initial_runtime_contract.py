@@ -149,6 +149,43 @@ def test_source_hash_validation_canonicalizes_python_line_endings(
     assert identity.version == "3.1.76"
 
 
+def test_schema5_manifest_requires_the_staged_source_revision(
+    tmp_path: Path, artifact_root: Path
+) -> None:
+    """A frozen runtime must name the exact immutable source HEAD that staged it."""
+    validate = _contract_module().validate_initial_runtime
+    manifest = _manifest(
+        tmp_path,
+        version="3.1.76",
+        guid="980AE24B-57BC-4B59-A18A-65B9B33A7906",
+        artifact_root=artifact_root,
+        toolchain=TOOLCHAIN_HOOKS_PINNED,
+        schema_version=4,
+    )
+    payload = json.loads(manifest.read_text(encoding="utf-8"))
+    payload["schema_version"] = 5
+    payload["source_revision"] = "a" * 40
+    manifest.write_text(json.dumps(payload), encoding="utf-8")
+
+    identity = validate(
+        tmp_path,
+        manifest,
+        manifest,
+        observed_source_revision="a" * 40,
+        observed_toolchain=TOOLCHAIN_HOOKS_PINNED,
+    )
+
+    assert identity.source_revision == "a" * 40
+    with pytest.raises(ValueError, match="source revision"):
+        validate(
+            tmp_path,
+            manifest,
+            manifest,
+            observed_source_revision="b" * 40,
+            observed_toolchain=TOOLCHAIN_HOOKS_PINNED,
+        )
+
+
 def test_manifest_version_must_match_agent_version_constant(
     tmp_path: Path, artifact_root: Path
 ) -> None:
