@@ -1019,15 +1019,35 @@
               "parameters": {
                 "additionalProperties": false,
                 "properties": {
+                  "family": {
+                    "enum": [
+                      "any",
+                      "ipv4",
+                      "ipv6"
+                    ]
+                  },
+                  "port": {
+                    "maximum": 65535,
+                    "minimum": 1,
+                    "type": "integer"
+                  },
                   "target": {
                     "maxLength": 253,
                     "minLength": 1,
                     "pattern": "^(?![\\s\\S]*://)[\\s\\S]*$",
                     "type": "string"
+                  },
+                  "timeout_ms": {
+                    "maximum": 5000,
+                    "minimum": 100,
+                    "type": "integer"
                   }
                 },
                 "required": [
-                  "target"
+                  "target",
+                  "port",
+                  "family",
+                  "timeout_ms"
                 ],
                 "type": "object"
               }

@@ -60,13 +60,15 @@
   does not import or migrate the Helpdesk Protocol V3 database.
 - `pc_agent/primitives/read_only/` adds three closed Gateway diagnostics:
   `route.get`, `adapter.list`, and `system.service_status`. `route.get`
-  reuses the fail-closed network target policy; `adapter.list` has no caller
-  inputs and returns capped interface index/name pairs; service status accepts
-  only the fixed Endpoint agent/updater keys. Linux maps those keys internally
-  to fixed systemd units and reports only a validated ALT RPM version; Windows
-  uses only the fixed SCM keys and an MSI display-version projection. These
-  handlers accept no command, PowerShell, Python, executable, path, URL, or
-  raw service-name input, and never start, stop, restart, or write anything.
+  resolves its candidate set, applies the fail-closed target policy to
+  every concrete IP, and uses a UDP socket only to infer a local source and
+  optional safe interface name. `adapter.list` has no caller inputs and
+  projects capped psutil address/state/MTU/speed facts without MAC or SSID
+  data. Service status accepts only fixed Endpoint agent/updater logical keys;
+  Linux exposes the agent unit and reports the updater as unsupported until an
+  approved fixed unit exists, while Windows maps internally to fixed SCM keys.
+  These handlers accept no command, PowerShell, Python, executable, path, URL,
+  or raw service-name input, and never start, stop, restart, or write anything.
 - Endpoint Operations use that same typed executor for
   `context.diagnostic.collect`. The server alone links an operation to a
   private command and sends it through `/agent/v1/connect`; operation commands

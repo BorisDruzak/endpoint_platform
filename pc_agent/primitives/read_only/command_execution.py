@@ -14,23 +14,19 @@ from endpoint_contracts.read_only_primitives import (
     AdapterListResultV1,
     RouteGetParametersV1,
     RouteGetResultV1,
-    SystemServiceStatusParametersV1,
-    SystemServiceStatusResultV1,
+    ServiceStatusParametersV1,
+    ServiceStatusResultV1,
 )
 
-from pc_agent.primitives.network.policy import AgentNetworkProbePolicy, NetworkProbeDenied
+from pc_agent.primitives.network.policy import AgentNetworkProbePolicy
 
-from .handlers import adapter_list, route_get, system_service_status
+from .handlers import adapter_list, route_get, service_status
 
 
 _READ_ONLY_COMMANDS: dict[str, tuple[str, type[Any], Callable[[Any], Any]]] = {
     "route.get": ("route_get_parameters_v1", RouteGetParametersV1, route_get),
     "adapter.list": ("adapter_list_parameters_v1", AdapterListParametersV1, adapter_list),
-    "system.service_status": (
-        "system_service_status_parameters_v1",
-        SystemServiceStatusParametersV1,
-        system_service_status,
-    ),
+    "system.service_status": ("service_status_parameters_v1", ServiceStatusParametersV1, service_status),
 }
 
 
@@ -38,9 +34,9 @@ def execute_read_only_agent_command(
     command: AgentCommandV1,
     *,
     policy: AgentNetworkProbePolicy,
-    route_handler: Callable[[RouteGetParametersV1], RouteGetResultV1] = route_get,
+    route_handler: Callable[..., RouteGetResultV1] = route_get,
     adapter_handler: Callable[[AdapterListParametersV1], AdapterListResultV1] = adapter_list,
-    service_handler: Callable[[SystemServiceStatusParametersV1], SystemServiceStatusResultV1] = system_service_status,
+    service_handler: Callable[[ServiceStatusParametersV1], ServiceStatusResultV1] = service_status,
     completed_at: datetime | None = None,
 ) -> AgentResultV1:
     """Run one closed primitive; no caller chooses code, executable, path, or service."""
@@ -58,13 +54,12 @@ def execute_read_only_agent_command(
         parameters = parameters_type.model_validate(
             {"schema_version": schema_version, **command.parameters}
         )
-        if command.capability == "route.get":
-            policy.require_allowed(parameters.target)
-    except NetworkProbeDenied as error:
-        return _failure(command, str(error), finished_at)
     except ValidationError:
         return _failure(command, "read_only_capability_rejected", finished_at)
-    result = handlers[command.capability](parameters)
+    if command.capability == "route.get":
+        result = route_handler(parameters, policy=policy)
+    else:
+        result = handlers[command.capability](parameters)
     result_payload = result.model_dump(mode="json")
     if result.status == "succeeded":
         return AgentResultV1(

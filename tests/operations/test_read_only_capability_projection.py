@@ -56,4 +56,4 @@ def test_safe_read_primitives_remain_hidden_until_enabled_and_reported() -> None
     by_name = {item["capability"]: item for item in enabled}
     assert by_name["route.get"]["parameter_schema_version"] == "route_get_parameters_v1"
     assert by_name["adapter.list"]["parameter_schema_version"] == "adapter_list_parameters_v1"
-    assert by_name["system.service_status"]["parameter_schema_version"] == "system_service_status_parameters_v1"
+    assert by_name["system.service_status"]["parameter_schema_version"] == "service_status_parameters_v1"

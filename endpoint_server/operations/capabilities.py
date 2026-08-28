@@ -91,7 +91,7 @@ _READ_ONLY_CAPABILITY_METADATA: Mapping[str, CapabilityAvailability] = {
         "transport": "gateway_wss",
         "risk": "safe_read",
         "consent_required": False,
-        "parameter_schema_version": "system_service_status_parameters_v1",
+        "parameter_schema_version": "service_status_parameters_v1",
     },
 }
 

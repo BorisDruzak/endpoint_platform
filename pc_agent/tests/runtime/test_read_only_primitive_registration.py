@@ -27,7 +27,10 @@ def _gateway_command(capability: str, parameters: dict[str, object]) -> dict[str
 
 def test_gateway_accepts_only_the_closed_read_only_parameter_sets() -> None:
     route = GatewayCommandV1.model_validate(
-        _gateway_command("route.get", {"target": "api.example.test"})
+        _gateway_command(
+            "route.get",
+            {"target": "api.example.test", "port": 443, "family": "any", "timeout_ms": 1000},
+        )
     )
     adapter = GatewayCommandV1.model_validate(_gateway_command("adapter.list", {}))
     service = GatewayCommandV1.model_validate(
@@ -41,7 +44,10 @@ def test_gateway_accepts_only_the_closed_read_only_parameter_sets() -> None:
     )
     with pytest.raises(ValidationError):
         GatewayCommandV1.model_validate(
-            _gateway_command("route.get", {"target": "https://example.test"})
+            _gateway_command(
+                "route.get",
+                {"target": "https://example.test", "port": 443, "family": "any", "timeout_ms": 1000},
+            )
         )
     with pytest.raises(ValidationError):
         GatewayCommandV1.model_validate(
