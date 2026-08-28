@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import socket
+import sys
 from datetime import UTC, datetime
 from types import SimpleNamespace
 
@@ -15,6 +16,7 @@ from endpoint_contracts.read_only_primitives import (
 from pc_agent.primitives.network.policy import AgentNetworkProbePolicy, NetworkProbeDenied
 from pc_agent.primitives.read_only.command_execution import execute_read_only_agent_command
 from pc_agent.primitives.read_only.handlers import (
+    _linux_service_details,
     _resolve_candidates,
     adapter_list,
     route_get,
@@ -185,6 +187,80 @@ def test_service_status_maps_only_fixed_windows_scm_key() -> None:
         "error_code": None,
         "collected_at": "2026-08-28T00:00:00Z",
     }
+
+
+def test_linux_service_details_uses_supported_fixed_systemctl_argv(monkeypatch) -> None:
+    captured: dict[str, object] = {}
+
+    def fixed_systemctl(*args, **kwargs):
+        captured["args"] = args
+        captured["kwargs"] = kwargs
+        return SimpleNamespace(
+            stdout="ActiveState=active\nLoadState=loaded\nUnitFileState=enabled\n"
+        )
+
+    monkeypatch.setattr("pc_agent.primitives.read_only.handlers.subprocess.run", fixed_systemctl)
+
+    assert _linux_service_details("endpoint-agent.service") == (True, "running", "automatic")
+    assert captured["args"] == (
+        (
+            "/usr/bin/systemctl",
+            "show",
+            "endpoint-agent.service",
+            "--property=ActiveState,LoadState,UnitFileState",
+            "--no-pager",
+        ),
+    )
+
+
+def test_windows_missing_fixed_service_returns_safe_not_found_result(monkeypatch) -> None:
+    class MissingFixedServiceError(OSError):
+        winerror = 1060
+
+    fake_scm = SimpleNamespace(
+        QueryServiceStatus=lambda _service: (_ for _ in ()).throw(MissingFixedServiceError())
+    )
+    monkeypatch.setitem(sys.modules, "win32serviceutil", fake_scm)
+
+    result = service_status(
+        ServiceStatusParametersV1(
+            schema_version="service_status_parameters_v1", service_key="endpoint_agent"
+        ),
+        platform_name="windows",
+        collected_at=NOW,
+    )
+
+    assert result.model_dump(mode="json") == {
+        "schema_version": "service_status_result_v1",
+        "service_key": "endpoint_agent",
+        "installed": False,
+        "state": "not_found",
+        "start_mode": "unknown",
+        "status": "succeeded",
+        "error_code": None,
+        "collected_at": "2026-08-28T00:00:00Z",
+    }
+
+
+def test_windows_non_missing_scm_failure_remains_bounded_failure(monkeypatch) -> None:
+    class ScmAccessDeniedError(OSError):
+        winerror = 5
+
+    fake_scm = SimpleNamespace(
+        QueryServiceStatus=lambda _service: (_ for _ in ()).throw(ScmAccessDeniedError())
+    )
+    monkeypatch.setitem(sys.modules, "win32serviceutil", fake_scm)
+
+    result = service_status(
+        ServiceStatusParametersV1(
+            schema_version="service_status_parameters_v1", service_key="endpoint_agent"
+        ),
+        platform_name="windows",
+        collected_at=NOW,
+    )
+
+    assert result.status == "failed"
+    assert result.error_code == "service_query_failed"
 
 
 def test_service_command_rejects_a_raw_service_name() -> None:

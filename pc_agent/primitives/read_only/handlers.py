@@ -30,6 +30,11 @@ _WINDOWS_SERVICES = {
     "endpoint_agent": "EndpointAgent",
     "endpoint_agent_updater": "EndpointAgentUpdater",
 }
+_WINDOWS_ERROR_SERVICE_DOES_NOT_EXIST = 1060
+
+
+class _FixedWindowsServiceNotFound(OSError):
+    """Private marker for the one SCM absence condition exposed by the contract."""
 
 
 def _completed_at(value: datetime | None) -> datetime:
@@ -259,7 +264,7 @@ def adapter_list(
 
 def _linux_service_details(unit: str) -> tuple[bool, str, str]:
     completed = subprocess.run(
-        ("/usr/bin/systemctl", "show", unit, "--property=ActiveState,LoadState,UnitFileState", "--no-page"),
+        ("/usr/bin/systemctl", "show", unit, "--property=ActiveState,LoadState,UnitFileState", "--no-pager"),
         check=False,
         stdin=subprocess.DEVNULL,
         stdout=subprocess.PIPE,
@@ -283,8 +288,13 @@ def _windows_service_details(service_name: str) -> tuple[bool, str, str]:
         import win32serviceutil  # type: ignore[import-not-found]
     except ImportError as error:
         raise OSError("Windows SCM query is unavailable") from error
-    state_code = win32serviceutil.QueryServiceStatus(service_name)[1]
-    start_type = win32serviceutil.QueryServiceConfig(service_name)[1]
+    try:
+        state_code = win32serviceutil.QueryServiceStatus(service_name)[1]
+        start_type = win32serviceutil.QueryServiceConfig(service_name)[1]
+    except OSError as error:
+        if getattr(error, "winerror", None) == _WINDOWS_ERROR_SERVICE_DOES_NOT_EXIST:
+            raise _FixedWindowsServiceNotFound from error
+        raise
     state = {1: "stopped", 4: "running", 7: "paused"}.get(state_code, "unknown")
     start_mode = {2: "automatic", 3: "manual", 4: "disabled"}.get(start_type, "unknown")
     return True, state, start_mode
@@ -326,6 +336,16 @@ def service_status(
             installed=installed,
             state=state,
             start_mode=start_mode,
+            status="succeeded",
+            collected_at=finished_at,
+        )
+    except _FixedWindowsServiceNotFound:
+        return ServiceStatusResultV1(
+            schema_version="service_status_result_v1",
+            service_key=parameters.service_key,
+            installed=False,
+            state="not_found",
+            start_mode="unknown",
             status="succeeded",
             collected_at=finished_at,
         )
