@@ -7,7 +7,7 @@ from copy import deepcopy
 from dataclasses import dataclass
 from typing import Literal
 
-from pydantic import Field
+from pydantic import Field, StrictBool, StrictInt, StrictStr, model_validator
 
 from .base import ContractModelV1
 from .network_primitives import (
@@ -43,7 +43,55 @@ ModuleCapabilityFeatureFlagV1 = Literal[
     "endpoint_read_only_primitives_enabled",
 ]
 ModuleCapabilityPolicyV1 = Literal["network_target_policy", "none"]
-ModuleCapabilityParameterTypeV1 = Literal["string", "integer"]
+ModuleCapabilityParameterTypeV1 = Literal["string", "integer", "enum"]
+ModuleCapabilityParameterSourceV1 = Literal["input", "literal"]
+
+
+class EndpointCapabilityParameterDescriptorV1(ContractModelV1):
+    """Public, bounded authoring rule for one fixed primitive parameter."""
+
+    name: str = Field(
+        strict=True,
+        min_length=1,
+        max_length=64,
+        pattern=r"^[a-z][a-z0-9_]{0,63}$",
+    )
+    value_type: ModuleCapabilityParameterTypeV1
+    required: StrictBool
+    allowed_sources: list[ModuleCapabilityParameterSourceV1] = Field(
+        min_length=1,
+        max_length=2,
+    )
+    enum_values: list[StrictStr] | None = Field(max_length=8)
+    minimum: StrictInt | None
+    maximum: StrictInt | None
+    default_literal: StrictStr | StrictInt | None
+    secret: Literal[False]
+
+    @model_validator(mode="after")
+    def validate_descriptor_shape(self) -> "EndpointCapabilityParameterDescriptorV1":
+        if len(set(self.allowed_sources)) != len(self.allowed_sources):
+            raise ValueError("parameter allowed_sources must not contain duplicates")
+        if self.value_type == "enum":
+            if not self.enum_values or len(set(self.enum_values)) != len(self.enum_values):
+                raise ValueError("enum parameter must declare unique enum_values")
+            if self.minimum is not None or self.maximum is not None:
+                raise ValueError("enum parameter must not declare numeric bounds")
+        elif self.enum_values is not None:
+            raise ValueError("only enum parameters may declare enum_values")
+        if self.value_type != "integer" and (
+            self.minimum is not None or self.maximum is not None
+        ):
+            raise ValueError("only integer parameters may declare numeric bounds")
+        if self.minimum is not None and self.maximum is not None and self.minimum > self.maximum:
+            raise ValueError("parameter minimum must not exceed maximum")
+        if self.default_literal is not None:
+            expected = int if self.value_type == "integer" else str
+            if type(self.default_literal) is not expected:
+                raise ValueError("parameter default_literal type is invalid")
+            if self.value_type == "enum" and self.default_literal not in self.enum_values:
+                raise ValueError("enum default_literal must be declared")
+        return self
 
 
 class ModuleCapabilityAuthoringV1(ContractModelV1):
@@ -63,13 +111,21 @@ class ModuleCapabilityAuthoringV1(ContractModelV1):
     consent_required: Literal[False]
     feature_flag: ModuleCapabilityFeatureFlagV1
     policy: ModuleCapabilityPolicyV1
+    parameters: list[EndpointCapabilityParameterDescriptorV1] = Field(max_length=4)
+
+    @model_validator(mode="after")
+    def validate_parameter_names(self) -> "ModuleCapabilityAuthoringV1":
+        names = [parameter.name for parameter in self.parameters]
+        if len(set(names)) != len(names):
+            raise ValueError("capability parameter names must be unique")
+        return self
 
 
 class ModuleCapabilityCatalogV1(ContractModelV1):
     """Versioned, closed discovery response without an execution surface."""
 
-    schema_version: Literal["module_capability_catalog_v1"]
-    capabilities: list[ModuleCapabilityAuthoringV1] = Field(min_length=6, max_length=6)
+    schema_version: Literal["endpoint_module_capability_catalog_v1"]
+    items: list[ModuleCapabilityAuthoringV1] = Field(min_length=6, max_length=6)
 
 
 @dataclass(frozen=True, slots=True)
@@ -79,7 +135,6 @@ class ModuleCapabilityDescriptor:
     metadata: ModuleCapabilityAuthoringV1
     parameter_model: type[ContractModelV1]
     result_model: type[ContractModelV1]
-    authoring_parameters: Mapping[str, ModuleCapabilityParameterTypeV1]
 
 
 def _descriptor(
@@ -92,7 +147,7 @@ def _descriptor(
     policy: ModuleCapabilityPolicyV1,
     parameter_model: type[ContractModelV1],
     result_model: type[ContractModelV1],
-    authoring_parameters: Mapping[str, ModuleCapabilityParameterTypeV1],
+    parameters: tuple[EndpointCapabilityParameterDescriptorV1, ...],
 ) -> ModuleCapabilityDescriptor:
     return ModuleCapabilityDescriptor(
         metadata=ModuleCapabilityAuthoringV1(
@@ -105,10 +160,32 @@ def _descriptor(
             consent_required=False,
             feature_flag=feature_flag,
             policy=policy,
+            parameters=list(parameters),
         ),
         parameter_model=parameter_model,
         result_model=result_model,
-        authoring_parameters=dict(authoring_parameters),
+    )
+
+
+def _parameter(
+    name: str,
+    value_type: ModuleCapabilityParameterTypeV1,
+    allowed_sources: tuple[ModuleCapabilityParameterSourceV1, ...],
+    *,
+    enum_values: tuple[str, ...] | None = None,
+    minimum: int | None = None,
+    maximum: int | None = None,
+) -> EndpointCapabilityParameterDescriptorV1:
+    return EndpointCapabilityParameterDescriptorV1(
+        name=name,
+        value_type=value_type,
+        required=True,
+        allowed_sources=list(allowed_sources),
+        enum_values=list(enum_values) if enum_values is not None else None,
+        minimum=minimum,
+        maximum=maximum,
+        default_literal=None,
+        secret=False,
     )
 
 
@@ -122,7 +199,15 @@ MODULE_CAPABILITY_REGISTRY: Mapping[ModuleCapabilityNameV1, ModuleCapabilityDesc
         policy="network_target_policy",
         parameter_model=DnsResolveParametersV1,
         result_model=DnsResolveResultV1,
-        authoring_parameters={"target": "string", "family": "string"},
+        parameters=(
+            _parameter("target", "string", ("input", "literal")),
+            _parameter(
+                "family",
+                "enum",
+                ("input", "literal"),
+                enum_values=("any", "ipv4", "ipv6"),
+            ),
+        ),
     ),
     "network.ping": _descriptor(
         capability="network.ping",
@@ -133,11 +218,17 @@ MODULE_CAPABILITY_REGISTRY: Mapping[ModuleCapabilityNameV1, ModuleCapabilityDesc
         policy="network_target_policy",
         parameter_model=NetworkPingParametersV1,
         result_model=NetworkPingResultV1,
-        authoring_parameters={
-            "target": "string",
-            "count": "integer",
-            "timeout_ms": "integer",
-        },
+        parameters=(
+            _parameter("target", "string", ("input", "literal")),
+            _parameter("count", "integer", ("input", "literal"), minimum=1, maximum=5),
+            _parameter(
+                "timeout_ms",
+                "integer",
+                ("input", "literal"),
+                minimum=100,
+                maximum=5000,
+            ),
+        ),
     ),
     "tcp.connect": _descriptor(
         capability="tcp.connect",
@@ -148,11 +239,17 @@ MODULE_CAPABILITY_REGISTRY: Mapping[ModuleCapabilityNameV1, ModuleCapabilityDesc
         policy="network_target_policy",
         parameter_model=TcpConnectParametersV1,
         result_model=TcpConnectResultV1,
-        authoring_parameters={
-            "target": "string",
-            "port": "integer",
-            "timeout_ms": "integer",
-        },
+        parameters=(
+            _parameter("target", "string", ("input", "literal")),
+            _parameter("port", "integer", ("input", "literal"), minimum=1, maximum=65535),
+            _parameter(
+                "timeout_ms",
+                "integer",
+                ("input", "literal"),
+                minimum=100,
+                maximum=10000,
+            ),
+        ),
     ),
     "route.get": _descriptor(
         capability="route.get",
@@ -163,12 +260,23 @@ MODULE_CAPABILITY_REGISTRY: Mapping[ModuleCapabilityNameV1, ModuleCapabilityDesc
         policy="network_target_policy",
         parameter_model=RouteGetParametersV1,
         result_model=RouteGetResultV1,
-        authoring_parameters={
-            "target": "string",
-            "port": "integer",
-            "family": "string",
-            "timeout_ms": "integer",
-        },
+        parameters=(
+            _parameter("target", "string", ("input", "literal")),
+            _parameter("port", "integer", ("input", "literal"), minimum=1, maximum=65535),
+            _parameter(
+                "family",
+                "enum",
+                ("input", "literal"),
+                enum_values=("any", "ipv4", "ipv6"),
+            ),
+            _parameter(
+                "timeout_ms",
+                "integer",
+                ("input", "literal"),
+                minimum=100,
+                maximum=5000,
+            ),
+        ),
     ),
     "adapter.list": _descriptor(
         capability="adapter.list",
@@ -179,7 +287,7 @@ MODULE_CAPABILITY_REGISTRY: Mapping[ModuleCapabilityNameV1, ModuleCapabilityDesc
         policy="none",
         parameter_model=AdapterListParametersV1,
         result_model=AdapterListResultV1,
-        authoring_parameters={},
+        parameters=(),
     ),
     "system.service_status": _descriptor(
         capability="system.service_status",
@@ -190,7 +298,14 @@ MODULE_CAPABILITY_REGISTRY: Mapping[ModuleCapabilityNameV1, ModuleCapabilityDesc
         policy="none",
         parameter_model=ServiceStatusParametersV1,
         result_model=ServiceStatusResultV1,
-        authoring_parameters={"service_key": "string"},
+        parameters=(
+            _parameter(
+                "service_key",
+                "enum",
+                ("literal",),
+                enum_values=("endpoint_agent", "endpoint_agent_updater"),
+            ),
+        ),
     ),
 }
 
@@ -198,8 +313,8 @@ MODULE_CAPABILITY_REGISTRY: Mapping[ModuleCapabilityNameV1, ModuleCapabilityDesc
 def module_capability_catalog() -> ModuleCapabilityCatalogV1:
     """Return only the six public descriptors in stable authoring order."""
     return ModuleCapabilityCatalogV1(
-        schema_version="module_capability_catalog_v1",
-        capabilities=[entry.metadata for entry in MODULE_CAPABILITY_REGISTRY.values()],
+        schema_version="endpoint_module_capability_catalog_v1",
+        items=[entry.metadata for entry in MODULE_CAPABILITY_REGISTRY.values()],
     )
 
 
@@ -249,11 +364,13 @@ def module_capability_gateway_parameter_schema(capability: str) -> dict[str, obj
 
 __all__ = [
     "MODULE_CAPABILITY_REGISTRY",
+    "EndpointCapabilityParameterDescriptorV1",
     "ModuleCapabilityAuthoringV1",
     "ModuleCapabilityCatalogV1",
     "ModuleCapabilityDescriptor",
     "ModuleCapabilityFeatureFlagV1",
     "ModuleCapabilityNameV1",
+    "ModuleCapabilityParameterSourceV1",
     "ModuleCapabilityParameterTypeV1",
     "ModuleCapabilityPlatformV1",
     "ModuleCapabilityPolicyV1",

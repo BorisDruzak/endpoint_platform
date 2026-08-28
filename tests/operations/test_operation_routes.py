@@ -542,8 +542,8 @@ async def test_module_capability_catalog_is_flagged_scoped_and_closed(
     assert forbidden.status_code == 403
     assert allowed.status_code == 200
     payload = allowed.json()["data"]
-    assert payload["schema_version"] == "module_capability_catalog_v1"
-    assert [item["capability"] for item in payload["capabilities"]] == [
+    assert payload["schema_version"] == "endpoint_module_capability_catalog_v1"
+    assert [item["capability"] for item in payload["items"]] == [
         "dns.resolve",
         "network.ping",
         "tcp.connect",
@@ -551,7 +551,21 @@ async def test_module_capability_catalog_is_flagged_scoped_and_closed(
         "adapter.list",
         "system.service_status",
     ]
-    assert all("service_name" not in item for item in payload["capabilities"])
+    assert payload["items"][4]["parameters"] == []
+    assert payload["items"][5]["parameters"] == [
+        {
+            "name": "service_key",
+            "value_type": "enum",
+            "required": True,
+            "allowed_sources": ["literal"],
+            "enum_values": ["endpoint_agent", "endpoint_agent_updater"],
+            "minimum": None,
+            "maximum": None,
+            "default_literal": None,
+            "secret": False,
+        }
+    ]
+    assert all("service_name" not in item for item in payload["items"])
 
 
 @pytest.mark.asyncio

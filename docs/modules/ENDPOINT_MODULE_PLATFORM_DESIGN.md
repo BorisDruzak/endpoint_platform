@@ -85,6 +85,16 @@ closed network-target policy or no target policy. It exposes no shell,
 PowerShell, Python, executable, path, URL, raw service name, arbitrary
 command, or generic execution input.
 
+The catalog response is the versioned
+`endpoint_module_capability_catalog_v1` shape with an `items` array. Each item
+contains public `EndpointCapabilityParameterDescriptorV1` entries: name,
+`string`/`integer`/`enum` type, required flag, allowed input/literal sources,
+enum values, integer bounds, optional default literal, and `secret: false`.
+`adapter.list` has no parameters; `system.service_status.service_key` is a
+literal-only enum of the two internal logical keys. These descriptors are
+Endpoint-authored metadata, never code, paths, URLs, raw service mappings, or
+secret material.
+
 ## Lifecycle and rollout
 
 ModuleVersion lifecycle states are `draft`, `validation_failed`, `validated`,

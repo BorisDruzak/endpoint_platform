@@ -55,6 +55,7 @@ from .read_only_primitives import (
     ServiceStatusResultV1,
 )
 from .capabilities import (
+    EndpointCapabilityParameterDescriptorV1,
     ModuleCapabilityAuthoringV1,
     ModuleCapabilityCatalogV1,
     ModuleCapabilityNameV1,
@@ -164,6 +165,7 @@ __all__ = [
     "RouteGetResultV1",
     "ServiceStatusParametersV1",
     "ServiceStatusResultV1",
+    "EndpointCapabilityParameterDescriptorV1",
     "ModuleCapabilityAuthoringV1",
     "ModuleCapabilityCatalogV1",
     "ModuleCapabilityNameV1",

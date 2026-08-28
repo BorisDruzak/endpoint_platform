@@ -23,15 +23,24 @@ def validate_recipe_spec(recipe: EndpointRecipeModuleSpecV1) -> None:
     input_types = {item.name: item.value_type for item in recipe.inputs}
     for step in recipe.steps:
         catalog_entry = module_capability_descriptor(step.capability)
-        if set(step.parameters) != set(catalog_entry.authoring_parameters):
+        parameter_descriptors = catalog_entry.metadata.parameters
+        if set(step.parameters) != {
+            parameter_descriptor.name for parameter_descriptor in parameter_descriptors
+        }:
             raise RecipeValidationError("recipe parameter shape is not catalog-defined")
-        for parameter_name, expected_type in catalog_entry.authoring_parameters.items():
-            binding = step.parameters[parameter_name]
+        for parameter_descriptor in parameter_descriptors:
+            binding = step.parameters[parameter_descriptor.name]
             if isinstance(binding, RecipeInputBindingV1):
-                if input_types.get(binding.name) != expected_type:
+                if "input" not in parameter_descriptor.allowed_sources:
+                    raise RecipeValidationError("recipe input source is not catalog-defined")
+                if input_types.get(binding.name) != _recipe_input_type(parameter_descriptor.value_type):
                     raise RecipeValidationError("recipe input type does not match capability")
             elif isinstance(binding, RecipeLiteralBindingV1):
-                if type(binding.value) is not _python_type_for(expected_type):
+                if "literal" not in parameter_descriptor.allowed_sources:
+                    raise RecipeValidationError("recipe literal source is not catalog-defined")
+                if type(binding.value) is not _python_type_for(
+                    _recipe_input_type(parameter_descriptor.value_type)
+                ):
                     raise RecipeValidationError("recipe literal type does not match capability")
             else:
                 raise RecipeValidationError("recipe binding is not supported")
@@ -40,6 +49,10 @@ def validate_recipe_spec(recipe: EndpointRecipeModuleSpecV1) -> None:
 
 def _python_type_for(value_type: Literal["string", "integer"]) -> type[str] | type[int]:
     return str if value_type == "string" else int
+
+
+def _recipe_input_type(value_type: Literal["string", "integer", "enum"]) -> Literal["string", "integer"]:
+    return "string" if value_type == "enum" else value_type
 
 
 def _validate_literal_parameter_bounds(

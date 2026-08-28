@@ -1,5 +1,113 @@
 {
   "$defs": {
+    "EndpointCapabilityParameterDescriptorV1": {
+      "additionalProperties": false,
+      "description": "Public, bounded authoring rule for one fixed primitive parameter.",
+      "properties": {
+        "allowed_sources": {
+          "items": {
+            "enum": [
+              "input",
+              "literal"
+            ],
+            "type": "string"
+          },
+          "maxItems": 2,
+          "minItems": 1,
+          "title": "Allowed Sources",
+          "type": "array"
+        },
+        "default_literal": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Default Literal"
+        },
+        "enum_values": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "maxItems": 8,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Enum Values"
+        },
+        "maximum": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Maximum"
+        },
+        "minimum": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Minimum"
+        },
+        "name": {
+          "maxLength": 64,
+          "minLength": 1,
+          "pattern": "^[a-z][a-z0-9_]{0,63}$",
+          "title": "Name",
+          "type": "string"
+        },
+        "required": {
+          "title": "Required",
+          "type": "boolean"
+        },
+        "secret": {
+          "const": false,
+          "title": "Secret",
+          "type": "boolean"
+        },
+        "value_type": {
+          "enum": [
+            "string",
+            "integer",
+            "enum"
+          ],
+          "title": "Value Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "value_type",
+        "required",
+        "allowed_sources",
+        "enum_values",
+        "minimum",
+        "maximum",
+        "default_literal",
+        "secret"
+      ],
+      "title": "EndpointCapabilityParameterDescriptorV1",
+      "type": "object"
+    },
     "ModuleCapabilityAuthoringV1": {
       "additionalProperties": false,
       "description": "Stable public metadata for one fixed recipe-capable primitive.",
@@ -41,6 +149,14 @@
           "minLength": 1,
           "title": "Parameter Schema Version",
           "type": "string"
+        },
+        "parameters": {
+          "items": {
+            "$ref": "#/$defs/EndpointCapabilityParameterDescriptorV1"
+          },
+          "maxItems": 4,
+          "title": "Parameters",
+          "type": "array"
         },
         "platforms": {
           "items": {
@@ -84,7 +200,8 @@
         "risk",
         "consent_required",
         "feature_flag",
-        "policy"
+        "policy",
+        "parameters"
       ],
       "title": "ModuleCapabilityAuthoringV1",
       "type": "object"
@@ -93,24 +210,24 @@
   "additionalProperties": false,
   "description": "Versioned, closed discovery response without an execution surface.",
   "properties": {
-    "capabilities": {
+    "items": {
       "items": {
         "$ref": "#/$defs/ModuleCapabilityAuthoringV1"
       },
       "maxItems": 6,
       "minItems": 6,
-      "title": "Capabilities",
+      "title": "Items",
       "type": "array"
     },
     "schema_version": {
-      "const": "module_capability_catalog_v1",
+      "const": "endpoint_module_capability_catalog_v1",
       "title": "Schema Version",
       "type": "string"
     }
   },
   "required": [
     "schema_version",
-    "capabilities"
+    "items"
   ],
   "title": "ModuleCapabilityCatalogV1",
   "type": "object"
