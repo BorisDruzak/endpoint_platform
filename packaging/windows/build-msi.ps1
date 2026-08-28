@@ -6,6 +6,8 @@ param(
     [string]$Platform = "x64",
     [string]$Version,
     [string]$InitialRuntimeManifest,
+    [string]$InitialRuntimeStageRoot,
+    [string]$InitialRuntimeStageEvidence,
     [switch]$ApproveInitialRuntimeTransition,
     [switch]$ApproveInitialRuntimeSourceChange,
     [switch]$ReusePythonBuild,
@@ -257,13 +259,11 @@ $initialRuntimeManifestPath = [IO.Path]::GetFullPath($InitialRuntimeManifest)
 $manifestPreview = Get-Content -LiteralPath $initialRuntimeManifestPath -Raw | ConvertFrom-Json
 $initialRuntimeSourceRevision = $checkedOutSourceRevision
 if ([int]$manifestPreview.schema_version -ge 5) {
-    $initialRuntimeSourceRevision = [string]$manifestPreview.source_revision
-    if ($initialRuntimeSourceRevision -notmatch '^[0-9a-f]{40}$') {
-        throw "Initial runtime manifest has an invalid source revision."
-    }
-    & git -C $repositoryRoot merge-base --is-ancestor $initialRuntimeSourceRevision $checkedOutSourceRevision
-    if ($LASTEXITCODE -ne 0) {
-        throw "Initial runtime source revision is not an ancestor of the clean build source."
+    if (
+        [string]::IsNullOrWhiteSpace($InitialRuntimeStageRoot) -or
+        [string]::IsNullOrWhiteSpace($InitialRuntimeStageEvidence)
+    ) {
+        throw "Initial runtime stage evidence is required for a schema-v5 manifest."
     }
 }
 $sourceDateEpoch = [string]$manifestPreview.toolchain.source_date_epoch
@@ -279,9 +279,14 @@ $validationArguments = @(
     (Join-Path $packagingRoot 'initial_runtime_contract.py'),
     '--repository-root', $repositoryRoot,
     '--manifest', $initialRuntimeManifestPath,
-    '--baseline', $baselineInitialRuntimeManifest,
-    '--source-revision', $initialRuntimeSourceRevision
+    '--baseline', $baselineInitialRuntimeManifest
 )
+if ([int]$manifestPreview.schema_version -ge 5) {
+    $validationArguments += @(
+        '--stage-root', $InitialRuntimeStageRoot,
+        '--stage-evidence', $InitialRuntimeStageEvidence
+    )
+}
 if ($ApproveInitialRuntimeTransition) {
     $validationArguments += '--approve-version'
 }
@@ -297,11 +302,15 @@ $InitialRuntimeVersion = [string]$initialRuntimeIdentity.version
 $InitialRuntimeComponentGuid = [string]$initialRuntimeIdentity.component_guid
 $BaselineInitialRuntimeVersion = [string]$initialRuntimeIdentity.baseline_version
 $InitialRuntimeTransitionApproved = if ([bool]$initialRuntimeIdentity.transition_approved) { '1' } else { '0' }
-if (
-    [int]$manifestPreview.schema_version -ge 5 -and
-    [string]$initialRuntimeIdentity.source_revision -ne $initialRuntimeSourceRevision
-) {
-    throw "Initial runtime manifest validation returned an unexpected source revision."
+if ([int]$manifestPreview.schema_version -ge 5) {
+    $initialRuntimeSourceRevision = [string]$initialRuntimeIdentity.source_revision
+    if ($initialRuntimeSourceRevision -notmatch '^[0-9a-f]{40}$') {
+        throw "Initial runtime manifest validation did not return a staged source revision."
+    }
+    & git -C $repositoryRoot merge-base --is-ancestor $initialRuntimeSourceRevision $checkedOutSourceRevision
+    if ($LASTEXITCODE -ne 0) {
+        throw "Initial runtime stage source revision is not an ancestor of the clean build source."
+    }
 }
 if (-not $Version) {
     $Version = Get-AgentVersion (Join-Path $repositoryRoot 'pc_agent\version.py')

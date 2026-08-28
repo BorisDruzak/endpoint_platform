@@ -363,15 +363,20 @@ def test_initial_runtime_marker_is_staged_for_msi_ownership_provenance() -> None
 
 
 def test_msi_builder_seals_the_initial_selector_to_the_exact_source_revision() -> None:
-    """A Windows canary must reject an MSI whose selector cannot prove its source SHA."""
+    """A Windows canary must reject an MSI whose selector cannot prove its staged SHA."""
     script = (WINDOWS_PACKAGING / "build-msi.ps1").read_text(encoding="utf-8")
 
     assert "function Get-SourceRevision" in script
     assert "function Assert-CleanSourceTree" in script
     assert "git -C $RepositoryRoot status --porcelain --untracked-files=all" in script
-    assert "$initialRuntimeSourceRevision = [string]$manifestPreview.source_revision" in script
+    assert "[string]$InitialRuntimeStageRoot" in script
+    assert "[string]$InitialRuntimeStageEvidence" in script
+    assert "Initial runtime stage evidence is required for a schema-v5 manifest." in script
+    assert "'--stage-root', $InitialRuntimeStageRoot" in script
+    assert "'--stage-evidence', $InitialRuntimeStageEvidence" in script
+    assert "$initialRuntimeSourceRevision = [string]$initialRuntimeIdentity.source_revision" in script
+    assert "$initialRuntimeSourceRevision = [string]$manifestPreview.source_revision" not in script
     assert "merge-base --is-ancestor $initialRuntimeSourceRevision $checkedOutSourceRevision" in script
-    assert "'--source-revision', $initialRuntimeSourceRevision" in script
     assert script.count("source_revision = $initialRuntimeSourceRevision") == 2
     assert "schema_version = 1" in script
 

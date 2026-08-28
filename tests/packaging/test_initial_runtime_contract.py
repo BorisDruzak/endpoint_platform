@@ -4,6 +4,7 @@ import hashlib
 import json
 from pathlib import Path
 import subprocess
+import sys
 
 import pytest
 
@@ -34,6 +35,16 @@ def _contract_module():
     sys.modules[spec.name] = module
     spec.loader.exec_module(module)
     return module
+
+
+def _contract_cli(*arguments: str) -> subprocess.CompletedProcess[str]:
+    script = Path(__file__).resolve().parents[2] / "packaging" / "windows" / "initial_runtime_contract.py"
+    return subprocess.run(
+        (sys.executable, str(script), *arguments),
+        capture_output=True,
+        check=False,
+        encoding="utf-8",
+    )
 
 
 def _artifact_identity(root: Path) -> dict[str, object]:
@@ -178,7 +189,8 @@ def test_schema5_manifest_requires_the_staged_source_revision(
     tmp_path: Path, artifact_root: Path
 ) -> None:
     """A frozen runtime must name the exact immutable source HEAD that staged it."""
-    validate = _contract_module().validate_initial_runtime
+    contract = _contract_module()
+    validate = contract.validate_initial_runtime
     manifest = _manifest(
         tmp_path,
         version="3.1.76",
@@ -190,23 +202,35 @@ def test_schema5_manifest_requires_the_staged_source_revision(
     payload = json.loads(manifest.read_text(encoding="utf-8"))
     payload["schema_version"] = 5
     payload["source_revision"] = _commit_source_tree(tmp_path)
+    evidence = tmp_path / "initial-runtime-stage-evidence.json"
+    evidence_write = _contract_cli(
+        "--repository-root", str(tmp_path),
+        "--artifact-root", str(artifact_root),
+        "--write-stage-evidence", str(evidence),
+    )
+    assert evidence_write.returncode == 0, evidence_write.stderr
     manifest.write_text(json.dumps(payload), encoding="utf-8")
 
     identity = validate(
         tmp_path,
         manifest,
         manifest,
-        observed_source_revision=payload["source_revision"],
+        stage_root=artifact_root,
+        stage_evidence_path=evidence,
         observed_toolchain=TOOLCHAIN_HOOKS_PINNED,
     )
 
     assert identity.source_revision == payload["source_revision"]
+    evidence_payload = json.loads(evidence.read_text(encoding="utf-8"))
+    evidence_payload["source_revision"] = "b" * 40
+    evidence.write_text(json.dumps(evidence_payload), encoding="utf-8")
     with pytest.raises(ValueError, match="source revision"):
         validate(
             tmp_path,
             manifest,
             manifest,
-            observed_source_revision="b" * 40,
+            stage_root=artifact_root,
+            stage_evidence_path=evidence,
             observed_toolchain=TOOLCHAIN_HOOKS_PINNED,
         )
 
@@ -215,7 +239,6 @@ def test_schema5_manifest_rejects_hashes_not_from_the_declared_revision(
     tmp_path: Path, artifact_root: Path
 ) -> None:
     """A descendant checkout cannot relabel newer runtime bytes as an old source SHA."""
-    validate = _contract_module().validate_initial_runtime
     manifest = _manifest(
         tmp_path,
         version="3.1.76",
@@ -226,6 +249,13 @@ def test_schema5_manifest_rejects_hashes_not_from_the_declared_revision(
         schema_version=4,
     )
     staged_revision = _commit_source_tree(tmp_path)
+    evidence = tmp_path / "initial-runtime-stage-evidence.json"
+    evidence_write = _contract_cli(
+        "--repository-root", str(tmp_path),
+        "--artifact-root", str(artifact_root),
+        "--write-stage-evidence", str(evidence),
+    )
+    assert evidence_write.returncode == 0, evidence_write.stderr
     manifest = _manifest(
         tmp_path,
         version="3.1.76",
@@ -242,14 +272,15 @@ def test_schema5_manifest_rejects_hashes_not_from_the_declared_revision(
     descendant_revision = _commit_all(tmp_path, "test descendant runtime source")
     assert _git(tmp_path, "merge-base", "--is-ancestor", staged_revision, descendant_revision) == ""
 
-    with pytest.raises(ValueError, match="source revision"):
-        validate(
-            tmp_path,
-            manifest,
-            manifest,
-            observed_source_revision=staged_revision,
-            observed_toolchain=TOOLCHAIN_HOOKS_PINNED,
-        )
+    production_validation = _contract_cli(
+        "--repository-root", str(tmp_path),
+        "--manifest", str(manifest),
+        "--baseline", str(manifest),
+        "--stage-root", str(artifact_root),
+        "--stage-evidence", str(evidence),
+    )
+    assert production_validation.returncode != 0
+    assert "source revision" in production_validation.stderr
 
 
 def test_manifest_version_must_match_agent_version_constant(
