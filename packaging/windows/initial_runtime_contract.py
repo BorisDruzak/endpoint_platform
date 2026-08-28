@@ -133,7 +133,7 @@ def write_stage_evidence(repository_root: Path, artifact_root: Path, path: Path)
     path.write_text(json.dumps(payload, separators=(",", ":")), encoding="utf-8")
 
 
-def _stage_source_revision(artifact_root: Path, path: Path) -> str:
+def _stage_evidence_identity(artifact_root: Path, path: Path) -> tuple[str, dict[str, object]]:
     if path.is_symlink() or not path.is_file():
         raise ValueError("initial runtime stage evidence is unavailable")
     try:
@@ -149,7 +149,7 @@ def _stage_source_revision(artifact_root: Path, path: Path) -> str:
         or payload.get("artifact") != artifact_identity(artifact_root)
     ):
         raise ValueError("initial runtime stage evidence is invalid")
-    return payload["source_revision"]
+    return payload["source_revision"], payload["artifact"]
 
 
 def artifact_identity(root: Path) -> dict[str, object]:
@@ -367,7 +367,11 @@ def validate_initial_runtime(
     if stage_root is not None and stage_evidence_path is not None:
         if observed_source_revision is not None:
             raise ValueError("initial runtime source revision has multiple observations")
-        observed_source_revision = _stage_source_revision(stage_root, stage_evidence_path)
+        observed_source_revision, stage_artifact = _stage_evidence_identity(
+            stage_root, stage_evidence_path
+        )
+        if stage_artifact != candidate.artifact:
+            raise ValueError("initial runtime stage evidence does not match manifest artifact")
     if candidate.source_revision is not None:
         if observed_source_revision is None:
             raise ValueError("initial runtime observed source revision is required")

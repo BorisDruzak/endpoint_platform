@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -39,11 +40,13 @@ def _contract_module():
 
 def _contract_cli(*arguments: str) -> subprocess.CompletedProcess[str]:
     script = Path(__file__).resolve().parents[2] / "packaging" / "windows" / "initial_runtime_contract.py"
+    environment = {**os.environ, "PYTHONHASHSEED": "0", "SOURCE_DATE_EPOCH": "1767225600"}
     return subprocess.run(
         (sys.executable, str(script), *arguments),
         capture_output=True,
         check=False,
         encoding="utf-8",
+        env=environment,
     )
 
 
@@ -281,6 +284,51 @@ def test_schema5_manifest_rejects_hashes_not_from_the_declared_revision(
     )
     assert production_validation.returncode != 0
     assert "source revision" in production_validation.stderr
+
+
+def test_schema5_production_validation_rejects_evidence_for_another_artifact(
+    tmp_path: Path, artifact_root: Path
+) -> None:
+    """A retained stage cannot lend provenance to a different candidate tree."""
+    candidate_artifact = tmp_path / "candidate-artifact"
+    (candidate_artifact / "_internal").mkdir(parents=True)
+    (candidate_artifact / "pc_agent.exe").write_bytes(b"candidate-exe")
+    (candidate_artifact / "_internal" / "python314.dll").write_bytes(b"candidate-runtime")
+    manifest = _manifest(
+        tmp_path,
+        version="3.1.76",
+        guid="980AE24B-57BC-4B59-A18A-65B9B33A7906",
+        artifact_root=candidate_artifact,
+        toolchain=TOOLCHAIN_HOOKS_PINNED,
+        schema_version=4,
+    )
+    staged_revision = _commit_source_tree(tmp_path)
+    evidence = tmp_path / "initial-runtime-stage-evidence.json"
+    evidence_write = _contract_cli(
+        "--repository-root", str(tmp_path),
+        "--artifact-root", str(artifact_root),
+        "--write-stage-evidence", str(evidence),
+    )
+    assert evidence_write.returncode == 0, evidence_write.stderr
+    payload = json.loads(manifest.read_text(encoding="utf-8"))
+    payload["schema_version"] = 5
+    payload["source_revision"] = staged_revision
+    manifest.write_text(json.dumps(payload), encoding="utf-8")
+
+    for arguments in (
+        (),
+        ("--artifact-root", str(candidate_artifact)),
+    ):
+        production_validation = _contract_cli(
+            "--repository-root", str(tmp_path),
+            "--manifest", str(manifest),
+            "--baseline", str(manifest),
+            "--stage-root", str(artifact_root),
+            "--stage-evidence", str(evidence),
+            *arguments,
+        )
+        assert production_validation.returncode != 0
+        assert "stage evidence" in production_validation.stderr
 
 
 def test_manifest_version_must_match_agent_version_constant(
