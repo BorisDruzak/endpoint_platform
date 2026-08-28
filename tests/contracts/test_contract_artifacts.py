@@ -106,7 +106,7 @@ def _assert_synthetic_fixture(value: Any) -> None:
         assert not _contains_url_credentials(child), path
         if UUID_PATTERN.fullmatch(child):
             assert child in SYNTHETIC_UUIDS, path
-        elif field_name not in {"sha256", "schema_version"}:
+        elif field_name not in {"sha256", "schema_version", "feature_flag"}:
             assert not OPAQUE_VALUE_PATTERN.fullmatch(child), path
         if field_name.lower() in DEVICE_DATA_FIELDS or any(
             marker in field_name.lower() for marker in DEVICE_DATA_MARKERS
@@ -481,6 +481,7 @@ def test_endpoint_operation_service_openapi_documents_scopes_and_safe_models(
     capabilities = paths["/api/v1/devices/{device_id}/capabilities"]["get"]
     create = paths["/api/v1/devices/{device_id}/operations"]["post"]
     read = paths["/api/v1/operations/{operation_id}"]["get"]
+    module_capabilities = paths["/api/v1/module-capabilities"]["get"]
 
     assert capabilities["security"] == [{"ServiceBearer": []}]
     assert capabilities["x-required-scopes"] == ["devices.read"]
@@ -488,6 +489,8 @@ def test_endpoint_operation_service_openapi_documents_scopes_and_safe_models(
     assert create["x-required-scopes"] == ["operations.create"]
     assert read["security"] == [{"ServiceBearer": []}]
     assert read["x-required-scopes"] == ["operations.read"]
+    assert module_capabilities["security"] == [{"ServiceBearer": []}]
+    assert module_capabilities["x-required-scopes"] == ["modules.read"]
     assert any(
         parameter["name"] == "Idempotency-Key" and parameter["required"] is True
         for parameter in create["parameters"]

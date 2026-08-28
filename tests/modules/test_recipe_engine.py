@@ -75,6 +75,60 @@ def test_recipe_engine_expands_declared_inputs_into_fixed_typed_commands() -> No
     }
 
 
+def test_recipe_engine_expands_closed_read_only_registry_capabilities() -> None:
+    recipe = EndpointRecipeModuleSpecV1.model_validate(
+        {
+            "schema_version": "endpoint_recipe_module_v1",
+            "module_key": "network.route.status",
+            "supported_platforms": ["linux_amd64", "windows_amd64"],
+            "inputs": [{"name": "target", "value_type": "string"}],
+            "steps": [
+                {
+                    "step_id": "route",
+                    "capability": "route.get",
+                    "parameters": {
+                        "target": {"kind": "input", "name": "target"},
+                        "port": {"kind": "literal", "value": 443},
+                        "family": {"kind": "literal", "value": "any"},
+                        "timeout_ms": {"kind": "literal", "value": 1000},
+                    },
+                },
+                {
+                    "step_id": "adapters",
+                    "capability": "adapter.list",
+                    "parameters": {},
+                },
+                {
+                    "step_id": "agent_service",
+                    "capability": "system.service_status",
+                    "parameters": {
+                        "service_key": {
+                            "kind": "literal",
+                            "value": "endpoint_agent",
+                        }
+                    },
+                },
+            ],
+        }
+    )
+
+    commands = build_recipe_command_plan(recipe, {"target": "api.example.test"})
+
+    assert [(item.capability, item.parameters) for item in commands] == [
+        (
+            "route.get",
+            {
+                "target": "api.example.test",
+                "port": 443,
+                "family": "any",
+                "timeout_ms": 1000,
+            },
+        ),
+        ("adapter.list", {}),
+        ("system.service_status", {"service_key": "endpoint_agent"}),
+    ]
+
+
 @pytest.mark.parametrize(
     "inputs",
     [

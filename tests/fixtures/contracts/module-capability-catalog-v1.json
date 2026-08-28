@@ -1,0 +1,89 @@
+{
+  "capabilities": [
+    {
+      "capability": "dns.resolve",
+      "consent_required": false,
+      "feature_flag": "endpoint_network_primitives_enabled",
+      "minimum_agent_version": "3.2.27",
+      "parameter_schema_version": "dns_resolve_parameters_v1",
+      "platforms": [
+        "linux_amd64",
+        "windows_amd64"
+      ],
+      "policy": "network_target_policy",
+      "result_schema_version": "dns_resolve_result_v1",
+      "risk": "safe_read"
+    },
+    {
+      "capability": "network.ping",
+      "consent_required": false,
+      "feature_flag": "endpoint_network_primitives_enabled",
+      "minimum_agent_version": "3.2.27",
+      "parameter_schema_version": "network_ping_parameters_v1",
+      "platforms": [
+        "linux_amd64",
+        "windows_amd64"
+      ],
+      "policy": "network_target_policy",
+      "result_schema_version": "network_ping_result_v1",
+      "risk": "safe_read"
+    },
+    {
+      "capability": "tcp.connect",
+      "consent_required": false,
+      "feature_flag": "endpoint_network_primitives_enabled",
+      "minimum_agent_version": "3.2.27",
+      "parameter_schema_version": "tcp_connect_parameters_v1",
+      "platforms": [
+        "linux_amd64",
+        "windows_amd64"
+      ],
+      "policy": "network_target_policy",
+      "result_schema_version": "tcp_connect_result_v1",
+      "risk": "safe_read"
+    },
+    {
+      "capability": "route.get",
+      "consent_required": false,
+      "feature_flag": "endpoint_read_only_primitives_enabled",
+      "minimum_agent_version": "3.2.29",
+      "parameter_schema_version": "route_get_parameters_v1",
+      "platforms": [
+        "linux_amd64",
+        "windows_amd64"
+      ],
+      "policy": "network_target_policy",
+      "result_schema_version": "route_get_result_v1",
+      "risk": "safe_read"
+    },
+    {
+      "capability": "adapter.list",
+      "consent_required": false,
+      "feature_flag": "endpoint_read_only_primitives_enabled",
+      "minimum_agent_version": "3.2.29",
+      "parameter_schema_version": "adapter_list_parameters_v1",
+      "platforms": [
+        "linux_amd64",
+        "windows_amd64"
+      ],
+      "policy": "none",
+      "result_schema_version": "adapter_list_result_v1",
+      "risk": "safe_read"
+    },
+    {
+      "capability": "system.service_status",
+      "consent_required": false,
+      "feature_flag": "endpoint_read_only_primitives_enabled",
+      "minimum_agent_version": "3.2.29",
+      "parameter_schema_version": "service_status_parameters_v1",
+      "platforms": [
+        "linux_amd64",
+        "windows_amd64"
+      ],
+      "policy": "none",
+      "result_schema_version": "service_status_result_v1",
+      "risk": "safe_read"
+    }
+  ],
+  "schema_version": "module_capability_catalog_v1"
+}

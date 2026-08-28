@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Mapping
 from typing import TypedDict
 
+from endpoint_contracts.capabilities import (
+    MODULE_CAPABILITY_REGISTRY,
+    ModuleCapabilityDescriptor,
+)
 from endpoint_server.config import Settings
 from endpoint_server.gateway.connection_registry import GatewayConnection
 
@@ -13,13 +16,15 @@ from endpoint_server.gateway.connection_registry import GatewayConnection
 CAPABILITY_PROFILES = {"context.diagnostic.collect": "diagnostic_v1"}
 SUPPORTED_CAPABILITIES = frozenset(CAPABILITY_PROFILES)
 NETWORK_PRIMITIVE_CAPABILITIES = frozenset(
-    {"dns.resolve", "network.ping", "tcp.connect"}
+    capability
+    for capability, descriptor in MODULE_CAPABILITY_REGISTRY.items()
+    if descriptor.metadata.feature_flag == "endpoint_network_primitives_enabled"
 )
 READ_ONLY_PRIMITIVE_CAPABILITIES = frozenset(
-    {"route.get", "adapter.list", "system.service_status"}
+    capability
+    for capability, descriptor in MODULE_CAPABILITY_REGISTRY.items()
+    if descriptor.metadata.feature_flag == "endpoint_read_only_primitives_enabled"
 )
-_MINIMUM_NETWORK_PRIMITIVE_AGENT_VERSION = (3, 2, 27)
-_MINIMUM_READ_ONLY_PRIMITIVE_AGENT_VERSION = (3, 2, 29)
 _RELEASE_VERSION_PATTERN = re.compile(r"^(\d+)\.(\d+)\.(\d+)$")
 
 
@@ -42,58 +47,6 @@ _BASELINE_CAPABILITIES: tuple[CapabilityAvailability, ...] = (
         "parameter_schema_version": "diagnostic_collection_parameters_v1",
     },
 )
-_NETWORK_CAPABILITY_METADATA: Mapping[str, CapabilityAvailability] = {
-    "dns.resolve": {
-        "capability": "dns.resolve",
-        "available": True,
-        "transport": "gateway_wss",
-        "risk": "safe_read",
-        "consent_required": False,
-        "parameter_schema_version": "dns_resolve_parameters_v1",
-    },
-    "network.ping": {
-        "capability": "network.ping",
-        "available": True,
-        "transport": "gateway_wss",
-        "risk": "safe_read",
-        "consent_required": False,
-        "parameter_schema_version": "network_ping_parameters_v1",
-    },
-    "tcp.connect": {
-        "capability": "tcp.connect",
-        "available": True,
-        "transport": "gateway_wss",
-        "risk": "safe_read",
-        "consent_required": False,
-        "parameter_schema_version": "tcp_connect_parameters_v1",
-    },
-}
-_READ_ONLY_CAPABILITY_METADATA: Mapping[str, CapabilityAvailability] = {
-    "route.get": {
-        "capability": "route.get",
-        "available": True,
-        "transport": "gateway_wss",
-        "risk": "safe_read",
-        "consent_required": False,
-        "parameter_schema_version": "route_get_parameters_v1",
-    },
-    "adapter.list": {
-        "capability": "adapter.list",
-        "available": True,
-        "transport": "gateway_wss",
-        "risk": "safe_read",
-        "consent_required": False,
-        "parameter_schema_version": "adapter_list_parameters_v1",
-    },
-    "system.service_status": {
-        "capability": "system.service_status",
-        "available": True,
-        "transport": "gateway_wss",
-        "risk": "safe_read",
-        "consent_required": False,
-        "parameter_schema_version": "service_status_parameters_v1",
-    },
-}
 
 
 class UnsupportedOperationCapability(ValueError):
@@ -108,18 +61,67 @@ def network_primitives_enabled(settings: Settings) -> bool:
     )
 
 
-def _has_minimum_network_primitive_version(agent_version: str) -> bool:
-    match = _RELEASE_VERSION_PATTERN.fullmatch(agent_version)
-    if match is None:
+def _has_minimum_agent_version(agent_version: str, minimum: str) -> bool:
+    reported = _RELEASE_VERSION_PATTERN.fullmatch(agent_version)
+    required = _RELEASE_VERSION_PATTERN.fullmatch(minimum)
+    if reported is None or required is None:
         return False
-    return tuple(int(part) for part in match.groups()) >= _MINIMUM_NETWORK_PRIMITIVE_AGENT_VERSION
+    return tuple(int(part) for part in reported.groups()) >= tuple(
+        int(part) for part in required.groups()
+    )
 
 
-def _has_minimum_read_only_primitive_version(agent_version: str) -> bool:
-    match = _RELEASE_VERSION_PATTERN.fullmatch(agent_version)
-    if match is None:
+def module_capability_is_compatible(
+    settings: Settings,
+    descriptor: ModuleCapabilityDescriptor,
+    *,
+    agent_version: str,
+    platform: str,
+) -> bool:
+    """Apply only registry-declared flag, policy, platform, and version gates."""
+    metadata = descriptor.metadata
+    if platform not in metadata.platforms:
         return False
-    return tuple(int(part) for part in match.groups()) >= _MINIMUM_READ_ONLY_PRIMITIVE_AGENT_VERSION
+    if not getattr(settings, metadata.feature_flag):
+        return False
+    if metadata.policy == "network_target_policy" and not (
+        settings.endpoint_network_probe_allowed_cidrs
+        or settings.endpoint_network_probe_allowed_suffixes
+    ):
+        return False
+    return _has_minimum_agent_version(agent_version, metadata.minimum_agent_version)
+
+
+def compatible_module_capabilities(
+    settings: Settings,
+    connection: GatewayConnection | None,
+) -> tuple[str, ...]:
+    """Return the fixed primitive names usable by this connected agent only."""
+    if connection is None:
+        return ()
+    return tuple(
+        capability
+        for capability, descriptor in MODULE_CAPABILITY_REGISTRY.items()
+        if capability in connection.effective_capabilities
+        and module_capability_is_compatible(
+            settings,
+            descriptor,
+            agent_version=connection.agent_version,
+            platform=connection.platform,
+        )
+    )
+
+
+def _availability(descriptor: ModuleCapabilityDescriptor) -> CapabilityAvailability:
+    metadata = descriptor.metadata
+    return {
+        "capability": metadata.capability,
+        "available": True,
+        "transport": "gateway_wss",
+        "risk": metadata.risk,
+        "consent_required": metadata.consent_required,
+        "parameter_schema_version": metadata.parameter_schema_version,
+    }
 
 
 def project_available_capabilities(
@@ -128,27 +130,10 @@ def project_available_capabilities(
 ) -> list[CapabilityAvailability]:
     """Expose safe availability only for an active compatible typed agent."""
     projected = list(_BASELINE_CAPABILITIES)
-    if connection is None or connection.platform not in {"linux_amd64", "windows_amd64"}:
+    if connection is None:
         return projected
-    if network_primitives_enabled(settings) and _has_minimum_network_primitive_version(
-        connection.agent_version
-    ):
-        for capability in sorted(
-            NETWORK_PRIMITIVE_CAPABILITIES & connection.effective_capabilities
-        ):
-            projected.append(_NETWORK_CAPABILITY_METADATA[capability])
-    if settings.endpoint_read_only_primitives_enabled and _has_minimum_read_only_primitive_version(
-        connection.agent_version
-    ):
-        for capability in sorted(
-            READ_ONLY_PRIMITIVE_CAPABILITIES & connection.effective_capabilities
-        ):
-            if capability == "route.get" and not (
-                settings.endpoint_network_probe_allowed_cidrs
-                or settings.endpoint_network_probe_allowed_suffixes
-            ):
-                continue
-            projected.append(_READ_ONLY_CAPABILITY_METADATA[capability])
+    for capability in compatible_module_capabilities(settings, connection):
+        projected.append(_availability(MODULE_CAPABILITY_REGISTRY[capability]))
     return projected
 
 
@@ -167,6 +152,8 @@ __all__ = [
     "READ_ONLY_PRIMITIVE_CAPABILITIES",
     "SUPPORTED_CAPABILITIES",
     "UnsupportedOperationCapability",
+    "compatible_module_capabilities",
+    "module_capability_is_compatible",
     "network_primitives_enabled",
     "profile_for_capability",
     "project_available_capabilities",

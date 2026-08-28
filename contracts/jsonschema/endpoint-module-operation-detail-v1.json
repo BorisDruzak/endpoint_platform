@@ -1,5 +1,148 @@
 {
   "$defs": {
+    "AdapterListResultV1": {
+      "additionalProperties": false,
+      "properties": {
+        "adapter_count": {
+          "maximum": 32,
+          "minimum": 0,
+          "title": "Adapter Count",
+          "type": "integer"
+        },
+        "adapters": {
+          "items": {
+            "$ref": "#/$defs/AdapterSummaryItemV1"
+          },
+          "maxItems": 32,
+          "title": "Adapters",
+          "type": "array"
+        },
+        "collected_at": {
+          "$comment": "model-only UTC normalization: timezone-aware values are normalized to UTC.",
+          "format": "date-time",
+          "title": "Collected At",
+          "type": "string"
+        },
+        "error_code": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "minLength": 1,
+              "pattern": "^[a-z][a-z0-9_]{0,63}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Error Code"
+        },
+        "schema_version": {
+          "const": "adapter_list_result_v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "succeeded",
+            "failed"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "up_count": {
+          "maximum": 32,
+          "minimum": 0,
+          "title": "Up Count",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "schema_version",
+        "adapter_count",
+        "up_count",
+        "status",
+        "collected_at"
+      ],
+      "title": "AdapterListResultV1",
+      "type": "object"
+    },
+    "AdapterSummaryItemV1": {
+      "additionalProperties": false,
+      "properties": {
+        "ipv4_addresses": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 4,
+          "title": "Ipv4 Addresses",
+          "type": "array"
+        },
+        "ipv6_addresses": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 4,
+          "title": "Ipv6 Addresses",
+          "type": "array"
+        },
+        "kind": {
+          "enum": [
+            "ethernet",
+            "wifi",
+            "loopback",
+            "tunnel",
+            "virtual",
+            "unknown"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "mtu": {
+          "maximum": 65535,
+          "minimum": 0,
+          "title": "Mtu",
+          "type": "integer"
+        },
+        "name": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9 ._:-]{0,127}$",
+          "title": "Name",
+          "type": "string"
+        },
+        "primary": {
+          "title": "Primary",
+          "type": "boolean"
+        },
+        "speed_mbps": {
+          "maximum": 1000000,
+          "minimum": 0,
+          "title": "Speed Mbps",
+          "type": "integer"
+        },
+        "state": {
+          "enum": [
+            "up",
+            "down",
+            "unknown"
+          ],
+          "title": "State",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "state",
+        "kind",
+        "primary",
+        "mtu",
+        "speed_mbps"
+      ],
+      "title": "AdapterSummaryItemV1",
+      "type": "object"
+    },
     "DnsResolveResultV1": {
       "additionalProperties": false,
       "properties": {
@@ -89,7 +232,10 @@
           "enum": [
             "dns.resolve",
             "network.ping",
-            "tcp.connect"
+            "tcp.connect",
+            "route.get",
+            "adapter.list",
+            "system.service_status"
           ],
           "title": "Capability",
           "type": "string"
@@ -114,8 +260,11 @@
             {
               "discriminator": {
                 "mapping": {
+                  "adapter_list_result_v1": "#/$defs/AdapterListResultV1",
                   "dns_resolve_result_v1": "#/$defs/DnsResolveResultV1",
                   "network_ping_result_v1": "#/$defs/NetworkPingResultV1",
+                  "route_get_result_v1": "#/$defs/RouteGetResultV1",
+                  "service_status_result_v1": "#/$defs/ServiceStatusResultV1",
                   "tcp_connect_result_v1": "#/$defs/TcpConnectResultV1"
                 },
                 "propertyName": "schema_version"
@@ -129,6 +278,15 @@
                 },
                 {
                   "$ref": "#/$defs/TcpConnectResultV1"
+                },
+                {
+                  "$ref": "#/$defs/RouteGetResultV1"
+                },
+                {
+                  "$ref": "#/$defs/AdapterListResultV1"
+                },
+                {
+                  "$ref": "#/$defs/ServiceStatusResultV1"
                 }
               ]
             },
@@ -326,6 +484,211 @@
         "collected_at"
       ],
       "title": "NetworkPingResultV1",
+      "type": "object"
+    },
+    "RouteGetResultV1": {
+      "additionalProperties": false,
+      "properties": {
+        "collected_at": {
+          "$comment": "model-only UTC normalization: timezone-aware values are normalized to UTC.",
+          "format": "date-time",
+          "title": "Collected At",
+          "type": "string"
+        },
+        "error_code": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "minLength": 1,
+              "pattern": "^[a-z][a-z0-9_]{0,63}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Error Code"
+        },
+        "family": {
+          "anyOf": [
+            {
+              "enum": [
+                "ipv4",
+                "ipv6"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Family"
+        },
+        "interface_name": {
+          "anyOf": [
+            {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9 ._:-]{0,127}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Interface Name"
+        },
+        "port": {
+          "maximum": 65535,
+          "minimum": 1,
+          "title": "Port",
+          "type": "integer"
+        },
+        "resolved_ip": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Resolved Ip"
+        },
+        "schema_version": {
+          "const": "route_get_result_v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "source_ip": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Ip"
+        },
+        "status": {
+          "enum": [
+            "succeeded",
+            "failed"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "strategy": {
+          "const": "udp_socket_inference",
+          "default": "udp_socket_inference",
+          "title": "Strategy",
+          "type": "string"
+        },
+        "target": {
+          "maxLength": 253,
+          "minLength": 1,
+          "title": "Target",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema_version",
+        "target",
+        "port",
+        "status",
+        "collected_at"
+      ],
+      "title": "RouteGetResultV1",
+      "type": "object"
+    },
+    "ServiceStatusResultV1": {
+      "additionalProperties": false,
+      "properties": {
+        "collected_at": {
+          "$comment": "model-only UTC normalization: timezone-aware values are normalized to UTC.",
+          "format": "date-time",
+          "title": "Collected At",
+          "type": "string"
+        },
+        "error_code": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "minLength": 1,
+              "pattern": "^[a-z][a-z0-9_]{0,63}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Error Code"
+        },
+        "installed": {
+          "title": "Installed",
+          "type": "boolean"
+        },
+        "schema_version": {
+          "const": "service_status_result_v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "service_key": {
+          "enum": [
+            "endpoint_agent",
+            "endpoint_agent_updater"
+          ],
+          "title": "Service Key",
+          "type": "string"
+        },
+        "start_mode": {
+          "enum": [
+            "automatic",
+            "manual",
+            "disabled",
+            "unknown"
+          ],
+          "title": "Start Mode",
+          "type": "string"
+        },
+        "state": {
+          "enum": [
+            "running",
+            "stopped",
+            "paused",
+            "failed",
+            "not_found",
+            "unknown"
+          ],
+          "title": "State",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "succeeded",
+            "failed"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema_version",
+        "service_key",
+        "installed",
+        "state",
+        "start_mode",
+        "status",
+        "collected_at"
+      ],
+      "title": "ServiceStatusResultV1",
       "type": "object"
     },
     "TcpConnectResultV1": {

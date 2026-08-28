@@ -7,6 +7,9 @@ import sys
 from datetime import UTC, datetime
 from types import SimpleNamespace
 
+import pytest
+from pydantic import ValidationError
+
 from endpoint_contracts import AgentCommandV1
 from endpoint_contracts.read_only_primitives import (
     AdapterListParametersV1,
@@ -14,7 +17,6 @@ from endpoint_contracts.read_only_primitives import (
     ServiceStatusParametersV1,
 )
 from pc_agent.primitives.network.policy import AgentNetworkProbePolicy, NetworkProbeDenied
-from pc_agent.primitives.read_only.command_execution import execute_read_only_agent_command
 from pc_agent.primitives.read_only.handlers import (
     _linux_service_details,
     _resolve_candidates,
@@ -264,25 +266,17 @@ def test_windows_non_missing_scm_failure_remains_bounded_failure(monkeypatch) ->
 
 
 def test_service_command_rejects_a_raw_service_name() -> None:
-    command = AgentCommandV1.model_validate(
-        {
-            "schema_version": "agent_command_v1",
-            "command_id": "00000000-0000-4000-8000-000000000801",
-            "device_id": "00000000-0000-4000-8000-000000000802",
-            "capability": "system.service_status",
-            "parameters": {"service_name": "sshd"},
-            "requested_by_service": "endpoint-platform",
-            "idempotency_key": "read-only-primitive-801",
-            "created_at": "2026-08-28T00:00:00Z",
-            "deadline_at": "2026-08-28T00:05:00Z",
-        }
-    )
-
-    result = execute_read_only_agent_command(
-        command,
-        policy=AgentNetworkProbePolicy.from_values(allowed_cidrs=(), allowed_suffixes=()),
-        completed_at=NOW,
-    )
-
-    assert result.status == "failed"
-    assert result.message == "read_only_capability_rejected"
+    with pytest.raises(ValidationError):
+        AgentCommandV1.model_validate(
+            {
+                "schema_version": "agent_command_v1",
+                "command_id": "00000000-0000-4000-8000-000000000801",
+                "device_id": "00000000-0000-4000-8000-000000000802",
+                "capability": "system.service_status",
+                "parameters": {"service_name": "sshd"},
+                "requested_by_service": "endpoint-platform",
+                "idempotency_key": "read-only-primitive-801",
+                "created_at": "2026-08-28T00:00:00Z",
+                "deadline_at": "2026-08-28T00:05:00Z",
+            }
+        )

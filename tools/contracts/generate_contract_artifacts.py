@@ -52,6 +52,7 @@ from endpoint_contracts import (  # noqa: E402
     ModuleLabOperationCreateV1,
     ModuleLiveTestRecordV1,
     ModuleLiveTestRecordedV1,
+    ModuleCapabilityCatalogV1,
     ModuleOperationCreateV1,
     ModuleOperationDetailV1,
     ModuleOperationV1,
@@ -63,6 +64,10 @@ from endpoint_contracts import (  # noqa: E402
     ServiceStatusResultV1,
 )
 from endpoint_contracts.base import ContractModelV1  # noqa: E402
+from endpoint_contracts.capabilities import module_capability_catalog  # noqa: E402
+from endpoint_server.modules.catalog_routes import (  # noqa: E402
+    router as module_capability_catalog_router,
+)
 from endpoint_server.modules.routes import router as modules_router  # noqa: E402
 from endpoint_server.modules.execution_routes import router as module_execution_router  # noqa: E402
 from endpoint_server.operations.routes import router as operations_router  # noqa: E402
@@ -75,6 +80,7 @@ _SERVICE_OPERATION_PATHS = (
     "/api/v1/operations/{operation_id}",
     "/api/v1/devices/{device_id}/module-operations",
     "/api/v1/module-operations/{operation_id}",
+    "/api/v1/module-capabilities",
     "/api/v1/modules",
     "/api/v1/modules/{module_key}",
     "/api/v1/modules/versions",
@@ -131,6 +137,7 @@ PUBLIC_MODELS: dict[str, type[ContractModelV1]] = {
     "endpoint-module-operation-detail-v1.json": ModuleOperationDetailV1,
     "endpoint-module-summary-v1.json": ModuleSummaryV1,
     "endpoint-module-version-view-v1.json": ModuleVersionViewV1,
+    "module-capability-catalog-v1.json": ModuleCapabilityCatalogV1,
 }
 
 GATEWAY_WS_MODELS: dict[str, type[BaseModel]] = {
@@ -140,6 +147,9 @@ GATEWAY_WS_MODELS: dict[str, type[BaseModel]] = {
 }
 
 FIXTURES: dict[str, dict[str, Any]] = {
+    "module-capability-catalog-v1.json": module_capability_catalog().model_dump(
+        mode="json"
+    ),
     "device-identity-v1.json": {
         "schema_version": "device_identity_v1",
         "device_id": "11111111-1111-4111-8111-111111111111",
@@ -664,6 +674,7 @@ def _service_operation_openapi() -> dict[str, object]:
     application = FastAPI()
     application.include_router(operations_router)
     application.include_router(modules_router)
+    application.include_router(module_capability_catalog_router)
     application.include_router(module_execution_router)
     generated = application.openapi()
     return {
