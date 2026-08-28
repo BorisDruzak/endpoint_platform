@@ -45,6 +45,15 @@ from .network_primitives import (
     TcpConnectParametersV1,
     TcpConnectResultV1,
 )
+from .read_only_primitives import (
+    AdapterListParametersV1,
+    AdapterListResultV1,
+    AdapterSummaryV1,
+    RouteGetParametersV1,
+    RouteGetResultV1,
+    SystemServiceStatusParametersV1,
+    SystemServiceStatusResultV1,
+)
 from .modules import (
     EndpointRecipeModuleSpecV1,
     ModuleLabOperationCreateV1,
@@ -143,6 +152,13 @@ __all__ = [
     "ServerShutdownNoticeV1",
     "TcpConnectParametersV1",
     "TcpConnectResultV1",
+    "AdapterListParametersV1",
+    "AdapterListResultV1",
+    "AdapterSummaryV1",
+    "RouteGetParametersV1",
+    "RouteGetResultV1",
+    "SystemServiceStatusParametersV1",
+    "SystemServiceStatusResultV1",
     "UpdateBuildManifestV1",
     "UpdateRolloutCreateV1",
     "validate_context_result_item",

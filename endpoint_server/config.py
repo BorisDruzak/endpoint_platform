@@ -155,6 +155,7 @@ class Settings:
     trusted_proxy_cidrs: tuple[Network, ...] = ()
     endpoint_operations_api_enabled: bool = False
     endpoint_network_primitives_enabled: bool = False
+    endpoint_read_only_primitives_enabled: bool = False
     endpoint_network_probe_allowed_cidrs: tuple[Network, ...] = ()
     endpoint_network_probe_allowed_suffixes: tuple[str, ...] = ()
     endpoint_module_platform_enabled: bool = False
@@ -200,6 +201,10 @@ class Settings:
             "ENDPOINT_NETWORK_PRIMITIVES_ENABLED",
             values.get("ENDPOINT_NETWORK_PRIMITIVES_ENABLED", ""),
         )
+        endpoint_read_only_primitives_enabled = _parse_optional_boolean(
+            "ENDPOINT_READ_ONLY_PRIMITIVES_ENABLED",
+            values.get("ENDPOINT_READ_ONLY_PRIMITIVES_ENABLED", ""),
+        )
         endpoint_network_probe_allowed_cidrs = _parse_optional_network_probe_cidrs(
             "ENDPOINT_NETWORK_PROBE_ALLOWED_CIDRS",
             values.get("ENDPOINT_NETWORK_PROBE_ALLOWED_CIDRS", ""),
@@ -237,6 +242,7 @@ class Settings:
             trusted_proxy_cidrs=trusted_proxy_cidrs,
             endpoint_operations_api_enabled=endpoint_operations_api_enabled,
             endpoint_network_primitives_enabled=endpoint_network_primitives_enabled,
+            endpoint_read_only_primitives_enabled=endpoint_read_only_primitives_enabled,
             endpoint_network_probe_allowed_cidrs=endpoint_network_probe_allowed_cidrs,
             endpoint_network_probe_allowed_suffixes=endpoint_network_probe_allowed_suffixes,
             endpoint_module_platform_enabled=endpoint_module_platform_enabled,

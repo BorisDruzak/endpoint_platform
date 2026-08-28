@@ -84,6 +84,19 @@ def test_from_environment_loads_network_primitive_flag_and_allowlists(
     )
 
 
+def test_from_environment_keeps_safe_read_primitive_flag_default_closed(
+    tmp_path: Path,
+) -> None:
+    default_settings = Settings.from_environment(_environment(tmp_path))
+    enabled_environment = _environment(tmp_path)
+    enabled_environment["ENDPOINT_READ_ONLY_PRIMITIVES_ENABLED"] = "true"
+
+    enabled_settings = Settings.from_environment(enabled_environment)
+
+    assert default_settings.endpoint_read_only_primitives_enabled is False
+    assert enabled_settings.endpoint_read_only_primitives_enabled is True
+
+
 def test_from_environment_keeps_module_platform_and_execution_default_closed(
     tmp_path: Path,
 ) -> None:

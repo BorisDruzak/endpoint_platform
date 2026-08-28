@@ -13,6 +13,7 @@ from pc_agent.context_profiles.probe import SystemProbe
 from pc_agent.context_profiles.registry import CONTEXT_COLLECTION_CAPABILITIES
 from pc_agent.primitives.network.command_execution import execute_network_agent_command
 from pc_agent.primitives.network.policy import AgentNetworkProbePolicy
+from pc_agent.primitives.read_only.command_execution import execute_read_only_agent_command
 
 
 async def _execute_context_capability(
@@ -27,6 +28,12 @@ async def _execute_network_capability(
     return await executor._invoke_network(command)
 
 
+async def _execute_read_only_capability(
+    executor: "CommandExecutor", command: AgentCommandV1
+) -> AgentResultV1:
+    return await executor._invoke_read_only(command)
+
+
 BUILTIN_ENDPOINT_CAPABILITIES = {
     "context.baseline.collect": _execute_context_capability,
     "context.health.collect": _execute_context_capability,
@@ -35,6 +42,9 @@ BUILTIN_ENDPOINT_CAPABILITIES = {
     "dns.resolve": _execute_network_capability,
     "network.ping": _execute_network_capability,
     "tcp.connect": _execute_network_capability,
+    "route.get": _execute_read_only_capability,
+    "adapter.list": _execute_read_only_capability,
+    "system.service_status": _execute_read_only_capability,
 }
 
 
@@ -45,6 +55,7 @@ class CommandExecutor:
         probe_factory: Callable[[], object] | None = None,
         execute_context_command: Callable[..., Any] | None = None,
         execute_network_command: Callable[..., Any] | None = None,
+        execute_read_only_command: Callable[..., Any] | None = None,
         network_probe_policy: AgentNetworkProbePolicy | None = None,
     ) -> None:
         self._probe_factory = probe_factory or SystemProbe
@@ -53,6 +64,9 @@ class CommandExecutor:
         )
         self._execute_network_command = (
             execute_network_command or execute_network_agent_command
+        )
+        self._execute_read_only_command = (
+            execute_read_only_command or execute_read_only_agent_command
         )
         self._network_probe_policy = network_probe_policy or AgentNetworkProbePolicy.from_values(
             allowed_cidrs=(), allowed_suffixes=()
@@ -104,4 +118,14 @@ class CommandExecutor:
             result = await result
         if not isinstance(result, AgentResultV1):
             raise TypeError("network executor returned an invalid result")
+        return result
+
+    async def _invoke_read_only(self, command: AgentCommandV1) -> AgentResultV1:
+        result = self._execute_read_only_command(
+            command, policy=self._network_probe_policy
+        )
+        if inspect.isawaitable(result):
+            result = await result
+        if not isinstance(result, AgentResultV1):
+            raise TypeError("read-only executor returned an invalid result")
         return result

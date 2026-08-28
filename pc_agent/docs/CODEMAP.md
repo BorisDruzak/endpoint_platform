@@ -58,6 +58,15 @@
   `pc_agent/device_credential.py` is the shared credential-file validator.
   `runtime/local_state.py` owns only the Endpoint Agent V2 SQLite schema and
   does not import or migrate the Helpdesk Protocol V3 database.
+- `pc_agent/primitives/read_only/` adds three closed Gateway diagnostics:
+  `route.get`, `adapter.list`, and `system.service_status`. `route.get`
+  reuses the fail-closed network target policy; `adapter.list` has no caller
+  inputs and returns capped interface index/name pairs; service status accepts
+  only the fixed Endpoint agent/updater keys. Linux maps those keys internally
+  to fixed systemd units and reports only a validated ALT RPM version; Windows
+  uses only the fixed SCM keys and an MSI display-version projection. These
+  handlers accept no command, PowerShell, Python, executable, path, URL, or
+  raw service-name input, and never start, stop, restart, or write anything.
 - Endpoint Operations use that same typed executor for
   `context.diagnostic.collect`. The server alone links an operation to a
   private command and sends it through `/agent/v1/connect`; operation commands
