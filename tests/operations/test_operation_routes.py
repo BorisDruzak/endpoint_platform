@@ -788,6 +788,7 @@ async def test_module_publish_requires_lab_evidence_and_dedicated_scope(
             command_id=None,
             module_version_id=module_version.id,
             module_inputs={"target": "endpoint-staging.sosnadmin.local"},
+            expected_step_count=1,
         )
         session.add(lab_operation)
         session.add(

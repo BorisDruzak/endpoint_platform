@@ -18,8 +18,10 @@ from sqlalchemy.dialects import postgresql
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.schema import CreateIndex
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from endpoint_server.db.models import DeviceSession
+from endpoint_server.db.models import DeviceSession, EndpointOperation
+from endpoint_server.modules.execution_routes import _project_module_operation
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
@@ -185,6 +187,74 @@ def test_module_operation_expected_step_count_migration_is_bounded() -> None:
         "CONSTRAINT ck_endpoint_operations_expected_step_count CHECK "
         "(expected_step_count IS NULL OR expected_step_count BETWEEN 1 AND 8)"
     ) in rendered
+    assert "UPDATE endpoint_operations AS operation SET expected_step_count" in rendered
+    assert "jsonb_array_length(version.recipe -> 'steps')" in rendered
+
+
+def test_module_step_count_migration_backfills_a_populated_0017_operation(
+    empty_database_url: str,
+) -> None:
+    """Historical immutable recipes, not remaining child rows, determine the count."""
+    config = _alembic_config(empty_database_url)
+    plain_url = (
+        make_url(empty_database_url)
+        .set(drivername="postgresql")
+        .render_as_string(hide_password=False)
+    )
+    client_id = uuid4()
+    device_id = uuid4()
+    definition_id = uuid4()
+    version_id = uuid4()
+    operation_id = uuid4()
+    first_step_id = uuid4()
+    second_step_id = uuid4()
+    command.upgrade(config, "0017_module_operation_steps")
+    asyncio.run(
+        _execute(
+            plain_url,
+            "INSERT INTO service_clients (id, client_identifier, display_name) "
+            f"VALUES ('{client_id}', 'migration-client', 'Migration client'); "
+            "INSERT INTO devices (id, device_identifier) "
+            f"VALUES ('{device_id}', 'migration-device'); "
+            "INSERT INTO module_definitions (id, module_key, display_name) "
+            f"VALUES ('{definition_id}', 'network.migration.check', 'Migration'); "
+            "INSERT INTO module_versions "
+            "(id, module_definition_id, version, recipe, state) VALUES "
+            f"('{version_id}', '{definition_id}', '1.0.0', "
+            "'{\"schema_version\":\"endpoint_recipe_module_v1\",\"steps\":[{},{}]}'::jsonb, "
+            "'published'); "
+            "INSERT INTO endpoint_operations "
+            "(id, requested_by_service_client_id, device_id, idempotency_key, capability, "
+            "parameters, correlation, status, deadline_at, completed_at, context_collection_id, "
+            "command_id, module_version_id, module_inputs) VALUES "
+            f"('{operation_id}', '{client_id}', '{device_id}', 'migration-operation', "
+            "'endpoint.module.recipe', '{\"execution_mode\":\"published\"}'::jsonb, "
+            "NULL, 'queued', CURRENT_TIMESTAMP + INTERVAL '5 minutes', NULL, NULL, NULL, "
+            f"'{version_id}', '{{\"target\":\"probe.example.test\"}}'::jsonb); "
+            "INSERT INTO endpoint_operation_steps "
+            "(id, operation_id, sequence, recipe_step_key, capability, status, command_id, "
+            "safe_result_json, error_code, started_at, completed_at) VALUES "
+            f"('{first_step_id}', '{operation_id}', 0, 'resolve', 'dns.resolve', 'queued', "
+            "NULL, NULL, NULL, NULL, NULL), "
+            f"('{second_step_id}', '{operation_id}', 1, 'ping', 'network.ping', 'queued', "
+            "NULL, NULL, NULL, NULL, NULL)",
+        )
+    )
+    command.upgrade(config, "0018_module_step_count")
+
+    async def project() -> tuple[int, list[int]]:
+        engine = create_async_engine(empty_database_url)
+        provider = async_sessionmaker(engine, expire_on_commit=False)
+        try:
+            async with provider() as session:
+                operation = await session.get(EndpointOperation, operation_id)
+                assert operation is not None
+                detail = await _project_module_operation(session, operation)
+                return detail.expected_step_count, [step.sequence for step in detail.steps]
+        finally:
+            await engine.dispose()
+
+    assert asyncio.run(project()) == (2, [0, 1])
 
 
 def test_endpoint_operation_migration_enforces_scoped_one_to_one_ownership() -> None:

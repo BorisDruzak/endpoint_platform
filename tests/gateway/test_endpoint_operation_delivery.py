@@ -9,7 +9,7 @@ from uuid import UUID, uuid4
 
 import httpx
 import pytest
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from endpoint_contracts import (
@@ -641,6 +641,135 @@ async def test_module_child_ack_and_result_advance_the_next_typed_step(
     assert [step.status for step in steps] == ["succeeded", "succeeded"]
     assert all(step.safe_result_json is not None for step in steps)
     assert audit is not None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("result_status", ["succeeded", "failed"])
+async def test_module_terminal_result_rejects_a_truncated_authoritative_child_set(
+    session_provider: async_sessionmaker[AsyncSession],
+    result_status: str,
+) -> None:
+    """A missing tail cannot terminalize a parent operation."""
+    device = await seed_device(session_provider)
+    operation = await _seed_module_operation(session_provider, device_id=device.id)
+    presence = await _open_session(
+        session_provider,
+        device_id=device.id,
+        capabilities=["dns.resolve", "network.ping"],
+    )
+    delivered: list[CommandEnvelopeV1] = []
+    assert await CommandService(session_provider).deliver_next(
+        device.id,
+        presence.session_id,
+        delivered.append,
+        allowed_capabilities=frozenset({"dns.resolve", "network.ping"}),
+    )
+    payload = delivered[0].payload
+    async with session_provider() as session:
+        await session.execute(
+            delete(ModuleOperationStep).where(
+                ModuleOperationStep.operation_id == operation.id,
+                ModuleOperationStep.sequence == 1,
+            )
+        )
+        await session.commit()
+
+    completed_at = datetime.now(UTC)
+    result_items = []
+    if result_status == "succeeded":
+        result_items = [
+            DnsResolveResultV1(
+                schema_version="dns_resolve_result_v1",
+                target="probe.example.test",
+                canonical_name=None,
+                addresses=[],
+                address_count=0,
+                status="succeeded",
+                error_code=None,
+                collected_at=completed_at,
+            ).model_dump(mode="json")
+        ]
+    with pytest.raises(CommandStateRejected, match="step set"):
+        await CommandService(session_provider).record_result(
+            device_id=device.id,
+            device_instance_id=presence.device_instance_id,
+            session_id=presence.session_id,
+            result_sequence=1,
+            result=AgentResultV1(
+                schema_version="agent_result_v1",
+                command_id=payload.command_id,
+                device_id=device.id,
+                status=result_status,
+                result_items=result_items,
+                completed_at=completed_at,
+            ),
+        )
+
+
+@pytest.mark.asyncio
+async def test_module_result_replay_rejects_a_truncated_authoritative_child_set(
+    session_provider: async_sessionmaker[AsyncSession],
+) -> None:
+    """Replaying an accepted result cannot hide later child-set corruption."""
+    device = await seed_device(session_provider)
+    operation = await _seed_module_operation(session_provider, device_id=device.id)
+    presence = await _open_session(
+        session_provider,
+        device_id=device.id,
+        capabilities=["dns.resolve", "network.ping"],
+    )
+    delivered: list[CommandEnvelopeV1] = []
+    assert await CommandService(session_provider).deliver_next(
+        device.id,
+        presence.session_id,
+        delivered.append,
+        allowed_capabilities=frozenset({"dns.resolve", "network.ping"}),
+    )
+    completed_at = datetime.now(UTC)
+    result = AgentResultV1(
+        schema_version="agent_result_v1",
+        command_id=delivered[0].payload.command_id,
+        device_id=device.id,
+        status="succeeded",
+        result_items=[
+            DnsResolveResultV1(
+                schema_version="dns_resolve_result_v1",
+                target="probe.example.test",
+                canonical_name=None,
+                addresses=[],
+                address_count=0,
+                status="succeeded",
+                error_code=None,
+                collected_at=completed_at,
+            ).model_dump(mode="json")
+        ],
+        completed_at=completed_at,
+    )
+    service = CommandService(session_provider)
+    await service.record_result(
+        device_id=device.id,
+        device_instance_id=presence.device_instance_id,
+        session_id=presence.session_id,
+        result_sequence=1,
+        result=result,
+    )
+    async with session_provider() as session:
+        await session.execute(
+            delete(ModuleOperationStep).where(
+                ModuleOperationStep.operation_id == operation.id,
+                ModuleOperationStep.sequence == 1,
+            )
+        )
+        await session.commit()
+
+    with pytest.raises(CommandStateRejected, match="step set"):
+        await service.record_result(
+            device_id=device.id,
+            device_instance_id=presence.device_instance_id,
+            session_id=presence.session_id,
+            result_sequence=2,
+            result=result,
+        )
 
 
 @pytest.mark.parametrize(
