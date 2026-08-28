@@ -67,8 +67,12 @@ def _commit_source_tree(root: Path) -> str:
     _git(root, "init")
     _git(root, "config", "user.email", "initial-runtime-tests@example.invalid")
     _git(root, "config", "user.name", "Initial Runtime Tests")
+    return _commit_all(root, "test runtime source")
+
+
+def _commit_all(root: Path, message: str) -> str:
     _git(root, "add", "--all")
-    _git(root, "commit", "-m", "test runtime source")
+    _git(root, "commit", "-m", message)
     return _git(root, "rev-parse", "HEAD")
 
 
@@ -235,6 +239,8 @@ def test_schema5_manifest_rejects_hashes_not_from_the_declared_revision(
     payload["schema_version"] = 5
     payload["source_revision"] = staged_revision
     manifest.write_text(json.dumps(payload), encoding="utf-8")
+    descendant_revision = _commit_all(tmp_path, "test descendant runtime source")
+    assert _git(tmp_path, "merge-base", "--is-ancestor", staged_revision, descendant_revision) == ""
 
     with pytest.raises(ValueError, match="source revision"):
         validate(
