@@ -220,11 +220,16 @@ async def record_module_live_test(
             .order_by(ModuleOperationStep.sequence)
         )
     ).all()
-    if not steps or any(
-        step.status not in {"succeeded", "failed", "canceled", "expired"}
-        for step in steps
+    expected_step_count = operation.expected_step_count
+    if (
+        isinstance(expected_step_count, bool)
+        or not isinstance(expected_step_count, int)
+        or not 1 <= expected_step_count <= 8
+        or len(steps) != expected_step_count
+        or [step.sequence for step in steps] != list(range(expected_step_count))
+        or any(step.status != "succeeded" for step in steps)
     ):
-        raise ModuleServiceError("lab operation steps are not terminal")
+        raise ModuleServiceError("lab operation steps are not complete")
     safe_result_snapshot = {
         "schema_version": "module_live_test_snapshot_v1",
         "operation_status": operation.status,

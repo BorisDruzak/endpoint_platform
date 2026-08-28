@@ -204,7 +204,9 @@ async def test_publication_requires_passed_lab_evidence_for_every_platform() -> 
         with pytest.raises(ModuleServiceError, match="lab"):
             await accept_persisted_module_labs(session, module_version)
 
-        async def record_passed_lab(platform: str) -> None:
+        async def record_passed_lab(
+            platform: str, *, expected_step_count: int = 1
+        ) -> None:
             device_id = uuid4()
             operation = EndpointOperation(
                 id=uuid4(),
@@ -225,6 +227,7 @@ async def test_publication_requires_passed_lab_evidence_for_every_platform() -> 
                 command_id=None,
                 module_version_id=module_version.id,
                 module_inputs={"target": "endpoint-staging.sosnadmin.local"},
+                expected_step_count=expected_step_count,
             )
             session.add(operation)
             session.add(
@@ -251,6 +254,8 @@ async def test_publication_requires_passed_lab_evidence_for_every_platform() -> 
                 tested_at=tested_at,
             )
 
+        with pytest.raises(ModuleServiceError, match="steps"):
+            await record_passed_lab("linux_amd64", expected_step_count=2)
         await record_passed_lab("linux_amd64")
         with pytest.raises(ModuleServiceError, match="lab"):
             await accept_persisted_module_labs(session, module_version)

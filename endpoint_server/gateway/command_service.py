@@ -330,20 +330,29 @@ async def resolve_module_step_relation(
     command: Command,
 ) -> tuple[ModuleOperationStep, EndpointOperation] | None:
     """Return a fully-owned module child relation, or classify it as non-module."""
-    step = await session.scalar(
-        select(ModuleOperationStep)
-        .where(ModuleOperationStep.command_id == command.id)
-        .with_for_update()
+    operation_id = await session.scalar(
+        select(ModuleOperationStep.operation_id).where(
+            ModuleOperationStep.command_id == command.id
+        )
     )
-    if step is None:
+    if operation_id is None:
         return None
     operation = await session.scalar(
         select(EndpointOperation)
-        .where(EndpointOperation.id == step.operation_id)
+        .where(EndpointOperation.id == operation_id)
+        .with_for_update()
+    )
+    step = await session.scalar(
+        select(ModuleOperationStep)
+        .where(
+            ModuleOperationStep.command_id == command.id,
+            ModuleOperationStep.operation_id == operation_id,
+        )
         .with_for_update()
     )
     if (
         operation is None
+        or step is None
         or operation.capability != "endpoint.module.recipe"
         or operation.device_id != command.device_id
         or operation.command_id is not None
@@ -418,6 +427,31 @@ async def _append_module_terminal_audit(
     )
 
 
+async def _require_authoritative_module_step_set(
+    session,
+    operation: EndpointOperation,
+) -> int:
+    """Require the immutable child-step set before accepting any terminal result."""
+    expected_step_count = operation.expected_step_count
+    if (
+        isinstance(expected_step_count, bool)
+        or not isinstance(expected_step_count, int)
+        or not 1 <= expected_step_count <= 8
+    ):
+        raise CommandStateRejected("module operation step set is unavailable")
+    sequences = list(
+        await session.scalars(
+            select(ModuleOperationStep.sequence)
+            .where(ModuleOperationStep.operation_id == operation.id)
+            .order_by(ModuleOperationStep.sequence)
+            .with_for_update()
+        )
+    )
+    if sequences != list(range(expected_step_count)):
+        raise CommandStateRejected("module operation step set is unavailable")
+    return expected_step_count
+
+
 async def _record_module_step_result(
     session,
     *,
@@ -433,6 +467,9 @@ async def _record_module_step_result(
     payload_digest: str,
 ) -> None:
     """Commit one child result, advancing only a still-successful parent chain."""
+    expected_step_count = await _require_authoritative_module_step_set(
+        session, operation
+    )
     result_identifier = f"result-{command.id.hex}"
     stored = await session.scalar(
         select(CommandResult)
@@ -498,13 +535,7 @@ async def _record_module_step_result(
     step.error_code = error_code
     step.completed_at = accepted_at
     if result.status == "succeeded":
-        following = await session.scalar(
-            select(ModuleOperationStep).where(
-                ModuleOperationStep.operation_id == operation.id,
-                ModuleOperationStep.sequence > step.sequence,
-            )
-        )
-        if following is None:
+        if step.sequence == expected_step_count - 1:
             operation.status = "succeeded"
             operation.completed_at = accepted_at
             await _append_module_terminal_audit(
