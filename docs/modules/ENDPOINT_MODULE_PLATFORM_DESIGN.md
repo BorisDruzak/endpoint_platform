@@ -75,7 +75,10 @@ declared inputs, not from Helpdesk ticket data.
 Endpoint owns one closed registry for recipe authoring and expansion, Gateway
 command validation, compatible-device projection, generated contract artifacts,
 and `GET /api/v1/module-capabilities`. The route is registered only when
-`ENDPOINT_MODULE_PLATFORM_ENABLED=true` and requires `modules.read`.
+`ENDPOINT_MODULE_PLATFORM_ENABLED=true`, requires `modules.read`, and requires
+a bounded `X-Correlation-ID` request header. Every successful response and
+service-authentication/scope error echoes that exact header; it is tracing-only
+and never becomes module or authorization state.
 
 The catalog contains exactly `dns.resolve`, `network.ping`, `tcp.connect`,
 `route.get`, `adapter.list`, and `system.service_status`. Every entry publishes

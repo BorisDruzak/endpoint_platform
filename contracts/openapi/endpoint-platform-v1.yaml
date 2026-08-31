@@ -638,6 +638,20 @@ paths:
       summary: "Get Module Capabilities"
       description: "Expose only versioned metadata from the server-owned closed registry."
       operationId: "get_module_capabilities_api_v1_module_capabilities_get"
+      security:
+        -
+          ServiceBearer: []
+      parameters:
+        -
+          name: "X-Correlation-ID"
+          in: "header"
+          required: true
+          schema:
+            type: "string"
+            minLength: 1
+            maxLength: 128
+            pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+            title: "X-Correlation-Id"
       responses:
         "200":
           description: "Successful Response"
@@ -645,9 +659,37 @@ paths:
             "application/json":
               schema:
                 "$ref": "#/components/schemas/ModuleCapabilityCatalogEnvelope"
-      security:
-        -
-          ServiceBearer: []
+          headers:
+            X-Correlation-ID:
+              description: "Exact echo of the request tracing header."
+              schema:
+                type: "string"
+                minLength: 1
+                maxLength: 128
+        "401":
+          description: "Service authentication failed"
+          headers:
+            X-Correlation-ID:
+              description: "Exact echo of the request tracing header."
+              schema:
+                type: "string"
+                minLength: 1
+                maxLength: 128
+        "403":
+          description: "Service scope is insufficient"
+          headers:
+            X-Correlation-ID:
+              description: "Exact echo of the request tracing header."
+              schema:
+                type: "string"
+                minLength: 1
+                maxLength: 128
+        "422":
+          description: "Validation Error"
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/HTTPValidationError"
       x-required-scopes:
         - "modules.read"
   "/api/v1/modules":
