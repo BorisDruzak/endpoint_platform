@@ -35,8 +35,9 @@ def is_operation_api_request(method: str, path: str) -> bool:
 
 def is_module_api_request(method: str, path: str) -> bool:
     """Return whether a request belongs to the typed Module Platform API."""
-    return method in {"GET", "POST"} and (
-        path == "/api/v1/modules" or path.startswith("/api/v1/modules/")
+    return (method == "GET" and path == "/api/v1/module-capabilities") or (
+        method in {"GET", "POST"}
+        and (path == "/api/v1/modules" or path.startswith("/api/v1/modules/"))
     )
 
 

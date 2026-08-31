@@ -308,13 +308,17 @@ async def test_module_catalog_echoes_safe_correlation_for_external_adapter(
         base_url="https://endpoint.sosnadmin.local",
     ) as client:
         response = await client.get(
-            "/api/v1/modules",
+            "/api/v1/module-capabilities",
             headers=_authorization("modules-reader"),
         )
 
     assert response.status_code == 200
     assert response.headers["X-Correlation-ID"] == "test-correlation-id"
-    assert response.json() == {"data": []}
+    assert (
+        response.json()["data"]["schema_version"]
+        == "endpoint_module_capability_catalog_v1"
+    )
+    assert response.json()["data"]["items"]
 
 
 def _create_headers(token: str) -> dict[str, str]:
@@ -538,9 +542,20 @@ async def test_module_capability_catalog_is_flagged_scoped_and_closed(
             "/api/v1/module-capabilities",
             headers=_authorization("modules-reader"),
         )
+        invalid_correlation = await client.get(
+            "/api/v1/module-capabilities",
+            headers={
+                **_authorization("modules-reader"),
+                "X-Correlation-ID": "invalid correlation value",
+            },
+        )
 
     assert forbidden.status_code == 403
+    assert forbidden.headers["X-Correlation-ID"] == "test-correlation-id"
     assert allowed.status_code == 200
+    assert invalid_correlation.status_code == 422
+    assert "X-Correlation-ID" not in invalid_correlation.headers
+    assert "invalid correlation value" not in invalid_correlation.text
     payload = allowed.json()["data"]
     assert payload["schema_version"] == "endpoint_module_capability_catalog_v1"
     assert [item["capability"] for item in payload["items"]] == [
@@ -1745,7 +1760,8 @@ def test_enabled_runtime_openapi_exactly_matches_committed_operation_routes(
 ) -> None:
     """Runtime docs and the published API artifact must describe one boundary."""
     runtime = create_app(
-        _settings(enabled=True), route_fixture.session_provider
+        _settings(enabled=True, module_platform_enabled=True),
+        route_fixture.session_provider,
     ).openapi()
     committed = yaml.safe_load(
         Path("contracts/openapi/endpoint-platform-v1.yaml").read_text(encoding="utf-8")
@@ -1755,6 +1771,7 @@ def test_enabled_runtime_openapi_exactly_matches_committed_operation_routes(
         "/api/v1/devices/{device_id}/capabilities",
         "/api/v1/devices/{device_id}/operations",
         "/api/v1/operations/{operation_id}",
+        "/api/v1/module-capabilities",
     )
     assert {path: runtime["paths"][path] for path in operation_paths} == {
         path: committed["paths"][path] for path in operation_paths
@@ -1765,7 +1782,8 @@ def test_operation_openapi_declares_required_correlation_response_headers(
     route_fixture: RouteFixture,
 ) -> None:
     document = create_app(
-        _settings(enabled=True), route_fixture.session_provider
+        _settings(enabled=True, module_platform_enabled=True),
+        route_fixture.session_provider,
     ).openapi()
 
     for path, method, response_status in (
@@ -1792,6 +1810,9 @@ def test_operation_openapi_declares_required_correlation_response_headers(
         ("/api/v1/operations/{operation_id}", "get", "404"),
         ("/api/v1/operations/{operation_id}", "get", "422"),
         ("/api/v1/operations/{operation_id}", "get", "503"),
+        ("/api/v1/module-capabilities", "get", "200"),
+        ("/api/v1/module-capabilities", "get", "401"),
+        ("/api/v1/module-capabilities", "get", "403"),
     ):
         operation = document["paths"][path][method]
         assert any(
