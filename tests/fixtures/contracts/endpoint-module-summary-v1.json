@@ -1,0 +1,4 @@
+{
+  "display_name": "Fixture network check",
+  "module_key": "network.basic.check"
+}

@@ -60,6 +60,73 @@ def test_from_environment_enables_endpoint_operations_only_explicitly(
     assert settings.endpoint_operations_api_enabled is True
 
 
+def test_from_environment_loads_network_primitive_flag_and_allowlists(
+    tmp_path: Path,
+) -> None:
+    environment = _environment(tmp_path)
+    environment.update(
+        {
+            "ENDPOINT_NETWORK_PRIMITIVES_ENABLED": "true",
+            "ENDPOINT_NETWORK_PROBE_ALLOWED_CIDRS": "10.20.0.0/16",
+            "ENDPOINT_NETWORK_PROBE_ALLOWED_SUFFIXES": ".example.test,.internal.test",
+        }
+    )
+
+    settings = Settings.from_environment(environment)
+
+    assert settings.endpoint_network_primitives_enabled is True
+    assert tuple(str(item) for item in settings.endpoint_network_probe_allowed_cidrs) == (
+        "10.20.0.0/16",
+    )
+    assert settings.endpoint_network_probe_allowed_suffixes == (
+        ".example.test",
+        ".internal.test",
+    )
+
+
+def test_from_environment_keeps_safe_read_primitive_flag_default_closed(
+    tmp_path: Path,
+) -> None:
+    default_settings = Settings.from_environment(_environment(tmp_path))
+    enabled_environment = _environment(tmp_path)
+    enabled_environment["ENDPOINT_READ_ONLY_PRIMITIVES_ENABLED"] = "true"
+
+    enabled_settings = Settings.from_environment(enabled_environment)
+
+    assert default_settings.endpoint_read_only_primitives_enabled is False
+    assert enabled_settings.endpoint_read_only_primitives_enabled is True
+
+
+def test_from_environment_keeps_module_platform_and_execution_default_closed(
+    tmp_path: Path,
+) -> None:
+    default_settings = Settings.from_environment(_environment(tmp_path))
+    environment = _environment(tmp_path)
+    environment.update(
+        {
+            "ENDPOINT_MODULE_PLATFORM_ENABLED": "true",
+            "ENDPOINT_MODULE_EXECUTION_ENABLED": "true",
+        }
+    )
+
+    enabled_settings = Settings.from_environment(environment)
+
+    assert default_settings.endpoint_module_platform_enabled is False
+    assert default_settings.endpoint_module_execution_enabled is False
+    assert enabled_settings.endpoint_module_platform_enabled is True
+    assert enabled_settings.endpoint_module_execution_enabled is True
+
+
+def test_from_environment_rejects_module_execution_without_platform_flag(
+    tmp_path: Path,
+) -> None:
+    environment = _environment(tmp_path)
+    environment["ENDPOINT_MODULE_EXECUTION_ENABLED"] = "true"
+
+    with pytest.raises(ValueError, match="ENDPOINT_MODULE_PLATFORM_ENABLED"):
+        Settings.from_environment(environment)
+
+
 def test_from_environment_rejects_ambiguous_endpoint_operations_flag(
     tmp_path: Path,
 ) -> None:
@@ -121,6 +188,48 @@ def test_from_environment_rejects_non_production_https_public_url(
     environment["PUBLIC_BASE_URL"] = public_base_url
 
     with pytest.raises(ValueError, match="PUBLIC_BASE_URL"):
+        Settings.from_environment(environment)
+
+
+def test_from_environment_accepts_exact_staging_origin_only_with_canary_markers(
+    tmp_path: Path,
+) -> None:
+    environment = _environment(tmp_path)
+    environment.update(
+        {
+            "PUBLIC_BASE_URL": "https://endpoint-staging.sosnadmin.local",
+            "ENDPOINT_DEPLOYMENT_ENVIRONMENT": "staging",
+            "CANARY_ENVIRONMENT": "staging",
+            "CANARY_APPROVED": "true",
+        }
+    )
+
+    settings = Settings.from_environment(environment)
+
+    assert settings.public_base_url == "https://endpoint-staging.sosnadmin.local"
+
+
+@pytest.mark.parametrize(
+    "marker_overrides",
+    [
+        {},
+        {"CANARY_APPROVED": "false"},
+        {"CANARY_ENVIRONMENT": "production", "CANARY_APPROVED": "true"},
+    ],
+)
+def test_from_environment_rejects_staging_origin_without_exact_canary_markers(
+    tmp_path: Path, marker_overrides: dict[str, str]
+) -> None:
+    environment = _environment(tmp_path)
+    environment.update(
+        {
+            "PUBLIC_BASE_URL": "https://endpoint-staging.sosnadmin.local",
+            "ENDPOINT_DEPLOYMENT_ENVIRONMENT": "staging",
+        }
+    )
+    environment.update(marker_overrides)
+
+    with pytest.raises(ValueError, match="staging"):
         Settings.from_environment(environment)
 
 

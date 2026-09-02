@@ -50,6 +50,39 @@ def test_service_host_resolves_current_selector_on_each_start(tmp_path: Path) ->
     ]
 
 
+def test_service_host_uses_provisioned_endpoint_origin(tmp_path: Path) -> None:
+    """A staging enrollment must not be redirected to the production endpoint."""
+    from pc_agent.platform.windows.service_launcher import build_agent_child_command
+
+    paths = _paths(tmp_path)
+    paths.current_path.write_text('{"version":"3.1.77"}', encoding="utf-8")
+    (paths.pending_path.parents[1] / "endpoint-origin").write_text(
+        "https://endpoint-staging.sosnadmin.local", encoding="utf-8"
+    )
+
+    command = build_agent_child_command(paths)
+
+    assert command[command.index("--endpoint-origin") + 1] == (
+        "https://endpoint-staging.sosnadmin.local"
+    )
+
+
+def test_service_host_accepts_revision_bound_current_selector(tmp_path: Path) -> None:
+    """A freshly installed immutable MSI selector binds a runtime to its source SHA."""
+    from pc_agent.platform.windows.service_launcher import build_agent_child_command
+
+    paths = _paths(tmp_path)
+    paths.current_path.write_text(json.dumps({
+        "schema_version": 1,
+        "source_revision": "a" * 40,
+        "version": "3.1.77",
+    }), encoding="utf-8")
+
+    command = build_agent_child_command(paths)
+
+    assert command[0] == str(paths.versions_root / "3.1.77" / "pc_agent.exe")
+
+
 @pytest.mark.parametrize(
     "payload",
     [
@@ -220,9 +253,43 @@ def _transition_contract(path: Path, *, previous: str, new: str) -> Path:
         "approved": True,
         "from_version": previous,
         "schema_version": 1,
+        "source_revision": "a" * 40,
         "to_version": new,
     }), encoding="utf-8")
     return contract
+
+
+def _provenance_transition_contract(path: Path, *, previous: str, new: str) -> Path:
+    contract = path / "initial-runtime-transition-provenance.json"
+    contract.write_text(json.dumps({
+        "approved": True,
+        "from_version": previous,
+        "schema_version": 1,
+        "source_revision": "b" * 40,
+        "to_version": new,
+    }), encoding="utf-8")
+    return contract
+
+
+def test_approved_transition_seals_a_legacy_selector_with_candidate_revision(
+    tmp_path: Path,
+) -> None:
+    """A normal MSI upgrade must not turn its selected runtime into legacy state."""
+    from pc_agent.platform.windows.selector_migration import migrate_initial_selector
+
+    paths = _paths(tmp_path)
+    paths.current_path.write_text('{"version":"3.1.76"}', encoding="utf-8")
+
+    assert migrate_initial_selector(
+        paths, _provenance_transition_contract(
+            tmp_path, previous="3.1.76", new="3.1.77"
+        )
+    ) == "migrated"
+    assert json.loads(paths.current_path.read_text(encoding="utf-8")) == {
+        "schema_version": 1,
+        "source_revision": "b" * 40,
+        "version": "3.1.77",
+    }
 
 
 def test_approved_transition_atomically_migrates_old_initial_selector(
@@ -240,9 +307,58 @@ def test_approved_transition_atomically_migrates_old_initial_selector(
 
     assert outcome == "migrated"
     assert json.loads(paths.current_path.read_text(encoding="utf-8")) == {
+        "schema_version": 1,
+        "source_revision": "a" * 40,
         "version": "3.1.77"
     }
     assert not list(paths.install_root.glob(".current.json.*.tmp"))
+
+
+def test_approved_transition_accepts_a_revision_bound_initial_selector(
+    tmp_path: Path,
+) -> None:
+    """A later MSI transition cannot strand an initial selector sealed by a new MSI."""
+    from pc_agent.platform.windows.selector_migration import migrate_initial_selector
+
+    paths = _paths(tmp_path)
+    paths.current_path.write_text(json.dumps({
+        "schema_version": 1,
+        "source_revision": "a" * 40,
+        "version": "3.1.76",
+    }), encoding="utf-8")
+
+    assert migrate_initial_selector(
+        paths, _transition_contract(tmp_path, previous="3.1.76", new="3.1.77")
+    ) == "migrated"
+
+
+def test_approved_transition_keeps_a_sealed_candidate_selector(
+    tmp_path: Path,
+) -> None:
+    """The migration must not erase MSI provenance already selected by WiX."""
+    from pc_agent.platform.windows.selector_migration import migrate_initial_selector
+
+    paths = _paths(tmp_path)
+    candidate = paths.versions_root / "3.1.77"
+    candidate.mkdir(exist_ok=True)
+    (candidate / "pc_agent.exe").write_bytes(b"candidate")
+    (candidate / ".endpoint-msi-runtime.json").write_text(json.dumps({
+        "component_guid": "D53E70D8-CAD1-4755-9AC8-36164A48C9D5",
+        "schema_version": 1,
+        "version": "3.1.77",
+    }), encoding="utf-8")
+    expected = {
+        "schema_version": 1,
+        "source_revision": "a" * 40,
+        "version": "3.1.77",
+    }
+    paths.current_path.write_text(json.dumps(expected), encoding="utf-8")
+
+    assert migrate_initial_selector(
+        paths, _transition_contract(tmp_path, previous="3.1.76", new="3.1.77")
+    ) == "migrated_msi_owned"
+
+    assert json.loads(paths.current_path.read_text(encoding="utf-8")) == expected
 
 
 def test_approved_transition_preserves_a_valid_noninitial_selector(
@@ -293,6 +409,8 @@ def test_approved_transition_replaces_an_old_msi_owned_selector(
 
     assert outcome == "migrated_msi_owned"
     assert json.loads(paths.current_path.read_text(encoding="utf-8")) == {
+        "schema_version": 1,
+        "source_revision": "a" * 40,
         "version": "3.1.77"
     }
 

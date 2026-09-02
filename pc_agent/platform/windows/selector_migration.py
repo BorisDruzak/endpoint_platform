@@ -15,7 +15,10 @@ TRANSITION_REGISTRY_KEY = (
     r"Software\Endpoint Platform\Endpoint Agent\InitialRuntimeTransition"
 )
 _SEMVER = re.compile(r"^(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)$")
-_CONTRACT_FIELDS = {"approved", "from_version", "schema_version", "to_version"}
+_SOURCE_REVISION = re.compile(r"^[0-9a-f]{40}$")
+_CONTRACT_FIELDS = {
+    "approved", "from_version", "schema_version", "source_revision", "to_version"
+}
 MSI_RUNTIME_MARKER_FILENAME = ".endpoint-msi-runtime.json"
 ROLLBACK_SNAPSHOT_FILENAME = ".endpoint-initial-runtime-selector.rollback.json"
 _MARKER_FIELDS = {"component_guid", "schema_version", "version"}
@@ -32,17 +35,50 @@ def _read_exact_json(path: Path, fields: set[str], label: str) -> dict[str, obje
     return payload
 
 
+def _read_current_selector(path: Path) -> dict[str, object]:
+    """Accept legacy selectors and the immutable provenance schema emitted by new MSIs."""
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        raise ValueError("current selector is unreadable") from error
+    if not isinstance(payload, dict):
+        raise ValueError("current selector is invalid")
+    if set(payload) == {"version"}:
+        return payload
+    if (
+        set(payload) == {"schema_version", "source_revision", "version"}
+        and payload.get("schema_version") == 1
+        and isinstance(payload.get("source_revision"), str)
+        and _SOURCE_REVISION.fullmatch(payload["source_revision"])
+    ):
+        return payload
+    raise ValueError("current selector is invalid")
+
+
 def _validate_runtime(paths: WindowsUpdatePaths, version: str) -> None:
     from pc_agent.platform.windows.service_launcher import validate_runtime_executable
 
     validate_runtime_executable(paths, version)
 
 
-def _write_selector_atomic(path: Path, version: str) -> None:
+def _write_selector_atomic(
+    path: Path, version: str, source_revision: str | None = None
+) -> None:
+    if not _SEMVER.fullmatch(version) or (
+        source_revision is not None and not _SOURCE_REVISION.fullmatch(source_revision)
+    ):
+        raise ValueError("transition contract is invalid")
     temporary = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
     try:
         with temporary.open("x", encoding="utf-8") as output:
-            output.write(json.dumps({"version": version}, separators=(",", ":")))
+            payload: dict[str, object] = {"version": version}
+            if source_revision is not None:
+                payload = {
+                    "schema_version": 1,
+                    "source_revision": source_revision,
+                    "version": version,
+                }
+            output.write(json.dumps(payload, separators=(",", ":")))
             output.flush()
             os.fsync(output.fileno())
         os.replace(temporary, path)
@@ -94,28 +130,32 @@ def _is_msi_owned_runtime(paths: WindowsUpdatePaths, version: str) -> bool:
 
 
 def _migrate_versions(
-    paths: WindowsUpdatePaths, previous: object, candidate: object
+    paths: WindowsUpdatePaths, previous: object, candidate: object, source_revision: object
 ) -> str:
     if (
         not isinstance(previous, str)
         or not isinstance(candidate, str)
         or not _SEMVER.fullmatch(previous)
         or not _SEMVER.fullmatch(candidate)
+        or not isinstance(source_revision, str)
+        or not _SOURCE_REVISION.fullmatch(source_revision)
         or previous == candidate
     ):
         raise ValueError("transition contract is invalid")
     _validate_runtime(paths, candidate)
-    current = _read_exact_json(paths.current_path, {"version"}, "current selector")
+    current = _read_current_selector(paths.current_path)
     selected = current.get("version")
     if not isinstance(selected, str) or not _SEMVER.fullmatch(selected):
         raise ValueError("current selector is invalid")
     if selected == previous:
         _write_rollback_snapshot(paths, selected)
-        _write_selector_atomic(paths.current_path, candidate)
+        _write_selector_atomic(paths.current_path, candidate, source_revision)
         return "migrated"
     if _is_msi_owned_runtime(paths, selected):
         _write_rollback_snapshot(paths, selected)
-        _write_selector_atomic(paths.current_path, candidate)
+        if selected == candidate and "source_revision" in current:
+            return "migrated_msi_owned"
+        _write_selector_atomic(paths.current_path, candidate, source_revision)
         return "migrated_msi_owned"
     _validate_runtime(paths, selected)
     return "preserved"
@@ -128,9 +168,7 @@ def migrate_initial_selector(
     contract = _read_exact_json(contract_path, _CONTRACT_FIELDS, "transition contract")
     if contract.get("schema_version") != 1 or contract.get("approved") is not True:
         raise ValueError("transition contract is invalid")
-    return _migrate_versions(
-        paths, contract.get("from_version"), contract.get("to_version")
-    )
+    return _migrate_versions(paths, contract.get("from_version"), contract.get("to_version"), contract.get("source_revision"))
 
 
 def migrate_production_selector() -> str:
@@ -145,12 +183,13 @@ def migrate_production_selector() -> str:
         ) as key:
             approved, _approved_type = winreg.QueryValueEx(key, "Approved")
             previous, _previous_type = winreg.QueryValueEx(key, "FromVersion")
+            source_revision, _source_revision_type = winreg.QueryValueEx(key, "SourceRevision")
             candidate, _candidate_type = winreg.QueryValueEx(key, "ToVersion")
     except OSError as error:
         raise ValueError("transition registry contract is unreadable") from error
     if approved != 1 or isinstance(approved, bool):
         raise ValueError("transition registry contract is not approved")
-    return _migrate_versions(WindowsUpdatePaths.production(), previous, candidate)
+    return _migrate_versions(WindowsUpdatePaths.production(), previous, candidate, source_revision)
 
 
 def rollback_initial_selector(paths: WindowsUpdatePaths) -> str:

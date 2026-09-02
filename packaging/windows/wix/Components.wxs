@@ -58,6 +58,9 @@
                        Name="FromVersion" Type="string"
                        Value="$(var.BaselineInitialRuntimeVersion)" />
         <RegistryValue Root="HKLM" Key="Software\Endpoint Platform\Endpoint Agent\InitialRuntimeTransition"
+                       Name="SourceRevision" Type="string"
+                       Value="$(var.SourceRevision)" />
+        <RegistryValue Root="HKLM" Key="Software\Endpoint Platform\Endpoint Agent\InitialRuntimeTransition"
                        Name="ToVersion" Type="string"
                        Value="$(var.InitialRuntimeVersion)" />
       </Component>

@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import logging
+import time
 from collections.abc import Awaitable, Callable, Iterable
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -29,6 +31,9 @@ from pc_agent.version import EXIT_UPDATE_PENDING
 from .status import RuntimePhase, RuntimeStatus
 
 
+logger = logging.getLogger(__name__)
+
+
 CredentialRejected = GatewayCredentialRejected
 RetryableTransportError = GatewayRetryableError
 TerminalTransportError = GatewayTerminalError
@@ -51,6 +56,13 @@ class RuntimeExecutor(Protocol):
     async def execute(self, command: AgentCommandV1) -> AgentResultV1: ...
 
 
+class CanaryStatusWriter(Protocol):
+    """Minimal runtime boundary for redacted Windows canary transport facts."""
+
+    def write_not_ready(self) -> None: ...
+    def write_wss_ready(self) -> None: ...
+
+
 def _compatibility_hello(_settings: object) -> AgentHelloV1:
     return compatibility_agent_hello()
 
@@ -65,6 +77,14 @@ def _no_connected_tasks(
     return ()
 
 
+def _no_completion_sink(_settings: object) -> Callable[[dict[str, object]], None] | None:
+    return None
+
+
+def _no_canary_status_writer(_settings: object) -> CanaryStatusWriter | None:
+    return None
+
+
 @dataclass(frozen=True, slots=True)
 class RuntimeDependencies:
     load_credential: Callable[[object], str]
@@ -77,6 +97,12 @@ class RuntimeDependencies:
     create_connected_tasks: Callable[
         [object, str, GatewayTransport], Iterable[Awaitable[None]]
     ] = _no_connected_tasks
+    create_completion_sink: Callable[
+        [object], Callable[[dict[str, object]], None] | None
+    ] = _no_completion_sink
+    create_canary_status_writer: Callable[[object], CanaryStatusWriter | None] = (
+        _no_canary_status_writer
+    )
     reconnect_delay: float = 5.0
 
 
@@ -115,15 +141,23 @@ class RuntimeLifecycle:
         try:
             await executor.start()
             executor_started = True
+            completion_sink = self._dependencies.create_completion_sink(self._settings)
+            canary_status_writer = self._dependencies.create_canary_status_writer(
+                self._settings
+            )
             while True:
                 transport = self._dependencies.create_transport(
                     self._settings, credential, executor
                 )
                 next_delay: float | None = None
                 try:
+                    if canary_status_writer is not None:
+                        canary_status_writer.write_not_ready()
                     self._status.transition(RuntimePhase.CONNECTING)
                     gateway_hello = await transport.connect(hello)
                     self._status.transition(RuntimePhase.RUNNING)
+                    if canary_status_writer is not None:
+                        canary_status_writer.write_wss_ready()
                     await self._dependencies.after_server_handshake(self._settings)
                     connected_tasks = self._dependencies.create_connected_tasks(
                         self._settings, credential, transport
@@ -135,6 +169,7 @@ class RuntimeLifecycle:
                         gateway_hello,
                         self._dependencies.heartbeat_sleep,
                         connected_tasks=connected_tasks,
+                        completion_sink=completion_sink,
                     )
                     raise GatewayTerminalError(
                         "Gateway connected loops stopped unexpectedly"
@@ -151,6 +186,8 @@ class RuntimeLifecycle:
                     self._status.transition(terminal_phase, error=error)
                     return 75
                 except RetryableTransportError as error:
+                    if canary_status_writer is not None:
+                        canary_status_writer.write_not_ready()
                     self._status.record_reconnect(error)
                     next_delay = self._dependencies.reconnect_delay
                 except TerminalTransportError as error:
@@ -162,6 +199,8 @@ class RuntimeLifecycle:
                     self._status.transition(RuntimePhase.STOPPING)
                     return 0
                 except GatewayIdle as idle:
+                    if canary_status_writer is not None:
+                        canary_status_writer.write_not_ready()
                     self._status.transition(RuntimePhase.RUNNING)
                     next_delay = idle.delay
                 finally:
@@ -196,10 +235,11 @@ async def _run_connected(
     sleep: Callable[[float], Awaitable[None]],
     *,
     connected_tasks: Iterable[Awaitable[None]] = (),
+    completion_sink: Callable[[dict[str, object]], None] | None = None,
 ) -> None:
     """Run receive and heartbeat loops for the lifetime of one connection."""
     tasks = {
-        asyncio.create_task(_receive_loop(transport, executor)),
+        asyncio.create_task(_receive_loop(transport, executor, completion_sink)),
         asyncio.create_task(
             _heartbeat_loop(
                 transport,
@@ -235,10 +275,11 @@ async def _run_connected(
 async def _receive_loop(
     transport: GatewayTransport,
     executor: RuntimeExecutor,
+    completion_sink: Callable[[dict[str, object]], None] | None,
 ) -> None:
     while True:
         inbound = await transport.receive()
-        await _handle_inbound(transport, executor, inbound)
+        await _handle_inbound(transport, executor, inbound, completion_sink)
 
 
 async def _heartbeat_loop(
@@ -265,6 +306,7 @@ async def _handle_inbound(
     transport: GatewayTransport,
     executor: RuntimeExecutor,
     inbound: GatewayInboundV1,
+    completion_sink: Callable[[dict[str, object]], None] | None = None,
 ) -> None:
     """Handle the bounded server-to-agent messages owned by the common runtime."""
     if inbound.root.kind == "result_ack":
@@ -294,5 +336,44 @@ async def _handle_inbound(
         acknowledged_at=datetime.now(UTC),
     )
     await transport.send_ack(ack)
+    started_at = time.monotonic()
     result = await executor.execute(command)
+    emit_command_completed_marker(
+        command,
+        result,
+        duration_ms=max(0, int((time.monotonic() - started_at) * 1000)),
+        completion_sink=completion_sink,
+    )
     await transport.send_result(result)
+
+
+def emit_command_completed_marker(
+    command: AgentCommandV1,
+    result: AgentResultV1,
+    *,
+    duration_ms: int,
+    completion_sink: Callable[[dict[str, object]], None] | None = None,
+) -> None:
+    """Emit the bounded local proof required for a real agent canary.
+
+    The marker deliberately excludes command parameters and result content.  It
+    is emitted before transport delivery, so a later network failure cannot
+    erase the fact that the installed runtime executed the typed capability.
+    """
+    marker = {
+        "command_id": str(command.command_id),
+        "capability": command.capability,
+        "status": result.status,
+        "duration_ms": duration_ms,
+        "result_item_count": len(result.result_items),
+        "timestamp": result.completed_at.isoformat(),
+    }
+    logger.info(
+        "endpoint_agent_command_completed",
+        extra=marker,
+    )
+    if completion_sink is not None:
+        try:
+            completion_sink(marker)
+        except Exception:
+            logger.warning("endpoint_agent_completion_sink_failed")

@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import os
+import re
 import ssl
+import stat
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
@@ -18,6 +21,7 @@ from pc_agent.enrollment_identity import (
     ENROLLMENT_IDENTITY_FILENAME,
     read_enrollment_device_id,
 )
+from pc_agent.primitives.network.policy import AgentNetworkProbePolicy
 from pc_agent.transport.base import GatewayTerminalError, GatewayTransport
 from pc_agent.transport.http_pull import ClassifiedGatewayTransport
 from pc_agent.transport.protocol import (
@@ -40,6 +44,9 @@ from .lifecycle import (
 from .status import RuntimeStatus
 
 
+_SOURCE_REVISION = re.compile(r"^[0-9a-f]{40}$")
+
+
 @dataclass(frozen=True, slots=True)
 class RuntimeSettings:
     data_root: Path
@@ -48,6 +55,8 @@ class RuntimeSettings:
     endpoint_origin: str
     transport_mode: Literal["gateway_wss", "gateway_http_pull"]
     migration_http_pull_fallback: bool = False
+    network_probe_allowed_cidrs: tuple[str, ...] = ()
+    network_probe_allowed_suffixes: tuple[str, ...] = ()
 
     def validate(self) -> None:
         for name in ("data_root", "install_root", "ca_file"):
@@ -68,8 +77,25 @@ class RuntimeSettings:
             raise ValueError("unsupported Endpoint transport mode")
         if not isinstance(self.migration_http_pull_fallback, bool):
             raise ValueError("migration HTTP pull fallback must be boolean")
+        for name in (
+            "network_probe_allowed_cidrs",
+            "network_probe_allowed_suffixes",
+        ):
+            values = getattr(self, name)
+            if not isinstance(values, tuple) or not all(
+                isinstance(value, str) for value in values
+            ):
+                raise ValueError(f"{name} must be a tuple of strings")
+        self.network_probe_policy()
         if not self.ca_file.is_file():
             raise ValueError("Endpoint CA file is missing")
+
+    def network_probe_policy(self) -> AgentNetworkProbePolicy:
+        """Build the local fail-closed allowlist for typed network commands."""
+        return AgentNetworkProbePolicy.from_values(
+            allowed_cidrs=self.network_probe_allowed_cidrs,
+            allowed_suffixes=self.network_probe_allowed_suffixes,
+        )
 
 
 class RuntimeApplication:
@@ -79,7 +105,7 @@ class RuntimeApplication:
         dependencies: RuntimeDependencies | None = None,
     ) -> None:
         self.settings = settings
-        self.dependencies = dependencies or _default_dependencies()
+        self.dependencies = dependencies or _default_dependencies(settings)
         self.status = RuntimeStatus()
 
     async def run(self) -> int:
@@ -96,7 +122,9 @@ async def run_runtime(settings: RuntimeSettings) -> int:
     return await RuntimeApplication(settings).run()
 
 
-def _default_dependencies() -> RuntimeDependencies:
+def _default_dependencies(
+    settings: RuntimeSettings | None = None,
+) -> RuntimeDependencies:
     transport_state = _EndpointHttpPullState()
 
     def create_transport(
@@ -128,14 +156,79 @@ def _default_dependencies() -> RuntimeDependencies:
             )
         return ()
 
+    create_executor = CommandExecutor
+    if settings is not None:
+        def create_configured_executor() -> CommandExecutor:
+            return CommandExecutor(
+                network_probe_policy=settings.network_probe_policy()
+            )
+
+        create_executor = create_configured_executor
+
     return RuntimeDependencies(
         load_credential=_load_credential,
-        create_executor=CommandExecutor,
+        create_executor=create_executor,
         create_transport=create_transport,
         load_hello=_load_hello,
         after_server_handshake=_startup_proof_hook,
         create_connected_tasks=create_connected_tasks,
+        create_completion_sink=_create_completion_sink,
+        create_canary_status_writer=_create_canary_status_writer,
     )
+
+
+def _create_canary_status_writer(settings: object):
+    """Enable strict canary evidence only for the no-fallback Windows WSS runtime."""
+    if (
+        os.name != "nt"
+        or not isinstance(settings, RuntimeSettings)
+        or settings.transport_mode != "gateway_wss"
+        or settings.migration_http_pull_fallback
+    ):
+        return None
+    from pc_agent.platform.windows.canary_status import CanaryStatusWriter
+
+    selector = settings.install_root / "current.json"
+    try:
+        details = selector.lstat()
+        if selector.is_symlink() or getattr(details, "st_file_attributes", 0) & 0x400:
+            raise ValueError("current selector is unsafe")
+        if not stat.S_ISREG(details.st_mode):
+            raise ValueError("current selector is unsafe")
+        payload = json.loads(selector.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    if (
+        not isinstance(payload, dict)
+        or set(payload) != {"schema_version", "source_revision", "version"}
+        or payload.get("schema_version") != 1
+        or not isinstance(payload.get("source_revision"), str)
+        or not _SOURCE_REVISION.fullmatch(payload["source_revision"])
+        or payload.get("version") != AGENT_VERSION
+    ):
+        return None
+    return CanaryStatusWriter(
+        settings.data_root,
+        {"version": AGENT_VERSION, "source_revision": payload["source_revision"]},
+        urlsplit(settings.endpoint_origin).hostname or "",
+    )
+
+
+def _create_completion_sink(settings: object):
+    """Persist the bounded marker only for the Windows service runtime."""
+    if os.name != "nt" or not isinstance(settings, RuntimeSettings):
+        return None
+    from pc_agent.platform.windows.completion_proof import WindowsCompletionProofWriter
+
+    writer = WindowsCompletionProofWriter(settings.data_root)
+    canary_status_writer = _create_canary_status_writer(settings)
+
+    def append(marker: dict[str, object]) -> None:
+        writer.append_marker(marker)
+        if canary_status_writer is not None:
+            canary_status_writer.with_completion(str(marker["command_id"]))
+
+    return append
 
 
 async def _startup_proof_hook(settings: object) -> None:
@@ -166,7 +259,10 @@ def _load_hello(settings: object) -> AgentHelloV1:
     device_id = read_enrollment_device_id(
         settings.data_root / ENROLLMENT_IDENTITY_FILENAME
     )
-    values: dict[str, object] = {"device_id": device_id}
+    values: dict[str, object] = {
+        "device_id": device_id,
+        "platform": "windows_amd64" if os.name == "nt" else "linux_amd64",
+    }
     if settings.transport_mode == "gateway_wss":
         values.update(
             agent_version=AGENT_VERSION,

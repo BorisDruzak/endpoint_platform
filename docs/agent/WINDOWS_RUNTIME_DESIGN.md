@@ -9,7 +9,13 @@ endpoint-agent-service.exe --agent-service
 
 The host strictly reads `current.json` on every service start, rejects unknown
 fields, non-triplet versions, traversal, and reparse points, and supervises
-`versions/<version>/pc_agent.exe --windows-service-child`. Stop and shutdown
+`versions/<version>/pc_agent.exe --windows-service-child`. A newly built MSI
+installs selector schema version 1 (`schema_version`, `source_revision`, and
+`version`), where `source_revision` is the exact 40-character Git revision
+that staged the immutable initial runtime. It can precede the clean MSI-build
+commit when a later commit only changes release metadata or tests. A legacy version-only selector remains launch-compatible
+only to make an in-place upgrade safe; it is not provenance-complete and cannot
+pass the Windows diagnostic-canary preflight. Stop and shutdown
 controls close the child's private stdin control pipe. The child watches that
 pipe with a dedicated daemon reader rather than asyncio's default executor, so
 a runtime exit `42` cannot hang `asyncio.run()` while the host pipe remains
@@ -52,6 +58,17 @@ names the old initial runtime, it is atomically moved to the installed new
 runtime. A different selector is preserved only when its executable is a
 regular non-reparse file inside `versions/`; otherwise installation fails
 before service start.
+
+Schema-5 manifests additionally pin `source_revision`. A retained runtime
+stage is created from a clean checkout and receives a separate stage-evidence
+sidecar containing that checkout HEAD plus the complete stage-tree identity;
+the sidecar is generated without reading the release manifest. Before MSI
+binding, the build rehashes the retained stage, verifies the sidecar, compares
+its revision to the manifest, verifies every declared source hash against the
+Git blobs at that revision, and requires it to be an ancestor of the clean MSI
+checkout. The resulting selector and release sidecar therefore describe the
+source that produced the runtime, rather than a potentially later wrapper-only
+MSI commit.
 
 ## Provisioning contract
 

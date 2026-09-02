@@ -1,0 +1,8 @@
+{
+  "module_key": "network.basic.check",
+  "platform": "linux_amd64",
+  "schema_version": "module_live_test_recorded_v1",
+  "status": "passed",
+  "tested_at": "2026-08-26T12:00:00Z",
+  "version": "1.0.0"
+}

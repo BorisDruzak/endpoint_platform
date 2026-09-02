@@ -6,6 +6,8 @@ param(
     [string]$Platform = "x64",
     [string]$Version,
     [string]$InitialRuntimeManifest,
+    [string]$InitialRuntimeStageRoot,
+    [string]$InitialRuntimeStageEvidence,
     [switch]$ApproveInitialRuntimeTransition,
     [switch]$ApproveInitialRuntimeSourceChange,
     [switch]$ReusePythonBuild,
@@ -33,6 +35,23 @@ function Get-AgentVersion {
         throw "Could not read AGENT_VERSION from $VersionFile"
     }
     return $match.Groups[1].Value
+}
+
+function Get-SourceRevision {
+    param([Parameter(Mandatory)][string]$RepositoryRoot)
+    $revision = (& git -C $RepositoryRoot rev-parse HEAD).Trim()
+    if ($LASTEXITCODE -ne 0 -or $revision -notmatch '^[0-9a-f]{40}$') {
+        throw "Could not read the exact Git source revision for the MSI selector."
+    }
+    return $revision
+}
+
+function Assert-CleanSourceTree {
+    param([Parameter(Mandatory)][string]$RepositoryRoot)
+    $changes = @(git -C $RepositoryRoot status --porcelain --untracked-files=all)
+    if ($LASTEXITCODE -ne 0 -or $changes.Count -ne 0) {
+        throw "Refusing to build an MSI whose source revision cannot exactly identify its bytes."
+    }
 }
 
 function Get-StableId {
@@ -220,6 +239,8 @@ function Export-MsiInspection {
 }
 
 $repositoryRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..'))
+Assert-CleanSourceTree -RepositoryRoot $repositoryRoot
+$checkedOutSourceRevision = Get-SourceRevision -RepositoryRoot $repositoryRoot
 $packagingRoot = [IO.Path]::GetFullPath($PSScriptRoot)
 $buildRoot = [IO.Path]::GetFullPath((Join-Path $packagingRoot "build\$Configuration-$Platform"))
 $allowedBuildParent = [IO.Path]::GetFullPath((Join-Path $packagingRoot 'build'))
@@ -236,6 +257,15 @@ if (-not $InitialRuntimeManifest) {
 }
 $initialRuntimeManifestPath = [IO.Path]::GetFullPath($InitialRuntimeManifest)
 $manifestPreview = Get-Content -LiteralPath $initialRuntimeManifestPath -Raw | ConvertFrom-Json
+$initialRuntimeSourceRevision = $checkedOutSourceRevision
+if ([int]$manifestPreview.schema_version -ge 5) {
+    if (
+        [string]::IsNullOrWhiteSpace($InitialRuntimeStageRoot) -or
+        [string]::IsNullOrWhiteSpace($InitialRuntimeStageEvidence)
+    ) {
+        throw "Initial runtime stage evidence is required for a schema-v5 manifest."
+    }
+}
 $sourceDateEpoch = [string]$manifestPreview.toolchain.source_date_epoch
 if ($sourceDateEpoch -notmatch '^[1-9][0-9]*$') {
     throw "Initial runtime manifest has an invalid SOURCE_DATE_EPOCH."
@@ -251,6 +281,12 @@ $validationArguments = @(
     '--manifest', $initialRuntimeManifestPath,
     '--baseline', $baselineInitialRuntimeManifest
 )
+if ([int]$manifestPreview.schema_version -ge 5) {
+    $validationArguments += @(
+        '--stage-root', $InitialRuntimeStageRoot,
+        '--stage-evidence', $InitialRuntimeStageEvidence
+    )
+}
 if ($ApproveInitialRuntimeTransition) {
     $validationArguments += '--approve-version'
 }
@@ -266,6 +302,16 @@ $InitialRuntimeVersion = [string]$initialRuntimeIdentity.version
 $InitialRuntimeComponentGuid = [string]$initialRuntimeIdentity.component_guid
 $BaselineInitialRuntimeVersion = [string]$initialRuntimeIdentity.baseline_version
 $InitialRuntimeTransitionApproved = if ([bool]$initialRuntimeIdentity.transition_approved) { '1' } else { '0' }
+if ([int]$manifestPreview.schema_version -ge 5) {
+    $initialRuntimeSourceRevision = [string]$initialRuntimeIdentity.source_revision
+    if ($initialRuntimeSourceRevision -notmatch '^[0-9a-f]{40}$') {
+        throw "Initial runtime manifest validation did not return a staged source revision."
+    }
+    & git -C $repositoryRoot merge-base --is-ancestor $initialRuntimeSourceRevision $checkedOutSourceRevision
+    if ($LASTEXITCODE -ne 0) {
+        throw "Initial runtime stage source revision is not an ancestor of the clean build source."
+    }
+}
 if (-not $Version) {
     $Version = Get-AgentVersion (Join-Path $repositoryRoot 'pc_agent\version.py')
 }
@@ -347,7 +393,11 @@ Copy-Item -LiteralPath $builtProvisioner -Destination (Join-Path $programFilesSt
 New-Item -ItemType Directory -Path (Join-Path $programFilesStage 'config'), (Join-Path $programFilesStage 'docs') -Force | Out-Null
 Copy-Item -LiteralPath (Join-Path $packagingRoot 'assets\agent-config.yaml') -Destination (Join-Path $programFilesStage 'config\agent-config.yaml')
 Copy-Item -LiteralPath (Join-Path $packagingRoot 'README.md') -Destination (Join-Path $programFilesStage 'docs\README.md')
-Write-Utf8NoBom (Join-Path $programFilesStage 'current.json') (@{ version = $InitialRuntimeVersion } | ConvertTo-Json -Compress)
+Write-Utf8NoBom (Join-Path $programFilesStage 'current.json') (@{
+    schema_version = 1
+    source_revision = $initialRuntimeSourceRevision
+    version = $InitialRuntimeVersion
+} | ConvertTo-Json -Compress)
 
 $generatedWix = Join-Path $wixBuildRoot 'PayloadComponents.generated.wxs'
 $generatedItems = Write-GeneratedPayloadWix $runtimeStage $generatedWix
@@ -422,9 +472,30 @@ $wixArguments = @(
     "-d", "InitialRuntimeComponentGuid=$InitialRuntimeComponentGuid",
     "-d", "InitialRuntimeTransitionApproved=$InitialRuntimeTransitionApproved",
     "-d", "BaselineInitialRuntimeVersion=$BaselineInitialRuntimeVersion",
+    "-d", "SourceRevision=$initialRuntimeSourceRevision",
     "-d", "PackageVersion=$Version", '-out', $msiPath
 ) + $wixSources
 Invoke-Checked $wixCommand.Source $wixArguments $repositoryRoot
-Export-MsiInspection $msiPath (Join-Path $outputRoot 'msi-inspection.json')
+$inspectionPath = Join-Path $outputRoot 'msi-inspection.json'
+Export-MsiInspection $msiPath $inspectionPath
+$inspection = Get-Content -LiteralPath $inspectionPath -Raw | ConvertFrom-Json
+$productCodes = @(
+    $inspection.properties |
+        Where-Object { $_.property -eq 'ProductCode' } |
+        ForEach-Object { [string]$_.value }
+)
+if ($productCodes.Count -ne 1 -or $productCodes[0] -notmatch '^\{[0-9A-F-]{36}\}$') {
+    throw "MSI inspection did not yield one canonical ProductCode."
+}
+$packageSha256 = (Get-FileHash -LiteralPath $msiPath -Algorithm SHA256).Hash.ToLowerInvariant()
 Copy-Item -LiteralPath $msiPath -Destination (Join-Path $releaseRoot (Split-Path -Leaf $msiPath)) -Force
+$releaseManifestPath = Join-Path $releaseRoot "EndpointAgent-$Version-x64.release.json"
+Write-Utf8NoBom $releaseManifestPath (@{
+    initial_runtime_tree_sha256 = [string]$manifestPreview.artifact.tree_sha256
+    package_sha256 = $packageSha256
+    product_code = $productCodes[0]
+    schema_version = 'endpoint_windows_release_v1'
+    source_revision = $initialRuntimeSourceRevision
+    version = $Version
+} | ConvertTo-Json -Compress)
 Write-Host "MSI: $msiPath"

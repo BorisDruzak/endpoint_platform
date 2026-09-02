@@ -1,0 +1,292 @@
+{
+  "items": [
+    {
+      "capability": "dns.resolve",
+      "consent_required": false,
+      "feature_flag": "endpoint_network_primitives_enabled",
+      "minimum_agent_version": "3.2.27",
+      "parameter_schema_version": "dns_resolve_parameters_v1",
+      "parameters": [
+        {
+          "allowed_sources": [
+            "input",
+            "literal"
+          ],
+          "default_literal": null,
+          "enum_values": null,
+          "maximum": null,
+          "minimum": null,
+          "name": "target",
+          "required": true,
+          "secret": false,
+          "value_type": "string"
+        },
+        {
+          "allowed_sources": [
+            "input",
+            "literal"
+          ],
+          "default_literal": null,
+          "enum_values": [
+            "any",
+            "ipv4",
+            "ipv6"
+          ],
+          "maximum": null,
+          "minimum": null,
+          "name": "family",
+          "required": true,
+          "secret": false,
+          "value_type": "enum"
+        }
+      ],
+      "platforms": [
+        "linux_amd64",
+        "windows_amd64"
+      ],
+      "policy": "network_target_policy",
+      "result_schema_version": "dns_resolve_result_v1",
+      "risk": "safe_read"
+    },
+    {
+      "capability": "network.ping",
+      "consent_required": false,
+      "feature_flag": "endpoint_network_primitives_enabled",
+      "minimum_agent_version": "3.2.27",
+      "parameter_schema_version": "network_ping_parameters_v1",
+      "parameters": [
+        {
+          "allowed_sources": [
+            "input",
+            "literal"
+          ],
+          "default_literal": null,
+          "enum_values": null,
+          "maximum": null,
+          "minimum": null,
+          "name": "target",
+          "required": true,
+          "secret": false,
+          "value_type": "string"
+        },
+        {
+          "allowed_sources": [
+            "input",
+            "literal"
+          ],
+          "default_literal": null,
+          "enum_values": null,
+          "maximum": 5,
+          "minimum": 1,
+          "name": "count",
+          "required": true,
+          "secret": false,
+          "value_type": "integer"
+        },
+        {
+          "allowed_sources": [
+            "input",
+            "literal"
+          ],
+          "default_literal": null,
+          "enum_values": null,
+          "maximum": 5000,
+          "minimum": 100,
+          "name": "timeout_ms",
+          "required": true,
+          "secret": false,
+          "value_type": "integer"
+        }
+      ],
+      "platforms": [
+        "linux_amd64",
+        "windows_amd64"
+      ],
+      "policy": "network_target_policy",
+      "result_schema_version": "network_ping_result_v1",
+      "risk": "safe_read"
+    },
+    {
+      "capability": "tcp.connect",
+      "consent_required": false,
+      "feature_flag": "endpoint_network_primitives_enabled",
+      "minimum_agent_version": "3.2.27",
+      "parameter_schema_version": "tcp_connect_parameters_v1",
+      "parameters": [
+        {
+          "allowed_sources": [
+            "input",
+            "literal"
+          ],
+          "default_literal": null,
+          "enum_values": null,
+          "maximum": null,
+          "minimum": null,
+          "name": "target",
+          "required": true,
+          "secret": false,
+          "value_type": "string"
+        },
+        {
+          "allowed_sources": [
+            "input",
+            "literal"
+          ],
+          "default_literal": null,
+          "enum_values": null,
+          "maximum": 65535,
+          "minimum": 1,
+          "name": "port",
+          "required": true,
+          "secret": false,
+          "value_type": "integer"
+        },
+        {
+          "allowed_sources": [
+            "input",
+            "literal"
+          ],
+          "default_literal": null,
+          "enum_values": null,
+          "maximum": 10000,
+          "minimum": 100,
+          "name": "timeout_ms",
+          "required": true,
+          "secret": false,
+          "value_type": "integer"
+        }
+      ],
+      "platforms": [
+        "linux_amd64",
+        "windows_amd64"
+      ],
+      "policy": "network_target_policy",
+      "result_schema_version": "tcp_connect_result_v1",
+      "risk": "safe_read"
+    },
+    {
+      "capability": "route.get",
+      "consent_required": false,
+      "feature_flag": "endpoint_read_only_primitives_enabled",
+      "minimum_agent_version": "3.2.29",
+      "parameter_schema_version": "route_get_parameters_v1",
+      "parameters": [
+        {
+          "allowed_sources": [
+            "input",
+            "literal"
+          ],
+          "default_literal": null,
+          "enum_values": null,
+          "maximum": null,
+          "minimum": null,
+          "name": "target",
+          "required": true,
+          "secret": false,
+          "value_type": "string"
+        },
+        {
+          "allowed_sources": [
+            "input",
+            "literal"
+          ],
+          "default_literal": null,
+          "enum_values": null,
+          "maximum": 65535,
+          "minimum": 1,
+          "name": "port",
+          "required": true,
+          "secret": false,
+          "value_type": "integer"
+        },
+        {
+          "allowed_sources": [
+            "input",
+            "literal"
+          ],
+          "default_literal": null,
+          "enum_values": [
+            "any",
+            "ipv4",
+            "ipv6"
+          ],
+          "maximum": null,
+          "minimum": null,
+          "name": "family",
+          "required": true,
+          "secret": false,
+          "value_type": "enum"
+        },
+        {
+          "allowed_sources": [
+            "input",
+            "literal"
+          ],
+          "default_literal": null,
+          "enum_values": null,
+          "maximum": 5000,
+          "minimum": 100,
+          "name": "timeout_ms",
+          "required": true,
+          "secret": false,
+          "value_type": "integer"
+        }
+      ],
+      "platforms": [
+        "linux_amd64",
+        "windows_amd64"
+      ],
+      "policy": "network_target_policy",
+      "result_schema_version": "route_get_result_v1",
+      "risk": "safe_read"
+    },
+    {
+      "capability": "adapter.list",
+      "consent_required": false,
+      "feature_flag": "endpoint_read_only_primitives_enabled",
+      "minimum_agent_version": "3.2.29",
+      "parameter_schema_version": "adapter_list_parameters_v1",
+      "parameters": [],
+      "platforms": [
+        "linux_amd64",
+        "windows_amd64"
+      ],
+      "policy": "none",
+      "result_schema_version": "adapter_list_result_v1",
+      "risk": "safe_read"
+    },
+    {
+      "capability": "system.service_status",
+      "consent_required": false,
+      "feature_flag": "endpoint_read_only_primitives_enabled",
+      "minimum_agent_version": "3.2.29",
+      "parameter_schema_version": "service_status_parameters_v1",
+      "parameters": [
+        {
+          "allowed_sources": [
+            "literal"
+          ],
+          "default_literal": null,
+          "enum_values": [
+            "endpoint_agent",
+            "endpoint_agent_updater"
+          ],
+          "maximum": null,
+          "minimum": null,
+          "name": "service_key",
+          "required": true,
+          "secret": false,
+          "value_type": "enum"
+        }
+      ],
+      "platforms": [
+        "linux_amd64",
+        "windows_amd64"
+      ],
+      "policy": "none",
+      "result_schema_version": "service_status_result_v1",
+      "risk": "safe_read"
+    }
+  ],
+  "schema_version": "endpoint_module_capability_catalog_v1"
+}

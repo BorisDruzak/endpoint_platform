@@ -16,6 +16,7 @@ from endpoint_server.db.models import (
     CommandDelivery,
     Device,
     EndpointOperation,
+    ModuleOperationStep,
     ServiceClient,
 )
 
@@ -84,26 +85,16 @@ def _idempotency_key(value: str) -> str:
 
 def _normalized_request(
     request: EndpointOperationCreateV1,
-) -> tuple[str, dict[str, object], dict[str, object] | None]:
+) -> tuple[str, dict[str, object]]:
     if not isinstance(request, EndpointOperationCreateV1):
         raise OperationValidationError(
             "request must be an EndpointOperationCreateV1 contract"
         )
     parameters = request.parameters.model_dump(mode="json")
-    correlation = (
-        request.correlation.model_dump(mode="json")
-        if request.correlation is not None
-        else None
-    )
-    return request.capability, parameters, correlation
+    return request.capability, parameters
 
 
-def _audit_request_id(
-    correlation: dict[str, object] | None,
-    operation_id: UUID,
-) -> str:
-    if correlation is not None and correlation.get("request_id") is not None:
-        return str(correlation["request_id"])
+def _audit_request_id(operation_id: UUID) -> str:
     return f"operation-{operation_id.hex}"
 
 
@@ -131,7 +122,7 @@ async def _append_operation_audit(
         action=action,
         object_kind="endpoint_operation",
         object_identifier=str(operation.id),
-        request_id=_audit_request_id(operation.correlation, operation.id),
+        request_id=_audit_request_id(operation.id),
         details={
             "capability": operation.capability,
             "device_id": operation.device_id,
@@ -154,7 +145,7 @@ async def create_operation_outcome(
     checked_client_id = _uuid(service_client_id, "service client id")
     checked_device_id = _uuid(device_id, "device id")
     checked_key = _idempotency_key(idempotency_key)
-    capability, parameters, correlation = _normalized_request(request)
+    capability, parameters = _normalized_request(request)
     profile = profile_for_capability(capability)
     occurred_at = _now(now)
 
@@ -186,7 +177,6 @@ async def create_operation_outcome(
             existing.device_id != checked_device_id
             or existing.capability != capability
             or existing.parameters != parameters
-            or existing.correlation != correlation
         ):
             raise OperationConflict(
                 "idempotency key already owns a different endpoint operation"
@@ -224,7 +214,7 @@ async def create_operation_outcome(
         idempotency_key=checked_key,
         capability=capability,
         parameters=parameters,
-        correlation=correlation,
+        correlation=None,
         status="queued",
         deadline_at=deadline_at,
         completed_at=None,
@@ -328,6 +318,65 @@ async def expire_operation_if_due(
         or _stored_utc(operation.deadline_at) > expired_at
     ):
         return False
+    if operation.capability == "endpoint.module.recipe":
+        if collection is not None or operation.command_id is not None:
+            raise OperationValidationError("module operation relation is unavailable")
+        steps = (
+            await session.scalars(
+                select(ModuleOperationStep)
+                .where(ModuleOperationStep.operation_id == operation.id)
+                .with_for_update()
+            )
+        ).all()
+        if not steps:
+            raise OperationValidationError("module operation steps are unavailable")
+        operation.status = "expired"
+        operation.completed_at = expired_at
+        for step in steps:
+            if step.status in {"succeeded", "failed", "canceled", "expired"}:
+                continue
+            step.status = "expired"
+            step.error_code = "operation_expired"
+            step.completed_at = expired_at
+            if step.command_id is None:
+                continue
+            command = await session.scalar(
+                select(Command)
+                .where(Command.id == step.command_id, Command.device_id == operation.device_id)
+                .with_for_update()
+            )
+            if command is not None and command.status not in {
+                "succeeded",
+                "failed",
+                "canceled",
+                "expired",
+            }:
+                command.status = "expired"
+            delivery = await session.scalar(
+                select(CommandDelivery)
+                .where(CommandDelivery.command_id == step.command_id)
+                .with_for_update()
+            )
+            if delivery is not None and delivery.status not in {
+                "succeeded",
+                "failed",
+                "canceled",
+                "expired",
+            }:
+                delivery.status = "expired"
+        await append_audit_event(
+            session,
+            actor_kind="system",
+            actor_identifier=None,
+            action="endpoint.module_operation_expired",
+            object_kind="endpoint_operation",
+            object_identifier=str(operation.id),
+            request_id=f"module-operation-{operation.id.hex}",
+            details={"status": operation.status},
+            occurred_at=expired_at,
+        )
+        await session.flush()
+        return True
     operation.status = "expired"
     operation.completed_at = expired_at
     if collection is None:

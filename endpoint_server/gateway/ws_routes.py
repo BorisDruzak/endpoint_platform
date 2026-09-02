@@ -23,6 +23,8 @@ from endpoint_contracts.gateway_ws import (
     HeartbeatEnvelopeV1,
 )
 from endpoint_server.network import observed_client_address
+from endpoint_contracts.capabilities import MODULE_CAPABILITY_REGISTRY
+from endpoint_server.operations.capabilities import module_capability_is_compatible
 from endpoint_server.updates.agent_routes import DevicePrincipal, _authenticate_device
 
 from .command_service import CommandService, CommandStateRejected
@@ -51,6 +53,7 @@ _SUPPORTED_CAPABILITIES = frozenset(
         "context.health.collect",
         "context.network.collect",
         "context.diagnostic.collect",
+        *MODULE_CAPABILITY_REGISTRY,
     }
 )
 
@@ -79,9 +82,7 @@ def assert_single_gateway_worker(
         try:
             workers = int(raw)
         except ValueError as error:
-            raise RuntimeError(
-                "Gateway WSS requires exactly one API worker"
-            ) from error
+            raise RuntimeError("Gateway WSS requires exactly one API worker") from error
         if workers != 1:
             raise RuntimeError("Gateway WSS requires exactly one API worker")
 
@@ -94,8 +95,7 @@ def _require_secure_transport(websocket: WebSocket) -> None:
     except ValueError as error:
         raise GatewayHandshakeRejected(4401) from error
     trusted_proxy = any(
-        peer in network
-        for network in websocket.app.state.settings.trusted_proxy_cidrs
+        peer in network for network in websocket.app.state.settings.trusted_proxy_cidrs
     )
     if trusted_proxy:
         forwarded = websocket.headers.getlist("x-forwarded-proto")
@@ -178,14 +178,30 @@ async def connect_agent(websocket: WebSocket) -> None:
             hello=first.payload,
             source_address=str(authenticated.source_address),
         )
-        await websocket.app.state.gateway_connection_registry.register(
-            GatewayConnection(device_id, presence.session_id, websocket)
-        )
         effective_capabilities = [
             capability
             for capability in first.payload.capabilities
             if capability in _SUPPORTED_CAPABILITIES
+            and (
+                capability not in MODULE_CAPABILITY_REGISTRY
+                or module_capability_is_compatible(
+                    websocket.app.state.settings,
+                    MODULE_CAPABILITY_REGISTRY[capability],
+                    agent_version=first.payload.agent_version,
+                    platform=first.payload.platform,
+                )
+            )
         ]
+        await websocket.app.state.gateway_connection_registry.register(
+            GatewayConnection(
+                device_id=device_id,
+                session_id=presence.session_id,
+                websocket=websocket,
+                agent_version=first.payload.agent_version,
+                platform=first.payload.platform,
+                effective_capabilities=frozenset(effective_capabilities),
+            )
+        )
         await send_envelope(
             websocket,
             GatewayHelloEnvelopeV1(
@@ -208,6 +224,7 @@ async def connect_agent(websocket: WebSocket) -> None:
             presence.session_id,
             lambda envelope: send_envelope(websocket, envelope),
             allowed_capabilities=frozenset(effective_capabilities),
+            agent_platform=first.payload.platform,
         )
 
         while True:
@@ -246,6 +263,7 @@ async def connect_agent(websocket: WebSocket) -> None:
                 presence.session_id,
                 lambda message: send_envelope(websocket, message),
                 allowed_capabilities=frozenset(effective_capabilities),
+                agent_platform=first.payload.platform,
             )
     except WebSocketDisconnect:
         pass

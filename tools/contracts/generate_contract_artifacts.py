@@ -40,20 +40,57 @@ from endpoint_contracts import (  # noqa: E402
     AgentUpdateAcknowledgementV1,
     AgentUpdateRecommendationV1,
     AgentUpdateReportV1,
+    AdapterListParametersV1,
+    AdapterListResultV1,
     UpdateBuildManifestV1,
     UpdateRolloutCreateV1,
     EndpointDiagnosticResultV1,
+    EndpointDeviceCapabilitiesV1,
+    EndpointDeviceSummaryV1,
     EndpointOperationCreateV1,
     EndpointOperationV1,
+    ModuleLabOperationCreateV1,
+    ModuleLiveTestRecordV1,
+    ModuleLiveTestRecordedV1,
+    ModuleCapabilityCatalogV1,
+    ModuleOperationCreateV1,
+    ModuleOperationDetailV1,
+    ModuleOperationV1,
+    ModuleSummaryV1,
+    ModuleVersionViewV1,
+    RouteGetParametersV1,
+    RouteGetResultV1,
+    ServiceStatusParametersV1,
+    ServiceStatusResultV1,
 )
 from endpoint_contracts.base import ContractModelV1  # noqa: E402
+from endpoint_contracts.capabilities import module_capability_catalog  # noqa: E402
+from endpoint_server.modules.catalog_routes import (  # noqa: E402
+    router as module_capability_catalog_router,
+)
+from endpoint_server.modules.routes import router as modules_router  # noqa: E402
+from endpoint_server.modules.execution_routes import router as module_execution_router  # noqa: E402
 from endpoint_server.operations.routes import router as operations_router  # noqa: E402
 
 
 _SERVICE_OPERATION_PATHS = (
+    "/api/v1/devices/{device_id}",
     "/api/v1/devices/{device_id}/capabilities",
     "/api/v1/devices/{device_id}/operations",
     "/api/v1/operations/{operation_id}",
+    "/api/v1/devices/{device_id}/module-operations",
+    "/api/v1/module-operations/{operation_id}",
+    "/api/v1/module-capabilities",
+    "/api/v1/modules",
+    "/api/v1/modules/{module_key}",
+    "/api/v1/modules/versions",
+    "/api/v1/modules/{module_key}/versions/{version}",
+    "/api/v1/modules/{module_key}/versions/{version}/validate",
+    "/api/v1/modules/{module_key}/versions/{version}/lab-operations/{device_id}",
+    "/api/v1/modules/{module_key}/versions/{version}/live-tests/{operation_id}",
+    "/api/v1/modules/{module_key}/versions/{version}/accept-labs",
+    "/api/v1/modules/{module_key}/versions/{version}/publish",
+    "/api/v1/modules/{module_key}/versions/{version}/deprecate",
 )
 
 
@@ -67,6 +104,12 @@ PUBLIC_MODELS: dict[str, type[ContractModelV1]] = {
     "enrollment-delivery-proof-v1.json": EnrollmentDeliveryProofV1,
     "device-credential-rotation-v1.json": DeviceCredentialRotationV1,
     "agent-command-v1.json": AgentCommandV1,
+    "route-get-parameters-v1.json": RouteGetParametersV1,
+    "route-get-result-v1.json": RouteGetResultV1,
+    "adapter-list-parameters-v1.json": AdapterListParametersV1,
+    "adapter-list-result-v1.json": AdapterListResultV1,
+    "service-status-parameters-v1.json": ServiceStatusParametersV1,
+    "service-status-result-v1.json": ServiceStatusResultV1,
     "agent-command-ack-v1.json": AgentCommandAckV1,
     "agent-result-v1.json": AgentResultV1,
     "agent-heartbeat-v1.json": AgentHeartbeatV1,
@@ -82,8 +125,19 @@ PUBLIC_MODELS: dict[str, type[ContractModelV1]] = {
     "device_context_diagnostic_v1.json": DeviceContextDiagnosticV1,
     "device_context_diff_v1.json": DeviceContextDiffV1,
     "endpoint-operation-create-v1.json": EndpointOperationCreateV1,
+    "endpoint-device-summary-v1.json": EndpointDeviceSummaryV1,
+    "endpoint-device-capabilities-v1.json": EndpointDeviceCapabilitiesV1,
     "endpoint-operation-v1.json": EndpointOperationV1,
     "endpoint-operation-diagnostic-result-v1.json": EndpointDiagnosticResultV1,
+    "endpoint-module-lab-operation-create-v1.json": ModuleLabOperationCreateV1,
+    "endpoint-module-live-test-record-v1.json": ModuleLiveTestRecordV1,
+    "endpoint-module-live-test-recorded-v1.json": ModuleLiveTestRecordedV1,
+    "endpoint-module-operation-create-v1.json": ModuleOperationCreateV1,
+    "endpoint-module-operation-v1.json": ModuleOperationV1,
+    "endpoint-module-operation-detail-v1.json": ModuleOperationDetailV1,
+    "endpoint-module-summary-v1.json": ModuleSummaryV1,
+    "endpoint-module-version-view-v1.json": ModuleVersionViewV1,
+    "module-capability-catalog-v1.json": ModuleCapabilityCatalogV1,
 }
 
 GATEWAY_WS_MODELS: dict[str, type[BaseModel]] = {
@@ -93,6 +147,9 @@ GATEWAY_WS_MODELS: dict[str, type[BaseModel]] = {
 }
 
 FIXTURES: dict[str, dict[str, Any]] = {
+    "module-capability-catalog-v1.json": module_capability_catalog().model_dump(
+        mode="json"
+    ),
     "device-identity-v1.json": {
         "schema_version": "device_identity_v1",
         "device_id": "11111111-1111-4111-8111-111111111111",
@@ -134,6 +191,63 @@ FIXTURES: dict[str, dict[str, Any]] = {
             "schema_version": "command_correlation_v1",
             "request_id": "44444444-4444-4444-8444-444444444444",
         },
+    },
+    "route-get-parameters-v1.json": {
+        "schema_version": "route_get_parameters_v1",
+        "target": "router.example.test",
+        "port": 443,
+        "family": "ipv4",
+        "timeout_ms": 1000,
+    },
+    "route-get-result-v1.json": {
+        "schema_version": "route_get_result_v1",
+        "target": "router.example.test",
+        "resolved_ip": "10.20.0.15",
+        "family": "ipv4",
+        "port": 443,
+        "source_ip": "10.20.0.20",
+        "interface_name": "eth0",
+        "strategy": "udp_socket_inference",
+        "status": "succeeded",
+        "error_code": None,
+        "collected_at": "2026-08-28T00:00:00Z",
+    },
+    "adapter-list-parameters-v1.json": {
+        "schema_version": "adapter_list_parameters_v1",
+    },
+    "adapter-list-result-v1.json": {
+        "schema_version": "adapter_list_result_v1",
+        "adapters": [
+            {
+                "name": "eth0",
+                "state": "up",
+                "kind": "ethernet",
+                "primary": True,
+                "ipv4_addresses": ["10.20.0.20"],
+                "ipv6_addresses": ["2001:db8::20"],
+                "mtu": 1500,
+                "speed_mbps": 1000,
+            }
+        ],
+        "adapter_count": 1,
+        "up_count": 1,
+        "status": "succeeded",
+        "error_code": None,
+        "collected_at": "2026-08-28T00:00:00Z",
+    },
+    "service-status-parameters-v1.json": {
+        "schema_version": "service_status_parameters_v1",
+        "service_key": "endpoint_agent",
+    },
+    "service-status-result-v1.json": {
+        "schema_version": "service_status_result_v1",
+        "service_key": "endpoint_agent",
+        "installed": True,
+        "state": "running",
+        "start_mode": "automatic",
+        "status": "succeeded",
+        "error_code": None,
+        "collected_at": "2026-08-28T00:00:00Z",
     },
     "agent-command-ack-v1.json": {
         "schema_version": "agent_command_ack_v1",
@@ -216,6 +330,94 @@ FIXTURES: dict[str, dict[str, Any]] = {
         "reported_version": "1.2.3",
         "safe_code": "post_restart_handshake",
     },
+    "endpoint-module-operation-create-v1.json": {
+        "schema_version": "endpoint_module_operation_create_v1",
+        "module_key": "network.basic.check",
+        "version": "1.0.0",
+        "inputs": {"target": "probe.example.test"},
+    },
+    "endpoint-module-lab-operation-create-v1.json": {
+        "schema_version": "endpoint_module_lab_operation_create_v1",
+        "inputs": {"target": "probe.example.test"},
+    },
+    "endpoint-module-live-test-record-v1.json": {
+        "schema_version": "module_live_test_record_v1",
+    },
+    "endpoint-module-live-test-recorded-v1.json": {
+        "schema_version": "module_live_test_recorded_v1",
+        "module_key": "network.basic.check",
+        "version": "1.0.0",
+        "platform": "linux_amd64",
+        "status": "passed",
+        "tested_at": "2026-08-26T12:00:00Z",
+    },
+    "endpoint-module-operation-v1.json": {
+        "schema_version": "endpoint_module_operation_v1",
+        "operation_id": "22222222-2222-4222-8222-222222222222",
+        "device_id": "11111111-1111-4111-8111-111111111111",
+        "module_key": "network.basic.check",
+        "version": "1.0.0",
+        "status": "succeeded",
+        "created_at": "2026-08-09T11:59:00Z",
+        "deadline_at": "2026-08-09T12:30:00Z",
+        "completed_at": "2026-08-09T12:00:00Z",
+    },
+    "endpoint-module-operation-detail-v1.json": {
+        "schema_version": "endpoint_module_operation_v1",
+        "operation_id": "22222222-2222-4222-8222-222222222222",
+        "device_id": "11111111-1111-4111-8111-111111111111",
+        "module_key": "network.basic.check",
+        "version": "1.0.0",
+        "status": "succeeded",
+        "created_at": "2026-08-09T11:59:00Z",
+        "deadline_at": "2026-08-09T12:30:00Z",
+        "completed_at": "2026-08-09T12:00:00Z",
+        "expected_step_count": 1,
+        "steps": [
+            {
+                "sequence": 0,
+                "capability": "dns.resolve",
+                "status": "succeeded",
+                "error_code": None,
+                "safe_result": {
+                    "schema_version": "dns_resolve_result_v1",
+                    "target": "probe.example.test",
+                    "canonical_name": None,
+                    "addresses": [],
+                    "address_count": 0,
+                    "status": "succeeded",
+                    "error_code": None,
+                    "collected_at": "2026-08-09T12:00:00Z",
+                },
+            }
+        ],
+    },
+    "endpoint-module-summary-v1.json": {
+        "module_key": "network.basic.check",
+        "display_name": "Fixture network check",
+    },
+    "endpoint-module-version-view-v1.json": {
+        "module_key": "network.basic.check",
+        "display_name": "Fixture network check",
+        "version": "1.0.0",
+        "state": "published",
+        "recipe": {
+            "schema_version": "endpoint_recipe_module_v1",
+            "module_key": "network.basic.check",
+            "supported_platforms": ["linux_amd64"],
+            "inputs": [{"name": "target", "value_type": "string"}],
+            "steps": [
+                {
+                    "step_id": "dns",
+                    "capability": "dns.resolve",
+                    "parameters": {
+                        "target": {"kind": "input", "name": "target"},
+                        "family": {"kind": "literal", "value": "any"},
+                    },
+                }
+            ],
+        },
+    },
 }
 
 GATEWAY_WS_FIXTURES: dict[str, dict[str, Any]] = {
@@ -262,17 +464,31 @@ GATEWAY_WS_FIXTURES: dict[str, dict[str, Any]] = {
 }
 
 ENDPOINT_OPERATION_FIXTURES: dict[Path, dict[str, Any]] = {
+    Path("endpoint-device-summary-v1.json"): {
+        "schema_version": "endpoint_device_summary_v1",
+        "device_id": "11111111-1111-4111-8111-111111111111",
+        "display_name": "Fixture endpoint",
+        "retired": False,
+        "last_seen_at": "2026-08-09T12:00:00Z",
+    },
+    Path("endpoint-device-capabilities-v1.json"): {
+        "schema_version": "endpoint_device_capabilities_v1",
+        "device_id": "11111111-1111-4111-8111-111111111111",
+        "capabilities": [
+            {
+                "capability": "context.diagnostic.collect",
+                "available": True,
+                "transport": "gateway_wss",
+                "risk": "read_only",
+                "consent_required": False,
+                "parameter_schema_version": "diagnostic_collection_parameters_v1",
+            }
+        ],
+    },
     Path("endpoint-operation-create-v1.json"): {
         "schema_version": "endpoint_operation_create_v1",
         "capability": "context.diagnostic.collect",
         "parameters": {"reason": "Fixture diagnostic request."},
-        "correlation": {
-            "schema_version": "endpoint_operation_correlation_v1",
-            "source_system": "helpdesk",
-            "source_entity_type": "ticket",
-            "source_entity_id": "fixture-ticket-01",
-            "request_id": "33333333-3333-4333-8333-333333333333",
-        },
     },
     Path("endpoint-operation-v1.json"): {
         "schema_version": "endpoint_operation_v1",
@@ -283,13 +499,6 @@ ENDPOINT_OPERATION_FIXTURES: dict[Path, dict[str, Any]] = {
         "created_at": "2026-08-09T11:59:00Z",
         "deadline_at": "2026-08-09T12:30:00Z",
         "completed_at": "2026-08-09T12:00:00Z",
-        "correlation": {
-            "schema_version": "endpoint_operation_correlation_v1",
-            "source_system": "helpdesk",
-            "source_entity_type": "ticket",
-            "source_entity_id": "fixture-ticket-01",
-            "request_id": "33333333-3333-4333-8333-333333333333",
-        },
         "result_available": True,
         "warnings": ["redaction_applied"],
     },
@@ -465,11 +674,12 @@ def _service_operation_openapi() -> dict[str, object]:
     """Generate service-operation paths/components from the runtime router."""
     application = FastAPI()
     application.include_router(operations_router)
+    application.include_router(modules_router)
+    application.include_router(module_capability_catalog_router)
+    application.include_router(module_execution_router)
     generated = application.openapi()
     return {
-        "paths": {
-            path: generated["paths"][path] for path in _SERVICE_OPERATION_PATHS
-        },
+        "paths": {path: generated["paths"][path] for path in _SERVICE_OPERATION_PATHS},
         "components": generated["components"],
     }
 

@@ -9,6 +9,7 @@ import json
 import os
 import platform
 import re
+import subprocess
 import sysconfig
 import uuid
 from dataclasses import dataclass
@@ -17,7 +18,7 @@ from typing import Any
 
 
 _SEMVER = re.compile(r"^(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)$")
-_MANIFEST_FIELDS = {
+_MANIFEST_FIELDS_V2_TO_V4 = {
     "agent_version",
     "artifact",
     "component_guid",
@@ -26,6 +27,7 @@ _MANIFEST_FIELDS = {
     "toolchain",
     "version",
 }
+_MANIFEST_FIELDS_V5 = _MANIFEST_FIELDS_V2_TO_V4 | {"source_revision"}
 _SOURCE_FIELDS = {"path", "sha256"}
 _ARTIFACT_FIELDS = {"file_count", "tree_sha256"}
 _TOOLCHAIN_FIELDS_V2 = {
@@ -39,6 +41,8 @@ _TOOLCHAIN_FIELDS_V3 = _TOOLCHAIN_FIELDS_V2 | {"python_hash_seed"}
 _TOOLCHAIN_FIELDS_V4 = _TOOLCHAIN_FIELDS_V3 | {
     "pyinstaller_hooks_contrib_version"
 }
+_STAGE_EVIDENCE_FIELDS = {"artifact", "schema_version", "source_revision"}
+_STAGE_EVIDENCE_SCHEMA = "endpoint_windows_initial_runtime_stage_v1"
 
 
 @dataclass(frozen=True, slots=True)
@@ -47,6 +51,7 @@ class InitialRuntimeIdentity:
     component_guid: str
     baseline_version: str
     transition_approved: bool
+    source_revision: str | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -57,6 +62,7 @@ class _Manifest:
     sources: list[dict[str, str]]
     artifact: dict[str, object]
     toolchain: dict[str, object]
+    source_revision: str | None
 
 
 def _hash_file(path: Path) -> str:
@@ -65,6 +71,85 @@ def _hash_file(path: Path) -> str:
         for block in iter(lambda: source.read(1024 * 1024), b""):
             digest.update(block)
     return digest.hexdigest()
+
+
+def _hash_source_file(path: Path) -> str:
+    """Hash reviewed source independent of Git's CRLF checkout conversion."""
+    return hashlib.sha256(path.read_bytes().replace(b"\r\n", b"\n")).hexdigest()
+
+
+def _hash_source_blob(repository_root: Path, revision: str, relative: str) -> str:
+    """Hash the canonical committed blob that the immutable manifest names."""
+    try:
+        completed = subprocess.run(
+            ("git", "-C", str(repository_root), "show", f"{revision}:{relative}"),
+            capture_output=True,
+            check=False,
+        )
+    except OSError as error:
+        raise ValueError("initial runtime source revision is unavailable") from error
+    if completed.returncode != 0:
+        raise ValueError("initial runtime source revision is unavailable")
+    return hashlib.sha256(completed.stdout.replace(b"\r\n", b"\n")).hexdigest()
+
+
+def _clean_source_revision(repository_root: Path) -> str:
+    try:
+        revision = subprocess.run(
+            ("git", "-C", str(repository_root), "rev-parse", "HEAD"),
+            capture_output=True,
+            check=False,
+            encoding="utf-8",
+        )
+        status = subprocess.run(
+            ("git", "-C", str(repository_root), "status", "--porcelain", "--untracked-files=all"),
+            capture_output=True,
+            check=False,
+            encoding="utf-8",
+        )
+    except OSError as error:
+        raise ValueError("initial runtime stage source revision is unavailable") from error
+    source_revision = revision.stdout.strip()
+    if (
+        revision.returncode != 0
+        or status.returncode != 0
+        or status.stdout
+        or not re.fullmatch(r"[0-9a-f]{40}", source_revision)
+    ):
+        raise ValueError("initial runtime stage source revision is unavailable")
+    return source_revision
+
+
+def write_stage_evidence(repository_root: Path, artifact_root: Path, path: Path) -> None:
+    """Record the clean source HEAD and frozen tree without consulting a manifest."""
+    path = path.resolve()
+    if path.exists() or path.is_symlink() or not path.parent.is_dir():
+        raise ValueError("initial runtime stage evidence path is invalid")
+    payload = {
+        "artifact": artifact_identity(artifact_root),
+        "schema_version": _STAGE_EVIDENCE_SCHEMA,
+        "source_revision": _clean_source_revision(repository_root.resolve()),
+    }
+    path.write_text(json.dumps(payload, separators=(",", ":")), encoding="utf-8")
+
+
+def _stage_evidence_identity(artifact_root: Path, path: Path) -> tuple[str, dict[str, object]]:
+    if path.is_symlink() or not path.is_file():
+        raise ValueError("initial runtime stage evidence is unavailable")
+    try:
+        payload: Any = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        raise ValueError("initial runtime stage evidence is unavailable") from error
+    if (
+        not isinstance(payload, dict)
+        or set(payload) != _STAGE_EVIDENCE_FIELDS
+        or payload.get("schema_version") != _STAGE_EVIDENCE_SCHEMA
+        or not isinstance(payload.get("source_revision"), str)
+        or not re.fullmatch(r"[0-9a-f]{40}", payload["source_revision"])
+        or payload.get("artifact") != artifact_identity(artifact_root)
+    ):
+        raise ValueError("initial runtime stage evidence is invalid")
+    return payload["source_revision"], payload["artifact"]
 
 
 def artifact_identity(root: Path) -> dict[str, object]:
@@ -132,7 +217,7 @@ def _load_manifest(
         payload: Any = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as error:
         raise ValueError("initial runtime manifest is unreadable") from error
-    if not isinstance(payload, dict) or set(payload) != _MANIFEST_FIELDS:
+    if not isinstance(payload, dict):
         raise ValueError("initial runtime manifest has an invalid schema")
     version = payload.get("version")
     agent_version = payload.get("agent_version")
@@ -142,12 +227,25 @@ def _load_manifest(
     toolchain = payload.get("toolchain")
     schema_version = payload.get("schema_version")
     if (
-        schema_version not in {2, 3, 4}
+        schema_version not in {2, 3, 4, 5}
         or not isinstance(version, str)
         or not _SEMVER.fullmatch(version)
         or agent_version != version
     ):
         raise ValueError("initial runtime version or agent_version is invalid")
+    expected_manifest_fields = (
+        _MANIFEST_FIELDS_V5 if schema_version == 5 else _MANIFEST_FIELDS_V2_TO_V4
+    )
+    if set(payload) != expected_manifest_fields:
+        raise ValueError("initial runtime manifest has an invalid schema")
+    source_revision = payload.get("source_revision")
+    if schema_version == 5 and (
+        not isinstance(source_revision, str)
+        or not re.fullmatch(r"[0-9a-f]{40}", source_revision)
+    ):
+        raise ValueError("initial runtime source revision is invalid")
+    if schema_version != 5:
+        source_revision = None
     try:
         canonical_guid = str(uuid.UUID(str(guid))).upper()
     except (ValueError, TypeError, AttributeError) as error:
@@ -170,6 +268,7 @@ def _load_manifest(
         2: _TOOLCHAIN_FIELDS_V2,
         3: _TOOLCHAIN_FIELDS_V3,
         4: _TOOLCHAIN_FIELDS_V4,
+        5: _TOOLCHAIN_FIELDS_V4,
     }[schema_version]
     if (
         not isinstance(toolchain, dict)
@@ -210,11 +309,15 @@ def _load_manifest(
             source = repository_root / relative
             if source.is_symlink() or not source.is_file():
                 raise ValueError(f"initial runtime source is missing: {relative}")
-            if _hash_file(source) != expected:
+            if _hash_source_file(source) != expected:
                 raise ValueError(f"initial runtime source hash mismatch: {relative}")
         normalized.append({"path": relative, "sha256": expected})
     if [item["path"] for item in normalized] != sorted(observed):
         raise ValueError("initial runtime source entries must be sorted")
+    if validate_inputs and source_revision is not None:
+        for item in normalized:
+            if _hash_source_blob(repository_root, source_revision, item["path"]) != item["sha256"]:
+                raise ValueError("initial runtime source revision does not match source hashes")
 
     if validate_inputs:
         actual_toolchain = observed_toolchain or discover_toolchain()
@@ -230,6 +333,7 @@ def _load_manifest(
         normalized,
         dict(artifact),
         dict(toolchain),
+        source_revision,
     )
 
 
@@ -241,6 +345,9 @@ def validate_initial_runtime(
     approve_version: bool = False,
     approve_source: bool = False,
     artifact_root: Path | None = None,
+    observed_source_revision: str | None = None,
+    stage_root: Path | None = None,
+    stage_evidence_path: Path | None = None,
     observed_toolchain: dict[str, object] | None = None,
 ) -> InitialRuntimeIdentity:
     """Require exact routine bytes or a reviewed, identity-safe transition."""
@@ -255,6 +362,23 @@ def validate_initial_runtime(
     baseline = _load_manifest(
         repository_root, baseline_path.resolve(), validate_inputs=False
     )
+    if (stage_root is None) != (stage_evidence_path is None):
+        raise ValueError("initial runtime stage evidence root and path are required together")
+    if stage_root is not None and stage_evidence_path is not None:
+        if observed_source_revision is not None:
+            raise ValueError("initial runtime source revision has multiple observations")
+        observed_source_revision, stage_artifact = _stage_evidence_identity(
+            stage_root, stage_evidence_path
+        )
+        if stage_artifact != candidate.artifact:
+            raise ValueError("initial runtime stage evidence does not match manifest artifact")
+    if candidate.source_revision is not None:
+        if observed_source_revision is None:
+            raise ValueError("initial runtime observed source revision is required")
+        if not re.fullmatch(r"[0-9a-f]{40}", observed_source_revision):
+            raise ValueError("initial runtime observed source revision is invalid")
+        if candidate.source_revision != observed_source_revision:
+            raise ValueError("initial runtime source revision mismatch")
     transition = (
         manifest_path.resolve() != baseline_path.resolve()
         or candidate != baseline
@@ -274,6 +398,7 @@ def validate_initial_runtime(
         candidate.identity[1],
         baseline.identity[0],
         transition,
+        candidate.source_revision,
     )
 
 
@@ -283,12 +408,21 @@ def main() -> int:
     parser.add_argument("--manifest", type=Path)
     parser.add_argument("--baseline", type=Path)
     parser.add_argument("--artifact-root", type=Path)
+    parser.add_argument("--stage-root", type=Path)
+    parser.add_argument("--stage-evidence", type=Path)
+    parser.add_argument("--write-stage-evidence", type=Path)
     parser.add_argument("--print-artifact", type=Path)
     parser.add_argument("--approve-version", action="store_true")
     parser.add_argument("--approve-source", action="store_true")
+    parser.add_argument("--source-revision")
     args = parser.parse_args()
     if args.print_artifact is not None:
         print(json.dumps(artifact_identity(args.print_artifact), separators=(",", ":")))
+        return 0
+    if args.write_stage_evidence is not None:
+        if args.repository_root is None or args.artifact_root is None:
+            parser.error("--repository-root and --artifact-root are required")
+        write_stage_evidence(args.repository_root, args.artifact_root, args.write_stage_evidence)
         return 0
     if args.repository_root is None or args.manifest is None or args.baseline is None:
         parser.error("--repository-root, --manifest, and --baseline are required")
@@ -299,10 +433,14 @@ def main() -> int:
         approve_version=args.approve_version,
         approve_source=args.approve_source,
         artifact_root=args.artifact_root,
+        observed_source_revision=args.source_revision,
+        stage_root=args.stage_root,
+        stage_evidence_path=args.stage_evidence,
     )
     print(json.dumps({
         "baseline_version": identity.baseline_version,
         "component_guid": identity.component_guid,
+        "source_revision": identity.source_revision,
         "transition_approved": identity.transition_approved,
         "version": identity.version,
     }, separators=(",", ":")))

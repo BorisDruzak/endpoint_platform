@@ -1,6 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
-     xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util">
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
   <Fragment>
     <ComponentGroup Id="EndpointAgentServiceComponents">
       <Component Id="cmpServiceEntrypoints" Directory="INSTALLFOLDER"
@@ -12,14 +11,7 @@
                         Description="Headless Endpoint Platform device agent"
                         Type="ownProcess" Start="auto" ErrorControl="normal"
                         Account="NT AUTHORITY\LocalService" Vital="yes"
-                        Arguments="--agent-service">
-          <util:ServiceConfig ServiceName="EndpointAgent"
-                              FirstFailureActionType="restart"
-                              SecondFailureActionType="restart"
-                              ThirdFailureActionType="restart"
-                              RestartServiceDelayInSeconds="60"
-                              ResetPeriodInDays="1" />
-        </ServiceInstall>
+                        Arguments="--agent-service" />
         <ServiceControl Id="ctlEndpointAgent" Name="EndpointAgent"
                         Stop="both" Remove="uninstall" Wait="yes" />
 
@@ -28,14 +20,7 @@
                         Description="Demand-start offline Endpoint Agent update worker"
                         Type="ownProcess" Start="demand" ErrorControl="normal"
                         Account="LocalSystem" Vital="yes"
-                        Arguments="--updater-service">
-          <util:ServiceConfig ServiceName="EndpointAgentUpdater"
-                              FirstFailureActionType="restart"
-                              SecondFailureActionType="restart"
-                              ThirdFailureActionType="restart"
-                              RestartServiceDelayInSeconds="60"
-                              ResetPeriodInDays="1" />
-        </ServiceInstall>
+                        Arguments="--updater-service" />
         <ServiceControl Id="ctlEndpointAgentUpdater" Name="EndpointAgentUpdater"
                         Stop="both" Remove="uninstall" Wait="yes" />
       </Component>

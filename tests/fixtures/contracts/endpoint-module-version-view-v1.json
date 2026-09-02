@@ -1,0 +1,35 @@
+{
+  "display_name": "Fixture network check",
+  "module_key": "network.basic.check",
+  "recipe": {
+    "inputs": [
+      {
+        "name": "target",
+        "value_type": "string"
+      }
+    ],
+    "module_key": "network.basic.check",
+    "schema_version": "endpoint_recipe_module_v1",
+    "steps": [
+      {
+        "capability": "dns.resolve",
+        "parameters": {
+          "family": {
+            "kind": "literal",
+            "value": "any"
+          },
+          "target": {
+            "kind": "input",
+            "name": "target"
+          }
+        },
+        "step_id": "dns"
+      }
+    ],
+    "supported_platforms": [
+      "linux_amd64"
+    ]
+  },
+  "state": "published",
+  "version": "1.0.0"
+}

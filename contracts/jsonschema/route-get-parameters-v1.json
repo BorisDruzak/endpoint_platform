@@ -1,0 +1,46 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "family": {
+      "enum": [
+        "any",
+        "ipv4",
+        "ipv6"
+      ],
+      "title": "Family",
+      "type": "string"
+    },
+    "port": {
+      "maximum": 65535,
+      "minimum": 1,
+      "title": "Port",
+      "type": "integer"
+    },
+    "schema_version": {
+      "const": "route_get_parameters_v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "target": {
+      "maxLength": 253,
+      "minLength": 1,
+      "title": "Target",
+      "type": "string"
+    },
+    "timeout_ms": {
+      "maximum": 5000,
+      "minimum": 100,
+      "title": "Timeout Ms",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "schema_version",
+    "target",
+    "port",
+    "family",
+    "timeout_ms"
+  ],
+  "title": "RouteGetParametersV1",
+  "type": "object"
+}

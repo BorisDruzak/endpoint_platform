@@ -1,0 +1,84 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "collected_at": {
+      "$comment": "model-only UTC normalization: timezone-aware values are normalized to UTC.",
+      "format": "date-time",
+      "title": "Collected At",
+      "type": "string"
+    },
+    "error_code": {
+      "anyOf": [
+        {
+          "maxLength": 64,
+          "minLength": 1,
+          "pattern": "^[a-z][a-z0-9_]{0,63}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Error Code"
+    },
+    "installed": {
+      "title": "Installed",
+      "type": "boolean"
+    },
+    "schema_version": {
+      "const": "service_status_result_v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "service_key": {
+      "enum": [
+        "endpoint_agent",
+        "endpoint_agent_updater"
+      ],
+      "title": "Service Key",
+      "type": "string"
+    },
+    "start_mode": {
+      "enum": [
+        "automatic",
+        "manual",
+        "disabled",
+        "unknown"
+      ],
+      "title": "Start Mode",
+      "type": "string"
+    },
+    "state": {
+      "enum": [
+        "running",
+        "stopped",
+        "paused",
+        "failed",
+        "not_found",
+        "unknown"
+      ],
+      "title": "State",
+      "type": "string"
+    },
+    "status": {
+      "enum": [
+        "succeeded",
+        "failed"
+      ],
+      "title": "Status",
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema_version",
+    "service_key",
+    "installed",
+    "state",
+    "start_mode",
+    "status",
+    "collected_at"
+  ],
+  "title": "ServiceStatusResultV1",
+  "type": "object"
+}

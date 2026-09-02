@@ -136,19 +136,7 @@ def test_services_use_fixed_accounts_start_modes_and_recovery() -> None:
         if item.tag == f"{{{WIX_NS}}}ServiceConfig"
     ]
 
-    recovery = [
-        item for item in _all_elements(trees, "ServiceConfig")
-        if item.tag == f"{{{UTIL_NS}}}ServiceConfig"
-    ]
-    assert {item.get("ServiceName") for item in recovery} == {
-        "EndpointAgent",
-        "EndpointAgentUpdater",
-    }
-    for item in recovery:
-        assert item.get("FirstFailureActionType") == "restart"
-        assert item.get("SecondFailureActionType") == "restart"
-        assert item.get("ThirdFailureActionType") == "restart"
-        assert int(item.get("RestartServiceDelayInSeconds", "0")) > 0
+    assert not _all_elements(trees, "ServiceConfig")
 
 
 def test_service_components_remove_services_and_fail_the_transaction_on_error() -> None:
@@ -328,6 +316,7 @@ def test_approved_runtime_transition_migrates_selector_before_service_start() ->
     assert {item.get("Name"): item.get("Value") for item in registry_values} == {
         "Approved": "$(var.InitialRuntimeTransitionApproved)",
         "FromVersion": "$(var.BaselineInitialRuntimeVersion)",
+        "SourceRevision": "$(var.SourceRevision)",
         "ToVersion": "$(var.InitialRuntimeVersion)",
     }
 
@@ -371,6 +360,33 @@ def test_initial_runtime_marker_is_staged_for_msi_ownership_provenance() -> None
 
     assert ".endpoint-msi-runtime.json" in script
     assert "initial_runtime_component_guid" in script
+
+
+def test_msi_builder_seals_the_initial_selector_to_the_exact_source_revision() -> None:
+    """A Windows canary must reject an MSI whose selector cannot prove its staged SHA."""
+    script = (WINDOWS_PACKAGING / "build-msi.ps1").read_text(encoding="utf-8")
+
+    assert "function Get-SourceRevision" in script
+    assert "function Assert-CleanSourceTree" in script
+    assert "git -C $RepositoryRoot status --porcelain --untracked-files=all" in script
+    assert "[string]$InitialRuntimeStageRoot" in script
+    assert "[string]$InitialRuntimeStageEvidence" in script
+    assert "Initial runtime stage evidence is required for a schema-v5 manifest." in script
+    assert "'--stage-root', $InitialRuntimeStageRoot" in script
+    assert "'--stage-evidence', $InitialRuntimeStageEvidence" in script
+    assert "$initialRuntimeSourceRevision = [string]$initialRuntimeIdentity.source_revision" in script
+    assert "$initialRuntimeSourceRevision = [string]$manifestPreview.source_revision" not in script
+    assert "merge-base --is-ancestor $initialRuntimeSourceRevision $checkedOutSourceRevision" in script
+    assert script.count("source_revision = $initialRuntimeSourceRevision") == 2
+    assert "schema_version = 1" in script
+
+
+def test_msi_builder_preserves_the_legacy_baseline_source_revision_fallback() -> None:
+    """A schema-v2 baseline stays buildable while schema-v5 seals staged bytes."""
+    script = (WINDOWS_PACKAGING / "build-msi.ps1").read_text(encoding="utf-8")
+
+    assert "if ([int]$manifestPreview.schema_version -ge 5)" in script
+    assert "$initialRuntimeSourceRevision = $checkedOutSourceRevision" in script
 
 
 def test_initial_runtime_payload_is_validated_before_msi_provenance_marker() -> None:

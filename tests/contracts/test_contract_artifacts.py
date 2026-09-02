@@ -20,6 +20,12 @@ from endpoint_contracts import (
     AgentUpdateAcknowledgementV1,
     AgentUpdateRecommendationV1,
     AgentUpdateReportV1,
+    AdapterListParametersV1,
+    AdapterListResultV1,
+    RouteGetParametersV1,
+    RouteGetResultV1,
+    ServiceStatusParametersV1,
+    ServiceStatusResultV1,
     UpdateBuildManifestV1,
     UpdateRolloutCreateV1,
 )
@@ -89,9 +95,19 @@ def _contains_url_credentials(value: str) -> bool:
     )
 
 
+def test_fixture_safety_allows_only_a_false_public_secret_marker() -> None:
+    """Public non-secret metadata may state that a descriptor is never secret."""
+    _assert_synthetic_fixture({"secret": False})
+    for unsafe_value in (True, "redacted"):
+        with pytest.raises(AssertionError):
+            _assert_synthetic_fixture({"secret": unsafe_value})
+
+
 def _assert_synthetic_fixture(value: Any) -> None:
     for path, child in _walk_json(value):
         field_name = path[-1]
+        if field_name == "secret" and child is False:
+            continue
         assert not SENSITIVE_KEY_PATTERN.search(field_name), path
         if not isinstance(child, str):
             continue
@@ -100,7 +116,7 @@ def _assert_synthetic_fixture(value: Any) -> None:
         assert not _contains_url_credentials(child), path
         if UUID_PATTERN.fullmatch(child):
             assert child in SYNTHETIC_UUIDS, path
-        elif field_name != "sha256":
+        elif field_name not in {"sha256", "schema_version", "feature_flag"}:
             assert not OPAQUE_VALUE_PATTERN.fullmatch(child), path
         if field_name.lower() in DEVICE_DATA_FIELDS or any(
             marker in field_name.lower() for marker in DEVICE_DATA_MARKERS
@@ -475,6 +491,7 @@ def test_endpoint_operation_service_openapi_documents_scopes_and_safe_models(
     capabilities = paths["/api/v1/devices/{device_id}/capabilities"]["get"]
     create = paths["/api/v1/devices/{device_id}/operations"]["post"]
     read = paths["/api/v1/operations/{operation_id}"]["get"]
+    module_capabilities = paths["/api/v1/module-capabilities"]["get"]
 
     assert capabilities["security"] == [{"ServiceBearer": []}]
     assert capabilities["x-required-scopes"] == ["devices.read"]
@@ -482,6 +499,8 @@ def test_endpoint_operation_service_openapi_documents_scopes_and_safe_models(
     assert create["x-required-scopes"] == ["operations.create"]
     assert read["security"] == [{"ServiceBearer": []}]
     assert read["x-required-scopes"] == ["operations.read"]
+    assert module_capabilities["security"] == [{"ServiceBearer": []}]
+    assert module_capabilities["x-required-scopes"] == ["modules.read"]
     assert any(
         parameter["name"] == "Idempotency-Key" and parameter["required"] is True
         for parameter in create["parameters"]
@@ -567,7 +586,6 @@ def test_update_contract_artifacts_publish_strict_safe_control_plane_schemas() -
     assert "traceback" not in report_schema["properties"]
     assert "logs" not in report_schema["properties"]
     assert "safe_message" not in report_schema["properties"]
-
     manifest_schema = json.loads(
         Path("contracts/jsonschema/update-build-manifest-v1.json").read_text(
             encoding="utf-8"
@@ -624,6 +642,19 @@ def test_update_contract_artifacts_publish_strict_safe_control_plane_schemas() -
     ]["responses"]["200"]
     assert ack_success == {"description": "Update acknowledgement recorded"}
     assert report_success == {"description": "Update report recorded"}
+
+
+def test_read_only_primitive_contract_artifacts_publish_repaired_dtos() -> None:
+    expected_models = {
+        "route-get-parameters-v1.json": RouteGetParametersV1,
+        "route-get-result-v1.json": RouteGetResultV1,
+        "adapter-list-parameters-v1.json": AdapterListParametersV1,
+        "adapter-list-result-v1.json": AdapterListResultV1,
+        "service-status-parameters-v1.json": ServiceStatusParametersV1,
+        "service-status-result-v1.json": ServiceStatusResultV1,
+    }
+
+    assert {name: PUBLIC_MODELS[name] for name in expected_models} == expected_models
 
 
 @pytest.mark.parametrize(

@@ -1,0 +1,10 @@
+{
+  "collected_at": "2026-08-28T00:00:00Z",
+  "error_code": null,
+  "installed": true,
+  "schema_version": "service_status_result_v1",
+  "service_key": "endpoint_agent",
+  "start_mode": "automatic",
+  "state": "running",
+  "status": "succeeded"
+}

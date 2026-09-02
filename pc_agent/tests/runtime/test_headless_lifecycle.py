@@ -4,6 +4,10 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
+import re
+import subprocess
+import sys
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
@@ -12,7 +16,8 @@ from uuid import UUID
 import aiohttp
 import pytest
 
-from endpoint_contracts import AgentCommandV1, GatewayHelloV1
+from endpoint_contracts import AgentCommandV1, AgentResultV1, GatewayHelloV1
+from pc_agent.enrollment_bootstrap import EnrollmentOutcome
 from pc_agent import endpoint_gateway
 from pc_agent.runtime import application as runtime_application
 from pc_agent.runtime import main as runtime_main
@@ -23,7 +28,13 @@ from pc_agent.runtime.application import (
     run_runtime,
 )
 from pc_agent.runtime.command_executor import CommandExecutor
-from pc_agent.runtime.lifecycle import CredentialRejected, RetryableTransportError
+from pc_agent.primitives.network.policy import AgentNetworkProbePolicy
+from pc_agent.runtime.lifecycle import (
+    CredentialRejected,
+    RetryableTransportError,
+    _handle_inbound,
+)
+from pc_agent.transport.protocol import GatewayInboundV1
 from pc_agent.runtime.status import RuntimePhase
 from pc_agent.tests.context.conftest import FakeProbe
 from pc_agent.transport.protocol import compatibility_agent_hello
@@ -46,6 +57,99 @@ def test_headless_runtime_prints_its_compiled_version_without_runtime_inputs(
     """RPM assembly must be able to query the frozen core before publishing it."""
     assert runtime_main.main(["--print-version"]) == 0
     assert capsys.readouterr().out.strip() == AGENT_VERSION
+
+
+def test_headless_runtime_prints_one_canonical_hardware_fingerprint_without_runtime_inputs(
+) -> None:
+    """The RPM claim controller must query the frozen core before any network work."""
+    completed = subprocess.run(
+        [sys.executable, "-m", "pc_agent.runtime.main", "--print-hardware-fingerprint"],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode == 0
+    assert re.fullmatch(r"sha256:[0-9a-f]{64}\n?", completed.stdout)
+    assert completed.stderr == ""
+
+
+def test_headless_runtime_defines_a_first_boot_enrollment_boundary() -> None:
+    """The RPM entrypoint must gate first start before the Gateway runtime."""
+    assert hasattr(runtime_main, "_run_runtime_after_first_boot_enrollment")
+
+
+@pytest.mark.asyncio
+async def test_headless_runtime_exchanges_systemd_claim_before_gateway_start(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """No Gateway component may start until the first-boot exchange is accepted."""
+    events: list[str] = []
+    settings = _settings(tmp_path)
+    paths = (Path("/run/config"), Path("/run/ca"), Path("/run/claim"))
+    monkeypatch.setenv("ENDPOINT_AGENT_ENROLLMENT_REQUIRED", "1")
+    monkeypatch.setattr(runtime_main, "systemd_runtime_paths", lambda: paths)
+
+    async def enroll(**kwargs: object) -> EnrollmentOutcome:
+        assert kwargs == {
+            "config_path": paths[0],
+            "ca_file": paths[1],
+            "claim_file": paths[2],
+        }
+        events.append("enroll")
+        return EnrollmentOutcome("already_enrolled", "device-1")
+
+    async def start_gateway(observed: RuntimeSettings) -> int:
+        assert observed is settings
+        events.append("gateway")
+        return 0
+
+    monkeypatch.setattr(runtime_main, "run_linux_enrollment_gate", enroll)
+    monkeypatch.setattr(runtime_main, "run_runtime", start_gateway)
+
+    assert await runtime_main._run_runtime_after_first_boot_enrollment(settings) == 0
+    assert events == ["enroll", "gateway"]
+
+
+def test_headless_runtime_rejects_unapproved_staging_origin_before_gateway_start(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A unit override alone must not redirect a production agent to staging."""
+    settings: list[RuntimeSettings] = []
+    monkeypatch.setenv("ENDPOINT_AGENT_GATEWAY_READY", "1")
+    monkeypatch.setenv("ENDPOINT_AGENT_ORIGIN", "https://endpoint-staging.sosnadmin.local")
+
+    async def forbidden_gateway(observed: RuntimeSettings) -> int:
+        settings.append(observed)
+        return 0
+
+    monkeypatch.setattr(runtime_main, "run_runtime", forbidden_gateway)
+
+    assert runtime_main.main(["--ca-file", str(tmp_path / "ca.crt")]) == 75
+    assert settings == []
+
+
+def test_headless_runtime_accepts_explicitly_approved_staging_origin(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The only staging path is the marker-bound canary origin."""
+    settings: list[RuntimeSettings] = []
+    monkeypatch.setenv("ENDPOINT_AGENT_GATEWAY_READY", "1")
+    monkeypatch.setenv("ENDPOINT_AGENT_ORIGIN", "https://endpoint-staging.sosnadmin.local")
+    monkeypatch.setenv("ENDPOINT_AGENT_DEPLOYMENT_ENVIRONMENT", "staging")
+    monkeypatch.setenv("CANARY_ENVIRONMENT", "staging")
+    monkeypatch.setenv("CANARY_APPROVED", "true")
+
+    async def gateway(observed: RuntimeSettings) -> int:
+        settings.append(observed)
+        return 0
+
+    monkeypatch.setattr(runtime_main, "run_runtime", gateway)
+
+    assert runtime_main.main(["--ca-file", str(tmp_path / "ca.crt")]) == 0
+    assert [item.endpoint_origin for item in settings] == [
+        "https://endpoint-staging.sosnadmin.local"
+    ]
 
 
 class _Executor:
@@ -235,6 +339,84 @@ async def test_retryable_transport_failure_reconnects_without_reloading_credenti
 
 
 @pytest.mark.asyncio
+async def test_strict_windows_wss_lifecycle_clears_then_publishes_transport_readiness(
+    tmp_path: Path,
+) -> None:
+    """A stale ready status must not survive reconnect and precede a fresh WSS handshake."""
+    events: list[str] = []
+
+    class CanaryStatusRecorder:
+        def write_not_ready(self) -> None:
+            events.append("canary.not_ready")
+
+        def write_wss_ready(self) -> None:
+            events.append("canary.wss_ready")
+
+    settings = RuntimeSettings(
+        data_root=tmp_path / "data",
+        install_root=tmp_path / "install",
+        ca_file=tmp_path / "endpoint-ca.crt",
+        endpoint_origin="https://endpoint.sosnadmin.local",
+        transport_mode="gateway_wss",
+        migration_http_pull_fallback=False,
+    )
+    base = _dependencies(events, [None])
+    dependencies = RuntimeDependencies(
+        load_credential=base.load_credential,
+        create_executor=base.create_executor,
+        create_transport=base.create_transport,
+        sleep=base.sleep,
+        reconnect_delay=base.reconnect_delay,
+        create_canary_status_writer=lambda _settings: CanaryStatusRecorder(),
+    )
+
+    assert await RuntimeApplication(settings, dependencies).run() == 0
+    assert events.index("canary.not_ready") < events.index("transport.connect")
+    assert events.index("transport.connect") < events.index("canary.wss_ready")
+
+
+def test_default_runtime_creates_canary_status_only_for_strict_wss(
+    tmp_path: Path,
+) -> None:
+    """HTTP-pull and migration fallback agents must stay ineligible for the strict canary."""
+    data_root = tmp_path / "data"
+    install_root = tmp_path / "install"
+    data_root.mkdir()
+    install_root.mkdir()
+    (install_root / "current.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "source_revision": "a" * 40,
+                "version": AGENT_VERSION,
+            }
+        ),
+        encoding="utf-8",
+    )
+    strict = RuntimeSettings(
+        data_root=data_root,
+        install_root=install_root,
+        ca_file=tmp_path / "endpoint-ca.crt",
+        endpoint_origin="https://endpoint.sosnadmin.local",
+        transport_mode="gateway_wss",
+        migration_http_pull_fallback=False,
+    )
+    fallback = RuntimeSettings(
+        data_root=data_root,
+        install_root=install_root,
+        ca_file=tmp_path / "endpoint-ca.crt",
+        endpoint_origin="https://endpoint.sosnadmin.local",
+        transport_mode="gateway_wss",
+        migration_http_pull_fallback=True,
+    )
+
+    writer = runtime_application._create_canary_status_writer(strict)
+
+    assert writer is not None
+    assert runtime_application._create_canary_status_writer(fallback) is None
+
+
+@pytest.mark.asyncio
 async def test_gateway_credential_rejection_is_terminal_in_process(
     tmp_path: Path,
 ) -> None:
@@ -373,6 +555,94 @@ async def test_command_executor_uses_existing_typed_context_path() -> None:
 
 
 @pytest.mark.asyncio
+async def test_command_executor_routes_network_capability_only_through_registered_handler() -> None:
+    calls: list[str] = []
+    command = AgentCommandV1.model_validate(
+        {
+            "schema_version": "agent_command_v1",
+            "command_id": "00000000-0000-4000-8000-000000000411",
+            "device_id": "00000000-0000-4000-8000-000000000412",
+            "capability": "dns.resolve",
+            "parameters": {"target": "api.example.test", "family": "any"},
+            "requested_by_service": "runtime-test",
+            "idempotency_key": "runtime-network-command-411",
+            "created_at": "2026-08-26T00:00:00Z",
+            "deadline_at": "2026-08-26T00:05:00Z",
+        }
+    )
+
+    def execute_network(observed: AgentCommandV1, *, policy: AgentNetworkProbePolicy) -> AgentResultV1:
+        policy.require_allowed("api.example.test")
+        calls.append(observed.capability)
+        return AgentResultV1(
+            schema_version="agent_result_v1",
+            command_id=observed.command_id,
+            device_id=observed.device_id,
+            status="succeeded",
+            result_items=[],
+            completed_at=datetime(2026, 8, 26, tzinfo=UTC),
+        )
+
+    executor = CommandExecutor(
+        probe_factory=object,
+        execute_network_command=execute_network,
+        network_probe_policy=AgentNetworkProbePolicy.from_values(
+            allowed_cidrs=(), allowed_suffixes=(".example.test",)
+        ),
+    )
+    await executor.start()
+
+    result = await executor.execute(command)
+
+    assert result.status == "succeeded"
+    assert calls == ["dns.resolve"]
+
+
+@pytest.mark.asyncio
+async def test_completion_sink_failure_does_not_suppress_command_result() -> None:
+    """A local canary artifact failure is never allowed to lose an executed result."""
+    command = _command("context.diagnostic.collect")
+    result = AgentResultV1(
+        schema_version="agent_result_v1",
+        command_id=command.command_id,
+        device_id=command.device_id,
+        status="succeeded",
+        result_items=[],
+        completed_at=datetime(2026, 8, 1, 9, 1, tzinfo=UTC),
+    )
+    sent: list[str] = []
+
+    class Transport:
+        async def send_ack(self, _ack) -> None:
+            sent.append("ack")
+
+        async def send_result(self, observed: AgentResultV1) -> None:
+            assert observed is result
+            sent.append("result")
+
+    class Executor:
+        async def execute(self, observed: AgentCommandV1) -> AgentResultV1:
+            assert observed.command_id == command.command_id
+            return result
+
+    def broken_sink(_marker: dict[str, object]) -> None:
+        raise RuntimeError("canary status storage failed")
+
+    inbound = GatewayInboundV1.model_validate(
+        {
+            "schema_version": "gateway_ws_envelope_v1",
+            "sequence": 1,
+            "kind": "command",
+            "payload": command.model_dump(mode="json"),
+        }
+    )
+
+    await _handle_inbound(Transport(), Executor(), inbound, broken_sink)
+
+    assert sent == ["ack", "result"]
+
+
+@pytest.mark.asyncio
 async def test_default_runtime_wires_executor_into_current_http_pull(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -476,7 +746,10 @@ async def test_default_lifecycle_hello_uses_exact_stored_enrollment_device_id(
 
     assert await RuntimeApplication(settings, dependencies).run() == 0
     expected = compatibility_agent_hello().model_copy(
-        update={"device_id": stored_device_id}
+        update={
+            "device_id": stored_device_id,
+            "platform": "windows_amd64" if os.name == "nt" else "linux_amd64",
+        }
     )
     assert observed == [expected]
     assert expected.agent_version == "http-pull"
@@ -534,6 +807,38 @@ async def test_default_wss_composition_binds_bearer_to_stored_server_device_id(
     assert hello.device_id == stored_device_id
     assert hello.agent_version == AGENT_VERSION
     assert hello.launcher_version == AGENT_VERSION
+
+
+def test_default_hello_loader_reports_windows_gateway_platform(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The Windows runtime must not inherit the Linux compatibility platform."""
+    stored_device_id = UUID("00000000-0000-4000-8000-000000000437")
+    settings = RuntimeSettings(
+        data_root=tmp_path / "data",
+        install_root=tmp_path / "install",
+        ca_file=tmp_path / "endpoint-ca.crt",
+        endpoint_origin="https://endpoint.sosnadmin.local",
+        transport_mode="gateway_wss",
+    )
+    settings.data_root.mkdir()
+    (settings.data_root / "enrollment-identity.json").write_text(
+        json.dumps(
+            {
+                "device_id": str(stored_device_id),
+                "schema_version": "endpoint_enrollment_identity_v1",
+            },
+            separators=(",", ":"),
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(runtime_application.os, "name", "nt")
+
+    hello = runtime_application._default_dependencies().load_hello(settings)
+
+    assert hello.device_id == stored_device_id
+    assert hello.platform == "windows_amd64"
 
 
 @pytest.mark.parametrize(

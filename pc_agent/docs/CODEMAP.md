@@ -58,6 +58,17 @@
   `pc_agent/device_credential.py` is the shared credential-file validator.
   `runtime/local_state.py` owns only the Endpoint Agent V2 SQLite schema and
   does not import or migrate the Helpdesk Protocol V3 database.
+- `pc_agent/primitives/read_only/` adds three closed Gateway diagnostics:
+  `route.get`, `adapter.list`, and `system.service_status`. `route.get`
+  resolves its candidate set, applies the fail-closed target policy to
+  every concrete IP, and uses a UDP socket only to infer a local source and
+  optional safe interface name. `adapter.list` has no caller inputs and
+  projects capped psutil address/state/MTU/speed facts without MAC or SSID
+  data. Service status accepts only fixed Endpoint agent/updater logical keys;
+  Linux exposes the agent unit and reports the updater as unsupported until an
+  approved fixed unit exists, while Windows maps internally to fixed SCM keys.
+  These handlers accept no command, PowerShell, Python, executable, path, URL,
+  or raw service-name input, and never start, stop, restart, or write anything.
 - Endpoint Operations use that same typed executor for
   `context.diagnostic.collect`. The server alone links an operation to a
   private command and sends it through `/agent/v1/connect`; operation commands
@@ -104,8 +115,30 @@
   boundary. `packaging/windows/` owns the WiX 4 machine-wide x64 binding,
   fixed service registration/recovery, ProgramData preservation, secret-free
   payload manifest, and final-uninstall versus administrator-purge behavior.
-  `pc_agent/runtime/main.py --windows-restrict-updater-start` is the fixed
-  no-argument deferred MSI boundary for the updater service DACL.
+  Its initial `current.json` selector is sealed as schema version 1 with the
+  exact source revision that staged the selected runtime. Schema-5 packaging
+  independently records the clean staging HEAD plus staged-tree identity in a
+  stage-evidence sidecar before reading its manifest, then verifies that evidence, the manifest source hashes,
+  and the retained stage; this source revision can precede a clean MSI-wrapper
+  commit. The Windows service host accepts
+  legacy version-only selectors only for safe upgrade compatibility, while
+  diagnostic-canary provenance requires the revision-bound schema. Its child
+  command preserves the protected provisioned Endpoint origin, so staging
+  enrollment is never redirected to the production FQDN.
+  `pc_agent/platform/windows/service_launcher.py --configure-service-sids` is the fixed
+  no-argument deferred MSI boundary for both service SIDs and the fixed SCM
+  recovery policy (three 60-second restarts, daily reset); it avoids the WiX
+  recovery custom action during in-place upgrades. The separate
+  `--windows-restrict-updater-start` boundary replaces the updater service DACL.
+- `pc_agent/platform/windows/canary_status.py` is the Windows-only protected,
+  redacted canary status record. The normal lifecycle writes `not-ready` before
+  connecting and strict WSS facts after connection, including only the
+  configured hostname (never a full origin or authentication data); its
+  completion sink then selects one bounded `context.diagnostic.collect` marker from
+  `command-completions.jsonl`. `tools/canary/Collect-WindowsAgentPreflight.ps1`
+  cross-checks that record with the immutable selector and installer
+  provenance, while `tools/canary/verify_installed_windows_agent.py` separates
+  readiness from the exact post-operation completion proof.
 
 ## ALT first-boot enrollment bootstrap (2026-07-30)
 
@@ -115,6 +148,9 @@
   are present; incomplete or renamed input fails closed. Its hidden
   `--print-hardware-fingerprint` mode writes only the canonical SHA-256 proof
   for a root-side controller and does not start the agent.
+- Its gateway allowlist remains production by default.  The only staging origin
+  is `https://endpoint-staging.sosnadmin.local`, accepted only when all three
+  explicit unit markers select and approve the staging canary.
 - `pc_agent/enrollment_bootstrap.py` performs the one-time Endpoint Platform
   install claim when that runtime boundary explicitly calls
   `bootstrap_enrollment(credentials_dir, config, probe)`; importing either
@@ -179,6 +215,14 @@
 - `pc_agent/context_profiles/` owns bounded, read-only ALT profile collectors
   and `SystemProbe`; it never receives an arbitrary module, method, shell
   command or network target from a caller.
+- `pc_agent/runtime/lifecycle.py` emits the bounded
+  `endpoint_agent_command_completed` marker after the fixed executor returns
+  and before the Gateway result is sent. It contains only command ID,
+  capability, status, duration, result-item count and timestamp; command
+  parameters and raw results are never logged. On the Windows service it also
+  writes the same bounded fields through the fixed protected
+  `command-completions.jsonl` sink below the agent data root; no Gateway DTO is
+  changed and the sink never stores a command parameter or result item.
 - `pc_agent/core/registry.py` and `pc_agent/core/orchestrator.py` expose only
   `context.baseline.collect`, `context.health.collect`,
   `context.network.collect`, and `context.diagnostic.collect`. Every success

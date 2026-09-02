@@ -8,11 +8,15 @@ are not MSI inputs.
 ## Build
 
 Prerequisites are Python with PyInstaller and the WiX Toolset 4 `wix` command
-with `WixToolset.Util.wixext` available. From the repository root:
+with `WixToolset.Util.wixext` available. The source tree must be Git-clean;
+the builder refuses a dirty tree. A schema-5 manifest also requires independent
+evidence for the retained initial-runtime stage. From the repository root:
 
 ```powershell
 .\packaging\windows\build-msi.ps1 -Configuration Release -Platform x64 `
-  -InitialRuntimeManifest .\packaging\windows\initial-runtime-3.2.13.json `
+  -InitialRuntimeManifest .\packaging\windows\initial-runtime-3.2.26.json `
+  -InitialRuntimeStageRoot <retained-runtime-stage> `
+  -InitialRuntimeStageEvidence <stage-evidence.json> `
   -ApproveInitialRuntimeTransition -ApproveInitialRuntimeSourceChange
 ```
 
@@ -25,10 +29,10 @@ and paths inside the repository are rejected. The build has no parameter for
 enrollment or device material and does not read such input.
 
 The checked-in `initial-runtime.json` remains the immutable `3.1.76` baseline.
-The reviewed `initial-runtime-3.2.13.json` transition pins the Windows Device
-Context and WSS update runtime with a new component GUID and must be built with both explicit
+The reviewed `initial-runtime-3.2.26.json` transition pins the Windows Device
+Context and WSS diagnostic-canary runtime with a new component GUID and must be built with both explicit
 approval switches shown above. Each manifest pins its runtime version,
-component GUID, source-file hashes, complete staged artifact tree identity,
+component GUID, canonical-LF source-file hashes, complete staged artifact tree identity,
 and the CPython/PyInstaller producer identity, including
 `PYTHONHASHSEED=0` so PyInstaller's `base_library.zip` entry order is stable.
 Each completed build retains a versioned MSI in `<WixBuildRoot>\releases`; use
@@ -48,13 +52,63 @@ MSI-owned launcher/service metadata while keeping ProgramData and a valid
 installation and the ACL actions fail the transaction instead of continuing
 with a partial service installation.
 
+## Schema-5 runtime provenance
+
+Before a schema-5 MSI build, create the retained headless runtime stage from a
+clean checkout and write evidence beside (not inside) that stage:
+
+```powershell
+python .\packaging\windows\initial_runtime_contract.py `
+  --repository-root . `
+  --artifact-root <retained-runtime-stage> `
+  --write-stage-evidence <stage-evidence.json>
+```
+
+The evidence is generated without reading the release manifest. It records the
+clean staging checkout's Git HEAD and the complete stage-tree identity. The MSI
+builder rehashes the retained stage, verifies that evidence, and requires its
+source revision to equal the manifest's `source_revision`; it then verifies
+every manifest source hash against Git blobs at that revision. The revision
+must be an ancestor of the clean MSI build checkout, but may precede the MSI
+build commit when later commits change only release metadata or tests. Thus the
+schema-1 selector, binding, and release sidecar identify the runtime-stage
+source, not an unrelated later MSI-wrapper commit.
+
+## Staging diagnostic canary
+
+Use `Install-EndpointAgentCanary.ps1` only from an elevated PowerShell session
+with the versioned MSI and its adjacent `*.release.json` sidecar. The wrapper
+verifies the exact release manifest and MSI hash, copies that verified MSI to
+a protected Program Files execution cache before invoking Windows Installer,
+then records the same verified bytes and secret-free provenance in the
+MSI-protected ProgramData evidence cache. It never accepts an arbitrary cache
+location or enrollment material. Before invoking the MSI it stops only the
+fixed `EndpointAgent` and `EndpointAgentUpdater` services and the system
+Windows Installer service, starts
+`EndpointAgent` after recording provenance, and restores a previously running
+core agent if installation fails.
+
+After the agent has completed a strict Gateway WSS connection, collect a
+redacted readiness projection with
+`tools/canary/Collect-WindowsAgentPreflight.ps1` and validate it with
+`tools/canary/verify_installed_windows_agent.py`. A readiness projection may
+have no command completion. After the one diagnostic operation, rerun the
+collector with `-RequireCompletion`, the exact command ID, and
+`context.diagnostic.collect`; the validator then accepts only that successful
+bounded completion marker. Both stages verify the selector, installed MSI
+provenance, protected local artifacts, and strict WSS status without reading
+or reporting credential contents. The protected status retains only the
+configured hostname so the collector can reject a connection to another FQDN;
+it never records a full endpoint URL or authentication material.
+
 ## Installed security boundary
 
 - `EndpointAgent` runs as `NT AUTHORITY\LocalService` and is automatic-start.
 - `EndpointAgentUpdater` runs as `LocalSystem` and is demand-start only.
 - Both registrations enable unrestricted per-service SIDs. Their fixed
   `endpoint-agent-service.exe` SCM binary resolves the strict `current.json`
-  selector on every agent-service start, so apply and rollback select the
+  selector on every agent-service start and retains the protected provisioned
+  Endpoint origin, so apply and rollback select the
   corresponding immutable runtime.
 - Program Files inherits the standard administrator-only write policy; the
   installer adds no ordinary-user write ACL.
@@ -67,6 +121,11 @@ with a partial service installation.
 - The MSI contains only binaries, the immutable initial selector, this public
   documentation, and a public configuration template. Provisioning happens
   after installation through the separately reviewed protected handoff.
+- Each newly built MSI seals that initial selector as schema version 1 with the
+  exact 40-character Git revision that staged the selected runtime. Older installed
+  version-only selectors remain launch-compatible for upgrade safety, but they
+  do not provide the immutable provenance required by the Windows diagnostic
+  canary; recover those hosts with a freshly built and installed MSI.
 
 Default uninstall removes both services and the Program Files binary tree,
 including updater-published version directories. It deliberately preserves

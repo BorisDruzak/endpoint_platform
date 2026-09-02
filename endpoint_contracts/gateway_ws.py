@@ -14,6 +14,11 @@ from pydantic import (
 )
 
 from .base import ContractModelV1
+from .capabilities import (
+    MODULE_CAPABILITY_REGISTRY,
+    module_capability_gateway_parameter_schema,
+    validate_module_capability_parameters,
+)
 from .commands import AgentCommandAckV1, AgentCommandV1, AgentResultV1
 from .telemetry import AgentHeartbeatV1
 
@@ -148,6 +153,17 @@ def _gateway_command_schema_extra(schema: dict[str, object]) -> None:
             },
         },
     ]
+    schema["allOf"].extend(
+        {
+            "if": {"properties": {"capability": {"const": capability}}},
+            "then": {
+                "properties": {
+                    "parameters": module_capability_gateway_parameter_schema(capability)
+                }
+            },
+        }
+        for capability in MODULE_CAPABILITY_REGISTRY
+    )
 
 
 class GatewayCommandV1(AgentCommandV1):
@@ -165,6 +181,9 @@ class GatewayCommandV1(AgentCommandV1):
             "context.network.collect": frozenset(),
             "context.diagnostic.collect": frozenset({"reason"}),
         }
+        if self.capability in MODULE_CAPABILITY_REGISTRY:
+            validate_module_capability_parameters(self.capability, self.parameters)
+            return self
         unexpected = set(self.parameters) - allowed_keys[self.capability]
         if unexpected:
             raise ValueError(

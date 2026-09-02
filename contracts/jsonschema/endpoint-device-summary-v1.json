@@ -1,0 +1,48 @@
+{
+  "additionalProperties": false,
+  "description": "Strict device projection used for external verified-reference reads.",
+  "properties": {
+    "device_id": {
+      "format": "uuid",
+      "title": "Device Id",
+      "type": "string"
+    },
+    "display_name": {
+      "maxLength": 256,
+      "minLength": 1,
+      "title": "Display Name",
+      "type": "string"
+    },
+    "last_seen_at": {
+      "anyOf": [
+        {
+          "$comment": "model-only UTC normalization: timezone-aware values are normalized to UTC.",
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Last Seen At"
+    },
+    "retired": {
+      "title": "Retired",
+      "type": "boolean"
+    },
+    "schema_version": {
+      "const": "endpoint_device_summary_v1",
+      "title": "Schema Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema_version",
+    "device_id",
+    "display_name",
+    "retired"
+  ],
+  "title": "EndpointDeviceSummaryV1",
+  "type": "object"
+}

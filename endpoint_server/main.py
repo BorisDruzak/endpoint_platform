@@ -5,8 +5,10 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 from typing import AsyncIterator
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request, Response, status
 from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
+from starlette.middleware.base import RequestResponseEndpoint
 
 from endpoint_server.auth.admin_sessions import router as admin_auth_router
 from endpoint_server.auth.validation import redacting_validation_exception_handler
@@ -22,7 +24,14 @@ from endpoint_server.provisioning.admin_routes import (
     router as provisioning_admin_router,
 )
 from endpoint_server.health.routes import router as health_router
+from endpoint_server.http.correlation import (
+    is_correlation_api_request,
+    is_safe_correlation_id,
+)
 from endpoint_server.operations.routes import router as operations_router
+from endpoint_server.modules.routes import router as modules_router
+from endpoint_server.modules.catalog_routes import router as module_capability_catalog_router
+from endpoint_server.modules.execution_routes import router as module_execution_router
 from endpoint_server.gateway.routes import router as gateway_router
 from endpoint_server.gateway.connection_registry import (
     ConnectionRegistry,
@@ -67,6 +76,33 @@ def create_app(
         RequestValidationError,
         redacting_validation_exception_handler,
     )
+
+    @app.middleware("http")
+    async def echo_operation_correlation(
+        request: Request,
+        call_next: RequestResponseEndpoint,
+    ) -> Response:
+        """Keep the service tracing header out of JSON success and error bodies."""
+        correlation_id = request.headers.get("X-Correlation-ID")
+        if (
+            is_correlation_api_request(request.method, request.url.path)
+            and correlation_id is not None
+            and not is_safe_correlation_id(correlation_id)
+        ):
+            return JSONResponse(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                content={"detail": {"code": "endpoint_operation_invalid_correlation_id"}},
+            )
+
+        response = await call_next(request)
+        if (
+            is_correlation_api_request(request.method, request.url.path)
+            and correlation_id is not None
+            and is_safe_correlation_id(correlation_id)
+        ):
+            response.headers["X-Correlation-ID"] = correlation_id
+        return response
+
     app.include_router(health_router)
     app.include_router(admin_auth_router)
     app.include_router(enrollment_admin_router)
@@ -80,4 +116,9 @@ def create_app(
     app.include_router(context_router)
     if settings.endpoint_operations_api_enabled:
         app.include_router(operations_router)
+    if settings.endpoint_module_platform_enabled:
+        app.include_router(modules_router)
+        app.include_router(module_capability_catalog_router)
+    if settings.endpoint_module_execution_enabled:
+        app.include_router(module_execution_router)
     return app

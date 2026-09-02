@@ -33,6 +33,9 @@ from endpoint_server.db.models import (
     DeviceInstance,
     DeviceSession,
     EndpointOperation,
+    ModuleDefinition,
+    ModuleOperationStep,
+    ModuleVersion,
     ServiceClient,
 )
 from endpoint_server.enrollment.credentials import device_token_digest
@@ -54,6 +57,9 @@ _GATEWAY_TABLES = (
     ContextDiff.__table__,
     ContextCurrent.__table__,
     EndpointOperation.__table__,
+    ModuleDefinition.__table__,
+    ModuleVersion.__table__,
+    ModuleOperationStep.__table__,
     AuditEvent.__table__,
 )
 

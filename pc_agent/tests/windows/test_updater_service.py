@@ -62,6 +62,20 @@ def _paths(tmp_path: Path):
     )
 
 
+def test_updater_reads_a_revision_bound_installed_selector(tmp_path: Path) -> None:
+    """A fresh MSI selector must remain eligible for normal offline updates."""
+    from pc_agent.platform.windows.updater_service import _load_current
+
+    path = tmp_path / "current.json"
+    path.write_text(json.dumps({
+        "schema_version": 1,
+        "source_revision": "a" * 40,
+        "version": "3.2.1",
+    }), encoding="utf-8")
+
+    assert _load_current(path) == "3.2.1"
+
+
 def test_release_verifier_uses_fixed_enrolled_state_paths(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

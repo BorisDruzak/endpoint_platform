@@ -19,6 +19,8 @@ from endpoint_contracts import (
     DeviceContextDiagnosticV1,
     DiagnosticCollectionParametersV1,
 )
+from endpoint_contracts.capabilities import module_capability_descriptor
+from endpoint_contracts.modules import EndpointRecipeModuleSpecV1
 from endpoint_contracts.gateway_ws import (
     CommandEnvelopeV1,
     GatewayCommandV1,
@@ -29,6 +31,7 @@ from endpoint_server.context.ingestion import ingest_context_result
 from endpoint_server.context.models import ContextCollection, ContextSnapshot
 from endpoint_server.context.repository import link_collection_command
 from endpoint_server.context.service import ContextError
+from endpoint_server.audit.service import append_audit_event
 from endpoint_server.db.models import (
     Command,
     CommandDelivery,
@@ -36,13 +39,19 @@ from endpoint_server.db.models import (
     DeviceInstance,
     DeviceSession,
     EndpointOperation,
+    ModuleOperationStep,
 )
+from endpoint_server.db.models.modules import ModuleVersion
 from endpoint_server.db.session import SessionProvider
 from endpoint_server.operations.projection import project_diagnostic_result
 from endpoint_server.operations.redaction import sanitize_agent_public_text
 from endpoint_server.operations.service import (
     append_operation_terminal_audit,
     expire_operation_if_due,
+)
+from endpoint_server.modules.recipe_engine import (
+    RecipeExecutionError,
+    build_recipe_command_plan,
 )
 
 SendCommand = Callable[[CommandEnvelopeV1], Awaitable[None] | None]
@@ -105,6 +114,196 @@ def _command_payload(
     )
 
 
+def _module_step_payload(
+    command: Command,
+    operation: EndpointOperation,
+    step: ModuleOperationStep,
+    *,
+    parameters: dict[str, str | int],
+) -> GatewayCommandV1:
+    """Expose one previously-expanded primitive, never its containing recipe."""
+    created_at = _as_utc(command.created_at)
+    deadline_at = _as_utc(operation.deadline_at)
+    if created_at is None or deadline_at is None:
+        raise CommandStateRejected("module command timing is unavailable")
+    if (
+        command.command_kind != step.capability
+        or command.device_id != operation.device_id
+    ):
+        raise CommandStateRejected("module command relation is unavailable")
+    return GatewayCommandV1(
+        schema_version="agent_command_v1",
+        command_id=command.id,
+        device_id=operation.device_id,
+        capability=step.capability,
+        parameters=parameters,
+        requested_by_service="endpoint-platform",
+        idempotency_key=f"endpoint-module:{operation.id.hex}:{step.id.hex}",
+        created_at=created_at,
+        deadline_at=deadline_at,
+        correlation=CommandCorrelationV1(request_id=operation.id),
+    )
+
+
+async def _next_pending_module_command(
+    session,
+    device_id: UUID,
+    allowed_capabilities: AbstractSet[str] | None,
+    agent_platform: str | None,
+) -> GatewayCommandV1 | None:
+    """Materialize at most one WSS-only child command for a module parent."""
+    operations = (
+        await session.scalars(
+            select(EndpointOperation)
+            .where(
+                EndpointOperation.device_id == device_id,
+                EndpointOperation.capability == "endpoint.module.recipe",
+                EndpointOperation.status.in_(
+                    ("queued", "delivered", "acknowledged", "running")
+                ),
+            )
+            .order_by(EndpointOperation.created_at, EndpointOperation.id)
+            .with_for_update(skip_locked=True)
+        )
+    ).all()
+    now = datetime.now(UTC)
+    for operation in operations:
+        if operation.module_version_id is None or operation.module_inputs is None:
+            raise CommandStateRejected("module operation shape is unavailable")
+        execution_mode = (
+            operation.parameters.get("execution_mode", "published")
+            if isinstance(operation.parameters, dict)
+            else None
+        )
+        expected_version_state = {
+            "published": "published",
+            "lab": "validated",
+        }.get(execution_mode)
+        if expected_version_state is None:
+            raise CommandStateRejected("module execution mode is unavailable")
+        lab_execution_platform: str | None = None
+        if execution_mode == "lab":
+            if agent_platform not in {"linux_amd64", "windows_amd64"}:
+                raise CommandStateRejected("lab agent platform is unavailable")
+            lab_execution_platform = operation.parameters.get("execution_platform")
+            if (
+                lab_execution_platform is not None
+                and lab_execution_platform != agent_platform
+            ):
+                raise CommandStateRejected(
+                    "lab agent platform changed before completion"
+                )
+        module_version = await session.get(ModuleVersion, operation.module_version_id)
+        if module_version is None or module_version.state != expected_version_state:
+            raise CommandStateRejected(
+                "module version is unavailable for execution mode"
+            )
+        if _as_utc(operation.deadline_at) is None or now >= _as_utc(
+            operation.deadline_at
+        ):
+            continue
+        steps = (
+            await session.scalars(
+                select(ModuleOperationStep)
+                .where(ModuleOperationStep.operation_id == operation.id)
+                .order_by(ModuleOperationStep.sequence, ModuleOperationStep.id)
+                .with_for_update(skip_locked=True)
+            )
+        ).all()
+        if not steps:
+            raise CommandStateRejected("module operation has no durable steps")
+        active_steps = [
+            step
+            for step in steps
+            if step.status in {"delivered", "acknowledged", "running"}
+        ]
+        if active_steps:
+            if len(active_steps) != 1 or active_steps[0].status != "delivered":
+                continue
+            step = active_steps[0]
+            if step.command_id is None:
+                raise CommandStateRejected("module step command is unavailable")
+            command = await session.scalar(
+                select(Command)
+                .where(Command.id == step.command_id, Command.device_id == device_id)
+                .with_for_update()
+            )
+            if command is None or command.status != "delivered":
+                raise CommandStateRejected("module step delivery is unavailable")
+        else:
+            queued_steps = [step for step in steps if step.status == "queued"]
+            if not queued_steps:
+                continue
+            step = queued_steps[0]
+            if any(
+                previous.status != "succeeded" for previous in steps[: step.sequence]
+            ):
+                continue
+            if (
+                allowed_capabilities is not None
+                and step.capability not in allowed_capabilities
+            ):
+                continue
+            command = Command(
+                id=uuid4(),
+                created_at=now,
+                command_identifier=f"module-{operation.id.hex}-{step.id.hex}",
+                device_id=device_id,
+                command_kind=step.capability,
+                status="delivered",
+                expires_at=operation.deadline_at,
+            )
+            session.add(command)
+            await session.flush()
+            step.command_id = command.id
+            step.status = "delivered"
+            operation.status = "delivered"
+            session.add(
+                CommandDelivery(
+                    id=uuid4(),
+                    command_id=command.id,
+                    device_session_id=None,
+                    delivery_identifier=f"delivery-{command.id.hex}",
+                    status="delivered",
+                    acknowledged_at=None,
+                )
+            )
+
+        if (
+            allowed_capabilities is not None
+            and step.capability not in allowed_capabilities
+        ):
+            continue
+        if execution_mode == "lab" and lab_execution_platform is None:
+            operation.parameters = {
+                **operation.parameters,
+                "execution_platform": agent_platform,
+            }
+        try:
+            recipe = EndpointRecipeModuleSpecV1.model_validate(module_version.recipe)
+            plan = build_recipe_command_plan(recipe, operation.module_inputs)
+        except (RecipeExecutionError, ValueError) as error:
+            raise CommandStateRejected("module recipe plan is unavailable") from error
+        plan_item = next(
+            (
+                item
+                for item in plan
+                if item.sequence == step.sequence
+                and item.step_id == step.recipe_step_key
+            ),
+            None,
+        )
+        if plan_item is None or plan_item.capability != step.capability:
+            raise CommandStateRejected("module step plan is unavailable")
+        return _module_step_payload(
+            command,
+            operation,
+            step,
+            parameters=plan_item.parameters,
+        )
+    return None
+
+
 def _as_utc(value: datetime | None) -> datetime | None:
     if value is None:
         return None
@@ -124,6 +323,233 @@ def result_payload_digest(result: AgentResultV1) -> str:
         separators=(",", ":"),
     ).encode("utf-8")
     return hashlib.sha256(payload).hexdigest()
+
+
+async def resolve_module_step_relation(
+    session,
+    command: Command,
+) -> tuple[ModuleOperationStep, EndpointOperation] | None:
+    """Return a fully-owned module child relation, or classify it as non-module."""
+    operation_id = await session.scalar(
+        select(ModuleOperationStep.operation_id).where(
+            ModuleOperationStep.command_id == command.id
+        )
+    )
+    if operation_id is None:
+        return None
+    operation = await session.scalar(
+        select(EndpointOperation)
+        .where(EndpointOperation.id == operation_id)
+        .with_for_update()
+    )
+    step = await session.scalar(
+        select(ModuleOperationStep)
+        .where(
+            ModuleOperationStep.command_id == command.id,
+            ModuleOperationStep.operation_id == operation_id,
+        )
+        .with_for_update()
+    )
+    if (
+        operation is None
+        or step is None
+        or operation.capability != "endpoint.module.recipe"
+        or operation.device_id != command.device_id
+        or operation.command_id is not None
+        or command.command_kind != step.capability
+    ):
+        raise CommandStateRejected("module step relation is unavailable")
+    return step, operation
+
+
+def _safe_module_step_result(
+    step: ModuleOperationStep,
+    result: AgentResultV1,
+) -> tuple[dict[str, object] | None, str | None]:
+    """Accept only the declared result DTO; persist no raw agent message or trace."""
+    try:
+        result_model = module_capability_descriptor(step.capability).result_model
+    except ValueError as error:
+        raise CommandStateRejected("module step capability is unavailable") from error
+    if result.status == "succeeded":
+        if len(result.result_items) != 1:
+            raise CommandStateRejected("successful module step must contain one result")
+        try:
+            accepted = result_model.model_validate(result.result_items[0])
+        except ValueError as error:
+            raise CommandStateRejected("module step result is unavailable") from error
+        if accepted.status != "succeeded":
+            raise CommandStateRejected("successful module result is inconsistent")
+        return accepted.model_dump(mode="json"), None
+    if result.status == "failed" and result.result_items:
+        if len(result.result_items) != 1:
+            raise CommandStateRejected("failed module step result is unavailable")
+        try:
+            accepted = result_model.model_validate(result.result_items[0])
+        except ValueError as error:
+            raise CommandStateRejected("module step result is unavailable") from error
+        if accepted.status != "failed":
+            raise CommandStateRejected("failed module result is inconsistent")
+        return None, accepted.error_code or "module_step_failed"
+    if result.result_items:
+        raise CommandStateRejected("terminal module step must not contain raw results")
+    return None, "module_step_failed"
+
+
+async def _append_module_terminal_audit(
+    session,
+    operation: EndpointOperation,
+    step: ModuleOperationStep,
+    *,
+    occurred_at: datetime,
+) -> None:
+    action = (
+        "endpoint.module_operation_completed"
+        if operation.status == "succeeded"
+        else "endpoint.module_operation_failed"
+        if operation.status == "failed"
+        else f"endpoint.module_operation_{operation.status}"
+    )
+    await append_audit_event(
+        session,
+        actor_kind="device",
+        actor_identifier=str(operation.device_id),
+        action=action,
+        object_kind="endpoint_operation",
+        object_identifier=str(operation.id),
+        request_id=f"module-operation-{operation.id.hex}",
+        details={
+            "step_sequence": step.sequence,
+            "capability": step.capability,
+            "error_code": step.error_code,
+        },
+        occurred_at=occurred_at,
+    )
+
+
+async def _require_authoritative_module_step_set(
+    session,
+    operation: EndpointOperation,
+) -> int:
+    """Require the immutable child-step set before accepting any terminal result."""
+    expected_step_count = operation.expected_step_count
+    if (
+        isinstance(expected_step_count, bool)
+        or not isinstance(expected_step_count, int)
+        or not 1 <= expected_step_count <= 8
+    ):
+        raise CommandStateRejected("module operation step set is unavailable")
+    sequences = list(
+        await session.scalars(
+            select(ModuleOperationStep.sequence)
+            .where(ModuleOperationStep.operation_id == operation.id)
+            .order_by(ModuleOperationStep.sequence)
+            .with_for_update()
+        )
+    )
+    if sequences != list(range(expected_step_count)):
+        raise CommandStateRejected("module operation step set is unavailable")
+    return expected_step_count
+
+
+async def _record_module_step_result(
+    session,
+    *,
+    command: Command,
+    delivery: CommandDelivery | None,
+    step: ModuleOperationStep,
+    operation: EndpointOperation,
+    instance: DeviceInstance,
+    device_instance_id: UUID,
+    session_id: UUID,
+    result_sequence: int,
+    result: AgentResultV1,
+    payload_digest: str,
+) -> None:
+    """Commit one child result, advancing only a still-successful parent chain."""
+    expected_step_count = await _require_authoritative_module_step_set(
+        session, operation
+    )
+    result_identifier = f"result-{command.id.hex}"
+    stored = await session.scalar(
+        select(CommandResult)
+        .where(CommandResult.result_identifier == result_identifier)
+        .with_for_update()
+    )
+    if stored is not None:
+        if (
+            delivery is None
+            or delivery.device_session_id != session_id
+            or stored.command_id != command.id
+            or stored.delivery_id != delivery.id
+            or stored.result_payload_digest != payload_digest
+            or stored.status != result.status
+            or command.status != result.status
+            or delivery.status != result.status
+            or step.status != result.status
+        ):
+            raise CommandStateRejected(
+                "module result replay conflicts with stored result"
+            )
+        instance.last_result_sequence = max(
+            instance.last_result_sequence, result_sequence
+        )
+        return
+    if (
+        delivery is None
+        or delivery.device_session_id != session_id
+        or command.status not in {"delivered", "acknowledged", "running"}
+        or step.status not in {"delivered", "acknowledged", "running"}
+        or operation.status not in {"delivered", "acknowledged", "running"}
+    ):
+        raise CommandStateRejected("module result delivery is unavailable")
+    accepted_at = datetime.now(UTC)
+    completed_at = _as_utc(result.completed_at)
+    created_at = _as_utc(operation.created_at)
+    deadline_at = _as_utc(operation.deadline_at)
+    if (
+        completed_at is None
+        or created_at is None
+        or deadline_at is None
+        or completed_at < created_at
+        or completed_at > accepted_at + _MAX_AGENT_CLOCK_SKEW
+        or accepted_at >= deadline_at
+    ):
+        raise CommandStateRejected("module result timing is unavailable")
+    safe_result, error_code = _safe_module_step_result(step, result)
+    stored = CommandResult(
+        id=uuid4(),
+        command_id=command.id,
+        delivery_id=delivery.id,
+        result_identifier=result_identifier,
+        status=result.status,
+        completed_at=accepted_at,
+        result_sequence=result_sequence,
+        result_payload_digest=payload_digest,
+    )
+    session.add(stored)
+    command.status = result.status
+    delivery.status = result.status
+    step.status = result.status
+    step.safe_result_json = safe_result
+    step.error_code = error_code
+    step.completed_at = accepted_at
+    if result.status == "succeeded":
+        if step.sequence == expected_step_count - 1:
+            operation.status = "succeeded"
+            operation.completed_at = accepted_at
+            await _append_module_terminal_audit(
+                session, operation, step, occurred_at=accepted_at
+            )
+        else:
+            operation.status = "running"
+    else:
+        operation.status = result.status
+        operation.completed_at = accepted_at
+        await _append_module_terminal_audit(
+            session, operation, step, occurred_at=accepted_at
+        )
+    instance.last_result_sequence = max(instance.last_result_sequence, result_sequence)
 
 
 async def _operation_for_collection(
@@ -289,10 +715,20 @@ async def next_pending_command(
     allowed_capabilities: AbstractSet[str] | None = None,
     *,
     transport: str = "http_pull",
+    agent_platform: str | None = None,
 ) -> GatewayCommandV1 | None:
     """Replay only unacknowledged deliveries before creating a new command."""
     if transport not in {"http_pull", "gateway_wss"}:
         raise ValueError("unsupported gateway transport")
+    if transport == "gateway_wss":
+        module_payload = await _next_pending_module_command(
+            session,
+            device_id,
+            allowed_capabilities,
+            agent_platform,
+        )
+        if module_payload is not None:
+            return module_payload
     collections = (
         await session.scalars(
             select(ContextCollection)
@@ -310,8 +746,7 @@ async def next_pending_command(
             continue
         capability = _CAPABILITIES.get(collection.profile)
         if capability is None or (
-            allowed_capabilities is not None
-            and capability not in allowed_capabilities
+            allowed_capabilities is not None and capability not in allowed_capabilities
         ):
             continue
         operation = await _operation_for_collection(session, collection)
@@ -409,6 +844,7 @@ class CommandService:
         send: SendCommand,
         *,
         allowed_capabilities: AbstractSet[str] | None = None,
+        agent_platform: str | None = None,
     ) -> bool:
         """Commit one delivery before exposing it to the network callback."""
         async with self._session_provider() as session:
@@ -418,6 +854,7 @@ class CommandService:
                     device_id,
                     allowed_capabilities,
                     transport="gateway_wss",
+                    agent_platform=agent_platform,
                 )
                 if payload is None:
                     await session.commit()
@@ -494,6 +931,43 @@ class CommandService:
                 )
                 if delivery is None or delivery.device_session_id != session_id:
                     raise CommandStateRejected("command delivery is unavailable")
+                module_relation = await resolve_module_step_relation(session, command)
+                if module_relation is not None:
+                    step, module_operation = module_relation
+                    if command.status in _TERMINAL_STATUSES:
+                        if step.status != command.status:
+                            raise CommandStateRejected(
+                                "module step terminal state is unavailable"
+                            )
+                        await session.rollback()
+                        return
+                    if (
+                        command.status not in {"delivered", "acknowledged", "running"}
+                        or step.status not in {"delivered", "acknowledged", "running"}
+                        or module_operation.status
+                        not in {"delivered", "acknowledged", "running"}
+                    ):
+                        raise CommandStateRejected(
+                            "module acknowledgement is unavailable"
+                        )
+                    if (
+                        command.status != "running"
+                        or acknowledgement.status == "running"
+                    ):
+                        command.status = acknowledgement.status
+                        delivery.status = acknowledgement.status
+                        step.status = acknowledgement.status
+                    if (
+                        module_operation.status != "running"
+                        or acknowledgement.status == "running"
+                    ):
+                        module_operation.status = acknowledgement.status
+                    if delivery.acknowledged_at is None:
+                        delivery.acknowledged_at = acknowledgement.acknowledged_at
+                    if step.started_at is None:
+                        step.started_at = acknowledgement.acknowledged_at
+                    await session.commit()
+                    return
                 collection, operation = await resolve_command_context_relation(
                     session,
                     command,
@@ -517,8 +991,7 @@ class CommandService:
                     command.status = acknowledgement.status
                     delivery.status = acknowledgement.status
                 if operation is not None and (
-                    operation.status != "running"
-                    or acknowledgement.status == "running"
+                    operation.status != "running" or acknowledgement.status == "running"
                 ):
                     operation.status = acknowledgement.status
                 if delivery.acknowledged_at is None:
@@ -566,7 +1039,9 @@ class CommandService:
                 )
                 command = await session.scalar(
                     select(Command)
-                    .where(Command.id == result.command_id, Command.device_id == device_id)
+                    .where(
+                        Command.id == result.command_id, Command.device_id == device_id
+                    )
                     .with_for_update()
                 )
                 if gateway_session is None or instance is None or command is None:
@@ -577,6 +1052,33 @@ class CommandService:
                     .where(CommandDelivery.command_id == command.id)
                     .with_for_update()
                 )
+                module_relation = await resolve_module_step_relation(session, command)
+                if module_relation is not None:
+                    step, module_operation = module_relation
+                    await _record_module_step_result(
+                        session,
+                        command=command,
+                        delivery=delivery,
+                        step=step,
+                        operation=module_operation,
+                        instance=instance,
+                        device_instance_id=device_instance_id,
+                        session_id=session_id,
+                        result_sequence=result_sequence,
+                        result=result,
+                        payload_digest=payload_digest,
+                    )
+                    await session.commit()
+                    return ResultAckEnvelopeV1(
+                        schema_version="gateway_ws_envelope_v1",
+                        kind="result_ack",
+                        sequence=result_sequence,
+                        payload=ResultAckV1(
+                            schema_version="result_ack_v1",
+                            command_id=result.command_id,
+                            result_sequence=result_sequence,
+                        ),
+                    )
                 collection, operation = await resolve_command_context_relation(
                     session,
                     command,
@@ -685,8 +1187,7 @@ class CommandService:
                         if (
                             delivery is None
                             or delivery_session is None
-                            or delivery_session.device_instance_id
-                            != device_instance_id
+                            or delivery_session.device_instance_id != device_instance_id
                             or stored.command_id != command.id
                             or stored.delivery_id != delivery.id
                             or stored.result_sequence is None
@@ -713,7 +1214,8 @@ class CommandService:
                             if (
                                 collection.status != "completed"
                                 or snapshot is None
-                                or project_diagnostic_result(operation, snapshot) is None
+                                or project_diagnostic_result(operation, snapshot)
+                                is None
                             ):
                                 raise CommandStateRejected(
                                     "operation result replay is unavailable"

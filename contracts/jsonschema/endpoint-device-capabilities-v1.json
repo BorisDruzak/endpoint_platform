@@ -1,0 +1,97 @@
+{
+  "$defs": {
+    "EndpointCapabilityAvailabilityV1": {
+      "additionalProperties": false,
+      "description": "One versioned safe capability descriptor for an exact device.",
+      "properties": {
+        "available": {
+          "title": "Available",
+          "type": "boolean"
+        },
+        "capability": {
+          "enum": [
+            "context.diagnostic.collect",
+            "dns.resolve",
+            "network.ping",
+            "tcp.connect",
+            "route.get",
+            "adapter.list",
+            "system.service_status"
+          ],
+          "title": "Capability",
+          "type": "string"
+        },
+        "consent_required": {
+          "const": false,
+          "title": "Consent Required",
+          "type": "boolean"
+        },
+        "parameter_schema_version": {
+          "enum": [
+            "diagnostic_collection_parameters_v1",
+            "dns_resolve_parameters_v1",
+            "network_ping_parameters_v1",
+            "tcp_connect_parameters_v1",
+            "route_get_parameters_v1",
+            "adapter_list_parameters_v1",
+            "service_status_parameters_v1"
+          ],
+          "title": "Parameter Schema Version",
+          "type": "string"
+        },
+        "risk": {
+          "enum": [
+            "read_only",
+            "safe_read"
+          ],
+          "title": "Risk",
+          "type": "string"
+        },
+        "transport": {
+          "const": "gateway_wss",
+          "title": "Transport",
+          "type": "string"
+        }
+      },
+      "required": [
+        "capability",
+        "available",
+        "transport",
+        "risk",
+        "consent_required",
+        "parameter_schema_version"
+      ],
+      "title": "EndpointCapabilityAvailabilityV1",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Versioned capabilities response with no agent/session internals.",
+  "properties": {
+    "capabilities": {
+      "items": {
+        "$ref": "#/$defs/EndpointCapabilityAvailabilityV1"
+      },
+      "maxItems": 7,
+      "title": "Capabilities",
+      "type": "array"
+    },
+    "device_id": {
+      "format": "uuid",
+      "title": "Device Id",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "endpoint_device_capabilities_v1",
+      "title": "Schema Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema_version",
+    "device_id",
+    "capabilities"
+  ],
+  "title": "EndpointDeviceCapabilitiesV1",
+  "type": "object"
+}

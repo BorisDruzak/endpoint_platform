@@ -939,21 +939,262 @@
               }
             }
           }
+        },
+        {
+          "if": {
+            "properties": {
+              "capability": {
+                "const": "dns.resolve"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "parameters": {
+                "additionalProperties": false,
+                "properties": {
+                  "family": {
+                    "enum": [
+                      "any",
+                      "ipv4",
+                      "ipv6"
+                    ],
+                    "title": "Family",
+                    "type": "string"
+                  },
+                  "target": {
+                    "maxLength": 253,
+                    "minLength": 1,
+                    "pattern": "^(?![\\s\\S]*://)[\\s\\S]*$",
+                    "title": "Target",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "target",
+                  "family"
+                ],
+                "type": "object"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "capability": {
+                "const": "network.ping"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "parameters": {
+                "additionalProperties": false,
+                "properties": {
+                  "count": {
+                    "maximum": 5,
+                    "minimum": 1,
+                    "title": "Count",
+                    "type": "integer"
+                  },
+                  "target": {
+                    "maxLength": 253,
+                    "minLength": 1,
+                    "pattern": "^(?![\\s\\S]*://)[\\s\\S]*$",
+                    "title": "Target",
+                    "type": "string"
+                  },
+                  "timeout_ms": {
+                    "maximum": 5000,
+                    "minimum": 100,
+                    "title": "Timeout Ms",
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "target",
+                  "count",
+                  "timeout_ms"
+                ],
+                "type": "object"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "capability": {
+                "const": "tcp.connect"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "parameters": {
+                "additionalProperties": false,
+                "properties": {
+                  "port": {
+                    "maximum": 65535,
+                    "minimum": 1,
+                    "title": "Port",
+                    "type": "integer"
+                  },
+                  "target": {
+                    "maxLength": 253,
+                    "minLength": 1,
+                    "pattern": "^(?![\\s\\S]*://)[\\s\\S]*$",
+                    "title": "Target",
+                    "type": "string"
+                  },
+                  "timeout_ms": {
+                    "maximum": 10000,
+                    "minimum": 100,
+                    "title": "Timeout Ms",
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "target",
+                  "port",
+                  "timeout_ms"
+                ],
+                "type": "object"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "capability": {
+                "const": "route.get"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "parameters": {
+                "additionalProperties": false,
+                "properties": {
+                  "family": {
+                    "enum": [
+                      "any",
+                      "ipv4",
+                      "ipv6"
+                    ],
+                    "title": "Family",
+                    "type": "string"
+                  },
+                  "port": {
+                    "maximum": 65535,
+                    "minimum": 1,
+                    "title": "Port",
+                    "type": "integer"
+                  },
+                  "target": {
+                    "maxLength": 253,
+                    "minLength": 1,
+                    "pattern": "^(?![\\s\\S]*://)[\\s\\S]*$",
+                    "title": "Target",
+                    "type": "string"
+                  },
+                  "timeout_ms": {
+                    "maximum": 5000,
+                    "minimum": 100,
+                    "title": "Timeout Ms",
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "target",
+                  "port",
+                  "family",
+                  "timeout_ms"
+                ],
+                "type": "object"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "capability": {
+                "const": "adapter.list"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "parameters": {
+                "additionalProperties": false,
+                "properties": {},
+                "type": "object"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "capability": {
+                "const": "system.service_status"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "parameters": {
+                "additionalProperties": false,
+                "properties": {
+                  "service_key": {
+                    "enum": [
+                      "endpoint_agent",
+                      "endpoint_agent_updater"
+                    ],
+                    "title": "Service Key",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "service_key"
+                ],
+                "type": "object"
+              }
+            }
+          }
         }
       ],
       "description": "Existing neutral command contract narrowed for the WSS control channel.",
       "properties": {
         "capability": {
-          "enum": [
-            "agent.status.read",
-            "gateway.echo",
-            "context.baseline.collect",
-            "context.health.collect",
-            "context.network.collect",
-            "context.diagnostic.collect"
+          "anyOf": [
+            {
+              "enum": [
+                "agent.status.read",
+                "gateway.echo",
+                "context.baseline.collect",
+                "context.health.collect",
+                "context.network.collect",
+                "context.diagnostic.collect"
+              ],
+              "type": "string"
+            },
+            {
+              "enum": [
+                "dns.resolve",
+                "network.ping",
+                "tcp.connect",
+                "route.get",
+                "adapter.list",
+                "system.service_status"
+              ],
+              "type": "string"
+            }
           ],
-          "title": "Capability",
-          "type": "string"
+          "title": "Capability"
         },
         "command_id": {
           "format": "uuid",

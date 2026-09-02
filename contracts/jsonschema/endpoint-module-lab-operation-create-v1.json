@@ -1,0 +1,39 @@
+{
+  "additionalProperties": false,
+  "description": "Inputs for a validated-only Endpoint-owned module lab parent.",
+  "properties": {
+    "inputs": {
+      "maxProperties": 8,
+      "minProperties": 1,
+      "patternProperties": {
+        "^[a-z][a-z0-9_]{0,63}$": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "integer"
+            }
+          ]
+        }
+      },
+      "propertyNames": {
+        "maxLength": 64,
+        "minLength": 1
+      },
+      "title": "Inputs",
+      "type": "object"
+    },
+    "schema_version": {
+      "const": "endpoint_module_lab_operation_create_v1",
+      "title": "Schema Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema_version",
+    "inputs"
+  ],
+  "title": "ModuleLabOperationCreateV1",
+  "type": "object"
+}

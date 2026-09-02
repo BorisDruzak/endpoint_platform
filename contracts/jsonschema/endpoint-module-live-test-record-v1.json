@@ -1,0 +1,16 @@
+{
+  "additionalProperties": false,
+  "description": "Request recording immutable evidence from one completed lab parent.",
+  "properties": {
+    "schema_version": {
+      "const": "module_live_test_record_v1",
+      "title": "Schema Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema_version"
+  ],
+  "title": "ModuleLiveTestRecordV1",
+  "type": "object"
+}

@@ -19,19 +19,27 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from endpoint_contracts import EndpointOperationCreateV1
+from endpoint_contracts.modules import EndpointRecipeModuleSpecV1
 from endpoint_server.context.models import ContextCollection
 from endpoint_server.db.migrations.runtime_config import configure_database_url
 from endpoint_server.db.models import (
     AuditEvent,
     Device,
     EndpointOperation,
+    ModuleDefinition,
+    ModuleVersion,
     ServiceClient,
+)
+from endpoint_server.modules.operation_service import (
+    ModuleOperationConflict,
+    create_module_parent_operation,
 )
 from endpoint_server.operations.service import (
     OperationConflict,
     create_operation_outcome,
     expire_operations,
 )
+from endpoint_server.policy.network_targets import NetworkTargetPolicyV1
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
@@ -175,19 +183,33 @@ def operation_database_url() -> Iterator[str]:
 def _request(
     *,
     reason: str = "Collect PostgreSQL diagnostic context",
-    source_entity_id: str = "postgres-ticket",
 ) -> EndpointOperationCreateV1:
     return EndpointOperationCreateV1.model_validate(
         {
             "schema_version": "endpoint_operation_create_v1",
             "capability": "context.diagnostic.collect",
             "parameters": {"reason": reason},
-            "correlation": {
-                "schema_version": "endpoint_operation_correlation_v1",
-                "source_system": "helpdesk",
-                "source_entity_type": "ticket",
-                "source_entity_id": source_entity_id,
-            },
+        }
+    )
+
+
+def _module_recipe() -> EndpointRecipeModuleSpecV1:
+    return EndpointRecipeModuleSpecV1.model_validate(
+        {
+            "schema_version": "endpoint_recipe_module_v1",
+            "module_key": "network.postgres.race",
+            "supported_platforms": ["linux_amd64"],
+            "inputs": [{"name": "target", "value_type": "string"}],
+            "steps": [
+                {
+                    "step_id": "dns",
+                    "capability": "dns.resolve",
+                    "parameters": {
+                        "target": {"kind": "input", "name": "target"},
+                        "family": {"kind": "literal", "value": "any"},
+                    },
+                }
+            ],
         }
     )
 
@@ -267,7 +289,7 @@ async def test_same_client_key_concurrency_replays_and_conflicts_in_postgresql(
     engine = create_async_engine(operation_database_url)
     factory = async_sessionmaker(engine, expire_on_commit=False)
     key = f"postgres-race-{uuid4().hex}"
-    request = _request(source_entity_id=f"race-{uuid4().hex}")
+    request = _request()
     try:
         async with factory() as session:
             client, device = await _ownership(
@@ -329,6 +351,76 @@ async def test_same_client_key_concurrency_replays_and_conflicts_in_postgresql(
                 )
             ).all()
         assert len(operations) == 1
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_module_same_key_concurrency_replays_and_conflicts_in_postgresql(
+    operation_database_url: str,
+) -> None:
+    """Concurrent module creation has the same single-owner idempotency boundary."""
+    engine = create_async_engine(operation_database_url)
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    key = f"module-postgres-race-{uuid4().hex}"
+    recipe = _module_recipe()
+    policy = NetworkTargetPolicyV1.from_values(
+        allowed_cidrs=[], allowed_suffixes=[".example.test"]
+    )
+    try:
+        async with factory() as session:
+            client, device = await _ownership(
+                session,
+                client_identifier=f"module-race-{uuid4().hex}",
+            )
+            definition = ModuleDefinition(
+                id=uuid4(), module_key=recipe.module_key, display_name="Module race"
+            )
+            version = ModuleVersion(
+                id=uuid4(),
+                module_definition_id=definition.id,
+                version="1.0.0",
+                recipe=recipe.model_dump(mode="json"),
+                state="published",
+            )
+            session.add_all((definition, version))
+            await session.commit()
+
+        async def create() -> tuple[object, bool]:
+            async with factory() as session:
+                operation, created = await create_module_parent_operation(
+                    session,
+                    service_client_id=client.id,
+                    device_id=device.id,
+                    module_key=recipe.module_key,
+                    version="1.0.0",
+                    inputs={"target": "api.example.test"},
+                    idempotency_key=key,
+                    network_policy=policy,
+                    now=NOW,
+                )
+                await session.commit()
+                return operation.id, created
+
+        outcomes = await asyncio.gather(create(), create())
+        assert {operation_id for operation_id, _ in outcomes} == {outcomes[0][0]}
+        assert sorted(created for _, created in outcomes) == [False, True]
+
+        async with factory() as session:
+            with pytest.raises(ModuleOperationConflict) as rejected:
+                await create_module_parent_operation(
+                    session,
+                    service_client_id=client.id,
+                    device_id=device.id,
+                    module_key=recipe.module_key,
+                    version="1.0.0",
+                    inputs={"target": "different.example.test"},
+                    idempotency_key=key,
+                    network_policy=policy,
+                    now=NOW + timedelta(seconds=1),
+                )
+            await session.rollback()
+        assert rejected.value.code == "endpoint_module_operation_idempotency_conflict"
     finally:
         await engine.dispose()
 
@@ -396,7 +488,7 @@ async def test_expiry_skips_locked_operation_then_finishes_after_release_in_post
             )
             first, _ = await create_operation_outcome(
                 session,
-                request=_request(source_entity_id="expiry-first"),
+                request=_request(),
                 service_client_id=client.id,
                 device_id=device.id,
                 idempotency_key=f"expiry-first-{uuid4().hex}",
@@ -404,7 +496,7 @@ async def test_expiry_skips_locked_operation_then_finishes_after_release_in_post
             )
             second, _ = await create_operation_outcome(
                 session,
-                request=_request(source_entity_id="expiry-second"),
+                request=_request(),
                 service_client_id=client.id,
                 device_id=device.id,
                 idempotency_key=f"expiry-second-{uuid4().hex}",

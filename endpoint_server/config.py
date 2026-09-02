@@ -15,6 +15,7 @@ from urllib.parse import urlsplit
 Network: TypeAlias = ipaddress.IPv4Network | ipaddress.IPv6Network
 
 _PRODUCTION_PUBLIC_HOST = "endpoint.sosnadmin.local"
+_STAGING_PUBLIC_HOST = "endpoint-staging.sosnadmin.local"
 _SECRET_MODE_MASK = stat.S_IRGRP | stat.S_IROTH
 
 
@@ -61,12 +62,12 @@ def load_secret_file(path: Path) -> bytes:
     return secret
 
 
-def _parse_public_base_url(value: str) -> str:
+def _parse_public_base_url(value: str, *, expected_host: str) -> str:
     try:
         parsed = urlsplit(value)
         valid = (
             parsed.scheme == "https"
-            and parsed.hostname == _PRODUCTION_PUBLIC_HOST
+            and parsed.hostname == expected_host
             and parsed.port in (None, 443)
             and not parsed.username
             and not parsed.password
@@ -79,9 +80,23 @@ def _parse_public_base_url(value: str) -> str:
 
     if not valid:
         raise ValueError(
-            f"PUBLIC_BASE_URL must be the HTTPS origin for {_PRODUCTION_PUBLIC_HOST}"
+            f"PUBLIC_BASE_URL must be the HTTPS origin for {expected_host}"
         )
-    return f"https://{_PRODUCTION_PUBLIC_HOST}"
+    return f"https://{expected_host}"
+
+
+def _public_host_for_environment(values: Mapping[str, str]) -> str:
+    """Keep production pinned while permitting one explicitly marked staging host."""
+    environment = values.get("ENDPOINT_DEPLOYMENT_ENVIRONMENT", "production").strip().lower()
+    if environment == "production":
+        return _PRODUCTION_PUBLIC_HOST
+    if environment != "staging":
+        raise ValueError("ENDPOINT_DEPLOYMENT_ENVIRONMENT must be production or staging")
+    if values.get("CANARY_ENVIRONMENT", "").strip().lower() != "staging":
+        raise ValueError("staging deployment requires CANARY_ENVIRONMENT=staging")
+    if values.get("CANARY_APPROVED", "").strip().lower() != "true":
+        raise ValueError("staging deployment requires CANARY_APPROVED=true")
+    return _STAGING_PUBLIC_HOST
 
 
 def _parse_cidrs(name: str, value: str) -> tuple[Network, ...]:
@@ -103,6 +118,28 @@ def _parse_optional_boolean(name: str, value: str) -> bool:
     raise ValueError(f"{name} must be a boolean")
 
 
+def _parse_optional_network_probe_cidrs(
+    name: str, value: str
+) -> tuple[Network, ...]:
+    return _parse_cidrs(name, value) if value.strip() else ()
+
+
+def _parse_network_probe_suffixes(name: str, value: str) -> tuple[str, ...]:
+    if not value.strip():
+        return ()
+    from endpoint_server.policy.network_targets import NetworkTargetPolicyV1
+
+    entries = tuple(entry.strip() for entry in value.split(","))
+    if any(not entry for entry in entries):
+        raise ValueError(f"{name} must not contain empty suffixes")
+    try:
+        return NetworkTargetPolicyV1.from_values(
+            allowed_cidrs=(), allowed_suffixes=entries
+        ).allowed_suffixes
+    except ValueError as error:
+        raise ValueError(f"{name} must contain valid dotted domain suffixes") from error
+
+
 @dataclass(frozen=True, slots=True)
 class Settings:
     """Runtime values loaded once during server startup."""
@@ -117,6 +154,12 @@ class Settings:
     artifact_root: Path
     trusted_proxy_cidrs: tuple[Network, ...] = ()
     endpoint_operations_api_enabled: bool = False
+    endpoint_network_primitives_enabled: bool = False
+    endpoint_read_only_primitives_enabled: bool = False
+    endpoint_network_probe_allowed_cidrs: tuple[Network, ...] = ()
+    endpoint_network_probe_allowed_suffixes: tuple[str, ...] = ()
+    endpoint_module_platform_enabled: bool = False
+    endpoint_module_execution_enabled: bool = False
 
     @classmethod
     def from_environment(cls, environment: Mapping[str, str] | None = None) -> Settings:
@@ -125,7 +168,8 @@ class Settings:
         )
         database_url = _require_setting("DATABASE_URL", values)
         public_base_url = _parse_public_base_url(
-            _require_setting("PUBLIC_BASE_URL", values)
+            _require_setting("PUBLIC_BASE_URL", values),
+            expected_host=_public_host_for_environment(values),
         )
         device_token_pepper = load_secret_file(
             Path(_require_setting("DEVICE_TOKEN_PEPPER_FILE", values))
@@ -153,6 +197,38 @@ class Settings:
             "ENDPOINT_OPERATIONS_API_ENABLED",
             values.get("ENDPOINT_OPERATIONS_API_ENABLED", ""),
         )
+        endpoint_network_primitives_enabled = _parse_optional_boolean(
+            "ENDPOINT_NETWORK_PRIMITIVES_ENABLED",
+            values.get("ENDPOINT_NETWORK_PRIMITIVES_ENABLED", ""),
+        )
+        endpoint_read_only_primitives_enabled = _parse_optional_boolean(
+            "ENDPOINT_READ_ONLY_PRIMITIVES_ENABLED",
+            values.get("ENDPOINT_READ_ONLY_PRIMITIVES_ENABLED", ""),
+        )
+        endpoint_network_probe_allowed_cidrs = _parse_optional_network_probe_cidrs(
+            "ENDPOINT_NETWORK_PROBE_ALLOWED_CIDRS",
+            values.get("ENDPOINT_NETWORK_PROBE_ALLOWED_CIDRS", ""),
+        )
+        endpoint_network_probe_allowed_suffixes = _parse_network_probe_suffixes(
+            "ENDPOINT_NETWORK_PROBE_ALLOWED_SUFFIXES",
+            values.get("ENDPOINT_NETWORK_PROBE_ALLOWED_SUFFIXES", ""),
+        )
+        endpoint_module_platform_enabled = _parse_optional_boolean(
+            "ENDPOINT_MODULE_PLATFORM_ENABLED",
+            values.get("ENDPOINT_MODULE_PLATFORM_ENABLED", ""),
+        )
+        endpoint_module_execution_enabled = _parse_optional_boolean(
+            "ENDPOINT_MODULE_EXECUTION_ENABLED",
+            values.get("ENDPOINT_MODULE_EXECUTION_ENABLED", ""),
+        )
+        if (
+            endpoint_module_execution_enabled
+            and not endpoint_module_platform_enabled
+        ):
+            raise ValueError(
+                "ENDPOINT_MODULE_PLATFORM_ENABLED must be true when "
+                "ENDPOINT_MODULE_EXECUTION_ENABLED is true"
+            )
 
         return cls(
             database_url=database_url,
@@ -165,4 +241,10 @@ class Settings:
             artifact_root=artifact_root,
             trusted_proxy_cidrs=trusted_proxy_cidrs,
             endpoint_operations_api_enabled=endpoint_operations_api_enabled,
+            endpoint_network_primitives_enabled=endpoint_network_primitives_enabled,
+            endpoint_read_only_primitives_enabled=endpoint_read_only_primitives_enabled,
+            endpoint_network_probe_allowed_cidrs=endpoint_network_probe_allowed_cidrs,
+            endpoint_network_probe_allowed_suffixes=endpoint_network_probe_allowed_suffixes,
+            endpoint_module_platform_enabled=endpoint_module_platform_enabled,
+            endpoint_module_execution_enabled=endpoint_module_execution_enabled,
         )

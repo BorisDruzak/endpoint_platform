@@ -104,18 +104,6 @@ class DiagnosticCollectionParametersV1(ContractModelV1):
         return _validate_safe_reason(value)
 
 
-class EndpointOperationCorrelationV1(ContractModelV1):
-    """Opaque caller correlation that never reaches the endpoint agent."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    schema_version: Literal["endpoint_operation_correlation_v1"]
-    source_system: NormalizedIdentifierV1
-    source_entity_type: NormalizedIdentifierV1
-    source_entity_id: OpaqueIdentifierV1
-    request_id: UUID | None = None
-
-
 class EndpointOperationCreateV1(ContractModelV1):
     """Strict service request for one bounded diagnostic collection."""
 
@@ -124,7 +112,57 @@ class EndpointOperationCreateV1(ContractModelV1):
     schema_version: Literal["endpoint_operation_create_v1"]
     capability: Literal["context.diagnostic.collect"]
     parameters: DiagnosticCollectionParametersV1
-    correlation: EndpointOperationCorrelationV1 | None = None
+
+
+class EndpointDeviceSummaryV1(ContractModelV1):
+    """Strict device projection used for external verified-reference reads."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    schema_version: Literal["endpoint_device_summary_v1"]
+    device_id: UUID
+    display_name: Annotated[str, Field(strict=True, min_length=1, max_length=256)]
+    retired: StrictBool
+    last_seen_at: AwareDatetime | None = None
+
+
+class EndpointCapabilityAvailabilityV1(ContractModelV1):
+    """One versioned safe capability descriptor for an exact device."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    capability: Literal[
+        "context.diagnostic.collect",
+        "dns.resolve",
+        "network.ping",
+        "tcp.connect",
+        "route.get",
+        "adapter.list",
+        "system.service_status",
+    ]
+    available: StrictBool
+    transport: Literal["gateway_wss"]
+    risk: Literal["read_only", "safe_read"]
+    consent_required: Literal[False]
+    parameter_schema_version: Literal[
+        "diagnostic_collection_parameters_v1",
+        "dns_resolve_parameters_v1",
+        "network_ping_parameters_v1",
+        "tcp_connect_parameters_v1",
+        "route_get_parameters_v1",
+        "adapter_list_parameters_v1",
+        "service_status_parameters_v1",
+    ]
+
+
+class EndpointDeviceCapabilitiesV1(ContractModelV1):
+    """Versioned capabilities response with no agent/session internals."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    schema_version: Literal["endpoint_device_capabilities_v1"]
+    device_id: UUID
+    capabilities: list[EndpointCapabilityAvailabilityV1] = Field(max_length=7)
 
 
 class EndpointDiagnosticResultV1(ContractModelV1):
@@ -194,7 +232,6 @@ class EndpointOperationV1(ContractModelV1):
     created_at: AwareDatetime
     deadline_at: AwareDatetime
     completed_at: AwareDatetime | None = None
-    correlation: EndpointOperationCorrelationV1 | None = None
     result_available: StrictBool
     warnings: list[ContextWarningCodeV1] = Field(default_factory=list, max_length=16)
 
@@ -223,8 +260,10 @@ class EndpointOperationV1(ContractModelV1):
 
 __all__ = [
     "DiagnosticCollectionParametersV1",
+    "EndpointCapabilityAvailabilityV1",
+    "EndpointDeviceCapabilitiesV1",
+    "EndpointDeviceSummaryV1",
     "EndpointDiagnosticResultV1",
-    "EndpointOperationCorrelationV1",
     "EndpointOperationCreateV1",
     "EndpointOperationStatusV1",
     "EndpointOperationV1",

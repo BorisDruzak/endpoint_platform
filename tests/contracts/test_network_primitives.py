@@ -1,0 +1,163 @@
+from datetime import UTC, datetime
+from uuid import uuid4
+
+import pytest
+from pydantic import ValidationError
+
+import endpoint_contracts as contracts
+from endpoint_contracts.gateway_ws import GatewayCommandV1
+from endpoint_contracts.operations import EndpointDeviceCapabilitiesV1
+from endpoint_contracts.network_primitives import (
+    DnsResolveParametersV1,
+    DnsResolveResultV1,
+    NetworkPingParametersV1,
+    NetworkPingResultV1,
+    TcpConnectParametersV1,
+    TcpConnectResultV1,
+)
+
+
+def test_network_primitive_contracts_are_publicly_exported() -> None:
+    assert contracts.DnsResolveParametersV1 is DnsResolveParametersV1
+    assert contracts.NetworkPingParametersV1 is NetworkPingParametersV1
+    assert contracts.TcpConnectParametersV1 is TcpConnectParametersV1
+
+
+def test_gateway_command_accepts_only_typed_network_ping_parameters() -> None:
+    command = GatewayCommandV1(
+        schema_version="agent_command_v1",
+        command_id=uuid4(),
+        device_id=uuid4(),
+        capability="network.ping",
+        parameters={"target": "10.20.1.10", "count": 4, "timeout_ms": 1000},
+        requested_by_service="helpdesk-runtime",
+        idempotency_key="network-ping-command-0001",
+        created_at=datetime.now(UTC),
+        deadline_at=datetime.now(UTC).replace(year=2030),
+    )
+
+    assert command.parameters["count"] == 4
+    with pytest.raises(ValidationError):
+        GatewayCommandV1.model_validate(
+            {
+                **command.model_dump(),
+                "parameters": {
+                    "target": "10.20.1.10",
+                    "count": 4,
+                    "timeout_ms": 1000,
+                    "script_body": "forbidden",
+                },
+            }
+        )
+
+
+def test_device_capabilities_contract_projects_network_primitive_metadata() -> None:
+    response = EndpointDeviceCapabilitiesV1.model_validate(
+        {
+            "schema_version": "endpoint_device_capabilities_v1",
+            "device_id": "00000000-0000-4000-8000-000000000601",
+            "capabilities": [
+                {
+                    "capability": "network.ping",
+                    "available": True,
+                    "transport": "gateway_wss",
+                    "risk": "safe_read",
+                    "consent_required": False,
+                    "parameter_schema_version": "network_ping_parameters_v1",
+                }
+            ],
+        }
+    )
+
+    assert response.capabilities[0].capability == "network.ping"
+
+
+def test_dns_resolve_contract_accepts_bounded_safe_result() -> None:
+    result = DnsResolveResultV1(
+        schema_version="dns_resolve_result_v1",
+        target="example.test",
+        canonical_name="example.test",
+        addresses=[{"family": "ipv4", "address": "192.0.2.10"}],
+        address_count=1,
+        status="succeeded",
+        error_code=None,
+        collected_at=datetime.now(UTC),
+    )
+
+    assert result.address_count == 1
+    assert result.addresses[0].family == "ipv4"
+
+
+@pytest.mark.parametrize(
+    "target",
+    ["https://example.test", "example.test/path", "user@example.test", "bad\x00host"],
+)
+def test_dns_resolve_parameters_reject_non_target_syntax(target: str) -> None:
+    with pytest.raises(ValidationError):
+        DnsResolveParametersV1(
+            schema_version="dns_resolve_parameters_v1", target=target, family="any"
+        )
+
+
+def test_network_ping_contract_enforces_bounds_and_hides_raw_output() -> None:
+    valid = NetworkPingParametersV1(
+        schema_version="network_ping_parameters_v1",
+        target="198.51.100.8",
+        count=5,
+        timeout_ms=5000,
+    )
+
+    assert valid.count == 5
+    with pytest.raises(ValidationError):
+        NetworkPingParametersV1(
+            schema_version="network_ping_parameters_v1",
+            target="198.51.100.8",
+            count=6,
+            timeout_ms=5000,
+        )
+    with pytest.raises(ValidationError):
+        NetworkPingResultV1(
+            schema_version="network_ping_result_v1",
+            target="198.51.100.8",
+            resolved_ip="198.51.100.8",
+            transmitted=1,
+            received=1,
+            packet_loss_percent=0,
+            min_ms=1.0,
+            avg_ms=1.0,
+            max_ms=1.0,
+            reachable=True,
+            status="succeeded",
+            error_code=None,
+            collected_at=datetime.now(UTC),
+            stdout="forbidden",
+        )
+
+
+def test_tcp_connect_contract_enforces_port_timeout_and_safe_result() -> None:
+    parameters = TcpConnectParametersV1(
+        schema_version="tcp_connect_parameters_v1",
+        target="example.test",
+        port=443,
+        timeout_ms=3000,
+    )
+    result = TcpConnectResultV1(
+        schema_version="tcp_connect_result_v1",
+        target="example.test",
+        resolved_ip="192.0.2.20",
+        port=443,
+        reachable=True,
+        latency_ms=2.5,
+        status="succeeded",
+        error_code=None,
+        collected_at=datetime.now(UTC),
+    )
+
+    assert parameters.port == result.port == 443
+    with pytest.raises(ValidationError):
+        TcpConnectParametersV1(
+            schema_version="tcp_connect_parameters_v1",
+            target="example.test",
+            port=0,
+            timeout_ms=99,
+        )
