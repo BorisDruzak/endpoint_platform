@@ -1,9 +1,11 @@
 # -*- mode: python ; coding: utf-8 -*-
 
+import os
+
 
 a = Analysis(
-    ['C:\\Users\\admin-2\\Documents\\endpoint\\.canary_fingerprint_probe.py'],
-    pathex=['C:\\Users\\admin-2\\Documents\\endpoint'],
+    [os.path.join(SPECPATH, "tools", "canary_fingerprint_probe.py")],
+    pathex=[SPECPATH],
     binaries=[],
     datas=[],
     hiddenimports=[],
