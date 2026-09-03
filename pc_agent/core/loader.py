@@ -14,7 +14,7 @@ from typing import Optional, Callable, Awaitable, Any, Dict
 from pc_agent.modules.base_module import BaseCollector
 from loguru import logger
 
-_LEGACY_IMPORT_ROOTS = ("modules", "core", "utils", "network", "ui_bridge", "ui_gui", "config")
+_LEGACY_IMPORT_ROOTS = ("modules", "core", "utils", "config")
 
 
 def _legacy_import_keys() -> set[str]:

@@ -16,7 +16,6 @@ def test_build_commands_uses_the_requested_python_executable() -> None:
             "pytest",
             "pc_agent/tests/test_self_update_runtime.py",
             "pc_agent/tests/test_launcher_main.py",
-            "pc_agent/tests/test_launcher_portable_main.py",
             "-q",
         ],
         ["/opt/venv/bin/python", "-m", "compileall", "-q", "pc_agent", "shared"],

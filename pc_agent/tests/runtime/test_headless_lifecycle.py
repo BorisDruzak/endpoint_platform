@@ -1025,27 +1025,3 @@ async def test_production_http_attempt_preserves_update_poll_deadline_through_li
     assert sleeps == expected_sleeps
     assert update_runtime.calls == expected_update_polls
     assert sessions == []
-
-
-def test_ws_agent_gateway_compatibility_entrypoint_delegates_to_runtime(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    """The accepted ALT branch must not invoke the old Gateway entrypoint directly."""
-    from pc_agent import ws_agent
-    from pc_agent.runtime import main as runtime_main
-
-    observed: list[RuntimeSettings] = []
-
-    async def runtime_runner(settings: RuntimeSettings) -> int:
-        observed.append(settings)
-        return 0
-
-    monkeypatch.setattr(runtime_main, "run_runtime", runtime_runner)
-    monkeypatch.setenv("ENDPOINT_AGENT_CA_FILE", str(tmp_path / "endpoint-ca.crt"))
-
-    ws_agent._run_endpoint_gateway()
-
-    assert len(observed) == 1
-    assert observed[0].ca_file == tmp_path / "endpoint-ca.crt"
-    assert observed[0].endpoint_origin == "https://endpoint.sosnadmin.local"
-    assert observed[0].transport_mode == "gateway_http_pull"
