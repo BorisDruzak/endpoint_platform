@@ -568,14 +568,14 @@ def test_windows_current_product_uses_a_checked_in_approved_initial_transition()
     """A source-version change must also advance the MSI-owned immutable runtime."""
     project_root = Path(__file__).resolve().parents[2]
     baseline = project_root / "packaging" / "windows" / "initial-runtime.json"
-    transition = project_root / "packaging" / "windows" / "initial-runtime-3.2.36.json"
+    transition = project_root / "packaging" / "windows" / "initial-runtime-3.2.37.json"
 
     assert transition.is_file()
     payload = json.loads(transition.read_text(encoding="utf-8"))
-    assert payload["version"] == "3.2.36"
-    assert payload["agent_version"] == "3.2.36"
+    assert payload["version"] == "3.2.37"
+    assert payload["agent_version"] == "3.2.37"
     assert payload["schema_version"] == 5
-    assert payload["source_revision"] == "980a19f71ac09683fd6666a9404573f265bda40b"
+    assert payload["source_revision"] == "58cacec27008c2100ba62c4bee296d0acc62d281"
     assert payload["component_guid"] != json.loads(baseline.read_text(encoding="utf-8"))["component_guid"]
     assert "pc_agent/platform/windows/service_control.py" in {
         item["path"] for item in payload["source_files"]
