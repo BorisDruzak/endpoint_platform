@@ -29,6 +29,7 @@ from endpoint_contracts import (
 )
 from endpoint_server.auth.scopes import (
     DEVICES_READ_SCOPE,
+    OPERATIONS_CANCEL_SCOPE,
     OPERATIONS_CREATE_SCOPE,
     OPERATIONS_READ_SCOPE,
     ServicePrincipal,
@@ -45,6 +46,7 @@ from .service import (
     OperationError,
     OperationNotFound,
     OperationValidationError,
+    cancel_operation_for_service,
     create_operation_outcome,
     read_operation_for_service,
 )
@@ -404,6 +406,62 @@ async def read_endpoint_operation(
     async with request.app.state.session_provider() as session:
         try:
             operation = await read_operation_for_service(
+                session,
+                operation_id=operation_id,
+                service_client_id=principal.client.id,
+            )
+            data = await _response_data(session, operation)
+            await session.commit()
+        except OperationError as error:
+            await session.rollback()
+            raise _operation_error(error) from error
+        except Exception:
+            await session.rollback()
+            raise
+    _echo_correlation(response, correlation_id)
+    return OperationResponseEnvelope(data=data)
+
+
+@router.post(
+    "/operations/{operation_id}/cancel",
+    response_model=OperationResponseEnvelope,
+    dependencies=[Security(service_bearer, scopes=[OPERATIONS_CANCEL_SCOPE])],
+    responses={
+        200: {"headers": _CORRELATION_RESPONSE_HEADERS},
+        404: {
+            "description": "Endpoint operation not found",
+            "headers": _CORRELATION_RESPONSE_HEADERS,
+        },
+        409: {
+            "description": "Operation has already reached delivery or a terminal state",
+            "headers": _CORRELATION_RESPONSE_HEADERS,
+        },
+        **_COMMON_ERROR_RESPONSES,
+    },
+    openapi_extra={"x-required-scopes": [OPERATIONS_CANCEL_SCOPE]},
+)
+async def cancel_endpoint_operation(
+    operation_id: UUID,
+    request: Request,
+    response: Response,
+    correlation_id: Annotated[
+        str,
+        Header(
+            alias="X-Correlation-ID",
+            min_length=1,
+            max_length=128,
+            pattern=CORRELATION_ID_PATTERN,
+        ),
+    ],
+    principal: Annotated[
+        ServicePrincipal,
+        Depends(require_service_scope(OPERATIONS_CANCEL_SCOPE)),
+    ],
+) -> OperationResponseEnvelope:
+    """Cancel one owner-scoped operation only while it remains undelivered."""
+    async with request.app.state.session_provider() as session:
+        try:
+            operation = await cancel_operation_for_service(
                 session,
                 operation_id=operation_id,
                 service_client_id=principal.client.id,

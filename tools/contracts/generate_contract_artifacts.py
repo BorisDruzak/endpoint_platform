@@ -78,6 +78,7 @@ _SERVICE_OPERATION_PATHS = (
     "/api/v1/devices/{device_id}/capabilities",
     "/api/v1/devices/{device_id}/operations",
     "/api/v1/operations/{operation_id}",
+    "/api/v1/operations/{operation_id}/cancel",
     "/api/v1/devices/{device_id}/module-operations",
     "/api/v1/module-operations/{operation_id}",
     "/api/v1/module-capabilities",

@@ -232,6 +232,10 @@ async def route_fixture(
             client=owner,
             credential=_credential(owner, ["operations.read"]),
         ),
+        "canceler": ServicePrincipal(
+            client=owner,
+            credential=_credential(owner, ["operations.cancel"]),
+        ),
         "modules-writer": ServicePrincipal(
             client=owner,
             credential=_credential(owner, ["modules.write"]),
@@ -259,6 +263,10 @@ async def route_fixture(
         "foreign-reader": ServicePrincipal(
             client=foreign,
             credential=_credential(foreign, ["operations.read"]),
+        ),
+        "foreign-canceler": ServicePrincipal(
+            client=foreign,
+            credential=_credential(foreign, ["operations.cancel"]),
         ),
     }
 
@@ -292,6 +300,98 @@ def _authorization(token: str) -> dict[str, str]:
         "Authorization": f"Bearer {token}",
         "X-Correlation-ID": "test-correlation-id",
     }
+
+
+@pytest.mark.asyncio
+async def test_cancel_queued_operation_is_idempotent_and_stops_delivery(
+    route_fixture: RouteFixture,
+) -> None:
+    """The owner can cancel only undelivered work without creating a new command."""
+    create_path = f"/api/v1/devices/{route_fixture.device.id}/operations"
+    async with _client(route_fixture) as client:
+        created = await client.post(
+            create_path, json=CREATE_BODY, headers=_create_headers("creator-old")
+        )
+        operation_id = created.json()["data"]["operation"]["operation_id"]
+        first = await client.post(
+            f"/api/v1/operations/{operation_id}/cancel",
+            headers=_authorization("canceler"),
+        )
+        replay = await client.post(
+            f"/api/v1/operations/{operation_id}/cancel",
+            headers=_authorization("canceler"),
+        )
+
+    assert created.status_code == 201
+    assert first.status_code == 200
+    assert replay.status_code == 200
+    assert first.json()["data"]["operation"]["status"] == "canceled"
+    assert replay.json()["data"]["operation"]["status"] == "canceled"
+    async with route_fixture.session_provider() as session:
+        operation = await session.get(EndpointOperation, UUID(operation_id))
+        collection = await session.get(ContextCollection, operation.context_collection_id)
+        commands = (await session.scalars(select(Command))).all()
+    assert operation is not None
+    assert collection is not None
+    assert collection.status == "expired"
+    assert collection.failure_code == "operation_canceled"
+    assert commands == []
+
+
+@pytest.mark.asyncio
+async def test_cancel_requires_exact_scope_and_service_owner(
+    route_fixture: RouteFixture,
+) -> None:
+    """Read permission and a foreign client cannot cancel an owned operation."""
+    create_path = f"/api/v1/devices/{route_fixture.device.id}/operations"
+    async with _client(route_fixture) as client:
+        created = await client.post(
+            create_path, json=CREATE_BODY, headers=_create_headers("creator-old")
+        )
+        operation_id = created.json()["data"]["operation"]["operation_id"]
+        missing_scope = await client.post(
+            f"/api/v1/operations/{operation_id}/cancel",
+            headers=_authorization("reader-rotated"),
+        )
+        foreign = await client.post(
+            f"/api/v1/operations/{operation_id}/cancel",
+            headers=_authorization("foreign-canceler"),
+        )
+
+    assert created.status_code == 201
+    assert missing_scope.status_code == 403
+    assert foreign.status_code == 404
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status_value", ("delivered", "acknowledged", "running", "succeeded", "failed"))
+async def test_cancel_rejects_delivered_running_and_terminal_operations(
+    route_fixture: RouteFixture,
+    status_value: str,
+) -> None:
+    """Cancellation never rewrites work that might have reached the agent."""
+    create_path = f"/api/v1/devices/{route_fixture.device.id}/operations"
+    async with _client(route_fixture) as client:
+        created = await client.post(
+            create_path, json=CREATE_BODY, headers=_create_headers("creator-old")
+        )
+    operation_id = created.json()["data"]["operation"]["operation_id"]
+    async with route_fixture.session_provider() as session:
+        operation = await session.get(EndpointOperation, UUID(operation_id))
+        assert operation is not None
+        operation.status = status_value
+        if status_value in {"succeeded", "failed"}:
+            operation.completed_at = datetime.now(UTC)
+        await session.commit()
+
+    async with _client(route_fixture) as client:
+        response = await client.post(
+            f"/api/v1/operations/{operation_id}/cancel",
+            headers=_authorization("canceler"),
+        )
+
+    assert response.status_code == 409
+    assert response.json()["detail"]["code"] == "operation_cancel_not_supported"
 
 
 @pytest.mark.asyncio
@@ -1771,6 +1871,7 @@ def test_enabled_runtime_openapi_exactly_matches_committed_operation_routes(
         "/api/v1/devices/{device_id}/capabilities",
         "/api/v1/devices/{device_id}/operations",
         "/api/v1/operations/{operation_id}",
+        "/api/v1/operations/{operation_id}/cancel",
         "/api/v1/module-capabilities",
     )
     assert {path: runtime["paths"][path] for path in operation_paths} == {
@@ -1810,6 +1911,12 @@ def test_operation_openapi_declares_required_correlation_response_headers(
         ("/api/v1/operations/{operation_id}", "get", "404"),
         ("/api/v1/operations/{operation_id}", "get", "422"),
         ("/api/v1/operations/{operation_id}", "get", "503"),
+        ("/api/v1/operations/{operation_id}/cancel", "post", "200"),
+        ("/api/v1/operations/{operation_id}/cancel", "post", "401"),
+        ("/api/v1/operations/{operation_id}/cancel", "post", "403"),
+        ("/api/v1/operations/{operation_id}/cancel", "post", "404"),
+        ("/api/v1/operations/{operation_id}/cancel", "post", "409"),
+        ("/api/v1/operations/{operation_id}/cancel", "post", "422"),
         ("/api/v1/module-capabilities", "get", "200"),
         ("/api/v1/module-capabilities", "get", "401"),
         ("/api/v1/module-capabilities", "get", "403"),
