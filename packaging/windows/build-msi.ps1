@@ -370,18 +370,18 @@ if (-not (Test-Path -LiteralPath $builtServiceHost -PathType Leaf)) {
 if (-not (Test-Path -LiteralPath $builtProvisioner -PathType Leaf)) {
     throw "Provisioning helper build missing $builtProvisioner"
 }
+$artifactValidationJson = & $python @($validationArguments + @('--artifact-root', $builtCore))
+if ($LASTEXITCODE -ne 0) {
+    throw "Built initial runtime artifact validation failed."
+}
+$artifactValidationIdentity = $artifactValidationJson | ConvertFrom-Json
+if ([string]$artifactValidationIdentity.version -ne $InitialRuntimeVersion) {
+    throw "Built artifact validation returned an unexpected runtime identity."
+}
 Get-ChildItem -LiteralPath $builtCore | ForEach-Object {
     Copy-Item -LiteralPath $_.FullName -Destination $runtimeStage -Recurse -Force
 }
 Move-Item -LiteralPath (Join-Path $runtimeStage 'endpoint_agent_core.exe') -Destination (Join-Path $runtimeStage 'pc_agent.exe')
-$artifactValidationJson = & $python @($validationArguments + @('--artifact-root', $runtimeStage))
-if ($LASTEXITCODE -ne 0) {
-    throw "Staged initial runtime artifact validation failed."
-}
-$artifactValidationIdentity = $artifactValidationJson | ConvertFrom-Json
-if ([string]$artifactValidationIdentity.version -ne $InitialRuntimeVersion) {
-    throw "Staged artifact validation returned an unexpected runtime identity."
-}
 Write-Utf8NoBom (Join-Path $runtimeStage '.endpoint-msi-runtime.json') (@{
     component_guid = $InitialRuntimeComponentGuid
     schema_version = 1
