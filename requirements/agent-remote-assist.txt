@@ -1,5 +1,5 @@
-# Optional Remote Assist profile. Not part of the headless core.
--r agent-session-helper.txt
+# Optional Remote Assist source-managed module profile. Not part of the headless core.
+-r agent-core.txt
 aiortc==1.14.0
 aioice==0.10.2
 av==16.1.0

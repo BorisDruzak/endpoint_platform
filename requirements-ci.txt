@@ -1,6 +1,7 @@
 # Canonical self-hosted CI environment for pc_client.
 
--r pc_agent/requirements.txt
+-r requirements/agent-core.txt
+-r requirements/agent-remote-assist.txt
 
 aiohttp
 alembic
