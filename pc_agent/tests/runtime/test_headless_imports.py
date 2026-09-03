@@ -5,6 +5,7 @@ from __future__ import annotations
 import builtins
 import importlib
 import sys
+from pathlib import Path
 
 
 _FORBIDDEN_IMPORTS = (
@@ -51,3 +52,13 @@ def test_runtime_main_imports_without_gui_helpdesk_or_protocol_v3(monkeypatch) -
     assert runtime_main.RuntimeSettings.__module__ == "pc_agent.runtime.application"
     assert callable(runtime_main.run_runtime)
     assert callable(runtime_main.run_verify)
+
+
+def test_retired_gui_and_helpdesk_transport_sources_are_absent() -> None:
+    """The released Endpoint agent must not retain a dormant legacy branch."""
+    root = Path(__file__).resolve().parents[2]
+
+    for relative_path in ("ui_gui", "ui_bridge"):
+        assert not any((root / relative_path).rglob("*.py"))
+    for relative_path in ("ws_agent.py", "ws_agent_runtime_helpers.py"):
+        assert not (root / relative_path).exists()
