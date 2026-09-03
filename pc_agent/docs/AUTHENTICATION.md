@@ -9,4 +9,4 @@ The headless runtime reads the credential via
 `pc_agent.device_credential.read_device_credential()` and verifies enrollment
 identity before opening the Gateway transport. A missing, expired, or rejected
 credential enters the explicit enrollment recovery path; it never falls back
-to Helpdesk account or browser-pairing flows.
+to any Helpdesk identity flow.
