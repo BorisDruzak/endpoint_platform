@@ -398,16 +398,17 @@ def test_initial_runtime_payload_is_validated_before_msi_provenance_marker() -> 
     assert script.index(artifact_validation) < script.index(marker_write)
 
 
-def test_initial_runtime_manifest_validates_unmodified_core_payload() -> None:
-    """The immutable core artifact is checked before MSI-specific file renaming."""
+def test_initial_runtime_manifest_uses_the_verified_staged_payload() -> None:
+    """Schema-v5 MSI builds retain the exact payload tied to stage evidence."""
     script = (WINDOWS_PACKAGING / "build-msi.ps1").read_text(encoding="utf-8")
 
-    artifact_validation = "$artifactValidationJson = & $python @($validationArguments + @('--artifact-root', $builtCore))"
-    copy_core = "Get-ChildItem -LiteralPath $builtCore | ForEach-Object {"
+    stage_selection = "$runtimePayload = [IO.Path]::GetFullPath($InitialRuntimeStageRoot)"
+    artifact_validation = "$artifactValidationJson = & $python @($validationArguments + @('--artifact-root', $runtimePayload))"
+    copy_core = "Get-ChildItem -LiteralPath $runtimePayload | ForEach-Object {"
     rename_core = "Move-Item -LiteralPath (Join-Path $runtimeStage 'endpoint_agent_core.exe')"
 
-    assert artifact_validation in script
-    assert script.index(artifact_validation) < script.index(copy_core) < script.index(rename_core)
+    assert stage_selection in script
+    assert script.index(stage_selection) < script.index(artifact_validation) < script.index(copy_core) < script.index(rename_core)
 
 
 def test_default_uninstall_retains_programdata_and_documents_admin_purge() -> None:

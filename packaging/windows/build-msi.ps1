@@ -370,15 +370,23 @@ if (-not (Test-Path -LiteralPath $builtServiceHost -PathType Leaf)) {
 if (-not (Test-Path -LiteralPath $builtProvisioner -PathType Leaf)) {
     throw "Provisioning helper build missing $builtProvisioner"
 }
-$artifactValidationJson = & $python @($validationArguments + @('--artifact-root', $builtCore))
+$runtimePayload = $builtCore
+if ([int]$manifestPreview.schema_version -ge 5) {
+    $runtimePayload = [IO.Path]::GetFullPath($InitialRuntimeStageRoot)
+}
+$runtimePayloadExe = Join-Path $runtimePayload 'endpoint_agent_core.exe'
+if (-not (Test-Path -LiteralPath $runtimePayloadExe -PathType Leaf)) {
+    throw "Initial runtime payload missing $runtimePayloadExe"
+}
+$artifactValidationJson = & $python @($validationArguments + @('--artifact-root', $runtimePayload))
 if ($LASTEXITCODE -ne 0) {
-    throw "Built initial runtime artifact validation failed."
+    throw "Initial runtime artifact validation failed."
 }
 $artifactValidationIdentity = $artifactValidationJson | ConvertFrom-Json
 if ([string]$artifactValidationIdentity.version -ne $InitialRuntimeVersion) {
-    throw "Built artifact validation returned an unexpected runtime identity."
+    throw "Initial runtime artifact validation returned an unexpected runtime identity."
 }
-Get-ChildItem -LiteralPath $builtCore | ForEach-Object {
+Get-ChildItem -LiteralPath $runtimePayload | ForEach-Object {
     Copy-Item -LiteralPath $_.FullName -Destination $runtimeStage -Recurse -Force
 }
 Move-Item -LiteralPath (Join-Path $runtimeStage 'endpoint_agent_core.exe') -Destination (Join-Path $runtimeStage 'pc_agent.exe')
