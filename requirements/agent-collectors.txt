@@ -1,4 +1,0 @@
-# Optional legacy screen-collector profile. Not part of the headless core.
--r agent-core.txt
-imageio-ffmpeg==0.6.0
-mss==10.1.0

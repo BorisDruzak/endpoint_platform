@@ -1,44 +1,22 @@
-# PC Agent
+# Endpoint Agent
 
-PC Agent is a desktop-side runtime that connects to the server over WebSocket,
-executes approved tools, and sends structured results/events back through
-Protocol V3.
+`pc_agent` is a headless Endpoint Platform runtime. It enrolls a device,
+maintains device credentials, executes approved Endpoint commands, and reports
+typed Device Context collections through the Gateway transport.
 
-This document is a clean entrypoint to the current docs set. Detailed behavior,
-contracts, and architecture are split into focused files.
+## Canonical entrypoints
 
-## Start Here
+- Runtime: `pc_agent/runtime/main.py`
+- Linux core build: `pc_agent/pyinstaller_endpoint_core_linux.spec`
+- Windows core build: `pc_agent/pyinstaller_endpoint_core_windows.spec`
+- Linux RPM packaging: `packaging/alt/build-rpm.sh`
+- Windows MSI packaging: `packaging/windows/build-msi.ps1`
 
-- pc_agent/docs/CODEMAP.md - architecture map and entrypoints
-- pc_agent/docs/PROTOCOL_V3.md - agent-side Protocol V3 contract
-- pc_agent/docs/AUTHENTICATION.md - token sources and auth flow
-- pc_agent/docs/MODULES.md - module packaging and runtime loading
-- pc_agent/docs/DATABASE.md - local DB schema and outbox/inbox behavior
+The runtime has no Helpdesk requester UI, local ticket API, WebSocket command
+transport, Protocol V3 storage, or Remote Assist activation path. Remote
+Assist source remains a separately managed module and is excluded from the
+core artifacts.
 
-## Runtime Overview
-
-- Main runtime: pc_agent/ws_agent.py
-- Orchestration and command execution: pc_agent/core/orchestrator.py
-- Event delivery and retries: pc_agent/core/sender.py
-- UI bridge API/SSE: pc_agent/ui_bridge/
-- Optional desktop GUI: pc_agent/ui_gui/
-
-## Core Principles
-
-- Protocol-first transport (ws_ticket_v3, envelope V3, outbox ACK/NACK)
-- Deterministic command lifecycle and idempotent delivery
-- Strict role/risk checks for tool execution
-- Backward compatibility only where explicitly documented
-
-## Local Verification
-
-- Workspace checks: python scripts/verify_workspace.py
-- Agent tests: python -m pytest pc_agent/tests/
-- Targeted tests by feature area are preferred over full-suite runs during
-  incremental development.
-
-## Notes
-
-- Legacy compatibility paths may still exist for migration windows, but new code
-  should follow current contracts from PROTOCOL_V3.md and AUTHENTICATION.md.
-- Keep this README concise; update detailed behavior in topic-specific docs.
+See [CODEMAP.md](CODEMAP.md) for the active architecture,
+[AUTHENTICATION.md](AUTHENTICATION.md) for device credentials, and
+[AGENT_UPDATE_WORKFLOW.md](AGENT_UPDATE_WORKFLOW.md) for immutable releases.

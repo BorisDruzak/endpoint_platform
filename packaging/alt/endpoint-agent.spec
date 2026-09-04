@@ -2,7 +2,7 @@
 
 Name: endpoint-agent
 Version: %{agent_version}
-Release: alt1
+Release: alt3
 Summary: Endpoint Platform headless management agent for ALT Linux
 License: Proprietary
 Group: System/Servers
@@ -144,5 +144,8 @@ systemctl daemon-reload || :
 %config /etc/logrotate.d/endpoint-agent
 
 %changelog
+* Fri Sep 04 2026 Endpoint Platform Maintainers <endpoint@example.invalid> 3.2.37-alt3
+- Publish the legacy-cutover headless agent as an upgrade over the canary baseline.
+
 * Sun Aug 02 2026 Endpoint Platform Maintainers <endpoint@example.invalid> 3.1.76-alt1
 - Initial native ALT package for the headless WSS agent.

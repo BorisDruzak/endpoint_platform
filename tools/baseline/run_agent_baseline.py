@@ -27,7 +27,6 @@ def build_commands(python_executable: str) -> list[list[str]]:
             "pytest",
             "pc_agent/tests/test_self_update_runtime.py",
             "pc_agent/tests/test_launcher_main.py",
-            "pc_agent/tests/test_launcher_portable_main.py",
             "-q",
         ],
         [python_executable, "-m", "compileall", "-q", "pc_agent", "shared"],

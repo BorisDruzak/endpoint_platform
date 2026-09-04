@@ -285,6 +285,68 @@ async def read_operation_for_service(
     return operation
 
 
+async def cancel_operation_for_service(
+    session: AsyncSession,
+    *,
+    operation_id: UUID | str,
+    service_client_id: UUID | str,
+    now: datetime | None = None,
+) -> EndpointOperation:
+    """Cancel exactly one owner-scoped operation before it reaches delivery."""
+    checked_operation_id = _uuid(operation_id, "operation id")
+    checked_client_id = _uuid(service_client_id, "service client id")
+    canceled_at = _now(now)
+    operation = await session.scalar(
+        select(EndpointOperation)
+        .where(
+            EndpointOperation.id == checked_operation_id,
+            EndpointOperation.requested_by_service_client_id == checked_client_id,
+        )
+        .with_for_update()
+    )
+    if operation is None:
+        raise OperationNotFound("endpoint operation was not found")
+    client = await session.scalar(
+        select(ServiceClient)
+        .where(ServiceClient.id == checked_client_id)
+        .with_for_update()
+    )
+    if client is None:
+        raise OperationNotFound("endpoint operation was not found")
+    if operation.status == "canceled":
+        return operation
+    if operation.status != "queued" or operation.command_id is not None:
+        raise OperationConflict(
+            "operation can no longer be canceled",
+            code="operation_cancel_not_supported",
+        )
+    collection = await session.scalar(
+        select(ContextCollection)
+        .where(
+            ContextCollection.id == operation.context_collection_id,
+            ContextCollection.operation_id == operation.id,
+        )
+        .with_for_update()
+    )
+    if collection is None or collection.command_id is not None or collection.status != "requested":
+        raise OperationValidationError("operation collection relation is unavailable")
+    operation.status = "canceled"
+    operation.completed_at = canceled_at
+    collection.status = "expired"
+    collection.failed_at = canceled_at
+    collection.failure_code = "operation_canceled"
+    await _append_operation_audit(
+        session,
+        operation=operation,
+        action="endpoint.operation_canceled",
+        actor_kind="service",
+        actor_identifier=client.client_identifier,
+        occurred_at=canceled_at,
+    )
+    await session.flush()
+    return operation
+
+
 async def append_operation_terminal_audit(
     session: AsyncSession,
     operation: EndpointOperation,

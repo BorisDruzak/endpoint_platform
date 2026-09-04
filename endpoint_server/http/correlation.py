@@ -14,14 +14,24 @@ _CORRELATION_ID_RE = re.compile(CORRELATION_ID_PATTERN)
 
 
 def is_operation_api_request(method: str, path: str) -> bool:
-    """Return whether a request is one of the four public Operations API routes."""
+    """Return whether a request is one of the public Operations API routes."""
     segments = path.split("/")
     if len(segments) == 5 and segments[0] == "" and segments[1:3] == ["api", "v1"]:
-        if method != "GET" or not segments[4]:
+        if not segments[4]:
             return False
         if segments[3] in {"operations", "module-operations"}:
-            return True
-        return segments[3] == "devices" and segments[4] != "network-identities"
+            return method == "GET"
+        return (
+            segments[3] == "devices"
+            and segments[4] != "network-identities"
+            and method == "GET"
+        )
+    if (
+        len(segments) == 6
+        and segments[:4] == ["", "api", "v1", "operations"]
+        and method == "POST"
+    ):
+        return bool(segments[4]) and segments[5] == "cancel"
     if len(segments) == 6 and segments[:4] == ["", "api", "v1", "devices"]:
         return bool(segments[4]) and (
             (method == "GET" and segments[5] == "capabilities")

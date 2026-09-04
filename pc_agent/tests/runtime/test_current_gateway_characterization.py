@@ -14,7 +14,7 @@ from aiohttp.client_reqrep import ConnectionKey
 
 from endpoint_contracts import AgentCommandV1
 from pc_agent import endpoint_gateway
-from pc_agent.core.orchestrator import execute_context_agent_command
+from pc_agent.context_profiles.command_execution import execute_context_agent_command
 
 
 _COMMAND_ID = UUID("caa31a48-bf2f-4f1c-8b77-d1be77e12b4e")
