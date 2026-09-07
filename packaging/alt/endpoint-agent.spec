@@ -2,7 +2,7 @@
 
 Name: endpoint-agent
 Version: %{agent_version}
-Release: alt3
+Release: alt4
 Summary: Endpoint Platform headless management agent for ALT Linux
 License: Proprietary
 Group: System/Servers
@@ -144,6 +144,9 @@ systemctl daemon-reload || :
 %config /etc/logrotate.d/endpoint-agent
 
 %changelog
+* Sun Sep 07 2026 Endpoint Platform Maintainers <endpoint@example.invalid> 3.2.39-alt4
+- Publish a new immutable Windows canary candidate without reusing 3.2.37 bytes.
+
 * Fri Sep 04 2026 Endpoint Platform Maintainers <endpoint@example.invalid> 3.2.37-alt3
 - Publish the legacy-cutover headless agent as an upgrade over the canary baseline.
 
