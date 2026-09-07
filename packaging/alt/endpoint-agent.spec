@@ -145,7 +145,7 @@ systemctl daemon-reload || :
 
 %changelog
 * Sun Sep 07 2026 Endpoint Platform Maintainers <endpoint@example.invalid> 3.2.39-alt4
-- Publish a new immutable Windows canary candidate without reusing 3.2.37 bytes.
+- Publish the immutable Endpoint Agent 3.2.39-alt4 release without reusing 3.2.37 bytes.
 
 * Fri Sep 04 2026 Endpoint Platform Maintainers <endpoint@example.invalid> 3.2.37-alt3
 - Publish the legacy-cutover headless agent as an upgrade over the canary baseline.
