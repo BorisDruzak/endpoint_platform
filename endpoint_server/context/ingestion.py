@@ -239,7 +239,7 @@ async def ingest_context_result(
     )
     session.add(snapshot)
     await session.flush()
-    if profile == "baseline_v1" and latest_snapshot is not None:
+    if profile in {"baseline_v1", "inventory_v1"} and latest_snapshot is not None:
         diff = compare_snapshots(latest_snapshot.normalized_projection, projection)
         session.add(
             ContextDiff(

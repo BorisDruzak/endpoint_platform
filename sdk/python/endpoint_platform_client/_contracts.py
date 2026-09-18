@@ -33,6 +33,11 @@ ContextDiffChangeCodeV1 = Literal[
     "platform_changed",
     "software_changed",
     "storage_changed",
+    "HARDWARE_CHANGED",
+    "NETWORK_CHANGED",
+    "RAM_CHANGED",
+    "SOFTWARE_CHANGED",
+    "STORAGE_CHANGED",
 ]
 BoundedTextV1 = Annotated[str, Field(min_length=1, max_length=256)]
 StableKeyV1 = Annotated[str, Field(min_length=3, max_length=128, pattern=r"^[A-Za-z0-9][A-Za-z0-9._:-]*$")]
@@ -115,7 +120,7 @@ class DeviceContextDiffChangeV1(_SafeContract):
 
 class DeviceContextDiffV1(_SafeContract):
     schema_version: Literal["device_context_diff_v1"]
-    profile: Literal["baseline_v1"]
+    profile: Literal["baseline_v1", "inventory_v1"]
     from_hash: Annotated[str, Field(pattern=r"^[a-f0-9]{64}$")]
     to_hash: Annotated[str, Field(pattern=r"^[a-f0-9]{64}$")]
     changes: list[DeviceContextDiffChangeV1] = Field(max_length=128)

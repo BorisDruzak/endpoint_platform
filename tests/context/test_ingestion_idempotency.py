@@ -4,7 +4,7 @@ from datetime import timedelta
 
 from sqlalchemy import func, select
 
-from endpoint_server.context.models import ContextCurrent, ContextSnapshot
+from endpoint_server.context.models import ContextCurrent, ContextDiff, ContextSnapshot
 from endpoint_server.context.ingestion import ingest_context_result
 
 from .test_collection_lifecycle import _result, session
@@ -60,6 +60,26 @@ async def test_equivalent_later_inventory_does_not_create_another_snapshot(sessi
 
     assert later.status == "completed"
     assert await _snapshot_count(session, first.device_id) == 1
+
+
+async def test_changed_inventory_creates_a_fixed_code_diff(session) -> None:
+    """Inventory changes must stay auditable without raw fact values in the diff."""
+    first_record, first_result = await _result(session, profile="inventory_v1")
+    first = await ingest_context_result(session, first_record.id, first_result)
+    later_record, later_result = await _result(
+        session,
+        device_id=first.device_id,
+        collected_at=first_result.completed_at + timedelta(hours=24),
+        profile="inventory_v1",
+    )
+    later_result.result_items[0]["sections"]["memory"]["total_bytes"] = 2048
+
+    await ingest_context_result(session, later_record.id, later_result)
+
+    diff = await session.scalar(select(ContextDiff).where(ContextDiff.device_id == first.device_id))
+    assert diff is not None
+    assert diff.diff_payload["profile"] == "inventory_v1"
+    assert [change["code"] for change in diff.diff_payload["changes"]] == ["RAM_CHANGED"]
 
 
 async def test_failed_result_never_replaces_existing_current_snapshot(session) -> None:

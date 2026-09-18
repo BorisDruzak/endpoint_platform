@@ -667,6 +667,11 @@ async def test_baseline_history_is_scoped_bounded_ordered_and_safe(
             params={"profile": "health_v1"},
             headers={"Authorization": "Bearer reader"},
         )
+        inventory = await client.get(
+            f"/api/v1/devices/{device.id}/context/snapshots",
+            params={"profile": "inventory_v1"},
+            headers={"Authorization": "Bearer reader"},
+        )
         over_limit = await client.get(
             f"/api/v1/devices/{device.id}/context/snapshots",
             params={"limit": 101},
@@ -680,6 +685,8 @@ async def test_baseline_history_is_scoped_bounded_ordered_and_safe(
     assert denied.status_code == 403
     assert diagnostic_rejected.status_code == 422
     assert health_rejected.status_code == 422
+    assert inventory.status_code == 200
+    assert inventory.json()["data"]["snapshots"] == []
     assert over_limit.status_code == 422
 
 

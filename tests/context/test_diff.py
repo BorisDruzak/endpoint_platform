@@ -30,3 +30,33 @@ def test_compare_snapshots_emits_only_fixed_codes_in_stable_order() -> None:
     assert {change.code for change in result.changes} <= {
         "agent_changed", "hardware_changed", "network_changed", "platform_changed", "software_changed", "storage_changed"
     }
+
+
+def test_compare_inventory_snapshots_emits_fixed_inventory_codes() -> None:
+    before = {
+        "profile": "inventory_v1",
+        "sections": {
+            "system": {"platform": "windows"},
+            "hardware": {"model": "A1"},
+            "memory": {"total_bytes": 8, "modules": []},
+            "storage": {"physical_devices": [{"stable_key": "disk-1", "size_bytes": 100}]},
+            "interfaces": [{"stable_key": "mac-aabbccddeeff", "mac": "aabbccddeeff", "name": "LAN", "link_type": "ethernet", "operational_state": "up"}],
+        },
+    }
+    after = {
+        **before,
+        "sections": {
+            **before["sections"],
+            "hardware": {"model": "A2"},
+            "memory": {"total_bytes": 16, "modules": []},
+            "storage": {"physical_devices": [{"stable_key": "disk-1", "size_bytes": 200}]},
+            "interfaces": [{"stable_key": "mac-aabbccddeeff", "mac": "aabbccddeeff", "name": "LAN", "link_type": "ethernet", "operational_state": "down"}],
+        },
+    }
+
+    result = compare_snapshots(before, after)
+
+    assert result.profile == "inventory_v1"
+    assert [change.code for change in result.changes] == [
+        "HARDWARE_CHANGED", "RAM_CHANGED", "STORAGE_CHANGED", "NETWORK_CHANGED"
+    ]

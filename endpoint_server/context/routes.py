@@ -46,8 +46,9 @@ from .service import ContextError
 router = APIRouter(prefix="/api/v1", tags=["device-context"])
 
 _SAFE_SERVICE_PROFILES = ("baseline_v1", "health_v1", "network_v1", "inventory_v1", "session_v1")
-_BASELINE_HISTORY_LIMIT = 50
-_MAX_BASELINE_HISTORY_LIMIT = 100
+_SAFE_HISTORY_PROFILES = ("baseline_v1", "inventory_v1")
+_CONTEXT_HISTORY_LIMIT = 50
+_MAX_CONTEXT_HISTORY_LIMIT = 100
 _NETWORK_IDENTITY_LIMIT = 250
 _NETWORK_IDENTITY_CHUNK_SIZE = 250
 _PRESENCE_TTL = timedelta(seconds=90)
@@ -383,11 +384,11 @@ async def list_baseline_context_history(
     _: Annotated[ServicePrincipal, Depends(require_service_scope(CONTEXT_READ_SCOPE))],
     profile: ContextProfileV1 = "baseline_v1",
     limit: Annotated[
-        int, Query(ge=1, le=_MAX_BASELINE_HISTORY_LIMIT)
-    ] = _BASELINE_HISTORY_LIMIT,
+        int, Query(ge=1, le=_MAX_CONTEXT_HISTORY_LIMIT)
+    ] = _CONTEXT_HISTORY_LIMIT,
 ) -> dict[str, object]:
-    """List a deterministic, bounded baseline-only history for one device."""
-    if profile != "baseline_v1":
+    """List a deterministic, bounded safe context history for one device."""
+    if profile not in _SAFE_HISTORY_PROFILES:
         raise _invalid_request()
     async with request.app.state.session_provider() as session:
         device = await session.scalar(select(Device.id).where(Device.id == device_id))
@@ -398,7 +399,7 @@ async def list_baseline_context_history(
                 select(ContextSnapshot)
                 .where(
                     ContextSnapshot.device_id == device_id,
-                    ContextSnapshot.profile == "baseline_v1",
+                    ContextSnapshot.profile == profile,
                 )
                 .order_by(
                     ContextSnapshot.collected_at.desc(), ContextSnapshot.id.desc()
@@ -504,7 +505,7 @@ async def compare_device_context_snapshots(
     request: Request,
     _: Annotated[ServicePrincipal, Depends(require_service_scope(CONTEXT_READ_SCOPE))],
 ) -> dict[str, object]:
-    """Compare two baseline snapshots owned by the specified device."""
+    """Compare two compatible safe snapshots owned by the specified device."""
     if before_snapshot_id == after_snapshot_id:
         raise _invalid_request()
     async with request.app.state.session_provider() as session:
@@ -513,7 +514,7 @@ async def compare_device_context_snapshots(
                 select(ContextSnapshot).where(
                     ContextSnapshot.id.in_((before_snapshot_id, after_snapshot_id)),
                     ContextSnapshot.device_id == device_id,
-                    ContextSnapshot.profile == "baseline_v1",
+                    ContextSnapshot.profile.in_(_SAFE_HISTORY_PROFILES),
                 )
             )
         ).all()
@@ -522,6 +523,8 @@ async def compare_device_context_snapshots(
     after = indexed.get(after_snapshot_id)
     if before is None or after is None:
         raise _not_found()
+    if before.profile != after.profile:
+        raise _invalid_request()
     return {
         "data": compare_snapshots(
             before.normalized_projection, after.normalized_projection
