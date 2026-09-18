@@ -40,6 +40,15 @@ class WindowsGoldenProbe:
     def windows_health(self) -> dict[str, object]:
         return {"uptime_seconds": 123, "free_bytes": 4294967296}
 
+    def windows_inventory(self) -> dict[str, object]:
+        return {
+            "system": {"hostname": "WIN-01", "os_name": "Windows", "os_version": "11", "os_build": "26100", "architecture": "x86_64"},
+            "hardware": {"manufacturer": "Example Systems", "model": "Example Workstation", "serial_number": "SYS-01", "product_uuid": "11111111-2222-3333-4444-555555555555", "cpu_model": "Example CPU"},
+            "memory": {"total_bytes": 17179869184, "memory_type": "DDR4", "modules": []},
+            "storage": [{"serial": "SSD-01", "model": "Example SSD", "size_bytes": 512110190592, "media_type": "SSD", "bus_type": "NVME"}],
+            "interfaces": [{"name": "Ethernet", "mac": "00-11-22-33-44-55", "ipv4": ["192.0.2.10"], "ipv6": [], "link_type": "ethernet", "operational_state": "up"}],
+        }
+
     def run(self, argv, timeout_seconds, max_bytes) -> str:
         assert tuple(argv) == ("tasklist", "/FO", "CSV", "/NH")
         assert timeout_seconds == 2.0
@@ -86,3 +95,12 @@ def test_windows_baseline_keeps_volatile_addresses_and_uptime_outside_it() -> No
     assert "192.0.2.10" not in serialized
     assert "uptime_seconds" not in serialized
     assert "operator check" not in serialized
+
+
+def test_windows_inventory_exposes_physical_storage_and_network_identity() -> None:
+    result = execute_context_capability("context.inventory.collect", {}, WindowsGoldenProbe(), collected_at=FIXED_TIME)
+
+    assert result.profile == "inventory_v1"
+    assert result.sections.storage.physical_devices[0].bus_type == "NVME"
+    assert result.sections.interfaces[0].stable_key == "mac-001122334455"
+    assert result.sections.interfaces[0].ipv4 == ["192.0.2.10"]

@@ -15,6 +15,8 @@ from .stable_keys import bounded_text, disk_stable_key, interface_stable_key
 
 
 def collect_inventory(probe: object, *, collected_at: datetime | None = None) -> DeviceContextInventoryV1:
+    if str(getattr(probe, "platform_name", "")).lower() == "windows":
+        return _collect_windows_inventory(probe, collected_at=collected_at)
     warnings: list[str] = []
     os_release = _read(probe, "/etc/os-release", warnings)
     meminfo = _read(probe, "/proc/meminfo", warnings)
@@ -51,6 +53,36 @@ def collect_inventory(probe: object, *, collected_at: datetime | None = None) ->
         },
         warnings=list(dict.fromkeys(warnings))[:16],
     )
+
+
+def _collect_windows_inventory(probe: object, *, collected_at: datetime | None) -> DeviceContextInventoryV1:
+    candidate = getattr(probe, "windows_inventory", None)
+    try:
+        raw = candidate() if callable(candidate) else {}
+    except (OSError, ValueError, TimeoutError):
+        raw = {}
+    source = raw if isinstance(raw, Mapping) else {}
+    system = source.get("system") if isinstance(source.get("system"), Mapping) else {}
+    hardware = source.get("hardware") if isinstance(source.get("hardware"), Mapping) else {}
+    memory = source.get("memory") if isinstance(source.get("memory"), Mapping) else {}
+    storage = source.get("storage") if isinstance(source.get("storage"), list) else []
+    interfaces = source.get("interfaces") if isinstance(source.get("interfaces"), list) else []
+    physical_devices = []
+    for item in storage[:64]:
+        if not isinstance(item, Mapping):
+            continue
+        serial = _optional(str(item.get("serial") or ""))
+        physical_devices.append({"stable_key": disk_stable_key(wwn=None, serial=serial, fallback_name=item.get("model") or "disk"), "model": _optional(str(item.get("model") or "")), "serial": serial, "size_bytes": item.get("size_bytes") if isinstance(item.get("size_bytes"), int) and item.get("size_bytes") > 0 else None, "media_type": item.get("media_type") if item.get("media_type") in {"HDD", "SSD", "UNKNOWN"} else "UNKNOWN", "bus_type": item.get("bus_type") if item.get("bus_type") in {"SATA", "NVME", "USB", "SAS", "OTHER", "UNKNOWN"} else "UNKNOWN"})
+    normalized_interfaces = []
+    for item in interfaces[:64]:
+        if not isinstance(item, Mapping) or not item.get("name"):
+            continue
+        mac = _optional(str(item.get("mac") or ""))
+        normalized = mac.replace(":", "").replace("-", "").lower() if mac else None
+        if normalized and len(normalized) != 12:
+            normalized = None
+        normalized_interfaces.append({"name": bounded_text(item.get("name"), fallback="unknown", limit=64), "stable_key": interface_stable_key(mac=normalized, fallback_name=item.get("name")), "mac": normalized, "ipv4": [str(value) for value in item.get("ipv4", [])[:16]], "ipv6": [str(value) for value in item.get("ipv6", [])[:16]], "link_type": item.get("link_type") if item.get("link_type") in {"ethernet", "loopback", "wireless", "other"} else "other", "operational_state": item.get("operational_state") if item.get("operational_state") in {"up", "down", "unknown"} else "unknown"})
+    return DeviceContextInventoryV1(schema_version="device_context_v1", profile="inventory_v1", collected_at=collected_at or datetime.now(timezone.utc), sections={"system": {"hostname": _optional(str(system.get("hostname") or "")), "platform": "windows", "os_name": _optional(str(system.get("os_name") or "")), "os_version": _optional(str(system.get("os_version") or "")), "os_build": _optional(str(system.get("os_build") or "")), "architecture": system.get("architecture") if system.get("architecture") in {"x86_64", "aarch64"} else None}, "hardware": {key: _optional(str(hardware.get(key) or "")) for key in ("manufacturer", "model", "serial_number", "product_uuid", "cpu_model", "bios_vendor", "bios_version", "baseboard_manufacturer", "baseboard_model", "baseboard_serial")}, "memory": {"total_bytes": memory.get("total_bytes") if isinstance(memory.get("total_bytes"), int) and memory.get("total_bytes") > 0 else None, "memory_type": memory.get("memory_type") if memory.get("memory_type") in {"DDR", "DDR2", "DDR3", "DDR4", "DDR5", "UNKNOWN"} else None, "module_count": len(memory.get("modules", [])) if isinstance(memory.get("modules"), list) else 0, "modules": []}, "storage": {"physical_devices": physical_devices}, "interfaces": normalized_interfaces}, warnings=[] if source else ["probe_unavailable"])
 
 
 def _read(probe: object, path: str, warnings: list[str]) -> str:
