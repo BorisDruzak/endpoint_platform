@@ -26,6 +26,8 @@ _EXPECTED_CONTEXT_CAPABILITIES = frozenset(
         "context.health.collect",
         "context.network.collect",
         "context.diagnostic.collect",
+        "context.inventory.collect",
+        "context.session.collect",
     }
 )
 _FORBIDDEN_IMPORT_PREFIXES = (
