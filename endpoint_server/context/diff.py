@@ -12,12 +12,12 @@ from .semantic_hash import semantic_hash
 
 
 _CHANGE_FIELDS: tuple[tuple[str, str, str], ...] = (
-    ("platform_changed", "system", "Platform changed"),
-    ("hardware_changed", "hardware", "Hardware changed"),
-    ("storage_changed", "storage", "Storage changed"),
-    ("network_changed", "interfaces", "Network interfaces changed"),
-    ("software_changed", "software", "Software changed"),
-    ("agent_changed", "agent", "Agent changed"),
+    ("PLATFORM_CHANGED", "system", "Platform changed"),
+    ("HARDWARE_CHANGED", "hardware", "Hardware changed"),
+    ("STORAGE_CHANGED", "storage", "Storage changed"),
+    ("NETWORK_CHANGED", "interfaces", "Network interfaces changed"),
+    ("SOFTWARE_CHANGED", "software", "Software changed"),
+    ("AGENT_CHANGED", "agent", "Agent changed"),
 )
 
 _INVENTORY_CHANGE_FIELDS: tuple[tuple[str, str, str], ...] = (

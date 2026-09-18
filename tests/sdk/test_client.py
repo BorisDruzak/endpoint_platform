@@ -323,7 +323,7 @@ def test_safe_read_methods_validate_normalized_service_projections(tmp_path: Pat
             _response(200, device),
             _response(200, {"data": {"device": device["data"][0], "profiles": [{"profile": "baseline_v1", "status": "completed", "last_collected_at": "2026-07-29T10:00:00Z"}], "snapshots": [snapshot]}}),
             _response(200, {"data": {"collection": {"id": str(collection_id), "device_id": str(device_id), "profile": "baseline_v1", "status": "completed", "requested_at": "2026-07-29T09:59:00Z", "result_received_at": "2026-07-29T10:00:00Z", "completed_at": "2026-07-29T10:00:00Z", "failure_code": None}, "snapshot": snapshot}}),
-            _response(200, {"data": {"schema_version": "device_context_diff_v1", "profile": "baseline_v1", "from_hash": "b" * 64, "to_hash": "c" * 64, "changes": [{"code": "hardware_changed", "summary": "Hardware changed"}]}}),
+            _response(200, {"data": {"schema_version": "device_context_diff_v1", "profile": "baseline_v1", "from_hash": "b" * 64, "to_hash": "c" * 64, "changes": [{"code": "HARDWARE_CHANGED", "summary": "Hardware changed"}]}}),
         ]
     )
     monkeypatch.setattr(client_module.httpx, "Client", lambda **_: fake)
@@ -338,7 +338,7 @@ def test_safe_read_methods_validate_normalized_service_projections(tmp_path: Pat
     assert latest is not None and latest.id == snapshot_id
     assert details.collection.id == collection_id
     assert details.snapshot is not None and details.snapshot.profile == "baseline_v1"
-    assert comparison.comparison.changes[0].code == "hardware_changed"
+    assert comparison.comparison.changes[0].code == "HARDWARE_CHANGED"
     assert fake.calls[-1][1].endswith("/context/snapshots/compare")
     assert fake.calls[-1][2]["params"] == {
         "before_snapshot_id": str(snapshot_id),

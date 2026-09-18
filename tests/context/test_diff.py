@@ -25,10 +25,10 @@ def test_compare_snapshots_emits_only_fixed_codes_in_stable_order() -> None:
 
     assert result.profile == "baseline_v1"
     assert [change.code for change in result.changes] == [
-        "platform_changed", "hardware_changed", "storage_changed", "network_changed", "software_changed"
+        "PLATFORM_CHANGED", "HARDWARE_CHANGED", "STORAGE_CHANGED", "NETWORK_CHANGED", "SOFTWARE_CHANGED"
     ]
     assert {change.code for change in result.changes} <= {
-        "agent_changed", "hardware_changed", "network_changed", "platform_changed", "software_changed", "storage_changed"
+        "AGENT_CHANGED", "HARDWARE_CHANGED", "NETWORK_CHANGED", "PLATFORM_CHANGED", "SOFTWARE_CHANGED", "STORAGE_CHANGED"
     }
 
 
