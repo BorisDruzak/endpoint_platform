@@ -136,10 +136,11 @@ async def _single_device_projection(
     session: AsyncSession, device: Device
 ) -> dict[str, object]:
     """Project one device, using the same deterministic session ordering as listings."""
+    observed_at = func.coalesce(DeviceSession.last_seen_at, DeviceSession.created_at)
     last_seen_at = await session.scalar(
-        select(DeviceSession.created_at)
+        select(observed_at)
         .where(DeviceSession.device_id == device.id)
-        .order_by(DeviceSession.created_at.desc(), DeviceSession.id.desc())
+        .order_by(observed_at.desc(), DeviceSession.id.desc())
         .limit(1)
     )
     return _device_projection(device, last_seen_at)
@@ -152,17 +153,18 @@ async def list_devices(
 ) -> dict[str, object]:
     """List service-visible device identities without context or credentials."""
     async with request.app.state.session_provider() as session:
+        observed_at = func.coalesce(DeviceSession.last_seen_at, DeviceSession.created_at)
         session_rank = (
             func.row_number()
             .over(
                 partition_by=DeviceSession.device_id,
-                order_by=(DeviceSession.created_at.desc(), DeviceSession.id.desc()),
+                order_by=(observed_at.desc(), DeviceSession.id.desc()),
             )
             .label("session_rank")
         )
         latest_sessions = select(
             DeviceSession.device_id.label("device_id"),
-            DeviceSession.created_at.label("last_seen_at"),
+            observed_at.label("last_seen_at"),
             session_rank,
         ).subquery()
         rows = (
@@ -196,17 +198,18 @@ async def list_network_identities(
     candidates: list[AgentNetworkIdentity] = []
     after_id = cursor
     async with request.app.state.session_provider() as session:
+        observed_at = func.coalesce(DeviceSession.last_seen_at, DeviceSession.created_at)
         session_rank = (
             func.row_number()
             .over(
                 partition_by=DeviceSession.device_id,
-                order_by=(DeviceSession.created_at.desc(), DeviceSession.id.desc()),
+                order_by=(observed_at.desc(), DeviceSession.id.desc()),
             )
             .label("session_rank")
         )
         latest_sessions = select(
             DeviceSession.device_id.label("device_id"),
-            DeviceSession.created_at.label("last_seen_at"),
+            observed_at.label("last_seen_at"),
             session_rank,
         ).subquery()
         while len(candidates) <= limit:

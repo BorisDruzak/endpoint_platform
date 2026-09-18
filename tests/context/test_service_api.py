@@ -719,6 +719,7 @@ async def test_safe_device_last_seen_comes_from_latest_session_only(
                     device_instance_id=None,
                     session_identifier="presence-new",
                     created_at=now,
+                    last_seen_at=now.replace(year=2027),
                     expires_at=now,
                 ),
                 DeviceSession(
@@ -755,13 +756,14 @@ async def test_safe_device_last_seen_comes_from_latest_session_only(
         item for item in listed.json()["data"] if item["id"] == str(device.id)
     )
     assert (
-        datetime.fromisoformat(listed_device["last_seen_at"]).replace(tzinfo=UTC) == now
+        datetime.fromisoformat(listed_device["last_seen_at"]).replace(tzinfo=UTC)
+        == now.replace(year=2027)
     )
     assert (
         datetime.fromisoformat(
             context.json()["data"]["device"]["last_seen_at"]
         ).replace(tzinfo=UTC)
-        == now
+        == now.replace(year=2027)
     )
     assert "policy" not in context.text.lower()
 
