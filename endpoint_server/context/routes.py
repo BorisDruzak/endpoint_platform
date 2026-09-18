@@ -45,13 +45,13 @@ from .service import ContextError
 
 router = APIRouter(prefix="/api/v1", tags=["device-context"])
 
-_SAFE_SERVICE_PROFILES = ("baseline_v1", "health_v1", "network_v1")
+_SAFE_SERVICE_PROFILES = ("baseline_v1", "health_v1", "network_v1", "inventory_v1", "session_v1")
 _BASELINE_HISTORY_LIMIT = 50
 _MAX_BASELINE_HISTORY_LIMIT = 100
 _NETWORK_IDENTITY_LIMIT = 250
 _NETWORK_IDENTITY_CHUNK_SIZE = 250
 _PRESENCE_TTL = timedelta(seconds=90)
-SafeServiceProfile = Literal["baseline_v1", "health_v1", "network_v1"]
+SafeServiceProfile = Literal["baseline_v1", "health_v1", "network_v1", "inventory_v1", "session_v1"]
 
 
 class CollectionRequest(BaseModel):
@@ -82,7 +82,7 @@ class AgentNetworkIdentity(BaseModel):
     last_seen_at: datetime | None
     online: bool
     baseline_collected_at: datetime
-    profiles: list[AgentNetworkProfile] = Field(max_length=3)
+    profiles: list[AgentNetworkProfile] = Field(max_length=5)
     baseline_mac_keys: list[
         Annotated[str, Field(pattern=r"^mac-[0-9a-f]{12}$")]
     ] = Field(min_length=1, max_length=64)

@@ -72,17 +72,15 @@ async def test_scheduler_creates_one_active_baseline(session: AsyncSession) -> N
         session, device_id=device.id, profile="network_v1", completed_at=NOW
     )
 
-    assert await schedule_due_collections(session, now=NOW) == 1
+    assert await schedule_due_collections(session, now=NOW) == 3
     assert await schedule_due_collections(session, now=NOW) == 0
 
-    scheduled = (await session.scalars(
-        select(ContextCollection).where(ContextCollection.profile == "baseline_v1")
-    )).all()
-    assert len(scheduled) == 1
-    assert scheduled[0].status == "requested"
-    assert scheduled[0].requested_by == "scheduler"
-    assert scheduled[0].expires_at is not None
-    assert scheduled[0].expires_at.replace(tzinfo=UTC) == NOW + timedelta(hours=24)
+    scheduled = (await session.scalars(select(ContextCollection))).all()
+    scheduled_by_profile = {item.profile: item for item in scheduled if item.requested_by == "scheduler"}
+    assert set(scheduled_by_profile) == {"baseline_v1", "inventory_v1", "session_v1"}
+    assert scheduled_by_profile["baseline_v1"].expires_at.replace(tzinfo=UTC) == NOW + timedelta(hours=24)
+    assert scheduled_by_profile["inventory_v1"].expires_at.replace(tzinfo=UTC) == NOW + timedelta(hours=24)
+    assert scheduled_by_profile["session_v1"].expires_at.replace(tzinfo=UTC) == NOW + timedelta(minutes=5)
 
 
 @pytest.mark.asyncio
@@ -92,6 +90,12 @@ async def test_scheduler_never_enqueues_manual_only_diagnostics(session: AsyncSe
     session.add(device)
     await session.flush()
 
-    assert await schedule_due_collections(session, now=NOW) == 3
+    assert await schedule_due_collections(session, now=NOW) == 5
     profiles = set(await session.scalars(select(ContextCollection.profile)))
-    assert profiles == {"baseline_v1", "health_v1", "network_v1"}
+    assert profiles == {
+        "baseline_v1",
+        "health_v1",
+        "network_v1",
+        "inventory_v1",
+        "session_v1",
+    }

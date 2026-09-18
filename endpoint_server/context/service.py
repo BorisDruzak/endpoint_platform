@@ -24,7 +24,7 @@ class ContextValidationError(ContextError):
 
 
 PROFILES: tuple[ContextProfileV1, ...] = (
-    "baseline_v1", "health_v1", "network_v1", "diagnostic_v1",
+    "baseline_v1", "health_v1", "network_v1", "diagnostic_v1", "inventory_v1", "session_v1",
 )
 
 

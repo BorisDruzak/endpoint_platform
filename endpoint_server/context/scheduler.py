@@ -26,6 +26,8 @@ SCHEDULE_RULES: tuple[ContextScheduleRule, ...] = (
     ContextScheduleRule("baseline_v1", timedelta(hours=24)),
     ContextScheduleRule("health_v1", timedelta(minutes=5)),
     ContextScheduleRule("network_v1", timedelta(minutes=15)),
+    ContextScheduleRule("inventory_v1", timedelta(hours=24)),
+    ContextScheduleRule("session_v1", timedelta(minutes=5)),
 )
 """The complete periodic allowlist; diagnostic_v1 is deliberately absent."""
 
