@@ -75,6 +75,12 @@ def _windows_system_uuid() -> str | None:
     return _powershell_value("(Get-CimInstance Win32_ComputerSystemProduct).UUID")
 
 
+def _windows_system_serial() -> str | None:
+    return _powershell_value(
+        "(Get-CimInstance Win32_ComputerSystemProduct).IdentifyingNumber"
+    )
+
+
 def _windows_machine_guid() -> str | None:
     if os.name != "nt":
         return None
@@ -122,15 +128,6 @@ def _windows_boot_volume() -> str | None:
     if not ok:
         return None
     return f"{serial.value:08x}"
-
-
-def _windows_allow_wmi_fingerprint() -> bool:
-    return str(os.environ.get("PC_AGENT_ENABLE_WMI_FINGERPRINT") or "").strip().lower() in {
-        "1",
-        "true",
-        "yes",
-        "on",
-    }
 
 
 def _read_first(paths: list[str]) -> str | None:
@@ -197,23 +194,31 @@ def _mac_hashes() -> list[str]:
 def collect_device_fingerprint() -> dict[str, Any]:
     system = platform.system().lower()
     if system == "windows":
-        system_uuid = _windows_machine_guid()
-        baseboard = _windows_baseboard() if _windows_allow_wmi_fingerprint() else None
+        product_uuid = _windows_system_uuid()
+        system_serial = _windows_system_serial()
+        baseboard = _windows_baseboard()
+        machine_guid = _windows_machine_guid()
         boot_volume = _windows_boot_volume()
     elif system == "linux":
-        system_uuid = _linux_system_uuid()
+        product_uuid = _linux_system_uuid()
+        system_serial = None
         baseboard = _linux_baseboard()
+        machine_guid = None
         boot_volume = _linux_boot_volume()
     else:
-        system_uuid = None
+        product_uuid = None
+        system_serial = None
         baseboard = None
+        machine_guid = None
         boot_volume = None
 
     components = {
         key: value
         for key, value in {
-            "system_uuid": _hash(system_uuid),
+            "product_uuid": _hash(product_uuid),
+            "system_serial": _hash(system_serial),
             "baseboard": _hash(baseboard),
+            "machine_guid": _hash(machine_guid),
             "cpu": _hash(_cpu_signature()),
             "boot_volume": _hash(boot_volume),
         }.items()
