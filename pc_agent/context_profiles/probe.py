@@ -25,6 +25,10 @@ NETWORK_MANAGER_STATUS_COMMAND = ("systemctl", "is-active", "NetworkManager")
 PROCESS_COMMAND = ("ps", "-eo", "comm=,stat=")
 JOURNAL_COMMAND = ("journalctl", "-n", "100", "--no-pager", "-o", "cat")
 WINDOWS_TASKLIST_COMMAND = ("tasklist", "/FO", "CSV", "/NH")
+WINDOWS_INVENTORY_COMMAND = (
+    "powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command",
+    "$cs=Get-CimInstance Win32_ComputerSystem;$p=Get-CimInstance Win32_ComputerSystemProduct;$b=Get-CimInstance Win32_BIOS;$bb=Get-CimInstance Win32_BaseBoard;$cpu=Get-CimInstance Win32_Processor|Select-Object -First 1;$m=Get-CimInstance Win32_PhysicalMemory;$d=Get-CimInstance Win32_DiskDrive|ForEach-Object{[pscustomobject]@{serial=$_.SerialNumber;model=$_.Model;size_bytes=[int64]$_.Size;media_type='UNKNOWN';bus_type=if($_.InterfaceType -eq 'SCSI'){'SAS'}elseif($_.InterfaceType -eq 'USB'){'USB'}elseif($_.InterfaceType -eq 'IDE'){'SATA'}else{'UNKNOWN'}}};$n=Get-CimInstance Win32_NetworkAdapterConfiguration -Filter 'IPEnabled=True'|ForEach-Object{[pscustomobject]@{name=$_.Description;mac=$_.MACAddress;ipv4=@($_.IPAddress|Where-Object{$_ -match '^\\d+\\.'});ipv6=@($_.IPAddress|Where-Object{$_ -match ':'});link_type='ethernet';operational_state='unknown'}};[pscustomobject]@{system=@{hostname=$env:COMPUTERNAME;os_name='Windows';os_version=[System.Environment]::OSVersion.Version.ToString();os_build=[System.Environment]::OSVersion.Version.Build.ToString();architecture=if([Environment]::Is64BitOperatingSystem){'x86_64'}else{'x86_64'}};hardware=@{manufacturer=$cs.Manufacturer;model=$cs.Model;serial_number=$p.IdentifyingNumber;product_uuid=$p.UUID;cpu_model=$cpu.Name;bios_vendor=$b.Manufacturer;bios_version=$b.SMBIOSBIOSVersion;baseboard_manufacturer=$bb.Manufacturer;baseboard_model=$bb.Product;baseboard_serial=$bb.SerialNumber};memory=@{total_bytes=[int64]$cs.TotalPhysicalMemory;memory_type=$null;modules=@()};storage=@($d);interfaces=@($n)}|ConvertTo-Json -Depth 6 -Compress",
+)
 
 _ALLOWED_COMMANDS = frozenset(
     {
@@ -37,6 +41,7 @@ _ALLOWED_COMMANDS = frozenset(
         PROCESS_COMMAND,
         JOURNAL_COMMAND,
         WINDOWS_TASKLIST_COMMAND,
+        WINDOWS_INVENTORY_COMMAND,
     }
 )
 
@@ -77,6 +82,17 @@ class SystemProbe:
         from pc_agent.platform.windows.network import native_default_route
 
         return native_default_route()
+
+    def windows_inventory(self) -> dict[str, object]:
+        """Read one fixed local CIM inventory projection on Windows only."""
+        if os.name != "nt":
+            return {}
+        import json
+        try:
+            value = json.loads(self.run(WINDOWS_INVENTORY_COMMAND, 5.0, MAX_PROBE_BYTES))
+        except (OSError, ValueError, TimeoutError):
+            return {}
+        return value if isinstance(value, dict) else {}
 
     def read_text(self, path: str, max_bytes: int) -> str:
         limit = _bounded_limit(max_bytes)
