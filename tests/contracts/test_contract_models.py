@@ -360,6 +360,8 @@ def test_command_rejects_unknown_shell_field() -> None:
         "context.health.collect",
         "context.network.collect",
         "context.diagnostic.collect",
+        "context.inventory.collect",
+        "context.session.collect",
     ],
 )
 def test_command_accepts_only_documented_safe_v1_capabilities(

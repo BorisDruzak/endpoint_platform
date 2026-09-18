@@ -114,6 +114,8 @@ def _gateway_command_schema_extra(schema: dict[str, object]) -> None:
         "context.baseline.collect",
         "context.health.collect",
         "context.network.collect",
+        "context.inventory.collect",
+        "context.session.collect",
     ]
     safe_text = {
         "type": "string",
@@ -179,6 +181,8 @@ class GatewayCommandV1(AgentCommandV1):
             "context.baseline.collect": frozenset(),
             "context.health.collect": frozenset(),
             "context.network.collect": frozenset(),
+            "context.inventory.collect": frozenset(),
+            "context.session.collect": frozenset(),
             "context.diagnostic.collect": frozenset({"reason"}),
         }
         if self.capability in MODULE_CAPABILITY_REGISTRY:

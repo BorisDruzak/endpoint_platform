@@ -62,6 +62,8 @@ _CAPABILITIES = {
     "health_v1": "context.health.collect",
     "network_v1": "context.network.collect",
     "diagnostic_v1": "context.diagnostic.collect",
+    "inventory_v1": "context.inventory.collect",
+    "session_v1": "context.session.collect",
 }
 
 

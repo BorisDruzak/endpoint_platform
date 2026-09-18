@@ -25,6 +25,8 @@ _CAPABILITY_PROFILES = {
     "context.health.collect": "health_v1",
     "context.network.collect": "network_v1",
     "context.diagnostic.collect": "diagnostic_v1",
+    "context.inventory.collect": "inventory_v1",
+    "context.session.collect": "session_v1",
 }
 _TERMINAL_FAILURES = {"failed", "canceled", "expired"}
 

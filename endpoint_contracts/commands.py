@@ -32,6 +32,8 @@ LegacyAgentCapabilityV1 = Literal[
     "context.health.collect",
     "context.network.collect",
     "context.diagnostic.collect",
+    "context.inventory.collect",
+    "context.session.collect",
 ]
 AgentCapabilityV1 = LegacyAgentCapabilityV1 | ModuleCapabilityNameV1
 
