@@ -24,7 +24,7 @@ _INVENTORY_CHANGE_FIELDS: tuple[tuple[str, str, str], ...] = (
     ("HARDWARE_CHANGED", "hardware", "Hardware changed"),
     ("RAM_CHANGED", "memory", "RAM configuration changed"),
     ("STORAGE_CHANGED", "storage", "Storage changed"),
-    ("NETWORK_CHANGED", "interfaces", "Network interfaces changed"),
+    ("NETWORK_ADAPTER_CHANGED", "interfaces", "Network interfaces changed"),
 )
 
 
@@ -49,11 +49,27 @@ def compare_snapshots(
     after_sections = after_canonical["sections"]
     assert isinstance(before_sections, Mapping)
     assert isinstance(after_sections, Mapping)
-    changes = [
+    changes = []
+    if before_profile == "inventory_v1":
+        before_system = before_sections.get("system")
+        after_system = after_sections.get("system")
+        if isinstance(before_system, Mapping) and isinstance(after_system, Mapping):
+            if before_system.get("hostname") != after_system.get("hostname"):
+                changes.append(DeviceContextDiffChangeV1(
+                    code="HOSTNAME_CHANGED", summary="Hostname changed"
+                ))
+            if any(
+                before_system.get(field) != after_system.get(field)
+                for field in ("platform", "os_name", "os_version", "os_build", "architecture")
+            ):
+                changes.append(DeviceContextDiffChangeV1(
+                    code="OS_CHANGED", summary="Operating system changed"
+                ))
+    changes.extend(
         DeviceContextDiffChangeV1(code=code, summary=summary)
         for code, field, summary in change_fields
         if before_sections.get(field) != after_sections.get(field)
-    ]
+    )
     return DeviceContextDiffV1(
         schema_version="device_context_diff_v1",
         profile=before_profile,

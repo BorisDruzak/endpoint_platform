@@ -36,7 +36,7 @@ def test_compare_inventory_snapshots_emits_fixed_inventory_codes() -> None:
     before = {
         "profile": "inventory_v1",
         "sections": {
-            "system": {"platform": "windows"},
+            "system": {"hostname": "before", "platform": "windows", "os_version": "10"},
             "hardware": {"model": "A1"},
             "memory": {"total_bytes": 8, "modules": []},
             "storage": {"physical_devices": [{"stable_key": "disk-1", "size_bytes": 100}]},
@@ -47,6 +47,7 @@ def test_compare_inventory_snapshots_emits_fixed_inventory_codes() -> None:
         **before,
         "sections": {
             **before["sections"],
+            "system": {"hostname": "after", "platform": "windows", "os_version": "11"},
             "hardware": {"model": "A2"},
             "memory": {"total_bytes": 16, "modules": []},
             "storage": {"physical_devices": [{"stable_key": "disk-1", "size_bytes": 200}]},
@@ -58,5 +59,5 @@ def test_compare_inventory_snapshots_emits_fixed_inventory_codes() -> None:
 
     assert result.profile == "inventory_v1"
     assert [change.code for change in result.changes] == [
-        "HARDWARE_CHANGED", "RAM_CHANGED", "STORAGE_CHANGED", "NETWORK_CHANGED"
+        "HOSTNAME_CHANGED", "OS_CHANGED", "HARDWARE_CHANGED", "RAM_CHANGED", "STORAGE_CHANGED", "NETWORK_ADAPTER_CHANGED"
     ]
