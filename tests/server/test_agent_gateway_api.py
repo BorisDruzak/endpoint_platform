@@ -121,3 +121,40 @@ async def test_gateway_replays_unacknowledged_delivery_without_creating_a_second
     async with session_provider() as session:
         assert len((await session.scalars(select(Command))).all()) == 1
         assert len((await session.scalars(select(CommandDelivery))).all()) == 1
+
+
+@pytest.mark.asyncio
+async def test_http_pull_records_server_observed_presence(
+    session_provider: async_sessionmaker[AsyncSession],
+) -> None:
+    token = "http-pull-presence-token"
+    async with session_provider() as session:
+        device = Device(id=uuid4(), device_identifier="pull-presence", display_name="Pull")
+        session.add_all((
+            device,
+            DeviceCredential(
+                id=uuid4(), device_id=device.id, credential_identifier="pull-presence-credential",
+                token_digest=device_token_digest(token, b"device-pepper"),
+                pending_token_digest=None, rotation_overlap_expires_at=None,
+                expires_at=None, revoked_at=None,
+            ),
+        ))
+        await session.commit()
+
+    app = create_app(_settings(), session_provider)
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app, client=("127.0.0.1", 12345)),
+        base_url="https://endpoint.sosnadmin.local",
+    ) as client:
+        response = await client.get(
+            "/agent/v1/gateway/commands/next",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+    assert response.status_code == 204
+    async with session_provider() as session:
+        presence = await session.scalar(select(DeviceSession).where(DeviceSession.device_id == device.id))
+    assert presence is not None
+    assert presence.session_identifier == f"http-pull-{device.id.hex}"
+    assert presence.source_address == "127.0.0.1"
+    assert presence.last_seen_at is not None

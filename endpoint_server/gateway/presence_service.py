@@ -36,6 +36,55 @@ def _utc(value: datetime | None = None) -> datetime:
     return timestamp.astimezone(UTC)
 
 
+async def record_http_pull_presence(
+    session: AsyncSession,
+    *,
+    device_id: UUID,
+    source_address: str,
+    observed_at: datetime | None = None,
+) -> None:
+    """Refresh a dedicated fallback session from an authenticated pull request."""
+    try:
+        canonical_source = str(ipaddress.ip_address(source_address))
+    except ValueError as error:
+        raise PresenceRejected("observed source address is invalid") from error
+    now = _utc(observed_at)
+    device = await session.scalar(
+        select(Device)
+        .where(Device.id == device_id, Device.retired_at.is_(None))
+        .with_for_update()
+    )
+    if device is None:
+        raise PresenceRejected("gateway device is unavailable")
+    identifier = f"http-pull-{device_id.hex}"
+    pull_session = await session.scalar(
+        select(DeviceSession)
+        .where(
+            DeviceSession.device_id == device_id,
+            DeviceSession.session_identifier == identifier,
+        )
+        .with_for_update()
+    )
+    if pull_session is None:
+        session.add(
+            DeviceSession(
+                id=uuid4(),
+                device_id=device_id,
+                device_instance_id=None,
+                session_identifier=identifier,
+                expires_at=now + _PRESENCE_LIFETIME,
+                closed_at=None,
+                last_seen_at=now,
+                source_address=canonical_source,
+            )
+        )
+        return
+    pull_session.closed_at = None
+    pull_session.last_seen_at = now
+    pull_session.expires_at = now + _PRESENCE_LIFETIME
+    pull_session.source_address = canonical_source
+
+
 class PresenceService:
     def __init__(self, session_provider: SessionProvider) -> None:
         self._session_provider = session_provider
@@ -240,4 +289,9 @@ class PresenceService:
         )
 
 
-__all__ = ["GatewayPresence", "PresenceRejected", "PresenceService"]
+__all__ = [
+    "GatewayPresence",
+    "PresenceRejected",
+    "PresenceService",
+    "record_http_pull_presence",
+]

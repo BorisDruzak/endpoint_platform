@@ -10,6 +10,7 @@ from sqlalchemy import select
 from endpoint_contracts import AgentCommandAckV1, AgentCommandV1, AgentResultV1
 from endpoint_server.context.ingestion import ingest_context_result
 from endpoint_server.db.models import Command, CommandDelivery, CommandResult
+from endpoint_server.network import observed_client_address
 from endpoint_server.updates.agent_routes import _authenticate_device
 
 from .command_service import (
@@ -18,6 +19,7 @@ from .command_service import (
     resolve_command_context_relation,
     result_payload_digest,
 )
+from .presence_service import record_http_pull_presence
 
 
 router = APIRouter(prefix="/agent/v1/gateway", tags=["agent-gateway"])
@@ -33,6 +35,11 @@ async def next_command(request: Request) -> AgentCommandV1 | Response:
     async with request.app.state.session_provider() as session:
         try:
             principal = await _authenticate_device(session, request)
+            await record_http_pull_presence(
+                session,
+                device_id=principal.device.id,
+                source_address=str(observed_client_address(request)),
+            )
             command = await next_pending_command(session, principal.device.id)
             await session.commit()
             return command or Response(status_code=status.HTTP_204_NO_CONTENT)
@@ -49,6 +56,11 @@ async def acknowledge(command_id: UUID, body: AgentCommandAckV1, request: Reques
     async with request.app.state.session_provider() as session:
         try:
             principal = await _authenticate_device(session, request)
+            await record_http_pull_presence(
+                session,
+                device_id=principal.device.id,
+                source_address=str(observed_client_address(request)),
+            )
             command = await session.scalar(select(Command).where(Command.id == command_id, Command.device_id == principal.device.id).with_for_update())
             if (
                 command is None
@@ -91,6 +103,11 @@ async def submit_result(command_id: UUID, body: AgentResultV1, request: Request)
     async with request.app.state.session_provider() as session:
         try:
             principal = await _authenticate_device(session, request)
+            await record_http_pull_presence(
+                session,
+                device_id=principal.device.id,
+                source_address=str(observed_client_address(request)),
+            )
             command = await session.scalar(select(Command).where(Command.id == command_id, Command.device_id == principal.device.id).with_for_update())
             if command is None or body.command_id != command.id or body.device_id != principal.device.id:
                 raise _unavailable()
