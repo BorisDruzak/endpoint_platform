@@ -34,6 +34,7 @@ class Device(SafeModel):
     display_name: str = Field(min_length=1, max_length=256)
     retired_at: datetime | None
     last_seen_at: datetime | None
+    online: bool = False
 
 
 class AgentNetworkProfile(SafeModel):
@@ -50,6 +51,7 @@ class AgentNetworkIdentity(SafeModel):
     device_identifier: str = Field(min_length=1, max_length=256)
     display_name: str = Field(min_length=1, max_length=256)
     last_seen_at: datetime | None
+    online: bool = False
     baseline_collected_at: datetime
     profiles: list[AgentNetworkProfile] = Field(max_length=3)
     baseline_mac_keys: list[Annotated[str, Field(pattern=r"^mac-[0-9a-f]{12}$")]] = Field(

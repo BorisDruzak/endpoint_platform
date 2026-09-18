@@ -72,6 +72,7 @@ def _device_payload(device_id: str) -> dict[str, object]:
             "display_name": "Workstation 001",
             "retired_at": None,
             "last_seen_at": None,
+            "online": True,
             }
         ]
     }
@@ -104,6 +105,7 @@ def _network_identity_page(
                 "device_identifier": "workstation-001",
                 "display_name": "Workstation 001",
                 "last_seen_at": "2026-07-31T10:00:00Z",
+                "online": True,
                 "baseline_collected_at": "2026-07-31T09:00:00Z",
                 "profiles": [
                     {"profile": "baseline_v1", "collected_at": "2026-07-31T09:00:00Z"}
@@ -193,6 +195,7 @@ def test_get_retries_a_bounded_number_of_times_and_returns_typed_devices(tmp_pat
     devices = client.list_devices()
 
     assert [device.id for device in devices] == [UUID(device_id)]
+    assert devices[0].online is True
     assert len(fake.calls) == 2
     assert all(method == "GET" for method, _, _ in fake.calls)
     assert fake.calls[0][1] == "/api/v1/devices"
@@ -375,6 +378,7 @@ def test_network_identity_feed_follows_typed_cursor_pages(
 
     assert [identity.id for identity in identities] == [first_id, second_id]
     assert identities[0].baseline_mac_keys == ["mac-aabbccddeeff"]
+    assert identities[0].online is True
     assert fake.calls == [
         ("GET", "/api/v1/devices/network-identities", {"json": None, "headers": None, "params": {"limit": "250"}}),
         ("GET", "/api/v1/devices/network-identities", {"json": None, "headers": None, "params": {"limit": "250", "cursor": str(first_id)}}),
