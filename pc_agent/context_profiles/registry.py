@@ -10,6 +10,7 @@ from endpoint_contracts.context import DeviceContextEnvelopeV1
 from .baseline import collect_baseline
 from .diagnostic import collect_diagnostic
 from .health import collect_health
+from .inventory import collect_inventory
 from .network import collect_network
 from .session import collect_session
 
@@ -25,6 +26,7 @@ CONTEXT_COLLECTION_CAPABILITIES = frozenset(
         "context.network.collect",
         "context.diagnostic.collect",
         "context.session.collect",
+        "context.inventory.collect",
     }
 )
 
@@ -58,6 +60,9 @@ def execute_context_capability(
     if capability == "context.session.collect":
         _require_empty(parameters)
         return collect_session(probe, collected_at=collected_at)
+    if capability == "context.inventory.collect":
+        _require_empty(parameters)
+        return collect_inventory(probe, collected_at=collected_at)
     raise ContextCapabilityError("unsupported context capability")
 
 

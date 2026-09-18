@@ -40,6 +40,7 @@ BUILTIN_ENDPOINT_CAPABILITIES = {
     "context.network.collect": _execute_context_capability,
     "context.diagnostic.collect": _execute_context_capability,
     "context.session.collect": _execute_context_capability,
+    "context.inventory.collect": _execute_context_capability,
     "dns.resolve": _execute_network_capability,
     "network.ping": _execute_network_capability,
     "tcp.connect": _execute_network_capability,

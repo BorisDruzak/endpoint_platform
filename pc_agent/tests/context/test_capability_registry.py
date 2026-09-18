@@ -13,6 +13,7 @@ def test_only_fixed_context_capabilities_resolve(fake_probe) -> None:
         "context.health.collect": "health_v1",
         "context.network.collect": "network_v1",
         "context.session.collect": "session_v1",
+        "context.inventory.collect": "inventory_v1",
     }
 
     assert CONTEXT_COLLECTION_CAPABILITIES == frozenset(
@@ -22,6 +23,7 @@ def test_only_fixed_context_capabilities_resolve(fake_probe) -> None:
             "context.network.collect",
             "context.diagnostic.collect",
             "context.session.collect",
+            "context.inventory.collect",
         }
     )
     for capability, profile in expected.items():
@@ -38,6 +40,7 @@ def test_only_fixed_context_capabilities_resolve(fake_probe) -> None:
         "context.health.collect",
         "context.network.collect",
         "context.session.collect",
+        "context.inventory.collect",
     ],
 )
 def test_scheduled_context_profiles_accept_only_an_empty_object(fake_probe, capability) -> None:
