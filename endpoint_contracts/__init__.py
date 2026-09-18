@@ -13,7 +13,11 @@ from .context import (
     DeviceContextDiffV1,
     DeviceContextEnvelopeV1,
     DeviceContextHealthV1,
+    DeviceContextInventoryV1,
     DeviceContextNetworkV1,
+    DeviceContextSessionV1,
+    InventorySectionsV1,
+    SessionSectionsV1,
     validate_context_result_item,
 )
 from .enrollment import (
@@ -117,7 +121,11 @@ __all__ = [
     "DeviceContextDiffV1",
     "DeviceContextEnvelopeV1",
     "DeviceContextHealthV1",
+    "DeviceContextInventoryV1",
     "DeviceContextNetworkV1",
+    "DeviceContextSessionV1",
+    "InventorySectionsV1",
+    "SessionSectionsV1",
     "DeviceIdentityV1",
     "DeviceCredentialRotationV1",
     "DnsResolveParametersV1",
