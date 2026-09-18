@@ -103,7 +103,7 @@ def test_route_queues_and_delivers_supported_connect_refresh(
             websocket.send_json(
                 _hello_envelope(
                     device.id,
-                    ["context.baseline.collect", "context.inventory.collect"],
+                    ["context.baseline.collect", "context.inventory.collect", "context.network.collect"],
                 )
             )
             assert websocket.receive_json()["kind"] == "gateway_hello"
@@ -111,7 +111,7 @@ def test_route_queues_and_delivers_supported_connect_refresh(
 
     assert command["kind"] == "command"
     assert command["payload"]["capability"] in {
-        "context.baseline.collect", "context.inventory.collect",
+        "context.baseline.collect", "context.inventory.collect", "context.network.collect",
     }
 
     async def queued_profiles() -> list[str]:
@@ -126,7 +126,7 @@ def test_route_queues_and_delivers_supported_connect_refresh(
                 )
             )
 
-    assert asyncio.run(queued_profiles()) == ["baseline_v1", "inventory_v1"]
+    assert asyncio.run(queued_profiles()) == ["baseline_v1", "inventory_v1", "network_v1"]
 
 
 def test_route_negotiates_typed_network_capability_only_after_full_server_opt_in(

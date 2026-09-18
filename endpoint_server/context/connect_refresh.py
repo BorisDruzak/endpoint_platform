@@ -1,4 +1,4 @@
-"""Capability-aware baseline and inventory refreshes at agent connection time."""
+"""Capability-aware safe-profile refreshes at agent connection time."""
 
 from __future__ import annotations
 
@@ -24,8 +24,9 @@ class ConnectRefreshRule:
 CONNECT_REFRESH_RULES: tuple[ConnectRefreshRule, ...] = (
     ConnectRefreshRule("baseline_v1", "context.baseline.collect", timedelta(hours=24)),
     ConnectRefreshRule("inventory_v1", "context.inventory.collect", timedelta(hours=24)),
+    ConnectRefreshRule("network_v1", "context.network.collect", timedelta(minutes=15)),
 )
-"""Only physical, capability-backed profiles qualify for connection refresh."""
+"""Only capability-backed safe profiles qualify for connection refresh."""
 
 _ACTIVE_STATUSES = frozenset(
     {"requested", "queued", "delivered", "collecting", "result_received", "validated"}
