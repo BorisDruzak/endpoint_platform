@@ -382,7 +382,9 @@
             "context.baseline.collect",
             "context.health.collect",
             "context.network.collect",
-            "context.diagnostic.collect"
+            "context.diagnostic.collect",
+            "context.inventory.collect",
+            "context.session.collect"
           ],
           "type": "string"
         },

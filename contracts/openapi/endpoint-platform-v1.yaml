@@ -1670,6 +1670,8 @@ components:
                 - "context.health.collect"
                 - "context.network.collect"
                 - "context.diagnostic.collect"
+                - "context.inventory.collect"
+                - "context.session.collect"
               type: "string"
             -
               enum:
@@ -3523,7 +3525,9 @@ components:
           title: "Schema Version"
           type: "string"
         profile:
-          const: "baseline_v1"
+          enum:
+            - "baseline_v1"
+            - "inventory_v1"
           title: "Profile"
           type: "string"
         from_hash:
@@ -3559,6 +3563,16 @@ components:
             - "platform_changed"
             - "software_changed"
             - "storage_changed"
+            - "AGENT_CHANGED"
+            - "HARDWARE_CHANGED"
+            - "HOSTNAME_CHANGED"
+            - "NETWORK_CHANGED"
+            - "NETWORK_ADAPTER_CHANGED"
+            - "OS_CHANGED"
+            - "PLATFORM_CHANGED"
+            - "RAM_CHANGED"
+            - "SOFTWARE_CHANGED"
+            - "STORAGE_CHANGED"
           title: "Code"
           type: "string"
         summary:
