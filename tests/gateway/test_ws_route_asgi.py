@@ -91,6 +91,44 @@ def test_route_does_not_send_command_outside_negotiated_capabilities(
     assert asyncio.run(command_count()) == 0
 
 
+def test_route_queues_and_delivers_supported_connect_refresh(
+    gateway_route_harness: GatewayRouteHarness,
+) -> None:
+    provider = gateway_route_harness.provider
+    device = asyncio.run(seed_device(provider))
+    app = create_app(gateway_route_harness.settings, provider)
+
+    with TestClient(FixedWebSocketPeerApp(app)) as client:
+        with client.websocket_connect("/agent/v1/connect", headers=_headers()) as websocket:
+            websocket.send_json(
+                _hello_envelope(
+                    device.id,
+                    ["context.baseline.collect", "context.inventory.collect"],
+                )
+            )
+            assert websocket.receive_json()["kind"] == "gateway_hello"
+            command = websocket.receive_json()
+
+    assert command["kind"] == "command"
+    assert command["payload"]["capability"] in {
+        "context.baseline.collect", "context.inventory.collect",
+    }
+
+    async def queued_profiles() -> list[str]:
+        async with provider() as session:
+            from sqlalchemy import select
+
+            return list(
+                await session.scalars(
+                    select(ContextCollection.profile)
+                    .where(ContextCollection.device_id == device.id)
+                    .order_by(ContextCollection.profile)
+                )
+            )
+
+    assert asyncio.run(queued_profiles()) == ["baseline_v1", "inventory_v1"]
+
+
 def test_route_negotiates_typed_network_capability_only_after_full_server_opt_in(
     gateway_route_harness: GatewayRouteHarness,
 ) -> None:

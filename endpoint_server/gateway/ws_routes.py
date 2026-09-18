@@ -26,6 +26,7 @@ from endpoint_server.network import observed_client_address
 from endpoint_contracts.capabilities import MODULE_CAPABILITY_REGISTRY
 from endpoint_server.operations.capabilities import module_capability_is_compatible
 from endpoint_server.updates.agent_routes import DevicePrincipal, _authenticate_device
+from endpoint_server.context.connect_refresh import queue_connect_refreshes
 
 from .command_service import CommandService, CommandStateRejected
 from .connection_registry import (
@@ -204,6 +205,13 @@ async def connect_agent(websocket: WebSocket) -> None:
                 effective_capabilities=frozenset(effective_capabilities),
             )
         )
+        async with websocket.app.state.session_provider() as session:
+            await queue_connect_refreshes(
+                session,
+                device_id,
+                frozenset(effective_capabilities),
+            )
+            await session.commit()
         await send_envelope(
             websocket,
             GatewayHelloEnvelopeV1(
