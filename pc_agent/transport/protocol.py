@@ -27,6 +27,7 @@ def compatibility_agent_hello() -> AgentHelloV1:
             "context.diagnostic.collect",
             "context.health.collect",
             "context.network.collect",
+            "context.session.collect",
             "dns.resolve",
             "network.ping",
             "tcp.connect",

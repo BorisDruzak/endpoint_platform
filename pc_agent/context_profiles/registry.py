@@ -11,6 +11,7 @@ from .baseline import collect_baseline
 from .diagnostic import collect_diagnostic
 from .health import collect_health
 from .network import collect_network
+from .session import collect_session
 
 
 class ContextCapabilityError(ValueError):
@@ -23,6 +24,7 @@ CONTEXT_COLLECTION_CAPABILITIES = frozenset(
         "context.health.collect",
         "context.network.collect",
         "context.diagnostic.collect",
+        "context.session.collect",
     }
 )
 
@@ -53,6 +55,9 @@ def execute_context_capability(
         ):
             raise ContextCapabilityError("diagnostic collection requires only a string reason")
         return collect_diagnostic(probe, reason=parameters["reason"], collected_at=collected_at)
+    if capability == "context.session.collect":
+        _require_empty(parameters)
+        return collect_session(probe, collected_at=collected_at)
     raise ContextCapabilityError("unsupported context capability")
 
 
