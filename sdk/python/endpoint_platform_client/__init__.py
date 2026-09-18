@@ -24,6 +24,8 @@ from .models import (
     Device,
     DeviceContext,
     InventoryHistory,
+    InventoryContext,
+    SessionContext,
     SafeContextProfile,
 )
 
@@ -50,5 +52,7 @@ __all__ = [
     "EndpointPlatformUnavailable",
     "InstallClaim",
     "InventoryHistory",
+    "InventoryContext",
+    "SessionContext",
     "SafeContextProfile",
 ]

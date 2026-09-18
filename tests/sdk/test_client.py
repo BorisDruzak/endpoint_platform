@@ -382,6 +382,33 @@ def test_inventory_context_is_typed_by_the_sdk(tmp_path: Path, monkeypatch: pyte
     assert latest.sections.storage.physical_devices[0].bus_type == "NVME"
 
 
+def test_sdk_exposes_specialized_inventory_and_session_contexts(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    device_id = uuid4()
+    inventory_id = uuid4()
+    session_id = uuid4()
+    device = _device_payload(str(device_id))
+    inventory = _inventory_snapshot(str(inventory_id))
+    session = {
+        "id": str(session_id), "profile": "session_v1", "collected_at": "2026-07-29T10:00:00Z",
+        "semantic_hash": None, "warnings": [],
+        "sections": {"current_user_login": "operator", "interactive_session_present": True},
+    }
+    payload = {"data": {"device": device["data"][0], "profiles": [], "snapshots": [inventory, session]}}
+    fake = FakeHttpClient(responses=[_response(200, payload), _response(200, payload)])
+    monkeypatch.setattr(client_module.httpx, "Client", lambda **_: fake)
+    client = EndpointPlatformClient("https://endpoint.invalid", token_file=token(tmp_path), ca_file=ca(tmp_path))
+
+    latest_inventory = client.get_latest_inventory_context(device_id)
+    latest_session = client.get_latest_session_context(device_id)
+
+    assert latest_inventory is not None and latest_inventory.id == inventory_id
+    assert latest_inventory.sections.storage.physical_devices[0].media_type == "SSD"
+    assert latest_session is not None and latest_session.id == session_id
+    assert latest_session.sections.current_user_login == "operator"
+
+
 def test_inventory_history_is_typed_and_uses_the_inventory_profile(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

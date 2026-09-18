@@ -137,6 +137,20 @@ class BaselineHistory(SafeModel):
         return self
 
 
+class InventoryContext(ContextSnapshot):
+    """Typed current or historical physical inventory observation."""
+
+    profile: Literal["inventory_v1"]
+    sections: InventorySectionsV1
+
+
+class SessionContext(ContextSnapshot):
+    """Typed current dynamic interactive-session observation."""
+
+    profile: Literal["session_v1"]
+    sections: SessionSectionsV1
+
+
 class InventoryHistory(SafeModel):
     """Bounded, newest-first physical inventory snapshots."""
 

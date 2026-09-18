@@ -30,6 +30,8 @@ from .models import (
     Device,
     DeviceContext,
     InventoryHistory,
+    InventoryContext,
+    SessionContext,
     SafeContextProfile,
     is_safe_profile,
 )
@@ -145,6 +147,24 @@ class EndpointPlatformClient:
         )
         matching = [snapshot for snapshot in context.data.snapshots if snapshot.profile == profile]
         return max(matching, key=lambda snapshot: snapshot.collected_at, default=None)
+
+    def get_latest_inventory_context(self, device_id: UUID) -> InventoryContext | None:
+        """Return the current physical inventory with its specialized schema."""
+        snapshot = self.get_latest_context(device_id, "inventory_v1")
+        return (
+            InventoryContext.model_validate(snapshot.model_dump(mode="json"))
+            if snapshot is not None
+            else None
+        )
+
+    def get_latest_session_context(self, device_id: UUID) -> SessionContext | None:
+        """Return the current dynamic interactive-session observation."""
+        snapshot = self.get_latest_context(device_id, "session_v1")
+        return (
+            SessionContext.model_validate(snapshot.model_dump(mode="json"))
+            if snapshot is not None
+            else None
+        )
 
     def list_baseline_history(self, device_id: UUID, *, limit: int = 50) -> list[ContextSnapshot]:
         """Return at most 100 newest-first baseline snapshots for one device."""
