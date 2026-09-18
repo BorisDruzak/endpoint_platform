@@ -66,13 +66,15 @@ def _collect_windows_inventory(probe: object, *, collected_at: datetime | None) 
     hardware = source.get("hardware") if isinstance(source.get("hardware"), Mapping) else {}
     memory = source.get("memory") if isinstance(source.get("memory"), Mapping) else {}
     storage = source.get("storage") if isinstance(source.get("storage"), list) else []
+    storage_details = source.get("storage_details") if isinstance(source.get("storage_details"), list) else []
     interfaces = source.get("interfaces") if isinstance(source.get("interfaces"), list) else []
     physical_devices = []
     for item in storage[:64]:
         if not isinstance(item, Mapping):
             continue
         serial = _optional(str(item.get("serial") or ""))
-        physical_devices.append({"stable_key": disk_stable_key(wwn=None, serial=serial, fallback_name=item.get("model") or "disk"), "model": _optional(str(item.get("model") or "")), "serial": serial, "size_bytes": item.get("size_bytes") if isinstance(item.get("size_bytes"), int) and item.get("size_bytes") > 0 else None, "media_type": item.get("media_type") if item.get("media_type") in {"HDD", "SSD", "UNKNOWN"} else "UNKNOWN", "bus_type": item.get("bus_type") if item.get("bus_type") in {"SATA", "NVME", "USB", "SAS", "OTHER", "UNKNOWN"} else "UNKNOWN"})
+        detail = _storage_detail(item, storage_details)
+        physical_devices.append({"stable_key": disk_stable_key(wwn=None, serial=serial, fallback_name=item.get("model") or "disk"), "model": _optional(str(item.get("model") or "")), "serial": serial, "size_bytes": item.get("size_bytes") if isinstance(item.get("size_bytes"), int) and item.get("size_bytes") > 0 else None, "media_type": _storage_media_type(detail.get("media_type") if detail else item.get("media_type")), "bus_type": _storage_bus_type(detail.get("bus_type") if detail else item.get("bus_type"))})
     normalized_interfaces = []
     for item in interfaces[:64]:
         if not isinstance(item, Mapping) or not item.get("name"):
@@ -106,6 +108,38 @@ def _memory_modules(memory: Mapping[str, object]) -> list[dict[str, object]]:
             "memory_type": item.get("memory_type") if item.get("memory_type") in {"DDR", "DDR2", "DDR3", "DDR4", "DDR5", "UNKNOWN"} else None,
         })
     return result
+
+
+def _storage_detail(
+    storage: Mapping[str, object], details: list[object]
+) -> Mapping[str, object] | None:
+    serial = _storage_identity(storage.get("serial"))
+    candidates = [item for item in details if isinstance(item, Mapping)]
+    if serial:
+        matched = [item for item in candidates if _storage_identity(item.get("serial")) == serial]
+        if len(matched) == 1:
+            return matched[0]
+    size = storage.get("size_bytes")
+    model = _storage_identity(storage.get("model"))
+    matched = [
+        item for item in candidates
+        if item.get("size_bytes") == size and _storage_identity(item.get("model")) == model
+    ]
+    return matched[0] if len(matched) == 1 else None
+
+
+def _storage_identity(value: object) -> str:
+    return "".join(str(value or "").split()).lower()
+
+
+def _storage_media_type(value: object) -> str:
+    return "SSD" if value == "SSD" else "HDD" if value == "HDD" else "UNKNOWN"
+
+
+def _storage_bus_type(value: object) -> str:
+    return {
+        "NVMe": "NVME", "NVME": "NVME", "SATA": "SATA", "USB": "USB", "SAS": "SAS",
+    }.get(str(value), "UNKNOWN")
 
 
 def _read(probe: object, path: str, warnings: list[str]) -> str:

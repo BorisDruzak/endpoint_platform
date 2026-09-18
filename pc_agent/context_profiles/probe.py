@@ -27,6 +27,10 @@ JOURNAL_COMMAND = ("journalctl", "-n", "100", "--no-pager", "-o", "cat")
 WINDOWS_TASKLIST_COMMAND = ("tasklist", "/FO", "CSV", "/NH")
 WHO_COMMAND = ("who",)
 WINDOWS_QUERY_USER_COMMAND = ("query", "user")
+WINDOWS_PHYSICAL_STORAGE_COMMAND = (
+    "powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command",
+    "$items=@(Get-PhysicalDisk -ErrorAction SilentlyContinue|ForEach-Object{[pscustomobject]@{serial=$_.SerialNumber;model=$_.FriendlyName;size_bytes=[int64]$_.Size;media_type=[string]$_.MediaType;bus_type=[string]$_.BusType}});ConvertTo-Json -InputObject @($items) -Depth 3 -Compress",
+)
 WINDOWS_INVENTORY_COMMAND = (
     "powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command",
     "$cs=Get-CimInstance Win32_ComputerSystem;$p=Get-CimInstance Win32_ComputerSystemProduct;$b=Get-CimInstance Win32_BIOS;$bb=Get-CimInstance Win32_BaseBoard;$cpu=Get-CimInstance Win32_Processor|Select-Object -First 1;$m=Get-CimInstance Win32_PhysicalMemory;$d=Get-CimInstance Win32_DiskDrive|ForEach-Object{[pscustomobject]@{serial=$_.SerialNumber;model=$_.Model;size_bytes=[int64]$_.Size;media_type='UNKNOWN';bus_type=if($_.InterfaceType -eq 'SCSI'){'SAS'}elseif($_.InterfaceType -eq 'USB'){'USB'}elseif($_.InterfaceType -eq 'IDE'){'SATA'}else{'UNKNOWN'}}};$n=Get-CimInstance Win32_NetworkAdapterConfiguration -Filter 'IPEnabled=True'|ForEach-Object{[pscustomobject]@{name=$_.Description;mac=$_.MACAddress;ipv4=@($_.IPAddress|Where-Object{$_ -match '^\\d+\\.'});ipv6=@($_.IPAddress|Where-Object{$_ -match ':'});link_type='ethernet';operational_state='unknown'}};$ram=@($m|ForEach-Object{[pscustomobject]@{slot=$_.DeviceLocator;manufacturer=$_.Manufacturer;part_number=$_.PartNumber;serial=$_.SerialNumber;capacity_bytes=[int64]$_.Capacity;speed_mt_s=[int]$_.ConfiguredClockSpeed;memory_type=switch([int]$_.SMBIOSMemoryType){20{'DDR'}21{'DDR2'}24{'DDR3'}26{'DDR4'}34{'DDR5'}default{'UNKNOWN'}}}});[pscustomobject]@{system=@{hostname=$env:COMPUTERNAME;os_name='Windows';os_version=[System.Environment]::OSVersion.Version.ToString();os_build=[System.Environment]::OSVersion.Version.Build.ToString();architecture=if([Environment]::Is64BitOperatingSystem){'x86_64'}else{'x86_64'}};hardware=@{manufacturer=$cs.Manufacturer;model=$cs.Model;serial_number=$p.IdentifyingNumber;product_uuid=$p.UUID;cpu_model=$cpu.Name;bios_vendor=$b.Manufacturer;bios_version=$b.SMBIOSBIOSVersion;baseboard_manufacturer=$bb.Manufacturer;baseboard_model=$bb.Product;baseboard_serial=$bb.SerialNumber};memory=@{total_bytes=[int64]$cs.TotalPhysicalMemory;memory_type=$null;modules=$ram};storage=@($d);interfaces=@($n)}|ConvertTo-Json -Depth 6 -Compress",
@@ -45,6 +49,7 @@ _ALLOWED_COMMANDS = frozenset(
         WINDOWS_TASKLIST_COMMAND,
         WHO_COMMAND,
         WINDOWS_QUERY_USER_COMMAND,
+        WINDOWS_PHYSICAL_STORAGE_COMMAND,
         WINDOWS_INVENTORY_COMMAND,
     }
 )
@@ -96,7 +101,18 @@ class SystemProbe:
             value = json.loads(self.run(WINDOWS_INVENTORY_COMMAND, 5.0, MAX_PROBE_BYTES))
         except (OSError, ValueError, TimeoutError):
             return {}
-        return value if isinstance(value, dict) else {}
+        if not isinstance(value, dict):
+            return {}
+        try:
+            details = json.loads(
+                self.run(WINDOWS_PHYSICAL_STORAGE_COMMAND, 5.0, MAX_PROBE_BYTES)
+            )
+        except (OSError, ValueError, TimeoutError):
+            details = []
+        return {
+            **value,
+            "storage_details": details if isinstance(details, list) else [],
+        }
 
     def session_info(self) -> dict[str, object]:
         """Read a bounded OS-reported interactive session, never credentials."""
