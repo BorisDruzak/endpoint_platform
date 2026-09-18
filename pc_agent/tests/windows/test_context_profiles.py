@@ -44,7 +44,7 @@ class WindowsGoldenProbe:
         return {
             "system": {"hostname": "WIN-01", "os_name": "Windows", "os_version": "11", "os_build": "26100", "architecture": "x86_64"},
             "hardware": {"manufacturer": "Example Systems", "model": "Example Workstation", "serial_number": "SYS-01", "product_uuid": "11111111-2222-3333-4444-555555555555", "cpu_model": "Example CPU"},
-            "memory": {"total_bytes": 17179869184, "memory_type": "DDR4", "modules": []},
+            "memory": {"total_bytes": 17179869184, "memory_type": "DDR4", "modules": [{"slot": "DIMM 0", "manufacturer": "Example", "part_number": "MEM-01", "serial": "RAM-01", "capacity_bytes": 17179869184, "speed_mt_s": 3200, "memory_type": "DDR4"}]},
             "storage": [{"serial": "SSD-01", "model": "Example SSD", "size_bytes": 512110190592, "media_type": "SSD", "bus_type": "NVME"}],
             "interfaces": [{"name": "Ethernet", "mac": "00-11-22-33-44-55", "ipv4": ["192.0.2.10"], "ipv6": [], "link_type": "ethernet", "operational_state": "up"}],
         }
@@ -102,5 +102,7 @@ def test_windows_inventory_exposes_physical_storage_and_network_identity() -> No
 
     assert result.profile == "inventory_v1"
     assert result.sections.storage.physical_devices[0].bus_type == "NVME"
+    assert result.sections.memory.modules[0].slot == "DIMM 0"
+    assert result.sections.memory.modules[0].speed_mt_s == 3200
     assert result.sections.interfaces[0].stable_key == "mac-001122334455"
     assert result.sections.interfaces[0].ipv4 == ["192.0.2.10"]
