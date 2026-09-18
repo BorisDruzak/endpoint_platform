@@ -27,6 +27,10 @@ JOURNAL_COMMAND = ("journalctl", "-n", "100", "--no-pager", "-o", "cat")
 WINDOWS_TASKLIST_COMMAND = ("tasklist", "/FO", "CSV", "/NH")
 WHO_COMMAND = ("who",)
 WINDOWS_QUERY_USER_COMMAND = ("query", "user")
+WINDOWS_NETWORK_COMMAND = (
+    "powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command",
+    "$n=@(Get-CimInstance Win32_NetworkAdapterConfiguration -Filter 'IPEnabled=True'|ForEach-Object{[pscustomobject]@{name=$_.Description;mac=$_.MACAddress;ipv4=@($_.IPAddress|Where-Object{$_ -match '^\\d+\\.'});ipv6=@($_.IPAddress|Where-Object{$_ -match ':'});index=[int]$_.InterfaceIndex;link_type='ethernet';operational_state='unknown'}});$r=Get-CimInstance Win32_IP4RouteTable -Filter \"Destination='0.0.0.0' AND Mask='0.0.0.0'\"|Sort-Object Metric1|Select-Object -First 1;[pscustomobject]@{interfaces=$n;default_interface_index=if($r){[int]$r.InterfaceIndex}else{$null};default_gateway=if($r){$r.NextHop}else{$null}}|ConvertTo-Json -Depth 5 -Compress",
+)
 WINDOWS_PHYSICAL_STORAGE_COMMAND = (
     "powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command",
     "$items=@(Get-PhysicalDisk -ErrorAction SilentlyContinue|ForEach-Object{[pscustomobject]@{serial=$_.SerialNumber;model=$_.FriendlyName;size_bytes=[int64]$_.Size;media_type=[string]$_.MediaType;bus_type=[string]$_.BusType}});ConvertTo-Json -InputObject @($items) -Depth 3 -Compress",
@@ -49,6 +53,7 @@ _ALLOWED_COMMANDS = frozenset(
         WINDOWS_TASKLIST_COMMAND,
         WHO_COMMAND,
         WINDOWS_QUERY_USER_COMMAND,
+        WINDOWS_NETWORK_COMMAND,
         WINDOWS_PHYSICAL_STORAGE_COMMAND,
         WINDOWS_INVENTORY_COMMAND,
     }
@@ -83,14 +88,36 @@ class SystemProbe:
         return native_storage()
 
     def windows_interfaces(self) -> list[dict[str, object]]:
-        from pc_agent.platform.windows.network import native_interfaces
-
-        return native_interfaces()
+        value = self._windows_network()
+        records = value.get("interfaces") if isinstance(value.get("interfaces"), list) else []
+        result: list[dict[str, object]] = []
+        for item in records:
+            if not isinstance(item, dict):
+                continue
+            ipv4 = item.get("ipv4") if isinstance(item.get("ipv4"), list) else []
+            ipv6 = item.get("ipv6") if isinstance(item.get("ipv6"), list) else []
+            result.append({
+                "name": item.get("name"), "mac": item.get("mac"),
+                "link_type": item.get("link_type"),
+                "operational_state": item.get("operational_state"),
+                "addresses": [*ipv4, *ipv6],
+            })
+        return result
 
     def windows_default_route(self) -> dict[str, str | None]:
-        from pc_agent.platform.windows.network import native_default_route
-
-        return native_default_route()
+        value = self._windows_network()
+        index = value.get("default_interface_index")
+        interfaces = value.get("interfaces") if isinstance(value.get("interfaces"), list) else []
+        name = next(
+            (
+                str(item.get("name"))
+                for item in interfaces
+                if isinstance(item, dict) and item.get("index") == index and item.get("name")
+            ),
+            "unknown",
+        )
+        gateway = value.get("default_gateway")
+        return {"interface": name, "gateway": str(gateway) if gateway else None}
 
     def windows_inventory(self) -> dict[str, object]:
         """Read one fixed local CIM inventory projection on Windows only."""
@@ -113,6 +140,16 @@ class SystemProbe:
             **value,
             "storage_details": details if isinstance(details, list) else [],
         }
+
+    def _windows_network(self) -> dict[str, object]:
+        if os.name != "nt":
+            return {}
+        import json
+        try:
+            value = json.loads(self.run(WINDOWS_NETWORK_COMMAND, 5.0, MAX_PROBE_BYTES))
+        except (OSError, ValueError, TimeoutError):
+            return {}
+        return value if isinstance(value, dict) else {}
 
     def session_info(self) -> dict[str, object]:
         """Read a bounded OS-reported interactive session, never credentials."""
