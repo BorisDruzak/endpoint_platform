@@ -44,6 +44,24 @@ async def test_equivalent_later_baseline_does_not_create_another_snapshot(sessio
     assert await _snapshot_count(session, first.device_id) == 1
 
 
+async def test_equivalent_later_inventory_does_not_create_another_snapshot(session) -> None:
+    """Volatile inventory collection fields must not churn physical history."""
+    first_record, first_result = await _result(session, profile="inventory_v1")
+    first = await ingest_context_result(session, first_record.id, first_result)
+    later_record, later_result = await _result(
+        session,
+        device_id=first.device_id,
+        collected_at=first_result.completed_at + timedelta(hours=24),
+        profile="inventory_v1",
+    )
+    later_result.result_items[0]["warnings"] = ["probe_unavailable"]
+
+    later = await ingest_context_result(session, later_record.id, later_result)
+
+    assert later.status == "completed"
+    assert await _snapshot_count(session, first.device_id) == 1
+
+
 async def test_failed_result_never_replaces_existing_current_snapshot(session) -> None:
     """Treating any terminal result as current would hide the last valid context."""
     good_record, good_result = await _result(session)

@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from endpoint_contracts import AgentResultV1, DeviceContextEnvelopeV1, validate_context_result_item
 from endpoint_server.db.models import Command, CommandResult
 
-from .canonicalize import canonicalize_baseline
+from .canonicalize import canonicalize_baseline, canonicalize_inventory
 from .diff import compare_snapshots
 from .models import ContextCollection, ContextCurrent, ContextDiff, ContextSnapshot
 from .semantic_hash import semantic_hash
@@ -29,6 +29,14 @@ _CAPABILITY_PROFILES = {
     "context.session.collect": "session_v1",
 }
 _TERMINAL_FAILURES = {"failed", "canceled", "expired"}
+
+
+def _snapshot_semantic_hash(profile: str, projection: Mapping[str, object]) -> str | None:
+    if profile == "baseline_v1":
+        return semantic_hash(canonicalize_baseline(projection))
+    if profile == "inventory_v1":
+        return semantic_hash(canonicalize_inventory(projection))
+    return None
 
 
 def _now(value: datetime | None = None) -> datetime:
@@ -202,44 +210,41 @@ async def ingest_context_result(
     collection.status = "validated"
     collection.validated_at = observed_at
     projection = envelope.model_dump(mode="json")
-    baseline_hash = (
-        semantic_hash(canonicalize_baseline(projection))
-        if profile == "baseline_v1"
-        else None
-    )
-    if baseline_hash is not None:
+    snapshot_hash = _snapshot_semantic_hash(profile, projection)
+    latest_snapshot: ContextSnapshot | None = None
+    if snapshot_hash is not None:
         # The same device/profile lock serializes the latest-hash check with
         # snapshot insertion; an absent current row is otherwise race-prone.
         await _advisory_lock(
-            session, f"context.current:{command.device_id}:baseline_v1"
+            session, f"context.current:{command.device_id}:{profile}"
         )
-        latest_baseline = await session.scalar(
+        latest_snapshot = await session.scalar(
             select(ContextSnapshot)
             .where(
                 ContextSnapshot.device_id == command.device_id,
-                ContextSnapshot.profile == "baseline_v1",
+                ContextSnapshot.profile == profile,
             )
             .order_by(ContextSnapshot.collected_at.desc(), ContextSnapshot.id.desc())
             .with_for_update()
         )
-        if latest_baseline is not None and latest_baseline.semantic_hash == baseline_hash:
+        if latest_snapshot is not None and latest_snapshot.semantic_hash == snapshot_hash:
             collection.status = "completed"
             collection.completed_at = observed_at
             await session.flush()
             return collection
     snapshot = ContextSnapshot(
         id=uuid4(), collection_id=collection.id, device_id=command.device_id,
-        profile=profile, collected_at=envelope.collected_at, semantic_hash=baseline_hash,
+        profile=profile, collected_at=envelope.collected_at, semantic_hash=snapshot_hash,
         raw_payload=raw_payload, normalized_projection=projection,
     )
     session.add(snapshot)
     await session.flush()
-    if profile == "baseline_v1" and latest_baseline is not None:
-        diff = compare_snapshots(latest_baseline.normalized_projection, projection)
+    if profile == "baseline_v1" and latest_snapshot is not None:
+        diff = compare_snapshots(latest_snapshot.normalized_projection, projection)
         session.add(
             ContextDiff(
                 id=uuid4(), device_id=command.device_id, profile=profile,
-                before_snapshot_id=latest_baseline.id, after_snapshot_id=snapshot.id,
+                before_snapshot_id=latest_snapshot.id, after_snapshot_id=snapshot.id,
                 diff_payload=diff.model_dump(mode="json"),
             )
         )
@@ -247,7 +252,7 @@ async def ingest_context_result(
         session,
         snapshot,
         updated_at=observed_at,
-        lock_held=profile == "baseline_v1",
+        lock_held=snapshot_hash is not None,
     )
     collection.status = "completed"
     collection.completed_at = observed_at

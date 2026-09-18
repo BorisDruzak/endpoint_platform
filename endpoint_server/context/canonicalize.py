@@ -71,4 +71,28 @@ def canonicalize_baseline(snapshot: Mapping[str, object] | object) -> dict[str, 
     }
 
 
-__all__ = ["canonicalize_baseline"]
+def canonicalize_inventory(snapshot: Mapping[str, object] | object) -> dict[str, object]:
+    """Return stable physical inventory facts, excluding volatile observation data."""
+    source = _mapping(snapshot)
+    if source.get("profile") != "inventory_v1":
+        raise ValueError("semantic canonicalization requires an inventory snapshot")
+    sections = _mapping(source.get("sections"))
+    return {
+        "schema_version": "device_context_inventory_canonical_v1",
+        "profile": "inventory_v1",
+        "collected_at": None,
+        "sections": {
+            "system": dict(_mapping(sections.get("system"))),
+            "hardware": dict(_mapping(sections.get("hardware"))),
+            "memory": {
+                "total_bytes": _field(_mapping(sections.get("memory")), "total_bytes"),
+                "memory_type": _field(_mapping(sections.get("memory")), "memory_type"),
+                "modules": _stable_sorted(_mapping(sections.get("memory")).get("modules"), fields=("slot", "serial", "capacity_bytes", "speed_mt_s", "memory_type")),
+            },
+            "storage": _stable_sorted(_mapping(sections.get("storage")).get("physical_devices"), fields=("stable_key", "model", "serial", "size_bytes", "media_type", "bus_type")),
+            "interfaces": _stable_sorted(sections.get("interfaces"), fields=("stable_key", "mac", "name", "link_type", "operational_state")),
+        },
+    }
+
+
+__all__ = ["canonicalize_baseline", "canonicalize_inventory"]

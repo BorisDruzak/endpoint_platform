@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from endpoint_server.context.canonicalize import canonicalize_baseline
+from endpoint_server.context.canonicalize import canonicalize_baseline, canonicalize_inventory
 from endpoint_server.context.semantic_hash import semantic_hash
 
 
@@ -59,3 +59,17 @@ def test_hash_changes_for_material_network_identity_change() -> None:
     changed["sections"]["interfaces"][0]["stable_key"] = "nic:wan"  # type: ignore[index]
 
     assert semantic_hash(canonicalize_baseline(first)) != semantic_hash(canonicalize_baseline(changed))
+
+
+def test_inventory_hash_ignores_timestamp_warnings_addresses_and_order() -> None:
+    first = {
+        "profile": "inventory_v1", "collected_at": "2026-01-01T00:00:00Z", "warnings": [],
+        "sections": {"system": {"hostname": "host", "platform": "windows"}, "hardware": {"model": "A"},
+                     "memory": {"total_bytes": 8, "modules": [{"slot": "B"}, {"slot": "A"}]},
+                     "storage": {"physical_devices": [{"stable_key": "disk-b"}, {"stable_key": "disk-a"}]},
+                     "interfaces": [{"stable_key": "mac-aabbccddeeff", "ipv4": ["192.0.2.1"]}]},
+    }
+    later = {**first, "collected_at": "2026-01-02T00:00:00Z", "warnings": ["probe_unavailable"]}
+    later["sections"] = {**first["sections"], "memory": {"total_bytes": 8, "modules": [{"slot": "A"}, {"slot": "B"}]}, "storage": {"physical_devices": [{"stable_key": "disk-a"}, {"stable_key": "disk-b"}]}, "interfaces": [{"stable_key": "mac-aabbccddeeff", "ipv4": ["10.0.0.1"]}]}
+
+    assert semantic_hash(canonicalize_inventory(first)) == semantic_hash(canonicalize_inventory(later))

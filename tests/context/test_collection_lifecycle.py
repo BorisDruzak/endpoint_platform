@@ -59,6 +59,7 @@ async def _result(
     status: str = "succeeded",
     device_id=None,
     collected_at: datetime = NOW,
+    profile: str = "baseline_v1",
 ) -> tuple[CommandResult, AgentResultV1]:
     device = None
     if device_id is None:
@@ -70,7 +71,7 @@ async def _result(
         id=uuid4(),
         command_identifier=f"command-{uuid4().hex}",
         device_id=device_id,
-        command_kind="context.baseline.collect",
+        command_kind=f"context.{profile.removesuffix('_v1')}.collect",
         status="completed",
     )
     record = CommandResult(
@@ -91,14 +92,26 @@ async def _result(
         result_items=[
             {
                 "schema_version": "device_context_v1",
-                "profile": "baseline_v1",
+                "profile": profile,
                 "collected_at": collected_at.isoformat(),
                 "sections": {
-                    "system": {"platform": "linux", "distribution": "ALT", "architecture": "x86_64"},
-                    "hardware": {"manufacturer": "Acme", "model": "A1", "cpu_model": "CPU", "memory_bytes": 1024},
-                    "storage": [{"stable_key": "disk:one", "model": "Disk", "size_bytes": 2048}],
-                    "interfaces": [],
-                    "software": [],
+                    **(
+                        {
+                            "system": {"platform": "linux", "distribution": "ALT", "architecture": "x86_64"},
+                            "hardware": {"manufacturer": "Acme", "model": "A1", "cpu_model": "CPU", "memory_bytes": 1024},
+                            "storage": [{"stable_key": "disk:one", "model": "Disk", "size_bytes": 2048}],
+                            "interfaces": [],
+                            "software": [],
+                        }
+                        if profile == "baseline_v1"
+                        else {
+                            "system": {"hostname": "workstation-1", "platform": "linux"},
+                            "hardware": {"manufacturer": "Acme", "model": "A1"},
+                            "memory": {"total_bytes": 1024, "module_count": 0, "modules": []},
+                            "storage": {"physical_devices": []},
+                            "interfaces": [],
+                        }
+                    ),
                 },
                 "warnings": [],
             }
