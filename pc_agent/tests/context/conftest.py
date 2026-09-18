@@ -26,7 +26,7 @@ class FakeProbe:
             "/proc/loadavg": "0.50 0.25 0.10 1/100 1\n",
         }
         self.outputs = {
-            ("lsblk", "--bytes", "--json", "--output", "NAME,MODEL,SIZE,WWN,SERIAL,TYPE"): json.dumps(
+            ("lsblk", "--bytes", "--json", "--output", "NAME,MODEL,SIZE,WWN,SERIAL,ROTA,TRAN,TYPE"): json.dumps(
                 {
                     "blockdevices": [
                         {
@@ -35,6 +35,8 @@ class FakeProbe:
                             "size": 512110190592,
                             "wwn": "0x5000c500aabbccdd",
                             "serial": "SERIAL-01",
+                            "rota": False,
+                            "tran": "sata",
                             "type": "disk",
                         }
                     ]

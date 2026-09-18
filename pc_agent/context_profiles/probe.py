@@ -16,7 +16,7 @@ MAX_PROBE_BYTES = 65_536
 TERMINATION_GRACE_SECONDS = 0.2
 _DRAIN_JOIN_GRACE_SECONDS = 0.2
 
-LSBLK_COMMAND = ("lsblk", "--bytes", "--json", "--output", "NAME,MODEL,SIZE,WWN,SERIAL,TYPE")
+LSBLK_COMMAND = ("lsblk", "--bytes", "--json", "--output", "NAME,MODEL,SIZE,WWN,SERIAL,ROTA,TRAN,TYPE")
 IP_LINK_COMMAND = ("ip", "-json", "link", "show")
 IP_DEFAULT_ROUTE_COMMAND = ("ip", "-json", "route", "show", "default")
 IP_ADDRESS_COMMAND = ("ip", "-json", "address", "show")

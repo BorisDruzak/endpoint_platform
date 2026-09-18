@@ -167,7 +167,13 @@ def _storage(probe: object, warnings: list[str]) -> list[dict[str, object]]:
             size = int(item.get("size")) if item.get("size") else None
         except (TypeError, ValueError):
             size = None
-        result.append({"stable_key": disk_stable_key(wwn=item.get("wwn"), serial=item.get("serial"), fallback_name=name), "model": _optional(str(item.get("model") or "")), "serial": _optional(str(item.get("serial") or "")), "size_bytes": size, "media_type": "UNKNOWN", "bus_type": "UNKNOWN"})
+        rotational = item.get("rota")
+        media_type = "HDD" if rotational in {1, "1", True} else "SSD" if rotational in {0, "0", False} else "UNKNOWN"
+        transport = str(item.get("tran") or "").lower()
+        bus_type = {
+            "ata": "SATA", "sata": "SATA", "nvme": "NVME", "usb": "USB", "sas": "SAS",
+        }.get(transport, "OTHER" if transport else "UNKNOWN")
+        result.append({"stable_key": disk_stable_key(wwn=item.get("wwn"), serial=item.get("serial"), fallback_name=name), "model": _optional(str(item.get("model") or "")), "serial": _optional(str(item.get("serial") or "")), "size_bytes": size, "media_type": media_type, "bus_type": bus_type})
     return result[:64]
 
 
