@@ -305,8 +305,9 @@ async def test_device_listing_requires_devices_read_not_context_read(
             "id": str(device.id),
             "device_identifier": "listed-device",
             "display_name": "Listed",
-            "retired_at": None,
-            "last_seen_at": None,
+                "retired_at": None,
+                "last_seen_at": None,
+                "online": False,
         }
     ]
     assert denied.status_code == 403
@@ -769,6 +770,30 @@ async def test_safe_device_last_seen_comes_from_latest_session_only(
 
 
 @pytest.mark.asyncio
+async def test_device_projection_calculates_online_from_active_fresh_session(
+    session_provider: async_sessionmaker[AsyncSession], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    now = datetime.now(UTC)
+    async with session_provider() as session:
+        fresh = Device(id=uuid4(), device_identifier="fresh", display_name="Fresh", retired_at=None)
+        closed = Device(id=uuid4(), device_identifier="closed", display_name="Closed", retired_at=None)
+        session.add_all((
+            fresh,
+            closed,
+            DeviceSession(id=uuid4(), device_id=fresh.id, device_instance_id=None, session_identifier="fresh-session", created_at=now, last_seen_at=now, expires_at=now),
+            DeviceSession(id=uuid4(), device_id=closed.id, device_instance_id=None, session_identifier="closed-session", created_at=now, last_seen_at=now, expires_at=now, closed_at=now),
+        ))
+        await session.commit()
+    _install_principals(monkeypatch, {"device-reader": _principal(["devices.read"])})
+    app = create_app(_settings(), session_provider)
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="https://endpoint.sosnadmin.local") as client:
+        response = await client.get("/api/v1/devices", headers={"Authorization": "Bearer device-reader"})
+    states = {item["device_identifier"]: item["online"] for item in response.json()["data"]}
+    assert states["fresh"] is True
+    assert states["closed"] is False
+
+
+@pytest.mark.asyncio
 async def test_list_devices_reads_latest_sessions_in_one_query_without_duplicate_ties(
     session_provider: async_sessionmaker[AsyncSession], monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -846,6 +871,7 @@ async def test_list_devices_reads_latest_sessions_in_one_query_without_duplicate
         "display_name": "Tied",
         "retired_at": None,
         "last_seen_at": None,
+        "online": False,
     }
     assert (
         datetime.fromisoformat(listed[0]["last_seen_at"]).replace(tzinfo=UTC) == seen_at
@@ -856,6 +882,7 @@ async def test_list_devices_reads_latest_sessions_in_one_query_without_duplicate
         "display_name": "Empty",
         "retired_at": None,
         "last_seen_at": None,
+        "online": False,
     }
 
 
@@ -1067,7 +1094,8 @@ async def test_network_identity_feed_returns_only_active_safe_baseline_identity_
             "id": str(active.id),
             "device_identifier": "network-agent",
             "display_name": "Office workstation",
-            "last_seen_at": seen_at.isoformat().replace("+00:00", "Z"),
+                "last_seen_at": seen_at.isoformat().replace("+00:00", "Z"),
+                "online": False,
             "baseline_collected_at": baseline_at.isoformat().replace("+00:00", "Z"),
             "profiles": [
                 {"profile": "baseline_v1", "collected_at": baseline_at.isoformat().replace("+00:00", "Z")},

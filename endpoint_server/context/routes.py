@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Annotated, Literal
 from uuid import UUID
 
@@ -50,6 +50,7 @@ _BASELINE_HISTORY_LIMIT = 50
 _MAX_BASELINE_HISTORY_LIMIT = 100
 _NETWORK_IDENTITY_LIMIT = 250
 _NETWORK_IDENTITY_CHUNK_SIZE = 250
+_PRESENCE_TTL = timedelta(seconds=90)
 SafeServiceProfile = Literal["baseline_v1", "health_v1", "network_v1"]
 
 
@@ -79,6 +80,7 @@ class AgentNetworkIdentity(BaseModel):
     device_identifier: str = Field(min_length=1, max_length=256)
     display_name: str = Field(min_length=1, max_length=256)
     last_seen_at: datetime | None
+    online: bool
     baseline_collected_at: datetime
     profiles: list[AgentNetworkProfile] = Field(max_length=3)
     baseline_mac_keys: list[
@@ -113,7 +115,7 @@ def _valid_idempotency_key(value: str | None) -> str:
 
 
 def _device_projection(
-    device: Device, last_seen_at: datetime | None
+    device: Device, last_seen_at: datetime | None, closed_at: datetime | None
 ) -> dict[str, object]:
     """Expose device identity and a preselected session timestamp only."""
     return {
@@ -122,6 +124,7 @@ def _device_projection(
         "display_name": device.display_name,
         "retired_at": device.retired_at,
         "last_seen_at": last_seen_at,
+        "online": _is_online(last_seen_at, closed_at),
     }
 
 
@@ -132,18 +135,28 @@ def _aware_timestamp(value: datetime | None) -> datetime | None:
     return value.replace(tzinfo=UTC)
 
 
+def _is_online(last_seen_at: datetime | None, closed_at: datetime | None) -> bool:
+    observed_at = _aware_timestamp(last_seen_at)
+    return (
+        observed_at is not None
+        and closed_at is None
+        and datetime.now(UTC) - observed_at <= _PRESENCE_TTL
+        and observed_at <= datetime.now(UTC)
+    )
+
+
 async def _single_device_projection(
     session: AsyncSession, device: Device
 ) -> dict[str, object]:
     """Project one device, using the same deterministic session ordering as listings."""
     observed_at = func.coalesce(DeviceSession.last_seen_at, DeviceSession.created_at)
-    last_seen_at = await session.scalar(
-        select(observed_at)
+    row = (await session.execute(
+        select(observed_at, DeviceSession.closed_at)
         .where(DeviceSession.device_id == device.id)
         .order_by(observed_at.desc(), DeviceSession.id.desc())
         .limit(1)
-    )
-    return _device_projection(device, last_seen_at)
+    )).one_or_none()
+    return _device_projection(device, *(row or (None, None)))
 
 
 @router.get("/devices")
@@ -165,11 +178,12 @@ async def list_devices(
         latest_sessions = select(
             DeviceSession.device_id.label("device_id"),
             observed_at.label("last_seen_at"),
+            DeviceSession.closed_at.label("closed_at"),
             session_rank,
         ).subquery()
         rows = (
             await session.execute(
-                select(Device, latest_sessions.c.last_seen_at)
+                select(Device, latest_sessions.c.last_seen_at, latest_sessions.c.closed_at)
                 .outerjoin(
                     latest_sessions,
                     and_(
@@ -181,7 +195,8 @@ async def list_devices(
             )
         ).all()
         projections = [
-            _device_projection(device, last_seen_at) for device, last_seen_at in rows
+            _device_projection(device, last_seen_at, closed_at)
+            for device, last_seen_at, closed_at in rows
         ]
     return {"data": projections}
 
@@ -210,6 +225,7 @@ async def list_network_identities(
         latest_sessions = select(
             DeviceSession.device_id.label("device_id"),
             observed_at.label("last_seen_at"),
+            DeviceSession.closed_at.label("closed_at"),
             session_rank,
         ).subquery()
         while len(candidates) <= limit:
@@ -218,7 +234,7 @@ async def list_network_identities(
                 filters.append(Device.id > after_id)
             device_rows = (
                 await session.execute(
-                    select(Device, latest_sessions.c.last_seen_at)
+                    select(Device, latest_sessions.c.last_seen_at, latest_sessions.c.closed_at)
                     .outerjoin(
                         latest_sessions,
                         and_(
@@ -233,7 +249,7 @@ async def list_network_identities(
             ).all()
             if not device_rows:
                 break
-            device_ids = [device.id for device, _ in device_rows]
+            device_ids = [device.id for device, _, _ in device_rows]
             current_rows = (
                 await session.execute(
                     select(ContextCurrent.device_id, ContextSnapshot)
@@ -247,7 +263,7 @@ async def list_network_identities(
             current_by_device: dict[UUID, dict[str, ContextSnapshot]] = {}
             for device_id, snapshot in current_rows:
                 current_by_device.setdefault(device_id, {})[snapshot.profile] = snapshot
-            for device, last_seen_at in device_rows:
+            for device, last_seen_at, closed_at in device_rows:
                 snapshots = current_by_device.get(device.id, {})
                 safe_snapshots = {
                     profile: snapshot
@@ -266,6 +282,7 @@ async def list_network_identities(
                         device_identifier=device.device_identifier,
                         display_name=device.display_name or device.device_identifier,
                         last_seen_at=_aware_timestamp(last_seen_at),
+                        online=_is_online(last_seen_at, closed_at),
                         baseline_collected_at=_aware_timestamp(baseline.collected_at),
                         profiles=[
                             AgentNetworkProfile(
