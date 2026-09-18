@@ -14,12 +14,14 @@ from ._contracts import (
     ContextWarningCodeV1,
     DeviceContextDiffV1,
     HealthSectionsV1,
+    InventorySectionsV1,
     NetworkSectionsV1,
+    SessionSectionsV1,
 )
 
 
-SafeContextProfile: TypeAlias = Literal["baseline_v1", "health_v1", "network_v1"]
-_SAFE_PROFILES = frozenset(("baseline_v1", "health_v1", "network_v1"))
+SafeContextProfile: TypeAlias = Literal["baseline_v1", "health_v1", "network_v1", "inventory_v1", "session_v1"]
+_SAFE_PROFILES = frozenset(("baseline_v1", "health_v1", "network_v1", "inventory_v1", "session_v1"))
 
 
 class SafeModel(BaseModel):
@@ -53,7 +55,7 @@ class AgentNetworkIdentity(SafeModel):
     last_seen_at: datetime | None
     online: bool = False
     baseline_collected_at: datetime
-    profiles: list[AgentNetworkProfile] = Field(max_length=3)
+    profiles: list[AgentNetworkProfile] = Field(max_length=5)
     baseline_mac_keys: list[Annotated[str, Field(pattern=r"^mac-[0-9a-f]{12}$")]] = Field(
         min_length=1, max_length=64
     )
@@ -87,7 +89,7 @@ class ContextSnapshot(SafeModel):
     collected_at: datetime
     semantic_hash: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$")
     warnings: list[ContextWarningCodeV1] = Field(default_factory=list, max_length=16)
-    sections: BaselineSectionsV1 | HealthSectionsV1 | NetworkSectionsV1
+    sections: BaselineSectionsV1 | HealthSectionsV1 | NetworkSectionsV1 | InventorySectionsV1 | SessionSectionsV1
 
     @field_validator("sections", mode="before")
     @classmethod
@@ -97,6 +99,8 @@ class ContextSnapshot(SafeModel):
             "baseline_v1": BaselineSectionsV1,
             "health_v1": HealthSectionsV1,
             "network_v1": NetworkSectionsV1,
+            "inventory_v1": InventorySectionsV1,
+            "session_v1": SessionSectionsV1,
         }
         model = models.get(profile)
         return value if model is None else model.model_validate(value)
@@ -107,6 +111,8 @@ class ContextSnapshot(SafeModel):
             "baseline_v1": BaselineSectionsV1,
             "health_v1": HealthSectionsV1,
             "network_v1": NetworkSectionsV1,
+            "inventory_v1": InventorySectionsV1,
+            "session_v1": SessionSectionsV1,
         }[self.profile]
         if not isinstance(self.sections, expected):
             raise ValueError("context sections do not match profile")
@@ -128,6 +134,18 @@ class BaselineHistory(SafeModel):
     def validate_baseline_only(self) -> "BaselineHistory":
         if any(snapshot.profile != "baseline_v1" for snapshot in self.snapshots):
             raise ValueError("baseline history includes a non-baseline snapshot")
+        return self
+
+
+class InventoryHistory(SafeModel):
+    """Bounded, newest-first physical inventory snapshots."""
+
+    snapshots: list[ContextSnapshot] = Field(max_length=100)
+
+    @model_validator(mode="after")
+    def validate_inventory_only(self) -> "InventoryHistory":
+        if any(snapshot.profile != "inventory_v1" for snapshot in self.snapshots):
+            raise ValueError("inventory history includes a non-inventory snapshot")
         return self
 
 

@@ -95,6 +95,23 @@ def _baseline_snapshot(snapshot_id: str) -> dict[str, object]:
     }
 
 
+def _inventory_snapshot(snapshot_id: str) -> dict[str, object]:
+    return {
+        "id": snapshot_id,
+        "profile": "inventory_v1",
+        "collected_at": "2026-07-29T10:00:00Z",
+        "semantic_hash": "a" * 64,
+        "warnings": [],
+        "sections": {
+            "system": {"hostname": "workstation-001", "platform": "windows", "architecture": "x86_64"},
+            "hardware": {"manufacturer": "Acme", "model": "A1"},
+            "memory": {"total_bytes": 1024, "module_count": 0, "modules": []},
+            "storage": {"physical_devices": [{"stable_key": "disk-1", "size_bytes": 2048, "media_type": "SSD", "bus_type": "NVME"}]},
+            "interfaces": [{"stable_key": "mac-aabbccddeeff", "mac": "aabbccddeeff", "name": "Ethernet", "ipv4": ["192.0.2.10"], "ipv6": [], "link_type": "ethernet", "operational_state": "up"}],
+        },
+    }
+
+
 def _network_identity_page(
     device_id: str, *, mac_key: str, next_cursor: str | None
 ) -> dict[str, object]:
@@ -348,6 +365,36 @@ def test_baseline_history_is_typed_bounded_and_rejects_invalid_comparisons(
     with pytest.raises(EndpointPlatformInvalidRequest):
         client.compare_context(device_id, first_id, first_id)
     assert len(fake.calls) == 1
+
+
+def test_inventory_context_is_typed_by_the_sdk(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    device_id = uuid4()
+    snapshot_id = uuid4()
+    device = _device_payload(str(device_id))
+    snapshot = _inventory_snapshot(str(snapshot_id))
+    fake = FakeHttpClient(responses=[_response(200, {"data": {"device": device["data"][0], "profiles": [{"profile": "inventory_v1", "status": "completed", "last_collected_at": "2026-07-29T10:00:00Z"}], "snapshots": [snapshot]}})])
+    monkeypatch.setattr(client_module.httpx, "Client", lambda **_: fake)
+    client = EndpointPlatformClient("https://endpoint.invalid", token_file=token(tmp_path), ca_file=ca(tmp_path))
+
+    latest = client.get_latest_context(device_id, "inventory_v1")
+
+    assert latest is not None and latest.id == snapshot_id
+    assert latest.sections.storage.physical_devices[0].bus_type == "NVME"
+
+
+def test_inventory_history_is_typed_and_uses_the_inventory_profile(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    device_id = uuid4()
+    snapshot_id = uuid4()
+    fake = FakeHttpClient(responses=[_response(200, {"data": {"snapshots": [_inventory_snapshot(str(snapshot_id))]}})])
+    monkeypatch.setattr(client_module.httpx, "Client", lambda **_: fake)
+    client = EndpointPlatformClient("https://endpoint.invalid", token_file=token(tmp_path), ca_file=ca(tmp_path))
+
+    history = client.list_inventory_history(device_id)
+
+    assert [snapshot.id for snapshot in history] == [snapshot_id]
+    assert fake.calls[0][2]["params"] == {"profile": "inventory_v1", "limit": "50"}
 
 
 def test_network_identity_feed_follows_typed_cursor_pages(

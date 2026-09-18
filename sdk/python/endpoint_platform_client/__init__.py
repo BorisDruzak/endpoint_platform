@@ -23,6 +23,7 @@ from .models import (
     ContextSnapshot,
     Device,
     DeviceContext,
+    InventoryHistory,
     SafeContextProfile,
 )
 
@@ -48,5 +49,6 @@ __all__ = [
     "EndpointPlatformResponseError",
     "EndpointPlatformUnavailable",
     "InstallClaim",
+    "InventoryHistory",
     "SafeContextProfile",
 ]

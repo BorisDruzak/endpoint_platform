@@ -29,6 +29,7 @@ from .models import (
     ContextSnapshot,
     Device,
     DeviceContext,
+    InventoryHistory,
     SafeContextProfile,
     is_safe_profile,
 )
@@ -157,6 +158,21 @@ class EndpointPlatformClient:
             data,
             lambda value: _DataResponse[BaselineHistory](
                 data=BaselineHistory.model_validate(value["data"])
+            ),
+        ).data.snapshots
+
+    def list_inventory_history(self, device_id: UUID, *, limit: int = 50) -> list[ContextSnapshot]:
+        """Return at most 100 newest-first physical inventory snapshots."""
+        if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= _MAX_BASELINE_HISTORY_LIMIT:
+            raise EndpointPlatformInvalidRequest()
+        data = self._get(
+            f"/api/v1/devices/{device_id}/context/snapshots",
+            params={"profile": "inventory_v1", "limit": str(limit)},
+        )
+        return self._validate(
+            data,
+            lambda value: _DataResponse[InventoryHistory](
+                data=InventoryHistory.model_validate(value["data"])
             ),
         ).data.snapshots
 

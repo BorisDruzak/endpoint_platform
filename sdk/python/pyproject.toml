@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "endpoint-platform-client"
-version = "0.1.0"
+version = "0.2.0"
 description = "TLS-verifying typed client for Endpoint Platform safe Device Context APIs"
 requires-python = ">=3.12"
 dependencies = [
