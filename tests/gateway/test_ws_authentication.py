@@ -110,3 +110,4 @@ def test_wss_route_is_exact_and_https_pull_routes_remain_enabled(
 
     assert "/agent/v1/connect" in paths
     assert "/agent/v1/gateway/commands/next" in paths
+    assert not any("inventory" in path and path.startswith("/agent/v1/") for path in paths)
