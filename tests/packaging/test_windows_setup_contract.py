@@ -54,3 +54,16 @@ def test_setup_entry_installs_embedded_msi_before_using_its_provisioner() -> Non
     assert "endpoint-agent-provision.exe" in source
     assert "setup-config.json" in source
     assert "--endpoint-origin" in source
+
+
+def test_runbook_documents_campaign_authority_and_safe_quiet_mode() -> None:
+    source = (PROJECT_ROOT / "docs" / "runbooks" / "WINDOWS_UNIVERSAL_ENROLLMENT.md").read_text(
+        encoding="utf-8"
+    )
+
+    assert "enrollment_mode" in source
+    assert "allowed_installer_releases" in source
+    assert "campaign_id" in source
+    assert "--quiet" in source
+    assert "fleet rollout" in source
+    assert "ic_" in source
