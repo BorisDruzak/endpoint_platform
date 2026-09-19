@@ -117,3 +117,17 @@ def test_valid_rerun_stops_before_msi_or_enrollment(
     )
 
     assert setup_entry.main(["--quiet"]) == 10
+
+
+def test_conflicted_rerun_stops_before_msi_or_enrollment(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    (tmp_path / "device-credential").write_text("a" * 43, encoding="ascii")
+    monkeypatch.setattr(setup_entry, "_data_root", lambda: tmp_path)
+    monkeypatch.setattr(
+        setup_entry,
+        "_resource_root",
+        lambda: pytest.fail("conflicted rerun must not read embedded payload"),
+    )
+
+    assert setup_entry.main(["--quiet"]) == 60
