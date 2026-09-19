@@ -41,11 +41,17 @@ def _settings() -> Settings:
 
 
 class _Result:
-    def __init__(self, value: object | None) -> None:
+    def __init__(self, value: object | list[object] | None) -> None:
         self.value = value
 
     def scalar_one_or_none(self) -> object | None:
-        return self.value
+        return self.value if not isinstance(self.value, list) else (self.value[0] if self.value else None)
+
+    def scalars(self) -> "_Result":
+        return self
+
+    def all(self) -> list[object]:
+        return self.value if isinstance(self.value, list) else ([self.value] if self.value is not None else [])
 
 
 class _AdminEnrollmentSession:
@@ -289,3 +295,91 @@ async def test_admin_rejects_policy_outside_agent_delivery_contract() -> None:
     assert response.json() == {"detail": "Invalid enrollment campaign"}
     assert session.added == []
     assert session.commit_calls == 0
+
+
+@pytest.mark.asyncio
+async def test_admin_windows_campaign_projection_and_policy_update_are_secret_safe() -> None:
+    campaign = issue_campaign(
+        PEPPER,
+        expires_at=NOW + timedelta(hours=1),
+        max_uses=4,
+        allowed_cidrs=("192.168.100.0/24",),
+        target_platform="windows",
+        policy={
+            "policy_id": "windows-office-v1",
+            "enrollment_mode": "manual",
+            "allowed_installer_releases": ["1.0.0"],
+        },
+        label="Windows workstations",
+        now=NOW,
+    ).record
+
+    class _CampaignListSession(_AdminEnrollmentSession):
+        async def execute(self, statement: object) -> _Result:
+            entity = statement.column_descriptions[0]["entity"]
+            return _Result([campaign] if entity is EnrollmentCampaign else campaign)
+
+    session = _CampaignListSession(campaign=campaign)
+    app = create_app(_settings(), session_provider=_Provider(session))
+    app.dependency_overrides[require_admin] = _principal
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="https://endpoint.sosnadmin.local",
+    ) as client:
+        listing = await client.get("/api/admin/enrollment/campaigns")
+        summary = await client.get("/api/admin/enrollment/windows-summary")
+        update = await client.patch(
+            f"/api/admin/enrollment/campaigns/{campaign.id}",
+            json={
+                "policy": {
+                    "policy_id": "windows-office-v1",
+                    "enrollment_mode": "auto",
+                    "allowed_installer_releases": ["1.0.0", "1.0.1"],
+                }
+            },
+        )
+
+    assert listing.status_code == 200
+    assert listing.json()["campaigns"][0]["policy"] == {
+        "policy_id": "windows-office-v1",
+        "enrollment_mode": "manual",
+        "allowed_installer_releases": ["1.0.0"],
+    }
+    assert "ec_" not in listing.text
+    assert summary.json() == {
+        "status": "single_active_campaign",
+        "campaign_id": str(campaign.id),
+        "label": "Windows workstations",
+        "enrollment_mode": "manual",
+    }
+    assert update.status_code == 204
+    assert campaign.policy["enrollment_mode"] == "auto"
+    assert session.commit_calls == 1
+    audit = next(value for value in session.added if isinstance(value, AuditEvent))
+    assert audit.action == "enrollment_campaign.updated"
+
+
+@pytest.mark.asyncio
+async def test_admin_rejects_windows_campaign_without_strict_policy() -> None:
+    session = _AdminEnrollmentSession()
+    app = create_app(_settings(), session_provider=_Provider(session))
+    app.dependency_overrides[require_admin] = _principal
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="https://endpoint.sosnadmin.local",
+    ) as client:
+        response = await client.post(
+            "/api/admin/enrollment/campaigns",
+            json={
+                "expires_at": (NOW + timedelta(hours=1)).isoformat(),
+                "max_uses": 1,
+                "allowed_cidrs": ["192.168.100.0/24"],
+                "target_platform": "windows",
+                "policy": {},
+            },
+        )
+
+    assert response.status_code == 422
+    assert session.added == []

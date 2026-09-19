@@ -203,13 +203,10 @@ def issue_campaign(
     )
     normalized_policy = dict(policy)
     validate_bounded_json(normalized_policy)
-    if platform == "windows" and {
-        "policy_id",
-        "enrollment_mode",
-        "allowed_installer_releases",
-    }.intersection(normalized_policy):
-        if parse_windows_enrollment_policy(normalized_policy) is None:
-            raise ValueError("Windows enrollment policy is invalid")
+    if platform == "windows" and parse_windows_enrollment_policy(
+        normalized_policy
+    ) is None:
+        raise ValueError("Windows enrollment policy is invalid")
     identifier, token = _issue_token(_CAMPAIGN_MARKER)
     record = EnrollmentCampaign(
         id=uuid4(),
