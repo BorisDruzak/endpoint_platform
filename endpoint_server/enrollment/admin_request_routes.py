@@ -156,7 +156,7 @@ async def approve_request(
                 deny_enrollment_request(
                     record, reason="SELECTED_CAMPAIGN_INVALID", now=now
                 )
-                record.decided_by = str(principal.user.id)
+                record.decided_by = principal.user.id
                 await _append_decision_audit(
                     session,
                     record=record,
@@ -174,7 +174,7 @@ async def approve_request(
                     deny_enrollment_request(
                         record, reason="SELECTED_CAMPAIGN_INVALID", now=now
                     )
-                    record.decided_by = str(principal.user.id)
+                    record.decided_by = principal.user.id
                     await _append_decision_audit(
                         session,
                         record=record,
@@ -185,7 +185,7 @@ async def approve_request(
                     )
                     await session.commit()
                 raise _conflict()
-            record.decided_by = str(principal.user.id)
+            record.decided_by = principal.user.id
             await _append_decision_audit(
                 session,
                 record=record,
@@ -230,7 +230,7 @@ async def deny_request(
             if record.status == "denied":
                 return
             deny_enrollment_request(record, reason=body.reason, now=now)
-            record.decided_by = str(principal.user.id)
+            record.decided_by = principal.user.id
             await _append_decision_audit(
                 session,
                 record=record,

@@ -175,7 +175,7 @@ async def test_admin_queue_redacts_bindings_and_approval_is_audited() -> None:
     assert "00:11:22:33:44:55" not in queue.text
     assert approval.status_code == 204
     assert record.status == "approved"
-    assert record.decided_by == str(principal.user.id)
+    assert record.decided_by == principal.user.id
     audit = next(value for value in session.added if isinstance(value, AuditEvent))
     assert audit.action == "enrollment_request.approved"
     assert audit.actor_identifier == str(principal.user.id)
