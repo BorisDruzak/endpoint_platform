@@ -20,6 +20,7 @@ from endpoint_server.enrollment.admin_routes import router as enrollment_admin_r
 from endpoint_server.enrollment.provisioning_routes import (
     router as provisioning_router,
 )
+from endpoint_server.enrollment.request_routes import router as enrollment_request_router
 from endpoint_server.provisioning.admin_routes import (
     router as provisioning_admin_router,
 )
@@ -107,6 +108,7 @@ def create_app(
     app.include_router(admin_auth_router)
     app.include_router(enrollment_admin_router)
     app.include_router(enrollment_agent_router)
+    app.include_router(enrollment_request_router)
     app.include_router(gateway_router)
     app.include_router(gateway_ws_router)
     app.include_router(provisioning_router)
