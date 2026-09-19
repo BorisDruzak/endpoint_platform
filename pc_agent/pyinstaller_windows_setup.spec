@@ -1,4 +1,6 @@
-# Universal Windows Setup bootstrapper. It has no embedded enrollment authority.
+"""Package the self-contained Windows Setup from explicit public release inputs."""
+
+import os
 import sys
 from pathlib import Path
 
@@ -6,11 +8,30 @@ pc_agent_root = Path(SPECPATH)
 project_root = pc_agent_root.parent
 sys.path.insert(0, str(project_root))
 
+
+def _public_payload(name: str, expected_filename: str) -> Path:
+    value = os.environ.get(name)
+    if not value:
+        raise SystemExit(f"{name} is required for a Windows Setup build")
+    path = Path(value).resolve()
+    if not path.is_file() or path.name != expected_filename:
+        raise SystemExit(f"{name} must name {expected_filename}")
+    return path
+
+
+setup_msi = _public_payload("ENDPOINT_SETUP_MSI", "EndpointAgent.msi")
+setup_ca = _public_payload("ENDPOINT_SETUP_CA_FILE", "endpoint-ca.crt")
+setup_config = _public_payload("ENDPOINT_SETUP_CONFIG", "setup-config.json")
+
 a = Analysis(
     [str(pc_agent_root / "platform" / "windows" / "setup_entry.py")],
     pathex=[str(project_root), str(pc_agent_root)],
     hiddenimports=[],
-    datas=[],
+    datas=[
+        (str(setup_msi), "payload"),
+        (str(setup_ca), "payload"),
+        (str(setup_config), "payload"),
+    ],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],

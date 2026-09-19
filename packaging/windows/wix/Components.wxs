@@ -13,11 +13,6 @@
         <File Id="filProvisioner" Source="$(var.StagingDir)\ProgramFiles\endpoint-agent-provision.exe"
               Name="endpoint-agent-provision.exe" KeyPath="yes" />
       </Component>
-      <Component Id="cmpUniversalSetup" Directory="INSTALLFOLDER"
-                 Guid="92D2C840-80BA-4C60-97A8-34A82D9E4220" Bitness="always64">
-        <File Id="filUniversalSetup" Source="$(var.StagingDir)\ProgramFiles\EndpointAgentSetup.exe"
-              Name="EndpointAgentSetup.exe" KeyPath="yes" />
-      </Component>
       <Component Id="cmpCurrentSelector" Directory="INSTALLFOLDER"
                  Guid="79A86026-5726-49BA-8C91-7EFF35DA0511" Bitness="always64"
                  NeverOverwrite="yes">

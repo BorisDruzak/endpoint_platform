@@ -255,18 +255,16 @@ def test_msi_includes_a_separate_provisioning_executable_without_secret_inputs()
     )
 
 
-def test_msi_includes_the_universal_setup_bootstrapper_without_enrollment_properties() -> None:
-    """The user-facing setup executable must be payload, never MSI secret input."""
+def test_msi_excludes_the_universal_setup_bootstrapper() -> None:
+    """The release Setup executable owns the MSI; the MSI must not contain a nested setup."""
     files = _all_elements(_trees(), "File")
     by_id = {item.get("Id"): item for item in files}
-    setup = by_id["filUniversalSetup"]
 
-    assert setup.get("Name") == "EndpointAgentSetup.exe"
-    assert "ProgramFiles\\EndpointAgentSetup.exe" in setup.get("Source", "")
+    assert "filUniversalSetup" not in by_id
 
     script = (WINDOWS_PACKAGING / "build-msi.ps1").read_text(encoding="utf-8")
-    assert "pyinstaller_windows_setup.spec" in script
-    assert "EndpointAgentSetup.exe" in script
+    assert "pyinstaller_windows_setup.spec" not in script
+    assert "EndpointAgentSetup.exe" not in script
     assert "ENROLLMENT" not in (WINDOWS_PACKAGING / "wix" / "Package.wxs").read_text(
         encoding="utf-8"
     )
