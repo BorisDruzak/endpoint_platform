@@ -13,6 +13,8 @@ param(
     [switch]$ApproveInitialRuntimeTransition,
     [switch]$ApproveInitialRuntimeSourceChange,
     [switch]$ReusePythonBuild,
+    [string]$CodeSigningCertificateThumbprint,
+    [string]$TimestampServer,
     [string]$WixBuildRoot
 )
 
@@ -31,9 +33,45 @@ function Write-Utf8NoBom {
     [IO.File]::WriteAllText($Path, $Content, [Text.UTF8Encoding]::new($false))
 }
 
+function Assert-SecretFreeSetupArtifact {
+    param([Parameter(Mandatory)][string]$Path)
+    $bytes = [IO.File]::ReadAllBytes($Path)
+    $content = [Text.Encoding]::GetEncoding(28591).GetString($bytes)
+    if ([regex]::IsMatch($content, '(?i)\b(?:ic|ec)_[0-9a-f]{32}\.[A-Za-z0-9_-]{43}\b')) {
+        throw "Windows Setup artifact contains an enrollment bearer pattern."
+    }
+}
+
+function Set-SetupAuthenticodeSignature {
+    param(
+        [Parameter(Mandatory)][string]$Path,
+        [string]$Thumbprint,
+        [string]$Timestamp
+    )
+    if (-not $Thumbprint) { return }
+    if ($Thumbprint -notmatch '^[A-Fa-f0-9]{40}$') {
+        throw "Code-signing certificate thumbprint is invalid."
+    }
+    if ($Timestamp -and -not $Timestamp.StartsWith('https://', [StringComparison]::OrdinalIgnoreCase)) {
+        throw "Authenticode timestamp server must use HTTPS."
+    }
+    $certificate = Get-ChildItem -LiteralPath ("Cert:\\CurrentUser\\My\\" + $Thumbprint)
+    if (-not $certificate -or -not $certificate.HasPrivateKey) {
+        throw "Code-signing certificate is unavailable."
+    }
+    $parameters = @{ FilePath = $Path; Certificate = $certificate }
+    if ($Timestamp) { $parameters.TimestampServer = $Timestamp }
+    $result = Set-AuthenticodeSignature @parameters
+    if ($result.Status -ne 'Valid') { throw "Authenticode signing failed." }
+}
+
 $repositoryRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..'))
 $packagingRoot = [IO.Path]::GetFullPath($PSScriptRoot)
 $python = (Get-Command python -ErrorAction Stop).Source
+$sourceCommit = (& git -C $repositoryRoot rev-parse HEAD).Trim()
+if ($LASTEXITCODE -ne 0 -or $sourceCommit -notmatch '^[0-9a-f]{40}$') {
+    throw "Could not determine release source commit."
+}
 if (-not $Version) {
     $versionText = [IO.File]::ReadAllText((Join-Path $repositoryRoot 'pc_agent\version.py'))
     $match = [regex]::Match($versionText, 'AGENT_VERSION\s*=\s*"([^"]+)"')
@@ -113,12 +151,30 @@ $setupExe = Join-Path $distRoot 'EndpointAgentSetup.exe'
 if (-not (Test-Path -LiteralPath $setupExe -PathType Leaf)) { throw "Windows Setup executable is missing." }
 $releaseSetup = Join-Path $releaseRoot "EndpointAgentSetup-$Version-x64.exe"
 Copy-Item -LiteralPath $setupExe -Destination $releaseSetup -Force
+Assert-SecretFreeSetupArtifact -Path $releaseSetup
+Set-SetupAuthenticodeSignature -Path $releaseSetup -Thumbprint $CodeSigningCertificateThumbprint -Timestamp $TimestampServer
+$signature = Get-AuthenticodeSignature -FilePath $releaseSetup
+$authenticodeStatus = switch ($signature.Status.ToString()) {
+    'Valid' { 'valid' }
+    'NotSigned' { 'unsigned' }
+    default { 'invalid' }
+}
+$authenticodePublisher = if ($signature.SignerCertificate) {
+    $signature.SignerCertificate.Subject
+} else {
+    $null
+}
 $setupSha256 = (Get-FileHash -LiteralPath $releaseSetup -Algorithm SHA256).Hash.ToLowerInvariant()
 $msiSha256 = (Get-FileHash -LiteralPath $msiPath -Algorithm SHA256).Hash.ToLowerInvariant()
 Write-Utf8NoBom (Join-Path $releaseRoot "EndpointAgentSetup-$Version-x64.release.json") (@{
     schema_version = 'endpoint_windows_setup_release_v1'
     version = $Version
+    agent_version = $Version
+    source_commit = $sourceCommit
+    filename = [IO.Path]::GetFileName($releaseSetup)
     setup_sha256 = $setupSha256
     msi_sha256 = $msiSha256
+    authenticode_status = $authenticodeStatus
+    authenticode_publisher = $authenticodePublisher
 } | ConvertTo-Json -Compress)
 Write-Host "Setup: $releaseSetup"

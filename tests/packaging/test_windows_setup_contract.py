@@ -21,6 +21,15 @@ def test_setup_builder_binds_the_exact_msi_and_public_ca_without_secrets() -> No
     assert "EndpointAgentSetup.exe" in source
     assert "setup_sha256" in source
     assert "msi_sha256" in source
+    assert "source_commit" in source
+    assert "filename" in source
+    assert "agent_version" in source
+    assert "authenticode_status" in source
+    assert "authenticode_publisher" in source
+    assert "CodeSigningCertificateThumbprint" in source
+    assert "Set-AuthenticodeSignature" in source
+    assert "Get-AuthenticodeSignature" in source
+    assert "Assert-SecretFreeSetupArtifact" in source
     assert "$msiParameters = @{" in source
     assert "build-msi.ps1') @msiParameters" in source
     assert "[switch]$ReusePythonBuild" in source
