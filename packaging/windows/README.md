@@ -14,7 +14,7 @@ evidence for the retained initial-runtime stage. From the repository root:
 
 ```powershell
 .\packaging\windows\build-msi.ps1 -Configuration Release -Platform x64 `
-  -InitialRuntimeManifest .\packaging\windows\initial-runtime-3.2.45.json `
+  -InitialRuntimeManifest .\packaging\windows\initial-runtime-3.2.46.json `
   -InitialRuntimeStageRoot <retained-runtime-stage> `
   -InitialRuntimeStageEvidence <stage-evidence.json> `
   -ApproveInitialRuntimeTransition -ApproveInitialRuntimeSourceChange
@@ -29,7 +29,7 @@ and paths inside the repository are rejected. The build has no parameter for
 enrollment or device material and does not read such input.
 
 The checked-in `initial-runtime.json` remains the immutable historical baseline.
-The reviewed `initial-runtime-3.2.45.json` transition pins the Windows Device
+The reviewed `initial-runtime-3.2.46.json` transition pins the Windows Device
 Context, universal enrollment setup, and WSS diagnostic-canary runtime with a new component GUID and must be built with both explicit
 approval switches shown above. Each manifest pins its runtime version,
 component GUID, canonical-LF source-file hashes, complete staged artifact tree identity,
@@ -142,7 +142,7 @@ build inputs or command-line arguments:
 .\packaging\windows\build-setup.ps1 `
   -EndpointOrigin https://endpoint.sosnadmin.local `
   -EndpointCaFile 'C:\path\to\sosnadmin-local-ca.crt' `
-  -InitialRuntimeManifest .\packaging\windows\initial-runtime-3.2.45.json `
+  -InitialRuntimeManifest .\packaging\windows\initial-runtime-3.2.46.json `
   -InitialRuntimeStageRoot <retained-runtime-stage> `
   -InitialRuntimeStageEvidence <stage-evidence.json> `
   -ApproveInitialRuntimeTransition -ApproveInitialRuntimeSourceChange
