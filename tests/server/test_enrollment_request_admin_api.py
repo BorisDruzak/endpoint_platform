@@ -182,7 +182,7 @@ async def test_admin_queue_redacts_bindings_and_approval_is_audited() -> None:
     assert record.status == "approved"
     assert record.decided_by == principal.user.id
     audit = next(value for value in session.added if isinstance(value, AuditEvent))
-    assert audit.action == "enrollment_request.approved"
+    assert audit.action == "enrollment_request.manually_approved"
     assert audit.actor_identifier == str(principal.user.id)
     assert session.commit_calls == 1
 
