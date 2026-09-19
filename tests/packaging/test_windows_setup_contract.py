@@ -29,7 +29,8 @@ def test_setup_builder_binds_the_exact_msi_and_public_ca_without_secrets() -> No
     assert "CodeSigningCertificateThumbprint" in source
     assert "Set-AuthenticodeSignature" in source
     assert "Get-AuthenticodeSignature" in source
-    assert "Set-AuthenticodeSignature -Path $msiPath" in source
+    assert "Set-SetupAuthenticodeSignature -Path $msiPath" in source
+    assert "Set-SetupAuthenticodeSignature -Path $releaseSetup" in source
     assert "msi_authenticode_status" in source
     assert "msi_authenticode_publisher" in source
     assert "[string]$ExistingMsi" in source

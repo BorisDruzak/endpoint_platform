@@ -167,7 +167,7 @@ else {
     if ($LASTEXITCODE -ne 0) { throw "MSI build failed." }
 }
 if (-not (Test-Path -LiteralPath $msiPath -PathType Leaf)) { throw "MSI output is missing." }
-Set-AuthenticodeSignature -Path $msiPath -Thumbprint $CodeSigningCertificateThumbprint -Timestamp $TimestampServer
+Set-SetupAuthenticodeSignature -Path $msiPath -Thumbprint $CodeSigningCertificateThumbprint -Timestamp $TimestampServer
 
 $setupRoot = Join-Path $effectiveWixBuildRoot 'setup'
 if (Test-Path -LiteralPath $setupRoot) { Remove-Item -LiteralPath $setupRoot -Recurse -Force }
