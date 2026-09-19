@@ -159,8 +159,8 @@ if ($hasExistingMsi) {
         -ReleaseManifestPath $ExistingMsiReleaseManifest `
         -ExpectedVersion $Version
     New-Item -ItemType Directory -Path (Split-Path -Parent $msiPath) -Force | Out-Null
-    Copy-Item -LiteralPath $existingMsi.Path -Destination $msiPath -Force
-    $msiSourceCommit = $existingMsi.SourceCommit
+    Copy-Item -LiteralPath ([string]$existingMsi.Path) -Destination $msiPath -Force
+    $msiSourceCommit = [string]$existingMsi.SourceCommit
 }
 else {
     & (Join-Path $PSScriptRoot 'build-msi.ps1') @msiParameters
