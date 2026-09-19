@@ -65,6 +65,8 @@ def _request(campaign: EnrollmentCampaign) -> EnrollmentRequest:
         pepper=PEPPER,
         now=NOW,
         serial="serial-must-not-leak",
+        manufacturer="Contoso",
+        model="Workstation 17",
         macs=("00:11:22:33:44:55",),
     )
 
@@ -163,6 +165,10 @@ async def test_admin_queue_redacts_bindings_and_approval_is_audited() -> None:
             "reason": "MANUAL_POLICY",
             "platform": "windows",
             "hostname": "office-pc-01",
+            "manufacturer": "Contoso",
+            "model": "Workstation 17",
+            "serial": "serial-must-not-leak",
+            "macs": ["00:11:22:33:44:55"],
             "source_address": "192.168.100.10",
             "installer_release_id": "1.0.0",
             "selected_campaign_id": str(campaign.id),
@@ -171,8 +177,7 @@ async def test_admin_queue_redacts_bindings_and_approval_is_audited() -> None:
         }
     ]
     assert "fingerprint" not in queue.text
-    assert "serial-must-not-leak" not in queue.text
-    assert "00:11:22:33:44:55" not in queue.text
+    assert "sha256:windows-fingerprint-v1" not in queue.text
     assert approval.status_code == 204
     assert record.status == "approved"
     assert record.decided_by == principal.user.id

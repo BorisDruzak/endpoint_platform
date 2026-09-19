@@ -33,6 +33,10 @@ class EnrollmentRequestQueueItem(BaseModel):
     reason: str | None
     platform: str
     hostname: str | None
+    manufacturer: str | None
+    model: str | None
+    serial: str | None
+    macs: list[str]
     source_address: str
     installer_release_id: str
     selected_campaign_id: UUID | None
@@ -72,6 +76,10 @@ def _queue_item(record: EnrollmentRequest) -> EnrollmentRequestQueueItem:
         reason=record.decision_reason,
         platform=record.platform,
         hostname=record.hostname,
+        manufacturer=record.manufacturer,
+        model=record.model,
+        serial=record.serial,
+        macs=list(record.macs),
         source_address=record.source_address,
         installer_release_id=record.installer_release_id,
         selected_campaign_id=record.selected_campaign_id,
