@@ -12,6 +12,7 @@ from endpoint_server.enrollment.requests import (
     transition_request_status,
     deny_enrollment_request,
     mark_request_claim_issued,
+    persist_enrollment_request,
 )
 
 
@@ -217,3 +218,42 @@ def test_claim_issuance_requires_approved_or_auto_approved_request() -> None:
 
     assert request.status == "claim_issued"
     assert request.selected_campaign_id == campaign.id
+
+
+class _PersistingSession:
+    def __init__(self) -> None:
+        self.added: list[object] = []
+
+    def add(self, value: object) -> None:
+        self.added.append(value)
+
+
+def test_persist_request_appends_a_redacted_audit_event() -> None:
+    campaign = _campaign()
+    request = build_enrollment_request(
+        installation_id="win-00112233-4455-6677-8899-aabbccddeeff",
+        hardware_fingerprint="sha256:windows-fingerprint-v1",
+        request_capability="a" * 43,
+        source_address=ip_address("192.168.100.20"),
+        installer_version="1.0.0",
+        installer_release_id="1.0.0",
+        hostname="office-pc-01",
+        selection=evaluate_campaign_selection(
+            [campaign],
+            source_address=ip_address("192.168.100.20"),
+            installer_release_id="1.0.0",
+            now=NOW,
+        ),
+        pepper=PEPPER,
+        now=NOW,
+    )
+    session = _PersistingSession()
+
+    import asyncio
+
+    asyncio.run(persist_enrollment_request(session, request=request, request_id="request-1", now=NOW))
+
+    assert session.added[0] is request
+    audit = session.added[1]
+    assert audit.action == "enrollment_request.created"
+    assert "request_capability" not in audit.details

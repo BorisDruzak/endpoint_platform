@@ -11,6 +11,7 @@ from typing import Literal, Sequence
 from uuid import uuid4
 
 from endpoint_server.db.models import EnrollmentCampaign, EnrollmentRequest
+from endpoint_server.audit.service import append_audit_event
 
 from .campaigns import campaign_request_matches, parse_windows_enrollment_policy
 
@@ -197,6 +198,37 @@ def mark_request_claim_issued(
         raise RequestTransitionError("selected campaign is no longer eligible")
     request.status = "claim_issued"
     request.updated_at = now.astimezone(UTC)
+
+
+async def persist_enrollment_request(
+    session,
+    *,
+    request: EnrollmentRequest,
+    request_id: str,
+    now: datetime,
+) -> EnrollmentRequest:
+    """Append a request and its non-secret audit evidence to one transaction."""
+    session.add(request)
+    await append_audit_event(
+        session,
+        actor_kind="installer",
+        actor_identifier=None,
+        action="enrollment_request.created",
+        object_kind="enrollment_request",
+        object_identifier=str(request.id),
+        request_id=request_id,
+        details={
+            "installer_release_id": request.installer_release_id,
+            "platform": request.platform,
+            "selected_campaign_id": (
+                str(request.selected_campaign_id) if request.selected_campaign_id else None
+            ),
+            "source_address": request.source_address,
+            "status": request.status,
+        },
+        occurred_at=now,
+    )
+    return request
 
 
 @dataclass(frozen=True, slots=True)
