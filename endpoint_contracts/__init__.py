@@ -27,6 +27,9 @@ from .enrollment import (
     EnrollmentDeliveryProofV1,
     EnrollmentRequestV1,
     EnrollmentResponseV1,
+    PreEnrollmentRequestCreateV1,
+    PreEnrollmentRequestStatusV1,
+    WindowsEnrollmentPolicyV1,
 )
 from .gateway_ws import (
     AgentHelloV1,
@@ -154,6 +157,8 @@ __all__ = [
     "EnrollmentDeliveryProofV1",
     "EnrollmentRequestV1",
     "EnrollmentResponseV1",
+    "PreEnrollmentRequestCreateV1",
+    "PreEnrollmentRequestStatusV1",
     "GatewayErrorV1",
     "GatewayHelloV1",
     "GatewayInboundV1",
@@ -180,4 +185,5 @@ __all__ = [
     "UpdateBuildManifestV1",
     "UpdateRolloutCreateV1",
     "validate_context_result_item",
+    "WindowsEnrollmentPolicyV1",
 ]

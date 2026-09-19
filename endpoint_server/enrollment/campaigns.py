@@ -16,6 +16,7 @@ from uuid import UUID, uuid4
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from endpoint_contracts.enrollment import WindowsEnrollmentPolicyV1
 from endpoint_contracts.identity import normalize_hardware_fingerprint
 from endpoint_contracts.json_types import validate_bounded_json
 from endpoint_server.audit.service import append_audit_event
@@ -34,6 +35,16 @@ _FINGERPRINT_CONTEXT = b"endpoint-enrollment-fingerprint-v1\0"
 
 class EnrollmentDenied(Exception):
     """Generic fail-closed enrollment denial without credential oracle details."""
+
+
+def parse_windows_enrollment_policy(
+    policy: Mapping[str, object],
+) -> WindowsEnrollmentPolicyV1 | None:
+    """Return a strict universal-setup policy only when its shape is complete."""
+    try:
+        return WindowsEnrollmentPolicyV1.model_validate(policy)
+    except ValueError:
+        return None
 
 
 @dataclass(frozen=True, slots=True)
