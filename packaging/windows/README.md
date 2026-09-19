@@ -14,7 +14,7 @@ evidence for the retained initial-runtime stage. From the repository root:
 
 ```powershell
 .\packaging\windows\build-msi.ps1 -Configuration Release -Platform x64 `
-  -InitialRuntimeManifest .\packaging\windows\initial-runtime-3.2.26.json `
+  -InitialRuntimeManifest .\packaging\windows\initial-runtime-3.2.43.json `
   -InitialRuntimeStageRoot <retained-runtime-stage> `
   -InitialRuntimeStageEvidence <stage-evidence.json> `
   -ApproveInitialRuntimeTransition -ApproveInitialRuntimeSourceChange
@@ -28,9 +28,9 @@ to choose another dedicated output directory; filesystem roots, reparse points,
 and paths inside the repository are rejected. The build has no parameter for
 enrollment or device material and does not read such input.
 
-The checked-in `initial-runtime.json` remains the immutable `3.1.76` baseline.
-The reviewed `initial-runtime-3.2.26.json` transition pins the Windows Device
-Context and WSS diagnostic-canary runtime with a new component GUID and must be built with both explicit
+The checked-in `initial-runtime.json` remains the immutable historical baseline.
+The reviewed `initial-runtime-3.2.43.json` transition pins the Windows Device
+Context, universal enrollment setup, and WSS diagnostic-canary runtime with a new component GUID and must be built with both explicit
 approval switches shown above. Each manifest pins its runtime version,
 component GUID, canonical-LF source-file hashes, complete staged artifact tree identity,
 and the CPython/PyInstaller producer identity, including
@@ -130,6 +130,29 @@ it never records a full endpoint URL or authentication material.
 Default uninstall removes both services and the Program Files binary tree,
 including updater-published version directories. It deliberately preserves
 ProgramData so repair or reinstall retains machine identity and credentials.
+
+## Universal Windows setup EXE
+
+For a new Windows machine, build the public, single-file setup EXE rather than
+distributing the MSI directly. It embeds only the MSI, endpoint CA, and a
+public HTTPS configuration; campaign choice, claims, and credentials are never
+build inputs or command-line arguments:
+
+```powershell
+.\packaging\windows\build-setup.ps1 `
+  -EndpointOrigin https://endpoint.sosnadmin.local `
+  -EndpointCaFile 'C:\path\to\sosnadmin-local-ca.crt' `
+  -InitialRuntimeManifest .\packaging\windows\initial-runtime-3.2.43.json `
+  -InitialRuntimeStageRoot <retained-runtime-stage> `
+  -InitialRuntimeStageEvidence <stage-evidence.json> `
+  -ApproveInitialRuntimeTransition -ApproveInitialRuntimeSourceChange
+```
+
+The output is `EndpointAgentSetup-<version>-x64.exe` under the selected build
+root's `releases` directory, with an adjacent SHA-256 sidecar. Run it elevated;
+`--quiet` suppresses UI. It returns `0` after the enrollment request reaches
+completion, `10` for an already valid installation, and non-zero for a denied,
+timed-out, or repair-required setup.
 
 ## Update handoff
 
