@@ -2,6 +2,7 @@ from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import AsyncIterator
+from uuid import uuid4
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -13,7 +14,7 @@ from endpoint_server.db.models import (
     EnrollmentRequest,
     EnrollmentRequestClaimEnvelope,
 )
-from endpoint_server.enrollment.campaigns import issue_campaign
+from endpoint_server.enrollment.campaigns import issue_campaign, issue_install_claim
 from endpoint_server.main import create_app
 
 
@@ -36,8 +37,13 @@ class _Result:
 
 
 class _Session:
-    def __init__(self, campaigns: list[EnrollmentCampaign]) -> None:
+    def __init__(
+        self,
+        campaigns: list[EnrollmentCampaign],
+        claims: list[EnrollmentClaim] | None = None,
+    ) -> None:
         self.campaigns = campaigns
+        self.claims = claims or []
         self.added: list[object] = []
         self.commit_calls = 0
 
@@ -45,6 +51,8 @@ class _Session:
         entity = _statement.column_descriptions[0]["entity"]
         if entity is EnrollmentCampaign:
             return _Result(self.campaigns)
+        if entity is EnrollmentClaim:
+            return _Result(self.claims)
         if entity is EnrollmentRequest:
             return _Result(
                 [value for value in self.added if isinstance(value, EnrollmentRequest)]
@@ -134,6 +142,43 @@ async def test_create_request_selects_the_single_server_campaign_without_bearer(
     assert response.json()["status"] == "auto_approved"
     assert "campaign_id" not in response.json()
     assert session.commit_calls == 1
+
+
+@pytest.mark.asyncio
+async def test_auto_request_with_device_bound_fingerprint_requires_review() -> None:
+    campaign = _campaign()
+    prior_claim = issue_install_claim(
+        campaign,
+        PEPPER,
+        installation_session="win-previous",
+        hardware_fingerprint="sha256:windows-fingerprint-v1",
+        expires_at=NOW + timedelta(minutes=10),
+        now=NOW,
+    ).record
+    prior_claim.device_id = uuid4()
+    session = _Session([campaign], claims=[prior_claim])
+    app = create_app(_settings(), session_provider=_Provider(session))
+    body = {
+        "schema_version": "pre_enrollment_request_create_v1",
+        "platform": "windows",
+        "installation_id": "win-00112233-4455-6677-8899-aabbccddeeff",
+        "hardware_fingerprint": "sha256:windows-fingerprint-v1",
+        "request_capability": "a" * 43,
+        "installer_version": "1.0.0",
+        "installer_release_id": "1.0.0",
+        "requested_at": NOW.isoformat(),
+        "hostname": "office-pc-01",
+        "macs": [],
+    }
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="https://endpoint.sosnadmin.local"
+    ) as client:
+        response = await client.post("/api/v1/enrollment/requests", json=body)
+
+    assert response.status_code == 201
+    assert response.json()["status"] == "review_required"
+    assert response.json()["reason"] == "DUPLICATE_IDENTITY"
 
 
 @pytest.mark.asyncio

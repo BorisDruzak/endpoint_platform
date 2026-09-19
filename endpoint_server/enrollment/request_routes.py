@@ -20,10 +20,11 @@ from endpoint_server.db.models import (
     EnrollmentCampaign,
     EnrollmentRequest,
     EnrollmentRequestClaimEnvelope,
+    EnrollmentClaim,
 )
 from endpoint_server.network import observed_client_address
 
-from .campaigns import EnrollmentDenied, issue_install_claim
+from .campaigns import EnrollmentDenied, hardware_fingerprint_digest, issue_install_claim
 from .credentials import recover_retry_token, seal_retry_envelope
 from .requests import (
     build_enrollment_request,
@@ -92,11 +93,24 @@ async def create_enrollment_request(
     async with request.app.state.session_provider() as session:
         try:
             result = await session.execute(select(EnrollmentCampaign).with_for_update())
+            fingerprint_digest = hardware_fingerprint_digest(
+                body.hardware_fingerprint,
+                request.app.state.settings.device_token_pepper,
+            )
+            prior_claims = await session.execute(
+                select(EnrollmentClaim)
+                .where(
+                    EnrollmentClaim.fingerprint_digest == fingerprint_digest,
+                    EnrollmentClaim.device_id.is_not(None),
+                )
+                .with_for_update()
+            )
             selection = evaluate_campaign_selection(
                 result.scalars().all(),
                 source_address=source_address,
                 installer_release_id=body.installer_release_id,
                 now=now,
+                blocking_identity_conflict=bool(prior_claims.scalars().all()),
             )
             record = build_enrollment_request(
                 installation_id=body.installation_id,

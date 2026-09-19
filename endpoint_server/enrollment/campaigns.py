@@ -118,6 +118,15 @@ def _bound_digest(value: str, pepper: bytes, context: bytes) -> str:
     return _digest(value, pepper, context)
 
 
+def hardware_fingerprint_digest(hardware_fingerprint: str, pepper: bytes) -> str:
+    """Return the canonical persisted fingerprint binding used by install claims."""
+    return _bound_digest(
+        normalize_hardware_fingerprint(hardware_fingerprint),
+        pepper,
+        _FINGERPRINT_CONTEXT,
+    )
+
+
 def _digest_matches(actual: str, expected: str) -> bool:
     try:
         return hmac.compare_digest(actual, expected)
@@ -265,11 +274,7 @@ def issue_install_claim(
             pepper,
             _INSTALL_SESSION_CONTEXT,
         ),
-        fingerprint_digest=_bound_digest(
-            canonical_fingerprint,
-            pepper,
-            _FINGERPRINT_CONTEXT,
-        ),
+        fingerprint_digest=hardware_fingerprint_digest(canonical_fingerprint, pepper),
         expires_at=expiry,
         device_id=None,
         claimed_at=None,
