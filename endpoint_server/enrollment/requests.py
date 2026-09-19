@@ -185,6 +185,20 @@ def deny_enrollment_request(
     request.updated_at = now.astimezone(UTC)
 
 
+def mark_request_claim_issued(
+    request: EnrollmentRequest,
+    *,
+    campaign: EnrollmentCampaign,
+    now: datetime,
+) -> None:
+    """Record claim issuance only for the request's still-valid frozen campaign."""
+    transition_request_status(request.status, "claim_issued")
+    if not _campaign_still_allows_request(request, campaign, now=now):
+        raise RequestTransitionError("selected campaign is no longer eligible")
+    request.status = "claim_issued"
+    request.updated_at = now.astimezone(UTC)
+
+
 @dataclass(frozen=True, slots=True)
 class CampaignSelection:
     """The only permitted campaign-selection result for a request transaction."""
