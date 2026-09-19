@@ -21,6 +21,8 @@ def test_setup_builder_binds_the_exact_msi_and_public_ca_without_secrets() -> No
     assert "EndpointAgentSetup.exe" in source
     assert "setup_sha256" in source
     assert "msi_sha256" in source
+    assert "$msiParameters = @{" in source
+    assert "build-msi.ps1') @msiParameters" in source
     assert "claim" not in source.lower()
     assert "credential" not in source.lower()
 

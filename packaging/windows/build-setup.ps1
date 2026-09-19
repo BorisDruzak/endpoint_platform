@@ -47,20 +47,22 @@ if (-not $EndpointOrigin.StartsWith('https://', [StringComparison]::OrdinalIgnor
     throw "Endpoint origin must use HTTPS."
 }
 
-$msiArguments = @(
-    '-Configuration', $Configuration, '-Platform', $Platform, '-Version', $Version
-)
+$msiParameters = @{
+    Configuration = $Configuration
+    Platform = $Platform
+    Version = $Version
+}
 foreach ($optional in @(
     @{ name = 'InitialRuntimeManifest'; value = $InitialRuntimeManifest },
     @{ name = 'InitialRuntimeStageRoot'; value = $InitialRuntimeStageRoot },
     @{ name = 'InitialRuntimeStageEvidence'; value = $InitialRuntimeStageEvidence },
     @{ name = 'WixBuildRoot'; value = $WixBuildRoot }
 )) {
-    if ($optional.value) { $msiArguments += @("-$($optional.name)", $optional.value) }
+    if ($optional.value) { $msiParameters[$optional.name] = $optional.value }
 }
-if ($ApproveInitialRuntimeTransition) { $msiArguments += '-ApproveInitialRuntimeTransition' }
-if ($ApproveInitialRuntimeSourceChange) { $msiArguments += '-ApproveInitialRuntimeSourceChange' }
-& (Join-Path $PSScriptRoot 'build-msi.ps1') @msiArguments
+if ($ApproveInitialRuntimeTransition) { $msiParameters.ApproveInitialRuntimeTransition = $true }
+if ($ApproveInitialRuntimeSourceChange) { $msiParameters.ApproveInitialRuntimeSourceChange = $true }
+& (Join-Path $PSScriptRoot 'build-msi.ps1') @msiParameters
 if ($LASTEXITCODE -ne 0) { throw "MSI build failed." }
 
 $effectiveWixBuildRoot = if ($WixBuildRoot) {
