@@ -3,19 +3,23 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 import hashlib
 import hmac
 from ipaddress import IPv4Address, IPv6Address
 from typing import Literal, Sequence
+from uuid import uuid4
 
-from endpoint_server.db.models import EnrollmentCampaign
+from endpoint_server.db.models import EnrollmentCampaign, EnrollmentRequest
 
 from .campaigns import campaign_request_matches, parse_windows_enrollment_policy
 
 
 RequestSelectionStatus = Literal["auto_approved", "waiting_approval", "review_required", "denied"]
 _REQUEST_CAPABILITY_CONTEXT = b"endpoint-enrollment-request-capability-v1\0"
+_INSTALLATION_ID_CONTEXT = b"endpoint-enrollment-request-installation-v1\0"
+_FINGERPRINT_CONTEXT = b"endpoint-enrollment-request-fingerprint-v1\0"
+_REQUEST_LIFETIME = timedelta(hours=24)
 
 
 class RequestTransitionError(ValueError):
@@ -60,6 +64,66 @@ def request_capability_matches(capability: str, expected_digest: str, pepper: by
     except (UnicodeEncodeError, ValueError):
         return False
     return hmac.compare_digest(actual_digest, expected_digest)
+
+
+def _binding_digest(value: str, pepper: bytes, context: bytes) -> str:
+    if not value or not pepper:
+        raise ValueError("request binding and pepper must not be empty")
+    return hmac.new(pepper, context + value.encode("utf-8"), hashlib.sha256).hexdigest()
+
+
+def build_enrollment_request(
+    *,
+    installation_id: str,
+    hardware_fingerprint: str,
+    request_capability: str,
+    source_address: IPv4Address | IPv6Address,
+    installer_version: str,
+    installer_release_id: str,
+    hostname: str,
+    selection: CampaignSelection,
+    pepper: bytes,
+    now: datetime,
+    manufacturer: str | None = None,
+    model: str | None = None,
+    serial: str | None = None,
+    product_uuid: str | None = None,
+    macs: Sequence[str] = (),
+) -> EnrollmentRequest:
+    """Create an uncommitted request record without retaining any raw binding."""
+    created_at = now.astimezone(UTC)
+    return EnrollmentRequest(
+        id=uuid4(),
+        installation_id_digest=_binding_digest(
+            installation_id, pepper, _INSTALLATION_ID_CONTEXT
+        ),
+        fingerprint_digest=_binding_digest(
+            hardware_fingerprint, pepper, _FINGERPRINT_CONTEXT
+        ),
+        request_capability_digest=request_capability_digest(request_capability, pepper),
+        platform="windows",
+        hostname=hostname,
+        manufacturer=manufacturer,
+        model=model,
+        serial=serial,
+        product_uuid=product_uuid,
+        macs=list(macs),
+        source_address=str(source_address),
+        installer_version=installer_version,
+        installer_release_id=installer_release_id,
+        selected_campaign_id=(selection.campaign.id if selection.campaign else None),
+        status=selection.status,
+        decision_reason=selection.reason,
+        decided_at=(
+            created_at
+            if selection.status in {"auto_approved", "denied", "review_required"}
+            else None
+        ),
+        decided_by=None,
+        device_id=None,
+        updated_at=created_at,
+        expires_at=created_at + _REQUEST_LIFETIME,
+    )
 
 
 @dataclass(frozen=True, slots=True)

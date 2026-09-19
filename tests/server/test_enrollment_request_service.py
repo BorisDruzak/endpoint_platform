@@ -6,6 +6,7 @@ from endpoint_server.enrollment.requests import (
     RequestTransitionError,
     request_capability_matches,
     request_capability_digest,
+    build_enrollment_request,
     evaluate_campaign_selection,
     transition_request_status,
 )
@@ -100,3 +101,31 @@ def test_request_capability_is_hmac_bound_and_constant_time_comparable() -> None
     assert digest != capability
     assert request_capability_matches(capability, digest, PEPPER)
     assert not request_capability_matches("b" * 43, digest, PEPPER)
+
+
+def test_request_builder_freezes_selected_campaign_and_only_persists_digests() -> None:
+    campaign = _campaign()
+    selection = evaluate_campaign_selection(
+        [campaign],
+        source_address=ip_address("192.168.100.20"),
+        installer_release_id="1.0.0",
+        now=NOW,
+    )
+    request = build_enrollment_request(
+        installation_id="win-00112233-4455-6677-8899-aabbccddeeff",
+        hardware_fingerprint="sha256:windows-fingerprint-v1",
+        request_capability="a" * 43,
+        source_address=ip_address("192.168.100.20"),
+        installer_version="1.0.0",
+        installer_release_id="1.0.0",
+        hostname="office-pc-01",
+        selection=selection,
+        pepper=PEPPER,
+        now=NOW,
+    )
+
+    assert request.status == "auto_approved"
+    assert request.selected_campaign_id == campaign.id
+    assert request.installation_id_digest != "win-00112233-4455-6677-8899-aabbccddeeff"
+    assert request.fingerprint_digest != "sha256:windows-fingerprint-v1"
+    assert request.request_capability_digest != "a" * 43
