@@ -6,7 +6,13 @@ from datetime import UTC, datetime
 from pathlib import Path
 from uuid import UUID
 
-from pc_agent.windows_setup import SetupConfig, UniversalWindowsSetup
+import pytest
+
+from pc_agent.windows_setup import (
+    SetupConfig,
+    SetupProvisionError,
+    UniversalWindowsSetup,
+)
 
 
 class _Transport:
@@ -76,3 +82,29 @@ def test_auto_setup_never_selects_campaign_and_provisions_claim_from_memory() ->
         (UUID("6bbc8a59-8429-42f5-9687-36153cd89844"), "a" * 43)
     ]
     assert "ic_claim-marker" not in repr(outcome)
+
+
+def test_setup_preserves_safe_provisioner_failure_detail() -> None:
+    setup = UniversalWindowsSetup(
+        SetupConfig(
+            endpoint_origin="https://endpoint.sosnadmin.local",
+            ca_file=Path("C:/ProgramData/Endpoint Platform/Agent/endpoint-ca.crt"),
+            installer_version="1.0.0",
+            installer_release_id="1.0.0",
+        ),
+        transport=_Transport(),
+        provision_claim=lambda _: (_ for _ in ()).throw(
+            SetupProvisionError(
+                "Windows provisioning failed", detail="PROVISIONER_WINDOWSACLERROR"
+            )
+        ),
+        fingerprint_probe=lambda: "sha256:windows-fingerprint-v1",
+        inventory_probe=lambda: {"hostname": "office-pc-01", "macs": []},
+        capability_factory=lambda: "a" * 43,
+        installation_id_factory=lambda: "win-test",
+    )
+
+    with pytest.raises(SetupProvisionError) as raised:
+        setup.run()
+
+    assert raised.value.detail == "PROVISIONER_WINDOWSACLERROR"

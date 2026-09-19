@@ -4,11 +4,17 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
 from pc_agent.platform.windows import setup_entry
-from pc_agent.windows_setup import SetupClaimError, SetupOutcome, SetupProvisionError
+from pc_agent.windows_setup import (
+    SetupClaimError,
+    SetupConfig,
+    SetupOutcome,
+    SetupProvisionError,
+)
 
 
 def _write_public_payload(root: Path) -> None:
@@ -186,6 +192,89 @@ def test_setup_entry_distinguishes_claim_and_provisioning_failures(
     monkeypatch.setattr(setup_entry, "UniversalWindowsSetup", _Setup)
 
     assert setup_entry.main(["--quiet"]) == expected
+
+
+def test_setup_entry_logs_safe_provisioner_failure_detail(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _write_public_payload(tmp_path)
+    data_root = tmp_path / "agent-data"
+    monkeypatch.setattr(setup_entry, "_resource_root", lambda: tmp_path)
+    monkeypatch.setattr(setup_entry, "_data_root", lambda: data_root)
+    monkeypatch.setattr(setup_entry, "_install_embedded_msi", lambda _: None)
+    monkeypatch.setattr(
+        setup_entry,
+        "_installed_provisioner",
+        lambda: tmp_path / "endpoint-agent-provision.exe",
+    )
+    monkeypatch.setattr(setup_entry, "HttpsSetupTransport", lambda *_: object())
+
+    class _Setup:
+        def __init__(self, _config: object, **_: object) -> None:
+            self.installation_id_factory = lambda: "win-test"
+
+        def run(self) -> SetupOutcome:
+            raise SetupProvisionError(
+                "Windows provisioning failed", detail="PROVISIONER_WINDOWSACLERROR"
+            )
+
+    monkeypatch.setattr(setup_entry, "UniversalWindowsSetup", _Setup)
+
+    assert setup_entry.main(["--quiet"]) == setup_entry.EXIT_PROVISIONING_FAILED
+    assert "detail=PROVISIONER_WINDOWSACLERROR" in (
+        data_root / "install.log"
+    ).read_text(encoding="utf-8")
+
+
+def test_provisioner_failure_maps_only_its_safe_class_name(
+    tmp_path: Path,
+) -> None:
+    with pytest.raises(SetupProvisionError) as raised:
+        setup_entry._run_provisioner(
+            tmp_path / "endpoint-agent-provision.exe",
+            SetupConfig(
+                endpoint_origin="https://endpoint.sosnadmin.local",
+                ca_file=tmp_path / "endpoint-ca.crt",
+                installer_version="1.0.0",
+                installer_release_id="1.0.0",
+            ),
+            tmp_path / "agent-data",
+            "win-test",
+            "ic_safe-claim",
+            run=lambda *_args, **_kwargs: SimpleNamespace(
+                returncode=1,
+                stdout="",
+                stderr="Windows provisioning failed: WindowsAclError\nC:/secret/path\n",
+            ),
+        )
+
+    assert raised.value.detail == "PROVISIONER_WINDOWSACLERROR"
+    assert "secret" not in raised.value.detail
+
+
+def test_provisioner_start_failure_is_logged_without_os_error_text(
+    tmp_path: Path,
+) -> None:
+    def fail_to_start(*_args: object, **_kwargs: object) -> object:
+        raise OSError("C:/secret/path")
+
+    with pytest.raises(SetupProvisionError) as raised:
+        setup_entry._run_provisioner(
+            tmp_path / "endpoint-agent-provision.exe",
+            SetupConfig(
+                endpoint_origin="https://endpoint.sosnadmin.local",
+                ca_file=tmp_path / "endpoint-ca.crt",
+                installer_version="1.0.0",
+                installer_release_id="1.0.0",
+            ),
+            tmp_path / "agent-data",
+            "win-test",
+            "ic_safe-claim",
+            run=fail_to_start,
+        )
+
+    assert raised.value.detail == "PROVISIONER_START_FAILED"
+    assert "secret" not in raised.value.detail
 
 
 def test_install_log_never_persists_secret_detail(tmp_path: Path) -> None:

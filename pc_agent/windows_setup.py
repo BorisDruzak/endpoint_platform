@@ -52,6 +52,10 @@ class SetupClaimError(RuntimeError):
 class SetupProvisionError(RuntimeError):
     """The canonical provisioner or post-provision completion flow failed."""
 
+    def __init__(self, message: str, *, detail: str | None = None) -> None:
+        super().__init__(message)
+        self.detail = detail
+
 
 class HttpsSetupTransport:
     """Strict public HTTPS client for the unauthenticated setup request flow."""
@@ -232,6 +236,8 @@ class UniversalWindowsSetup:
                 if self.clock().astimezone(UTC) >= deadline:
                     return SetupOutcome("timed_out", request_id=request_id, reason="WAITING_WSS")
                 self.sleep(_POLL_INTERVAL_SECONDS)
+        except SetupProvisionError:
+            raise
         except (SetupTransportError, TypeError, ValueError, RuntimeError) as error:
             raise SetupProvisionError("Windows Setup provisioning failed") from error
 

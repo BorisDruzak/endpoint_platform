@@ -42,6 +42,9 @@ EXIT_WSS_TIMEOUT = 51
 EXIT_CONTEXT_TIMEOUT = 52
 EXIT_REPAIR_REQUIRED = 60
 _SAFE_LOG_DETAIL = re.compile(r"^[A-Z][A-Z0-9_]{0,63}$")
+_PROVISIONER_ERROR = re.compile(
+    r"^Windows provisioning failed: ([A-Za-z][A-Za-z0-9_]{0,63})$"
+)
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -208,6 +211,46 @@ def _provisioner_command(
     ]
 
 
+def _provisioner_failure_detail(stdout: str, stderr: str) -> str:
+    """Return a bounded child failure class, never its untrusted output."""
+    for line in (stderr + "\n" + stdout).splitlines():
+        match = _PROVISIONER_ERROR.fullmatch(line.strip())
+        if match:
+            return f"PROVISIONER_{match.group(1).upper()}"
+    return "PROVISIONER_EXIT_NONZERO"
+
+
+def _run_provisioner(
+    executable: Path,
+    config: SetupConfig,
+    data_dir: Path,
+    installation_id: str,
+    claim: str,
+    *,
+    run: Callable[..., subprocess.CompletedProcess[str]] = subprocess.run,
+) -> None:
+    try:
+        completed = run(
+            _provisioner_command(executable, config, data_dir, installation_id),
+            input=claim + "\n",
+            text=True,
+            capture_output=True,
+            check=False,
+            shell=False,
+        )
+    except OSError as error:
+        raise SetupProvisionError(
+            "Windows provisioning failed", detail="PROVISIONER_START_FAILED"
+        ) from error
+    if completed.returncode != 0:
+        raise SetupProvisionError(
+            "Windows provisioning failed",
+            detail=_provisioner_failure_detail(
+                str(completed.stdout or ""), str(completed.stderr or "")
+            ),
+        )
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     data_root = _data_root()
@@ -251,16 +294,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     def run_provisioner(claim: str) -> None:
         if installation_id is None:
             raise RuntimeError("installation identity unavailable")
-        completed = subprocess.run(
-            _provisioner_command(provisioner, config, _data_root(), installation_id),
-            input=claim + "\n",
-            text=True,
-            capture_output=True,
-            check=False,
-            shell=False,
-        )
-        if completed.returncode != 0:
-            raise RuntimeError("Windows provisioning failed")
+        _run_provisioner(provisioner, config, _data_root(), installation_id, claim)
 
     setup = UniversalWindowsSetup(
         config,
@@ -282,8 +316,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         outcome = setup.run()
     except SetupClaimError:
         return _finish(data_root, status="CLAIM_FAILED", code=EXIT_CLAIM_FAILED)
-    except SetupProvisionError:
-        return _finish(data_root, status="PROVISIONING_FAILED", code=EXIT_PROVISIONING_FAILED)
+    except SetupProvisionError as error:
+        return _finish(
+            data_root,
+            status="PROVISIONING_FAILED",
+            code=EXIT_PROVISIONING_FAILED,
+            detail=error.detail,
+        )
     except Exception as error:
         print(f"Windows Setup failed: {type(error).__name__}", file=sys.stderr)
         return _finish(data_root, status="PROVISIONING_FAILED", code=EXIT_PROVISIONING_FAILED)
