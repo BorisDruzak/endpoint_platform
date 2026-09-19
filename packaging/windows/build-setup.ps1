@@ -63,8 +63,12 @@ function Set-SetupAuthenticodeSignature {
     }
     $parameters = @{ FilePath = $Path; Certificate = $certificate }
     if ($Timestamp) { $parameters.TimestampServer = $Timestamp }
-    $result = Set-AuthenticodeSignature @parameters
-    if ($result.Status -ne 'Valid') { throw "Authenticode signing failed." }
+    $null = Set-AuthenticodeSignature @parameters
+    $verified = Get-AuthenticodeSignature -FilePath $Path
+    if ($verified.Status -ne 'Valid') { throw "Authenticode signing failed." }
+    if ($Timestamp -and -not $verified.TimeStamperCertificate) {
+        throw "Authenticode timestamp failed."
+    }
 }
 
 function Resolve-VerifiedExistingMsi {
