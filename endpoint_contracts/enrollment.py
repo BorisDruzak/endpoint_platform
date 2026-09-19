@@ -96,6 +96,7 @@ class PreEnrollmentRequestStatusV1(ContractModelV1):
     request_id: UUID
     status: Literal[
         "auto_approved",
+        "approved",
         "waiting_approval",
         "review_required",
         "denied",

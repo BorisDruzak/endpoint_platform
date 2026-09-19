@@ -30,8 +30,9 @@ _ALLOWED_TRANSITIONS: dict[str, frozenset[str]] = {
     "created": frozenset({"validating", "denied", "failed", "cancelled", "expired"}),
     "validating": frozenset({"auto_approved", "waiting_approval", "review_required", "denied", "failed", "expired"}),
     "auto_approved": frozenset({"claim_issued", "denied", "expired", "failed"}),
-    "waiting_approval": frozenset({"claim_issued", "denied", "expired", "cancelled"}),
-    "review_required": frozenset({"claim_issued", "denied", "expired", "cancelled"}),
+    "waiting_approval": frozenset({"approved", "denied", "expired", "cancelled"}),
+    "review_required": frozenset({"approved", "denied", "expired", "cancelled"}),
+    "approved": frozenset({"claim_issued", "denied", "expired", "failed"}),
     "claim_issued": frozenset({"enrolling", "denied", "expired", "failed"}),
     "enrolling": frozenset({"device_registered", "failed", "expired"}),
     "device_registered": frozenset({"waiting_wss", "failed", "expired"}),
@@ -124,6 +125,64 @@ def build_enrollment_request(
         updated_at=created_at,
         expires_at=created_at + _REQUEST_LIFETIME,
     )
+
+
+def _campaign_still_allows_request(
+    request: EnrollmentRequest,
+    campaign: EnrollmentCampaign,
+    *,
+    now: datetime,
+) -> bool:
+    policy = parse_windows_enrollment_policy(campaign.policy)
+    try:
+        source_address = IPv4Address(request.source_address)
+    except ValueError:
+        try:
+            source_address = IPv6Address(request.source_address)
+        except ValueError:
+            return False
+    return (
+        request.selected_campaign_id == campaign.id
+        and policy is not None
+        and request.installer_release_id in policy.allowed_installer_releases
+        and campaign.use_count < campaign.max_uses
+        and campaign_request_matches(
+            campaign,
+            now=now.astimezone(UTC),
+            source_address=source_address,
+            platform="windows",
+        )
+    )
+
+
+def approve_enrollment_request(
+    request: EnrollmentRequest,
+    *,
+    campaign: EnrollmentCampaign,
+    now: datetime,
+) -> None:
+    """Approve only the frozen campaign after rechecking its current validity."""
+    transition_request_status(request.status, "approved")
+    if not _campaign_still_allows_request(request, campaign, now=now):
+        raise RequestTransitionError("selected campaign is no longer eligible")
+    request.status = "approved"
+    request.decision_reason = "MANUALLY_APPROVED"
+    request.decided_at = now.astimezone(UTC)
+    request.updated_at = now.astimezone(UTC)
+
+
+def deny_enrollment_request(
+    request: EnrollmentRequest,
+    *,
+    reason: str,
+    now: datetime,
+) -> None:
+    """Terminally deny a pending/review request without modifying identity state."""
+    transition_request_status(request.status, "denied")
+    request.status = "denied"
+    request.decision_reason = reason
+    request.decided_at = now.astimezone(UTC)
+    request.updated_at = now.astimezone(UTC)
 
 
 @dataclass(frozen=True, slots=True)

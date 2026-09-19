@@ -3,12 +3,14 @@ from ipaddress import ip_address
 
 from endpoint_server.enrollment.campaigns import issue_campaign
 from endpoint_server.enrollment.requests import (
+    approve_enrollment_request,
     RequestTransitionError,
     request_capability_matches,
     request_capability_digest,
     build_enrollment_request,
     evaluate_campaign_selection,
     transition_request_status,
+    deny_enrollment_request,
 )
 
 
@@ -80,7 +82,8 @@ def test_selection_requires_review_for_overlap_without_implicit_tiebreak() -> No
 
 
 def test_request_transition_allows_only_approval_and_claim_lifecycle() -> None:
-    assert transition_request_status("waiting_approval", "claim_issued")
+    assert transition_request_status("waiting_approval", "approved")
+    assert transition_request_status("approved", "claim_issued")
     assert transition_request_status("review_required", "denied")
     assert transition_request_status("claim_issued", "enrolling")
     assert transition_request_status("device_registered", "waiting_wss")
@@ -129,3 +132,61 @@ def test_request_builder_freezes_selected_campaign_and_only_persists_digests() -
     assert request.installation_id_digest != "win-00112233-4455-6677-8899-aabbccddeeff"
     assert request.fingerprint_digest != "sha256:windows-fingerprint-v1"
     assert request.request_capability_digest != "a" * 43
+
+
+def test_manual_approval_freezes_the_original_selected_campaign() -> None:
+    campaign = _campaign(mode="manual")
+    request = build_enrollment_request(
+        installation_id="win-00112233-4455-6677-8899-aabbccddeeff",
+        hardware_fingerprint="sha256:windows-fingerprint-v1",
+        request_capability="a" * 43,
+        source_address=ip_address("192.168.100.20"),
+        installer_version="1.0.0",
+        installer_release_id="1.0.0",
+        hostname="office-pc-01",
+        selection=evaluate_campaign_selection(
+            [campaign],
+            source_address=ip_address("192.168.100.20"),
+            installer_release_id="1.0.0",
+            now=NOW,
+        ),
+        pepper=PEPPER,
+        now=NOW,
+    )
+
+    approve_enrollment_request(request, campaign=campaign, now=NOW)
+
+    assert request.status == "approved"
+    assert request.selected_campaign_id == campaign.id
+    assert request.decision_reason == "MANUALLY_APPROVED"
+
+
+def test_deny_is_terminal_and_cannot_issue_a_claim() -> None:
+    campaign = _campaign(mode="manual")
+    request = build_enrollment_request(
+        installation_id="win-00112233-4455-6677-8899-aabbccddeeff",
+        hardware_fingerprint="sha256:windows-fingerprint-v1",
+        request_capability="a" * 43,
+        source_address=ip_address("192.168.100.20"),
+        installer_version="1.0.0",
+        installer_release_id="1.0.0",
+        hostname="office-pc-01",
+        selection=evaluate_campaign_selection(
+            [campaign],
+            source_address=ip_address("192.168.100.20"),
+            installer_release_id="1.0.0",
+            now=NOW,
+        ),
+        pepper=PEPPER,
+        now=NOW,
+    )
+
+    deny_enrollment_request(request, reason="ADMIN_DENIED", now=NOW)
+
+    assert request.status == "denied"
+    try:
+        approve_enrollment_request(request, campaign=campaign, now=NOW)
+    except RequestTransitionError:
+        pass
+    else:
+        raise AssertionError("denied request must stay terminal")
