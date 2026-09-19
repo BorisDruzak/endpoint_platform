@@ -20,7 +20,7 @@ the authority for both the decision mode and permitted Setup release:
 {
   "policy_id": "windows-office-v1",
   "enrollment_mode": "auto",
-  "allowed_installer_releases": ["3.2.44"]
+  "allowed_installer_releases": ["3.2.45"]
 }
 ```
 
@@ -41,18 +41,18 @@ On the test machine, copy the EXE and its adjacent release JSON. Verify the
 SHA-256 against `setup_sha256` before execution. The release JSON is the
 source of truth for SHA-256, source commit, embedded Agent version, and
 Authenticode status. Without an approved local code-signing certificate,
-`authenticode_status` is `unsigned` and the artifact is test-only. The 3.2.44
+`authenticode_status` is `unsigned` and the artifact is test-only. The 3.2.45
 artifact uses:
 
 ```text
-EndpointAgentSetup-3.2.44-x64.exe
+EndpointAgentSetup-3.2.45-x64.exe
 ```
 
 Run interactively or with the identical non-interactive flow:
 
 ```powershell
-.\EndpointAgentSetup-3.2.44-x64.exe
-.\EndpointAgentSetup-3.2.44-x64.exe --quiet
+.\EndpointAgentSetup-3.2.45-x64.exe
+.\EndpointAgentSetup-3.2.45-x64.exe --quiet
 ```
 
 `--quiet` changes presentation only. It does not bypass campaign selection,
