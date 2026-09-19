@@ -15,6 +15,8 @@ param(
     [switch]$ReusePythonBuild,
     [string]$CodeSigningCertificateThumbprint,
     [string]$TimestampServer,
+    [string]$ExistingMsi,
+    [string]$ExistingMsiReleaseManifest,
     [string]$WixBuildRoot
 )
 
@@ -65,6 +67,42 @@ function Set-SetupAuthenticodeSignature {
     if ($result.Status -ne 'Valid') { throw "Authenticode signing failed." }
 }
 
+function Resolve-VerifiedExistingMsi {
+    param(
+        [Parameter(Mandatory)][string]$MsiPath,
+        [Parameter(Mandatory)][string]$ReleaseManifestPath,
+        [Parameter(Mandatory)][string]$ExpectedVersion
+    )
+    if (-not (Test-Path -LiteralPath $MsiPath -PathType Leaf)) {
+        throw "Existing MSI is missing."
+    }
+    if (-not (Test-Path -LiteralPath $ReleaseManifestPath -PathType Leaf)) {
+        throw "Existing MSI release manifest is missing."
+    }
+    try {
+        $manifest = Get-Content -LiteralPath $ReleaseManifestPath -Raw | ConvertFrom-Json
+    }
+    catch {
+        throw "Existing MSI release manifest is invalid."
+    }
+    if (
+        $manifest.schema_version -ne 'endpoint_windows_setup_release_v1' -or
+        [string]$manifest.agent_version -ne $ExpectedVersion -or
+        [string]$manifest.source_commit -notmatch '^[0-9a-f]{40}$' -or
+        [string]$manifest.msi_sha256 -notmatch '^[0-9a-f]{64}$'
+    ) {
+        throw "Existing MSI release manifest is invalid."
+    }
+    $actualSha256 = (Get-FileHash -LiteralPath $MsiPath -Algorithm SHA256).Hash.ToLowerInvariant()
+    if ($actualSha256 -ne [string]$manifest.msi_sha256) {
+        throw "Existing MSI SHA-256 does not match its release manifest."
+    }
+    return [pscustomobject]@{
+        Path = [IO.Path]::GetFullPath($MsiPath)
+        SourceCommit = [string]$manifest.source_commit
+    }
+}
+
 $repositoryRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..'))
 $packagingRoot = [IO.Path]::GetFullPath($PSScriptRoot)
 $python = (Get-Command python -ErrorAction Stop).Source
@@ -102,8 +140,6 @@ foreach ($optional in @(
 if ($ApproveInitialRuntimeTransition) { $msiParameters.ApproveInitialRuntimeTransition = $true }
 if ($ApproveInitialRuntimeSourceChange) { $msiParameters.ApproveInitialRuntimeSourceChange = $true }
 if ($ReusePythonBuild) { $msiParameters.ReusePythonBuild = $true }
-& (Join-Path $PSScriptRoot 'build-msi.ps1') @msiParameters
-if ($LASTEXITCODE -ne 0) { throw "MSI build failed." }
 
 $effectiveWixBuildRoot = if ($WixBuildRoot) {
     [IO.Path]::GetFullPath($WixBuildRoot)
@@ -111,6 +147,25 @@ $effectiveWixBuildRoot = if ($WixBuildRoot) {
     Join-Path ([IO.Path]::GetPathRoot($repositoryRoot)) "endpoint-platform-wix-build\$Configuration-$Platform"
 }
 $msiPath = Join-Path $effectiveWixBuildRoot "output\EndpointAgent-$Version-x64.msi"
+$hasExistingMsi = -not [string]::IsNullOrWhiteSpace($ExistingMsi)
+$hasExistingMsiManifest = -not [string]::IsNullOrWhiteSpace($ExistingMsiReleaseManifest)
+if ($hasExistingMsi -ne $hasExistingMsiManifest) {
+    throw "Existing MSI and release manifest must be supplied together."
+}
+$msiSourceCommit = $sourceCommit
+if ($hasExistingMsi) {
+    $existingMsi = Resolve-VerifiedExistingMsi `
+        -MsiPath $ExistingMsi `
+        -ReleaseManifestPath $ExistingMsiReleaseManifest `
+        -ExpectedVersion $Version
+    New-Item -ItemType Directory -Path (Split-Path -Parent $msiPath) -Force | Out-Null
+    Copy-Item -LiteralPath $existingMsi.Path -Destination $msiPath -Force
+    $msiSourceCommit = $existingMsi.SourceCommit
+}
+else {
+    & (Join-Path $PSScriptRoot 'build-msi.ps1') @msiParameters
+    if ($LASTEXITCODE -ne 0) { throw "MSI build failed." }
+}
 if (-not (Test-Path -LiteralPath $msiPath -PathType Leaf)) { throw "MSI output is missing." }
 Set-AuthenticodeSignature -Path $msiPath -Thumbprint $CodeSigningCertificateThumbprint -Timestamp $TimestampServer
 
@@ -183,6 +238,7 @@ Write-Utf8NoBom (Join-Path $releaseRoot "EndpointAgentSetup-$Version-x64.release
     version = $Version
     agent_version = $Version
     source_commit = $sourceCommit
+    msi_source_commit = $msiSourceCommit
     filename = [IO.Path]::GetFileName($releaseSetup)
     setup_sha256 = $setupSha256
     msi_sha256 = $msiSha256
