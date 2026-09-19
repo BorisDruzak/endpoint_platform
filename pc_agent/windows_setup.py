@@ -3,13 +3,17 @@
 from __future__ import annotations
 
 import secrets
+import json
+import ssl
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Literal, Protocol
+from urllib.error import HTTPError, URLError
 from urllib.parse import urlsplit
+from urllib.request import Request, urlopen
 from uuid import UUID, uuid4
 
 from endpoint_contracts.identity import normalize_hardware_fingerprint
@@ -30,6 +34,52 @@ class SetupTransport(Protocol):
     def request_status(self, request_id: UUID, capability: str) -> dict[str, object]: ...
 
     def request_claim(self, request_id: UUID, proof: dict[str, str]) -> dict[str, object]: ...
+
+
+class SetupTransportError(RuntimeError):
+    """Bounded transport failure that deliberately omits server response bodies."""
+
+
+class HttpsSetupTransport:
+    """Strict public HTTPS client for the unauthenticated setup request flow."""
+
+    def __init__(self, endpoint_origin: str, ca_file: Path) -> None:
+        self._endpoint_origin = endpoint_origin.rstrip("/")
+        self._ssl_context = ssl.create_default_context(cafile=str(ca_file))
+
+    def create_request(self, body: dict[str, object]) -> dict[str, object]:
+        return self._post("/api/v1/enrollment/requests", body)
+
+    def request_status(self, request_id: UUID, capability: str) -> dict[str, object]:
+        return self._post(
+            f"/api/v1/enrollment/requests/{request_id}/status",
+            {"request_capability": capability},
+        )
+
+    def request_claim(self, request_id: UUID, proof: dict[str, str]) -> dict[str, object]:
+        return self._post(f"/api/v1/enrollment/requests/{request_id}/claim", proof)
+
+    def _post(self, path: str, payload: dict[str, object]) -> dict[str, object]:
+        request = Request(
+            f"{self._endpoint_origin}{path}",
+            data=json.dumps(payload, separators=(",", ":")).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        try:
+            with urlopen(request, context=self._ssl_context, timeout=15) as response:
+                raw = response.read(65_537)
+        except (HTTPError, URLError, TimeoutError, OSError, ssl.SSLError) as error:
+            raise SetupTransportError("Windows Setup enrollment transport failed") from error
+        if len(raw) > 65_536:
+            raise SetupTransportError("Windows Setup enrollment response is too large")
+        try:
+            decoded = json.loads(raw)
+        except (TypeError, ValueError) as error:
+            raise SetupTransportError("Windows Setup enrollment response is invalid") from error
+        if not isinstance(decoded, dict):
+            raise SetupTransportError("Windows Setup enrollment response is invalid")
+        return decoded
 
 
 @dataclass(frozen=True, slots=True)
@@ -169,4 +219,11 @@ def _bounded_inventory(observed: dict[str, object]) -> dict[str, object]:
     return {"hostname": hostname, "macs": [value.lower() for value in macs]}
 
 
-__all__ = ["SetupConfig", "SetupOutcome", "SetupTransport", "UniversalWindowsSetup"]
+__all__ = [
+    "HttpsSetupTransport",
+    "SetupConfig",
+    "SetupOutcome",
+    "SetupTransport",
+    "SetupTransportError",
+    "UniversalWindowsSetup",
+]

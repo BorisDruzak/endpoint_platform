@@ -345,12 +345,14 @@ $coreSpec = Join-Path $repositoryRoot 'pc_agent\pyinstaller_endpoint_core_window
 $launcherSpec = Join-Path $repositoryRoot 'pc_agent\pyinstaller_launcher_win.spec'
 $serviceHostSpec = Join-Path $repositoryRoot 'pc_agent\pyinstaller_windows_service_launcher.spec'
 $provisionerSpec = Join-Path $repositoryRoot 'pc_agent\pyinstaller_windows_provision.spec'
+$setupSpec = Join-Path $repositoryRoot 'pc_agent\pyinstaller_windows_setup.spec'
 $commonPyInstaller = @('--noconfirm', '--clean', '--distpath', $distRoot, '--workpath', $workRoot)
 if (-not $ReusePythonBuild) {
     Invoke-Checked $python (@('-m', 'PyInstaller') + $commonPyInstaller + @($coreSpec)) $repositoryRoot
     Invoke-Checked $python (@('-m', 'PyInstaller') + $commonPyInstaller + @($launcherSpec)) $repositoryRoot
     Invoke-Checked $python (@('-m', 'PyInstaller') + $commonPyInstaller + @($serviceHostSpec)) $repositoryRoot
     Invoke-Checked $python (@('-m', 'PyInstaller') + $commonPyInstaller + @($provisionerSpec)) $repositoryRoot
+    Invoke-Checked $python (@('-m', 'PyInstaller') + $commonPyInstaller + @($setupSpec)) $repositoryRoot
 }
 
 $builtCore = Join-Path $distRoot 'endpoint_agent_core'
@@ -358,6 +360,7 @@ $builtCoreExe = Join-Path $builtCore 'endpoint_agent_core.exe'
 $builtLauncher = Join-Path $distRoot 'launcher.exe'
 $builtServiceHost = Join-Path $distRoot 'endpoint-agent-service.exe'
 $builtProvisioner = Join-Path $distRoot 'endpoint-agent-provision.exe'
+$builtUniversalSetup = Join-Path $distRoot 'EndpointAgentSetup.exe'
 if (-not (Test-Path -LiteralPath $builtCoreExe -PathType Leaf)) {
     throw "Headless core build missing $builtCoreExe"
 }
@@ -369,6 +372,9 @@ if (-not (Test-Path -LiteralPath $builtServiceHost -PathType Leaf)) {
 }
 if (-not (Test-Path -LiteralPath $builtProvisioner -PathType Leaf)) {
     throw "Provisioning helper build missing $builtProvisioner"
+}
+if (-not (Test-Path -LiteralPath $builtUniversalSetup -PathType Leaf)) {
+    throw "Universal Setup build missing $builtUniversalSetup"
 }
 $runtimePayload = $builtCore
 if ([int]$manifestPreview.schema_version -ge 5) {
@@ -398,6 +404,7 @@ Write-Utf8NoBom (Join-Path $runtimeStage '.endpoint-msi-runtime.json') (@{
 Copy-Item -LiteralPath $builtLauncher -Destination (Join-Path $programFilesStage 'launcher.exe')
 Copy-Item -LiteralPath $builtServiceHost -Destination (Join-Path $programFilesStage 'endpoint-agent-service.exe')
 Copy-Item -LiteralPath $builtProvisioner -Destination (Join-Path $programFilesStage 'endpoint-agent-provision.exe')
+Copy-Item -LiteralPath $builtUniversalSetup -Destination (Join-Path $programFilesStage 'EndpointAgentSetup.exe')
 New-Item -ItemType Directory -Path (Join-Path $programFilesStage 'config'), (Join-Path $programFilesStage 'docs') -Force | Out-Null
 Copy-Item -LiteralPath (Join-Path $packagingRoot 'assets\agent-config.yaml') -Destination (Join-Path $programFilesStage 'config\agent-config.yaml')
 Copy-Item -LiteralPath (Join-Path $packagingRoot 'README.md') -Destination (Join-Path $programFilesStage 'docs\README.md')
@@ -420,7 +427,7 @@ $fileManifest = foreach ($item in $allFiles) {
 $componentManifest = @(
     'cmpLauncher', 'cmpCurrentSelector', 'cmpInitialRuntimeAnchor', 'cmpConfigTemplate', 'cmpPublicReadme',
     'cmpProgramDataRoot', 'cmpInstallRootCleanup', 'cmpInitialRuntimeTransitionState',
-    'cmpServiceEntrypoints', 'cmpProvisioner'
+    'cmpServiceEntrypoints', 'cmpProvisioner', 'cmpUniversalSetup'
 ) + @($generatedItems | ForEach-Object {
     Get-StableId -Prefix 'cmpPayload' -Value (Get-RelativePath $runtimeStage $_.FullName)
 })

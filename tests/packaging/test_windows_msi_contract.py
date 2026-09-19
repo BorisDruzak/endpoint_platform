@@ -255,6 +255,23 @@ def test_msi_includes_a_separate_provisioning_executable_without_secret_inputs()
     )
 
 
+def test_msi_includes_the_universal_setup_bootstrapper_without_enrollment_properties() -> None:
+    """The user-facing setup executable must be payload, never MSI secret input."""
+    files = _all_elements(_trees(), "File")
+    by_id = {item.get("Id"): item for item in files}
+    setup = by_id["filUniversalSetup"]
+
+    assert setup.get("Name") == "EndpointAgentSetup.exe"
+    assert "ProgramFiles\\EndpointAgentSetup.exe" in setup.get("Source", "")
+
+    script = (WINDOWS_PACKAGING / "build-msi.ps1").read_text(encoding="utf-8")
+    assert "pyinstaller_windows_setup.spec" in script
+    assert "EndpointAgentSetup.exe" in script
+    assert "ENROLLMENT" not in (WINDOWS_PACKAGING / "wix" / "Package.wxs").read_text(
+        encoding="utf-8"
+    )
+
+
 def test_selector_never_overwrite_is_authored_on_the_wix4_component() -> None:
     """WiX 4 emits MSI's NeverOverwrite component bit, not an invalid File attribute."""
     components = _all_elements(_trees(), "Component")
