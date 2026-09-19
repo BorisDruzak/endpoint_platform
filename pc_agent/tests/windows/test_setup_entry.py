@@ -99,3 +99,21 @@ def test_setup_state_fails_closed_for_incomplete_enrollment_material(tmp_path: P
     (tmp_path / "device-credential").write_text("a" * 43, encoding="ascii")
 
     assert setup_entry._classify_installation_state(tmp_path) == "conflicted"
+
+
+def test_valid_rerun_stops_before_msi_or_enrollment(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    (tmp_path / "enrollment-identity.json").write_text(
+        '{"device_id":"550e8400-e29b-41d4-a716-446655440000","schema_version":"endpoint_enrollment_identity_v1"}',
+        encoding="ascii",
+    )
+    (tmp_path / "device-credential").write_text("a" * 43, encoding="ascii")
+    monkeypatch.setattr(setup_entry, "_data_root", lambda: tmp_path)
+    monkeypatch.setattr(
+        setup_entry,
+        "_resource_root",
+        lambda: pytest.fail("valid rerun must not read embedded payload"),
+    )
+
+    assert setup_entry.main(["--quiet"]) == 10
