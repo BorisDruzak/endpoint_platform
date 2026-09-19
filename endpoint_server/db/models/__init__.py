@@ -21,6 +21,7 @@ from .enrollment import (
     EnrollmentClaim,
     EnrollmentEvent,
     EnrollmentRequest,
+    EnrollmentRequestClaimEnvelope,
     EnrollmentRetryEnvelope,
 )
 from .operations import EndpointOperation, ModuleOperationStep
@@ -52,6 +53,7 @@ __all__ = [
     "EnrollmentClaim",
     "EnrollmentEvent",
     "EnrollmentRequest",
+    "EnrollmentRequestClaimEnvelope",
     "EnrollmentRetryEnvelope",
     "EndpointOperation",
     "ModuleOperationStep",

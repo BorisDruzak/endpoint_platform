@@ -45,6 +45,7 @@ APPLICATION_TABLES = {
     "enrollment_claims",
     "enrollment_events",
     "enrollment_requests",
+    "enrollment_request_claim_envelopes",
     "enrollment_retry_envelopes",
     "endpoint_operations",
     "service_clients",
@@ -132,7 +133,7 @@ def test_migration_history_has_exactly_one_head() -> None:
         _alembic_config("postgresql+asyncpg://unused@127.0.0.1/unused")
     )
 
-    assert script.get_heads() == ["0020_enrollment_requests"]
+    assert script.get_heads() == ["0021_request_claim_envelopes"]
 
 
 def test_migration_revisions_fit_alembic_version_storage() -> None:
@@ -828,6 +829,15 @@ def test_initial_revision_upgrades_and_downgrades_empty_postgresql(
         "fingerprint_digest",
         "expires_at",
     } <= columns_by_table["enrollment_claims"].keys()
+    assert {
+        "enrollment_request_id",
+        "claim_id",
+        "receipt_digest",
+        "fingerprint_digest",
+        "encrypted_token",
+        "encryption_nonce",
+        "expires_at",
+    } <= columns_by_table["enrollment_request_claim_envelopes"].keys()
 
     for statement in (
         f"UPDATE audit_events SET action = 'changed' WHERE id = '{audit_id}'",

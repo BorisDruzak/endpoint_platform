@@ -123,6 +123,24 @@ class EnrollmentRequest(OwnershipRecord, Base):
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
+class EnrollmentRequestClaimEnvelope(OwnershipRecord, Base):
+    """Encrypted one-claim recovery state for a capability-proven request."""
+
+    __tablename__ = "enrollment_request_claim_envelopes"
+
+    enrollment_request_id: Mapped[UUID] = mapped_column(
+        ForeignKey("enrollment_requests.id", ondelete="CASCADE"), nullable=False, unique=True
+    )
+    claim_id: Mapped[UUID] = mapped_column(
+        ForeignKey("enrollment_claims.id", ondelete="CASCADE"), nullable=False, unique=True
+    )
+    receipt_digest: Mapped[str] = mapped_column(String(256), nullable=False, unique=True)
+    fingerprint_digest: Mapped[str] = mapped_column(String(256), nullable=False)
+    encrypted_token: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    encryption_nonce: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
 class EnrollmentEvent(OwnershipRecord, Base):
     __tablename__ = "enrollment_events"
 

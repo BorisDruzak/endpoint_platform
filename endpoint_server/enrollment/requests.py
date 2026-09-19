@@ -129,7 +129,7 @@ def build_enrollment_request(
     )
 
 
-def _campaign_still_allows_request(
+def selected_campaign_still_allows_request(
     request: EnrollmentRequest,
     campaign: EnrollmentCampaign,
     *,
@@ -165,7 +165,7 @@ def approve_enrollment_request(
 ) -> None:
     """Approve only the frozen campaign after rechecking its current validity."""
     transition_request_status(request.status, "approved")
-    if not _campaign_still_allows_request(request, campaign, now=now):
+    if not selected_campaign_still_allows_request(request, campaign, now=now):
         raise RequestTransitionError("selected campaign is no longer eligible")
     request.status = "approved"
     request.decision_reason = "MANUALLY_APPROVED"
@@ -195,10 +195,32 @@ def mark_request_claim_issued(
 ) -> None:
     """Record claim issuance only for the request's still-valid frozen campaign."""
     transition_request_status(request.status, "claim_issued")
-    if not _campaign_still_allows_request(request, campaign, now=now):
+    if not selected_campaign_still_allows_request(request, campaign, now=now):
         raise RequestTransitionError("selected campaign is no longer eligible")
     request.status = "claim_issued"
     request.updated_at = now.astimezone(UTC)
+
+
+def request_bindings_match(
+    request: EnrollmentRequest,
+    *,
+    installation_id: str,
+    hardware_fingerprint: str,
+    pepper: bytes,
+) -> bool:
+    """Match re-presented installer evidence against digest-only persistence."""
+    try:
+        installation_digest = _binding_digest(
+            installation_id, pepper, _INSTALLATION_ID_CONTEXT
+        )
+        fingerprint_digest = _binding_digest(
+            hardware_fingerprint, pepper, _FINGERPRINT_CONTEXT
+        )
+    except (UnicodeEncodeError, ValueError):
+        return False
+    return hmac.compare_digest(
+        installation_digest, request.installation_id_digest
+    ) and hmac.compare_digest(fingerprint_digest, request.fingerprint_digest)
 
 
 async def persist_enrollment_request(
