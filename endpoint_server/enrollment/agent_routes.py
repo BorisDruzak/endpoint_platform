@@ -26,6 +26,7 @@ from endpoint_server.db.models import (
     EnrollmentCampaign,
     EnrollmentClaim,
     EnrollmentEvent,
+    EnrollmentRequest,
     EnrollmentRetryEnvelope,
 )
 from endpoint_server.network import observed_client_address
@@ -53,6 +54,7 @@ from .credentials import (
     seal_retry_envelope,
 )
 from .delivery import ExpiredEnrollmentDelivery, derive_enrollment_receipt
+from .requests import mark_request_device_registered, mark_request_enrolling
 
 
 router = APIRouter(prefix="/agent/v1", tags=["agent-enrollment"])
@@ -554,6 +556,21 @@ async def enroll_agent(
                     request_id=request_id,
                     now=issued_at,
                 )
+            enrollment_request = None
+            if claim is not None and claim.enrollment_request_id is not None:
+                enrollment_request = (
+                    await session.execute(
+                        select(EnrollmentRequest)
+                        .where(EnrollmentRequest.id == claim.enrollment_request_id)
+                        .with_for_update()
+                    )
+                ).scalar_one_or_none()
+                if (
+                    enrollment_request is None
+                    or enrollment_request.selected_campaign_id != campaign.id
+                ):
+                    raise EnrollmentDenied("Enrollment denied")
+                mark_request_enrolling(enrollment_request, now=issued_at)
             device = Device(
                 id=uuid4(),
                 device_identifier=device_identifier,
@@ -600,6 +617,10 @@ async def enroll_agent(
             )
             if claim is not None:
                 claim.device_id = device.id
+            if enrollment_request is not None:
+                mark_request_device_registered(
+                    enrollment_request, device_id=device.id, now=issued_at
+                )
             session.add_all((device, credential, envelope, event))
             await append_audit_event(
                 session,
@@ -616,6 +637,18 @@ async def enroll_agent(
                 },
                 occurred_at=issued_at,
             )
+            if enrollment_request is not None:
+                await append_audit_event(
+                    session,
+                    actor_kind="agent",
+                    actor_identifier=str(device.id),
+                    action="enrollment_request.device_registered",
+                    object_kind="enrollment_request",
+                    object_identifier=str(enrollment_request.id),
+                    request_id=request_id,
+                    details={"campaign_id": str(campaign.id), "status": enrollment_request.status},
+                    occurred_at=issued_at,
+                )
             await session.commit()
         except EnrollmentDenied as error:
             await session.rollback()

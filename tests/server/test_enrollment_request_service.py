@@ -1,5 +1,6 @@
 from datetime import UTC, datetime, timedelta
 from ipaddress import ip_address
+from uuid import uuid4
 
 from endpoint_server.enrollment.campaigns import issue_campaign
 from endpoint_server.enrollment.requests import (
@@ -12,6 +13,8 @@ from endpoint_server.enrollment.requests import (
     transition_request_status,
     deny_enrollment_request,
     mark_request_claim_issued,
+    mark_request_device_registered,
+    mark_request_enrolling,
     persist_enrollment_request,
 )
 
@@ -218,6 +221,34 @@ def test_claim_issuance_requires_approved_or_auto_approved_request() -> None:
 
     assert request.status == "claim_issued"
     assert request.selected_campaign_id == campaign.id
+
+
+def test_claim_consumption_advances_the_frozen_request_to_device_registered() -> None:
+    campaign = _campaign()
+    request = build_enrollment_request(
+        installation_id="win-00112233-4455-6677-8899-aabbccddeeff",
+        hardware_fingerprint="sha256:windows-fingerprint-v1",
+        request_capability="a" * 43,
+        source_address=ip_address("192.168.100.20"),
+        installer_version="1.0.0",
+        installer_release_id="1.0.0",
+        hostname="office-pc-01",
+        selection=evaluate_campaign_selection(
+            [campaign],
+            source_address=ip_address("192.168.100.20"),
+            installer_release_id="1.0.0",
+            now=NOW,
+        ),
+        pepper=PEPPER,
+        now=NOW,
+    )
+    mark_request_claim_issued(request, campaign=campaign, now=NOW)
+
+    mark_request_enrolling(request, now=NOW)
+    mark_request_device_registered(request, device_id=uuid4(), now=NOW)
+
+    assert request.status == "device_registered"
+    assert request.device_id is not None
 
 
 class _PersistingSession:

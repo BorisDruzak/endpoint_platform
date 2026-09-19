@@ -8,7 +8,7 @@ import hashlib
 import hmac
 from ipaddress import IPv4Address, IPv6Address
 from typing import Literal, Sequence
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from endpoint_server.db.models import EnrollmentCampaign, EnrollmentRequest
 from endpoint_server.audit.service import append_audit_event
@@ -198,6 +198,23 @@ def mark_request_claim_issued(
     if not selected_campaign_still_allows_request(request, campaign, now=now):
         raise RequestTransitionError("selected campaign is no longer eligible")
     request.status = "claim_issued"
+    request.updated_at = now.astimezone(UTC)
+
+
+def mark_request_enrolling(request: EnrollmentRequest, *, now: datetime) -> None:
+    """Record one consumed request claim entering the canonical agent route."""
+    transition_request_status(request.status, "enrolling")
+    request.status = "enrolling"
+    request.updated_at = now.astimezone(UTC)
+
+
+def mark_request_device_registered(
+    request: EnrollmentRequest, *, device_id: UUID, now: datetime
+) -> None:
+    """Link the created device after the existing agent enrollment transaction."""
+    transition_request_status(request.status, "device_registered")
+    request.status = "device_registered"
+    request.device_id = device_id
     request.updated_at = now.astimezone(UTC)
 
 
