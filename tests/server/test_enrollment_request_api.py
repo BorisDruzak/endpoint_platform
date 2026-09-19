@@ -182,6 +182,39 @@ async def test_auto_request_with_device_bound_fingerprint_requires_review() -> N
 
 
 @pytest.mark.asyncio
+async def test_request_rate_limit_rejects_the_fourth_same_installation_with_no_queue_record() -> None:
+    session = _Session([_campaign()])
+    app = create_app(_settings(), session_provider=_Provider(session))
+    body = {
+        "schema_version": "pre_enrollment_request_create_v1",
+        "platform": "windows",
+        "installation_id": "win-00112233-4455-6677-8899-aabbccddeeff",
+        "hardware_fingerprint": "sha256:windows-fingerprint-v1",
+        "request_capability": "a" * 43,
+        "installer_version": "1.0.0",
+        "installer_release_id": "1.0.0",
+        "requested_at": NOW.isoformat(),
+        "hostname": "office-pc-01",
+        "macs": [],
+    }
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="https://endpoint.sosnadmin.local"
+    ) as client:
+        responses = []
+        for index in range(4):
+            responses.append(
+                await client.post(
+                    "/api/v1/enrollment/requests",
+                    json={**body, "request_capability": chr(ord("a") + index) * 43},
+                )
+            )
+
+    assert [response.status_code for response in responses] == [201, 201, 201, 429]
+    assert len([value for value in session.added if isinstance(value, EnrollmentRequest)]) == 3
+
+
+@pytest.mark.asyncio
 async def test_status_requires_capability_and_never_returns_a_claim() -> None:
     session = _Session([_campaign()])
     app = create_app(_settings(), session_provider=_Provider(session))

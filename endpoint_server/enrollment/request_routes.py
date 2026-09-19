@@ -30,6 +30,7 @@ from .requests import (
     build_enrollment_request,
     deny_enrollment_request,
     evaluate_campaign_selection,
+    enrollment_request_rate_limited,
     mark_request_claim_issued,
     persist_enrollment_request,
     request_bindings_match,
@@ -129,6 +130,18 @@ async def create_enrollment_request(
                 pepper=request.app.state.settings.device_token_pepper,
                 now=now,
             )
+            recent_requests = await session.execute(
+                select(EnrollmentRequest)
+                .where(EnrollmentRequest.created_at >= now - timedelta(hours=1))
+                .with_for_update()
+            )
+            if enrollment_request_rate_limited(
+                recent_requests.scalars().all(), record, now=now
+            ):
+                raise HTTPException(
+                    status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                    detail="Enrollment request rate limited",
+                )
             await persist_enrollment_request(
                 session,
                 request=record,

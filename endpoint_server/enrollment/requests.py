@@ -21,6 +21,10 @@ _REQUEST_CAPABILITY_CONTEXT = b"endpoint-enrollment-request-capability-v1\0"
 _INSTALLATION_ID_CONTEXT = b"endpoint-enrollment-request-installation-v1\0"
 _FINGERPRINT_CONTEXT = b"endpoint-enrollment-request-fingerprint-v1\0"
 _REQUEST_LIFETIME = timedelta(hours=24)
+_REQUEST_RATE_LIMIT_WINDOW = timedelta(hours=1)
+_MAX_REQUESTS_PER_SOURCE = 30
+_MAX_REQUESTS_PER_INSTALLATION = 3
+_MAX_REQUESTS_PER_FINGERPRINT = 3
 
 
 class RequestTransitionError(ValueError):
@@ -238,6 +242,33 @@ def request_bindings_match(
     return hmac.compare_digest(
         installation_digest, request.installation_id_digest
     ) and hmac.compare_digest(fingerprint_digest, request.fingerprint_digest)
+
+
+def enrollment_request_rate_limited(
+    records: Sequence[EnrollmentRequest],
+    candidate: EnrollmentRequest,
+    *,
+    now: datetime,
+) -> bool:
+    """Bound public request creation without persisting rejected queue entries."""
+    cutoff = now.astimezone(UTC) - _REQUEST_RATE_LIMIT_WINDOW
+    recent = [
+        record
+        for record in records
+        if record.created_at.tzinfo is not None
+        and record.created_at.astimezone(UTC) >= cutoff
+    ]
+    return (
+        sum(record.source_address == candidate.source_address for record in recent)
+        >= _MAX_REQUESTS_PER_SOURCE
+        or sum(
+            record.installation_id_digest == candidate.installation_id_digest
+            for record in recent
+        )
+        >= _MAX_REQUESTS_PER_INSTALLATION
+        or sum(record.fingerprint_digest == candidate.fingerprint_digest for record in recent)
+        >= _MAX_REQUESTS_PER_FINGERPRINT
+    )
 
 
 async def persist_enrollment_request(
