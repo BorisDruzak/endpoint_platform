@@ -3,23 +3,34 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Request, status
+from pydantic import BaseModel, ConfigDict, SecretStr
 from sqlalchemy import select
 
 from endpoint_contracts import PreEnrollmentRequestCreateV1, PreEnrollmentRequestStatusV1
 from endpoint_server.audit.request_ids import audit_request_id
-from endpoint_server.db.models import EnrollmentCampaign
+from endpoint_server.db.models import EnrollmentCampaign, EnrollmentRequest
 from endpoint_server.network import observed_client_address
 
 from .requests import (
     build_enrollment_request,
     evaluate_campaign_selection,
     persist_enrollment_request,
+    request_capability_matches,
 )
 
 
 router = APIRouter(prefix="/api/v1/enrollment", tags=["enrollment-requests"])
+
+
+class EnrollmentRequestStatusProof(BaseModel):
+    """Ephemeral capability proof; never persisted or reflected."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    request_capability: SecretStr
 
 
 def _source_address(request: Request):
@@ -77,6 +88,37 @@ async def create_enrollment_request(
         except Exception:
             await session.rollback()
             raise
+    return PreEnrollmentRequestStatusV1(
+        schema_version="pre_enrollment_request_status_v1",
+        request_id=record.id,
+        status=record.status,
+        reason=record.decision_reason,
+        expires_at=record.expires_at,
+    )
+
+
+@router.post(
+    "/requests/{request_id}/status",
+    response_model=PreEnrollmentRequestStatusV1,
+)
+async def enrollment_request_status(
+    request_id: UUID,
+    body: EnrollmentRequestStatusProof,
+    request: Request,
+) -> PreEnrollmentRequestStatusV1:
+    """Return bounded status only to the in-memory request capability holder."""
+    async with request.app.state.session_provider() as session:
+        result = await session.execute(
+            select(EnrollmentRequest).where(EnrollmentRequest.id == request_id)
+        )
+        record = result.scalar_one_or_none()
+    capability = body.request_capability.get_secret_value()
+    if record is None or not request_capability_matches(
+        capability,
+        record.request_capability_digest,
+        request.app.state.settings.device_token_pepper,
+    ):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Enrollment request not found")
     return PreEnrollmentRequestStatusV1(
         schema_version="pre_enrollment_request_status_v1",
         request_id=record.id,

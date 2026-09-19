@@ -7,7 +7,7 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 
 from endpoint_server.config import Settings
-from endpoint_server.db.models import EnrollmentCampaign
+from endpoint_server.db.models import EnrollmentCampaign, EnrollmentRequest
 from endpoint_server.enrollment.campaigns import issue_campaign
 from endpoint_server.main import create_app
 
@@ -26,6 +26,9 @@ class _Result:
     def all(self) -> list[EnrollmentCampaign]:
         return self._campaigns
 
+    def scalar_one_or_none(self) -> object | None:
+        return self._campaigns[0] if self._campaigns else None
+
 
 class _Session:
     def __init__(self, campaigns: list[EnrollmentCampaign]) -> None:
@@ -34,7 +37,14 @@ class _Session:
         self.commit_calls = 0
 
     async def execute(self, _statement: object) -> _Result:
-        return _Result(self.campaigns)
+        entity = _statement.column_descriptions[0]["entity"]
+        if entity is EnrollmentCampaign:
+            return _Result(self.campaigns)
+        if entity is EnrollmentRequest:
+            return _Result(
+                [value for value in self.added if isinstance(value, EnrollmentRequest)]
+            )
+        raise AssertionError(f"unexpected query entity: {entity}")
 
     def add(self, value: object) -> None:
         self.added.append(value)
@@ -108,3 +118,37 @@ async def test_create_request_selects_the_single_server_campaign_without_bearer(
     assert response.json()["status"] == "auto_approved"
     assert "campaign_id" not in response.json()
     assert session.commit_calls == 1
+
+
+@pytest.mark.asyncio
+async def test_status_requires_capability_and_never_returns_a_claim() -> None:
+    session = _Session([_campaign()])
+    app = create_app(_settings(), session_provider=_Provider(session))
+    create_body = {
+        "schema_version": "pre_enrollment_request_create_v1",
+        "platform": "windows",
+        "installation_id": "win-00112233-4455-6677-8899-aabbccddeeff",
+        "hardware_fingerprint": "sha256:windows-fingerprint-v1",
+        "request_capability": "a" * 43,
+        "installer_version": "1.0.0",
+        "installer_release_id": "1.0.0",
+        "requested_at": NOW.isoformat(),
+        "hostname": "office-pc-01",
+        "macs": [],
+    }
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="https://endpoint.sosnadmin.local") as client:
+        created = await client.post("/api/v1/enrollment/requests", json=create_body)
+        request_id = created.json()["request_id"]
+        allowed = await client.post(
+            f"/api/v1/enrollment/requests/{request_id}/status",
+            json={"request_capability": "a" * 43},
+        )
+        denied = await client.post(
+            f"/api/v1/enrollment/requests/{request_id}/status",
+            json={"request_capability": "b" * 43},
+        )
+
+    assert allowed.status_code == 200
+    assert allowed.json()["status"] == "auto_approved"
+    assert "claim" not in allowed.text
+    assert denied.status_code == 404
