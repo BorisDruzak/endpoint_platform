@@ -123,6 +123,7 @@ def build_enrollment_request(
         ),
         decided_by=None,
         device_id=None,
+        created_at=created_at,
         updated_at=created_at,
         expires_at=created_at + _REQUEST_LIFETIME,
     )
