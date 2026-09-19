@@ -112,6 +112,7 @@ $effectiveWixBuildRoot = if ($WixBuildRoot) {
 }
 $msiPath = Join-Path $effectiveWixBuildRoot "output\EndpointAgent-$Version-x64.msi"
 if (-not (Test-Path -LiteralPath $msiPath -PathType Leaf)) { throw "MSI output is missing." }
+Set-AuthenticodeSignature -Path $msiPath -Thumbprint $CodeSigningCertificateThumbprint -Timestamp $TimestampServer
 
 $setupRoot = Join-Path $effectiveWixBuildRoot 'setup'
 if (Test-Path -LiteralPath $setupRoot) { Remove-Item -LiteralPath $setupRoot -Recurse -Force }
@@ -164,6 +165,17 @@ $authenticodePublisher = if ($signature.SignerCertificate) {
 } else {
     $null
 }
+$msiSignature = Get-AuthenticodeSignature -FilePath $msiPath
+$msiAuthenticodeStatus = switch ($msiSignature.Status.ToString()) {
+    'Valid' { 'valid' }
+    'NotSigned' { 'unsigned' }
+    default { 'invalid' }
+}
+$msiAuthenticodePublisher = if ($msiSignature.SignerCertificate) {
+    $msiSignature.SignerCertificate.Subject
+} else {
+    $null
+}
 $setupSha256 = (Get-FileHash -LiteralPath $releaseSetup -Algorithm SHA256).Hash.ToLowerInvariant()
 $msiSha256 = (Get-FileHash -LiteralPath $msiPath -Algorithm SHA256).Hash.ToLowerInvariant()
 Write-Utf8NoBom (Join-Path $releaseRoot "EndpointAgentSetup-$Version-x64.release.json") (@{
@@ -176,5 +188,7 @@ Write-Utf8NoBom (Join-Path $releaseRoot "EndpointAgentSetup-$Version-x64.release
     msi_sha256 = $msiSha256
     authenticode_status = $authenticodeStatus
     authenticode_publisher = $authenticodePublisher
+    msi_authenticode_status = $msiAuthenticodeStatus
+    msi_authenticode_publisher = $msiAuthenticodePublisher
 } | ConvertTo-Json -Compress)
 Write-Host "Setup: $releaseSetup"
