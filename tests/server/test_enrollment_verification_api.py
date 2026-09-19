@@ -40,8 +40,9 @@ class _Session:
         if entity is EnrollmentRequest:
             return _Result(self.record)
         if entity is DeviceSession:
+            observed_at = datetime.now(UTC) - timedelta(seconds=1)
             return _Result(DeviceSession(
-                id=uuid4(), device_id=self.device.id, session_identifier="gateway", expires_at=NOW + timedelta(minutes=1), closed_at=None, last_seen_at=NOW, source_address="192.168.100.10"
+                id=uuid4(), device_id=self.device.id, session_identifier="gateway", expires_at=observed_at + timedelta(minutes=1), closed_at=None, last_seen_at=observed_at, source_address="192.168.100.10"
             ))
         if entity is ContextSnapshot:
             return _Result(ContextSnapshot(id=uuid4(), device_id=self.device.id, profile="baseline_v1", collected_at=NOW, normalized_projection={"profile": "baseline_v1"}, semantic_hash=None))
