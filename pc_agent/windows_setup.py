@@ -124,7 +124,14 @@ class SetupConfig:
 class SetupOutcome:
     """Credential-free result suitable for bounded setup diagnostics."""
 
-    status: Literal["provisioned", "waiting_approval", "denied", "timed_out"]
+    status: Literal[
+        "provisioned",
+        "waiting_approval",
+        "review_required",
+        "denied",
+        "expired",
+        "timed_out",
+    ]
     request_id: UUID | None = None
     reason: str | None = None
 
@@ -172,13 +179,18 @@ class UniversalWindowsSetup:
         request_id = _request_id(response)
         state = _state(response)
         deadline = self.clock().astimezone(UTC) + _MAX_POLL_DURATION
+        if state == "review_required":
+            return SetupOutcome("review_required", request_id=request_id, reason=_reason(response))
         while state in _AWAITING_STATUSES:
             if self.clock().astimezone(UTC) >= deadline:
                 return SetupOutcome("timed_out", request_id=request_id)
             self.sleep(_POLL_INTERVAL_SECONDS)
             state_response = self.transport.request_status(request_id, capability)
-            state = _state(state_response)
+            response = state_response
+            state = _state(response)
         if state in _TERMINAL_DENIAL_STATUSES:
+            if state == "expired":
+                return SetupOutcome("expired", request_id=request_id, reason=_reason(response))
             return SetupOutcome("denied", request_id=request_id, reason=_reason(response))
         if state not in _APPROVED_STATUSES:
             return SetupOutcome("waiting_approval", request_id=request_id, reason=_reason(response))

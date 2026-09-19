@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import socket
 import subprocess
 import sys
@@ -18,6 +19,22 @@ from pc_agent.device_credential import read_device_credential
 from pc_agent.enrollment_bootstrap import _derive_hardware_fingerprint
 from pc_agent.enrollment_identity import ENROLLMENT_IDENTITY_FILENAME, read_enrollment_device_id
 from pc_agent.windows_setup import HttpsSetupTransport, SetupConfig, UniversalWindowsSetup
+
+
+EXIT_SUCCESS = 0
+EXIT_ALREADY_INSTALLED = 10
+EXIT_PREFLIGHT_FAILED = 20
+EXIT_INSTALL_FAILED = 21
+EXIT_ENROLLMENT_DENIED = 30
+EXIT_APPROVAL_TIMEOUT = 31
+EXIT_REVIEW_REQUIRED = 32
+EXIT_REQUEST_EXPIRED = 33
+EXIT_PROVISIONING_FAILED = 41
+EXIT_SERVICE_FAILED = 50
+EXIT_WSS_TIMEOUT = 51
+EXIT_CONTEXT_TIMEOUT = 52
+EXIT_REPAIR_REQUIRED = 60
+_SAFE_LOG_DETAIL = re.compile(r"^[A-Z][A-Z0-9_]{0,63}$")
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -87,7 +104,9 @@ def _data_root() -> Path:
     return Path(program_data) / "Endpoint Platform" / "Agent"
 
 
-def _classify_installation_state(data_root: Path) -> Literal["clean", "valid", "conflicted"]:
+def _classify_installation_state(
+    data_root: Path, *, service_installed: bool = True
+) -> Literal["clean", "valid", "repairable", "conflicted"]:
     """Fail closed before a rerun can overwrite enrollment-owned local state."""
     credential = data_root / "device-credential"
     identity = data_root / ENROLLMENT_IDENTITY_FILENAME
@@ -100,7 +119,66 @@ def _classify_installation_state(data_root: Path) -> Literal["clean", "valid", "
         read_enrollment_device_id(identity)
     except ValueError:
         return "conflicted"
-    return "valid"
+    return "valid" if service_installed else "repairable"
+
+
+def _agent_service_installed() -> bool:
+    """Read the fixed service state without accepting a caller-controlled service name."""
+    if os.name != "nt":
+        return True
+    executable = Path(os.environ.get("SystemRoot", r"C:\\Windows")) / "System32" / "sc.exe"
+    try:
+        completed = subprocess.run(
+            [str(executable), "query", "EndpointAgent"],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False,
+            shell=False,
+            timeout=15,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return completed.returncode == 0
+
+
+def _write_install_log(
+    path: Path, *, step: str, status: str, code: int, detail: str | None = None
+) -> None:
+    """Append bounded setup telemetry without accepting raw server or secret material."""
+    if not (
+        _SAFE_LOG_DETAIL.fullmatch(step)
+        and _SAFE_LOG_DETAIL.fullmatch(status)
+        and isinstance(code, int)
+    ):
+        raise ValueError("Windows Setup log fields are invalid")
+    safe_detail = detail if detail and _SAFE_LOG_DETAIL.fullmatch(detail) else "REDACTED"
+    line = (
+        f"{datetime.now(UTC).isoformat()} step={step} status={status} "
+        f"code={code} detail={safe_detail}\n"
+    )
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8", newline="\n") as target:
+        target.write(line)
+
+
+def _log_path(data_root: Path) -> Path:
+    return data_root / "install.log"
+
+
+def _finish(data_root: Path, *, status: str, code: int, detail: str | None = None) -> int:
+    try:
+        _write_install_log(
+            _log_path(data_root),
+            step="SETUP",
+            status=status,
+            code=code,
+            detail=detail,
+        )
+    except OSError:
+        # A logging failure must not change an otherwise bounded installer result.
+        pass
+    return code
 
 
 def _inventory() -> dict[str, object]:
@@ -125,14 +203,17 @@ def _provisioner_command(
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = _parser().parse_args(argv)
-    installation_state = _classify_installation_state(_data_root())
+    data_root = _data_root()
+    installation_state = _classify_installation_state(
+        data_root, service_installed=_agent_service_installed()
+    )
     if installation_state == "valid":
         if not args.quiet:
             print("Windows Setup: already_installed")
-        return 10
+        return _finish(data_root, status="ALREADY_INSTALLED", code=EXIT_ALREADY_INSTALLED)
     if installation_state == "conflicted":
         print("Windows Setup failed: RepairRequired", file=sys.stderr)
-        return 60
+        return _finish(data_root, status="REPAIR_REQUIRED", code=EXIT_REPAIR_REQUIRED)
     resources = _resource_root()
     try:
         public_config = _read_public_setup_config(resources / "setup-config.json")
@@ -144,11 +225,19 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         config.validate()
         transport = HttpsSetupTransport(config.endpoint_origin, config.ca_file)
+    except Exception as error:
+        print(f"Windows Setup failed: {type(error).__name__}", file=sys.stderr)
+        return _finish(data_root, status="PREFLIGHT_FAILED", code=EXIT_PREFLIGHT_FAILED)
+    try:
         _install_embedded_msi(resources / "EndpointAgent.msi")
+        if installation_state == "repairable":
+            if not _agent_service_installed():
+                return _finish(data_root, status="SERVICE_FAILED", code=EXIT_SERVICE_FAILED)
+            return _finish(data_root, status="REPAIRED", code=EXIT_ALREADY_INSTALLED)
         provisioner = _installed_provisioner()
     except Exception as error:
         print(f"Windows Setup failed: {type(error).__name__}", file=sys.stderr)
-        return 1
+        return _finish(data_root, status="INSTALL_FAILED", code=EXIT_INSTALL_FAILED)
 
     installation_id: str | None = None
 
@@ -186,12 +275,30 @@ def main(argv: Sequence[str] | None = None) -> int:
         outcome = setup.run()
     except Exception as error:
         print(f"Windows Setup failed: {type(error).__name__}", file=sys.stderr)
-        return 1
+        return _finish(data_root, status="PROVISIONING_FAILED", code=EXIT_PROVISIONING_FAILED)
     if outcome.status == "provisioned":
-        return 0
+        return _finish(data_root, status="COMPLETED", code=EXIT_SUCCESS)
+    exit_code = {
+        "denied": EXIT_ENROLLMENT_DENIED,
+        "timed_out": (
+            EXIT_WSS_TIMEOUT
+            if outcome.reason == "WAITING_WSS"
+            else EXIT_CONTEXT_TIMEOUT
+            if outcome.reason == "WAITING_CONTEXT"
+            else EXIT_APPROVAL_TIMEOUT
+        ),
+        "waiting_approval": EXIT_APPROVAL_TIMEOUT,
+        "review_required": EXIT_REVIEW_REQUIRED,
+        "expired": EXIT_REQUEST_EXPIRED,
+    }[outcome.status]
     if not args.quiet:
         print(f"Windows Setup: {outcome.status}")
-    return 2
+    return _finish(
+        data_root,
+        status=outcome.status.upper(),
+        code=exit_code,
+        detail=outcome.reason,
+    )
 
 
 if __name__ == "__main__":
