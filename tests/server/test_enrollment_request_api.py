@@ -214,3 +214,33 @@ async def test_approved_request_claim_is_bound_and_recoverable_after_dropped_res
     assert record.status == "claim_issued"
     assert claim.enrollment_request_id == record.id
     assert first.json()["claim"].encode("ascii") not in envelope.encrypted_token
+
+
+@pytest.mark.asyncio
+async def test_polling_marks_an_expired_request_terminal() -> None:
+    session = _Session([_campaign()])
+    app = create_app(_settings(), session_provider=_Provider(session))
+    body = {
+        "schema_version": "pre_enrollment_request_create_v1",
+        "platform": "windows",
+        "installation_id": "win-00112233-4455-6677-8899-aabbccddeeff",
+        "hardware_fingerprint": "sha256:windows-fingerprint-v1",
+        "request_capability": "a" * 43,
+        "installer_version": "1.0.0",
+        "installer_release_id": "1.0.0",
+        "requested_at": NOW.isoformat(),
+        "hostname": "office-pc-01",
+        "macs": [],
+    }
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="https://endpoint.sosnadmin.local") as client:
+        created = await client.post("/api/v1/enrollment/requests", json=body)
+        record = next(value for value in session.added if isinstance(value, EnrollmentRequest))
+        record.expires_at = NOW - timedelta(seconds=1)
+        response = await client.post(
+            f"/api/v1/enrollment/requests/{created.json()['request_id']}/status",
+            json={"request_capability": "a" * 43},
+        )
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "expired"
+    assert record.decision_reason == "REQUEST_EXPIRED"

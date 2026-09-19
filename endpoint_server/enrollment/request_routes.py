@@ -45,7 +45,7 @@ class EnrollmentRequestStatusProof(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    request_capability: SecretStr
+    request_capability: SecretStr = Field(min_length=43, max_length=43)
 
 
 class EnrollmentRequestClaimProof(BaseModel):
@@ -144,18 +144,43 @@ async def enrollment_request_status(
     request: Request,
 ) -> PreEnrollmentRequestStatusV1:
     """Return bounded status only to the in-memory request capability holder."""
+    capability = body.request_capability.get_secret_value()
+    now = datetime.now(UTC)
     async with request.app.state.session_provider() as session:
         result = await session.execute(
-            select(EnrollmentRequest).where(EnrollmentRequest.id == request_id)
+            select(EnrollmentRequest)
+            .where(EnrollmentRequest.id == request_id)
+            .with_for_update()
         )
         record = result.scalar_one_or_none()
-    capability = body.request_capability.get_secret_value()
-    if record is None or not request_capability_matches(
-        capability,
-        record.request_capability_digest,
-        request.app.state.settings.device_token_pepper,
-    ):
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Enrollment request not found")
+        if record is None or not request_capability_matches(
+            capability,
+            record.request_capability_digest,
+            request.app.state.settings.device_token_pepper,
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Enrollment request not found",
+            )
+        if (
+            now >= record.expires_at.astimezone(UTC)
+            and record.status not in {"denied", "expired", "failed", "cancelled"}
+        ):
+            record.status = "expired"
+            record.decision_reason = "REQUEST_EXPIRED"
+            record.updated_at = now
+            await append_audit_event(
+                session,
+                actor_kind="installer",
+                actor_identifier=None,
+                action="enrollment_request.expired",
+                object_kind="enrollment_request",
+                object_identifier=str(record.id),
+                request_id=audit_request_id(request),
+                details={"status": record.status},
+                occurred_at=now,
+            )
+            await session.commit()
     return PreEnrollmentRequestStatusV1(
         schema_version="pre_enrollment_request_status_v1",
         request_id=record.id,
