@@ -145,6 +145,7 @@ async def create_enrollment_request(
             await persist_enrollment_request(
                 session,
                 request=record,
+                selection=selection,
                 request_id=audit_request_id(request),
                 now=now,
             )

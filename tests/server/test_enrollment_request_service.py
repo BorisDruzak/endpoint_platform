@@ -259,7 +259,7 @@ class _PersistingSession:
         self.added.append(value)
 
 
-def test_persist_request_appends_a_redacted_audit_event() -> None:
+def test_persist_request_records_auto_policy_evidence_without_secrets() -> None:
     campaign = _campaign()
     request = build_enrollment_request(
         installation_id="win-00112233-4455-6677-8899-aabbccddeeff",
@@ -282,9 +282,37 @@ def test_persist_request_appends_a_redacted_audit_event() -> None:
 
     import asyncio
 
-    asyncio.run(persist_enrollment_request(session, request=request, request_id="request-1", now=NOW))
+    selection = evaluate_campaign_selection(
+        [campaign],
+        source_address=ip_address("192.168.100.20"),
+        installer_release_id="1.0.0",
+        now=NOW,
+    )
+
+    asyncio.run(
+        persist_enrollment_request(
+            session,
+            request=request,
+            selection=selection,
+            request_id="request-1",
+            now=NOW,
+        )
+    )
 
     assert session.added[0] is request
-    audit = session.added[1]
-    assert audit.action == "enrollment_request.created"
-    assert "request_capability" not in audit.details
+    created_audit = session.added[1]
+    decision_audit = session.added[2]
+    assert created_audit.action == "enrollment_request.created"
+    assert decision_audit.action == "enrollment_request.auto_approved"
+    assert decision_audit.details == {
+        "identity_conflict": False,
+        "installer_release_id": "1.0.0",
+        "mode": "auto",
+        "platform": "windows",
+        "policy_id": "windows-office-v1",
+        "reason": "AUTO_POLICY",
+        "release_match": True,
+        "selected_campaign_id": str(campaign.id),
+        "source_network_match": True,
+    }
+    assert "request_capability" not in created_audit.details

@@ -275,6 +275,7 @@ async def persist_enrollment_request(
     session,
     *,
     request: EnrollmentRequest,
+    selection: CampaignSelection,
     request_id: str,
     now: datetime,
 ) -> EnrollmentRequest:
@@ -299,6 +300,35 @@ async def persist_enrollment_request(
         },
         occurred_at=now,
     )
+    decision_action = {
+        "auto_approved": "enrollment_request.auto_approved",
+        "waiting_approval": "enrollment_request.waiting_approval",
+        "review_required": "enrollment_request.review_required",
+        "denied": "enrollment_request.denied",
+    }[selection.status]
+    await append_audit_event(
+        session,
+        actor_kind="installer",
+        actor_identifier=None,
+        action=decision_action,
+        object_kind="enrollment_request",
+        object_identifier=str(request.id),
+        request_id=request_id,
+        details={
+            "identity_conflict": selection.identity_conflict,
+            "installer_release_id": request.installer_release_id,
+            "mode": selection.enrollment_mode,
+            "platform": request.platform,
+            "policy_id": selection.policy_id,
+            "reason": selection.reason,
+            "release_match": selection.release_match,
+            "selected_campaign_id": (
+                str(request.selected_campaign_id) if request.selected_campaign_id else None
+            ),
+            "source_network_match": selection.source_network_match,
+        },
+        occurred_at=now,
+    )
     return request
 
 
@@ -309,6 +339,11 @@ class CampaignSelection:
     status: RequestSelectionStatus
     campaign: EnrollmentCampaign | None
     reason: str
+    policy_id: str | None = None
+    enrollment_mode: Literal["auto", "manual"] | None = None
+    source_network_match: bool = False
+    release_match: bool = False
+    identity_conflict: bool = False
 
 
 def evaluate_campaign_selection(
@@ -341,11 +376,28 @@ def evaluate_campaign_selection(
     if not eligible:
         return CampaignSelection("denied", None, "NO_MATCHING_CAMPAIGN")
     if len(eligible) != 1:
-        return CampaignSelection("review_required", None, "AMBIGUOUS_CAMPAIGN")
+        return CampaignSelection(
+            "review_required",
+            None,
+            "AMBIGUOUS_CAMPAIGN",
+            source_network_match=True,
+            release_match=True,
+            identity_conflict=blocking_identity_conflict,
+        )
 
     campaign, mode = eligible[0]
+    policy = parse_windows_enrollment_policy(campaign.policy)
+    if policy is None:  # Kept defensive: eligibility was already based on this parse.
+        return CampaignSelection("denied", None, "NO_MATCHING_CAMPAIGN")
+    evidence = {
+        "policy_id": policy.policy_id,
+        "enrollment_mode": mode,
+        "source_network_match": True,
+        "release_match": True,
+        "identity_conflict": blocking_identity_conflict,
+    }
     if blocking_identity_conflict:
-        return CampaignSelection("review_required", campaign, "DUPLICATE_IDENTITY")
+        return CampaignSelection("review_required", campaign, "DUPLICATE_IDENTITY", **evidence)
     if mode == "manual":
-        return CampaignSelection("waiting_approval", campaign, "MANUAL_POLICY")
-    return CampaignSelection("auto_approved", campaign, "AUTO_POLICY")
+        return CampaignSelection("waiting_approval", campaign, "MANUAL_POLICY", **evidence)
+    return CampaignSelection("auto_approved", campaign, "AUTO_POLICY", **evidence)

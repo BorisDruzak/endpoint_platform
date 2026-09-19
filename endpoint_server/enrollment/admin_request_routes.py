@@ -199,7 +199,7 @@ async def approve_request(
                 record=record,
                 principal=principal,
                 request=request,
-                action="enrollment_request.approved",
+                action="enrollment_request.manually_approved",
                 now=now,
             )
             await session.commit()
