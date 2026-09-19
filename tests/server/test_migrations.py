@@ -44,6 +44,7 @@ APPLICATION_TABLES = {
     "enrollment_campaigns",
     "enrollment_claims",
     "enrollment_events",
+    "enrollment_requests",
     "enrollment_retry_envelopes",
     "endpoint_operations",
     "service_clients",
@@ -131,7 +132,7 @@ def test_migration_history_has_exactly_one_head() -> None:
         _alembic_config("postgresql+asyncpg://unused@127.0.0.1/unused")
     )
 
-    assert script.get_heads() == ["0019_module_step_count_backfill"]
+    assert script.get_heads() == ["0020_enrollment_requests"]
 
 
 def test_migration_revisions_fit_alembic_version_storage() -> None:

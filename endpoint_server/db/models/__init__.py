@@ -20,6 +20,7 @@ from .enrollment import (
     EnrollmentCampaign,
     EnrollmentClaim,
     EnrollmentEvent,
+    EnrollmentRequest,
     EnrollmentRetryEnvelope,
 )
 from .operations import EndpointOperation, ModuleOperationStep
@@ -50,6 +51,7 @@ __all__ = [
     "EnrollmentCampaign",
     "EnrollmentClaim",
     "EnrollmentEvent",
+    "EnrollmentRequest",
     "EnrollmentRetryEnvelope",
     "EndpointOperation",
     "ModuleOperationStep",

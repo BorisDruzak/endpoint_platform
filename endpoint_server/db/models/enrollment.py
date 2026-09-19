@@ -12,6 +12,7 @@ from sqlalchemy import (
     LargeBinary,
     String,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.orm import Mapped, mapped_column
@@ -49,6 +50,11 @@ class EnrollmentClaim(OwnershipRecord, Base):
     campaign_id: Mapped[UUID] = mapped_column(
         ForeignKey("enrollment_campaigns.id", ondelete="CASCADE"), nullable=False
     )
+    enrollment_request_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("enrollment_requests.id", ondelete="SET NULL"),
+        nullable=True,
+        unique=True,
+    )
     claim_identifier: Mapped[str] = mapped_column(
         String(128), nullable=False, unique=True
     )
@@ -64,6 +70,57 @@ class EnrollmentClaim(OwnershipRecord, Base):
         ForeignKey("devices.id", ondelete="SET NULL")
     )
     claimed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class EnrollmentRequest(OwnershipRecord, Base):
+    """Auditable, digest-bound universal Windows enrollment orchestration."""
+
+    __tablename__ = "enrollment_requests"
+    __table_args__ = (
+        Index("ix_enrollment_requests_expires_at", "expires_at"),
+        Index(
+            "uq_enrollment_requests_active_installation",
+            "installation_id_digest",
+            unique=True,
+            postgresql_where=text(
+                "status IN ('created', 'validating', 'auto_approved', "
+                "'waiting_approval', 'review_required', 'claim_issued', "
+                "'enrolling', 'device_registered', 'waiting_wss')"
+            ),
+        ),
+    )
+
+    installation_id_digest: Mapped[str] = mapped_column(String(256), nullable=False)
+    fingerprint_digest: Mapped[str] = mapped_column(String(256), nullable=False)
+    request_capability_digest: Mapped[str] = mapped_column(String(256), nullable=False)
+    platform: Mapped[str] = mapped_column(String(64), nullable=False)
+    hostname: Mapped[str] = mapped_column(String(256), nullable=False)
+    manufacturer: Mapped[str | None] = mapped_column(String(256))
+    model: Mapped[str | None] = mapped_column(String(256))
+    serial: Mapped[str | None] = mapped_column(String(256))
+    product_uuid: Mapped[str | None] = mapped_column(String(64))
+    macs: Mapped[list[str]] = mapped_column(
+        JSON().with_variant(JSONB(), "postgresql"), nullable=False, default=list
+    )
+    source_address: Mapped[str] = mapped_column(String(64), nullable=False)
+    installer_version: Mapped[str] = mapped_column(String(128), nullable=False)
+    installer_release_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    selected_campaign_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("enrollment_campaigns.id", ondelete="RESTRICT"), nullable=True
+    )
+    status: Mapped[str] = mapped_column(String(32), nullable=False)
+    decision_reason: Mapped[str | None] = mapped_column(String(128))
+    decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    decided_by: Mapped[UUID | None] = mapped_column(
+        ForeignKey("admin_users.id", ondelete="SET NULL")
+    )
+    device_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("devices.id", ondelete="SET NULL")
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=text("CURRENT_TIMESTAMP")
+    )
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
 class EnrollmentEvent(OwnershipRecord, Base):
