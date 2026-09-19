@@ -12,6 +12,7 @@ param(
     [string]$InitialRuntimeStageEvidence,
     [switch]$ApproveInitialRuntimeTransition,
     [switch]$ApproveInitialRuntimeSourceChange,
+    [switch]$ReusePythonBuild,
     [string]$WixBuildRoot
 )
 
@@ -62,6 +63,7 @@ foreach ($optional in @(
 }
 if ($ApproveInitialRuntimeTransition) { $msiParameters.ApproveInitialRuntimeTransition = $true }
 if ($ApproveInitialRuntimeSourceChange) { $msiParameters.ApproveInitialRuntimeSourceChange = $true }
+if ($ReusePythonBuild) { $msiParameters.ReusePythonBuild = $true }
 & (Join-Path $PSScriptRoot 'build-msi.ps1') @msiParameters
 if ($LASTEXITCODE -ne 0) { throw "MSI build failed." }
 
