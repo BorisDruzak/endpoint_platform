@@ -20,7 +20,7 @@ the authority for both the decision mode and permitted Setup release:
 {
   "policy_id": "windows-office-v1",
   "enrollment_mode": "auto",
-  "allowed_installer_releases": ["3.2.42"]
+  "allowed_installer_releases": ["3.2.44"]
 }
 ```
 
@@ -38,18 +38,21 @@ must never copy an `ic_` claim into MSI properties, a command line, or a log.
 ## Artifact verification and invocation
 
 On the test machine, copy the EXE and its adjacent release JSON. Verify the
-SHA-256 against `setup_sha256` before execution. The 3.2.42 artifact uses:
+SHA-256 against `setup_sha256` before execution. The release JSON is the
+source of truth for SHA-256, source commit, embedded Agent version, and
+Authenticode status. Without an approved local code-signing certificate,
+`authenticode_status` is `unsigned` and the artifact is test-only. The 3.2.44
+artifact uses:
 
 ```text
-EndpointAgentSetup-3.2.42-x64.exe
-SHA-256 b31d670c076f190be5948612b2cd6276f5cd586a7fda9bee38f56ccb4aba32d7
+EndpointAgentSetup-3.2.44-x64.exe
 ```
 
 Run interactively or with the identical non-interactive flow:
 
 ```powershell
-.\EndpointAgentSetup-3.2.42-x64.exe
-.\EndpointAgentSetup-3.2.42-x64.exe --quiet
+.\EndpointAgentSetup-3.2.44-x64.exe
+.\EndpointAgentSetup-3.2.44-x64.exe --quiet
 ```
 
 `--quiet` changes presentation only. It does not bypass campaign selection,
@@ -66,6 +69,11 @@ observation.
 | 31 | Approval timed out locally | Approval may still occur until request TTL; rerun creates a new capability. |
 | 32 | Review required | Resolve the queue item; never force a campaign selection. |
 | 33 | Request expired | Start a new request after correcting the cause. |
+| 40 | Claim handoff failed | Inspect the frozen selected campaign and request audit. |
+| 41 | Provisioning failed | Inspect protected agent-side diagnostics. |
+| 50 | Windows service repair/start failed | Repair the MSI-managed service without re-enrollment. |
+| 51 | WSS timeout | Verify DNS, CA, service status, and Endpoint presence. |
+| 52 | Context timeout | Inspect baseline context delivery and Endpoint verification. |
 | 60 | Local enrollment state is incomplete or corrupt | Repair under the protected ProgramData boundary; do not overwrite identity. |
 
 ## Acceptance matrix
