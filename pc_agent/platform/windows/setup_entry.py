@@ -18,7 +18,13 @@ from pc_agent.core.device_fingerprint import collect_device_fingerprint
 from pc_agent.device_credential import read_device_credential
 from pc_agent.enrollment_bootstrap import _derive_hardware_fingerprint
 from pc_agent.enrollment_identity import ENROLLMENT_IDENTITY_FILENAME, read_enrollment_device_id
-from pc_agent.windows_setup import HttpsSetupTransport, SetupConfig, UniversalWindowsSetup
+from pc_agent.windows_setup import (
+    HttpsSetupTransport,
+    SetupClaimError,
+    SetupConfig,
+    SetupProvisionError,
+    UniversalWindowsSetup,
+)
 
 
 EXIT_SUCCESS = 0
@@ -29,6 +35,7 @@ EXIT_ENROLLMENT_DENIED = 30
 EXIT_APPROVAL_TIMEOUT = 31
 EXIT_REVIEW_REQUIRED = 32
 EXIT_REQUEST_EXPIRED = 33
+EXIT_CLAIM_FAILED = 40
 EXIT_PROVISIONING_FAILED = 41
 EXIT_SERVICE_FAILED = 50
 EXIT_WSS_TIMEOUT = 51
@@ -273,6 +280,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     setup.installation_id_factory = capture_installation_id
     try:
         outcome = setup.run()
+    except SetupClaimError:
+        return _finish(data_root, status="CLAIM_FAILED", code=EXIT_CLAIM_FAILED)
+    except SetupProvisionError:
+        return _finish(data_root, status="PROVISIONING_FAILED", code=EXIT_PROVISIONING_FAILED)
     except Exception as error:
         print(f"Windows Setup failed: {type(error).__name__}", file=sys.stderr)
         return _finish(data_root, status="PROVISIONING_FAILED", code=EXIT_PROVISIONING_FAILED)

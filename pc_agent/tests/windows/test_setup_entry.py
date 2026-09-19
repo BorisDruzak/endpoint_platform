@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 from pc_agent.platform.windows import setup_entry
-from pc_agent.windows_setup import SetupOutcome
+from pc_agent.windows_setup import SetupClaimError, SetupOutcome, SetupProvisionError
 
 
 def _write_public_payload(root: Path) -> None:
@@ -146,6 +146,42 @@ def test_setup_entry_maps_terminal_request_outcomes_to_stable_exit_codes(
 
         def run(self) -> SetupOutcome:
             return outcome
+
+    monkeypatch.setattr(setup_entry, "UniversalWindowsSetup", _Setup)
+
+    assert setup_entry.main(["--quiet"]) == expected
+
+
+@pytest.mark.parametrize(
+    ("error", "expected"),
+    [
+        (SetupClaimError("claim handoff failed"), setup_entry.EXIT_CLAIM_FAILED),
+        (SetupProvisionError("provisioning failed"), setup_entry.EXIT_PROVISIONING_FAILED),
+    ],
+)
+def test_setup_entry_distinguishes_claim_and_provisioning_failures(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    error: RuntimeError,
+    expected: int,
+) -> None:
+    _write_public_payload(tmp_path)
+    monkeypatch.setattr(setup_entry, "_resource_root", lambda: tmp_path)
+    monkeypatch.setattr(setup_entry, "_data_root", lambda: tmp_path / "agent-data")
+    monkeypatch.setattr(setup_entry, "_install_embedded_msi", lambda _: None)
+    monkeypatch.setattr(
+        setup_entry,
+        "_installed_provisioner",
+        lambda: tmp_path / "endpoint-agent-provision.exe",
+    )
+    monkeypatch.setattr(setup_entry, "HttpsSetupTransport", lambda *_: object())
+
+    class _Setup:
+        def __init__(self, _config: object, **_: object) -> None:
+            self.installation_id_factory = lambda: "win-test"
+
+        def run(self) -> SetupOutcome:
+            raise error
 
     monkeypatch.setattr(setup_entry, "UniversalWindowsSetup", _Setup)
 

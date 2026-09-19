@@ -45,6 +45,14 @@ class SetupTransportError(RuntimeError):
     """Bounded transport failure that deliberately omits server response bodies."""
 
 
+class SetupClaimError(RuntimeError):
+    """Claim handoff failed before any provisioning process received a claim."""
+
+
+class SetupProvisionError(RuntimeError):
+    """The canonical provisioner or post-provision completion flow failed."""
+
+
 class HttpsSetupTransport:
     """Strict public HTTPS client for the unauthenticated setup request flow."""
 
@@ -194,32 +202,38 @@ class UniversalWindowsSetup:
             return SetupOutcome("denied", request_id=request_id, reason=_reason(response))
         if state not in _APPROVED_STATUSES:
             return SetupOutcome("waiting_approval", request_id=request_id, reason=_reason(response))
-        claim_response = self.transport.request_claim(
-            request_id,
-            {
-                "request_capability": capability,
-                "installation_id": installation_id,
-                "hardware_fingerprint": hardware_fingerprint,
-            },
-        )
-        claim = claim_response.get("claim")
-        if not isinstance(claim, str) or not claim.startswith("ic_"):
-            raise ValueError("setup received an invalid enrollment claim")
-        self.provision_claim(claim)
-        while True:
-            completion_response = self.transport.request_verification(request_id, capability)
-            completion_state = _state(completion_response)
-            if completion_state == "completed":
-                return SetupOutcome("provisioned", request_id=request_id)
-            if completion_state in _TERMINAL_DENIAL_STATUSES:
-                return SetupOutcome(
-                    "denied", request_id=request_id, reason=_reason(completion_response)
-                )
-            if completion_state not in _COMPLETION_AWAITING_STATUSES:
-                raise ValueError("setup received an invalid completion status")
-            if self.clock().astimezone(UTC) >= deadline:
-                return SetupOutcome("timed_out", request_id=request_id, reason="WAITING_WSS")
-            self.sleep(_POLL_INTERVAL_SECONDS)
+        try:
+            claim_response = self.transport.request_claim(
+                request_id,
+                {
+                    "request_capability": capability,
+                    "installation_id": installation_id,
+                    "hardware_fingerprint": hardware_fingerprint,
+                },
+            )
+            claim = claim_response.get("claim")
+            if not isinstance(claim, str) or not claim.startswith("ic_"):
+                raise ValueError("setup received an invalid enrollment claim")
+        except (SetupTransportError, TypeError, ValueError) as error:
+            raise SetupClaimError("Windows Setup claim handoff failed") from error
+        try:
+            self.provision_claim(claim)
+            while True:
+                completion_response = self.transport.request_verification(request_id, capability)
+                completion_state = _state(completion_response)
+                if completion_state == "completed":
+                    return SetupOutcome("provisioned", request_id=request_id)
+                if completion_state in _TERMINAL_DENIAL_STATUSES:
+                    return SetupOutcome(
+                        "denied", request_id=request_id, reason=_reason(completion_response)
+                    )
+                if completion_state not in _COMPLETION_AWAITING_STATUSES:
+                    raise ValueError("setup received an invalid completion status")
+                if self.clock().astimezone(UTC) >= deadline:
+                    return SetupOutcome("timed_out", request_id=request_id, reason="WAITING_WSS")
+                self.sleep(_POLL_INTERVAL_SECONDS)
+        except (SetupTransportError, TypeError, ValueError, RuntimeError) as error:
+            raise SetupProvisionError("Windows Setup provisioning failed") from error
 
 
 def _request_id(payload: dict[str, object]) -> UUID:
@@ -257,9 +271,11 @@ def _bounded_inventory(observed: dict[str, object]) -> dict[str, object]:
 
 __all__ = [
     "HttpsSetupTransport",
+    "SetupClaimError",
     "SetupConfig",
     "SetupOutcome",
     "SetupTransport",
     "SetupTransportError",
+    "SetupProvisionError",
     "UniversalWindowsSetup",
 ]

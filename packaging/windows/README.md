@@ -14,7 +14,7 @@ evidence for the retained initial-runtime stage. From the repository root:
 
 ```powershell
 .\packaging\windows\build-msi.ps1 -Configuration Release -Platform x64 `
-  -InitialRuntimeManifest .\packaging\windows\initial-runtime-3.2.43.json `
+  -InitialRuntimeManifest .\packaging\windows\initial-runtime-3.2.44.json `
   -InitialRuntimeStageRoot <retained-runtime-stage> `
   -InitialRuntimeStageEvidence <stage-evidence.json> `
   -ApproveInitialRuntimeTransition -ApproveInitialRuntimeSourceChange
@@ -29,7 +29,7 @@ and paths inside the repository are rejected. The build has no parameter for
 enrollment or device material and does not read such input.
 
 The checked-in `initial-runtime.json` remains the immutable historical baseline.
-The reviewed `initial-runtime-3.2.43.json` transition pins the Windows Device
+The reviewed `initial-runtime-3.2.44.json` transition pins the Windows Device
 Context, universal enrollment setup, and WSS diagnostic-canary runtime with a new component GUID and must be built with both explicit
 approval switches shown above. Each manifest pins its runtime version,
 component GUID, canonical-LF source-file hashes, complete staged artifact tree identity,
@@ -142,17 +142,23 @@ build inputs or command-line arguments:
 .\packaging\windows\build-setup.ps1 `
   -EndpointOrigin https://endpoint.sosnadmin.local `
   -EndpointCaFile 'C:\path\to\sosnadmin-local-ca.crt' `
-  -InitialRuntimeManifest .\packaging\windows\initial-runtime-3.2.43.json `
+  -InitialRuntimeManifest .\packaging\windows\initial-runtime-3.2.44.json `
   -InitialRuntimeStageRoot <retained-runtime-stage> `
   -InitialRuntimeStageEvidence <stage-evidence.json> `
   -ApproveInitialRuntimeTransition -ApproveInitialRuntimeSourceChange
 ```
 
 The output is `EndpointAgentSetup-<version>-x64.exe` under the selected build
-root's `releases` directory, with an adjacent SHA-256 sidecar. Run it elevated;
-`--quiet` suppresses UI. It returns `0` after the enrollment request reaches
-completion, `10` for an already valid installation, and non-zero for a denied,
-timed-out, or repair-required setup.
+root's `releases` directory, with an adjacent `*.release.json` sidecar. The
+sidecar binds the Setup and embedded MSI SHA-256 values, source revision, Agent
+version, and Authenticode state. Supply an approved CurrentUser code-signing
+certificate thumbprint and optional HTTPS timestamp only at build time; neither
+certificate material nor enrollment authority is retained in the artifact.
+Without that input the sidecar reports `unsigned`, which is suitable only for a
+disposable test machine. Run the EXE elevated; `--quiet` suppresses UI but has
+the identical enrollment flow. It returns `0` only after server completion,
+`10` for an existing valid installation, and stable non-zero values for each
+documented denial, claim, provisioning, service, or repair outcome.
 
 ## Update handoff
 
