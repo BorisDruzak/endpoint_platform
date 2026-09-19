@@ -48,9 +48,15 @@ async def verify_enrollment_completion(
             request.app.state.settings.device_token_pepper,
         ):
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Enrollment request not found")
-        if record.device_id is None or record.status not in {
-            "device_registered", "waiting_wss", "completed"
-        }:
+        if record.status in {"claim_issued", "enrolling"}:
+            return PreEnrollmentRequestStatusV1(
+                schema_version="pre_enrollment_request_status_v1",
+                request_id=record.id,
+                status=record.status,
+                reason="WAITING_DEVICE_REGISTRATION",
+                expires_at=record.expires_at,
+            )
+        if record.device_id is None or record.status not in {"device_registered", "waiting_wss", "completed"}:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Enrollment request is not ready")
         if record.status != "completed":
             observed_at = func.coalesce(DeviceSession.last_seen_at, DeviceSession.created_at)

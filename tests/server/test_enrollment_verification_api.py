@@ -80,3 +80,19 @@ async def test_verification_completes_only_after_fresh_wss_and_baseline() -> Non
     assert response.status_code == 200
     assert response.json()["status"] == "completed"
     assert record.status == "completed"
+
+
+@pytest.mark.asyncio
+async def test_verification_reports_pending_device_registration_without_error() -> None:
+    device = Device(id=uuid4(), device_identifier="device-a", display_name="Office", retired_at=None)
+    record = EnrollmentRequest(
+        id=uuid4(), installation_id_digest="i", fingerprint_digest="f", request_capability_digest=request_capability_digest("a" * 43, PEPPER), platform="windows", hostname="office-pc", manufacturer=None, model=None, serial=None, product_uuid=None, macs=[], source_address="192.168.100.10", installer_version="1.0.0", installer_release_id="1.0.0", selected_campaign_id=uuid4(), status="claim_issued", decision_reason=None, decided_at=None, decided_by=None, device_id=None, updated_at=NOW, expires_at=NOW + timedelta(hours=1)
+    )
+    app = create_app(Settings(database_url="postgresql+asyncpg://unused@localhost/unused", public_base_url="https://endpoint.sosnadmin.local", device_token_pepper=PEPPER, service_token_pepper=b"service", session_secret=b"secret", allowed_agent_cidrs=(), allowed_admin_cidrs=(), artifact_root=Path("artifacts")), session_provider=_Provider(_Session(record, device)))
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="https://endpoint.sosnadmin.local") as client:
+        response = await client.post(f"/api/v1/enrollment/requests/{record.id}/verify", json={"request_capability": "a" * 43})
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "claim_issued"
+    assert response.json()["reason"] == "WAITING_DEVICE_REGISTRATION"

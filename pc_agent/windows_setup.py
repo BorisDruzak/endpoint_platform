@@ -24,6 +24,9 @@ _MAX_POLL_DURATION = timedelta(minutes=30)
 _TERMINAL_DENIAL_STATUSES = frozenset({"denied", "expired", "failed", "cancelled"})
 _AWAITING_STATUSES = frozenset({"waiting_approval", "review_required"})
 _APPROVED_STATUSES = frozenset({"auto_approved", "approved"})
+_COMPLETION_AWAITING_STATUSES = frozenset(
+    {"claim_issued", "enrolling", "device_registered", "waiting_wss"}
+)
 
 
 class SetupTransport(Protocol):
@@ -34,6 +37,8 @@ class SetupTransport(Protocol):
     def request_status(self, request_id: UUID, capability: str) -> dict[str, object]: ...
 
     def request_claim(self, request_id: UUID, proof: dict[str, str]) -> dict[str, object]: ...
+
+    def request_verification(self, request_id: UUID, capability: str) -> dict[str, object]: ...
 
 
 class SetupTransportError(RuntimeError):
@@ -58,6 +63,12 @@ class HttpsSetupTransport:
 
     def request_claim(self, request_id: UUID, proof: dict[str, str]) -> dict[str, object]:
         return self._post(f"/api/v1/enrollment/requests/{request_id}/claim", proof)
+
+    def request_verification(self, request_id: UUID, capability: str) -> dict[str, object]:
+        return self._post(
+            f"/api/v1/enrollment/requests/{request_id}/verify",
+            {"request_capability": capability},
+        )
 
     def _post(self, path: str, payload: dict[str, object]) -> dict[str, object]:
         request = Request(
@@ -183,7 +194,20 @@ class UniversalWindowsSetup:
         if not isinstance(claim, str) or not claim.startswith("ic_"):
             raise ValueError("setup received an invalid enrollment claim")
         self.provision_claim(claim)
-        return SetupOutcome("provisioned", request_id=request_id)
+        while True:
+            completion_response = self.transport.request_verification(request_id, capability)
+            completion_state = _state(completion_response)
+            if completion_state == "completed":
+                return SetupOutcome("provisioned", request_id=request_id)
+            if completion_state in _TERMINAL_DENIAL_STATUSES:
+                return SetupOutcome(
+                    "denied", request_id=request_id, reason=_reason(completion_response)
+                )
+            if completion_state not in _COMPLETION_AWAITING_STATUSES:
+                raise ValueError("setup received an invalid completion status")
+            if self.clock().astimezone(UTC) >= deadline:
+                return SetupOutcome("timed_out", request_id=request_id, reason="WAITING_WSS")
+            self.sleep(_POLL_INTERVAL_SECONDS)
 
 
 def _request_id(payload: dict[str, object]) -> UUID:

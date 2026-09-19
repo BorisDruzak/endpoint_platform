@@ -14,6 +14,7 @@ class _Transport:
         self.created: list[dict[str, object]] = []
         self.status_proofs: list[tuple[UUID, str]] = []
         self.claim_proofs: list[tuple[UUID, dict[str, str]]] = []
+        self.verification_proofs: list[tuple[UUID, str]] = []
 
     def create_request(self, body: dict[str, object]) -> dict[str, object]:
         self.created.append(body)
@@ -29,6 +30,10 @@ class _Transport:
     def request_claim(self, request_id: UUID, proof: dict[str, str]) -> dict[str, object]:
         self.claim_proofs.append((request_id, proof))
         return {"claim": "ic_claim-marker", "expires_at": "2026-09-19T12:15:00Z"}
+
+    def request_verification(self, request_id: UUID, capability: str) -> dict[str, object]:
+        self.verification_proofs.append((request_id, capability))
+        return {"status": "completed"}
 
 
 def test_auto_setup_never_selects_campaign_and_provisions_claim_from_memory() -> None:
@@ -66,5 +71,8 @@ def test_auto_setup_never_selects_campaign_and_provisions_claim_from_memory() ->
                 "hardware_fingerprint": "sha256:windows-fingerprint-v1",
             },
         )
+    ]
+    assert transport.verification_proofs == [
+        (UUID("6bbc8a59-8429-42f5-9687-36153cd89844"), "a" * 43)
     ]
     assert "ic_claim-marker" not in repr(outcome)
