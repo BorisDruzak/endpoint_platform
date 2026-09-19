@@ -2,7 +2,13 @@ from datetime import UTC, datetime, timedelta
 from ipaddress import ip_address
 
 from endpoint_server.enrollment.campaigns import issue_campaign
-from endpoint_server.enrollment.requests import evaluate_campaign_selection
+from endpoint_server.enrollment.requests import (
+    RequestTransitionError,
+    request_capability_matches,
+    request_capability_digest,
+    evaluate_campaign_selection,
+    transition_request_status,
+)
 
 
 NOW = datetime(2026, 9, 19, 12, tzinfo=UTC)
@@ -70,3 +76,27 @@ def test_selection_requires_review_for_overlap_without_implicit_tiebreak() -> No
     assert selected.status == "review_required"
     assert selected.campaign is None
     assert selected.reason == "AMBIGUOUS_CAMPAIGN"
+
+
+def test_request_transition_allows_only_approval_and_claim_lifecycle() -> None:
+    assert transition_request_status("waiting_approval", "claim_issued")
+    assert transition_request_status("review_required", "denied")
+    assert transition_request_status("claim_issued", "enrolling")
+    assert transition_request_status("device_registered", "waiting_wss")
+    assert transition_request_status("waiting_wss", "completed")
+
+    try:
+        transition_request_status("denied", "claim_issued")
+    except RequestTransitionError:
+        pass
+    else:
+        raise AssertionError("terminal denied request must not issue a claim")
+
+
+def test_request_capability_is_hmac_bound_and_constant_time_comparable() -> None:
+    capability = "a" * 43
+    digest = request_capability_digest(capability, PEPPER)
+
+    assert digest != capability
+    assert request_capability_matches(capability, digest, PEPPER)
+    assert not request_capability_matches("b" * 43, digest, PEPPER)
