@@ -123,6 +123,20 @@ def test_issue_campaign_returns_32_byte_secret_and_persists_only_digest() -> Non
     }.intersection(EnrollmentCampaign.__table__.columns.keys())
 
 
+def test_windows_campaign_rejects_a_partial_universal_setup_policy() -> None:
+    """A policy that opts into Setup cannot omit its selection authority."""
+    with pytest.raises(ValueError, match="Windows enrollment policy"):
+        issue_campaign(
+            PEPPER,
+            expires_at=NOW + timedelta(hours=1),
+            max_uses=1,
+            allowed_cidrs=("192.168.100.0/24",),
+            target_platform="windows",
+            policy={"enrollment_mode": "auto", "policy_id": "windows-office-v1"},
+            now=NOW,
+        )
+
+
 def test_claim_issuance_rejects_inactive_or_exhausted_campaign() -> None:
     """Issuing a claim from unavailable campaign state would bypass its bounds."""
     campaign = issue_campaign(
