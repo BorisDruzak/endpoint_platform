@@ -154,13 +154,13 @@ if ($hasExistingMsi -ne $hasExistingMsiManifest) {
 }
 $msiSourceCommit = $sourceCommit
 if ($hasExistingMsi) {
-    $existingMsi = Resolve-VerifiedExistingMsi `
+    $verifiedExistingMsi = Resolve-VerifiedExistingMsi `
         -MsiPath $ExistingMsi `
         -ReleaseManifestPath $ExistingMsiReleaseManifest `
         -ExpectedVersion $Version
     New-Item -ItemType Directory -Path (Split-Path -Parent $msiPath) -Force | Out-Null
-    Copy-Item -LiteralPath ([string]$existingMsi.Path) -Destination $msiPath -Force
-    $msiSourceCommit = [string]$existingMsi.SourceCommit
+    Copy-Item -LiteralPath ([string]$verifiedExistingMsi.Path) -Destination $msiPath -Force
+    $msiSourceCommit = [string]$verifiedExistingMsi.SourceCommit
 }
 else {
     & (Join-Path $PSScriptRoot 'build-msi.ps1') @msiParameters

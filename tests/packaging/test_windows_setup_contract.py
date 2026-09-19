@@ -37,6 +37,7 @@ def test_setup_builder_binds_the_exact_msi_and_public_ca_without_secrets() -> No
     assert "Existing MSI and release manifest must be supplied together." in source
     assert "Existing MSI SHA-256 does not match its release manifest." in source
     assert "msi_source_commit" in source
+    assert "$verifiedExistingMsi = Resolve-VerifiedExistingMsi" in source
     assert "Assert-SecretFreeSetupArtifact" in source
     assert "$msiParameters = @{" in source
     assert "build-msi.ps1') @msiParameters" in source
