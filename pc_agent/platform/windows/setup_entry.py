@@ -11,10 +11,12 @@ import sys
 from collections.abc import Sequence
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from pc_agent.core.device_fingerprint import collect_device_fingerprint
+from pc_agent.device_credential import read_device_credential
 from pc_agent.enrollment_bootstrap import _derive_hardware_fingerprint
+from pc_agent.enrollment_identity import ENROLLMENT_IDENTITY_FILENAME, read_enrollment_device_id
 from pc_agent.windows_setup import HttpsSetupTransport, SetupConfig, UniversalWindowsSetup
 
 
@@ -85,6 +87,22 @@ def _data_root() -> Path:
     return Path(program_data) / "Endpoint Platform" / "Agent"
 
 
+def _classify_installation_state(data_root: Path) -> Literal["clean", "valid", "conflicted"]:
+    """Fail closed before a rerun can overwrite enrollment-owned local state."""
+    credential = data_root / "device-credential"
+    identity = data_root / ENROLLMENT_IDENTITY_FILENAME
+    if not credential.exists() and not identity.exists():
+        return "clean"
+    if not credential.is_file() or not identity.is_file():
+        return "conflicted"
+    try:
+        read_device_credential(credential)
+        read_enrollment_device_id(identity)
+    except ValueError:
+        return "conflicted"
+    return "valid"
+
+
 def _inventory() -> dict[str, object]:
     return {"hostname": socket.gethostname(), "macs": []}
 
@@ -107,6 +125,14 @@ def _provisioner_command(
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = _parser().parse_args(argv)
+    installation_state = _classify_installation_state(_data_root())
+    if installation_state == "valid":
+        if not args.quiet:
+            print("Windows Setup: already_installed")
+        return 10
+    if installation_state == "conflicted":
+        print("Windows Setup failed: RepairRequired", file=sys.stderr)
+        return 60
     resources = _resource_root()
     try:
         public_config = _read_public_setup_config(resources / "setup-config.json")

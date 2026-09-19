@@ -35,6 +35,7 @@ def test_setup_entry_installs_embedded_msi_before_enrollment(
     observed_config: list[object] = []
 
     monkeypatch.setattr(setup_entry, "_resource_root", lambda: tmp_path)
+    monkeypatch.setattr(setup_entry, "_data_root", lambda: tmp_path / "agent-data")
     monkeypatch.setattr(
         setup_entry,
         "_install_embedded_msi",
@@ -80,3 +81,21 @@ def test_setup_entry_rejects_config_that_contains_extra_material(tmp_path: Path)
 
     with pytest.raises(ValueError, match="configuration is invalid"):
         setup_entry._read_public_setup_config(tmp_path / "setup-config.json")
+
+
+def test_setup_state_classifies_a_valid_identity_and_credential(tmp_path: Path) -> None:
+    identity = tmp_path / "enrollment-identity.json"
+    credential = tmp_path / "device-credential"
+    identity.write_text(
+        '{"device_id":"550e8400-e29b-41d4-a716-446655440000","schema_version":"endpoint_enrollment_identity_v1"}',
+        encoding="ascii",
+    )
+    credential.write_text("a" * 43, encoding="ascii")
+
+    assert setup_entry._classify_installation_state(tmp_path) == "valid"
+
+
+def test_setup_state_fails_closed_for_incomplete_enrollment_material(tmp_path: Path) -> None:
+    (tmp_path / "device-credential").write_text("a" * 43, encoding="ascii")
+
+    assert setup_entry._classify_installation_state(tmp_path) == "conflicted"
