@@ -31,6 +31,11 @@ def test_setup_builder_binds_the_exact_msi_and_public_ca_without_secrets() -> No
     assert "Get-AuthenticodeSignature" in source
     assert "Set-SetupAuthenticodeSignature -Path $msiPath" in source
     assert "Set-SetupAuthenticodeSignature -Path $releaseSetup" in source
+    assert "$releaseMsi = Join-Path $releaseRoot \"EndpointAgent-$Version-x64.msi\"" in source
+    assert "Copy-Item -LiteralPath $msiPath -Destination $releaseMsi -Force" in source
+    assert "$msiSignature = Get-AuthenticodeSignature -FilePath $releaseMsi" in source
+    assert "$msiSha256 = (Get-FileHash -LiteralPath $releaseMsi -Algorithm SHA256)" in source
+    assert "$releaseMsiManifest.package_sha256 = $releaseMsiSha256" in source
     assert "$verified = Get-AuthenticodeSignature -FilePath $Path" in source
     assert "Authenticode timestamp failed." in source
     assert "msi_authenticode_status" in source

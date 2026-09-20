@@ -151,6 +151,8 @@ $effectiveWixBuildRoot = if ($WixBuildRoot) {
     Join-Path ([IO.Path]::GetPathRoot($repositoryRoot)) "endpoint-platform-wix-build\$Configuration-$Platform"
 }
 $msiPath = Join-Path $effectiveWixBuildRoot "output\EndpointAgent-$Version-x64.msi"
+$releaseRoot = Join-Path $effectiveWixBuildRoot 'releases'
+New-Item -ItemType Directory -Path $releaseRoot -Force | Out-Null
 $hasExistingMsi = -not [string]::IsNullOrWhiteSpace($ExistingMsi)
 $hasExistingMsiManifest = -not [string]::IsNullOrWhiteSpace($ExistingMsiReleaseManifest)
 if ($hasExistingMsi -ne $hasExistingMsiManifest) {
@@ -172,13 +174,24 @@ else {
 }
 if (-not (Test-Path -LiteralPath $msiPath -PathType Leaf)) { throw "MSI output is missing." }
 Set-SetupAuthenticodeSignature -Path $msiPath -Thumbprint $CodeSigningCertificateThumbprint -Timestamp $TimestampServer
+$releaseMsi = Join-Path $releaseRoot "EndpointAgent-$Version-x64.msi"
+Copy-Item -LiteralPath $msiPath -Destination $releaseMsi -Force
+$releaseMsiSha256 = (Get-FileHash -LiteralPath $releaseMsi -Algorithm SHA256).Hash.ToLowerInvariant()
+$releaseMsiManifestPath = Join-Path $releaseRoot "EndpointAgent-$Version-x64.release.json"
+if (Test-Path -LiteralPath $releaseMsiManifestPath -PathType Leaf) {
+    $releaseMsiManifest = Get-Content -LiteralPath $releaseMsiManifestPath -Raw | ConvertFrom-Json
+    if (-not ($releaseMsiManifest.PSObject.Properties.Name -contains 'package_sha256')) {
+        throw "MSI release manifest is missing package_sha256."
+    }
+    $releaseMsiManifest.package_sha256 = $releaseMsiSha256
+    Write-Utf8NoBom $releaseMsiManifestPath ($releaseMsiManifest | ConvertTo-Json -Compress)
+}
 
 $setupRoot = Join-Path $effectiveWixBuildRoot 'setup'
 if (Test-Path -LiteralPath $setupRoot) { Remove-Item -LiteralPath $setupRoot -Recurse -Force }
 $payloadRoot = Join-Path $setupRoot 'payload'
 $distRoot = Join-Path $setupRoot 'dist'
 $workRoot = Join-Path $setupRoot 'work'
-$releaseRoot = Join-Path $effectiveWixBuildRoot 'releases'
 New-Item -ItemType Directory -Path $payloadRoot, $distRoot, $workRoot, $releaseRoot -Force | Out-Null
 $setupMsi = Join-Path $payloadRoot 'EndpointAgent.msi'
 $setupCa = Join-Path $payloadRoot 'endpoint-ca.crt'
@@ -224,7 +237,7 @@ $authenticodePublisher = if ($signature.SignerCertificate) {
 } else {
     $null
 }
-$msiSignature = Get-AuthenticodeSignature -FilePath $msiPath
+$msiSignature = Get-AuthenticodeSignature -FilePath $releaseMsi
 $msiAuthenticodeStatus = switch ($msiSignature.Status.ToString()) {
     'Valid' { 'valid' }
     'NotSigned' { 'unsigned' }
@@ -236,7 +249,7 @@ $msiAuthenticodePublisher = if ($msiSignature.SignerCertificate) {
     $null
 }
 $setupSha256 = (Get-FileHash -LiteralPath $releaseSetup -Algorithm SHA256).Hash.ToLowerInvariant()
-$msiSha256 = (Get-FileHash -LiteralPath $msiPath -Algorithm SHA256).Hash.ToLowerInvariant()
+$msiSha256 = (Get-FileHash -LiteralPath $releaseMsi -Algorithm SHA256).Hash.ToLowerInvariant()
 Write-Utf8NoBom (Join-Path $releaseRoot "EndpointAgentSetup-$Version-x64.release.json") (@{
     schema_version = 'endpoint_windows_setup_release_v1'
     version = $Version
