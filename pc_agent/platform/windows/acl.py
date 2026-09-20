@@ -11,6 +11,7 @@ from typing import Protocol
 
 SYSTEM_PRINCIPAL = "SYSTEM"
 ADMINISTRATORS_PRINCIPAL = "Administrators"
+LOCAL_SERVICE_PRINCIPAL = "LOCAL SERVICE"
 SERVICE_PRINCIPAL = "NT SERVICE\\EndpointAgent"
 UPDATER_PRINCIPAL = "NT SERVICE\\EndpointAgentUpdater"
 USERS_PRINCIPAL = "Users"
@@ -70,7 +71,9 @@ OPERATOR_DIAGNOSTICS_ACL = (
 TRAY_STATUS_ACL = (
     AccessRule(SYSTEM_PRINCIPAL, "full_control"),
     AccessRule(ADMINISTRATORS_PRINCIPAL, "full_control"),
-    AccessRule(SERVICE_PRINCIPAL, "modify"),
+    # The runtime runs as LocalService.  Its well-known SID is available even
+    # while an MSI deferred action cannot resolve a virtual service account.
+    AccessRule(LOCAL_SERVICE_PRINCIPAL, "modify"),
     AccessRule(USERS_PRINCIPAL, "read"),
 )
 
@@ -176,6 +179,8 @@ class PyWin32AclAdapter:
                     sid = win32security.ConvertStringSidToSid("S-1-5-18")
                 elif rule.principal == ADMINISTRATORS_PRINCIPAL:
                     sid = win32security.ConvertStringSidToSid("S-1-5-32-544")
+                elif rule.principal == LOCAL_SERVICE_PRINCIPAL:
+                    sid = win32security.ConvertStringSidToSid("S-1-5-19")
                 elif rule.principal == USERS_PRINCIPAL:
                     sid = win32security.ConvertStringSidToSid("S-1-5-32-545")
                 else:
@@ -385,6 +390,8 @@ def apply_tray_status_acl() -> None:
                 sid = win32security.ConvertStringSidToSid("S-1-5-18")
             elif rule.principal == ADMINISTRATORS_PRINCIPAL:
                 sid = win32security.ConvertStringSidToSid("S-1-5-32-544")
+            elif rule.principal == LOCAL_SERVICE_PRINCIPAL:
+                sid = win32security.ConvertStringSidToSid("S-1-5-19")
             else:
                 sid, _domain, _kind = win32security.LookupAccountName(
                     None, rule.principal
@@ -430,6 +437,7 @@ __all__ = [
     "CREDENTIAL_ACL",
     "DIRECTORY_ACL",
     "EXPECTED_PRINCIPALS",
+    "LOCAL_SERVICE_PRINCIPAL",
     "PyWin32AclAdapter",
     "SERVICE_PRINCIPAL",
     "SYSTEM_PRINCIPAL",

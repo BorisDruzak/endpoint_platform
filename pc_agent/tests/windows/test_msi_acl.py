@@ -164,6 +164,30 @@ def test_installer_diagnostics_are_readable_but_not_user_writable(
     ]
 
 
+def test_tray_status_acl_uses_localservice_well_known_sid(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """MSI must not resolve a service name while securing the public tray path."""
+    from pc_agent.platform.windows.acl import PyWin32AclAdapter
+
+    security = _Security()
+    monkeypatch.setattr(
+        PyWin32AclAdapter,
+        "_modules",
+        staticmethod(lambda: (security, _Rights)),
+    )
+
+    PyWin32AclAdapter().protect_tray_status_directory(tmp_path / "Tray")
+
+    assert security.lookups == []
+    assert security.acl.aces == [
+        (3, 0x1, "S-1-5-18"),
+        (3, 0x1, "S-1-5-32-544"),
+        (3, 0xE, "S-1-5-19"),
+        (3, 0x2, "S-1-5-32-545"),
+    ]
+
+
 def test_msi_acl_rejects_a_reparse_target_before_privileged_write(
     tmp_path: Path,
 ) -> None:
