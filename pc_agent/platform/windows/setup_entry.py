@@ -48,6 +48,11 @@ _INSTALL_RESULT_FILENAME = "install-result.json"
 _PROVISIONER_ERROR = re.compile(
     r"^Windows provisioning failed: ([A-Za-z][A-Za-z0-9_]{0,63})$"
 )
+_SEMVER = re.compile(
+    r"^(?P<major>0|[1-9][0-9]*)\.(?P<minor>0|[1-9][0-9]*)\."
+    r"(?P<patch>0|[1-9][0-9]*)(?:-(?P<pre>[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?"
+    r"(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$"
+)
 
 
 class SetupInstallError(RuntimeError):
@@ -127,6 +132,57 @@ def _installed_provisioner() -> Path:
 def _data_root() -> Path:
     program_data = os.environ.get("ProgramData", r"C:\ProgramData")
     return Path(program_data) / "Endpoint Platform" / "Agent"
+
+
+def _installed_runtime_version() -> str | None:
+    """Read the fixed selector version without treating arbitrary files as state."""
+    program_files = os.environ.get("ProgramW6432") or os.environ.get("ProgramFiles")
+    if not program_files:
+        return None
+    path = Path(program_files) / "Endpoint Platform" / "Agent" / "current.json"
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(payload, dict) or set(payload) not in (
+        {"version"}, {"schema_version", "source_revision", "version"},
+    ):
+        return None
+    version = payload.get("version")
+    return version if isinstance(version, str) and _SEMVER.fullmatch(version) else None
+
+
+def _is_strictly_newer_version(candidate: str, installed: str) -> bool:
+    """Compare public SemVer installer releases without accepting malformed input."""
+    candidate_match = _SEMVER.fullmatch(candidate)
+    installed_match = _SEMVER.fullmatch(installed)
+    if candidate_match is None or installed_match is None:
+        return False
+    candidate_core = tuple(int(candidate_match.group(name)) for name in ("major", "minor", "patch"))
+    installed_core = tuple(int(installed_match.group(name)) for name in ("major", "minor", "patch"))
+    if candidate_core != installed_core:
+        return candidate_core > installed_core
+    return _compare_prerelease(candidate_match.group("pre"), installed_match.group("pre")) > 0
+
+
+def _compare_prerelease(candidate: str | None, installed: str | None) -> int:
+    if candidate is None:
+        return 0 if installed is None else 1
+    if installed is None:
+        return -1
+    for left, right in zip(candidate.split("."), installed.split(".")):
+        if left == right:
+            continue
+        if left.isdigit() and right.isdigit():
+            return 1 if int(left) > int(right) else -1
+        if left.isdigit():
+            return -1
+        if right.isdigit():
+            return 1
+        return 1 if left > right else -1
+    return (len(candidate.split(".")) > len(installed.split("."))) - (
+        len(candidate.split(".")) < len(installed.split("."))
+    )
 
 
 def _diagnostics_root() -> Path:
@@ -316,7 +372,7 @@ def _show_result_dialog(status: str, code: int, detail: str) -> None:
     """Show a normal Windows result dialog without opening a console window."""
     if os.name != "nt":
         return
-    if status in {"COMPLETED", "REPAIRED", "ALREADY_INSTALLED"}:
+    if status in {"COMPLETED", "REPAIRED", "UPDATED", "ALREADY_INSTALLED"}:
         message = "Endpoint Agent установлен и служба EndpointAgent запущена."
         icon = 0x40  # MB_ICONINFORMATION
     elif status in {"WAITING_APPROVAL", "REVIEW_REQUIRED"}:
@@ -424,24 +480,6 @@ def main(argv: Sequence[str] | None = None) -> int:
     installation_state = _classify_installation_state(
         data_root, service_installed=_agent_service_installed()
     )
-    if installation_state == "valid":
-        if not _wait_for_agent_service_running():
-            return _complete(
-                args,
-                data_root,
-                status="SERVICE_FAILED",
-                code=EXIT_SERVICE_FAILED,
-                stage="SERVICE",
-                detail="SERVICE_NOT_RUNNING",
-            )
-        return _complete(
-            args,
-            data_root,
-            status="ALREADY_INSTALLED",
-            code=EXIT_ALREADY_INSTALLED,
-            stage="SERVICE",
-            detail="SERVICE_RUNNING",
-        )
     if installation_state == "conflicted":
         return _complete(
             args,
@@ -461,7 +499,6 @@ def main(argv: Sequence[str] | None = None) -> int:
             installer_release_id=public_config["installer_release_id"],
         )
         config.validate()
-        transport = HttpsSetupTransport(config.endpoint_origin, config.ca_file)
     except Exception:
         return _complete(
             args,
@@ -471,6 +508,50 @@ def main(argv: Sequence[str] | None = None) -> int:
             stage="PREFLIGHT",
             detail="PREFLIGHT_INVALID",
         )
+    if installation_state == "valid":
+        installed_version = _installed_runtime_version()
+        if installed_version is None:
+            return _complete(
+                args,
+                data_root,
+                status="REPAIR_REQUIRED",
+                code=EXIT_REPAIR_REQUIRED,
+                stage="SETUP",
+                detail="LOCAL_RUNTIME_CONFLICT",
+            )
+        if _is_strictly_newer_version(config.installer_version, installed_version):
+            _finish(data_root, status="STARTED", code=EXIT_SUCCESS, stage="MSI", detail="STARTED")
+            try:
+                _install_embedded_msi(resources / "EndpointAgent.msi")
+            except SetupInstallError as error:
+                return _complete(
+                    args, data_root, status="INSTALL_FAILED", code=EXIT_INSTALL_FAILED,
+                    stage="MSI", detail=error.detail,
+                )
+            except Exception:
+                return _complete(
+                    args, data_root, status="INSTALL_FAILED", code=EXIT_INSTALL_FAILED,
+                    stage="MSI", detail="MSI_INSTALL_FAILED",
+                )
+            if not _wait_for_agent_service_running():
+                return _complete(
+                    args, data_root, status="SERVICE_FAILED", code=EXIT_SERVICE_FAILED,
+                    stage="SERVICE", detail="SERVICE_NOT_RUNNING",
+                )
+            return _complete(
+                args, data_root, status="UPDATED", code=EXIT_SUCCESS,
+                stage="SERVICE", detail="SERVICE_RUNNING",
+            )
+        if not _wait_for_agent_service_running():
+            return _complete(
+                args, data_root, status="SERVICE_FAILED", code=EXIT_SERVICE_FAILED,
+                stage="SERVICE", detail="SERVICE_NOT_RUNNING",
+            )
+        return _complete(
+            args, data_root, status="ALREADY_INSTALLED", code=EXIT_ALREADY_INSTALLED,
+            stage="SERVICE", detail="SERVICE_RUNNING",
+        )
+    transport = HttpsSetupTransport(config.endpoint_origin, config.ca_file)
     _finish(data_root, status="STARTED", code=EXIT_SUCCESS, stage="MSI", detail="STARTED")
     try:
         _install_embedded_msi(resources / "EndpointAgent.msi")
