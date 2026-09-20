@@ -504,7 +504,7 @@ def test_msi_inspection_releases_com_handles_before_hashing_and_signing() -> Non
     inspection = script.index("function Export-MsiInspection")
     hash_msi = script.index("$packageSha256 = (Get-FileHash")
 
-    assert "$database.Close()" in script[inspection:hash_msi]
+    assert "$database.Close()" not in script[inspection:hash_msi]
     assert "[Runtime.InteropServices.Marshal]::FinalReleaseComObject($database)" in script[
         inspection:hash_msi
     ]

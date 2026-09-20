@@ -247,7 +247,6 @@ function Export-MsiInspection {
     }
     finally {
         if ($database) {
-            [void]$database.Close()
             [void][Runtime.InteropServices.Marshal]::FinalReleaseComObject($database)
         }
         if ($installer) {
