@@ -174,6 +174,7 @@ def _default_dependencies(
         create_connected_tasks=create_connected_tasks,
         create_completion_sink=_create_completion_sink,
         create_canary_status_writer=_create_canary_status_writer,
+        create_tray_status_writer=_create_tray_status_writer,
     )
 
 
@@ -212,6 +213,15 @@ def _create_canary_status_writer(settings: object):
         {"version": AGENT_VERSION, "source_revision": payload["source_revision"]},
         urlsplit(settings.endpoint_origin).hostname or "",
     )
+
+
+def _create_tray_status_writer(settings: object):
+    """The unprivileged tray receives only a local, fixed Windows projection."""
+    if os.name != "nt" or not isinstance(settings, RuntimeSettings):
+        return None
+    from pc_agent.platform.windows.tray_status import TrayStatusWriter
+
+    return TrayStatusWriter(settings.data_root, AGENT_VERSION)
 
 
 def _create_completion_sink(settings: object):

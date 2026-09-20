@@ -63,6 +63,19 @@ class CanaryStatusWriter(Protocol):
     def write_wss_ready(self) -> None: ...
 
 
+class TrayStatusWriter(Protocol):
+    """Bounded, local-only Windows status projection for the user tray."""
+
+    def publish(
+        self,
+        *,
+        agent_state: str,
+        endpoint_state: str,
+        update_state: str,
+        reason_code: str | None = None,
+    ) -> None: ...
+
+
 def _compatibility_hello(_settings: object) -> AgentHelloV1:
     return compatibility_agent_hello()
 
@@ -85,6 +98,10 @@ def _no_canary_status_writer(_settings: object) -> CanaryStatusWriter | None:
     return None
 
 
+def _no_tray_status_writer(_settings: object) -> TrayStatusWriter | None:
+    return None
+
+
 @dataclass(frozen=True, slots=True)
 class RuntimeDependencies:
     load_credential: Callable[[object], str]
@@ -102,6 +119,9 @@ class RuntimeDependencies:
     ] = _no_completion_sink
     create_canary_status_writer: Callable[[object], CanaryStatusWriter | None] = (
         _no_canary_status_writer
+    )
+    create_tray_status_writer: Callable[[object], TrayStatusWriter | None] = (
+        _no_tray_status_writer
     )
     reconnect_delay: float = 5.0
 
@@ -138,12 +158,25 @@ class RuntimeLifecycle:
             return 1
         executor_started = False
         terminal_phase: RuntimePhase | None = None
+        tray_status_writer: TrayStatusWriter | None = None
         try:
             await executor.start()
             executor_started = True
             completion_sink = self._dependencies.create_completion_sink(self._settings)
             canary_status_writer = self._dependencies.create_canary_status_writer(
                 self._settings
+            )
+            try:
+                tray_status_writer = self._dependencies.create_tray_status_writer(
+                    self._settings
+                )
+            except Exception:
+                tray_status_writer = None
+            _publish_tray_status(
+                tray_status_writer,
+                agent_state="starting",
+                endpoint_state="connecting",
+                update_state="unknown",
             )
             while True:
                 transport = self._dependencies.create_transport(
@@ -158,6 +191,12 @@ class RuntimeLifecycle:
                     self._status.transition(RuntimePhase.RUNNING)
                     if canary_status_writer is not None:
                         canary_status_writer.write_wss_ready()
+                    _publish_tray_status(
+                        tray_status_writer,
+                        agent_state="running",
+                        endpoint_state="connected",
+                        update_state="up_to_date",
+                    )
                     await self._dependencies.after_server_handshake(self._settings)
                     connected_tasks = self._dependencies.create_connected_tasks(
                         self._settings, credential, transport
@@ -178,25 +217,64 @@ class RuntimeLifecycle:
                     code = error.code if isinstance(error.code, int) else 1
                     if code == EXIT_UPDATE_PENDING:
                         terminal_phase = RuntimePhase.UPDATE_PENDING
+                        _publish_tray_status(
+                            tray_status_writer,
+                            agent_state="running",
+                            endpoint_state="connected",
+                            update_state="pending",
+                        )
                         return code
                     terminal_phase = RuntimePhase.FAILED
+                    _publish_tray_status(
+                        tray_status_writer,
+                        agent_state="error",
+                        endpoint_state="unknown",
+                        update_state="unknown",
+                        reason_code="RUNTIME_EXIT",
+                    )
                     return code
                 except CredentialRejected as error:
                     terminal_phase = RuntimePhase.CREDENTIAL_REJECTED
                     self._status.transition(terminal_phase, error=error)
+                    _publish_tray_status(
+                        tray_status_writer,
+                        agent_state="error",
+                        endpoint_state="unknown",
+                        update_state="unknown",
+                        reason_code="CREDENTIAL_REJECTED",
+                    )
                     return 75
                 except RetryableTransportError as error:
                     if canary_status_writer is not None:
                         canary_status_writer.write_not_ready()
                     self._status.record_reconnect(error)
+                    _publish_tray_status(
+                        tray_status_writer,
+                        agent_state="running",
+                        endpoint_state="disconnected",
+                        update_state="up_to_date",
+                    )
                     next_delay = self._dependencies.reconnect_delay
                 except TerminalTransportError as error:
                     terminal_phase = RuntimePhase.FAILED
                     self._status.transition(terminal_phase, error=error)
+                    _publish_tray_status(
+                        tray_status_writer,
+                        agent_state="error",
+                        endpoint_state="unknown",
+                        update_state="unknown",
+                        reason_code="TRANSPORT_TERMINAL",
+                    )
                     return 1
                 except asyncio.CancelledError:
                     terminal_phase = RuntimePhase.STOPPED
                     self._status.transition(RuntimePhase.STOPPING)
+                    _publish_tray_status(
+                        tray_status_writer,
+                        agent_state="stopped",
+                        endpoint_state="unknown",
+                        update_state="up_to_date",
+                    )
                     return 0
                 except GatewayIdle as idle:
                     if canary_status_writer is not None:
@@ -211,12 +289,41 @@ class RuntimeLifecycle:
         except Exception as error:
             terminal_phase = RuntimePhase.FAILED
             self._status.transition(terminal_phase, error=error)
+            _publish_tray_status(
+                tray_status_writer,
+                agent_state="error",
+                endpoint_state="unknown",
+                update_state="unknown",
+                reason_code="RUNTIME_FAILURE",
+            )
             return 1
         finally:
             if executor_started:
                 await _cleanup(executor.stop)
             if terminal_phase is not None:
                 self._status.transition(terminal_phase)
+
+
+def _publish_tray_status(
+    writer: TrayStatusWriter | None,
+    *,
+    agent_state: str,
+    endpoint_state: str,
+    update_state: str,
+    reason_code: str | None = None,
+) -> None:
+    """A user-facing projection must never affect the headless agent lifecycle."""
+    if writer is None:
+        return
+    try:
+        writer.publish(
+            agent_state=agent_state,
+            endpoint_state=endpoint_state,
+            update_state=update_state,
+            reason_code=reason_code,
+        )
+    except Exception:
+        logger.warning("could not publish Windows tray status", exc_info=True)
 
 
 async def _cleanup(action: Callable[[], Awaitable[None]]) -> None:

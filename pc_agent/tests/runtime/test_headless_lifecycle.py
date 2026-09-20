@@ -32,10 +32,11 @@ from pc_agent.primitives.network.policy import AgentNetworkProbePolicy
 from pc_agent.runtime.lifecycle import (
     CredentialRejected,
     RetryableTransportError,
+    RuntimeLifecycle,
     _handle_inbound,
 )
 from pc_agent.transport.protocol import GatewayInboundV1
-from pc_agent.runtime.status import RuntimePhase
+from pc_agent.runtime.status import RuntimePhase, RuntimeStatus
 from pc_agent.tests.context.conftest import FakeProbe
 from pc_agent.transport.protocol import compatibility_agent_hello
 from pc_agent.version import AGENT_VERSION, EXIT_UPDATE_PENDING
@@ -211,6 +212,7 @@ def _dependencies(
     outcomes: list[BaseException | None],
     *,
     sleeps: list[float] | None = None,
+    tray_status_writer: object | None = None,
 ) -> RuntimeDependencies:
     def load_credential(_settings: RuntimeSettings) -> str:
         events.append("credential.load")
@@ -235,8 +237,47 @@ def _dependencies(
         create_executor=create_executor,
         create_transport=create_transport,
         sleep=sleep,
+        create_tray_status_writer=lambda _settings: tray_status_writer,
         reconnect_delay=0.25,
     )
+
+
+class _TrayStatusWriter:
+    def __init__(self) -> None:
+        self.events: list[tuple[str, str, str, str | None]] = []
+
+    def publish(
+        self,
+        *,
+        agent_state: str,
+        endpoint_state: str,
+        update_state: str,
+        reason_code: str | None = None,
+    ) -> None:
+        self.events.append((agent_state, endpoint_state, update_state, reason_code))
+
+
+@pytest.mark.asyncio
+async def test_runtime_projects_connected_and_retrying_tray_states(
+    tmp_path: Path,
+) -> None:
+    events: list[str] = []
+    tray_status_writer = _TrayStatusWriter()
+    lifecycle = RuntimeLifecycle(
+        _settings(tmp_path),
+        _dependencies(
+            events,
+            [RetryableTransportError("temporary"), None],
+            tray_status_writer=tray_status_writer,
+        ),
+        RuntimeStatus(),
+    )
+
+    assert await lifecycle.run() == 0
+    assert ("starting", "connecting", "unknown", None) in tray_status_writer.events
+    assert ("running", "disconnected", "up_to_date", None) in tray_status_writer.events
+    assert ("running", "connected", "up_to_date", None) in tray_status_writer.events
+    assert tray_status_writer.events[-1] == ("stopped", "unknown", "up_to_date", None)
 
 
 @pytest.mark.asyncio

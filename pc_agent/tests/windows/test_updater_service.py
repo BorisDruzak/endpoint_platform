@@ -324,6 +324,44 @@ def test_updater_records_a_rejected_handoff_for_the_reconnected_agent(
     }
 
 
+def test_updater_projects_applying_then_failed_without_artifact_detail(
+    tmp_path: Path,
+) -> None:
+    from pc_agent.platform.windows.updater_service import WindowsUpdater
+
+    paths = _paths(tmp_path)
+    artifact = paths.downloads_root / "candidate.zip"
+    artifact.parent.mkdir(parents=True)
+    artifact.write_bytes(b"not a ZIP")
+    _pending(paths, artifact)
+    paths.install_root.mkdir(parents=True)
+    paths.current_path.write_text('{"version":"3.1.9"}', encoding="utf-8")
+    events: list[tuple[str, str, str, str | None]] = []
+
+    class _Service:
+        def stop(self): pass
+        def start(self): pass
+        def wait_stopped(self): return True
+        def crashed_early(self): return False
+
+    class _TrayStatusWriter:
+        def publish(self, *, agent_state, endpoint_state, update_state, reason_code=None):
+            events.append((agent_state, endpoint_state, update_state, reason_code))
+
+    result = WindowsUpdater(
+        paths,
+        acl=_Acl(),
+        service=_Service(),
+        tray_status_writer=_TrayStatusWriter(),
+    ).run_once()
+
+    assert result.status == "rejected"
+    assert events == [
+        ("starting", "unknown", "applying", None),
+        ("error", "unknown", "failed", "UPDATE_APPLY"),
+    ]
+
+
 def test_updater_rejects_a_stale_pending_build_after_an_msi_runtime_transition(
     tmp_path: Path,
 ) -> None:

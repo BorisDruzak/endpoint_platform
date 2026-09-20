@@ -69,6 +69,19 @@ class StartupConfirmation(Protocol):
     def is_confirmed(self, *, version: str, operation_id: str, attempt_id: str, not_before: datetime) -> bool: ...
 
 
+class TrayStatusPublisher(Protocol):
+    """Narrow local projection boundary; this worker never receives network state."""
+
+    def publish(
+        self,
+        *,
+        agent_state: str,
+        endpoint_state: str,
+        update_state: str,
+        reason_code: str | None = None,
+    ) -> None: ...
+
+
 class PyWin32EndpointAgentService:
     """Fixed-name SCM control; callers cannot select another service."""
 
@@ -334,6 +347,7 @@ class WindowsUpdater:
         self, paths: WindowsUpdatePaths | None = None, *, acl: UpdatePathSecurity | None = None,
         service: AgentService | None = None, verifier: ReleaseVerifier | None = None,
         confirmation: StartupConfirmation | None = None,
+        tray_status_writer: TrayStatusPublisher | None = None,
         deadline_seconds: int = STARTUP_DEADLINE_SECONDS,
     ) -> None:
         self._paths = paths or WindowsUpdatePaths.production()
@@ -341,6 +355,7 @@ class WindowsUpdater:
         self._service = service or PyWin32EndpointAgentService()
         self._verifier = verifier or SubprocessReleaseVerifier(self._paths)
         self._confirmation = confirmation or FileStartupConfirmation(self._paths)
+        self._tray_status_writer = tray_status_writer
         self._deadline_seconds = deadline_seconds
         self._attempt_id: str | None = None
 
@@ -362,6 +377,12 @@ class WindowsUpdater:
                 pending.version, previous, pending.requested_reason
             ):
                 raise ValueError("candidate version is not eligible from current selector")
+            self._publish_tray_status(
+                previous,
+                agent_state="starting",
+                endpoint_state="unknown",
+                update_state="applying",
+            )
             try:
                 self._service.stop()
             except Exception as error:
@@ -389,9 +410,17 @@ class WindowsUpdater:
                 _clear_startup_attempt(self._paths)
                 raise
             if not self._wait_for_candidate_confirmation(pending):
-                return self._rollback(
+                result = self._rollback(
                     pending, previous, previous_selector, "startup confirmation failed"
                 )
+                self._publish_tray_status(
+                    previous,
+                    agent_state="error",
+                    endpoint_state="unknown",
+                    update_state="failed",
+                    reason_code="UPDATE_ROLLBACK",
+                )
+                return result
             self._paths.pending_path.unlink()
             _clear_startup_attempt(self._paths)
             return UpdateResult("applied", str(target))
@@ -412,10 +441,46 @@ class WindowsUpdater:
                     reported_version=previous,
                     safe_code="launcher_apply_failed",
                 )
+                self._publish_tray_status(
+                    previous,
+                    agent_state="error",
+                    endpoint_state="unknown",
+                    update_state="failed",
+                    reason_code="UPDATE_APPLY",
+                )
             return UpdateResult("rejected", str(error))
         finally:
             if staging is not None and staging.exists():
                 shutil.rmtree(staging, ignore_errors=True)
+
+    def _publish_tray_status(
+        self,
+        version: str,
+        *,
+        agent_state: str,
+        endpoint_state: str,
+        update_state: str,
+        reason_code: str | None = None,
+    ) -> None:
+        """Best-effort only: a tray write cannot change update safety semantics."""
+        writer = self._tray_status_writer
+        if writer is None:
+            try:
+                from .tray_status import TrayStatusWriter
+
+                writer = TrayStatusWriter(self._paths.updates_root.parent, version)
+                self._tray_status_writer = writer
+            except Exception:
+                return
+        try:
+            writer.publish(
+                agent_state=agent_state,
+                endpoint_state=endpoint_state,
+                update_state=update_state,
+                reason_code=reason_code,
+            )
+        except Exception:
+            return
 
     def _extract_to_staging(self, pending: PendingUpdate) -> Path:
         staging_parent = self._paths.versions_root / "_staging"
