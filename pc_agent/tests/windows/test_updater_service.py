@@ -34,11 +34,21 @@ def _pending(paths, artifact: Path, **changes: object) -> Path:
     return paths.pending_path
 
 
-def _artifact(path: Path, content: bytes = b"agent") -> Path:
+def _artifact(path: Path, content: bytes = b"agent", *, version: str = "3.2.0") -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
+    files = {"pc_agent.exe": content, "_internal/runtime.dat": b"runtime"}
     with zipfile.ZipFile(path, "w") as archive:
-        archive.writestr("pc_agent.exe", content)
-        archive.writestr("_internal/runtime.dat", b"runtime")
+        for name, payload in files.items():
+            archive.writestr(name, payload)
+        archive.writestr("endpoint-update-manifest.json", json.dumps({
+            "files": [
+                {"path": name, "sha256": hashlib.sha256(payload).hexdigest(), "size": len(payload)}
+                for name, payload in sorted(files.items())
+            ],
+            "schema_version": 1,
+            "source_revision": "a" * 40,
+            "version": version,
+        }))
     return path
 
 
@@ -89,19 +99,72 @@ def test_release_verifier_uses_fixed_enrolled_state_paths(
 
     def run(command: list[str], *, cwd: str, **_kwargs):
         calls.append((command, cwd))
-        return SimpleNamespace(returncode=0)
+        return SimpleNamespace(returncode=0, stdout="3.2.0\n")
 
     monkeypatch.setattr(updater_service.subprocess, "run", run)
 
-    assert SubprocessReleaseVerifier(paths).verify(executable)
-    assert calls == [(
+    assert SubprocessReleaseVerifier(paths).verify(executable, "3.2.0")
+    assert calls == [
+        (
+            [str(executable), "--print-version"], str(executable.parent),
+        ),
+        (
         [
             str(executable), "--verify", "--data-dir", str(paths.updates_root.parent),
             "--install-root", str(paths.install_root),
             "--ca-file", str(paths.updates_root.parent / "endpoint-ca.crt"),
         ],
         str(executable.parent),
-    )]
+        ),
+    ]
+
+
+def test_release_verifier_rejects_a_candidate_with_the_wrong_binary_version(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from pc_agent.platform.windows import updater_service
+    from pc_agent.platform.windows.updater_service import SubprocessReleaseVerifier
+
+    paths = _paths(tmp_path)
+    executable = tmp_path / "candidate" / "pc_agent.exe"
+    monkeypatch.setattr(
+        updater_service.subprocess, "run",
+        lambda *_args, **_kwargs: SimpleNamespace(returncode=0, stdout="3.2.99\n"),
+    )
+
+    assert not SubprocessReleaseVerifier(paths).verify(executable, "3.2.0")
+
+
+def test_updater_rejects_a_zip_without_a_complete_attested_manifest(tmp_path: Path) -> None:
+    """Transport SHA alone does not bind the runtime version and individual files."""
+    from pc_agent.platform.windows.updater_service import (
+        PendingUpdateValidator, WindowsUpdater, _load_bundle_manifest,
+    )
+
+    paths = _paths(tmp_path)
+    artifact = paths.downloads_root / "candidate.zip"
+    artifact.parent.mkdir(parents=True)
+    with zipfile.ZipFile(artifact, "w") as archive:
+        archive.writestr("pc_agent.exe", b"candidate")
+    _pending(paths, artifact)
+    pending = PendingUpdateValidator(paths, _Acl()).load()
+    updater = WindowsUpdater(paths, acl=_Acl())
+    staging = updater._extract_to_staging(pending)
+
+    with pytest.raises(ValueError, match="bundle manifest"):
+        _load_bundle_manifest(staging, pending)
+
+
+def test_updater_rejects_excessive_member_count_or_expanded_size() -> None:
+    """A valid outer hash must not authorize a ZIP bomb against Program Files."""
+    from pc_agent.platform.windows.updater_service import (
+        MAX_ARCHIVE_MEMBERS, MAX_EXTRACTED_BYTES, _validate_archive_limits,
+    )
+
+    with pytest.raises(ValueError, match="member count"):
+        _validate_archive_limits([SimpleNamespace(file_size=0)] * (MAX_ARCHIVE_MEMBERS + 1))
+    with pytest.raises(ValueError, match="extracted size"):
+        _validate_archive_limits([SimpleNamespace(file_size=MAX_EXTRACTED_BYTES + 1)])
 
 
 @pytest.mark.parametrize(
@@ -121,7 +184,7 @@ def test_pending_validator_rejects_untrusted_fields_and_artifact_integrity(
     from pc_agent.platform.windows.updater_service import PendingUpdateValidator
 
     paths = _paths(tmp_path)
-    artifact = _artifact(paths.downloads_root / "candidate.zip")
+    artifact = _artifact(paths.downloads_root / "candidate.zip", version="3.2.4")
     _pending(paths, artifact, **change)
 
     with pytest.raises(ValueError, match=message):
@@ -148,7 +211,7 @@ def test_pending_validator_rejects_reparse_point_traversal(
     from pc_agent.platform.windows.updater_service import PendingUpdateValidator
 
     paths = _paths(tmp_path)
-    artifact = _artifact(paths.downloads_root / "candidate.zip")
+    artifact = _artifact(paths.downloads_root / "candidate.zip", version="3.2.7")
     _pending(paths, artifact)
     original_lstat = Path.lstat
 
@@ -220,7 +283,7 @@ def test_pending_validator_rejects_different_bytes_for_existing_target_version(
         def wait_stopped(self): return True
         def crashed_early(self): return False
     class _Verifier:
-        def verify(self, _path): return True
+        def verify(self, _path, _expected_version): return True
     class _Confirmation:
         def is_confirmed(self, **_kwargs): return True
 
@@ -268,7 +331,7 @@ def test_updater_rejects_a_stale_pending_build_after_an_msi_runtime_transition(
     from pc_agent.platform.windows.updater_service import WindowsUpdater
 
     paths = _paths(tmp_path)
-    artifact = _artifact(paths.downloads_root / "candidate.zip")
+    artifact = _artifact(paths.downloads_root / "candidate.zip", version="3.2.4")
     _pending(paths, artifact, version="3.2.4")
     paths.install_root.mkdir(parents=True)
     paths.current_path.write_text('{"version":"3.2.5"}', encoding="utf-8")
@@ -279,7 +342,7 @@ def test_updater_rejects_a_stale_pending_build_after_an_msi_runtime_transition(
         def wait_stopped(self): return True
         def crashed_early(self): return False
     class _Verifier:
-        def verify(self, _path): return True
+        def verify(self, _path, _expected_version): return True
     class _Confirmation:
         def is_confirmed(self, **_kwargs): return True
 
@@ -299,7 +362,7 @@ def test_updater_accepts_an_agent_service_already_stopped_by_the_handoff(
     from pc_agent.platform.windows.updater_service import WindowsUpdater
 
     paths = _paths(tmp_path)
-    artifact = _artifact(paths.downloads_root / "candidate.zip")
+    artifact = _artifact(paths.downloads_root / "candidate.zip", version="3.2.7")
     _pending(paths, artifact, version="3.2.7")
     paths.install_root.mkdir(parents=True)
     paths.current_path.write_text('{"version":"3.2.6"}', encoding="utf-8")
@@ -312,7 +375,7 @@ def test_updater_accepts_an_agent_service_already_stopped_by_the_handoff(
         def wait_stopped(self): return True
         def crashed_early(self): return False
     class _Verifier:
-        def verify(self, _path): return True
+        def verify(self, _path, _expected_version): return True
     class _Confirmation:
         def is_confirmed(self, **_kwargs): return True
 
@@ -321,7 +384,11 @@ def test_updater_accepts_an_agent_service_already_stopped_by_the_handoff(
     ).run_once()
 
     assert result.status == "applied"
-    assert json.loads(paths.current_path.read_text()) == {"version": "3.2.7"}
+    assert json.loads(paths.current_path.read_text()) == {
+        "schema_version": 1,
+        "source_revision": "a" * 40,
+        "version": "3.2.7",
+    }
 
 
 def test_updater_contract_has_fixed_identity_and_no_network_or_listener_api() -> None:
@@ -426,10 +493,13 @@ def test_updater_exposes_a_fixed_name_scm_dispatcher_without_importing_pywin32()
 
 
 def test_startup_proof_writer_binds_the_post_handshake_proof_to_pending_operation(
-    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
 ) -> None:
     """A matching version alone would allow a stale success marker to authorize a release."""
+    from pc_agent.platform.windows import startup_confirmation
     from pc_agent.platform.windows.startup_confirmation import StartupProofWriter
+
+    monkeypatch.setattr(startup_confirmation, "AGENT_VERSION", "3.2.0")
 
     paths = _paths(tmp_path)
     artifact = _artifact(paths.downloads_root / "candidate.zip")
@@ -455,6 +525,27 @@ def test_startup_proof_writer_is_a_noop_on_clean_install(tmp_path: Path) -> None
     paths = _paths(tmp_path)
     assert StartupProofWriter(paths).record_after_server_handshake() is False
     assert not (paths.updates_root / "startup-confirmation.json").exists()
+
+
+def test_startup_proof_writer_rejects_a_selector_that_disagrees_with_its_binary(
+    tmp_path: Path,
+) -> None:
+    """A new selector cannot make an old process attest to a different release."""
+    from pc_agent.platform.windows.startup_confirmation import StartupProofWriter
+
+    paths = _paths(tmp_path)
+    artifact = _artifact(paths.downloads_root / "candidate.zip")
+    _pending(paths, artifact)
+    paths.install_root.mkdir(parents=True)
+    paths.current_path.write_text(json.dumps({
+        "schema_version": 1, "source_revision": "a" * 40, "version": "3.2.0",
+    }), encoding="utf-8")
+    (paths.updates_root / "startup-attempt.json").write_text(json.dumps({
+        "attempt_id": "candidate-attempt", "operation_id": "caa31a48-bf2f-4f1c-8b77-d1be77e12b4e",
+        "version": "3.2.0",
+    }), encoding="utf-8")
+
+    assert StartupProofWriter(paths).record_after_server_handshake() is False
 
 
 def test_confirmation_rejects_a_stale_or_wrong_operation_proof(tmp_path: Path) -> None:
@@ -488,7 +579,7 @@ def test_extraction_rejects_an_artifact_replaced_after_validation(tmp_path: Path
         def wait_stopped(self): return True
         def crashed_early(self): return False
     class _Verifier:
-        def verify(self, _path): return True
+        def verify(self, _path, _expected_version): return True
     class _Confirmation:
         def is_confirmed(self, **_kwargs): return True
 
@@ -513,7 +604,7 @@ def test_corrupt_zip_removes_the_private_pinned_artifact_copy(tmp_path: Path) ->
         def wait_stopped(self): return True
         def crashed_early(self): return False
     class _Verifier:
-        def verify(self, _path): return True
+        def verify(self, _path, _expected_version): return True
     class _Confirmation:
         def is_confirmed(self, **_kwargs): return True
     updater = WindowsUpdater(paths, acl=_Acl(), service=_Service(), verifier=_Verifier(), confirmation=_Confirmation())

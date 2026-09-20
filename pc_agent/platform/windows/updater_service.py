@@ -44,6 +44,10 @@ _ERROR_SERVICE_NOT_ACTIVE = 1062
 STARTUP_DEADLINE_SECONDS = 120
 UPDATER_START_PRINCIPALS = ("SYSTEM", "Administrators", "NT SERVICE\\EndpointAgent")
 TERMINAL_OUTCOME_FILENAME = "terminal-outcome.json"
+BUNDLE_MANIFEST_FILENAME = "endpoint-update-manifest.json"
+MAX_PENDING_ARCHIVE_BYTES = 512 * 1024 * 1024
+MAX_ARCHIVE_MEMBERS = 10_000
+MAX_EXTRACTED_BYTES = 2 * 1024 * 1024 * 1024
 
 
 class UpdatePathSecurity(Protocol):
@@ -58,7 +62,7 @@ class AgentService(Protocol):
 
 
 class ReleaseVerifier(Protocol):
-    def verify(self, executable: Path) -> bool: ...
+    def verify(self, executable: Path, expected_version: str) -> bool: ...
 
 
 class StartupConfirmation(Protocol):
@@ -104,8 +108,15 @@ class SubprocessReleaseVerifier:
         self._install_root = paths.install_root
         self._ca_file = self._data_root / "endpoint-ca.crt"
 
-    def verify(self, executable: Path) -> bool:
+    def verify(self, executable: Path, expected_version: str) -> bool:
         try:
+            version = subprocess.run(
+                [str(executable), "--print-version"],
+                cwd=str(executable.parent),
+                timeout=30, capture_output=True, text=True, check=False,
+            )
+            if version.returncode != 0 or version.stdout.strip() != expected_version:
+                return False
             return subprocess.run(
                 [
                     str(executable), "--verify", "--data-dir", str(self._data_root),
@@ -154,6 +165,12 @@ class PendingUpdate:
     operation_id: str
     received_at: datetime
     requested_reason: str
+
+
+@dataclass(frozen=True, slots=True)
+class BundleManifest:
+    version: str
+    source_revision: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -280,6 +297,7 @@ class PendingUpdateValidator:
             or not isinstance(payload["size"], int)
             or isinstance(payload["size"], bool)
             or payload["size"] <= 0
+            or payload["size"] > MAX_PENDING_ARCHIVE_BYTES
             or not isinstance(payload["requested_reason"], str)
         ):
             raise ValueError("invalid pending update fields")
@@ -328,6 +346,7 @@ class WindowsUpdater:
 
     def run_once(self) -> UpdateResult:
         previous: str | None = None
+        previous_selector: dict[str, object] | None = None
         pending: PendingUpdate | None = None
         staging: Path | None = None
         service_stopped = False
@@ -337,7 +356,8 @@ class WindowsUpdater:
             except (OSError, ValueError) as error:
                 _quarantine_invalid_pending(self._paths)
                 return UpdateResult("rejected", str(error))
-            previous = _load_current(self._paths.current_path)
+            previous_selector = _load_selector(self._paths.current_path)
+            previous = _selector_version(previous_selector)
             if not _is_eligible_recommendation(
                 pending.version, previous, pending.requested_reason
             ):
@@ -351,12 +371,17 @@ class WindowsUpdater:
             if not self._service.wait_stopped():
                 raise ValueError("EndpointAgent did not stop")
             staging = self._extract_to_staging(pending)
+            bundle = _load_bundle_manifest(staging, pending)
             executable = staging / UPDATE_EXECUTABLE_NAME
-            if not executable.is_file() or not self._verifier.verify(executable):
+            if not executable.is_file() or not self._verifier.verify(executable, pending.version):
                 raise ValueError("new version verification failed")
             target = self._publish(staging, pending)
-            _write_json_atomic(self._paths.previous_path, {"version": previous})
-            _write_json_atomic(self._paths.current_path, {"version": pending.version})
+            _write_json_atomic(self._paths.previous_path, previous_selector)
+            _write_json_atomic(self._paths.current_path, {
+                "schema_version": 1,
+                "source_revision": bundle.source_revision,
+                "version": pending.version,
+            })
             self._attempt_id = _write_startup_attempt(self._paths, pending)
             try:
                 self._service.start()
@@ -364,16 +389,18 @@ class WindowsUpdater:
                 _clear_startup_attempt(self._paths)
                 raise
             if not self._wait_for_candidate_confirmation(pending):
-                return self._rollback(pending, previous, "startup confirmation failed")
+                return self._rollback(
+                    pending, previous, previous_selector, "startup confirmation failed"
+                )
             self._paths.pending_path.unlink()
             _clear_startup_attempt(self._paths)
             return UpdateResult("applied", str(target))
         except (OSError, ValueError, zipfile.BadZipFile) as error:
-            if service_stopped and previous is not None:
+            if service_stopped and previous_selector is not None:
                 # Every failure after the controlled stop restores the known
                 # selector before restarting the old agent.
                 try:
-                    _write_json_atomic(self._paths.current_path, {"version": previous})
+                    _write_json_atomic(self._paths.current_path, previous_selector)
                     self._service.start()
                 except Exception:
                     pass
@@ -398,7 +425,9 @@ class WindowsUpdater:
         try:
             artifact_copy = _pin_artifact(pending, staging_parent)
             with zipfile.ZipFile(artifact_copy) as archive:
-                for member in archive.infolist():
+                members = archive.infolist()
+                _validate_archive_limits(members)
+                for member in members:
                     _extract_zip_member(archive, member, staging)
         except Exception:
             shutil.rmtree(staging, ignore_errors=True)
@@ -423,7 +452,8 @@ class WindowsUpdater:
         return target
 
     def _rollback(
-        self, pending: PendingUpdate, previous: str, reason: str
+        self, pending: PendingUpdate, previous: str,
+        previous_selector: dict[str, object], reason: str,
     ) -> UpdateResult:
         try:
             self._service.stop()
@@ -440,7 +470,7 @@ class WindowsUpdater:
                 return UpdateResult("rejected", "candidate stop state is unknown")
             if not stopped:
                 return UpdateResult("rejected", "candidate did not stop for rollback")
-        _write_json_atomic(self._paths.current_path, {"version": previous})
+        _write_json_atomic(self._paths.current_path, previous_selector)
         _clear_startup_attempt(self._paths)
         self._service.start()
         _write_terminal_outcome(
@@ -496,10 +526,84 @@ def _hash_descriptor(descriptor: int) -> str:
     return digest.hexdigest()
 
 
-def _release_manifest(root: Path) -> dict[str, str]:
+def _validate_archive_limits(members: list[zipfile.ZipInfo]) -> None:
+    if len(members) > MAX_ARCHIVE_MEMBERS:
+        raise ValueError("archive member count exceeds limit")
+    extracted_size = sum(member.file_size for member in members)
+    if extracted_size > MAX_EXTRACTED_BYTES:
+        raise ValueError("archive extracted size exceeds limit")
+
+
+def _load_bundle_manifest(root: Path, pending: PendingUpdate) -> BundleManifest:
+    """Require a complete, hash-bound runtime inventory from the signed ZIP."""
+    manifest_path = root / BUNDLE_MANIFEST_FILENAME
+    try:
+        payload = json.loads(
+            manifest_path.read_text(encoding="utf-8"), object_pairs_hook=_no_duplicate_keys
+        )
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError, ValueError) as error:
+        raise ValueError("update bundle manifest is invalid") from error
+    if (
+        not isinstance(payload, dict)
+        or set(payload) != {"files", "schema_version", "source_revision", "version"}
+        or payload.get("schema_version") != 1
+        or payload.get("version") != pending.version
+        or not isinstance(payload.get("source_revision"), str)
+        or not _SOURCE_REVISION.fullmatch(payload["source_revision"])
+        or not isinstance(payload.get("files"), list)
+        or not payload["files"]
+    ):
+        raise ValueError("update bundle manifest is invalid")
+    listed: dict[str, str] = {}
+    for item in payload["files"]:
+        if not isinstance(item, dict) or set(item) != {"path", "sha256", "size"}:
+            raise ValueError("update bundle manifest is invalid")
+        path = item.get("path")
+        digest = item.get("sha256")
+        size = item.get("size")
+        if (
+            not isinstance(path, str)
+            or not _is_safe_bundle_path(path)
+            or path in listed
+            or not isinstance(digest, str)
+            or not _SHA256.fullmatch(digest)
+            or not isinstance(size, int)
+            or isinstance(size, bool)
+            or size < 0
+        ):
+            raise ValueError("update bundle manifest is invalid")
+        candidate = root.joinpath(*PureWindowsPath(path).parts)
+        if not candidate.is_file() or candidate.stat().st_size != size:
+            raise ValueError("update bundle manifest file mismatch")
+        if _hash_file(candidate) != digest:
+            raise ValueError("update bundle manifest file mismatch")
+        listed[path] = digest
+    if UPDATE_EXECUTABLE_NAME not in listed:
+        raise ValueError("update bundle has no agent executable")
+    actual = _release_manifest(root, excluded={BUNDLE_MANIFEST_FILENAME, ".endpoint-update.json"})
+    if actual != listed:
+        raise ValueError("update bundle manifest inventory mismatch")
+    return BundleManifest(pending.version, payload["source_revision"])
+
+
+def _is_safe_bundle_path(path: str) -> bool:
+    candidate = PureWindowsPath(path)
+    return (
+        path == path.replace("\\", "/")
+        and bool(path)
+        and not candidate.is_absolute()
+        and ".." not in candidate.parts
+        and not path.startswith("/")
+    )
+
+
+def _release_manifest(
+    root: Path, *, excluded: set[str] | None = None
+) -> dict[str, str]:
+    excluded = excluded or {".endpoint-update.json"}
     result: dict[str, str] = {}
     for path in root.rglob("*"):
-        if path.is_file() and path.name != ".endpoint-update.json":
+        if path.is_file() and path.name not in excluded:
             result[path.relative_to(root).as_posix()] = _hash_file(path)
     return result
 
@@ -567,7 +671,7 @@ def _extract_zip_member(archive: zipfile.ZipFile, member: zipfile.ZipInfo, stagi
         shutil.copyfileobj(source, output)
 
 
-def _load_current(path: Path) -> str:
+def _load_selector(path: Path) -> dict[str, object]:
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as error:
@@ -588,10 +692,22 @@ def _load_current(path: Path) -> str:
         raise ValueError("current selector is invalid")
     if not isinstance(version, str) or not _SEMVER.fullmatch(version):
         raise ValueError("current selector is invalid")
+    return payload
+
+
+def _selector_version(selector: dict[str, object]) -> str:
+    version = selector.get("version")
+    if not isinstance(version, str) or not _SEMVER.fullmatch(version):
+        raise ValueError("current selector is invalid")
     return version
 
 
-def _write_json_atomic(path: Path, payload: dict[str, str]) -> None:
+def _load_current(path: Path) -> str:
+    """Compatibility accessor for callers that need only the selector version."""
+    return _selector_version(_load_selector(path))
+
+
+def _write_json_atomic(path: Path, payload: dict[str, object]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
     try:

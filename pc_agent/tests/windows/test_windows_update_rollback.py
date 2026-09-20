@@ -22,9 +22,19 @@ def _setup(tmp_path: Path):
     paths.current_path.write_text(json.dumps({"version": "3.1.0"}), encoding="utf-8")
     artifact = paths.downloads_root / "candidate.zip"
     artifact.parent.mkdir(parents=True)
+    files = {"pc_agent.exe": b"new", "_internal/runtime.dat": b"runtime"}
     with zipfile.ZipFile(artifact, "w") as archive:
-        archive.writestr("pc_agent.exe", b"new")
-        archive.writestr("_internal/runtime.dat", b"runtime")
+        for name, content in files.items():
+            archive.writestr(name, content)
+        archive.writestr("endpoint-update-manifest.json", json.dumps({
+            "files": [
+                {"path": name, "sha256": hashlib.sha256(content).hexdigest(), "size": len(content)}
+                for name, content in sorted(files.items())
+            ],
+            "schema_version": 1,
+            "source_revision": "a" * 40,
+            "version": "3.2.0",
+        }))
     payload = {
         "archive_type": "zip", "artifact_path": str(artifact), "channel": "canary",
         "operation_id": "caa31a48-bf2f-4f1c-8b77-d1be77e12b4e", "requested_by": "gateway",
@@ -62,15 +72,16 @@ class _Service:
 
 class _Verifier:
     def __init__(self, events: list[str]) -> None: self.events = events
-    def verify(self, executable: Path) -> bool:
+    def verify(self, executable: Path, expected_version: str) -> bool:
         assert executable.name == "pc_agent.exe"
+        assert expected_version == "3.2.0"
         self.events.append("verify")
         return True
 
 
 class _FailingVerifier(_Verifier):
-    def verify(self, executable: Path) -> bool:
-        super().verify(executable)
+    def verify(self, executable: Path, expected_version: str) -> bool:
+        super().verify(executable, expected_version)
         return False
 
 
@@ -109,7 +120,12 @@ def test_updater_applies_then_waits_for_server_side_startup_confirmation(tmp_pat
 
     assert updater.run_once().status == "applied"
     assert service.events == ["stop", "wait_stopped", "verify", "start", "confirmation"]
-    assert json.loads(paths.current_path.read_text()) == {"version": "3.2.0"}
+    assert json.loads(paths.current_path.read_text()) == {
+        "schema_version": 1,
+        "source_revision": "a" * 40,
+        "version": "3.2.0",
+    }
+    assert json.loads(paths.previous_path.read_text()) == {"version": "3.1.0"}
     assert not paths.pending_path.exists()
 
 
@@ -232,7 +248,11 @@ def test_rollback_refuses_selector_switch_when_candidate_stop_fails(tmp_path: Pa
     service.stop = fail_second_stop  # type: ignore[method-assign]
     updater = WindowsUpdater(paths, acl=_Acl(), service=service, verifier=_Verifier(service.events), confirmation=_Confirmation(service.events, confirmed=False), deadline_seconds=0)
     assert updater.run_once().status == "rejected"
-    assert json.loads(paths.current_path.read_text()) == {"version": "3.2.0"}
+    assert json.loads(paths.current_path.read_text()) == {
+        "schema_version": 1,
+        "source_revision": "a" * 40,
+        "version": "3.2.0",
+    }
 
 
 def test_rollback_rejects_error_name_without_structured_service_not_active_code(
@@ -263,7 +283,11 @@ def test_rollback_rejects_error_name_without_structured_service_not_active_code(
     )
 
     assert updater.run_once().status == "rejected"
-    assert json.loads(paths.current_path.read_text()) == {"version": "3.2.0"}
+    assert json.loads(paths.current_path.read_text()) == {
+        "schema_version": 1,
+        "source_revision": "a" * 40,
+        "version": "3.2.0",
+    }
 
 
 def test_rollback_refuses_selector_switch_when_stop_wait_is_false(tmp_path: Path) -> None:
@@ -279,4 +303,8 @@ def test_rollback_refuses_selector_switch_when_stop_wait_is_false(tmp_path: Path
     service.wait_stopped = uncertain_wait  # type: ignore[method-assign]
     updater = WindowsUpdater(paths, acl=_Acl(), service=service, verifier=_Verifier(service.events), confirmation=_Confirmation(service.events, confirmed=False), deadline_seconds=0)
     assert updater.run_once().status == "rejected"
-    assert json.loads(paths.current_path.read_text()) == {"version": "3.2.0"}
+    assert json.loads(paths.current_path.read_text()) == {
+        "schema_version": 1,
+        "source_revision": "a" * 40,
+        "version": "3.2.0",
+    }

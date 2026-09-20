@@ -7,6 +7,8 @@ import os
 import uuid
 from datetime import UTC, datetime
 
+from pc_agent.version import AGENT_VERSION
+
 from .update_paths import WindowsUpdatePaths
 
 
@@ -26,7 +28,9 @@ class StartupProofWriter:
             if (
                 not isinstance(version, str)
                 or not isinstance(operation_id, str)
-                or current != {"version": version}
+                or not isinstance(current, dict)
+                or current.get("version") != version
+                or version != AGENT_VERSION
                 or attempt.get("operation_id") != operation_id
                 or attempt.get("version") != version
                 or not isinstance(attempt.get("attempt_id"), str)
