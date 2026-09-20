@@ -64,6 +64,16 @@ def test_frozen_setup_spec_embeds_only_msi_ca_and_public_configuration() -> None
     assert "datas=[" in source
 
 
+def test_frozen_setup_spec_requires_elevation_for_machine_provisioning() -> None:
+    """The installer and its provisioner must share one elevated Windows token."""
+    source = (PROJECT_ROOT / "pc_agent" / "pyinstaller_windows_setup.spec").read_text(
+        encoding="utf-8"
+    )
+
+    assert "uac_admin=True" in source
+    assert "console=False" in source
+
+
 def test_setup_entry_installs_embedded_msi_before_using_its_provisioner() -> None:
     source = (PROJECT_ROOT / "pc_agent" / "platform" / "windows" / "setup_entry.py").read_text(
         encoding="utf-8"

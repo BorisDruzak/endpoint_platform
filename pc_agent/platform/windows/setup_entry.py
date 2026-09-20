@@ -278,6 +278,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     except Exception as error:
         print(f"Windows Setup failed: {type(error).__name__}", file=sys.stderr)
         return _finish(data_root, status="PREFLIGHT_FAILED", code=EXIT_PREFLIGHT_FAILED)
+    _finish(data_root, status="STARTED", code=EXIT_SUCCESS)
     try:
         _install_embedded_msi(resources / "EndpointAgent.msi")
         if installation_state == "repairable":

@@ -70,6 +70,38 @@ def test_setup_entry_installs_embedded_msi_before_enrollment(
     assert observed_config[0].endpoint_origin == "https://endpoint.sosnadmin.local"
 
 
+def test_setup_entry_records_started_before_installing_embedded_msi(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _write_public_payload(tmp_path)
+    data_root = tmp_path / "agent-data"
+    monkeypatch.setattr(setup_entry, "_resource_root", lambda: tmp_path)
+    monkeypatch.setattr(setup_entry, "_data_root", lambda: data_root)
+
+    def assert_started_before_msi(_: Path) -> None:
+        contents = (data_root / "install.log").read_text(encoding="utf-8")
+        assert "status=STARTED" in contents
+
+    monkeypatch.setattr(setup_entry, "_install_embedded_msi", assert_started_before_msi)
+    monkeypatch.setattr(
+        setup_entry,
+        "_installed_provisioner",
+        lambda: tmp_path / "endpoint-agent-provision.exe",
+    )
+    monkeypatch.setattr(setup_entry, "HttpsSetupTransport", lambda *_: object())
+
+    class _Setup:
+        def __init__(self, _config: object, **_: object) -> None:
+            self.installation_id_factory = lambda: "win-test"
+
+        def run(self) -> SetupOutcome:
+            return SetupOutcome("provisioned")
+
+    monkeypatch.setattr(setup_entry, "UniversalWindowsSetup", _Setup)
+
+    assert setup_entry.main(["--quiet"]) == 0
+
+
 def test_setup_entry_rejects_config_that_contains_extra_material(tmp_path: Path) -> None:
     _write_public_payload(tmp_path)
     (tmp_path / "setup-config.json").write_text(
