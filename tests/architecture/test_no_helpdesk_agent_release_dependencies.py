@@ -36,8 +36,10 @@ RELEASED_PATHS = (
     REPOSITORY_ROOT / "pc_agent" / "pyinstaller_launcher_win.spec",
     REPOSITORY_ROOT / "pc_agent" / "pyinstaller_windows_service_launcher.spec",
     REPOSITORY_ROOT / "pc_agent" / "pyinstaller_windows_provision.spec",
+    REPOSITORY_ROOT / "pc_agent" / "pyinstaller_windows_tray.spec",
     REPOSITORY_ROOT / "pc_agent" / "platform" / "windows" / "service_launcher.py",
     REPOSITORY_ROOT / "pc_agent" / "platform" / "windows" / "provision_entry.py",
+    REPOSITORY_ROOT / "pc_agent" / "platform" / "windows" / "tray.py",
     REPOSITORY_ROOT / "packaging" / "alt" / "build-rpm.sh",
     REPOSITORY_ROOT / "packaging" / "alt" / "endpoint-agent.spec",
     REPOSITORY_ROOT / "packaging" / "alt" / "SOURCES" / "endpoint-agent.service",
@@ -65,6 +67,7 @@ _SPEC_ENTRYPOINTS = {
     "pc_agent/pyinstaller_windows_provision.spec": (
         "pc_agent.platform.windows.provision_entry",
     ),
+    "pc_agent/pyinstaller_windows_tray.spec": ("pc_agent.platform.windows.tray",),
 }
 _CORE_SPECS = (
     REPOSITORY_ROOT / "pc_agent" / "pyinstaller_endpoint_core_linux.spec",
@@ -360,6 +363,12 @@ def test_windows_msi_launcher_spec_is_a_guarded_release_root() -> None:
     assert (
         REPOSITORY_ROOT / "pc_agent" / "pyinstaller_launcher_win.spec"
     ) in RELEASED_PATHS
+
+
+def test_windows_tray_companion_is_a_guarded_release_root() -> None:
+    """The interactive companion remains a separately scanned, headless-safe artifact."""
+    assert (REPOSITORY_ROOT / "pc_agent" / "pyinstaller_windows_tray.spec") in RELEASED_PATHS
+    assert (REPOSITORY_ROOT / "pc_agent" / "platform" / "windows" / "tray.py") in RELEASED_PATHS
 
 
 def test_alt_pilot_installer_and_its_service_are_guarded_release_artifacts() -> None:
