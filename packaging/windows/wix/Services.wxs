@@ -57,11 +57,11 @@
                   ExeCommand="--finalize-initial-selector"
                   Execute="commit" Impersonate="no" Return="check" HideTarget="yes" />
     <InstallExecuteSequence>
-      <Custom Action="ApplyProgramDataAcl" After="InstallServices"
+      <Custom Action="ConfigureServiceSids" After="InstallServices"
+              Condition="NOT REMOVE~=&quot;ALL&quot;" />
+      <Custom Action="ApplyProgramDataAcl" After="ConfigureServiceSids"
               Condition="NOT REMOVE~=&quot;ALL&quot;" />
       <Custom Action="ApplyTrayStatusAcl" After="ApplyProgramDataAcl"
-              Condition="NOT REMOVE~=&quot;ALL&quot;" />
-      <Custom Action="ConfigureServiceSids" After="ApplyTrayStatusAcl"
               Condition="NOT REMOVE~=&quot;ALL&quot;" />
       <Custom Action="RestrictUpdaterServiceStart" After="ConfigureServiceSids"
               Condition="NOT REMOVE~=&quot;ALL&quot;" />

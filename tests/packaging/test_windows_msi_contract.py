@@ -173,7 +173,7 @@ def test_service_components_remove_services_and_fail_the_transaction_on_error() 
         for item in _all_elements(trees, "Custom")
         if item.get("Action") == "RestrictUpdaterServiceStart"
     )
-    assert configure_sequence.get("After") == "ApplyTrayStatusAcl"
+    assert configure_sequence.get("After") == "InstallServices"
     assert restrict_sequence.get("After") == "ConfigureServiceSids"
 
 
