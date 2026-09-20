@@ -112,6 +112,13 @@ def test_service_not_active_classifier_requires_structured_winerror() -> None:
     )
 
 
+def test_startup_confirmation_window_allows_a_bounded_slow_network() -> None:
+    """The updater must not roll back merely because a healthy WSS handshake needs two minutes."""
+    from pc_agent.platform.windows.updater_service import STARTUP_DEADLINE_SECONDS
+
+    assert STARTUP_DEADLINE_SECONDS == 600
+
+
 def test_updater_applies_then_waits_for_server_side_startup_confirmation(tmp_path: Path) -> None:
     from pc_agent.platform.windows.updater_service import WindowsUpdater
 

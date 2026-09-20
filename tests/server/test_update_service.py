@@ -1171,3 +1171,10 @@ async def test_paused_rollout_accepts_terminal_failure_for_scheduled_target(
 
     assert report.status == "failed"
     assert target.status == "failed"
+    assert rollout.status == "completed"
+    assert rollout.completed_at == NOW
+    completed = await session.scalar(
+        select(AuditEvent).where(AuditEvent.action == "updates.rollout_completed")
+    )
+    assert completed is not None
+    assert completed.details == {"status": "completed", "target_count": 1}

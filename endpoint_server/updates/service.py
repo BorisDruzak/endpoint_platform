@@ -929,6 +929,31 @@ async def record_report(
         },
         occurred_at=occurred_at,
     )
+    targets = (
+        await session.scalars(
+            select(UpdateTarget)
+            .where(UpdateTarget.rollout_id == rollout.id)
+            .order_by(UpdateTarget.id)
+            .with_for_update()
+        )
+    ).all()
+    if targets and all(
+        item.status in _TERMINAL_TARGET_STATUSES for item in targets
+    ):
+        rollout.status = "completed"
+        rollout.completed_at = occurred_at
+        rollout.paused_at = None
+        await append_audit_event(
+            session,
+            actor_kind="system",
+            actor_identifier="update-controller",
+            action="updates.rollout_completed",
+            object_kind="update_rollout",
+            object_identifier=str(rollout.id),
+            request_id=_request_id(request_id),
+            details={"status": "completed", "target_count": len(targets)},
+            occurred_at=occurred_at,
+        )
     try:
         await session.flush()
     except IntegrityError as error:
