@@ -32,6 +32,7 @@ def _status_path(data_root: Path) -> Path:
 def test_writer_publishes_only_fixed_redacted_schema(tmp_path: Path) -> None:
     protected: list[Path] = []
     data_root = _data_root(tmp_path)
+    (data_root.parent / "Tray").mkdir()
     writer = TrayStatusWriter(
         data_root,
         "3.2.51",
@@ -60,6 +61,29 @@ def test_writer_publishes_only_fixed_redacted_schema(tmp_path: Path) -> None:
     assert "credential" not in json.dumps(payload)
     assert "identity" not in json.dumps(payload)
     assert "endpoint_origin" not in json.dumps(payload)
+
+
+def test_writer_does_not_replace_the_installer_owned_directory_acl(tmp_path: Path) -> None:
+    """LocalService may publish status but must not require WRITE_DAC on the tray directory."""
+    data_root = _data_root(tmp_path)
+    (data_root.parent / "Tray").mkdir()
+
+    class _InstallerOwnedAcl:
+        def protect_tray_status_directory(self, _path: Path) -> None:
+            raise AssertionError("the runtime must not replace the directory DACL")
+
+        def protect_tray_status_file(self, _path: Path) -> None:
+            return None
+
+    writer = TrayStatusWriter(data_root, "3.2.51", now=lambda: NOW, acl=_InstallerOwnedAcl())
+
+    writer.publish(
+        agent_state="starting",
+        endpoint_state="connecting",
+        update_state="unknown",
+    )
+
+    assert _status_path(data_root).is_file()
 
 
 @pytest.mark.parametrize(
@@ -92,6 +116,7 @@ def test_reader_rejects_malformed_or_extended_payload(
 
 def test_reader_rejects_stale_or_future_observation(tmp_path: Path) -> None:
     data_root = _data_root(tmp_path)
+    (data_root.parent / "Tray").mkdir()
     writer = TrayStatusWriter(data_root, "3.2.51", now=lambda: NOW, protect=lambda _path: None)
     writer.publish(
         agent_state="running",

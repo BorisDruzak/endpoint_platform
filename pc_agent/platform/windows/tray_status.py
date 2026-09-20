@@ -232,9 +232,7 @@ class TrayStatusWriter:
             if root.exists() or root.is_symlink():
                 _require_directory(root, name="directory")
             else:
-                root.mkdir()
-                _require_directory(root, name="directory")
-            self._acl.protect_tray_status_directory(root)
+                raise TrayStatusError("tray status directory is unavailable")
             _require_directory(root, name="directory")
         except (OSError, WindowsAclError) as error:
             raise TrayStatusError("tray status directory cannot be prepared") from error
