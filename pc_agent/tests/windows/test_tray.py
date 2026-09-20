@@ -95,6 +95,17 @@ def test_tray_companion_uses_one_notification_icon_per_user_session() -> None:
     assert "_ERROR_ALREADY_EXISTS" in source
 
 
+def test_tray_declares_wide_menu_api_and_opaque_coloured_icon_pixels() -> None:
+    """The Windows shell must receive actual text and a visible custom icon."""
+    source = (Path(__file__).parents[2] / "platform" / "windows" / "tray.py").read_text(
+        encoding="utf-8"
+    )
+
+    assert "AppendMenuW.argtypes" in source
+    assert "AppendMenuW.restype" in source
+    assert "bytes([blue, green, red, 255]" in source
+
+
 def test_tray_spec_is_windowed_companion_executable() -> None:
     source = (Path(__file__).parents[2] / "pyinstaller_windows_tray.spec").read_text(
         encoding="utf-8"

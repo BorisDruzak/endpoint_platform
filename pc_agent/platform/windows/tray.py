@@ -44,6 +44,18 @@ _IDI_APPLICATION = 32512
 _ERROR_ALREADY_EXISTS = 183
 
 
+def _configure_menu_api(user32: object) -> None:
+    """Declare pointer-width menu signatures before passing text to user32."""
+    user32.CreatePopupMenu.restype = wintypes.HMENU
+    user32.AppendMenuW.argtypes = [
+        wintypes.HMENU,
+        wintypes.UINT,
+        ctypes.c_size_t,
+        wintypes.LPCWSTR,
+    ]
+    user32.AppendMenuW.restype = wintypes.BOOL
+
+
 @dataclass(frozen=True, slots=True)
 class TrayView:
     """The complete non-sensitive view available to the interactive user."""
@@ -217,6 +229,7 @@ class _WindowsTray:
             ctypes.windll.user32.DestroyIcon(old_icon)
 
     def _show_menu(self, user32: object, hwnd: int) -> None:
+        _configure_menu_api(user32)
         menu = user32.CreatePopupMenu()
         if not menu:
             return
@@ -284,7 +297,7 @@ def _create_colored_icon(color: TrayIcon) -> int:
         "grey": (119, 119, 119),
     }
     red, green, blue = colours[color]
-    pixels = bytes([blue, green, red, 0] * (16 * 16))
+    pixels = bytes([blue, green, red, 255] * (16 * 16))
     color_buffer = ctypes.create_string_buffer(pixels)
     mask_buffer = ctypes.create_string_buffer(bytes(32))
     color_bitmap = gdi32.CreateBitmap(16, 16, 1, 32, color_buffer)

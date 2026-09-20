@@ -258,6 +258,35 @@ class _TrayStatusWriter:
 
 
 @pytest.mark.asyncio
+async def test_connected_runtime_refreshes_the_tray_projection_before_it_stales() -> None:
+    """A quiet healthy WSS session must not decay to an unknown tray icon."""
+    from pc_agent.runtime.lifecycle import _tray_status_heartbeat
+
+    refreshed = asyncio.Event()
+    keep_running = asyncio.Event()
+
+    class _HeartbeatWriter(_TrayStatusWriter):
+        def publish(self, **kwargs: object) -> None:
+            super().publish(**kwargs)  # type: ignore[arg-type]
+            refreshed.set()
+
+    writer = _HeartbeatWriter()
+
+    async def sleep(delay: float) -> None:
+        assert delay == 60.0
+        if not writer.events:
+            return
+        await keep_running.wait()
+
+    task = asyncio.create_task(_tray_status_heartbeat(writer, sleep))
+    await refreshed.wait()
+    assert writer.events == [("running", "connected", "up_to_date", None)]
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+
+@pytest.mark.asyncio
 async def test_runtime_projects_connected_and_retrying_tray_states(
     tmp_path: Path,
 ) -> None:

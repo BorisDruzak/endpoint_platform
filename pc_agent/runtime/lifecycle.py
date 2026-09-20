@@ -32,6 +32,7 @@ from .status import RuntimePhase, RuntimeStatus
 
 
 logger = logging.getLogger(__name__)
+_TRAY_STATUS_HEARTBEAT_SECONDS = 60.0
 
 
 CredentialRejected = GatewayCredentialRejected
@@ -201,6 +202,14 @@ class RuntimeLifecycle:
                     connected_tasks = self._dependencies.create_connected_tasks(
                         self._settings, credential, transport
                     )
+                    if tray_status_writer is not None:
+                        connected_tasks = (
+                            *connected_tasks,
+                            _tray_status_heartbeat(
+                                tray_status_writer,
+                                self._dependencies.heartbeat_sleep,
+                            ),
+                        )
                     await _run_connected(
                         transport,
                         executor,
@@ -324,6 +333,21 @@ def _publish_tray_status(
         )
     except Exception:
         logger.warning("could not publish Windows tray status", exc_info=True)
+
+
+async def _tray_status_heartbeat(
+    writer: TrayStatusWriter,
+    sleep: Callable[[float], Awaitable[None]],
+) -> None:
+    """Keep a healthy, quiet WSS session visible to the local tray."""
+    while True:
+        await sleep(_TRAY_STATUS_HEARTBEAT_SECONDS)
+        _publish_tray_status(
+            writer,
+            agent_state="running",
+            endpoint_state="connected",
+            update_state="up_to_date",
+        )
 
 
 async def _cleanup(action: Callable[[], Awaitable[None]]) -> None:
