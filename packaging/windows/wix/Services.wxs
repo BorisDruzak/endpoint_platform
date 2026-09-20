@@ -13,7 +13,7 @@
                         Account="NT AUTHORITY\LocalService" Vital="yes"
                         Arguments="--agent-service" />
         <ServiceControl Id="ctlEndpointAgent" Name="EndpointAgent"
-                        Stop="both" Remove="uninstall" Wait="yes" />
+                        Start="install" Stop="both" Remove="uninstall" Wait="yes" />
 
         <ServiceInstall Id="svcEndpointAgentUpdater" Name="EndpointAgentUpdater"
                         DisplayName="Endpoint Agent Updater"

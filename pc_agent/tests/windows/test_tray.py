@@ -75,6 +75,26 @@ def test_tray_module_has_no_transport_or_service_control_imports() -> None:
     assert "endpoint_gateway" not in source
 
 
+def test_tray_entrypoint_uses_an_absolute_package_import() -> None:
+    """PyInstaller executes the tray entrypoint without a package parent."""
+    source = (Path(__file__).parents[2] / "platform" / "windows" / "tray.py").read_text(
+        encoding="utf-8"
+    )
+
+    assert "from pc_agent.platform.windows.tray_status import" in source
+    assert "from .tray_status import" not in source
+
+
+def test_tray_companion_uses_one_notification_icon_per_user_session() -> None:
+    """A repair or upgrade must not leave duplicate icons in the user's tray."""
+    source = (Path(__file__).parents[2] / "platform" / "windows" / "tray.py").read_text(
+        encoding="utf-8"
+    )
+
+    assert 'CreateMutexW(None, False, r"Local\\EndpointAgentTray")' in source
+    assert "_ERROR_ALREADY_EXISTS" in source
+
+
 def test_tray_spec_is_windowed_companion_executable() -> None:
     source = (Path(__file__).parents[2] / "pyinstaller_windows_tray.spec").read_text(
         encoding="utf-8"

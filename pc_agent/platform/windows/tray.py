@@ -10,7 +10,11 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal
 
-from .tray_status import TrayStatus, TrayStatusError, read_tray_status
+from pc_agent.platform.windows.tray_status import (
+    TrayStatus,
+    TrayStatusError,
+    read_tray_status,
+)
 
 
 TrayIcon = Literal["green", "yellow", "blue", "red", "grey"]
@@ -37,6 +41,7 @@ _MF_GRAYED = 0x00000001
 _TPM_RIGHTBUTTON = 0x0002
 _TPM_RETURNCMD = 0x0100
 _IDI_APPLICATION = 32512
+_ERROR_ALREADY_EXISTS = 183
 
 
 @dataclass(frozen=True, slots=True)
@@ -117,6 +122,11 @@ class _WindowsTray:
         user32 = ctypes.windll.user32
         kernel32 = ctypes.windll.kernel32
         shell32 = ctypes.windll.shell32
+        instance_mutex = kernel32.CreateMutexW(None, False, r"Local\EndpointAgentTray")
+        if not instance_mutex or kernel32.GetLastError() == _ERROR_ALREADY_EXISTS:
+            if instance_mutex:
+                kernel32.CloseHandle(instance_mutex)
+            return 0
         hinstance = kernel32.GetModuleHandleW(None)
 
         class WNDCLASSW(ctypes.Structure):
@@ -146,23 +156,26 @@ class _WindowsTray:
         window_class.lpfnWndProc = ctypes.cast(self._window_proc, ctypes.c_void_p)
         window_class.hInstance = hinstance
         window_class.lpszClassName = class_name
-        atom = user32.RegisterClassW(ctypes.byref(window_class))
-        if not atom:
-            return 1
-        hwnd = user32.CreateWindowExW(
-            0, class_name, "Endpoint Agent Tray", 0, 0, 0, 0, 0, None, None, hinstance, None
-        )
-        if not hwnd:
-            return 1
-        self._hwnd = hwnd
-        self._icon = _create_colored_icon(self._view.icon)
-        self._notify(shell32, _NIM_ADD)
-        user32.SetTimer(hwnd, _REFRESH_TIMER, 15000, None)
-        message = wintypes.MSG()
-        while user32.GetMessageW(ctypes.byref(message), None, 0, 0) > 0:
-            user32.TranslateMessage(ctypes.byref(message))
-            user32.DispatchMessageW(ctypes.byref(message))
-        return 0
+        try:
+            atom = user32.RegisterClassW(ctypes.byref(window_class))
+            if not atom:
+                return 1
+            hwnd = user32.CreateWindowExW(
+                0, class_name, "Endpoint Agent Tray", 0, 0, 0, 0, 0, None, None, hinstance, None
+            )
+            if not hwnd:
+                return 1
+            self._hwnd = hwnd
+            self._icon = _create_colored_icon(self._view.icon)
+            self._notify(shell32, _NIM_ADD)
+            user32.SetTimer(hwnd, _REFRESH_TIMER, 15000, None)
+            message = wintypes.MSG()
+            while user32.GetMessageW(ctypes.byref(message), None, 0, 0) > 0:
+                user32.TranslateMessage(ctypes.byref(message))
+                user32.DispatchMessageW(ctypes.byref(message))
+            return 0
+        finally:
+            kernel32.CloseHandle(instance_mutex)
 
     def _window_callback(self, hwnd: int, message: int, wparam: int, lparam: int) -> int:
         user32 = ctypes.windll.user32
