@@ -158,6 +158,7 @@ def test_service_components_remove_services_and_fail_the_transaction_on_error() 
     custom_actions = _all_elements(trees, "CustomAction")
     restrict = _by_id(custom_actions, "RestrictUpdaterServiceStart")
     configure_sids = _by_id(custom_actions, "ConfigureServiceSids")
+    stop_tray = _by_id(custom_actions, "StopTrayCompanions")
     assert configure_sids.get("FileRef") == "filServiceHost"
     assert configure_sids.get("ExeCommand") == "--configure-service-sids"
     assert configure_sids.get("Execute") == "deferred"
@@ -166,6 +167,11 @@ def test_service_components_remove_services_and_fail_the_transaction_on_error() 
     assert restrict.get("Execute") == "deferred"
     assert restrict.get("Impersonate") == "no"
     assert restrict.get("Return") == "check"
+    assert stop_tray.get("FileRef") == "filServiceHost"
+    assert stop_tray.get("ExeCommand") == "--stop-tray-companions"
+    assert stop_tray.get("Execute") == "deferred"
+    assert stop_tray.get("Impersonate") == "no"
+    assert stop_tray.get("Return") == "check"
 
     configure_sequence = next(
         item
@@ -177,8 +183,15 @@ def test_service_components_remove_services_and_fail_the_transaction_on_error() 
         for item in _all_elements(trees, "Custom")
         if item.get("Action") == "RestrictUpdaterServiceStart"
     )
+    stop_tray_sequence = next(
+        item
+        for item in _all_elements(trees, "Custom")
+        if item.get("Action") == "StopTrayCompanions"
+    )
     assert configure_sequence.get("After") == "InstallServices"
     assert restrict_sequence.get("After") == "ConfigureServiceSids"
+    assert stop_tray_sequence.get("Before") == "InstallFiles"
+    assert stop_tray_sequence.get("Condition") == 'Installed AND NOT REMOVE~="ALL"'
 
 
 def test_updater_acl_custom_action_reaches_only_the_fixed_no_argument_boundary(

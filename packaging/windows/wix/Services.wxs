@@ -41,6 +41,9 @@
     <CustomAction Id="ApplyTrayStatusAcl" FileRef="filServiceHost"
                   ExeCommand="--apply-tray-status-acl"
                   Execute="deferred" Impersonate="no" Return="check" HideTarget="yes" />
+    <CustomAction Id="StopTrayCompanions" FileRef="filServiceHost"
+                  ExeCommand="--stop-tray-companions"
+                  Execute="deferred" Impersonate="no" Return="check" HideTarget="yes" />
     <CustomAction Id="RestrictUpdaterServiceStart" FileRef="filServiceHost"
                   ExeCommand="--restrict-updater-start"
                   Execute="deferred" Impersonate="no" Return="check" HideTarget="yes" />
@@ -57,6 +60,8 @@
                   ExeCommand="--finalize-initial-selector"
                   Execute="commit" Impersonate="no" Return="check" HideTarget="yes" />
     <InstallExecuteSequence>
+      <Custom Action="StopTrayCompanions" Before="InstallFiles"
+              Condition="Installed AND NOT REMOVE~=&quot;ALL&quot;" />
       <Custom Action="ConfigureServiceSids" After="InstallServices"
               Condition="NOT REMOVE~=&quot;ALL&quot;" />
       <Custom Action="ApplyProgramDataAcl" After="ConfigureServiceSids"

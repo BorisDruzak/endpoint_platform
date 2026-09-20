@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import subprocess
+import sys
 import threading
 from pathlib import Path
 from typing import Sequence
@@ -20,6 +22,41 @@ from pc_agent.platform.windows.update_paths import UPDATE_EXECUTABLE_NAME, Windo
 _SEMVER_TRIPLET = re.compile(r"^(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)$")
 _SOURCE_REVISION = re.compile(r"^[0-9a-f]{40}$")
 _DEFAULT_ENDPOINT_ORIGIN = "https://endpoint.sosnadmin.local"
+_TRAY_EXECUTABLE_NAME = "EndpointAgentTray.exe"
+
+
+def stop_tray_companions() -> None:
+    """Stop only the installed tray executable before its MSI file is replaced."""
+    if os.name != "nt":
+        return
+    try:
+        import win32api  # type: ignore[import-not-found]
+        import win32con  # type: ignore[import-not-found]
+        import win32event  # type: ignore[import-not-found]
+        import win32process  # type: ignore[import-not-found]
+    except ImportError as error:
+        raise RuntimeError("pywin32 is required to stop Endpoint Agent tray") from error
+
+    expected = os.path.normcase(
+        os.path.normpath(str(Path(sys.executable).resolve().parent / _TRAY_EXECUTABLE_NAME))
+    )
+    access = win32con.PROCESS_QUERY_LIMITED_INFORMATION | win32con.PROCESS_TERMINATE
+    for process_id in win32process.EnumProcesses():
+        try:
+            handle = win32api.OpenProcess(access, False, process_id)
+        except win32api.error:
+            continue
+        try:
+            image = os.path.normcase(
+                os.path.normpath(win32process.GetModuleFileNameEx(handle, 0))
+            )
+            if image != expected:
+                continue
+            win32process.TerminateProcess(handle, 0)
+            if win32event.WaitForSingleObject(handle, 15_000) != win32event.WAIT_OBJECT_0:
+                raise RuntimeError("Endpoint Agent tray did not stop before update")
+        finally:
+            handle.Close()
 
 
 def _reject_reparse_chain(root: Path, leaf: Path) -> None:
@@ -194,6 +231,7 @@ def _parser() -> argparse.ArgumentParser:
     modes.add_argument("--updater-service", action="store_true")
     modes.add_argument("--apply-programdata-acl", action="store_true")
     modes.add_argument("--apply-tray-status-acl", action="store_true")
+    modes.add_argument("--stop-tray-companions", action="store_true")
     modes.add_argument("--configure-service-sids", action="store_true")
     modes.add_argument("--restrict-updater-start", action="store_true")
     modes.add_argument("--migrate-initial-selector", action="store_true")
@@ -219,6 +257,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         from pc_agent.platform.windows.acl import apply_tray_status_acl
 
         apply_tray_status_acl()
+        return 0
+    if args.stop_tray_companions:
+        stop_tray_companions()
         return 0
     if args.configure_service_sids:
         from pc_agent.platform.windows.service_control import configure_service_sids

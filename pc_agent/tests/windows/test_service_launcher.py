@@ -485,3 +485,20 @@ def test_service_host_exposes_fixed_tray_status_acl_boundary(
 
     assert service_launcher.main(["--apply-tray-status-acl"]) == 0
     assert observed == ["tray-acl"]
+
+
+def test_service_host_exposes_fixed_tray_shutdown_boundary(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An MSI upgrade may only terminate the installed fixed tray executable."""
+    from pc_agent.platform.windows import service_launcher
+
+    observed: list[str] = []
+    monkeypatch.setattr(
+        service_launcher,
+        "stop_tray_companions",
+        lambda: observed.append("tray-stopped"),
+    )
+
+    assert service_launcher.main(["--stop-tray-companions"]) == 0
+    assert observed == ["tray-stopped"]
