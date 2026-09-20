@@ -19,6 +19,7 @@ from pc_agent.core.device_fingerprint import collect_device_fingerprint
 from pc_agent.device_credential import read_device_credential
 from pc_agent.enrollment_bootstrap import _derive_hardware_fingerprint
 from pc_agent.enrollment_identity import ENROLLMENT_IDENTITY_FILENAME, read_enrollment_device_id
+from pc_agent.platform.windows.acl import PyWin32AclAdapter, WindowsAclError
 from pc_agent.windows_setup import (
     HttpsSetupTransport,
     SetupClaimError,
@@ -234,6 +235,16 @@ def _result_path() -> Path:
     return _diagnostics_root() / _INSTALL_RESULT_FILENAME
 
 
+def _prepare_diagnostics_root() -> Path:
+    """Create a result directory that users may read but cannot modify."""
+    root = _diagnostics_root()
+    try:
+        PyWin32AclAdapter().protect_operator_diagnostics(root)
+    except WindowsAclError as error:
+        raise OSError("installer diagnostics directory is unavailable") from error
+    return root
+
+
 def _write_install_result(
     *, status: str, code: int, stage: str, detail: str | None = None
 ) -> None:
@@ -245,8 +256,7 @@ def _write_install_result(
     ):
         raise ValueError("Windows Setup result fields are invalid")
     safe_detail = detail if detail and _SAFE_LOG_DETAIL.fullmatch(detail) else "REDACTED"
-    path = _result_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
+    path = _prepare_diagnostics_root() / _INSTALL_RESULT_FILENAME
     temporary = path.with_suffix(path.suffix + ".tmp")
     temporary.write_text(
         json.dumps(

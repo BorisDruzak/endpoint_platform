@@ -13,6 +13,7 @@ SYSTEM_PRINCIPAL = "SYSTEM"
 ADMINISTRATORS_PRINCIPAL = "Administrators"
 SERVICE_PRINCIPAL = "NT SERVICE\\EndpointAgent"
 UPDATER_PRINCIPAL = "NT SERVICE\\EndpointAgentUpdater"
+USERS_PRINCIPAL = "Users"
 MACHINE_DATA_ROOT = Path(r"C:\ProgramData\Endpoint Platform\Agent")
 EXPECTED_PRINCIPALS = (
     SYSTEM_PRINCIPAL,
@@ -60,6 +61,11 @@ CREDENTIAL_ACL = (
     # The updater can atomically replace a credential but cannot read it.
     AccessRule(UPDATER_PRINCIPAL, "write"),
 )
+OPERATOR_DIAGNOSTICS_ACL = (
+    AccessRule(SYSTEM_PRINCIPAL, "full_control"),
+    AccessRule(ADMINISTRATORS_PRINCIPAL, "full_control"),
+    AccessRule(USERS_PRINCIPAL, "read"),
+)
 
 
 class PyWin32AclAdapter:
@@ -79,6 +85,23 @@ class PyWin32AclAdapter:
     def protect_update_path(self, path: Path) -> None:
         """Make agent-created update handoff state readable by the fixed worker only."""
         self._apply(path, DIRECTORY_ACL)
+
+    def protect_operator_diagnostics(self, path: Path) -> None:
+        """Make installer results readable without allowing ordinary-user tampering."""
+        if os.name != "nt":
+            path.mkdir(parents=True, exist_ok=True)
+            path.chmod(stat.S_IRWXU)
+            return
+        if path.exists():
+            self._reject_reparse_point(path)
+            if not path.is_dir():
+                raise WindowsAclError("installer diagnostics path is not a directory")
+        else:
+            path.mkdir(parents=True)
+        self._reject_reparse_point(path)
+        win32security, _ntsecuritycon = self._modules()
+        _assert_trusted_owner(path, win32security)
+        self._apply(path, OPERATOR_DIAGNOSTICS_ACL)
 
     def protect_claim(self, path: Path) -> None:
         self._apply(path, CREDENTIAL_ACL)
@@ -130,6 +153,8 @@ class PyWin32AclAdapter:
                     sid = win32security.ConvertStringSidToSid("S-1-5-18")
                 elif rule.principal == ADMINISTRATORS_PRINCIPAL:
                     sid = win32security.ConvertStringSidToSid("S-1-5-32-544")
+                elif rule.principal == USERS_PRINCIPAL:
+                    sid = win32security.ConvertStringSidToSid("S-1-5-32-545")
                 else:
                     sid, _domain, _kind = win32security.LookupAccountName(
                         None, rule.principal

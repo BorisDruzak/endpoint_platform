@@ -165,6 +165,29 @@ def test_setup_entry_writes_safe_public_result_for_msi_failure(
     assert "secret" not in (diagnostics_root / "install-result.json").read_text(encoding="utf-8")
 
 
+def test_result_write_preserves_installer_outcome_when_diagnostics_acl_fails(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A DACL error must not replace the actual, stable installer result code."""
+    monkeypatch.setattr(
+        setup_entry,
+        "_prepare_diagnostics_root",
+        lambda: (_ for _ in ()).throw(OSError("diagnostics ACL failed")),
+        raising=False,
+    )
+
+    assert (
+        setup_entry._finish(
+            tmp_path,
+            status="INSTALL_FAILED",
+            code=setup_entry.EXIT_INSTALL_FAILED,
+            stage="MSI",
+            detail="MSI_INSTALL_FAILED",
+        )
+        == setup_entry.EXIT_INSTALL_FAILED
+    )
+
+
 def test_embedded_msi_installation_is_silent_and_windowless(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
