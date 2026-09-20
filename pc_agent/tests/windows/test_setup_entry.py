@@ -111,7 +111,9 @@ def test_setup_entry_requires_a_running_service_before_reporting_success(
     diagnostics_root = tmp_path / "installer-diagnostics"
     monkeypatch.setattr(setup_entry, "_resource_root", lambda: tmp_path)
     monkeypatch.setattr(setup_entry, "_data_root", lambda: data_root)
-    monkeypatch.setattr(setup_entry, "_diagnostics_root", lambda: diagnostics_root, raising=False)
+    monkeypatch.setattr(
+        setup_entry, "_diagnostics_root", lambda: diagnostics_root, raising=False
+    )
     monkeypatch.setattr(setup_entry, "_install_embedded_msi", lambda _: None)
     monkeypatch.setattr(
         setup_entry,
@@ -136,7 +138,9 @@ def test_setup_entry_requires_a_running_service_before_reporting_success(
     monkeypatch.setattr(setup_entry, "UniversalWindowsSetup", _Setup)
 
     assert setup_entry.main(["--quiet"]) == setup_entry.EXIT_SERVICE_FAILED
-    result = json.loads((diagnostics_root / "install-result.json").read_text(encoding="utf-8"))
+    result = json.loads(
+        (diagnostics_root / "install-result.json").read_text(encoding="utf-8")
+    )
     assert result["status"] == "SERVICE_FAILED"
     assert result["detail"] == "SERVICE_NOT_RUNNING"
     assert result["stage"] == "SERVICE"
@@ -150,7 +154,9 @@ def test_setup_entry_writes_safe_public_result_for_msi_failure(
     diagnostics_root = tmp_path / "installer-diagnostics"
     monkeypatch.setattr(setup_entry, "_resource_root", lambda: tmp_path)
     monkeypatch.setattr(setup_entry, "_data_root", lambda: tmp_path / "agent-data")
-    monkeypatch.setattr(setup_entry, "_diagnostics_root", lambda: diagnostics_root, raising=False)
+    monkeypatch.setattr(
+        setup_entry, "_diagnostics_root", lambda: diagnostics_root, raising=False
+    )
     monkeypatch.setattr(
         setup_entry,
         "_install_embedded_msi",
@@ -159,10 +165,14 @@ def test_setup_entry_writes_safe_public_result_for_msi_failure(
     monkeypatch.setattr(setup_entry, "HttpsSetupTransport", lambda *_: object())
 
     assert setup_entry.main(["--quiet"]) == setup_entry.EXIT_INSTALL_FAILED
-    result = json.loads((diagnostics_root / "install-result.json").read_text(encoding="utf-8"))
+    result = json.loads(
+        (diagnostics_root / "install-result.json").read_text(encoding="utf-8")
+    )
     assert result["status"] == "INSTALL_FAILED"
     assert result["detail"] == "MSI_INSTALL_FAILED"
-    assert "secret" not in (diagnostics_root / "install-result.json").read_text(encoding="utf-8")
+    assert "secret" not in (diagnostics_root / "install-result.json").read_text(
+        encoding="utf-8"
+    )
 
 
 def test_result_write_preserves_installer_outcome_when_diagnostics_acl_fails(
@@ -202,7 +212,9 @@ def test_embedded_msi_installation_is_silent_and_windowless(
         return SimpleNamespace(returncode=0)
 
     monkeypatch.setattr(setup_entry.subprocess, "run", fake_run)
-    monkeypatch.setattr(setup_entry, "_windowless_creation_flags", lambda: 4242, raising=False)
+    monkeypatch.setattr(
+        setup_entry, "_windowless_creation_flags", lambda: 4242, raising=False
+    )
 
     setup_entry._install_embedded_msi(msi_path)
 
@@ -221,7 +233,9 @@ def test_provisioner_is_started_without_a_console_window(
         captured["kwargs"] = kwargs
         return SimpleNamespace(returncode=0, stdout="", stderr="")
 
-    monkeypatch.setattr(setup_entry, "_windowless_creation_flags", lambda: 4242, raising=False)
+    monkeypatch.setattr(
+        setup_entry, "_windowless_creation_flags", lambda: 4242, raising=False
+    )
     setup_entry._run_provisioner(
         tmp_path / "endpoint-agent-provision.exe",
         SetupConfig(
@@ -247,7 +261,12 @@ def test_normal_installation_displays_a_concrete_success_result(
     displayed: list[tuple[str, int, str]] = []
     monkeypatch.setattr(setup_entry, "_resource_root", lambda: tmp_path)
     monkeypatch.setattr(setup_entry, "_data_root", lambda: tmp_path / "agent-data")
-    monkeypatch.setattr(setup_entry, "_diagnostics_root", lambda: tmp_path / "installer-diagnostics", raising=False)
+    monkeypatch.setattr(
+        setup_entry,
+        "_diagnostics_root",
+        lambda: tmp_path / "installer-diagnostics",
+        raising=False,
+    )
     monkeypatch.setattr(setup_entry, "_install_embedded_msi", lambda _: None)
     monkeypatch.setattr(
         setup_entry,
@@ -281,7 +300,61 @@ def test_normal_installation_displays_a_concrete_success_result(
     assert displayed == [("COMPLETED", 0, "SERVICE_RUNNING")]
 
 
-def test_setup_entry_rejects_config_that_contains_extra_material(tmp_path: Path) -> None:
+def test_successful_interactive_update_restarts_the_tray_companion(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """An interactive update must restore the visible tray process it stopped."""
+    (tmp_path / "enrollment-identity.json").write_text(
+        '{"device_id":"550e8400-e29b-41d4-a716-446655440000","schema_version":"endpoint_enrollment_identity_v1"}',
+        encoding="ascii",
+    )
+    (tmp_path / "device-credential").write_text("a" * 43, encoding="ascii")
+    resources = tmp_path / "payload"
+    resources.mkdir()
+    _write_public_payload(resources)
+    config = json.loads((resources / "setup-config.json").read_text(encoding="utf-8"))
+    config["installer_version"] = "3.2.56"
+    (resources / "setup-config.json").write_text(json.dumps(config), encoding="utf-8")
+    started: list[object] = []
+
+    monkeypatch.setattr(setup_entry, "_data_root", lambda: tmp_path)
+    monkeypatch.setattr(setup_entry, "_resource_root", lambda: resources)
+    monkeypatch.setattr(setup_entry, "_installed_runtime_version", lambda: "3.2.55")
+    monkeypatch.setattr(setup_entry, "_install_embedded_msi", lambda _path: None)
+    monkeypatch.setattr(setup_entry, "_wait_for_agent_service_running", lambda: True)
+    monkeypatch.setattr(setup_entry, "_is_interactive_windows_session", lambda: True)
+    monkeypatch.setattr(
+        setup_entry, "_restart_tray_companion", lambda: started.append("tray") or True
+    )
+
+    assert setup_entry.main(["--quiet"]) == setup_entry.EXIT_SUCCESS
+    assert started == ["tray"]
+
+
+def test_successful_system_update_does_not_start_an_invisible_tray(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """SYSTEM/session-0 updates leave tray launch to the interactive user session."""
+    monkeypatch.setattr(setup_entry.os, "name", "nt")
+    monkeypatch.setenv("SESSIONNAME", "Services")
+    monkeypatch.setenv("USERNAME", "SYSTEM")
+    monkeypatch.setattr(
+        setup_entry,
+        "_installed_tray_companion",
+        lambda: tmp_path / "EndpointAgentTray.exe",
+    )
+    monkeypatch.setattr(
+        setup_entry.subprocess,
+        "Popen",
+        lambda *_args, **_kwargs: pytest.fail("session-0 must not start a tray UI"),
+    )
+
+    assert setup_entry._restart_tray_companion() is False
+
+
+def test_setup_entry_rejects_config_that_contains_extra_material(
+    tmp_path: Path,
+) -> None:
     _write_public_payload(tmp_path)
     (tmp_path / "setup-config.json").write_text(
         json.dumps(
@@ -312,13 +385,17 @@ def test_setup_state_classifies_a_valid_identity_and_credential(tmp_path: Path) 
     assert setup_entry._classify_installation_state(tmp_path) == "valid"
 
 
-def test_setup_state_fails_closed_for_incomplete_enrollment_material(tmp_path: Path) -> None:
+def test_setup_state_fails_closed_for_incomplete_enrollment_material(
+    tmp_path: Path,
+) -> None:
     (tmp_path / "device-credential").write_text("a" * 43, encoding="ascii")
 
     assert setup_entry._classify_installation_state(tmp_path) == "conflicted"
 
 
-def test_setup_state_marks_valid_identity_without_service_repairable(tmp_path: Path) -> None:
+def test_setup_state_marks_valid_identity_without_service_repairable(
+    tmp_path: Path,
+) -> None:
     (tmp_path / "enrollment-identity.json").write_text(
         '{"device_id":"550e8400-e29b-41d4-a716-446655440000","schema_version":"endpoint_enrollment_identity_v1"}',
         encoding="ascii",
@@ -373,7 +450,10 @@ def test_setup_entry_maps_terminal_request_outcomes_to_stable_exit_codes(
     ("error", "expected"),
     [
         (SetupClaimError("claim handoff failed"), setup_entry.EXIT_CLAIM_FAILED),
-        (SetupProvisionError("provisioning failed"), setup_entry.EXIT_PROVISIONING_FAILED),
+        (
+            SetupProvisionError("provisioning failed"),
+            setup_entry.EXIT_PROVISIONING_FAILED,
+        ),
     ],
 )
 def test_setup_entry_distinguishes_claim_and_provisioning_failures(
@@ -546,8 +626,12 @@ def test_valid_existing_agent_installs_a_strictly_newer_embedded_msi(
     calls: list[str] = []
     monkeypatch.setattr(setup_entry, "_data_root", lambda: tmp_path)
     monkeypatch.setattr(setup_entry, "_resource_root", lambda: resources)
-    monkeypatch.setattr(setup_entry, "_installed_runtime_version", lambda: "3.2.47", raising=False)
-    monkeypatch.setattr(setup_entry, "_install_embedded_msi", lambda path: calls.append(path.name))
+    monkeypatch.setattr(
+        setup_entry, "_installed_runtime_version", lambda: "3.2.47", raising=False
+    )
+    monkeypatch.setattr(
+        setup_entry, "_install_embedded_msi", lambda path: calls.append(path.name)
+    )
     monkeypatch.setattr(setup_entry, "_wait_for_agent_service_running", lambda: True)
     monkeypatch.setattr(
         setup_entry,
@@ -574,8 +658,12 @@ def test_valid_existing_agent_does_not_install_an_equal_embedded_msi(
     calls: list[str] = []
     monkeypatch.setattr(setup_entry, "_data_root", lambda: tmp_path)
     monkeypatch.setattr(setup_entry, "_resource_root", lambda: resources)
-    monkeypatch.setattr(setup_entry, "_installed_runtime_version", lambda: "1.0.0", raising=False)
-    monkeypatch.setattr(setup_entry, "_install_embedded_msi", lambda _path: calls.append("msi"))
+    monkeypatch.setattr(
+        setup_entry, "_installed_runtime_version", lambda: "1.0.0", raising=False
+    )
+    monkeypatch.setattr(
+        setup_entry, "_install_embedded_msi", lambda _path: calls.append("msi")
+    )
 
     assert setup_entry.main(["--quiet"]) == setup_entry.EXIT_ALREADY_INSTALLED
     assert calls == []

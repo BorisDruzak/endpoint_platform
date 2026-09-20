@@ -191,7 +191,9 @@ def test_service_components_remove_services_and_fail_the_transaction_on_error() 
     assert configure_sequence.get("After") == "InstallServices"
     assert restrict_sequence.get("After") == "ConfigureServiceSids"
     assert stop_tray_sequence.get("Before") == "InstallFiles"
-    assert stop_tray_sequence.get("Condition") == 'Installed AND NOT REMOVE~="ALL"'
+    assert stop_tray_sequence.get("Condition") == (
+        '(Installed OR WIX_UPGRADE_DETECTED) AND NOT REMOVE~="ALL"'
+    )
 
 
 def test_updater_acl_custom_action_reaches_only_the_fixed_no_argument_boundary(

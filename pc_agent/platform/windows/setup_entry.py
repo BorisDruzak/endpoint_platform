@@ -13,12 +13,15 @@ import time
 from collections.abc import Sequence
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Callable, Literal
 
 from pc_agent.core.device_fingerprint import collect_device_fingerprint
 from pc_agent.device_credential import read_device_credential
 from pc_agent.enrollment_bootstrap import _derive_hardware_fingerprint
-from pc_agent.enrollment_identity import ENROLLMENT_IDENTITY_FILENAME, read_enrollment_device_id
+from pc_agent.enrollment_identity import (
+    ENROLLMENT_IDENTITY_FILENAME,
+    read_enrollment_device_id,
+)
 from pc_agent.platform.windows.acl import PyWin32AclAdapter, WindowsAclError
 from pc_agent.windows_setup import (
     HttpsSetupTransport,
@@ -123,10 +126,71 @@ def _installed_provisioner() -> Path:
     program_files = os.environ.get("ProgramW6432") or os.environ.get("ProgramFiles")
     if not program_files:
         raise RuntimeError("Windows Setup Program Files location is unavailable")
-    executable = Path(program_files) / "Endpoint Platform" / "Agent" / "endpoint-agent-provision.exe"
+    executable = (
+        Path(program_files)
+        / "Endpoint Platform"
+        / "Agent"
+        / "endpoint-agent-provision.exe"
+    )
     if not executable.is_file():
         raise RuntimeError("Windows Setup provisioner is unavailable")
     return executable
+
+
+def _installed_tray_companion() -> Path:
+    """Return only the tray executable installed in the fixed product directory."""
+    program_files = os.environ.get("ProgramW6432") or os.environ.get("ProgramFiles")
+    if not program_files:
+        raise RuntimeError("Windows Setup Program Files location is unavailable")
+    executable = (
+        Path(program_files) / "Endpoint Platform" / "Agent" / "EndpointAgentTray.exe"
+    )
+    if not executable.is_file():
+        raise RuntimeError("Windows Setup tray companion is unavailable")
+    return executable
+
+
+def _is_interactive_windows_session() -> bool:
+    """Avoid creating a session-0 tray process during service/SYSTEM deployments."""
+    if os.name != "nt":
+        return False
+    session_name = os.environ.get("SESSIONNAME", "")
+    username = os.environ.get("USERNAME", "")
+    return (
+        bool(session_name)
+        and session_name.casefold() != "services"
+        and username.casefold() != "system"
+    )
+
+
+def _restart_tray_companion() -> bool:
+    """Restore the user-visible tray after MSI safely stopped it for an update."""
+    if not _is_interactive_windows_session():
+        return False
+    try:
+        subprocess.Popen(  # noqa: S603 - fixed, installed executable only
+            [str(_installed_tray_companion())],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            shell=False,
+            close_fds=True,
+            creationflags=_windowless_creation_flags(),
+        )
+    except (OSError, RuntimeError):
+        return False
+    return True
+
+
+def _service_ready_detail() -> str:
+    """Keep a successful non-interactive deployment distinct from a tray launch fault."""
+    if not _is_interactive_windows_session():
+        return "SERVICE_RUNNING"
+    return (
+        "SERVICE_RUNNING"
+        if _restart_tray_companion()
+        else "SERVICE_RUNNING_TRAY_START_FAILED"
+    )
 
 
 def _data_root() -> Path:
@@ -145,7 +209,8 @@ def _installed_runtime_version() -> str | None:
     except (OSError, json.JSONDecodeError):
         return None
     if not isinstance(payload, dict) or set(payload) not in (
-        {"version"}, {"schema_version", "source_revision", "version"},
+        {"version"},
+        {"schema_version", "source_revision", "version"},
     ):
         return None
     version = payload.get("version")
@@ -158,11 +223,18 @@ def _is_strictly_newer_version(candidate: str, installed: str) -> bool:
     installed_match = _SEMVER.fullmatch(installed)
     if candidate_match is None or installed_match is None:
         return False
-    candidate_core = tuple(int(candidate_match.group(name)) for name in ("major", "minor", "patch"))
-    installed_core = tuple(int(installed_match.group(name)) for name in ("major", "minor", "patch"))
+    candidate_core = tuple(
+        int(candidate_match.group(name)) for name in ("major", "minor", "patch")
+    )
+    installed_core = tuple(
+        int(installed_match.group(name)) for name in ("major", "minor", "patch")
+    )
     if candidate_core != installed_core:
         return candidate_core > installed_core
-    return _compare_prerelease(candidate_match.group("pre"), installed_match.group("pre")) > 0
+    return (
+        _compare_prerelease(candidate_match.group("pre"), installed_match.group("pre"))
+        > 0
+    )
 
 
 def _compare_prerelease(candidate: str | None, installed: str | None) -> int:
@@ -213,7 +285,9 @@ def _agent_service_installed() -> bool:
     """Read the fixed service state without accepting a caller-controlled service name."""
     if os.name != "nt":
         return True
-    executable = Path(os.environ.get("SystemRoot", r"C:\\Windows")) / "System32" / "sc.exe"
+    executable = (
+        Path(os.environ.get("SystemRoot", r"C:\\Windows")) / "System32" / "sc.exe"
+    )
     try:
         completed = subprocess.run(
             [str(executable), "query", "EndpointAgent"],
@@ -273,7 +347,9 @@ def _write_install_log(
         and isinstance(code, int)
     ):
         raise ValueError("Windows Setup log fields are invalid")
-    safe_detail = detail if detail and _SAFE_LOG_DETAIL.fullmatch(detail) else "REDACTED"
+    safe_detail = (
+        detail if detail and _SAFE_LOG_DETAIL.fullmatch(detail) else "REDACTED"
+    )
     line = (
         f"{datetime.now(UTC).isoformat()} step={step} status={status} "
         f"code={code} detail={safe_detail}\n"
@@ -311,7 +387,9 @@ def _write_install_result(
         and isinstance(code, int)
     ):
         raise ValueError("Windows Setup result fields are invalid")
-    safe_detail = detail if detail and _SAFE_LOG_DETAIL.fullmatch(detail) else "REDACTED"
+    safe_detail = (
+        detail if detail and _SAFE_LOG_DETAIL.fullmatch(detail) else "REDACTED"
+    )
     path = _prepare_diagnostics_root() / _INSTALL_RESULT_FILENAME
     temporary = path.with_suffix(path.suffix + ".tmp")
     temporary.write_text(
@@ -381,10 +459,7 @@ def _show_result_dialog(status: str, code: int, detail: str) -> None:
     else:
         message = "Установка Endpoint Agent не завершена."
         icon = 0x10  # MB_ICONERROR
-    message += (
-        f"\n\nКод: {code}\nПричина: {detail}"
-        f"\nРезультат: {_result_path()}"
-    )
+    message += f"\n\nКод: {code}\nПричина: {detail}\nРезультат: {_result_path()}"
     try:
         import ctypes
 
@@ -403,7 +478,9 @@ def _complete(
     stage: str = "SETUP",
     detail: str | None = None,
 ) -> int:
-    safe_detail = detail if detail and _SAFE_LOG_DETAIL.fullmatch(detail) else "REDACTED"
+    safe_detail = (
+        detail if detail and _SAFE_LOG_DETAIL.fullmatch(detail) else "REDACTED"
+    )
     result = _finish(
         data_root, status=status, code=code, stage=stage, detail=safe_detail
     )
@@ -520,39 +597,72 @@ def main(argv: Sequence[str] | None = None) -> int:
                 detail="LOCAL_RUNTIME_CONFLICT",
             )
         if _is_strictly_newer_version(config.installer_version, installed_version):
-            _finish(data_root, status="STARTED", code=EXIT_SUCCESS, stage="MSI", detail="STARTED")
+            _finish(
+                data_root,
+                status="STARTED",
+                code=EXIT_SUCCESS,
+                stage="MSI",
+                detail="STARTED",
+            )
             try:
                 _install_embedded_msi(resources / "EndpointAgent.msi")
             except SetupInstallError as error:
                 return _complete(
-                    args, data_root, status="INSTALL_FAILED", code=EXIT_INSTALL_FAILED,
-                    stage="MSI", detail=error.detail,
+                    args,
+                    data_root,
+                    status="INSTALL_FAILED",
+                    code=EXIT_INSTALL_FAILED,
+                    stage="MSI",
+                    detail=error.detail,
                 )
             except Exception:
                 return _complete(
-                    args, data_root, status="INSTALL_FAILED", code=EXIT_INSTALL_FAILED,
-                    stage="MSI", detail="MSI_INSTALL_FAILED",
+                    args,
+                    data_root,
+                    status="INSTALL_FAILED",
+                    code=EXIT_INSTALL_FAILED,
+                    stage="MSI",
+                    detail="MSI_INSTALL_FAILED",
                 )
             if not _wait_for_agent_service_running():
                 return _complete(
-                    args, data_root, status="SERVICE_FAILED", code=EXIT_SERVICE_FAILED,
-                    stage="SERVICE", detail="SERVICE_NOT_RUNNING",
+                    args,
+                    data_root,
+                    status="SERVICE_FAILED",
+                    code=EXIT_SERVICE_FAILED,
+                    stage="SERVICE",
+                    detail="SERVICE_NOT_RUNNING",
                 )
+            detail = _service_ready_detail()
             return _complete(
-                args, data_root, status="UPDATED", code=EXIT_SUCCESS,
-                stage="SERVICE", detail="SERVICE_RUNNING",
+                args,
+                data_root,
+                status="UPDATED",
+                code=EXIT_SUCCESS,
+                stage="SERVICE",
+                detail=detail,
             )
         if not _wait_for_agent_service_running():
             return _complete(
-                args, data_root, status="SERVICE_FAILED", code=EXIT_SERVICE_FAILED,
-                stage="SERVICE", detail="SERVICE_NOT_RUNNING",
+                args,
+                data_root,
+                status="SERVICE_FAILED",
+                code=EXIT_SERVICE_FAILED,
+                stage="SERVICE",
+                detail="SERVICE_NOT_RUNNING",
             )
         return _complete(
-            args, data_root, status="ALREADY_INSTALLED", code=EXIT_ALREADY_INSTALLED,
-            stage="SERVICE", detail="SERVICE_RUNNING",
+            args,
+            data_root,
+            status="ALREADY_INSTALLED",
+            code=EXIT_ALREADY_INSTALLED,
+            stage="SERVICE",
+            detail="SERVICE_RUNNING",
         )
     transport = HttpsSetupTransport(config.endpoint_origin, config.ca_file)
-    _finish(data_root, status="STARTED", code=EXIT_SUCCESS, stage="MSI", detail="STARTED")
+    _finish(
+        data_root, status="STARTED", code=EXIT_SUCCESS, stage="MSI", detail="STARTED"
+    )
     try:
         _install_embedded_msi(resources / "EndpointAgent.msi")
         if installation_state == "repairable":
@@ -565,13 +675,14 @@ def main(argv: Sequence[str] | None = None) -> int:
                     stage="SERVICE",
                     detail="SERVICE_NOT_RUNNING",
                 )
+            detail = _service_ready_detail()
             return _complete(
                 args,
                 data_root,
                 status="REPAIRED",
                 code=EXIT_ALREADY_INSTALLED,
                 stage="SERVICE",
-                detail="SERVICE_RUNNING",
+                detail=detail,
             )
         provisioner = _installed_provisioner()
     except SetupInstallError as error:
@@ -604,7 +715,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         config,
         transport=transport,
         provision_claim=run_provisioner,
-        fingerprint_probe=lambda: _derive_hardware_fingerprint(collect_device_fingerprint),
+        fingerprint_probe=lambda: _derive_hardware_fingerprint(
+            collect_device_fingerprint
+        ),
         inventory_probe=_inventory,
         clock=lambda: datetime.now(UTC),
     )
@@ -655,13 +768,14 @@ def main(argv: Sequence[str] | None = None) -> int:
                 stage="SERVICE",
                 detail="SERVICE_NOT_RUNNING",
             )
+        detail = _service_ready_detail()
         return _complete(
             args,
             data_root,
             status="COMPLETED",
             code=EXIT_SUCCESS,
             stage="SERVICE",
-            detail="SERVICE_RUNNING",
+            detail=detail,
         )
     exit_code = {
         "denied": EXIT_ENROLLMENT_DENIED,
