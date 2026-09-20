@@ -81,6 +81,16 @@ def test_frozen_setup_spec_requires_elevation_for_machine_provisioning() -> None
     assert "console=False" in source
 
 
+def test_installer_helper_executables_are_windowless() -> None:
+    """A console subsystem in either helper would flash a command window."""
+    for name in (
+        "pyinstaller_windows_provision.spec",
+        "pyinstaller_windows_service_launcher.spec",
+    ):
+        source = (PROJECT_ROOT / "pc_agent" / name).read_text(encoding="utf-8")
+        assert "console=False" in source
+
+
 def test_setup_entry_installs_embedded_msi_before_using_its_provisioner() -> None:
     source = (PROJECT_ROOT / "pc_agent" / "platform" / "windows" / "setup_entry.py").read_text(
         encoding="utf-8"
@@ -105,3 +115,6 @@ def test_runbook_documents_campaign_authority_and_safe_quiet_mode() -> None:
     assert "--quiet" in source
     assert "fleet rollout" in source
     assert "ic_" in source
+    assert "install-result.json" in source
+    assert "EndpointAgent" in source
+    assert "CMD" in source

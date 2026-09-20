@@ -9,6 +9,7 @@ import re
 import socket
 import subprocess
 import sys
+import time
 from collections.abc import Sequence
 from datetime import UTC, datetime
 from pathlib import Path
@@ -42,9 +43,18 @@ EXIT_WSS_TIMEOUT = 51
 EXIT_CONTEXT_TIMEOUT = 52
 EXIT_REPAIR_REQUIRED = 60
 _SAFE_LOG_DETAIL = re.compile(r"^[A-Z][A-Z0-9_]{0,63}$")
+_INSTALL_RESULT_FILENAME = "install-result.json"
 _PROVISIONER_ERROR = re.compile(
     r"^Windows provisioning failed: ([A-Za-z][A-Za-z0-9_]{0,63})$"
 )
+
+
+class SetupInstallError(RuntimeError):
+    """A bounded MSI-installation failure safe for local diagnostics."""
+
+    def __init__(self, detail: str) -> None:
+        super().__init__("Windows Setup MSI installation failed")
+        self.detail = detail
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -89,14 +99,18 @@ def _read_public_setup_config(path: Path) -> dict[str, str]:
 
 def _install_embedded_msi(msi_path: Path) -> None:
     if not msi_path.is_file():
-        raise RuntimeError("Windows Setup MSI is unavailable")
+        raise SetupInstallError("MSI_UNAVAILABLE")
     completed = subprocess.run(
-        ["msiexec.exe", "/i", str(msi_path), "/passive", "/norestart"],
+        ["msiexec.exe", "/i", str(msi_path), "/qn", "/norestart"],
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
         check=False,
         shell=False,
+        creationflags=_windowless_creation_flags(),
     )
     if completed.returncode not in {0, 3010}:
-        raise RuntimeError("Windows Setup MSI installation failed")
+        raise SetupInstallError(f"MSI_EXIT_{completed.returncode}")
 
 
 def _installed_provisioner() -> Path:
@@ -112,6 +126,12 @@ def _installed_provisioner() -> Path:
 def _data_root() -> Path:
     program_data = os.environ.get("ProgramData", r"C:\ProgramData")
     return Path(program_data) / "Endpoint Platform" / "Agent"
+
+
+def _diagnostics_root() -> Path:
+    """Keep installer results outside the agent's credential-protected directory."""
+    program_data = os.environ.get("ProgramData", r"C:\ProgramData")
+    return Path(program_data) / "Endpoint Platform" / "Installer"
 
 
 def _classify_installation_state(
@@ -152,6 +172,40 @@ def _agent_service_installed() -> bool:
     return completed.returncode == 0
 
 
+def _agent_service_running() -> bool:
+    """Prove the fixed service has reached the Windows running state."""
+    if os.name != "nt":
+        return True
+    try:
+        import win32service  # type: ignore[import-not-found]
+        import win32serviceutil  # type: ignore[import-not-found]
+    except ImportError:
+        return False
+    try:
+        status = win32serviceutil.QueryServiceStatus("EndpointAgent")
+    except Exception:
+        return False
+    return status[1] == win32service.SERVICE_RUNNING
+
+
+def _wait_for_agent_service_running(
+    *, timeout_seconds: float = 30.0, poll_seconds: float = 0.5
+) -> bool:
+    deadline = time.monotonic() + timeout_seconds
+    while True:
+        if _agent_service_running():
+            return True
+        if time.monotonic() >= deadline:
+            return False
+        time.sleep(poll_seconds)
+
+
+def _windowless_creation_flags() -> int:
+    if os.name != "nt":
+        return 0
+    return int(getattr(subprocess, "CREATE_NO_WINDOW", 0))
+
+
 def _write_install_log(
     path: Path, *, step: str, status: str, code: int, detail: str | None = None
 ) -> None:
@@ -176,7 +230,55 @@ def _log_path(data_root: Path) -> Path:
     return data_root / "install.log"
 
 
-def _finish(data_root: Path, *, status: str, code: int, detail: str | None = None) -> int:
+def _result_path() -> Path:
+    return _diagnostics_root() / _INSTALL_RESULT_FILENAME
+
+
+def _write_install_result(
+    *, status: str, code: int, stage: str, detail: str | None = None
+) -> None:
+    """Atomically persist an operator-readable, secret-free install outcome."""
+    if not (
+        _SAFE_LOG_DETAIL.fullmatch(status)
+        and _SAFE_LOG_DETAIL.fullmatch(stage)
+        and isinstance(code, int)
+    ):
+        raise ValueError("Windows Setup result fields are invalid")
+    safe_detail = detail if detail and _SAFE_LOG_DETAIL.fullmatch(detail) else "REDACTED"
+    path = _result_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_suffix(path.suffix + ".tmp")
+    temporary.write_text(
+        json.dumps(
+            {
+                "schema_version": "endpoint_windows_install_result_v1",
+                "status": status,
+                "exit_code": code,
+                "stage": stage,
+                "detail": safe_detail,
+                "updated_at": datetime.now(UTC).isoformat(),
+            },
+            separators=(",", ":"),
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+    temporary.replace(path)
+
+
+def _finish(
+    data_root: Path,
+    *,
+    status: str,
+    code: int,
+    stage: str = "SETUP",
+    detail: str | None = None,
+) -> int:
+    try:
+        _write_install_result(status=status, code=code, stage=stage, detail=detail)
+    except OSError:
+        # A result-write failure must not hide the actual installer process result.
+        pass
     try:
         _write_install_log(
             _log_path(data_root),
@@ -189,6 +291,59 @@ def _finish(data_root: Path, *, status: str, code: int, detail: str | None = Non
         # A logging failure must not change an otherwise bounded installer result.
         pass
     return code
+
+
+def _record_in_progress() -> None:
+    try:
+        _write_install_result(
+            status="IN_PROGRESS", code=EXIT_SUCCESS, stage="SETUP", detail="STARTED"
+        )
+    except OSError:
+        pass
+
+
+def _show_result_dialog(status: str, code: int, detail: str) -> None:
+    """Show a normal Windows result dialog without opening a console window."""
+    if os.name != "nt":
+        return
+    if status in {"COMPLETED", "REPAIRED", "ALREADY_INSTALLED"}:
+        message = "Endpoint Agent установлен и служба EndpointAgent запущена."
+        icon = 0x40  # MB_ICONINFORMATION
+    elif status in {"WAITING_APPROVAL", "REVIEW_REQUIRED"}:
+        message = "Установка ожидает решения администратора."
+        icon = 0x30  # MB_ICONWARNING
+    else:
+        message = "Установка Endpoint Agent не завершена."
+        icon = 0x10  # MB_ICONERROR
+    message += (
+        f"\n\nКод: {code}\nПричина: {detail}"
+        f"\nРезультат: {_result_path()}"
+    )
+    try:
+        import ctypes
+
+        ctypes.windll.user32.MessageBoxW(None, message, "Endpoint Agent Setup", icon)
+    except Exception:
+        # The persisted result and exit code remain the authoritative diagnostics.
+        pass
+
+
+def _complete(
+    args: argparse.Namespace,
+    data_root: Path,
+    *,
+    status: str,
+    code: int,
+    stage: str = "SETUP",
+    detail: str | None = None,
+) -> int:
+    safe_detail = detail if detail and _SAFE_LOG_DETAIL.fullmatch(detail) else "REDACTED"
+    result = _finish(
+        data_root, status=status, code=code, stage=stage, detail=safe_detail
+    )
+    if not args.quiet:
+        _show_result_dialog(status, code, safe_detail)
+    return result
 
 
 def _inventory() -> dict[str, object]:
@@ -237,6 +392,7 @@ def _run_provisioner(
             capture_output=True,
             check=False,
             shell=False,
+            creationflags=_windowless_creation_flags(),
         )
     except OSError as error:
         raise SetupProvisionError(
@@ -254,16 +410,37 @@ def _run_provisioner(
 def main(argv: Sequence[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     data_root = _data_root()
+    _record_in_progress()
     installation_state = _classify_installation_state(
         data_root, service_installed=_agent_service_installed()
     )
     if installation_state == "valid":
-        if not args.quiet:
-            print("Windows Setup: already_installed")
-        return _finish(data_root, status="ALREADY_INSTALLED", code=EXIT_ALREADY_INSTALLED)
+        if not _wait_for_agent_service_running():
+            return _complete(
+                args,
+                data_root,
+                status="SERVICE_FAILED",
+                code=EXIT_SERVICE_FAILED,
+                stage="SERVICE",
+                detail="SERVICE_NOT_RUNNING",
+            )
+        return _complete(
+            args,
+            data_root,
+            status="ALREADY_INSTALLED",
+            code=EXIT_ALREADY_INSTALLED,
+            stage="SERVICE",
+            detail="SERVICE_RUNNING",
+        )
     if installation_state == "conflicted":
-        print("Windows Setup failed: RepairRequired", file=sys.stderr)
-        return _finish(data_root, status="REPAIR_REQUIRED", code=EXIT_REPAIR_REQUIRED)
+        return _complete(
+            args,
+            data_root,
+            status="REPAIR_REQUIRED",
+            code=EXIT_REPAIR_REQUIRED,
+            stage="SETUP",
+            detail="LOCAL_STATE_CONFLICT",
+        )
     resources = _resource_root()
     try:
         public_config = _read_public_setup_config(resources / "setup-config.json")
@@ -275,20 +452,55 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         config.validate()
         transport = HttpsSetupTransport(config.endpoint_origin, config.ca_file)
-    except Exception as error:
-        print(f"Windows Setup failed: {type(error).__name__}", file=sys.stderr)
-        return _finish(data_root, status="PREFLIGHT_FAILED", code=EXIT_PREFLIGHT_FAILED)
-    _finish(data_root, status="STARTED", code=EXIT_SUCCESS)
+    except Exception:
+        return _complete(
+            args,
+            data_root,
+            status="PREFLIGHT_FAILED",
+            code=EXIT_PREFLIGHT_FAILED,
+            stage="PREFLIGHT",
+            detail="PREFLIGHT_INVALID",
+        )
+    _finish(data_root, status="STARTED", code=EXIT_SUCCESS, stage="MSI", detail="STARTED")
     try:
         _install_embedded_msi(resources / "EndpointAgent.msi")
         if installation_state == "repairable":
-            if not _agent_service_installed():
-                return _finish(data_root, status="SERVICE_FAILED", code=EXIT_SERVICE_FAILED)
-            return _finish(data_root, status="REPAIRED", code=EXIT_ALREADY_INSTALLED)
+            if not _wait_for_agent_service_running():
+                return _complete(
+                    args,
+                    data_root,
+                    status="SERVICE_FAILED",
+                    code=EXIT_SERVICE_FAILED,
+                    stage="SERVICE",
+                    detail="SERVICE_NOT_RUNNING",
+                )
+            return _complete(
+                args,
+                data_root,
+                status="REPAIRED",
+                code=EXIT_ALREADY_INSTALLED,
+                stage="SERVICE",
+                detail="SERVICE_RUNNING",
+            )
         provisioner = _installed_provisioner()
-    except Exception as error:
-        print(f"Windows Setup failed: {type(error).__name__}", file=sys.stderr)
-        return _finish(data_root, status="INSTALL_FAILED", code=EXIT_INSTALL_FAILED)
+    except SetupInstallError as error:
+        return _complete(
+            args,
+            data_root,
+            status="INSTALL_FAILED",
+            code=EXIT_INSTALL_FAILED,
+            stage="MSI",
+            detail=error.detail,
+        )
+    except Exception:
+        return _complete(
+            args,
+            data_root,
+            status="INSTALL_FAILED",
+            code=EXIT_INSTALL_FAILED,
+            stage="MSI",
+            detail="MSI_INSTALL_FAILED",
+        )
 
     installation_id: str | None = None
 
@@ -316,19 +528,50 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         outcome = setup.run()
     except SetupClaimError:
-        return _finish(data_root, status="CLAIM_FAILED", code=EXIT_CLAIM_FAILED)
+        return _complete(
+            args,
+            data_root,
+            status="CLAIM_FAILED",
+            code=EXIT_CLAIM_FAILED,
+            stage="ENROLLMENT",
+            detail="CLAIM_FAILED",
+        )
     except SetupProvisionError as error:
-        return _finish(
+        return _complete(
+            args,
             data_root,
             status="PROVISIONING_FAILED",
             code=EXIT_PROVISIONING_FAILED,
+            stage="PROVISIONING",
             detail=error.detail,
         )
-    except Exception as error:
-        print(f"Windows Setup failed: {type(error).__name__}", file=sys.stderr)
-        return _finish(data_root, status="PROVISIONING_FAILED", code=EXIT_PROVISIONING_FAILED)
+    except Exception:
+        return _complete(
+            args,
+            data_root,
+            status="PROVISIONING_FAILED",
+            code=EXIT_PROVISIONING_FAILED,
+            stage="PROVISIONING",
+            detail="PROVISIONING_UNEXPECTED",
+        )
     if outcome.status == "provisioned":
-        return _finish(data_root, status="COMPLETED", code=EXIT_SUCCESS)
+        if not _wait_for_agent_service_running():
+            return _complete(
+                args,
+                data_root,
+                status="SERVICE_FAILED",
+                code=EXIT_SERVICE_FAILED,
+                stage="SERVICE",
+                detail="SERVICE_NOT_RUNNING",
+            )
+        return _complete(
+            args,
+            data_root,
+            status="COMPLETED",
+            code=EXIT_SUCCESS,
+            stage="SERVICE",
+            detail="SERVICE_RUNNING",
+        )
     exit_code = {
         "denied": EXIT_ENROLLMENT_DENIED,
         "timed_out": (
@@ -342,12 +585,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         "review_required": EXIT_REVIEW_REQUIRED,
         "expired": EXIT_REQUEST_EXPIRED,
     }[outcome.status]
-    if not args.quiet:
-        print(f"Windows Setup: {outcome.status}")
-    return _finish(
+    return _complete(
+        args,
         data_root,
         status=outcome.status.upper(),
         code=exit_code,
+        stage="ENROLLMENT",
         detail=outcome.reason,
     )
 

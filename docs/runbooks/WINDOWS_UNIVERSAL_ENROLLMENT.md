@@ -20,7 +20,7 @@ the authority for both the decision mode and permitted Setup release:
 {
   "policy_id": "windows-office-v1",
   "enrollment_mode": "auto",
-  "allowed_installer_releases": ["3.2.45"]
+  "allowed_installer_releases": ["3.2.48"]
 }
 ```
 
@@ -41,23 +41,60 @@ On the test machine, copy the EXE and its adjacent release JSON. Verify the
 SHA-256 against `setup_sha256` before execution. The release JSON is the
 source of truth for SHA-256, source commit, embedded Agent version, and
 Authenticode status. Without an approved local code-signing certificate,
-`authenticode_status` is `unsigned` and the artifact is test-only. The 3.2.45
+`authenticode_status` is `unsigned` and the artifact is test-only. The 3.2.48
 artifact uses:
 
 ```text
-EndpointAgentSetup-3.2.45-x64.exe
+EndpointAgentSetup-3.2.48-x64.exe
 ```
 
 Run interactively or with the identical non-interactive flow:
 
 ```powershell
-.\EndpointAgentSetup-3.2.45-x64.exe
-.\EndpointAgentSetup-3.2.45-x64.exe --quiet
+.\EndpointAgentSetup-3.2.48-x64.exe
+.\EndpointAgentSetup-3.2.48-x64.exe --quiet
 ```
 
 `--quiet` changes presentation only. It does not bypass campaign selection,
 approval, source CIDR validation, release policy, claim binding, or completion
 observation.
+
+## What the person installing sees
+
+The normal EXE asks Windows for administrator approval and then runs without
+CMD or PowerShell windows. On completion it shows one native Windows result
+dialog. A success dialog is shown only after the enrollment is provisioned and
+the `EndpointAgent` Windows service is actually `RUNNING`; it is not merely an
+MSI or provisioning-process exit result. Approval, review, and failure dialogs
+show the stable exit code and a safe diagnostic class.
+
+`--quiet` deliberately suppresses every dialog as well as console windows. It
+is intended for software deployment systems and has the same checks and exit
+codes as the normal EXE.
+
+## Diagnostics and failure handling
+
+Every run first records an in-progress state and then atomically replaces the
+public operator result file:
+
+```text
+C:\ProgramData\Endpoint Platform\Installer\install-result.json
+```
+
+The JSON result contains `status`, `exit_code`, `stage`, `detail`, and an
+update timestamp. `detail` is a bounded category such as `MSI_UNAVAILABLE`,
+`MSI_EXIT_1603`, `PREFLIGHT_INVALID`, `CLAIM_FAILED`,
+`PROVISIONING_UNEXPECTED`, or `SERVICE_NOT_RUNNING`; it never contains claims,
+credentials, paths, response bodies, or raw exception text. The protected
+agent log remains available to administrators at
+`C:\ProgramData\Endpoint Platform\Agent\install.log` for correlated internal
+diagnostics.
+
+An outcome is successful only when the result is `COMPLETED` with
+`stage=SERVICE` and `detail=SERVICE_RUNNING`. If service startup fails or the
+installer cannot prove it within 30 seconds, the setup exits `50` with
+`SERVICE_FAILED`; do not treat a visible MSI completion as a successful agent
+installation.
 
 ## Expected outcomes
 

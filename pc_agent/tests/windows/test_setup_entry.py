@@ -102,6 +102,162 @@ def test_setup_entry_records_started_before_installing_embedded_msi(
     assert setup_entry.main(["--quiet"]) == 0
 
 
+def test_setup_entry_requires_a_running_service_before_reporting_success(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A provisioner return alone must never become a false completed result."""
+    _write_public_payload(tmp_path)
+    data_root = tmp_path / "agent-data"
+    diagnostics_root = tmp_path / "installer-diagnostics"
+    monkeypatch.setattr(setup_entry, "_resource_root", lambda: tmp_path)
+    monkeypatch.setattr(setup_entry, "_data_root", lambda: data_root)
+    monkeypatch.setattr(setup_entry, "_diagnostics_root", lambda: diagnostics_root, raising=False)
+    monkeypatch.setattr(setup_entry, "_install_embedded_msi", lambda _: None)
+    monkeypatch.setattr(
+        setup_entry,
+        "_installed_provisioner",
+        lambda: tmp_path / "endpoint-agent-provision.exe",
+    )
+    monkeypatch.setattr(setup_entry, "HttpsSetupTransport", lambda *_: object())
+    monkeypatch.setattr(
+        setup_entry,
+        "_wait_for_agent_service_running",
+        lambda: False,
+        raising=False,
+    )
+
+    class _Setup:
+        def __init__(self, _config: object, **_: object) -> None:
+            self.installation_id_factory = lambda: "win-test"
+
+        def run(self) -> SetupOutcome:
+            return SetupOutcome("provisioned")
+
+    monkeypatch.setattr(setup_entry, "UniversalWindowsSetup", _Setup)
+
+    assert setup_entry.main(["--quiet"]) == setup_entry.EXIT_SERVICE_FAILED
+    result = json.loads((diagnostics_root / "install-result.json").read_text(encoding="utf-8"))
+    assert result["status"] == "SERVICE_FAILED"
+    assert result["detail"] == "SERVICE_NOT_RUNNING"
+    assert result["stage"] == "SERVICE"
+
+
+def test_setup_entry_writes_safe_public_result_for_msi_failure(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """An MSI error must leave an operator-readable class without raw exception text."""
+    _write_public_payload(tmp_path)
+    diagnostics_root = tmp_path / "installer-diagnostics"
+    monkeypatch.setattr(setup_entry, "_resource_root", lambda: tmp_path)
+    monkeypatch.setattr(setup_entry, "_data_root", lambda: tmp_path / "agent-data")
+    monkeypatch.setattr(setup_entry, "_diagnostics_root", lambda: diagnostics_root, raising=False)
+    monkeypatch.setattr(
+        setup_entry,
+        "_install_embedded_msi",
+        lambda _: (_ for _ in ()).throw(RuntimeError("msi error C:/secret/path")),
+    )
+    monkeypatch.setattr(setup_entry, "HttpsSetupTransport", lambda *_: object())
+
+    assert setup_entry.main(["--quiet"]) == setup_entry.EXIT_INSTALL_FAILED
+    result = json.loads((diagnostics_root / "install-result.json").read_text(encoding="utf-8"))
+    assert result["status"] == "INSTALL_FAILED"
+    assert result["detail"] == "MSI_INSTALL_FAILED"
+    assert "secret" not in (diagnostics_root / "install-result.json").read_text(encoding="utf-8")
+
+
+def test_embedded_msi_installation_is_silent_and_windowless(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Removing quiet MSI flags or child window suppression would reintroduce UI flashes."""
+    msi_path = tmp_path / "EndpointAgent.msi"
+    msi_path.write_bytes(b"msi")
+    captured: dict[str, object] = {}
+
+    def fake_run(*args: object, **kwargs: object) -> SimpleNamespace:
+        captured["args"] = args
+        captured["kwargs"] = kwargs
+        return SimpleNamespace(returncode=0)
+
+    monkeypatch.setattr(setup_entry.subprocess, "run", fake_run)
+    monkeypatch.setattr(setup_entry, "_windowless_creation_flags", lambda: 4242, raising=False)
+
+    setup_entry._install_embedded_msi(msi_path)
+
+    assert "/qn" in captured["args"][0]
+    assert "/passive" not in captured["args"][0]
+    assert captured["kwargs"]["creationflags"] == 4242
+
+
+def test_provisioner_is_started_without_a_console_window(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A console-capable provisioner must inherit an explicit no-window flag."""
+    captured: dict[str, object] = {}
+
+    def fake_run(*args: object, **kwargs: object) -> SimpleNamespace:
+        captured["kwargs"] = kwargs
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(setup_entry, "_windowless_creation_flags", lambda: 4242, raising=False)
+    setup_entry._run_provisioner(
+        tmp_path / "endpoint-agent-provision.exe",
+        SetupConfig(
+            endpoint_origin="https://endpoint.sosnadmin.local",
+            ca_file=tmp_path / "endpoint-ca.crt",
+            installer_version="1.0.0",
+            installer_release_id="1.0.0",
+        ),
+        tmp_path / "agent-data",
+        "win-test",
+        "ic_safe-claim",
+        run=fake_run,
+    )
+
+    assert captured["kwargs"]["creationflags"] == 4242
+
+
+def test_normal_installation_displays_a_concrete_success_result(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A non-quiet successful install must report its verified result to the user."""
+    _write_public_payload(tmp_path)
+    displayed: list[tuple[str, int, str]] = []
+    monkeypatch.setattr(setup_entry, "_resource_root", lambda: tmp_path)
+    monkeypatch.setattr(setup_entry, "_data_root", lambda: tmp_path / "agent-data")
+    monkeypatch.setattr(setup_entry, "_diagnostics_root", lambda: tmp_path / "installer-diagnostics", raising=False)
+    monkeypatch.setattr(setup_entry, "_install_embedded_msi", lambda _: None)
+    monkeypatch.setattr(
+        setup_entry,
+        "_installed_provisioner",
+        lambda: tmp_path / "endpoint-agent-provision.exe",
+    )
+    monkeypatch.setattr(setup_entry, "HttpsSetupTransport", lambda *_: object())
+    monkeypatch.setattr(
+        setup_entry,
+        "_wait_for_agent_service_running",
+        lambda: True,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        setup_entry,
+        "_show_result_dialog",
+        lambda status, code, detail: displayed.append((status, code, detail)),
+        raising=False,
+    )
+
+    class _Setup:
+        def __init__(self, _config: object, **_: object) -> None:
+            self.installation_id_factory = lambda: "win-test"
+
+        def run(self) -> SetupOutcome:
+            return SetupOutcome("provisioned")
+
+    monkeypatch.setattr(setup_entry, "UniversalWindowsSetup", _Setup)
+
+    assert setup_entry.main([]) == setup_entry.EXIT_SUCCESS
+    assert displayed == [("COMPLETED", 0, "SERVICE_RUNNING")]
+
+
 def test_setup_entry_rejects_config_that_contains_extra_material(tmp_path: Path) -> None:
     _write_public_payload(tmp_path)
     (tmp_path / "setup-config.json").write_text(
