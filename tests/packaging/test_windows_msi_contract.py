@@ -497,6 +497,22 @@ def test_msi_builder_keeps_a_versioned_copy_for_repair() -> None:
     assert "Copy-Item -LiteralPath $msiPath -Destination" in script
 
 
+def test_msi_inspection_releases_com_handles_before_hashing_and_signing() -> None:
+    """The Windows Installer automation database must not lock the MSI release file."""
+    script = (WINDOWS_PACKAGING / "build-msi.ps1").read_text(encoding="utf-8")
+
+    inspection = script.index("function Export-MsiInspection")
+    hash_msi = script.index("$packageSha256 = (Get-FileHash")
+
+    assert "$database.Close()" in script[inspection:hash_msi]
+    assert "[Runtime.InteropServices.Marshal]::FinalReleaseComObject($database)" in script[
+        inspection:hash_msi
+    ]
+    assert "[Runtime.InteropServices.Marshal]::FinalReleaseComObject($installer)" in script[
+        inspection:hash_msi
+    ]
+
+
 def test_windows_release_builder_selects_only_headless_core_specs() -> None:
     """The canonical Windows release must not regress to the Helpdesk/GUI PyInstaller spec."""
     literals = _python_string_literals(PROJECT_ROOT / "pc_agent" / "build_windows_release_v2.py")

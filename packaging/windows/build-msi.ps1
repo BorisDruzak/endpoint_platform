@@ -200,8 +200,9 @@ function Read-MsiTable {
         [Parameter(Mandatory)]$Database,
         [Parameter(Mandatory)][string]$Query,
         [Parameter(Mandatory)][string[]]$Columns
-    )
+)
     $view = $Database.OpenView($Query)
+    $record = $null
     [void]$view.Execute()
     $rows = @()
     try {
@@ -215,27 +216,44 @@ function Read-MsiTable {
     }
     finally {
         [void]$view.Close()
+        if ($record) {
+            [void][Runtime.InteropServices.Marshal]::FinalReleaseComObject($record)
+        }
+        [void][Runtime.InteropServices.Marshal]::FinalReleaseComObject($view)
     }
     return $rows
 }
 
 function Export-MsiInspection {
     param([Parameter(Mandatory)][string]$MsiPath, [Parameter(Mandatory)][string]$OutputPath)
-    $installer = New-Object -ComObject WindowsInstaller.Installer
-    $database = $installer.OpenDatabase($MsiPath, 0)
-    $inspection = [ordered]@{
-        files = Read-MsiTable $database 'SELECT `File`, `Component_`, `FileName`, `FileSize` FROM `File`' @('file', 'component', 'name', 'size')
-        components = Read-MsiTable $database 'SELECT `Component`, `ComponentId`, `Directory_`, `Attributes`, `KeyPath` FROM `Component`' @('component', 'guid', 'directory', 'attributes', 'key_path')
-        services = Read-MsiTable $database 'SELECT `ServiceInstall`, `Name`, `DisplayName`, `ServiceType`, `StartType`, `ErrorControl`, `LoadOrderGroup`, `Dependencies`, `StartName`, `Password`, `Arguments`, `Component_` FROM `ServiceInstall`' @('id', 'name', 'display_name', 'service_type', 'start_type', 'error_control', 'load_order_group', 'dependencies', 'account', 'password', 'arguments', 'component')
-        properties = Read-MsiTable $database 'SELECT `Property`, `Value` FROM `Property`' @('property', 'value')
+    $installer = $null
+    $database = $null
+    try {
+        $installer = New-Object -ComObject WindowsInstaller.Installer
+        $database = $installer.OpenDatabase($MsiPath, 0)
+        $inspection = [ordered]@{
+            files = Read-MsiTable $database 'SELECT `File`, `Component_`, `FileName`, `FileSize` FROM `File`' @('file', 'component', 'name', 'size')
+            components = Read-MsiTable $database 'SELECT `Component`, `ComponentId`, `Directory_`, `Attributes`, `KeyPath` FROM `Component`' @('component', 'guid', 'directory', 'attributes', 'key_path')
+            services = Read-MsiTable $database 'SELECT `ServiceInstall`, `Name`, `DisplayName`, `ServiceType`, `StartType`, `ErrorControl`, `LoadOrderGroup`, `Dependencies`, `StartName`, `Password`, `Arguments`, `Component_` FROM `ServiceInstall`' @('id', 'name', 'display_name', 'service_type', 'start_type', 'error_control', 'load_order_group', 'dependencies', 'account', 'password', 'arguments', 'component')
+            properties = Read-MsiTable $database 'SELECT `Property`, `Value` FROM `Property`' @('property', 'value')
+        }
+        $forbiddenProperty = $inspection.properties | Where-Object {
+            $_.property -match '(?i)(claim|campaign|device.?token|credential|enroll)'
+        }
+        if ($forbiddenProperty) {
+            throw "MSI inspection found a forbidden secret-bearing property name."
+        }
+        Write-Utf8NoBom $OutputPath ($inspection | ConvertTo-Json -Depth 8)
     }
-    $forbiddenProperty = $inspection.properties | Where-Object {
-        $_.property -match '(?i)(claim|campaign|device.?token|credential|enroll)'
+    finally {
+        if ($database) {
+            [void]$database.Close()
+            [void][Runtime.InteropServices.Marshal]::FinalReleaseComObject($database)
+        }
+        if ($installer) {
+            [void][Runtime.InteropServices.Marshal]::FinalReleaseComObject($installer)
+        }
     }
-    if ($forbiddenProperty) {
-        throw "MSI inspection found a forbidden secret-bearing property name."
-    }
-    Write-Utf8NoBom $OutputPath ($inspection | ConvertTo-Json -Depth 8)
 }
 
 $repositoryRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..'))
