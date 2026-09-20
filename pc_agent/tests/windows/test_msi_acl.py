@@ -188,6 +188,39 @@ def test_tray_status_acl_uses_localservice_well_known_sid(
     ]
 
 
+def test_msi_tray_status_action_uses_only_well_known_sids(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The elevated custom action must work on localized Windows installations."""
+    import pc_agent.platform.windows.acl as acl_module
+    from pc_agent.platform.windows.acl import PyWin32AclAdapter
+
+    security = _Security()
+    target = tmp_path / "Tray"
+    target.mkdir()
+    monkeypatch.setattr(
+        PyWin32AclAdapter,
+        "_modules",
+        staticmethod(lambda: (security, _Rights)),
+    )
+    monkeypatch.setattr(acl_module, "TRAY_STATUS_ROOT", target)
+    monkeypatch.setattr(
+        acl_module,
+        "_prepare_trusted_directory_chain",
+        lambda *_args: [target],
+    )
+
+    acl_module.apply_tray_status_acl()
+
+    assert security.lookups == []
+    assert security.acl.aces == [
+        (3, 0x1, "S-1-5-18"),
+        (3, 0x1, "S-1-5-32-544"),
+        (3, 0xE, "S-1-5-19"),
+        (3, 0x2, "S-1-5-32-545"),
+    ]
+
+
 def test_msi_acl_rejects_a_reparse_target_before_privileged_write(
     tmp_path: Path,
 ) -> None:

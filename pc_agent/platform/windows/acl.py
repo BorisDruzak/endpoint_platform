@@ -392,6 +392,8 @@ def apply_tray_status_acl() -> None:
                 sid = win32security.ConvertStringSidToSid("S-1-5-32-544")
             elif rule.principal == LOCAL_SERVICE_PRINCIPAL:
                 sid = win32security.ConvertStringSidToSid("S-1-5-19")
+            elif rule.principal == USERS_PRINCIPAL:
+                sid = win32security.ConvertStringSidToSid("S-1-5-32-545")
             else:
                 sid, _domain, _kind = win32security.LookupAccountName(
                     None, rule.principal
