@@ -66,6 +66,12 @@ OPERATOR_DIAGNOSTICS_ACL = (
     AccessRule(ADMINISTRATORS_PRINCIPAL, "full_control"),
     AccessRule(USERS_PRINCIPAL, "read"),
 )
+TRAY_STATUS_ACL = (
+    AccessRule(SYSTEM_PRINCIPAL, "full_control"),
+    AccessRule(ADMINISTRATORS_PRINCIPAL, "full_control"),
+    AccessRule(SERVICE_PRINCIPAL, "modify"),
+    AccessRule(USERS_PRINCIPAL, "read"),
+)
 
 
 class PyWin32AclAdapter:
@@ -102,6 +108,22 @@ class PyWin32AclAdapter:
         win32security, _ntsecuritycon = self._modules()
         _assert_trusted_owner(path, win32security)
         self._apply(path, OPERATOR_DIAGNOSTICS_ACL)
+
+    def protect_tray_status_directory(self, path: Path) -> None:
+        """Make the fixed public tray directory readable but not writable by users."""
+        if path.exists():
+            self._reject_reparse_point(path)
+            if not path.is_dir():
+                raise WindowsAclError("tray status path is not a directory")
+        else:
+            path.mkdir(parents=True)
+        self._reject_reparse_point(path)
+        self._apply(path, TRAY_STATUS_ACL)
+
+    def protect_tray_status_file(self, path: Path) -> None:
+        """Restore the public-read DACL after atomic status replacement."""
+        self._reject_reparse_point(path)
+        self._apply(path, TRAY_STATUS_ACL)
 
     def protect_claim(self, path: Path) -> None:
         self._apply(path, CREDENTIAL_ACL)
@@ -359,6 +381,7 @@ __all__ = [
     "PyWin32AclAdapter",
     "SERVICE_PRINCIPAL",
     "SYSTEM_PRINCIPAL",
+    "TRAY_STATUS_ACL",
     "UPDATER_PRINCIPAL",
     "WindowsAclError",
     "apply_machine_data_acl",
