@@ -87,7 +87,7 @@ ownership; reject reparse points before every write/read boundary.
 
 - [ ] **Step 4: Run the tray-status suite and targeted ACL tests**
 
-Run: `python -m pytest pc_agent/tests/windows/test_tray_status.py pc_agent/tests/windows/test_acl.py -q`
+Run: `python -m pytest pc_agent/tests/windows/test_tray_status.py pc_agent/tests/windows/test_msi_acl.py -q`
 
 Expected: PASS, including atomic replacement, forbidden fields, stale status,
 malformed JSON, and reparse-point tests.
