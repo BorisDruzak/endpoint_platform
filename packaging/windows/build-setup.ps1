@@ -63,16 +63,16 @@ function Set-SetupAuthenticodeSignature {
     }
     $parameters = @{ FilePath = $Path; Certificate = $certificate }
     if ($Timestamp) { $parameters.TimestampServer = $Timestamp }
-    for ($attempt = 1; $attempt -le 3; $attempt++) {
+    for ($attempt = 1; $attempt -le 5; $attempt++) {
         try {
             $null = Set-AuthenticodeSignature @parameters
             break
         }
         catch {
-            if ($attempt -eq 3 -or $_.Exception.Message -notmatch 'being used by another process') {
+            if ($attempt -eq 5 -or $_.Exception.Message -notmatch 'being used by another process') {
                 throw
             }
-            Start-Sleep -Milliseconds (500 * $attempt)
+            Start-Sleep -Milliseconds (1000 * $attempt)
         }
     }
     $verified = Get-AuthenticodeSignature -FilePath $Path

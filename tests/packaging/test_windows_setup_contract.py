@@ -36,8 +36,8 @@ def test_setup_builder_binds_the_exact_msi_and_public_ca_without_secrets() -> No
     assert "$msiSignature = Get-AuthenticodeSignature -FilePath $releaseMsi" in source
     assert "$msiSha256 = (Get-FileHash -LiteralPath $releaseMsi -Algorithm SHA256)" in source
     assert "$releaseMsiManifest.package_sha256 = $releaseMsiSha256" in source
-    assert "for ($attempt = 1; $attempt -le 3; $attempt++)" in source
-    assert "Start-Sleep -Milliseconds (500 * $attempt)" in source
+    assert "for ($attempt = 1; $attempt -le 5; $attempt++)" in source
+    assert "Start-Sleep -Milliseconds (1000 * $attempt)" in source
     assert "$verified = Get-AuthenticodeSignature -FilePath $Path" in source
     assert "Authenticode timestamp failed." in source
     assert "msi_authenticode_status" in source
