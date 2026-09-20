@@ -10,6 +10,8 @@ import sys
 
 import pytest
 
+from pc_agent.version import AGENT_VERSION
+
 
 TOOLCHAIN_A = {
     "implementation": "CPython",
@@ -569,12 +571,12 @@ def test_windows_current_product_uses_a_checked_in_approved_initial_transition()
     """A source-version change must also advance the MSI-owned immutable runtime."""
     project_root = Path(__file__).resolve().parents[2]
     baseline = project_root / "packaging" / "windows" / "initial-runtime.json"
-    transition = project_root / "packaging" / "windows" / "initial-runtime-3.2.49.json"
+    transition = project_root / "packaging" / "windows" / f"initial-runtime-{AGENT_VERSION}.json"
 
     assert transition.is_file()
     payload = json.loads(transition.read_text(encoding="utf-8"))
-    assert payload["version"] == "3.2.49"
-    assert payload["agent_version"] == "3.2.49"
+    assert payload["version"] == AGENT_VERSION
+    assert payload["agent_version"] == AGENT_VERSION
     assert payload["schema_version"] == 5
     assert re.fullmatch(r"[0-9a-f]{40}", payload["source_revision"])
     assert payload["component_guid"] != json.loads(baseline.read_text(encoding="utf-8"))["component_guid"]
