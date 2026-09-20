@@ -24,10 +24,22 @@
         <ServiceControl Id="ctlEndpointAgentUpdater" Name="EndpointAgentUpdater"
                         Stop="both" Remove="uninstall" Wait="yes" />
       </Component>
+      <Component Id="cmpTrayCompanion" Directory="INSTALLFOLDER"
+                 Guid="*" Bitness="always64">
+        <File Id="filEndpointAgentTray" Source="$(var.StagingDir)\ProgramFiles\EndpointAgentTray.exe"
+              Name="EndpointAgentTray.exe" KeyPath="yes" />
+        <RegistryValue Id="regEndpointAgentTray" Root="HKLM"
+                       Key="Software\Microsoft\Windows\CurrentVersion\Run"
+                       Name="EndpointAgentTray" Value="&quot;[#filEndpointAgentTray]&quot;"
+                       Type="string" KeyPath="no" />
+      </Component>
     </ComponentGroup>
 
     <CustomAction Id="ApplyProgramDataAcl" FileRef="filServiceHost"
                   ExeCommand="--apply-programdata-acl"
+                  Execute="deferred" Impersonate="no" Return="check" HideTarget="yes" />
+    <CustomAction Id="ApplyTrayStatusAcl" FileRef="filServiceHost"
+                  ExeCommand="--apply-tray-status-acl"
                   Execute="deferred" Impersonate="no" Return="check" HideTarget="yes" />
     <CustomAction Id="RestrictUpdaterServiceStart" FileRef="filServiceHost"
                   ExeCommand="--restrict-updater-start"
@@ -47,7 +59,9 @@
     <InstallExecuteSequence>
       <Custom Action="ApplyProgramDataAcl" After="InstallServices"
               Condition="NOT REMOVE~=&quot;ALL&quot;" />
-      <Custom Action="ConfigureServiceSids" After="ApplyProgramDataAcl"
+      <Custom Action="ApplyTrayStatusAcl" After="ApplyProgramDataAcl"
+              Condition="NOT REMOVE~=&quot;ALL&quot;" />
+      <Custom Action="ConfigureServiceSids" After="ApplyTrayStatusAcl"
               Condition="NOT REMOVE~=&quot;ALL&quot;" />
       <Custom Action="RestrictUpdaterServiceStart" After="ConfigureServiceSids"
               Condition="NOT REMOVE~=&quot;ALL&quot;" />

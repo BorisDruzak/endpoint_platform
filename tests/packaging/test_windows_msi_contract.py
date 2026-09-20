@@ -173,7 +173,7 @@ def test_service_components_remove_services_and_fail_the_transaction_on_error() 
         for item in _all_elements(trees, "Custom")
         if item.get("Action") == "RestrictUpdaterServiceStart"
     )
-    assert configure_sequence.get("After") == "ApplyProgramDataAcl"
+    assert configure_sequence.get("After") == "ApplyTrayStatusAcl"
     assert restrict_sequence.get("After") == "ConfigureServiceSids"
 
 
@@ -219,6 +219,24 @@ def test_programdata_acl_is_replaced_by_fixed_elevated_action() -> None:
     )
 
 
+def test_tray_status_directory_is_prepared_by_a_fixed_elevated_action() -> None:
+    """The service must never inherit a user-writable public status directory."""
+    actions = _all_elements(_trees(), "CustomAction")
+    action = _by_id(actions, "ApplyTrayStatusAcl")
+    sequence = next(
+        item
+        for item in _all_elements(_trees(), "Custom")
+        if item.get("Action") == "ApplyTrayStatusAcl"
+    )
+
+    assert action.get("FileRef") == "filServiceHost"
+    assert action.get("ExeCommand") == "--apply-tray-status-acl"
+    assert action.get("Execute") == "deferred"
+    assert action.get("Impersonate") == "no"
+    assert action.get("Return") == "check"
+    assert sequence.get("After") == "ApplyProgramDataAcl"
+
+
 def test_payload_has_launcher_immutable_core_config_documentation_and_selector() -> None:
     """Removing an operational payload boundary creates an incomplete package."""
     files = _all_elements(_trees(), "File")
@@ -253,6 +271,30 @@ def test_msi_includes_a_separate_provisioning_executable_without_secret_inputs()
         "\nif __name__ == \"__main__\":\n"
         "    raise SystemExit(main())\n"
     )
+
+
+def test_msi_owns_windowed_tray_binary_and_machine_logon_entry() -> None:
+    """The companion starts in each interactive user session, never from service session 0."""
+    files = _all_elements(_trees(), "File")
+    by_id = {item.get("Id"): item for item in files}
+    tray = by_id["filEndpointAgentTray"]
+    values = _all_elements(_trees(), "RegistryValue")
+    logon = _by_id(values, "regEndpointAgentTray")
+
+    assert tray.get("Name") == "EndpointAgentTray.exe"
+    assert "ProgramFiles\\EndpointAgentTray.exe" in tray.get("Source", "")
+    assert logon.get("Root") == "HKLM"
+    assert logon.get("Key") == "Software\\Microsoft\\Windows\\CurrentVersion\\Run"
+    assert logon.get("Name") == "EndpointAgentTray"
+    assert "filEndpointAgentTray" in logon.get("Value", "")
+
+
+def test_build_script_builds_and_stages_the_tray_before_wix_binding() -> None:
+    script = (WINDOWS_PACKAGING / "build-msi.ps1").read_text(encoding="utf-8")
+
+    assert "pyinstaller_windows_tray.spec" in script
+    assert "EndpointAgentTray.exe" in script
+    assert script.index("pyinstaller_windows_tray.spec") < script.index("$generatedWix")
 
 
 def test_msi_excludes_the_universal_setup_bootstrapper() -> None:

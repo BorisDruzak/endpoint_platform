@@ -469,3 +469,19 @@ def test_service_host_exposes_fixed_no_argument_selector_migration(
 
     assert service_launcher.main(["--migrate-initial-selector"]) == 0
     assert observed == ["migrated"]
+
+
+def test_service_host_exposes_fixed_tray_status_acl_boundary(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """MSI cannot redirect the public status ACL action to a caller-selected path."""
+    from pc_agent.platform.windows import service_launcher
+
+    observed: list[str] = []
+    monkeypatch.setattr(
+        "pc_agent.platform.windows.acl.apply_tray_status_acl",
+        lambda: observed.append("tray-acl"),
+    )
+
+    assert service_launcher.main(["--apply-tray-status-acl"]) == 0
+    assert observed == ["tray-acl"]

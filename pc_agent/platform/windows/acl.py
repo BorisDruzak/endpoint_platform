@@ -15,6 +15,7 @@ SERVICE_PRINCIPAL = "NT SERVICE\\EndpointAgent"
 UPDATER_PRINCIPAL = "NT SERVICE\\EndpointAgentUpdater"
 USERS_PRINCIPAL = "Users"
 MACHINE_DATA_ROOT = Path(r"C:\ProgramData\Endpoint Platform\Agent")
+TRAY_STATUS_ROOT = Path(r"C:\ProgramData\Endpoint Platform\Tray")
 EXPECTED_PRINCIPALS = (
     SYSTEM_PRINCIPAL,
     ADMINISTRATORS_PRINCIPAL,
@@ -354,6 +355,57 @@ def apply_machine_data_acl() -> None:
     )
 
 
+def apply_tray_status_acl() -> None:
+    """Prepare the fixed public status directory before LocalService writes it."""
+    if os.name != "nt":
+        raise WindowsAclError("tray status DACL setup requires Windows")
+    win32security, ntsecuritycon = PyWin32AclAdapter._modules()
+    trusted_chain = _prepare_trusted_directory_chain(
+        TRAY_STATUS_ROOT, Path(r"C:\ProgramData"), win32security
+    )
+    acl = win32security.ACL()
+    rights = {
+        "full_control": ntsecuritycon.FILE_ALL_ACCESS,
+        "modify": (
+            ntsecuritycon.FILE_GENERIC_READ
+            | ntsecuritycon.FILE_GENERIC_WRITE
+            | ntsecuritycon.DELETE
+        ),
+        "read": ntsecuritycon.FILE_GENERIC_READ,
+    }
+    inheritance = (
+        win32security.OBJECT_INHERIT_ACE | win32security.CONTAINER_INHERIT_ACE
+    )
+    try:
+        for candidate in trusted_chain:
+            _assert_nonreparse_directory(candidate)
+            _assert_trusted_owner(candidate, win32security)
+        for rule in TRAY_STATUS_ACL:
+            if rule.principal == SYSTEM_PRINCIPAL:
+                sid = win32security.ConvertStringSidToSid("S-1-5-18")
+            elif rule.principal == ADMINISTRATORS_PRINCIPAL:
+                sid = win32security.ConvertStringSidToSid("S-1-5-32-544")
+            else:
+                sid, _domain, _kind = win32security.LookupAccountName(
+                    None, rule.principal
+                )
+            acl.AddAccessAllowedAceEx(
+                win32security.ACL_REVISION, inheritance, rights[rule.rights], sid
+            )
+        win32security.SetNamedSecurityInfo(
+            str(TRAY_STATUS_ROOT),
+            win32security.SE_FILE_OBJECT,
+            win32security.DACL_SECURITY_INFORMATION
+            | win32security.PROTECTED_DACL_SECURITY_INFORMATION,
+            None,
+            None,
+            acl,
+            None,
+        )
+    except Exception as error:
+        raise WindowsAclError("could not replace tray status DACL") from error
+
+
 def _allowed_sid_strings(dacl, win32security) -> set[str]:
     return {
         win32security.ConvertSidToStringSid(dacl.GetAce(index)[2])
@@ -382,8 +434,10 @@ __all__ = [
     "SERVICE_PRINCIPAL",
     "SYSTEM_PRINCIPAL",
     "TRAY_STATUS_ACL",
+    "TRAY_STATUS_ROOT",
     "UPDATER_PRINCIPAL",
     "WindowsAclError",
     "apply_machine_data_acl",
+    "apply_tray_status_acl",
     "replace_machine_data_acl",
 ]
