@@ -347,6 +347,15 @@ async def _periodic_windows_update_checks(
             from pc_agent.version import EXIT_UPDATE_PENDING
 
             raise SystemExit(EXIT_UPDATE_PENDING)
+        if result == "pending":
+            from pc_agent.platform.windows.service_control import trigger_pending_updater
+
+            try:
+                trigger_pending_updater()
+            except Exception:
+                # Keep EndpointAgent connected: the next bounded poll retries
+                # only its MSI-owned updater service.
+                pass
         await sleep(endpoint_gateway.GATEWAY_UPDATE_POLL_INTERVAL_SEC)
 
 

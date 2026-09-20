@@ -177,6 +177,25 @@ def test_pending_validator_delegates_owner_and_acl_check(tmp_path: Path) -> None
         PendingUpdateValidator(paths, _Acl(reject=True)).load()
 
 
+def test_updater_quarantines_an_invalid_pending_handoff_before_exiting(
+    tmp_path: Path,
+) -> None:
+    """A malformed active handoff must not permanently block future polls."""
+    from pc_agent.platform.windows.updater_service import WindowsUpdater
+
+    paths = _paths(tmp_path)
+    paths.pending_path.parent.mkdir(parents=True)
+    paths.pending_path.write_text('{"unexpected":true}', encoding="utf-8")
+
+    result = WindowsUpdater(paths, acl=_Acl()).run_once()
+
+    assert result.status == "rejected"
+    assert not paths.pending_path.exists()
+    quarantined = list(paths.updates_root.glob("rejected-pending-*.json"))
+    assert len(quarantined) == 1
+    assert quarantined[0].read_text(encoding="utf-8") == '{"unexpected":true}'
+
+
 def test_pending_validator_rejects_different_bytes_for_existing_target_version(
     tmp_path: Path,
 ) -> None:

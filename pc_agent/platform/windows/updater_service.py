@@ -332,7 +332,11 @@ class WindowsUpdater:
         staging: Path | None = None
         service_stopped = False
         try:
-            pending = self._validator.load()
+            try:
+                pending = self._validator.load()
+            except (OSError, ValueError) as error:
+                _quarantine_invalid_pending(self._paths)
+                return UpdateResult("rejected", str(error))
             previous = _load_current(self._paths.current_path)
             if not _is_eligible_recommendation(
                 pending.version, previous, pending.requested_reason
@@ -661,6 +665,35 @@ def _write_terminal_outcome(
             "status": status,
         },
     )
+
+
+def _quarantine_invalid_pending(paths: WindowsUpdatePaths) -> None:
+    """Move one malformed local handoff away from the active fixed leaf.
+
+    No network report is possible because an invalid document has no trusted
+    operation id.  A unique same-directory rename preserves forensic bytes
+    without leaving the agent in an infinite `pending` state.
+    """
+    pending = paths.pending_path
+    try:
+        _assert_within(paths.updates_root, pending, "pending")
+        details = pending.lstat()
+    except OSError:
+        return
+    if pending.is_symlink() or getattr(details, "st_file_attributes", 0) & 0x400:
+        try:
+            pending.unlink()
+        except OSError:
+            pass
+        return
+    destination = paths.updates_root / f"rejected-pending-{uuid.uuid4().hex}.json"
+    try:
+        os.replace(pending, destination)
+        _flush_directory(paths.updates_root)
+    except OSError:
+        # Preserve the original handoff if it cannot be moved safely.  The
+        # agent will retry only the fixed updater on its next poll.
+        return
 
 
 def _is_service_not_active(error: Exception) -> bool:

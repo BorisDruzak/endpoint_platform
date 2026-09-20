@@ -20,6 +20,7 @@ SERVICE_RECOVERY_RESTART_DELAY_MS = 60 * 1000
 SERVICE_RECOVERY_ACTIONS = "/".join(
     (f"restart/{SERVICE_RECOVERY_RESTART_DELAY_MS}",) * 3
 )
+_ERROR_SERVICE_ALREADY_RUNNING = 1056
 
 
 class ServiceControl(Protocol):
@@ -194,7 +195,11 @@ def _trigger_updater_with(win32service) -> None:
     try:
         scm = win32service.OpenSCManager(None, None, win32service.SC_MANAGER_CONNECT)
         service = win32service.OpenService(scm, UPDATER_SERVICE_NAME, win32service.SERVICE_START)
-        win32service.StartService(service, None)
+        try:
+            win32service.StartService(service, None)
+        except Exception as error:
+            if getattr(error, "winerror", None) != _ERROR_SERVICE_ALREADY_RUNNING:
+                raise
     finally:
         if service is not None:
             win32service.CloseServiceHandle(service)

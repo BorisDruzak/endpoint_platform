@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 from pathlib import Path
@@ -16,6 +17,39 @@ from pc_agent.update_adapter import EndpointRecommendation, RecommendationResult
 
 _OPERATION_ID = "caa31a48-bf2f-4c1c-8b77-d1be77e12b4e"
 _SHA256 = hashlib.sha256(b"verified ALT artifact").hexdigest()
+
+
+@pytest.mark.asyncio
+async def test_windows_pending_handoff_retries_only_the_fixed_updater(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A stopped updater may be retried without terminating EndpointAgent."""
+    from pc_agent.runtime import application
+    from pc_agent.platform.windows import service_control
+
+    starts: list[str] = []
+
+    async def pending(_settings: object, _credential: str) -> str:
+        return "pending"
+
+    async def no_startup_report(_settings: object, _credential: str) -> bool:
+        return False
+
+    async def stop_after_first_poll(_seconds: float) -> None:
+        raise asyncio.CancelledError
+
+    monkeypatch.setattr(application, "_run_windows_update_check", pending)
+    monkeypatch.setattr(application, "_run_windows_startup_report", no_startup_report)
+    monkeypatch.setattr(
+        service_control, "trigger_pending_updater", lambda: starts.append("updater")
+    )
+
+    with pytest.raises(asyncio.CancelledError):
+        await application._periodic_windows_update_checks(
+            object(), "credential", sleep=stop_after_first_poll
+        )
+
+    assert starts == ["updater"]
 
 
 def _recommendation(

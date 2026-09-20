@@ -254,6 +254,32 @@ def test_endpoint_agent_trigger_uses_only_connect_and_start_rights() -> None:
     assert scm.calls == [("scm", (None, None, 1)), ("service", ("scm", "EndpointAgentUpdater", 2)), ("start", "updater")]
 
 
+def test_endpoint_agent_trigger_treats_an_already_running_updater_as_success() -> None:
+    """A repeated poll must not turn SCM's ERROR_SERVICE_ALREADY_RUNNING into a failure."""
+    from pc_agent.platform.windows.service_control import _trigger_updater_with
+
+    class _AlreadyRunningError(OSError):
+        winerror = 1056
+
+    class _Scm:
+        SC_MANAGER_CONNECT = 1
+        SERVICE_START = 2
+
+        def OpenSCManager(self, *_args):
+            return "scm"
+
+        def OpenService(self, *_args):
+            return "updater"
+
+        def StartService(self, _service, _args):
+            raise _AlreadyRunningError()
+
+        def CloseServiceHandle(self, _handle):
+            pass
+
+    _trigger_updater_with(_Scm())
+
+
 def test_msi_service_sid_configuration_uses_only_fixed_service_names() -> None:
     """The installer boundary must not accept caller-selected SCM identities."""
     from pc_agent.platform.windows.service_control import _configure_service_sids_with
