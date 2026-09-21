@@ -45,6 +45,7 @@ def stop_tray_companions() -> None:
         )
     )
     access = win32con.PROCESS_QUERY_LIMITED_INFORMATION | win32con.PROCESS_TERMINATE
+    tray_handles = []
     for process_id in win32process.EnumProcesses():
         try:
             handle = win32api.OpenProcess(access, False, process_id)
@@ -54,12 +55,21 @@ def stop_tray_companions() -> None:
             image = os.path.normcase(
                 os.path.normpath(win32process.GetModuleFileNameEx(handle, 0))
             )
-            if image != expected:
-                continue
+        except win32api.error:
+            handle.Close()
+            continue
+        if image == expected:
+            tray_handles.append(handle)
+        else:
+            handle.Close()
+    try:
+        for handle in tray_handles:
             win32process.TerminateProcess(handle, 0)
+        for handle in tray_handles:
             if win32event.WaitForSingleObject(handle, 15_000) != win32event.WAIT_OBJECT_0:
                 raise RuntimeError("Endpoint Agent tray did not stop before update")
-        finally:
+    finally:
+        for handle in tray_handles:
             handle.Close()
 
 
