@@ -122,6 +122,18 @@ def _install_embedded_msi(msi_path: Path) -> None:
         raise SetupInstallError(f"MSI_EXIT_{completed.returncode}")
 
 
+def _stop_tray_before_msi_update() -> None:
+    """Remove the running companion before MSI invokes the old installed helper."""
+    if os.name != "nt":
+        return
+    try:
+        from pc_agent.platform.windows.service_launcher import stop_tray_companions
+
+        stop_tray_companions()
+    except Exception as error:
+        raise SetupInstallError("TRAY_SHUTDOWN_FAILED") from error
+
+
 def _installed_provisioner() -> Path:
     program_files = os.environ.get("ProgramW6432") or os.environ.get("ProgramFiles")
     if not program_files:
@@ -605,6 +617,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 detail="STARTED",
             )
             try:
+                _stop_tray_before_msi_update()
                 _install_embedded_msi(resources / "EndpointAgent.msi")
             except SetupInstallError as error:
                 return _complete(

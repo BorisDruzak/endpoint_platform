@@ -643,6 +643,34 @@ def test_valid_existing_agent_installs_a_strictly_newer_embedded_msi(
     assert calls == ["EndpointAgent.msi"]
 
 
+def test_valid_existing_agent_stops_tray_before_invoking_a_newer_msi(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The Setup payload is newer than the MSI-installed helper during an upgrade."""
+    (tmp_path / "enrollment-identity.json").write_text(
+        '{"device_id":"550e8400-e29b-41d4-a716-446655440000","schema_version":"endpoint_enrollment_identity_v1"}',
+        encoding="ascii",
+    )
+    (tmp_path / "device-credential").write_text("a" * 43, encoding="ascii")
+    resources = tmp_path / "payload"
+    resources.mkdir()
+    _write_public_payload(resources)
+    config_path = resources / "setup-config.json"
+    config = json.loads(config_path.read_text(encoding="utf-8"))
+    config["installer_version"] = "3.2.60"
+    config_path.write_text(json.dumps(config), encoding="utf-8")
+    order: list[str] = []
+    monkeypatch.setattr(setup_entry, "_data_root", lambda: tmp_path)
+    monkeypatch.setattr(setup_entry, "_resource_root", lambda: resources)
+    monkeypatch.setattr(setup_entry, "_installed_runtime_version", lambda: "3.2.59")
+    monkeypatch.setattr(setup_entry, "_stop_tray_before_msi_update", lambda: order.append("tray"))
+    monkeypatch.setattr(setup_entry, "_install_embedded_msi", lambda _: order.append("msi"))
+    monkeypatch.setattr(setup_entry, "_wait_for_agent_service_running", lambda: True)
+
+    assert setup_entry.main(["--quiet"]) == setup_entry.EXIT_SUCCESS
+    assert order == ["tray", "msi"]
+
+
 def test_valid_existing_agent_does_not_install_an_equal_embedded_msi(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
