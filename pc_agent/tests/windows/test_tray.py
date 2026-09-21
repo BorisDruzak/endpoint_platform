@@ -4,8 +4,9 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from pathlib import Path
+from types import SimpleNamespace
 
-from pc_agent.platform.windows.tray import status_to_view
+from pc_agent.platform.windows.tray import _WindowsTray, status_to_view
 from pc_agent.platform.windows.tray_status import TrayStatus
 
 
@@ -68,7 +69,7 @@ def test_missing_or_invalid_projection_is_grey() -> None:
 
     assert view.icon == "grey"
     assert view.tooltip == (
-        "Endpoint Agent: unknown; Endpoint: unknown; Update: unknown; Version: 3.2.62"
+        "Endpoint Agent: unknown; Endpoint: unknown; Update: unknown; Version: 3.2.63"
     )
 
 
@@ -111,6 +112,36 @@ def test_tray_declares_wide_menu_api_and_opaque_coloured_icon_pixels() -> None:
     assert "AppendMenuW.argtypes" in source
     assert "AppendMenuW.restype" in source
     assert "bytes([blue, green, red, 255]" in source
+
+
+class _FakeWinApi:
+    def __init__(self, result: int = 0) -> None:
+        self.result = result
+        self.calls: list[tuple[object, ...]] = []
+
+    def __call__(self, *args: object) -> int:
+        self.calls.append(args)
+        return self.result
+
+
+def test_tray_uses_owner_drawn_status_items_for_visible_text() -> None:
+    """Status text must not depend on the shell's broken disabled-text colour."""
+    append_menu = _FakeWinApi(result=1)
+    user32 = SimpleNamespace(
+        CreatePopupMenu=_FakeWinApi(result=1),
+        AppendMenuW=append_menu,
+        GetCursorPos=_FakeWinApi(result=1),
+        SetForegroundWindow=_FakeWinApi(result=1),
+        TrackPopupMenu=_FakeWinApi(result=0),
+        DestroyMenu=_FakeWinApi(result=1),
+    )
+    tray = _WindowsTray(Path("C:/ProgramData/Endpoint Platform/Agent"))
+
+    tray._show_menu(user32, 101)  # type: ignore[arg-type]
+
+    status_calls = append_menu.calls[:4]
+    assert all(call[1] & 0x0100 for call in status_calls)
+    assert [call[3] for call in status_calls] == [None, None, None, None]
 
 
 def test_tray_spec_is_windowed_companion_executable() -> None:

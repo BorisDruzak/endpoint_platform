@@ -22,6 +22,8 @@ TrayIcon = Literal["green", "yellow", "blue", "red", "grey"]
 _WM_APP = 0x8000
 _WM_COMMAND = 0x0111
 _WM_DESTROY = 0x0002
+_WM_DRAWITEM = 0x002B
+_WM_MEASUREITEM = 0x002C
 _WM_RBUTTONUP = 0x0205
 _WM_CONTEXTMENU = 0x007B
 _WM_TIMER = 0x0113
@@ -30,6 +32,7 @@ _REFRESH_TIMER = 31
 _DETAILS_COMMAND = 1001
 _REFRESH_COMMAND = 1002
 _EXIT_COMMAND = 1003
+_STATUS_COMMANDS = (1101, 1102, 1103, 1104)
 _NIM_ADD = 0x00000000
 _NIM_MODIFY = 0x00000001
 _NIM_DELETE = 0x00000002
@@ -37,12 +40,21 @@ _NIF_MESSAGE = 0x00000001
 _NIF_ICON = 0x00000002
 _NIF_TIP = 0x00000004
 _MF_STRING = 0x00000000
+_MF_DISABLED = 0x00000002
+_MF_OWNERDRAW = 0x00000100
 _MF_SEPARATOR = 0x00000800
-_MF_GRAYED = 0x00000001
 _TPM_RIGHTBUTTON = 0x0002
 _TPM_RETURNCMD = 0x0100
 _IDI_APPLICATION = 32512
 _ERROR_ALREADY_EXISTS = 183
+_ODT_MENU = 1
+_ODS_SELECTED = 0x0001
+_DT_LEFT = 0x0000
+_DT_VCENTER = 0x0004
+_DT_SINGLELINE = 0x0020
+_TRANSPARENT = 1
+_MENU_ITEM_HEIGHT = 24
+_MENU_ITEM_WIDTH = 280
 
 
 def _configure_menu_api(user32: object) -> None:
@@ -55,6 +67,37 @@ def _configure_menu_api(user32: object) -> None:
         wintypes.LPCWSTR,
     ]
     user32.AppendMenuW.restype = wintypes.BOOL
+
+
+def _configure_menu_drawing_api(user32: object, gdi32: object) -> None:
+    """Declare pointer-width APIs used by owner-drawn popup menu entries."""
+    user32.FillRect.argtypes = [
+        wintypes.HDC,
+        ctypes.POINTER(wintypes.RECT),
+        wintypes.HBRUSH,
+    ]
+    user32.FillRect.restype = ctypes.c_int
+    user32.DrawTextW.argtypes = [
+        wintypes.HDC,
+        wintypes.LPCWSTR,
+        ctypes.c_int,
+        ctypes.POINTER(wintypes.RECT),
+        wintypes.UINT,
+    ]
+    user32.DrawTextW.restype = ctypes.c_int
+    gdi32.CreateSolidBrush.argtypes = [wintypes.COLORREF]
+    gdi32.CreateSolidBrush.restype = wintypes.HBRUSH
+    gdi32.DeleteObject.argtypes = [wintypes.HGDIOBJ]
+    gdi32.DeleteObject.restype = wintypes.BOOL
+    gdi32.SetBkMode.argtypes = [wintypes.HDC, ctypes.c_int]
+    gdi32.SetBkMode.restype = ctypes.c_int
+    gdi32.SetTextColor.argtypes = [wintypes.HDC, wintypes.COLORREF]
+    gdi32.SetTextColor.restype = wintypes.COLORREF
+
+
+def _rgb(red: int, green: int, blue: int) -> int:
+    """Return a Windows COLORREF value without importing a GUI toolkit."""
+    return red | (green << 8) | (blue << 16)
 
 
 @dataclass(frozen=True, slots=True)
@@ -197,6 +240,10 @@ class _WindowsTray:
 
     def _window_callback(self, hwnd: int, message: int, wparam: int, lparam: int) -> int:
         user32 = ctypes.windll.user32
+        if message == _WM_MEASUREITEM:
+            return self._measure_menu_item(lparam)
+        if message == _WM_DRAWITEM:
+            return self._draw_menu_item(user32, lparam)
         if message == _TRAY_CALLBACK and lparam in {_WM_RBUTTONUP, _WM_CONTEXTMENU}:
             self._show_menu(user32, hwnd)
             return 0
@@ -240,12 +287,12 @@ class _WindowsTray:
         if not menu:
             return
         try:
-            for label in self._view.menu_labels:
-                user32.AppendMenuW(menu, _MF_STRING | _MF_GRAYED, 0, label)
+            for command in _STATUS_COMMANDS:
+                user32.AppendMenuW(menu, _MF_OWNERDRAW | _MF_DISABLED, command, None)
             user32.AppendMenuW(menu, _MF_SEPARATOR, 0, None)
-            user32.AppendMenuW(menu, _MF_STRING, _DETAILS_COMMAND, "Details")
-            user32.AppendMenuW(menu, _MF_STRING, _REFRESH_COMMAND, "Refresh")
-            user32.AppendMenuW(menu, _MF_STRING, _EXIT_COMMAND, "Exit tray icon")
+            user32.AppendMenuW(menu, _MF_OWNERDRAW, _DETAILS_COMMAND, None)
+            user32.AppendMenuW(menu, _MF_OWNERDRAW, _REFRESH_COMMAND, None)
+            user32.AppendMenuW(menu, _MF_OWNERDRAW, _EXIT_COMMAND, None)
             point = wintypes.POINT()
             user32.GetCursorPos(ctypes.byref(point))
             user32.SetForegroundWindow(hwnd)
@@ -256,6 +303,80 @@ class _WindowsTray:
                 user32.PostMessageW(hwnd, _WM_COMMAND, command, 0)
         finally:
             user32.DestroyMenu(menu)
+
+    def _menu_label(self, item_id: int) -> str | None:
+        if item_id in _STATUS_COMMANDS:
+            return self._view.menu_labels[_STATUS_COMMANDS.index(item_id)]
+        return {
+            _DETAILS_COMMAND: "Details",
+            _REFRESH_COMMAND: "Refresh",
+            _EXIT_COMMAND: "Exit tray icon",
+        }.get(item_id)
+
+    def _measure_menu_item(self, lparam: int) -> int:
+        class MEASUREITEMSTRUCT(ctypes.Structure):
+            _fields_ = [
+                ("CtlType", wintypes.UINT),
+                ("CtlID", wintypes.UINT),
+                ("itemID", wintypes.UINT),
+                ("itemWidth", wintypes.UINT),
+                ("itemHeight", wintypes.UINT),
+                ("itemData", ctypes.c_size_t),
+            ]
+
+        item = ctypes.cast(lparam, ctypes.POINTER(MEASUREITEMSTRUCT)).contents
+        if item.CtlType != _ODT_MENU or self._menu_label(item.itemID) is None:
+            return 0
+        item.itemWidth = _MENU_ITEM_WIDTH
+        item.itemHeight = _MENU_ITEM_HEIGHT
+        return 1
+
+    def _draw_menu_item(self, user32: object, lparam: int) -> int:
+        class DRAWITEMSTRUCT(ctypes.Structure):
+            _fields_ = [
+                ("CtlType", wintypes.UINT),
+                ("CtlID", wintypes.UINT),
+                ("itemID", wintypes.UINT),
+                ("itemAction", wintypes.UINT),
+                ("itemState", wintypes.UINT),
+                ("hwndItem", wintypes.HWND),
+                ("hDC", wintypes.HDC),
+                ("rcItem", wintypes.RECT),
+                ("itemData", ctypes.c_size_t),
+            ]
+
+        item = ctypes.cast(lparam, ctypes.POINTER(DRAWITEMSTRUCT)).contents
+        label = self._menu_label(item.itemID)
+        if item.CtlType != _ODT_MENU or label is None:
+            return 0
+
+        gdi32 = ctypes.windll.gdi32
+        _configure_menu_drawing_api(user32, gdi32)
+        selected = bool(item.itemState & _ODS_SELECTED)
+        background = _rgb(0, 120, 215) if selected else _rgb(250, 250, 250)
+        text_colour = _rgb(255, 255, 255) if selected else _rgb(32, 32, 32)
+        brush = gdi32.CreateSolidBrush(background)
+        try:
+            user32.FillRect(item.hDC, ctypes.byref(item.rcItem), brush)
+        finally:
+            if brush:
+                gdi32.DeleteObject(brush)
+        text_rect = wintypes.RECT(
+            item.rcItem.left + 12,
+            item.rcItem.top,
+            item.rcItem.right - 12,
+            item.rcItem.bottom,
+        )
+        gdi32.SetBkMode(item.hDC, _TRANSPARENT)
+        gdi32.SetTextColor(item.hDC, text_colour)
+        user32.DrawTextW(
+            item.hDC,
+            label,
+            -1,
+            ctypes.byref(text_rect),
+            _DT_LEFT | _DT_VCENTER | _DT_SINGLELINE,
+        )
+        return 1
 
     def _show_details(self, user32: object, hwnd: int) -> None:
         details = self._view.tooltip
