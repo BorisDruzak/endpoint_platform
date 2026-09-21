@@ -61,7 +61,7 @@
                   Execute="commit" Impersonate="no" Return="check" HideTarget="yes" />
     <InstallExecuteSequence>
       <Custom Action="StopTrayCompanions" Before="InstallFiles"
-              Condition="(Installed OR WIX_UPGRADE_DETECTED) AND NOT REMOVE~=&quot;ALL&quot;" />
+              Condition="Installed AND NOT WIX_UPGRADE_DETECTED AND NOT REMOVE~=&quot;ALL&quot;" />
       <Custom Action="ConfigureServiceSids" After="InstallServices"
               Condition="NOT REMOVE~=&quot;ALL&quot;" />
       <Custom Action="ApplyProgramDataAcl" After="ConfigureServiceSids"

@@ -681,7 +681,7 @@ def test_valid_existing_agent_stops_tray_before_invoking_a_newer_msi(
     _write_public_payload(resources)
     config_path = resources / "setup-config.json"
     config = json.loads(config_path.read_text(encoding="utf-8"))
-    config["installer_version"] = "3.2.61"
+    config["installer_version"] = "3.2.62"
     config_path.write_text(json.dumps(config), encoding="utf-8")
     order: list[str] = []
     monkeypatch.setattr(setup_entry, "_data_root", lambda: tmp_path)

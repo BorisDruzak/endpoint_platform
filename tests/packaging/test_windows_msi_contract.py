@@ -192,7 +192,7 @@ def test_service_components_remove_services_and_fail_the_transaction_on_error() 
     assert restrict_sequence.get("After") == "ConfigureServiceSids"
     assert stop_tray_sequence.get("Before") == "InstallFiles"
     assert stop_tray_sequence.get("Condition") == (
-        '(Installed OR WIX_UPGRADE_DETECTED) AND NOT REMOVE~="ALL"'
+        'Installed AND NOT WIX_UPGRADE_DETECTED AND NOT REMOVE~="ALL"'
     )
 
 
