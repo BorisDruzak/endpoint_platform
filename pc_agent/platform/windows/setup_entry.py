@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import ctypes
 import json
 import os
 import re
@@ -14,6 +15,8 @@ from collections.abc import Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Callable, Literal
+
+from ctypes import wintypes
 
 from pc_agent.core.device_fingerprint import collect_device_fingerprint
 from pc_agent.device_credential import read_device_credential
@@ -162,17 +165,36 @@ def _installed_tray_companion() -> Path:
     return executable
 
 
+def _current_process_session_id() -> int | None:
+    """Return this process's Windows session identifier when it is available."""
+    if os.name != "nt":
+        return None
+    try:
+        session_id = wintypes.DWORD()
+        process_id_to_session_id = ctypes.WinDLL(
+            "kernel32", use_last_error=True
+        ).ProcessIdToSessionId
+        process_id_to_session_id.argtypes = [wintypes.DWORD, ctypes.POINTER(wintypes.DWORD)]
+        process_id_to_session_id.restype = wintypes.BOOL
+        if not process_id_to_session_id(os.getpid(), ctypes.byref(session_id)):
+            return None
+    except (AttributeError, OSError):
+        return None
+    return int(session_id.value)
+
+
 def _is_interactive_windows_session() -> bool:
     """Avoid creating a session-0 tray process during service/SYSTEM deployments."""
     if os.name != "nt":
         return False
     session_name = os.environ.get("SESSIONNAME", "")
     username = os.environ.get("USERNAME", "")
-    return (
-        bool(session_name)
-        and session_name.casefold() != "services"
-        and username.casefold() != "system"
-    )
+    if session_name.casefold() == "services" or username.casefold() == "system":
+        return False
+    session_id = _current_process_session_id()
+    if session_id is not None:
+        return session_id != 0
+    return bool(session_name)
 
 
 def _restart_tray_companion() -> bool:

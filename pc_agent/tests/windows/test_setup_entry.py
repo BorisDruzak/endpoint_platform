@@ -352,6 +352,30 @@ def test_successful_system_update_does_not_start_an_invisible_tray(
     assert setup_entry._restart_tray_companion() is False
 
 
+def test_interactive_session_detection_uses_windows_session_id_when_env_is_absent(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A normal desktop launch does not require terminal-only SESSIONNAME."""
+    monkeypatch.setattr(setup_entry.os, "name", "nt")
+    monkeypatch.delenv("SESSIONNAME", raising=False)
+    monkeypatch.setenv("USERNAME", "operator")
+    monkeypatch.setattr(setup_entry, "_current_process_session_id", lambda: 1)
+
+    assert setup_entry._is_interactive_windows_session() is True
+
+
+def test_session_zero_never_starts_the_tray_when_env_is_absent(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A SYSTEM-like session remains non-interactive even without its env label."""
+    monkeypatch.setattr(setup_entry.os, "name", "nt")
+    monkeypatch.delenv("SESSIONNAME", raising=False)
+    monkeypatch.setenv("USERNAME", "operator")
+    monkeypatch.setattr(setup_entry, "_current_process_session_id", lambda: 0)
+
+    assert setup_entry._is_interactive_windows_session() is False
+
+
 def test_setup_entry_rejects_config_that_contains_extra_material(
     tmp_path: Path,
 ) -> None:
@@ -657,7 +681,7 @@ def test_valid_existing_agent_stops_tray_before_invoking_a_newer_msi(
     _write_public_payload(resources)
     config_path = resources / "setup-config.json"
     config = json.loads(config_path.read_text(encoding="utf-8"))
-    config["installer_version"] = "3.2.60"
+    config["installer_version"] = "3.2.61"
     config_path.write_text(json.dumps(config), encoding="utf-8")
     order: list[str] = []
     monkeypatch.setattr(setup_entry, "_data_root", lambda: tmp_path)
