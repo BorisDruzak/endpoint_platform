@@ -519,6 +519,7 @@ def test_tray_shutdown_uses_the_fixed_program_files_target(
     tray.parent.mkdir(parents=True)
     tray.write_bytes(b"tray")
     terminated: list[int] = []
+    opened_access: list[int] = []
 
     class _Handle:
         def Close(self) -> None:
@@ -527,7 +528,11 @@ def test_tray_shutdown_uses_the_fixed_program_files_target(
     monkeypatch.setattr(service_launcher.os, "name", "nt")
     monkeypatch.setenv("ProgramW6432", str(tmp_path))
     monkeypatch.setattr(win32process, "EnumProcesses", lambda: [101])
-    monkeypatch.setattr(win32api, "OpenProcess", lambda *_args: _Handle())
+    def open_process(access: int, *_args: object) -> _Handle:
+        opened_access.append(access)
+        return _Handle()
+
+    monkeypatch.setattr(win32api, "OpenProcess", open_process)
     monkeypatch.setattr(win32process, "GetModuleFileNameEx", lambda *_args: str(tray))
     monkeypatch.setattr(
         win32process, "TerminateProcess", lambda _handle, code: terminated.append(code)
@@ -540,3 +545,9 @@ def test_tray_shutdown_uses_the_fixed_program_files_target(
 
     assert terminated == [0]
     assert win32con.PROCESS_TERMINATE == 1
+    assert win32con.SYNCHRONIZE == 1048576
+    assert opened_access == [
+        win32con.PROCESS_QUERY_LIMITED_INFORMATION
+        | win32con.PROCESS_TERMINATE
+        | win32con.SYNCHRONIZE
+    ]

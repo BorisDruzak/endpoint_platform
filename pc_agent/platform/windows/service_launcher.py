@@ -44,7 +44,11 @@ def stop_tray_companions() -> None:
             str(Path(program_files) / "Endpoint Platform" / "Agent" / _TRAY_EXECUTABLE_NAME)
         )
     )
-    access = win32con.PROCESS_QUERY_LIMITED_INFORMATION | win32con.PROCESS_TERMINATE
+    access = (
+        win32con.PROCESS_QUERY_LIMITED_INFORMATION
+        | win32con.PROCESS_TERMINATE
+        | win32con.SYNCHRONIZE
+    )
     tray_handles = []
     for process_id in win32process.EnumProcesses():
         try:
