@@ -14,7 +14,7 @@ evidence for the retained initial-runtime stage. From the repository root:
 
 ```powershell
 .\packaging\windows\build-msi.ps1 -Configuration Release -Platform x64 `
-  -InitialRuntimeManifest .\packaging\windows\initial-runtime-3.2.50.json `
+  -InitialRuntimeManifest .\packaging\windows\initial-runtime-3.2.62.json `
   -InitialRuntimeStageRoot <retained-runtime-stage> `
   -InitialRuntimeStageEvidence <stage-evidence.json> `
   -ApproveInitialRuntimeTransition -ApproveInitialRuntimeSourceChange
@@ -29,7 +29,7 @@ and paths inside the repository are rejected. The build has no parameter for
 enrollment or device material and does not read such input.
 
 The checked-in `initial-runtime.json` remains the immutable historical baseline.
-The reviewed `initial-runtime-3.2.50.json` transition pins the Windows Device
+The reviewed `initial-runtime-3.2.62.json` transition pins the Windows Device
 Context, universal enrollment setup, and WSS diagnostic-canary runtime with a new component GUID and must be built with both explicit
 approval switches shown above. Each manifest pins its runtime version,
 component GUID, canonical-LF source-file hashes, complete staged artifact tree identity,
@@ -142,7 +142,7 @@ build inputs or command-line arguments:
 .\packaging\windows\build-setup.ps1 `
   -EndpointOrigin https://endpoint.sosnadmin.local `
   -EndpointCaFile 'C:\path\to\sosnadmin-local-ca.crt' `
-  -InitialRuntimeManifest .\packaging\windows\initial-runtime-3.2.50.json `
+  -InitialRuntimeManifest .\packaging\windows\initial-runtime-3.2.62.json `
   -InitialRuntimeStageRoot <retained-runtime-stage> `
   -InitialRuntimeStageEvidence <stage-evidence.json> `
   -ApproveInitialRuntimeTransition -ApproveInitialRuntimeSourceChange
@@ -159,6 +159,16 @@ disposable test machine. Run the EXE elevated; `--quiet` suppresses UI but has
 the identical enrollment flow. It returns `0` only after server completion,
 `10` for an existing valid installation, and stable non-zero values for each
 documented denial, claim, provisioning, service, or repair outcome.
+
+On success or failure, Setup writes the machine-readable, non-secret result to
+`C:\ProgramData\Endpoint Platform\Installer\install-result.json` and appends
+the redacted installer flow to `C:\ProgramData\Endpoint Platform\Agent\install.log`.
+For example, a Windows Installer failure records `status=INSTALL_FAILED`,
+`stage=MSI`, and a bounded `MSI_EXIT_<code>` detail. During a major upgrade,
+the new Setup stops the visible tray before invoking MSI; MSI intentionally
+does not execute a legacy installed tray helper before replacing its files.
+This keeps upgrades from older agents compatible while repair retains its
+tray-stop safeguard.
 
 ## Update handoff
 
