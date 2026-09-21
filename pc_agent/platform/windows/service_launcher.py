@@ -7,7 +7,6 @@ import json
 import os
 import re
 import subprocess
-import sys
 import threading
 from pathlib import Path
 from typing import Sequence
@@ -37,8 +36,13 @@ def stop_tray_companions() -> None:
     except ImportError as error:
         raise RuntimeError("pywin32 is required to stop Endpoint Agent tray") from error
 
+    program_files = os.environ.get("ProgramW6432") or os.environ.get("ProgramFiles")
+    if not program_files:
+        raise RuntimeError("Windows Program Files location is unavailable")
     expected = os.path.normcase(
-        os.path.normpath(str(Path(sys.executable).resolve().parent / _TRAY_EXECUTABLE_NAME))
+        os.path.normpath(
+            str(Path(program_files) / "Endpoint Platform" / "Agent" / _TRAY_EXECUTABLE_NAME)
+        )
     )
     access = win32con.PROCESS_QUERY_LIMITED_INFORMATION | win32con.PROCESS_TERMINATE
     for process_id in win32process.EnumProcesses():

@@ -502,3 +502,41 @@ def test_service_host_exposes_fixed_tray_shutdown_boundary(
 
     assert service_launcher.main(["--stop-tray-companions"]) == 0
     assert observed == ["tray-stopped"]
+
+
+def test_tray_shutdown_uses_the_fixed_program_files_target(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """MSI may extract its FileRef custom-action EXE, so sys.executable is not authority."""
+    import win32api
+    import win32con
+    import win32event
+    import win32process
+
+    from pc_agent.platform.windows import service_launcher
+
+    tray = tmp_path / "Endpoint Platform" / "Agent" / "EndpointAgentTray.exe"
+    tray.parent.mkdir(parents=True)
+    tray.write_bytes(b"tray")
+    terminated: list[int] = []
+
+    class _Handle:
+        def Close(self) -> None:
+            pass
+
+    monkeypatch.setattr(service_launcher.os, "name", "nt")
+    monkeypatch.setenv("ProgramW6432", str(tmp_path))
+    monkeypatch.setattr(win32process, "EnumProcesses", lambda: [101])
+    monkeypatch.setattr(win32api, "OpenProcess", lambda *_args: _Handle())
+    monkeypatch.setattr(win32process, "GetModuleFileNameEx", lambda *_args: str(tray))
+    monkeypatch.setattr(
+        win32process, "TerminateProcess", lambda _handle, code: terminated.append(code)
+    )
+    monkeypatch.setattr(
+        win32event, "WaitForSingleObject", lambda *_args: win32event.WAIT_OBJECT_0
+    )
+
+    service_launcher.stop_tray_companions()
+
+    assert terminated == [0]
+    assert win32con.PROCESS_TERMINATE == 1

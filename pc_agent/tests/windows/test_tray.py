@@ -33,14 +33,18 @@ def test_update_failure_precedes_connected_icon() -> None:
     view = status_to_view(_status(update_state="failed", reason_code="UPDATE_VALIDATION"), NOW)
 
     assert view.icon == "red"
-    assert view.tooltip == "Endpoint Agent: error; Endpoint: connected; Update: failed"
+    assert view.tooltip == (
+        "Endpoint Agent: error; Endpoint: connected; Update: failed; Version: 3.2.51"
+    )
 
 
 def test_pending_precedes_fresh_connected_icon() -> None:
     view = status_to_view(_status(update_state="applying"), NOW)
 
     assert view.icon == "blue"
-    assert view.tooltip == "Endpoint Agent: running; Endpoint: connected; Update: applying"
+    assert view.tooltip == (
+        "Endpoint Agent: running; Endpoint: connected; Update: applying; Version: 3.2.51"
+    )
 
 
 def test_connected_running_agent_is_green_with_exact_status_labels() -> None:
@@ -51,6 +55,7 @@ def test_connected_running_agent_is_green_with_exact_status_labels() -> None:
         "Endpoint Agent: running",
         "Endpoint: connected",
         "Update: up_to_date",
+        "Version: 3.2.51",
     )
 
 
@@ -62,7 +67,9 @@ def test_missing_or_invalid_projection_is_grey() -> None:
     view = status_to_view(None, NOW)
 
     assert view.icon == "grey"
-    assert view.tooltip == "Endpoint Agent: unknown; Endpoint: unknown; Update: unknown"
+    assert view.tooltip == (
+        "Endpoint Agent: unknown; Endpoint: unknown; Update: unknown; Version: 3.2.57"
+    )
 
 
 def test_tray_module_has_no_transport_or_service_control_imports() -> None:

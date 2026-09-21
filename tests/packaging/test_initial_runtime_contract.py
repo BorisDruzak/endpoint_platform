@@ -573,7 +573,7 @@ def test_windows_current_product_uses_a_checked_in_approved_initial_transition()
     baseline = project_root / "packaging" / "windows" / "initial-runtime.json"
     transition = project_root / "packaging" / "windows" / f"initial-runtime-{AGENT_VERSION}.json"
 
-    assert AGENT_VERSION == "3.2.56"
+    assert AGENT_VERSION == "3.2.57"
     assert transition.is_file()
     payload = json.loads(transition.read_text(encoding="utf-8"))
     assert payload["version"] == AGENT_VERSION

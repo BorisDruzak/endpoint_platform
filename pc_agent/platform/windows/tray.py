@@ -10,6 +10,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal
 
+from pc_agent.version import AGENT_VERSION
 from pc_agent.platform.windows.tray_status import (
     TrayStatus,
     TrayStatusError,
@@ -62,7 +63,7 @@ class TrayView:
 
     icon: TrayIcon
     tooltip: str
-    menu_labels: tuple[str, str, str]
+    menu_labels: tuple[str, str, str, str]
 
 
 def status_to_view(status: TrayStatus | None, now: datetime) -> TrayView:
@@ -70,31 +71,36 @@ def status_to_view(status: TrayStatus | None, now: datetime) -> TrayView:
     if now.tzinfo is None:
         raise ValueError("tray display time must be timezone-aware")
     if status is None:
-        return _view("grey", "unknown", "unknown", "unknown")
+        return _view("grey", "unknown", "unknown", "unknown", AGENT_VERSION)
 
     agent_state = status.agent_state
     if status.agent_state == "error" or status.update_state == "failed":
-        return _view("red", "error", status.endpoint_state, status.update_state)
+        return _view("red", "error", status.endpoint_state, status.update_state, status.version)
     if status.update_state in {"pending", "applying"}:
-        return _view("blue", agent_state, status.endpoint_state, status.update_state)
+        return _view("blue", agent_state, status.endpoint_state, status.update_state, status.version)
     if (
         status.agent_state == "running"
         and status.endpoint_state == "connected"
         and status.update_state == "up_to_date"
     ):
-        return _view("green", agent_state, status.endpoint_state, status.update_state)
+        return _view("green", agent_state, status.endpoint_state, status.update_state, status.version)
     if status.agent_state in {"starting", "running"}:
-        return _view("yellow", agent_state, status.endpoint_state, status.update_state)
-    return _view("grey", agent_state, status.endpoint_state, status.update_state)
+        return _view("yellow", agent_state, status.endpoint_state, status.update_state, status.version)
+    return _view("grey", agent_state, status.endpoint_state, status.update_state, status.version)
 
 
 def _view(
-    icon: TrayIcon, agent_state: str, endpoint_state: str, update_state: str
+    icon: TrayIcon,
+    agent_state: str,
+    endpoint_state: str,
+    update_state: str,
+    version: str,
 ) -> TrayView:
     labels = (
         f"Endpoint Agent: {agent_state}",
         f"Endpoint: {endpoint_state}",
         f"Update: {update_state}",
+        f"Version: {version}",
     )
     return TrayView(icon=icon, tooltip="; ".join(labels), menu_labels=labels)
 
