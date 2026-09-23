@@ -20,18 +20,24 @@ also corrected module operation detail projection and the approved enrollment
 queue/label, and aligned campaign display names with the Russian Console.
 Device detail now projects the current user, OS and version from safe snapshots;
 Context shows collection state and server-derived freshness. The full Python
-suite passed with 1779 passed and 39 skipped; frontend unit, build, and browser
-E2E passed after this change.
+suite passed with 1779 passed and 39 skipped; 13 frontend unit tests, build,
+and the browser E2E passed after this change. Completed rollout history now
+uses its own filtered, paginated server query. The Module Capability Catalog
+shows backend-provided Russian names, platforms, minimum Agent version, risk,
+consent, and parameter rules.
 Authenticated production browser acceptance and live Agent module labs remain
 open. Production runs release
-`edf61bf4a97a77815e8c82bbfb50c5d45523204a` with DB revision
-`0025_console_enrollment_queue`; the previous `6d14f6795ab8` release is retained for
+`bb4d67e9bcd65df3fc4ac57ba3570ece86984b97` with DB revision
+`0025_console_enrollment_queue`; the previous `edf61bf4a97a` release is retained for
 rollback. The new pre-release PostgreSQL backup is
-`/var/backups/endpoint-platform/pre-console-edf61bf4a97a-20260923T224103Z.dump`
-(16,920,954 bytes; SHA-256 `547db3e2ccdd2cd6690da0644635d5fff65b8d78eaee724023c0bbe58c4dc816`).
-The production archive SHA-256 is `af5beee365435052f64dea229c970ed05b85f121ba1ba241f9f57cce69f3c0e0`.
+`/var/backups/endpoint-platform/pre-console-bb4d67e9bcd6-20260923T230459Z.dump`
+(16,947,499 bytes; SHA-256 `1b05f8a86ae74511b09501fc8d9a0a8513734a0f0fdd092ce33d194d1a2566c0`).
+The production archive SHA-256 is `dd5be0d1f0037d658adc7bfac664b4c6419908093dfd5c65a71e91abf07c3158`.
 Strict CA/hostname HTTPS passed for health, login, and the matching JS asset;
-unauthenticated Console routes returned 401. The historical
+unauthenticated Console routes returned 401. API, worker, Nginx, and PostgreSQL
+are active; migration reports success, module platform and execution flags
+remain disabled, and recent API/worker journals contain no errors. The
+dedicated test Agent is unreachable over SSH from the workstation. The historical
 Wave 1 plan below is retained as a record, not a current deployment gate.
 
 ## Goal
