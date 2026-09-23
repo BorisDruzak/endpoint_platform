@@ -21,23 +21,27 @@ queue/label, and aligned campaign display names with the Russian Console.
 Device detail now projects the current user, OS and version from safe snapshots;
 Context shows collection state and server-derived freshness. The full Python
 suite passed with 1779 passed and 39 skipped; 13 frontend unit tests, build,
-and the browser E2E passed after this change. Completed rollout history now
+and two browser E2E flows passed. The browser flow now covers Setup download,
+campaign editing, and a Russian-label regression guard across primary pages.
+Completed rollout history now
 uses its own filtered, paginated server query. The Module Capability Catalog
 shows backend-provided Russian names, platforms, minimum Agent version, risk,
 consent, and parameter rules.
 Authenticated production browser acceptance and live Agent module labs remain
 open. Production runs release
-`bb4d67e9bcd65df3fc4ac57ba3570ece86984b97` with DB revision
-`0025_console_enrollment_queue`; the previous `edf61bf4a97a` release is retained for
+`55faa6510c0edeaf750cb32aa4e21ad9f0dd6e4d` with DB revision
+`0025_console_enrollment_queue`; the previous `bb4d67e9bcd6` release is retained for
 rollback. The new pre-release PostgreSQL backup is
-`/var/backups/endpoint-platform/pre-console-bb4d67e9bcd6-20260923T230459Z.dump`
-(16,947,499 bytes; SHA-256 `1b05f8a86ae74511b09501fc8d9a0a8513734a0f0fdd092ce33d194d1a2566c0`).
-The production archive SHA-256 is `dd5be0d1f0037d658adc7bfac664b4c6419908093dfd5c65a71e91abf07c3158`.
+`/var/backups/endpoint-platform/pre-console-55faa6510c0e-20260923T232901Z.dump`
+(16,971,207 bytes; SHA-256 `c8fdcac5537b1b38d55431ca4f9379a5176e81a1a96d05d3503705cc4eed8db1`).
+The production archive SHA-256 is `28534d4e0c660e7424d41622d68302f3b6a1f178c64fca407fa2f1089b6f46a7`.
 Strict CA/hostname HTTPS passed for health, login, and the matching JS asset;
 unauthenticated Console routes returned 401. API, worker, Nginx, and PostgreSQL
 are active; migration reports success, module platform and execution flags
 remain disabled, and recent API/worker journals contain no errors. The
-dedicated test Agent is unreachable over SSH from the workstation. The historical
+dedicated test Agent is unreachable over SSH from the workstation and did not
+answer ARP from the production host. Provider release-gate CI passed for the
+release commit. The historical
 Wave 1 plan below is retained as a record, not a current deployment gate.
 
 ## Goal
