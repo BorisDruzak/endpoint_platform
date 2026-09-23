@@ -1,5 +1,10 @@
 from __future__ import annotations
 
+import re
+
+from sqlalchemy import CheckConstraint
+
+from endpoint_contracts.capabilities import MODULE_CAPABILITY_REGISTRY
 from endpoint_server.db.models.operations import (
     ENDPOINT_OPERATION_CAPABILITIES,
     MODULE_OPERATION_STEP_STATUSES,
@@ -42,3 +47,14 @@ def test_module_parent_and_step_models_have_closed_runtime_shape() -> None:
         "started_at",
         "completed_at",
     }
+
+
+def test_module_step_persistence_accepts_every_canonical_executable_capability() -> None:
+    constraint = next(
+        item
+        for item in ModuleOperationStep.__table__.constraints
+        if isinstance(item, CheckConstraint)
+        and item.name == "ck_endpoint_operation_steps_capability"
+    )
+    allowed = set(re.findall(r"'([^']+)'", str(constraint.sqltext)))
+    assert allowed == set(MODULE_CAPABILITY_REGISTRY)

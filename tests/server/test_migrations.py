@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import io
 import os
+import re
 from collections.abc import Iterator
 from pathlib import Path
 from uuid import uuid4
@@ -20,6 +21,7 @@ from sqlalchemy.exc import DBAPIError
 from sqlalchemy.schema import CreateIndex
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
+from endpoint_contracts.capabilities import MODULE_CAPABILITY_REGISTRY
 from endpoint_server.db.models import DeviceSession, EndpointOperation
 from endpoint_server.modules.execution_routes import _project_module_operation
 
@@ -133,7 +135,7 @@ def test_migration_history_has_exactly_one_head() -> None:
         _alembic_config("postgresql+asyncpg://unused@127.0.0.1/unused")
     )
 
-    assert script.get_heads() == ["0021_request_claim_envelopes"]
+    assert script.get_heads() == ["0022_module_step_capabilities"]
 
 
 def test_migration_revisions_fit_alembic_version_storage() -> None:
@@ -167,6 +169,31 @@ def test_module_operation_step_migration_preserves_context_boundary() -> None:
     assert "CONSTRAINT uq_endpoint_operation_steps_recipe_key UNIQUE (operation_id, recipe_step_key)" in rendered
     assert "CONSTRAINT ck_endpoint_operation_steps_capability CHECK (capability IN ('dns.resolve', 'network.ping', 'tcp.connect'))" in rendered
     assert "endpoint.module.recipe" in rendered
+
+
+def test_module_step_capability_repair_is_forward_only_and_complete() -> None:
+    output = io.StringIO()
+    config = Config(REPOSITORY_ROOT / "alembic.ini", output_buffer=output)
+    config.set_main_option(
+        "sqlalchemy.url",
+        "postgresql+asyncpg://unused@127.0.0.1/unused",
+    )
+    command.upgrade(
+        config,
+        "0021_request_claim_envelopes:0022_module_step_capabilities",
+        sql=True,
+    )
+    rendered = " ".join(output.getvalue().split())
+    assert "DROP CONSTRAINT ck_endpoint_operation_steps_capability" in rendered
+    assert (
+        "CONSTRAINT ck_endpoint_operation_steps_capability CHECK "
+        "(capability IN ('dns.resolve', 'network.ping', 'tcp.connect', "
+        "'route.get', 'adapter.list', 'system.service_status'))"
+    ) in rendered
+    new_check = rendered.split(
+        "ADD CONSTRAINT ck_endpoint_operation_steps_capability CHECK ", 1
+    )[1].split(";", 1)[0]
+    assert set(re.findall(r"'([^']+)'", new_check)) == set(MODULE_CAPABILITY_REGISTRY)
 
 
 def test_module_operation_expected_step_count_migration_is_bounded() -> None:

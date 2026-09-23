@@ -19,6 +19,7 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import JSONB, UUID as PostgreSQLUUID
 from sqlalchemy.orm import Mapped, mapped_column
 
+from endpoint_contracts.capabilities import MODULE_CAPABILITY_REGISTRY
 from endpoint_server.db.base import Base
 
 from .common import OwnershipRecord
@@ -41,6 +42,12 @@ ENDPOINT_OPERATION_CAPABILITIES = (
 )
 
 MODULE_OPERATION_STEP_STATUSES = ENDPOINT_OPERATION_STATUSES
+MODULE_OPERATION_STEP_CAPABILITIES = tuple(MODULE_CAPABILITY_REGISTRY)
+_MODULE_STEP_CAPABILITY_CHECK = (
+    "capability IN ("
+    + ", ".join(f"'{capability}'" for capability in MODULE_OPERATION_STEP_CAPABILITIES)
+    + ")"
+)
 
 
 class EndpointOperation(OwnershipRecord, Base):
@@ -155,7 +162,7 @@ class ModuleOperationStep(OwnershipRecord, Base):
         UniqueConstraint("command_id", name="uq_endpoint_operation_steps_command"),
         CheckConstraint("sequence >= 0", name="ck_endpoint_operation_steps_sequence"),
         CheckConstraint(
-            "capability IN ('dns.resolve', 'network.ping', 'tcp.connect')",
+            _MODULE_STEP_CAPABILITY_CHECK,
             name="ck_endpoint_operation_steps_capability",
         ),
         CheckConstraint(
@@ -197,6 +204,7 @@ __all__ = [
     "ENDPOINT_OPERATION_CAPABILITIES",
     "ENDPOINT_OPERATION_STATUSES",
     "MODULE_OPERATION_STEP_STATUSES",
+    "MODULE_OPERATION_STEP_CAPABILITIES",
     "EndpointOperation",
     "ModuleOperationStep",
 ]

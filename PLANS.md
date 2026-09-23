@@ -1,5 +1,17 @@
 # Endpoint Platform Plan
 
+## Current Console v1 work (2026-09-24)
+
+The active implementation plan is
+`docs/superpowers/plans/2026-09-24-endpoint-console-v1.md`, based on main
+`2995b06d3b45a26d39b6acc4129e5892b6c7c942` and the user-supplied spec
+in `docs/superpowers/specs/2026-09-24-endpoint-console-v1.md`.
+The first independent phase repairs the canonical Module Platform capability
+catalog versus database CHECK constraint drift through revision
+`0022_module_step_capabilities`. The remaining phases provide the browser
+console, administrative projections, and production acceptance. The historical
+Wave 1 plan below is retained as a record, not a current deployment gate.
+
 ## Goal
 
 Deliver Wave 1 Device Context, then expose normalized projections in web_ovpn without coupling that panel to raw agent results.
