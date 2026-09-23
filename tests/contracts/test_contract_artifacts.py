@@ -376,6 +376,27 @@ def test_committed_contract_artifacts_match_renderer_without_mutation(
         assert (Path.cwd() / relative_path).read_text(encoding="utf-8") == expected
 
 
+def test_generated_artifact_writer_preserves_canonical_lf_bytes(tmp_path: Path) -> None:
+    result = subprocess.run(
+        [
+            sys.executable,
+            "tools/contracts/generate_contract_artifacts.py",
+            "--write",
+            "--output-root",
+            str(tmp_path),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+    relative_path = Path("contracts/openapi/endpoint-platform-v1.yaml")
+    assert (tmp_path / relative_path).read_bytes() == render_artifacts(tmp_path)[
+        relative_path
+    ].encode("utf-8")
+
+
 def test_check_exits_nonzero_when_a_tracked_artifact_differs(tmp_path: Path) -> None:
     generated_path = tmp_path / "contracts/jsonschema/device-identity-v1.json"
     generated_path.parent.mkdir(parents=True)
@@ -534,6 +555,93 @@ def test_endpoint_operation_service_openapi_documents_scopes_and_safe_models(
         "raw_result_payload",
     ):
         assert private_name not in response_text
+
+
+def test_device_context_service_openapi_publishes_existing_safe_routes(
+    tmp_path: Path,
+) -> None:
+    openapi = yaml.safe_load(
+        render_artifacts(tmp_path)[Path("contracts/openapi/endpoint-platform-v1.yaml")]
+    )
+    expected = {
+        ("/api/v1/devices", "get"): ["devices.read"],
+        ("/api/v1/devices/network-identities", "get"): [
+            "devices.read", "context.read"
+        ],
+        ("/api/v1/devices/{device_id}/context", "get"): ["context.read"],
+        ("/api/v1/devices/{device_id}/context/snapshots", "get"): [
+            "context.read"
+        ],
+        ("/api/v1/devices/{device_id}/context/collections", "post"): [
+            "context.collect"
+        ],
+        ("/api/v1/context/collections/{collection_id}", "get"): [
+            "context.read"
+        ],
+        ("/api/v1/devices/{device_id}/context/snapshots/compare", "get"): [
+            "context.read"
+        ],
+    }
+    reachable_schemas: dict[str, object] = {}
+    for (path, method), scopes in expected.items():
+        assert set(openapi["paths"][path]) == {method}
+        operation = openapi["paths"][path][method]
+        assert operation["security"] == [{"ServiceBearer": []}]
+        assert operation["x-required-scopes"] == scopes
+        assert {"401", "403", "422"} <= set(operation["responses"])
+        if path not in {"/api/v1/devices", "/api/v1/devices/network-identities"}:
+            assert "404" in operation["responses"]
+        success_statuses = {"200", "201"} if method == "post" else {"200"}
+        for status_code in success_statuses:
+            reference = operation["responses"][status_code]["content"][
+                "application/json"
+            ]["schema"]["$ref"]
+            assert reference.startswith("#/components/schemas/")
+            pending = [reference]
+            while pending:
+                current = pending.pop()
+                if current in reachable_schemas:
+                    continue
+                schema = _resolve_json_pointer(openapi, current)
+                assert schema is not None
+                reachable_schemas[current] = schema
+                pending.extend(_walk_local_refs(schema))
+
+    assert openapi["components"]["securitySchemes"]["ServiceBearer"]["scheme"] == "bearer"
+    collection = openapi["paths"][
+        "/api/v1/devices/{device_id}/context/collections"
+    ]["post"]
+    assert "Idempotency-Key" in {
+        parameter["name"] for parameter in collection["parameters"]
+    }
+    request_reference = collection["requestBody"]["content"]["application/json"][
+        "schema"
+    ]["$ref"]
+    request_schema = _resolve_json_pointer(openapi, request_reference)
+    assert request_schema["properties"]["profile"]["enum"] == [
+        "baseline_v1",
+        "health_v1",
+        "network_v1",
+        "inventory_v1",
+        "session_v1",
+    ]
+    assert "data" in _resolve_json_pointer(
+        openapi,
+        collection["responses"]["201"]["content"]["application/json"][
+            "schema"
+        ]["$ref"],
+    )["properties"]
+    safe_response_text = json.dumps(reachable_schemas, sort_keys=True)
+    for private_name in (
+        "ContextCollection",
+        "ServiceCredential",
+        "raw_payload",
+        "raw_result_payload",
+        "requested_by",
+        "idempotency_key",
+        "DiagnosticSectionsV1",
+    ):
+        assert private_name not in safe_response_text
 
 
 def test_agent_response_schemas_require_every_canonical_wire_field() -> None:
