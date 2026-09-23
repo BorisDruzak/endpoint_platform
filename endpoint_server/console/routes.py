@@ -72,7 +72,7 @@ EnrollmentQueue = Literal["pending", "review", "active", "denied", "completed", 
 _ENROLLMENT_QUEUE_STATUSES: dict[str, tuple[str, ...]] = {
     "pending": ("waiting_approval",),
     "review": ("review_required",),
-    "active": ("created", "validating", "auto_approved", "claim_issued", "enrolling", "device_registered", "waiting_wss"),
+    "active": ("created", "validating", "auto_approved", "approved", "claim_issued", "enrolling", "device_registered", "waiting_wss"),
     "denied": ("denied",),
     "completed": ("completed",),
     "failed": ("failed", "expired"),

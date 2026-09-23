@@ -25,7 +25,7 @@ type SetupRelease = {
 
 const dateText = (value: string | null) => value ? new Intl.DateTimeFormat('ru-RU', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value)) : '—'
 const requestLabels: Record<string, string> = {
-  created: 'Создан', validating: 'Проверяется', auto_approved: 'Одобрен автоматически',
+  created: 'Создан', validating: 'Проверяется', auto_approved: 'Одобрен автоматически', approved: 'Одобрен вручную',
   waiting_approval: 'Ожидает подтверждения', review_required: 'Требует проверки',
   claim_issued: 'Claim сформирован', enrolling: 'Регистрируется', device_registered: 'Устройство зарегистрировано',
   waiting_wss: 'Ожидает WSS', completed: 'Завершён', denied: 'Отклонён', expired: 'Истёк', failed: 'Ошибка',
@@ -49,7 +49,7 @@ const requestQueues = [
 const enrollmentStages = [
   { label: 'Создан', statuses: ['created'] },
   { label: 'Проверен', statuses: ['validating'] },
-  { label: 'Одобрен автоматически или ожидает решения', statuses: ['auto_approved', 'waiting_approval', 'review_required'] },
+  { label: 'Одобрен или ожидает решения', statuses: ['auto_approved', 'approved', 'waiting_approval', 'review_required'] },
   { label: 'Разрешение сформировано', statuses: ['claim_issued'] },
   { label: 'Регистрация устройства', statuses: ['enrolling', 'device_registered'] },
   { label: 'Ожидание подключения WSS', statuses: ['waiting_wss'] },

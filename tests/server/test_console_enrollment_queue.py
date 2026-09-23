@@ -32,9 +32,9 @@ async def test_console_enrollment_queue_filters_and_paginates_without_claim_mate
             platform="windows", hostname=f"PC-{index}", macs=["00:11:22:33:44:55"],
             source_address="192.0.2.10", installer_version="3.2.63",
             installer_release_id="3.2.63", expires_at=now + timedelta(hours=1),
-            status="waiting_approval" if index < 2 else "denied",
+            status="waiting_approval" if index < 2 else "denied" if index == 2 else "approved",
         )
-        for index in range(3)
+        for index in range(4)
     ]
     async with sessions() as session:
         session.add_all(records)
@@ -56,6 +56,8 @@ async def test_console_enrollment_queue_filters_and_paginates_without_claim_mate
     async with AsyncClient(transport=ASGITransport(app=app), base_url="https://endpoint.sosnadmin.local") as client:
         pending = await client.get("/api/admin/console/enrollment/requests?queue=pending&limit=1&offset=1")
         denied = await client.get("/api/admin/console/enrollment/requests?queue=denied")
+        active = await client.get("/api/admin/console/enrollment/requests?queue=active")
+        other = await client.get("/api/admin/console/enrollment/requests?queue=other")
         invalid_queue = await client.get("/api/admin/console/enrollment/requests?queue=arbitrary")
         unbounded = await client.get("/api/admin/console/enrollment/requests?queue=pending&limit=501")
         invalid_offset = await client.get("/api/admin/console/enrollment/requests?queue=pending&offset=-1")
@@ -68,6 +70,8 @@ async def test_console_enrollment_queue_filters_and_paginates_without_claim_mate
     assert pending.json()["data"][0]["hostname"] == "PC-0"
     assert pending.json()["limit"] == pending.json()["offset"] == 1
     assert denied.status_code == 200 and denied.json()["total"] == 1
+    assert active.status_code == 200 and active.json()["data"][0]["status"] == "approved"
+    assert other.status_code == 200 and other.json()["total"] == 0
     assert invalid_queue.status_code == unbounded.status_code == invalid_offset.status_code == 422
     assert unauthorized.status_code == 401
     for private in ("private-install", "private-fingerprint", "private-capability"):
