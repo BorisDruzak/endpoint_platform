@@ -87,7 +87,7 @@ test('administrator can approve enrollment, roll back an update and run a module
   await expect(dnsCapability).toContainText('target')
   const draft = page.locator('form').last()
   await draft.getByLabel('Название').fill('Проверка сети')
-  await draft.getByLabel('Module key').fill('network.basic.check')
+  await draft.getByLabel('Ключ модуля').fill('network.basic.check')
   await draft.getByRole('button', { name: 'Добавить вход' }).click()
   await draft.getByLabel('Имя', { exact: true }).fill('target')
   await draft.getByRole('button', { name: 'Добавить шаг' }).click()
@@ -142,4 +142,30 @@ test('administrator can approve enrollment, roll back an update and run a module
   await expect(page.getByText('Вход администратора')).toBeVisible()
   await page.getByLabel('Действие').fill('admin_session.created')
   await expect(page.getByText('Вход администратора')).toBeVisible()
+})
+
+test('primary Console labels remain Russian', async ({ page }) => {
+  await page.goto('/admin/login')
+  await page.getByLabel('Имя пользователя').fill('console-e2e')
+  await page.getByLabel('Пароль').fill('console-e2e-password')
+  await page.getByRole('button', { name: 'Войти' }).click()
+  await expect(page.getByRole('heading', { name: 'Состояние парка' })).toBeVisible()
+
+  const navigation = page.getByRole('navigation', { name: 'Основная навигация' })
+  const pages = [
+    ['Главная', 'Состояние парка'], ['Устройства', 'Устройства'],
+    ['Установка и регистрация', 'Установка и регистрация'],
+    ['Релизы и обновления', 'Релизы и обновления'],
+    ['Операции', 'Операции'], ['Модули', 'Модули'], ['Аудит', 'Аудит'],
+  ] as const
+  for (const [name, heading] of pages) {
+    await navigation.getByRole('link', { name, exact: true }).click()
+    await expect(page.getByRole('heading', { name: heading, exact: true }).first()).toBeVisible()
+    const labels = await page.locator('main h1, main h2, main h3, main button, main label').allTextContents()
+    for (const label of labels) {
+      const value = label.trim()
+      if (/^(linux|windows)_amd64$/.test(value)) continue // Platform identifiers in the recipe.
+      if (value) expect(value, `English-only label on page ${name}`).toMatch(/[А-Яа-яЁё]/)
+    }
+  }
 })
