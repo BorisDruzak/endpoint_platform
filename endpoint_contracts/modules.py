@@ -177,7 +177,7 @@ class ModuleOperationCreateV1(ContractModelV1):
         str, Field(strict=True, min_length=5, max_length=64, pattern=r"^\d+\.\d+\.\d+$")
     ]
     inputs: dict[ModuleInputNameV1, ModuleOperationInputValueV1] = Field(
-        min_length=0,
+        min_length=1,
         max_length=8,
     )
 
@@ -187,7 +187,7 @@ class ModuleLabOperationCreateV1(ContractModelV1):
 
     schema_version: Literal["endpoint_module_lab_operation_create_v1"]
     inputs: dict[ModuleInputNameV1, ModuleOperationInputValueV1] = Field(
-        min_length=0,
+        min_length=1,
         max_length=8,
     )
 

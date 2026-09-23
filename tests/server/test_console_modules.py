@@ -97,7 +97,7 @@ async def test_admin_module_catalog_draft_validation_and_fake_lab_rejection() ->
 
 
 @pytest.mark.asyncio
-async def test_device_published_read_only_module_runs_without_inputs() -> None:
+async def test_device_published_module_runs_network_and_read_only_steps() -> None:
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
     async with engine.begin() as connection:
         await connection.run_sync(lambda sync: [table.create(sync) for table in (
@@ -113,8 +113,15 @@ async def test_device_published_read_only_module_runs_without_inputs() -> None:
     definition = ModuleDefinition(id=uuid4(), module_key="system.adapters", display_name="Adapters")
     recipe = {
         "schema_version": "endpoint_recipe_module_v1", "module_key": definition.module_key,
-        "supported_platforms": ["linux_amd64"], "inputs": [],
-        "steps": [{"step_id": "adapters", "capability": "adapter.list", "parameters": {}}],
+        "supported_platforms": ["linux_amd64"],
+        "inputs": [{"name": "target", "value_type": "string"}],
+        "steps": [
+            {"step_id": "dns", "capability": "dns.resolve", "parameters": {
+                "target": {"kind": "input", "name": "target"},
+                "family": {"kind": "literal", "value": "any"},
+            }},
+            {"step_id": "adapters", "capability": "adapter.list", "parameters": {}},
+        ],
     }
     version = ModuleVersion(id=uuid4(), module_definition_id=definition.id, version="1.0.0", recipe=recipe, state="published")
     async with sessions() as session:
@@ -125,12 +132,14 @@ async def test_device_published_read_only_module_runs_without_inputs() -> None:
         session_secret=b"modules-test-session-secret", allowed_agent_cidrs=(), allowed_admin_cidrs=(),
         artifact_root=Path("artifacts"), endpoint_module_platform_enabled=True,
         endpoint_module_execution_enabled=True, endpoint_read_only_primitives_enabled=True,
+        endpoint_network_primitives_enabled=True,
+        endpoint_network_probe_allowed_suffixes=(".example.test",),
         endpoint_operations_api_enabled=True,
     )
     app = create_app(settings, session_provider=sessions)
     await app.state.gateway_connection_registry.register(GatewayConnection(
         device.id, uuid4(), object(), agent_version="3.2.63", platform="linux_amd64",
-        effective_capabilities=frozenset({"adapter.list"}),
+        effective_capabilities=frozenset({"dns.resolve", "adapter.list"}),
     ))
     user_id = uuid4()
     app.dependency_overrides[require_admin] = lambda: AdminPrincipal(
@@ -141,7 +150,7 @@ async def test_device_published_read_only_module_runs_without_inputs() -> None:
         available = await client.get(f"/api/admin/console/devices/{device.id}/modules")
         run = await client.post(f"/api/admin/console/devices/{device.id}/module-operations", headers={"Idempotency-Key": "console-read-only-0001"}, json={
             "schema_version": "endpoint_module_operation_create_v1", "module_key": definition.module_key,
-            "version": "1.0.0", "inputs": {},
+            "version": "1.0.0", "inputs": {"target": "api.example.test"},
         })
     await engine.dispose()
     assert available.status_code == 200 and available.json()["data"][0]["compatible"] is True

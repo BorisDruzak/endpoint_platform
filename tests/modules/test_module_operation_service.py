@@ -77,18 +77,25 @@ def _three_step_recipe() -> EndpointRecipeModuleSpecV1:
 
 
 @pytest.mark.asyncio
-async def test_read_only_module_without_target_or_inputs_can_be_queued() -> None:
+async def test_read_only_step_after_network_step_can_be_queued() -> None:
     recipe = EndpointRecipeModuleSpecV1.model_validate({
         "schema_version": "endpoint_recipe_module_v1", "module_key": "system.adapters",
-        "supported_platforms": ["linux_amd64"], "inputs": [],
-        "steps": [{"step_id": "adapters", "capability": "adapter.list", "parameters": {}}],
+        "supported_platforms": ["linux_amd64"],
+        "inputs": [{"name": "target", "value_type": "string"}],
+        "steps": [
+            {"step_id": "dns", "capability": "dns.resolve", "parameters": {
+                "target": {"kind": "input", "name": "target"},
+                "family": {"kind": "literal", "value": "any"},
+            }},
+            {"step_id": "adapters", "capability": "adapter.list", "parameters": {}},
+        ],
     })
     ModuleOperationCreateV1.model_validate({
         "schema_version": "endpoint_module_operation_create_v1",
-        "module_key": recipe.module_key, "version": "1.0.0", "inputs": {},
+        "module_key": recipe.module_key, "version": "1.0.0", "inputs": {"target": "api.example.test"},
     })
     ModuleLabOperationCreateV1.model_validate({
-        "schema_version": "endpoint_module_lab_operation_create_v1", "inputs": {},
+        "schema_version": "endpoint_module_lab_operation_create_v1", "inputs": {"target": "api.example.test"},
     })
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
     tables = (
@@ -107,13 +114,13 @@ async def test_read_only_module_without_target_or_inputs_can_be_queued() -> None
         session.add_all([client, device, definition, version]); await session.flush()
         operation, created = await create_module_parent_operation(
             session, service_client_id=client.id, device_id=device.id,
-            module_key=recipe.module_key, version="1.0.0", inputs={},
+            module_key=recipe.module_key, version="1.0.0", inputs={"target": "api.example.test"},
             idempotency_key="read-only-operation-0001",
-            network_policy=NetworkTargetPolicyV1.from_values(allowed_cidrs=[], allowed_suffixes=[]),
+            network_policy=NetworkTargetPolicyV1.from_values(allowed_cidrs=[], allowed_suffixes=[".example.test"]),
         )
     await engine.dispose()
     assert created is True
-    assert operation.expected_step_count == 1
+    assert operation.expected_step_count == 2
 
 
 @pytest.mark.asyncio

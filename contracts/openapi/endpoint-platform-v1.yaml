@@ -4273,7 +4273,7 @@ components:
           type: "string"
         inputs:
           maxProperties: 8
-          minProperties: 0
+          minProperties: 1
           patternProperties:
             "^[a-z][a-z0-9_]{0,63}$":
               anyOf:
@@ -4369,7 +4369,7 @@ components:
           type: "string"
         inputs:
           maxProperties: 8
-          minProperties: 0
+          minProperties: 1
           patternProperties:
             "^[a-z][a-z0-9_]{0,63}$":
               anyOf:
