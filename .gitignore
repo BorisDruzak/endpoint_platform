@@ -10,3 +10,5 @@ sdk/python/*.egg-info/
 
 alt-ansible-playbooks-2026-08-12.tar.gz
 temp/
+webapp/node_modules/
+webapp/dist/

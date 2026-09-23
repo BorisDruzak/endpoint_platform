@@ -13,6 +13,10 @@ from starlette.middleware.base import RequestResponseEndpoint
 from endpoint_server.auth.admin_sessions import router as admin_auth_router
 from endpoint_server.auth.validation import redacting_validation_exception_handler
 from endpoint_server.config import Settings
+from endpoint_server.console.routes import (
+    install_console_assets,
+    router as console_router,
+)
 from endpoint_server.context.routes import router as context_router
 from endpoint_server.db.session import SessionProvider, create_session_provider
 from endpoint_server.enrollment.agent_routes import router as enrollment_agent_router
@@ -131,4 +135,6 @@ def create_app(
         app.include_router(module_capability_catalog_router)
     if settings.endpoint_module_execution_enabled:
         app.include_router(module_execution_router)
+    install_console_assets(app)
+    app.include_router(console_router)
     return app

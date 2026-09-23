@@ -14,16 +14,25 @@ git rev-parse HEAD
 python -m pytest tests -q
 python tools/contracts/generate_contract_artifacts.py --check
 python -m alembic upgrade head --sql
+Set-Location webapp
+npm ci
+npm run typecheck
+npm test
+npm run build
+Set-Location ..
 ```
 
-Create a temporary archive containing only the server runtime. It has no Git
-metadata, environment file, certificate, or secret. Do not upload it until the
-production preflight in the next section succeeds:
+Create a temporary archive containing the server runtime and the locally built
+Console bundle. Node.js is required only on the operator workstation; the
+production host serves static files through FastAPI and Nginx. The archive has
+no Git metadata, environment file, certificate, or secret. Do not upload it
+until the production preflight in the next section succeeds:
 
 ```powershell
 $releaseCommit = git rev-parse --short=12 HEAD
 $releaseArchive = Join-Path $env:TEMP "endpoint-platform-$releaseCommit.tar.gz"
-git archive --format=tar.gz --output="$releaseArchive" --prefix="endpoint-platform-$releaseCommit/" HEAD endpoint_server endpoint_contracts alembic.ini requirements-server.txt
+& tools/release/build_console_server_archive.ps1 -OutputPath $releaseArchive
+tar -tzf $releaseArchive | Select-String 'webapp/dist/(index.html|assets/)'
 ```
 
 ## 2. Re-check production conditions
