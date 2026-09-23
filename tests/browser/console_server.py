@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import tempfile
 from datetime import UTC, datetime, timedelta
 from ipaddress import IPv4Address
@@ -26,7 +27,7 @@ from endpoint_server.context.models import ContextCurrent, ContextSnapshot
 from endpoint_server.db.base import Base
 from endpoint_server.db.models import (
     AdminUser, Device, EndpointOperation, ModuleOperationStep,
-    ServiceClient, UpdateBuild, UpdateRollout, UpdateTarget,
+    ServiceClient, UpdateBuild, UpdateRollout, UpdateTarget, WindowsSetupRelease,
 )
 from endpoint_server.enrollment.campaigns import issue_campaign
 from endpoint_server.enrollment.requests import CampaignSelection, build_enrollment_request
@@ -70,6 +71,9 @@ async def _serve(root: Path) -> None:
         await connection.execute(text("DROP INDEX uq_update_targets_active_device"))
     sessions = async_sessionmaker(engine, expire_on_commit=False)
     now = datetime.now(UTC)
+    setup_name = "EndpointAgentSetup-3.2.63-x64.exe"
+    setup_content = b"disposable browser test setup artifact"
+    (root / setup_name).write_bytes(setup_content)
     async with sessions() as session:
         session.add(AdminUser(
             username="console-e2e", password_digest=hash_password("console-e2e-password"),
@@ -90,7 +94,15 @@ async def _serve(root: Path) -> None:
             artifact_url="https://example.test/previous-agent.zip", artifact_name="previous-agent.zip",
             archive_type="zip", sha256_digest="b" * 64, size=1024,
         )
-        session.add_all([device, lab_device, owner, build, previous_build])
+        setup_release = WindowsSetupRelease(
+            version="3.2.63", agent_version="3.2.63",
+            artifact_identifier=setup_name, filename=setup_name,
+            setup_sha256=hashlib.sha256(setup_content).hexdigest(),
+            msi_sha256="b" * 64, source_commit="c" * 40,
+            msi_source_commit="d" * 40,
+            authenticode_status="unsigned", msi_authenticode_status="unsigned",
+        )
+        session.add_all([device, lab_device, owner, build, previous_build, setup_release])
         await session.flush()
         snapshot = ContextSnapshot(
             id=uuid4(), collection_id=uuid4(), device_id=device.id,
