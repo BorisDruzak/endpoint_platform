@@ -14,13 +14,23 @@ from fastapi import (
     Query,
     Request,
     Response,
+    Security,
     status,
 )
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, WithJsonSchema
 from sqlalchemy import and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from endpoint_contracts import ContextProfileV1
+from endpoint_contracts.context import (
+    BaselineSectionsV1,
+    ContextWarningCodeV1,
+    DeviceContextDiffV1,
+    HealthSectionsV1,
+    InventorySectionsV1,
+    NetworkSectionsV1,
+    SessionSectionsV1,
+)
 from endpoint_server.audit.request_ids import audit_request_id
 from endpoint_server.audit.service import append_audit_event
 from endpoint_server.auth.scopes import (
@@ -31,6 +41,7 @@ from endpoint_server.auth.scopes import (
     require_service_scope,
 )
 from endpoint_server.db.models import Device, DeviceSession
+from endpoint_server.operations.routes import HTTPValidationError, service_bearer
 
 from .diff import compare_snapshots
 from .models import ContextCollection, ContextCurrent, ContextSnapshot
@@ -60,7 +71,10 @@ class CollectionRequest(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    profile: ContextProfileV1
+    profile: Annotated[
+        ContextProfileV1,
+        WithJsonSchema({"type": "string", "enum": list(_SAFE_SERVICE_PROFILES)}),
+    ]
 
 
 class AgentNetworkProfile(BaseModel):
@@ -87,6 +101,126 @@ class AgentNetworkIdentity(BaseModel):
     baseline_mac_keys: list[
         Annotated[str, Field(pattern=r"^mac-[0-9a-f]{12}$")]
     ] = Field(min_length=1, max_length=64)
+
+
+class ServiceDevice(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    id: UUID
+    device_identifier: str
+    display_name: str
+    retired_at: datetime | None
+    last_seen_at: datetime | None
+    online: bool
+
+
+class ServiceContextSnapshot(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    id: UUID
+    profile: SafeServiceProfile
+    collected_at: datetime
+    semantic_hash: str | None
+    warnings: list[ContextWarningCodeV1]
+    sections: (
+        BaselineSectionsV1
+        | HealthSectionsV1
+        | NetworkSectionsV1
+        | InventorySectionsV1
+        | SessionSectionsV1
+    )
+
+
+class ServiceContextAvailability(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    profile: SafeServiceProfile
+    status: str
+    last_collected_at: datetime | None
+
+
+class ServiceCollection(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    id: UUID
+    device_id: UUID
+    profile: SafeServiceProfile
+    status: str
+    requested_at: datetime
+    result_received_at: datetime | None
+    completed_at: datetime | None
+    failure_code: str | None
+
+
+class ServiceDeviceContext(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    device: ServiceDevice
+    profiles: list[ServiceContextAvailability]
+    snapshots: list[ServiceContextSnapshot]
+
+
+class ServiceContextHistory(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    snapshots: list[ServiceContextSnapshot]
+
+
+class ServiceCollectionDetails(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    collection: ServiceCollection
+    snapshot: ServiceContextSnapshot | None
+
+
+class ServiceDeviceListResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    data: list[ServiceDevice]
+
+
+class ServiceNetworkIdentityPage(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    data: list[AgentNetworkIdentity]
+    next_cursor: UUID | None
+
+
+class ServiceContextResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    data: ServiceDeviceContext
+
+
+class ServiceContextHistoryResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    data: ServiceContextHistory
+
+
+class ServiceCollectionResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    data: ServiceCollection
+
+
+class ServiceCollectionDetailsResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    data: ServiceCollectionDetails
+
+
+class ServiceContextComparisonResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    data: DeviceContextDiffV1
+
+
+_SERVICE_ERROR_RESPONSES = {
+    401: {"description": "Service authentication failed"},
+    403: {"description": "Service scope is insufficient"},
+    422: {"description": "Validation Error", "model": HTTPValidationError},
+}
 
 
 def _not_found() -> HTTPException:
@@ -160,7 +294,12 @@ async def _single_device_projection(
     return _device_projection(device, *(row or (None, None)))
 
 
-@router.get("/devices")
+@router.get(
+    "/devices",
+    dependencies=[Security(service_bearer, scopes=[DEVICES_READ_SCOPE])],
+    responses={200: {"model": ServiceDeviceListResponse}, **_SERVICE_ERROR_RESPONSES},
+    openapi_extra={"x-required-scopes": [DEVICES_READ_SCOPE]},
+)
 async def list_devices(
     request: Request,
     _: Annotated[ServicePrincipal, Depends(require_service_scope(DEVICES_READ_SCOPE))],
@@ -202,7 +341,14 @@ async def list_devices(
     return {"data": projections}
 
 
-@router.get("/devices/network-identities")
+@router.get(
+    "/devices/network-identities",
+    dependencies=[
+        Security(service_bearer, scopes=[DEVICES_READ_SCOPE, CONTEXT_READ_SCOPE])
+    ],
+    responses={200: {"model": ServiceNetworkIdentityPage}, **_SERVICE_ERROR_RESPONSES},
+    openapi_extra={"x-required-scopes": [DEVICES_READ_SCOPE, CONTEXT_READ_SCOPE]},
+)
 async def list_network_identities(
     request: Request,
     _: Annotated[ServicePrincipal, Depends(require_service_scope(DEVICES_READ_SCOPE))],
@@ -307,7 +453,16 @@ async def list_network_identities(
     }
 
 
-@router.get("/devices/{device_id}/context")
+@router.get(
+    "/devices/{device_id}/context",
+    dependencies=[Security(service_bearer, scopes=[CONTEXT_READ_SCOPE])],
+    responses={
+        200: {"model": ServiceContextResponse},
+        404: {"description": "Device context was not found"},
+        **_SERVICE_ERROR_RESPONSES,
+    },
+    openapi_extra={"x-required-scopes": [CONTEXT_READ_SCOPE]},
+)
 async def read_device_context(
     device_id: UUID,
     request: Request,
@@ -377,7 +532,16 @@ async def read_device_context(
     }
 
 
-@router.get("/devices/{device_id}/context/snapshots")
+@router.get(
+    "/devices/{device_id}/context/snapshots",
+    dependencies=[Security(service_bearer, scopes=[CONTEXT_READ_SCOPE])],
+    responses={
+        200: {"model": ServiceContextHistoryResponse},
+        404: {"description": "Device context was not found"},
+        **_SERVICE_ERROR_RESPONSES,
+    },
+    openapi_extra={"x-required-scopes": [CONTEXT_READ_SCOPE]},
+)
 async def list_baseline_context_history(
     device_id: UUID,
     request: Request,
@@ -419,7 +583,16 @@ async def list_baseline_context_history(
 
 
 @router.post(
-    "/devices/{device_id}/context/collections", status_code=status.HTTP_201_CREATED
+    "/devices/{device_id}/context/collections",
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Security(service_bearer, scopes=[CONTEXT_COLLECT_SCOPE])],
+    responses={
+        200: {"model": ServiceCollectionResponse, "description": "Replayed collection"},
+        201: {"model": ServiceCollectionResponse},
+        404: {"description": "Device context was not found"},
+        **_SERVICE_ERROR_RESPONSES,
+    },
+    openapi_extra={"x-required-scopes": [CONTEXT_COLLECT_SCOPE]},
 )
 async def request_device_context_collection(
     device_id: UUID,
@@ -470,7 +643,16 @@ async def request_device_context_collection(
         return {"data": replay}
 
 
-@router.get("/context/collections/{collection_id}")
+@router.get(
+    "/context/collections/{collection_id}",
+    dependencies=[Security(service_bearer, scopes=[CONTEXT_READ_SCOPE])],
+    responses={
+        200: {"model": ServiceCollectionDetailsResponse},
+        404: {"description": "Device context was not found"},
+        **_SERVICE_ERROR_RESPONSES,
+    },
+    openapi_extra={"x-required-scopes": [CONTEXT_READ_SCOPE]},
+)
 async def read_collection(
     collection_id: UUID,
     request: Request,
@@ -497,7 +679,16 @@ async def read_collection(
     }
 
 
-@router.get("/devices/{device_id}/context/snapshots/compare")
+@router.get(
+    "/devices/{device_id}/context/snapshots/compare",
+    dependencies=[Security(service_bearer, scopes=[CONTEXT_READ_SCOPE])],
+    responses={
+        200: {"model": ServiceContextComparisonResponse},
+        404: {"description": "Device context was not found"},
+        **_SERVICE_ERROR_RESPONSES,
+    },
+    openapi_extra={"x-required-scopes": [CONTEXT_READ_SCOPE]},
+)
 async def compare_device_context_snapshots(
     device_id: UUID,
     before_snapshot_id: UUID,
