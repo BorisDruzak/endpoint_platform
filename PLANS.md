@@ -18,8 +18,8 @@ through module publication with a simulated Agent result; the local run also
 found and corrected the Console operation-detail response for module runs.
 Authenticated production browser acceptance and live Agent module labs remain
 open. Production runs release
-`e9853b9d97afb373ede31bc701d7c25f21048940` with DB revision
-`0025_console_enrollment_queue`; the previous release is retained for
+`7b3fa6d153e1b8495ed939e77f410c32a56261dc` with DB revision
+`0025_console_enrollment_queue`; the previous `e9853b9d97af` release is retained for
 rollback. The historical
 Wave 1 plan below is retained as a record, not a current deployment gate.
 
