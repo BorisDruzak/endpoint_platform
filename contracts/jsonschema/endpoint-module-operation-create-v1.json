@@ -3,7 +3,7 @@
   "properties": {
     "inputs": {
       "maxProperties": 8,
-      "minProperties": 1,
+      "minProperties": 0,
       "patternProperties": {
         "^[a-z][a-z0-9_]{0,63}$": {
           "anyOf": [

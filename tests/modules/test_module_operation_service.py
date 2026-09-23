@@ -9,6 +9,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from endpoint_contracts.modules import EndpointRecipeModuleSpecV1
+from endpoint_contracts.modules import ModuleLabOperationCreateV1, ModuleOperationCreateV1
 from endpoint_server.db.models import (
     AuditEvent,
     Device,
@@ -73,6 +74,46 @@ def _three_step_recipe() -> EndpointRecipeModuleSpecV1:
         }
     )
     return EndpointRecipeModuleSpecV1.model_validate(payload)
+
+
+@pytest.mark.asyncio
+async def test_read_only_module_without_target_or_inputs_can_be_queued() -> None:
+    recipe = EndpointRecipeModuleSpecV1.model_validate({
+        "schema_version": "endpoint_recipe_module_v1", "module_key": "system.adapters",
+        "supported_platforms": ["linux_amd64"], "inputs": [],
+        "steps": [{"step_id": "adapters", "capability": "adapter.list", "parameters": {}}],
+    })
+    ModuleOperationCreateV1.model_validate({
+        "schema_version": "endpoint_module_operation_create_v1",
+        "module_key": recipe.module_key, "version": "1.0.0", "inputs": {},
+    })
+    ModuleLabOperationCreateV1.model_validate({
+        "schema_version": "endpoint_module_lab_operation_create_v1", "inputs": {},
+    })
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    tables = (
+        ServiceClient.__table__, Device.__table__, AuditEvent.__table__,
+        ModuleDefinition.__table__, ModuleVersion.__table__,
+        EndpointOperation.__table__, ModuleOperationStep.__table__,
+    )
+    async with engine.begin() as connection:
+        await connection.run_sync(lambda sync: Device.metadata.create_all(sync, tables=tables))
+    provider = async_sessionmaker(engine, expire_on_commit=False)
+    client = ServiceClient(id=uuid4(), client_identifier="console", display_name="Console")
+    device = Device(id=uuid4(), device_identifier="read-only-device")
+    definition = ModuleDefinition(id=uuid4(), module_key=recipe.module_key, display_name="Adapters")
+    version = ModuleVersion(id=uuid4(), module_definition_id=definition.id, version="1.0.0", recipe=recipe.model_dump(mode="json"), state="published")
+    async with provider() as session:
+        session.add_all([client, device, definition, version]); await session.flush()
+        operation, created = await create_module_parent_operation(
+            session, service_client_id=client.id, device_id=device.id,
+            module_key=recipe.module_key, version="1.0.0", inputs={},
+            idempotency_key="read-only-operation-0001",
+            network_policy=NetworkTargetPolicyV1.from_values(allowed_cidrs=[], allowed_suffixes=[]),
+        )
+    await engine.dispose()
+    assert created is True
+    assert operation.expected_step_count == 1
 
 
 @pytest.mark.asyncio

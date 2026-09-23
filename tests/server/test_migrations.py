@@ -135,7 +135,18 @@ def test_migration_history_has_exactly_one_head() -> None:
         _alembic_config("postgresql+asyncpg://unused@127.0.0.1/unused")
     )
 
-    assert script.get_heads() == ["0023_windows_setup_releases"]
+    assert script.get_heads() == ["0024_console_module_owner"]
+
+
+def test_console_module_owner_has_no_service_credential() -> None:
+    output = io.StringIO()
+    config = Config(REPOSITORY_ROOT / "alembic.ini", output_buffer=output)
+    config.set_main_option("sqlalchemy.url", "postgresql+asyncpg://unused@127.0.0.1/unused")
+    command.upgrade(config, "0023_windows_setup_releases:0024_console_module_owner", sql=True)
+    rendered = " ".join(output.getvalue().split())
+    assert "INSERT INTO service_clients" in rendered
+    assert "endpoint-console-internal" in rendered
+    assert "service_credentials" not in rendered
 
 
 def test_windows_setup_release_migration_is_metadata_only() -> None:

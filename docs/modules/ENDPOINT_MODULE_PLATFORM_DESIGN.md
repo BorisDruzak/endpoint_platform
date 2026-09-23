@@ -1,5 +1,18 @@
 # Endpoint Module Platform v1 — Design
 
+## Console v1 version and Agent invariant
+
+Module definitions and immutable versions are server-side declarative recipes.
+Creating a new `ModuleVersion` does not require an Endpoint Agent release when
+every selected capability already exists in the target Agent runtime. The
+Console checks the active Gateway connection, platform, minimum Agent version,
+feature flags, and target policy before queuing an operation. A new Agent
+release is required only when adding or changing a runtime capability or its
+wire or behavior contract. Recipes are never installed on endpoints as code,
+plugins, or packages. Read-only capabilities without a target or inputs may
+run with an empty `inputs` mapping; network-targeted capabilities retain the
+server's allowed-target policy.
+
 ## Status and baseline
 
 This document records the Phase 0 audit and the target architecture for the

@@ -118,6 +118,11 @@ class ConnectionRegistry:
         async with self._lock:
             return self._connections.get(device_id)
 
+    async def connected(self) -> tuple[GatewayConnection, ...]:
+        """Snapshot active connections for bounded operator projections."""
+        async with self._lock:
+            return tuple(self._connections.values())
+
     async def shutdown_all(self) -> None:
         async with self._lock:
             connections = tuple(self._connections.values())

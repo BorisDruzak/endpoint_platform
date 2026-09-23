@@ -192,6 +192,8 @@ async def create_module_parent_operation(
         raise ModuleOperationError("module operation inputs are invalid") from error
     try:
         for item in plan:
+            if item.capability not in {"dns.resolve", "network.ping", "tcp.connect", "route.get"}:
+                continue
             target = item.parameters.get("target")
             if not isinstance(target, str):
                 raise ModuleOperationError("module operation target is invalid")
