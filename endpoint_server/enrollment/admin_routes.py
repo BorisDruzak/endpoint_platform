@@ -116,7 +116,7 @@ def _invalid(detail: str) -> HTTPException:
     )
 
 
-def _projection(campaign: EnrollmentCampaign) -> CampaignProjection:
+def project_campaign(campaign: EnrollmentCampaign) -> CampaignProjection:
     return CampaignProjection(
         id=campaign.id,
         expires_at=campaign.expires_at,
@@ -213,7 +213,7 @@ async def list_campaigns(
             select(EnrollmentCampaign).order_by(EnrollmentCampaign.created_at.desc())
         )
         campaigns = list(result.scalars().all())
-    return CampaignListResponse(campaigns=[_projection(campaign) for campaign in campaigns])
+    return CampaignListResponse(campaigns=[project_campaign(campaign) for campaign in campaigns])
 
 
 @router.get("/windows-summary", response_model=WindowsEnrollmentSummary)

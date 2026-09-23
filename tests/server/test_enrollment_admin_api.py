@@ -438,3 +438,55 @@ async def test_admin_rejects_windows_campaign_without_strict_policy() -> None:
 
     assert response.status_code == 422
     assert session.added == []
+
+
+@pytest.mark.asyncio
+async def test_console_campaign_pages_keep_older_windows_campaigns_accessible() -> None:
+    campaigns = [issue_campaign(
+        PEPPER,
+        expires_at=NOW + timedelta(days=1),
+        max_uses=3,
+        allowed_cidrs=("192.168.100.0/24",),
+        target_platform="windows",
+        policy={
+            "policy_id": "windows-office-v1", "enrollment_mode": "manual",
+            "allowed_installer_releases": ["3.2.63"],
+        },
+        label=label,
+        now=NOW,
+    ).record for label in ("New campaign", "Older campaign")]
+    campaigns[0].created_at = NOW
+    campaigns[1].created_at = NOW - timedelta(days=1)
+
+    class _PagedCampaignSession(_AdminEnrollmentSession):
+        async def scalar(self, statement: object) -> int:
+            assert "enrollment_campaigns.target_platform" in str(statement)
+            return 2
+
+        async def execute(self, statement: object) -> _Result:
+            assert "enrollment_campaigns.target_platform" in str(statement)
+            assert statement._limit_clause.value == 1
+            return _Result([campaigns[statement._offset_clause.value if statement._offset_clause is not None else 0]])
+
+    app = create_app(_settings(), session_provider=_Provider(_PagedCampaignSession()))
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="https://endpoint.sosnadmin.local",
+    ) as client:
+        denied = await client.get("/api/admin/console/campaigns")
+    assert denied.status_code == 401
+    app.dependency_overrides[require_admin] = _principal
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="https://endpoint.sosnadmin.local",
+    ) as client:
+        first = await client.get("/api/admin/console/campaigns?limit=1")
+        second = await client.get("/api/admin/console/campaigns?limit=1&offset=1")
+        invalid = await client.get("/api/admin/console/campaigns?offset=-1")
+
+    assert first.status_code == second.status_code == 200
+    assert first.json()["total"] == second.json()["total"] == 2
+    assert first.json()["data"][0]["label"] == "New campaign"
+    assert second.json()["data"][0]["label"] == "Older campaign"
+    assert invalid.status_code == 422
+    assert "ec_" not in first.text + second.text

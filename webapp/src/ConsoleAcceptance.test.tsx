@@ -124,7 +124,7 @@ describe('Русский интерфейс Console', () => {
 
   it('разделяет заявки по очередям и показывает этапы выбранной регистрации', async () => {
     vi.stubGlobal('fetch', vi.fn(async (url: string) => {
-      if (url.includes('/enrollment/campaigns')) return jsonResponse({ campaigns: [] })
+      if (url.includes('/console/campaigns?')) return jsonResponse({ data: [], total: 0, limit: 50, offset: 0 })
       if (url.includes('/api/admin/console/enrollment/requests?')) {
         const queue = new URL(url, 'https://example.test').searchParams.get('queue')
         const statusByQueue: Record<string, string> = { pending: 'waiting_approval', review: 'review_required', denied: 'denied', completed: 'completed' }
@@ -158,7 +158,7 @@ describe('Русский интерфейс Console', () => {
       hostname: `PC-${String(index).padStart(2, '0')}`,
     }))
     vi.stubGlobal('fetch', vi.fn(async (url: string) => {
-      if (url.includes('/enrollment/campaigns')) return jsonResponse({ campaigns: [] })
+      if (url.includes('/console/campaigns?')) return jsonResponse({ data: [], total: 0, limit: 50, offset: 0 })
       if (url.includes('/enrollment/windows-summary')) return jsonResponse({ status: 'none', enrollment_mode: null, label: null })
       if (url.includes('/installer/releases')) return jsonResponse({ data: [] })
       if (url.includes('/api/admin/console/enrollment/requests?')) {
@@ -182,7 +182,7 @@ describe('Русский интерфейс Console', () => {
 
   it('показывает русские подписи установщика и политики кампании', async () => {
     vi.stubGlobal('fetch', vi.fn(async (url: string) => {
-      if (url.includes('/enrollment/campaigns')) return jsonResponse({ campaigns: [] })
+      if (url.includes('/console/campaigns?')) return jsonResponse({ data: [], total: 0, limit: 50, offset: 0 })
       if (url.includes('/enrollment/windows-summary')) return jsonResponse({ status: 'none', enrollment_mode: null, label: null })
       if (url.includes('/installer/releases')) return jsonResponse({ data: [{
         id: '50000000-0000-0000-0000-000000000001', version: '3.2.63', agent_version: '3.2.63',
@@ -283,8 +283,61 @@ describe('Русский интерфейс Console', () => {
     render(<MemoryRouter initialEntries={['/admin/modules?module_key=network.check&version=1.0.0']}><ModulesPage /></MemoryRouter>)
 
     const form = (await screen.findByRole('heading', { name: 'Запустить испытание' })).closest('form')!
-    expect(within(form).getByRole('option', { name: 'Лаборатория 1' })).toBeTruthy()
+    expect(await within(form).findByRole('option', { name: 'Лаборатория 1' })).toBeTruthy()
     fireEvent.click(within(form).getByRole('button', { name: 'Далее' }))
     expect(await within(form).findByRole('option', { name: 'Лаборатория 51' })).toBeTruthy()
+  })
+
+  it('показывает кампании Windows на следующей странице', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (url.includes('/console/campaigns?')) return jsonResponse({
+        data: [{ id: url.includes('offset=50') ? 'older' : 'newer',
+          label: url.includes('offset=50') ? 'Старая кампания' : 'Новая кампания',
+          site: null, target_platform: 'windows', expires_at: '2026-12-01T00:00:00Z',
+          max_uses: 10, use_count: 0, allowed_cidrs: ['192.0.2.0/24'],
+          policy: { enrollment_mode: 'manual', allowed_installer_releases: ['3.2.63'] },
+          revoked_at: null, disabled_at: null }],
+        total: 51, limit: 50, offset: url.includes('offset=50') ? 50 : 0,
+      })
+      if (url.includes('/enrollment/windows-summary')) return jsonResponse({ status: 'none', enrollment_mode: null, label: null })
+      if (url.includes('/installer/releases')) return jsonResponse({ data: [], total: 0, limit: 50, offset: 0 })
+      throw new Error(`Unexpected route ${url}`)
+    }))
+    render(<MemoryRouter><EnrollmentPage /></MemoryRouter>)
+    fireEvent.click(screen.getByRole('button', { name: 'Кампании' }))
+    expect(await screen.findByRole('heading', { name: 'Новая кампания' })).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Далее' }))
+    expect(await screen.findByRole('heading', { name: 'Старая кампания' })).toBeTruthy()
+  })
+
+  it('позволяет выбрать старый известный Setup release на следующей странице', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (url.includes('/console/campaigns?')) return jsonResponse({ data: [], total: 0, limit: 50, offset: 0 })
+      if (url.includes('/enrollment/windows-summary')) return jsonResponse({ status: 'none', enrollment_mode: null, label: null })
+      if (url.includes('/installer/releases')) {
+        const older = url.includes('offset=50')
+        return jsonResponse({ data: [{ id: older ? 'older' : 'newer',
+          version: older ? '3.2.62' : '3.2.63', agent_version: older ? '3.2.62' : '3.2.63',
+          filename: older ? 'EndpointAgentSetup-3.2.62-x64.exe' : 'EndpointAgentSetup-3.2.63-x64.exe',
+          setup_sha256: 'a'.repeat(64), msi_sha256: 'b'.repeat(64),
+          source_commit: 'abc123', msi_source_commit: 'abc123', authenticode_status: 'valid',
+          msi_authenticode_status: 'valid', authenticode_publisher: 'Example', msi_authenticode_publisher: 'Example',
+          download_url: '/api/admin/console/installer/releases/newer/download',
+          created_at: '2026-09-24T08:00:00Z', retired_at: null,
+        }], total: 51, limit: 50, offset: older ? 50 : 0 })
+      }
+      throw new Error(`Unexpected route ${url}`)
+    }))
+    render(<MemoryRouter><EnrollmentPage /></MemoryRouter>)
+    await screen.findByRole('link', { name: 'Скачать установщик' })
+    fireEvent.click(screen.getByRole('button', { name: 'Кампании' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Создать кампанию' }))
+    const releases = screen.getByRole('group', { name: 'Допустимые установщики' })
+    fireEvent.click(within(releases).getByRole('button', { name: 'Далее' }))
+    expect(await screen.findByRole('checkbox', { name: '3.2.62' })).toBeTruthy()
+    fireEvent.click(screen.getByRole('checkbox', { name: '3.2.62' }))
+    expect(screen.getByText(/Выбрано: 3.2.62/)).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Установщик' }))
+    expect(screen.getByText('EndpointAgentSetup-3.2.63-x64.exe')).toBeTruthy()
   })
 })

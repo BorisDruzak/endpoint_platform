@@ -15,6 +15,7 @@ type EnrollmentRequest = {
   device_id?: string | null; created_at: string; expires_at: string; decided_at?: string | null
 }
 type RequestPage = { data: EnrollmentRequest[]; total: number; limit: number; offset: number }
+type CampaignPage = { data: Campaign[]; total: number; limit: number; offset: number }
 type SetupRelease = {
   id: string; version: string; agent_version: string; filename: string; setup_sha256: string
   msi_sha256: string; source_commit: string; msi_source_commit: string
@@ -22,6 +23,7 @@ type SetupRelease = {
   msi_authenticode_status: string; msi_authenticode_publisher: string | null
   download_url: string; created_at: string; retired_at: string | null
 }
+type SetupReleasePage = { data: SetupRelease[]; total: number; limit: number; offset: number }
 
 const dateText = (value: string | null) => value ? new Intl.DateTimeFormat('ru-RU', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value)) : '—'
 const requestLabels: Record<string, string> = {
@@ -82,11 +84,16 @@ export function EnrollmentPage() {
   const [searchParams] = useSearchParams()
   const [tab, setTab] = useState('installer')
   const [campaigns, setCampaigns] = useState<Campaign[]>([])
+  const [campaignOffset, setCampaignOffset] = useState(0)
+  const [campaignTotal, setCampaignTotal] = useState(0)
   const [queuePages, setQueuePages] = useState<Record<string, RequestPage>>({})
   const [queueOffsets, setQueueOffsets] = useState<Record<string, number>>({})
   const [queuesLoaded, setQueuesLoaded] = useState(false)
   const [queueError, setQueueError] = useState('')
   const [releases, setReleases] = useState<SetupRelease[]>([])
+  const [releaseOffset, setReleaseOffset] = useState(0)
+  const [releaseTotal, setReleaseTotal] = useState(0)
+  const [latest, setLatest] = useState<SetupRelease | null>(null)
   const [summary, setSummary] = useState<{ status: string; enrollment_mode: string | null; label: string | null } | null>(null)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
@@ -106,20 +113,24 @@ export function EnrollmentPage() {
 
   useEffect(() => {
     let active = true
+    setLoaded(false)
     Promise.all([
-      request<{ campaigns: Campaign[] }>('/api/admin/enrollment/campaigns'),
+      request<CampaignPage>(`/api/admin/console/campaigns?limit=50&offset=${campaignOffset}`),
       request<{ status: string; enrollment_mode: string | null; label: string | null }>('/api/admin/enrollment/windows-summary'),
-      request<{ data: SetupRelease[] }>('/api/admin/console/installer/releases'),
+      request<SetupReleasePage>(`/api/admin/console/installer/releases?active_only=true&limit=50&offset=${releaseOffset}`),
     ]).then(([campaignList, currentSummary, releaseList]) => {
       if (!active) return
-      setCampaigns(campaignList.campaigns)
+      setCampaigns(campaignList.data)
+      setCampaignTotal(campaignList.total)
       setSummary(currentSummary)
       setReleases(releaseList.data)
+      setReleaseTotal(releaseList.total)
+      if (releaseOffset === 0) setLatest(releaseList.data[0] ?? null)
       setError('')
       setLoaded(true)
     }).catch(reason => { if (active) { setError(reason.message); setLoaded(true) } })
     return () => { active = false }
-  }, [revision])
+  }, [revision, campaignOffset, releaseOffset])
   useEffect(() => {
     if (tab !== 'requests') return
     let active = true
@@ -175,7 +186,7 @@ export function EnrollmentPage() {
         await request(`/api/admin/enrollment/campaigns/${editing.id}`, { method: 'PATCH', body: JSON.stringify(changes) })
       }
       else await request('/api/admin/console/campaigns', { method: 'POST', body: JSON.stringify(body) })
-      setFormOpen(false); setRevision(value => value + 1)
+      setFormOpen(false); setCampaignOffset(0); setRevision(value => value + 1)
     } catch (reason) { setError(reason instanceof Error ? reason.message : 'Кампанию сохранить не удалось') }
     finally { setBusy(false) }
   }
@@ -205,7 +216,6 @@ export function EnrollmentPage() {
       setSelected(detail.data)
     } catch (reason) { setError(reason instanceof Error ? reason.message : 'Запрос не удалось открыть') }
   }
-  const latest = releases.find(item => !item.retired_at)
   const knownVersions = [...new Set(releases.filter(item => !item.retired_at && item.authenticode_status === 'valid' && item.msi_authenticode_status === 'valid').map(item => item.version))]
   if (editing) for (const version of editing.policy.allowed_installer_releases ?? []) if (!knownVersions.includes(version)) knownVersions.push(version)
   const selectedStageIndex = selected ? enrollmentStages.findIndex(stage => (stage.statuses as readonly string[]).includes(selected.status)) : -1
@@ -215,7 +225,7 @@ export function EnrollmentPage() {
     {error && <div className="panel error" role="alert">{error} <button onClick={() => setRevision(value => value + 1)}>Повторить</button></div>}
     {!loaded && <p aria-live="polite">Загрузка регистрации…</p>}
     {loaded && !error && tab === 'installer' && <div className="detail-columns"><section className="panel"><h2>Endpoint Agent для Windows</h2>{latest ? <><div className="installer-facts"><div><span>Версия агента</span><strong>{latest.agent_version}</strong></div><div><span>Версия установщика</span><strong>{latest.version}</strong></div><div><span>Файл</span><strong>{latest.filename}</strong></div><div><span>SHA-256 Setup</span><code>{latest.setup_sha256}</code></div><div><span>SHA-256 MSI</span><code>{latest.msi_sha256}</code></div><div><span>Подпись</span><strong>{latest.authenticode_status === 'valid' && latest.msi_authenticode_status === 'valid' ? 'Подпись проверена' : 'Только для тестирования'}</strong></div><div><span>Издатель</span><strong>{latest.authenticode_publisher ?? '—'}</strong></div><div><span>Ревизия исходного кода</span><code>{latest.source_commit}</code></div></div><div className="action-row"><a className="primary-button" href={latest.download_url}>Скачать установщик</a><button onClick={() => navigator.clipboard.writeText(`${latest.filename} --quiet`)}>Копировать команду тихой установки</button></div></> : <p className="muted">Установочный релиз ещё не опубликован. Данные версии и ссылка появятся после регистрации проверенного Setup.</p>}</section><section className="panel"><h2>Как проходит установка</h2><ol className="lifecycle">{lifecycle.map(step => <li key={step}>{step}</li>)}</ol></section></div>}
-    {loaded && !error && tab === 'campaigns' && <><div className="page-heading"><div><h2>Кампании Windows</h2><p className="muted">{summary?.status === 'single_active_campaign' ? `Активная кампания: ${summary.label ?? 'без названия'} · ${summary.enrollment_mode?.toUpperCase()}` : summary?.status === 'ambiguous_active_campaigns' ? 'Несколько активных кампаний: требуется устранить неоднозначность' : 'Активной кампании нет'}</p></div><button onClick={startCreate}>Создать кампанию</button></div>{formOpen && <form className="panel campaign-form" onSubmit={saveCampaign}><h2>{editing ? 'Изменить кампанию' : 'Новая кампания'}</h2><label>Название<input required value={label} onChange={event => setLabel(event.target.value)} maxLength={256} /></label><label>Площадка<input value={site} onChange={event => setSite(event.target.value)} maxLength={128} /></label><label>Режим<select value={mode} onChange={event => setMode(event.target.value)}><option value="auto">AUTO</option><option value="manual">MANUAL</option></select></label><label>ID политики<input required value={policyId} onChange={event => setPolicyId(event.target.value)} /></label><label>Разрешённые сети CIDR<input required value={networks} onChange={event => setNetworks(event.target.value)} placeholder="192.168.100.0/24" /></label><label>Допустимые установщики<div className="version-options">{knownVersions.length ? knownVersions.map(version => <label key={version}><input type="checkbox" checked={allowedVersions.includes(version)} onChange={event => setAllowedVersions(previous => event.target.checked ? [...previous, version] : previous.filter(item => item !== version))} />{version}</label>) : <span className="muted">Сначала зарегистрируйте установочный релиз.</span>}</div></label><label>Действует до<input required type="datetime-local" value={expires} onChange={event => setExpires(event.target.value)} /></label><label>Максимум установок<input required type="number" min={1} value={maxUses} onChange={event => setMaxUses(Number(event.target.value))} /></label><div className="action-row"><button type="submit" className="primary-button" disabled={busy || !allowedVersions.length}>Сохранить</button><button type="button" onClick={() => setFormOpen(false)}>Отмена</button></div></form>}<div className="card-grid">{campaigns.filter(item => item.target_platform === 'windows').map(campaign => <article className="panel" key={campaign.id}><h2>{campaign.label ?? campaign.id}</h2><p><strong>{campaign.revoked_at ? 'Отозвана' : campaign.disabled_at ? 'Отключена' : new Date(campaign.expires_at) < new Date() ? 'Истекла' : 'Активна'}</strong> · {campaign.policy.enrollment_mode?.toUpperCase() ?? 'Режим не задан'}</p><dl className="simple-facts"><dt>Сети</dt><dd>{campaign.allowed_cidrs.join(', ')}</dd><dt>Установщики</dt><dd>{campaign.policy.allowed_installer_releases?.join(', ') ?? '—'}</dd><dt>Использовано</dt><dd>{campaign.use_count} / {campaign.max_uses}</dd><dt>Действует до</dt><dd>{dateText(campaign.expires_at)}</dd></dl><div className="action-row"><button onClick={() => startEdit(campaign)}>Изменить</button>{!campaign.revoked_at && <button onClick={() => revokeCampaign(campaign)} disabled={busy}>Отозвать</button>}</div></article>)}</div>{!campaigns.length && <p className="muted">Кампаний пока нет.</p>}</>}
+    {loaded && !error && tab === 'campaigns' && <><div className="page-heading"><div><h2>Кампании Windows</h2><p className="muted">{summary?.status === 'single_active_campaign' ? `Активная кампания: ${summary.label ?? 'без названия'} · ${summary.enrollment_mode?.toUpperCase()}` : summary?.status === 'ambiguous_active_campaigns' ? 'Несколько активных кампаний: требуется устранить неоднозначность' : 'Активной кампании нет'}</p></div><button onClick={startCreate}>Создать кампанию</button></div>{formOpen && <form className="panel campaign-form" onSubmit={saveCampaign}><h2>{editing ? 'Изменить кампанию' : 'Новая кампания'}</h2><label>Название<input required value={label} onChange={event => setLabel(event.target.value)} maxLength={256} /></label><label>Площадка<input value={site} onChange={event => setSite(event.target.value)} maxLength={128} /></label><label>Режим<select value={mode} onChange={event => setMode(event.target.value)}><option value="auto">AUTO</option><option value="manual">MANUAL</option></select></label><label>ID политики<input required value={policyId} onChange={event => setPolicyId(event.target.value)} /></label><label>Разрешённые сети CIDR<input required value={networks} onChange={event => setNetworks(event.target.value)} placeholder="192.168.100.0/24" /></label><fieldset><legend>Допустимые установщики</legend><p className="muted">Выбрано: {allowedVersions.join(', ') || 'ничего'}</p><div className="version-options">{knownVersions.length ? knownVersions.map(version => <label key={version}><input type="checkbox" checked={allowedVersions.includes(version)} onChange={event => setAllowedVersions(previous => event.target.checked ? [...previous, version] : previous.filter(item => item !== version))} />{version}</label>) : <span className="muted">Сначала зарегистрируйте установочный релиз.</span>}</div><div className="pagination"><button type="button" disabled={releaseOffset === 0} onClick={() => setReleaseOffset(Math.max(0, releaseOffset - 50))}>Назад</button><span>{releaseTotal ? `${releaseOffset + 1}–${Math.min(releaseOffset + 50, releaseTotal)}` : '0'} из {releaseTotal}</span><button type="button" disabled={releaseOffset + 50 >= releaseTotal} onClick={() => setReleaseOffset(releaseOffset + 50)}>Далее</button></div></fieldset><label>Действует до<input required type="datetime-local" value={expires} onChange={event => setExpires(event.target.value)} /></label><label>Максимум установок<input required type="number" min={1} value={maxUses} onChange={event => setMaxUses(Number(event.target.value))} /></label><div className="action-row"><button type="submit" className="primary-button" disabled={busy || !allowedVersions.length}>Сохранить</button><button type="button" onClick={() => setFormOpen(false)}>Отмена</button></div></form>}<div className="card-grid">{campaigns.map(campaign => <article className="panel" key={campaign.id}><h2>{campaign.label ?? campaign.id}</h2><p><strong>{campaign.revoked_at ? 'Отозвана' : campaign.disabled_at ? 'Отключена' : new Date(campaign.expires_at) < new Date() ? 'Истекла' : 'Активна'}</strong> · {campaign.policy.enrollment_mode?.toUpperCase() ?? 'Режим не задан'}</p><dl className="simple-facts"><dt>Сети</dt><dd>{campaign.allowed_cidrs.join(', ')}</dd><dt>Установщики</dt><dd>{campaign.policy.allowed_installer_releases?.join(', ') ?? '—'}</dd><dt>Использовано</dt><dd>{campaign.use_count} / {campaign.max_uses}</dd><dt>Действует до</dt><dd>{dateText(campaign.expires_at)}</dd></dl><div className="action-row"><button onClick={() => startEdit(campaign)}>Изменить</button>{!campaign.revoked_at && <button onClick={() => revokeCampaign(campaign)} disabled={busy}>Отозвать</button>}</div></article>)}</div>{!campaigns.length && <p className="muted">Кампаний пока нет.</p>}<div className="pagination" aria-label="Страницы кампаний"><button disabled={campaignOffset === 0} onClick={() => setCampaignOffset(Math.max(0, campaignOffset - 50))}>Назад</button><span>{campaignTotal ? `${campaignOffset + 1}–${Math.min(campaignOffset + 50, campaignTotal)}` : '0'} из {campaignTotal}</span><button disabled={campaignOffset + 50 >= campaignTotal} onClick={() => setCampaignOffset(campaignOffset + 50)}>Далее</button></div></>}
     {loaded && !error && tab === 'requests' && <div className="request-queues">
       {queueError && <div className="panel error" role="alert">{queueError} <button onClick={() => setRevision(value => value + 1)}>Повторить</button></div>}
       {!queuesLoaded && <p aria-live="polite">Загрузка очередей регистрации…</p>}

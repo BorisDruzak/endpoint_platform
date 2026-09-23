@@ -28,8 +28,8 @@ from endpoint_server.context.projection import snapshot_projection
 from endpoint_server.context.projection import collection_projection
 from endpoint_server.context.repository import request_collection_outcome
 from endpoint_server.context.service import ContextError
-from endpoint_server.db.models import Device, EnrollmentRequest, UpdateBuild, UpdateRollout, UpdateTarget
-from endpoint_server.enrollment.admin_routes import CampaignCreateRequest, create_campaign
+from endpoint_server.db.models import Device, EnrollmentCampaign, EnrollmentRequest, UpdateBuild, UpdateRollout, UpdateTarget
+from endpoint_server.enrollment.admin_routes import CampaignCreateRequest, CampaignProjection, create_campaign, project_campaign
 from endpoint_server.enrollment.admin_request_routes import EnrollmentRequestQueueItem, project_enrollment_request
 from sqlalchemy import func, select
 
@@ -69,6 +69,15 @@ class ConsoleEnrollmentQueueResponse(BaseModel):
     offset: int
 
 
+class ConsoleCampaignPageResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    data: list[CampaignProjection]
+    total: int
+    limit: int
+    offset: int
+
+
 EnrollmentQueue = Literal["pending", "review", "active", "denied", "completed", "failed", "other"]
 _ENROLLMENT_QUEUE_STATUSES: dict[str, tuple[str, ...]] = {
     "pending": ("waiting_approval",),
@@ -102,6 +111,29 @@ async def console_enrollment_requests(
         )).scalars().all()
     return ConsoleEnrollmentQueueResponse(
         data=[project_enrollment_request(record) for record in records],
+        total=total, limit=limit, offset=offset,
+    )
+
+
+@router.get("/api/admin/console/campaigns", response_model=ConsoleCampaignPageResponse)
+async def console_list_campaigns(
+    request: Request,
+    _: Annotated[AdminPrincipal, Depends(require_admin)],
+    limit: Annotated[int, Query(ge=1, le=100)] = 50,
+    offset: Annotated[int, Query(ge=0, le=100_000)] = 0,
+) -> ConsoleCampaignPageResponse:
+    condition = EnrollmentCampaign.target_platform == "windows"
+    async with request.app.state.session_provider() as session:
+        total = await session.scalar(
+            select(func.count()).select_from(EnrollmentCampaign).where(condition)
+        ) or 0
+        campaigns = (await session.execute(
+            select(EnrollmentCampaign).where(condition)
+            .order_by(EnrollmentCampaign.created_at.desc(), EnrollmentCampaign.id.desc())
+            .limit(limit).offset(offset)
+        )).scalars().all()
+    return ConsoleCampaignPageResponse(
+        data=[project_campaign(campaign) for campaign in campaigns],
         total=total, limit=limit, offset=offset,
     )
 

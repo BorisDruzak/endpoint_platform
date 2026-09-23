@@ -4,19 +4,50 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+from datetime import datetime
 from pathlib import Path
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import FileResponse
-from sqlalchemy import select
+from pydantic import BaseModel, ConfigDict
+from sqlalchemy import func, select
 
 from endpoint_server.auth.admin_sessions import AdminPrincipal, require_admin
 from endpoint_server.db.models import WindowsSetupRelease
 
 
 router = APIRouter(prefix="/api/admin/console/installer", tags=["admin-console-installer"])
+
+
+class SetupReleaseProjection(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: UUID
+    version: str
+    agent_version: str
+    filename: str
+    setup_sha256: str
+    msi_sha256: str
+    source_commit: str
+    msi_source_commit: str
+    authenticode_status: str
+    authenticode_publisher: str | None
+    msi_authenticode_status: str
+    msi_authenticode_publisher: str | None
+    created_at: datetime
+    retired_at: datetime | None
+    download_url: str
+
+
+class SetupReleasePageResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    data: list[SetupReleaseProjection]
+    total: int
+    limit: int
+    offset: int
 
 
 def setup_release_projection(release: WindowsSetupRelease) -> dict[str, object]:
@@ -55,18 +86,30 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-@router.get("/releases")
+@router.get("/releases", response_model=SetupReleasePageResponse)
 async def list_setup_releases(
     request: Request,
     _: Annotated[AdminPrincipal, Depends(require_admin)],
-) -> dict[str, object]:
+    active_only: bool = False,
+    limit: Annotated[int, Query(ge=1, le=100)] = 50,
+    offset: Annotated[int, Query(ge=0, le=100_000)] = 0,
+) -> SetupReleasePageResponse:
+    condition = WindowsSetupRelease.retired_at.is_(None) if active_only else None
     async with request.app.state.session_provider() as session:
+        count = select(func.count()).select_from(WindowsSetupRelease)
+        listing = select(WindowsSetupRelease)
+        if condition is not None:
+            count = count.where(condition)
+            listing = listing.where(condition)
+        total = await session.scalar(count) or 0
         releases = (await session.execute(
-            select(WindowsSetupRelease)
-            .order_by(WindowsSetupRelease.created_at.desc(), WindowsSetupRelease.id.desc())
-            .limit(100)
+            listing.order_by(WindowsSetupRelease.created_at.desc(), WindowsSetupRelease.id.desc())
+            .limit(limit).offset(offset)
         )).scalars().all()
-    return {"data": [setup_release_projection(release) for release in releases]}
+    return SetupReleasePageResponse(
+        data=[SetupReleaseProjection.model_validate(setup_release_projection(release)) for release in releases],
+        total=total, limit=limit, offset=offset,
+    )
 
 
 @router.get("/releases/{release_id}/download", response_model=None)

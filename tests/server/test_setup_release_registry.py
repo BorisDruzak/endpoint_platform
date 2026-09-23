@@ -36,6 +36,20 @@ def test_setup_release_projection_has_no_server_path_or_secret() -> None:
     assert "artifact_identifier" not in projected
 
 
+def test_setup_release_list_publishes_a_typed_page_contract() -> None:
+    schema = create_app(Settings(
+        database_url="postgresql+asyncpg://unused@localhost/unused",
+        public_base_url="https://endpoint.sosnadmin.local",
+        device_token_pepper=b"setup-test-device-pepper",
+        service_token_pepper=b"setup-test-service-pepper",
+        session_secret=b"setup-test-session-secret",
+        allowed_agent_cidrs=(), allowed_admin_cidrs=(),
+        artifact_root=Path("artifacts"),
+    )).openapi()
+    response = schema["paths"]["/api/admin/console/installer/releases"]["get"]["responses"]["200"]
+    assert response["content"]["application/json"]["schema"]["$ref"].endswith("/SetupReleasePageResponse")
+
+
 def test_setup_sidecar_requires_matching_files_and_digests(tmp_path) -> None:
     setup = tmp_path / "EndpointAgentSetup-3.2.63-x64.exe"
     msi = tmp_path / "EndpointAgent-3.2.63-x64.msi"
@@ -73,9 +87,29 @@ async def test_setup_download_requires_admin_and_matching_digest(tmp_path) -> No
         setup_sha256=hashlib.sha256(artifact.read_bytes()).hexdigest(), msi_sha256="b" * 64,
         source_commit="a" * 40, msi_source_commit="a" * 40,
         authenticode_status="unsigned", msi_authenticode_status="unsigned",
+        created_at=datetime.now(UTC),
+    )
+    older_release = WindowsSetupRelease(
+        id=uuid4(), version="3.2.62", agent_version="3.2.62",
+        artifact_identifier="EndpointAgentSetup-3.2.62-x64.exe",
+        filename="EndpointAgentSetup-3.2.62-x64.exe",
+        setup_sha256="c" * 64, msi_sha256="d" * 64,
+        source_commit="e" * 40, msi_source_commit="e" * 40,
+        authenticode_status="valid", msi_authenticode_status="valid",
+        created_at=datetime.now(UTC) - timedelta(days=1),
+    )
+    retired_release = WindowsSetupRelease(
+        id=uuid4(), version="3.2.64", agent_version="3.2.64",
+        artifact_identifier="EndpointAgentSetup-3.2.64-x64.exe",
+        filename="EndpointAgentSetup-3.2.64-x64.exe",
+        setup_sha256="f" * 64, msi_sha256="e" * 64,
+        source_commit="d" * 40, msi_source_commit="d" * 40,
+        authenticode_status="valid", msi_authenticode_status="valid",
+        created_at=datetime.now(UTC) + timedelta(days=1),
+        retired_at=datetime.now(UTC),
     )
     async with sessions() as session:
-        session.add(release)
+        session.add_all([release, older_release, retired_release])
         await session.commit()
     settings = Settings(
         database_url="postgresql+asyncpg://unused@localhost/unused",
@@ -88,7 +122,9 @@ async def test_setup_download_requires_admin_and_matching_digest(tmp_path) -> No
     url = f"/api/admin/console/installer/releases/{release.id}/download"
     async with AsyncClient(transport=ASGITransport(app=app), base_url="https://endpoint.sosnadmin.local") as client:
         denied = await client.get(url)
+        listing_denied = await client.get("/api/admin/console/installer/releases")
     assert denied.status_code == 401
+    assert listing_denied.status_code == 401
     user_id = uuid4()
     principal = AdminPrincipal(
         user=AdminUser(id=user_id, username="operator", password_digest="unused", scopes=[], disabled_at=None),
@@ -96,10 +132,18 @@ async def test_setup_download_requires_admin_and_matching_digest(tmp_path) -> No
     )
     app.dependency_overrides[require_admin] = lambda: principal
     async with AsyncClient(transport=ASGITransport(app=app), base_url="https://endpoint.sosnadmin.local") as client:
+        first_page = await client.get("/api/admin/console/installer/releases?active_only=true&limit=1")
+        second_page = await client.get("/api/admin/console/installer/releases?active_only=true&limit=1&offset=1")
+        too_large = await client.get("/api/admin/console/installer/releases?limit=101")
         downloaded = await client.get(url)
         artifact.write_bytes(b"tampered")
         corrupt = await client.get(url)
     await engine.dispose()
+    assert first_page.status_code == second_page.status_code == 200
+    assert first_page.json()["total"] == second_page.json()["total"] == 2
+    assert first_page.json()["data"][0]["version"] == "3.2.63"
+    assert second_page.json()["data"][0]["version"] == "3.2.62"
+    assert too_large.status_code == 422
     assert downloaded.status_code == 200 and downloaded.content == b"verified setup"
     assert downloaded.headers["cache-control"] == "private, no-store"
     assert corrupt.status_code == 503
