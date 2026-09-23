@@ -78,6 +78,8 @@ async def test_console_pages_require_admin_and_login_is_public(tmp_path, monkeyp
         )
         deep_denied = await client.get("/admin/devices/123")
         session_denied = await client.get("/api/admin/console/session")
+        fleet_denied = await client.get("/api/admin/console/devices")
+        dashboard_denied = await client.get("/api/admin/console/dashboard")
         service_denied = await client.get("/api/v1/devices")
 
     assert login.status_code == 200
@@ -87,6 +89,8 @@ async def test_console_pages_require_admin_and_login_is_public(tmp_path, monkeyp
     assert invalid.status_code == 401
     assert deep_denied.status_code == 401
     assert session_denied.status_code == 401
+    assert fleet_denied.status_code == 401
+    assert dashboard_denied.status_code == 401
     assert service_denied.status_code == 401
 
 

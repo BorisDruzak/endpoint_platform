@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { NavLink, Route, Routes, useNavigate } from 'react-router'
 import { ApiError, getSession, login, logout, type AdminSession } from './api'
+import { DashboardPage, DeviceDetailPage, DevicesPage } from './FleetPages'
 
 const navigation = [
   { to: '/admin', label: 'Главная', end: true },
@@ -47,15 +48,6 @@ function LoginPage() {
         <button className="primary-button" type="submit" disabled={busy}>{busy ? 'Выполняется вход…' : 'Войти'}</button>
       </form>
     </main>
-  )
-}
-
-function Dashboard() {
-  return (
-    <section className="empty-panel" aria-labelledby="dashboard-heading">
-      <h2 id="dashboard-heading">Состояние парка устройств</h2>
-      <p>Данные парка устройств будут доступны после подключения административной сводки.</p>
-    </section>
   )
 }
 
@@ -107,8 +99,9 @@ function Console() {
         </header>
         <main className="content">
           <Routes>
-            <Route path="/admin" element={<><h1>Главная</h1><Dashboard /></>} />
-            <Route path="/admin/devices/*" element={<PendingPage title="Устройства" />} />
+            <Route path="/admin" element={<DashboardPage />} />
+            <Route path="/admin/devices" element={<DevicesPage />} />
+            <Route path="/admin/devices/:deviceId" element={<DeviceDetailPage />} />
             <Route path="/admin/enrollment/*" element={<PendingPage title="Установка и регистрация" />} />
             <Route path="/admin/updates/*" element={<PendingPage title="Релизы и обновления" />} />
             <Route path="/admin/operations/*" element={<PendingPage title="Операции" />} />
