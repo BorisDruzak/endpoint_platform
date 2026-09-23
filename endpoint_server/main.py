@@ -25,6 +25,7 @@ from endpoint_server.enrollment.admin_request_routes import (
     router as enrollment_admin_request_router,
 )
 from endpoint_server.console.installer import router as console_installer_router
+from endpoint_server.console.operations import router as console_operations_router
 from endpoint_server.enrollment.provisioning_routes import (
     router as provisioning_router,
 )
@@ -136,5 +137,6 @@ def create_app(
         app.include_router(module_execution_router)
     install_console_assets(app)
     app.include_router(console_installer_router)
+    app.include_router(console_operations_router)
     app.include_router(console_router)
     return app

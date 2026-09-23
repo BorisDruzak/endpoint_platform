@@ -313,6 +313,46 @@ async def cancel_operation_for_service(
     )
     if client is None:
         raise OperationNotFound("endpoint operation was not found")
+    return await _cancel_queued_operation(
+        session, operation=operation, canceled_at=canceled_at,
+        actor_kind="service", actor_identifier=client.client_identifier,
+    )
+
+
+async def cancel_operation_for_admin(
+    session: AsyncSession,
+    *,
+    operation_id: UUID | str,
+    admin_user_id: UUID | str,
+    now: datetime | None = None,
+) -> EndpointOperation:
+    """Cancel a queued diagnostic operation with administrator attribution."""
+    checked_operation_id = _uuid(operation_id, "operation id")
+    checked_admin_id = _uuid(admin_user_id, "admin user id")
+    operation = await session.scalar(
+        select(EndpointOperation).where(EndpointOperation.id == checked_operation_id).with_for_update()
+    )
+    if operation is None:
+        raise OperationNotFound("endpoint operation was not found")
+    if operation.capability != "context.diagnostic.collect":
+        raise OperationConflict(
+            "module operation cancellation is unavailable",
+            code="operation_cancel_not_supported",
+        )
+    return await _cancel_queued_operation(
+        session, operation=operation, canceled_at=_now(now),
+        actor_kind="admin", actor_identifier=str(checked_admin_id),
+    )
+
+
+async def _cancel_queued_operation(
+    session: AsyncSession,
+    *,
+    operation: EndpointOperation,
+    canceled_at: datetime,
+    actor_kind: str,
+    actor_identifier: str,
+) -> EndpointOperation:
     if operation.status == "canceled":
         return operation
     if operation.status != "queued" or operation.command_id is not None:
@@ -339,8 +379,8 @@ async def cancel_operation_for_service(
         session,
         operation=operation,
         action="endpoint.operation_canceled",
-        actor_kind="service",
-        actor_identifier=client.client_identifier,
+        actor_kind=actor_kind,
+        actor_identifier=actor_identifier,
         occurred_at=canceled_at,
     )
     await session.flush()
