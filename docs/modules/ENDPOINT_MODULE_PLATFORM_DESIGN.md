@@ -12,6 +12,11 @@ wire or behavior contract. Recipes are never installed on endpoints as code,
 plugins, or packages. Read-only capability steps do not need a network target;
 the current operation contract still requires at least one declared input.
 Network-targeted capabilities retain the server's allowed-target policy.
+The Console displays passed lab evidence per declared platform and keeps
+**Принять испытания** unavailable until every declared platform has a passed
+lab record. The server repeats that check when accepting labs and publishing.
+Lab execution remains disabled in production until a compatible connected
+test Agent and target policy have been verified.
 
 ## Status and baseline
 

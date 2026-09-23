@@ -1,0 +1,164 @@
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
+import { MemoryRouter } from 'react-router'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { AuditPage } from './AuditPage'
+import { EnrollmentPage } from './EnrollmentPage'
+import { ModulesPage } from './ModulesPage'
+import { UpdatesPage } from './UpdatesPage'
+
+afterEach(() => {
+  cleanup()
+  vi.unstubAllGlobals()
+})
+
+function jsonResponse(data: unknown): Response {
+  return { ok: true, status: 200, json: async () => data } as Response
+}
+
+const requestRows = [
+  { id: '10000000-0000-0000-0000-000000000001', status: 'waiting_approval', hostname: 'PC-01' },
+  { id: '10000000-0000-0000-0000-000000000002', status: 'review_required', hostname: 'PC-02' },
+  { id: '10000000-0000-0000-0000-000000000003', status: 'denied', hostname: 'PC-03' },
+  { id: '10000000-0000-0000-0000-000000000004', status: 'completed', hostname: 'PC-04' },
+].map(item => ({
+  ...item,
+  reason: null, platform: 'windows', manufacturer: 'Example', model: 'Desktop',
+  serial: 'SERIAL', macs: ['00:11:22:33:44:55'], source_address: '192.0.2.10',
+  installer_release_id: '3.2.63', selected_campaign_id: null, device_id: null,
+  created_at: '2026-09-24T08:00:00Z', expires_at: '2026-09-25T08:00:00Z', decided_at: null,
+}))
+
+describe('Русский интерфейс Console', () => {
+  it('показывает русские подписи фильтров и колонок аудита', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({
+      data: [{
+        id: '20000000-0000-0000-0000-000000000001', created_at: '2026-09-24T08:00:00Z',
+        actor_kind: 'admin', actor_identifier: 'operator', action: 'endpoint.module_published',
+        object_kind: 'module_version', object_identifier: '30000000-0000-0000-0000-000000000001',
+        request_id: 'request-1', details: {},
+      }], total: 1, limit: 50, offset: 0,
+    })))
+    render(<MemoryRouter><AuditPage /></MemoryRouter>)
+
+    await screen.findByRole('heading', { name: 'События' })
+    expect(screen.getByLabelText('Исполнитель')).toBeTruthy()
+    expect(screen.getByLabelText('Действие')).toBeTruthy()
+    expect(screen.getByLabelText('ID запроса')).toBeTruthy()
+    expect(screen.getByRole('columnheader', { name: 'Исполнитель' })).toBeTruthy()
+    expect(screen.getByText('Публикация модуля')).toBeTruthy()
+  })
+
+  it('называет редактор модулей по-русски', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => jsonResponse(
+      url.includes('module-capabilities')
+        ? { data: { items: [] } }
+        : { data: [], total: 0, limit: 50, offset: 0 },
+    )))
+    render(<MemoryRouter><ModulesPage /></MemoryRouter>)
+
+    await screen.findByRole('heading', { name: 'Модули' })
+    expect(screen.getByText('РЕДАКТОР МОДУЛЕЙ')).toBeTruthy()
+  })
+
+  it('разделяет заявки по очередям и показывает этапы выбранной регистрации', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (url.includes('/enrollment/campaigns')) return jsonResponse({ campaigns: [] })
+      if (url.includes('/api/admin/console/enrollment/requests?')) {
+        const queue = new URL(url, 'https://example.test').searchParams.get('queue')
+        const statusByQueue: Record<string, string> = { pending: 'waiting_approval', review: 'review_required', denied: 'denied', completed: 'completed' }
+        const rows = requestRows.filter(item => statusByQueue[queue ?? ''] === item.status)
+        return jsonResponse({ data: rows, total: rows.length, limit: 50, offset: 0 })
+      }
+      if (url.includes('/enrollment/requests?')) return jsonResponse({ requests: requestRows })
+      if (url.includes('/enrollment/requests/')) return jsonResponse({ data: requestRows[0] })
+      if (url.includes('/enrollment/windows-summary')) return jsonResponse({ status: 'none', enrollment_mode: null, label: null })
+      if (url.includes('/installer/releases')) return jsonResponse({ data: [] })
+      throw new Error(`Unexpected route ${url}`)
+    }))
+    render(<MemoryRouter><EnrollmentPage /></MemoryRouter>)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Запросы регистрации' }))
+    await screen.findByText('PC-01')
+    expect(screen.getByRole('heading', { name: 'Ожидают подтверждения' })).toBeTruthy()
+    expect(screen.getByRole('heading', { name: 'Требуют проверки' })).toBeTruthy()
+    expect(screen.getByRole('heading', { name: 'Отклонены' })).toBeTruthy()
+    expect(screen.getByRole('heading', { name: 'Завершены' })).toBeTruthy()
+
+    fireEvent.click(screen.getAllByRole('button', { name: 'Подробнее' })[0])
+    expect(await screen.findByRole('heading', { name: 'Этапы регистрации' })).toBeTruthy()
+    expect(screen.getByText('Решение оператора')).toBeTruthy()
+  })
+
+  it('загружает следующую страницу внутри очереди регистрации', async () => {
+    const firstPage = Array.from({ length: 50 }, (_, index) => ({
+      ...requestRows[0],
+      id: `40000000-0000-0000-0000-${String(index).padStart(12, '0')}`,
+      hostname: `PC-${String(index).padStart(2, '0')}`,
+    }))
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (url.includes('/enrollment/campaigns')) return jsonResponse({ campaigns: [] })
+      if (url.includes('/enrollment/windows-summary')) return jsonResponse({ status: 'none', enrollment_mode: null, label: null })
+      if (url.includes('/installer/releases')) return jsonResponse({ data: [] })
+      if (url.includes('/api/admin/console/enrollment/requests?')) {
+        const query = new URL(url, 'https://example.test').searchParams
+        if (query.get('queue') === 'pending') return jsonResponse({
+          data: query.get('offset') === '50' ? [{ ...requestRows[0], hostname: 'PC-51' }] : firstPage,
+          total: 51, limit: 50, offset: Number(query.get('offset') ?? 0),
+        })
+        return jsonResponse({ data: [], total: 0, limit: 50, offset: 0 })
+      }
+      throw new Error(`Unexpected route ${url}`)
+    }))
+    render(<MemoryRouter><EnrollmentPage /></MemoryRouter>)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Запросы регистрации' }))
+    const pending = (await screen.findByRole('heading', { name: 'Ожидают подтверждения' })).closest('section')!
+    expect(within(pending).getByText('PC-00')).toBeTruthy()
+    fireEvent.click(within(pending).getByRole('button', { name: 'Далее' }))
+    expect(await screen.findByText('PC-51')).toBeTruthy()
+  })
+
+  it('показывает русские подписи установщика и политики кампании', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (url.includes('/enrollment/campaigns')) return jsonResponse({ campaigns: [] })
+      if (url.includes('/enrollment/windows-summary')) return jsonResponse({ status: 'none', enrollment_mode: null, label: null })
+      if (url.includes('/installer/releases')) return jsonResponse({ data: [{
+        id: '50000000-0000-0000-0000-000000000001', version: '3.2.63', agent_version: '3.2.63',
+        filename: 'EndpointAgentSetup-3.2.63-x64.exe', setup_sha256: 'a'.repeat(64), msi_sha256: 'b'.repeat(64),
+        source_commit: 'abc123', msi_source_commit: 'def456', authenticode_status: 'valid',
+        msi_authenticode_status: 'valid', authenticode_publisher: 'Example', msi_authenticode_publisher: 'Example',
+        download_url: '/api/admin/console/installer/releases/50000000-0000-0000-0000-000000000001/download',
+        created_at: '2026-09-24T08:00:00Z', retired_at: null,
+      }] })
+      throw new Error(`Unexpected route ${url}`)
+    }))
+    render(<MemoryRouter><EnrollmentPage /></MemoryRouter>)
+
+    await screen.findByRole('link', { name: 'Скачать установщик' })
+    expect(screen.getByText('Ревизия исходного кода')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Кампании' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Создать кампанию' }))
+    expect(screen.getByLabelText('ID политики')).toBeTruthy()
+  })
+
+  it('называет канареечное обновление и список устройств по-русски', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (url.includes('/updates/builds')) return jsonResponse({ data: [{
+        id: '60000000-0000-0000-0000-000000000001', build_identifier: 'build-1',
+        version: '3.2.63', platform: 'windows_amd64', channel: 'stable', sha256: 'a'.repeat(64),
+        size: 1000, artifact_name: 'agent.msi', release_notes: null, created_at: '2026-09-24T08:00:00Z',
+      }], total: 1 })
+      if (url.includes('/updates/rollouts')) return jsonResponse({ data: [], total: 0 })
+      if (url.includes('/console/devices')) return jsonResponse({ data: [], total: 0 })
+      throw new Error(`Unexpected route ${url}`)
+    }))
+    render(<MemoryRouter><UpdatesPage canWrite /></MemoryRouter>)
+
+    await screen.findByRole('heading', { name: 'Релизы агента' })
+    fireEvent.click(screen.getByRole('button', { name: 'Развёртывания' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Создать канареечное обновление' }))
+    expect(screen.getByRole('heading', { name: 'Канареечное обновление' })).toBeTruthy()
+    fireEvent.change(screen.getByLabelText('Релиз'), { target: { value: '60000000-0000-0000-0000-000000000001' } })
+    expect(await screen.findByRole('heading', { name: 'Точный список устройств (0)' })).toBeTruthy()
+  })
+})

@@ -19,6 +19,7 @@ npm ci
 npm run typecheck
 npm test
 npm run build
+npm run test:e2e
 Set-Location ..
 ```
 
@@ -287,7 +288,8 @@ curl --fail --silent --show-error http://127.0.0.1:8000/healthz
 Replace `RELEASE_COMMIT` with the verified 12-character archive commit. Stop
 if migration or health fails; use the prior-release marker below for API
 rollback. Migration 0022 broadens the module-step constraint, 0023 adds Setup
-release metadata, and 0024 adds a credential-free Console operation owner.
+release metadata, 0024 adds a credential-free Console operation owner, and
+0025 adds the enrollment queue index.
 None requires an automatic downgrade. Verify `/admin`, its hashed assets,
 session protection, and strict hostname/CA HTTPS from the workstation after
 the health check. Enable module execution feature flags only after a compatible

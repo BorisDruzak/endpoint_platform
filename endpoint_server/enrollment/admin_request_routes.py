@@ -69,7 +69,7 @@ def _conflict() -> HTTPException:
     )
 
 
-def _queue_item(record: EnrollmentRequest) -> EnrollmentRequestQueueItem:
+def project_enrollment_request(record: EnrollmentRequest) -> EnrollmentRequestQueueItem:
     return EnrollmentRequestQueueItem(
         id=record.id,
         status=record.status,
@@ -124,7 +124,7 @@ async def list_enrollment_requests(
             .limit(limit)
         )
         records = result.scalars().all()
-    return EnrollmentRequestQueueResponse(requests=[_queue_item(record) for record in records])
+    return EnrollmentRequestQueueResponse(requests=[project_enrollment_request(record) for record in records])
 
 
 @router.post(

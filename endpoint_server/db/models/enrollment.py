@@ -78,6 +78,7 @@ class EnrollmentRequest(OwnershipRecord, Base):
     __tablename__ = "enrollment_requests"
     __table_args__ = (
         Index("ix_enrollment_requests_expires_at", "expires_at"),
+        Index("ix_enrollment_requests_status_created", "status", "created_at", "id"),
         Index(
             "uq_enrollment_requests_active_installation",
             "installation_id_digest",

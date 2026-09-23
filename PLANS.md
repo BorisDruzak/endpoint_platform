@@ -9,11 +9,15 @@ in `docs/superpowers/specs/2026-09-24-endpoint-console-v1.md`.
 The Module Platform capability constraint repair is revision
 `0022_module_step_capabilities`; Windows Setup release metadata is revision
 `0023_windows_setup_releases`; the credential-free Console module owner is
-revision `0024_console_module_owner`. The Console foundation, fleet/context,
+revision `0024_console_module_owner`, and enrollment queue pagination uses
+revision `0025_console_enrollment_queue`. The Console foundation, fleet/context,
 enrollment, updates, operations, Module Workbench, and audit are implemented
 on `codex/endpoint-console-v1`. The approved Windows Agent 3.2.63 runtime
-contract is unchanged. Browser acceptance and production deployment remain
-on the active plan. The historical
+contract is unchanged. An isolated browser test covers the real local API
+through module validation. Authenticated production browser acceptance and
+live Agent module labs remain open. The previously verified Console release
+`4c7ab349ca2636fcb6bd9e5fea5faa97ce27a011` is deployed; the new queue
+pagination and index have not yet been released. The historical
 Wave 1 plan below is retained as a record, not a current deployment gate.
 
 ## Goal

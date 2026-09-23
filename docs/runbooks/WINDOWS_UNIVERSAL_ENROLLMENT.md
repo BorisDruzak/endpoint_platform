@@ -35,6 +35,16 @@ approves or denies them in the Enrollment Admin queue. For `AUTO`, the server
 approves only when there is no blocking identity conflict. An administrator
 must never copy an `ic_` claim into MSI properties, a command line, or a log.
 
+## Console operator flow
+
+Use `/admin/enrollment` as the canonical operator surface. The **Установщик**
+tab shows the verified Setup release, **Кампании** controls the selected
+Windows policy, and **Запросы регистрации** separates pending approval,
+review, active, denied, completed, and failed requests. Each queue is paged;
+use **Далее** to inspect older requests. Open a request to review its lifecycle
+and safe device details, then approve or deny only pending/review requests.
+The Console never displays the raw install claim or request capability.
+
 ## Artifact verification and invocation
 
 On the test machine, copy the EXE and its adjacent release JSON. Verify the

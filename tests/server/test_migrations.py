@@ -50,6 +50,11 @@ APPLICATION_TABLES = {
     "enrollment_request_claim_envelopes",
     "enrollment_retry_envelopes",
     "endpoint_operations",
+    "endpoint_operation_steps",
+    "module_definitions",
+    "module_live_tests",
+    "module_validation_runs",
+    "module_versions",
     "service_clients",
     "service_credentials",
     "update_builds",
@@ -101,7 +106,7 @@ async def _fetch(database_url: str, statement: str) -> list[asyncpg.Record]:
         await connection.close()
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture
 def empty_database_url() -> Iterator[str]:
     admin_url = _admin_database_url()
     database_name = f"endpoint_migrations_{uuid4().hex}"
@@ -135,7 +140,17 @@ def test_migration_history_has_exactly_one_head() -> None:
         _alembic_config("postgresql+asyncpg://unused@127.0.0.1/unused")
     )
 
-    assert script.get_heads() == ["0024_console_module_owner"]
+    assert script.get_heads() == ["0025_console_enrollment_queue"]
+
+
+def test_console_enrollment_queue_index_matches_status_and_page_order() -> None:
+    output = io.StringIO()
+    config = Config(REPOSITORY_ROOT / "alembic.ini", output_buffer=output)
+    config.set_main_option("sqlalchemy.url", "postgresql+asyncpg://unused@127.0.0.1/unused")
+    command.upgrade(config, "0024_console_module_owner:0025_console_enrollment_queue", sql=True)
+    rendered = " ".join(output.getvalue().split())
+    assert "CREATE INDEX ix_enrollment_requests_status_created" in rendered
+    assert "ON enrollment_requests (status, created_at, id)" in rendered
 
 
 def test_console_module_owner_has_no_service_credential() -> None:
@@ -450,7 +465,7 @@ def test_gateway_downgrade_rejects_valid_long_version_on_postgresql(
     )
     device_id = uuid4()
     instance_id = uuid4()
-    command.upgrade(config, "head")
+    command.upgrade(config, "0011_gateway_wss")
     asyncio.run(
         _execute(
             plain_url,
@@ -714,7 +729,7 @@ def test_initial_revision_upgrades_and_downgrades_empty_postgresql(
         )
     )
 
-    command.upgrade(config, "head")
+    command.upgrade(config, "0021_request_claim_envelopes")
     admin_scope_rows = asyncio.run(
         _fetch(
             plain_url,
@@ -803,7 +818,7 @@ def test_initial_revision_upgrades_and_downgrades_empty_postgresql(
         _fetch(plain_url, "SELECT version_num FROM alembic_version")
     )
     assert [row["version_num"] for row in revision_rows] == [
-        "0014_endpoint_operations"
+        "0021_request_claim_envelopes"
     ]
 
     column_rows = asyncio.run(
@@ -942,7 +957,7 @@ def test_initial_revision_upgrades_and_downgrades_empty_postgresql(
     )
     assert removed_enrollment_columns == []
 
-    command.upgrade(config, "head")
+    command.upgrade(config, "0021_request_claim_envelopes")
     round_trip_campaign_rows = asyncio.run(
         _fetch(
             plain_url,
@@ -976,3 +991,30 @@ def test_initial_revision_upgrades_and_downgrades_empty_postgresql(
         )
     )
     assert APPLICATION_TABLES.isdisjoint(row["tablename"] for row in rows)
+
+
+def test_console_enrollment_queue_index_upgrades_on_postgresql(
+    empty_database_url: str,
+) -> None:
+    """The final Console index is present and reversible in a disposable database."""
+    config = _alembic_config(empty_database_url)
+    plain_url = (
+        make_url(empty_database_url)
+        .set(drivername="postgresql")
+        .render_as_string(hide_password=False)
+    )
+    command.upgrade(config, "head")
+    rows = asyncio.run(_fetch(
+        plain_url,
+        "SELECT indexdef FROM pg_indexes WHERE tablename = 'enrollment_requests' "
+        "AND indexname = 'ix_enrollment_requests_status_created'",
+    ))
+    assert len(rows) == 1
+    assert "(status, created_at, id)" in rows[0]["indexdef"]
+    command.downgrade(config, "0024_console_module_owner")
+    rows = asyncio.run(_fetch(
+        plain_url,
+        "SELECT indexname FROM pg_indexes WHERE tablename = 'enrollment_requests' "
+        "AND indexname = 'ix_enrollment_requests_status_created'",
+    ))
+    assert rows == []

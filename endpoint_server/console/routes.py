@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, FastAPI, Header, HTTPException, Query, Request, Response, status
@@ -29,7 +29,8 @@ from endpoint_server.context.repository import request_collection_outcome
 from endpoint_server.context.service import ContextError
 from endpoint_server.db.models import Device, EnrollmentRequest, UpdateBuild, UpdateRollout, UpdateTarget
 from endpoint_server.enrollment.admin_routes import CampaignCreateRequest, create_campaign
-from sqlalchemy import select
+from endpoint_server.enrollment.admin_request_routes import EnrollmentRequestQueueItem, project_enrollment_request
+from sqlalchemy import func, select
 
 
 ASSET_ROOT = Path(__file__).resolve().parents[2] / "webapp" / "dist"
@@ -56,6 +57,52 @@ class ConsoleSessionResponse(BaseModel):
 class ConsoleCollectionRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     profile: str
+
+
+class ConsoleEnrollmentQueueResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    data: list[EnrollmentRequestQueueItem]
+    total: int
+    limit: int
+    offset: int
+
+
+EnrollmentQueue = Literal["pending", "review", "active", "denied", "completed", "failed", "other"]
+_ENROLLMENT_QUEUE_STATUSES: dict[str, tuple[str, ...]] = {
+    "pending": ("waiting_approval",),
+    "review": ("review_required",),
+    "active": ("created", "validating", "auto_approved", "claim_issued", "enrolling", "device_registered", "waiting_wss"),
+    "denied": ("denied",),
+    "completed": ("completed",),
+    "failed": ("failed", "expired"),
+}
+
+
+@router.get("/api/admin/console/enrollment/requests", response_model=ConsoleEnrollmentQueueResponse)
+async def console_enrollment_requests(
+    request: Request,
+    _: Annotated[AdminPrincipal, Depends(require_admin)],
+    queue: EnrollmentQueue = "pending",
+    limit: Annotated[int, Query(ge=1, le=100)] = 50,
+    offset: Annotated[int, Query(ge=0)] = 0,
+) -> ConsoleEnrollmentQueueResponse:
+    known_statuses = tuple(status for values in _ENROLLMENT_QUEUE_STATUSES.values() for status in values)
+    condition = (
+        EnrollmentRequest.status.not_in(known_statuses)
+        if queue == "other" else EnrollmentRequest.status.in_(_ENROLLMENT_QUEUE_STATUSES[queue])
+    )
+    async with request.app.state.session_provider() as session:
+        total = await session.scalar(select(func.count()).select_from(EnrollmentRequest).where(condition)) or 0
+        records = (await session.execute(
+            select(EnrollmentRequest).where(condition)
+            .order_by(EnrollmentRequest.created_at.desc(), EnrollmentRequest.id.desc())
+            .limit(limit).offset(offset)
+        )).scalars().all()
+    return ConsoleEnrollmentQueueResponse(
+        data=[project_enrollment_request(record) for record in records],
+        total=total, limit=limit, offset=offset,
+    )
 
 
 @router.post("/api/admin/console/campaigns", status_code=201)
