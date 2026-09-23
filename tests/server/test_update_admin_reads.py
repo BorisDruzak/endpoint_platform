@@ -36,6 +36,14 @@ async def test_rollout_read_has_exact_status_counts_and_bounded_targets() -> Non
         id=uuid4(), rollout_identifier="rollout-1", build_id=build.id,
         mode="canary", status="active", started_at=now,
     )
+    completed = UpdateRollout(
+        id=uuid4(), rollout_identifier="rollout-completed", build_id=build.id,
+        mode="canary", status="completed", started_at=now, completed_at=now,
+    )
+    cancelled = UpdateRollout(
+        id=uuid4(), rollout_identifier="rollout-cancelled", build_id=build.id,
+        mode="canary", status="cancelled", started_at=now, cancelled_at=now,
+    )
     devices = [Device(id=uuid4(), device_identifier=f"READ-{index}") for index in range(3)]
     targets = [UpdateTarget(
         id=uuid4(), rollout_id=rollout.id, device_id=device.id,
@@ -43,7 +51,7 @@ async def test_rollout_read_has_exact_status_counts_and_bounded_targets() -> Non
         status=status, assigned_at=now,
     ) for index, (device, status) in enumerate(zip(devices, ("applied", "failed", "scheduled")))]
     async with sessions() as session:
-        session.add_all([build, rollout, *devices, *targets]); await session.commit()
+        session.add_all([build, rollout, completed, cancelled, *devices, *targets]); await session.commit()
     settings = Settings(
         database_url="postgresql+asyncpg://unused@localhost/unused",
         public_base_url="https://endpoint.sosnadmin.local",
@@ -60,12 +68,18 @@ async def test_rollout_read_has_exact_status_counts_and_bounded_targets() -> Non
     app.dependency_overrides[require_admin] = lambda: principal
     async with AsyncClient(transport=ASGITransport(app=app), base_url="https://endpoint.sosnadmin.local") as client:
         listing = await client.get("/api/admin/updates/rollouts")
+        history_first = await client.get("/api/admin/updates/rollouts?terminal=true&limit=1")
+        history_second = await client.get("/api/admin/updates/rollouts?terminal=true&limit=1&offset=1")
         detail = await client.get(f"/api/admin/updates/rollouts/{rollout.id}?limit=1")
         builds = await client.get("/api/admin/updates/builds")
         device_updates = await client.get(f"/api/admin/console/devices/{devices[1].id}/updates")
     await engine.dispose()
     assert listing.status_code == 200
-    assert listing.json()["data"][0]["counts"] == {"applied": 1, "failed": 1, "scheduled": 1}
+    assert listing.json()["total"] == 3
+    assert next(item for item in listing.json()["data"] if item["id"] == str(rollout.id))["counts"] == {"applied": 1, "failed": 1, "scheduled": 1}
+    assert history_first.status_code == history_second.status_code == 200
+    assert history_first.json()["total"] == history_second.json()["total"] == 2
+    assert {history_first.json()["data"][0]["id"], history_second.json()["data"][0]["id"]} == {str(completed.id), str(cancelled.id)}
     assert detail.status_code == 200
     assert detail.json()["targets_total"] == 3
     assert len(detail.json()["targets"]) == 1

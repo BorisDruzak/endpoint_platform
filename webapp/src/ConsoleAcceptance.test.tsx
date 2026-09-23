@@ -200,4 +200,30 @@ describe('Русский интерфейс Console', () => {
     fireEvent.change(screen.getByLabelText('Релиз'), { target: { value: '60000000-0000-0000-0000-000000000001' } })
     expect(await screen.findByRole('heading', { name: 'Точный список устройств (0)' })).toBeTruthy()
   })
+
+  it('показывает завершённые развёртывания за пределами текущей страницы', async () => {
+    const history = Array.from({ length: 50 }, (_, index) => ({
+      id: `70000000-0000-0000-0000-${String(index).padStart(12, '0')}`,
+      version: index === 0 ? '3.2.63' : '3.2.62', mode: 'canary', status: 'completed',
+      completed_at: '2026-09-24T08:00:00Z', cancelled_at: null,
+    }))
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (url.includes('/updates/builds')) return jsonResponse({ data: [], total: 0 })
+      if (url.includes('/updates/rollouts?') && url.includes('terminal=true')) {
+        return jsonResponse({
+          data: url.includes('offset=50') ? [{ ...history[0], id: 'history-old', version: '3.2.61' }] : history,
+          total: 51, limit: 50, offset: url.includes('offset=50') ? 50 : 0,
+        })
+      }
+      if (url.includes('/updates/rollouts?')) return jsonResponse({ data: [], total: 0 })
+      throw new Error(`Unexpected route ${url}`)
+    }))
+    render(<MemoryRouter><UpdatesPage canWrite={false} /></MemoryRouter>)
+
+    fireEvent.click(screen.getByRole('button', { name: 'История' }))
+    expect(await screen.findByText('3.2.63 · Канареечное')).toBeTruthy()
+    const section = screen.getByRole('heading', { name: 'История развёртываний' }).closest('section')!
+    fireEvent.click(within(section).getByRole('button', { name: 'Далее' }))
+    expect(await screen.findByText('3.2.61 · Канареечное')).toBeTruthy()
+  })
 })

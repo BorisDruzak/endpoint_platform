@@ -165,12 +165,15 @@ async def list_update_rollouts(
     _: Annotated[AdminPrincipal, Depends(require_admin)],
     limit: Annotated[int, Query(ge=1, le=100)] = 50,
     offset: Annotated[int, Query(ge=0, le=100_000)] = 0,
+    terminal: bool = False,
 ) -> dict[str, object]:
+    filters = (UpdateRollout.status.in_(("completed", "cancelled")),) if terminal else ()
     async with request.app.state.session_provider() as session:
-        total = await session.scalar(select(func.count()).select_from(UpdateRollout)) or 0
+        total = await session.scalar(select(func.count()).select_from(UpdateRollout).where(*filters)) or 0
         rows = (await session.execute(
             select(UpdateRollout, UpdateBuild)
             .join(UpdateBuild, UpdateBuild.id == UpdateRollout.build_id)
+            .where(*filters)
             .order_by(UpdateRollout.created_at.desc(), UpdateRollout.id.desc())
             .limit(limit).offset(offset)
         )).all()
