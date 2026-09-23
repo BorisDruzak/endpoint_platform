@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { AuditPage } from './AuditPage'
 import { EnrollmentPage } from './EnrollmentPage'
 import { DeviceDetailPage } from './FleetPages'
-import { ModulesPage } from './ModulesPage'
+import { DeviceModules, ModulesPage } from './ModulesPage'
 import { UpdatesPage } from './UpdatesPage'
 
 afterEach(() => {
@@ -248,5 +248,43 @@ describe('Русский интерфейс Console', () => {
     const section = screen.getByRole('heading', { name: 'История развёртываний' }).closest('section')!
     fireEvent.click(within(section).getByRole('button', { name: 'Далее' }))
     expect(await screen.findByText('3.2.61 · Канареечное')).toBeTruthy()
+  })
+
+  it('показывает следующую страницу опубликованных модулей устройства', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => jsonResponse({
+      data: [{ module_key: 'network.check', display_name: url.includes('offset=50') ? 'Поздний модуль' : 'Первый модуль',
+        version: '1.0.0', compatible: false, reason: 'Устройство не в сети', inputs: [] }],
+      total: 51, limit: 50, offset: url.includes('offset=50') ? 50 : 0,
+    })))
+    render(<MemoryRouter><DeviceModules deviceId="device-1" /></MemoryRouter>)
+
+    expect(await screen.findByText(/Первый модуль/)).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Далее' }))
+    expect(await screen.findByText(/Поздний модуль/)).toBeTruthy()
+  })
+
+  it('показывает следующую страницу совместимых устройств лаборатории', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (url.includes('module-capabilities')) return jsonResponse({ data: { items: [] } })
+      if (url.includes('/modules?')) return jsonResponse({ data: [], total: 0 })
+      if (url.includes('/lab-devices')) return jsonResponse({
+        data: [{ id: url.includes('offset=50') ? 'device-51' : 'device-1',
+          display_name: url.includes('offset=50') ? 'Лаборатория 51' : 'Лаборатория 1' }],
+        total: 51, limit: 50, offset: url.includes('offset=50') ? 50 : 0,
+      })
+      return jsonResponse({ data: {
+        id: 'version-1', module_key: 'network.check', display_name: 'Проверка сети',
+        version: '1.0.0', state: 'validated',
+        recipe: { schema_version: 'endpoint_recipe_module_v1', module_key: 'network.check',
+          supported_platforms: ['linux_amd64'], inputs: [], steps: [] },
+        validations: [], labs: [],
+      } })
+    }))
+    render(<MemoryRouter initialEntries={['/admin/modules?module_key=network.check&version=1.0.0']}><ModulesPage /></MemoryRouter>)
+
+    const form = (await screen.findByRole('heading', { name: 'Запустить испытание' })).closest('form')!
+    expect(within(form).getByRole('option', { name: 'Лаборатория 1' })).toBeTruthy()
+    fireEvent.click(within(form).getByRole('button', { name: 'Далее' }))
+    expect(await within(form).findByRole('option', { name: 'Лаборатория 51' })).toBeTruthy()
   })
 })

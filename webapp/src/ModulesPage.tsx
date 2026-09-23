@@ -62,6 +62,9 @@ export function ModulesPage() {
   const [draftVersion, setDraftVersion] = useState('1.0.0')
   const [recipe, setRecipe] = useState<Recipe>(emptyRecipe)
   const [devices, setDevices] = useState<Device[]>([])
+  const [labOffset, setLabOffset] = useState(0)
+  const [labTotal, setLabTotal] = useState(0)
+  const [labDevicesLoaded, setLabDevicesLoaded] = useState(false)
   const [labDevice, setLabDevice] = useState('')
   const [labValues, setLabValues] = useState<Record<string, string>>({})
   const [operationId, setOperationId] = useState('')
@@ -97,14 +100,16 @@ export function ModulesPage() {
       .catch(reason => { if (active) setError(message(reason)) })
     return () => { active = false }
   }, [revision, detail?.module_key, detail?.version])
+  useEffect(() => { setLabOffset(0); setLabDevice('') }, [detail?.module_key, detail?.version])
   useEffect(() => {
-    if (!detail || detail.state !== 'validated') { setDevices([]); return }
+    if (!detail || detail.state !== 'validated') { setDevices([]); setLabTotal(0); setLabDevicesLoaded(true); return }
     let active = true
-    request<{ data: Device[] }>(`/api/admin/console/modules/${detail.module_key}/versions/${detail.version}/lab-devices`)
-      .then(value => { if (active) setDevices(value.data) })
-      .catch(reason => { if (active) setError(message(reason)) })
+    setLabDevicesLoaded(false)
+    request<{ data: Device[]; total: number }>(`/api/admin/console/modules/${detail.module_key}/versions/${detail.version}/lab-devices?limit=50&offset=${labOffset}`)
+      .then(value => { if (active) { setDevices(value.data); setLabTotal(value.total); setLabDevicesLoaded(true) } })
+      .catch(reason => { if (active) { setDevices([]); setLabTotal(0); setLabDevicesLoaded(true); setError(message(reason)) } })
     return () => { active = false }
-  }, [revision, detail?.module_key, detail?.version, detail?.state])
+  }, [revision, detail?.module_key, detail?.version, detail?.state, labOffset])
   useEffect(() => {
     if (!operationId) return
     let active = true
@@ -169,7 +174,7 @@ export function ModulesPage() {
     <section className="panel table-panel"><div className="table-top"><h2>Модули и версии</h2><span>{total} всего</span></div>{modules.length ? <div className="table-scroll"><table><thead><tr><th>Модуль</th><th>Версия</th><th>Состояние</th><th></th></tr></thead><tbody>{modules.flatMap(item => item.versions.map(version => <tr key={`${item.module_key}-${version.version}`}><td>{item.display_name}<small>{item.module_key}</small></td><td>{version.version}</td><td>{stateLabels[version.state] ?? version.state}</td><td><button onClick={async () => { try { const value = await request<{ data: VersionDetail }>(`/api/admin/console/modules/${item.module_key}/versions/${version.version}`); setDetail(value.data); setOperationId('') } catch (reason) { setError(message(reason)) } }}>Открыть</button></td></tr>))}</tbody></table></div> : <p className="empty-text">Модулей пока нет.</p>}<div className="pagination"><button disabled={offset === 0} onClick={() => setOffset(Math.max(0, offset - 50))}>Назад</button><span>{Math.min(offset + 50, total)} из {total}</span><button disabled={offset + 50 >= total} onClick={() => setOffset(offset + 50)}>Далее</button></div></section>
     {detail && <section className="panel"><button onClick={() => setDetail(null)}>Закрыть версию</button><h2>{detail.display_name} · {detail.version}</h2><p>{detail.module_key} · {stateLabels[detail.state] ?? detail.state}</p><p>Платформы: {detail.recipe.supported_platforms.join(', ')}</p><ol>{detail.recipe.steps.map(step => <li key={step.step_id}>{step.step_id}: {step.capability} · {Object.entries(step.parameters).map(([name, binding]) => `${name}=${binding.kind === 'input' ? `input.${binding.name}` : String(binding.value)}`).join(', ')}</li>)}</ol><div className="actions"><button disabled={busy || !['draft', 'validation_failed'].includes(detail.state)} onClick={() => transition('validate', 'Проверка')}>Проверить модуль</button><button disabled={busy || detail.state !== 'validated' || !labsReady} onClick={() => transition('accept-labs', 'Принятие испытаний')}>Принять испытания</button><button disabled={busy || detail.state !== 'lab_accepted'} onClick={() => transition('publish', 'Публикация')}>Опубликовать</button><button disabled={busy || detail.state !== 'published'} onClick={() => transition('deprecate', 'Устаревание')}>Пометить устаревшим</button></div><h3>Проверки</h3>{detail.validations.length ? <ul>{detail.validations.map((item, index) => <li key={index}>{dateText(item.completed_at)} · {item.status === 'succeeded' ? 'Успешно' : 'Ошибка'} · {item.validator_version}{item.error_codes.map(code => <span key={code}> · {errorLabels[code] ?? code} ({code})</span>)}{item.warning_codes.map(code => <span key={code}> · Предупреждение: {code}</span>)}</li>)}</ul> : <p>Проверок ещё нет.</p>}
       <h3>Лабораторные испытания</h3>{detail.labs.length ? <ul>{detail.labs.map((item, index) => <li key={index}>{platformLabels[item.platform] ?? item.platform} · {labStatusLabels[item.status] ?? item.status} · {dateText(item.tested_at)} · <Link to={`/admin/operations?open=${item.operation_id}`}>Операция {item.operation_id}</Link></li>)}</ul> : <p>Испытаний ещё нет.</p>}
-      {detail.state === 'validated' && <form onSubmit={startLab}><h3>Запустить испытание</h3><label>Совместимое устройство<select required value={labDevice} onChange={event => setLabDevice(event.target.value)}><option value="">Выберите устройство</option>{devices.map(item => <option key={item.id} value={item.id}>{item.display_name}</option>)}</select></label>{!devices.length && <p className="muted">Совместимых подключённых устройств сейчас нет.</p>}<InputValues inputs={detail.recipe.inputs} values={labValues} onChange={setLabValues} /><button disabled={busy || !labDevice} type="submit">Запустить испытание</button></form>}
+      {detail.state === 'validated' && <form onSubmit={startLab}><h3>Запустить испытание</h3><label>Совместимое устройство<select required value={labDevice} onChange={event => setLabDevice(event.target.value)}><option value="">Выберите устройство</option>{devices.map(item => <option key={item.id} value={item.id}>{item.display_name}</option>)}</select></label>{!labDevicesLoaded ? <p aria-live="polite">Загрузка устройств…</p> : labTotal === 0 && <p className="muted">Совместимых подключённых устройств сейчас нет.</p>}<div className="pagination"><button type="button" disabled={labOffset === 0 || !labDevicesLoaded} onClick={() => { setLabDevice(''); setLabOffset(Math.max(0, labOffset - 50)) }}>Назад</button><span>{labTotal ? `${labOffset + 1}–${Math.min(labOffset + 50, labTotal)}` : '0'} из {labTotal}</span><button type="button" disabled={labOffset + 50 >= labTotal || !labDevicesLoaded} onClick={() => { setLabDevice(''); setLabOffset(labOffset + 50) }}>Далее</button></div><InputValues inputs={detail.recipe.inputs} values={labValues} onChange={setLabValues} /><button disabled={busy || !labDevice} type="submit">Запустить испытание</button></form>}
       {operationId && <div className="panel"><h3>Испытание {operationId}</h3><p>Состояние: {operation ? operationStatusLabels[operation.data.status] ?? operation.data.status : 'Загрузка…'}</p>{operation?.module_detail && <ol>{operation.module_detail.steps.map(step => <li key={step.sequence}>{step.capability} · {operationStatusLabels[step.status] ?? step.status}{step.error_code && ` · ${step.error_code}`}{step.safe_result != null && <pre className="safe-log">{JSON.stringify(step.safe_result, null, 2)}</pre>}</li>)}</ol>}{operation?.data.status === 'succeeded' && <button disabled={busy} onClick={recordEvidence}>Сохранить подтверждение испытания</button>}</div>}
     </section>}
     <form className="panel" onSubmit={create}><h2>Новый черновик</h2><div className="filters"><label>Название<input required maxLength={128} value={draftName} onChange={event => setDraftName(event.target.value)} /></label><label>Ключ модуля<input required pattern="[a-z][a-z0-9]*(\.[a-z][a-z0-9]*)+" placeholder="network.basic.check" value={recipe.module_key} onChange={event => setRecipe({ ...recipe, module_key: event.target.value })} /></label><label>Версия<input required pattern="[0-9]+\.[0-9]+\.[0-9]+" value={draftVersion} onChange={event => setDraftVersion(event.target.value)} /></label></div><fieldset><legend>Платформы</legend>{['linux_amd64', 'windows_amd64'].map(platform => <label key={platform}><input type="checkbox" checked={recipe.supported_platforms.includes(platform)} onChange={event => setRecipe({ ...recipe, supported_platforms: event.target.checked ? [...recipe.supported_platforms, platform] : recipe.supported_platforms.filter(value => value !== platform) })} />{platform}</label>)}</fieldset>
@@ -182,11 +187,22 @@ export function ModulesPage() {
 type PublishedModule = { module_key: string; display_name: string; version: string; compatible: boolean; reason: string | null; inputs: Input[] }
 export function DeviceModules({ deviceId }: { deviceId: string }) {
   const [modules, setModules] = useState<PublishedModule[]>([])
+  const [total, setTotal] = useState(0)
+  const [offset, setOffset] = useState(0)
+  const [loaded, setLoaded] = useState(false)
   const [values, setValues] = useState<Record<string, Record<string, string>>>({})
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
   const [busy, setBusy] = useState(false)
-  useEffect(() => { let active = true; request<{ data: PublishedModule[] }>(`/api/admin/console/devices/${deviceId}/modules`).then(value => { if (active) setModules(value.data) }).catch(reason => { if (active) setError(message(reason)) }); return () => { active = false } }, [deviceId])
+  useEffect(() => { setOffset(0) }, [deviceId])
+  useEffect(() => {
+    let active = true
+    setLoaded(false)
+    request<{ data: PublishedModule[]; total: number }>(`/api/admin/console/devices/${deviceId}/modules?limit=50&offset=${offset}`)
+      .then(value => { if (active) { setModules(value.data); setTotal(value.total); setError(''); setLoaded(true) } })
+      .catch(reason => { if (active) { setModules([]); setTotal(0); setError(message(reason)); setLoaded(true) } })
+    return () => { active = false }
+  }, [deviceId, offset])
   async function run(event: FormEvent<HTMLFormElement>, item: PublishedModule) {
     event.preventDefault(); setBusy(true); setError(''); setNotice('')
     try {
@@ -195,5 +211,5 @@ export function DeviceModules({ deviceId }: { deviceId: string }) {
       setNotice(`Операция ${result.data.operation_id} создана. Результат доступен в журнале операций.`)
     } catch (reason) { setError(message(reason)) } finally { setBusy(false) }
   }
-  return <section className="panel"><h2>Опубликованные модули</h2>{error && <p className="error" role="alert">{error}</p>}{notice && <p role="status">{notice}</p>}{modules.length ? modules.map(item => <form key={`${item.module_key}-${item.version}`} className="panel" onSubmit={event => run(event, item)}><h3>{item.display_name} · {item.version}</h3><p className="muted">{item.module_key}</p>{item.compatible ? <><InputValues inputs={item.inputs} values={values[item.module_key] ?? {}} onChange={next => setValues({ ...values, [item.module_key]: next })} /><button disabled={busy}>Запустить модуль</button></> : <p>Недоступен: {item.reason ?? 'Устройство несовместимо'}</p>}</form>) : <p>Опубликованных модулей нет.</p>}</section>
+  return <section className="panel"><h2>Опубликованные модули</h2>{error && <p className="error" role="alert">{error}</p>}{notice && <p role="status">{notice}</p>}{!loaded && <p aria-live="polite">Загрузка модулей…</p>}{loaded && !error && (modules.length ? modules.map(item => <form key={`${item.module_key}-${item.version}`} className="panel" onSubmit={event => run(event, item)}><h3>{item.display_name} · {item.version}</h3><p className="muted">{item.module_key}</p>{item.compatible ? <><InputValues inputs={item.inputs} values={values[item.module_key] ?? {}} onChange={next => setValues({ ...values, [item.module_key]: next })} /><button disabled={busy}>Запустить модуль</button></> : <p>Недоступен: {item.reason ?? 'Устройство несовместимо'}</p>}</form>) : <p>Опубликованных модулей нет.</p>)}<div className="pagination"><button disabled={offset === 0 || !loaded} onClick={() => setOffset(Math.max(0, offset - 50))}>Назад</button><span>{total ? `${offset + 1}–${Math.min(offset + 50, total)}` : '0'} из {total}</span><button disabled={offset + 50 >= total || !loaded} onClick={() => setOffset(offset + 50)}>Далее</button></div></section>
 }

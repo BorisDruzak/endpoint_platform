@@ -53,10 +53,15 @@ async def test_admin_module_catalog_draft_validation_and_fake_lab_rejection() ->
     )
     app.dependency_overrides[require_admin] = lambda: principal
     lab_device = Device(id=uuid4(), device_identifier="LAB-01", display_name="Lab device")
+    second_lab_device = Device(id=uuid4(), device_identifier="LAB-02", display_name="Second lab")
     async with sessions() as session:
-        session.add(lab_device); await session.commit()
+        session.add_all([lab_device, second_lab_device]); await session.commit()
     await app.state.gateway_connection_registry.register(GatewayConnection(
         lab_device.id, uuid4(), object(), agent_version="3.2.63", platform="linux_amd64",
+        effective_capabilities=frozenset({"dns.resolve"}),
+    ))
+    await app.state.gateway_connection_registry.register(GatewayConnection(
+        second_lab_device.id, uuid4(), object(), agent_version="3.2.63", platform="linux_amd64",
         effective_capabilities=frozenset({"dns.resolve"}),
     ))
     recipe = {
@@ -80,7 +85,8 @@ async def test_admin_module_catalog_draft_validation_and_fake_lab_rejection() ->
         })
         listing = await client.get("/api/admin/console/modules")
         validated = await client.post("/api/admin/console/modules/network.basic.check/versions/1.0.0/validate")
-        lab_devices = await client.get("/api/admin/console/modules/network.basic.check/versions/1.0.0/lab-devices")
+        lab_devices = await client.get("/api/admin/console/modules/network.basic.check/versions/1.0.0/lab-devices?limit=1")
+        next_lab_devices = await client.get("/api/admin/console/modules/network.basic.check/versions/1.0.0/lab-devices?limit=1&offset=1")
         detail = await client.get("/api/admin/console/modules/network.basic.check/versions/1.0.0")
         fake_evidence = await client.post(f"/api/admin/console/modules/network.basic.check/versions/1.0.0/lab-evidence/{uuid4()}")
         premature_publish = await client.post("/api/admin/console/modules/network.basic.check/versions/1.0.0/publish")
@@ -98,6 +104,8 @@ async def test_admin_module_catalog_draft_validation_and_fake_lab_rejection() ->
     assert listing.json()["data"][0]["versions"][0]["version"] == "1.0.0"
     assert validated.status_code == 200 and validated.json()["data"]["status"] == "succeeded"
     assert lab_devices.status_code == 200 and lab_devices.json()["data"][0]["id"] == str(lab_device.id)
+    assert lab_devices.json()["total"] == next_lab_devices.json()["total"] == 2
+    assert next_lab_devices.json()["data"][0]["id"] == str(second_lab_device.id)
     assert detail.status_code == 200 and detail.json()["data"]["validations"][0]["status"] == "succeeded"
     assert fake_evidence.status_code == 409
     assert premature_publish.status_code == 409
@@ -131,8 +139,9 @@ async def test_device_published_module_runs_network_and_read_only_steps() -> Non
         ],
     }
     version = ModuleVersion(id=uuid4(), module_definition_id=definition.id, version="1.0.0", recipe=recipe, state="published")
+    newer_version = ModuleVersion(id=uuid4(), module_definition_id=definition.id, version="1.1.0", recipe=recipe, state="published")
     async with sessions() as session:
-        session.add_all([device, owner, definition, version]); await session.commit()
+        session.add_all([device, owner, definition, version, newer_version]); await session.commit()
     settings = Settings(
         database_url="postgresql+asyncpg://unused@localhost/unused", public_base_url="https://endpoint.sosnadmin.local",
         device_token_pepper=b"modules-test-device-pepper", service_token_pepper=b"modules-test-service-pepper",
@@ -155,6 +164,8 @@ async def test_device_published_module_runs_network_and_read_only_steps() -> Non
     )
     async with AsyncClient(transport=ASGITransport(app=app), base_url="https://endpoint.sosnadmin.local") as client:
         available = await client.get(f"/api/admin/console/devices/{device.id}/modules")
+        first_page = await client.get(f"/api/admin/console/devices/{device.id}/modules?limit=1")
+        second_page = await client.get(f"/api/admin/console/devices/{device.id}/modules?limit=1&offset=1")
         run = await client.post(f"/api/admin/console/devices/{device.id}/module-operations", headers={"Idempotency-Key": "console-read-only-0001"}, json={
             "schema_version": "endpoint_module_operation_create_v1", "module_key": definition.module_key,
             "version": "1.0.0", "inputs": {"target": "api.example.test"},
@@ -162,6 +173,8 @@ async def test_device_published_module_runs_network_and_read_only_steps() -> Non
         operation_detail = await client.get(f"/api/admin/operations/{run.json()['data']['operation_id']}")
     await engine.dispose()
     assert available.status_code == 200 and available.json()["data"][0]["compatible"] is True
+    assert first_page.json()["total"] == second_page.json()["total"] == 2
+    assert {first_page.json()["data"][0]["version"], second_page.json()["data"][0]["version"]} == {"1.0.0", "1.1.0"}
     assert run.status_code == 201 and run.json()["data"]["status"] == "queued"
     assert operation_detail.status_code == 200
     assert operation_detail.json()["operation"] is None

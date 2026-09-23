@@ -274,12 +274,14 @@ async def console_record_module_lab(
 async def console_module_lab_devices(
     module_key: ModuleKey, version: ModuleVersionName, request: Request,
     _: Annotated[AdminPrincipal, Depends(require_admin)],
+    limit: Annotated[int, Query(ge=1, le=100)] = 50,
+    offset: Annotated[int, Query(ge=0, le=100_000)] = 0,
 ) -> dict[str, object]:
     _require_platform(request, execution=True)
     async with request.app.state.session_provider() as session:
         _, record = await _version(session, module_key, version)
         if record.state != "validated":
-            return {"data": []}
+            return {"data": [], "total": 0, "limit": limit, "offset": offset}
         try:
             recipe = EndpointRecipeModuleSpecV1.model_validate(record.recipe)
         except ValidationError as error:
@@ -289,14 +291,19 @@ async def console_module_lab_devices(
             connection.platform in recipe.supported_platforms
             and all(step.capability in compatible_module_capabilities(request.app.state.settings, connection) for step in recipe.steps)
         )]
+        total = await session.scalar(
+            select(func.count()).select_from(Device)
+            .where(Device.id.in_(compatible_ids), Device.retired_at.is_(None))
+        ) if compatible_ids else 0
         devices = (await session.execute(
             select(Device.id, Device.display_name, Device.device_identifier)
             .where(Device.id.in_(compatible_ids), Device.retired_at.is_(None))
-            .order_by(Device.display_name, Device.device_identifier)
+            .order_by(Device.display_name, Device.device_identifier, Device.id)
+            .limit(limit).offset(offset)
         )).all() if compatible_ids else []
     return {"data": [{
         "id": str(device_id), "display_name": display_name or identifier,
-    } for device_id, display_name, identifier in devices]}
+    } for device_id, display_name, identifier in devices], "total": total, "limit": limit, "offset": offset}
 
 
 async def _create_operation(
@@ -382,6 +389,8 @@ async def console_run_module(
 async def console_device_modules(
     device_id: UUID, request: Request,
     _: Annotated[AdminPrincipal, Depends(require_admin)],
+    limit: Annotated[int, Query(ge=1, le=100)] = 50,
+    offset: Annotated[int, Query(ge=0, le=100_000)] = 0,
 ) -> dict[str, object]:
     _require_platform(request)
     connection = await request.app.state.gateway_connection_registry.get(device_id)
@@ -390,12 +399,17 @@ async def console_device_modules(
         exists = await session.scalar(select(Device.id).where(Device.id == device_id, Device.retired_at.is_(None)))
         if exists is None:
             raise HTTPException(status_code=404, detail="Устройство не найдено")
+        total = await session.scalar(
+            select(func.count()).select_from(ModuleDefinition)
+            .join(ModuleVersion, ModuleVersion.module_definition_id == ModuleDefinition.id)
+            .where(ModuleVersion.state == "published")
+        ) or 0
         rows = (await session.execute(
             select(ModuleDefinition, ModuleVersion)
             .join(ModuleVersion, ModuleVersion.module_definition_id == ModuleDefinition.id)
             .where(ModuleVersion.state == "published")
-            .order_by(ModuleDefinition.module_key, ModuleVersion.version.desc())
-            .limit(100)
+            .order_by(ModuleDefinition.module_key, ModuleVersion.version.desc(), ModuleVersion.id.desc())
+            .limit(limit).offset(offset)
         )).all()
     data = []
     for definition, version in rows:
@@ -410,4 +424,4 @@ async def console_device_modules(
             "reason": None if compatible else "Устройство не в сети или capability недоступен",
             "inputs": [item.model_dump(mode="json") for item in recipe.inputs],
         })
-    return {"data": data}
+    return {"data": data, "total": total, "limit": limit, "offset": offset}
