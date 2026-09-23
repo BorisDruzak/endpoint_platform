@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test'
 
-test('administrator can enter and inspect the fleet, enrollment, updates, modules, and audit', async ({ page }) => {
+test('administrator can inspect the fleet and publish a tested module', async ({ page }) => {
   await page.goto('/admin/login')
   await expect(page.getByRole('heading', { name: 'Вход в консоль' })).toBeVisible()
   await page.getByLabel('Имя пользователя').fill('console-e2e')
@@ -54,9 +54,26 @@ test('administrator can enter and inspect the fleet, enrollment, updates, module
   await expect(page.getByRole('status')).toContainText('Черновик создан')
   await page.getByRole('button', { name: 'Проверить модуль' }).click()
   await expect(page.getByRole('status')).toContainText('Проверка: выполнено')
-  await expect(page.getByText('Совместимых подключённых устройств сейчас нет.')).toBeVisible()
   await expect(page.getByRole('button', { name: 'Принять испытания' })).toBeDisabled()
   await expect(page.getByRole('button', { name: 'Опубликовать' })).toBeDisabled()
+  await page.getByLabel('Совместимое устройство').selectOption({ label: 'Лабораторный Agent' })
+  await page.getByLabel('target (строка)').fill('api.example.test')
+  const labResponse = page.waitForResponse(response => response.url().includes('/lab-operations/') && response.request().method() === 'POST')
+  await page.getByRole('button', { name: 'Запустить испытание' }).click()
+  const lab = await labResponse
+  expect(lab.status()).toBe(201)
+  const operationId = (await lab.json()).data.operation_id as string
+  const simulatedAgent = await page.request.post(`/__test__/complete-lab/${operationId}`)
+  expect(simulatedAgent.status()).toBe(200)
+  await expect(page.getByRole('button', { name: 'Сохранить подтверждение испытания' })).toBeVisible()
+  await page.getByRole('button', { name: 'Сохранить подтверждение испытания' }).click()
+  await expect(page.getByRole('status')).toContainText('Результат испытания сохранён')
+  await expect(page.getByRole('button', { name: 'Принять испытания' })).toBeEnabled()
+  await page.getByRole('button', { name: 'Принять испытания' }).click()
+  await expect(page.getByRole('status')).toContainText('Принятие испытаний: выполнено')
+  page.once('dialog', dialog => dialog.accept())
+  await page.getByRole('button', { name: 'Опубликовать' }).click()
+  await expect(page.getByRole('status')).toContainText('Публикация: выполнено')
 
   await page.getByRole('navigation', { name: 'Основная навигация' }).getByRole('link', { name: 'Аудит' }).click()
   await expect(page.getByRole('heading', { name: 'Аудит' })).toBeVisible()

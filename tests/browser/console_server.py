@@ -6,13 +6,16 @@ import asyncio
 import tempfile
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from uuid import UUID
 
 import uvicorn
+from fastapi import HTTPException
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.x509.oid import NameOID
 from sqlalchemy import JSON, DateTime, TypeDecorator
+from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.ext.compiler import compiles
@@ -20,7 +23,11 @@ from sqlalchemy.ext.compiler import compiles
 from endpoint_server.auth.passwords import hash_password
 from endpoint_server.config import Settings
 from endpoint_server.db.base import Base
-from endpoint_server.db.models import AdminUser, Device, EnrollmentRequest, UpdateBuild, UpdateRollout, UpdateTarget
+from endpoint_server.db.models import (
+    AdminUser, Device, EndpointOperation, EnrollmentRequest, ModuleOperationStep,
+    ServiceClient, UpdateBuild, UpdateRollout, UpdateTarget,
+)
+from endpoint_server.gateway.connection_registry import GatewayConnection
 from endpoint_server.main import create_app
 
 
@@ -64,13 +71,15 @@ async def _serve(root: Path) -> None:
             scopes=["updates:write"],
         ))
         device = Device(device_identifier="console-e2e-device", display_name="Тестовый компьютер")
+        lab_device = Device(device_identifier="console-e2e-lab", display_name="Лабораторный Agent")
+        owner = ServiceClient(client_identifier="endpoint-console-internal", display_name="Console")
         build = UpdateBuild(
             build_identifier="console-e2e-build", version="3.2.63", platform="windows_amd64",
             channel="stable", artifact_identifier="console-e2e-artifact",
             artifact_url="https://example.test/agent.zip", artifact_name="agent.zip",
             archive_type="zip", sha256_digest="a" * 64, size=1024,
         )
-        session.add_all([device, build])
+        session.add_all([device, lab_device, owner, build])
         await session.flush()
         rollout = UpdateRollout(
             rollout_identifier="console-e2e-rollout", build_id=build.id, mode="canary",
@@ -101,8 +110,45 @@ async def _serve(root: Path) -> None:
         session_secret=b"disposable-browser-test-session",
         allowed_agent_cidrs=(), allowed_admin_cidrs=(), artifact_root=root,
         endpoint_module_platform_enabled=True,
+        endpoint_module_execution_enabled=True,
+        endpoint_network_primitives_enabled=True,
+        endpoint_operations_api_enabled=True,
+        endpoint_network_probe_allowed_suffixes=(".example.test",),
     )
     app = create_app(settings, session_provider=sessions)
+    await app.state.gateway_connection_registry.register(GatewayConnection(
+        lab_device.id, lab_device.id, object(), agent_version="3.2.63",
+        platform="linux_amd64", effective_capabilities=frozenset({"dns.resolve"}),
+    ))
+
+    async def complete_simulated_lab(operation_id: UUID) -> dict[str, str]:
+        """Test-only Agent result injection; production has no such route."""
+        async with sessions() as session:
+            operation = await session.get(EndpointOperation, operation_id)
+            if operation is None or operation.status != "queued" or operation.parameters != {"execution_mode": "lab"}:
+                raise HTTPException(status_code=409, detail="Expected a queued lab operation")
+            steps = (await session.scalars(
+                select(ModuleOperationStep).where(ModuleOperationStep.operation_id == operation.id)
+            )).all()
+            if len(steps) != 1 or steps[0].capability != "dns.resolve":
+                raise HTTPException(status_code=409, detail="Expected one DNS step")
+            completed_at = datetime.now(UTC)
+            operation.parameters = {**operation.parameters, "execution_platform": "linux_amd64"}
+            operation.status = "succeeded"
+            operation.completed_at = completed_at
+            steps[0].status = "succeeded"
+            steps[0].started_at = completed_at
+            steps[0].completed_at = completed_at
+            steps[0].safe_result_json = {
+                "schema_version": "dns_resolve_result_v1",
+                "target": "api.example.test", "addresses": [],
+                "address_count": 0, "status": "succeeded",
+                "collected_at": completed_at.isoformat(),
+            }
+            await session.commit()
+        return {"status": "succeeded"}
+
+    app.add_api_route("/__test__/complete-lab/{operation_id}", complete_simulated_lab, methods=["POST"])
     key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
     name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "localhost")])
     certificate = (x509.CertificateBuilder().subject_name(name).issuer_name(name)

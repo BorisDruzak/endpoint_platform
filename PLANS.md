@@ -14,8 +14,10 @@ revision `0025_console_enrollment_queue`. The Console foundation, fleet/context,
 enrollment, updates, operations, Module Workbench, and audit are implemented
 on `codex/endpoint-console-v1`. The approved Windows Agent 3.2.63 runtime
 contract is unchanged. An isolated browser test covers the real local API
-through module validation. Authenticated production browser acceptance and
-live Agent module labs remain open. Production runs release
+through module publication with a simulated Agent result; the local run also
+found and corrected the Console operation-detail response for module runs.
+Authenticated production browser acceptance and live Agent module labs remain
+open. Production runs release
 `e9853b9d97afb373ede31bc701d7c25f21048940` with DB revision
 `0025_console_enrollment_queue`; the previous release is retained for
 rollback. The historical

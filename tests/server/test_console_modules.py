@@ -152,6 +152,12 @@ async def test_device_published_module_runs_network_and_read_only_steps() -> Non
             "schema_version": "endpoint_module_operation_create_v1", "module_key": definition.module_key,
             "version": "1.0.0", "inputs": {"target": "api.example.test"},
         })
+        operation_detail = await client.get(f"/api/admin/operations/{run.json()['data']['operation_id']}")
     await engine.dispose()
     assert available.status_code == 200 and available.json()["data"][0]["compatible"] is True
     assert run.status_code == 201 and run.json()["data"]["status"] == "queued"
+    assert operation_detail.status_code == 200
+    assert operation_detail.json()["operation"] is None
+    assert [step["capability"] for step in operation_detail.json()["module_detail"]["steps"]] == ["dns.resolve", "adapter.list"]
+    assert "api.example.test" not in operation_detail.text
+    assert "console-read-only-0001" not in operation_detail.text

@@ -136,7 +136,10 @@ async def read_admin_operation(
                 raise HTTPException(status_code=503, detail="Детали операции недоступны") from error
         return {
             "data": _summary(operation, name or identifier, owner),
-            "operation": project_operation(operation).model_dump(mode="json"),
+            "operation": (
+                project_operation(operation).model_dump(mode="json")
+                if operation.capability == "context.diagnostic.collect" else None
+            ),
             "safe_result": safe_result,
             "module_detail": module_detail,
         }
