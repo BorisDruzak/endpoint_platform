@@ -8,10 +8,12 @@ The active implementation plan is
 in `docs/superpowers/specs/2026-09-24-endpoint-console-v1.md`.
 The Module Platform capability constraint repair is revision
 `0022_module_step_capabilities`; Windows Setup release metadata is revision
-`0023_windows_setup_releases`. The Console foundation, fleet/context pages,
-and enrollment work are implemented locally. Updates, operations, Module
-Workbench, audit, browser acceptance, and production deployment remain on the
-active plan. The historical
+`0023_windows_setup_releases`; the credential-free Console module owner is
+revision `0024_console_module_owner`. The Console foundation, fleet/context,
+enrollment, updates, operations, Module Workbench, and audit are implemented
+on `codex/endpoint-console-v1`. The approved Windows Agent 3.2.63 runtime
+contract is unchanged. Browser acceptance and production deployment remain
+on the active plan. The historical
 Wave 1 plan below is retained as a record, not a current deployment gate.
 
 ## Goal

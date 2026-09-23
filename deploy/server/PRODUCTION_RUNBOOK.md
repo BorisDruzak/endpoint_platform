@@ -245,7 +245,55 @@ sudo systemd-run --pty --wait --collect --property=User=endpoint-platform --prop
 
 Replace `ADMIN_USERNAME` with the administrator login approved by the operator.
 
-## 7. Release rollback
+## 7. Upgrade an existing production host
+
+Use the release archive from section 1. The existing service and Nginx units
+remain in place. Record the current release symlink and migration revision,
+then make a database backup before changing either. Keep the backup on the
+host in a PostgreSQL-owned private directory and record its SHA-256 outside
+the database. `pg_restore -l` must read the archive successfully.
+
+```bash
+set -euo pipefail
+previous_release="$(sudo readlink -f /opt/endpoint-platform/current)"
+test -d "${previous_release}"
+sudo install -d -o postgres -g postgres -m 0700 /var/backups/endpoint-platform
+backup="/var/backups/endpoint-platform/pre-console-$(date -u +%Y%m%dT%H%M%SZ).dump"
+sudo -u postgres pg_dump -Fc endpoint_platform -f "${backup}"
+sudo -u postgres pg_restore -l "${backup}" >/dev/null
+sudo sha256sum "${backup}"
+printf '%s\n' "${previous_release}" | sudo install -o root -g root -m 0644 /dev/stdin /etc/endpoint-platform/previous-release
+df -h /
+```
+
+Require at least 10 GiB free and verify the workstation and uploaded archive
+SHA-256 values match. Extract the archive to its immutable release directory,
+create its Python 3.12 venv, and install `requirements-server.txt` before
+switching `current`. Do not copy credentials, CA files, or local build caches
+into the release directory. The archive contains the Console bundle and the
+Setup release importer; verify both paths with `tar -tzf` before upload.
+
+```bash
+set -euo pipefail
+sudo systemctl stop endpoint-platform-worker.service endpoint-platform.service
+sudo ln -sfn "/opt/endpoint-platform/releases/endpoint-platform-RELEASE_COMMIT" /opt/endpoint-platform/current
+sudo systemctl start endpoint-platform-migrate.service
+sudo systemctl show endpoint-platform-migrate.service -p Result --value
+sudo systemctl start endpoint-platform.service endpoint-platform-worker.service
+systemctl is-active endpoint-platform endpoint-platform-worker nginx postgresql
+curl --fail --silent --show-error http://127.0.0.1:8000/healthz
+```
+
+Replace `RELEASE_COMMIT` with the verified 12-character archive commit. Stop
+if migration or health fails; use the prior-release marker below for API
+rollback. Migration 0022 broadens the module-step constraint, 0023 adds Setup
+release metadata, and 0024 adds a credential-free Console operation owner.
+None requires an automatic downgrade. Verify `/admin`, its hashed assets,
+session protection, and strict hostname/CA HTTPS from the workstation after
+the health check. Enable module execution feature flags only after a compatible
+test Agent, target policy, and actual lab operation have been verified.
+
+## 8. Release rollback
 
 If the API release fails after migrations have succeeded, use the recorded
 prior release; stop if the marker is missing or does not name a release

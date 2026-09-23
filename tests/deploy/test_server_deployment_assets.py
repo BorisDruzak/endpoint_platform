@@ -78,6 +78,7 @@ def test_runbook_preserves_secret_and_tls_boundaries() -> None:
     archive_builder = Path("tools/release/build_console_server_archive.ps1").read_text(
         encoding="utf-8"
     )
+    assert "tools/register_windows_setup_release.py" in archive_builder
 
     assert "build_console_server_archive.ps1 -OutputPath $releaseArchive" in runbook
     assert "git archive" in archive_builder
