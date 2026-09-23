@@ -66,12 +66,15 @@ async def test_console_pages_require_admin_and_login_is_public(tmp_path, monkeyp
     from endpoint_server.console import routes as console_routes
 
     (tmp_path / "index.html").write_text("<html lang='ru'>Консоль</html>", encoding="utf-8")
+    (tmp_path / "assets").mkdir()
+    (tmp_path / "assets" / "index-test.js").write_text("export default 1", encoding="utf-8")
     monkeypatch.setattr(console_routes, "ASSET_ROOT", tmp_path)
     app = create_app(_settings(), session_provider=_Provider())
     async with AsyncClient(
         transport=ASGITransport(app=app), base_url="https://endpoint.sosnadmin.local"
     ) as client:
         login = await client.get("/admin/login")
+        asset = await client.get("/admin/assets/index-test.js")
         denied = await client.get("/admin")
         invalid = await client.get(
             "/admin", cookies={"endpoint_admin_session": "a" * 43}
@@ -85,6 +88,9 @@ async def test_console_pages_require_admin_and_login_is_public(tmp_path, monkeyp
     assert login.status_code == 200
     assert "lang='ru'" in login.text
     assert login.headers["cache-control"] == "no-store"
+    assert asset.status_code == 200
+    assert asset.headers["cache-control"] == "public, max-age=31536000, immutable"
+    assert asset.headers["x-content-type-options"] == "nosniff"
     assert denied.status_code == 401
     assert invalid.status_code == 401
     assert deep_denied.status_code == 401

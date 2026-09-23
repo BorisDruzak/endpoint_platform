@@ -108,6 +108,9 @@ def create_app(
             )
 
         response = await call_next(request)
+        if request.url.path.startswith("/admin/assets/") and response.status_code == 200:
+            response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+            response.headers["X-Content-Type-Options"] = "nosniff"
         if (
             is_correlation_api_request(request.method, request.url.path)
             and correlation_id is not None
