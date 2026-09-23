@@ -5,8 +5,9 @@ from __future__ import annotations
 import asyncio
 import tempfile
 from datetime import UTC, datetime, timedelta
+from ipaddress import IPv4Address
 from pathlib import Path
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import uvicorn
 from fastapi import HTTPException
@@ -14,19 +15,21 @@ from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.x509.oid import NameOID
-from sqlalchemy import JSON, DateTime, TypeDecorator
-from sqlalchemy import select
+from sqlalchemy import JSON, DateTime, TypeDecorator, select, text
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.ext.compiler import compiles
 
 from endpoint_server.auth.passwords import hash_password
 from endpoint_server.config import Settings
+from endpoint_server.context.models import ContextCurrent, ContextSnapshot
 from endpoint_server.db.base import Base
 from endpoint_server.db.models import (
-    AdminUser, Device, EndpointOperation, EnrollmentRequest, ModuleOperationStep,
+    AdminUser, Device, EndpointOperation, ModuleOperationStep,
     ServiceClient, UpdateBuild, UpdateRollout, UpdateTarget,
 )
+from endpoint_server.enrollment.campaigns import issue_campaign
+from endpoint_server.enrollment.requests import CampaignSelection, build_enrollment_request
 from endpoint_server.gateway.connection_registry import GatewayConnection
 from endpoint_server.main import create_app
 
@@ -63,6 +66,8 @@ async def _serve(root: Path) -> None:
     engine = create_async_engine(f"sqlite+aiosqlite:///{database.as_posix()}")
     async with engine.begin() as connection:
         await connection.run_sync(Base.metadata.create_all)
+        # SQLite ignores postgresql_where and creates an unconditional unique index.
+        await connection.execute(text("DROP INDEX uq_update_targets_active_device"))
     sessions = async_sessionmaker(engine, expire_on_commit=False)
     now = datetime.now(UTC)
     async with sessions() as session:
@@ -79,8 +84,34 @@ async def _serve(root: Path) -> None:
             artifact_url="https://example.test/agent.zip", artifact_name="agent.zip",
             archive_type="zip", sha256_digest="a" * 64, size=1024,
         )
-        session.add_all([device, lab_device, owner, build])
+        previous_build = UpdateBuild(
+            build_identifier="console-e2e-previous-build", version="3.2.62", platform="windows_amd64",
+            channel="stable", artifact_identifier="console-e2e-previous-artifact",
+            artifact_url="https://example.test/previous-agent.zip", artifact_name="previous-agent.zip",
+            archive_type="zip", sha256_digest="b" * 64, size=1024,
+        )
+        session.add_all([device, lab_device, owner, build, previous_build])
         await session.flush()
+        snapshot = ContextSnapshot(
+            id=uuid4(), collection_id=uuid4(), device_id=device.id,
+            profile="inventory_v1", collected_at=now, raw_payload={},
+            normalized_projection={
+                "schema_version": "device_context_v1", "profile": "inventory_v1",
+                "collected_at": now.isoformat(), "warnings": [],
+                "sections": {
+                    "system": {"hostname": "console-e2e-device", "platform": "windows", "os_name": "Windows 11", "os_version": "11"},
+                    "hardware": {"cpu_model": "Sample CPU"},
+                    "memory": {"total_bytes": 17179869184, "module_count": 0, "modules": []},
+                    "storage": {"physical_devices": []}, "interfaces": [],
+                },
+            },
+        )
+        session.add(snapshot)
+        await session.flush()
+        session.add(ContextCurrent(
+            device_id=device.id, profile="inventory_v1", snapshot_id=snapshot.id,
+            updated_at=now,
+        ))
         rollout = UpdateRollout(
             rollout_identifier="console-e2e-rollout", build_id=build.id, mode="canary",
             reason="Проверка консоли", status="completed", started_at=now,
@@ -93,13 +124,28 @@ async def _serve(root: Path) -> None:
             target_identifier="console-e2e-target", operation_id="console-e2e-update-operation",
             status="applied", assigned_at=now, terminal_at=now,
         ))
-        session.add(EnrollmentRequest(
-            installation_id_digest="e2e-install-digest", fingerprint_digest="e2e-fingerprint-digest",
-            request_capability_digest="e2e-capability-digest", platform="windows",
-            hostname="Тестовая заявка", macs=["00:11:22:33:44:55"],
-            source_address="192.0.2.10", installer_version="3.2.63",
-            installer_release_id="3.2.63", expires_at=now + timedelta(hours=1),
-            status="waiting_approval",
+        campaign = issue_campaign(
+            b"disposable-browser-test-pepper",
+            expires_at=now + timedelta(days=1), max_uses=2,
+            allowed_cidrs=("192.0.2.0/24",), target_platform="windows",
+            policy={
+                "policy_id": "console-e2e-manual", "enrollment_mode": "manual",
+                "allowed_installer_releases": ["3.2.63"],
+            },
+            label="Тестовая ручная кампания", now=now,
+        ).record
+        session.add(campaign)
+        session.add(build_enrollment_request(
+            installation_id="win-00112233-4455-6677-8899-aabbccddeeff",
+            hardware_fingerprint="sha256:browser-test-fingerprint",
+            request_capability="a" * 43,
+            source_address=IPv4Address("192.0.2.10"),
+            installer_version="3.2.63", installer_release_id="3.2.63",
+            hostname="Тестовая заявка",
+            selection=CampaignSelection("waiting_approval", campaign, "MANUAL_POLICY"),
+            pepper=b"disposable-browser-test-pepper", now=now,
+            manufacturer="Тест", model="Рабочая станция",
+            macs=("00:11:22:33:44:55",),
         ))
         await session.commit()
     settings = Settings(
@@ -121,19 +167,22 @@ async def _serve(root: Path) -> None:
         platform="linux_amd64", effective_capabilities=frozenset({"dns.resolve"}),
     ))
 
-    async def complete_simulated_lab(operation_id: UUID) -> dict[str, str]:
+    async def complete_simulated_operation(operation_id: UUID) -> dict[str, str]:
         """Test-only Agent result injection; production has no such route."""
         async with sessions() as session:
             operation = await session.get(EndpointOperation, operation_id)
-            if operation is None or operation.status != "queued" or operation.parameters != {"execution_mode": "lab"}:
-                raise HTTPException(status_code=409, detail="Expected a queued lab operation")
+            if (operation is None or operation.device_id != lab_device.id
+                    or operation.status != "queued"
+                    or operation.parameters not in ({"execution_mode": "lab"}, {"execution_mode": "published"})):
+                raise HTTPException(status_code=409, detail="Expected a queued test module operation")
             steps = (await session.scalars(
                 select(ModuleOperationStep).where(ModuleOperationStep.operation_id == operation.id)
             )).all()
             if len(steps) != 1 or steps[0].capability != "dns.resolve":
                 raise HTTPException(status_code=409, detail="Expected one DNS step")
             completed_at = datetime.now(UTC)
-            operation.parameters = {**operation.parameters, "execution_platform": "linux_amd64"}
+            if operation.parameters["execution_mode"] == "lab":
+                operation.parameters = {**operation.parameters, "execution_platform": "linux_amd64"}
             operation.status = "succeeded"
             operation.completed_at = completed_at
             steps[0].status = "succeeded"
@@ -148,7 +197,27 @@ async def _serve(root: Path) -> None:
             await session.commit()
         return {"status": "succeeded"}
 
-    app.add_api_route("/__test__/complete-lab/{operation_id}", complete_simulated_lab, methods=["POST"])
+    app.add_api_route("/__test__/complete-module-operation/{operation_id}", complete_simulated_operation, methods=["POST"])
+
+    async def complete_simulated_rollout(rollout_id: UUID) -> dict[str, str]:
+        """Test-only applied target injection; production has no such route."""
+        async with sessions() as session:
+            rollout = await session.get(UpdateRollout, rollout_id)
+            targets = (await session.scalars(
+                select(UpdateTarget).where(UpdateTarget.rollout_id == rollout_id)
+            )).all()
+            if rollout is None or rollout.status != "active" or rollout.mode != "canary" or len(targets) != 1 or targets[0].status != "assigned":
+                raise HTTPException(status_code=409, detail="Expected one active canary target")
+            completed_at = datetime.now(UTC)
+            rollout.status = "completed"
+            rollout.completed_at = completed_at
+            targets[0].status = "applied"
+            targets[0].terminal_at = completed_at
+            targets[0].updated_at = completed_at
+            await session.commit()
+        return {"status": "completed"}
+
+    app.add_api_route("/__test__/complete-rollout/{rollout_id}", complete_simulated_rollout, methods=["POST"])
     key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
     name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "localhost")])
     certificate = (x509.CertificateBuilder().subject_name(name).issuer_name(name)

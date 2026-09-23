@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test'
 
-test('administrator can inspect the fleet and publish a tested module', async ({ page }) => {
+test('administrator can approve enrollment, roll back an update and run a module', async ({ page }) => {
   await page.goto('/admin/login')
   await expect(page.getByRole('heading', { name: 'Вход в консоль' })).toBeVisible()
   await page.getByLabel('Имя пользователя').fill('console-e2e')
@@ -28,6 +28,11 @@ test('administrator can inspect the fleet and publish a tested module', async ({
   await expect(page.getByRole('heading', { name: 'Установка и регистрация' })).toBeVisible()
   await page.getByRole('button', { name: 'Запросы' }).click()
   await expect(page.getByText('Тестовая заявка')).toBeVisible()
+  page.once('dialog', dialog => dialog.accept())
+  const approvalResponse = page.waitForResponse(response => response.url().endsWith('/approve') && response.request().method() === 'POST')
+  await page.getByRole('row').filter({ hasText: 'Тестовая заявка' }).getByRole('button', { name: 'Одобрить' }).click()
+  expect((await approvalResponse).status()).toBe(204)
+  await expect(page.getByRole('row').filter({ hasText: 'Тестовая заявка' })).toContainText('Одобрен вручную')
 
   await page.getByRole('navigation', { name: 'Основная навигация' }).getByRole('link', { name: 'Релизы и обновления' }).click()
   await expect(page.getByRole('heading', { name: 'Релизы и обновления' })).toBeVisible()
@@ -38,7 +43,33 @@ test('administrator can inspect the fleet and publish a tested module', async ({
   await page.getByRole('dialog', { name: 'Развёртывание' }).getByRole('button', { name: 'Закрыть' }).click()
   await page.getByRole('button', { name: 'Создать канареечное обновление' }).click()
   await expect(page.getByRole('heading', { name: 'Канареечное обновление' })).toBeVisible()
-  await page.getByRole('dialog').getByRole('button', { name: 'Закрыть' }).click()
+  const rolloutWizard = page.getByRole('dialog', { name: 'Новое развёртывание' })
+  await rolloutWizard.getByLabel('Релиз').selectOption({ label: '3.2.63 · Windows' })
+  await rolloutWizard.getByRole('checkbox', { name: /Тестовый компьютер/ }).check()
+  await expect(rolloutWizard.getByText('Точный список устройств (1)')).toBeVisible()
+  page.once('dialog', dialog => dialog.accept())
+  const rolloutResponse = page.waitForResponse(response => response.url().endsWith('/api/admin/updates/rollouts') && response.request().method() === 'POST')
+  await rolloutWizard.getByRole('button', { name: 'Создать развёртывание' }).click()
+  const createdRollout = await rolloutResponse
+  expect(createdRollout.status(), await createdRollout.text()).toBe(201)
+  const rolloutId = (await createdRollout.json()).id as string
+  await expect(page.getByRole('dialog', { name: 'Развёртывание' }).getByRole('heading', { name: 'Устройства · 1' })).toBeVisible()
+  await page.getByRole('dialog', { name: 'Развёртывание' }).getByRole('button', { name: 'Закрыть' }).click()
+  expect((await page.request.post(`/__test__/complete-rollout/${rolloutId}`)).status()).toBe(200)
+  await page.getByRole('button', { name: 'Обновить' }).click()
+  await page.getByRole('article').filter({ hasText: '3.2.63 · Канареечное' }).first().getByRole('button', { name: 'Открыть' }).click()
+  await page.getByRole('dialog', { name: 'Развёртывание' }).getByRole('button', { name: 'Создать откат' }).click()
+  const rollbackWizard = page.getByRole('dialog', { name: 'Новое развёртывание' })
+  await rollbackWizard.getByLabel('Релиз').selectOption({ label: '3.2.62 · Windows' })
+  await rollbackWizard.getByLabel('Причина').fill('Проверка отката')
+  await rollbackWizard.getByRole('checkbox', { name: /Тестовый компьютер/ }).check()
+  page.once('dialog', dialog => dialog.accept())
+  const rollbackResponse = page.waitForResponse(response => response.url().endsWith('/rollback') && response.request().method() === 'POST')
+  await rollbackWizard.getByRole('button', { name: 'Создать развёртывание' }).click()
+  const rollback = await rollbackResponse
+  expect(rollback.status(), await rollback.text()).toBe(201)
+  await expect(page.getByRole('dialog', { name: 'Развёртывание' }).getByRole('heading', { name: '3.2.62 · Откат' })).toBeVisible()
+  await page.getByRole('dialog', { name: 'Развёртывание' }).getByRole('button', { name: 'Закрыть' }).click()
 
   await page.getByRole('navigation', { name: 'Основная навигация' }).getByRole('link', { name: 'Модули' }).click()
   await expect(page.getByText('РЕДАКТОР МОДУЛЕЙ')).toBeVisible()
@@ -63,7 +94,7 @@ test('administrator can inspect the fleet and publish a tested module', async ({
   const lab = await labResponse
   expect(lab.status()).toBe(201)
   const operationId = (await lab.json()).data.operation_id as string
-  const simulatedAgent = await page.request.post(`/__test__/complete-lab/${operationId}`)
+  const simulatedAgent = await page.request.post(`/__test__/complete-module-operation/${operationId}`)
   expect(simulatedAgent.status()).toBe(200)
   await expect(page.getByRole('button', { name: 'Сохранить подтверждение испытания' })).toBeVisible()
   await page.getByRole('button', { name: 'Сохранить подтверждение испытания' }).click()
@@ -74,6 +105,25 @@ test('administrator can inspect the fleet and publish a tested module', async ({
   page.once('dialog', dialog => dialog.accept())
   await page.getByRole('button', { name: 'Опубликовать' }).click()
   await expect(page.getByRole('status')).toContainText('Публикация: выполнено')
+
+  await page.getByRole('navigation', { name: 'Основная навигация' }).getByRole('link', { name: 'Устройства' }).click()
+  await page.getByRole('row').filter({ hasText: 'Лабораторный Agent' }).getByRole('link', { name: 'Открыть' }).click()
+  await page.getByRole('button', { name: 'Модули' }).click()
+  await expect(page.getByRole('heading', { name: 'Опубликованные модули' })).toBeVisible()
+  await page.getByLabel('target (строка)').fill('api.example.test')
+  const runResponse = page.waitForResponse(response => response.url().includes('/module-operations') && response.request().method() === 'POST')
+  await page.getByRole('button', { name: 'Запустить модуль' }).click()
+  const run = await runResponse
+  expect(run.status()).toBe(201)
+  const runId = (await run.json()).data.operation_id as string
+  expect((await page.request.post(`/__test__/complete-module-operation/${runId}`)).status()).toBe(200)
+  await page.getByRole('button', { name: 'Операции' }).click()
+  await page.getByRole('link', { name: 'Открыть журнал операций устройства' }).click()
+  await page.getByRole('row').filter({ hasText: 'Лабораторный Agent' }).first().getByRole('button', { name: 'Открыть' }).click()
+  const operationDialog = page.getByRole('dialog', { name: 'Операция' })
+  await expect(operationDialog.getByRole('heading', { name: 'network.basic.check@1.0.0' })).toBeVisible()
+  await expect(operationDialog.locator('.module-steps li')).toContainText('DNS')
+  await operationDialog.getByRole('button', { name: 'Закрыть' }).click()
 
   await page.getByRole('navigation', { name: 'Основная навигация' }).getByRole('link', { name: 'Аудит' }).click()
   await expect(page.getByRole('heading', { name: 'Аудит' })).toBeVisible()
