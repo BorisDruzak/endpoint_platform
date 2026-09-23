@@ -71,6 +71,7 @@ from endpoint_server.modules.catalog_routes import (  # noqa: E402
 from endpoint_server.modules.routes import router as modules_router  # noqa: E402
 from endpoint_server.modules.execution_routes import router as module_execution_router  # noqa: E402
 from endpoint_server.operations.routes import router as operations_router  # noqa: E402
+from endpoint_server.context.routes import router as context_router  # noqa: E402
 
 
 _SERVICE_OPERATION_PATHS = (
@@ -92,6 +93,16 @@ _SERVICE_OPERATION_PATHS = (
     "/api/v1/modules/{module_key}/versions/{version}/accept-labs",
     "/api/v1/modules/{module_key}/versions/{version}/publish",
     "/api/v1/modules/{module_key}/versions/{version}/deprecate",
+)
+
+_SERVICE_CONTEXT_PATHS = (
+    "/api/v1/devices",
+    "/api/v1/devices/network-identities",
+    "/api/v1/devices/{device_id}/context",
+    "/api/v1/devices/{device_id}/context/snapshots",
+    "/api/v1/devices/{device_id}/context/collections",
+    "/api/v1/context/collections/{collection_id}",
+    "/api/v1/devices/{device_id}/context/snapshots/compare",
 )
 
 
@@ -672,15 +683,19 @@ def _json_content(component_name: str) -> dict[str, object]:
 
 
 def _service_operation_openapi() -> dict[str, object]:
-    """Generate service-operation paths/components from the runtime router."""
+    """Generate published service paths/components from the runtime routers."""
     application = FastAPI()
     application.include_router(operations_router)
     application.include_router(modules_router)
     application.include_router(module_capability_catalog_router)
     application.include_router(module_execution_router)
+    application.include_router(context_router)
     generated = application.openapi()
     return {
-        "paths": {path: generated["paths"][path] for path in _SERVICE_OPERATION_PATHS},
+        "paths": {
+            path: generated["paths"][path]
+            for path in (*_SERVICE_OPERATION_PATHS, *_SERVICE_CONTEXT_PATHS)
+        },
         "components": generated["components"],
     }
 
@@ -887,7 +902,8 @@ def _write_artifacts(output_root: Path, artifacts: Mapping[Path, str]) -> None:
     for relative_path, content in artifacts.items():
         destination = output_root / relative_path
         destination.parent.mkdir(parents=True, exist_ok=True)
-        destination.write_text(content, encoding="utf-8")
+        with destination.open("w", encoding="utf-8", newline="\n") as output:
+            output.write(content)
 
 
 def _check_artifacts(output_root: Path, artifacts: Mapping[Path, str]) -> bool:

@@ -1141,6 +1141,373 @@ paths:
             "application/json":
               schema:
                 "$ref": "#/components/schemas/HTTPValidationError"
+  "/api/v1/devices":
+    get:
+      tags:
+        - "device-context"
+      summary: "List Devices"
+      description: "List service-visible device identities without context or credentials."
+      operationId: "list_devices_api_v1_devices_get"
+      responses:
+        "200":
+          description: "Successful Response"
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/ServiceDeviceListResponse"
+                additionalProperties: true
+                type: "object"
+                title: "Response List Devices Api V1 Devices Get"
+        "401":
+          description: "Service authentication failed"
+        "403":
+          description: "Service scope is insufficient"
+        "422":
+          description: "Validation Error"
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/HTTPValidationError"
+      security:
+        -
+          ServiceBearer: []
+      x-required-scopes:
+        - "devices.read"
+  "/api/v1/devices/network-identities":
+    get:
+      tags:
+        - "device-context"
+      summary: "List Network Identities"
+      description: "Return bounded current baseline MAC identities for a trusted service peer."
+      operationId: "list_network_identities_api_v1_devices_network_identities_get"
+      security:
+        -
+          ServiceBearer: []
+      parameters:
+        -
+          name: "limit"
+          in: "query"
+          required: false
+          schema:
+            type: "integer"
+            maximum: 250
+            minimum: 1
+            default: 250
+            title: "Limit"
+        -
+          name: "cursor"
+          in: "query"
+          required: false
+          schema:
+            anyOf:
+              -
+                type: "string"
+                format: "uuid"
+              -
+                type: "null"
+            title: "Cursor"
+      responses:
+        "200":
+          description: "Successful Response"
+          content:
+            "application/json":
+              schema:
+                type: "object"
+                additionalProperties: true
+                title: "Response List Network Identities Api V1 Devices Network Identities Get"
+                "$ref": "#/components/schemas/ServiceNetworkIdentityPage"
+        "401":
+          description: "Service authentication failed"
+        "403":
+          description: "Service scope is insufficient"
+        "422":
+          description: "Validation Error"
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/HTTPValidationError"
+      x-required-scopes:
+        - "devices.read"
+        - "context.read"
+  "/api/v1/devices/{device_id}/context":
+    get:
+      tags:
+        - "device-context"
+      summary: "Read Device Context"
+      description: "Read current normalized, non-diagnostic observations for one device."
+      operationId: "read_device_context_api_v1_devices__device_id__context_get"
+      security:
+        -
+          ServiceBearer: []
+      parameters:
+        -
+          name: "device_id"
+          in: "path"
+          required: true
+          schema:
+            type: "string"
+            format: "uuid"
+            title: "Device Id"
+      responses:
+        "200":
+          description: "Successful Response"
+          content:
+            "application/json":
+              schema:
+                type: "object"
+                additionalProperties: true
+                title: "Response Read Device Context Api V1 Devices  Device Id  Context Get"
+                "$ref": "#/components/schemas/ServiceContextResponse"
+        "404":
+          description: "Device context was not found"
+        "401":
+          description: "Service authentication failed"
+        "403":
+          description: "Service scope is insufficient"
+        "422":
+          description: "Validation Error"
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/HTTPValidationError"
+      x-required-scopes:
+        - "context.read"
+  "/api/v1/devices/{device_id}/context/snapshots":
+    get:
+      tags:
+        - "device-context"
+      summary: "List Baseline Context History"
+      description: "List a deterministic, bounded safe context history for one device."
+      operationId: "list_baseline_context_history_api_v1_devices__device_id__context_snapshots_get"
+      security:
+        -
+          ServiceBearer: []
+      parameters:
+        -
+          name: "device_id"
+          in: "path"
+          required: true
+          schema:
+            type: "string"
+            format: "uuid"
+            title: "Device Id"
+        -
+          name: "profile"
+          in: "query"
+          required: false
+          schema:
+            enum:
+              - "baseline_v1"
+              - "health_v1"
+              - "network_v1"
+              - "diagnostic_v1"
+              - "inventory_v1"
+              - "session_v1"
+            type: "string"
+            default: "baseline_v1"
+            title: "Profile"
+        -
+          name: "limit"
+          in: "query"
+          required: false
+          schema:
+            type: "integer"
+            maximum: 100
+            minimum: 1
+            default: 50
+            title: "Limit"
+      responses:
+        "200":
+          description: "Successful Response"
+          content:
+            "application/json":
+              schema:
+                type: "object"
+                additionalProperties: true
+                title: "Response List Baseline Context History Api V1 Devices  Device Id  Context Snapshots Get"
+                "$ref": "#/components/schemas/ServiceContextHistoryResponse"
+        "404":
+          description: "Device context was not found"
+        "401":
+          description: "Service authentication failed"
+        "403":
+          description: "Service scope is insufficient"
+        "422":
+          description: "Validation Error"
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/HTTPValidationError"
+      x-required-scopes:
+        - "context.read"
+  "/api/v1/devices/{device_id}/context/collections":
+    post:
+      tags:
+        - "device-context"
+      summary: "Request Device Context Collection"
+      description: "Create or replay one audited collection request with a bounded key."
+      operationId: "request_device_context_collection_api_v1_devices__device_id__context_collections_post"
+      security:
+        -
+          ServiceBearer: []
+      parameters:
+        -
+          name: "device_id"
+          in: "path"
+          required: true
+          schema:
+            type: "string"
+            format: "uuid"
+            title: "Device Id"
+        -
+          name: "Idempotency-Key"
+          in: "header"
+          required: false
+          schema:
+            anyOf:
+              -
+                type: "string"
+              -
+                type: "null"
+            title: "Idempotency-Key"
+      requestBody:
+        required: true
+        content:
+          "application/json":
+            schema:
+              "$ref": "#/components/schemas/CollectionRequest"
+      responses:
+        "201":
+          description: "Successful Response"
+          content:
+            "application/json":
+              schema:
+                type: "object"
+                additionalProperties: true
+                title: "Response Request Device Context Collection Api V1 Devices  Device Id  Context Collections Post"
+                "$ref": "#/components/schemas/ServiceCollectionResponse"
+        "200":
+          description: "Replayed collection"
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/ServiceCollectionResponse"
+        "404":
+          description: "Device context was not found"
+        "401":
+          description: "Service authentication failed"
+        "403":
+          description: "Service scope is insufficient"
+        "422":
+          description: "Validation Error"
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/HTTPValidationError"
+      x-required-scopes:
+        - "context.collect"
+  "/api/v1/context/collections/{collection_id}":
+    get:
+      tags:
+        - "device-context"
+      summary: "Read Collection"
+      description: "Read lifecycle metadata and an optional safe normalized snapshot."
+      operationId: "read_collection_api_v1_context_collections__collection_id__get"
+      security:
+        -
+          ServiceBearer: []
+      parameters:
+        -
+          name: "collection_id"
+          in: "path"
+          required: true
+          schema:
+            type: "string"
+            format: "uuid"
+            title: "Collection Id"
+      responses:
+        "200":
+          description: "Successful Response"
+          content:
+            "application/json":
+              schema:
+                type: "object"
+                additionalProperties: true
+                title: "Response Read Collection Api V1 Context Collections  Collection Id  Get"
+                "$ref": "#/components/schemas/ServiceCollectionDetailsResponse"
+        "404":
+          description: "Device context was not found"
+        "401":
+          description: "Service authentication failed"
+        "403":
+          description: "Service scope is insufficient"
+        "422":
+          description: "Validation Error"
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/HTTPValidationError"
+      x-required-scopes:
+        - "context.read"
+  "/api/v1/devices/{device_id}/context/snapshots/compare":
+    get:
+      tags:
+        - "device-context"
+      summary: "Compare Device Context Snapshots"
+      description: "Compare two compatible safe snapshots owned by the specified device."
+      operationId: "compare_device_context_snapshots_api_v1_devices__device_id__context_snapshots_compare_get"
+      security:
+        -
+          ServiceBearer: []
+      parameters:
+        -
+          name: "device_id"
+          in: "path"
+          required: true
+          schema:
+            type: "string"
+            format: "uuid"
+            title: "Device Id"
+        -
+          name: "before_snapshot_id"
+          in: "query"
+          required: true
+          schema:
+            type: "string"
+            format: "uuid"
+            title: "Before Snapshot Id"
+        -
+          name: "after_snapshot_id"
+          in: "query"
+          required: true
+          schema:
+            type: "string"
+            format: "uuid"
+            title: "After Snapshot Id"
+      responses:
+        "200":
+          description: "Successful Response"
+          content:
+            "application/json":
+              schema:
+                type: "object"
+                additionalProperties: true
+                title: "Response Compare Device Context Snapshots Api V1 Devices  Device Id  Context Snapshots Compare Get"
+                "$ref": "#/components/schemas/ServiceContextComparisonResponse"
+        "404":
+          description: "Device context was not found"
+        "401":
+          description: "Service authentication failed"
+        "403":
+          description: "Service scope is insufficient"
+        "422":
+          description: "Validation Error"
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/HTTPValidationError"
+      x-required-scopes:
+        - "context.read"
 components:
   schemas:
     DeviceIdentityV1:
@@ -5220,6 +5587,270 @@ components:
         - "mtu"
         - "speed_mbps"
       title: "AdapterSummaryItemV1"
+    AgentNetworkIdentity:
+      properties:
+        id:
+          type: "string"
+          format: "uuid"
+          title: "Id"
+        device_identifier:
+          type: "string"
+          maxLength: 256
+          minLength: 1
+          title: "Device Identifier"
+        display_name:
+          type: "string"
+          maxLength: 256
+          minLength: 1
+          title: "Display Name"
+        last_seen_at:
+          anyOf:
+            -
+              type: "string"
+              format: "date-time"
+            -
+              type: "null"
+          title: "Last Seen At"
+        online:
+          type: "boolean"
+          title: "Online"
+        baseline_collected_at:
+          type: "string"
+          format: "date-time"
+          title: "Baseline Collected At"
+        profiles:
+          items:
+            "$ref": "#/components/schemas/AgentNetworkProfile"
+          type: "array"
+          maxItems: 5
+          title: "Profiles"
+        baseline_mac_keys:
+          items:
+            type: "string"
+            pattern: "^mac-[0-9a-f]{12}$"
+          type: "array"
+          maxItems: 64
+          minItems: 1
+          title: "Baseline Mac Keys"
+      additionalProperties: false
+      type: "object"
+      required:
+        - "id"
+        - "device_identifier"
+        - "display_name"
+        - "last_seen_at"
+        - "online"
+        - "baseline_collected_at"
+        - "profiles"
+        - "baseline_mac_keys"
+      title: "AgentNetworkIdentity"
+      description: "Minimal service-only identity material for exact MAC correlation."
+    AgentNetworkProfile:
+      properties:
+        profile:
+          type: "string"
+          enum:
+            - "baseline_v1"
+            - "health_v1"
+            - "network_v1"
+            - "inventory_v1"
+            - "session_v1"
+          title: "Profile"
+        collected_at:
+          type: "string"
+          format: "date-time"
+          title: "Collected At"
+      additionalProperties: false
+      type: "object"
+      required:
+        - "profile"
+        - "collected_at"
+      title: "AgentNetworkProfile"
+      description: "Current safe profile availability needed by the network panel."
+    BaselineHardwareV1:
+      properties:
+        manufacturer:
+          type: "string"
+          maxLength: 256
+          minLength: 1
+          title: "Manufacturer"
+        model:
+          type: "string"
+          maxLength: 256
+          minLength: 1
+          title: "Model"
+        cpu_model:
+          type: "string"
+          maxLength: 256
+          minLength: 1
+          title: "Cpu Model"
+        memory_bytes:
+          type: "integer"
+          minimum: 1.0
+          title: "Memory Bytes"
+      additionalProperties: false
+      type: "object"
+      required:
+        - "manufacturer"
+        - "model"
+        - "cpu_model"
+        - "memory_bytes"
+      title: "BaselineHardwareV1"
+    BaselineInterfaceV1:
+      properties:
+        stable_key:
+          type: "string"
+          maxLength: 128
+          minLength: 3
+          pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+          title: "Stable Key"
+        name:
+          type: "string"
+          maxLength: 64
+          minLength: 1
+          title: "Name"
+        link_type:
+          type: "string"
+          enum:
+            - "ethernet"
+            - "loopback"
+            - "wireless"
+            - "other"
+          title: "Link Type"
+      additionalProperties: false
+      type: "object"
+      required:
+        - "stable_key"
+        - "name"
+        - "link_type"
+      title: "BaselineInterfaceV1"
+    BaselineSectionsV1:
+      properties:
+        system:
+          "$ref": "#/components/schemas/BaselineSystemV1"
+        hardware:
+          "$ref": "#/components/schemas/BaselineHardwareV1"
+        storage:
+          items:
+            "$ref": "#/components/schemas/BaselineStorageV1"
+          type: "array"
+          maxItems: 64
+          minItems: 1
+          title: "Storage"
+        interfaces:
+          items:
+            "$ref": "#/components/schemas/BaselineInterfaceV1"
+          type: "array"
+          maxItems: 64
+          title: "Interfaces"
+        software:
+          items:
+            "$ref": "#/components/schemas/BaselineSoftwareV1"
+          type: "array"
+          maxItems: 256
+          title: "Software"
+      additionalProperties: false
+      type: "object"
+      required:
+        - "system"
+        - "hardware"
+        - "storage"
+        - "interfaces"
+        - "software"
+      title: "BaselineSectionsV1"
+    BaselineSoftwareV1:
+      properties:
+        name:
+          type: "string"
+          maxLength: 256
+          minLength: 1
+          title: "Name"
+        version:
+          type: "string"
+          maxLength: 128
+          minLength: 1
+          title: "Version"
+        source:
+          type: "string"
+          enum:
+            - "installer"
+            - "package"
+            - "system"
+          title: "Source"
+      additionalProperties: false
+      type: "object"
+      required:
+        - "name"
+        - "version"
+        - "source"
+      title: "BaselineSoftwareV1"
+    BaselineStorageV1:
+      properties:
+        stable_key:
+          type: "string"
+          maxLength: 128
+          minLength: 3
+          pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+          title: "Stable Key"
+        model:
+          type: "string"
+          maxLength: 256
+          minLength: 1
+          title: "Model"
+        size_bytes:
+          type: "integer"
+          minimum: 1.0
+          title: "Size Bytes"
+      additionalProperties: false
+      type: "object"
+      required:
+        - "stable_key"
+        - "model"
+        - "size_bytes"
+      title: "BaselineStorageV1"
+    BaselineSystemV1:
+      properties:
+        platform:
+          type: "string"
+          enum:
+            - "linux"
+            - "windows"
+          title: "Platform"
+        distribution:
+          type: "string"
+          maxLength: 256
+          minLength: 1
+          title: "Distribution"
+        architecture:
+          type: "string"
+          enum:
+            - "x86_64"
+            - "aarch64"
+          title: "Architecture"
+      additionalProperties: false
+      type: "object"
+      required:
+        - "platform"
+        - "distribution"
+        - "architecture"
+      title: "BaselineSystemV1"
+    CollectionRequest:
+      properties:
+        profile:
+          type: "string"
+          enum:
+            - "baseline_v1"
+            - "health_v1"
+            - "network_v1"
+            - "inventory_v1"
+            - "session_v1"
+          title: "Profile"
+      additionalProperties: false
+      type: "object"
+      required:
+        - "profile"
+      title: "CollectionRequest"
+      description: "The only caller-selected collection input is one fixed profile."
     DeviceCapabilitiesEnvelope:
       properties:
         data:
@@ -5229,6 +5860,39 @@ components:
       required:
         - "data"
       title: "DeviceCapabilitiesEnvelope"
+    DeviceContextDiffChangeV1:
+      properties:
+        code:
+          type: "string"
+          enum:
+            - "agent_changed"
+            - "hardware_changed"
+            - "network_changed"
+            - "platform_changed"
+            - "software_changed"
+            - "storage_changed"
+            - "AGENT_CHANGED"
+            - "HARDWARE_CHANGED"
+            - "HOSTNAME_CHANGED"
+            - "NETWORK_CHANGED"
+            - "NETWORK_ADAPTER_CHANGED"
+            - "OS_CHANGED"
+            - "PLATFORM_CHANGED"
+            - "RAM_CHANGED"
+            - "SOFTWARE_CHANGED"
+            - "STORAGE_CHANGED"
+          title: "Code"
+        summary:
+          type: "string"
+          maxLength: 256
+          minLength: 1
+          title: "Summary"
+      additionalProperties: false
+      type: "object"
+      required:
+        - "code"
+        - "summary"
+      title: "DeviceContextDiffChangeV1"
     DeviceSummaryEnvelope:
       properties:
         data:
@@ -5605,6 +6269,472 @@ components:
           title: "Detail"
       type: "object"
       title: "HTTPValidationError"
+    HealthResourcesV1:
+      properties:
+        uptime_seconds:
+          type: "integer"
+          minimum: 0.0
+          title: "Uptime Seconds"
+        load_1m:
+          type: "number"
+          maximum: 1000000.0
+          minimum: 0.0
+          title: "Load 1M"
+        free_bytes:
+          type: "integer"
+          minimum: 0.0
+          title: "Free Bytes"
+      additionalProperties: false
+      type: "object"
+      required:
+        - "uptime_seconds"
+        - "load_1m"
+        - "free_bytes"
+      title: "HealthResourcesV1"
+    HealthSectionsV1:
+      properties:
+        resources:
+          "$ref": "#/components/schemas/HealthResourcesV1"
+        services:
+          items:
+            "$ref": "#/components/schemas/HealthServiceV1"
+          type: "array"
+          maxItems: 64
+          title: "Services"
+      additionalProperties: false
+      type: "object"
+      required:
+        - "resources"
+        - "services"
+      title: "HealthSectionsV1"
+    HealthServiceV1:
+      properties:
+        name:
+          type: "string"
+          maxLength: 128
+          minLength: 1
+          title: "Name"
+        status:
+          type: "string"
+          enum:
+            - "active"
+            - "inactive"
+            - "failed"
+            - "unknown"
+          title: "Status"
+      additionalProperties: false
+      type: "object"
+      required:
+        - "name"
+        - "status"
+      title: "HealthServiceV1"
+    InventoryHardwareV1:
+      properties:
+        manufacturer:
+          anyOf:
+            -
+              type: "string"
+              maxLength: 256
+            -
+              type: "null"
+          title: "Manufacturer"
+        model:
+          anyOf:
+            -
+              type: "string"
+              maxLength: 256
+            -
+              type: "null"
+          title: "Model"
+        serial_number:
+          anyOf:
+            -
+              type: "string"
+              maxLength: 256
+            -
+              type: "null"
+          title: "Serial Number"
+        product_uuid:
+          anyOf:
+            -
+              type: "string"
+              maxLength: 256
+            -
+              type: "null"
+          title: "Product Uuid"
+        cpu_model:
+          anyOf:
+            -
+              type: "string"
+              maxLength: 256
+            -
+              type: "null"
+          title: "Cpu Model"
+        bios_vendor:
+          anyOf:
+            -
+              type: "string"
+              maxLength: 256
+            -
+              type: "null"
+          title: "Bios Vendor"
+        bios_version:
+          anyOf:
+            -
+              type: "string"
+              maxLength: 256
+            -
+              type: "null"
+          title: "Bios Version"
+        baseboard_manufacturer:
+          anyOf:
+            -
+              type: "string"
+              maxLength: 256
+            -
+              type: "null"
+          title: "Baseboard Manufacturer"
+        baseboard_model:
+          anyOf:
+            -
+              type: "string"
+              maxLength: 256
+            -
+              type: "null"
+          title: "Baseboard Model"
+        baseboard_serial:
+          anyOf:
+            -
+              type: "string"
+              maxLength: 256
+            -
+              type: "null"
+          title: "Baseboard Serial"
+      additionalProperties: false
+      type: "object"
+      title: "InventoryHardwareV1"
+    InventoryInterfaceV1:
+      properties:
+        name:
+          type: "string"
+          maxLength: 64
+          minLength: 1
+          title: "Name"
+        stable_key:
+          type: "string"
+          maxLength: 128
+          minLength: 3
+          pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+          title: "Stable Key"
+        mac:
+          anyOf:
+            -
+              type: "string"
+              pattern: "^[0-9a-f]{12}$"
+            -
+              type: "null"
+          title: "Mac"
+        ipv4:
+          items:
+            type: "string"
+            maxLength: 64
+            minLength: 1
+          type: "array"
+          maxItems: 16
+          title: "Ipv4"
+        ipv6:
+          items:
+            type: "string"
+            maxLength: 64
+            minLength: 1
+          type: "array"
+          maxItems: 16
+          title: "Ipv6"
+        link_type:
+          type: "string"
+          enum:
+            - "ethernet"
+            - "loopback"
+            - "wireless"
+            - "other"
+          title: "Link Type"
+        operational_state:
+          type: "string"
+          enum:
+            - "up"
+            - "down"
+            - "unknown"
+          title: "Operational State"
+      additionalProperties: false
+      type: "object"
+      required:
+        - "name"
+        - "stable_key"
+        - "ipv4"
+        - "ipv6"
+        - "link_type"
+        - "operational_state"
+      title: "InventoryInterfaceV1"
+    InventoryMemoryModuleV1:
+      properties:
+        slot:
+          anyOf:
+            -
+              type: "string"
+              maxLength: 256
+            -
+              type: "null"
+          title: "Slot"
+        manufacturer:
+          anyOf:
+            -
+              type: "string"
+              maxLength: 256
+            -
+              type: "null"
+          title: "Manufacturer"
+        part_number:
+          anyOf:
+            -
+              type: "string"
+              maxLength: 256
+            -
+              type: "null"
+          title: "Part Number"
+        serial:
+          anyOf:
+            -
+              type: "string"
+              maxLength: 256
+            -
+              type: "null"
+          title: "Serial"
+        capacity_bytes:
+          anyOf:
+            -
+              type: "integer"
+              minimum: 1.0
+            -
+              type: "null"
+          title: "Capacity Bytes"
+        speed_mt_s:
+          anyOf:
+            -
+              type: "integer"
+              maximum: 1000000.0
+              minimum: 1.0
+            -
+              type: "null"
+          title: "Speed Mt S"
+        memory_type:
+          anyOf:
+            -
+              type: "string"
+              enum:
+                - "DDR"
+                - "DDR2"
+                - "DDR3"
+                - "DDR4"
+                - "DDR5"
+                - "UNKNOWN"
+            -
+              type: "null"
+          title: "Memory Type"
+      additionalProperties: false
+      type: "object"
+      title: "InventoryMemoryModuleV1"
+    InventoryMemoryV1:
+      properties:
+        total_bytes:
+          anyOf:
+            -
+              type: "integer"
+              minimum: 1.0
+            -
+              type: "null"
+          title: "Total Bytes"
+        memory_type:
+          anyOf:
+            -
+              type: "string"
+              enum:
+                - "DDR"
+                - "DDR2"
+                - "DDR3"
+                - "DDR4"
+                - "DDR5"
+                - "UNKNOWN"
+            -
+              type: "null"
+          title: "Memory Type"
+        module_count:
+          type: "integer"
+          maximum: 64.0
+          minimum: 0.0
+          title: "Module Count"
+        modules:
+          items:
+            "$ref": "#/components/schemas/InventoryMemoryModuleV1"
+          type: "array"
+          maxItems: 64
+          title: "Modules"
+      additionalProperties: false
+      type: "object"
+      required:
+        - "module_count"
+        - "modules"
+      title: "InventoryMemoryV1"
+    InventoryPhysicalStorageV1:
+      properties:
+        stable_key:
+          type: "string"
+          maxLength: 128
+          minLength: 3
+          pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+          title: "Stable Key"
+        model:
+          anyOf:
+            -
+              type: "string"
+              maxLength: 256
+            -
+              type: "null"
+          title: "Model"
+        serial:
+          anyOf:
+            -
+              type: "string"
+              maxLength: 256
+            -
+              type: "null"
+          title: "Serial"
+        size_bytes:
+          anyOf:
+            -
+              type: "integer"
+              minimum: 1.0
+            -
+              type: "null"
+          title: "Size Bytes"
+        media_type:
+          type: "string"
+          enum:
+            - "HDD"
+            - "SSD"
+            - "UNKNOWN"
+          title: "Media Type"
+        bus_type:
+          type: "string"
+          enum:
+            - "SATA"
+            - "NVME"
+            - "USB"
+            - "SAS"
+            - "OTHER"
+            - "UNKNOWN"
+          title: "Bus Type"
+      additionalProperties: false
+      type: "object"
+      required:
+        - "stable_key"
+        - "media_type"
+        - "bus_type"
+      title: "InventoryPhysicalStorageV1"
+    InventorySectionsV1:
+      properties:
+        system:
+          "$ref": "#/components/schemas/InventorySystemV1"
+        hardware:
+          "$ref": "#/components/schemas/InventoryHardwareV1"
+        memory:
+          "$ref": "#/components/schemas/InventoryMemoryV1"
+        storage:
+          "$ref": "#/components/schemas/InventoryStorageV1"
+        interfaces:
+          items:
+            "$ref": "#/components/schemas/InventoryInterfaceV1"
+          type: "array"
+          maxItems: 64
+          title: "Interfaces"
+      additionalProperties: false
+      type: "object"
+      required:
+        - "system"
+        - "hardware"
+        - "memory"
+        - "storage"
+        - "interfaces"
+      title: "InventorySectionsV1"
+    InventoryStorageV1:
+      properties:
+        physical_devices:
+          items:
+            "$ref": "#/components/schemas/InventoryPhysicalStorageV1"
+          type: "array"
+          maxItems: 64
+          title: "Physical Devices"
+      additionalProperties: false
+      type: "object"
+      required:
+        - "physical_devices"
+      title: "InventoryStorageV1"
+    InventorySystemV1:
+      properties:
+        hostname:
+          anyOf:
+            -
+              type: "string"
+              maxLength: 256
+            -
+              type: "null"
+          title: "Hostname"
+        platform:
+          anyOf:
+            -
+              type: "string"
+              enum:
+                - "linux"
+                - "windows"
+            -
+              type: "null"
+          title: "Platform"
+        os_name:
+          anyOf:
+            -
+              type: "string"
+              maxLength: 256
+            -
+              type: "null"
+          title: "Os Name"
+        os_version:
+          anyOf:
+            -
+              type: "string"
+              maxLength: 256
+            -
+              type: "null"
+          title: "Os Version"
+        os_build:
+          anyOf:
+            -
+              type: "string"
+              maxLength: 256
+            -
+              type: "null"
+          title: "Os Build"
+        architecture:
+          anyOf:
+            -
+              type: "string"
+              enum:
+                - "x86_64"
+                - "aarch64"
+            -
+              type: "null"
+          title: "Architecture"
+      additionalProperties: false
+      type: "object"
+      title: "InventorySystemV1"
     ModuleCapabilityAuthoringV1:
       properties:
         capability:
@@ -5993,6 +7123,27 @@ components:
         - "family"
         - "address"
       title: "NetworkAddressV1"
+    NetworkInterfaceV1:
+      properties:
+        name:
+          type: "string"
+          maxLength: 64
+          minLength: 1
+          title: "Name"
+        addresses:
+          items:
+            type: "string"
+            maxLength: 64
+            minLength: 1
+          type: "array"
+          maxItems: 16
+          title: "Addresses"
+      additionalProperties: false
+      type: "object"
+      required:
+        - "name"
+        - "addresses"
+      title: "NetworkInterfaceV1"
     NetworkPingResultV1:
       properties:
         schema_version:
@@ -6090,6 +7241,42 @@ components:
         - "status"
         - "collected_at"
       title: "NetworkPingResultV1"
+    NetworkRouteV1:
+      properties:
+        interface:
+          type: "string"
+          maxLength: 64
+          minLength: 1
+          title: "Interface"
+        gateway:
+          anyOf:
+            -
+              type: "string"
+              maxLength: 64
+            -
+              type: "null"
+          title: "Gateway"
+      additionalProperties: false
+      type: "object"
+      required:
+        - "interface"
+      title: "NetworkRouteV1"
+    NetworkSectionsV1:
+      properties:
+        default_route:
+          "$ref": "#/components/schemas/NetworkRouteV1"
+        interfaces:
+          items:
+            "$ref": "#/components/schemas/NetworkInterfaceV1"
+          type: "array"
+          maxItems: 64
+          title: "Interfaces"
+      additionalProperties: false
+      type: "object"
+      required:
+        - "default_route"
+        - "interfaces"
+      title: "NetworkSectionsV1"
     OperationResponseData:
       properties:
         operation:
@@ -6153,6 +7340,345 @@ components:
         - "kind"
         - "value"
       title: "RecipeLiteralBindingV1"
+    ServiceCollection:
+      properties:
+        id:
+          type: "string"
+          format: "uuid"
+          title: "Id"
+        device_id:
+          type: "string"
+          format: "uuid"
+          title: "Device Id"
+        profile:
+          type: "string"
+          enum:
+            - "baseline_v1"
+            - "health_v1"
+            - "network_v1"
+            - "inventory_v1"
+            - "session_v1"
+          title: "Profile"
+        status:
+          type: "string"
+          title: "Status"
+        requested_at:
+          type: "string"
+          format: "date-time"
+          title: "Requested At"
+        result_received_at:
+          anyOf:
+            -
+              type: "string"
+              format: "date-time"
+            -
+              type: "null"
+          title: "Result Received At"
+        completed_at:
+          anyOf:
+            -
+              type: "string"
+              format: "date-time"
+            -
+              type: "null"
+          title: "Completed At"
+        failure_code:
+          anyOf:
+            -
+              type: "string"
+            -
+              type: "null"
+          title: "Failure Code"
+      additionalProperties: false
+      type: "object"
+      required:
+        - "id"
+        - "device_id"
+        - "profile"
+        - "status"
+        - "requested_at"
+        - "result_received_at"
+        - "completed_at"
+        - "failure_code"
+      title: "ServiceCollection"
+    ServiceCollectionDetails:
+      properties:
+        collection:
+          "$ref": "#/components/schemas/ServiceCollection"
+        snapshot:
+          anyOf:
+            -
+              "$ref": "#/components/schemas/ServiceContextSnapshot"
+            -
+              type: "null"
+      additionalProperties: false
+      type: "object"
+      required:
+        - "collection"
+        - "snapshot"
+      title: "ServiceCollectionDetails"
+    ServiceCollectionDetailsResponse:
+      properties:
+        data:
+          "$ref": "#/components/schemas/ServiceCollectionDetails"
+      additionalProperties: false
+      type: "object"
+      required:
+        - "data"
+      title: "ServiceCollectionDetailsResponse"
+    ServiceCollectionResponse:
+      properties:
+        data:
+          "$ref": "#/components/schemas/ServiceCollection"
+      additionalProperties: false
+      type: "object"
+      required:
+        - "data"
+      title: "ServiceCollectionResponse"
+    ServiceContextAvailability:
+      properties:
+        profile:
+          type: "string"
+          enum:
+            - "baseline_v1"
+            - "health_v1"
+            - "network_v1"
+            - "inventory_v1"
+            - "session_v1"
+          title: "Profile"
+        status:
+          type: "string"
+          title: "Status"
+        last_collected_at:
+          anyOf:
+            -
+              type: "string"
+              format: "date-time"
+            -
+              type: "null"
+          title: "Last Collected At"
+      additionalProperties: false
+      type: "object"
+      required:
+        - "profile"
+        - "status"
+        - "last_collected_at"
+      title: "ServiceContextAvailability"
+    ServiceContextComparisonResponse:
+      properties:
+        data:
+          "$ref": "#/components/schemas/DeviceContextDiffV1"
+      additionalProperties: false
+      type: "object"
+      required:
+        - "data"
+      title: "ServiceContextComparisonResponse"
+    ServiceContextHistory:
+      properties:
+        snapshots:
+          items:
+            "$ref": "#/components/schemas/ServiceContextSnapshot"
+          type: "array"
+          title: "Snapshots"
+      additionalProperties: false
+      type: "object"
+      required:
+        - "snapshots"
+      title: "ServiceContextHistory"
+    ServiceContextHistoryResponse:
+      properties:
+        data:
+          "$ref": "#/components/schemas/ServiceContextHistory"
+      additionalProperties: false
+      type: "object"
+      required:
+        - "data"
+      title: "ServiceContextHistoryResponse"
+    ServiceContextResponse:
+      properties:
+        data:
+          "$ref": "#/components/schemas/ServiceDeviceContext"
+      additionalProperties: false
+      type: "object"
+      required:
+        - "data"
+      title: "ServiceContextResponse"
+    ServiceContextSnapshot:
+      properties:
+        id:
+          type: "string"
+          format: "uuid"
+          title: "Id"
+        profile:
+          type: "string"
+          enum:
+            - "baseline_v1"
+            - "health_v1"
+            - "network_v1"
+            - "inventory_v1"
+            - "session_v1"
+          title: "Profile"
+        collected_at:
+          type: "string"
+          format: "date-time"
+          title: "Collected At"
+        semantic_hash:
+          anyOf:
+            -
+              type: "string"
+            -
+              type: "null"
+          title: "Semantic Hash"
+        warnings:
+          items:
+            type: "string"
+            enum:
+              - "command_failed"
+              - "command_timed_out"
+              - "data_truncated"
+              - "permission_denied"
+              - "probe_unavailable"
+              - "redaction_applied"
+              - "source_unavailable"
+              - "unsupported_platform"
+          type: "array"
+          title: "Warnings"
+        sections:
+          anyOf:
+            -
+              "$ref": "#/components/schemas/BaselineSectionsV1"
+            -
+              "$ref": "#/components/schemas/HealthSectionsV1"
+            -
+              "$ref": "#/components/schemas/NetworkSectionsV1"
+            -
+              "$ref": "#/components/schemas/InventorySectionsV1"
+            -
+              "$ref": "#/components/schemas/SessionSectionsV1"
+          title: "Sections"
+      additionalProperties: false
+      type: "object"
+      required:
+        - "id"
+        - "profile"
+        - "collected_at"
+        - "semantic_hash"
+        - "warnings"
+        - "sections"
+      title: "ServiceContextSnapshot"
+    ServiceDevice:
+      properties:
+        id:
+          type: "string"
+          format: "uuid"
+          title: "Id"
+        device_identifier:
+          type: "string"
+          title: "Device Identifier"
+        display_name:
+          type: "string"
+          title: "Display Name"
+        retired_at:
+          anyOf:
+            -
+              type: "string"
+              format: "date-time"
+            -
+              type: "null"
+          title: "Retired At"
+        last_seen_at:
+          anyOf:
+            -
+              type: "string"
+              format: "date-time"
+            -
+              type: "null"
+          title: "Last Seen At"
+        online:
+          type: "boolean"
+          title: "Online"
+      additionalProperties: false
+      type: "object"
+      required:
+        - "id"
+        - "device_identifier"
+        - "display_name"
+        - "retired_at"
+        - "last_seen_at"
+        - "online"
+      title: "ServiceDevice"
+    ServiceDeviceContext:
+      properties:
+        device:
+          "$ref": "#/components/schemas/ServiceDevice"
+        profiles:
+          items:
+            "$ref": "#/components/schemas/ServiceContextAvailability"
+          type: "array"
+          title: "Profiles"
+        snapshots:
+          items:
+            "$ref": "#/components/schemas/ServiceContextSnapshot"
+          type: "array"
+          title: "Snapshots"
+      additionalProperties: false
+      type: "object"
+      required:
+        - "device"
+        - "profiles"
+        - "snapshots"
+      title: "ServiceDeviceContext"
+    ServiceDeviceListResponse:
+      properties:
+        data:
+          items:
+            "$ref": "#/components/schemas/ServiceDevice"
+          type: "array"
+          title: "Data"
+      additionalProperties: false
+      type: "object"
+      required:
+        - "data"
+      title: "ServiceDeviceListResponse"
+    ServiceNetworkIdentityPage:
+      properties:
+        data:
+          items:
+            "$ref": "#/components/schemas/AgentNetworkIdentity"
+          type: "array"
+          title: "Data"
+        next_cursor:
+          anyOf:
+            -
+              type: "string"
+              format: "uuid"
+            -
+              type: "null"
+          title: "Next Cursor"
+      additionalProperties: false
+      type: "object"
+      required:
+        - "data"
+        - "next_cursor"
+      title: "ServiceNetworkIdentityPage"
+    SessionSectionsV1:
+      properties:
+        current_user_login:
+          anyOf:
+            -
+              type: "string"
+              maxLength: 256
+            -
+              type: "null"
+          title: "Current User Login"
+        interactive_session_present:
+          type: "boolean"
+          title: "Interactive Session Present"
+      additionalProperties: false
+      type: "object"
+      required:
+        - "interactive_session_present"
+      title: "SessionSectionsV1"
     TcpConnectResultV1:
       properties:
         schema_version:
