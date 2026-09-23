@@ -27,7 +27,7 @@ from endpoint_server.context.projection import snapshot_projection
 from endpoint_server.context.projection import collection_projection
 from endpoint_server.context.repository import request_collection_outcome
 from endpoint_server.context.service import ContextError
-from endpoint_server.db.models import Device, EnrollmentRequest
+from endpoint_server.db.models import Device, EnrollmentRequest, UpdateBuild, UpdateRollout, UpdateTarget
 from endpoint_server.enrollment.admin_routes import CampaignCreateRequest, create_campaign
 from sqlalchemy import select
 
@@ -266,6 +266,32 @@ async def console_device_changes(
                 })
     changes.sort(key=lambda row: row["collected_at"], reverse=True)
     return {"data": changes[:50]}
+
+
+@router.get("/api/admin/console/devices/{device_id}/updates")
+async def console_device_updates(
+    request: Request,
+    device_id: UUID,
+    _: Annotated[AdminPrincipal, Depends(require_admin)],
+) -> dict[str, object]:
+    async with request.app.state.session_provider() as session:
+        exists = await session.scalar(select(Device.id).where(Device.id == device_id, Device.retired_at.is_(None)))
+        if exists is None:
+            raise HTTPException(status_code=404, detail="Устройство не найдено")
+        rows = (await session.execute(
+            select(UpdateTarget, UpdateRollout, UpdateBuild)
+            .join(UpdateRollout, UpdateRollout.id == UpdateTarget.rollout_id)
+            .join(UpdateBuild, UpdateBuild.id == UpdateRollout.build_id)
+            .where(UpdateTarget.device_id == device_id)
+            .order_by(UpdateTarget.assigned_at.desc(), UpdateTarget.id.desc())
+            .limit(50)
+        )).all()
+    return {"data": [{
+        "rollout_id": str(rollout.id), "version": build.version,
+        "mode": rollout.mode, "status": target.status,
+        "assigned_at": target.assigned_at, "terminal_at": target.terminal_at,
+        "safe_reason": target.safe_reason,
+    } for target, rollout, build in rows]}
 
 
 def install_console_assets(app: FastAPI) -> None:

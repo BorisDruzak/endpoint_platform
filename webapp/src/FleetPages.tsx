@@ -19,6 +19,7 @@ type DashboardData = {
 type Snapshot = { id: string; profile: string; collected_at: string; semantic_hash: string | null; warnings: string[]; sections: Record<string, unknown> }
 type Detail = { device: { id: string; display_name: string; device_identifier: string; online: boolean; last_seen_at: string | null; agent_version: string | null }; snapshots: Snapshot[] }
 type Change = { code: string; profile: string; collected_at: string; before_snapshot_id: string; after_snapshot_id: string; before_value: string | number | null; after_value: string | number | null }
+type DeviceUpdate = { rollout_id: string; version: string; mode: string; status: string; assigned_at: string; terminal_at: string | null; safe_reason: string | null }
 
 const dateText = (value: string | null) => value ? new Intl.DateTimeFormat('ru-RU', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value)) : 'Нет данных'
 const sizeText = (value: number | null) => value ? `${(value / 1024 ** 3).toFixed(1)} ГБ` : '—'
@@ -126,6 +127,7 @@ export function DeviceDetailPage() {
   const [refreshProfile, setRefreshProfile] = useState('inventory_v1')
   const [collection, setCollection] = useState<{ id: string; status: string } | null>(null)
   const [refreshError, setRefreshError] = useState('')
+  const [updates, setUpdates] = useState<DeviceUpdate[] | null>(null)
   useEffect(() => {
     let active = true
     Promise.all([
@@ -134,6 +136,14 @@ export function DeviceDetailPage() {
     ]).then(([value, history]) => { if (active) { setDetail(value); setChanges(history.data) } }).catch(reason => { if (active) setError(reason.message) })
     return () => { active = false }
   }, [deviceId, revision])
+  useEffect(() => {
+    if (tab !== 'updates') return
+    let active = true
+    request<{ data: DeviceUpdate[] }>(`/api/admin/console/devices/${deviceId}/updates`)
+      .then(value => { if (active) setUpdates(value.data) })
+      .catch(reason => { if (active) setError(reason.message) })
+    return () => { active = false }
+  }, [tab, deviceId, revision])
   useEffect(() => {
     if (!collection || ['completed', 'failed', 'expired'].includes(collection.status)) return
     const timer = window.setInterval(() => {
@@ -167,6 +177,7 @@ export function DeviceDetailPage() {
     {tab === 'overview' && <div className="detail-columns">{inventory ? Object.entries(inventory.sections).map(([name, value]) => <section className="panel" key={name}><h2>{{system:'Система',hardware:'Оборудование',memory:'Память',storage:'Накопители',interfaces:'Сеть'}[name] ?? name}</h2><SectionRows data={typeof value === 'object' && !Array.isArray(value) && value ? value as Record<string, unknown> : { items: value }} /></section>) : <section className="panel"><p>Инвентаризационный Context ещё не получен.</p></section>}{session && <section className="panel"><h2>Сеанс</h2><SectionRows data={session.sections} /></section>}</div>}
     {tab === 'context' && <><div className="panel context-actions"><label>Профиль <select value={refreshProfile} onChange={event => setRefreshProfile(event.target.value)}>{Object.entries(profileLabels).map(([profile, label]) => <option value={profile} key={profile}>{label}</option>)}</select></label><button onClick={refreshContext}>Обновить данные</button>{collection && <span>Сбор: {collectionLabels[collection.status] ?? collection.status}</span>}{refreshError && <span className="error" role="alert">{refreshError}</span>}</div><div className="detail-columns">{Object.entries(profileLabels).map(([profile, label]) => { const snapshot = detail.snapshots.find(item => item.profile === profile); return <section className="panel" key={profile}><h2>{label}</h2>{snapshot ? <><p className="muted">Собрано: {dateText(snapshot.collected_at)}</p><p className="muted">Snapshot: {snapshot.id}</p>{snapshot.warnings.length > 0 && <p className="error">Предупреждения: {snapshot.warnings.join(', ')}</p>}<SectionRows data={snapshot.sections} /></> : <p className="muted">Данные не собраны.</p>}</section> })}</div></>}
     {tab === 'changes' && <section className="panel"><h2>Изменения Context</h2>{changes.length ? <ul className="change-list">{changes.map((item, index) => <li key={`${item.after_snapshot_id}-${item.code}-${index}`}><div><strong>{changeLabels[item.code] ?? 'Изменение'}</strong>{item.before_value !== null && item.after_value !== null && <p>{item.code === 'RAM_CHANGED' ? sizeText(Number(item.before_value)) : item.before_value} → {item.code === 'RAM_CHANGED' ? sizeText(Number(item.after_value)) : item.after_value}</p>}</div><span>{dateText(item.collected_at)} · {profileLabels[item.profile] ?? item.profile}</span></li>)}</ul> : <p className="muted">Изменений пока нет.</p>}</section>}
-    {['operations', 'updates', 'modules', 'audit'].includes(tab) && <section className="panel"><p>Данные раздела загружаются в соответствующем журнале консоли.</p></section>}
+    {tab === 'updates' && <section className="panel"><h2>История обновлений</h2>{updates === null ? <p>Загрузка…</p> : updates.length ? <ul className="change-list">{updates.map(item => <li key={item.rollout_id}><div><strong>{item.version}</strong><p>{updateLabels[item.status] ?? item.status}{item.safe_reason ? ` · ${item.safe_reason}` : ''}</p></div><span>{dateText(item.assigned_at)}</span></li>)}</ul> : <p className="muted">Обновлений пока нет.</p>}<Link to="/admin/updates">Все развёртывания</Link></section>}
+    {['operations', 'modules', 'audit'].includes(tab) && <section className="panel"><p>Данные раздела загружаются в соответствующем журнале консоли.</p></section>}
   </>
 }

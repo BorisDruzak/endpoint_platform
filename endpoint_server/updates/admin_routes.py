@@ -6,17 +6,18 @@ from datetime import datetime
 from typing import Annotated, Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, ConfigDict
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from endpoint_contracts import UpdateBuildManifestV1, UpdateRolloutCreateV1
 from endpoint_server.audit.request_ids import audit_request_id
 from endpoint_server.auth.admin_sessions import (
     AdminPrincipal,
+    require_admin,
     require_admin_update_scope,
 )
-from endpoint_server.db.models import UpdateBuild, UpdateRollout
+from endpoint_server.db.models import Device, UpdateBuild, UpdateRollout, UpdateTarget
 
 from .errors import (
     UpdateConflict,
@@ -88,6 +89,133 @@ def _rollout_response(rollout: UpdateRollout) -> UpdateRolloutResponse:
         paused_at=rollout.paused_at,
         completed_at=rollout.completed_at,
     )
+
+
+def _safe_build(build: UpdateBuild) -> dict[str, object]:
+    return {
+        "id": str(build.id), "build_identifier": build.build_identifier,
+        "version": build.version, "platform": build.platform, "channel": build.channel,
+        "sha256": build.sha256_digest, "size": build.size,
+        "artifact_name": build.artifact_name, "release_notes": build.release_notes,
+        "created_at": build.created_at,
+    }
+
+
+def _safe_rollout(
+    rollout: UpdateRollout, build: UpdateBuild, counts: dict[str, int]
+) -> dict[str, object]:
+    return {
+        "id": str(rollout.id), "rollout_identifier": rollout.rollout_identifier,
+        "build_id": str(build.id), "build_identifier": build.build_identifier,
+        "version": build.version, "platform": build.platform,
+        "mode": rollout.mode, "status": rollout.status, "reason": rollout.reason,
+        "created_at": rollout.created_at, "started_at": rollout.started_at,
+        "paused_at": rollout.paused_at, "completed_at": rollout.completed_at,
+        "cancelled_at": rollout.cancelled_at, "counts": counts,
+    }
+
+
+async def _target_counts(session, rollout_ids: list[UUID]) -> dict[UUID, dict[str, int]]:
+    if not rollout_ids:
+        return {}
+    rows = (await session.execute(
+        select(UpdateTarget.rollout_id, UpdateTarget.status, func.count())
+        .where(UpdateTarget.rollout_id.in_(rollout_ids))
+        .group_by(UpdateTarget.rollout_id, UpdateTarget.status)
+    )).all()
+    counts: dict[UUID, dict[str, int]] = {rollout_id: {} for rollout_id in rollout_ids}
+    for rollout_id, target_status, count in rows:
+        counts[rollout_id][target_status] = count
+    return counts
+
+
+@router.get("/builds")
+async def list_update_builds(
+    request: Request,
+    _: Annotated[AdminPrincipal, Depends(require_admin)],
+    limit: Annotated[int, Query(ge=1, le=100)] = 50,
+    offset: Annotated[int, Query(ge=0, le=100_000)] = 0,
+) -> dict[str, object]:
+    async with request.app.state.session_provider() as session:
+        total = await session.scalar(select(func.count()).select_from(UpdateBuild)) or 0
+        builds = (await session.execute(
+            select(UpdateBuild)
+            .order_by(UpdateBuild.created_at.desc(), UpdateBuild.id.desc())
+            .limit(limit).offset(offset)
+        )).scalars().all()
+    return {"data": [_safe_build(build) for build in builds], "total": total, "limit": limit, "offset": offset}
+
+
+@router.get("/builds/{build_id}")
+async def read_update_build(
+    build_id: UUID,
+    request: Request,
+    _: Annotated[AdminPrincipal, Depends(require_admin)],
+) -> dict[str, object]:
+    async with request.app.state.session_provider() as session:
+        build = await session.scalar(select(UpdateBuild).where(UpdateBuild.id == build_id))
+    if build is None:
+        raise HTTPException(status_code=404, detail="Релиз не найден")
+    return {"data": _safe_build(build)}
+
+
+@router.get("/rollouts")
+async def list_update_rollouts(
+    request: Request,
+    _: Annotated[AdminPrincipal, Depends(require_admin)],
+    limit: Annotated[int, Query(ge=1, le=100)] = 50,
+    offset: Annotated[int, Query(ge=0, le=100_000)] = 0,
+) -> dict[str, object]:
+    async with request.app.state.session_provider() as session:
+        total = await session.scalar(select(func.count()).select_from(UpdateRollout)) or 0
+        rows = (await session.execute(
+            select(UpdateRollout, UpdateBuild)
+            .join(UpdateBuild, UpdateBuild.id == UpdateRollout.build_id)
+            .order_by(UpdateRollout.created_at.desc(), UpdateRollout.id.desc())
+            .limit(limit).offset(offset)
+        )).all()
+        counts = await _target_counts(session, [rollout.id for rollout, _ in rows])
+    return {
+        "data": [_safe_rollout(rollout, build, counts.get(rollout.id, {})) for rollout, build in rows],
+        "total": total, "limit": limit, "offset": offset,
+    }
+
+
+@router.get("/rollouts/{rollout_id}")
+async def read_update_rollout(
+    rollout_id: UUID,
+    request: Request,
+    _: Annotated[AdminPrincipal, Depends(require_admin)],
+    limit: Annotated[int, Query(ge=1, le=100)] = 50,
+    offset: Annotated[int, Query(ge=0, le=100_000)] = 0,
+) -> dict[str, object]:
+    async with request.app.state.session_provider() as session:
+        row = (await session.execute(
+            select(UpdateRollout, UpdateBuild)
+            .join(UpdateBuild, UpdateBuild.id == UpdateRollout.build_id)
+            .where(UpdateRollout.id == rollout_id)
+        )).one_or_none()
+        if row is None:
+            raise HTTPException(status_code=404, detail="Развёртывание не найдено")
+        rollout, build = row
+        counts = (await _target_counts(session, [rollout_id])).get(rollout_id, {})
+        targets = (await session.execute(
+            select(UpdateTarget, Device.display_name, Device.device_identifier)
+            .join(Device, Device.id == UpdateTarget.device_id)
+            .where(UpdateTarget.rollout_id == rollout_id)
+            .order_by(UpdateTarget.assigned_at, UpdateTarget.id)
+            .limit(limit).offset(offset)
+        )).all()
+    return {
+        **_safe_rollout(rollout, build, counts),
+        "targets_total": sum(counts.values()), "target_limit": limit, "target_offset": offset,
+        "targets": [{
+            "device_id": str(target.device_id),
+            "device_name": name or identifier,
+            "status": target.status, "assigned_at": target.assigned_at,
+            "terminal_at": target.terminal_at, "safe_reason": target.safe_reason,
+        } for target, name, identifier in targets],
+    }
 
 
 def _admin_error(error: UpdateError) -> HTTPException:

@@ -1,0 +1,75 @@
+"""Read-only update projections count actual target states and remain bounded."""
+
+from __future__ import annotations
+
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
+from uuid import uuid4
+
+import pytest
+from httpx import ASGITransport, AsyncClient
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+
+from endpoint_server.auth.admin_sessions import AdminPrincipal, require_admin
+from endpoint_server.config import Settings
+from endpoint_server.db.models import AdminSession, AdminUser, Device, UpdateBuild, UpdateRollout, UpdateTarget
+from endpoint_server.main import create_app
+
+
+@pytest.mark.asyncio
+async def test_rollout_read_has_exact_status_counts_and_bounded_targets() -> None:
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    async with engine.begin() as connection:
+        await connection.run_sync(lambda sync: [table.create(sync) for table in (
+            Device.__table__, UpdateBuild.__table__, UpdateRollout.__table__, UpdateTarget.__table__,
+        )])
+    sessions = async_sessionmaker(engine, expire_on_commit=False)
+    now = datetime.now(UTC)
+    build = UpdateBuild(
+        id=uuid4(), build_identifier="windows-stable-1", version="3.2.63",
+        platform="windows_amd64", channel="stable", artifact_identifier="agent.tar.gz",
+        artifact_url="https://endpoint.sosnadmin.local/api/agent/update/artifacts/agent",
+        artifact_name="agent.tar.gz", archive_type="tar.gz", sha256_digest="a" * 64,
+        size=100, release_notes="Release notes",
+    )
+    rollout = UpdateRollout(
+        id=uuid4(), rollout_identifier="rollout-1", build_id=build.id,
+        mode="canary", status="active", started_at=now,
+    )
+    devices = [Device(id=uuid4(), device_identifier=f"READ-{index}") for index in range(3)]
+    targets = [UpdateTarget(
+        id=uuid4(), rollout_id=rollout.id, device_id=device.id,
+        target_identifier=f"target-{index}", operation_id=f"op-{index}",
+        status=status, assigned_at=now,
+    ) for index, (device, status) in enumerate(zip(devices, ("applied", "failed", "scheduled")))]
+    async with sessions() as session:
+        session.add_all([build, rollout, *devices, *targets]); await session.commit()
+    settings = Settings(
+        database_url="postgresql+asyncpg://unused@localhost/unused",
+        public_base_url="https://endpoint.sosnadmin.local",
+        device_token_pepper=b"update-read-device-pepper", service_token_pepper=b"update-read-service-pepper",
+        session_secret=b"update-read-session-secret", allowed_agent_cidrs=(), allowed_admin_cidrs=(),
+        artifact_root=Path("artifacts"),
+    )
+    app = create_app(settings, session_provider=sessions)
+    user_id = uuid4()
+    principal = AdminPrincipal(
+        user=AdminUser(id=user_id, username="operator", password_digest="unused", scopes=[], disabled_at=None),
+        session=AdminSession(id=uuid4(), admin_user_id=user_id, session_digest="unused", expires_at=now + timedelta(hours=1), revoked_at=None),
+    )
+    app.dependency_overrides[require_admin] = lambda: principal
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="https://endpoint.sosnadmin.local") as client:
+        listing = await client.get("/api/admin/updates/rollouts")
+        detail = await client.get(f"/api/admin/updates/rollouts/{rollout.id}?limit=1")
+        builds = await client.get("/api/admin/updates/builds")
+        device_updates = await client.get(f"/api/admin/console/devices/{devices[1].id}/updates")
+    await engine.dispose()
+    assert listing.status_code == 200
+    assert listing.json()["data"][0]["counts"] == {"applied": 1, "failed": 1, "scheduled": 1}
+    assert detail.status_code == 200
+    assert detail.json()["targets_total"] == 3
+    assert len(detail.json()["targets"]) == 1
+    assert builds.status_code == 200
+    assert "artifact_url" not in builds.text
+    assert device_updates.status_code == 200
+    assert device_updates.json()["data"][0]["status"] == "failed"
