@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated, Literal
 from uuid import UUID
@@ -20,7 +21,7 @@ from endpoint_server.auth.admin_sessions import (
 from endpoint_server.auth.csrf import csrf_token_for_session
 from endpoint_server.audit.request_ids import audit_request_id
 from endpoint_server.audit.service import append_audit_event
-from endpoint_server.console.fleet import dashboard_fleet, device_presence, list_fleet
+from endpoint_server.console.fleet import CONTEXT_TTL, dashboard_fleet, device_presence, list_fleet
 from endpoint_server.context.diff import compare_snapshots
 from endpoint_server.context.models import ContextCollection, ContextCurrent, ContextSnapshot
 from endpoint_server.context.projection import snapshot_projection
@@ -243,12 +244,26 @@ async def console_device_detail(
             .order_by(ContextSnapshot.profile)
         )).scalars().all()
         snapshots = [safe for row in rows if (safe := snapshot_projection(row)) is not None]
+        now = datetime.now(UTC)
+        for snapshot in snapshots:
+            collected = snapshot["collected_at"]
+            if isinstance(collected, datetime) and collected.tzinfo is None:
+                collected = collected.replace(tzinfo=UTC)
+            snapshot["fresh"] = isinstance(collected, datetime) and now - CONTEXT_TTL <= collected <= now
         presence = await device_presence(session, device_id)
+        by_profile = {snapshot["profile"]: snapshot["sections"] for snapshot in snapshots}
+        inventory = by_profile.get("inventory_v1", {})
+        system = inventory.get("system", {}) if isinstance(inventory, dict) else {}
+        session_info = by_profile.get("session_v1", {})
         return {
             "device": {
                 "id": str(device.id),
                 "device_identifier": device.device_identifier,
                 "display_name": device.display_name or device.device_identifier,
+                "hostname": system.get("hostname") if isinstance(system, dict) else None,
+                "os_name": system.get("os_name") if isinstance(system, dict) else None,
+                "os_version": system.get("os_version") if isinstance(system, dict) else None,
+                "current_user": session_info.get("current_user_login") if isinstance(session_info, dict) else None,
                 **presence,
             },
             "snapshots": snapshots,

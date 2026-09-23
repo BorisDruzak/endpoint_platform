@@ -121,12 +121,12 @@ async def test_console_device_api_uses_session_and_safe_projection() -> None:
     )
     inventory_snapshots = [ContextSnapshot(
         id=uuid4(), collection_id=uuid4(), device_id=device.id, profile="inventory_v1",
-        collected_at=now - timedelta(days=2 - index), raw_payload={"secret": "inventory-private"},
+        collected_at=now - (timedelta(days=2) if index == 0 else timedelta(hours=6)), raw_payload={"secret": "inventory-private"},
         normalized_projection={
             "schema_version": "device_context_v1", "profile": "inventory_v1",
-            "collected_at": (now - timedelta(days=2 - index)).isoformat(), "warnings": [],
+            "collected_at": (now - (timedelta(days=2) if index == 0 else timedelta(hours=6))).isoformat(), "warnings": [],
             "sections": {
-                "system": {"hostname": "CONSOLE-01", "platform": "windows"},
+                "system": {"hostname": "CONSOLE-01", "platform": "windows", "os_name": "Windows 11", "os_version": "11"},
                 "hardware": {}, "memory": {"total_bytes": size, "module_count": 0, "modules": []},
                 "storage": {"physical_devices": []}, "interfaces": [],
             },
@@ -136,6 +136,7 @@ async def test_console_device_api_uses_session_and_safe_projection() -> None:
         session.add_all([device, snapshot, *inventory_snapshots])
         await session.flush()
         session.add(ContextCurrent(device_id=device.id, profile="session_v1", snapshot_id=snapshot.id, updated_at=now))
+        session.add(ContextCurrent(device_id=device.id, profile="inventory_v1", snapshot_id=inventory_snapshots[-1].id, updated_at=now))
         await session.commit()
     settings = Settings(
         database_url="postgresql+asyncpg://unused@localhost/unused",
@@ -167,7 +168,12 @@ async def test_console_device_api_uses_session_and_safe_projection() -> None:
         audit_count = await session.scalar(select(func.count()).select_from(AuditEvent).where(AuditEvent.action == "context.collection_requested"))
     await engine.dispose()
     assert response.status_code == 200
-    assert response.json()["snapshots"][0]["sections"]["current_user_login"] == "operator"
+    assert response.json()["device"]["current_user"] == "operator"
+    assert response.json()["device"]["hostname"] == "CONSOLE-01"
+    assert response.json()["device"]["os_name"] == "Windows 11"
+    assert response.json()["device"]["os_version"] == "11"
+    assert next(item for item in response.json()["snapshots"] if item["profile"] == "inventory_v1")["fresh"] is True
+    assert next(item for item in response.json()["snapshots"] if item["profile"] == "session_v1")["sections"]["current_user_login"] == "operator"
     assert "private-token" not in response.text
     assert "device_token" not in response.text
     assert changes.status_code == 200

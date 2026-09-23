@@ -3,6 +3,7 @@ import { MemoryRouter } from 'react-router'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { AuditPage } from './AuditPage'
 import { EnrollmentPage } from './EnrollmentPage'
+import { DeviceDetailPage } from './FleetPages'
 import { ModulesPage } from './ModulesPage'
 import { UpdatesPage } from './UpdatesPage'
 
@@ -29,6 +30,44 @@ const requestRows = [
 }))
 
 describe('Русский интерфейс Console', () => {
+  it('показывает поля инвентаризации и других профилей понятными подписями', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => jsonResponse(
+      url.endsWith('/changes') ? { data: [] } : {
+        device: { id: 'device-1', display_name: 'Рабочая станция', device_identifier: 'PC-01', online: true, last_seen_at: null, agent_version: '3.2.63', hostname: 'PC-01', os_name: 'Windows 11', os_version: '11', current_user: 'operator' },
+        snapshots: [
+          { id: 'inventory-1', profile: 'inventory_v1', collected_at: '2026-09-24T08:00:00Z', fresh: true, semantic_hash: null, warnings: [], sections: {
+            system: { hostname: 'PC-01', platform: 'windows' },
+            hardware: { bios_vendor: 'Example BIOS', baseboard_manufacturer: 'Example Board' },
+            memory: { module_count: 1, modules: [{ slot: 'DIMM-1', part_number: 'RAM-8G' }] },
+            storage: { physical_devices: [{ model: 'SSD', serial: 'DISK-1' }] },
+            interfaces: [],
+          } },
+          { id: 'health-1', profile: 'health_v1', collected_at: '2026-09-24T08:00:00Z', fresh: false, semantic_hash: null, warnings: [], sections: {
+            resources: { uptime_seconds: 60, free_bytes: 0 }, services: [{ name: 'Agent', status: 'active' }],
+          } },
+        ],
+      },
+    )))
+    render(<MemoryRouter initialEntries={['/admin/devices/device-1']}><DeviceDetailPage /></MemoryRouter>)
+
+    await screen.findByRole('heading', { name: 'Рабочая станция' })
+    expect(screen.getByText(/Пользователь: operator/)).toBeTruthy()
+    expect(screen.getByText('Производитель BIOS')).toBeTruthy()
+    expect(screen.getByText('Производитель системной платы')).toBeTruthy()
+    expect(screen.getByText('Слот')).toBeTruthy()
+    expect(screen.getByText('Артикул')).toBeTruthy()
+    expect(screen.getByText('Серийный номер')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Контекст' }))
+    expect(screen.getByText('Свежесть: Актуален')).toBeTruthy()
+    expect(screen.getByText('Свежесть: Устарел')).toBeTruthy()
+    expect(screen.getByText('Ресурсы')).toBeTruthy()
+    expect(screen.getByText('Время работы')).toBeTruthy()
+    expect(screen.getByText('Свободно')).toBeTruthy()
+    expect(screen.getByText('0.0 ГБ')).toBeTruthy()
+    expect(screen.getByText('Службы')).toBeTruthy()
+    expect(screen.getByText('Активна')).toBeTruthy()
+  })
+
   it('показывает русские подписи фильтров и колонок аудита', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({
       data: [{

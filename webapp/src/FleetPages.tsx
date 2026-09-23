@@ -17,14 +17,21 @@ type DashboardData = {
   versions: { version: string | null; count: number }[]
   attention: { kind: string; device_id: string; label: string }[]
 }
-type Snapshot = { id: string; profile: string; collected_at: string; semantic_hash: string | null; warnings: string[]; sections: Record<string, unknown> }
-type Detail = { device: { id: string; display_name: string; device_identifier: string; online: boolean; last_seen_at: string | null; agent_version: string | null }; snapshots: Snapshot[] }
+type Snapshot = { id: string; profile: string; collected_at: string; fresh: boolean; semantic_hash: string | null; warnings: string[]; sections: Record<string, unknown> }
+type Detail = { device: { id: string; display_name: string; device_identifier: string; online: boolean; last_seen_at: string | null; agent_version: string | null; hostname: string | null; os_name: string | null; os_version: string | null; current_user: string | null }; snapshots: Snapshot[] }
 type Change = { code: string; profile: string; collected_at: string; before_snapshot_id: string; after_snapshot_id: string; before_value: string | number | null; after_value: string | number | null }
 type DeviceUpdate = { rollout_id: string; version: string; mode: string; status: string; assigned_at: string; terminal_at: string | null; safe_reason: string | null }
 
 const dateText = (value: string | null) => value ? new Intl.DateTimeFormat('ru-RU', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value)) : 'Нет данных'
-const sizeText = (value: number | null) => value ? `${(value / 1024 ** 3).toFixed(1)} ГБ` : '—'
-const valueText = (value: unknown): string => value == null || value === '' ? '—' : typeof value === 'boolean' ? (value ? 'Да' : 'Нет') : String(value)
+const sizeText = (value: number | null) => value === null ? '—' : `${(value / 1024 ** 3).toFixed(1)} ГБ`
+const valueLabels: Record<string, Record<string, string>> = {
+  platform: { windows: 'Windows', linux: 'Linux' },
+  status: { active: 'Активна', inactive: 'Неактивна', failed: 'Ошибка', unknown: 'Неизвестно' },
+  operational_state: { up: 'Работает', down: 'Отключён', unknown: 'Неизвестно' },
+  link_type: { ethernet: 'Проводное', wireless: 'Беспроводное', loopback: 'Локальное', other: 'Другое' },
+  source: { installer: 'Установщик', package: 'Пакет', system: 'Система' },
+}
+const valueText = (key: string, value: unknown): string => value == null || value === '' ? '—' : typeof value === 'boolean' ? (value ? 'Да' : 'Нет') : valueLabels[key]?.[String(value)] ?? String(value)
 const updateLabels: Record<string, string> = { assigned: 'Назначено', requested: 'Запрошено', scheduled: 'Запланировано', applied: 'Установлено', failed: 'Ошибка', rolled_back: 'Откат', cancelled: 'Отменено' }
 const changeLabels: Record<string, string> = {
   RAM_CHANGED: 'Оперативная память', STORAGE_CHANGED: 'Накопители', HOSTNAME_CHANGED: 'Имя компьютера',
@@ -36,8 +43,9 @@ const profileLabels: Record<string, string> = {
   inventory_v1: 'Инвентаризация', session_v1: 'Сеанс',
 }
 const fieldLabels: Record<string, string> = {
+  system: 'Система', hardware: 'Оборудование', memory: 'Память', storage: 'Накопители',
   hostname: 'Имя компьютера', platform: 'Платформа', os_name: 'ОС', os_version: 'Версия ОС',
-  os_build: 'Сборка', architecture: 'Архитектура', manufacturer: 'Производитель', model: 'Модель',
+  os_build: 'Сборка', architecture: 'Архитектура', distribution: 'Дистрибутив', manufacturer: 'Производитель', model: 'Модель',
   serial_number: 'Серийный номер', product_uuid: 'Product UUID', cpu_model: 'Процессор',
   total_bytes: 'Объём', module_count: 'Число модулей', modules: 'Модули памяти',
   physical_devices: 'Физические накопители', size_bytes: 'Размер', media_type: 'Тип носителя',
@@ -45,6 +53,14 @@ const fieldLabels: Record<string, string> = {
   current_user_login: 'Текущий пользователь', interactive_session_present: 'Интерактивный сеанс',
   operational_state: 'Состояние', link_type: 'Тип соединения', stable_key: 'Идентификатор',
   speed_mt_s: 'Скорость MT/s', memory_type: 'Тип памяти', capacity_bytes: 'Ёмкость',
+  bios_vendor: 'Производитель BIOS', bios_version: 'Версия BIOS',
+  baseboard_manufacturer: 'Производитель системной платы', baseboard_model: 'Модель системной платы',
+  baseboard_serial: 'Серийный номер системной платы', slot: 'Слот', part_number: 'Артикул',
+  serial: 'Серийный номер', memory_bytes: 'Оперативная память',
+  resources: 'Ресурсы', services: 'Службы', uptime_seconds: 'Время работы',
+  load_1m: 'Нагрузка за минуту', free_bytes: 'Свободно', status: 'Состояние службы',
+  default_route: 'Маршрут по умолчанию', interface: 'Интерфейс', gateway: 'Шлюз',
+  addresses: 'Адреса', software: 'Программы', version: 'Версия', source: 'Источник',
 }
 const collectionLabels: Record<string, string> = {
   requested: 'Запрошено', queued: 'В очереди', delivered: 'Доставлено', collecting: 'Сбор данных',
@@ -115,7 +131,7 @@ export function DevicesPage() {
 }
 
 function SectionRows({ data }: { data: Record<string, unknown> }) {
-  return <dl className="detail-grid">{Object.entries(data).map(([key, value]) => <div key={key}><dt>{fieldLabels[key] ?? key.replaceAll('_', ' ')}</dt><dd>{Array.isArray(value) ? value.length ? <ul>{value.map((item, index) => <li key={index}>{typeof item === 'object' && item !== null ? <SectionRows data={item as Record<string, unknown>} /> : valueText(item)}</li>)}</ul> : '—' : typeof value === 'object' && value !== null ? <SectionRows data={value as Record<string, unknown>} /> : key.endsWith('_bytes') && typeof value === 'number' ? sizeText(value) : valueText(value)}</dd></div>)}</dl>
+  return <dl className="detail-grid">{Object.entries(data).map(([key, value]) => <div key={key}><dt>{fieldLabels[key] ?? key.replaceAll('_', ' ')}</dt><dd>{Array.isArray(value) ? value.length ? <ul>{value.map((item, index) => <li key={index}>{typeof item === 'object' && item !== null ? <SectionRows data={item as Record<string, unknown>} /> : valueText(key, item)}</li>)}</ul> : '—' : typeof value === 'object' && value !== null ? <SectionRows data={value as Record<string, unknown>} /> : key.endsWith('_bytes') && typeof value === 'number' ? sizeText(value) : valueText(key, value)}</dd></div>)}</dl>
 }
 
 export function DeviceDetailPage() {
@@ -173,11 +189,11 @@ export function DeviceDetailPage() {
   const session = detail.snapshots.find(item => item.profile === 'session_v1')
   return <>
     <Link className="back-link" to="/admin/devices">← Все устройства</Link>
-    <div className="page-heading"><div><p className="eyebrow">УСТРОЙСТВО</p><h1>{detail.device.display_name}</h1><p className="muted">{detail.device.device_identifier} · {detail.device.online ? 'В сети' : 'Не в сети'} · Agent {detail.device.agent_version ?? '—'} · Последняя связь: {dateText(detail.device.last_seen_at)}</p></div><button onClick={() => setRevision(value => value + 1)}>Обновить</button></div>
+    <div className="page-heading"><div><p className="eyebrow">УСТРОЙСТВО</p><h1>{detail.device.display_name}</h1><p className="muted">{detail.device.hostname ?? detail.device.device_identifier} · {detail.device.online ? 'В сети' : 'Не в сети'} · Пользователь: {detail.device.current_user ?? '—'} · {detail.device.os_name ?? 'ОС неизвестна'} {detail.device.os_version ?? ''} · Агент {detail.device.agent_version ?? '—'} · Последняя связь: {dateText(detail.device.last_seen_at)}</p></div><button onClick={() => setRevision(value => value + 1)}>Обновить</button></div>
     <nav className="tabs" aria-label="Разделы устройства">{[['overview', 'Обзор'], ['context', 'Контекст'], ['changes', 'Изменения'], ['operations', 'Операции'], ['updates', 'Обновления'], ['modules', 'Модули'], ['audit', 'Аудит']].map(([key, label]) => <button key={key} className={tab === key ? 'selected' : ''} onClick={() => setTab(key)}>{label}</button>)}</nav>
     {tab === 'modules' && deviceId && <DeviceModules deviceId={deviceId} />}
-    {tab === 'overview' && <div className="detail-columns">{inventory ? Object.entries(inventory.sections).map(([name, value]) => <section className="panel" key={name}><h2>{{system:'Система',hardware:'Оборудование',memory:'Память',storage:'Накопители',interfaces:'Сеть'}[name] ?? name}</h2><SectionRows data={typeof value === 'object' && !Array.isArray(value) && value ? value as Record<string, unknown> : { items: value }} /></section>) : <section className="panel"><p>Инвентаризационный Context ещё не получен.</p></section>}{session && <section className="panel"><h2>Сеанс</h2><SectionRows data={session.sections} /></section>}</div>}
-    {tab === 'context' && <><div className="panel context-actions"><label>Профиль <select value={refreshProfile} onChange={event => setRefreshProfile(event.target.value)}>{Object.entries(profileLabels).map(([profile, label]) => <option value={profile} key={profile}>{label}</option>)}</select></label><button onClick={refreshContext}>Обновить данные</button>{collection && <span>Сбор: {collectionLabels[collection.status] ?? collection.status}</span>}{refreshError && <span className="error" role="alert">{refreshError}</span>}</div><div className="detail-columns">{Object.entries(profileLabels).map(([profile, label]) => { const snapshot = detail.snapshots.find(item => item.profile === profile); return <section className="panel" key={profile}><h2>{label}</h2>{snapshot ? <><p className="muted">Собрано: {dateText(snapshot.collected_at)}</p><p className="muted">Snapshot: {snapshot.id}</p>{snapshot.warnings.length > 0 && <p className="error">Предупреждения: {snapshot.warnings.join(', ')}</p>}<SectionRows data={snapshot.sections} /></> : <p className="muted">Данные не собраны.</p>}</section> })}</div></>}
+    {tab === 'overview' && <div className="detail-columns">{inventory ? Object.entries(inventory.sections).map(([name, value]) => <section className="panel" key={name}><h2>{{system:'Система',hardware:'Оборудование',memory:'Память',storage:'Накопители',interfaces:'Сеть'}[name] ?? name}</h2><SectionRows data={typeof value === 'object' && !Array.isArray(value) && value ? value as Record<string, unknown> : { [name]: value }} /></section>) : <section className="panel"><p>Инвентаризационный Context ещё не получен.</p></section>}{session && <section className="panel"><h2>Сеанс</h2><SectionRows data={session.sections} /></section>}</div>}
+    {tab === 'context' && <><div className="panel context-actions"><label>Профиль <select value={refreshProfile} onChange={event => setRefreshProfile(event.target.value)}>{Object.entries(profileLabels).map(([profile, label]) => <option value={profile} key={profile}>{label}</option>)}</select></label><button onClick={refreshContext}>Обновить данные</button>{collection && <span>Сбор: {collectionLabels[collection.status] ?? collection.status}</span>}{refreshError && <span className="error" role="alert">{refreshError}</span>}</div><div className="detail-columns">{Object.entries(profileLabels).map(([profile, label]) => { const snapshot = detail.snapshots.find(item => item.profile === profile); return <section className="panel" key={profile}><h2>{label}</h2>{snapshot ? <><p className="muted">Состояние: Готово · Собрано: {dateText(snapshot.collected_at)}</p><p className="muted">Свежесть: {snapshot.fresh ? 'Актуален' : 'Устарел'}</p><p className="muted">Снимок: {snapshot.id}</p>{snapshot.warnings.length > 0 && <p className="error">Предупреждения: {snapshot.warnings.join(', ')}</p>}<SectionRows data={snapshot.sections} /></> : <p className="muted">Данные не собраны.</p>}</section> })}</div></>}
     {tab === 'changes' && <section className="panel"><h2>Изменения Context</h2>{changes.length ? <ul className="change-list">{changes.map((item, index) => <li key={`${item.after_snapshot_id}-${item.code}-${index}`}><div><strong>{changeLabels[item.code] ?? 'Изменение'}</strong>{item.before_value !== null && item.after_value !== null && <p>{item.code === 'RAM_CHANGED' ? sizeText(Number(item.before_value)) : item.before_value} → {item.code === 'RAM_CHANGED' ? sizeText(Number(item.after_value)) : item.after_value}</p>}</div><span>{dateText(item.collected_at)} · {profileLabels[item.profile] ?? item.profile}</span></li>)}</ul> : <p className="muted">Изменений пока нет.</p>}</section>}
     {tab === 'updates' && <section className="panel"><h2>История обновлений</h2>{updates === null ? <p>Загрузка…</p> : updates.length ? <ul className="change-list">{updates.map(item => <li key={item.rollout_id}><div><strong><Link to={`/admin/updates?open=${item.rollout_id}`}>{item.version}</Link></strong><p>{updateLabels[item.status] ?? item.status}{item.safe_reason ? ` · ${item.safe_reason}` : ''}</p></div><span>{dateText(item.assigned_at)}</span></li>)}</ul> : <p className="muted">Обновлений пока нет.</p>}<Link to="/admin/updates">Все развёртывания</Link></section>}
     {tab === 'operations' && <section className="panel"><h2>Операции устройства</h2><Link to={`/admin/operations?device_id=${deviceId}`}>Открыть журнал операций устройства</Link></section>}
