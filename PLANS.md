@@ -20,8 +20,8 @@ also corrected module operation detail projection and the approved enrollment
 queue/label, and aligned campaign display names with the Russian Console.
 Authenticated production browser acceptance and live Agent module labs remain
 open. Production runs release
-`7b3fa6d153e1b8495ed939e77f410c32a56261dc` with DB revision
-`0025_console_enrollment_queue`; the previous `e9853b9d97af` release is retained for
+`6d14f6795ab8ccded017121ec2c27fcfab7b3a98` with DB revision
+`0025_console_enrollment_queue`; the previous `7b3fa6d153e1` release is retained for
 rollback. The historical
 Wave 1 plan below is retained as a record, not a current deployment gate.
 
