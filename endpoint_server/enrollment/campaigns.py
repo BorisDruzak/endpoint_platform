@@ -172,6 +172,7 @@ def _validated_text(
     name: str,
     maximum: int,
     required: bool,
+    ascii_only: bool = True,
 ) -> str | None:
     if value is None:
         if required:
@@ -180,12 +181,18 @@ def _validated_text(
     if (
         not value
         or value != value.strip()
-        or not value.isascii()
+        or not value.isprintable()
+        or (ascii_only and not value.isascii())
         or len(value) > maximum
         or any(ord(character) < 32 for character in value)
     ):
-        raise ValueError(f"{name} must be bounded printable ASCII")
+        raise ValueError(f"{name} must be bounded printable {'ASCII' if ascii_only else 'text'}")
     return value
+
+
+def validate_campaign_display_text(value: str | None, *, name: str, maximum: int) -> str | None:
+    """Keep operator labels printable while allowing local-language names."""
+    return _validated_text(value, name=name, maximum=maximum, required=False, ascii_only=False)
 
 
 def issue_campaign(
@@ -228,8 +235,8 @@ def issue_campaign(
         allowed_cidrs=_normalized_cidrs(allowed_cidrs),
         target_platform=platform,
         policy=normalized_policy,
-        label=_validated_text(label, name="label", maximum=256, required=False),
-        site=_validated_text(site, name="site", maximum=128, required=False),
+        label=validate_campaign_display_text(label, name="label", maximum=256),
+        site=validate_campaign_display_text(site, name="site", maximum=128),
         revoked_at=None,
     )
     return IssuedCampaign(token=token, record=record)

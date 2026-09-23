@@ -179,13 +179,41 @@ async def test_console_campaign_create_never_sends_bearer_to_browser() -> None:
                     "policy_id": "office-v1", "enrollment_mode": "manual",
                     "allowed_installer_releases": ["3.2.63"],
                 },
-                "label": "Office Windows", "site": "hq",
+                "label": "Windows — рабочие станции администрации", "site": "Главный офис",
             },
         )
     assert response.status_code == 201
     assert set(response.json()) == {"id"}
     assert "ec_" not in response.text
     assert session.commit_calls == 1
+
+
+@pytest.mark.asyncio
+async def test_admin_campaign_update_accepts_russian_names_but_rejects_controls() -> None:
+    campaign = issue_campaign(
+        PEPPER,
+        expires_at=NOW + timedelta(hours=1), max_uses=2,
+        allowed_cidrs=("192.168.100.0/24",), target_platform="linux",
+        policy={"channel": "stable"}, label="Office Linux", now=NOW,
+    ).record
+    session = _AdminEnrollmentSession(campaign=campaign)
+    app = create_app(_settings(), session_provider=_Provider(session))
+    app.dependency_overrides[require_admin] = _principal
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="https://endpoint.sosnadmin.local"
+    ) as client:
+        localized = await client.patch(
+            f"/api/admin/enrollment/campaigns/{campaign.id}",
+            json={"label": "Рабочие станции", "site": "Главный офис"},
+        )
+        control = await client.patch(
+            f"/api/admin/enrollment/campaigns/{campaign.id}",
+            json={"label": "Bad\nname"},
+        )
+    assert localized.status_code == 204
+    assert campaign.label == "Рабочие станции" and campaign.site == "Главный офис"
+    assert control.status_code == 422
+    assert session.commit_calls == 1 and session.rollback_calls == 1
 
 
 @pytest.mark.asyncio

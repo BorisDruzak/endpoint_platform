@@ -18,6 +18,7 @@ from .campaigns import (
     issue_campaign,
     parse_windows_enrollment_policy,
     revoke_campaign,
+    validate_campaign_display_text,
 )
 from endpoint_contracts.json_types import validate_bounded_json
 from endpoint_server.db.models import EnrollmentCampaign
@@ -297,9 +298,9 @@ async def update_campaign(
                 ).record
                 campaign.allowed_cidrs = validated.allowed_cidrs
             if "label" in body.model_fields_set:
-                campaign.label = body.label
+                campaign.label = validate_campaign_display_text(body.label, name="label", maximum=256)
             if "site" in body.model_fields_set:
-                campaign.site = body.site
+                campaign.site = validate_campaign_display_text(body.site, name="site", maximum=128)
         except ValueError as error:
             await session.rollback()
             raise _invalid("Invalid enrollment campaign") from error
