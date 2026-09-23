@@ -79,6 +79,12 @@ test('administrator can approve enrollment, roll back an update and run a module
 
   await page.getByRole('navigation', { name: 'Основная навигация' }).getByRole('link', { name: 'Модули' }).click()
   await expect(page.getByText('РЕДАКТОР МОДУЛЕЙ')).toBeVisible()
+  const capabilityCatalog = page.getByRole('heading', { name: 'Каталог возможностей' }).locator('..')
+  const dnsCapability = capabilityCatalog.getByRole('article').filter({ hasText: 'dns.resolve' })
+  await expect(dnsCapability.getByRole('heading', { name: 'Разрешение DNS-имени' })).toBeVisible()
+  await expect(dnsCapability).toContainText('Риск: Безопасное чтение')
+  await expect(dnsCapability).toContainText('Согласие: не требуется')
+  await expect(dnsCapability).toContainText('target')
   const draft = page.locator('form').last()
   await draft.getByLabel('Название').fill('Проверка сети')
   await draft.getByLabel('Module key').fill('network.basic.check')

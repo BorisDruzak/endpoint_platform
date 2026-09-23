@@ -19,6 +19,7 @@ from endpoint_server.db.models import (
 )
 from endpoint_server.main import create_app
 from endpoint_server.gateway.connection_registry import GatewayConnection
+from endpoint_contracts.capabilities import module_capability_catalog
 
 
 @pytest.mark.asyncio
@@ -85,6 +86,12 @@ async def test_admin_module_catalog_draft_validation_and_fake_lab_rejection() ->
         premature_publish = await client.post("/api/admin/console/modules/network.basic.check/versions/1.0.0/publish")
     await engine.dispose()
     assert catalog.status_code == 200 and len(catalog.json()["data"]["items"]) == 6
+    catalog_items = catalog.json()["data"]["items"]
+    assert {item["capability"] for item in catalog_items} == {
+        item.capability for item in module_capability_catalog().items
+    }
+    assert all(item["display_name"] and any(chr(0x0400) <= char.lower() <= chr(0x04ff) for char in item["display_name"]) for item in catalog_items)
+    assert all("risk" in item and "consent_required" in item and "parameters" in item for item in catalog_items)
     assert invalid.status_code == 422
     assert created.status_code == 201
     assert listing.status_code == 200 and listing.json()["total"] == 1

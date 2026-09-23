@@ -34,6 +34,14 @@ from endpoint_server.policy.network_targets import NetworkTargetPolicyV1
 
 router = APIRouter(prefix="/api/admin/console", tags=["admin-console-modules"])
 _OWNER_IDENTIFIER = "endpoint-console-internal"
+_CAPABILITY_DISPLAY_NAMES = {
+    "dns.resolve": "Разрешение DNS-имени",
+    "network.ping": "Проверка доступности сети",
+    "tcp.connect": "Проверка TCP-соединения",
+    "route.get": "Просмотр маршрута",
+    "adapter.list": "Список сетевых адаптеров",
+    "system.service_status": "Состояние службы",
+}
 ModuleKey = Annotated[str, Path(min_length=1, max_length=128)]
 ModuleVersionName = Annotated[str, Path(pattern=r"^\d+\.\d+\.\d+$", max_length=64)]
 
@@ -74,7 +82,10 @@ async def console_module_capabilities(
     _: Annotated[AdminPrincipal, Depends(require_admin)],
 ) -> dict[str, object]:
     _require_platform(request)
-    return {"data": module_capability_catalog().model_dump(mode="json")}
+    catalog = module_capability_catalog().model_dump(mode="json")
+    for item in catalog["items"]:
+        item["display_name"] = _CAPABILITY_DISPLAY_NAMES[item["capability"]]
+    return {"data": catalog}
 
 
 @router.get("/modules")

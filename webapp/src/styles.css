@@ -131,6 +131,12 @@ td a, .back-link { color: #1b5eaa; font-weight: 650; }
 .module-steps { display: grid; gap: 10px; padding-left: 25px; }
 .module-steps li { padding: 10px; border: 1px solid #d9e1eb; border-radius: 4px; }
 .module-steps span { display: block; color: #607186; margin-top: 5px; }
+.capability-catalog { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.capability-card { min-width: 0; padding: 16px; border: 1px solid #d9e1eb; border-radius: 5px; background: #fff; }
+.capability-card h3 { margin: 0 0 5px; font-size: 15px; }
+.capability-card h4 { margin: 12px 0 6px; font-size: 13px; }
+.capability-card p, .capability-card li { margin: 5px 0; font-size: 13px; overflow-wrap: anywhere; }
+.capability-card ul { margin: 0; padding-left: 18px; }
 
 @media (max-width: 800px) {
   .app-shell { grid-template-columns: 1fr; }
@@ -143,6 +149,6 @@ td a, .back-link { color: #1b5eaa; font-weight: 650; }
   .content { padding: 20px 16px; }
   .metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .dashboard-grid, .detail-columns { grid-template-columns: 1fr; }
-  .card-grid, .campaign-form { grid-template-columns: 1fr; }
+  .card-grid, .campaign-form, .capability-catalog { grid-template-columns: 1fr; }
   .page-heading { align-items: center; }
 }

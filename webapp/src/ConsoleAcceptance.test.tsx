@@ -99,6 +99,29 @@ describe('Русский интерфейс Console', () => {
     expect(screen.getByText('РЕДАКТОР МОДУЛЕЙ')).toBeTruthy()
   })
 
+  it('показывает описание возможности и правила её параметров', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => jsonResponse(
+      url.includes('module-capabilities')
+        ? { data: { items: [{
+          capability: 'dns.resolve', display_name: 'Разрешить DNS-имя', platforms: ['linux_amd64'],
+          minimum_agent_version: '3.2.63', risk: 'safe_read', consent_required: false,
+          feature_flag: 'endpoint_network_primitives_enabled', parameters: [{
+            name: 'target', value_type: 'string', required: true, allowed_sources: ['input', 'literal'],
+            enum_values: null, minimum: null, maximum: null, default_literal: null, secret: false,
+          }],
+        }] } }
+        : { data: [], total: 0, limit: 50, offset: 0 },
+    )))
+    render(<MemoryRouter><ModulesPage /></MemoryRouter>)
+
+    expect(await screen.findByText('Разрешить DNS-имя')).toBeTruthy()
+    const catalog = screen.getByRole('heading', { name: 'Каталог возможностей' }).closest('section')!
+    expect(within(catalog).getByText('dns.resolve')).toBeTruthy()
+    expect(within(catalog).getByText(/Безопасное чтение/)).toBeTruthy()
+    expect(within(catalog).getByText(/Согласие: не требуется/)).toBeTruthy()
+    expect(within(catalog).getByText((_, element) => element?.tagName === 'LI' && /target.*строка.*обязательный/.test(element.textContent ?? ''))).toBeTruthy()
+  })
+
   it('разделяет заявки по очередям и показывает этапы выбранной регистрации', async () => {
     vi.stubGlobal('fetch', vi.fn(async (url: string) => {
       if (url.includes('/enrollment/campaigns')) return jsonResponse({ campaigns: [] })
