@@ -20,21 +20,23 @@ also corrected module operation detail projection and the approved enrollment
 queue/label, and aligned campaign display names with the Russian Console.
 Device detail now projects the current user, OS and version from safe snapshots;
 Context shows collection state and server-derived freshness. The full Python
-suite passed with 1779 passed and 39 skipped; 13 frontend unit tests, build,
+suite passed with 1779 passed and 39 skipped; 15 frontend unit tests, build,
 and two browser E2E flows passed. The browser flow now covers Setup download,
 campaign editing, and a Russian-label regression guard across primary pages.
 Completed rollout history now
 uses its own filtered, paginated server query. The Module Capability Catalog
 shows backend-provided Russian names, platforms, minimum Agent version, risk,
 consent, and parameter rules.
+Published modules on device detail and compatible devices in Module Lab now
+use bounded, paginated API queries and visible page controls.
 Authenticated production browser acceptance and live Agent module labs remain
 open. Production runs release
-`55faa6510c0edeaf750cb32aa4e21ad9f0dd6e4d` with DB revision
-`0025_console_enrollment_queue`; the previous `bb4d67e9bcd6` release is retained for
+`3f39665248cb276debc7db103d049f75974ea26b` with DB revision
+`0025_console_enrollment_queue`; the previous `55faa6510c0e` release is retained for
 rollback. The new pre-release PostgreSQL backup is
-`/var/backups/endpoint-platform/pre-console-55faa6510c0e-20260923T232901Z.dump`
-(16,971,207 bytes; SHA-256 `c8fdcac5537b1b38d55431ca4f9379a5176e81a1a96d05d3503705cc4eed8db1`).
-The production archive SHA-256 is `28534d4e0c660e7424d41622d68302f3b6a1f178c64fca407fa2f1089b6f46a7`.
+`/var/backups/endpoint-platform/pre-console-3f39665248cb-20260923T234050Z.dump`
+(16,985,430 bytes; SHA-256 `0fd63e1e8d5f4ab3a0165c36d72a25ffd347ac1749aee13a356e972a273784ab`).
+The production archive SHA-256 is `a2d78ccc9c00a5205cde00d11d38bd326db440421d295400ffc558616f9f59b4`.
 Strict CA/hostname HTTPS passed for health, login, and the matching JS asset;
 unauthenticated Console routes returned 401. API, worker, Nginx, and PostgreSQL
 are active; migration reports success, module platform and execution flags
