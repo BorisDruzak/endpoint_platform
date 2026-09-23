@@ -32,7 +32,10 @@ export function OperationsPage() {
   const [detail, setDetail] = useState<Detail | null>(null)
   const [revision, setRevision] = useState(0)
   const [busy, setBusy] = useState(false)
-  const query = params.toString()
+  const listingParams = new URLSearchParams(params)
+  listingParams.delete('open')
+  const query = listingParams.toString()
+  useEffect(() => { if (params.get('open')) setDetailId(params.get('open')) }, [params])
   const offset = Number(params.get('offset') ?? 0)
 
   useEffect(() => {

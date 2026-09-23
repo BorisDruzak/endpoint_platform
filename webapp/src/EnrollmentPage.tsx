@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from 'react'
-import { Link } from 'react-router'
+import { Link, useSearchParams } from 'react-router'
 import { request } from './api'
 
 type Campaign = {
@@ -36,6 +36,7 @@ const lifecycle = [
 ]
 
 export function EnrollmentPage() {
+  const [searchParams] = useSearchParams()
   const [tab, setTab] = useState('installer')
   const [campaigns, setCampaigns] = useState<Campaign[]>([])
   const [requests, setRequests] = useState<EnrollmentRequest[]>([])
@@ -75,6 +76,16 @@ export function EnrollmentPage() {
     }).catch(reason => { if (active) { setError(reason.message); setLoaded(true) } })
     return () => { active = false }
   }, [revision])
+  useEffect(() => {
+    const open = searchParams.get('open')
+    if (!open) return
+    let active = true
+    setTab('requests')
+    request<{ data: EnrollmentRequest }>(`/api/admin/console/enrollment/requests/${open}`)
+      .then(value => { if (active) setSelected(value.data) })
+      .catch(reason => { if (active) setError(reason instanceof Error ? reason.message : 'Запрос не удалось открыть') })
+    return () => { active = false }
+  }, [searchParams])
 
   function startCreate() {
     setEditing(null); setLabel(''); setSite(''); setMode('manual'); setPolicyId('windows-office-v1')

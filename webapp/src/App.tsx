@@ -6,6 +6,7 @@ import { EnrollmentPage } from './EnrollmentPage'
 import { UpdatesPage } from './UpdatesPage'
 import { OperationsPage } from './OperationsPage'
 import { ModulesPage } from './ModulesPage'
+import { AuditPage } from './AuditPage'
 
 const navigation = [
   { to: '/admin', label: 'Главная', end: true },
@@ -110,7 +111,7 @@ function Console() {
             <Route path="/admin/updates/*" element={<UpdatesPage canWrite={session.scopes.includes('updates:write')} />} />
             <Route path="/admin/operations/*" element={<OperationsPage />} />
             <Route path="/admin/modules/*" element={<ModulesPage />} />
-            <Route path="/admin/audit/*" element={<PendingPage title="Аудит" />} />
+            <Route path="/admin/audit/*" element={<AuditPage />} />
             <Route path="*" element={<PendingPage title="Страница не найдена" />} />
           </Routes>
         </main>

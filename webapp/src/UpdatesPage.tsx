@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from 'react'
-import { Link } from 'react-router'
+import { Link, useSearchParams } from 'react-router'
 import { request } from './api'
 
 type Build = {
@@ -26,6 +26,7 @@ const modes: Record<string, string> = { canary: 'Canary', bulk: 'Массово�
 const platforms: Record<string, string> = { windows_amd64: 'Windows', linux_amd64: 'ALT Linux' }
 
 export function UpdatesPage({ canWrite }: { canWrite: boolean }) {
+  const [searchParams] = useSearchParams()
   const [tab, setTab] = useState('builds')
   const [builds, setBuilds] = useState<Build[]>([])
   const [rollouts, setRollouts] = useState<Rollout[]>([])
@@ -48,6 +49,7 @@ export function UpdatesPage({ canWrite }: { canWrite: boolean }) {
   const [candidates, setCandidates] = useState<Device[]>([])
   const [selected, setSelected] = useState<Record<string, Device>>({})
   const [busy, setBusy] = useState(false)
+  useEffect(() => { const open = searchParams.get('open'); if (open) { setTab('rollouts'); setDetailId(open) } }, [searchParams])
 
   useEffect(() => {
     let active = true

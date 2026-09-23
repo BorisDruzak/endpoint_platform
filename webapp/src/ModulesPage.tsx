@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from 'react'
-import { Link } from 'react-router'
+import { Link, useSearchParams } from 'react-router'
 import { request } from './api'
 
 type Parameter = { name: string; value_type: 'string' | 'integer' | 'enum'; allowed_sources: ('input' | 'literal')[]; enum_values: string[] | null; minimum: number | null; maximum: number | null; default_literal: string | number | null }
@@ -28,6 +28,7 @@ function InputValues({ inputs, values, onChange }: { inputs: Input[]; values: Re
 }
 
 export function ModulesPage() {
+  const [searchParams] = useSearchParams()
   const [catalog, setCatalog] = useState<Capability[]>([])
   const [modules, setModules] = useState<Module[]>([])
   const [total, setTotal] = useState(0)
@@ -55,6 +56,15 @@ export function ModulesPage() {
       .catch(reason => { if (active) setError(message(reason)) })
     return () => { active = false }
   }, [revision, offset])
+  useEffect(() => {
+    const key = searchParams.get('module_key'), version = searchParams.get('version')
+    if (!key || !version) return
+    let active = true
+    request<{ data: VersionDetail }>(`/api/admin/console/modules/${encodeURIComponent(key)}/versions/${encodeURIComponent(version)}`)
+      .then(value => { if (active) setDetail(value.data) })
+      .catch(reason => { if (active) setError(message(reason)) })
+    return () => { active = false }
+  }, [searchParams])
   useEffect(() => {
     if (!detail) return
     let active = true
@@ -132,7 +142,7 @@ export function ModulesPage() {
     <section className="panel"><h2>Каталог возможностей</h2>{catalog.length ? <ul>{catalog.map(item => <li key={item.capability}><strong>{item.capability}</strong> · {item.platforms.join(', ')} · Agent ≥ {item.minimum_agent_version} · {item.feature_flag}</li>)}</ul> : <p>Каталог не загружен.</p>}</section>
     <section className="panel table-panel"><div className="table-top"><h2>Модули и версии</h2><span>{total} всего</span></div>{modules.length ? <div className="table-scroll"><table><thead><tr><th>Модуль</th><th>Версия</th><th>Состояние</th><th></th></tr></thead><tbody>{modules.flatMap(item => item.versions.map(version => <tr key={`${item.module_key}-${version.version}`}><td>{item.display_name}<small>{item.module_key}</small></td><td>{version.version}</td><td>{stateLabels[version.state] ?? version.state}</td><td><button onClick={async () => { try { const value = await request<{ data: VersionDetail }>(`/api/admin/console/modules/${item.module_key}/versions/${version.version}`); setDetail(value.data); setOperationId('') } catch (reason) { setError(message(reason)) } }}>Открыть</button></td></tr>))}</tbody></table></div> : <p className="empty-text">Модулей пока нет.</p>}<div className="pagination"><button disabled={offset === 0} onClick={() => setOffset(Math.max(0, offset - 50))}>Назад</button><span>{Math.min(offset + 50, total)} из {total}</span><button disabled={offset + 50 >= total} onClick={() => setOffset(offset + 50)}>Далее</button></div></section>
     {detail && <section className="panel"><button onClick={() => setDetail(null)}>Закрыть версию</button><h2>{detail.display_name} · {detail.version}</h2><p>{detail.module_key} · {stateLabels[detail.state] ?? detail.state}</p><p>Платформы: {detail.recipe.supported_platforms.join(', ')}</p><ol>{detail.recipe.steps.map(step => <li key={step.step_id}>{step.step_id}: {step.capability} · {Object.entries(step.parameters).map(([name, binding]) => `${name}=${binding.kind === 'input' ? `input.${binding.name}` : String(binding.value)}`).join(', ')}</li>)}</ol><div className="actions"><button disabled={busy || !['draft', 'validation_failed'].includes(detail.state)} onClick={() => transition('validate', 'Проверка')}>Проверить модуль</button><button disabled={busy || detail.state !== 'validated'} onClick={() => transition('accept-labs', 'Принятие испытаний')}>Принять испытания</button><button disabled={busy || detail.state !== 'lab_accepted'} onClick={() => transition('publish', 'Публикация')}>Опубликовать</button><button disabled={busy || detail.state !== 'published'} onClick={() => transition('deprecate', 'Устаревание')}>Пометить устаревшим</button></div><h3>Проверки</h3>{detail.validations.length ? <ul>{detail.validations.map((item, index) => <li key={index}>{dateText(item.completed_at)} · {item.status === 'succeeded' ? 'Успешно' : 'Ошибка'} · {item.validator_version}{item.error_codes.map(code => <span key={code}> · {errorLabels[code] ?? code} ({code})</span>)}{item.warning_codes.map(code => <span key={code}> · Предупреждение: {code}</span>)}</li>)}</ul> : <p>Проверок ещё нет.</p>}
-      <h3>Лабораторные испытания</h3>{detail.labs.length ? <ul>{detail.labs.map((item, index) => <li key={index}>{item.platform} · {item.status} · {dateText(item.tested_at)} · <Link to={`/admin/operations?device_id=${item.device_id}`}>Операция {item.operation_id}</Link></li>)}</ul> : <p>Испытаний ещё нет.</p>}
+      <h3>Лабораторные испытания</h3>{detail.labs.length ? <ul>{detail.labs.map((item, index) => <li key={index}>{item.platform} · {item.status} · {dateText(item.tested_at)} · <Link to={`/admin/operations?open=${item.operation_id}`}>Операция {item.operation_id}</Link></li>)}</ul> : <p>Испытаний ещё нет.</p>}
       {detail.state === 'validated' && <form onSubmit={startLab}><h3>Запустить испытание</h3><label>Совместимое устройство<select required value={labDevice} onChange={event => setLabDevice(event.target.value)}><option value="">Выберите устройство</option>{devices.map(item => <option key={item.id} value={item.id}>{item.display_name}</option>)}</select></label>{!devices.length && <p className="muted">Совместимых подключённых устройств сейчас нет.</p>}<InputValues inputs={detail.recipe.inputs} values={labValues} onChange={setLabValues} /><button disabled={busy || !labDevice} type="submit">Запустить испытание</button></form>}
       {operationId && <div className="panel"><h3>Испытание {operationId}</h3><p>Состояние: {operation?.data.status ?? 'Загрузка…'}</p>{operation?.module_detail && <ol>{operation.module_detail.steps.map(step => <li key={step.sequence}>{step.capability} · {step.status}{step.error_code && ` · ${step.error_code}`}{step.safe_result != null && <pre className="safe-log">{JSON.stringify(step.safe_result, null, 2)}</pre>}</li>)}</ol>}{operation?.data.status === 'succeeded' && <button disabled={busy} onClick={recordEvidence}>Сохранить подтверждение испытания</button>}</div>}
     </section>}
