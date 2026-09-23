@@ -18,11 +18,20 @@ through manual enrollment approval, canary creation and rollback, and module
 publication and device execution with simulated Agent results. The local run
 also corrected module operation detail projection and the approved enrollment
 queue/label, and aligned campaign display names with the Russian Console.
+Device detail now projects the current user, OS and version from safe snapshots;
+Context shows collection state and server-derived freshness. The full Python
+suite passed with 1779 passed and 39 skipped; frontend unit, build, and browser
+E2E passed after this change.
 Authenticated production browser acceptance and live Agent module labs remain
 open. Production runs release
-`6d14f6795ab8ccded017121ec2c27fcfab7b3a98` with DB revision
-`0025_console_enrollment_queue`; the previous `7b3fa6d153e1` release is retained for
-rollback. The historical
+`edf61bf4a97a77815e8c82bbfb50c5d45523204a` with DB revision
+`0025_console_enrollment_queue`; the previous `6d14f6795ab8` release is retained for
+rollback. The new pre-release PostgreSQL backup is
+`/var/backups/endpoint-platform/pre-console-edf61bf4a97a-20260923T224103Z.dump`
+(16,920,954 bytes; SHA-256 `547db3e2ccdd2cd6690da0644635d5fff65b8d78eaee724023c0bbe58c4dc816`).
+The production archive SHA-256 is `af5beee365435052f64dea229c970ed05b85f121ba1ba241f9f57cce69f3c0e0`.
+Strict CA/hostname HTTPS passed for health, login, and the matching JS asset;
+unauthenticated Console routes returned 401. The historical
 Wave 1 plan below is retained as a record, not a current deployment gate.
 
 ## Goal
