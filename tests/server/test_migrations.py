@@ -135,7 +135,19 @@ def test_migration_history_has_exactly_one_head() -> None:
         _alembic_config("postgresql+asyncpg://unused@127.0.0.1/unused")
     )
 
-    assert script.get_heads() == ["0022_module_step_capabilities"]
+    assert script.get_heads() == ["0023_windows_setup_releases"]
+
+
+def test_windows_setup_release_migration_is_metadata_only() -> None:
+    output = io.StringIO()
+    config = Config(REPOSITORY_ROOT / "alembic.ini", output_buffer=output)
+    config.set_main_option("sqlalchemy.url", "postgresql+asyncpg://unused@127.0.0.1/unused")
+    command.upgrade(config, "0022_module_step_capabilities:0023_windows_setup_releases", sql=True)
+    rendered = " ".join(output.getvalue().split())
+    assert "CREATE TABLE windows_setup_releases" in rendered
+    assert "setup_sha256 VARCHAR(64) NOT NULL" in rendered
+    assert "artifact_identifier VARCHAR(256) NOT NULL" in rendered
+    assert "BYTEA" not in rendered
 
 
 def test_migration_revisions_fit_alembic_version_storage() -> None:

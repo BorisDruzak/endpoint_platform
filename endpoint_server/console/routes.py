@@ -27,7 +27,8 @@ from endpoint_server.context.projection import snapshot_projection
 from endpoint_server.context.projection import collection_projection
 from endpoint_server.context.repository import request_collection_outcome
 from endpoint_server.context.service import ContextError
-from endpoint_server.db.models import Device
+from endpoint_server.db.models import Device, EnrollmentRequest
+from endpoint_server.enrollment.admin_routes import CampaignCreateRequest, create_campaign
 from sqlalchemy import select
 
 
@@ -55,6 +56,41 @@ class ConsoleSessionResponse(BaseModel):
 class ConsoleCollectionRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     profile: str
+
+
+@router.post("/api/admin/console/campaigns", status_code=201)
+async def console_create_campaign(
+    body: CampaignCreateRequest,
+    request: Request,
+    principal: Annotated[AdminPrincipal, Depends(require_admin)],
+) -> dict[str, object]:
+    """Use the canonical campaign path while keeping its show-once bearer server-side."""
+    created = await create_campaign(body, request, principal)
+    return {"id": str(created.id)}
+
+
+@router.get("/api/admin/console/enrollment/requests/{request_id}")
+async def console_enrollment_request_detail(
+    request: Request,
+    request_id: UUID,
+    _: Annotated[AdminPrincipal, Depends(require_admin)],
+) -> dict[str, object]:
+    async with request.app.state.session_provider() as session:
+        record = await session.scalar(select(EnrollmentRequest).where(EnrollmentRequest.id == request_id))
+        if record is None:
+            raise HTTPException(status_code=404, detail="Запрос регистрации не найден")
+        return {"data": {
+            "id": str(record.id), "status": record.status,
+            "reason": record.decision_reason, "platform": record.platform,
+            "hostname": record.hostname, "manufacturer": record.manufacturer,
+            "model": record.model, "serial": record.serial,
+            "macs": record.macs, "source_address": record.source_address,
+            "installer_release_id": record.installer_release_id,
+            "selected_campaign_id": str(record.selected_campaign_id) if record.selected_campaign_id else None,
+            "device_id": str(record.device_id) if record.device_id else None,
+            "created_at": record.created_at, "updated_at": record.updated_at,
+            "expires_at": record.expires_at, "decided_at": record.decided_at,
+        }}
 
 
 @router.post("/api/admin/console/devices/{device_id}/context/collections", status_code=201)

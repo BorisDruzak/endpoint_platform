@@ -95,6 +95,27 @@ td a, .back-link { color: #1b5eaa; font-weight: 650; }
 .context-actions label { display: grid; gap: 5px; color: #607186; }
 .context-actions select { height: 36px; border: 1px solid #bac6d4; border-radius: 4px; background: #fff; padding: 0 8px; }
 .context-actions button { height: 36px; background: #1e66b8; color: #fff; border: 1px solid #1859a1; border-radius: 4px; padding: 0 14px; }
+.installer-facts, .simple-facts { display: grid; grid-template-columns: minmax(110px, 35%) minmax(0, 1fr); gap: 10px 16px; font-size: 13px; margin: 0 0 20px; }
+.installer-facts > div { display: contents; }
+.installer-facts span, .simple-facts dt { color: #607186; }
+.installer-facts strong, .installer-facts code, .simple-facts dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.action-row { display: flex; align-items: center; flex-wrap: wrap; gap: 9px; margin-top: 18px; }
+.action-row button, .action-row a { display: inline-flex; align-items: center; min-height: 36px; padding: 7px 12px; background: #fff; border: 1px solid #bac6d4; border-radius: 4px; color: #1b5eaa; font-size: 13px; text-decoration: none; }
+.action-row .primary-button { background: #1e66b8; border-color: #1859a1; color: #fff; }
+.lifecycle { counter-reset: steps; list-style: none; display: grid; gap: 4px; padding: 0; margin: 0; }
+.lifecycle li { position: relative; padding: 10px 10px 10px 38px; border-left: 2px solid #cbdced; margin-left: 12px; font-size: 13px; }
+.lifecycle li::before { counter-increment: steps; content: counter(steps); position: absolute; left: -14px; top: 8px; width: 26px; height: 26px; display: grid; place-items: center; border-radius: 50%; background: #e7f0fb; color: #1859a1; font-weight: 750; }
+.card-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+.campaign-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-bottom: 16px; }
+.campaign-form h2, .campaign-form .action-row { grid-column: 1 / -1; }
+.campaign-form label { display: grid; gap: 6px; color: #526176; font-size: 13px; }
+.campaign-form input, .campaign-form select { min-width: 0; width: 100%; height: 38px; border: 1px solid #bac6d4; border-radius: 4px; padding: 0 9px; background: #fff; color: #17263a; }
+.version-options { display: flex; flex-wrap: wrap; gap: 12px; min-height: 38px; align-items: center; }
+.version-options label { display: inline-flex; align-items: center; gap: 5px; }
+.version-options input { width: auto; height: auto; }
+.dialog-backdrop { position: fixed; inset: 0; display: grid; place-items: center; padding: 20px; background: #15243a99; z-index: 10; }
+.dialog { width: min(100%, 650px); max-height: 90vh; overflow-y: auto; box-shadow: 0 18px 50px #101b2c44; }
+.dialog-close { float: right; border: 1px solid #bac6d4; background: #fff; border-radius: 4px; padding: 7px 11px; }
 
 @media (max-width: 800px) {
   .app-shell { grid-template-columns: 1fr; }
@@ -107,5 +128,6 @@ td a, .back-link { color: #1b5eaa; font-weight: 650; }
   .content { padding: 20px 16px; }
   .metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .dashboard-grid, .detail-columns { grid-template-columns: 1fr; }
+  .card-grid, .campaign-form { grid-template-columns: 1fr; }
   .page-heading { align-items: center; }
 }

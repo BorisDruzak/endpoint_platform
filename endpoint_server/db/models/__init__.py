@@ -16,6 +16,7 @@ from endpoint_server.context.models import (
     ContextSnapshot,
 )
 from .devices import Device, DeviceCredential, DeviceInstance, DeviceSession
+from .installer import WindowsSetupRelease
 from .enrollment import (
     EnrollmentCampaign,
     EnrollmentClaim,
@@ -67,4 +68,5 @@ __all__ = [
     "UpdateReport",
     "UpdateRollout",
     "UpdateTarget",
+    "WindowsSetupRelease",
 ]

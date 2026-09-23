@@ -6,10 +6,12 @@ The active implementation plan is
 `docs/superpowers/plans/2026-09-24-endpoint-console-v1.md`, based on main
 `2995b06d3b45a26d39b6acc4129e5892b6c7c942` and the user-supplied spec
 in `docs/superpowers/specs/2026-09-24-endpoint-console-v1.md`.
-The first independent phase repairs the canonical Module Platform capability
-catalog versus database CHECK constraint drift through revision
-`0022_module_step_capabilities`. The remaining phases provide the browser
-console, administrative projections, and production acceptance. The historical
+The Module Platform capability constraint repair is revision
+`0022_module_step_capabilities`; Windows Setup release metadata is revision
+`0023_windows_setup_releases`. The Console foundation, fleet/context pages,
+and enrollment work are implemented locally. Updates, operations, Module
+Workbench, audit, browser acceptance, and production deployment remain on the
+active plan. The historical
 Wave 1 plan below is retained as a record, not a current deployment gate.
 
 ## Goal
@@ -144,4 +146,3 @@ remains a narrow service-to-service boundary; its page cache is MAC-free and
 its only automatic association is the unique-MAC confirmation. Any production
 endpoint assignment, bulk rollout, credential-expiry policy, or new data source
 requires a separate decision.
-

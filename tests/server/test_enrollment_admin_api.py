@@ -162,6 +162,33 @@ async def test_admin_creates_show_once_campaign_and_audits_safely() -> None:
 
 
 @pytest.mark.asyncio
+async def test_console_campaign_create_never_sends_bearer_to_browser() -> None:
+    session = _AdminEnrollmentSession()
+    app = create_app(_settings(), session_provider=_Provider(session))
+    app.dependency_overrides[require_admin] = _principal
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="https://endpoint.sosnadmin.local"
+    ) as client:
+        response = await client.post(
+            "/api/admin/console/campaigns",
+            json={
+                "expires_at": (NOW + timedelta(hours=1)).isoformat(),
+                "max_uses": 2, "allowed_cidrs": ["192.168.100.0/24"],
+                "target_platform": "windows",
+                "policy": {
+                    "policy_id": "office-v1", "enrollment_mode": "manual",
+                    "allowed_installer_releases": ["3.2.63"],
+                },
+                "label": "Office Windows", "site": "hq",
+            },
+        )
+    assert response.status_code == 201
+    assert set(response.json()) == {"id"}
+    assert "ec_" not in response.text
+    assert session.commit_calls == 1
+
+
+@pytest.mark.asyncio
 async def test_admin_claim_url_is_retired_but_campaign_revocation_remains_available() -> (
     None
 ):

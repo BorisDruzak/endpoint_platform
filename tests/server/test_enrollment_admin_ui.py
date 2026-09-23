@@ -55,7 +55,11 @@ def _principal() -> AdminPrincipal:
 
 
 @pytest.mark.asyncio
-async def test_enrollment_admin_page_uses_csrf_protected_existing_apis() -> None:
+async def test_enrollment_admin_page_uses_the_console_bundle(tmp_path, monkeypatch) -> None:
+    from endpoint_server.console import routes as console_routes
+
+    (tmp_path / "index.html").write_text('<html lang="ru">Endpoint Console</html>', encoding="utf-8")
+    monkeypatch.setattr(console_routes, "ASSET_ROOT", tmp_path)
     app = create_app(_settings(), session_provider=_Provider())
     app.dependency_overrides[require_admin] = _principal
 
@@ -67,9 +71,8 @@ async def test_enrollment_admin_page_uses_csrf_protected_existing_apis() -> None
         )
 
     assert response.status_code == 200
-    assert "Endpoint Admin / Enrollment" in response.text
-    assert "/api/admin/enrollment/campaigns" in response.text
-    assert "/api/admin/enrollment/requests" in response.text
-    assert "X-CSRF-Token" in response.text
+    assert "Endpoint Console" in response.text
+    assert 'lang="ru"' in response.text
+    assert response.headers["cache-control"] == "no-store"
     assert "ec_" not in response.text
     assert "ic_" not in response.text

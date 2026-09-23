@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent } from 'react'
 import { NavLink, Route, Routes, useNavigate } from 'react-router'
 import { ApiError, getSession, login, logout, type AdminSession } from './api'
 import { DashboardPage, DeviceDetailPage, DevicesPage } from './FleetPages'
+import { EnrollmentPage } from './EnrollmentPage'
 
 const navigation = [
   { to: '/admin', label: 'Главная', end: true },
@@ -102,7 +103,7 @@ function Console() {
             <Route path="/admin" element={<DashboardPage />} />
             <Route path="/admin/devices" element={<DevicesPage />} />
             <Route path="/admin/devices/:deviceId" element={<DeviceDetailPage />} />
-            <Route path="/admin/enrollment/*" element={<PendingPage title="Установка и регистрация" />} />
+            <Route path="/admin/enrollment/*" element={<EnrollmentPage />} />
             <Route path="/admin/updates/*" element={<PendingPage title="Релизы и обновления" />} />
             <Route path="/admin/operations/*" element={<PendingPage title="Операции" />} />
             <Route path="/admin/modules/*" element={<PendingPage title="Модули" />} />

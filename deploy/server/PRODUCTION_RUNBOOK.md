@@ -205,6 +205,28 @@ sudo systemctl show endpoint-platform-migrate.service -p Result --value
 sudo systemd-run --wait --collect --property=User=endpoint-platform --property=Group=endpoint-platform --property=EnvironmentFile=/etc/endpoint-platform/endpoint-platform.env --working-directory=/opt/endpoint-platform/current /opt/endpoint-platform/current/venv/bin/python -m alembic current
 ```
 
+For the Console installer tab, stage the Windows Setup EXE, its MSI, and the
+adjacent `*.release.json` sidecar from the verified Windows packaging run in a
+private directory readable by `endpoint-platform`. Confirm that migration
+`0023_windows_setup_releases` is current, then register the release. The
+registration command checks the Setup and MSI hashes against the sidecar,
+copies only the Setup EXE into `ARTIFACT_ROOT`, and records metadata in the
+database. Retain the packaging signature verification evidence with the
+release record. A sidecar marked `unsigned` remains labeled test-only in the
+Console and is excluded from new production campaign choices.
+
+```bash
+sudo systemd-run --wait --collect \
+  --property=User=endpoint-platform --property=Group=endpoint-platform \
+  --property=EnvironmentFile=/etc/endpoint-platform/endpoint-platform.env \
+  --working-directory=/opt/endpoint-platform/current \
+  /opt/endpoint-platform/current/venv/bin/python \
+  -m tools.register_windows_setup_release \
+  --sidecar /private/staged/EndpointAgentSetup-VERSION-x64.release.json \
+  --setup /private/staged/EndpointAgentSetup-VERSION-x64.exe \
+  --msi /private/staged/EndpointAgent-VERSION-x64.msi
+```
+
 From the operator workstation, verify the actual DNS name, CA chain, and
 hostname. Do not substitute an IP address:
 
