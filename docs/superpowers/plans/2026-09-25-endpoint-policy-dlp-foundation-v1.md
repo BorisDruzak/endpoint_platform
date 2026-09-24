@@ -103,9 +103,15 @@ This is unsigned source only. The bridge, stable signed extension ID, browser po
 
 **Files:** Create `pc_agent/platform/windows/{user_sensor,activity_api,browser_bridge,local_ipc}.py`, `pc_agent/browser_protocol.py`, PyInstaller entry/spec files; integrate service runtime and fixed pipe ACL. Tests in `pc_agent/tests/windows/`, `tests/packaging/`.
 
-- [ ] Write failing framing/protocol/oversize/unknown-field/wrong-version tests plus pipe DACL, SID/session mismatch, disconnect/reconnect and no-network-path tests.
+- [ ] Write failing framing/protocol/oversize/unknown-field/wrong-version tests plus pipe DACL, SID/session mismatch, fake-server rejection, disconnect/reconnect and no-network-path tests.
 - [ ] Implement unprivileged user-session sampling, native messaging binary framing and bounded ACK; service validates the impersonated pipe client before forwarding activity/browser observations. Keep all device credentials service-side.
 - [ ] Test on Windows with a real second user/session where available; run focused suite and diff check; commit.
+
+Native framing, typed ACK, bounded pipe frames, the service-SID DACL, OS-backed
+client session checks and fake-server rejection are implemented in the first
+two Task 5 commits. The service-side receiver, user-session sensor, signed
+binary/manifest packaging, reconnection and real second-session acceptance
+remain open; do not mark this task complete or report a live sensor path yet.
 
 ### Task 6: Signed browser release and Browser Integration Policy Applicator
 

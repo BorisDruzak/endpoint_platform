@@ -715,6 +715,11 @@ Security requirements:
 * SYSTEM/Agent service owns server side;
 * only expected interactive SID/session may connect;
 * validate session identity;
+* the Bridge verifies the server process has the EndpointAgent service SID and
+  LocalService identity before sending a frame, including when a different
+  process creates the pipe name first;
+* Agent impersonates the writer after reading each frame and verifies its
+  interactive user SID, logon SID and active Windows session;
 * bounded message size;
 * typed protocol;
 * no arbitrary JSON passthrough;
