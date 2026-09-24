@@ -19,10 +19,9 @@ publication and device execution with simulated Agent results. The local run
 also corrected module operation detail projection and the approved enrollment
 queue/label, and aligned campaign display names with the Russian Console.
 Device detail now projects the current user, OS and version from safe snapshots;
-Context shows collection state and server-derived freshness. The full Python
-suite passed with 1780 passed and 39 skipped; 17 frontend unit tests, build,
-and two browser E2E flows passed. The browser flow now covers Setup download,
-campaign editing, and a Russian-label regression guard across primary pages.
+Context shows collection state and server-derived freshness. The browser flow
+covers Setup download, campaign editing, and a Russian-label regression guard
+across primary pages.
 Completed rollout history now
 uses its own filtered, paginated server query. The Module Capability Catalog
 shows backend-provided Russian names, platforms, minimum Agent version, risk,
@@ -39,23 +38,29 @@ chronological order without exposing raw snapshots. Module validation and lab
 histories also have bounded pages; the acceptance control uses a server-derived
 summary of all passed platforms, including evidence beyond the current page.
 Authenticated production browser acceptance and live Agent module labs remain
-open. Production runs release
-`8931f2b4cb2f90022da614475c85ac468e615358` with DB revision
-`0025_console_enrollment_queue`; the previous `2f20a194e2ac` release is retained for
-rollback. The new pre-release PostgreSQL backup is
-`/var/backups/endpoint-platform/pre-console-8931f2b4cb2f-20260924T004224Z.dump`
-(17,054,009 bytes; SHA-256 `5b71b0769064af28f4248d079275fae66463317ba0571bef96fcb79caf67b0bd`).
-The production archive SHA-256 is `80272ca71d73736b5b38c06197760dc3cd9b65289648ad4a277bbe5af2ad18c6`.
-Strict CA/hostname HTTPS passed for health, login, and the matching JS asset;
-unauthenticated Console routes returned 401. API, worker, Nginx, and PostgreSQL
-are active; migration reports success, module platform and execution flags
-remain disabled, and the API/worker journals since release contain no warnings.
+open. All Console, operation journal, and audit JSON routes now publish typed
+response models; the Setup binary download remains a file response. The
+2026-09-24 release of `172f399e569aa2cc500633f55a156e8957a0c1c4` runs in
+production with DB revision `0025_console_enrollment_queue`; the previous
+`8931f2b4cb2f` release is retained for rollback. The verified pre-release
+PostgreSQL backup is
+`/var/backups/endpoint-platform/pre-console-172f399e569a-20260924T010541Z.dump`
+(17,080,988 bytes; SHA-256 `1c0b202307121ff0901c1c53b3deac8844cecb2039fe9c79c49ca157e4c17caa`).
+The release archive SHA-256 is `1114186f23a9509dff43cfb45c917dc27aac2fd42c2a62b051732095c046ca71`.
 The release passed 1781 Python tests (39 skipped), 20 frontend unit tests,
 two Playwright E2E flows, contract generation check, compileall, and diff check.
-The dedicated test Agent is unreachable over SSH from the workstation and did not
-answer ARP from the production host. Provider release-gate CI for the branch
-is tracked in draft PR #35. The historical
-Wave 1 plan below is retained as a record, not a current deployment gate.
+Strict CA/hostname HTTPS returned 200 for health and login and 401 for
+protected routes without a session; the deployed JS asset matched the local
+build SHA-256
+`feaf21402ec5173b25f2660d9225e31ae5999602c0044cfac9229026e52227e5`.
+API, worker, Nginx, and PostgreSQL are active, and the API/worker warning
+journal since the switch is empty. Module platform and execution remain
+disabled pending a real compatible Agent lab. The browser is at the login page
+without an administrator session. The dedicated test Agent is unreachable over
+SSH from the workstation and did not answer ARP from the production host.
+Provider release-gate CI for the branch is tracked in draft PR #35. The
+historical Wave 1 plan below is retained as a record, not a current deployment
+gate.
 
 ## Goal
 
