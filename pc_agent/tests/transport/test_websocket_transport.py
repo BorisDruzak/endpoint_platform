@@ -16,6 +16,7 @@ from endpoint_contracts import (
     AgentResultV1,
     GatewayHelloV1,
 )
+from endpoint_contracts.activity import ActivityObservationV1
 
 
 _DEVICE_ID = UUID("00000000-0000-4000-8000-000000000701")
@@ -23,6 +24,31 @@ _SESSION_ID = UUID("00000000-0000-4000-8000-000000000702")
 _TOKEN = "w" * 43
 _ORIGIN = "https://endpoint.sosnadmin.local"
 _WSS_URL = "wss://endpoint.sosnadmin.local/agent/v1/connect"
+
+
+@pytest.mark.asyncio
+async def test_activity_observation_uses_canonical_gateway_envelope() -> None:
+    from pc_agent.transport.websocket import WebSocketGatewayTransport
+
+    socket = _HandshakeSocket(_gateway_hello_body())
+    transport = WebSocketGatewayTransport(
+        ca_file=Path("endpoint-ca.pem"), credential=_TOKEN, endpoint_origin=_ORIGIN,
+    )
+    transport._socket = socket
+    transport._maximum_message_bytes = 65536
+    observation = ActivityObservationV1(
+        schema_version="activity_observation_v1",
+        observation_id=UUID("00000000-0000-4000-8000-000000000704"),
+        observed_at=datetime(2026, 9, 25, tzinfo=UTC),
+        user_login="CORP\\user", session_state="ACTIVE", idle_seconds=5,
+    )
+
+    await transport.send_activity_observation(observation)
+
+    assert socket.sent == [{
+        "schema_version": "gateway_ws_envelope_v1", "sequence": 1,
+        "kind": "activity_observation", "payload": observation.model_dump(mode="json"),
+    }]
 
 
 def test_websocket_transport_is_public_gateway_transport() -> None:

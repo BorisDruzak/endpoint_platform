@@ -16,7 +16,9 @@ from urllib.parse import urlsplit
 import aiohttp
 from pydantic import ValidationError
 
+from endpoint_contracts.activity import ActivityObservationV1
 from endpoint_contracts.gateway_ws import (
+    ActivityObservationEnvelopeV1,
     AgentHelloEnvelopeV1,
     CommandAckEnvelopeV1,
     CommandResultEnvelopeV1,
@@ -264,6 +266,13 @@ class WebSocketGatewayTransport:
             EndpointPolicyAckEnvelopeV1,
             kind="endpoint_policy_ack",
             payload=ack,
+        )
+
+    async def send_activity_observation(self, observation: ActivityObservationV1) -> None:
+        await self._send(
+            ActivityObservationEnvelopeV1,
+            kind="activity_observation",
+            payload=observation,
         )
 
     async def _receive_envelope(self):
