@@ -119,9 +119,38 @@
             "tcp.connect",
             "route.get",
             "adapter.list",
-            "system.service_status"
+            "system.service_status",
+            "system.resource_snapshot",
+            "process.list",
+            "process.find",
+            "service.list",
+            "service.status",
+            "printer.list",
+            "printer.status",
+            "printer.queue.summary",
+            "software.list",
+            "software.find",
+            "filesystem.free_space",
+            "filesystem.path_exists",
+            "filesystem.file_metadata",
+            "eventlog.query",
+            "eventlog.recent_errors"
           ],
           "title": "Capability",
+          "type": "string"
+        },
+        "category": {
+          "enum": [
+            "network",
+            "system",
+            "process",
+            "service",
+            "printer",
+            "software",
+            "eventlog",
+            "filesystem"
+          ],
+          "title": "Category",
           "type": "string"
         },
         "consent_required": {
@@ -129,13 +158,37 @@
           "title": "Consent Required",
           "type": "boolean"
         },
+        "display_name_ru": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Display Name Ru",
+          "type": "string"
+        },
+        "execution_timeout_seconds": {
+          "maximum": 30,
+          "minimum": 1,
+          "title": "Execution Timeout Seconds",
+          "type": "integer"
+        },
         "feature_flag": {
           "enum": [
             "endpoint_network_primitives_enabled",
-            "endpoint_read_only_primitives_enabled"
+            "endpoint_read_only_primitives_enabled",
+            "endpoint_system_primitives_enabled",
+            "endpoint_process_primitives_enabled",
+            "endpoint_printer_primitives_enabled",
+            "endpoint_software_primitives_enabled",
+            "endpoint_filesystem_primitives_enabled",
+            "endpoint_eventlog_primitives_enabled"
           ],
           "title": "Feature Flag",
           "type": "string"
+        },
+        "max_result_items": {
+          "maximum": 100,
+          "minimum": 1,
+          "title": "Max Result Items",
+          "type": "integer"
         },
         "minimum_agent_version": {
           "maxLength": 32,
@@ -174,7 +227,14 @@
         "policy": {
           "enum": [
             "network_target_policy",
-            "none"
+            "none",
+            "process_metadata",
+            "service_catalog",
+            "local_printers",
+            "machine_software",
+            "local_volumes",
+            "logical_paths",
+            "event_profile"
           ],
           "title": "Policy",
           "type": "string"
@@ -186,13 +246,18 @@
           "type": "string"
         },
         "risk": {
-          "const": "safe_read",
+          "enum": [
+            "safe_read",
+            "controlled_read"
+          ],
           "title": "Risk",
           "type": "string"
         }
       },
       "required": [
         "capability",
+        "display_name_ru",
+        "category",
         "parameter_schema_version",
         "result_schema_version",
         "platforms",
@@ -201,7 +266,9 @@
         "consent_required",
         "feature_flag",
         "policy",
-        "parameters"
+        "parameters",
+        "execution_timeout_seconds",
+        "max_result_items"
       ],
       "title": "ModuleCapabilityAuthoringV1",
       "type": "object"
@@ -214,7 +281,7 @@
       "items": {
         "$ref": "#/$defs/ModuleCapabilityAuthoringV1"
       },
-      "maxItems": 6,
+      "maxItems": 32,
       "minItems": 6,
       "title": "Items",
       "type": "array"

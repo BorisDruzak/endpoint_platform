@@ -1167,6 +1167,403 @@
               }
             }
           }
+        },
+        {
+          "if": {
+            "properties": {
+              "capability": {
+                "const": "system.resource_snapshot"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "parameters": {
+                "additionalProperties": false,
+                "properties": {},
+                "type": "object"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "capability": {
+                "const": "process.list"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "parameters": {
+                "additionalProperties": false,
+                "properties": {},
+                "type": "object"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "capability": {
+                "const": "process.find"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "parameters": {
+                "additionalProperties": false,
+                "properties": {
+                  "name": {
+                    "maxLength": 128,
+                    "minLength": 1,
+                    "pattern": "^[^\\x00-\\x1f\\x7f]+$",
+                    "title": "Name",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "name"
+                ],
+                "type": "object"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "capability": {
+                "const": "service.list"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "parameters": {
+                "additionalProperties": false,
+                "properties": {},
+                "type": "object"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "capability": {
+                "const": "service.status"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "parameters": {
+                "additionalProperties": false,
+                "properties": {
+                  "service_key": {
+                    "enum": [
+                      "endpoint_agent",
+                      "endpoint_agent_updater",
+                      "print_service"
+                    ],
+                    "title": "Service Key",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "service_key"
+                ],
+                "type": "object"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "capability": {
+                "const": "printer.list"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "parameters": {
+                "additionalProperties": false,
+                "properties": {},
+                "type": "object"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "capability": {
+                "const": "printer.status"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "parameters": {
+                "additionalProperties": false,
+                "properties": {
+                  "printer_name": {
+                    "maxLength": 128,
+                    "minLength": 1,
+                    "pattern": "^[^\\x00-\\x1f\\x7f]+$",
+                    "title": "Printer Name",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "printer_name"
+                ],
+                "type": "object"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "capability": {
+                "const": "printer.queue.summary"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "parameters": {
+                "additionalProperties": false,
+                "properties": {},
+                "type": "object"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "capability": {
+                "const": "software.list"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "parameters": {
+                "additionalProperties": false,
+                "properties": {},
+                "type": "object"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "capability": {
+                "const": "software.find"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "parameters": {
+                "additionalProperties": false,
+                "properties": {
+                  "name": {
+                    "maxLength": 128,
+                    "minLength": 1,
+                    "pattern": "^[^\\x00-\\x1f\\x7f]+$",
+                    "title": "Name",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "name"
+                ],
+                "type": "object"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "capability": {
+                "const": "filesystem.free_space"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "parameters": {
+                "additionalProperties": false,
+                "properties": {},
+                "type": "object"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "capability": {
+                "const": "filesystem.path_exists"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "parameters": {
+                "additionalProperties": false,
+                "properties": {
+                  "path_key": {
+                    "enum": [
+                      "endpoint_install_root",
+                      "endpoint_data_root",
+                      "endpoint_runtime_manifest"
+                    ],
+                    "title": "Path Key",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "path_key"
+                ],
+                "type": "object"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "capability": {
+                "const": "filesystem.file_metadata"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "parameters": {
+                "additionalProperties": false,
+                "properties": {
+                  "path_key": {
+                    "const": "endpoint_runtime_manifest",
+                    "title": "Path Key",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "path_key"
+                ],
+                "type": "object"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "capability": {
+                "const": "eventlog.query"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "parameters": {
+                "additionalProperties": false,
+                "properties": {
+                  "lookback_minutes": {
+                    "maximum": 60,
+                    "minimum": 1,
+                    "title": "Lookback Minutes",
+                    "type": "integer"
+                  },
+                  "max_events": {
+                    "maximum": 32,
+                    "minimum": 1,
+                    "title": "Max Events",
+                    "type": "integer"
+                  },
+                  "profile": {
+                    "enum": [
+                      "system",
+                      "application",
+                      "print",
+                      "endpoint"
+                    ],
+                    "title": "Profile",
+                    "type": "string"
+                  },
+                  "severity": {
+                    "enum": [
+                      "error",
+                      "warning",
+                      "information"
+                    ],
+                    "title": "Severity",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "profile",
+                  "lookback_minutes",
+                  "severity",
+                  "max_events"
+                ],
+                "type": "object"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "capability": {
+                "const": "eventlog.recent_errors"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "parameters": {
+                "additionalProperties": false,
+                "properties": {
+                  "lookback_minutes": {
+                    "maximum": 60,
+                    "minimum": 1,
+                    "title": "Lookback Minutes",
+                    "type": "integer"
+                  },
+                  "profile": {
+                    "enum": [
+                      "system",
+                      "application",
+                      "print",
+                      "endpoint"
+                    ],
+                    "title": "Profile",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "profile",
+                  "lookback_minutes"
+                ],
+                "type": "object"
+              }
+            }
+          }
         }
       ],
       "description": "Existing neutral command contract narrowed for the WSS control channel.",
@@ -1193,7 +1590,22 @@
                 "tcp.connect",
                 "route.get",
                 "adapter.list",
-                "system.service_status"
+                "system.service_status",
+                "system.resource_snapshot",
+                "process.list",
+                "process.find",
+                "service.list",
+                "service.status",
+                "printer.list",
+                "printer.status",
+                "printer.queue.summary",
+                "software.list",
+                "software.find",
+                "filesystem.free_space",
+                "filesystem.path_exists",
+                "filesystem.file_metadata",
+                "eventlog.query",
+                "eventlog.recent_errors"
               ],
               "type": "string"
             }

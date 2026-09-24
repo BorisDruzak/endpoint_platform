@@ -229,3 +229,12 @@ def test_bounded_command_normalizes_cleanup_oserrors(failure_stage: str, monkeyp
 
     with pytest.raises(subprocess.TimeoutExpired):
         probe_module._execute_bounded_command(("probe",), 0.01, 128)
+def test_bounded_command_can_fail_closed_for_new_capability_reads() -> None:
+    import sys
+    import pytest
+    from pc_agent.context_profiles.probe import _execute_bounded_command
+
+    with pytest.raises(OSError):
+        _execute_bounded_command((sys.executable, "-c", "raise SystemExit(1)"), 2.0, 128, check_exit=True)
+    with pytest.raises(ValueError):
+        _execute_bounded_command((sys.executable, "-c", "print('x'*256)"), 2.0, 128, check_exit=True)

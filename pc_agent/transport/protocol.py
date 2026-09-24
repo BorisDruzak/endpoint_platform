@@ -8,9 +8,10 @@ from endpoint_contracts import (
     GatewayHelloV1,
     GatewayInboundV1,
 )
+from endpoint_contracts.capabilities import MODULE_CAPABILITY_REGISTRY
 
 
-def compatibility_agent_hello() -> AgentHelloV1:
+def compatibility_agent_hello(platform: str = "linux_amd64") -> AgentHelloV1:
     """Create the local-only hello required by HTTP pull's shared interface."""
     from uuid import UUID
 
@@ -20,7 +21,7 @@ def compatibility_agent_hello() -> AgentHelloV1:
         agent_instance_id=UUID(int=0),
         agent_version="http-pull",
         launcher_version="http-pull",
-        platform="linux_amd64",
+        platform=platform,
         boot_id="http-pull",
         capabilities=[
             "context.baseline.collect",
@@ -29,12 +30,10 @@ def compatibility_agent_hello() -> AgentHelloV1:
             "context.network.collect",
             "context.session.collect",
             "context.inventory.collect",
-            "dns.resolve",
-            "network.ping",
-            "tcp.connect",
-            "route.get",
-            "adapter.list",
-            "system.service_status",
+            *(
+                name for name, descriptor in MODULE_CAPABILITY_REGISTRY.items()
+                if platform in descriptor.metadata.platforms
+            ),
         ],
         last_result_sequence=0,
         last_policy_revision=0,

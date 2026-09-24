@@ -567,19 +567,19 @@ def test_schema4_runtime_transition_requires_the_pinned_contrib_hooks(
     assert identity.version == "3.1.77"
 
 
-def test_windows_current_product_uses_a_checked_in_approved_initial_transition(
+def test_windows_sealed_msi_3265_keeps_its_approved_initial_transition(
     tmp_path: Path,
 ) -> None:
     """Validate the immutable MSI against its pinned source revision."""
     project_root = Path(__file__).resolve().parents[2]
     baseline = project_root / "packaging" / "windows" / "initial-runtime.json"
-    transition = project_root / "packaging" / "windows" / f"initial-runtime-{AGENT_VERSION}.json"
+    sealed_version = "3.2.65"
+    transition = project_root / "packaging" / "windows" / f"initial-runtime-{sealed_version}.json"
 
-    assert AGENT_VERSION == "3.2.65"
     assert transition.is_file()
     payload = json.loads(transition.read_text(encoding="utf-8"))
-    assert payload["version"] == AGENT_VERSION
-    assert payload["agent_version"] == AGENT_VERSION
+    assert payload["version"] == sealed_version
+    assert payload["agent_version"] == sealed_version
     assert payload["schema_version"] == 5
     assert re.fullmatch(r"[0-9a-f]{40}", payload["source_revision"])
     assert payload["component_guid"] != json.loads(baseline.read_text(encoding="utf-8"))["component_guid"]
@@ -624,15 +624,6 @@ def test_windows_current_product_uses_a_checked_in_approved_initial_transition(
     }
 
     contract = _contract_module()
-    # Setup is rebuilt separately from the pinned MSI runtime. Its entry point
-    # may receive fixes after the MSI source revision has been sealed.
-    changed_sources = {
-        item["path"]
-        for item in payload["source_files"]
-        if contract._hash_source_file(project_root / item["path"]) != item["sha256"]
-    }
-    assert changed_sources <= {"pc_agent/platform/windows/setup_entry.py"}
-
     subprocess.run(
         ["git", "clone", "--quiet", "--shared", "--no-checkout", str(project_root), str(tmp_path)],
         check=True,

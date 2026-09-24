@@ -2048,6 +2048,21 @@ components:
                 - "route.get"
                 - "adapter.list"
                 - "system.service_status"
+                - "system.resource_snapshot"
+                - "process.list"
+                - "process.find"
+                - "service.list"
+                - "service.status"
+                - "printer.list"
+                - "printer.status"
+                - "printer.queue.summary"
+                - "software.list"
+                - "software.find"
+                - "filesystem.free_space"
+                - "filesystem.path_exists"
+                - "filesystem.file_metadata"
+                - "eventlog.query"
+                - "eventlog.recent_errors"
               type: "string"
           title: "Capability"
         parameters:
@@ -4038,7 +4053,7 @@ components:
         capabilities:
           items:
             "$ref": "#/components/schemas/EndpointDeviceCapabilitiesV1__EndpointCapabilityAvailabilityV1"
-          maxItems: 7
+          maxItems: 32
           title: "Capabilities"
           type: "array"
       required:
@@ -4060,6 +4075,21 @@ components:
             - "route.get"
             - "adapter.list"
             - "system.service_status"
+            - "system.resource_snapshot"
+            - "process.list"
+            - "process.find"
+            - "service.list"
+            - "service.status"
+            - "printer.list"
+            - "printer.status"
+            - "printer.queue.summary"
+            - "software.list"
+            - "software.find"
+            - "filesystem.free_space"
+            - "filesystem.path_exists"
+            - "filesystem.file_metadata"
+            - "eventlog.query"
+            - "eventlog.recent_errors"
           title: "Capability"
           type: "string"
         available:
@@ -4073,6 +4103,7 @@ components:
           enum:
             - "read_only"
             - "safe_read"
+            - "controlled_read"
           title: "Risk"
           type: "string"
         consent_required:
@@ -4088,6 +4119,21 @@ components:
             - "route_get_parameters_v1"
             - "adapter_list_parameters_v1"
             - "service_status_parameters_v1"
+            - "system_resource_snapshot_parameters_v1"
+            - "process_list_parameters_v1"
+            - "process_find_parameters_v1"
+            - "service_list_parameters_v1"
+            - "service_status_v2_parameters_v1"
+            - "printer_list_parameters_v1"
+            - "printer_status_parameters_v1"
+            - "printer_queue_summary_parameters_v1"
+            - "software_list_parameters_v1"
+            - "software_find_parameters_v1"
+            - "filesystem_free_space_parameters_v1"
+            - "filesystem_path_exists_parameters_v1"
+            - "filesystem_file_metadata_parameters_v1"
+            - "eventlog_query_parameters_v1"
+            - "eventlog_recent_errors_parameters_v1"
           title: "Parameter Schema Version"
           type: "string"
       required:
@@ -4719,6 +4765,208 @@ components:
         - "collected_at"
       title: "DnsResolveResultV1"
       type: "object"
+    ModuleOperationDetailV1__EventFactV1:
+      additionalProperties: false
+      properties:
+        timestamp:
+          format: "date-time"
+          title: "Timestamp"
+          type: "string"
+          "$comment": "model-only UTC normalization: timezone-aware values are normalized to UTC."
+        severity:
+          enum:
+            - "error"
+            - "warning"
+            - "information"
+          title: "Severity"
+          type: "string"
+        event_id:
+          maximum: 4294967295
+          minimum: 0
+          title: "Event Id"
+          type: "integer"
+        provider:
+          maxLength: 128
+          minLength: 1
+          pattern: "^[^\\x00-\\x1f\\x7f]+$"
+          title: "Provider"
+          type: "string"
+        message_code:
+          maxLength: 64
+          minLength: 1
+          pattern: "^[a-z][a-z0-9_]*$"
+          title: "Message Code"
+          type: "string"
+      required:
+        - "timestamp"
+        - "severity"
+        - "event_id"
+        - "provider"
+        - "message_code"
+      title: "EventFactV1"
+      type: "object"
+    ModuleOperationDetailV1__EventQueryResultV1:
+      additionalProperties: false
+      properties:
+        schema_version:
+          const: "eventlog_query_result_v1"
+          title: "Schema Version"
+          type: "string"
+        events:
+          items:
+            "$ref": "#/components/schemas/ModuleOperationDetailV1__EventFactV1"
+          maxItems: 32
+          title: "Events"
+          type: "array"
+        event_count:
+          maximum: 32
+          minimum: 0
+          title: "Event Count"
+          type: "integer"
+        status:
+          enum:
+            - "succeeded"
+            - "failed"
+          title: "Status"
+          type: "string"
+        error_code:
+          anyOf:
+            -
+              maxLength: 64
+              minLength: 1
+              pattern: "^[a-z][a-z0-9_]*$"
+              type: "string"
+            -
+              type: "null"
+          default: null
+          title: "Error Code"
+        collected_at:
+          format: "date-time"
+          title: "Collected At"
+          type: "string"
+          "$comment": "model-only UTC normalization: timezone-aware values are normalized to UTC."
+      required:
+        - "schema_version"
+        - "event_count"
+        - "status"
+        - "collected_at"
+      title: "EventQueryResultV1"
+      type: "object"
+    ModuleOperationDetailV1__FileMetadataResultV1:
+      additionalProperties: false
+      properties:
+        schema_version:
+          const: "filesystem_file_metadata_result_v1"
+          title: "Schema Version"
+          type: "string"
+        path_key:
+          const: "endpoint_runtime_manifest"
+          title: "Path Key"
+          type: "string"
+        exists:
+          title: "Exists"
+          type: "boolean"
+        size:
+          anyOf:
+            -
+              maximum: 9223372036854775807
+              minimum: 0
+              type: "integer"
+            -
+              type: "null"
+          default: null
+          title: "Size"
+        modified_at:
+          anyOf:
+            -
+              format: "date-time"
+              type: "string"
+              "$comment": "model-only UTC normalization: timezone-aware values are normalized to UTC."
+            -
+              type: "null"
+          default: null
+          title: "Modified At"
+        version:
+          anyOf:
+            -
+              maxLength: 32
+              minLength: 1
+              type: "string"
+            -
+              type: "null"
+          default: null
+          title: "Version"
+        status:
+          enum:
+            - "succeeded"
+            - "failed"
+          title: "Status"
+          type: "string"
+        error_code:
+          anyOf:
+            -
+              maxLength: 64
+              minLength: 1
+              pattern: "^[a-z][a-z0-9_]*$"
+              type: "string"
+            -
+              type: "null"
+          default: null
+          title: "Error Code"
+        collected_at:
+          format: "date-time"
+          title: "Collected At"
+          type: "string"
+          "$comment": "model-only UTC normalization: timezone-aware values are normalized to UTC."
+      required:
+        - "schema_version"
+        - "path_key"
+        - "exists"
+        - "status"
+        - "collected_at"
+      title: "FileMetadataResultV1"
+      type: "object"
+    ModuleOperationDetailV1__FreeSpaceResultV1:
+      additionalProperties: false
+      properties:
+        schema_version:
+          const: "filesystem_free_space_result_v1"
+          title: "Schema Version"
+          type: "string"
+        volumes:
+          items:
+            "$ref": "#/components/schemas/ModuleOperationDetailV1__VolumeFactV1"
+          maxItems: 16
+          title: "Volumes"
+          type: "array"
+        status:
+          enum:
+            - "succeeded"
+            - "failed"
+          title: "Status"
+          type: "string"
+        error_code:
+          anyOf:
+            -
+              maxLength: 64
+              minLength: 1
+              pattern: "^[a-z][a-z0-9_]*$"
+              type: "string"
+            -
+              type: "null"
+          default: null
+          title: "Error Code"
+        collected_at:
+          format: "date-time"
+          title: "Collected At"
+          type: "string"
+          "$comment": "model-only UTC normalization: timezone-aware values are normalized to UTC."
+      required:
+        - "schema_version"
+        - "status"
+        - "collected_at"
+      title: "FreeSpaceResultV1"
+      type: "object"
     ModuleOperationDetailV1__ModuleOperationStepV1:
       additionalProperties: false
       properties:
@@ -4735,6 +4983,21 @@ components:
             - "route.get"
             - "adapter.list"
             - "system.service_status"
+            - "system.resource_snapshot"
+            - "process.list"
+            - "process.find"
+            - "service.list"
+            - "service.status"
+            - "printer.list"
+            - "printer.status"
+            - "printer.queue.summary"
+            - "software.list"
+            - "software.find"
+            - "filesystem.free_space"
+            - "filesystem.path_exists"
+            - "filesystem.file_metadata"
+            - "eventlog.query"
+            - "eventlog.recent_errors"
           title: "Capability"
           type: "string"
         status:
@@ -4767,9 +5030,24 @@ components:
                 mapping:
                   adapter_list_result_v1: "#/$defs/AdapterListResultV1"
                   dns_resolve_result_v1: "#/$defs/DnsResolveResultV1"
+                  eventlog_query_result_v1: "#/$defs/EventQueryResultV1"
+                  eventlog_recent_errors_result_v1: "#/$defs/RecentErrorsResultV1"
+                  filesystem_file_metadata_result_v1: "#/$defs/FileMetadataResultV1"
+                  filesystem_free_space_result_v1: "#/$defs/FreeSpaceResultV1"
+                  filesystem_path_exists_result_v1: "#/$defs/PathExistsResultV1"
                   network_ping_result_v1: "#/$defs/NetworkPingResultV1"
+                  printer_list_result_v1: "#/$defs/PrinterListResultV1"
+                  printer_queue_summary_result_v1: "#/$defs/PrinterQueueSummaryResultV1"
+                  printer_status_result_v1: "#/$defs/PrinterStatusResultV1"
+                  process_find_result_v1: "#/$defs/ProcessFindResultV1"
+                  process_list_result_v1: "#/$defs/ProcessListResultV1"
                   route_get_result_v1: "#/$defs/RouteGetResultV1"
-                  service_status_result_v1: "#/$defs/ServiceStatusResultV1"
+                  service_list_result_v1: "#/$defs/ServiceListResultV1"
+                  service_status_result_v1: "#/$defs/endpoint_contracts__read_only_primitives__ServiceStatusResultV1"
+                  service_status_v2_result_v1: "#/$defs/endpoint_contracts__service_printer_primitives__ServiceStatusResultV1"
+                  software_find_result_v1: "#/$defs/SoftwareFindResultV1"
+                  software_list_result_v1: "#/$defs/SoftwareListResultV1"
+                  system_resource_snapshot_result_v1: "#/$defs/SystemResourceSnapshotResultV1"
                   tcp_connect_result_v1: "#/$defs/TcpConnectResultV1"
                 propertyName: "schema_version"
               oneOf:
@@ -4784,7 +5062,37 @@ components:
                 -
                   "$ref": "#/components/schemas/ModuleOperationDetailV1__AdapterListResultV1"
                 -
-                  "$ref": "#/components/schemas/ModuleOperationDetailV1__ServiceStatusResultV1"
+                  "$ref": "#/components/schemas/ModuleOperationDetailV1__endpoint_contracts__read_only_primitives__ServiceStatusResultV1"
+                -
+                  "$ref": "#/components/schemas/ModuleOperationDetailV1__SystemResourceSnapshotResultV1"
+                -
+                  "$ref": "#/components/schemas/ModuleOperationDetailV1__ProcessListResultV1"
+                -
+                  "$ref": "#/components/schemas/ModuleOperationDetailV1__ProcessFindResultV1"
+                -
+                  "$ref": "#/components/schemas/ModuleOperationDetailV1__ServiceListResultV1"
+                -
+                  "$ref": "#/components/schemas/ModuleOperationDetailV1__endpoint_contracts__service_printer_primitives__ServiceStatusResultV1"
+                -
+                  "$ref": "#/components/schemas/ModuleOperationDetailV1__PrinterListResultV1"
+                -
+                  "$ref": "#/components/schemas/ModuleOperationDetailV1__PrinterStatusResultV1"
+                -
+                  "$ref": "#/components/schemas/ModuleOperationDetailV1__PrinterQueueSummaryResultV1"
+                -
+                  "$ref": "#/components/schemas/ModuleOperationDetailV1__SoftwareListResultV1"
+                -
+                  "$ref": "#/components/schemas/ModuleOperationDetailV1__SoftwareFindResultV1"
+                -
+                  "$ref": "#/components/schemas/ModuleOperationDetailV1__FreeSpaceResultV1"
+                -
+                  "$ref": "#/components/schemas/ModuleOperationDetailV1__PathExistsResultV1"
+                -
+                  "$ref": "#/components/schemas/ModuleOperationDetailV1__FileMetadataResultV1"
+                -
+                  "$ref": "#/components/schemas/ModuleOperationDetailV1__EventQueryResultV1"
+                -
+                  "$ref": "#/components/schemas/ModuleOperationDetailV1__RecentErrorsResultV1"
             -
               type: "null"
           default: null
@@ -4917,6 +5225,477 @@ components:
         - "collected_at"
       title: "NetworkPingResultV1"
       type: "object"
+    ModuleOperationDetailV1__PathExistsResultV1:
+      additionalProperties: false
+      properties:
+        schema_version:
+          const: "filesystem_path_exists_result_v1"
+          title: "Schema Version"
+          type: "string"
+        path_key:
+          enum:
+            - "endpoint_install_root"
+            - "endpoint_data_root"
+            - "endpoint_runtime_manifest"
+          title: "Path Key"
+          type: "string"
+        exists:
+          title: "Exists"
+          type: "boolean"
+        kind:
+          enum:
+            - "file"
+            - "directory"
+            - "other"
+            - "missing"
+          title: "Kind"
+          type: "string"
+        status:
+          enum:
+            - "succeeded"
+            - "failed"
+          title: "Status"
+          type: "string"
+        error_code:
+          anyOf:
+            -
+              maxLength: 64
+              minLength: 1
+              pattern: "^[a-z][a-z0-9_]*$"
+              type: "string"
+            -
+              type: "null"
+          default: null
+          title: "Error Code"
+        collected_at:
+          format: "date-time"
+          title: "Collected At"
+          type: "string"
+          "$comment": "model-only UTC normalization: timezone-aware values are normalized to UTC."
+      required:
+        - "schema_version"
+        - "path_key"
+        - "exists"
+        - "kind"
+        - "status"
+        - "collected_at"
+      title: "PathExistsResultV1"
+      type: "object"
+    ModuleOperationDetailV1__PrinterFactV1:
+      additionalProperties: false
+      properties:
+        name:
+          maxLength: 128
+          minLength: 1
+          pattern: "^[^\\x00-\\x1f\\x7f]+$"
+          title: "Name"
+          type: "string"
+        driver_name:
+          anyOf:
+            -
+              maxLength: 128
+              minLength: 1
+              type: "string"
+            -
+              type: "null"
+          default: null
+          title: "Driver Name"
+        port_type:
+          enum:
+            - "local"
+            - "network"
+            - "usb"
+            - "virtual"
+            - "unknown"
+          title: "Port Type"
+          type: "string"
+        default:
+          type: "boolean"
+          title: "Default"
+        state:
+          enum:
+            - "ready"
+            - "offline"
+            - "paused"
+            - "error"
+            - "unknown"
+          title: "State"
+          type: "string"
+      required:
+        - "name"
+        - "port_type"
+        - "default"
+        - "state"
+      title: "PrinterFactV1"
+      type: "object"
+    ModuleOperationDetailV1__PrinterListResultV1:
+      additionalProperties: false
+      properties:
+        schema_version:
+          const: "printer_list_result_v1"
+          title: "Schema Version"
+          type: "string"
+        printers:
+          items:
+            "$ref": "#/components/schemas/ModuleOperationDetailV1__PrinterFactV1"
+          maxItems: 16
+          title: "Printers"
+          type: "array"
+        status:
+          enum:
+            - "succeeded"
+            - "failed"
+          title: "Status"
+          type: "string"
+        error_code:
+          anyOf:
+            -
+              maxLength: 64
+              minLength: 1
+              pattern: "^[a-z][a-z0-9_]*$"
+              type: "string"
+            -
+              type: "null"
+          default: null
+          title: "Error Code"
+        collected_at:
+          format: "date-time"
+          title: "Collected At"
+          type: "string"
+          "$comment": "model-only UTC normalization: timezone-aware values are normalized to UTC."
+      required:
+        - "schema_version"
+        - "status"
+        - "collected_at"
+      title: "PrinterListResultV1"
+      type: "object"
+    ModuleOperationDetailV1__PrinterQueueSummaryResultV1:
+      additionalProperties: false
+      properties:
+        schema_version:
+          const: "printer_queue_summary_result_v1"
+          title: "Schema Version"
+          type: "string"
+        job_count:
+          maximum: 10000
+          minimum: 0
+          title: "Job Count"
+          type: "integer"
+        printing_count:
+          maximum: 10000
+          minimum: 0
+          title: "Printing Count"
+          type: "integer"
+        queued_count:
+          maximum: 10000
+          minimum: 0
+          title: "Queued Count"
+          type: "integer"
+        paused_count:
+          maximum: 10000
+          minimum: 0
+          title: "Paused Count"
+          type: "integer"
+        error_count:
+          maximum: 10000
+          minimum: 0
+          title: "Error Count"
+          type: "integer"
+        oldest_job_age_seconds:
+          anyOf:
+            -
+              maximum: 31536000
+              minimum: 0
+              type: "integer"
+            -
+              type: "null"
+          default: null
+          title: "Oldest Job Age Seconds"
+        status:
+          enum:
+            - "succeeded"
+            - "failed"
+          title: "Status"
+          type: "string"
+        error_code:
+          anyOf:
+            -
+              maxLength: 64
+              minLength: 1
+              pattern: "^[a-z][a-z0-9_]*$"
+              type: "string"
+            -
+              type: "null"
+          default: null
+          title: "Error Code"
+        collected_at:
+          format: "date-time"
+          title: "Collected At"
+          type: "string"
+          "$comment": "model-only UTC normalization: timezone-aware values are normalized to UTC."
+      required:
+        - "schema_version"
+        - "job_count"
+        - "printing_count"
+        - "queued_count"
+        - "paused_count"
+        - "error_count"
+        - "status"
+        - "collected_at"
+      title: "PrinterQueueSummaryResultV1"
+      type: "object"
+    ModuleOperationDetailV1__PrinterStatusResultV1:
+      additionalProperties: false
+      properties:
+        schema_version:
+          const: "printer_status_result_v1"
+          title: "Schema Version"
+          type: "string"
+        exists:
+          title: "Exists"
+          type: "boolean"
+        state:
+          enum:
+            - "ready"
+            - "offline"
+            - "paused"
+            - "error"
+            - "unknown"
+          title: "State"
+          type: "string"
+        offline:
+          title: "Offline"
+          type: "boolean"
+        error:
+          title: "Error"
+          type: "boolean"
+        paused:
+          title: "Paused"
+          type: "boolean"
+        status:
+          enum:
+            - "succeeded"
+            - "failed"
+          title: "Status"
+          type: "string"
+        error_code:
+          anyOf:
+            -
+              maxLength: 64
+              minLength: 1
+              pattern: "^[a-z][a-z0-9_]*$"
+              type: "string"
+            -
+              type: "null"
+          default: null
+          title: "Error Code"
+        collected_at:
+          format: "date-time"
+          title: "Collected At"
+          type: "string"
+          "$comment": "model-only UTC normalization: timezone-aware values are normalized to UTC."
+      required:
+        - "schema_version"
+        - "exists"
+        - "state"
+        - "offline"
+        - "error"
+        - "paused"
+        - "status"
+        - "collected_at"
+      title: "PrinterStatusResultV1"
+      type: "object"
+    ModuleOperationDetailV1__ProcessFindResultV1:
+      additionalProperties: false
+      properties:
+        schema_version:
+          const: "process_find_result_v1"
+          title: "Schema Version"
+          type: "string"
+        present:
+          title: "Present"
+          type: "boolean"
+        process_count:
+          maximum: 2147483647
+          minimum: 0
+          title: "Process Count"
+          type: "integer"
+        matches:
+          items:
+            "$ref": "#/components/schemas/ModuleOperationDetailV1__ProcessSummaryV1"
+          maxItems: 20
+          title: "Matches"
+          type: "array"
+        status:
+          enum:
+            - "succeeded"
+            - "failed"
+          title: "Status"
+          type: "string"
+        error_code:
+          anyOf:
+            -
+              maxLength: 64
+              minLength: 1
+              pattern: "^[a-z][a-z0-9_]*$"
+              type: "string"
+            -
+              type: "null"
+          default: null
+          title: "Error Code"
+        collected_at:
+          format: "date-time"
+          title: "Collected At"
+          type: "string"
+          "$comment": "model-only UTC normalization: timezone-aware values are normalized to UTC."
+      required:
+        - "schema_version"
+        - "present"
+        - "process_count"
+        - "status"
+        - "collected_at"
+      title: "ProcessFindResultV1"
+      type: "object"
+    ModuleOperationDetailV1__ProcessListResultV1:
+      additionalProperties: false
+      properties:
+        schema_version:
+          const: "process_list_result_v1"
+          title: "Schema Version"
+          type: "string"
+        processes:
+          items:
+            "$ref": "#/components/schemas/ModuleOperationDetailV1__ProcessSummaryV1"
+          maxItems: 32
+          title: "Processes"
+          type: "array"
+        process_count:
+          maximum: 32
+          minimum: 0
+          title: "Process Count"
+          type: "integer"
+        status:
+          enum:
+            - "succeeded"
+            - "failed"
+          title: "Status"
+          type: "string"
+        error_code:
+          anyOf:
+            -
+              maxLength: 64
+              minLength: 1
+              pattern: "^[a-z][a-z0-9_]*$"
+              type: "string"
+            -
+              type: "null"
+          default: null
+          title: "Error Code"
+        collected_at:
+          format: "date-time"
+          title: "Collected At"
+          type: "string"
+          "$comment": "model-only UTC normalization: timezone-aware values are normalized to UTC."
+      required:
+        - "schema_version"
+        - "process_count"
+        - "status"
+        - "collected_at"
+      title: "ProcessListResultV1"
+      type: "object"
+    ModuleOperationDetailV1__ProcessSummaryV1:
+      additionalProperties: false
+      properties:
+        pid:
+          maximum: 2147483647
+          minimum: 0
+          title: "Pid"
+          type: "integer"
+        name:
+          maxLength: 128
+          minLength: 1
+          pattern: "^[^\\x00-\\x1f\\x7f]+$"
+          title: "Name"
+          type: "string"
+        state:
+          maxLength: 32
+          minLength: 1
+          pattern: "^[a-z_]+$"
+          title: "State"
+          type: "string"
+        cpu_percent:
+          anyOf:
+            -
+              maximum: 10000
+              minimum: 0
+              type: "number"
+            -
+              type: "null"
+          default: null
+          title: "Cpu Percent"
+        memory_bytes:
+          anyOf:
+            -
+              maximum: 9223372036854775807
+              minimum: 0
+              type: "integer"
+            -
+              type: "null"
+          default: null
+          title: "Memory Bytes"
+      required:
+        - "pid"
+        - "name"
+        - "state"
+      title: "ProcessSummaryV1"
+      type: "object"
+    ModuleOperationDetailV1__RecentErrorsResultV1:
+      additionalProperties: false
+      properties:
+        schema_version:
+          const: "eventlog_recent_errors_result_v1"
+          title: "Schema Version"
+          type: "string"
+        events:
+          items:
+            "$ref": "#/components/schemas/ModuleOperationDetailV1__EventFactV1"
+          maxItems: 20
+          title: "Events"
+          type: "array"
+        event_count:
+          maximum: 20
+          minimum: 0
+          title: "Event Count"
+          type: "integer"
+        status:
+          enum:
+            - "succeeded"
+            - "failed"
+          title: "Status"
+          type: "string"
+        error_code:
+          anyOf:
+            -
+              maxLength: 64
+              minLength: 1
+              pattern: "^[a-z][a-z0-9_]*$"
+              type: "string"
+            -
+              type: "null"
+          default: null
+          title: "Error Code"
+        collected_at:
+          format: "date-time"
+          title: "Collected At"
+          type: "string"
+          "$comment": "model-only UTC normalization: timezone-aware values are normalized to UTC."
+      required:
+        - "schema_version"
+        - "event_count"
+        - "status"
+        - "collected_at"
+      title: "RecentErrorsResultV1"
+      type: "object"
     ModuleOperationDetailV1__RouteGetResultV1:
       additionalProperties: false
       properties:
@@ -5007,18 +5786,20 @@ components:
         - "collected_at"
       title: "RouteGetResultV1"
       type: "object"
-    ModuleOperationDetailV1__ServiceStatusResultV1:
+    ModuleOperationDetailV1__ServiceFactV1:
       additionalProperties: false
       properties:
-        schema_version:
-          const: "service_status_result_v1"
-          title: "Schema Version"
-          type: "string"
         service_key:
           enum:
             - "endpoint_agent"
             - "endpoint_agent_updater"
+            - "print_service"
           title: "Service Key"
+          type: "string"
+        display_name:
+          maxLength: 128
+          minLength: 1
+          title: "Display Name"
           type: "string"
         installed:
           title: "Installed"
@@ -5033,14 +5814,35 @@ components:
             - "unknown"
           title: "State"
           type: "string"
-        start_mode:
+        startup_type:
           enum:
             - "automatic"
             - "manual"
             - "disabled"
             - "unknown"
-          title: "Start Mode"
+          title: "Startup Type"
           type: "string"
+      required:
+        - "service_key"
+        - "display_name"
+        - "installed"
+        - "state"
+        - "startup_type"
+      title: "ServiceFactV1"
+      type: "object"
+    ModuleOperationDetailV1__ServiceListResultV1:
+      additionalProperties: false
+      properties:
+        schema_version:
+          const: "service_list_result_v1"
+          title: "Schema Version"
+          type: "string"
+        services:
+          items:
+            "$ref": "#/components/schemas/ModuleOperationDetailV1__ServiceFactV1"
+          maxItems: 3
+          title: "Services"
+          type: "array"
         status:
           enum:
             - "succeeded"
@@ -5052,7 +5854,7 @@ components:
             -
               maxLength: 64
               minLength: 1
-              pattern: "^[a-z][a-z0-9_]{0,63}$"
+              pattern: "^[a-z][a-z0-9_]*$"
               type: "string"
             -
               type: "null"
@@ -5065,13 +5867,231 @@ components:
           "$comment": "model-only UTC normalization: timezone-aware values are normalized to UTC."
       required:
         - "schema_version"
-        - "service_key"
-        - "installed"
-        - "state"
-        - "start_mode"
         - "status"
         - "collected_at"
-      title: "ServiceStatusResultV1"
+      title: "ServiceListResultV1"
+      type: "object"
+    ModuleOperationDetailV1__SoftwareFactV1:
+      additionalProperties: false
+      properties:
+        name:
+          maxLength: 128
+          minLength: 1
+          pattern: "^[^\\x00-\\x1f\\x7f]+$"
+          title: "Name"
+          type: "string"
+        version:
+          anyOf:
+            -
+              maxLength: 64
+              minLength: 1
+              type: "string"
+            -
+              type: "null"
+          default: null
+          title: "Version"
+        publisher:
+          anyOf:
+            -
+              maxLength: 128
+              minLength: 1
+              pattern: "^[^\\x00-\\x1f\\x7f]+$"
+              type: "string"
+            -
+              type: "null"
+          default: null
+          title: "Publisher"
+        source:
+          enum:
+            - "windows_registry"
+            - "alt_rpm"
+          title: "Source"
+          type: "string"
+        architecture:
+          anyOf:
+            -
+              maxLength: 32
+              minLength: 1
+              type: "string"
+            -
+              type: "null"
+          default: null
+          title: "Architecture"
+      required:
+        - "name"
+        - "source"
+      title: "SoftwareFactV1"
+      type: "object"
+    ModuleOperationDetailV1__SoftwareFindResultV1:
+      additionalProperties: false
+      properties:
+        schema_version:
+          const: "software_find_result_v1"
+          title: "Schema Version"
+          type: "string"
+        present:
+          title: "Present"
+          type: "boolean"
+        matches:
+          items:
+            "$ref": "#/components/schemas/ModuleOperationDetailV1__SoftwareFactV1"
+          maxItems: 20
+          title: "Matches"
+          type: "array"
+        status:
+          enum:
+            - "succeeded"
+            - "failed"
+          title: "Status"
+          type: "string"
+        error_code:
+          anyOf:
+            -
+              maxLength: 64
+              minLength: 1
+              pattern: "^[a-z][a-z0-9_]*$"
+              type: "string"
+            -
+              type: "null"
+          default: null
+          title: "Error Code"
+        collected_at:
+          format: "date-time"
+          title: "Collected At"
+          type: "string"
+          "$comment": "model-only UTC normalization: timezone-aware values are normalized to UTC."
+      required:
+        - "schema_version"
+        - "present"
+        - "status"
+        - "collected_at"
+      title: "SoftwareFindResultV1"
+      type: "object"
+    ModuleOperationDetailV1__SoftwareListResultV1:
+      additionalProperties: false
+      properties:
+        schema_version:
+          const: "software_list_result_v1"
+          title: "Schema Version"
+          type: "string"
+        software:
+          items:
+            "$ref": "#/components/schemas/ModuleOperationDetailV1__SoftwareFactV1"
+          maxItems: 32
+          title: "Software"
+          type: "array"
+        status:
+          enum:
+            - "succeeded"
+            - "failed"
+          title: "Status"
+          type: "string"
+        error_code:
+          anyOf:
+            -
+              maxLength: 64
+              minLength: 1
+              pattern: "^[a-z][a-z0-9_]*$"
+              type: "string"
+            -
+              type: "null"
+          default: null
+          title: "Error Code"
+        collected_at:
+          format: "date-time"
+          title: "Collected At"
+          type: "string"
+          "$comment": "model-only UTC normalization: timezone-aware values are normalized to UTC."
+      required:
+        - "schema_version"
+        - "status"
+        - "collected_at"
+      title: "SoftwareListResultV1"
+      type: "object"
+    ModuleOperationDetailV1__SystemResourceSnapshotResultV1:
+      additionalProperties: false
+      properties:
+        schema_version:
+          const: "system_resource_snapshot_result_v1"
+          title: "Schema Version"
+          type: "string"
+        uptime_seconds:
+          anyOf:
+            -
+              maximum: 9223372036854775807
+              minimum: 0
+              type: "integer"
+            -
+              type: "null"
+          default: null
+          title: "Uptime Seconds"
+        cpu_percent:
+          anyOf:
+            -
+              maximum: 100
+              minimum: 0
+              type: "number"
+            -
+              type: "null"
+          default: null
+          title: "Cpu Percent"
+        memory_total_bytes:
+          anyOf:
+            -
+              maximum: 9223372036854775807
+              minimum: 0
+              type: "integer"
+            -
+              type: "null"
+          default: null
+          title: "Memory Total Bytes"
+        memory_available_bytes:
+          anyOf:
+            -
+              maximum: 9223372036854775807
+              minimum: 0
+              type: "integer"
+            -
+              type: "null"
+          default: null
+          title: "Memory Available Bytes"
+        system_drive_free_bytes:
+          anyOf:
+            -
+              maximum: 9223372036854775807
+              minimum: 0
+              type: "integer"
+            -
+              type: "null"
+          default: null
+          title: "System Drive Free Bytes"
+        status:
+          enum:
+            - "succeeded"
+            - "failed"
+          title: "Status"
+          type: "string"
+        error_code:
+          anyOf:
+            -
+              maxLength: 64
+              minLength: 1
+              pattern: "^[a-z][a-z0-9_]*$"
+              type: "string"
+            -
+              type: "null"
+          default: null
+          title: "Error Code"
+        collected_at:
+          format: "date-time"
+          title: "Collected At"
+          type: "string"
+          "$comment": "model-only UTC normalization: timezone-aware values are normalized to UTC."
+      required:
+        - "schema_version"
+        - "status"
+        - "collected_at"
+      title: "SystemResourceSnapshotResultV1"
       type: "object"
     ModuleOperationDetailV1__TcpConnectResultV1:
       additionalProperties: false
@@ -5143,6 +6163,146 @@ components:
         - "status"
         - "collected_at"
       title: "TcpConnectResultV1"
+      type: "object"
+    ModuleOperationDetailV1__VolumeFactV1:
+      additionalProperties: false
+      properties:
+        volume_key:
+          maxLength: 32
+          minLength: 1
+          pattern: "^(?:system|local_[1-9][0-9]?)$"
+          title: "Volume Key"
+          type: "string"
+        filesystem_type:
+          maxLength: 32
+          minLength: 1
+          pattern: "^[A-Za-z0-9._-]+$"
+          title: "Filesystem Type"
+          type: "string"
+        total_bytes:
+          maximum: 9223372036854775807
+          minimum: 0
+          title: "Total Bytes"
+          type: "integer"
+        free_bytes:
+          maximum: 9223372036854775807
+          minimum: 0
+          title: "Free Bytes"
+          type: "integer"
+      required:
+        - "volume_key"
+        - "filesystem_type"
+        - "total_bytes"
+        - "free_bytes"
+      title: "VolumeFactV1"
+      type: "object"
+    ModuleOperationDetailV1__endpoint_contracts__read_only_primitives__ServiceStatusResultV1:
+      additionalProperties: false
+      properties:
+        schema_version:
+          const: "service_status_result_v1"
+          title: "Schema Version"
+          type: "string"
+        service_key:
+          enum:
+            - "endpoint_agent"
+            - "endpoint_agent_updater"
+          title: "Service Key"
+          type: "string"
+        installed:
+          title: "Installed"
+          type: "boolean"
+        state:
+          enum:
+            - "running"
+            - "stopped"
+            - "paused"
+            - "failed"
+            - "not_found"
+            - "unknown"
+          title: "State"
+          type: "string"
+        start_mode:
+          enum:
+            - "automatic"
+            - "manual"
+            - "disabled"
+            - "unknown"
+          title: "Start Mode"
+          type: "string"
+        status:
+          enum:
+            - "succeeded"
+            - "failed"
+          title: "Status"
+          type: "string"
+        error_code:
+          anyOf:
+            -
+              maxLength: 64
+              minLength: 1
+              pattern: "^[a-z][a-z0-9_]{0,63}$"
+              type: "string"
+            -
+              type: "null"
+          default: null
+          title: "Error Code"
+        collected_at:
+          format: "date-time"
+          title: "Collected At"
+          type: "string"
+          "$comment": "model-only UTC normalization: timezone-aware values are normalized to UTC."
+      required:
+        - "schema_version"
+        - "service_key"
+        - "installed"
+        - "state"
+        - "start_mode"
+        - "status"
+        - "collected_at"
+      title: "ServiceStatusResultV1"
+      type: "object"
+    ModuleOperationDetailV1__endpoint_contracts__service_printer_primitives__ServiceStatusResultV1:
+      additionalProperties: false
+      properties:
+        schema_version:
+          const: "service_status_v2_result_v1"
+          title: "Schema Version"
+          type: "string"
+        service:
+          anyOf:
+            -
+              "$ref": "#/components/schemas/ModuleOperationDetailV1__ServiceFactV1"
+            -
+              type: "null"
+          default: null
+        status:
+          enum:
+            - "succeeded"
+            - "failed"
+          title: "Status"
+          type: "string"
+        error_code:
+          anyOf:
+            -
+              maxLength: 64
+              minLength: 1
+              pattern: "^[a-z][a-z0-9_]*$"
+              type: "string"
+            -
+              type: "null"
+          default: null
+          title: "Error Code"
+        collected_at:
+          format: "date-time"
+          title: "Collected At"
+          type: "string"
+          "$comment": "model-only UTC normalization: timezone-aware values are normalized to UTC."
+      required:
+        - "schema_version"
+        - "status"
+        - "collected_at"
+      title: "ServiceStatusResultV1"
       type: "object"
     ModuleSummaryV1:
       additionalProperties: false
@@ -5265,6 +6425,21 @@ components:
             - "route.get"
             - "adapter.list"
             - "system.service_status"
+            - "system.resource_snapshot"
+            - "process.list"
+            - "process.find"
+            - "service.list"
+            - "service.status"
+            - "printer.list"
+            - "printer.status"
+            - "printer.queue.summary"
+            - "software.list"
+            - "software.find"
+            - "filesystem.free_space"
+            - "filesystem.path_exists"
+            - "filesystem.file_metadata"
+            - "eventlog.query"
+            - "eventlog.recent_errors"
           title: "Capability"
           type: "string"
         parameters:
@@ -5360,7 +6535,7 @@ components:
         items:
           items:
             "$ref": "#/components/schemas/ModuleCapabilityCatalogV1__ModuleCapabilityAuthoringV1"
-          maxItems: 6
+          maxItems: 32
           minItems: 6
           title: "Items"
           type: "array"
@@ -5460,7 +6635,39 @@ components:
             - "route.get"
             - "adapter.list"
             - "system.service_status"
+            - "system.resource_snapshot"
+            - "process.list"
+            - "process.find"
+            - "service.list"
+            - "service.status"
+            - "printer.list"
+            - "printer.status"
+            - "printer.queue.summary"
+            - "software.list"
+            - "software.find"
+            - "filesystem.free_space"
+            - "filesystem.path_exists"
+            - "filesystem.file_metadata"
+            - "eventlog.query"
+            - "eventlog.recent_errors"
           title: "Capability"
+          type: "string"
+        display_name_ru:
+          maxLength: 128
+          minLength: 1
+          title: "Display Name Ru"
+          type: "string"
+        category:
+          enum:
+            - "network"
+            - "system"
+            - "process"
+            - "service"
+            - "printer"
+            - "software"
+            - "eventlog"
+            - "filesystem"
+          title: "Category"
           type: "string"
         parameter_schema_version:
           maxLength: 128
@@ -5489,7 +6696,9 @@ components:
           title: "Minimum Agent Version"
           type: "string"
         risk:
-          const: "safe_read"
+          enum:
+            - "safe_read"
+            - "controlled_read"
           title: "Risk"
           type: "string"
         consent_required:
@@ -5500,12 +6709,25 @@ components:
           enum:
             - "endpoint_network_primitives_enabled"
             - "endpoint_read_only_primitives_enabled"
+            - "endpoint_system_primitives_enabled"
+            - "endpoint_process_primitives_enabled"
+            - "endpoint_printer_primitives_enabled"
+            - "endpoint_software_primitives_enabled"
+            - "endpoint_filesystem_primitives_enabled"
+            - "endpoint_eventlog_primitives_enabled"
           title: "Feature Flag"
           type: "string"
         policy:
           enum:
             - "network_target_policy"
             - "none"
+            - "process_metadata"
+            - "service_catalog"
+            - "local_printers"
+            - "machine_software"
+            - "local_volumes"
+            - "logical_paths"
+            - "event_profile"
           title: "Policy"
           type: "string"
         parameters:
@@ -5514,8 +6736,20 @@ components:
           maxItems: 4
           title: "Parameters"
           type: "array"
+        execution_timeout_seconds:
+          maximum: 30
+          minimum: 1
+          title: "Execution Timeout Seconds"
+          type: "integer"
+        max_result_items:
+          maximum: 100
+          minimum: 1
+          title: "Max Result Items"
+          type: "integer"
       required:
         - "capability"
+        - "display_name_ru"
+        - "category"
         - "parameter_schema_version"
         - "result_schema_version"
         - "platforms"
@@ -5525,6 +6759,8 @@ components:
         - "feature_flag"
         - "policy"
         - "parameters"
+        - "execution_timeout_seconds"
+        - "max_result_items"
       title: "ModuleCapabilityAuthoringV1"
       type: "object"
     AdapterSummaryItemV1:
@@ -6009,6 +7245,21 @@ components:
             - "route.get"
             - "adapter.list"
             - "system.service_status"
+            - "system.resource_snapshot"
+            - "process.list"
+            - "process.find"
+            - "service.list"
+            - "service.status"
+            - "printer.list"
+            - "printer.status"
+            - "printer.queue.summary"
+            - "software.list"
+            - "software.find"
+            - "filesystem.free_space"
+            - "filesystem.path_exists"
+            - "filesystem.file_metadata"
+            - "eventlog.query"
+            - "eventlog.recent_errors"
           title: "Capability"
         available:
           type: "boolean"
@@ -6022,6 +7273,7 @@ components:
           enum:
             - "read_only"
             - "safe_read"
+            - "controlled_read"
           title: "Risk"
         consent_required:
           type: "boolean"
@@ -6037,6 +7289,21 @@ components:
             - "route_get_parameters_v1"
             - "adapter_list_parameters_v1"
             - "service_status_parameters_v1"
+            - "system_resource_snapshot_parameters_v1"
+            - "process_list_parameters_v1"
+            - "process_find_parameters_v1"
+            - "service_list_parameters_v1"
+            - "service_status_v2_parameters_v1"
+            - "printer_list_parameters_v1"
+            - "printer_status_parameters_v1"
+            - "printer_queue_summary_parameters_v1"
+            - "software_list_parameters_v1"
+            - "software_find_parameters_v1"
+            - "filesystem_free_space_parameters_v1"
+            - "filesystem_path_exists_parameters_v1"
+            - "filesystem_file_metadata_parameters_v1"
+            - "eventlog_query_parameters_v1"
+            - "eventlog_recent_errors_parameters_v1"
           title: "Parameter Schema Version"
       additionalProperties: false
       type: "object"
@@ -6233,6 +7500,21 @@ components:
             - "route.get"
             - "adapter.list"
             - "system.service_status"
+            - "system.resource_snapshot"
+            - "process.list"
+            - "process.find"
+            - "service.list"
+            - "service.status"
+            - "printer.list"
+            - "printer.status"
+            - "printer.queue.summary"
+            - "software.list"
+            - "software.find"
+            - "filesystem.free_space"
+            - "filesystem.path_exists"
+            - "filesystem.file_metadata"
+            - "eventlog.query"
+            - "eventlog.recent_errors"
           title: "Capability"
         parameters:
           patternProperties:
@@ -6260,6 +7542,197 @@ components:
         - "capability"
         - "parameters"
       title: "EndpointRecipeStepV1"
+    EventFactV1:
+      properties:
+        timestamp:
+          type: "string"
+          format: "date-time"
+          title: "Timestamp"
+        severity:
+          type: "string"
+          enum:
+            - "error"
+            - "warning"
+            - "information"
+          title: "Severity"
+        event_id:
+          type: "integer"
+          maximum: 4294967295.0
+          minimum: 0.0
+          title: "Event Id"
+        provider:
+          type: "string"
+          maxLength: 128
+          minLength: 1
+          pattern: "^[^\\x00-\\x1f\\x7f]+$"
+          title: "Provider"
+        message_code:
+          type: "string"
+          maxLength: 64
+          minLength: 1
+          pattern: "^[a-z][a-z0-9_]*$"
+          title: "Message Code"
+      additionalProperties: false
+      type: "object"
+      required:
+        - "timestamp"
+        - "severity"
+        - "event_id"
+        - "provider"
+        - "message_code"
+      title: "EventFactV1"
+    EventQueryResultV1:
+      properties:
+        schema_version:
+          type: "string"
+          const: "eventlog_query_result_v1"
+          title: "Schema Version"
+        events:
+          items:
+            "$ref": "#/components/schemas/EventFactV1"
+          type: "array"
+          maxItems: 32
+          title: "Events"
+        event_count:
+          type: "integer"
+          maximum: 32.0
+          minimum: 0.0
+          title: "Event Count"
+        status:
+          type: "string"
+          enum:
+            - "succeeded"
+            - "failed"
+          title: "Status"
+        error_code:
+          anyOf:
+            -
+              type: "string"
+              maxLength: 64
+              minLength: 1
+              pattern: "^[a-z][a-z0-9_]*$"
+            -
+              type: "null"
+          title: "Error Code"
+        collected_at:
+          type: "string"
+          format: "date-time"
+          title: "Collected At"
+      additionalProperties: false
+      type: "object"
+      required:
+        - "schema_version"
+        - "event_count"
+        - "status"
+        - "collected_at"
+      title: "EventQueryResultV1"
+    FileMetadataResultV1:
+      properties:
+        schema_version:
+          type: "string"
+          const: "filesystem_file_metadata_result_v1"
+          title: "Schema Version"
+        path_key:
+          type: "string"
+          const: "endpoint_runtime_manifest"
+          title: "Path Key"
+        exists:
+          type: "boolean"
+          title: "Exists"
+        size:
+          anyOf:
+            -
+              type: "integer"
+              maximum: 9.223372036854776e+18
+              minimum: 0.0
+            -
+              type: "null"
+          title: "Size"
+        modified_at:
+          anyOf:
+            -
+              type: "string"
+              format: "date-time"
+            -
+              type: "null"
+          title: "Modified At"
+        version:
+          anyOf:
+            -
+              type: "string"
+              maxLength: 32
+              minLength: 1
+            -
+              type: "null"
+          title: "Version"
+        status:
+          type: "string"
+          enum:
+            - "succeeded"
+            - "failed"
+          title: "Status"
+        error_code:
+          anyOf:
+            -
+              type: "string"
+              maxLength: 64
+              minLength: 1
+              pattern: "^[a-z][a-z0-9_]*$"
+            -
+              type: "null"
+          title: "Error Code"
+        collected_at:
+          type: "string"
+          format: "date-time"
+          title: "Collected At"
+      additionalProperties: false
+      type: "object"
+      required:
+        - "schema_version"
+        - "path_key"
+        - "exists"
+        - "status"
+        - "collected_at"
+      title: "FileMetadataResultV1"
+    FreeSpaceResultV1:
+      properties:
+        schema_version:
+          type: "string"
+          const: "filesystem_free_space_result_v1"
+          title: "Schema Version"
+        volumes:
+          items:
+            "$ref": "#/components/schemas/VolumeFactV1"
+          type: "array"
+          maxItems: 16
+          title: "Volumes"
+        status:
+          type: "string"
+          enum:
+            - "succeeded"
+            - "failed"
+          title: "Status"
+        error_code:
+          anyOf:
+            -
+              type: "string"
+              maxLength: 64
+              minLength: 1
+              pattern: "^[a-z][a-z0-9_]*$"
+            -
+              type: "null"
+          title: "Error Code"
+        collected_at:
+          type: "string"
+          format: "date-time"
+          title: "Collected At"
+      additionalProperties: false
+      type: "object"
+      required:
+        - "schema_version"
+        - "status"
+        - "collected_at"
+      title: "FreeSpaceResultV1"
     HTTPValidationError:
       properties:
         detail:
@@ -6746,7 +8219,39 @@ components:
             - "route.get"
             - "adapter.list"
             - "system.service_status"
+            - "system.resource_snapshot"
+            - "process.list"
+            - "process.find"
+            - "service.list"
+            - "service.status"
+            - "printer.list"
+            - "printer.status"
+            - "printer.queue.summary"
+            - "software.list"
+            - "software.find"
+            - "filesystem.free_space"
+            - "filesystem.path_exists"
+            - "filesystem.file_metadata"
+            - "eventlog.query"
+            - "eventlog.recent_errors"
           title: "Capability"
+        display_name_ru:
+          type: "string"
+          maxLength: 128
+          minLength: 1
+          title: "Display Name Ru"
+        category:
+          type: "string"
+          enum:
+            - "network"
+            - "system"
+            - "process"
+            - "service"
+            - "printer"
+            - "software"
+            - "eventlog"
+            - "filesystem"
+          title: "Category"
         parameter_schema_version:
           type: "string"
           maxLength: 128
@@ -6775,7 +8280,9 @@ components:
           title: "Minimum Agent Version"
         risk:
           type: "string"
-          const: "safe_read"
+          enum:
+            - "safe_read"
+            - "controlled_read"
           title: "Risk"
         consent_required:
           type: "boolean"
@@ -6786,12 +8293,25 @@ components:
           enum:
             - "endpoint_network_primitives_enabled"
             - "endpoint_read_only_primitives_enabled"
+            - "endpoint_system_primitives_enabled"
+            - "endpoint_process_primitives_enabled"
+            - "endpoint_printer_primitives_enabled"
+            - "endpoint_software_primitives_enabled"
+            - "endpoint_filesystem_primitives_enabled"
+            - "endpoint_eventlog_primitives_enabled"
           title: "Feature Flag"
         policy:
           type: "string"
           enum:
             - "network_target_policy"
             - "none"
+            - "process_metadata"
+            - "service_catalog"
+            - "local_printers"
+            - "machine_software"
+            - "local_volumes"
+            - "logical_paths"
+            - "event_profile"
           title: "Policy"
         parameters:
           items:
@@ -6799,10 +8319,22 @@ components:
           type: "array"
           maxItems: 4
           title: "Parameters"
+        execution_timeout_seconds:
+          type: "integer"
+          maximum: 30.0
+          minimum: 1.0
+          title: "Execution Timeout Seconds"
+        max_result_items:
+          type: "integer"
+          maximum: 100.0
+          minimum: 1.0
+          title: "Max Result Items"
       additionalProperties: false
       type: "object"
       required:
         - "capability"
+        - "display_name_ru"
+        - "category"
         - "parameter_schema_version"
         - "result_schema_version"
         - "platforms"
@@ -6812,6 +8344,8 @@ components:
         - "feature_flag"
         - "policy"
         - "parameters"
+        - "execution_timeout_seconds"
+        - "max_result_items"
       title: "ModuleCapabilityAuthoringV1"
       description: "Stable public metadata for one fixed recipe-capable primitive."
     ModuleCapabilityCatalogEnvelope:
@@ -6878,6 +8412,21 @@ components:
             - "route.get"
             - "adapter.list"
             - "system.service_status"
+            - "system.resource_snapshot"
+            - "process.list"
+            - "process.find"
+            - "service.list"
+            - "service.status"
+            - "printer.list"
+            - "printer.status"
+            - "printer.queue.summary"
+            - "software.list"
+            - "software.find"
+            - "filesystem.free_space"
+            - "filesystem.path_exists"
+            - "filesystem.file_metadata"
+            - "eventlog.query"
+            - "eventlog.recent_errors"
           title: "Capability"
         status:
           type: "string"
@@ -6916,15 +8465,60 @@ components:
                 -
                   "$ref": "#/components/schemas/AdapterListResultV1"
                 -
-                  "$ref": "#/components/schemas/ServiceStatusResultV1"
+                  "$ref": "#/components/schemas/endpoint_contracts__read_only_primitives__ServiceStatusResultV1"
+                -
+                  "$ref": "#/components/schemas/SystemResourceSnapshotResultV1"
+                -
+                  "$ref": "#/components/schemas/ProcessListResultV1"
+                -
+                  "$ref": "#/components/schemas/ProcessFindResultV1"
+                -
+                  "$ref": "#/components/schemas/ServiceListResultV1"
+                -
+                  "$ref": "#/components/schemas/endpoint_contracts__service_printer_primitives__ServiceStatusResultV1"
+                -
+                  "$ref": "#/components/schemas/PrinterListResultV1"
+                -
+                  "$ref": "#/components/schemas/PrinterStatusResultV1"
+                -
+                  "$ref": "#/components/schemas/PrinterQueueSummaryResultV1"
+                -
+                  "$ref": "#/components/schemas/SoftwareListResultV1"
+                -
+                  "$ref": "#/components/schemas/SoftwareFindResultV1"
+                -
+                  "$ref": "#/components/schemas/FreeSpaceResultV1"
+                -
+                  "$ref": "#/components/schemas/PathExistsResultV1"
+                -
+                  "$ref": "#/components/schemas/FileMetadataResultV1"
+                -
+                  "$ref": "#/components/schemas/EventQueryResultV1"
+                -
+                  "$ref": "#/components/schemas/RecentErrorsResultV1"
               discriminator:
                 propertyName: "schema_version"
                 mapping:
                   adapter_list_result_v1: "#/components/schemas/AdapterListResultV1"
                   dns_resolve_result_v1: "#/components/schemas/DnsResolveResultV1"
+                  eventlog_query_result_v1: "#/components/schemas/EventQueryResultV1"
+                  eventlog_recent_errors_result_v1: "#/components/schemas/RecentErrorsResultV1"
+                  filesystem_file_metadata_result_v1: "#/components/schemas/FileMetadataResultV1"
+                  filesystem_free_space_result_v1: "#/components/schemas/FreeSpaceResultV1"
+                  filesystem_path_exists_result_v1: "#/components/schemas/PathExistsResultV1"
                   network_ping_result_v1: "#/components/schemas/NetworkPingResultV1"
+                  printer_list_result_v1: "#/components/schemas/PrinterListResultV1"
+                  printer_queue_summary_result_v1: "#/components/schemas/PrinterQueueSummaryResultV1"
+                  printer_status_result_v1: "#/components/schemas/PrinterStatusResultV1"
+                  process_find_result_v1: "#/components/schemas/ProcessFindResultV1"
+                  process_list_result_v1: "#/components/schemas/ProcessListResultV1"
                   route_get_result_v1: "#/components/schemas/RouteGetResultV1"
-                  service_status_result_v1: "#/components/schemas/ServiceStatusResultV1"
+                  service_list_result_v1: "#/components/schemas/ServiceListResultV1"
+                  service_status_result_v1: "#/components/schemas/endpoint_contracts__read_only_primitives__ServiceStatusResultV1"
+                  service_status_v2_result_v1: "#/components/schemas/endpoint_contracts__service_printer_primitives__ServiceStatusResultV1"
+                  software_find_result_v1: "#/components/schemas/SoftwareFindResultV1"
+                  software_list_result_v1: "#/components/schemas/SoftwareListResultV1"
+                  system_resource_snapshot_result_v1: "#/components/schemas/SystemResourceSnapshotResultV1"
                   tcp_connect_result_v1: "#/components/schemas/TcpConnectResultV1"
             -
               type: "null"
@@ -7303,6 +8897,459 @@ components:
       required:
         - "data"
       title: "OperationResponseEnvelope"
+    PathExistsResultV1:
+      properties:
+        schema_version:
+          type: "string"
+          const: "filesystem_path_exists_result_v1"
+          title: "Schema Version"
+        path_key:
+          type: "string"
+          enum:
+            - "endpoint_install_root"
+            - "endpoint_data_root"
+            - "endpoint_runtime_manifest"
+          title: "Path Key"
+        exists:
+          type: "boolean"
+          title: "Exists"
+        kind:
+          type: "string"
+          enum:
+            - "file"
+            - "directory"
+            - "other"
+            - "missing"
+          title: "Kind"
+        status:
+          type: "string"
+          enum:
+            - "succeeded"
+            - "failed"
+          title: "Status"
+        error_code:
+          anyOf:
+            -
+              type: "string"
+              maxLength: 64
+              minLength: 1
+              pattern: "^[a-z][a-z0-9_]*$"
+            -
+              type: "null"
+          title: "Error Code"
+        collected_at:
+          type: "string"
+          format: "date-time"
+          title: "Collected At"
+      additionalProperties: false
+      type: "object"
+      required:
+        - "schema_version"
+        - "path_key"
+        - "exists"
+        - "kind"
+        - "status"
+        - "collected_at"
+      title: "PathExistsResultV1"
+    PrinterFactV1:
+      properties:
+        name:
+          type: "string"
+          maxLength: 128
+          minLength: 1
+          pattern: "^[^\\x00-\\x1f\\x7f]+$"
+          title: "Name"
+        driver_name:
+          anyOf:
+            -
+              type: "string"
+              maxLength: 128
+              minLength: 1
+            -
+              type: "null"
+          title: "Driver Name"
+        port_type:
+          type: "string"
+          enum:
+            - "local"
+            - "network"
+            - "usb"
+            - "virtual"
+            - "unknown"
+          title: "Port Type"
+        default:
+          type: "boolean"
+          title: "Default"
+        state:
+          type: "string"
+          enum:
+            - "ready"
+            - "offline"
+            - "paused"
+            - "error"
+            - "unknown"
+          title: "State"
+      additionalProperties: false
+      type: "object"
+      required:
+        - "name"
+        - "port_type"
+        - "default"
+        - "state"
+      title: "PrinterFactV1"
+    PrinterListResultV1:
+      properties:
+        schema_version:
+          type: "string"
+          const: "printer_list_result_v1"
+          title: "Schema Version"
+        printers:
+          items:
+            "$ref": "#/components/schemas/PrinterFactV1"
+          type: "array"
+          maxItems: 16
+          title: "Printers"
+        status:
+          type: "string"
+          enum:
+            - "succeeded"
+            - "failed"
+          title: "Status"
+        error_code:
+          anyOf:
+            -
+              type: "string"
+              maxLength: 64
+              minLength: 1
+              pattern: "^[a-z][a-z0-9_]*$"
+            -
+              type: "null"
+          title: "Error Code"
+        collected_at:
+          type: "string"
+          format: "date-time"
+          title: "Collected At"
+      additionalProperties: false
+      type: "object"
+      required:
+        - "schema_version"
+        - "status"
+        - "collected_at"
+      title: "PrinterListResultV1"
+    PrinterQueueSummaryResultV1:
+      properties:
+        schema_version:
+          type: "string"
+          const: "printer_queue_summary_result_v1"
+          title: "Schema Version"
+        job_count:
+          type: "integer"
+          maximum: 10000.0
+          minimum: 0.0
+          title: "Job Count"
+        printing_count:
+          type: "integer"
+          maximum: 10000.0
+          minimum: 0.0
+          title: "Printing Count"
+        queued_count:
+          type: "integer"
+          maximum: 10000.0
+          minimum: 0.0
+          title: "Queued Count"
+        paused_count:
+          type: "integer"
+          maximum: 10000.0
+          minimum: 0.0
+          title: "Paused Count"
+        error_count:
+          type: "integer"
+          maximum: 10000.0
+          minimum: 0.0
+          title: "Error Count"
+        oldest_job_age_seconds:
+          anyOf:
+            -
+              type: "integer"
+              maximum: 31536000.0
+              minimum: 0.0
+            -
+              type: "null"
+          title: "Oldest Job Age Seconds"
+        status:
+          type: "string"
+          enum:
+            - "succeeded"
+            - "failed"
+          title: "Status"
+        error_code:
+          anyOf:
+            -
+              type: "string"
+              maxLength: 64
+              minLength: 1
+              pattern: "^[a-z][a-z0-9_]*$"
+            -
+              type: "null"
+          title: "Error Code"
+        collected_at:
+          type: "string"
+          format: "date-time"
+          title: "Collected At"
+      additionalProperties: false
+      type: "object"
+      required:
+        - "schema_version"
+        - "job_count"
+        - "printing_count"
+        - "queued_count"
+        - "paused_count"
+        - "error_count"
+        - "status"
+        - "collected_at"
+      title: "PrinterQueueSummaryResultV1"
+    PrinterStatusResultV1:
+      properties:
+        schema_version:
+          type: "string"
+          const: "printer_status_result_v1"
+          title: "Schema Version"
+        exists:
+          type: "boolean"
+          title: "Exists"
+        state:
+          type: "string"
+          enum:
+            - "ready"
+            - "offline"
+            - "paused"
+            - "error"
+            - "unknown"
+          title: "State"
+        offline:
+          type: "boolean"
+          title: "Offline"
+        error:
+          type: "boolean"
+          title: "Error"
+        paused:
+          type: "boolean"
+          title: "Paused"
+        status:
+          type: "string"
+          enum:
+            - "succeeded"
+            - "failed"
+          title: "Status"
+        error_code:
+          anyOf:
+            -
+              type: "string"
+              maxLength: 64
+              minLength: 1
+              pattern: "^[a-z][a-z0-9_]*$"
+            -
+              type: "null"
+          title: "Error Code"
+        collected_at:
+          type: "string"
+          format: "date-time"
+          title: "Collected At"
+      additionalProperties: false
+      type: "object"
+      required:
+        - "schema_version"
+        - "exists"
+        - "state"
+        - "offline"
+        - "error"
+        - "paused"
+        - "status"
+        - "collected_at"
+      title: "PrinterStatusResultV1"
+    ProcessFindResultV1:
+      properties:
+        schema_version:
+          type: "string"
+          const: "process_find_result_v1"
+          title: "Schema Version"
+        present:
+          type: "boolean"
+          title: "Present"
+        process_count:
+          type: "integer"
+          maximum: 2147483647.0
+          minimum: 0.0
+          title: "Process Count"
+        matches:
+          items:
+            "$ref": "#/components/schemas/ProcessSummaryV1"
+          type: "array"
+          maxItems: 20
+          title: "Matches"
+        status:
+          type: "string"
+          enum:
+            - "succeeded"
+            - "failed"
+          title: "Status"
+        error_code:
+          anyOf:
+            -
+              type: "string"
+              maxLength: 64
+              minLength: 1
+              pattern: "^[a-z][a-z0-9_]*$"
+            -
+              type: "null"
+          title: "Error Code"
+        collected_at:
+          type: "string"
+          format: "date-time"
+          title: "Collected At"
+      additionalProperties: false
+      type: "object"
+      required:
+        - "schema_version"
+        - "present"
+        - "process_count"
+        - "status"
+        - "collected_at"
+      title: "ProcessFindResultV1"
+    ProcessListResultV1:
+      properties:
+        schema_version:
+          type: "string"
+          const: "process_list_result_v1"
+          title: "Schema Version"
+        processes:
+          items:
+            "$ref": "#/components/schemas/ProcessSummaryV1"
+          type: "array"
+          maxItems: 32
+          title: "Processes"
+        process_count:
+          type: "integer"
+          maximum: 32.0
+          minimum: 0.0
+          title: "Process Count"
+        status:
+          type: "string"
+          enum:
+            - "succeeded"
+            - "failed"
+          title: "Status"
+        error_code:
+          anyOf:
+            -
+              type: "string"
+              maxLength: 64
+              minLength: 1
+              pattern: "^[a-z][a-z0-9_]*$"
+            -
+              type: "null"
+          title: "Error Code"
+        collected_at:
+          type: "string"
+          format: "date-time"
+          title: "Collected At"
+      additionalProperties: false
+      type: "object"
+      required:
+        - "schema_version"
+        - "process_count"
+        - "status"
+        - "collected_at"
+      title: "ProcessListResultV1"
+    ProcessSummaryV1:
+      properties:
+        pid:
+          type: "integer"
+          maximum: 2147483647.0
+          minimum: 0.0
+          title: "Pid"
+        name:
+          type: "string"
+          maxLength: 128
+          minLength: 1
+          pattern: "^[^\\x00-\\x1f\\x7f]+$"
+          title: "Name"
+        state:
+          type: "string"
+          maxLength: 32
+          minLength: 1
+          pattern: "^[a-z_]+$"
+          title: "State"
+        cpu_percent:
+          anyOf:
+            -
+              type: "number"
+              maximum: 10000.0
+              minimum: 0.0
+            -
+              type: "null"
+          title: "Cpu Percent"
+        memory_bytes:
+          anyOf:
+            -
+              type: "integer"
+              maximum: 9.223372036854776e+18
+              minimum: 0.0
+            -
+              type: "null"
+          title: "Memory Bytes"
+      additionalProperties: false
+      type: "object"
+      required:
+        - "pid"
+        - "name"
+        - "state"
+      title: "ProcessSummaryV1"
+    RecentErrorsResultV1:
+      properties:
+        schema_version:
+          type: "string"
+          const: "eventlog_recent_errors_result_v1"
+          title: "Schema Version"
+        events:
+          items:
+            "$ref": "#/components/schemas/EventFactV1"
+          type: "array"
+          maxItems: 20
+          title: "Events"
+        event_count:
+          type: "integer"
+          maximum: 20.0
+          minimum: 0.0
+          title: "Event Count"
+        status:
+          type: "string"
+          enum:
+            - "succeeded"
+            - "failed"
+          title: "Status"
+        error_code:
+          anyOf:
+            -
+              type: "string"
+              maxLength: 64
+              minLength: 1
+              pattern: "^[a-z][a-z0-9_]*$"
+            -
+              type: "null"
+          title: "Error Code"
+        collected_at:
+          type: "string"
+          format: "date-time"
+          title: "Collected At"
+      additionalProperties: false
+      type: "object"
+      required:
+        - "schema_version"
+        - "event_count"
+        - "status"
+        - "collected_at"
+      title: "RecentErrorsResultV1"
     RecipeInputBindingV1:
       properties:
         kind:
@@ -7640,6 +9687,89 @@ components:
       required:
         - "data"
       title: "ServiceDeviceListResponse"
+    ServiceFactV1:
+      properties:
+        service_key:
+          type: "string"
+          enum:
+            - "endpoint_agent"
+            - "endpoint_agent_updater"
+            - "print_service"
+          title: "Service Key"
+        display_name:
+          type: "string"
+          maxLength: 128
+          minLength: 1
+          title: "Display Name"
+        installed:
+          type: "boolean"
+          title: "Installed"
+        state:
+          type: "string"
+          enum:
+            - "running"
+            - "stopped"
+            - "paused"
+            - "failed"
+            - "not_found"
+            - "unknown"
+          title: "State"
+        startup_type:
+          type: "string"
+          enum:
+            - "automatic"
+            - "manual"
+            - "disabled"
+            - "unknown"
+          title: "Startup Type"
+      additionalProperties: false
+      type: "object"
+      required:
+        - "service_key"
+        - "display_name"
+        - "installed"
+        - "state"
+        - "startup_type"
+      title: "ServiceFactV1"
+    ServiceListResultV1:
+      properties:
+        schema_version:
+          type: "string"
+          const: "service_list_result_v1"
+          title: "Schema Version"
+        services:
+          items:
+            "$ref": "#/components/schemas/ServiceFactV1"
+          type: "array"
+          maxItems: 3
+          title: "Services"
+        status:
+          type: "string"
+          enum:
+            - "succeeded"
+            - "failed"
+          title: "Status"
+        error_code:
+          anyOf:
+            -
+              type: "string"
+              maxLength: 64
+              minLength: 1
+              pattern: "^[a-z][a-z0-9_]*$"
+            -
+              type: "null"
+          title: "Error Code"
+        collected_at:
+          type: "string"
+          format: "date-time"
+          title: "Collected At"
+      additionalProperties: false
+      type: "object"
+      required:
+        - "schema_version"
+        - "status"
+        - "collected_at"
+      title: "ServiceListResultV1"
     ServiceNetworkIdentityPage:
       properties:
         data:
@@ -7679,6 +9809,214 @@ components:
       required:
         - "interactive_session_present"
       title: "SessionSectionsV1"
+    SoftwareFactV1:
+      properties:
+        name:
+          type: "string"
+          maxLength: 128
+          minLength: 1
+          pattern: "^[^\\x00-\\x1f\\x7f]+$"
+          title: "Name"
+        version:
+          anyOf:
+            -
+              type: "string"
+              maxLength: 64
+              minLength: 1
+            -
+              type: "null"
+          title: "Version"
+        publisher:
+          anyOf:
+            -
+              type: "string"
+              maxLength: 128
+              minLength: 1
+              pattern: "^[^\\x00-\\x1f\\x7f]+$"
+            -
+              type: "null"
+          title: "Publisher"
+        source:
+          type: "string"
+          enum:
+            - "windows_registry"
+            - "alt_rpm"
+          title: "Source"
+        architecture:
+          anyOf:
+            -
+              type: "string"
+              maxLength: 32
+              minLength: 1
+            -
+              type: "null"
+          title: "Architecture"
+      additionalProperties: false
+      type: "object"
+      required:
+        - "name"
+        - "source"
+      title: "SoftwareFactV1"
+    SoftwareFindResultV1:
+      properties:
+        schema_version:
+          type: "string"
+          const: "software_find_result_v1"
+          title: "Schema Version"
+        present:
+          type: "boolean"
+          title: "Present"
+        matches:
+          items:
+            "$ref": "#/components/schemas/SoftwareFactV1"
+          type: "array"
+          maxItems: 20
+          title: "Matches"
+        status:
+          type: "string"
+          enum:
+            - "succeeded"
+            - "failed"
+          title: "Status"
+        error_code:
+          anyOf:
+            -
+              type: "string"
+              maxLength: 64
+              minLength: 1
+              pattern: "^[a-z][a-z0-9_]*$"
+            -
+              type: "null"
+          title: "Error Code"
+        collected_at:
+          type: "string"
+          format: "date-time"
+          title: "Collected At"
+      additionalProperties: false
+      type: "object"
+      required:
+        - "schema_version"
+        - "present"
+        - "status"
+        - "collected_at"
+      title: "SoftwareFindResultV1"
+    SoftwareListResultV1:
+      properties:
+        schema_version:
+          type: "string"
+          const: "software_list_result_v1"
+          title: "Schema Version"
+        software:
+          items:
+            "$ref": "#/components/schemas/SoftwareFactV1"
+          type: "array"
+          maxItems: 32
+          title: "Software"
+        status:
+          type: "string"
+          enum:
+            - "succeeded"
+            - "failed"
+          title: "Status"
+        error_code:
+          anyOf:
+            -
+              type: "string"
+              maxLength: 64
+              minLength: 1
+              pattern: "^[a-z][a-z0-9_]*$"
+            -
+              type: "null"
+          title: "Error Code"
+        collected_at:
+          type: "string"
+          format: "date-time"
+          title: "Collected At"
+      additionalProperties: false
+      type: "object"
+      required:
+        - "schema_version"
+        - "status"
+        - "collected_at"
+      title: "SoftwareListResultV1"
+    SystemResourceSnapshotResultV1:
+      properties:
+        schema_version:
+          type: "string"
+          const: "system_resource_snapshot_result_v1"
+          title: "Schema Version"
+        uptime_seconds:
+          anyOf:
+            -
+              type: "integer"
+              maximum: 9.223372036854776e+18
+              minimum: 0.0
+            -
+              type: "null"
+          title: "Uptime Seconds"
+        cpu_percent:
+          anyOf:
+            -
+              type: "number"
+              maximum: 100.0
+              minimum: 0.0
+            -
+              type: "null"
+          title: "Cpu Percent"
+        memory_total_bytes:
+          anyOf:
+            -
+              type: "integer"
+              maximum: 9.223372036854776e+18
+              minimum: 0.0
+            -
+              type: "null"
+          title: "Memory Total Bytes"
+        memory_available_bytes:
+          anyOf:
+            -
+              type: "integer"
+              maximum: 9.223372036854776e+18
+              minimum: 0.0
+            -
+              type: "null"
+          title: "Memory Available Bytes"
+        system_drive_free_bytes:
+          anyOf:
+            -
+              type: "integer"
+              maximum: 9.223372036854776e+18
+              minimum: 0.0
+            -
+              type: "null"
+          title: "System Drive Free Bytes"
+        status:
+          type: "string"
+          enum:
+            - "succeeded"
+            - "failed"
+          title: "Status"
+        error_code:
+          anyOf:
+            -
+              type: "string"
+              maxLength: 64
+              minLength: 1
+              pattern: "^[a-z][a-z0-9_]*$"
+            -
+              type: "null"
+          title: "Error Code"
+        collected_at:
+          type: "string"
+          format: "date-time"
+          title: "Collected At"
+      additionalProperties: false
+      type: "object"
+      required:
+        - "schema_version"
+        - "status"
+        - "collected_at"
+      title: "SystemResourceSnapshotResultV1"
     TcpConnectResultV1:
       properties:
         schema_version:
@@ -7769,6 +10107,141 @@ components:
         - "msg"
         - "type"
       title: "ValidationError"
+    VolumeFactV1:
+      properties:
+        volume_key:
+          type: "string"
+          maxLength: 32
+          minLength: 1
+          pattern: "^(?:system|local_[1-9][0-9]?)$"
+          title: "Volume Key"
+        filesystem_type:
+          type: "string"
+          maxLength: 32
+          minLength: 1
+          pattern: "^[A-Za-z0-9._-]+$"
+          title: "Filesystem Type"
+        total_bytes:
+          type: "integer"
+          maximum: 9.223372036854776e+18
+          minimum: 0.0
+          title: "Total Bytes"
+        free_bytes:
+          type: "integer"
+          maximum: 9.223372036854776e+18
+          minimum: 0.0
+          title: "Free Bytes"
+      additionalProperties: false
+      type: "object"
+      required:
+        - "volume_key"
+        - "filesystem_type"
+        - "total_bytes"
+        - "free_bytes"
+      title: "VolumeFactV1"
+    endpoint_contracts__read_only_primitives__ServiceStatusResultV1:
+      properties:
+        schema_version:
+          type: "string"
+          const: "service_status_result_v1"
+          title: "Schema Version"
+        service_key:
+          type: "string"
+          enum:
+            - "endpoint_agent"
+            - "endpoint_agent_updater"
+          title: "Service Key"
+        installed:
+          type: "boolean"
+          title: "Installed"
+        state:
+          type: "string"
+          enum:
+            - "running"
+            - "stopped"
+            - "paused"
+            - "failed"
+            - "not_found"
+            - "unknown"
+          title: "State"
+        start_mode:
+          type: "string"
+          enum:
+            - "automatic"
+            - "manual"
+            - "disabled"
+            - "unknown"
+          title: "Start Mode"
+        status:
+          type: "string"
+          enum:
+            - "succeeded"
+            - "failed"
+          title: "Status"
+        error_code:
+          anyOf:
+            -
+              type: "string"
+              maxLength: 64
+              minLength: 1
+              pattern: "^[a-z][a-z0-9_]{0,63}$"
+            -
+              type: "null"
+          title: "Error Code"
+        collected_at:
+          type: "string"
+          format: "date-time"
+          title: "Collected At"
+      additionalProperties: false
+      type: "object"
+      required:
+        - "schema_version"
+        - "service_key"
+        - "installed"
+        - "state"
+        - "start_mode"
+        - "status"
+        - "collected_at"
+      title: "ServiceStatusResultV1"
+    endpoint_contracts__service_printer_primitives__ServiceStatusResultV1:
+      properties:
+        schema_version:
+          type: "string"
+          const: "service_status_v2_result_v1"
+          title: "Schema Version"
+        service:
+          anyOf:
+            -
+              "$ref": "#/components/schemas/ServiceFactV1"
+            -
+              type: "null"
+        status:
+          type: "string"
+          enum:
+            - "succeeded"
+            - "failed"
+          title: "Status"
+        error_code:
+          anyOf:
+            -
+              type: "string"
+              maxLength: 64
+              minLength: 1
+              pattern: "^[a-z][a-z0-9_]*$"
+            -
+              type: "null"
+          title: "Error Code"
+        collected_at:
+          type: "string"
+          format: "date-time"
+          title: "Collected At"
+      additionalProperties: false
+      type: "object"
+      required:
+        - "schema_version"
+        - "status"
+        - "collected_at"
+      title: "ServiceStatusResultV1"
   securitySchemes:
     AgentBearer:
       type: "http"

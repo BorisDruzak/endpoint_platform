@@ -3,7 +3,7 @@ import { Link, useSearchParams } from 'react-router'
 import { request } from './api'
 
 type Parameter = { name: string; value_type: 'string' | 'integer' | 'enum'; required: boolean; allowed_sources: ('input' | 'literal')[]; enum_values: string[] | null; minimum: number | null; maximum: number | null; default_literal: string | number | null; secret: boolean }
-type Capability = { capability: string; display_name: string; platforms: string[]; minimum_agent_version: string; risk: string; consent_required: boolean; feature_flag: string; parameters: Parameter[] }
+type Capability = { capability: string; display_name: string; category: string; category_display_name_ru: string; platforms: string[]; minimum_agent_version: string; risk: string; consent_required: boolean; feature_flag: string; policy: string; parameters: Parameter[] }
 type Binding = { kind: 'input'; name: string } | { kind: 'literal'; value: string | number }
 type Input = { name: string; value_type: 'string' | 'integer' }
 type Step = { step_id: string; capability: string; parameters: Record<string, Binding> }
@@ -19,7 +19,7 @@ type Operation = { data: { status: string }; module_detail: { steps: { sequence:
 const stateLabels: Record<string, string> = { draft: 'Черновик', validation_failed: 'Ошибка проверки', validated: 'Проверен', lab_accepted: 'Испытания приняты', published: 'Опубликован', deprecated: 'Устарел', revoked: 'Отозван' }
 const errorLabels: Record<string, string> = { recipe_contract_invalid: 'Неверный формат рецепта', recipe_catalog_invalid: 'Рецепт не соответствует каталогу' }
 const platformLabels: Record<string, string> = { linux_amd64: 'Linux x64', windows_amd64: 'Windows x64' }
-const riskLabels: Record<string, string> = { safe_read: 'Безопасное чтение' }
+const riskLabels: Record<string, string> = { safe_read: 'Безопасное чтение', controlled_read: 'Контролируемое чтение' }
 const labStatusLabels: Record<string, string> = { passed: 'Пройдено', failed: 'Не пройдено' }
 const operationStatusLabels: Record<string, string> = { queued: 'В очереди', dispatched: 'Отправлена', running: 'Выполняется', succeeded: 'Успешно', failed: 'Ошибка', timed_out: 'Время вышло', cancelled: 'Отменена' }
 const parameterTypeLabels: Record<Parameter['value_type'], string> = { string: 'строка', integer: 'целое число', enum: 'выбор из списка' }
@@ -33,13 +33,17 @@ function InputValues({ inputs, values, onChange }: { inputs: Input[]; values: Re
 }
 
 function CapabilityCatalog({ catalog }: { catalog: Capability[] }) {
-  return <section className="panel"><h2>Каталог возможностей</h2>{catalog.length ? <div className="capability-catalog">{catalog.map(item =>
+  const groups = new Map<string, Capability[]>()
+  for (const item of catalog) groups.set(item.category, [...(groups.get(item.category) ?? []), item])
+  return <section className="panel"><h2>Каталог возможностей</h2>{catalog.length ? [...groups].map(([category, items]) => <section key={category} aria-label={items[0].category_display_name_ru ?? category}>
+    <h3>{items[0].category_display_name_ru ?? category}</h3><div className="capability-catalog">{items.map(item =>
     <article className="capability-card" key={item.capability}>
-      <h3>{item.display_name}</h3>
+      <h4>{item.display_name}</h4>
       <p className="muted"><code>{item.capability}</code></p>
+      <p>Категория: {item.category_display_name_ru ?? item.category} · Policy: <code>{item.policy}</code></p>
       <p>Платформы: {item.platforms.map(platform => platformLabels[platform] ?? platform).join(', ')} · Agent ≥ {item.minimum_agent_version}</p>
       <p>Риск: {riskLabels[item.risk] ?? item.risk} · Согласие: {item.consent_required ? 'требуется' : 'не требуется'}</p>
-      <h4>Параметры</h4>
+      <h5>Параметры</h5>
       {item.parameters.length ? <ul>{item.parameters.map(parameter =>
         <li key={parameter.name}><code>{parameter.name}</code> · {parameterTypeLabels[parameter.value_type]} · {parameter.required ? 'обязательный' : 'необязательный'}
           {' · Источник: '}{parameter.allowed_sources.map(source => source === 'input' ? 'входной параметр' : 'значение').join(', ')}
@@ -48,7 +52,7 @@ function CapabilityCatalog({ catalog }: { catalog: Capability[] }) {
           {parameter.maximum != null && ` · Максимум: ${parameter.maximum}`}
           {parameter.default_literal != null && ` · По умолчанию: ${parameter.default_literal}`}
         </li>)}</ul> : <p className="muted">Параметры не требуются.</p>}
-    </article>)}</div> : <p>Каталог не загружен.</p>}</section>
+    </article>)}</div></section>) : <p>Каталог не загружен.</p>}</section>
 }
 
 export function ModulesPage() {

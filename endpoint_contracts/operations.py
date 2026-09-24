@@ -139,10 +139,25 @@ class EndpointCapabilityAvailabilityV1(ContractModelV1):
         "route.get",
         "adapter.list",
         "system.service_status",
+        "system.resource_snapshot",
+        "process.list",
+        "process.find",
+        "service.list",
+        "service.status",
+        "printer.list",
+        "printer.status",
+        "printer.queue.summary",
+        "software.list",
+        "software.find",
+        "filesystem.free_space",
+        "filesystem.path_exists",
+        "filesystem.file_metadata",
+        "eventlog.query",
+        "eventlog.recent_errors",
     ]
     available: StrictBool
     transport: Literal["gateway_wss"]
-    risk: Literal["read_only", "safe_read"]
+    risk: Literal["read_only", "safe_read", "controlled_read"]
     consent_required: Literal[False]
     parameter_schema_version: Literal[
         "diagnostic_collection_parameters_v1",
@@ -152,6 +167,21 @@ class EndpointCapabilityAvailabilityV1(ContractModelV1):
         "route_get_parameters_v1",
         "adapter_list_parameters_v1",
         "service_status_parameters_v1",
+        "system_resource_snapshot_parameters_v1",
+        "process_list_parameters_v1",
+        "process_find_parameters_v1",
+        "service_list_parameters_v1",
+        "service_status_v2_parameters_v1",
+        "printer_list_parameters_v1",
+        "printer_status_parameters_v1",
+        "printer_queue_summary_parameters_v1",
+        "software_list_parameters_v1",
+        "software_find_parameters_v1",
+        "filesystem_free_space_parameters_v1",
+        "filesystem_path_exists_parameters_v1",
+        "filesystem_file_metadata_parameters_v1",
+        "eventlog_query_parameters_v1",
+        "eventlog_recent_errors_parameters_v1",
     ]
 
 
@@ -162,7 +192,7 @@ class EndpointDeviceCapabilitiesV1(ContractModelV1):
 
     schema_version: Literal["endpoint_device_capabilities_v1"]
     device_id: UUID
-    capabilities: list[EndpointCapabilityAvailabilityV1] = Field(max_length=7)
+    capabilities: list[EndpointCapabilityAvailabilityV1] = Field(max_length=32)
 
 
 class EndpointDiagnosticResultV1(ContractModelV1):

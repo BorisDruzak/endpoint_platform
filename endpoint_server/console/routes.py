@@ -11,6 +11,7 @@ from fastapi import APIRouter, Depends, FastAPI, Header, HTTPException, Query, R
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict
+from endpoint_contracts.capabilities import MODULE_CAPABILITY_REGISTRY
 
 from endpoint_contracts.context import (
     BaselineSectionsV1, HealthSectionsV1, InventorySectionsV1,
@@ -36,6 +37,7 @@ from endpoint_server.context.service import ContextError
 from endpoint_server.db.models import Device, EnrollmentCampaign, EnrollmentRequest, UpdateBuild, UpdateRollout, UpdateTarget
 from endpoint_server.enrollment.admin_routes import CampaignCreateRequest, CampaignProjection, create_campaign, project_campaign
 from endpoint_server.enrollment.admin_request_routes import EnrollmentRequestQueueItem, project_enrollment_request
+from endpoint_server.operations.capabilities import compatible_module_capabilities
 from sqlalchemy import func, select
 
 
@@ -210,11 +212,20 @@ class ConsoleCurrentSnapshot(BaseModel):
     last_observed_at: datetime | None = None
 
 
+class ConsoleDeviceCapability(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    capability: str
+    display_name_ru: str
+    category: str
+
+
 class ConsoleDeviceDetailResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     device: ConsoleDeviceHeader
     snapshots: list[ConsoleCurrentSnapshot]
+    capabilities: list[ConsoleDeviceCapability]
 
 
 class ConsoleContextChange(BaseModel):
@@ -502,6 +513,15 @@ async def console_device_detail(
         inventory = by_profile.get("inventory_v1", {})
         system = inventory.get("system", {}) if isinstance(inventory, dict) else {}
         session_info = by_profile.get("session_v1", {})
+        connection = await request.app.state.gateway_connection_registry.get(device_id)
+        capabilities = [
+            {
+                "capability": capability,
+                "display_name_ru": MODULE_CAPABILITY_REGISTRY[capability].metadata.display_name_ru,
+                "category": MODULE_CAPABILITY_REGISTRY[capability].metadata.category,
+            }
+            for capability in compatible_module_capabilities(request.app.state.settings, connection)
+        ]
         return ConsoleDeviceDetailResponse.model_validate({
             "device": {
                 "id": str(device.id),
@@ -514,6 +534,7 @@ async def console_device_detail(
                 **presence,
             },
             "snapshots": snapshots,
+            "capabilities": capabilities,
         })
 
 

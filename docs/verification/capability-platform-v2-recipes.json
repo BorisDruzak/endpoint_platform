@@ -1,0 +1,57 @@
+[
+  {
+    "schema_version": "module_version_create_v1",
+    "display_name": "Проверка печати",
+    "version": "1.0.0",
+    "recipe": {
+      "schema_version": "endpoint_recipe_module_v1",
+      "module_key": "print.health.check",
+      "supported_platforms": ["windows_amd64"],
+      "inputs": [{"name": "printer_name", "value_type": "string"}],
+      "steps": [
+        {"step_id": "printer", "capability": "printer.status", "parameters": {"printer_name": {"kind": "input", "name": "printer_name"}}},
+        {"step_id": "queue", "capability": "printer.queue.summary", "parameters": {}},
+        {"step_id": "spooler", "capability": "service.status", "parameters": {"service_key": {"kind": "literal", "value": "print_service"}}}
+      ]
+    }
+  },
+  {
+    "schema_version": "module_version_create_v1",
+    "display_name": "Проверка установленного ПО",
+    "version": "1.0.0",
+    "recipe": {
+      "schema_version": "endpoint_recipe_module_v1",
+      "module_key": "software.installation.check",
+      "supported_platforms": ["windows_amd64", "linux_amd64"],
+      "inputs": [{"name": "name", "value_type": "string"}],
+      "steps": [{"step_id": "software", "capability": "software.find", "parameters": {"name": {"kind": "input", "name": "name"}}}]
+    }
+  },
+  {
+    "schema_version": "module_version_create_v1",
+    "display_name": "Проверка состояния системы",
+    "version": "1.0.0",
+    "recipe": {
+      "schema_version": "endpoint_recipe_module_v1",
+      "module_key": "system.quick.check",
+      "supported_platforms": ["windows_amd64", "linux_amd64"],
+      "inputs": [],
+      "steps": [
+        {"step_id": "resources", "capability": "system.resource_snapshot", "parameters": {}},
+        {"step_id": "space", "capability": "filesystem.free_space", "parameters": {}}
+      ]
+    }
+  },
+  {
+    "schema_version": "module_version_create_v1",
+    "display_name": "Проверка процесса",
+    "version": "1.0.0",
+    "recipe": {
+      "schema_version": "endpoint_recipe_module_v1",
+      "module_key": "process.presence.check",
+      "supported_platforms": ["windows_amd64", "linux_amd64"],
+      "inputs": [{"name": "name", "value_type": "string"}],
+      "steps": [{"step_id": "process", "capability": "process.find", "parameters": {"name": {"kind": "input", "name": "name"}}}]
+    }
+  }
+]

@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Path, Query, Requ
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from sqlalchemy import func, select
 
-from endpoint_contracts.capabilities import ModuleCapabilityAuthoringV1, module_capability_catalog
+from endpoint_contracts.capabilities import MODULE_CAPABILITY_REGISTRY, ModuleCapabilityAuthoringV1, module_capability_catalog
 from endpoint_contracts.modules import (
     EndpointRecipeModuleSpecV1, ModuleLabOperationCreateV1,
     ModuleOperationCreateV1, ModuleRecipeInputV1,
@@ -30,20 +30,12 @@ from endpoint_server.modules.service import (
     publish_persisted_module_version, record_module_live_test,
     transition_persisted_version, validate_persisted_module_version,
 )
-from endpoint_server.operations.capabilities import compatible_module_capabilities
+from endpoint_server.operations.capabilities import compatible_module_capabilities, module_capability_incompatibility_reason
 from endpoint_server.policy.network_targets import NetworkTargetPolicyV1
 
 
 router = APIRouter(prefix="/api/admin/console", tags=["admin-console-modules"])
 _OWNER_IDENTIFIER = "endpoint-console-internal"
-_CAPABILITY_DISPLAY_NAMES = {
-    "dns.resolve": "Разрешение DNS-имени",
-    "network.ping": "Проверка доступности сети",
-    "tcp.connect": "Проверка TCP-соединения",
-    "route.get": "Просмотр маршрута",
-    "adapter.list": "Список сетевых адаптеров",
-    "system.service_status": "Состояние службы",
-}
 ModuleKey = Annotated[str, Path(min_length=1, max_length=128)]
 
 
@@ -89,6 +81,7 @@ class ConsoleModuleVersionDetailResponse(BaseModel):
 
 class ConsoleCapabilityItem(ModuleCapabilityAuthoringV1):
     display_name: str
+    category_display_name_ru: str
 
 
 class ConsoleCapabilityCatalog(BaseModel):
@@ -269,8 +262,14 @@ async def console_module_capabilities(
 ) -> dict[str, object]:
     _require_platform(request)
     catalog = module_capability_catalog().model_dump(mode="json")
+    category_labels = {
+        "network": "Сеть", "system": "Система", "process": "Процессы",
+        "service": "Службы", "printer": "Печать", "software": "ПО",
+        "eventlog": "Журналы", "filesystem": "Файловая система",
+    }
     for item in catalog["items"]:
-        item["display_name"] = _CAPABILITY_DISPLAY_NAMES[item["capability"]]
+        item["display_name"] = item["display_name_ru"]
+        item["category_display_name_ru"] = category_labels[item["category"]]
     return {"data": catalog}
 
 
@@ -632,11 +631,21 @@ async def console_device_modules(
             recipe = EndpointRecipeModuleSpecV1.model_validate(version.recipe)
         except ValidationError:
             continue
-        compatible = bool(connection and connection.platform in recipe.supported_platforms and all(step.capability in available for step in recipe.steps))
+        reason = "Устройство не в сети" if connection is None else None
+        if connection is not None and connection.platform not in recipe.supported_platforms:
+            reason = "Платформа Agent не поддерживается модулем"
+        if reason is None:
+            for step in recipe.steps:
+                if step.capability not in available:
+                    reason = module_capability_incompatibility_reason(
+                        request.app.state.settings, connection, MODULE_CAPABILITY_REGISTRY[step.capability],
+                    ) or "Возможность недоступна"
+                    break
+        compatible = reason is None
         data.append({
             "module_key": definition.module_key, "display_name": definition.display_name,
             "version": version.version, "compatible": compatible,
-            "reason": None if compatible else "Устройство не в сети или capability недоступен",
+            "reason": reason,
             "inputs": [item.model_dump(mode="json") for item in recipe.inputs],
         })
     return {"data": data, "total": total, "limit": limit, "offset": offset}

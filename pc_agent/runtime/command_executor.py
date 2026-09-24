@@ -47,6 +47,21 @@ BUILTIN_ENDPOINT_CAPABILITIES = {
     "route.get": _execute_read_only_capability,
     "adapter.list": _execute_read_only_capability,
     "system.service_status": _execute_read_only_capability,
+    "system.resource_snapshot": _execute_read_only_capability,
+    "process.list": _execute_read_only_capability,
+    "process.find": _execute_read_only_capability,
+    "service.list": _execute_read_only_capability,
+    "service.status": _execute_read_only_capability,
+    "printer.list": _execute_read_only_capability,
+    "printer.status": _execute_read_only_capability,
+    "printer.queue.summary": _execute_read_only_capability,
+    "software.list": _execute_read_only_capability,
+    "software.find": _execute_read_only_capability,
+    "filesystem.free_space": _execute_read_only_capability,
+    "filesystem.path_exists": _execute_read_only_capability,
+    "filesystem.file_metadata": _execute_read_only_capability,
+    "eventlog.query": _execute_read_only_capability,
+    "eventlog.recent_errors": _execute_read_only_capability,
 }
 
 

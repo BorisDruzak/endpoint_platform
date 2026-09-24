@@ -156,6 +156,12 @@ class Settings:
     endpoint_operations_api_enabled: bool = False
     endpoint_network_primitives_enabled: bool = False
     endpoint_read_only_primitives_enabled: bool = False
+    endpoint_system_primitives_enabled: bool = False
+    endpoint_process_primitives_enabled: bool = False
+    endpoint_printer_primitives_enabled: bool = False
+    endpoint_software_primitives_enabled: bool = False
+    endpoint_filesystem_primitives_enabled: bool = False
+    endpoint_eventlog_primitives_enabled: bool = False
     endpoint_network_probe_allowed_cidrs: tuple[Network, ...] = ()
     endpoint_network_probe_allowed_suffixes: tuple[str, ...] = ()
     endpoint_module_platform_enabled: bool = False
@@ -205,6 +211,30 @@ class Settings:
             "ENDPOINT_READ_ONLY_PRIMITIVES_ENABLED",
             values.get("ENDPOINT_READ_ONLY_PRIMITIVES_ENABLED", ""),
         )
+        endpoint_system_primitives_enabled = _parse_optional_boolean(
+            "ENDPOINT_SYSTEM_PRIMITIVES_ENABLED",
+            values.get("ENDPOINT_SYSTEM_PRIMITIVES_ENABLED", ""),
+        )
+        endpoint_process_primitives_enabled = _parse_optional_boolean(
+            "ENDPOINT_PROCESS_PRIMITIVES_ENABLED",
+            values.get("ENDPOINT_PROCESS_PRIMITIVES_ENABLED", ""),
+        )
+        endpoint_printer_primitives_enabled = _parse_optional_boolean(
+            "ENDPOINT_PRINTER_PRIMITIVES_ENABLED",
+            values.get("ENDPOINT_PRINTER_PRIMITIVES_ENABLED", ""),
+        )
+        endpoint_software_primitives_enabled = _parse_optional_boolean(
+            "ENDPOINT_SOFTWARE_PRIMITIVES_ENABLED",
+            values.get("ENDPOINT_SOFTWARE_PRIMITIVES_ENABLED", ""),
+        )
+        endpoint_filesystem_primitives_enabled = _parse_optional_boolean(
+            "ENDPOINT_FILESYSTEM_PRIMITIVES_ENABLED",
+            values.get("ENDPOINT_FILESYSTEM_PRIMITIVES_ENABLED", ""),
+        )
+        endpoint_eventlog_primitives_enabled = _parse_optional_boolean(
+            "ENDPOINT_EVENTLOG_PRIMITIVES_ENABLED",
+            values.get("ENDPOINT_EVENTLOG_PRIMITIVES_ENABLED", ""),
+        )
         endpoint_network_probe_allowed_cidrs = _parse_optional_network_probe_cidrs(
             "ENDPOINT_NETWORK_PROBE_ALLOWED_CIDRS",
             values.get("ENDPOINT_NETWORK_PROBE_ALLOWED_CIDRS", ""),
@@ -243,6 +273,12 @@ class Settings:
             endpoint_operations_api_enabled=endpoint_operations_api_enabled,
             endpoint_network_primitives_enabled=endpoint_network_primitives_enabled,
             endpoint_read_only_primitives_enabled=endpoint_read_only_primitives_enabled,
+            endpoint_system_primitives_enabled=endpoint_system_primitives_enabled,
+            endpoint_process_primitives_enabled=endpoint_process_primitives_enabled,
+            endpoint_printer_primitives_enabled=endpoint_printer_primitives_enabled,
+            endpoint_software_primitives_enabled=endpoint_software_primitives_enabled,
+            endpoint_filesystem_primitives_enabled=endpoint_filesystem_primitives_enabled,
+            endpoint_eventlog_primitives_enabled=endpoint_eventlog_primitives_enabled,
             endpoint_network_probe_allowed_cidrs=endpoint_network_probe_allowed_cidrs,
             endpoint_network_probe_allowed_suffixes=endpoint_network_probe_allowed_suffixes,
             endpoint_module_platform_enabled=endpoint_module_platform_enabled,

@@ -69,6 +69,7 @@ describe('Русский интерфейс Console', () => {
     vi.stubGlobal('fetch', vi.fn(async (url: string) => jsonResponse(
       url.includes('/context/history?') ? { data: [], has_more: false } : {
         device: { id: 'device-1', display_name: 'Рабочая станция', device_identifier: 'PC-01', online: true, last_seen_at: null, agent_version: '3.2.63', hostname: 'PC-01', os_name: 'Windows 11', os_version: '11', current_user: 'operator' },
+        capabilities: [{ capability: 'system.resource_snapshot', display_name_ru: 'Состояние ресурсов системы', category: 'system' }],
         snapshots: [
           { id: 'inventory-1', profile: 'inventory_v1', collected_at: '2026-09-24T08:00:00Z', fresh: true, semantic_hash: null, warnings: [], sections: {
             system: { hostname: 'PC-01', platform: 'windows' },
@@ -89,6 +90,8 @@ describe('Русский интерфейс Console', () => {
 
     await screen.findByRole('heading', { name: 'Рабочая станция' })
     expect(screen.getByText(/Пользователь: operator/)).toBeTruthy()
+    expect(screen.getByRole('heading', { name: 'Поддерживаемые возможности' })).toBeTruthy()
+    expect(screen.getByText('system.resource_snapshot')).toBeTruthy()
     expect(screen.getByText('Производитель BIOS')).toBeTruthy()
     expect(screen.getByText('Производитель системной платы')).toBeTruthy()
     expect(screen.getByText('Слот')).toBeTruthy()
@@ -180,7 +183,7 @@ describe('Русский интерфейс Console', () => {
     vi.stubGlobal('fetch', vi.fn(async (url: string) => jsonResponse(
       url.includes('module-capabilities')
         ? { data: { items: [{
-          capability: 'dns.resolve', display_name: 'Разрешить DNS-имя', platforms: ['linux_amd64'],
+          capability: 'dns.resolve', display_name: 'Разрешить DNS-имя', category: 'network', category_display_name_ru: 'Сеть', policy: 'network_target_policy', platforms: ['linux_amd64'],
           minimum_agent_version: '3.2.63', risk: 'safe_read', consent_required: false,
           feature_flag: 'endpoint_network_primitives_enabled', parameters: [{
             name: 'target', value_type: 'string', required: true, allowed_sources: ['input', 'literal'],
@@ -194,6 +197,8 @@ describe('Русский интерфейс Console', () => {
     expect(await screen.findByText('Разрешить DNS-имя')).toBeTruthy()
     const catalog = screen.getByRole('heading', { name: 'Каталог возможностей' }).closest('section')!
     expect(within(catalog).getByText('dns.resolve')).toBeTruthy()
+    expect(within(catalog).getByRole('heading', { name: 'Сеть' })).toBeTruthy()
+    expect(within(catalog).getByText(/Policy:/)).toBeTruthy()
     expect(within(catalog).getByText(/Безопасное чтение/)).toBeTruthy()
     expect(within(catalog).getByText(/Согласие: не требуется/)).toBeTruthy()
     expect(within(catalog).getByText((_, element) => element?.tagName === 'LI' && /target.*строка.*обязательный/.test(element.textContent ?? ''))).toBeTruthy()

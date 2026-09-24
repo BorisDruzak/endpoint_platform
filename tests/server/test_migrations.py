@@ -141,7 +141,7 @@ def test_migration_history_has_exactly_one_head() -> None:
         _alembic_config("postgresql+asyncpg://unused@127.0.0.1/unused")
     )
 
-    assert script.get_heads() == ["0027_context_observed_backfill"]
+    assert script.get_heads() == ["0028_capability_platform_v2"]
 
 
 def test_console_enrollment_queue_index_matches_status_and_page_order() -> None:
@@ -293,6 +293,20 @@ def test_module_step_capability_repair_is_forward_only_and_complete() -> None:
     new_check = rendered.split(
         "ADD CONSTRAINT ck_endpoint_operation_steps_capability CHECK ", 1
     )[1].split(";", 1)[0]
+    assert set(re.findall(r"'([^']+)'", new_check)) == {
+        "dns.resolve", "network.ping", "tcp.connect", "route.get",
+        "adapter.list", "system.service_status",
+    }
+
+
+def test_capability_platform_v2_migration_matches_canonical_registry() -> None:
+    output = io.StringIO()
+    config = Config(REPOSITORY_ROOT / "alembic.ini", output_buffer=output)
+    config.set_main_option("sqlalchemy.url", "postgresql+asyncpg://unused@127.0.0.1/unused")
+    command.upgrade(config, "0027_context_observed_backfill:0028_capability_platform_v2", sql=True)
+    rendered = " ".join(output.getvalue().split())
+    assert "DROP CONSTRAINT ck_endpoint_operation_steps_capability" in rendered
+    new_check = rendered.split("ADD CONSTRAINT ck_endpoint_operation_steps_capability CHECK ", 1)[1].split(";", 1)[0]
     assert set(re.findall(r"'([^']+)'", new_check)) == set(MODULE_CAPABILITY_REGISTRY)
 
 

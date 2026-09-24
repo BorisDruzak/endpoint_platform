@@ -815,7 +815,7 @@ async def test_default_lifecycle_hello_uses_exact_stored_enrollment_device_id(
     )
 
     assert await RuntimeApplication(settings, dependencies).run() == 0
-    expected = compatibility_agent_hello().model_copy(
+    expected = compatibility_agent_hello(platform="windows_amd64" if os.name == "nt" else "linux_amd64").model_copy(
         update={
             "device_id": stored_device_id,
             "platform": "windows_amd64" if os.name == "nt" else "linux_amd64",

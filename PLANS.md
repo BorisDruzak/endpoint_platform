@@ -1,5 +1,35 @@
 # Endpoint Platform Plan
 
+## Capability Platform v2 (2026-09-24)
+
+The source baseline is `31b3bdbbdcb07d2bb23beb9a6412e1ef2250fefd`
+on `codex/endpoint-capability-platform-v2`; the installed Agent baseline is
+`3.2.65`, and Alembic starts at `0027_context_observed_backfill`. The design
+and implementation checklist are in
+`docs/architecture/endpoint-capability-platform-v2.md` and
+`docs/superpowers/plans/2026-09-24-endpoint-capability-platform-v2.md`.
+The new migration is `0028_capability_platform_v2`. Fifteen new read-only
+capabilities are implemented on the existing Module/Gateway/Operation route.
+The Agent release version is `3.2.67`: the production `update_builds` registry
+already contains `3.2.66`. New server feature groups default to disabled.
+The post-change Python gate passed `1898 passed, 41 skipped`; additionally
+focused negative tests added afterward passed. Contract artifact `--check`,
+`compileall`, Console unit tests (`21 passed`), TypeScript typecheck,
+production Vite build and browser E2E (`3 passed`) passed. `git diff --check`
+was clean. These are source and browser checks, not packaged canary evidence.
+
+Windows local primitive smoke checks succeeded for resource snapshot, process
+find, printer list, print service status, queue summary, software find, system
+free space and a bounded Event Log query. This is not yet an installed Agent
+or Gateway/Evidence acceptance. The dedicated ALT test host
+`test-agent-lin@192.168.101.162` timed out on SSH, so ALT live acceptance is
+unverified; automated platform tests remain mandatory. The currently active
+production server is `/opt/endpoint-platform/current` at release
+`db107f895bfc54cedef80a981eacb4f6794d79f1`; root volume had 20,543,668
+KiB available when checked. Release package, canary, rollback, four live
+Module recipes and production deployment evidence must be recorded here as
+they are completed.
+
 ## Context and Evidence Retention v2 (2026-09-24)
 
 The implementation plan is

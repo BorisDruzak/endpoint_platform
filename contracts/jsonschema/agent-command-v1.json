@@ -395,7 +395,22 @@
             "tcp.connect",
             "route.get",
             "adapter.list",
-            "system.service_status"
+            "system.service_status",
+            "system.resource_snapshot",
+            "process.list",
+            "process.find",
+            "service.list",
+            "service.status",
+            "printer.list",
+            "printer.status",
+            "printer.queue.summary",
+            "software.list",
+            "software.find",
+            "filesystem.free_space",
+            "filesystem.path_exists",
+            "filesystem.file_metadata",
+            "eventlog.query",
+            "eventlog.recent_errors"
           ],
           "type": "string"
         }

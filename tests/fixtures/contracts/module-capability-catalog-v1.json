@@ -2,8 +2,12 @@
   "items": [
     {
       "capability": "dns.resolve",
+      "category": "network",
       "consent_required": false,
+      "display_name_ru": "Разрешение DNS-имени",
+      "execution_timeout_seconds": 10,
       "feature_flag": "endpoint_network_primitives_enabled",
+      "max_result_items": 1,
       "minimum_agent_version": "3.2.27",
       "parameter_schema_version": "dns_resolve_parameters_v1",
       "parameters": [
@@ -50,8 +54,12 @@
     },
     {
       "capability": "network.ping",
+      "category": "network",
       "consent_required": false,
+      "display_name_ru": "Проверка доступности сети",
+      "execution_timeout_seconds": 10,
       "feature_flag": "endpoint_network_primitives_enabled",
+      "max_result_items": 1,
       "minimum_agent_version": "3.2.27",
       "parameter_schema_version": "network_ping_parameters_v1",
       "parameters": [
@@ -108,8 +116,12 @@
     },
     {
       "capability": "tcp.connect",
+      "category": "network",
       "consent_required": false,
+      "display_name_ru": "Проверка TCP-соединения",
+      "execution_timeout_seconds": 10,
       "feature_flag": "endpoint_network_primitives_enabled",
+      "max_result_items": 1,
       "minimum_agent_version": "3.2.27",
       "parameter_schema_version": "tcp_connect_parameters_v1",
       "parameters": [
@@ -166,8 +178,12 @@
     },
     {
       "capability": "route.get",
+      "category": "network",
       "consent_required": false,
+      "display_name_ru": "Просмотр маршрута",
+      "execution_timeout_seconds": 10,
       "feature_flag": "endpoint_read_only_primitives_enabled",
+      "max_result_items": 1,
       "minimum_agent_version": "3.2.29",
       "parameter_schema_version": "route_get_parameters_v1",
       "parameters": [
@@ -242,8 +258,12 @@
     },
     {
       "capability": "adapter.list",
+      "category": "network",
       "consent_required": false,
+      "display_name_ru": "Список сетевых адаптеров",
+      "execution_timeout_seconds": 10,
       "feature_flag": "endpoint_read_only_primitives_enabled",
+      "max_result_items": 32,
       "minimum_agent_version": "3.2.29",
       "parameter_schema_version": "adapter_list_parameters_v1",
       "parameters": [],
@@ -257,8 +277,12 @@
     },
     {
       "capability": "system.service_status",
+      "category": "service",
       "consent_required": false,
+      "display_name_ru": "Состояние службы",
+      "execution_timeout_seconds": 10,
       "feature_flag": "endpoint_read_only_primitives_enabled",
+      "max_result_items": 1,
       "minimum_agent_version": "3.2.29",
       "parameter_schema_version": "service_status_parameters_v1",
       "parameters": [
@@ -286,6 +310,482 @@
       "policy": "none",
       "result_schema_version": "service_status_result_v1",
       "risk": "safe_read"
+    },
+    {
+      "capability": "system.resource_snapshot",
+      "category": "system",
+      "consent_required": false,
+      "display_name_ru": "Состояние ресурсов системы",
+      "execution_timeout_seconds": 10,
+      "feature_flag": "endpoint_system_primitives_enabled",
+      "max_result_items": 1,
+      "minimum_agent_version": "3.2.67",
+      "parameter_schema_version": "system_resource_snapshot_parameters_v1",
+      "parameters": [],
+      "platforms": [
+        "linux_amd64",
+        "windows_amd64"
+      ],
+      "policy": "none",
+      "result_schema_version": "system_resource_snapshot_result_v1",
+      "risk": "safe_read"
+    },
+    {
+      "capability": "process.list",
+      "category": "process",
+      "consent_required": false,
+      "display_name_ru": "Процессы",
+      "execution_timeout_seconds": 10,
+      "feature_flag": "endpoint_process_primitives_enabled",
+      "max_result_items": 32,
+      "minimum_agent_version": "3.2.67",
+      "parameter_schema_version": "process_list_parameters_v1",
+      "parameters": [],
+      "platforms": [
+        "linux_amd64",
+        "windows_amd64"
+      ],
+      "policy": "process_metadata",
+      "result_schema_version": "process_list_result_v1",
+      "risk": "controlled_read"
+    },
+    {
+      "capability": "process.find",
+      "category": "process",
+      "consent_required": false,
+      "display_name_ru": "Поиск процесса",
+      "execution_timeout_seconds": 10,
+      "feature_flag": "endpoint_process_primitives_enabled",
+      "max_result_items": 20,
+      "minimum_agent_version": "3.2.67",
+      "parameter_schema_version": "process_find_parameters_v1",
+      "parameters": [
+        {
+          "allowed_sources": [
+            "input",
+            "literal"
+          ],
+          "default_literal": null,
+          "enum_values": null,
+          "maximum": null,
+          "minimum": null,
+          "name": "name",
+          "required": true,
+          "secret": false,
+          "value_type": "string"
+        }
+      ],
+      "platforms": [
+        "linux_amd64",
+        "windows_amd64"
+      ],
+      "policy": "process_metadata",
+      "result_schema_version": "process_find_result_v1",
+      "risk": "safe_read"
+    },
+    {
+      "capability": "service.list",
+      "category": "service",
+      "consent_required": false,
+      "display_name_ru": "Список служб",
+      "execution_timeout_seconds": 10,
+      "feature_flag": "endpoint_system_primitives_enabled",
+      "max_result_items": 3,
+      "minimum_agent_version": "3.2.67",
+      "parameter_schema_version": "service_list_parameters_v1",
+      "parameters": [],
+      "platforms": [
+        "linux_amd64",
+        "windows_amd64"
+      ],
+      "policy": "service_catalog",
+      "result_schema_version": "service_list_result_v1",
+      "risk": "controlled_read"
+    },
+    {
+      "capability": "service.status",
+      "category": "service",
+      "consent_required": false,
+      "display_name_ru": "Проверка службы",
+      "execution_timeout_seconds": 10,
+      "feature_flag": "endpoint_system_primitives_enabled",
+      "max_result_items": 1,
+      "minimum_agent_version": "3.2.67",
+      "parameter_schema_version": "service_status_v2_parameters_v1",
+      "parameters": [
+        {
+          "allowed_sources": [
+            "literal"
+          ],
+          "default_literal": null,
+          "enum_values": [
+            "endpoint_agent",
+            "endpoint_agent_updater",
+            "print_service"
+          ],
+          "maximum": null,
+          "minimum": null,
+          "name": "service_key",
+          "required": true,
+          "secret": false,
+          "value_type": "enum"
+        }
+      ],
+      "platforms": [
+        "linux_amd64",
+        "windows_amd64"
+      ],
+      "policy": "service_catalog",
+      "result_schema_version": "service_status_v2_result_v1",
+      "risk": "safe_read"
+    },
+    {
+      "capability": "printer.list",
+      "category": "printer",
+      "consent_required": false,
+      "display_name_ru": "Принтеры",
+      "execution_timeout_seconds": 10,
+      "feature_flag": "endpoint_printer_primitives_enabled",
+      "max_result_items": 16,
+      "minimum_agent_version": "3.2.67",
+      "parameter_schema_version": "printer_list_parameters_v1",
+      "parameters": [],
+      "platforms": [
+        "linux_amd64",
+        "windows_amd64"
+      ],
+      "policy": "local_printers",
+      "result_schema_version": "printer_list_result_v1",
+      "risk": "controlled_read"
+    },
+    {
+      "capability": "printer.status",
+      "category": "printer",
+      "consent_required": false,
+      "display_name_ru": "Состояние принтера",
+      "execution_timeout_seconds": 10,
+      "feature_flag": "endpoint_printer_primitives_enabled",
+      "max_result_items": 1,
+      "minimum_agent_version": "3.2.67",
+      "parameter_schema_version": "printer_status_parameters_v1",
+      "parameters": [
+        {
+          "allowed_sources": [
+            "input",
+            "literal"
+          ],
+          "default_literal": null,
+          "enum_values": null,
+          "maximum": null,
+          "minimum": null,
+          "name": "printer_name",
+          "required": true,
+          "secret": false,
+          "value_type": "string"
+        }
+      ],
+      "platforms": [
+        "linux_amd64",
+        "windows_amd64"
+      ],
+      "policy": "local_printers",
+      "result_schema_version": "printer_status_result_v1",
+      "risk": "safe_read"
+    },
+    {
+      "capability": "printer.queue.summary",
+      "category": "printer",
+      "consent_required": false,
+      "display_name_ru": "Состояние очереди печати",
+      "execution_timeout_seconds": 10,
+      "feature_flag": "endpoint_printer_primitives_enabled",
+      "max_result_items": 1,
+      "minimum_agent_version": "3.2.67",
+      "parameter_schema_version": "printer_queue_summary_parameters_v1",
+      "parameters": [],
+      "platforms": [
+        "windows_amd64"
+      ],
+      "policy": "local_printers",
+      "result_schema_version": "printer_queue_summary_result_v1",
+      "risk": "controlled_read"
+    },
+    {
+      "capability": "software.list",
+      "category": "software",
+      "consent_required": false,
+      "display_name_ru": "Установленное ПО",
+      "execution_timeout_seconds": 10,
+      "feature_flag": "endpoint_software_primitives_enabled",
+      "max_result_items": 32,
+      "minimum_agent_version": "3.2.67",
+      "parameter_schema_version": "software_list_parameters_v1",
+      "parameters": [],
+      "platforms": [
+        "linux_amd64",
+        "windows_amd64"
+      ],
+      "policy": "machine_software",
+      "result_schema_version": "software_list_result_v1",
+      "risk": "controlled_read"
+    },
+    {
+      "capability": "software.find",
+      "category": "software",
+      "consent_required": false,
+      "display_name_ru": "Проверка установленного ПО",
+      "execution_timeout_seconds": 10,
+      "feature_flag": "endpoint_software_primitives_enabled",
+      "max_result_items": 20,
+      "minimum_agent_version": "3.2.67",
+      "parameter_schema_version": "software_find_parameters_v1",
+      "parameters": [
+        {
+          "allowed_sources": [
+            "input",
+            "literal"
+          ],
+          "default_literal": null,
+          "enum_values": null,
+          "maximum": null,
+          "minimum": null,
+          "name": "name",
+          "required": true,
+          "secret": false,
+          "value_type": "string"
+        }
+      ],
+      "platforms": [
+        "linux_amd64",
+        "windows_amd64"
+      ],
+      "policy": "machine_software",
+      "result_schema_version": "software_find_result_v1",
+      "risk": "safe_read"
+    },
+    {
+      "capability": "filesystem.free_space",
+      "category": "filesystem",
+      "consent_required": false,
+      "display_name_ru": "Свободное место",
+      "execution_timeout_seconds": 10,
+      "feature_flag": "endpoint_filesystem_primitives_enabled",
+      "max_result_items": 16,
+      "minimum_agent_version": "3.2.67",
+      "parameter_schema_version": "filesystem_free_space_parameters_v1",
+      "parameters": [],
+      "platforms": [
+        "linux_amd64",
+        "windows_amd64"
+      ],
+      "policy": "local_volumes",
+      "result_schema_version": "filesystem_free_space_result_v1",
+      "risk": "safe_read"
+    },
+    {
+      "capability": "filesystem.path_exists",
+      "category": "filesystem",
+      "consent_required": false,
+      "display_name_ru": "Проверка файла или папки",
+      "execution_timeout_seconds": 10,
+      "feature_flag": "endpoint_filesystem_primitives_enabled",
+      "max_result_items": 1,
+      "minimum_agent_version": "3.2.67",
+      "parameter_schema_version": "filesystem_path_exists_parameters_v1",
+      "parameters": [
+        {
+          "allowed_sources": [
+            "literal"
+          ],
+          "default_literal": null,
+          "enum_values": [
+            "endpoint_install_root",
+            "endpoint_data_root",
+            "endpoint_runtime_manifest"
+          ],
+          "maximum": null,
+          "minimum": null,
+          "name": "path_key",
+          "required": true,
+          "secret": false,
+          "value_type": "enum"
+        }
+      ],
+      "platforms": [
+        "linux_amd64",
+        "windows_amd64"
+      ],
+      "policy": "logical_paths",
+      "result_schema_version": "filesystem_path_exists_result_v1",
+      "risk": "controlled_read"
+    },
+    {
+      "capability": "filesystem.file_metadata",
+      "category": "filesystem",
+      "consent_required": false,
+      "display_name_ru": "Сведения о файле Agent",
+      "execution_timeout_seconds": 10,
+      "feature_flag": "endpoint_filesystem_primitives_enabled",
+      "max_result_items": 1,
+      "minimum_agent_version": "3.2.67",
+      "parameter_schema_version": "filesystem_file_metadata_parameters_v1",
+      "parameters": [
+        {
+          "allowed_sources": [
+            "literal"
+          ],
+          "default_literal": null,
+          "enum_values": [
+            "endpoint_runtime_manifest"
+          ],
+          "maximum": null,
+          "minimum": null,
+          "name": "path_key",
+          "required": true,
+          "secret": false,
+          "value_type": "enum"
+        }
+      ],
+      "platforms": [
+        "linux_amd64",
+        "windows_amd64"
+      ],
+      "policy": "logical_paths",
+      "result_schema_version": "filesystem_file_metadata_result_v1",
+      "risk": "controlled_read"
+    },
+    {
+      "capability": "eventlog.query",
+      "category": "eventlog",
+      "consent_required": false,
+      "display_name_ru": "Запрос журнала событий",
+      "execution_timeout_seconds": 20,
+      "feature_flag": "endpoint_eventlog_primitives_enabled",
+      "max_result_items": 32,
+      "minimum_agent_version": "3.2.67",
+      "parameter_schema_version": "eventlog_query_parameters_v1",
+      "parameters": [
+        {
+          "allowed_sources": [
+            "literal"
+          ],
+          "default_literal": null,
+          "enum_values": [
+            "system",
+            "application",
+            "print",
+            "endpoint"
+          ],
+          "maximum": null,
+          "minimum": null,
+          "name": "profile",
+          "required": true,
+          "secret": false,
+          "value_type": "enum"
+        },
+        {
+          "allowed_sources": [
+            "input",
+            "literal"
+          ],
+          "default_literal": null,
+          "enum_values": null,
+          "maximum": 60,
+          "minimum": 1,
+          "name": "lookback_minutes",
+          "required": true,
+          "secret": false,
+          "value_type": "integer"
+        },
+        {
+          "allowed_sources": [
+            "literal"
+          ],
+          "default_literal": null,
+          "enum_values": [
+            "error",
+            "warning",
+            "information"
+          ],
+          "maximum": null,
+          "minimum": null,
+          "name": "severity",
+          "required": true,
+          "secret": false,
+          "value_type": "enum"
+        },
+        {
+          "allowed_sources": [
+            "input",
+            "literal"
+          ],
+          "default_literal": null,
+          "enum_values": null,
+          "maximum": 32,
+          "minimum": 1,
+          "name": "max_events",
+          "required": true,
+          "secret": false,
+          "value_type": "integer"
+        }
+      ],
+      "platforms": [
+        "windows_amd64"
+      ],
+      "policy": "event_profile",
+      "result_schema_version": "eventlog_query_result_v1",
+      "risk": "controlled_read"
+    },
+    {
+      "capability": "eventlog.recent_errors",
+      "category": "eventlog",
+      "consent_required": false,
+      "display_name_ru": "Последние ошибки журнала",
+      "execution_timeout_seconds": 20,
+      "feature_flag": "endpoint_eventlog_primitives_enabled",
+      "max_result_items": 20,
+      "minimum_agent_version": "3.2.67",
+      "parameter_schema_version": "eventlog_recent_errors_parameters_v1",
+      "parameters": [
+        {
+          "allowed_sources": [
+            "literal"
+          ],
+          "default_literal": null,
+          "enum_values": [
+            "system",
+            "application",
+            "print",
+            "endpoint"
+          ],
+          "maximum": null,
+          "minimum": null,
+          "name": "profile",
+          "required": true,
+          "secret": false,
+          "value_type": "enum"
+        },
+        {
+          "allowed_sources": [
+            "input",
+            "literal"
+          ],
+          "default_literal": null,
+          "enum_values": null,
+          "maximum": 60,
+          "minimum": 1,
+          "name": "lookback_minutes",
+          "required": true,
+          "secret": false,
+          "value_type": "integer"
+        }
+      ],
+      "platforms": [
+        "windows_amd64"
+      ],
+      "policy": "event_profile",
+      "result_schema_version": "eventlog_recent_errors_result_v1",
+      "risk": "controlled_read"
     }
   ],
   "schema_version": "endpoint_module_capability_catalog_v1"
