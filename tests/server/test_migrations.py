@@ -7,6 +7,7 @@ import io
 import os
 import re
 from collections.abc import Iterator
+from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
 
@@ -140,7 +141,7 @@ def test_migration_history_has_exactly_one_head() -> None:
         _alembic_config("postgresql+asyncpg://unused@127.0.0.1/unused")
     )
 
-    assert script.get_heads() == ["0026_context_evidence_v2"]
+    assert script.get_heads() == ["0027_context_observed_backfill"]
 
 
 def test_console_enrollment_queue_index_matches_status_and_page_order() -> None:
@@ -165,6 +166,53 @@ def test_context_evidence_migration_is_additive_and_indexed() -> None:
     assert "CREATE TABLE operation_evidence" in rendered
     assert "ix_context_collections_status_requested" in rendered
     assert "ix_operation_evidence_expiry" in rendered
+
+
+def test_context_observation_backfill_uses_completed_collections() -> None:
+    output = io.StringIO()
+    config = Config(REPOSITORY_ROOT / "alembic.ini", output_buffer=output)
+    config.set_main_option("sqlalchemy.url", "postgresql+asyncpg://unused@127.0.0.1/unused")
+    command.upgrade(config, "0026_context_evidence_v2:0027_context_observed_backfill", sql=True)
+    rendered = " ".join(output.getvalue().split())
+    assert "MAX(COALESCE(result_received_at, completed_at))" in rendered
+    assert "WHERE status = 'completed'" in rendered
+    assert "UPDATE context_current AS current" in rendered
+    assert "GREATEST(current.updated_at, latest.observed_at)" in rendered
+
+
+def test_context_observation_backfill_restores_deduplicated_freshness_on_postgresql(
+    empty_database_url: str,
+) -> None:
+    config = _alembic_config(empty_database_url)
+    command.upgrade(config, "0026_context_evidence_v2")
+    plain_url = make_url(empty_database_url).set(drivername="postgresql").render_as_string(hide_password=False)
+    device_id, initial_collection_id, later_collection_id, snapshot_id, current_id = (uuid4() for _ in range(5))
+    asyncio.run(_execute(plain_url, f"""
+        INSERT INTO devices (id, device_identifier) VALUES ('{device_id}', 'observation-backfill-{device_id}');
+        INSERT INTO context_collections
+            (id, device_id, profile, requested_by, idempotency_key, status,
+             requested_at, result_received_at, completed_at)
+        VALUES
+            ('{initial_collection_id}', '{device_id}', 'inventory_v1', 'test', 'first', 'completed',
+             '2026-09-20T09:00:00Z', '2026-09-20T09:00:00Z', '2026-09-20T09:00:00Z'),
+            ('{later_collection_id}', '{device_id}', 'inventory_v1', 'test', 'deduplicated', 'completed',
+             '2026-09-24T09:00:00Z', '2026-09-24T09:00:00Z', '2026-09-24T09:00:00Z');
+        INSERT INTO context_snapshots
+            (id, collection_id, device_id, profile, collected_at, raw_payload, normalized_projection)
+        VALUES ('{snapshot_id}', '{initial_collection_id}', '{device_id}', 'inventory_v1',
+                '2026-09-20T09:00:00Z', '{{}}', '{{}}');
+        INSERT INTO context_current
+            (id, device_id, profile, snapshot_id, updated_at, last_observed_at)
+        VALUES ('{current_id}', '{device_id}', 'inventory_v1', '{snapshot_id}',
+                '2026-09-20T09:00:00Z', '2026-09-20T09:00:00Z');
+    """))
+    command.upgrade(config, "head")
+    rows = asyncio.run(_fetch(plain_url,
+        f"SELECT snapshot_id, updated_at, last_observed_at FROM context_current WHERE id = '{current_id}'"))
+    assert len(rows) == 1
+    assert rows[0]["snapshot_id"] == snapshot_id
+    assert rows[0]["updated_at"] == datetime(2026, 9, 20, 9, tzinfo=UTC)
+    assert rows[0]["last_observed_at"] == datetime(2026, 9, 24, 9, tzinfo=UTC)
 
 
 def test_console_module_owner_has_no_service_credential() -> None:
@@ -1017,7 +1065,7 @@ def test_console_enrollment_queue_index_upgrades_on_postgresql(
         .set(drivername="postgresql")
         .render_as_string(hide_password=False)
     )
-    command.upgrade(config, "head")
+    command.upgrade(config, "0025_console_enrollment_queue")
     rows = asyncio.run(_fetch(
         plain_url,
         "SELECT indexdef FROM pg_indexes WHERE tablename = 'enrollment_requests' "

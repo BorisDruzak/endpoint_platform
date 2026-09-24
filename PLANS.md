@@ -8,7 +8,8 @@ The architecture and production measurement procedure are in
 `docs/architecture/context-evidence-retention-v2.md`. Work starts from main
 `0aa22537d93e29e79eb43dce01e8e1e50ee23a6f` on
 `codex/endpoint-retention-v2`, with Agent `3.2.65` unchanged. The new Alembic
-head is `0026_context_evidence_v2`. Production backup, migration and acceptance
+head is `0027_context_observed_backfill` after a follow-up observation-freshness
+repair. Production backup, migration and acceptance
 evidence follows.
 
 Production release `d626c1ed44b38637870e2968c599fc793142fa6e` was
@@ -42,6 +43,12 @@ dedicated Linux test host was unreachable over SSH during this release.
 Creation of a fresh production Module Operation and Evidence PIN through the
 Console awaits an authenticated administrator session; the browser opened at
 the login form during acceptance.
+
+Post-deployment audit found that revision 0026 backfilled `last_observed_at`
+only from the last changed snapshot. Existing completed deduplicated baseline
+and inventory collections could be newer. Revision 0027 backfills those
+observations from retained collection timestamps without changing snapshots;
+its production deployment and post-check are recorded below after verification.
 
 ## Current Console v1 work (2026-09-24)
 

@@ -68,6 +68,8 @@ measure actual row and byte growth after rollout.
    ```
 
 3. Deploy the verified server release and apply `0026_context_evidence_v2`.
+   Apply `0027_context_observed_backfill` to recover the last completed
+   observation for existing semantically deduplicated profiles.
    Start API and worker. Cleanup services process at most 100 rows per class
    per worker cycle and commit separately. Do not run a bulk delete.
 4. Record rows before, scrubbed/deleted and after for each class. Confirm
