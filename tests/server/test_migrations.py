@@ -147,7 +147,16 @@ def test_migration_history_has_exactly_one_head() -> None:
         _alembic_config("postgresql+asyncpg://unused@127.0.0.1/unused")
     )
 
-    assert script.get_heads() == ["0029_endpoint_policy_dlp_v1"]
+    assert script.get_heads() == ["0030_activity_current_projection"]
+
+
+def test_activity_migration_adds_latest_safe_projection() -> None:
+    output = io.StringIO()
+    config = Config(REPOSITORY_ROOT / "alembic.ini", output_buffer=output)
+    config.set_main_option("sqlalchemy.url", "postgresql+asyncpg://unused@127.0.0.1/unused")
+    command.upgrade(config, "0029_endpoint_policy_dlp_v1:0030_activity_current_projection", sql=True)
+    rendered = " ".join(output.getvalue().split())
+    assert "ALTER TABLE context_current ADD COLUMN last_projection JSONB" in rendered
 
 
 def test_policy_migration_adds_immutable_versions_and_unique_assignments() -> None:

@@ -131,4 +131,25 @@ def canonicalize_network(snapshot: Mapping[str, object] | object) -> dict[str, o
     }
 
 
-__all__ = ["canonicalize_baseline", "canonicalize_inventory", "canonicalize_session", "canonicalize_network"]
+def canonicalize_activity(snapshot: Mapping[str, object] | object) -> dict[str, object]:
+    """Hash state and safe identities, excluding idle and heartbeat time."""
+    source = _mapping(snapshot)
+    if source.get("profile") != "activity_v1":
+        raise ValueError("semantic canonicalization requires an activity snapshot")
+    sections = _mapping(source.get("sections"))
+    foreground = _mapping(sections.get("foreground"))
+    browser = _mapping(sections.get("browser"))
+    return {
+        "profile": "activity_v1",
+        "session_state": sections.get("session_state"),
+        "user_login": sections.get("user_login"),
+        "foreground": {"process_name": foreground.get("process_name"),
+                       "application_category": foreground.get("application_category")},
+        "browser": {"browser_family": browser.get("browser_family"),
+                    "origin": browser.get("origin"), "domain": browser.get("domain"),
+                    "sensor_state": browser.get("sensor_state"),
+                    "extension_version": browser.get("extension_version")},
+    }
+
+
+__all__ = ["canonicalize_activity", "canonicalize_baseline", "canonicalize_inventory", "canonicalize_session", "canonicalize_network"]

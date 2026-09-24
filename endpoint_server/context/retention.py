@@ -167,7 +167,7 @@ async def cleanup_context_collections(
     cutoff = _utc(now or datetime.now(UTC)) - CONTEXT_RETENTION_POLICIES["health_v1"].ttl
     snapshot_exists = select(ContextSnapshot.id).where(ContextSnapshot.collection_id == ContextCollection.id).exists()
     rows = (await session.scalars(select(ContextCollection).where(
-        ContextCollection.requested_by == "scheduler",
+        ContextCollection.requested_by.in_(("scheduler", "activity-sensor")),
         ContextCollection.status.in_(("completed", "failed", "expired")),
         ContextCollection.requested_at < cutoff,
         ContextCollection.operation_id.is_(None),

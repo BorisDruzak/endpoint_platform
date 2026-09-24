@@ -24,5 +24,6 @@ CONTEXT_RETENTION_POLICIES = {
     "health_v1": ContextRetentionPolicy("health_v1", "hot", timedelta(hours=24)),
     "session_v1": ContextRetentionPolicy("session_v1", "hot", timedelta(hours=24)),
     "network_v1": ContextRetentionPolicy("network_v1", "hot", timedelta(hours=24)),
+    "activity_v1": ContextRetentionPolicy("activity_v1", "hot", timedelta(hours=24)),
     "diagnostic_v1": ContextRetentionPolicy("diagnostic_v1", "diagnostic", timedelta(hours=24)),
 }

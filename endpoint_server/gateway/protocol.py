@@ -7,6 +7,7 @@ from typing import TypeAlias
 from pydantic import ValidationError
 
 from endpoint_contracts.gateway_ws import (
+    ActivityObservationEnvelopeV1,
     AgentHelloEnvelopeV1,
     CommandAckEnvelopeV1,
     CommandResultEnvelopeV1,
@@ -22,6 +23,7 @@ AgentEnvelope: TypeAlias = (
     | CommandAckEnvelopeV1
     | CommandResultEnvelopeV1
     | EndpointPolicyAckEnvelopeV1
+    | ActivityObservationEnvelopeV1
 )
 
 
@@ -57,6 +59,7 @@ def parse_agent_envelope(
             CommandAckEnvelopeV1,
             CommandResultEnvelopeV1,
             EndpointPolicyAckEnvelopeV1,
+            ActivityObservationEnvelopeV1,
         ),
     ):
         raise GatewayProtocolError(1008, "invalid_direction")

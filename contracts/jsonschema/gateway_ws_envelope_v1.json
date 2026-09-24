@@ -1,5 +1,127 @@
 {
   "$defs": {
+    "ActivityObservationEnvelopeV1": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "activity_observation",
+          "title": "Kind",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/ActivityObservationV1"
+        },
+        "schema_version": {
+          "const": "gateway_ws_envelope_v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "sequence": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Sequence",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "schema_version",
+        "sequence",
+        "kind",
+        "payload"
+      ],
+      "title": "ActivityObservationEnvelopeV1",
+      "type": "object"
+    },
+    "ActivityObservationV1": {
+      "additionalProperties": false,
+      "properties": {
+        "browser": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/BrowserActivityV1"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "foreground": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ForegroundApplicationV1"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "idle_seconds": {
+          "anyOf": [
+            {
+              "maximum": 86400,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Idle Seconds"
+        },
+        "observation_id": {
+          "format": "uuid",
+          "title": "Observation Id",
+          "type": "string"
+        },
+        "observed_at": {
+          "$comment": "model-only UTC normalization: timezone-aware values are normalized to UTC.",
+          "format": "date-time",
+          "title": "Observed At",
+          "type": "string"
+        },
+        "schema_version": {
+          "const": "activity_observation_v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "session_state": {
+          "enum": [
+            "ACTIVE",
+            "IDLE",
+            "LOCKED",
+            "DISCONNECTED",
+            "UNKNOWN"
+          ],
+          "title": "Session State",
+          "type": "string"
+        },
+        "user_login": {
+          "anyOf": [
+            {
+              "maxLength": 256,
+              "pattern": "^[^\\x00-\\x1f]+$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "User Login"
+        }
+      },
+      "required": [
+        "session_state",
+        "schema_version",
+        "observation_id",
+        "observed_at"
+      ],
+      "title": "ActivityObservationV1",
+      "type": "object"
+    },
     "ActivityPolicyV1": {
       "additionalProperties": false,
       "properties": {
@@ -670,6 +792,92 @@
         }
       ]
     },
+    "BrowserActivityV1": {
+      "additionalProperties": false,
+      "properties": {
+        "browser_family": {
+          "enum": [
+            "chrome",
+            "yandex"
+          ],
+          "title": "Browser Family",
+          "type": "string"
+        },
+        "domain": {
+          "anyOf": [
+            {
+              "maxLength": 253,
+              "pattern": "^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Domain"
+        },
+        "extension_version": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._+-]*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Extension Version"
+        },
+        "last_seen_at": {
+          "anyOf": [
+            {
+              "$comment": "model-only UTC normalization: timezone-aware values are normalized to UTC.",
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Last Seen At"
+        },
+        "origin": {
+          "anyOf": [
+            {
+              "maxLength": 512,
+              "pattern": "^https?://[a-z0-9][a-z0-9.-]*(?::[0-9]{1,5})?$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Origin"
+        },
+        "sensor_state": {
+          "enum": [
+            "NOT_APPLICABLE",
+            "NEVER_SEEN",
+            "ACTIVE",
+            "STALE",
+            "ERROR"
+          ],
+          "title": "Sensor State",
+          "type": "string"
+        }
+      },
+      "required": [
+        "browser_family",
+        "sensor_state"
+      ],
+      "title": "BrowserActivityV1",
+      "type": "object"
+    },
     "BrowserSensorPolicyV1": {
       "additionalProperties": false,
       "properties": {
@@ -1274,6 +1482,36 @@
         "security_event_days"
       ],
       "title": "EventRetentionPolicyV1",
+      "type": "object"
+    },
+    "ForegroundApplicationV1": {
+      "additionalProperties": false,
+      "properties": {
+        "application_category": {
+          "enum": [
+            "browser",
+            "office",
+            "business_app",
+            "system",
+            "remote_access",
+            "other"
+          ],
+          "title": "Application Category",
+          "type": "string"
+        },
+        "process_name": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[^\\\\/\\x00-\\x1f:]+$",
+          "title": "Process Name",
+          "type": "string"
+        }
+      },
+      "required": [
+        "process_name",
+        "application_category"
+      ],
+      "title": "ForegroundApplicationV1",
       "type": "object"
     },
     "GatewayCommandV1": {
@@ -2453,6 +2691,7 @@
   },
   "discriminator": {
     "mapping": {
+      "activity_observation": "#/$defs/ActivityObservationEnvelopeV1",
       "agent_hello": "#/$defs/AgentHelloEnvelopeV1",
       "command": "#/$defs/CommandEnvelopeV1",
       "command_ack": "#/$defs/CommandAckEnvelopeV1",
@@ -2502,6 +2741,9 @@
     },
     {
       "$ref": "#/$defs/EndpointPolicyAckEnvelopeV1"
+    },
+    {
+      "$ref": "#/$defs/ActivityObservationEnvelopeV1"
     },
     {
       "$ref": "#/$defs/ServerShutdownNoticeEnvelopeV1"

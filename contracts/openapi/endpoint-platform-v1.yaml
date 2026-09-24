@@ -1510,6 +1510,336 @@ paths:
         - "context.read"
 components:
   schemas:
+    ActivityObservationV1:
+      additionalProperties: false
+      properties:
+        user_login:
+          anyOf:
+            -
+              maxLength: 256
+              pattern: "^[^\\x00-\\x1f]+$"
+              type: "string"
+            -
+              type: "null"
+          default: null
+          title: "User Login"
+        session_state:
+          enum:
+            - "ACTIVE"
+            - "IDLE"
+            - "LOCKED"
+            - "DISCONNECTED"
+            - "UNKNOWN"
+          title: "Session State"
+          type: "string"
+        idle_seconds:
+          anyOf:
+            -
+              maximum: 86400
+              minimum: 0
+              type: "integer"
+            -
+              type: "null"
+          default: null
+          title: "Idle Seconds"
+        foreground:
+          anyOf:
+            -
+              "$ref": "#/components/schemas/ActivityObservationV1__ForegroundApplicationV1"
+            -
+              type: "null"
+          default: null
+        browser:
+          anyOf:
+            -
+              "$ref": "#/components/schemas/ActivityObservationV1__BrowserActivityV1"
+            -
+              type: "null"
+          default: null
+        schema_version:
+          const: "activity_observation_v1"
+          title: "Schema Version"
+          type: "string"
+        observation_id:
+          format: "uuid"
+          title: "Observation Id"
+          type: "string"
+        observed_at:
+          format: "date-time"
+          title: "Observed At"
+          type: "string"
+          "$comment": "model-only UTC normalization: timezone-aware values are normalized to UTC."
+      required:
+        - "session_state"
+        - "schema_version"
+        - "observation_id"
+        - "observed_at"
+      title: "ActivityObservationV1"
+      type: "object"
+    ActivityObservationV1__BrowserActivityV1:
+      additionalProperties: false
+      properties:
+        browser_family:
+          enum:
+            - "chrome"
+            - "yandex"
+          title: "Browser Family"
+          type: "string"
+        origin:
+          anyOf:
+            -
+              maxLength: 512
+              pattern: "^https?://[a-z0-9][a-z0-9.-]*(?::[0-9]{1,5})?$"
+              type: "string"
+            -
+              type: "null"
+          default: null
+          title: "Origin"
+        domain:
+          anyOf:
+            -
+              maxLength: 253
+              pattern: "^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$"
+              type: "string"
+            -
+              type: "null"
+          default: null
+          title: "Domain"
+        sensor_state:
+          enum:
+            - "NOT_APPLICABLE"
+            - "NEVER_SEEN"
+            - "ACTIVE"
+            - "STALE"
+            - "ERROR"
+          title: "Sensor State"
+          type: "string"
+        extension_version:
+          anyOf:
+            -
+              maxLength: 64
+              pattern: "^[A-Za-z0-9][A-Za-z0-9._+-]*$"
+              type: "string"
+            -
+              type: "null"
+          default: null
+          title: "Extension Version"
+        last_seen_at:
+          anyOf:
+            -
+              format: "date-time"
+              type: "string"
+              "$comment": "model-only UTC normalization: timezone-aware values are normalized to UTC."
+            -
+              type: "null"
+          default: null
+          title: "Last Seen At"
+      required:
+        - "browser_family"
+        - "sensor_state"
+      title: "BrowserActivityV1"
+      type: "object"
+    ActivityObservationV1__ForegroundApplicationV1:
+      additionalProperties: false
+      properties:
+        process_name:
+          maxLength: 128
+          minLength: 1
+          pattern: "^[^\\\\/\\x00-\\x1f:]+$"
+          title: "Process Name"
+          type: "string"
+        application_category:
+          enum:
+            - "browser"
+            - "office"
+            - "business_app"
+            - "system"
+            - "remote_access"
+            - "other"
+          title: "Application Category"
+          type: "string"
+      required:
+        - "process_name"
+        - "application_category"
+      title: "ForegroundApplicationV1"
+      type: "object"
+    DeviceContextActivityV1:
+      additionalProperties: false
+      properties:
+        schema_version:
+          const: "device_context_v1"
+          title: "Schema Version"
+          type: "string"
+        profile:
+          const: "activity_v1"
+          title: "Profile"
+          type: "string"
+        collected_at:
+          format: "date-time"
+          title: "Collected At"
+          type: "string"
+          "$comment": "model-only UTC normalization: timezone-aware values are normalized to UTC."
+        sections:
+          "$ref": "#/components/schemas/DeviceContextActivityV1__ActivitySectionsV1"
+        warnings:
+          items:
+            enum:
+              - "command_failed"
+              - "command_timed_out"
+              - "data_truncated"
+              - "permission_denied"
+              - "probe_unavailable"
+              - "redaction_applied"
+              - "source_unavailable"
+              - "unsupported_platform"
+            type: "string"
+          maxItems: 16
+          title: "Warnings"
+          type: "array"
+      required:
+        - "schema_version"
+        - "profile"
+        - "collected_at"
+        - "sections"
+      title: "DeviceContextActivityV1"
+      type: "object"
+    DeviceContextActivityV1__ActivitySectionsV1:
+      additionalProperties: false
+      properties:
+        user_login:
+          anyOf:
+            -
+              maxLength: 256
+              pattern: "^[^\\x00-\\x1f]+$"
+              type: "string"
+            -
+              type: "null"
+          default: null
+          title: "User Login"
+        session_state:
+          enum:
+            - "ACTIVE"
+            - "IDLE"
+            - "LOCKED"
+            - "DISCONNECTED"
+            - "UNKNOWN"
+          title: "Session State"
+          type: "string"
+        idle_seconds:
+          anyOf:
+            -
+              maximum: 86400
+              minimum: 0
+              type: "integer"
+            -
+              type: "null"
+          default: null
+          title: "Idle Seconds"
+        foreground:
+          anyOf:
+            -
+              "$ref": "#/components/schemas/DeviceContextActivityV1__ForegroundApplicationV1"
+            -
+              type: "null"
+          default: null
+        browser:
+          anyOf:
+            -
+              "$ref": "#/components/schemas/DeviceContextActivityV1__BrowserActivityV1"
+            -
+              type: "null"
+          default: null
+      required:
+        - "session_state"
+      title: "ActivitySectionsV1"
+      type: "object"
+    DeviceContextActivityV1__BrowserActivityV1:
+      additionalProperties: false
+      properties:
+        browser_family:
+          enum:
+            - "chrome"
+            - "yandex"
+          title: "Browser Family"
+          type: "string"
+        origin:
+          anyOf:
+            -
+              maxLength: 512
+              pattern: "^https?://[a-z0-9][a-z0-9.-]*(?::[0-9]{1,5})?$"
+              type: "string"
+            -
+              type: "null"
+          default: null
+          title: "Origin"
+        domain:
+          anyOf:
+            -
+              maxLength: 253
+              pattern: "^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$"
+              type: "string"
+            -
+              type: "null"
+          default: null
+          title: "Domain"
+        sensor_state:
+          enum:
+            - "NOT_APPLICABLE"
+            - "NEVER_SEEN"
+            - "ACTIVE"
+            - "STALE"
+            - "ERROR"
+          title: "Sensor State"
+          type: "string"
+        extension_version:
+          anyOf:
+            -
+              maxLength: 64
+              pattern: "^[A-Za-z0-9][A-Za-z0-9._+-]*$"
+              type: "string"
+            -
+              type: "null"
+          default: null
+          title: "Extension Version"
+        last_seen_at:
+          anyOf:
+            -
+              format: "date-time"
+              type: "string"
+              "$comment": "model-only UTC normalization: timezone-aware values are normalized to UTC."
+            -
+              type: "null"
+          default: null
+          title: "Last Seen At"
+      required:
+        - "browser_family"
+        - "sensor_state"
+      title: "BrowserActivityV1"
+      type: "object"
+    DeviceContextActivityV1__ForegroundApplicationV1:
+      additionalProperties: false
+      properties:
+        process_name:
+          maxLength: 128
+          minLength: 1
+          pattern: "^[^\\\\/\\x00-\\x1f:]+$"
+          title: "Process Name"
+          type: "string"
+        application_category:
+          enum:
+            - "browser"
+            - "office"
+            - "business_app"
+            - "system"
+            - "remote_access"
+            - "other"
+          title: "Application Category"
+          type: "string"
+      required:
+        - "process_name"
+        - "application_category"
+      title: "ForegroundApplicationV1"
+      type: "object"
     DeviceIdentityV1:
       additionalProperties: false
       properties:

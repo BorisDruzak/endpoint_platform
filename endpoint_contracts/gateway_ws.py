@@ -14,6 +14,7 @@ from pydantic import (
 )
 
 from .base import ContractModelV1
+from .activity import ActivityObservationV1
 from .capabilities import (
     MODULE_CAPABILITY_REGISTRY,
     module_capability_gateway_parameter_schema,
@@ -409,6 +410,11 @@ class EndpointPolicyAckEnvelopeV1(_GatewayWsEnvelopeBaseV1):
     payload: EndpointPolicyAckV1
 
 
+class ActivityObservationEnvelopeV1(_GatewayWsEnvelopeBaseV1):
+    kind: Literal["activity_observation"]
+    payload: ActivityObservationV1
+
+
 class ServerShutdownNoticeEnvelopeV1(_GatewayWsEnvelopeBaseV1):
     kind: Literal["server_shutdown_notice"]
     payload: ServerShutdownNoticeV1
@@ -431,6 +437,7 @@ GatewayWsEnvelopeBodyV1 = Annotated[
     | PolicyUpdateEnvelopeV1
     | EndpointPolicyDeliveryEnvelopeV1
     | EndpointPolicyAckEnvelopeV1
+    | ActivityObservationEnvelopeV1
     | ServerShutdownNoticeEnvelopeV1
     | ErrorEnvelopeV1,
     Field(discriminator="kind"),
@@ -461,6 +468,7 @@ class GatewayInboundV1(RootModel[GatewayInboundBodyV1]):
 
 __all__ = [
     "AgentHelloV1",
+    "ActivityObservationEnvelopeV1",
     "CommandCancelV1",
     "GatewayErrorV1",
     "GatewayHelloV1",

@@ -16,6 +16,7 @@ if str(REPOSITORY_ROOT) not in sys.path:
     sys.path.insert(0, str(REPOSITORY_ROOT))
 
 from endpoint_contracts import (  # noqa: E402
+    ActivityObservationV1,
     AgentHelloV1,
     AgentBuildRecommendationV1,
     AgentCommandAckV1,
@@ -28,6 +29,7 @@ from endpoint_contracts import (  # noqa: E402
     DeviceIdentityV1,
     DeviceCredentialRotationV1,
     DeviceContextBaselineV1,
+    DeviceContextActivityV1,
     DeviceContextDiagnosticV1,
     DeviceContextDiffV1,
     DeviceContextHealthV1,
@@ -110,6 +112,8 @@ _SERVICE_CONTEXT_PATHS = (
 
 
 PUBLIC_MODELS: dict[str, type[ContractModelV1]] = {
+    "activity-observation-v1.json": ActivityObservationV1,
+    "device_context_activity_v1.json": DeviceContextActivityV1,
     "device-identity-v1.json": DeviceIdentityV1,
     "agent-session-v1.json": AgentSessionV1,
     "enrollment-request-v1.json": EnrollmentRequestV1,

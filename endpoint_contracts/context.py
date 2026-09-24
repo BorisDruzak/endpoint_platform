@@ -3,6 +3,7 @@ from typing import Annotated, Literal
 from pydantic import AwareDatetime, Field, field_validator, model_validator
 
 from .base import ContractModelV1
+from .activity import ActivitySectionsV1
 
 ContextProfileV1 = Literal[
     "baseline_v1",
@@ -11,6 +12,7 @@ ContextProfileV1 = Literal[
     "diagnostic_v1",
     "inventory_v1",
     "session_v1",
+    "activity_v1",
 ]
 ContextWarningCodeV1 = Literal[
     "command_failed",
@@ -221,6 +223,7 @@ ContextSectionsV1 = (
     | DiagnosticSectionsV1
     | InventorySectionsV1
     | SessionSectionsV1
+    | ActivitySectionsV1
 )
 
 _PROFILE_SECTION_MODELS: dict[ContextProfileV1, type[ContractModelV1]] = {
@@ -230,6 +233,7 @@ _PROFILE_SECTION_MODELS: dict[ContextProfileV1, type[ContractModelV1]] = {
     "diagnostic_v1": DiagnosticSectionsV1,
     "inventory_v1": InventorySectionsV1,
     "session_v1": SessionSectionsV1,
+    "activity_v1": ActivitySectionsV1,
 }
 
 
@@ -285,6 +289,11 @@ class DeviceContextInventoryV1(DeviceContextEnvelopeV1):
 class DeviceContextSessionV1(DeviceContextEnvelopeV1):
     profile: Literal["session_v1"]
     sections: SessionSectionsV1
+
+
+class DeviceContextActivityV1(DeviceContextEnvelopeV1):
+    profile: Literal["activity_v1"]
+    sections: ActivitySectionsV1
 
 
 class DeviceContextDiffChangeV1(ContractModelV1):

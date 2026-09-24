@@ -17,7 +17,7 @@ from sqlalchemy import (
     UniqueConstraint,
 )
 from sqlalchemy.orm import Mapped, mapped_column
-from sqlalchemy.dialects.postgresql import UUID as PostgreSQLUUID
+from sqlalchemy.dialects.postgresql import JSONB, UUID as PostgreSQLUUID
 
 from endpoint_server.db.base import Base
 from endpoint_server.db.ownership import OwnershipRecord
@@ -146,6 +146,9 @@ class ContextCurrent(OwnershipRecord, Base):
     snapshot_id: Mapped[UUID] = mapped_column(nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     last_observed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_projection: Mapped[dict[str, object] | None] = mapped_column(
+        JSON(none_as_null=True).with_variant(JSONB(none_as_null=True), "postgresql")
+    )
 
 
 class DeviceEvent(OwnershipRecord, Base):

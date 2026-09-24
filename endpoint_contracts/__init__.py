@@ -4,11 +4,13 @@ from .commands import (
     AgentResultV1,
     CommandCorrelationV1,
 )
+from .activity import ActivityObservationV1, ActivitySectionsV1, BrowserActivityV1, ForegroundApplicationV1
 from .context import (
     BaselineSectionsV1,
     ContextProfileV1,
     ContextWarningCodeV1,
     DeviceContextBaselineV1,
+    DeviceContextActivityV1,
     DeviceContextDiagnosticV1,
     DeviceContextDiffV1,
     DeviceContextEnvelopeV1,
@@ -32,6 +34,7 @@ from .enrollment import (
     WindowsEnrollmentPolicyV1,
 )
 from .gateway_ws import (
+    ActivityObservationEnvelopeV1,
     AgentHelloV1,
     CommandCancelV1,
     GatewayErrorV1,
@@ -105,6 +108,11 @@ from .updates import (
 )
 
 __all__ = [
+    "ActivityObservationEnvelopeV1",
+    "ActivityObservationV1",
+    "ActivitySectionsV1",
+    "BrowserActivityV1",
+    "ForegroundApplicationV1",
     "AgentHelloV1",
     "AgentBuildRecommendationV1",
     "AgentCommandAckV1",
@@ -123,6 +131,7 @@ __all__ = [
     "ContextWarningCodeV1",
     "BaselineSectionsV1",
     "DeviceContextBaselineV1",
+    "DeviceContextActivityV1",
     "DeviceContextDiagnosticV1",
     "DeviceContextDiffV1",
     "DeviceContextEnvelopeV1",

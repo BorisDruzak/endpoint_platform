@@ -64,6 +64,7 @@ _NETWORK_IDENTITY_LIMIT = 250
 _NETWORK_IDENTITY_CHUNK_SIZE = 250
 _PRESENCE_TTL = timedelta(seconds=90)
 SafeServiceProfile = Literal["baseline_v1", "health_v1", "network_v1", "inventory_v1", "session_v1"]
+QueryableContextProfile = Literal["baseline_v1", "health_v1", "network_v1", "diagnostic_v1", "inventory_v1", "session_v1"]
 
 
 class CollectionRequest(BaseModel):
@@ -557,7 +558,7 @@ async def list_baseline_context_history(
     device_id: UUID,
     request: Request,
     _: Annotated[ServicePrincipal, Depends(require_service_scope(CONTEXT_READ_SCOPE))],
-    profile: ContextProfileV1 = "baseline_v1",
+    profile: QueryableContextProfile = "baseline_v1",
     limit: Annotated[
         int, Query(ge=1, le=_MAX_CONTEXT_HISTORY_LIMIT)
     ] = _CONTEXT_HISTORY_LIMIT,

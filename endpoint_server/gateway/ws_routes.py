@@ -15,6 +15,7 @@ from starlette.websockets import WebSocketDisconnect
 
 from endpoint_contracts import AgentHelloV1, GatewayErrorV1, GatewayHelloV1
 from endpoint_contracts.gateway_ws import (
+    ActivityObservationEnvelopeV1,
     AgentHelloEnvelopeV1,
     CommandAckEnvelopeV1,
     CommandResultEnvelopeV1,
@@ -28,6 +29,8 @@ from endpoint_contracts.capabilities import MODULE_CAPABILITY_REGISTRY
 from endpoint_server.operations.capabilities import module_capability_is_compatible
 from endpoint_server.updates.agent_routes import DevicePrincipal, _authenticate_device
 from endpoint_server.context.connect_refresh import queue_connect_refreshes
+from endpoint_server.activity.ingestion import ingest_gateway_activity
+from endpoint_server.context.service import ContextValidationError
 from endpoint_server.policy.delivery import (
     PolicyAcknowledgementRejected,
     prepare_policy_delivery,
@@ -291,6 +294,16 @@ async def connect_agent(websocket: WebSocket) -> None:
                 async with websocket.app.state.session_provider() as session:
                     await record_policy_ack(session, device_id, envelope.payload)
                     await session.commit()
+            elif isinstance(envelope, ActivityObservationEnvelopeV1):
+                if (
+                    not websocket.app.state.settings.endpoint_policy_enabled
+                    or "endpoint.activity.v1" not in connection.protocol_features
+                    or first.payload.platform != "windows_amd64"
+                ):
+                    raise GatewayProtocolError(1008, "activity_disabled")
+                async with websocket.app.state.session_provider() as session:
+                    await ingest_gateway_activity(session, device_id, envelope.payload)
+                    await session.commit()
             else:
                 raise GatewayProtocolError(1008, "unexpected_message")
             await command_service.deliver_next(
@@ -315,7 +328,7 @@ async def connect_agent(websocket: WebSocket) -> None:
     except RegistryCapacityExceeded:
         close_reason = "registry_capacity"
         await websocket.close(code=1013)
-    except (CommandStateRejected, PresenceRejected, PolicyAcknowledgementRejected) as error:
+    except (CommandStateRejected, PresenceRejected, PolicyAcknowledgementRejected, ContextValidationError) as error:
         logger.warning("Gateway state rejected: %s: %s", type(error).__name__, error)
         close_reason = "state_rejected"
         await _send_safe_error(websocket, "state_rejected")

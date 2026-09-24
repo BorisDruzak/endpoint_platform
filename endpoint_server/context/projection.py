@@ -6,7 +6,7 @@ import re
 
 from endpoint_contracts import DeviceContextEnvelopeV1
 
-from .models import ContextCollection, ContextSnapshot
+from .models import ContextCollection, ContextCurrent, ContextSnapshot
 
 
 _BASELINE_MAC_KEY_RE = re.compile(r"^mac-[0-9a-f]{12}$")
@@ -46,6 +46,24 @@ def snapshot_projection(snapshot: ContextSnapshot) -> dict[str, object] | None:
     }
 
 
+def activity_current_projection(current: ContextCurrent) -> dict[str, object] | None:
+    """Read only the latest validated Activity fields, not the older state snapshot."""
+    if current.profile != "activity_v1" or current.last_projection is None:
+        return None
+    try:
+        envelope = DeviceContextEnvelopeV1.model_validate(current.last_projection)
+    except Exception:
+        return None
+    if envelope.profile != "activity_v1":
+        return None
+    return {
+        "profile": "activity_v1",
+        "collected_at": envelope.collected_at,
+        "last_observed_at": current.last_observed_at or current.updated_at,
+        "sections": envelope.sections.model_dump(mode="json"),
+    }
+
+
 def baseline_interface_mac_keys(snapshot: ContextSnapshot) -> tuple[str, ...]:
     """Return only canonical baseline interface identity keys for a service peer."""
     try:
@@ -66,6 +84,7 @@ def baseline_interface_mac_keys(snapshot: ContextSnapshot) -> tuple[str, ...]:
 
 
 __all__ = [
+    "activity_current_projection",
     "baseline_interface_mac_keys",
     "collection_projection",
     "snapshot_projection",
