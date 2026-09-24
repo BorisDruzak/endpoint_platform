@@ -661,7 +661,7 @@ async def test_module_capability_catalog_is_flagged_scoped_and_closed(
     assert "invalid correlation value" not in invalid_correlation.text
     payload = allowed.json()["data"]
     assert payload["schema_version"] == "endpoint_module_capability_catalog_v1"
-    assert [item["capability"] for item in payload["items"]] == [
+    assert [item["capability"] for item in payload["items"]][:6] == [
         "dns.resolve",
         "network.ping",
         "tcp.connect",
@@ -669,6 +669,8 @@ async def test_module_capability_catalog_is_flagged_scoped_and_closed(
         "adapter.list",
         "system.service_status",
     ]
+    assert len(payload["items"]) == 21
+    assert payload["items"][6]["capability"] == "system.resource_snapshot"
     assert payload["items"][4]["parameters"] == []
     assert payload["items"][5]["parameters"] == [
         {

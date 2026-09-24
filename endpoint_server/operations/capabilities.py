@@ -92,6 +92,31 @@ def module_capability_is_compatible(
     return _has_minimum_agent_version(agent_version, metadata.minimum_agent_version)
 
 
+def module_capability_incompatibility_reason(
+    settings: Settings,
+    connection: GatewayConnection | None,
+    descriptor: ModuleCapabilityDescriptor,
+) -> str | None:
+    """Explain the first closed compatibility gate to Console users."""
+    if connection is None:
+        return "Устройство не в сети"
+    metadata = descriptor.metadata
+    if connection.platform not in metadata.platforms:
+        return "Платформа Agent не поддерживает эту возможность"
+    if not _has_minimum_agent_version(connection.agent_version, metadata.minimum_agent_version):
+        return f"Требуется Agent ≥ {metadata.minimum_agent_version}"
+    if metadata.capability not in connection.effective_capabilities:
+        return f"Agent не объявил возможность {metadata.capability}"
+    if not getattr(settings, metadata.feature_flag):
+        return "Возможность отключена на сервере"
+    if metadata.policy == "network_target_policy" and not (
+        settings.endpoint_network_probe_allowed_cidrs
+        or settings.endpoint_network_probe_allowed_suffixes
+    ):
+        return "Политика сетевых целей не настроена"
+    return None
+
+
 def compatible_module_capabilities(
     settings: Settings,
     connection: GatewayConnection | None,
@@ -154,6 +179,7 @@ __all__ = [
     "UnsupportedOperationCapability",
     "compatible_module_capabilities",
     "module_capability_is_compatible",
+    "module_capability_incompatibility_reason",
     "network_primitives_enabled",
     "profile_for_capability",
     "project_available_capabilities",

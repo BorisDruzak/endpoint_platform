@@ -1,5 +1,152 @@
 # Endpoint Platform Plan
 
+## Capability Platform v2 (2026-09-24)
+
+The source baseline is `31b3bdbbdcb07d2bb23beb9a6412e1ef2250fefd`
+on `codex/endpoint-capability-platform-v2`; the installed Agent baseline is
+`3.2.65`, and Alembic starts at `0027_context_observed_backfill`. The design
+and implementation checklist are in
+`docs/architecture/endpoint-capability-platform-v2.md` and
+`docs/superpowers/plans/2026-09-24-endpoint-capability-platform-v2.md`.
+The new migration is `0028_capability_platform_v2`. Fifteen new read-only
+capabilities are implemented on the existing Module/Gateway/Operation route.
+The Agent release version is `3.2.67`: the production `update_builds` registry
+already contains `3.2.66`. New server feature groups default to disabled.
+The implementation commit is `5bfc2e3b47cb5e17506b4f46f6e9c572807f470a`.
+Production Lab exposed a same-WSS-session replay of an unacknowledged command;
+the follow-up fix is `1dc3ad3acfc56ebcee96c598b6a0e746d2b29bdc`.
+The final full Python gate passed `1901 passed, 41 skipped` after the fix.
+Focused Windows packaging checks passed (`87 passed, 1 skipped`).
+`python -m tools.contracts.generate_contract_artifacts --check`,
+`python -m compileall -q endpoint_server endpoint_contracts pc_agent`,
+Console `npm run test` (`21 passed`), `npm run test:e2e` (`3 passed`, including
+TypeScript typecheck and production Vite build) passed after the gateway fix.
+`git diff --check` was clean. Packaged canary evidence is recorded below.
+
+Windows local primitive smoke checks succeeded for resource snapshot, process
+find, printer list, print service status, queue summary, software find, system
+free space and a bounded Event Log query. The dedicated ALT test host
+`test-agent-lin@192.168.101.162` timed out on SSH again at the live gate;
+ALT live acceptance remains unverified. Automated ALT tests passed in the
+full Python gate.
+
+The immutable Windows Agent 3.2.67 update archive is
+`C:\Temp\endpoint-agent-3.2.67-5bfc2e3b47cb-update.zip` (27,723,718 bytes,
+SHA-256 `135bbb2add4da1f5cbbcd989b185396c0f232dd08b554e4529a35d6c97b8e258`).
+Its inner runtime manifest names source revision
+`5bfc2e3b47cb5e17506b4f46f6e9c572807f470a`; all 2,539 member hashes
+and ZIP CRC passed. The packaged `pc_agent.exe --print-version` matched.
+Installed Windows preflight and `verify_installed_windows_agent` returned
+`READY`; the selected runtime manifest matched version 3.2.67 and the source
+revision. The previous installed Agent was 3.2.65. The registered Update build
+is `5adf0dfc-612a-4f57-a2af-32db13ebd85c`; the first local canary rollout
+`f2402ffa-59ba-41da-8d41-28015c650b9f` applied to device
+`c450fc70-63e6-4c2b-baf6-7de79820d63f` (`ADMIN-2`).
+
+The initial server backup is
+`/var/backups/endpoint-platform/pre-capability-v2-20260924T160518Z.dump`
+(16,315,112 bytes; SHA-256
+`806da935a344520175cd58905ac676b00ca228c488b430617ae36ac9fac44b37`);
+`pg_restore -l` passed. Server archive `5bfc2e3b47cb` had SHA-256
+`b928876bfe3460be140d606a383e1942a4f84c1913e9f28e15db2663637b3a92`.
+Production migrated from 0027 to `0028_capability_platform_v2`. Six new
+read-only feature flags were enabled after settings validation; older Agents
+remain gated by minimum version 3.2.67. The gateway replay fix has its own
+verified backup
+`/var/backups/endpoint-platform/pre-gateway-fix-20260924T162842Z.dump`
+(SHA-256 `dcef8f05c3ad7a3a297cd4fbc81a11e38d178eaa19b8db8fb3975f8c8e3c6cc7`)
+and release archive SHA-256
+`d587d0c30c049048aa3787d9bb1de40bd535704d31d581bd48495453a9c4c0b5`.
+The active release is `/opt/endpoint-platform/releases/endpoint-platform-1dc3ad3acfc5`;
+its migration unit succeeded, API/worker/Nginx/PostgreSQL are active, strict
+hostname/CA HTTPS `/healthz` returned 200, and WSS sessions reconnected.
+
+The existing published `inventory.local.adapters@1.0.0` succeeded on Windows
+Agent 3.2.67 (operation `ab4ab8bb-0f01-4248-8329-8029f26c7299`). Four
+Windows-only acceptance recipes were created, statically validated, run in
+Lab, accepted and published: `print.health.check@1.0.0` (printer status, queue
+summary, print service status; Lab `d61b1367-785c-47ad-b481-ecb0f4407254`),
+`process.presence.check@1.0.0` (process find; Lab
+`4410b194-0c5f-4d19-897a-bb5766397583`),
+`software.installation.check@1.0.0` (software find; Lab
+`9cc70631-e47f-4cb0-828a-bca969dd9935`) and
+`system.quick.check@1.0.0` (resource snapshot, free space; Lab
+`46aa3957-9a43-487b-8e9e-9496a19115ae`). Every Lab operation and step
+succeeded and yielded an audited passed Windows evidence record. Published
+`system.quick.check` run `be469846-86e7-4d1a-9993-807a9ed82407` succeeded;
+its safe Evidence SHA-256 is
+`e826e4c91810d8c28296c5786c4a7a7013b3dc7435b48e413f8600e7b50b28a8`.
+Console showed a 24-hour TTL; the result was then pinned with an acceptance
+reason and the ordinary expiry removed. Context remained fresh, and Agent
+service remained running after the repeated Lab and published operations.
+
+The local rollback rollout `c35b0c39-654e-4c0d-9e74-242ee8034031` applied
+registered Agent 3.2.65 (archive SHA-256
+`73b7a150655e5c1b0bc784eb548115ba013d1e8e082debb058a9140f4389dee7`).
+The selector named source revision
+`2528aeb809d882eb0b9363ecc8c230b552e7cea1`, both services returned to
+normal state, WSS was online, and Console removed the 3.2.67 capabilities.
+Reapplication rollout `a1eec0de-5f70-4109-b408-eedcd52ce128` applied
+Agent 3.2.67 again at 16:39:58 UTC. The selector again named the expected
+source revision, Agent ran and Updater stopped; installed preflight plus
+`verify_installed_windows_agent` returned `READY` after reapplication. A
+one-device small IT canary rollout `8f16b3c1-8c13-4bf5-a4ba-bf73ec80e72a`
+targets `9169e45c-9566-4277-b58e-bf76287c2b59` (Windows clean canary AUTO;
+Agent 3.2.63 before update). The existing published adapter module succeeded
+before the update (`c38de880-e9ab-4674-a41c-233ca316633c`), while the four
+v2 recipes were correctly unavailable with a 3.2.67 minimum-version reason.
+The canary applied at 16:45:04 UTC. Console then showed Agent 3.2.67 online,
+the new effective capabilities and fresh Context. The existing adapter module
+again succeeded (`ffd574af-fc8a-4e42-99a8-ce1ba18fd901`), as did published
+`system.quick.check` (`dc786b81-5265-4c5e-8822-62dd1c0627d1`).
+Rollback rollout `8728bce9-fcca-431f-9d20-559db8e760fe` targets the same
+device and the verified registered 3.2.63 archive (SHA-256
+`215b218812b0bb1d975e4639c60b20bec8a4e9369778953f3e5c4035f28ae315`).
+It failed at 16:50:50 UTC with `launcher_apply_failed`; the canary stayed
+online on 3.2.67. The local EndpointAgentUpdater Event ID 3 gave the exact
+cause: `target version collision with different bytes`. Its original 3.2.63
+runtime has different bytes from the registered 3.2.63 package, so the updater
+correctly refused to overwrite that version directory. No bypass was applied.
+The separate rollback rollout `775fb402-d41f-4a69-9e05-b43693169a33`
+targets verified build 3.2.65, absent from this canary's version directory.
+It applied at 16:56:20 UTC; Windows Agent ran on 3.2.65 with source revision
+`2528aeb809d882eb0b9363ecc8c230b552e7cea1`, Updater stopped, WSS was
+online and Console removed the 3.2.67 capabilities. Reapplication rollout
+`d02c2f41-e742-4d8c-97e2-0f7ae0036e56` applied 3.2.67 at 17:01:59 UTC;
+the selector, services, WSS and effective capabilities returned to the v2
+state. Before the pilot, a third verified custom-format DB backup was saved at
+`/var/backups/endpoint-platform/pre-capability-v2-pilot-20260924T165442Z.dump`
+(15,972,485 bytes, SHA-256
+`752119196151d7ade2812b22ab05aad3d34e4bee546047b2cef15759932771a4`);
+`pg_restore -l` passed and the file is private to postgres. Pilot rollout
+`e58138e7-2ef3-4607-86a5-6a4fcc54ec97` has one explicit Windows target,
+`ff6fd7b0-ad25-419f-83ad-cf5e683ed1bc` (`MUNSLU-S2`, Agent 3.2.63
+before update). Another online candidate (`A2-IAO`, Agent 3.2.46) is held out
+because its exact previous rollback artifact is not registered. Before the
+update, published `inventory.local.adapters` succeeded
+(`d02ffec5-e12d-47d8-ba21-bd397ec9ed19`) and v2 recipes showed a minimum
+Agent version incompatibility. The pilot applied at 17:04:45 UTC. Console
+showed Agent 3.2.67 online with v2 capabilities and fresh Context; the
+existing adapter module succeeded again
+(`82f3138d-131c-4714-9d53-0af792632612`) and published
+`system.quick.check` succeeded (`cbb8df85-b386-4eab-ad02-e282d048e1eb`).
+Pilot rollback rollout `ba27eb4c-9a8d-4b96-a46a-359f048e7db0` targets the
+verified 3.2.65 build. It applied at 17:10:04 UTC; Console showed Agent 3.2.65
+online with older effective capabilities. Reapplication rollout
+`4e1a6909-f527-4c64-afd6-fd099e228e27` applied 3.2.67 at 17:15:26 UTC.
+The pilot was online with fresh Context and the restored v2 capabilities;
+published `system.quick.check` again succeeded
+(`5312954a-85d5-485e-b163-a57a9add1cf8`). At 17:16 UTC all three Windows
+rollout devices reported Agent 3.2.67 with recent WSS presence. The API,
+worker, Nginx and PostgreSQL services were active, migration result was
+`success` at DB head 0028, root volume had about 20 GiB available, and strict
+CA/hostname HTTPS `/healthz` returned 200. The post-fix API journal had no
+`Gateway state rejected`, replay-conflict, or traceback lines in the checked
+window. The final pilot population remains one device: `A2-IAO` stays on
+3.2.46 until an exact rollback artifact and a separate gate are available.
+ALT live verification remains open because the dedicated test host's SSH
+connection timed out; no claim of live ALT acceptance is made.
+
 ## Context and Evidence Retention v2 (2026-09-24)
 
 The implementation plan is

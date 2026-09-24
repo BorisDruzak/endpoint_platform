@@ -225,6 +225,269 @@
       "title": "DnsResolveResultV1",
       "type": "object"
     },
+    "EventFactV1": {
+      "additionalProperties": false,
+      "properties": {
+        "event_id": {
+          "maximum": 4294967295,
+          "minimum": 0,
+          "title": "Event Id",
+          "type": "integer"
+        },
+        "message_code": {
+          "maxLength": 64,
+          "minLength": 1,
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Message Code",
+          "type": "string"
+        },
+        "provider": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[^\\x00-\\x1f\\x7f]+$",
+          "title": "Provider",
+          "type": "string"
+        },
+        "severity": {
+          "enum": [
+            "error",
+            "warning",
+            "information"
+          ],
+          "title": "Severity",
+          "type": "string"
+        },
+        "timestamp": {
+          "$comment": "model-only UTC normalization: timezone-aware values are normalized to UTC.",
+          "format": "date-time",
+          "title": "Timestamp",
+          "type": "string"
+        }
+      },
+      "required": [
+        "timestamp",
+        "severity",
+        "event_id",
+        "provider",
+        "message_code"
+      ],
+      "title": "EventFactV1",
+      "type": "object"
+    },
+    "EventQueryResultV1": {
+      "additionalProperties": false,
+      "properties": {
+        "collected_at": {
+          "$comment": "model-only UTC normalization: timezone-aware values are normalized to UTC.",
+          "format": "date-time",
+          "title": "Collected At",
+          "type": "string"
+        },
+        "error_code": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "minLength": 1,
+              "pattern": "^[a-z][a-z0-9_]*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Error Code"
+        },
+        "event_count": {
+          "maximum": 32,
+          "minimum": 0,
+          "title": "Event Count",
+          "type": "integer"
+        },
+        "events": {
+          "items": {
+            "$ref": "#/$defs/EventFactV1"
+          },
+          "maxItems": 32,
+          "title": "Events",
+          "type": "array"
+        },
+        "schema_version": {
+          "const": "eventlog_query_result_v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "succeeded",
+            "failed"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema_version",
+        "event_count",
+        "status",
+        "collected_at"
+      ],
+      "title": "EventQueryResultV1",
+      "type": "object"
+    },
+    "FileMetadataResultV1": {
+      "additionalProperties": false,
+      "properties": {
+        "collected_at": {
+          "$comment": "model-only UTC normalization: timezone-aware values are normalized to UTC.",
+          "format": "date-time",
+          "title": "Collected At",
+          "type": "string"
+        },
+        "error_code": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "minLength": 1,
+              "pattern": "^[a-z][a-z0-9_]*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Error Code"
+        },
+        "exists": {
+          "title": "Exists",
+          "type": "boolean"
+        },
+        "modified_at": {
+          "anyOf": [
+            {
+              "$comment": "model-only UTC normalization: timezone-aware values are normalized to UTC.",
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Modified At"
+        },
+        "path_key": {
+          "const": "endpoint_runtime_manifest",
+          "title": "Path Key",
+          "type": "string"
+        },
+        "schema_version": {
+          "const": "filesystem_file_metadata_result_v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "size": {
+          "anyOf": [
+            {
+              "maximum": 9223372036854775807,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Size"
+        },
+        "status": {
+          "enum": [
+            "succeeded",
+            "failed"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "version": {
+          "anyOf": [
+            {
+              "maxLength": 32,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Version"
+        }
+      },
+      "required": [
+        "schema_version",
+        "path_key",
+        "exists",
+        "status",
+        "collected_at"
+      ],
+      "title": "FileMetadataResultV1",
+      "type": "object"
+    },
+    "FreeSpaceResultV1": {
+      "additionalProperties": false,
+      "properties": {
+        "collected_at": {
+          "$comment": "model-only UTC normalization: timezone-aware values are normalized to UTC.",
+          "format": "date-time",
+          "title": "Collected At",
+          "type": "string"
+        },
+        "error_code": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "minLength": 1,
+              "pattern": "^[a-z][a-z0-9_]*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Error Code"
+        },
+        "schema_version": {
+          "const": "filesystem_free_space_result_v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "succeeded",
+            "failed"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "volumes": {
+          "items": {
+            "$ref": "#/$defs/VolumeFactV1"
+          },
+          "maxItems": 16,
+          "title": "Volumes",
+          "type": "array"
+        }
+      },
+      "required": [
+        "schema_version",
+        "status",
+        "collected_at"
+      ],
+      "title": "FreeSpaceResultV1",
+      "type": "object"
+    },
     "ModuleOperationStepV1": {
       "additionalProperties": false,
       "properties": {
@@ -235,7 +498,22 @@
             "tcp.connect",
             "route.get",
             "adapter.list",
-            "system.service_status"
+            "system.service_status",
+            "system.resource_snapshot",
+            "process.list",
+            "process.find",
+            "service.list",
+            "service.status",
+            "printer.list",
+            "printer.status",
+            "printer.queue.summary",
+            "software.list",
+            "software.find",
+            "filesystem.free_space",
+            "filesystem.path_exists",
+            "filesystem.file_metadata",
+            "eventlog.query",
+            "eventlog.recent_errors"
           ],
           "title": "Capability",
           "type": "string"
@@ -262,9 +540,24 @@
                 "mapping": {
                   "adapter_list_result_v1": "#/$defs/AdapterListResultV1",
                   "dns_resolve_result_v1": "#/$defs/DnsResolveResultV1",
+                  "eventlog_query_result_v1": "#/$defs/EventQueryResultV1",
+                  "eventlog_recent_errors_result_v1": "#/$defs/RecentErrorsResultV1",
+                  "filesystem_file_metadata_result_v1": "#/$defs/FileMetadataResultV1",
+                  "filesystem_free_space_result_v1": "#/$defs/FreeSpaceResultV1",
+                  "filesystem_path_exists_result_v1": "#/$defs/PathExistsResultV1",
                   "network_ping_result_v1": "#/$defs/NetworkPingResultV1",
+                  "printer_list_result_v1": "#/$defs/PrinterListResultV1",
+                  "printer_queue_summary_result_v1": "#/$defs/PrinterQueueSummaryResultV1",
+                  "printer_status_result_v1": "#/$defs/PrinterStatusResultV1",
+                  "process_find_result_v1": "#/$defs/ProcessFindResultV1",
+                  "process_list_result_v1": "#/$defs/ProcessListResultV1",
                   "route_get_result_v1": "#/$defs/RouteGetResultV1",
-                  "service_status_result_v1": "#/$defs/ServiceStatusResultV1",
+                  "service_list_result_v1": "#/$defs/ServiceListResultV1",
+                  "service_status_result_v1": "#/$defs/endpoint_contracts__read_only_primitives__ServiceStatusResultV1",
+                  "service_status_v2_result_v1": "#/$defs/endpoint_contracts__service_printer_primitives__ServiceStatusResultV1",
+                  "software_find_result_v1": "#/$defs/SoftwareFindResultV1",
+                  "software_list_result_v1": "#/$defs/SoftwareListResultV1",
+                  "system_resource_snapshot_result_v1": "#/$defs/SystemResourceSnapshotResultV1",
                   "tcp_connect_result_v1": "#/$defs/TcpConnectResultV1"
                 },
                 "propertyName": "schema_version"
@@ -286,7 +579,52 @@
                   "$ref": "#/$defs/AdapterListResultV1"
                 },
                 {
-                  "$ref": "#/$defs/ServiceStatusResultV1"
+                  "$ref": "#/$defs/endpoint_contracts__read_only_primitives__ServiceStatusResultV1"
+                },
+                {
+                  "$ref": "#/$defs/SystemResourceSnapshotResultV1"
+                },
+                {
+                  "$ref": "#/$defs/ProcessListResultV1"
+                },
+                {
+                  "$ref": "#/$defs/ProcessFindResultV1"
+                },
+                {
+                  "$ref": "#/$defs/ServiceListResultV1"
+                },
+                {
+                  "$ref": "#/$defs/endpoint_contracts__service_printer_primitives__ServiceStatusResultV1"
+                },
+                {
+                  "$ref": "#/$defs/PrinterListResultV1"
+                },
+                {
+                  "$ref": "#/$defs/PrinterStatusResultV1"
+                },
+                {
+                  "$ref": "#/$defs/PrinterQueueSummaryResultV1"
+                },
+                {
+                  "$ref": "#/$defs/SoftwareListResultV1"
+                },
+                {
+                  "$ref": "#/$defs/SoftwareFindResultV1"
+                },
+                {
+                  "$ref": "#/$defs/FreeSpaceResultV1"
+                },
+                {
+                  "$ref": "#/$defs/PathExistsResultV1"
+                },
+                {
+                  "$ref": "#/$defs/FileMetadataResultV1"
+                },
+                {
+                  "$ref": "#/$defs/EventQueryResultV1"
+                },
+                {
+                  "$ref": "#/$defs/RecentErrorsResultV1"
                 }
               ]
             },
@@ -486,6 +824,613 @@
       "title": "NetworkPingResultV1",
       "type": "object"
     },
+    "PathExistsResultV1": {
+      "additionalProperties": false,
+      "properties": {
+        "collected_at": {
+          "$comment": "model-only UTC normalization: timezone-aware values are normalized to UTC.",
+          "format": "date-time",
+          "title": "Collected At",
+          "type": "string"
+        },
+        "error_code": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "minLength": 1,
+              "pattern": "^[a-z][a-z0-9_]*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Error Code"
+        },
+        "exists": {
+          "title": "Exists",
+          "type": "boolean"
+        },
+        "kind": {
+          "enum": [
+            "file",
+            "directory",
+            "other",
+            "missing"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "path_key": {
+          "enum": [
+            "endpoint_install_root",
+            "endpoint_data_root",
+            "endpoint_runtime_manifest"
+          ],
+          "title": "Path Key",
+          "type": "string"
+        },
+        "schema_version": {
+          "const": "filesystem_path_exists_result_v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "succeeded",
+            "failed"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema_version",
+        "path_key",
+        "exists",
+        "kind",
+        "status",
+        "collected_at"
+      ],
+      "title": "PathExistsResultV1",
+      "type": "object"
+    },
+    "PrinterFactV1": {
+      "additionalProperties": false,
+      "properties": {
+        "default": {
+          "title": "Default",
+          "type": "boolean"
+        },
+        "driver_name": {
+          "anyOf": [
+            {
+              "maxLength": 128,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Driver Name"
+        },
+        "name": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[^\\x00-\\x1f\\x7f]+$",
+          "title": "Name",
+          "type": "string"
+        },
+        "port_type": {
+          "enum": [
+            "local",
+            "network",
+            "usb",
+            "virtual",
+            "unknown"
+          ],
+          "title": "Port Type",
+          "type": "string"
+        },
+        "state": {
+          "enum": [
+            "ready",
+            "offline",
+            "paused",
+            "error",
+            "unknown"
+          ],
+          "title": "State",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "port_type",
+        "default",
+        "state"
+      ],
+      "title": "PrinterFactV1",
+      "type": "object"
+    },
+    "PrinterListResultV1": {
+      "additionalProperties": false,
+      "properties": {
+        "collected_at": {
+          "$comment": "model-only UTC normalization: timezone-aware values are normalized to UTC.",
+          "format": "date-time",
+          "title": "Collected At",
+          "type": "string"
+        },
+        "error_code": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "minLength": 1,
+              "pattern": "^[a-z][a-z0-9_]*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Error Code"
+        },
+        "printers": {
+          "items": {
+            "$ref": "#/$defs/PrinterFactV1"
+          },
+          "maxItems": 16,
+          "title": "Printers",
+          "type": "array"
+        },
+        "schema_version": {
+          "const": "printer_list_result_v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "succeeded",
+            "failed"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema_version",
+        "status",
+        "collected_at"
+      ],
+      "title": "PrinterListResultV1",
+      "type": "object"
+    },
+    "PrinterQueueSummaryResultV1": {
+      "additionalProperties": false,
+      "properties": {
+        "collected_at": {
+          "$comment": "model-only UTC normalization: timezone-aware values are normalized to UTC.",
+          "format": "date-time",
+          "title": "Collected At",
+          "type": "string"
+        },
+        "error_code": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "minLength": 1,
+              "pattern": "^[a-z][a-z0-9_]*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Error Code"
+        },
+        "error_count": {
+          "maximum": 10000,
+          "minimum": 0,
+          "title": "Error Count",
+          "type": "integer"
+        },
+        "job_count": {
+          "maximum": 10000,
+          "minimum": 0,
+          "title": "Job Count",
+          "type": "integer"
+        },
+        "oldest_job_age_seconds": {
+          "anyOf": [
+            {
+              "maximum": 31536000,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Oldest Job Age Seconds"
+        },
+        "paused_count": {
+          "maximum": 10000,
+          "minimum": 0,
+          "title": "Paused Count",
+          "type": "integer"
+        },
+        "printing_count": {
+          "maximum": 10000,
+          "minimum": 0,
+          "title": "Printing Count",
+          "type": "integer"
+        },
+        "queued_count": {
+          "maximum": 10000,
+          "minimum": 0,
+          "title": "Queued Count",
+          "type": "integer"
+        },
+        "schema_version": {
+          "const": "printer_queue_summary_result_v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "succeeded",
+            "failed"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema_version",
+        "job_count",
+        "printing_count",
+        "queued_count",
+        "paused_count",
+        "error_count",
+        "status",
+        "collected_at"
+      ],
+      "title": "PrinterQueueSummaryResultV1",
+      "type": "object"
+    },
+    "PrinterStatusResultV1": {
+      "additionalProperties": false,
+      "properties": {
+        "collected_at": {
+          "$comment": "model-only UTC normalization: timezone-aware values are normalized to UTC.",
+          "format": "date-time",
+          "title": "Collected At",
+          "type": "string"
+        },
+        "error": {
+          "title": "Error",
+          "type": "boolean"
+        },
+        "error_code": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "minLength": 1,
+              "pattern": "^[a-z][a-z0-9_]*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Error Code"
+        },
+        "exists": {
+          "title": "Exists",
+          "type": "boolean"
+        },
+        "offline": {
+          "title": "Offline",
+          "type": "boolean"
+        },
+        "paused": {
+          "title": "Paused",
+          "type": "boolean"
+        },
+        "schema_version": {
+          "const": "printer_status_result_v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "state": {
+          "enum": [
+            "ready",
+            "offline",
+            "paused",
+            "error",
+            "unknown"
+          ],
+          "title": "State",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "succeeded",
+            "failed"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema_version",
+        "exists",
+        "state",
+        "offline",
+        "error",
+        "paused",
+        "status",
+        "collected_at"
+      ],
+      "title": "PrinterStatusResultV1",
+      "type": "object"
+    },
+    "ProcessFindResultV1": {
+      "additionalProperties": false,
+      "properties": {
+        "collected_at": {
+          "$comment": "model-only UTC normalization: timezone-aware values are normalized to UTC.",
+          "format": "date-time",
+          "title": "Collected At",
+          "type": "string"
+        },
+        "error_code": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "minLength": 1,
+              "pattern": "^[a-z][a-z0-9_]*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Error Code"
+        },
+        "matches": {
+          "items": {
+            "$ref": "#/$defs/ProcessSummaryV1"
+          },
+          "maxItems": 20,
+          "title": "Matches",
+          "type": "array"
+        },
+        "present": {
+          "title": "Present",
+          "type": "boolean"
+        },
+        "process_count": {
+          "maximum": 2147483647,
+          "minimum": 0,
+          "title": "Process Count",
+          "type": "integer"
+        },
+        "schema_version": {
+          "const": "process_find_result_v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "succeeded",
+            "failed"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema_version",
+        "present",
+        "process_count",
+        "status",
+        "collected_at"
+      ],
+      "title": "ProcessFindResultV1",
+      "type": "object"
+    },
+    "ProcessListResultV1": {
+      "additionalProperties": false,
+      "properties": {
+        "collected_at": {
+          "$comment": "model-only UTC normalization: timezone-aware values are normalized to UTC.",
+          "format": "date-time",
+          "title": "Collected At",
+          "type": "string"
+        },
+        "error_code": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "minLength": 1,
+              "pattern": "^[a-z][a-z0-9_]*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Error Code"
+        },
+        "process_count": {
+          "maximum": 32,
+          "minimum": 0,
+          "title": "Process Count",
+          "type": "integer"
+        },
+        "processes": {
+          "items": {
+            "$ref": "#/$defs/ProcessSummaryV1"
+          },
+          "maxItems": 32,
+          "title": "Processes",
+          "type": "array"
+        },
+        "schema_version": {
+          "const": "process_list_result_v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "succeeded",
+            "failed"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema_version",
+        "process_count",
+        "status",
+        "collected_at"
+      ],
+      "title": "ProcessListResultV1",
+      "type": "object"
+    },
+    "ProcessSummaryV1": {
+      "additionalProperties": false,
+      "properties": {
+        "cpu_percent": {
+          "anyOf": [
+            {
+              "maximum": 10000,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Cpu Percent"
+        },
+        "memory_bytes": {
+          "anyOf": [
+            {
+              "maximum": 9223372036854775807,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Memory Bytes"
+        },
+        "name": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[^\\x00-\\x1f\\x7f]+$",
+          "title": "Name",
+          "type": "string"
+        },
+        "pid": {
+          "maximum": 2147483647,
+          "minimum": 0,
+          "title": "Pid",
+          "type": "integer"
+        },
+        "state": {
+          "maxLength": 32,
+          "minLength": 1,
+          "pattern": "^[a-z_]+$",
+          "title": "State",
+          "type": "string"
+        }
+      },
+      "required": [
+        "pid",
+        "name",
+        "state"
+      ],
+      "title": "ProcessSummaryV1",
+      "type": "object"
+    },
+    "RecentErrorsResultV1": {
+      "additionalProperties": false,
+      "properties": {
+        "collected_at": {
+          "$comment": "model-only UTC normalization: timezone-aware values are normalized to UTC.",
+          "format": "date-time",
+          "title": "Collected At",
+          "type": "string"
+        },
+        "error_code": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "minLength": 1,
+              "pattern": "^[a-z][a-z0-9_]*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Error Code"
+        },
+        "event_count": {
+          "maximum": 20,
+          "minimum": 0,
+          "title": "Event Count",
+          "type": "integer"
+        },
+        "events": {
+          "items": {
+            "$ref": "#/$defs/EventFactV1"
+          },
+          "maxItems": 20,
+          "title": "Events",
+          "type": "array"
+        },
+        "schema_version": {
+          "const": "eventlog_recent_errors_result_v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "succeeded",
+            "failed"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema_version",
+        "event_count",
+        "status",
+        "collected_at"
+      ],
+      "title": "RecentErrorsResultV1",
+      "type": "object"
+    },
     "RouteGetResultV1": {
       "additionalProperties": false,
       "properties": {
@@ -607,55 +1552,36 @@
       "title": "RouteGetResultV1",
       "type": "object"
     },
-    "ServiceStatusResultV1": {
+    "ServiceFactV1": {
       "additionalProperties": false,
       "properties": {
-        "collected_at": {
-          "$comment": "model-only UTC normalization: timezone-aware values are normalized to UTC.",
-          "format": "date-time",
-          "title": "Collected At",
+        "display_name": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Display Name",
           "type": "string"
-        },
-        "error_code": {
-          "anyOf": [
-            {
-              "maxLength": 64,
-              "minLength": 1,
-              "pattern": "^[a-z][a-z0-9_]{0,63}$",
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Error Code"
         },
         "installed": {
           "title": "Installed",
           "type": "boolean"
         },
-        "schema_version": {
-          "const": "service_status_result_v1",
-          "title": "Schema Version",
-          "type": "string"
-        },
         "service_key": {
           "enum": [
             "endpoint_agent",
-            "endpoint_agent_updater"
+            "endpoint_agent_updater",
+            "print_service"
           ],
           "title": "Service Key",
           "type": "string"
         },
-        "start_mode": {
+        "startup_type": {
           "enum": [
             "automatic",
             "manual",
             "disabled",
             "unknown"
           ],
-          "title": "Start Mode",
+          "title": "Startup Type",
           "type": "string"
         },
         "state": {
@@ -669,6 +1595,54 @@
           ],
           "title": "State",
           "type": "string"
+        }
+      },
+      "required": [
+        "service_key",
+        "display_name",
+        "installed",
+        "state",
+        "startup_type"
+      ],
+      "title": "ServiceFactV1",
+      "type": "object"
+    },
+    "ServiceListResultV1": {
+      "additionalProperties": false,
+      "properties": {
+        "collected_at": {
+          "$comment": "model-only UTC normalization: timezone-aware values are normalized to UTC.",
+          "format": "date-time",
+          "title": "Collected At",
+          "type": "string"
+        },
+        "error_code": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "minLength": 1,
+              "pattern": "^[a-z][a-z0-9_]*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Error Code"
+        },
+        "schema_version": {
+          "const": "service_list_result_v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "services": {
+          "items": {
+            "$ref": "#/$defs/ServiceFactV1"
+          },
+          "maxItems": 3,
+          "title": "Services",
+          "type": "array"
         },
         "status": {
           "enum": [
@@ -681,14 +1655,308 @@
       },
       "required": [
         "schema_version",
-        "service_key",
-        "installed",
-        "state",
-        "start_mode",
         "status",
         "collected_at"
       ],
-      "title": "ServiceStatusResultV1",
+      "title": "ServiceListResultV1",
+      "type": "object"
+    },
+    "SoftwareFactV1": {
+      "additionalProperties": false,
+      "properties": {
+        "architecture": {
+          "anyOf": [
+            {
+              "maxLength": 32,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Architecture"
+        },
+        "name": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[^\\x00-\\x1f\\x7f]+$",
+          "title": "Name",
+          "type": "string"
+        },
+        "publisher": {
+          "anyOf": [
+            {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[^\\x00-\\x1f\\x7f]+$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Publisher"
+        },
+        "source": {
+          "enum": [
+            "windows_registry",
+            "alt_rpm"
+          ],
+          "title": "Source",
+          "type": "string"
+        },
+        "version": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Version"
+        }
+      },
+      "required": [
+        "name",
+        "source"
+      ],
+      "title": "SoftwareFactV1",
+      "type": "object"
+    },
+    "SoftwareFindResultV1": {
+      "additionalProperties": false,
+      "properties": {
+        "collected_at": {
+          "$comment": "model-only UTC normalization: timezone-aware values are normalized to UTC.",
+          "format": "date-time",
+          "title": "Collected At",
+          "type": "string"
+        },
+        "error_code": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "minLength": 1,
+              "pattern": "^[a-z][a-z0-9_]*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Error Code"
+        },
+        "matches": {
+          "items": {
+            "$ref": "#/$defs/SoftwareFactV1"
+          },
+          "maxItems": 20,
+          "title": "Matches",
+          "type": "array"
+        },
+        "present": {
+          "title": "Present",
+          "type": "boolean"
+        },
+        "schema_version": {
+          "const": "software_find_result_v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "succeeded",
+            "failed"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema_version",
+        "present",
+        "status",
+        "collected_at"
+      ],
+      "title": "SoftwareFindResultV1",
+      "type": "object"
+    },
+    "SoftwareListResultV1": {
+      "additionalProperties": false,
+      "properties": {
+        "collected_at": {
+          "$comment": "model-only UTC normalization: timezone-aware values are normalized to UTC.",
+          "format": "date-time",
+          "title": "Collected At",
+          "type": "string"
+        },
+        "error_code": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "minLength": 1,
+              "pattern": "^[a-z][a-z0-9_]*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Error Code"
+        },
+        "schema_version": {
+          "const": "software_list_result_v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "software": {
+          "items": {
+            "$ref": "#/$defs/SoftwareFactV1"
+          },
+          "maxItems": 32,
+          "title": "Software",
+          "type": "array"
+        },
+        "status": {
+          "enum": [
+            "succeeded",
+            "failed"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema_version",
+        "status",
+        "collected_at"
+      ],
+      "title": "SoftwareListResultV1",
+      "type": "object"
+    },
+    "SystemResourceSnapshotResultV1": {
+      "additionalProperties": false,
+      "properties": {
+        "collected_at": {
+          "$comment": "model-only UTC normalization: timezone-aware values are normalized to UTC.",
+          "format": "date-time",
+          "title": "Collected At",
+          "type": "string"
+        },
+        "cpu_percent": {
+          "anyOf": [
+            {
+              "maximum": 100,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Cpu Percent"
+        },
+        "error_code": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "minLength": 1,
+              "pattern": "^[a-z][a-z0-9_]*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Error Code"
+        },
+        "memory_available_bytes": {
+          "anyOf": [
+            {
+              "maximum": 9223372036854775807,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Memory Available Bytes"
+        },
+        "memory_total_bytes": {
+          "anyOf": [
+            {
+              "maximum": 9223372036854775807,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Memory Total Bytes"
+        },
+        "schema_version": {
+          "const": "system_resource_snapshot_result_v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "succeeded",
+            "failed"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "system_drive_free_bytes": {
+          "anyOf": [
+            {
+              "maximum": 9223372036854775807,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "System Drive Free Bytes"
+        },
+        "uptime_seconds": {
+          "anyOf": [
+            {
+              "maximum": 9223372036854775807,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Uptime Seconds"
+        }
+      },
+      "required": [
+        "schema_version",
+        "status",
+        "collected_at"
+      ],
+      "title": "SystemResourceSnapshotResultV1",
       "type": "object"
     },
     "TcpConnectResultV1": {
@@ -782,6 +2050,186 @@
         "collected_at"
       ],
       "title": "TcpConnectResultV1",
+      "type": "object"
+    },
+    "VolumeFactV1": {
+      "additionalProperties": false,
+      "properties": {
+        "filesystem_type": {
+          "maxLength": 32,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9._-]+$",
+          "title": "Filesystem Type",
+          "type": "string"
+        },
+        "free_bytes": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Free Bytes",
+          "type": "integer"
+        },
+        "total_bytes": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Total Bytes",
+          "type": "integer"
+        },
+        "volume_key": {
+          "maxLength": 32,
+          "minLength": 1,
+          "pattern": "^(?:system|local_[1-9][0-9]?)$",
+          "title": "Volume Key",
+          "type": "string"
+        }
+      },
+      "required": [
+        "volume_key",
+        "filesystem_type",
+        "total_bytes",
+        "free_bytes"
+      ],
+      "title": "VolumeFactV1",
+      "type": "object"
+    },
+    "endpoint_contracts__read_only_primitives__ServiceStatusResultV1": {
+      "additionalProperties": false,
+      "properties": {
+        "collected_at": {
+          "$comment": "model-only UTC normalization: timezone-aware values are normalized to UTC.",
+          "format": "date-time",
+          "title": "Collected At",
+          "type": "string"
+        },
+        "error_code": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "minLength": 1,
+              "pattern": "^[a-z][a-z0-9_]{0,63}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Error Code"
+        },
+        "installed": {
+          "title": "Installed",
+          "type": "boolean"
+        },
+        "schema_version": {
+          "const": "service_status_result_v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "service_key": {
+          "enum": [
+            "endpoint_agent",
+            "endpoint_agent_updater"
+          ],
+          "title": "Service Key",
+          "type": "string"
+        },
+        "start_mode": {
+          "enum": [
+            "automatic",
+            "manual",
+            "disabled",
+            "unknown"
+          ],
+          "title": "Start Mode",
+          "type": "string"
+        },
+        "state": {
+          "enum": [
+            "running",
+            "stopped",
+            "paused",
+            "failed",
+            "not_found",
+            "unknown"
+          ],
+          "title": "State",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "succeeded",
+            "failed"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema_version",
+        "service_key",
+        "installed",
+        "state",
+        "start_mode",
+        "status",
+        "collected_at"
+      ],
+      "title": "ServiceStatusResultV1",
+      "type": "object"
+    },
+    "endpoint_contracts__service_printer_primitives__ServiceStatusResultV1": {
+      "additionalProperties": false,
+      "properties": {
+        "collected_at": {
+          "$comment": "model-only UTC normalization: timezone-aware values are normalized to UTC.",
+          "format": "date-time",
+          "title": "Collected At",
+          "type": "string"
+        },
+        "error_code": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "minLength": 1,
+              "pattern": "^[a-z][a-z0-9_]*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Error Code"
+        },
+        "schema_version": {
+          "const": "service_status_v2_result_v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "service": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ServiceFactV1"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "status": {
+          "enum": [
+            "succeeded",
+            "failed"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema_version",
+        "status",
+        "collected_at"
+      ],
+      "title": "ServiceStatusResultV1",
       "type": "object"
     }
   },

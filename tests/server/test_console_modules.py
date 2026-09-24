@@ -117,7 +117,8 @@ async def test_admin_module_catalog_draft_validation_and_fake_lab_rejection() ->
         detail = await client.get("/api/admin/console/modules/network.basic.check/versions/1.0.0")
         fake_evidence = await client.post(f"/api/admin/console/modules/network.basic.check/versions/1.0.0/lab-evidence/{uuid4()}")
         premature_publish = await client.post("/api/admin/console/modules/network.basic.check/versions/1.0.0/publish")
-    assert catalog.status_code == 200 and len(catalog.json()["data"]["items"]) == 6
+    assert catalog.status_code == 200 and len(catalog.json()["data"]["items"]) == 21
+    assert next(item for item in catalog.json()["data"]["items"] if item["capability"] == "process.list")["category_display_name_ru"] == "Процессы"
     catalog_items = catalog.json()["data"]["items"]
     assert {item["capability"] for item in catalog_items} == {
         item.capability for item in module_capability_catalog().items

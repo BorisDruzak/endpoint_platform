@@ -94,7 +94,7 @@ def test_module_capability_catalog_publishes_closed_authoring_descriptors() -> N
 
     assert catalog["schema_version"] == "endpoint_module_capability_catalog_v1"
     items = catalog["items"]
-    assert [item["capability"] for item in items] == [
+    assert [item["capability"] for item in items[:6]] == [
         "dns.resolve",
         "network.ping",
         "tcp.connect",
@@ -102,7 +102,8 @@ def test_module_capability_catalog_publishes_closed_authoring_descriptors() -> N
         "adapter.list",
         "system.service_status",
     ]
-    assert [item["parameters"] for item in items] == [
+    assert len(items) == 21
+    assert [item["parameters"] for item in items[:6]] == [
         [
             _parameter("target", "string", ["input", "literal"]),
             _parameter(
@@ -151,6 +152,8 @@ def test_module_capability_catalog_publishes_closed_authoring_descriptors() -> N
     ]
     expected_item_fields = {
         "capability",
+        "display_name_ru",
+        "category",
         "parameter_schema_version",
         "result_schema_version",
         "platforms",
@@ -160,6 +163,8 @@ def test_module_capability_catalog_publishes_closed_authoring_descriptors() -> N
         "feature_flag",
         "policy",
         "parameters",
+        "execution_timeout_seconds",
+        "max_result_items",
     }
     descriptor_fields = {
         "name",

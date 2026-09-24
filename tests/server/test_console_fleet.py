@@ -18,6 +18,8 @@ from endpoint_server.auth.admin_sessions import AdminPrincipal, require_admin
 from endpoint_server.config import Settings
 from endpoint_server.db.models import AdminSession, AdminUser
 from endpoint_server.main import create_app
+from endpoint_server.gateway.connection_registry import GatewayConnection
+from endpoint_contracts.capabilities import MODULE_CAPABILITY_REGISTRY
 
 
 @pytest.mark.asyncio
@@ -197,7 +199,7 @@ async def test_console_device_api_uses_session_and_safe_projection() -> None:
         public_base_url="https://endpoint.sosnadmin.local",
         device_token_pepper=b"fleet-test-device-pepper", service_token_pepper=b"fleet-test-service-pepper",
         session_secret=b"fleet-test-session-secret", allowed_agent_cidrs=(), allowed_admin_cidrs=(),
-        artifact_root=Path("artifacts"),
+        artifact_root=Path("artifacts"), endpoint_system_primitives_enabled=True,
     )
     app = create_app(settings, session_provider=sessions)
     for path, model in (
@@ -216,6 +218,11 @@ async def test_console_device_api_uses_session_and_safe_projection() -> None:
     )
     app.dependency_overrides[require_admin] = lambda: principal
     async with AsyncClient(transport=ASGITransport(app=app), base_url="https://endpoint.sosnadmin.local") as client:
+        offline = await client.get(f"/api/admin/console/devices/{device.id}")
+        await app.state.gateway_connection_registry.register(GatewayConnection(
+            device.id, uuid4(), object(), agent_version="3.2.67", platform="windows_amd64",
+            effective_capabilities=frozenset({"system.resource_snapshot", "printer.list"}),
+        ))
         response = await client.get(f"/api/admin/console/devices/{device.id}")
         changes = await client.get(f"/api/admin/console/devices/{device.id}/changes")
         changes_first = await client.get(f"/api/admin/console/devices/{device.id}/changes?limit=2")
@@ -235,6 +242,12 @@ async def test_console_device_api_uses_session_and_safe_projection() -> None:
         audit_count = await session.scalar(select(func.count()).select_from(AuditEvent).where(AuditEvent.action == "context.collection_requested"))
     await engine.dispose()
     assert response.status_code == 200
+    assert offline.json()["capabilities"] == []
+    assert response.json()["capabilities"] == [{
+        "capability": "system.resource_snapshot",
+        "display_name_ru": MODULE_CAPABILITY_REGISTRY["system.resource_snapshot"].metadata.display_name_ru,
+        "category": "system",
+    }]
     assert response.json()["device"]["current_user"] == "operator"
     assert response.json()["device"]["hostname"] == "CONSOLE-01"
     assert response.json()["device"]["os_name"] == "Windows 11"

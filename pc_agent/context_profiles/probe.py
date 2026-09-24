@@ -193,7 +193,9 @@ def _bounded_limit(max_bytes: int) -> int:
     return min(max_bytes, MAX_PROBE_BYTES)
 
 
-def _execute_bounded_command(command: tuple[str, ...], timeout_seconds: float, limit: int) -> bytes:
+def _execute_bounded_command(
+    command: tuple[str, ...], timeout_seconds: float, limit: int, *, check_exit: bool = False,
+) -> bytes:
     """Capture local command output without materializing unbounded pipe streams."""
     popen_options: dict[str, object] = {
         "stdin": subprocess.DEVNULL,
@@ -235,6 +237,12 @@ def _execute_bounded_command(command: tuple[str, ...], timeout_seconds: float, l
 
     if timed_out or cleanup_failed:
         raise subprocess.TimeoutExpired(command, timeout_seconds)
+    if check_exit:
+        if stdout.full.is_set() or stderr.full.is_set():
+            raise ValueError("fixed command output exceeds bound")
+        if process.returncode != 0:
+            raise OSError("fixed command failed")
+        return bytes(stdout.output)
     return (bytes(stdout.output) + bytes(stderr.output))[:limit]
 
 

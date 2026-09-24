@@ -20,6 +20,21 @@ from .read_only_primitives import (
     RouteGetResultV1,
     ServiceStatusResultV1,
 )
+from .system_process_primitives import (
+    ProcessFindResultV1,
+    ProcessListResultV1,
+    SystemResourceSnapshotResultV1,
+)
+from .service_printer_primitives import (
+    PrinterListResultV1,
+    PrinterQueueSummaryResultV1,
+    PrinterStatusResultV1,
+    ServiceListResultV1,
+    ServiceStatusResultV1 as ServiceStatusV2ResultV1,
+)
+from .software_primitives import SoftwareFindResultV1, SoftwareListResultV1
+from .filesystem_primitives import FileMetadataResultV1, FreeSpaceResultV1, PathExistsResultV1
+from .eventlog_primitives import EventQueryResultV1, RecentErrorsResultV1
 
 
 ModuleInputNameV1 = Annotated[
@@ -238,7 +253,22 @@ ModuleStepSafeResultV1 = Annotated[
     | TcpConnectResultV1
     | RouteGetResultV1
     | AdapterListResultV1
-    | ServiceStatusResultV1,
+    | ServiceStatusResultV1
+    | SystemResourceSnapshotResultV1
+    | ProcessListResultV1
+    | ProcessFindResultV1
+    | ServiceListResultV1
+    | ServiceStatusV2ResultV1
+    | PrinterListResultV1
+    | PrinterStatusResultV1
+    | PrinterQueueSummaryResultV1
+    | SoftwareListResultV1
+    | SoftwareFindResultV1
+    | FreeSpaceResultV1
+    | PathExistsResultV1
+    | FileMetadataResultV1
+    | EventQueryResultV1
+    | RecentErrorsResultV1,
     Field(discriminator="schema_version"),
 ]
 

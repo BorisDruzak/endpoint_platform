@@ -891,6 +891,12 @@ class CommandService:
                 )
                 if gateway_session is None:
                     raise CommandStateRejected("gateway session is unavailable")
+                if delivery.device_session_id == session_id:
+                    # A heartbeat or unrelated result can ask for more work
+                    # before this command is acknowledged.  Replay only when
+                    # a new WSS session takes ownership of the delivery.
+                    await session.commit()
+                    return False
                 delivery.device_session_id = session_id
                 await session.commit()
             except Exception:

@@ -6,6 +6,7 @@ from collections.abc import Mapping
 from typing import Literal
 
 from endpoint_contracts.capabilities import (
+    EndpointCapabilityParameterDescriptorV1,
     module_capability_descriptor,
     validate_module_capability_parameters,
 )
@@ -60,11 +61,15 @@ def _validate_literal_parameter_bounds(
     parameters: Mapping[str, RecipeInputBindingV1 | RecipeLiteralBindingV1],
 ) -> None:
     """Run primitive DTO bounds for literals without inventing dynamic execution."""
+    descriptors = {
+        item.name: item
+        for item in module_capability_descriptor(capability).metadata.parameters
+    }
     values = {
         name: (
             binding.value
             if isinstance(binding, RecipeLiteralBindingV1)
-            else _placeholder_for_input(name)
+            else _placeholder_for_input(descriptors[name])
         )
         for name, binding in parameters.items()
     }
@@ -74,15 +79,15 @@ def _validate_literal_parameter_bounds(
         raise RecipeValidationError("recipe literal does not satisfy primitive bounds") from error
 
 
-def _placeholder_for_input(parameter_name: str) -> str | int:
-    return {
-        "target": "api.example.test",
-        "family": "any",
-        "count": 1,
-        "timeout_ms": 1000,
-        "port": 443,
-        "service_key": "endpoint_agent",
-    }[parameter_name]
+def _placeholder_for_input(descriptor: EndpointCapabilityParameterDescriptorV1) -> str | int:
+    """Choose one DTO-valid stand-in while validating recipe literals."""
+    if descriptor.name == "target":
+        return "api.example.test"
+    if descriptor.enum_values:
+        return descriptor.enum_values[0]
+    if descriptor.value_type == "integer":
+        return descriptor.default_literal if descriptor.default_literal is not None else descriptor.minimum or 1
+    return descriptor.default_literal if descriptor.default_literal is not None else "Example"
 
 
 __all__ = ["RecipeValidationError", "validate_recipe_spec"]
