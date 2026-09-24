@@ -9,7 +9,39 @@ The architecture and production measurement procedure are in
 `0aa22537d93e29e79eb43dce01e8e1e50ee23a6f` on
 `codex/endpoint-retention-v2`, with Agent `3.2.65` unchanged. The new Alembic
 head is `0026_context_evidence_v2`. Production backup, migration and acceptance
-evidence must be recorded here after the release gate passes.
+evidence follows.
+
+Production release `d626c1ed44b38637870e2968c599fc793142fa6e` was
+deployed from `codex/endpoint-retention-v2` after `1849 passed, 40 skipped`,
+21 Console unit tests, three browser E2E tests, contract generation check,
+Alembic offline SQL, compileall and `git diff --check`. Previous release was
+`0aa22537d93e29e79eb43dce01e8e1e50ee23a6f`; DB moved from
+`0025_console_enrollment_queue` to `0026_context_evidence_v2` with migration
+unit result `success`. The verified custom-format backup is
+`/var/backups/endpoint-platform/pre-retention-v2-20260924T131917Z.dump`
+(17,765,654 bytes, SHA-256
+`0a3bcd6eb403067e069abc9d9f96af53b3388b747748b68a0ae0bc2705cee5a8`).
+The release archive SHA-256 matched on both machines:
+`e53b36362c8b28deac253855600d2e7a05ce106dee00edfb2581cedcdfb30d8d`.
+API, worker, PostgreSQL and Nginx were active; strict hostname/CA HTTPS gave
+`200` for health, Console login and its versioned JS asset. Unauthenticated
+service API returned `401`. Existing completed Module detail projected one
+successful step with its safe result. The live Agent `3.2.65` session remained
+connected after the API restart. Initial due counts were 35,549 raw collection
+payloads, 1,955 raw snapshot payloads and 92,150 scheduler bookkeeping rows;
+later counts fell to 35,370, 1,766 and 91,984, respectively, as bounded
+cleanup ran. At 13:29:25 UTC, Agent `3.2.65` completed fresh `health_v1` and
+`session_v1` collections; both `ContextCurrent.last_observed_at` values advanced
+after deployment. A bounded production snapshot-retention invocation removed
+100 rows; all current pointers remained valid (`broken_current=0`) and six
+current profiles for the `3.2.65` device remained. The read path for an older
+successful diagnostic operation returned its lifecycle with
+`result_available=false`, without a 503. PostgreSQL race tests were opt-in and
+skipped locally because no disposable local PostgreSQL URL was configured. The
+dedicated Linux test host was unreachable over SSH during this release.
+Creation of a fresh production Module Operation and Evidence PIN through the
+Console awaits an authenticated administrator session; the browser opened at
+the login form during acceptance.
 
 ## Current Console v1 work (2026-09-24)
 
