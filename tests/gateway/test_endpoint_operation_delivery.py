@@ -477,13 +477,13 @@ async def test_module_parent_is_absent_from_http_pull_and_wss_delivers_one_typed
     assert "network.ping" not in serialized
 
     replayed: list[CommandEnvelopeV1] = []
-    assert await CommandService(session_provider).deliver_next(
+    assert not await CommandService(session_provider).deliver_next(
         device.id,
         presence.session_id,
         replayed.append,
         allowed_capabilities=frozenset({"dns.resolve", "network.ping"}),
     )
-    assert [item.payload.command_id for item in replayed] == [payload.command_id]
+    assert replayed == []
 
     async with session_provider() as session:
         persisted = await session.get(EndpointOperation, operation.id)

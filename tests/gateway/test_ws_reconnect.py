@@ -95,7 +95,7 @@ async def test_newer_session_replaces_old_registry_and_durable_presence(
 
 
 @pytest.mark.asyncio
-async def test_unacknowledged_command_replays_but_running_command_does_not(
+async def test_unacknowledged_command_replays_only_after_reconnect(
     session_provider: async_sessionmaker[AsyncSession],
 ) -> None:
     device = await seed_device(session_provider)
@@ -114,13 +114,17 @@ async def test_unacknowledged_command_replays_but_running_command_does_not(
     first: list[CommandEnvelopeV1] = []
     replay: list[CommandEnvelopeV1] = []
     assert await service.deliver_next(device.id, presence.session_id, first.append)
-    assert await service.deliver_next(device.id, presence.session_id, replay.append)
+    assert not await service.deliver_next(device.id, presence.session_id, replay.append)
+    assert not replay
+
+    reconnected = await _open_session(session_provider, device.id, presence.device_instance_id)
+    assert await service.deliver_next(device.id, reconnected.session_id, replay.append)
     assert first[0].payload.command_id == replay[0].payload.command_id
     assert first[0].payload == replay[0].payload
 
     await service.record_ack(
         device_id=device.id,
-        session_id=presence.session_id,
+        session_id=reconnected.session_id,
         acknowledgement=AgentCommandAckV1(
             schema_version="agent_command_ack_v1",
             command_id=first[0].payload.command_id,
@@ -131,7 +135,7 @@ async def test_unacknowledged_command_replays_but_running_command_does_not(
     )
     after_running: list[CommandEnvelopeV1] = []
     assert not await service.deliver_next(
-        device.id, presence.session_id, after_running.append
+        device.id, reconnected.session_id, after_running.append
     )
     async with session_provider() as session:
         assert len((await session.scalars(select(Command))).all()) == 1
