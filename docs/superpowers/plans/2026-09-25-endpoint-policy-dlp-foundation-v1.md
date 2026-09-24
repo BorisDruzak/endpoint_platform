@@ -75,9 +75,9 @@ Chrome `ExtensionSettings` is preferred; Yandex `ExtensionInstallForcelist` or `
 
 **Files:** Modify `endpoint_contracts/gateway_ws.py`, `endpoint_server/gateway/{protocol,ws_routes}.py`, `pc_agent/transport/{protocol,websocket}.py`, `pc_agent/runtime/{application,lifecycle}.py`; create `endpoint_server/policy/delivery.py`, `pc_agent/policy/{cache,runtime}.py`. Tests in `tests/gateway/`, `tests/policy/`, `pc_agent/tests/transport/`.
 
-- [ ] Write failing tests for hello negotiation, old Agent unchanged, delivery on connect/change, ACK status, digest match, atomic cache reload, offline continuity and stale/unsupported states.
-- [ ] Implement separately typed policy envelopes and server-side effective assignment; apply only validated policy, persist cache atomically in protected Agent data, ACK actual applied state.
-- [ ] Run Gateway/Agent tests, contract generation and diff check; commit.
+- [x] Write failing tests for hello negotiation, old Agent unchanged, delivery on connect/change, ACK status, digest match, atomic cache reload, offline continuity and stale/unsupported states.
+- [x] Implement separately typed policy envelopes and server-side effective assignment; apply only validated policy, persist cache atomically in protected Agent data, ACK actual applied state. Until Tasks 3–8 supply sensors, an active policy returns `SENSOR_NOT_READY` and does not replace the last-good cache.
+- [x] Run Gateway/Agent tests, contract generation and diff check; commit. Focused result: 642 passed, with generated artifacts passing `--check`. Current Agent `3.2.67` does not advertise the new feature; Windows WSS advertisement starts with a compatible `3.2.68` or newer release in Task 10.
 
 ### Task 3: Activity contract and Context retention
 
