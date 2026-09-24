@@ -6,6 +6,8 @@ import { EnrollmentPage } from './EnrollmentPage'
 import { DeviceDetailPage } from './FleetPages'
 import { DeviceModules, ModulesPage } from './ModulesPage'
 import { UpdatesPage } from './UpdatesPage'
+import { OperationsPage } from './OperationsPage'
+import { getSession } from './api'
 
 afterEach(() => {
   cleanup()
@@ -30,9 +32,42 @@ const requestRows = [
 }))
 
 describe('Русский интерфейс Console', () => {
+  it('закрепляет доступный безопасный результат операции', async () => {
+    let pinned = false
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      if (url.endsWith('/api/admin/console/session')) return jsonResponse({ username: 'operator', scopes: [], csrf_token: 'test-csrf' })
+      if (url.endsWith('/evidence/pin') && init?.method === 'POST') {
+        pinned = true
+        return jsonResponse({ data: {} })
+      }
+      if (url.includes('/api/admin/operations?')) return jsonResponse({ data: [{
+        operation_id: 'operation-1', device_id: 'device-1', device_name: 'PC-01',
+        capability: 'context.diagnostic.collect', status: 'succeeded', owner: 'helpdesk',
+        created_at: '2026-09-24T08:00:00Z', deadline_at: '2026-09-24T09:00:00Z',
+        completed_at: '2026-09-24T08:01:00Z', duration_ms: 60000,
+      }], total: 1 })
+      if (url.endsWith('/api/admin/operations/operation-1')) return jsonResponse({
+        data: { operation_id: 'operation-1', device_id: 'device-1', device_name: 'PC-01',
+          capability: 'context.diagnostic.collect', status: 'succeeded', owner: 'helpdesk',
+          created_at: '2026-09-24T08:00:00Z', deadline_at: '2026-09-24T09:00:00Z',
+          completed_at: '2026-09-24T08:01:00Z', duration_ms: 60000 },
+        safe_result: null, module_detail: null,
+        evidence: { result_available: true, result_expires_at: pinned ? null : '2026-09-25T08:01:00Z',
+          result_pinned: pinned, result_scrubbed_at: null, result_digest: 'a'.repeat(64) },
+      })
+      throw new Error(`Unexpected route ${url}`)
+    }))
+    await getSession()
+    render(<MemoryRouter initialEntries={['/admin/operations']}><OperationsPage /></MemoryRouter>)
+    fireEvent.click(await screen.findByRole('button', { name: 'Открыть' }))
+    expect(await screen.findByText(/Результат доступен до/)).toBeTruthy()
+    fireEvent.change(screen.getByRole('textbox', { name: 'Причина закрепления' }), { target: { value: 'Проверка инцидента' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Закрепить результат' }))
+    expect(await screen.findByText(/Результат закреплён/)).toBeTruthy()
+  })
   it('показывает поля инвентаризации и других профилей понятными подписями', async () => {
     vi.stubGlobal('fetch', vi.fn(async (url: string) => jsonResponse(
-      url.endsWith('/changes') ? { data: [] } : {
+      url.includes('/context/history?') ? { data: [], has_more: false } : {
         device: { id: 'device-1', display_name: 'Рабочая станция', device_identifier: 'PC-01', online: true, last_seen_at: null, agent_version: '3.2.63', hostname: 'PC-01', os_name: 'Windows 11', os_version: '11', current_user: 'operator' },
         snapshots: [
           { id: 'inventory-1', profile: 'inventory_v1', collected_at: '2026-09-24T08:00:00Z', fresh: true, semantic_hash: null, warnings: [], sections: {
@@ -70,19 +105,19 @@ describe('Русский интерфейс Console', () => {
     expect(screen.getByText('Активна')).toBeTruthy()
   })
 
-  it('открывает старые изменения и обновления устройства по страницам', async () => {
+  it('открывает долговечные события и обновления устройства по страницам', async () => {
     vi.stubGlobal('fetch', vi.fn(async (url: string) => {
       if (url.endsWith('/devices/device-1')) return jsonResponse({
         device: { id: 'device-1', display_name: 'Рабочая станция', device_identifier: 'PC-01',
           online: true, last_seen_at: null, agent_version: '3.2.63', hostname: 'PC-01',
           os_name: 'Windows 11', os_version: '11', current_user: 'operator' }, snapshots: [],
       })
-      if (url.includes('/changes?')) {
+      if (url.includes('/events?')) {
         const older = url.includes('offset=20')
-        return jsonResponse({ data: [{ code: 'HOSTNAME_CHANGED', profile: 'inventory_v1',
-          collected_at: '2026-09-24T08:00:00Z', before_snapshot_id: older ? 'old-1' : 'new-1',
-          after_snapshot_id: older ? 'old-2' : 'new-2',
-          before_value: older ? 'PC-Old' : 'PC-New', after_value: older ? 'PC-New' : 'PC-Now' }],
+        return jsonResponse({ data: [{ event_id: older ? 'old-1' : 'new-1',
+          event_kind: older ? 'RAM_CHANGED' : 'HOSTNAME_CHANGED', profile: 'inventory_v1',
+          occurred_at: '2026-09-24T08:00:00Z', summary_code: older ? 'RAM_CHANGED' : 'HOSTNAME_CHANGED',
+          safe_details: {} }],
           limit: 20, offset: older ? 20 : 0, has_more: !older })
       }
       if (url.includes('/updates?')) {
@@ -99,10 +134,10 @@ describe('Русский интерфейс Console', () => {
     </Routes></MemoryRouter>)
     await screen.findByRole('heading', { name: 'Рабочая станция' })
     fireEvent.click(screen.getByRole('button', { name: 'Изменения' }))
-    const changes = screen.getByRole('heading', { name: 'Изменения Context' }).closest('section')!
-    expect(await within(changes).findByText(/PC-New → PC-Now/)).toBeTruthy()
+    const changes = screen.getByRole('heading', { name: 'Изменения' }).closest('section')!
+    expect(await within(changes).findByText('Имя компьютера')).toBeTruthy()
     fireEvent.click(within(changes).getByRole('button', { name: 'Далее' }))
-    expect(await within(changes).findByText(/PC-Old → PC-New/)).toBeTruthy()
+    expect(await within(changes).findByText('Оперативная память')).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: 'Обновления' }))
     const updates = screen.getByRole('heading', { name: 'История обновлений' }).closest('section')!
     expect(await within(updates).findByText('3.2.63')).toBeTruthy()

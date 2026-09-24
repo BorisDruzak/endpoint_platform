@@ -7,13 +7,15 @@ from typing import Annotated, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import func, select
 
 from endpoint_contracts import EndpointDiagnosticResultV1, EndpointOperationV1
 from endpoint_contracts.modules import ModuleOperationDetailV1
 from endpoint_server.auth.admin_sessions import AdminPrincipal, require_admin
-from endpoint_server.db.models import Device, EndpointOperation, ServiceClient
+from endpoint_server.db.models import Device, EndpointOperation, OperationEvidence, ServiceClient
+from endpoint_server.audit.request_ids import audit_request_id
+from endpoint_server.operations.evidence import EvidenceConflict, pin_operation_evidence
 from endpoint_server.modules.execution_routes import _project_module_operation
 from endpoint_server.modules.operation_service import ModuleOperationNotFound
 from endpoint_server.operations.projection import project_operation
@@ -39,6 +41,7 @@ class ConsoleOperationSummary(BaseModel):
     deadline_at: datetime
     completed_at: datetime | None
     duration_ms: int | None
+    error_code: str | None = None
 
 
 class ConsoleOperationPageResponse(BaseModel):
@@ -57,6 +60,43 @@ class ConsoleOperationDetailResponse(BaseModel):
     operation: EndpointOperationV1 | None
     safe_result: EndpointDiagnosticResultV1 | None
     module_detail: ModuleOperationDetailV1 | None
+    evidence: "ConsoleEvidenceState | None" = None
+
+
+class ConsoleEvidenceState(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    result_available: bool
+    result_expires_at: datetime | None
+    result_pinned: bool
+    result_scrubbed_at: datetime | None
+    result_digest: str
+
+
+class PinEvidenceRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    reason: str | None = Field(default=None, max_length=256)
+
+
+class PinEvidenceResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    data: ConsoleEvidenceState
+
+
+def _evidence_state(evidence: OperationEvidence) -> ConsoleEvidenceState:
+    expiry = _aware(evidence.expires_at)
+    available = evidence.safe_payload is not None and (
+        evidence.pinned_at is not None or (expiry is not None and expiry > datetime.now(UTC))
+    )
+    return ConsoleEvidenceState(
+        result_available=available,
+        result_expires_at=expiry,
+        result_pinned=evidence.pinned_at is not None,
+        result_scrubbed_at=_aware(evidence.scrubbed_at),
+        result_digest=evidence.payload_sha256,
+    )
 
 
 class ConsoleOperationActionResponse(BaseModel):
@@ -86,6 +126,7 @@ def _summary(operation: EndpointOperation, device_name: str, owner: str) -> dict
         "status": operation.status, "owner": owner,
         "created_at": created, "deadline_at": _aware(operation.deadline_at),
         "completed_at": completed, "duration_ms": duration_ms,
+        "error_code": operation.error_code,
     }
 
 
@@ -166,11 +207,14 @@ async def read_admin_operation(
         if row is None:
             raise HTTPException(status_code=404, detail="Операция не найдена")
         operation, name, identifier, owner = row
+        evidence = await session.scalar(select(OperationEvidence).where(OperationEvidence.operation_id == operation_id))
         safe_result = None
         module_detail = None
+        projected_operation = None
         if operation.capability == "context.diagnostic.collect" and operation.status == "succeeded":
             data = await _response_data(session, operation)
             safe_result = data.result.model_dump(mode="json") if data.result is not None else None
+            projected_operation = data.operation.model_dump(mode="json")
         elif operation.capability == "endpoint.module.recipe":
             try:
                 module_detail = (await _project_module_operation(session, operation)).model_dump(mode="json")
@@ -179,9 +223,36 @@ async def read_admin_operation(
         return ConsoleOperationDetailResponse.model_validate({
             "data": _summary(operation, name or identifier, owner),
             "operation": (
-                project_operation(operation).model_dump(mode="json")
+                projected_operation or project_operation(operation).model_dump(mode="json")
                 if operation.capability == "context.diagnostic.collect" else None
             ),
             "safe_result": safe_result,
             "module_detail": module_detail,
+            "evidence": _evidence_state(evidence) if evidence is not None else None,
         })
+
+
+@router.post("/{operation_id}/evidence/pin", response_model=PinEvidenceResponse)
+async def pin_admin_operation_evidence(
+    operation_id: UUID,
+    body: PinEvidenceRequest,
+    request: Request,
+    principal: Annotated[AdminPrincipal, Depends(require_admin)],
+) -> PinEvidenceResponse:
+    _require_operations_enabled(request)
+    async with request.app.state.session_provider() as session:
+        try:
+            evidence = await pin_operation_evidence(
+                session, operation_id, actor_kind="admin",
+                actor_identifier=str(principal.user.id),
+                request_id=audit_request_id(request), reason=body.reason,
+            )
+            state = _evidence_state(evidence)
+            await session.commit()
+        except EvidenceConflict as error:
+            await session.rollback()
+            raise HTTPException(status_code=409, detail="Результат уже недоступен для закрепления") from error
+        except Exception:
+            await session.rollback()
+            raise
+    return PinEvidenceResponse(data=state)

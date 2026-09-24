@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from typing import Annotated
+from datetime import UTC, datetime
 from uuid import UUID
 
 from fastapi import (
@@ -16,7 +17,7 @@ from fastapi import (
     status,
 )
 from fastapi.security import HTTPBearer
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, ValidationError
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -36,7 +37,8 @@ from endpoint_server.auth.scopes import (
     require_service_scope,
 )
 from endpoint_server.context.models import ContextCollection, ContextSnapshot
-from endpoint_server.db.models import Device, DeviceInstance, EndpointOperation
+from endpoint_server.db.models import Device, DeviceInstance, EndpointOperation, OperationEvidence
+from endpoint_server.context.policy import OPERATION_RESULT_TTL
 from endpoint_server.http.correlation import CORRELATION_ID_PATTERN
 
 from .capabilities import project_available_capabilities
@@ -146,7 +148,22 @@ async def _response_data(
 ) -> OperationResponseData:
     safe_result: EndpointDiagnosticResultV1 | None = None
     if operation.status == "succeeded":
-        if operation.context_collection_id is not None:
+        evidence = await session.scalar(select(OperationEvidence).where(OperationEvidence.operation_id == operation.id))
+        evidence_expiry = (
+            evidence.expires_at.replace(tzinfo=UTC) if evidence is not None and evidence.expires_at is not None and evidence.expires_at.tzinfo is None
+            else evidence.expires_at.astimezone(UTC) if evidence is not None and evidence.expires_at is not None
+            else None
+        )
+        if evidence is not None and evidence.safe_payload is not None and (
+            evidence.pinned_at is not None or (evidence_expiry is not None and evidence_expiry > datetime.now(UTC))
+        ):
+            try:
+                safe_result = EndpointDiagnosticResultV1.model_validate(evidence.safe_payload)
+            except ValidationError:
+                safe_result = None
+        elif evidence is None and operation.context_collection_id is not None and operation.completed_at is not None and (
+            datetime.now(UTC) - (operation.completed_at.replace(tzinfo=UTC) if operation.completed_at.tzinfo is None else operation.completed_at.astimezone(UTC)) < OPERATION_RESULT_TTL
+        ):
             snapshot = await session.scalar(
                 select(ContextSnapshot)
                 .join(
@@ -165,13 +182,8 @@ async def _response_data(
             )
             if snapshot is not None:
                 safe_result = project_diagnostic_result(operation, snapshot)
-        if safe_result is None:
-            raise _api_error(
-                status.HTTP_503_SERVICE_UNAVAILABLE,
-                "endpoint_operation_result_unavailable",
-            )
     return OperationResponseData(
-        operation=project_operation(operation),
+        operation=project_operation(operation, result_available=safe_result is not None),
         result=safe_result,
     )
 

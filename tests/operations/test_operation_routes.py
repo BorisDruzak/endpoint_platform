@@ -35,6 +35,7 @@ from endpoint_server.db.models import (
     ModuleDefinition,
     ModuleLiveTest,
     ModuleOperationStep,
+    OperationEvidence,
     ModuleValidationRun,
     ModuleVersion,
     ServiceClient,
@@ -43,6 +44,7 @@ from endpoint_server.db.models import (
 from endpoint_server.http import correlation
 from endpoint_server.main import create_app
 from endpoint_server.operations.projection import project_diagnostic_result
+from endpoint_server.operations.evidence import create_operation_evidence, cleanup_operation_results, pin_operation_evidence
 from pc_agent.context_profiles.diagnostic import collect_diagnostic
 from pc_agent.context_profiles.probe import JOURNAL_COMMAND, PROCESS_COMMAND
 
@@ -180,6 +182,7 @@ async def route_fixture(
         ContextCollection.__table__,
         ContextSnapshot.__table__,
         EndpointOperation.__table__,
+        OperationEvidence.__table__,
         ModuleDefinition.__table__,
         ModuleLiveTest.__table__,
         ModuleOperationStep.__table__,
@@ -1582,7 +1585,7 @@ async def test_read_uses_service_client_identity_across_credential_rotation(
 
 
 @pytest.mark.asyncio
-async def test_succeeded_operation_without_safe_result_fails_closed(
+async def test_succeeded_operation_without_safe_result_retains_lifecycle(
     route_fixture: RouteFixture,
 ) -> None:
     """Availability must never claim a result that cannot pass safe projection."""
@@ -1607,11 +1610,9 @@ async def test_succeeded_operation_without_safe_result_fails_closed(
             headers=_authorization("reader-rotated"),
         )
 
-    assert response.status_code == 503
-    assert response.json()["detail"]["code"] == (
-        "endpoint_operation_result_unavailable"
-    )
-    assert "result_available" not in response.text
+    assert response.status_code == 200
+    assert response.json()["data"]["operation"]["result_available"] is False
+    assert response.json()["data"]["result"] is None
 
 
 @pytest.mark.asyncio
@@ -1900,10 +1901,9 @@ async def test_result_requires_consistent_completed_diagnostic_relationship(
             headers=_authorization("reader-rotated"),
         )
 
-    assert response.status_code == 503
-    assert response.json()["detail"]["code"] == (
-        "endpoint_operation_result_unavailable"
-    )
+    assert response.status_code == 200
+    assert response.json()["data"]["operation"]["result_available"] is False
+    assert response.json()["data"]["result"] is None
 
 
 def test_enabled_runtime_openapi_exactly_matches_committed_operation_routes(
@@ -1978,3 +1978,60 @@ def test_operation_openapi_declares_required_correlation_response_headers(
             for parameter in operation["parameters"]
         )
         assert "X-Correlation-ID" in operation["responses"][response_status]["headers"]
+
+
+async def _completed_evidence_operation(route_fixture: RouteFixture) -> tuple[UUID, datetime]:
+    async with _client(route_fixture) as client:
+        created = await client.post(
+            f"/api/v1/devices/{route_fixture.device.id}/operations",
+            json=CREATE_BODY, headers=_create_headers("creator-old"),
+        )
+    operation_id = UUID(created.json()["data"]["operation"]["operation_id"])
+    when = datetime.now(UTC)
+    async with route_fixture.session_provider() as session:
+        operation = await session.get(EndpointOperation, operation_id)
+        operation.status = "succeeded"
+        operation.completed_at = when
+        await create_operation_evidence(session, operation, result_kind="diagnostic", created_at=when,
+            safe_payload={"schema_version": "endpoint_diagnostic_result_v1", "profile": "diagnostic_v1",
+                "collected_at": when.isoformat(), "reason": CREATE_BODY["parameters"]["reason"],
+                "warnings": [], "processes": [], "log_excerpt": None})
+        await session.commit()
+    return operation_id, when
+
+
+@pytest.mark.asyncio
+async def test_evidence_expiry_scrubs_result_but_keeps_operation(route_fixture: RouteFixture) -> None:
+    operation_id, when = await _completed_evidence_operation(route_fixture)
+    async with route_fixture.session_provider() as session:
+        assert await cleanup_operation_results(session, now=when + timedelta(hours=25)) == 1
+        await session.commit()
+        evidence = await session.scalar(select(OperationEvidence).where(OperationEvidence.operation_id == operation_id))
+        assert evidence.safe_payload is None
+        assert evidence.scrubbed_at is not None
+        assert len(evidence.payload_sha256) == 64
+        assert (await session.get(EndpointOperation, operation_id)).status == "succeeded"
+    async with _client(route_fixture) as client:
+        response = await client.get(f"/api/v1/operations/{operation_id}", headers=_authorization("reader-rotated"))
+    assert response.status_code == 200
+    assert response.json()["data"]["operation"]["result_available"] is False
+    assert response.json()["data"]["result"] is None
+
+
+@pytest.mark.asyncio
+async def test_pinned_evidence_survives_expiry_and_is_audited(route_fixture: RouteFixture) -> None:
+    operation_id, when = await _completed_evidence_operation(route_fixture)
+    async with route_fixture.session_provider() as session:
+        evidence = await pin_operation_evidence(session, operation_id, actor_kind="admin",
+            actor_identifier="operator", request_id="pin-test", reason="Incident review", now=when + timedelta(hours=1))
+        await session.commit()
+        assert evidence.pinned_at is not None
+        assert evidence.expires_at is None
+    async with route_fixture.session_provider() as session:
+        assert await cleanup_operation_results(session, now=when + timedelta(hours=25)) == 0
+        evidence = await session.scalar(select(OperationEvidence).where(OperationEvidence.operation_id == operation_id))
+        assert evidence.safe_payload is not None
+        audit = await session.scalar(select(AuditEvent).where(AuditEvent.object_identifier == str(operation_id),
+            AuditEvent.action == "operation_evidence.pinned"))
+        assert audit is not None
+        assert "safe_payload" not in str(audit.details)

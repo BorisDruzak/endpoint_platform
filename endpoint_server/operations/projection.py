@@ -22,7 +22,7 @@ def _as_utc(value: datetime) -> datetime:
     return value.astimezone(UTC)
 
 
-def project_operation(operation: EndpointOperation) -> EndpointOperationV1:
+def project_operation(operation: EndpointOperation, *, result_available: bool | None = None) -> EndpointOperationV1:
     """Exclude private request, idempotency, service, collection and command data."""
     return EndpointOperationV1.model_validate(
         {
@@ -38,7 +38,9 @@ def project_operation(operation: EndpointOperation) -> EndpointOperationV1:
                 if operation.completed_at is not None
                 else None
             ),
-            "result_available": operation.status == "succeeded",
+            "result_available": (
+                operation.status == "succeeded" if result_available is None else result_available
+            ),
             "warnings": [],
         }
     )

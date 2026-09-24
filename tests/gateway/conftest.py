@@ -21,6 +21,7 @@ from endpoint_server.context.models import (
     ContextCollection,
     ContextCurrent,
     ContextDiff,
+    DeviceEvent,
     ContextSnapshot,
 )
 from endpoint_server.db.models import (
@@ -35,6 +36,7 @@ from endpoint_server.db.models import (
     EndpointOperation,
     ModuleDefinition,
     ModuleOperationStep,
+    OperationEvidence,
     ModuleVersion,
     ServiceClient,
 )
@@ -55,11 +57,13 @@ _GATEWAY_TABLES = (
     ContextCollection.__table__,
     ContextSnapshot.__table__,
     ContextDiff.__table__,
+    DeviceEvent.__table__,
     ContextCurrent.__table__,
     EndpointOperation.__table__,
     ModuleDefinition.__table__,
     ModuleVersion.__table__,
     ModuleOperationStep.__table__,
+    OperationEvidence.__table__,
     AuditEvent.__table__,
 )
 

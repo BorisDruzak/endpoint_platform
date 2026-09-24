@@ -135,6 +135,7 @@ class EndpointOperation(OwnershipRecord, Base):
         DateTime(timezone=True), nullable=False
     )
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    error_code: Mapped[str | None] = mapped_column(String(64))
     context_collection_id: Mapped[UUID | None] = mapped_column(
         PostgreSQLUUID(as_uuid=True)
     )
@@ -193,11 +194,34 @@ class ModuleOperationStep(OwnershipRecord, Base):
     status: Mapped[str] = mapped_column(String(32), nullable=False)
     command_id: Mapped[UUID | None] = mapped_column(ForeignKey("commands.id"))
     safe_result_json: Mapped[dict[str, object] | None] = mapped_column(
-        JSON().with_variant(JSONB(), "postgresql")
+        JSON(none_as_null=True).with_variant(JSONB(none_as_null=True), "postgresql")
     )
     error_code: Mapped[str | None] = mapped_column(String(64))
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class OperationEvidence(OwnershipRecord, Base):
+    """Server-produced safe result with independently managed payload lifetime."""
+
+    __tablename__ = "operation_evidence"
+    __table_args__ = (
+        UniqueConstraint("operation_id", name="uq_operation_evidence_operation"),
+        Index("ix_operation_evidence_expiry", "expires_at", "id"),
+        CheckConstraint("safe_payload IS NULL OR length(CAST(safe_payload AS TEXT)) <= 65536", name="ck_operation_evidence_payload_size"),
+        CheckConstraint("pinned_at IS NULL OR expires_at IS NULL", name="ck_operation_evidence_pin_expiry"),
+    )
+
+    operation_id: Mapped[UUID] = mapped_column(ForeignKey("endpoint_operations.id", ondelete="CASCADE"), nullable=False)
+    result_kind: Mapped[str] = mapped_column(String(32), nullable=False)
+    safe_payload: Mapped[dict[str, object] | None] = mapped_column(JSON(none_as_null=True).with_variant(JSONB(none_as_null=True), "postgresql"))
+    payload_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    pinned_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    pinned_by_actor_kind: Mapped[str | None] = mapped_column(String(32))
+    pinned_by_actor_identifier: Mapped[str | None] = mapped_column(String(128))
+    pin_reason: Mapped[str | None] = mapped_column(String(256))
+    scrubbed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 __all__ = [
@@ -207,4 +231,5 @@ __all__ = [
     "MODULE_OPERATION_STEP_CAPABILITIES",
     "EndpointOperation",
     "ModuleOperationStep",
+    "OperationEvidence",
 ]

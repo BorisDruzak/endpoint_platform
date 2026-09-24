@@ -415,3 +415,43 @@ async def test_worker_isolates_context_scheduler_failure(
 
     assert provider.session.rollback_calls >= 1
     assert provider.session.commit_calls >= 2
+
+
+@pytest.mark.asyncio
+async def test_worker_runs_payload_cleanup_on_minute_cadence_independently_of_snapshot_retention(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    provider = WorkerSessionProvider()
+    completed = asyncio.Event()
+    calls: list[str] = []
+
+    async def record(name: str, _: WorkerSession) -> int:
+        calls.append(name)
+        if len(calls) == 4:
+            completed.set()
+        return 0
+
+    for name in (
+        "cleanup_raw_context_payloads", "cleanup_context_collections",
+        "cleanup_operation_results", "cleanup_module_step_results",
+    ):
+        monkeypatch.setattr(
+            "endpoint_server.worker." + name,
+            lambda session, job=name: record(job, session),
+        )
+    task = asyncio.create_task(run_worker(
+        _settings(), provider,
+        cleanup_interval_seconds=0.01,
+        context_schedule_interval_seconds=60,
+        context_retention_interval_seconds=3600,
+    ))
+    try:
+        await asyncio.wait_for(completed.wait(), timeout=1)
+    finally:
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+    assert calls == [
+        "cleanup_raw_context_payloads", "cleanup_context_collections",
+        "cleanup_operation_results", "cleanup_module_step_results",
+    ]

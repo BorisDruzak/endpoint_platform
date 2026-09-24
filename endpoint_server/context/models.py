@@ -64,6 +64,8 @@ class ContextCollection(OwnershipRecord, Base):
         ),
         Index("ix_context_collections_device_profile_status", "device_id", "profile", "status"),
         Index("ix_context_collections_result", "command_result_id"),
+        Index("ix_context_collections_raw_retention", "result_received_at", "id"),
+        Index("ix_context_collections_status_requested", "status", "requested_at", "id"),
     )
 
     device_id: Mapped[UUID] = mapped_column(ForeignKey("devices.id", ondelete="CASCADE"), nullable=False)
@@ -81,7 +83,7 @@ class ContextCollection(OwnershipRecord, Base):
     failed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     failure_code: Mapped[str | None] = mapped_column(String(128))
-    raw_result_payload: Mapped[dict[str, object] | None] = mapped_column(JSON)
+    raw_result_payload: Mapped[dict[str, object] | None] = mapped_column(JSON(none_as_null=True))
 
 
 class ContextSnapshot(OwnershipRecord, Base):
@@ -94,6 +96,8 @@ class ContextSnapshot(OwnershipRecord, Base):
             "id", "device_id", "profile", name="uq_context_snapshots_identity"
         ),
         Index("ix_context_snapshots_device_profile_collected", "device_id", "profile", "collected_at"),
+        Index("ix_context_snapshots_raw_retention", "collected_at", "id"),
+        Index("ix_context_snapshots_profile_retention", "profile", "collected_at", "id"),
     )
 
     collection_id: Mapped[UUID] = mapped_column(ForeignKey("context_collections.id", ondelete="CASCADE"), nullable=False)
@@ -102,7 +106,7 @@ class ContextSnapshot(OwnershipRecord, Base):
     collected_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     pinned_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     semantic_hash: Mapped[str | None] = mapped_column(String(64))
-    raw_payload: Mapped[dict[str, object]] = mapped_column(JSON, nullable=False)
+    raw_payload: Mapped[dict[str, object] | None] = mapped_column(JSON(none_as_null=True))
     normalized_projection: Mapped[dict[str, object]] = mapped_column(JSON, nullable=False)
 
 
@@ -141,6 +145,31 @@ class ContextCurrent(OwnershipRecord, Base):
     profile: Mapped[str] = mapped_column(String(32), nullable=False)
     snapshot_id: Mapped[UUID] = mapped_column(nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    last_observed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class DeviceEvent(OwnershipRecord, Base):
+    """Compact durable change fact independent of historical snapshots."""
+
+    __tablename__ = "device_events"
+    __table_args__ = (
+        CheckConstraint("length(CAST(details AS TEXT)) <= 2048", name="ck_device_events_details_size"),
+        UniqueConstraint("device_id", "source_key", name="uq_device_events_source"),
+        Index("ix_device_events_device_occurred", "device_id", "occurred_at", "id"),
+        Index("ix_device_events_kind_occurred", "event_kind", "occurred_at"),
+    )
+
+    device_id: Mapped[UUID] = mapped_column(ForeignKey("devices.id", ondelete="CASCADE"), nullable=False)
+    event_identifier: Mapped[str] = mapped_column(String(128), nullable=False)
+    event_kind: Mapped[str] = mapped_column(String(64), nullable=False)
+    category: Mapped[str] = mapped_column(String(32), nullable=False)
+    profile: Mapped[str] = mapped_column(String(32), nullable=False)
+    occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    source_key: Mapped[str] = mapped_column(String(160), nullable=False)
+    summary_code: Mapped[str] = mapped_column(String(64), nullable=False)
+    details: Mapped[dict[str, object]] = mapped_column(JSON, nullable=False)
+    before_hash: Mapped[str | None] = mapped_column(String(64))
+    after_hash: Mapped[str | None] = mapped_column(String(64))
 
 
 class ContextFinding(OwnershipRecord, Base):

@@ -12,6 +12,7 @@ from endpoint_server.context.models import (
     ContextCollection,
     ContextCurrent,
     ContextDiff,
+    DeviceEvent,
     ContextFinding,
     ContextSnapshot,
 )
@@ -25,7 +26,7 @@ from .enrollment import (
     EnrollmentRequestClaimEnvelope,
     EnrollmentRetryEnvelope,
 )
-from .operations import EndpointOperation, ModuleOperationStep
+from .operations import EndpointOperation, ModuleOperationStep, OperationEvidence
 from .modules import (
     ModuleDefinition,
     ModuleLiveTest,
@@ -44,6 +45,7 @@ __all__ = [
     "ContextCollection",
     "ContextCurrent",
     "ContextDiff",
+    "DeviceEvent",
     "ContextFinding",
     "ContextSnapshot",
     "Device",
@@ -58,6 +60,7 @@ __all__ = [
     "EnrollmentRetryEnvelope",
     "EndpointOperation",
     "ModuleOperationStep",
+    "OperationEvidence",
     "ModuleDefinition",
     "ModuleLiveTest",
     "ModuleValidationRun",

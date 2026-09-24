@@ -15,7 +15,7 @@ from endpoint_server.auth.admin_sessions import AdminPrincipal, require_admin
 from endpoint_server.config import Settings
 from endpoint_server.db.models import (
     AdminSession, AdminUser, AuditEvent, Device, EndpointOperation,
-    ModuleDefinition, ModuleLiveTest, ModuleOperationStep, ModuleValidationRun, ModuleVersion,
+    ModuleDefinition, ModuleLiveTest, ModuleOperationStep, ModuleValidationRun, ModuleVersion, OperationEvidence,
     ServiceClient,
 )
 from endpoint_server.main import create_app
@@ -189,7 +189,7 @@ async def test_device_published_module_runs_network_and_read_only_steps() -> Non
             ModuleDefinition.__table__, ModuleVersion.__table__,
             EndpointOperation.__table__,
             # Parent creation records every queued step transactionally.
-            ModuleOperationStep.__table__,
+            ModuleOperationStep.__table__, OperationEvidence.__table__,
         )])
     sessions = async_sessionmaker(engine, expire_on_commit=False)
     device = Device(id=uuid4(), device_identifier="READ-01", display_name="Read only device")
@@ -266,7 +266,7 @@ async def test_console_runs_zero_input_read_only_module_in_lab_and_published_mod
         await connection.run_sync(lambda sync: [table.create(sync) for table in (
             ServiceClient.__table__, Device.__table__, AuditEvent.__table__,
             ModuleDefinition.__table__, ModuleVersion.__table__,
-            EndpointOperation.__table__, ModuleOperationStep.__table__,
+            EndpointOperation.__table__, ModuleOperationStep.__table__, OperationEvidence.__table__,
         )])
     sessions = async_sessionmaker(engine, expire_on_commit=False)
     device = Device(id=uuid4(), device_identifier="LOCAL-AGENT", display_name="Local Agent")

@@ -44,6 +44,7 @@ from endpoint_server.db.models import (
 from endpoint_server.db.models.modules import ModuleVersion
 from endpoint_server.db.session import SessionProvider
 from endpoint_server.operations.projection import project_diagnostic_result
+from endpoint_server.operations.evidence import create_operation_evidence
 from endpoint_server.operations.redaction import sanitize_agent_public_text
 from endpoint_server.operations.service import (
     append_operation_terminal_audit,
@@ -540,6 +541,18 @@ async def _record_module_step_result(
         if step.sequence == expected_step_count - 1:
             operation.status = "succeeded"
             operation.completed_at = accepted_at
+            await session.flush()
+            completed_steps = (await session.scalars(select(ModuleOperationStep)
+                .where(ModuleOperationStep.operation_id == operation.id)
+                .order_by(ModuleOperationStep.sequence))).all()
+            await create_operation_evidence(
+                session, operation, result_kind="module", created_at=accepted_at,
+                safe_payload={"steps": [
+                    {"sequence": item.sequence, "capability": item.capability,
+                     "safe_result": item.safe_result_json}
+                    for item in completed_steps
+                ]},
+            )
             await _append_module_terminal_audit(
                 session, operation, step, occurred_at=accepted_at
             )
@@ -548,6 +561,7 @@ async def _record_module_step_result(
     else:
         operation.status = result.status
         operation.completed_at = accepted_at
+        operation.error_code = error_code
         await _append_module_terminal_audit(
             session, operation, step, occurred_at=accepted_at
         )
@@ -1166,6 +1180,27 @@ class CommandService:
                     if operation is not None:
                         operation.status = result.status
                         operation.completed_at = accepted_at
+                        if result.status != "succeeded":
+                            operation.error_code = ingested_collection.failure_code
+                        if result.status == "succeeded":
+                            diagnostic_snapshot = await session.scalar(
+                                select(ContextSnapshot).where(
+                                    ContextSnapshot.collection_id == operation.context_collection_id,
+                                    ContextSnapshot.device_id == operation.device_id,
+                                    ContextSnapshot.profile == "diagnostic_v1",
+                                )
+                            )
+                            safe_diagnostic = (
+                                project_diagnostic_result(operation, diagnostic_snapshot)
+                                if diagnostic_snapshot is not None else None
+                            )
+                            if safe_diagnostic is None:
+                                raise CommandStateRejected("safe diagnostic result is unavailable")
+                            await create_operation_evidence(
+                                session, operation, result_kind="diagnostic",
+                                safe_payload=safe_diagnostic.model_dump(mode="json"),
+                                created_at=accepted_at,
+                            )
                         await append_operation_terminal_audit(
                             session,
                             operation,

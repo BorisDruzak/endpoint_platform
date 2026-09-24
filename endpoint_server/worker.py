@@ -8,11 +8,12 @@ from typing import Any
 from uuid import uuid4
 
 from endpoint_server.config import Settings
-from endpoint_server.context.retention import retain_context_snapshots
+from endpoint_server.context.retention import cleanup_context_collections, cleanup_raw_context_payloads, retain_context_snapshots
 from endpoint_server.context.scheduler import schedule_due_collections
 from endpoint_server.db.session import SessionProvider, create_session_provider
 from endpoint_server.enrollment.delivery import cleanup_expired_retry_envelopes
 from endpoint_server.operations.service import expire_operations
+from endpoint_server.operations.evidence import cleanup_module_step_results, cleanup_operation_results
 
 
 async def _run_transactional_job(
@@ -51,6 +52,7 @@ async def run_worker(
     owns_provider = session_provider is None
     provider = session_provider or create_session_provider(settings.database_url)
     loop = asyncio.get_running_loop()
+    last_payload_cleanup = loop.time()
     last_schedule = loop.time()
     last_retention = loop.time()
     try:
@@ -63,6 +65,14 @@ async def run_worker(
             )
             await _run_transactional_job(provider, expire_operations)
             elapsed = loop.time()
+            if elapsed - last_payload_cleanup >= cleanup_interval_seconds:
+                # At 100 rows per minute this can drain 144,000 rows per day,
+                # above the expected collection volume for 120 devices.
+                await _run_transactional_job(provider, cleanup_raw_context_payloads)
+                await _run_transactional_job(provider, cleanup_context_collections)
+                await _run_transactional_job(provider, cleanup_operation_results)
+                await _run_transactional_job(provider, cleanup_module_step_results)
+                last_payload_cleanup = elapsed
             if elapsed - last_schedule >= context_schedule_interval_seconds:
                 await _run_transactional_job(provider, schedule_due_collections)
                 last_schedule = elapsed

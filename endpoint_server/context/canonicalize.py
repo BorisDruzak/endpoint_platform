@@ -95,4 +95,40 @@ def canonicalize_inventory(snapshot: Mapping[str, object] | object) -> dict[str,
     }
 
 
-__all__ = ["canonicalize_baseline", "canonicalize_inventory"]
+def canonicalize_session(snapshot: Mapping[str, object] | object) -> dict[str, object]:
+    source = _mapping(snapshot)
+    if source.get("profile") != "session_v1":
+        raise ValueError("semantic canonicalization requires a session snapshot")
+    sections = _mapping(source.get("sections"))
+    return {
+        "profile": "session_v1",
+        "current_user_login": sections.get("current_user_login"),
+        "interactive_session_present": sections.get("interactive_session_present"),
+    }
+
+
+def canonicalize_network(snapshot: Mapping[str, object] | object) -> dict[str, object]:
+    source = _mapping(snapshot)
+    if source.get("profile") != "network_v1":
+        raise ValueError("semantic canonicalization requires a network snapshot")
+    sections = _mapping(source.get("sections"))
+    route = _mapping(sections.get("default_route"))
+    interfaces = sections.get("interfaces")
+    items = []
+    if isinstance(interfaces, list):
+        for interface in interfaces:
+            if not isinstance(interface, Mapping):
+                continue
+            addresses = interface.get("addresses")
+            items.append({
+                "name": interface.get("name"),
+                "addresses": sorted(addresses) if isinstance(addresses, list) else [],
+            })
+    return {
+        "profile": "network_v1",
+        "default_route": {"interface": route.get("interface"), "gateway": route.get("gateway")},
+        "interfaces": sorted(items, key=lambda item: (str(item["name"]), item["addresses"])),
+    }
+
+
+__all__ = ["canonicalize_baseline", "canonicalize_inventory", "canonicalize_session", "canonicalize_network"]

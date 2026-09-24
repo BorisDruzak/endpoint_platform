@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from endpoint_server.context.models import ContextCollection, ContextCurrent, ContextSnapshot
 from endpoint_server.context import retention
-from endpoint_server.context.retention import pin_context_snapshot, retain_context_snapshots
+from endpoint_server.context.retention import cleanup_raw_context_payloads, pin_context_snapshot, retain_context_snapshots
 from endpoint_server.db.models import Command, CommandResult, Device
 
 
@@ -71,6 +71,52 @@ async def _snapshot(
     session.add_all((collection, snapshot))
     await session.flush()
     return snapshot
+
+
+@pytest.mark.asyncio
+async def test_raw_cleanup_scrubs_both_copies_without_current_projection(session: AsyncSession) -> None:
+    device = Device(id=uuid4(), device_identifier="raw-retention")
+    session.add(device)
+    await session.flush()
+    old = await _snapshot(session, device_id=device.id, collected_at=NOW)
+    collection = await session.get(ContextCollection, old.collection_id)
+    collection.result_received_at = NOW
+    collection.raw_result_payload = {"transport": "old"}
+    old.raw_payload = {"transport": "old"}
+    old.normalized_projection = {"profile": "baseline_v1"}
+    session.add(ContextCurrent(id=uuid4(), device_id=device.id, profile="baseline_v1",
+        snapshot_id=old.id, updated_at=NOW))
+    await session.flush()
+    assert await cleanup_raw_context_payloads(session, now=NOW + timedelta(hours=2)) == (1, 1)
+    await session.flush()
+    assert collection.raw_result_payload is None
+    assert old.raw_payload is None
+    assert old.normalized_projection == {"profile": "baseline_v1"}
+    assert await cleanup_raw_context_payloads(session, now=NOW + timedelta(hours=2)) == (0, 0)
+
+
+@pytest.mark.asyncio
+async def test_health_hot_history_expires_but_current_survives(session: AsyncSession) -> None:
+    device = Device(id=uuid4(), device_identifier="health-retention")
+    session.add(device)
+    await session.flush()
+    snapshots = []
+    for minutes in (0, 5, 10):
+        when = NOW + timedelta(minutes=minutes)
+        collection = ContextCollection(id=uuid4(), device_id=device.id, profile="health_v1",
+            requested_by="seed", idempotency_key=f"health-{minutes}", status="completed",
+            requested_at=when, completed_at=when)
+        snapshot = ContextSnapshot(id=uuid4(), collection_id=collection.id, device_id=device.id,
+            profile="health_v1", collected_at=when, raw_payload={}, normalized_projection={"profile": "health_v1"})
+        session.add_all((collection, snapshot))
+        snapshots.append(snapshot)
+    await session.flush()
+    session.add(ContextCurrent(id=uuid4(), device_id=device.id, profile="health_v1",
+        snapshot_id=snapshots[-1].id, updated_at=NOW + timedelta(minutes=10)))
+    await session.flush()
+    assert await retain_context_snapshots(session, now=NOW + timedelta(hours=24, minutes=7)) == 2
+    remaining = (await session.scalars(select(ContextSnapshot).where(ContextSnapshot.device_id == device.id))).all()
+    assert [snapshot.id for snapshot in remaining] == [snapshots[-1].id]
 
 
 @pytest.mark.asyncio

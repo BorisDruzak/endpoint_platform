@@ -434,6 +434,7 @@ async def expire_operation_if_due(
             raise OperationValidationError("module operation steps are unavailable")
         operation.status = "expired"
         operation.completed_at = expired_at
+        operation.error_code = "operation_expired"
         for step in steps:
             if step.status in {"succeeded", "failed", "canceled", "expired"}:
                 continue
@@ -481,6 +482,7 @@ async def expire_operation_if_due(
         return True
     operation.status = "expired"
     operation.completed_at = expired_at
+    operation.error_code = "operation_expired"
     if collection is None:
         collection = await session.scalar(
             select(ContextCollection)

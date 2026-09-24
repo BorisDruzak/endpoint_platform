@@ -1,5 +1,16 @@
 # Endpoint Platform Plan
 
+## Context and Evidence Retention v2 (2026-09-24)
+
+The implementation plan is
+`docs/superpowers/plans/2026-09-24-context-evidence-retention-v2.md`.
+The architecture and production measurement procedure are in
+`docs/architecture/context-evidence-retention-v2.md`. Work starts from main
+`0aa22537d93e29e79eb43dce01e8e1e50ee23a6f` on
+`codex/endpoint-retention-v2`, with Agent `3.2.65` unchanged. The new Alembic
+head is `0026_context_evidence_v2`. Production backup, migration and acceptance
+evidence must be recorded here after the release gate passes.
+
 ## Current Console v1 work (2026-09-24)
 
 The active implementation plan is

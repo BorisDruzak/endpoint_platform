@@ -11,7 +11,7 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy import event, func, select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from endpoint_server.context.models import ContextCollection, ContextCurrent, ContextSnapshot
+from endpoint_server.context.models import ContextCollection, ContextCurrent, ContextSnapshot, DeviceEvent
 from endpoint_server.db.models import AuditEvent, Device, DeviceInstance, DeviceSession, EndpointOperation, EnrollmentRequest, UpdateTarget
 from endpoint_server.console.fleet import dashboard_fleet, list_fleet
 from endpoint_server.auth.admin_sessions import AdminPrincipal, require_admin
@@ -126,7 +126,7 @@ async def test_console_device_api_uses_session_and_safe_projection() -> None:
         await connection.run_sync(lambda sync: [
             table.create(sync) for table in (
                 Device.__table__, DeviceSession.__table__, DeviceInstance.__table__,
-                ContextCollection.__table__, ContextSnapshot.__table__, ContextCurrent.__table__,
+                ContextCollection.__table__, ContextSnapshot.__table__, ContextCurrent.__table__, DeviceEvent.__table__,
                 AuditEvent.__table__, UpdateTarget.__table__,
             )
         ])
@@ -187,6 +187,10 @@ async def test_console_device_api_uses_session_and_safe_projection() -> None:
         await session.flush()
         session.add(ContextCurrent(device_id=device.id, profile="session_v1", snapshot_id=snapshot.id, updated_at=now))
         session.add(ContextCurrent(device_id=device.id, profile="inventory_v1", snapshot_id=inventory_snapshots[-1].id, updated_at=now))
+        session.add(DeviceEvent(device_id=device.id, event_identifier="context:test:RAM_CHANGED",
+            event_kind="RAM_CHANGED", category="context", profile="inventory_v1",
+            occurred_at=now, source_key="context:test:RAM_CHANGED", summary_code="RAM_CHANGED",
+            details={}, before_hash="a" * 64, after_hash="b" * 64))
         await session.commit()
     settings = Settings(
         database_url="postgresql+asyncpg://unused@localhost/unused",
@@ -216,6 +220,8 @@ async def test_console_device_api_uses_session_and_safe_projection() -> None:
         changes = await client.get(f"/api/admin/console/devices/{device.id}/changes")
         changes_first = await client.get(f"/api/admin/console/devices/{device.id}/changes?limit=2")
         changes_second = await client.get(f"/api/admin/console/devices/{device.id}/changes?limit=2&offset=2")
+        events = await client.get(f"/api/admin/console/devices/{device.id}/events?limit=2&event_kind=RAM_CHANGED")
+        history = await client.get(f"/api/admin/console/devices/{device.id}/context/history?profile=inventory_v1&limit=2")
         first_refresh = await client.post(
             f"/api/admin/console/devices/{device.id}/context/collections",
             headers={"Idempotency-Key": "console-refresh-1"}, json={"profile": "health_v1"},
@@ -251,6 +257,11 @@ async def test_console_device_api_uses_session_and_safe_projection() -> None:
         row["after_snapshot_id"] for row in changes_second.json()["data"]
     )
     assert "older-private" not in changes_second.text
+    assert events.status_code == 200
+    assert events.json()["data"][0]["summary_code"] == "RAM_CHANGED"
+    assert "inventory-private" not in events.text
+    assert history.status_code == 200
+    assert len(history.json()["data"]) == 2
     assert first_refresh.status_code == 201
     assert replay_refresh.status_code == 200
     assert first_refresh.json()["data"]["id"] == replay_refresh.json()["data"]["id"]

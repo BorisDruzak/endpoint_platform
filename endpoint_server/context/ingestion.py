@@ -13,8 +13,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from endpoint_contracts import AgentResultV1, DeviceContextEnvelopeV1, validate_context_result_item
 from endpoint_server.db.models import Command, CommandResult
 
-from .canonicalize import canonicalize_baseline, canonicalize_inventory
+from .canonicalize import canonicalize_baseline, canonicalize_inventory, canonicalize_network, canonicalize_session
 from .diff import compare_snapshots
+from .events import events_for_change
 from .models import ContextCollection, ContextCurrent, ContextDiff, ContextSnapshot
 from .semantic_hash import semantic_hash
 from .service import ContextConflict, ContextNotFound, ContextValidationError, require_profile, require_uuid
@@ -36,6 +37,10 @@ def _snapshot_semantic_hash(profile: str, projection: Mapping[str, object]) -> s
         return semantic_hash(canonicalize_baseline(projection))
     if profile == "inventory_v1":
         return semantic_hash(canonicalize_inventory(projection))
+    if profile == "session_v1":
+        return semantic_hash(canonicalize_session(projection))
+    if profile == "network_v1":
+        return semantic_hash(canonicalize_network(projection))
     return None
 
 
@@ -137,6 +142,7 @@ async def _advance_current_pointer(
                 profile=snapshot.profile,
                 snapshot_id=snapshot.id,
                 updated_at=updated_at,
+                last_observed_at=updated_at,
             )
         )
         return
@@ -148,12 +154,20 @@ async def _advance_current_pointer(
     )
     if current_snapshot is None:
         raise ContextConflict("current context snapshot is missing")
+    last_observed = current.last_observed_at or current.updated_at
+    if last_observed.tzinfo is None:
+        last_observed = last_observed.replace(tzinfo=UTC)
+    if updated_at > last_observed.astimezone(UTC):
+        current.last_observed_at = updated_at
     current_collected_at = current_snapshot.collected_at
     if current_collected_at.tzinfo is None:
         # SQLite drops tzinfo for DateTime(timezone=True); PostgreSQL preserves
         # it. Context snapshots are validated as UTC before persistence.
         current_collected_at = current_collected_at.replace(tzinfo=UTC)
-    if snapshot.collected_at <= current_collected_at.astimezone(UTC):
+    candidate_at = snapshot.collected_at
+    if candidate_at.tzinfo is None:
+        candidate_at = candidate_at.replace(tzinfo=UTC)
+    if candidate_at.astimezone(UTC) <= current_collected_at.astimezone(UTC):
         return
     current.snapshot_id = snapshot.id
     current.updated_at = updated_at
@@ -228,6 +242,9 @@ async def ingest_context_result(
             .with_for_update()
         )
         if latest_snapshot is not None and latest_snapshot.semantic_hash == snapshot_hash:
+            await _advance_current_pointer(
+                session, latest_snapshot, updated_at=observed_at, lock_held=True,
+            )
             collection.status = "completed"
             collection.completed_at = observed_at
             await session.flush()
@@ -239,6 +256,7 @@ async def ingest_context_result(
     )
     session.add(snapshot)
     await session.flush()
+    diff = None
     if profile in {"baseline_v1", "inventory_v1"} and latest_snapshot is not None:
         diff = compare_snapshots(latest_snapshot.normalized_projection, projection)
         session.add(
@@ -248,6 +266,8 @@ async def ingest_context_result(
                 diff_payload=diff.model_dump(mode="json"),
             )
         )
+    if profile in {"baseline_v1", "inventory_v1", "session_v1", "network_v1"}:
+        session.add_all(events_for_change(latest_snapshot, snapshot, diff=diff))
     await _advance_current_pointer(
         session,
         snapshot,

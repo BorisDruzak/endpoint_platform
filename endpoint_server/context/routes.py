@@ -485,18 +485,19 @@ async def read_device_context(
                 )
             )
         ).all()
-        collections = (
-            await session.scalars(
-                select(ContextCollection)
-                .where(
-                    ContextCollection.device_id == device_id,
-                    ContextCollection.profile.in_(_SAFE_SERVICE_PROFILES),
-                )
-                .order_by(
-                    ContextCollection.requested_at.desc(), ContextCollection.id.desc()
-                )
-            )
-        ).all()
+        ranked_collections = select(
+            ContextCollection.id.label("collection_id"),
+            func.row_number().over(
+                partition_by=ContextCollection.profile,
+                order_by=(ContextCollection.requested_at.desc(), ContextCollection.id.desc()),
+            ).label("position"),
+        ).where(ContextCollection.device_id == device_id,
+                ContextCollection.profile.in_(_SAFE_SERVICE_PROFILES)).subquery()
+        collections = (await session.scalars(
+            select(ContextCollection).join(
+                ranked_collections, ranked_collections.c.collection_id == ContextCollection.id,
+            ).where(ranked_collections.c.position == 1)
+        )).all()
         snapshots = []
         for current in currents:
             snapshot = await session.scalar(
@@ -514,15 +515,25 @@ async def read_device_context(
         )
     )
     availability: dict[str, dict[str, object]] = {}
+    observed_by_profile = {
+        current.profile: current.last_observed_at or current.updated_at
+        for current in currents
+    }
     for collection in collections:
         availability.setdefault(
             collection.profile,
             {
                 "profile": collection.profile,
                 "status": collection.status,
-                "last_collected_at": collection.completed_at,
+                "last_collected_at": observed_by_profile.get(collection.profile),
             },
         )
+    for profile, observed_at in observed_by_profile.items():
+        availability.setdefault(profile, {
+            "profile": profile,
+            "status": "completed",
+            "last_collected_at": observed_at,
+        })
     return {
         "data": {
             "device": await _single_device_projection(session, device),

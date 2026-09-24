@@ -25,7 +25,8 @@ from endpoint_server.auth.scopes import (
     require_service_scope,
 )
 from endpoint_server.audit.service import append_audit_event
-from endpoint_server.db.models import EndpointOperation, ModuleOperationStep
+from endpoint_server.db.models import EndpointOperation, ModuleOperationStep, OperationEvidence
+from endpoint_server.context.policy import OPERATION_RESULT_TTL
 from endpoint_server.db.models.modules import ModuleDefinition, ModuleVersion
 from endpoint_server.http.correlation import CORRELATION_ID_PATTERN
 from endpoint_server.policy.network_targets import NetworkTargetPolicyV1
@@ -100,6 +101,23 @@ async def _project_module_operation(
         or [step.sequence for step in steps] != list(range(expected_step_count))
     ):
         raise ModuleOperationNotFound("module operation was not found")
+    evidence = await session.scalar(select(OperationEvidence).where(OperationEvidence.operation_id == operation.id))
+    now = datetime.now(UTC)
+    if evidence is not None:
+        expiry = _stored_utc(evidence.expires_at)
+        result_visible = evidence.safe_payload is not None and (
+            evidence.pinned_at is not None or (expiry is not None and expiry > now)
+        )
+    else:
+        completed = _stored_utc(operation.completed_at)
+        result_visible = completed is not None and completed + OPERATION_RESULT_TTL > now
+    pinned_results: dict[int, object] = {}
+    if result_visible and evidence is not None and isinstance(evidence.safe_payload, dict):
+        stored_steps = evidence.safe_payload.get("steps")
+        if isinstance(stored_steps, list):
+            for item in stored_steps:
+                if isinstance(item, dict) and isinstance(item.get("sequence"), int):
+                    pinned_results[item["sequence"]] = item.get("safe_result")
     return ModuleOperationDetailV1(
         schema_version="endpoint_module_operation_v1",
         operation_id=operation.id,
@@ -117,7 +135,9 @@ async def _project_module_operation(
                 capability=step.capability,
                 status=step.status,
                 error_code=step.error_code,
-                safe_result=step.safe_result_json,
+                safe_result=(
+                    step.safe_result_json if step.safe_result_json is not None else pinned_results.get(step.sequence)
+                ) if result_visible else None,
             )
             for step in steps
         ],

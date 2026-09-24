@@ -14,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from endpoint_contracts import AgentResultV1
 from endpoint_server.context import ingestion
-from endpoint_server.context.models import ContextCollection, ContextCurrent, ContextDiff, ContextSnapshot
+from endpoint_server.context.models import ContextCollection, ContextCurrent, ContextDiff, ContextSnapshot, DeviceEvent
 from endpoint_server.context.repository import request_collection
 from endpoint_server.context.ingestion import ingest_context_result
 from endpoint_server.db.models import (
@@ -44,6 +44,7 @@ async def session() -> AsyncIterator[AsyncSession]:
         ContextSnapshot.__table__,
         ContextDiff.__table__,
         ContextCurrent.__table__,
+        DeviceEvent.__table__,
     )
     async with engine.begin() as connection:
         await connection.execute(text("PRAGMA foreign_keys=ON"))

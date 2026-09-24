@@ -26,6 +26,7 @@ from endpoint_server.db.models import (
     AuditEvent,
     Device,
     EndpointOperation,
+    OperationEvidence,
     ModuleDefinition,
     ModuleVersion,
     ServiceClient,
@@ -39,6 +40,7 @@ from endpoint_server.operations.service import (
     create_operation_outcome,
     expire_operations,
 )
+from endpoint_server.operations.evidence import create_operation_evidence, cleanup_operation_results, pin_operation_evidence
 from endpoint_server.policy.network_targets import NetworkTargetPolicyV1
 
 
@@ -278,6 +280,46 @@ async def test_deferred_operation_collection_pair_commits_atomically_in_postgres
         assert persisted.context_collection_id == collection.id
         assert collection.operation_id == persisted.id
         assert len(audits) == 1
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_pin_wins_against_expiry_cleanup_on_postgresql(operation_database_url: str) -> None:
+    engine = create_async_engine(operation_database_url)
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    try:
+        async with factory() as session:
+            client, device = await _ownership(session, client_identifier=f"evidence-race-{uuid4().hex}")
+            operation, _ = await create_operation_outcome(
+                session, request=_request(), service_client_id=client.id, device_id=device.id,
+                idempotency_key=f"evidence-{uuid4().hex}", now=NOW,
+            )
+            operation.status = "succeeded"
+            operation.completed_at = NOW + timedelta(minutes=1)
+            await create_operation_evidence(session, operation, result_kind="diagnostic",
+                safe_payload={"safe": "result"}, created_at=NOW + timedelta(minutes=1))
+            await session.commit()
+            operation_id = operation.id
+        holder = factory()
+        try:
+            pinned = await pin_operation_evidence(holder, operation_id, actor_kind="admin",
+                actor_identifier="operator", request_id="postgres-pin-race", now=NOW + timedelta(hours=1))
+            assert pinned.safe_payload == {"safe": "result"}
+            async with factory() as cleanup_session:
+                # The row is locked by the uncommitted pin, so SKIP LOCKED cannot scrub it.
+                assert await cleanup_operation_results(cleanup_session, now=NOW + timedelta(hours=25)) == 0
+                await cleanup_session.commit()
+            await holder.commit()
+        finally:
+            if holder.in_transaction():
+                await holder.rollback()
+            await holder.close()
+        async with factory() as cleanup_session:
+            assert await cleanup_operation_results(cleanup_session, now=NOW + timedelta(hours=25)) == 0
+            evidence = await cleanup_session.scalar(select(OperationEvidence).where(OperationEvidence.operation_id == operation_id))
+            assert evidence.safe_payload == {"safe": "result"}
+            assert evidence.expires_at is None
     finally:
         await engine.dispose()
 

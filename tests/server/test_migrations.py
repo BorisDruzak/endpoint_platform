@@ -140,7 +140,7 @@ def test_migration_history_has_exactly_one_head() -> None:
         _alembic_config("postgresql+asyncpg://unused@127.0.0.1/unused")
     )
 
-    assert script.get_heads() == ["0025_console_enrollment_queue"]
+    assert script.get_heads() == ["0026_context_evidence_v2"]
 
 
 def test_console_enrollment_queue_index_matches_status_and_page_order() -> None:
@@ -151,6 +151,20 @@ def test_console_enrollment_queue_index_matches_status_and_page_order() -> None:
     rendered = " ".join(output.getvalue().split())
     assert "CREATE INDEX ix_enrollment_requests_status_created" in rendered
     assert "ON enrollment_requests (status, created_at, id)" in rendered
+
+
+def test_context_evidence_migration_is_additive_and_indexed() -> None:
+    output = io.StringIO()
+    config = Config(REPOSITORY_ROOT / "alembic.ini", output_buffer=output)
+    config.set_main_option("sqlalchemy.url", "postgresql+asyncpg://unused@127.0.0.1/unused")
+    command.upgrade(config, "0025_console_enrollment_queue:0026_context_evidence_v2", sql=True)
+    rendered = " ".join(output.getvalue().split())
+    assert "ALTER TABLE context_current ADD COLUMN last_observed_at" in rendered
+    assert "ALTER TABLE context_snapshots ALTER COLUMN raw_payload DROP NOT NULL" in rendered
+    assert "CREATE TABLE device_events" in rendered
+    assert "CREATE TABLE operation_evidence" in rendered
+    assert "ix_context_collections_status_requested" in rendered
+    assert "ix_operation_evidence_expiry" in rendered
 
 
 def test_console_module_owner_has_no_service_credential() -> None:

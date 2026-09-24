@@ -27,7 +27,8 @@ from endpoint_server.audit.request_ids import audit_request_id
 from endpoint_server.audit.service import append_audit_event
 from endpoint_server.console.fleet import CONTEXT_TTL, dashboard_fleet, device_presence, list_fleet
 from endpoint_server.context.diff import compare_snapshots
-from endpoint_server.context.models import ContextCollection, ContextCurrent, ContextSnapshot
+from endpoint_server.context.models import ContextCollection, ContextCurrent, ContextSnapshot, DeviceEvent
+from endpoint_server.context.policy import CONTEXT_RETENTION_POLICIES
 from endpoint_server.context.projection import snapshot_projection
 from endpoint_server.context.projection import collection_projection
 from endpoint_server.context.repository import request_collection_outcome
@@ -206,6 +207,7 @@ class ConsoleCurrentSnapshot(BaseModel):
     warnings: list[str]
     sections: BaselineSectionsV1 | HealthSectionsV1 | NetworkSectionsV1 | InventorySectionsV1 | SessionSectionsV1
     fresh: bool
+    last_observed_at: datetime | None = None
 
 
 class ConsoleDeviceDetailResponse(BaseModel):
@@ -231,6 +233,35 @@ class ConsoleChangesPageResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     data: list[ConsoleContextChange]
+    limit: int
+    offset: int
+    has_more: bool
+
+
+class ConsoleDeviceEvent(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    event_id: UUID
+    event_kind: str
+    profile: str
+    occurred_at: datetime
+    summary_code: str
+    safe_details: dict[str, object]
+
+
+class ConsoleDeviceEventPage(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    data: list[ConsoleDeviceEvent]
+    limit: int
+    offset: int
+    has_more: bool
+
+
+class ConsoleContextHistoryPage(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    data: list[ConsoleCurrentSnapshot]
     limit: int
     offset: int
     has_more: bool
@@ -449,15 +480,20 @@ async def console_device_detail(
         if device is None:
             raise HTTPException(status_code=404, detail="Устройство не найдено")
         rows = (await session.execute(
-            select(ContextSnapshot)
+            select(ContextSnapshot, ContextCurrent)
             .join(ContextCurrent, ContextCurrent.snapshot_id == ContextSnapshot.id)
             .where(ContextCurrent.device_id == device_id)
             .order_by(ContextSnapshot.profile)
-        )).scalars().all()
-        snapshots = [safe for row in rows if (safe := snapshot_projection(row)) is not None]
+        )).all()
+        snapshots = []
+        for row, current in rows:
+            safe = snapshot_projection(row)
+            if safe is not None:
+                safe["last_observed_at"] = current.last_observed_at or current.updated_at
+                snapshots.append(safe)
         now = datetime.now(UTC)
         for snapshot in snapshots:
-            collected = snapshot["collected_at"]
+            collected = snapshot["last_observed_at"]
             if isinstance(collected, datetime) and collected.tzinfo is None:
                 collected = collected.replace(tzinfo=UTC)
             snapshot["fresh"] = isinstance(collected, datetime) and now - CONTEXT_TTL <= collected <= now
@@ -556,6 +592,72 @@ async def console_device_changes(
     return ConsoleChangesPageResponse(
         data=[ConsoleContextChange.model_validate(change) for change in changes],
         limit=limit, offset=offset, has_more=has_more,
+    )
+
+
+@router.get("/api/admin/console/devices/{device_id}/events", response_model=ConsoleDeviceEventPage)
+async def console_device_events(
+    request: Request,
+    device_id: UUID,
+    _: Annotated[AdminPrincipal, Depends(require_admin)],
+    limit: Annotated[int, Query(ge=1, le=50)] = 20,
+    offset: Annotated[int, Query(ge=0, le=100_000)] = 0,
+    since: datetime | None = None,
+    until: datetime | None = None,
+    event_kind: Annotated[str | None, Query(max_length=64)] = None,
+) -> ConsoleDeviceEventPage:
+    if (since is not None and since.tzinfo is None) or (until is not None and until.tzinfo is None) or (since and until and since > until):
+        raise HTTPException(status_code=422, detail="Неверный период")
+    async with request.app.state.session_provider() as session:
+        if await session.scalar(select(Device.id).where(Device.id == device_id)) is None:
+            raise HTTPException(status_code=404, detail="Устройство не найдено")
+        filters = [DeviceEvent.device_id == device_id]
+        if since is not None:
+            filters.append(DeviceEvent.occurred_at >= since)
+        if until is not None:
+            filters.append(DeviceEvent.occurred_at <= until)
+        if event_kind is not None:
+            filters.append(DeviceEvent.event_kind == event_kind)
+        rows = (await session.scalars(select(DeviceEvent).where(*filters)
+            .order_by(DeviceEvent.occurred_at.desc(), DeviceEvent.id.desc())
+            .limit(limit + 1).offset(offset))).all()
+    return ConsoleDeviceEventPage(
+        data=[ConsoleDeviceEvent(
+            event_id=row.id, event_kind=row.event_kind, profile=row.profile,
+            occurred_at=row.occurred_at, summary_code=row.summary_code,
+            safe_details=row.details,
+        ) for row in rows[:limit]],
+        limit=limit, offset=offset, has_more=len(rows) > limit,
+    )
+
+
+@router.get("/api/admin/console/devices/{device_id}/context/history", response_model=ConsoleContextHistoryPage)
+async def console_context_history(
+    request: Request,
+    device_id: UUID,
+    _: Annotated[AdminPrincipal, Depends(require_admin)],
+    profile: Literal["baseline_v1", "health_v1", "network_v1", "inventory_v1", "session_v1"],
+    limit: Annotated[int, Query(ge=1, le=50)] = 20,
+    offset: Annotated[int, Query(ge=0, le=100_000)] = 0,
+) -> ConsoleContextHistoryPage:
+    policy = CONTEXT_RETENTION_POLICIES[profile]
+    filters = [ContextSnapshot.device_id == device_id, ContextSnapshot.profile == profile]
+    if policy.ttl is not None:
+        filters.append(ContextSnapshot.collected_at >= datetime.now(UTC) - policy.ttl)
+    async with request.app.state.session_provider() as session:
+        if await session.scalar(select(Device.id).where(Device.id == device_id)) is None:
+            raise HTTPException(status_code=404, detail="Устройство не найдено")
+        rows = (await session.scalars(select(ContextSnapshot).where(*filters)
+            .order_by(ContextSnapshot.collected_at.desc(), ContextSnapshot.id.desc())
+            .limit(limit + 1).offset(offset))).all()
+    now = datetime.now(UTC)
+    safe = [snapshot_projection(row) for row in rows[:limit]]
+    return ConsoleContextHistoryPage(
+        data=[ConsoleCurrentSnapshot.model_validate({
+            **item,
+            "fresh": now - CONTEXT_TTL <= item["collected_at"] <= now,
+        }) for item in safe if item is not None],
+        limit=limit, offset=offset, has_more=len(rows) > limit,
     )
 
 

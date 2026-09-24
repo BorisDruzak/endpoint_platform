@@ -17,9 +17,9 @@ type DashboardData = {
   versions: { version: string | null; count: number }[]
   attention: { kind: string; device_id: string; label: string }[]
 }
-type Snapshot = { id: string; profile: string; collected_at: string; fresh: boolean; semantic_hash: string | null; warnings: string[]; sections: Record<string, unknown> }
+type Snapshot = { id: string; profile: string; collected_at: string; last_observed_at: string | null; fresh: boolean; semantic_hash: string | null; warnings: string[]; sections: Record<string, unknown> }
 type Detail = { device: { id: string; display_name: string; device_identifier: string; online: boolean; last_seen_at: string | null; agent_version: string | null; hostname: string | null; os_name: string | null; os_version: string | null; current_user: string | null }; snapshots: Snapshot[] }
-type Change = { code: string; profile: string; collected_at: string; before_snapshot_id: string; after_snapshot_id: string; before_value: string | number | null; after_value: string | number | null }
+type Change = { event_id: string; event_kind: string; profile: string; occurred_at: string; summary_code: string; safe_details: Record<string, unknown> }
 type ChangePage = { data: Change[]; limit: number; offset: number; has_more: boolean }
 type DeviceUpdate = { rollout_id: string; version: string; mode: string; status: string; assigned_at: string; terminal_at: string | null; safe_reason: string | null }
 type DeviceUpdatePage = { data: DeviceUpdate[]; total: number; limit: number; offset: number }
@@ -39,6 +39,8 @@ const changeLabels: Record<string, string> = {
   RAM_CHANGED: 'Оперативная память', STORAGE_CHANGED: 'Накопители', HOSTNAME_CHANGED: 'Имя компьютера',
   OS_CHANGED: 'Операционная система', HARDWARE_CHANGED: 'Оборудование', NETWORK_ADAPTER_CHANGED: 'Сетевые адаптеры',
   PLATFORM_CHANGED: 'Платформа', NETWORK_CHANGED: 'Сеть', SOFTWARE_CHANGED: 'Программы', AGENT_CHANGED: 'Агент',
+  SESSION_STARTED: 'Пользователь вошёл в систему', SESSION_ENDED: 'Пользователь вышел из системы',
+  SESSION_USER_CHANGED: 'Сменился пользователь',
 }
 const profileLabels: Record<string, string> = {
   baseline_v1: 'Базовый профиль', health_v1: 'Состояние', network_v1: 'Сеть',
@@ -147,11 +149,14 @@ export function DeviceDetailPage() {
   const [error, setError] = useState('')
   const [revision, setRevision] = useState(0)
   const [refreshProfile, setRefreshProfile] = useState('inventory_v1')
+  const [history, setHistory] = useState<Snapshot[]>([])
+  const [historyOffset, setHistoryOffset] = useState(0)
+  const [historyHasMore, setHistoryHasMore] = useState(false)
   const [collection, setCollection] = useState<{ id: string; status: string } | null>(null)
   const [refreshError, setRefreshError] = useState('')
   const [updates, setUpdates] = useState<DeviceUpdatePage | null>(null)
   const [updateOffset, setUpdateOffset] = useState(0)
-  useEffect(() => { setChangeOffset(0); setUpdateOffset(0); setDetail(null); setUpdates(null) }, [deviceId])
+  useEffect(() => { setChangeOffset(0); setHistoryOffset(0); setUpdateOffset(0); setDetail(null); setUpdates(null) }, [deviceId])
   useEffect(() => {
     let active = true
     request<Detail>(`/api/admin/console/devices/${deviceId}`)
@@ -163,11 +168,19 @@ export function DeviceDetailPage() {
     if (tab !== 'changes') return
     let active = true
     setChangesLoaded(false)
-    request<ChangePage>(`/api/admin/console/devices/${deviceId}/changes?limit=20&offset=${changeOffset}`)
+    request<ChangePage>(`/api/admin/console/devices/${deviceId}/events?limit=20&offset=${changeOffset}`)
       .then(page => { if (active) { setChanges(page.data); setChangesHasMore(page.has_more); setChangesLoaded(true) } })
       .catch(reason => { if (active) setError(reason.message) })
     return () => { active = false }
   }, [tab, deviceId, revision, changeOffset])
+  useEffect(() => {
+    if (tab !== 'context') return
+    let active = true
+    request<{ data: Snapshot[]; has_more: boolean }>(`/api/admin/console/devices/${deviceId}/context/history?profile=${refreshProfile}&limit=20&offset=${historyOffset}`)
+      .then(page => { if (active) { setHistory(page.data); setHistoryHasMore(page.has_more) } })
+      .catch(reason => { if (active) setError(reason.message) })
+    return () => { active = false }
+  }, [tab, deviceId, refreshProfile, historyOffset, revision])
   useEffect(() => {
     if (tab !== 'updates') return
     let active = true
@@ -209,8 +222,8 @@ export function DeviceDetailPage() {
     <nav className="tabs" aria-label="Разделы устройства">{[['overview', 'Обзор'], ['context', 'Контекст'], ['changes', 'Изменения'], ['operations', 'Операции'], ['updates', 'Обновления'], ['modules', 'Модули'], ['audit', 'Аудит']].map(([key, label]) => <button key={key} className={tab === key ? 'selected' : ''} onClick={() => setTab(key)}>{label}</button>)}</nav>
     {tab === 'modules' && deviceId && <DeviceModules deviceId={deviceId} />}
     {tab === 'overview' && <div className="detail-columns">{inventory ? Object.entries(inventory.sections).map(([name, value]) => <section className="panel" key={name}><h2>{{system:'Система',hardware:'Оборудование',memory:'Память',storage:'Накопители',interfaces:'Сеть'}[name] ?? name}</h2><SectionRows data={typeof value === 'object' && !Array.isArray(value) && value ? value as Record<string, unknown> : { [name]: value }} /></section>) : <section className="panel"><p>Инвентаризационный Context ещё не получен.</p></section>}{session && <section className="panel"><h2>Сеанс</h2><SectionRows data={session.sections} /></section>}</div>}
-    {tab === 'context' && <><div className="panel context-actions"><label>Профиль <select value={refreshProfile} onChange={event => setRefreshProfile(event.target.value)}>{Object.entries(profileLabels).map(([profile, label]) => <option value={profile} key={profile}>{label}</option>)}</select></label><button onClick={refreshContext}>Обновить данные</button>{collection && <span>Сбор: {collectionLabels[collection.status] ?? collection.status}</span>}{refreshError && <span className="error" role="alert">{refreshError}</span>}</div><div className="detail-columns">{Object.entries(profileLabels).map(([profile, label]) => { const snapshot = detail.snapshots.find(item => item.profile === profile); return <section className="panel" key={profile}><h2>{label}</h2>{snapshot ? <><p className="muted">Состояние: Готово · Собрано: {dateText(snapshot.collected_at)}</p><p className="muted">Свежесть: {snapshot.fresh ? 'Актуален' : 'Устарел'}</p><p className="muted">Снимок: {snapshot.id}</p>{snapshot.warnings.length > 0 && <p className="error">Предупреждения: {snapshot.warnings.join(', ')}</p>}<SectionRows data={snapshot.sections} /></> : <p className="muted">Данные не собраны.</p>}</section> })}</div></>}
-    {tab === 'changes' && <section className="panel"><h2>Изменения Context</h2>{!changesLoaded ? <p aria-live="polite">Загрузка изменений…</p> : changes.length ? <ul className="change-list">{changes.map((item, index) => <li key={`${item.after_snapshot_id}-${item.code}-${index}`}><div><strong>{changeLabels[item.code] ?? 'Изменение'}</strong>{item.before_value !== null && item.after_value !== null && <p>{item.code === 'RAM_CHANGED' ? sizeText(Number(item.before_value)) : item.before_value} → {item.code === 'RAM_CHANGED' ? sizeText(Number(item.after_value)) : item.after_value}</p>}</div><span>{dateText(item.collected_at)} · {profileLabels[item.profile] ?? item.profile}</span></li>)}</ul> : <p className="muted">На этой странице изменений нет.</p>}<div className="pagination"><button disabled={changeOffset === 0 || !changesLoaded} onClick={() => setChangeOffset(Math.max(0, changeOffset - 20))}>Назад</button><span>Страница {Math.floor(changeOffset / 20) + 1}</span><button disabled={!changesHasMore || !changesLoaded} onClick={() => setChangeOffset(changeOffset + 20)}>Далее</button></div></section>}
+    {tab === 'context' && <><div className="panel context-actions"><label>Профиль <select value={refreshProfile} onChange={event => { setRefreshProfile(event.target.value); setHistoryOffset(0); setHistory([]) }}>{Object.entries(profileLabels).map(([profile, label]) => <option value={profile} key={profile}>{label}</option>)}</select></label><button onClick={refreshContext}>Обновить данные</button>{collection && <span>Сбор: {collectionLabels[collection.status] ?? collection.status}</span>}{refreshError && <span className="error" role="alert">{refreshError}</span>}</div><div className="detail-columns">{Object.entries(profileLabels).map(([profile, label]) => { const snapshot = detail.snapshots.find(item => item.profile === profile); return <section className="panel" key={profile}><h2>{label}</h2>{snapshot ? <><p className="muted">Состояние: Готово · Изменено: {dateText(snapshot.collected_at)}</p><p className="muted">Последнее наблюдение: {dateText(snapshot.last_observed_at)}</p><p className="muted">Свежесть: {snapshot.fresh ? 'Актуален' : 'Устарел'}</p><p className="muted">Снимок: {snapshot.id}</p>{snapshot.warnings.length > 0 && <p className="error">Предупреждения: {snapshot.warnings.join(', ')}</p>}<SectionRows data={snapshot.sections} /></> : <p className="muted">Данные не собраны.</p>}</section> })}</div><section className="panel"><h2>{refreshProfile === 'baseline_v1' || refreshProfile === 'inventory_v1' ? 'Сохранённые снимки' : 'История за 24 часа'} · {profileLabels[refreshProfile]}</h2>{history.length ? <ul className="change-list">{history.map(item => <li key={item.id}>{dateText(item.collected_at)} · {item.id}</li>)}</ul> : <p className="muted">Наблюдений за период нет.</p>}<div className="pagination"><button disabled={historyOffset === 0} onClick={() => setHistoryOffset(Math.max(0, historyOffset - 20))}>Назад</button><span>Страница {Math.floor(historyOffset / 20) + 1}</span><button disabled={!historyHasMore} onClick={() => setHistoryOffset(historyOffset + 20)}>Далее</button></div></section></>}
+    {tab === 'changes' && <section className="panel"><h2>Изменения</h2>{!changesLoaded ? <p aria-live="polite">Загрузка изменений…</p> : changes.length ? <ul className="change-list">{changes.map(item => <li key={item.event_id}><div><strong>{changeLabels[item.event_kind] ?? 'Изменение'}</strong><small>{item.summary_code}</small></div><span>{dateText(item.occurred_at)} · {profileLabels[item.profile] ?? item.profile}</span></li>)}</ul> : <p className="muted">На этой странице изменений нет.</p>}<div className="pagination"><button disabled={changeOffset === 0 || !changesLoaded} onClick={() => setChangeOffset(Math.max(0, changeOffset - 20))}>Назад</button><span>Страница {Math.floor(changeOffset / 20) + 1}</span><button disabled={!changesHasMore || !changesLoaded} onClick={() => setChangeOffset(changeOffset + 20)}>Далее</button></div></section>}
     {tab === 'updates' && <section className="panel"><h2>История обновлений</h2>{updates === null ? <p>Загрузка…</p> : updates.data.length ? <ul className="change-list">{updates.data.map(item => <li key={item.rollout_id}><div><strong><Link to={`/admin/updates?open=${item.rollout_id}`}>{item.version}</Link></strong><p>{updateLabels[item.status] ?? item.status}{item.safe_reason ? ` · ${item.safe_reason}` : ''}</p></div><span>{dateText(item.assigned_at)}</span></li>)}</ul> : <p className="muted">Обновлений пока нет.</p>}<Link to="/admin/updates">Все развёртывания</Link><div className="pagination"><button disabled={updateOffset === 0 || updates === null} onClick={() => setUpdateOffset(Math.max(0, updateOffset - 50))}>Назад</button><span>{updates ? Math.min(updateOffset + 50, updates.total) : 0} из {updates?.total ?? 0}</span><button disabled={updates === null || updateOffset + 50 >= updates.total} onClick={() => setUpdateOffset(updateOffset + 50)}>Далее</button></div></section>}
     {tab === 'operations' && <section className="panel"><h2>Операции устройства</h2><Link to={`/admin/operations?device_id=${deviceId}`}>Открыть журнал операций устройства</Link></section>}
     {tab === 'audit' && <section className="panel"><h2>Аудит устройства</h2><Link to={`/admin/audit?object_kind=device&object_id=${deviceId}`}>Открыть события устройства</Link></section>}

@@ -218,8 +218,8 @@ class EndpointOperationV1(ContractModelV1):
         json_schema_extra={
             "$comment": (
                 "Model-only constraints: deadline_at must be after created_at; "
-                "completed_at is set only for terminal states; succeeded "
-                "operations expose an available safe diagnostic result."
+                "completed_at is set only for terminal states; an available "
+                "safe result requires succeeded status and may expire."
             )
         },
     )
@@ -253,8 +253,8 @@ class EndpointOperationV1(ContractModelV1):
             raise ValueError("completed_at must not be before created_at")
         if (self.completed_at is not None) != (self.status in terminal_statuses):
             raise ValueError("completed_at must match a terminal operation status")
-        if self.result_available != (self.status == "succeeded"):
-            raise ValueError("result availability must match succeeded status")
+        if self.result_available and self.status != "succeeded":
+            raise ValueError("result availability requires succeeded status")
         return self
 
 

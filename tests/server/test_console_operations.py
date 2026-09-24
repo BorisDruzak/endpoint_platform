@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from endpoint_server.auth.admin_sessions import AdminPrincipal, require_admin
 from endpoint_server.config import Settings
-from endpoint_server.db.models import AdminSession, AdminUser, AuditEvent, ContextCollection, Device, EndpointOperation, ServiceClient
+from endpoint_server.db.models import AdminSession, AdminUser, AuditEvent, ContextCollection, Device, EndpointOperation, OperationEvidence, ServiceClient
 from endpoint_server.main import create_app
 
 
@@ -24,6 +24,7 @@ async def test_operation_journal_and_detail_are_secret_safe() -> None:
         await connection.run_sync(lambda sync: [table.create(sync) for table in (
             ServiceClient.__table__, Device.__table__, AuditEvent.__table__,
             ContextCollection.__table__, EndpointOperation.__table__,
+            OperationEvidence.__table__,
         )])
     sessions = async_sessionmaker(engine, expire_on_commit=False)
     now = datetime.now(UTC)

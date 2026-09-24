@@ -26,7 +26,7 @@ test('administrator can approve enrollment, roll back an update and run a module
   await page.getByRole('button', { name: 'Обновить данные' }).click()
   await expect(page.getByText(/^Сбор:/)).toBeVisible()
   await page.getByRole('button', { name: 'Изменения' }).click()
-  await expect(page.getByRole('heading', { name: 'Изменения Context' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Изменения', exact: true })).toBeVisible()
 
   await page.getByRole('navigation', { name: 'Основная навигация' }).getByRole('link', { name: 'Установка и регистрация' }).click()
   await expect(page.getByRole('heading', { name: 'Установка и регистрация' })).toBeVisible()

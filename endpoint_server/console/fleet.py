@@ -122,9 +122,9 @@ async def list_fleet(
     if agent_version:
         base = base.where(instances.c.agent_version == agent_version)
     if context == "fresh":
-        base = base.where(inventory.collected_at >= now - CONTEXT_TTL)
+        base = base.where(func.coalesce(inventory_current.last_observed_at, inventory_current.updated_at) >= now - CONTEXT_TTL)
     elif context == "stale":
-        base = base.where(or_(inventory.collected_at.is_(None), inventory.collected_at < now - CONTEXT_TTL))
+        base = base.where(or_(inventory_current.id.is_(None), func.coalesce(inventory_current.last_observed_at, inventory_current.updated_at) < now - CONTEXT_TTL))
     if update == "none":
         base = base.where(updates.c.status.is_(None))
     elif update == "active":
@@ -137,7 +137,7 @@ async def list_fleet(
             Device.id, Device.device_identifier, Device.display_name,
             sessions.c.last_seen_at, sessions.c.closed_at,
             instances.c.agent_version, updates.c.status,
-            inventory.collected_at, inventory.normalized_projection,
+            func.coalesce(inventory_current.last_observed_at, inventory_current.updated_at), inventory.normalized_projection,
             session_snapshot.normalized_projection,
         ).order_by(Device.device_identifier, Device.id).limit(limit).offset(offset)
     )).all()
@@ -218,7 +218,7 @@ async def dashboard_fleet(session: AsyncSession) -> dict[str, object]:
         select(func.count()).select_from(Device)
         .outerjoin(current, and_(current.device_id == Device.id, current.profile == "inventory_v1"))
         .outerjoin(inventory, inventory.id == current.snapshot_id)
-        .where(active, or_(inventory.collected_at.is_(None), inventory.collected_at < now - CONTEXT_TTL))
+        .where(active, or_(current.id.is_(None), func.coalesce(current.last_observed_at, current.updated_at) < now - CONTEXT_TTL))
     ) or 0
     pending = await session.scalar(
         select(func.count()).select_from(EnrollmentRequest)
@@ -255,7 +255,7 @@ async def dashboard_fleet(session: AsyncSession) -> dict[str, object]:
         select(Device.id, Device.display_name, Device.device_identifier)
         .outerjoin(current, and_(current.device_id == Device.id, current.profile == "inventory_v1"))
         .outerjoin(inventory, inventory.id == current.snapshot_id)
-        .where(active, or_(inventory.collected_at.is_(None), inventory.collected_at < now - CONTEXT_TTL))
+        .where(active, or_(current.id.is_(None), func.coalesce(current.last_observed_at, current.updated_at) < now - CONTEXT_TTL))
         .order_by(Device.device_identifier).limit(5)
     )).all()
     attention = [
