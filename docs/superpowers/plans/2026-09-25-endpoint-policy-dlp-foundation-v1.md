@@ -67,9 +67,9 @@ Chrome `ExtensionSettings` is preferred; Yandex `ExtensionInstallForcelist` or `
 
 **Files:** Create `endpoint_contracts/endpoint_policy.py`, `endpoint_server/policy/{models,service,admin_routes}.py`, `endpoint_server/db/migrations/versions/0029_endpoint_policy_dlp_v1.py`; modify `endpoint_server/db/models/__init__.py`, `endpoint_server/main.py`, `endpoint_server/config.py`. Tests in `tests/policy/` and `tests/server/test_migrations.py`.
 
-- [ ] Write failing contract tests for bounds, extra-field rejection, digest determinism, audit-only modes, strict `agent_managed | external_managed` browser ownership, default and override resolution, immutability, and audited admin mutation.
-- [ ] Implement `EndpointPolicyV1`, `PolicyDefinition`, `PolicyVersion`, `PolicyAssignment`, `PolicyDeviceState` and migration with unique `(policy_id,version)` and device assignment constraints.
-- [ ] Add default-disabled settings and session-authenticated, CSRF-protected paginated Console policy APIs; run focused contract/API/migration tests and `git diff --check`; commit.
+- [x] Write failing contract tests for bounds, extra-field rejection, digest determinism, audit-only modes, strict `agent_managed | external_managed` browser ownership, default and override resolution, immutability, and audited admin mutation.
+- [x] Implement `EndpointPolicyV1`, `PolicyDefinition`, `PolicyVersion`, `PolicyAssignment`, `PolicyDeviceState` and migration with unique `(policy_id,version)` and device assignment constraints.
+- [x] Add default-disabled settings and session-authenticated, CSRF-protected paginated Console policy APIs; run focused contract/API/migration tests and `git diff --check`; commit. Local focused result: 101 passed, 7 skipped. PostgreSQL integration tests require `ENDPOINT_TEST_POSTGRES_URL` and remain a release gate.
 
 ### Task 2: WSS policy sync and Agent cache
 
