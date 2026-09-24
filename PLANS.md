@@ -35,20 +35,22 @@ the Setup catalog publishes a typed page response. The legacy enrollment
 campaign list contract remains unchanged. Module version history is bounded
 and paginated. Device Context changes and update history have typed, paginated
 responses and page controls; mixed baseline/inventory changes retain global
-chronological order without exposing raw snapshots.
+chronological order without exposing raw snapshots. Module validation and lab
+histories also have bounded pages; the acceptance control uses a server-derived
+summary of all passed platforms, including evidence beyond the current page.
 Authenticated production browser acceptance and live Agent module labs remain
 open. Production runs release
-`2f20a194e2ac6cb35c40338d59120f582ab60d04` with DB revision
-`0025_console_enrollment_queue`; the previous `71249efaf289` release is retained for
+`8931f2b4cb2f90022da614475c85ac468e615358` with DB revision
+`0025_console_enrollment_queue`; the previous `2f20a194e2ac` release is retained for
 rollback. The new pre-release PostgreSQL backup is
-`/var/backups/endpoint-platform/pre-console-2f20a194e2ac-20260924T002650Z.dump`
-(17,031,992 bytes; SHA-256 `86b91d38f24627f20ef54c83a4d048828a3bf0ad50920828c021cbf8ba8aa316`).
-The production archive SHA-256 is `f79a5c2afc892cc298d6e282794cbc95cbe2ac4d0bc3a2b93504f08c9e069fab`.
+`/var/backups/endpoint-platform/pre-console-8931f2b4cb2f-20260924T004224Z.dump`
+(17,054,009 bytes; SHA-256 `5b71b0769064af28f4248d079275fae66463317ba0571bef96fcb79caf67b0bd`).
+The production archive SHA-256 is `80272ca71d73736b5b38c06197760dc3cd9b65289648ad4a277bbe5af2ad18c6`.
 Strict CA/hostname HTTPS passed for health, login, and the matching JS asset;
 unauthenticated Console routes returned 401. API, worker, Nginx, and PostgreSQL
 are active; migration reports success, module platform and execution flags
 remain disabled, and the API/worker journals since release contain no warnings.
-The release passed 1781 Python tests (39 skipped), 19 frontend unit tests,
+The release passed 1781 Python tests (39 skipped), 20 frontend unit tests,
 two Playwright E2E flows, contract generation check, compileall, and diff check.
 The dedicated test Agent is unreachable over SSH from the workstation and did not
 answer ARP from the production host. Provider release-gate CI for the branch
