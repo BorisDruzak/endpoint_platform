@@ -39,31 +39,37 @@ responses and page controls; mixed baseline/inventory changes retain global
 chronological order without exposing raw snapshots. Module validation and lab
 histories also have bounded pages; the acceptance control uses a server-derived
 summary of all passed platforms, including evidence beyond the current page.
-Authenticated production browser acceptance and live Agent module labs remain
-open. All Console, operation journal, and audit JSON routes now publish typed
-response models; the Setup binary download remains a file response. The
-2026-09-24 release of `590e1ea10095b118ec65653afd4822a8713a3e75` runs in
-production with DB revision `0025_console_enrollment_queue`; the previous
-`172f399e569a` release is retained for rollback. The verified pre-release
-PostgreSQL backup is
-`/var/backups/endpoint-platform/pre-console-590e1ea10095-20260924T012111Z.dump`
-(17,099,389 bytes; SHA-256 `242f7349fe2ce835e6e1cb2c6f4bab2f9ab8d9ea3a75e7b4d5bb09b527248575`).
-The release archive SHA-256 is `686b4f49d8094b71e23a1f9d6a55628200f1f8bbe03f44b03d42e01ed8cbc240`.
-The preceding backend revision passed 1781 Python tests (39 skipped),
-contract generation check, and compileall. The frontend-only change passed 20
-frontend unit tests, two Playwright E2E flows, build, and diff check.
-Strict CA/hostname HTTPS returned 200 for health and login and 401 for
-protected routes without a session; the deployed JS asset matched the local
-build SHA-256
-`a9233c72c8e1b84bfcd977373ffa3c8941470f9748388441eb9686187887b2a3`.
-API, worker, Nginx, and PostgreSQL are active, and the API/worker warning
-journal since the switch is empty. Module platform and execution remain
-disabled pending a real compatible Agent lab. The browser is at the login page
-without an administrator session. The dedicated test Agent is unreachable over
-SSH from the workstation and did not answer ARP from the production host.
-Provider release-gate CI for the branch is tracked in draft PR #35. The
-historical Wave 1 plan below is retained as a record, not a current deployment
-gate.
+All Console, operation journal, and audit JSON routes publish typed response
+models; the Setup binary download remains a file response. The 2026-09-24
+release `758043d02f3bce895e27cb3c9dd615f0692fa217` runs in production at
+DB revision `0025_console_enrollment_queue`. The previous release
+`a49cd5aa351a` is retained for rollback. The verified pre-release PostgreSQL
+backup is
+`/var/backups/endpoint-platform/pre-console-758043d-20260924T060319Z.dump`
+(17,359,610 bytes; SHA-256
+`eca3b674e313949f7e72e469840ade6c1aac99f34cb591e7d079d8a6c802dca8`).
+The release archive SHA-256 is
+`68ee7be926f36bb18af00ea35b0cd0687f34f09eebac464ef70146a107817d7b`.
+The final code revision passed 1784 Python tests (39 skipped), contract
+generation check, and compileall. The frontend passed 20 unit tests, three
+Playwright E2E flows, and production build. Provider release-gate CI passed on
+the deployed code revision.
+
+The administrator credential was rotated as requested; previous sessions were
+revoked and production browser login succeeded. Strict CA/hostname HTTPS
+returned 200 for health, login, and the hashed Console asset. API, worker,
+Nginx, and PostgreSQL are active. The local Windows Agent `3.2.63` completed
+one real `adapter.list` Module Lab operation and one published device operation;
+both reached `succeeded` with safe step results and audit events. Module
+platform, execution, and read-only primitive flags are enabled; network
+primitives remain disabled. The original mode-600 environment file is backed
+up at
+`/etc/endpoint-platform/endpoint-platform.env.pre-console-local-agent-20260924T054931Z`.
+The workstation's MSI preflight found no installed MSI product although its
+Agent runtime is `3.2.63`; live MSI update/rollback acceptance there remains
+unverified. The browser E2E covers canary and rollback with simulated Agent
+outcomes. Draft PR #35 records the evidence and risk. The historical Wave 1
+plan below is retained as a record, not a current deployment gate.
 
 ## Goal
 
