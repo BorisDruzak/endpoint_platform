@@ -933,7 +933,7 @@ Use existing MSI/Setup ownership and upgrade rules.
 
 Do not require a second manual installer.
 
-The current Windows Agent service runs as `LocalService`, so it must not silently gain broad administrator rights. `agent_managed` policy writes require a fixed, narrowly privileged component installed by the signed MSI/Setup and controlled by Agent through a typed local contract. It may write only the approved Endpoint extension's machine-level browser policy and its ownership marker; no arbitrary registry path/value API is allowed.
+The current Windows Agent service runs as `LocalService`, so it must not silently gain broad administrator rights. `agent_managed` policy writes require a fixed, narrowly privileged component installed by the signed MSI/Setup and controlled by Agent through a typed local contract. The component must authenticate the calling Agent service identity on each local request and accept only versioned apply/relinquish operations for the pinned extension ID and approved Endpoint HTTPS update URL. It may write only the approved Endpoint extension's machine-level browser policy and its ownership marker; no arbitrary registry path/value API is allowed. A failed authentication or unsafe policy merge must leave the existing browser policy unchanged and be reported separately from extension heartbeat state.
 
 ---
 
