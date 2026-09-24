@@ -64,6 +64,19 @@
       "title": "Platform",
       "type": "string"
     },
+    "protocol_features": {
+      "items": {
+        "enum": [
+          "endpoint.policy.v1",
+          "endpoint.activity.v1",
+          "endpoint.security-events.v1"
+        ],
+        "type": "string"
+      },
+      "maxItems": 3,
+      "title": "Protocol Features",
+      "type": "array"
+    },
     "schema_version": {
       "const": "agent_hello_v1",
       "title": "Schema Version",

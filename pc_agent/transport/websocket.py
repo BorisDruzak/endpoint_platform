@@ -20,6 +20,8 @@ from endpoint_contracts.gateway_ws import (
     AgentHelloEnvelopeV1,
     CommandAckEnvelopeV1,
     CommandResultEnvelopeV1,
+    EndpointPolicyAckEnvelopeV1,
+    EndpointPolicyAckV1,
     GatewayHelloEnvelopeV1,
     GatewayWsEnvelopeV1,
     HeartbeatEnvelopeV1,
@@ -203,7 +205,9 @@ class WebSocketGatewayTransport:
                 kind="agent_hello",
                 payload=hello,
             )
-            await self._socket.send_json(envelope.model_dump(mode="json"))
+            await self._socket.send_json(
+                envelope.model_dump(mode="json", exclude_defaults=True)
+            )
             response = await self._socket.receive()
             if response.type is not aiohttp.WSMsgType.TEXT:
                 raise GatewayTerminalError("Gateway hello must be a text message")
@@ -253,6 +257,13 @@ class WebSocketGatewayTransport:
             HeartbeatEnvelopeV1,
             kind="heartbeat",
             payload=heartbeat,
+        )
+
+    async def send_policy_ack(self, ack: EndpointPolicyAckV1) -> None:
+        await self._send(
+            EndpointPolicyAckEnvelopeV1,
+            kind="endpoint_policy_ack",
+            payload=ack,
         )
 
     async def _receive_envelope(self):
@@ -405,6 +416,14 @@ class MigrationFallbackGatewayTransport:
         except GatewayTransportUnavailable as error:
             await self._switch_to_fallback(error, failed=active)
             await self._active.send_heartbeat(heartbeat)
+
+    async def send_policy_ack(self, ack: EndpointPolicyAckV1) -> None:
+        if self._active is not self._primary:
+            raise GatewayTerminalError("Endpoint Policy requires Gateway WSS")
+        sender = getattr(self._primary, "send_policy_ack", None)
+        if not callable(sender):
+            raise GatewayTerminalError("Endpoint Policy ACK transport is unavailable")
+        await sender(ack)
 
     async def close(self) -> None:
         transition = self._fallback_transition

@@ -1,5 +1,36 @@
 {
   "$defs": {
+    "ActivityPolicyV1": {
+      "additionalProperties": false,
+      "properties": {
+        "browser_context": {
+          "title": "Browser Context",
+          "type": "boolean"
+        },
+        "enabled": {
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "foreground_application": {
+          "title": "Foreground Application",
+          "type": "boolean"
+        },
+        "idle_threshold_seconds": {
+          "maximum": 3600,
+          "minimum": 60,
+          "title": "Idle Threshold Seconds",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "enabled",
+        "idle_threshold_seconds",
+        "foreground_application",
+        "browser_context"
+      ],
+      "title": "ActivityPolicyV1",
+      "type": "object"
+    },
     "AgentCommandAckV1": {
       "additionalProperties": false,
       "properties": {
@@ -203,6 +234,19 @@
           ],
           "title": "Platform",
           "type": "string"
+        },
+        "protocol_features": {
+          "items": {
+            "enum": [
+              "endpoint.policy.v1",
+              "endpoint.activity.v1",
+              "endpoint.security-events.v1"
+            ],
+            "type": "string"
+          },
+          "maxItems": 3,
+          "title": "Protocol Features",
+          "type": "array"
         },
         "schema_version": {
           "const": "agent_hello_v1",
@@ -626,6 +670,29 @@
         }
       ]
     },
+    "BrowserSensorPolicyV1": {
+      "additionalProperties": false,
+      "properties": {
+        "deployment_mode": {
+          "enum": [
+            "agent_managed",
+            "external_managed"
+          ],
+          "title": "Deployment Mode",
+          "type": "string"
+        },
+        "required": {
+          "title": "Required",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "required",
+        "deployment_mode"
+      ],
+      "title": "BrowserSensorPolicyV1",
+      "type": "object"
+    },
     "CommandAckEnvelopeV1": {
       "additionalProperties": false,
       "properties": {
@@ -833,6 +900,334 @@
       "title": "CommandResultEnvelopeV1",
       "type": "object"
     },
+    "DlpPolicyV1": {
+      "additionalProperties": false,
+      "properties": {
+        "browser_paste_events": {
+          "enum": [
+            "disabled",
+            "audit"
+          ],
+          "title": "Browser Paste Events",
+          "type": "string"
+        },
+        "browser_upload_events": {
+          "enum": [
+            "disabled",
+            "audit"
+          ],
+          "title": "Browser Upload Events",
+          "type": "string"
+        },
+        "print_events": {
+          "enum": [
+            "disabled",
+            "audit"
+          ],
+          "title": "Print Events",
+          "type": "string"
+        },
+        "removable_write_events": {
+          "const": "disabled",
+          "title": "Removable Write Events",
+          "type": "string"
+        },
+        "usb_device_events": {
+          "enum": [
+            "disabled",
+            "audit"
+          ],
+          "title": "Usb Device Events",
+          "type": "string"
+        }
+      },
+      "required": [
+        "usb_device_events",
+        "removable_write_events",
+        "print_events",
+        "browser_upload_events",
+        "browser_paste_events"
+      ],
+      "title": "DlpPolicyV1",
+      "type": "object"
+    },
+    "EndpointPolicyAckEnvelopeV1": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "endpoint_policy_ack",
+          "title": "Kind",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/EndpointPolicyAckV1"
+        },
+        "schema_version": {
+          "const": "gateway_ws_envelope_v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "sequence": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Sequence",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "schema_version",
+        "sequence",
+        "kind",
+        "payload"
+      ],
+      "title": "EndpointPolicyAckEnvelopeV1",
+      "type": "object"
+    },
+    "EndpointPolicyAckV1": {
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "APPLIED"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "applied_at": {
+                "$comment": "model-only UTC normalization: timezone-aware values are normalized to UTC.",
+                "format": "date-time",
+                "type": "string"
+              },
+              "error_code": {
+                "type": "null"
+              }
+            },
+            "required": [
+              "applied_at"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "ERROR"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "applied_at": {
+                "type": "null"
+              },
+              "error_code": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "error_code"
+            ]
+          }
+        }
+      ],
+      "properties": {
+        "applied_at": {
+          "anyOf": [
+            {
+              "$comment": "model-only UTC normalization: timezone-aware values are normalized to UTC.",
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Applied At"
+        },
+        "error_code": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "minLength": 1,
+              "pattern": "^[A-Z][A-Z0-9_]*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Error Code"
+        },
+        "policy_digest": {
+          "maxLength": 64,
+          "minLength": 64,
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Policy Digest",
+          "type": "string"
+        },
+        "policy_id": {
+          "format": "uuid",
+          "title": "Policy Id",
+          "type": "string"
+        },
+        "policy_version": {
+          "maximum": 2147483647,
+          "minimum": 1,
+          "title": "Policy Version",
+          "type": "integer"
+        },
+        "received_at": {
+          "$comment": "model-only UTC normalization: timezone-aware values are normalized to UTC.",
+          "format": "date-time",
+          "title": "Received At",
+          "type": "string"
+        },
+        "schema_version": {
+          "const": "endpoint_policy_ack_v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "APPLIED",
+            "ERROR"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema_version",
+        "policy_id",
+        "policy_version",
+        "policy_digest",
+        "received_at",
+        "status"
+      ],
+      "title": "EndpointPolicyAckV1",
+      "type": "object"
+    },
+    "EndpointPolicyDeliveryEnvelopeV1": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "endpoint_policy_delivery",
+          "title": "Kind",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/EndpointPolicyDeliveryV1"
+        },
+        "schema_version": {
+          "const": "gateway_ws_envelope_v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "sequence": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Sequence",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "schema_version",
+        "sequence",
+        "kind",
+        "payload"
+      ],
+      "title": "EndpointPolicyDeliveryEnvelopeV1",
+      "type": "object"
+    },
+    "EndpointPolicyDeliveryV1": {
+      "additionalProperties": false,
+      "properties": {
+        "issued_at": {
+          "$comment": "model-only UTC normalization: timezone-aware values are normalized to UTC.",
+          "format": "date-time",
+          "title": "Issued At",
+          "type": "string"
+        },
+        "policy": {
+          "$ref": "#/$defs/EndpointPolicyV1"
+        },
+        "policy_digest": {
+          "maxLength": 64,
+          "minLength": 64,
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Policy Digest",
+          "type": "string"
+        },
+        "policy_version_id": {
+          "format": "uuid",
+          "title": "Policy Version Id",
+          "type": "string"
+        },
+        "schema_version": {
+          "const": "endpoint_policy_delivery_v1",
+          "title": "Schema Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema_version",
+        "policy_version_id",
+        "policy",
+        "policy_digest",
+        "issued_at"
+      ],
+      "title": "EndpointPolicyDeliveryV1",
+      "type": "object"
+    },
+    "EndpointPolicyV1": {
+      "additionalProperties": false,
+      "properties": {
+        "activity": {
+          "$ref": "#/$defs/ActivityPolicyV1"
+        },
+        "browser_sensor": {
+          "$ref": "#/$defs/BrowserSensorPolicyV1"
+        },
+        "dlp": {
+          "$ref": "#/$defs/DlpPolicyV1"
+        },
+        "event_retention": {
+          "$ref": "#/$defs/EventRetentionPolicyV1"
+        },
+        "policy_id": {
+          "format": "uuid",
+          "title": "Policy Id",
+          "type": "string"
+        },
+        "policy_version": {
+          "maximum": 2147483647,
+          "minimum": 1,
+          "title": "Policy Version",
+          "type": "integer"
+        },
+        "schema_version": {
+          "const": "endpoint_policy_v1",
+          "title": "Schema Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema_version",
+        "policy_id",
+        "policy_version",
+        "activity",
+        "dlp",
+        "browser_sensor",
+        "event_retention"
+      ],
+      "title": "EndpointPolicyV1",
+      "type": "object"
+    },
     "ErrorEnvelopeV1": {
       "additionalProperties": false,
       "properties": {
@@ -863,6 +1258,22 @@
         "payload"
       ],
       "title": "ErrorEnvelopeV1",
+      "type": "object"
+    },
+    "EventRetentionPolicyV1": {
+      "additionalProperties": false,
+      "properties": {
+        "security_event_days": {
+          "maximum": 365,
+          "minimum": 7,
+          "title": "Security Event Days",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "security_event_days"
+      ],
+      "title": "EventRetentionPolicyV1",
       "type": "object"
     },
     "GatewayCommandV1": {
@@ -2047,6 +2458,8 @@
       "command_ack": "#/$defs/CommandAckEnvelopeV1",
       "command_cancel": "#/$defs/CommandCancelEnvelopeV1",
       "command_result": "#/$defs/CommandResultEnvelopeV1",
+      "endpoint_policy_ack": "#/$defs/EndpointPolicyAckEnvelopeV1",
+      "endpoint_policy_delivery": "#/$defs/EndpointPolicyDeliveryEnvelopeV1",
       "error": "#/$defs/ErrorEnvelopeV1",
       "gateway_hello": "#/$defs/GatewayHelloEnvelopeV1",
       "heartbeat": "#/$defs/HeartbeatEnvelopeV1",
@@ -2083,6 +2496,12 @@
     },
     {
       "$ref": "#/$defs/PolicyUpdateEnvelopeV1"
+    },
+    {
+      "$ref": "#/$defs/EndpointPolicyDeliveryEnvelopeV1"
+    },
+    {
+      "$ref": "#/$defs/EndpointPolicyAckEnvelopeV1"
     },
     {
       "$ref": "#/$defs/ServerShutdownNoticeEnvelopeV1"

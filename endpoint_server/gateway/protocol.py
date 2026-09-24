@@ -10,6 +10,7 @@ from endpoint_contracts.gateway_ws import (
     AgentHelloEnvelopeV1,
     CommandAckEnvelopeV1,
     CommandResultEnvelopeV1,
+    EndpointPolicyAckEnvelopeV1,
     GatewayWsEnvelopeV1,
     HeartbeatEnvelopeV1,
 )
@@ -20,6 +21,7 @@ AgentEnvelope: TypeAlias = (
     | HeartbeatEnvelopeV1
     | CommandAckEnvelopeV1
     | CommandResultEnvelopeV1
+    | EndpointPolicyAckEnvelopeV1
 )
 
 
@@ -54,6 +56,7 @@ def parse_agent_envelope(
             HeartbeatEnvelopeV1,
             CommandAckEnvelopeV1,
             CommandResultEnvelopeV1,
+            EndpointPolicyAckEnvelopeV1,
         ),
     ):
         raise GatewayProtocolError(1008, "invalid_direction")

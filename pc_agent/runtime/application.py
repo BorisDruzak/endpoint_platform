@@ -22,6 +22,8 @@ from pc_agent.enrollment_identity import (
     read_enrollment_device_id,
 )
 from pc_agent.primitives.network.policy import AgentNetworkProbePolicy
+from pc_agent.policy.cache import AppliedPolicyCache
+from pc_agent.policy.runtime import PolicyRuntime
 from pc_agent.transport.base import GatewayTerminalError, GatewayTransport
 from pc_agent.transport.http_pull import ClassifiedGatewayTransport
 from pc_agent.transport.protocol import (
@@ -45,6 +47,8 @@ from .status import RuntimeStatus
 
 
 _SOURCE_REVISION = re.compile(r"^[0-9a-f]{40}$")
+_AGENT_SEMVER = re.compile(r"^([0-9]+)\.([0-9]+)\.([0-9]+)$")
+_MIN_POLICY_AGENT_VERSION = (3, 2, 68)
 
 
 @dataclass(frozen=True, slots=True)
@@ -126,6 +130,14 @@ def _default_dependencies(
     settings: RuntimeSettings | None = None,
 ) -> RuntimeDependencies:
     transport_state = _EndpointHttpPullState()
+    policy_runtime = (
+        PolicyRuntime(AppliedPolicyCache(settings.data_root))
+        if settings is not None else None
+    )
+
+    async def restore_policy(_settings: object) -> None:
+        if policy_runtime is not None:
+            await policy_runtime.restore_offline()
 
     def create_transport(
         settings: object, credential: str, executor: RuntimeExecutor
@@ -171,6 +183,8 @@ def _default_dependencies(
         create_transport=create_transport,
         load_hello=_load_hello,
         after_server_handshake=_startup_proof_hook,
+        restore_policy=restore_policy,
+        policy_handler=policy_runtime.apply_delivery if policy_runtime is not None else None,
         create_connected_tasks=create_connected_tasks,
         create_completion_sink=_create_completion_sink,
         create_canary_status_writer=_create_canary_status_writer,
@@ -279,7 +293,31 @@ def _load_hello(settings: object) -> AgentHelloV1:
             agent_version=AGENT_VERSION,
             launcher_version=AGENT_VERSION,
         )
+        features = _policy_protocol_features(
+            AGENT_VERSION, platform, settings.transport_mode,
+            settings.migration_http_pull_fallback,
+        )
+        if features:
+            values["protocol_features"] = features
     return compatibility_agent_hello(platform=platform).model_copy(update=values)
+
+
+def _policy_protocol_features(
+    agent_version: str,
+    platform: str,
+    transport_mode: str,
+    migration_http_pull_fallback: bool,
+) -> list[str]:
+    match = _AGENT_SEMVER.fullmatch(agent_version)
+    if (
+        platform != "windows_amd64"
+        or transport_mode != "gateway_wss"
+        or migration_http_pull_fallback
+        or match is None
+        or tuple(int(part) for part in match.groups()) < _MIN_POLICY_AGENT_VERSION
+    ):
+        return []
+    return ["endpoint.policy.v1"]
 
 
 def _create_transport(

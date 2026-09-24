@@ -162,7 +162,7 @@ def test_agent_hello_is_strict_frozen_and_serializes_canonically() -> None:
     contracts = _contracts()
     hello = contracts.AgentHelloV1.model_validate(_agent_hello())
 
-    assert hello.model_dump(mode="json") == _agent_hello()
+    assert hello.model_dump(mode="json", exclude_defaults=True) == _agent_hello()
     with pytest.raises(ValidationError):
         hello.boot_id = "changed"  # type: ignore[misc]
 

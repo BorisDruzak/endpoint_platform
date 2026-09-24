@@ -37,6 +37,9 @@ from endpoint_contracts import (  # noqa: E402
     EnrollmentResponseV1,
     GatewayHelloV1,
     GatewayWsEnvelopeV1,
+    EndpointPolicyAckV1,
+    EndpointPolicyDeliveryV1,
+    EndpointPolicyV1,
     AgentUpdateAcknowledgementV1,
     AgentUpdateRecommendationV1,
     AgentUpdateReportV1,
@@ -156,6 +159,9 @@ GATEWAY_WS_MODELS: dict[str, type[BaseModel]] = {
     "agent_hello_v1.json": AgentHelloV1,
     "gateway_hello_v1.json": GatewayHelloV1,
     "gateway_ws_envelope_v1.json": GatewayWsEnvelopeV1,
+    "endpoint_policy_v1.json": EndpointPolicyV1,
+    "endpoint_policy_delivery_v1.json": EndpointPolicyDeliveryV1,
+    "endpoint_policy_ack_v1.json": EndpointPolicyAckV1,
 }
 
 FIXTURES: dict[str, dict[str, Any]] = {

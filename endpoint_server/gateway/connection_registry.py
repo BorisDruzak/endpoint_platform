@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from uuid import UUID
 
@@ -78,6 +78,13 @@ class GatewayConnection:
     agent_version: str = ""
     platform: str = ""
     effective_capabilities: frozenset[str] = frozenset()
+    protocol_features: frozenset[str] = frozenset()
+    send_lock: asyncio.Lock = field(default_factory=asyncio.Lock, compare=False, repr=False)
+
+    async def send(self, envelope: object) -> None:
+        """Serialize control and command writes on one active WebSocket."""
+        async with self.send_lock:
+            await self.websocket.send_json(envelope.model_dump(mode="json"))  # type: ignore[attr-defined]
 
 
 class ConnectionRegistry:
@@ -154,7 +161,7 @@ class ConnectionRegistry:
             ),
         )
         try:
-            await connection.websocket.send_json(notice.model_dump(mode="json"))
+            await connection.send(notice)
         except Exception:
             pass
         try:

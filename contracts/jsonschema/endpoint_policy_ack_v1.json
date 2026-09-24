@@ -1,0 +1,129 @@
+{
+  "additionalProperties": false,
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "const": "APPLIED"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "applied_at": {
+            "$comment": "model-only UTC normalization: timezone-aware values are normalized to UTC.",
+            "format": "date-time",
+            "type": "string"
+          },
+          "error_code": {
+            "type": "null"
+          }
+        },
+        "required": [
+          "applied_at"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "const": "ERROR"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "applied_at": {
+            "type": "null"
+          },
+          "error_code": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "error_code"
+        ]
+      }
+    }
+  ],
+  "properties": {
+    "applied_at": {
+      "anyOf": [
+        {
+          "$comment": "model-only UTC normalization: timezone-aware values are normalized to UTC.",
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Applied At"
+    },
+    "error_code": {
+      "anyOf": [
+        {
+          "maxLength": 64,
+          "minLength": 1,
+          "pattern": "^[A-Z][A-Z0-9_]*$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Error Code"
+    },
+    "policy_digest": {
+      "maxLength": 64,
+      "minLength": 64,
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Policy Digest",
+      "type": "string"
+    },
+    "policy_id": {
+      "format": "uuid",
+      "title": "Policy Id",
+      "type": "string"
+    },
+    "policy_version": {
+      "maximum": 2147483647,
+      "minimum": 1,
+      "title": "Policy Version",
+      "type": "integer"
+    },
+    "received_at": {
+      "$comment": "model-only UTC normalization: timezone-aware values are normalized to UTC.",
+      "format": "date-time",
+      "title": "Received At",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "endpoint_policy_ack_v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "status": {
+      "enum": [
+        "APPLIED",
+        "ERROR"
+      ],
+      "title": "Status",
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema_version",
+    "policy_id",
+    "policy_version",
+    "policy_digest",
+    "received_at",
+    "status"
+  ],
+  "title": "EndpointPolicyAckV1",
+  "type": "object"
+}

@@ -18,6 +18,7 @@ from endpoint_contracts.gateway_ws import (
     AgentHelloEnvelopeV1,
     CommandAckEnvelopeV1,
     CommandResultEnvelopeV1,
+    EndpointPolicyAckEnvelopeV1,
     ErrorEnvelopeV1,
     GatewayHelloEnvelopeV1,
     HeartbeatEnvelopeV1,
@@ -27,6 +28,11 @@ from endpoint_contracts.capabilities import MODULE_CAPABILITY_REGISTRY
 from endpoint_server.operations.capabilities import module_capability_is_compatible
 from endpoint_server.updates.agent_routes import DevicePrincipal, _authenticate_device
 from endpoint_server.context.connect_refresh import queue_connect_refreshes
+from endpoint_server.policy.delivery import (
+    PolicyAcknowledgementRejected,
+    prepare_policy_delivery,
+    record_policy_ack,
+)
 
 from .command_service import CommandService, CommandStateRejected
 from .connection_registry import (
@@ -195,16 +201,16 @@ async def connect_agent(websocket: WebSocket) -> None:
                 )
             )
         ]
-        await websocket.app.state.gateway_connection_registry.register(
-            GatewayConnection(
-                device_id=device_id,
-                session_id=presence.session_id,
-                websocket=websocket,
-                agent_version=first.payload.agent_version,
-                platform=first.payload.platform,
-                effective_capabilities=frozenset(effective_capabilities),
-            )
+        connection = GatewayConnection(
+            device_id=device_id,
+            session_id=presence.session_id,
+            websocket=websocket,
+            agent_version=first.payload.agent_version,
+            platform=first.payload.platform,
+            effective_capabilities=frozenset(effective_capabilities),
+            protocol_features=frozenset(first.payload.protocol_features),
         )
+        await websocket.app.state.gateway_connection_registry.register(connection)
         async with websocket.app.state.session_provider() as session:
             await queue_connect_refreshes(
                 session,
@@ -212,8 +218,7 @@ async def connect_agent(websocket: WebSocket) -> None:
                 frozenset(effective_capabilities),
             )
             await session.commit()
-        await send_envelope(
-            websocket,
+        await connection.send(
             GatewayHelloEnvelopeV1(
                 schema_version="gateway_ws_envelope_v1",
                 kind="gateway_hello",
@@ -229,10 +234,16 @@ async def connect_agent(websocket: WebSocket) -> None:
                 ),
             ),
         )
+        if websocket.app.state.settings.endpoint_policy_enabled:
+            async with websocket.app.state.session_provider() as session:
+                policy_delivery = await prepare_policy_delivery(session, first.payload)
+                await session.commit()
+            if policy_delivery is not None:
+                await connection.send(policy_delivery)
         await command_service.deliver_next(
             device_id,
             presence.session_id,
-            lambda envelope: send_envelope(websocket, envelope),
+            connection.send,
             allowed_capabilities=frozenset(effective_capabilities),
             agent_platform=first.payload.platform,
         )
@@ -251,6 +262,14 @@ async def connect_agent(websocket: WebSocket) -> None:
                     session_id=presence.session_id,
                     heartbeat=envelope.payload,
                 )
+                if websocket.app.state.settings.endpoint_policy_enabled:
+                    async with websocket.app.state.session_provider() as session:
+                        changed_policy = await prepare_policy_delivery(
+                            session, first.payload, only_if_changed=True,
+                        )
+                        await session.commit()
+                    if changed_policy is not None:
+                        await connection.send(changed_policy)
             elif isinstance(envelope, CommandAckEnvelopeV1):
                 await command_service.record_ack(
                     device_id=device_id,
@@ -265,13 +284,19 @@ async def connect_agent(websocket: WebSocket) -> None:
                     result_sequence=envelope.sequence,
                     result=envelope.payload,
                 )
-                await send_envelope(websocket, acknowledgement)
+                await connection.send(acknowledgement)
+            elif isinstance(envelope, EndpointPolicyAckEnvelopeV1):
+                if not websocket.app.state.settings.endpoint_policy_enabled:
+                    raise GatewayProtocolError(1008, "policy_disabled")
+                async with websocket.app.state.session_provider() as session:
+                    await record_policy_ack(session, device_id, envelope.payload)
+                    await session.commit()
             else:
                 raise GatewayProtocolError(1008, "unexpected_message")
             await command_service.deliver_next(
                 device_id,
                 presence.session_id,
-                lambda message: send_envelope(websocket, message),
+                connection.send,
                 allowed_capabilities=frozenset(effective_capabilities),
                 agent_platform=first.payload.platform,
             )
@@ -290,7 +315,7 @@ async def connect_agent(websocket: WebSocket) -> None:
     except RegistryCapacityExceeded:
         close_reason = "registry_capacity"
         await websocket.close(code=1013)
-    except (CommandStateRejected, PresenceRejected) as error:
+    except (CommandStateRejected, PresenceRejected, PolicyAcknowledgementRejected) as error:
         logger.warning("Gateway state rejected: %s: %s", type(error).__name__, error)
         close_reason = "state_rejected"
         await _send_safe_error(websocket, "state_rejected")

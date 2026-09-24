@@ -1,0 +1,167 @@
+{
+  "$defs": {
+    "ActivityPolicyV1": {
+      "additionalProperties": false,
+      "properties": {
+        "browser_context": {
+          "title": "Browser Context",
+          "type": "boolean"
+        },
+        "enabled": {
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "foreground_application": {
+          "title": "Foreground Application",
+          "type": "boolean"
+        },
+        "idle_threshold_seconds": {
+          "maximum": 3600,
+          "minimum": 60,
+          "title": "Idle Threshold Seconds",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "enabled",
+        "idle_threshold_seconds",
+        "foreground_application",
+        "browser_context"
+      ],
+      "title": "ActivityPolicyV1",
+      "type": "object"
+    },
+    "BrowserSensorPolicyV1": {
+      "additionalProperties": false,
+      "properties": {
+        "deployment_mode": {
+          "enum": [
+            "agent_managed",
+            "external_managed"
+          ],
+          "title": "Deployment Mode",
+          "type": "string"
+        },
+        "required": {
+          "title": "Required",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "required",
+        "deployment_mode"
+      ],
+      "title": "BrowserSensorPolicyV1",
+      "type": "object"
+    },
+    "DlpPolicyV1": {
+      "additionalProperties": false,
+      "properties": {
+        "browser_paste_events": {
+          "enum": [
+            "disabled",
+            "audit"
+          ],
+          "title": "Browser Paste Events",
+          "type": "string"
+        },
+        "browser_upload_events": {
+          "enum": [
+            "disabled",
+            "audit"
+          ],
+          "title": "Browser Upload Events",
+          "type": "string"
+        },
+        "print_events": {
+          "enum": [
+            "disabled",
+            "audit"
+          ],
+          "title": "Print Events",
+          "type": "string"
+        },
+        "removable_write_events": {
+          "const": "disabled",
+          "title": "Removable Write Events",
+          "type": "string"
+        },
+        "usb_device_events": {
+          "enum": [
+            "disabled",
+            "audit"
+          ],
+          "title": "Usb Device Events",
+          "type": "string"
+        }
+      },
+      "required": [
+        "usb_device_events",
+        "removable_write_events",
+        "print_events",
+        "browser_upload_events",
+        "browser_paste_events"
+      ],
+      "title": "DlpPolicyV1",
+      "type": "object"
+    },
+    "EventRetentionPolicyV1": {
+      "additionalProperties": false,
+      "properties": {
+        "security_event_days": {
+          "maximum": 365,
+          "minimum": 7,
+          "title": "Security Event Days",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "security_event_days"
+      ],
+      "title": "EventRetentionPolicyV1",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "activity": {
+      "$ref": "#/$defs/ActivityPolicyV1"
+    },
+    "browser_sensor": {
+      "$ref": "#/$defs/BrowserSensorPolicyV1"
+    },
+    "dlp": {
+      "$ref": "#/$defs/DlpPolicyV1"
+    },
+    "event_retention": {
+      "$ref": "#/$defs/EventRetentionPolicyV1"
+    },
+    "policy_id": {
+      "format": "uuid",
+      "title": "Policy Id",
+      "type": "string"
+    },
+    "policy_version": {
+      "maximum": 2147483647,
+      "minimum": 1,
+      "title": "Policy Version",
+      "type": "integer"
+    },
+    "schema_version": {
+      "const": "endpoint_policy_v1",
+      "title": "Schema Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema_version",
+    "policy_id",
+    "policy_version",
+    "activity",
+    "dlp",
+    "browser_sensor",
+    "event_retention"
+  ],
+  "title": "EndpointPolicyV1",
+  "type": "object"
+}

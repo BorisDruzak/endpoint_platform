@@ -20,6 +20,7 @@ from .capabilities import (
     validate_module_capability_parameters,
 )
 from .commands import AgentCommandAckV1, AgentCommandV1, AgentResultV1
+from .endpoint_policy import EndpointPolicyV1, policy_digest
 from .telemetry import AgentHeartbeatV1
 
 
@@ -60,6 +61,12 @@ CapabilityListV1 = Annotated[
     list[CapabilityNameV1],
     Field(max_length=MAX_CAPABILITIES_V1, json_schema_extra={"uniqueItems": True}),
 ]
+ProtocolFeatureV1 = Literal[
+    "endpoint.policy.v1", "endpoint.activity.v1", "endpoint.security-events.v1"
+]
+ProtocolFeaturesV1 = Annotated[
+    list[ProtocolFeatureV1], Field(strict=True, max_length=3)
+]
 
 
 def _validate_unique_capabilities(capabilities: list[str]) -> list[str]:
@@ -79,11 +86,19 @@ class AgentHelloV1(ContractModelV1):
     capabilities: CapabilityListV1
     last_result_sequence: SequenceV1
     last_policy_revision: PolicyRevisionV1
+    protocol_features: ProtocolFeaturesV1 = Field(default_factory=list)
 
     @field_validator("capabilities")
     @classmethod
     def validate_capabilities(cls, capabilities: list[str]) -> list[str]:
         return _validate_unique_capabilities(capabilities)
+
+    @field_validator("protocol_features")
+    @classmethod
+    def validate_protocol_features(cls, features: list[str]) -> list[str]:
+        if len(features) != len(set(features)):
+            raise ValueError("protocol features must not contain duplicates")
+        return features
 
 
 class GatewayHelloV1(ContractModelV1):
@@ -237,6 +252,75 @@ class PolicyUpdateV1(ContractModelV1):
         return _validate_unique_capabilities(capabilities)
 
 
+PolicyDigestV1 = Annotated[
+    str, Field(strict=True, min_length=64, max_length=64, pattern=r"^[0-9a-f]{64}$")
+]
+
+
+class EndpointPolicyDeliveryV1(ContractModelV1):
+    schema_version: Literal["endpoint_policy_delivery_v1"]
+    policy_version_id: UUID
+    policy: EndpointPolicyV1
+    policy_digest: PolicyDigestV1
+    issued_at: AwareDatetime
+
+    @model_validator(mode="after")
+    def validate_digest(self) -> "EndpointPolicyDeliveryV1":
+        if self.policy_digest != policy_digest(self.policy):
+            raise ValueError("policy delivery digest does not match document")
+        return self
+
+
+class EndpointPolicyAckV1(ContractModelV1):
+    model_config = ConfigDict(json_schema_extra={
+        "allOf": [
+            {
+                "if": {"properties": {"status": {"const": "APPLIED"}}},
+                "then": {
+                    "required": ["applied_at"],
+                    "properties": {
+                        "applied_at": {"type": "string", "format": "date-time"},
+                        "error_code": {"type": "null"},
+                    },
+                },
+            },
+            {
+                "if": {"properties": {"status": {"const": "ERROR"}}},
+                "then": {
+                    "required": ["error_code"],
+                    "properties": {
+                        "applied_at": {"type": "null"},
+                        "error_code": {"type": "string"},
+                    },
+                },
+            },
+        ]
+    })
+
+    schema_version: Literal["endpoint_policy_ack_v1"]
+    policy_id: UUID
+    policy_version: Annotated[int, Field(strict=True, ge=1, le=2**31 - 1)]
+    policy_digest: PolicyDigestV1
+    received_at: AwareDatetime
+    applied_at: AwareDatetime | None = None
+    status: Literal["APPLIED", "ERROR"]
+    error_code: Annotated[
+        str | None,
+        Field(strict=True, min_length=1, max_length=64, pattern=r"^[A-Z][A-Z0-9_]*$"),
+    ] = None
+
+    @model_validator(mode="after")
+    def validate_status(self) -> "EndpointPolicyAckV1":
+        if self.status == "APPLIED":
+            if self.applied_at is None or self.error_code is not None:
+                raise ValueError("applied policy requires applied_at and no error")
+        elif self.error_code is None or self.applied_at is not None:
+            raise ValueError("failed policy requires an error code and no applied_at")
+        if self.applied_at is not None and self.applied_at < self.received_at:
+            raise ValueError("applied_at must follow received_at")
+        return self
+
+
 class ServerShutdownNoticeV1(ContractModelV1):
     schema_version: Literal["server_shutdown_notice_v1"]
     reason: Literal[
@@ -315,6 +399,16 @@ class PolicyUpdateEnvelopeV1(_GatewayWsEnvelopeBaseV1):
     payload: PolicyUpdateV1
 
 
+class EndpointPolicyDeliveryEnvelopeV1(_GatewayWsEnvelopeBaseV1):
+    kind: Literal["endpoint_policy_delivery"]
+    payload: EndpointPolicyDeliveryV1
+
+
+class EndpointPolicyAckEnvelopeV1(_GatewayWsEnvelopeBaseV1):
+    kind: Literal["endpoint_policy_ack"]
+    payload: EndpointPolicyAckV1
+
+
 class ServerShutdownNoticeEnvelopeV1(_GatewayWsEnvelopeBaseV1):
     kind: Literal["server_shutdown_notice"]
     payload: ServerShutdownNoticeV1
@@ -335,6 +429,8 @@ GatewayWsEnvelopeBodyV1 = Annotated[
     | CommandCancelEnvelopeV1
     | ResultAckEnvelopeV1
     | PolicyUpdateEnvelopeV1
+    | EndpointPolicyDeliveryEnvelopeV1
+    | EndpointPolicyAckEnvelopeV1
     | ServerShutdownNoticeEnvelopeV1
     | ErrorEnvelopeV1,
     Field(discriminator="kind"),
@@ -350,6 +446,7 @@ GatewayInboundBodyV1 = Annotated[
     | CommandCancelEnvelopeV1
     | ResultAckEnvelopeV1
     | PolicyUpdateEnvelopeV1
+    | EndpointPolicyDeliveryEnvelopeV1
     | ServerShutdownNoticeEnvelopeV1
     | ErrorEnvelopeV1,
     Field(discriminator="kind"),
@@ -369,6 +466,10 @@ __all__ = [
     "GatewayHelloV1",
     "GatewayInboundV1",
     "GatewayWsEnvelopeV1",
+    "EndpointPolicyAckEnvelopeV1",
+    "EndpointPolicyAckV1",
+    "EndpointPolicyDeliveryEnvelopeV1",
+    "EndpointPolicyDeliveryV1",
     "PolicyUpdateV1",
     "ResultAckV1",
     "ServerShutdownNoticeV1",

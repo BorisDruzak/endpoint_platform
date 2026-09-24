@@ -18,6 +18,7 @@ from endpoint_contracts import (
     AgentResultV1,
     GatewayHelloV1,
 )
+from endpoint_contracts.gateway_ws import EndpointPolicyAckV1, EndpointPolicyDeliveryV1
 from pc_agent.transport.base import (
     GatewayCredentialRejected,
     GatewayIdle,
@@ -85,6 +86,10 @@ async def _noop_after_handshake(_settings: object) -> None:
     return None
 
 
+async def _noop_restore_policy(_settings: object) -> None:
+    return None
+
+
 def _no_connected_tasks(
     _settings: object, _credential: str, _transport: GatewayTransport
 ) -> Iterable[Awaitable[None]]:
@@ -112,6 +117,8 @@ class RuntimeDependencies:
     sleep: Callable[[float], Awaitable[None]] = asyncio.sleep
     heartbeat_sleep: Callable[[float], Awaitable[None]] = asyncio.sleep
     after_server_handshake: Callable[[object], Awaitable[None]] = _noop_after_handshake
+    restore_policy: Callable[[object], Awaitable[object]] = _noop_restore_policy
+    policy_handler: Callable[[EndpointPolicyDeliveryV1], Awaitable[EndpointPolicyAckV1]] | None = None
     create_connected_tasks: Callable[
         [object, str, GatewayTransport], Iterable[Awaitable[None]]
     ] = _no_connected_tasks
@@ -163,6 +170,7 @@ class RuntimeLifecycle:
         try:
             await executor.start()
             executor_started = True
+            await self._dependencies.restore_policy(self._settings)
             completion_sink = self._dependencies.create_completion_sink(self._settings)
             canary_status_writer = self._dependencies.create_canary_status_writer(
                 self._settings
@@ -218,6 +226,7 @@ class RuntimeLifecycle:
                         self._dependencies.heartbeat_sleep,
                         connected_tasks=connected_tasks,
                         completion_sink=completion_sink,
+                        policy_handler=self._dependencies.policy_handler,
                     )
                     raise GatewayTerminalError(
                         "Gateway connected loops stopped unexpectedly"
@@ -367,10 +376,11 @@ async def _run_connected(
     *,
     connected_tasks: Iterable[Awaitable[None]] = (),
     completion_sink: Callable[[dict[str, object]], None] | None = None,
+    policy_handler: Callable[[EndpointPolicyDeliveryV1], Awaitable[EndpointPolicyAckV1]] | None = None,
 ) -> None:
     """Run receive and heartbeat loops for the lifetime of one connection."""
     tasks = {
-        asyncio.create_task(_receive_loop(transport, executor, completion_sink)),
+        asyncio.create_task(_receive_loop(transport, executor, completion_sink, policy_handler)),
         asyncio.create_task(
             _heartbeat_loop(
                 transport,
@@ -407,10 +417,14 @@ async def _receive_loop(
     transport: GatewayTransport,
     executor: RuntimeExecutor,
     completion_sink: Callable[[dict[str, object]], None] | None,
+    policy_handler: Callable[[EndpointPolicyDeliveryV1], Awaitable[EndpointPolicyAckV1]] | None,
 ) -> None:
     while True:
         inbound = await transport.receive()
-        await _handle_inbound(transport, executor, inbound, completion_sink)
+        await _handle_inbound(
+            transport, executor, inbound, completion_sink,
+            policy_handler=policy_handler,
+        )
 
 
 async def _heartbeat_loop(
@@ -438,11 +452,20 @@ async def _handle_inbound(
     executor: RuntimeExecutor,
     inbound: GatewayInboundV1,
     completion_sink: Callable[[dict[str, object]], None] | None = None,
+    *,
+    policy_handler: Callable[[EndpointPolicyDeliveryV1], Awaitable[EndpointPolicyAckV1]] | None = None,
 ) -> None:
     """Handle the bounded server-to-agent messages owned by the common runtime."""
     if inbound.root.kind == "result_ack":
         return
     if inbound.root.kind == "policy_update":
+        return
+    if inbound.root.kind == "endpoint_policy_delivery":
+        send_ack = getattr(transport, "send_policy_ack", None)
+        if policy_handler is None or not callable(send_ack):
+            raise GatewayTerminalError("Endpoint Policy runtime is unavailable")
+        ack = await policy_handler(inbound.root.payload)
+        await send_ack(ack)
         return
     if inbound.root.kind == "command_cancel":
         return

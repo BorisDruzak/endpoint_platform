@@ -38,10 +38,13 @@ from .gateway_ws import (
     GatewayHelloV1,
     GatewayInboundV1,
     GatewayWsEnvelopeV1,
+    EndpointPolicyAckV1,
+    EndpointPolicyDeliveryV1,
     PolicyUpdateV1,
     ResultAckV1,
     ServerShutdownNoticeV1,
 )
+from .endpoint_policy import EndpointPolicyV1
 from .identity import AgentSessionV1, DeviceIdentityV1
 from .network_primitives import (
     DnsResolveParametersV1,
@@ -163,6 +166,9 @@ __all__ = [
     "GatewayHelloV1",
     "GatewayInboundV1",
     "GatewayWsEnvelopeV1",
+    "EndpointPolicyAckV1",
+    "EndpointPolicyDeliveryV1",
+    "EndpointPolicyV1",
     "NetworkAddressV1",
     "NetworkPingParametersV1",
     "NetworkPingResultV1",
