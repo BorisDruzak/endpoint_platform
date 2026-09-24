@@ -32,20 +32,25 @@ use bounded, paginated API queries and visible page controls.
 Windows campaigns and active Setup releases now also have bounded, paginated
 Console queries. Campaign policy can select a signed release from later pages;
 the Setup catalog publishes a typed page response. The legacy enrollment
-campaign list contract remains unchanged.
+campaign list contract remains unchanged. Module version history is bounded
+and paginated. Device Context changes and update history have typed, paginated
+responses and page controls; mixed baseline/inventory changes retain global
+chronological order without exposing raw snapshots.
 Authenticated production browser acceptance and live Agent module labs remain
 open. Production runs release
-`71249efaf289b5c7d140e83d9079d0fd1a1230d3` with DB revision
-`0025_console_enrollment_queue`; the previous `3f39665248cb` release is retained for
+`2f20a194e2ac6cb35c40338d59120f582ab60d04` with DB revision
+`0025_console_enrollment_queue`; the previous `71249efaf289` release is retained for
 rollback. The new pre-release PostgreSQL backup is
-`/var/backups/endpoint-platform/pre-console-71249efaf289-20260923T235910Z.dump`
-(17,003,657 bytes; SHA-256 `385cc4b680b5a1b2f211fb70ce720e5da26bac813d601b6e83c5814837ee91d7`).
-The production archive SHA-256 is `55dd04ddab6c5cfd47bab062b63752f13a22d0aeba485b6e736d4a3c1f3c879b`.
+`/var/backups/endpoint-platform/pre-console-2f20a194e2ac-20260924T002650Z.dump`
+(17,031,992 bytes; SHA-256 `86b91d38f24627f20ef54c83a4d048828a3bf0ad50920828c021cbf8ba8aa316`).
+The production archive SHA-256 is `f79a5c2afc892cc298d6e282794cbc95cbe2ac4d0bc3a2b93504f08c9e069fab`.
 Strict CA/hostname HTTPS passed for health, login, and the matching JS asset;
 unauthenticated Console routes returned 401. API, worker, Nginx, and PostgreSQL
 are active; migration reports success, module platform and execution flags
-remain disabled, and recent API/worker journals contain no errors. The
-dedicated test Agent is unreachable over SSH from the workstation and did not
+remain disabled, and the API/worker journals since release contain no warnings.
+The release passed 1781 Python tests (39 skipped), 19 frontend unit tests,
+two Playwright E2E flows, contract generation check, compileall, and diff check.
+The dedicated test Agent is unreachable over SSH from the workstation and did not
 answer ARP from the production host. Provider release-gate CI for the branch
 is tracked in draft PR #35. The historical
 Wave 1 plan below is retained as a record, not a current deployment gate.
