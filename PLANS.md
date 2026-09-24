@@ -40,9 +40,23 @@ successful diagnostic operation returned its lifecycle with
 `result_available=false`, without a 503. PostgreSQL race tests were opt-in and
 skipped locally because no disposable local PostgreSQL URL was configured. The
 dedicated Linux test host was unreachable over SSH during this release.
-Creation of a fresh production Module Operation and Evidence PIN through the
-Console awaits an authenticated administrator session; the browser opened at
-the login form during acceptance.
+An authenticated Console session subsequently completed the live acceptance
+on the Windows Agent `3.2.65` device. The read-only published module
+`inventory.local.adapters@1.0.0` created operation
+`ebd18e17-9944-4c7c-8294-4fb8abd49dfb`, which reached `succeeded` in
+19.9 seconds with one successful safe step result. Console showed the 24-hour
+Evidence expiry and then the pinned state without an ordinary expiry. A
+read-only production DB check at 14:02 UTC confirmed `module` evidence with
+safe payload present, a 64-character SHA-256 digest, non-NULL `pinned_at`,
+NULL `expires_at` and `scrubbed_at`, and exactly one
+`operation_evidence.pinned` audit event. Console Context showed separate
+changed/observed times, and the Changes tab displayed a durable
+`NETWORK_CHANGED` event. The dedicated Linux test host remained unreachable
+over SSH; the live Windows Agent acceptance used the existing host without
+an Agent update. At 14:03:43 UTC, more than one worker interval later, the
+pinned payload still existed, `expires_at` remained NULL and the PIN audit
+count remained one. Reloading Console still showed the pinned safe result.
+API, worker, PostgreSQL and Nginx were all active.
 
 Post-deployment audit found that revision 0026 backfilled `last_observed_at`
 only from the last changed snapshot. Existing completed deduplicated baseline
