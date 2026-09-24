@@ -13,8 +13,9 @@ Gateway connection. The Windows local sensor boundary has a service-owned,
 cancellable named-pipe listener in `platform/windows/sensor_pipe_listener.py`.
 `platform/windows/activity_api.py` validates the pipe writer's OS identity and
 projects typed user/browser observations; `activity_dispatch.py` holds a
-bounded handoff for WSS reconnects. The listener is not yet started by
-`RuntimeLifecycle`, and the user sensor/bridge are not yet packaged.
+bounded handoff for WSS reconnects. `RuntimeLifecycle` starts the listener on
+Windows WSS before connecting and stops it on exit; the sender resumes on each
+WSS connection. The user sensor/bridge are not yet packaged.
 
 ## Main packages
 
@@ -23,7 +24,7 @@ bounded handoff for WSS reconnects. The listener is not yet started by
 | Runtime | `pc_agent/runtime/` | headless lifecycle, local state, verification |
 | Transport | `pc_agent/transport/` | Endpoint Gateway WSS protocol and HTTP compatibility |
 | Policy | `pc_agent/policy/` | validated policy application and last-good cache |
-| Local sensors | `pc_agent/platform/windows/{local_ipc,sensor_pipe_listener,activity_api,user_sensor,browser_bridge}.py` | bounded user/browser observation boundary, not yet service-wired |
+| Local sensors | `pc_agent/platform/windows/{local_ipc,sensor_pipe_listener,activity_api,user_sensor,browser_bridge}.py` | bounded user/browser observation boundary; service-side listener runs on Windows WSS |
 | Enrollment | `pc_agent/enrollment_identity.py`, `pc_agent/device_credential.py` | device identity and credentials |
 | Context | `pc_agent/context_profiles/` | typed context collection and execution |
 | Modules | `pc_agent/modules/`, `pc_agent/module_manager.py` | managed module lifecycle |

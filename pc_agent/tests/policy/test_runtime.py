@@ -75,3 +75,20 @@ async def test_optional_agent_managed_browser_still_requires_policy_applicator(t
     )
     ack = await PolicyRuntime(cache).apply_delivery(managed)
     assert ack.status == "ERROR" and ack.error_code == "SENSOR_NOT_READY"
+
+
+@pytest.mark.asyncio
+async def test_local_sensor_sees_only_last_successfully_applied_policy(tmp_path) -> None:
+    cache = AppliedPolicyCache(tmp_path, protector=lambda _: None, inspector=lambda _: None)
+    runtime = PolicyRuntime(cache)
+    assert runtime.current_policy is None
+    disabled = _delivery(active=False)
+    assert (await runtime.apply_delivery(disabled)).status == "APPLIED"
+    assert runtime.current_policy == disabled.policy
+    assert (await runtime.apply_delivery(_delivery(active=True))).status == "ERROR"
+    assert runtime.current_policy == disabled.policy
+
+    restored = PolicyRuntime(cache)
+    assert restored.current_policy is None
+    assert await restored.restore_offline() is True
+    assert restored.current_policy == disabled.policy

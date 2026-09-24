@@ -24,6 +24,7 @@ from pc_agent.enrollment_identity import (
 from pc_agent.primitives.network.policy import AgentNetworkProbePolicy
 from pc_agent.policy.cache import AppliedPolicyCache
 from pc_agent.policy.runtime import PolicyRuntime
+from pc_agent.activity_dispatch import ActivityDispatch
 from pc_agent.transport.base import GatewayTerminalError, GatewayTransport
 from pc_agent.transport.http_pull import ClassifiedGatewayTransport
 from pc_agent.transport.protocol import (
@@ -134,10 +135,31 @@ def _default_dependencies(
         PolicyRuntime(AppliedPolicyCache(settings.data_root))
         if settings is not None else None
     )
+    activity_dispatch = ActivityDispatch()
 
     async def restore_policy(_settings: object) -> None:
         if policy_runtime is not None:
             await policy_runtime.restore_offline()
+
+    def start_local_sensor(current_settings: object):
+        if not (
+            os.name == "nt"
+            and isinstance(current_settings, RuntimeSettings)
+            and current_settings.transport_mode == "gateway_wss"
+            and policy_runtime is not None
+        ):
+            return None
+        from pc_agent.platform.windows.activity_api import (
+            ActivityIngress, create_activity_pipe_listener,
+        )
+
+        listener = create_activity_pipe_listener(
+            ingress=ActivityIngress(expected_extension_id=None),
+            policy_provider=lambda: policy_runtime.current_policy,
+            on_observation=activity_dispatch.enqueue,
+        )
+        listener.start()
+        return listener
 
     def create_transport(
         settings: object, credential: str, executor: RuntimeExecutor
@@ -158,7 +180,10 @@ def _default_dependencies(
             and isinstance(transport, WebSocketGatewayTransport)
         ):
             if os.name == "nt":
-                return (_periodic_windows_update_checks(settings, credential),)
+                return (
+                    _periodic_windows_update_checks(settings, credential),
+                    activity_dispatch.send_forever(transport),
+                )
             return (
                 _periodic_https_update_checks(
                     settings,
@@ -184,6 +209,7 @@ def _default_dependencies(
         load_hello=_load_hello,
         after_server_handshake=_startup_proof_hook,
         restore_policy=restore_policy,
+        start_local_sensor=start_local_sensor,
         policy_handler=policy_runtime.apply_delivery if policy_runtime is not None else None,
         create_connected_tasks=create_connected_tasks,
         create_completion_sink=_create_completion_sink,

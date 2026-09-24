@@ -51,9 +51,11 @@ def _ack(error_code: str = "OK") -> BrowserBridgeAckV1:
 class ActivityIngress:
     """Hold only recent, session-isolated projection state in Agent memory."""
 
-    def __init__(self, *, expected_extension_id: str) -> None:
-        if not isinstance(expected_extension_id, str) or len(expected_extension_id) != 32 or any(
-            char not in "abcdefghijklmnop" for char in expected_extension_id
+    def __init__(self, *, expected_extension_id: str | None) -> None:
+        if expected_extension_id is not None and (
+            not isinstance(expected_extension_id, str)
+            or len(expected_extension_id) != 32
+            or any(char not in "abcdefghijklmnop" for char in expected_extension_id)
         ):
             raise ValueError("invalid pinned Browser Sensor extension ID")
         self._extension_id = expected_extension_id
@@ -97,6 +99,8 @@ class ActivityIngress:
             projection.sampled_at = now
             return _ack(), self._project(projection, user_login, policy, now)
 
+        if self._extension_id is None:
+            return _ack("SENSOR_NOT_READY"), None
         if envelope.extension_id != self._extension_id:
             return _ack("IDENTITY_MISMATCH"), None
         message = envelope.message

@@ -678,13 +678,15 @@ def test_windows_wss_runtime_does_not_start_the_linux_update_poller(tmp_path: Pa
             settings, "d" * 43, websocket
         )
     )
-    assert len(tasks) == 1
+    assert len(tasks) == 2
     assert tasks[0].cr_code.co_name == "_periodic_windows_update_checks"
+    assert tasks[1].cr_code.co_name == "send_forever"
     tasks[0].close()
+    tasks[1].close()
 
 
 @pytest.mark.asyncio
-async def test_windows_wss_runtime_starts_only_its_fixed_update_stager(
+async def test_windows_wss_runtime_starts_its_fixed_update_stager_and_activity_sender(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
 ) -> None:
     """Windows receives HTTPS recommendations without constructing HTTP command polling."""
@@ -710,8 +712,9 @@ async def test_windows_wss_runtime_starts_only_its_fixed_update_stager(
         )
     )
 
-    assert len(tasks) == 1
+    assert len(tasks) == 2
     await tasks[0]
+    tasks[1].close()
     assert observed == [(settings, "d" * 43)]
 
 

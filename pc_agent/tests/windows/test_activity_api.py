@@ -178,6 +178,26 @@ def test_disabled_activity_does_not_emit_user_observation() -> None:
     assert ack.error_code == "POLICY_DISABLED" and observed is None
 
 
+def test_user_sensor_can_run_before_signed_browser_identity_is_pinned() -> None:
+    ingress = ActivityIngress(expected_extension_id=None)
+    current_policy = policy()
+    user_ack, user_observation = ingress.ingest(
+        user_payload(5), identity=IDENTITY, user_login="u1",
+        policy=current_policy, received_at=NOW,
+    )
+    heartbeat = BrowserHeartbeatV1(
+        schema_version="browser_sensor_heartbeat_v1", protocol_version=1,
+        extension_version="0.1.0", browser_family="chrome", observed_at=NOW,
+    )
+    browser_ack, browser_observation = ingress.ingest(
+        browser_payload(heartbeat), identity=IDENTITY, user_login="u1",
+        policy=current_policy, received_at=NOW,
+    )
+    assert user_ack.accepted and user_observation.session_state == "ACTIVE"
+    assert browser_ack.error_code == "SENSOR_NOT_READY"
+    assert browser_observation is None
+
+
 def test_session_projection_has_bounded_memory_under_many_logons() -> None:
     ingress = ActivityIngress(expected_extension_id=EXTENSION_ID)
     current_policy = policy()

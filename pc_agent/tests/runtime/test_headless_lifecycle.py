@@ -8,6 +8,7 @@ import os
 import re
 import subprocess
 import sys
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
@@ -406,6 +407,65 @@ async def test_retryable_transport_failure_reconnects_without_reloading_credenti
     assert events.count("transport.close") == 2
     assert sleeps == [0.25]
     assert application.status.reconnect_attempts == 1
+
+
+@pytest.mark.asyncio
+async def test_local_sensor_lives_across_wss_reconnect_and_stops_at_exit(tmp_path: Path) -> None:
+    events: list[str] = []
+
+    class Sensor:
+        def stop(self) -> None:
+            events.append("sensor.stop")
+
+    def start_sensor(_settings: object) -> Sensor:
+        events.append("sensor.start")
+        return Sensor()
+
+    dependencies = replace(
+        _dependencies(events, [RetryableTransportError("temporary"), None]),
+        start_local_sensor=start_sensor,
+    )
+    application = RuntimeApplication(_settings(tmp_path), dependencies)
+
+    assert await application.run() == 0
+    assert events.count("sensor.start") == 1
+    assert events.count("sensor.stop") == 1
+    assert events.index("sensor.start") < events.index("transport.create")
+    assert events.index("transport.close", events.index("sensor.start")) < events.index("sensor.stop")
+    assert events.index("sensor.stop") < events.index("executor.stop")
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows local sensor")
+def test_windows_wss_defaults_start_policy_gated_local_listener(monkeypatch, tmp_path: Path) -> None:
+    from pc_agent.platform.windows import activity_api
+
+    settings = RuntimeSettings(
+        data_root=tmp_path / "data", install_root=tmp_path / "install",
+        ca_file=tmp_path / "endpoint-ca.crt",
+        endpoint_origin="https://endpoint.sosnadmin.local",
+        transport_mode="gateway_wss",
+    )
+    events: list[str] = []
+
+    class Listener:
+        def start(self) -> None:
+            events.append("start")
+
+        def stop(self) -> None:
+            events.append("stop")
+
+    listener = Listener()
+
+    def create_listener(**kwargs):
+        assert kwargs["ingress"]._extension_id is None
+        assert kwargs["policy_provider"]() is None
+        return listener
+
+    monkeypatch.setattr(activity_api, "create_activity_pipe_listener", create_listener)
+    dependencies = runtime_application._default_dependencies(settings)
+    assert dependencies.start_local_sensor(settings) is listener
+    listener.stop()
+    assert events == ["start", "stop"]
 
 
 @pytest.mark.asyncio

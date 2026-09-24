@@ -96,6 +96,14 @@ def _no_connected_tasks(
     return ()
 
 
+class LocalSensorService(Protocol):
+    def stop(self) -> None: ...
+
+
+def _no_local_sensor(_settings: object) -> LocalSensorService | None:
+    return None
+
+
 def _no_completion_sink(_settings: object) -> Callable[[dict[str, object]], None] | None:
     return None
 
@@ -118,6 +126,7 @@ class RuntimeDependencies:
     heartbeat_sleep: Callable[[float], Awaitable[None]] = asyncio.sleep
     after_server_handshake: Callable[[object], Awaitable[None]] = _noop_after_handshake
     restore_policy: Callable[[object], Awaitable[object]] = _noop_restore_policy
+    start_local_sensor: Callable[[object], LocalSensorService | None] = _no_local_sensor
     policy_handler: Callable[[EndpointPolicyDeliveryV1], Awaitable[EndpointPolicyAckV1]] | None = None
     create_connected_tasks: Callable[
         [object, str, GatewayTransport], Iterable[Awaitable[None]]
@@ -165,12 +174,14 @@ class RuntimeLifecycle:
             self._status.transition(RuntimePhase.FAILED, error=error)
             return 1
         executor_started = False
+        local_sensor: LocalSensorService | None = None
         terminal_phase: RuntimePhase | None = None
         tray_status_writer: TrayStatusWriter | None = None
         try:
             await executor.start()
             executor_started = True
             await self._dependencies.restore_policy(self._settings)
+            local_sensor = self._dependencies.start_local_sensor(self._settings)
             completion_sink = self._dependencies.create_completion_sink(self._settings)
             canary_status_writer = self._dependencies.create_canary_status_writer(
                 self._settings
@@ -316,6 +327,8 @@ class RuntimeLifecycle:
             )
             return 1
         finally:
+            if local_sensor is not None:
+                await _cleanup(lambda: asyncio.to_thread(local_sensor.stop))
             if executor_started:
                 await _cleanup(executor.stop)
             if terminal_phase is not None:

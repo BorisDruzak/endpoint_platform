@@ -109,12 +109,15 @@ This is unsigned source only. The bridge, stable signed extension ID, browser po
 
 Native framing, typed ACK, bounded pipe frames, service-SID DACL, OS-backed
 client session checks and fake-server rejection are implemented. A safe
-user-session sampler and a one-frame service receiver are also implemented,
-and typed activity observations can be sent over Gateway WSS. A bounded
-in-memory handoff retains unsent observations across WSS reconnects. The long-lived
-pipe listener, service lifecycle wiring, user-process launch, signed
-binary/manifest packaging, reconnection and real second-session acceptance
-remain open; do not mark this task complete or report a live sensor path yet.
+user-session sampler and a long-lived, cancellable service pipe listener are
+also implemented. On Windows WSS, `RuntimeLifecycle` starts the listener once,
+keeps it across reconnects and stops it on exit. A bounded in-memory handoff
+retains unsent typed activity observations across WSS reconnects. Until the
+approved signed Browser Sensor ID is pinned, browser frames return
+`SENSOR_NOT_READY`; no active browser policy is reported as applied. The
+user-process launch, signed binary/manifest packaging, real second-session
+acceptance and end-to-end Windows canary evidence remain open. Do not mark
+this task complete or report a live user sensor path yet.
 
 ### Task 6: Signed browser release and Browser Integration Policy Applicator
 

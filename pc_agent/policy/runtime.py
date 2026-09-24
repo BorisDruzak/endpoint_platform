@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
+from threading import Lock
 
 from endpoint_contracts.endpoint_policy import EndpointPolicyV1
 from endpoint_contracts.gateway_ws import EndpointPolicyAckV1, EndpointPolicyDeliveryV1
@@ -50,6 +51,18 @@ class PolicyRuntime:
     ) -> None:
         self._cache = cache
         self._apply_sensors = apply_sensors
+        self._policy_lock = Lock()
+        self._current_policy: EndpointPolicyV1 | None = None
+
+    @property
+    def current_policy(self) -> EndpointPolicyV1 | None:
+        """Expose only a successfully applied policy to the local sensor thread."""
+        with self._policy_lock:
+            return self._current_policy
+
+    def _set_current_policy(self, policy: EndpointPolicyV1) -> None:
+        with self._policy_lock:
+            self._current_policy = policy
 
     async def restore_offline(self) -> bool:
         """Reactivate last applied policy before network connection when possible."""
@@ -58,6 +71,7 @@ class PolicyRuntime:
             if stored is None:
                 return False
             await self._apply_sensors(stored.policy)
+            self._set_current_policy(stored.policy)
             return True
         except (PolicyCacheError, PolicyApplicationError):
             logger.warning("Endpoint Policy cache could not be restored")
@@ -74,6 +88,7 @@ class PolicyRuntime:
             await self._apply_sensors(delivery.policy)
             applied_at = datetime.now(UTC)
             self._cache.store(delivery, applied_at=applied_at)
+            self._set_current_policy(delivery.policy)
         except PolicyApplicationError as error:
             error_code = error.code
         except PolicyCacheError:
