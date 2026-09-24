@@ -69,7 +69,7 @@ def test_missing_or_invalid_projection_is_grey() -> None:
 
     assert view.icon == "grey"
     assert view.tooltip == (
-        "Endpoint Agent: unknown; Endpoint: unknown; Update: unknown; Version: 3.2.63"
+        "Endpoint Agent: unknown; Endpoint: unknown; Update: unknown; Version: 3.2.64"
     )
 
 
