@@ -7,8 +7,11 @@ from typing import Annotated, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from pydantic import BaseModel, ConfigDict
 from sqlalchemy import func, select
 
+from endpoint_contracts import EndpointDiagnosticResultV1, EndpointOperationV1
+from endpoint_contracts.modules import ModuleOperationDetailV1
 from endpoint_server.auth.admin_sessions import AdminPrincipal, require_admin
 from endpoint_server.db.models import Device, EndpointOperation, ServiceClient
 from endpoint_server.modules.execution_routes import _project_module_operation
@@ -21,6 +24,45 @@ from endpoint_server.operations.service import (
 
 
 router = APIRouter(prefix="/api/admin/operations", tags=["admin-console-operations"])
+
+
+class ConsoleOperationSummary(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    operation_id: UUID
+    device_id: UUID
+    device_name: str
+    capability: str
+    status: str
+    owner: str
+    created_at: datetime
+    deadline_at: datetime
+    completed_at: datetime | None
+    duration_ms: int | None
+
+
+class ConsoleOperationPageResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    data: list[ConsoleOperationSummary]
+    total: int
+    limit: int
+    offset: int
+
+
+class ConsoleOperationDetailResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    data: ConsoleOperationSummary
+    operation: EndpointOperationV1 | None
+    safe_result: EndpointDiagnosticResultV1 | None
+    module_detail: ModuleOperationDetailV1 | None
+
+
+class ConsoleOperationActionResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    data: EndpointOperationV1
 
 
 def _require_operations_enabled(request: Request) -> None:
@@ -47,12 +89,12 @@ def _summary(operation: EndpointOperation, device_name: str, owner: str) -> dict
     }
 
 
-@router.post("/{operation_id}/cancel")
+@router.post("/{operation_id}/cancel", response_model=ConsoleOperationActionResponse)
 async def cancel_admin_operation(
     operation_id: UUID,
     request: Request,
     principal: Annotated[AdminPrincipal, Depends(require_admin)],
-) -> dict[str, object]:
+) -> ConsoleOperationActionResponse:
     _require_operations_enabled(request)
     async with request.app.state.session_provider() as session:
         try:
@@ -67,10 +109,10 @@ async def cancel_admin_operation(
         except Exception:
             await session.rollback()
             raise
-    return {"data": project_operation(operation).model_dump(mode="json")}
+    return ConsoleOperationActionResponse(data=project_operation(operation))
 
 
-@router.get("")
+@router.get("", response_model=ConsoleOperationPageResponse)
 async def list_admin_operations(
     request: Request,
     _: Annotated[AdminPrincipal, Depends(require_admin)],
@@ -81,7 +123,7 @@ async def list_admin_operations(
     operation_status: Literal["queued", "delivered", "acknowledged", "running", "succeeded", "failed", "canceled", "expired"] | None = None,
     since: datetime | None = None,
     until: datetime | None = None,
-) -> dict[str, object]:
+) -> ConsoleOperationPageResponse:
     _require_operations_enabled(request)
     if since and until and since > until:
         raise HTTPException(status_code=422, detail="Неверный период")
@@ -101,18 +143,18 @@ async def list_admin_operations(
             .order_by(EndpointOperation.created_at.desc(), EndpointOperation.id.desc())
             .limit(limit).offset(offset)
         )).all()
-    return {
+    return ConsoleOperationPageResponse.model_validate({
         "data": [_summary(operation, name or identifier, owner) for operation, name, identifier, owner in rows],
         "total": total, "limit": limit, "offset": offset,
-    }
+    })
 
 
-@router.get("/{operation_id}")
+@router.get("/{operation_id}", response_model=ConsoleOperationDetailResponse)
 async def read_admin_operation(
     operation_id: UUID,
     request: Request,
     _: Annotated[AdminPrincipal, Depends(require_admin)],
-) -> dict[str, object]:
+) -> ConsoleOperationDetailResponse:
     _require_operations_enabled(request)
     async with request.app.state.session_provider() as session:
         row = (await session.execute(
@@ -134,7 +176,7 @@ async def read_admin_operation(
                 module_detail = (await _project_module_operation(session, operation)).model_dump(mode="json")
             except ModuleOperationNotFound as error:
                 raise HTTPException(status_code=503, detail="Детали операции недоступны") from error
-        return {
+        return ConsoleOperationDetailResponse.model_validate({
             "data": _summary(operation, name or identifier, owner),
             "operation": (
                 project_operation(operation).model_dump(mode="json")
@@ -142,4 +184,4 @@ async def read_admin_operation(
             ),
             "safe_result": safe_result,
             "module_detail": module_detail,
-        }
+        })

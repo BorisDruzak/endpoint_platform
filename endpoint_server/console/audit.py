@@ -4,8 +4,10 @@ from __future__ import annotations
 
 from datetime import datetime
 from typing import Annotated
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from pydantic import BaseModel, ConfigDict, JsonValue
 from sqlalchemy import func, or_, select
 
 from endpoint_server.audit.redaction import redact_audit_details
@@ -16,7 +18,30 @@ from endpoint_server.db.models import AuditEvent
 router = APIRouter(prefix="/api/admin/audit", tags=["admin-audit"])
 
 
-@router.get("/events")
+class ConsoleAuditEvent(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: UUID
+    created_at: datetime
+    actor_kind: str
+    actor_identifier: str | None
+    action: str
+    object_kind: str
+    object_identifier: str | None
+    request_id: str
+    details: dict[str, JsonValue]
+
+
+class ConsoleAuditPageResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    data: list[ConsoleAuditEvent]
+    total: int
+    limit: int
+    offset: int
+
+
+@router.get("/events", response_model=ConsoleAuditPageResponse)
 async def list_audit_events(
     request: Request,
     _: Annotated[AdminPrincipal, Depends(require_admin)],
@@ -29,7 +54,7 @@ async def list_audit_events(
     object_kind: Annotated[str | None, Query(max_length=64)] = None,
     object_id: Annotated[str | None, Query(max_length=128)] = None,
     request_id: Annotated[str | None, Query(max_length=128)] = None,
-) -> dict[str, object]:
+) -> ConsoleAuditPageResponse:
     if (since is not None and since.utcoffset() is None) or (until is not None and until.utcoffset() is None):
         raise HTTPException(status_code=422, detail="Укажите часовой пояс периода")
     if since is not None and until is not None and since > until:
@@ -56,7 +81,7 @@ async def list_audit_events(
             .order_by(AuditEvent.created_at.desc(), AuditEvent.id.desc())
             .offset(offset).limit(limit)
         )).scalars().all()
-    return {
+    return ConsoleAuditPageResponse.model_validate({
         "data": [{
             "id": str(item.id), "created_at": item.created_at,
             "actor_kind": item.actor_kind, "actor_identifier": item.actor_identifier,
@@ -66,4 +91,4 @@ async def list_audit_events(
             "details": redact_audit_details(item.details),
         } for item in rows],
         "total": total, "limit": limit, "offset": offset,
-    }
+    })

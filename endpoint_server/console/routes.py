@@ -12,6 +12,10 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict
 
+from endpoint_contracts.context import (
+    BaselineSectionsV1, HealthSectionsV1, InventorySectionsV1,
+    NetworkSectionsV1, SessionSectionsV1,
+)
 from endpoint_server.auth.admin_sessions import (
     ADMIN_SESSION_COOKIE,
     AdminPrincipal,
@@ -76,6 +80,139 @@ class ConsoleCampaignPageResponse(BaseModel):
     total: int
     limit: int
     offset: int
+
+
+class ConsoleCampaignCreateResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: UUID
+
+
+class ConsoleEnrollmentDetail(EnrollmentRequestQueueItem):
+    model_config = ConfigDict(extra="forbid")
+
+    device_id: UUID | None
+    updated_at: datetime
+    decided_at: datetime | None
+
+
+class ConsoleEnrollmentDetailResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    data: ConsoleEnrollmentDetail
+
+
+class ConsoleCollection(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: UUID
+    device_id: UUID
+    profile: Literal["baseline_v1", "health_v1", "network_v1", "inventory_v1", "session_v1"]
+    status: str
+    requested_at: datetime
+    result_received_at: datetime | None
+    completed_at: datetime | None
+    failure_code: str | None
+
+
+class ConsoleCollectionResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    data: ConsoleCollection
+
+
+class ConsoleDashboardVersion(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    version: str | None
+    count: int
+
+
+class ConsoleDashboardAttention(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["update_failed", "context_stale"]
+    device_id: UUID
+    label: str
+
+
+class ConsoleDashboardResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    total: int
+    online: int
+    offline: int
+    context_stale: int
+    enrollment_pending: int
+    updates_active: int
+    updates_failed: int
+    operations_active: int
+    versions: list[ConsoleDashboardVersion]
+    attention: list[ConsoleDashboardAttention]
+
+
+class ConsoleFleetDevice(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: UUID
+    device_identifier: str
+    display_name: str
+    online: bool
+    last_seen_at: datetime | None
+    agent_version: str | None
+    hostname: str | None
+    platform: str | None
+    os_name: str | None
+    os_version: str | None
+    cpu_model: str | None
+    ram_bytes: int | None
+    current_user: str | None
+    context_collected_at: datetime | None
+    context_fresh: bool
+    update_status: str | None
+
+
+class ConsoleFleetPageResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    data: list[ConsoleFleetDevice]
+    total: int
+    limit: int
+    offset: int
+
+
+class ConsoleDeviceHeader(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: UUID
+    device_identifier: str
+    display_name: str
+    hostname: str | None
+    os_name: str | None
+    os_version: str | None
+    current_user: str | None
+    online: bool
+    last_seen_at: datetime | None
+    agent_version: str | None
+
+
+class ConsoleCurrentSnapshot(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: UUID
+    profile: Literal["baseline_v1", "health_v1", "network_v1", "inventory_v1", "session_v1"]
+    collected_at: datetime
+    semantic_hash: str | None
+    warnings: list[str]
+    sections: BaselineSectionsV1 | HealthSectionsV1 | NetworkSectionsV1 | InventorySectionsV1 | SessionSectionsV1
+    fresh: bool
+
+
+class ConsoleDeviceDetailResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    device: ConsoleDeviceHeader
+    snapshots: list[ConsoleCurrentSnapshot]
 
 
 class ConsoleContextChange(BaseModel):
@@ -180,28 +317,28 @@ async def console_list_campaigns(
     )
 
 
-@router.post("/api/admin/console/campaigns", status_code=201)
+@router.post("/api/admin/console/campaigns", status_code=201, response_model=ConsoleCampaignCreateResponse)
 async def console_create_campaign(
     body: CampaignCreateRequest,
     request: Request,
     principal: Annotated[AdminPrincipal, Depends(require_admin)],
-) -> dict[str, object]:
+) -> ConsoleCampaignCreateResponse:
     """Use the canonical campaign path while keeping its show-once bearer server-side."""
     created = await create_campaign(body, request, principal)
-    return {"id": str(created.id)}
+    return ConsoleCampaignCreateResponse(id=created.id)
 
 
-@router.get("/api/admin/console/enrollment/requests/{request_id}")
+@router.get("/api/admin/console/enrollment/requests/{request_id}", response_model=ConsoleEnrollmentDetailResponse)
 async def console_enrollment_request_detail(
     request: Request,
     request_id: UUID,
     _: Annotated[AdminPrincipal, Depends(require_admin)],
-) -> dict[str, object]:
+) -> ConsoleEnrollmentDetailResponse:
     async with request.app.state.session_provider() as session:
         record = await session.scalar(select(EnrollmentRequest).where(EnrollmentRequest.id == request_id))
         if record is None:
             raise HTTPException(status_code=404, detail="Запрос регистрации не найден")
-        return {"data": {
+        return ConsoleEnrollmentDetailResponse.model_validate({"data": {
             "id": str(record.id), "status": record.status,
             "reason": record.decision_reason, "platform": record.platform,
             "hostname": record.hostname, "manufacturer": record.manufacturer,
@@ -212,10 +349,10 @@ async def console_enrollment_request_detail(
             "device_id": str(record.device_id) if record.device_id else None,
             "created_at": record.created_at, "updated_at": record.updated_at,
             "expires_at": record.expires_at, "decided_at": record.decided_at,
-        }}
+        }})
 
 
-@router.post("/api/admin/console/devices/{device_id}/context/collections", status_code=201)
+@router.post("/api/admin/console/devices/{device_id}/context/collections", status_code=201, response_model=ConsoleCollectionResponse)
 async def console_request_context(
     request: Request,
     response: Response,
@@ -223,7 +360,7 @@ async def console_request_context(
     body: ConsoleCollectionRequest,
     principal: Annotated[AdminPrincipal, Depends(require_admin)],
     idempotency_key: Annotated[str | None, Header(alias="Idempotency-Key")] = None,
-) -> dict[str, object]:
+) -> ConsoleCollectionResponse:
     if body.profile not in {"baseline_v1", "health_v1", "network_v1", "inventory_v1", "session_v1"}:
         raise HTTPException(status_code=422, detail="Недопустимый профиль Context")
     if (not idempotency_key or len(idempotency_key) > 128 or
@@ -250,15 +387,15 @@ async def console_request_context(
         else:
             await session.rollback()
             response.status_code = 200
-    return {"data": projected}
+    return ConsoleCollectionResponse.model_validate({"data": projected})
 
 
-@router.get("/api/admin/console/context/collections/{collection_id}")
+@router.get("/api/admin/console/context/collections/{collection_id}", response_model=ConsoleCollectionResponse)
 async def console_collection_status(
     request: Request,
     collection_id: UUID,
     _: Annotated[AdminPrincipal, Depends(require_admin)],
-) -> dict[str, object]:
+) -> ConsoleCollectionResponse:
     async with request.app.state.session_provider() as session:
         collection = await session.scalar(
             select(ContextCollection).where(
@@ -268,19 +405,19 @@ async def console_collection_status(
         )
         if collection is None:
             raise HTTPException(status_code=404, detail="Сбор Context не найден")
-        return {"data": collection_projection(collection)}
+        return ConsoleCollectionResponse.model_validate({"data": collection_projection(collection)})
 
 
-@router.get("/api/admin/console/dashboard")
+@router.get("/api/admin/console/dashboard", response_model=ConsoleDashboardResponse)
 async def console_dashboard(
     request: Request,
     _: Annotated[AdminPrincipal, Depends(require_admin)],
-) -> dict[str, object]:
+) -> ConsoleDashboardResponse:
     async with request.app.state.session_provider() as session:
-        return await dashboard_fleet(session)
+        return ConsoleDashboardResponse.model_validate(await dashboard_fleet(session))
 
 
-@router.get("/api/admin/console/devices")
+@router.get("/api/admin/console/devices", response_model=ConsoleFleetPageResponse)
 async def console_devices(
     request: Request,
     _: Annotated[AdminPrincipal, Depends(require_admin)],
@@ -292,21 +429,21 @@ async def console_devices(
     agent_version: Annotated[str | None, Query(max_length=128)] = None,
     context: Annotated[str | None, Query(pattern="^(fresh|stale)$")] = None,
     update: Annotated[str | None, Query(pattern="^(none|active|failed)$")] = None,
-) -> dict[str, object]:
+) -> ConsoleFleetPageResponse:
     async with request.app.state.session_provider() as session:
         result = await list_fleet(
             session, limit=limit, offset=offset, search=search, online=online,
             platform=platform, agent_version=agent_version, context=context, update=update,
         )
-    return result
+    return ConsoleFleetPageResponse.model_validate(result)
 
 
-@router.get("/api/admin/console/devices/{device_id}")
+@router.get("/api/admin/console/devices/{device_id}", response_model=ConsoleDeviceDetailResponse)
 async def console_device_detail(
     request: Request,
     device_id: UUID,
     _: Annotated[AdminPrincipal, Depends(require_admin)],
-) -> dict[str, object]:
+) -> ConsoleDeviceDetailResponse:
     async with request.app.state.session_provider() as session:
         device = await session.scalar(select(Device).where(Device.id == device_id, Device.retired_at.is_(None)))
         if device is None:
@@ -329,7 +466,7 @@ async def console_device_detail(
         inventory = by_profile.get("inventory_v1", {})
         system = inventory.get("system", {}) if isinstance(inventory, dict) else {}
         session_info = by_profile.get("session_v1", {})
-        return {
+        return ConsoleDeviceDetailResponse.model_validate({
             "device": {
                 "id": str(device.id),
                 "device_identifier": device.device_identifier,
@@ -341,7 +478,7 @@ async def console_device_detail(
                 **presence,
             },
             "snapshots": snapshots,
-        }
+        })
 
 
 @router.get("/api/admin/console/devices/{device_id}/changes", response_model=ConsoleChangesPageResponse)

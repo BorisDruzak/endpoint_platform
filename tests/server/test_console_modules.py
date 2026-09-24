@@ -46,8 +46,26 @@ async def test_admin_module_catalog_draft_validation_and_fake_lab_rejection() ->
         endpoint_operations_api_enabled=True,
     )
     app = create_app(settings, session_provider=sessions)
-    detail_schema = app.openapi()["paths"]["/api/admin/console/modules/{module_key}/versions/{version}"]["get"]["responses"]["200"]["content"]["application/json"]["schema"]
+    paths = app.openapi()["paths"]
+    detail_schema = paths["/api/admin/console/modules/{module_key}/versions/{version}"]["get"]["responses"]["200"]["content"]["application/json"]["schema"]
     assert detail_schema["$ref"].endswith("/ConsoleModuleVersionDetailResponse")
+    typed_routes = (
+        ("/module-capabilities", "get", "200", "ConsoleCapabilityCatalogResponse"),
+        ("/modules", "get", "200", "ConsoleModulePageResponse"),
+        ("/modules/versions", "post", "201", "ConsoleModuleCreateResponse"),
+        ("/modules/{module_key}/versions/{version}/validate", "post", "200", "ConsoleModuleValidationResponse"),
+        ("/modules/{module_key}/versions/{version}/accept-labs", "post", "200", "ConsoleModuleTransitionResponse"),
+        ("/modules/{module_key}/versions/{version}/publish", "post", "200", "ConsoleModuleTransitionResponse"),
+        ("/modules/{module_key}/versions/{version}/deprecate", "post", "200", "ConsoleModuleTransitionResponse"),
+        ("/modules/{module_key}/versions/{version}/lab-evidence/{operation_id}", "post", "200", "ConsoleModuleLabResponse"),
+        ("/modules/{module_key}/versions/{version}/lab-devices", "get", "200", "ConsoleLabDevicePageResponse"),
+        ("/modules/{module_key}/versions/{version}/lab-operations/{device_id}", "post", "201", "ConsoleModuleOperationCreateResponse"),
+        ("/devices/{device_id}/module-operations", "post", "201", "ConsoleModuleOperationCreateResponse"),
+        ("/devices/{device_id}/modules", "get", "200", "ConsoleDeviceModulePageResponse"),
+    )
+    for path, method, status, model in typed_routes:
+        schema = paths[f"/api/admin/console{path}"][method]["responses"][status]["content"]["application/json"]["schema"]
+        assert schema["$ref"].endswith(f"/{model}")
     user_id = uuid4()
     principal = AdminPrincipal(
         user=AdminUser(id=user_id, username="operator", password_digest="unused", scopes=[], disabled_at=None),

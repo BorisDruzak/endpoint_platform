@@ -10,9 +10,9 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Path, Query, Requ
 from pydantic import BaseModel, ConfigDict, ValidationError
 from sqlalchemy import func, select
 
-from endpoint_contracts.capabilities import module_capability_catalog
+from endpoint_contracts.capabilities import ModuleCapabilityAuthoringV1, module_capability_catalog
 from endpoint_contracts.modules import (
-    EndpointRecipeModuleSpecV1, ModuleLabOperationCreateV1,
+    EndpointRecipeModuleSpecV1, ModuleLabOperationCreateV1, ModuleRecipeInputV1,
     ModuleOperationCreateV1, ModuleVersionCreateV1, ModuleVersionViewV1,
 )
 from endpoint_server.audit.request_ids import audit_request_id
@@ -86,6 +86,148 @@ class ConsoleModuleVersionDetailResponse(BaseModel):
     data: ConsoleModuleVersionDetail
 
 
+class ConsoleCapabilityItem(ModuleCapabilityAuthoringV1):
+    display_name: str
+
+
+class ConsoleCapabilityCatalog(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: Literal["endpoint_module_capability_catalog_v1"]
+    items: list[ConsoleCapabilityItem]
+
+
+class ConsoleCapabilityCatalogResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    data: ConsoleCapabilityCatalog
+
+
+class ConsoleModuleVersionSummary(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: UUID
+    version: str
+    state: str
+    created_at: datetime
+
+
+class ConsoleModuleSummary(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    module_key: str
+    display_name: str
+    versions: list[ConsoleModuleVersionSummary]
+
+
+class ConsoleModulePageResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    data: list[ConsoleModuleSummary]
+    total: int
+    limit: int
+    offset: int
+
+
+class ConsoleModuleCreated(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: UUID
+    module_key: str
+    version: str
+    state: str
+
+
+class ConsoleModuleCreateResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    data: ConsoleModuleCreated
+
+
+class ConsoleModuleValidationResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    data: ConsoleModuleValidation
+
+
+class ConsoleModuleTransition(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    module_key: str
+    version: str
+    state: str
+
+
+class ConsoleModuleTransitionResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    data: ConsoleModuleTransition
+
+
+class ConsoleModuleLabResult(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    platform: Literal["linux_amd64", "windows_amd64"]
+    status: Literal["passed", "failed"]
+    tested_at: datetime
+
+
+class ConsoleModuleLabResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    data: ConsoleModuleLabResult
+
+
+class ConsoleLabDevice(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: UUID
+    display_name: str
+
+
+class ConsoleLabDevicePageResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    data: list[ConsoleLabDevice]
+    total: int
+    limit: int
+    offset: int
+
+
+class ConsoleModuleOperationCreated(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    operation_id: UUID
+    status: str
+    created: bool
+
+
+class ConsoleModuleOperationCreateResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    data: ConsoleModuleOperationCreated
+
+
+class ConsoleDeviceModule(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    module_key: str
+    display_name: str
+    version: str
+    compatible: bool
+    reason: str | None
+    inputs: list[ModuleRecipeInputV1]
+
+
+class ConsoleDeviceModulePageResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    data: list[ConsoleDeviceModule]
+    total: int
+    limit: int
+    offset: int
+
+
 ModuleVersionName = Annotated[str, Path(pattern=r"^\d+\.\d+\.\d+$", max_length=64)]
 
 
@@ -119,7 +261,7 @@ async def _audit(session, request: Request, principal: AdminPrincipal, action: s
     )
 
 
-@router.get("/module-capabilities")
+@router.get("/module-capabilities", response_model=ConsoleCapabilityCatalogResponse)
 async def console_module_capabilities(
     request: Request,
     _: Annotated[AdminPrincipal, Depends(require_admin)],
@@ -131,7 +273,7 @@ async def console_module_capabilities(
     return {"data": catalog}
 
 
-@router.get("/modules")
+@router.get("/modules", response_model=ConsoleModulePageResponse)
 async def console_list_modules(
     request: Request,
     _: Annotated[AdminPrincipal, Depends(require_admin)],
@@ -231,7 +373,7 @@ async def console_module_version(
     }}
 
 
-@router.post("/modules/versions", status_code=201)
+@router.post("/modules/versions", status_code=201, response_model=ConsoleModuleCreateResponse)
 async def console_create_module_version(
     body: ModuleVersionCreateV1,
     request: Request,
@@ -254,7 +396,7 @@ async def console_create_module_version(
     return {"data": {"id": str(record.id), "module_key": body.recipe.module_key, "version": record.version, "state": record.state}}
 
 
-@router.post("/modules/{module_key}/versions/{version}/validate")
+@router.post("/modules/{module_key}/versions/{version}/validate", response_model=ConsoleModuleValidationResponse)
 async def console_validate_module_version(
     module_key: ModuleKey, version: ModuleVersionName, request: Request,
     principal: Annotated[AdminPrincipal, Depends(require_admin)],
@@ -306,22 +448,22 @@ async def _transition(request: Request, principal: AdminPrincipal, key: str, ver
     return {"data": {"module_key": key, "version": version, "state": changed.state}}
 
 
-@router.post("/modules/{module_key}/versions/{version}/accept-labs")
+@router.post("/modules/{module_key}/versions/{version}/accept-labs", response_model=ConsoleModuleTransitionResponse)
 async def console_accept_module_labs(module_key: ModuleKey, version: ModuleVersionName, request: Request, principal: Annotated[AdminPrincipal, Depends(require_admin)]) -> dict[str, object]:
     return await _transition(request, principal, module_key, version, "accept-labs")
 
 
-@router.post("/modules/{module_key}/versions/{version}/publish")
+@router.post("/modules/{module_key}/versions/{version}/publish", response_model=ConsoleModuleTransitionResponse)
 async def console_publish_module_version(module_key: ModuleKey, version: ModuleVersionName, request: Request, principal: Annotated[AdminPrincipal, Depends(require_admin)]) -> dict[str, object]:
     return await _transition(request, principal, module_key, version, "publish")
 
 
-@router.post("/modules/{module_key}/versions/{version}/deprecate")
+@router.post("/modules/{module_key}/versions/{version}/deprecate", response_model=ConsoleModuleTransitionResponse)
 async def console_deprecate_module_version(module_key: ModuleKey, version: ModuleVersionName, request: Request, principal: Annotated[AdminPrincipal, Depends(require_admin)]) -> dict[str, object]:
     return await _transition(request, principal, module_key, version, "deprecate")
 
 
-@router.post("/modules/{module_key}/versions/{version}/lab-evidence/{operation_id}")
+@router.post("/modules/{module_key}/versions/{version}/lab-evidence/{operation_id}", response_model=ConsoleModuleLabResponse)
 async def console_record_module_lab(
     module_key: ModuleKey, version: ModuleVersionName, operation_id: UUID,
     request: Request, principal: Annotated[AdminPrincipal, Depends(require_admin)],
@@ -342,7 +484,7 @@ async def console_record_module_lab(
     return {"data": {"platform": lab.platform, "status": lab.status, "tested_at": lab.tested_at}}
 
 
-@router.get("/modules/{module_key}/versions/{version}/lab-devices")
+@router.get("/modules/{module_key}/versions/{version}/lab-devices", response_model=ConsoleLabDevicePageResponse)
 async def console_module_lab_devices(
     module_key: ModuleKey, version: ModuleVersionName, request: Request,
     _: Annotated[AdminPrincipal, Depends(require_admin)],
@@ -432,7 +574,7 @@ async def _create_operation(
     return {"data": {"operation_id": str(operation.id), "status": operation.status, "created": created}}
 
 
-@router.post("/modules/{module_key}/versions/{version}/lab-operations/{device_id}", status_code=201)
+@router.post("/modules/{module_key}/versions/{version}/lab-operations/{device_id}", status_code=201, response_model=ConsoleModuleOperationCreateResponse)
 async def console_start_module_lab(
     module_key: ModuleKey, version: ModuleVersionName, device_id: UUID,
     body: ModuleLabOperationCreateV1, request: Request,
@@ -445,7 +587,7 @@ async def console_start_module_lab(
     )
 
 
-@router.post("/devices/{device_id}/module-operations", status_code=201)
+@router.post("/devices/{device_id}/module-operations", status_code=201, response_model=ConsoleModuleOperationCreateResponse)
 async def console_run_module(
     device_id: UUID, body: ModuleOperationCreateV1, request: Request,
     principal: Annotated[AdminPrincipal, Depends(require_admin)],
@@ -457,7 +599,7 @@ async def console_run_module(
     )
 
 
-@router.get("/devices/{device_id}/modules")
+@router.get("/devices/{device_id}/modules", response_model=ConsoleDeviceModulePageResponse)
 async def console_device_modules(
     device_id: UUID, request: Request,
     _: Annotated[AdminPrincipal, Depends(require_admin)],

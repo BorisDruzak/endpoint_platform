@@ -48,6 +48,9 @@ async def test_console_enrollment_queue_filters_and_paginates_without_claim_mate
         allowed_agent_cidrs=(), allowed_admin_cidrs=(), artifact_root=Path("artifacts"),
     )
     app = create_app(settings, session_provider=sessions)
+    responses = app.openapi()["paths"]
+    assert responses["/api/admin/console/campaigns"]["post"]["responses"]["201"]["content"]["application/json"]["schema"]["$ref"].endswith("ConsoleCampaignCreateResponse")
+    assert responses["/api/admin/console/enrollment/requests/{request_id}"]["get"]["responses"]["200"]["content"]["application/json"]["schema"]["$ref"].endswith("ConsoleEnrollmentDetailResponse")
     user_id = uuid4()
     app.dependency_overrides[require_admin] = lambda: AdminPrincipal(
         user=AdminUser(id=user_id, username="operator", password_digest="unused", scopes=[], disabled_at=None),
@@ -61,6 +64,7 @@ async def test_console_enrollment_queue_filters_and_paginates_without_claim_mate
         invalid_queue = await client.get("/api/admin/console/enrollment/requests?queue=arbitrary")
         unbounded = await client.get("/api/admin/console/enrollment/requests?queue=pending&limit=501")
         invalid_offset = await client.get("/api/admin/console/enrollment/requests?queue=pending&offset=-1")
+        detail = await client.get(f"/api/admin/console/enrollment/requests/{records[0].id}")
         app.dependency_overrides.clear()
         unauthorized = await client.get("/api/admin/console/enrollment/requests")
     await engine.dispose()
@@ -74,5 +78,9 @@ async def test_console_enrollment_queue_filters_and_paginates_without_claim_mate
     assert other.status_code == 200 and other.json()["total"] == 0
     assert invalid_queue.status_code == unbounded.status_code == invalid_offset.status_code == 422
     assert unauthorized.status_code == 401
+    assert detail.status_code == 200
+    assert detail.json()["data"]["id"] == str(records[0].id)
+    assert detail.json()["data"]["macs"] == ["00:11:22:33:44:55"]
+    assert "private-install" not in detail.text
     for private in ("private-install", "private-fingerprint", "private-capability"):
         assert private not in pending.text + denied.text

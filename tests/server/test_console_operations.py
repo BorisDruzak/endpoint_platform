@@ -52,6 +52,13 @@ async def test_operation_journal_and_detail_are_secret_safe() -> None:
         artifact_root=Path("artifacts"), endpoint_operations_api_enabled=True,
     )
     app = create_app(settings, session_provider=sessions)
+    for path, method, model in (
+        ("/api/admin/operations", "get", "ConsoleOperationPageResponse"),
+        ("/api/admin/operations/{operation_id}", "get", "ConsoleOperationDetailResponse"),
+        ("/api/admin/operations/{operation_id}/cancel", "post", "ConsoleOperationActionResponse"),
+    ):
+        schema = app.openapi()["paths"][path][method]["responses"]["200"]["content"]["application/json"]["schema"]
+        assert schema["$ref"].endswith(f"/{model}")
     user_id = uuid4()
     principal = AdminPrincipal(
         user=AdminUser(id=user_id, username="operator", password_digest="unused", scopes=[], disabled_at=None),

@@ -49,6 +49,8 @@ async def test_audit_events_are_paginated_filtered_and_redacted_on_read() -> Non
         allowed_agent_cidrs=(), allowed_admin_cidrs=(), artifact_root=Path("artifacts"),
     )
     app = create_app(settings, session_provider=sessions)
+    schema = app.openapi()["paths"]["/api/admin/audit/events"]["get"]["responses"]["200"]["content"]["application/json"]["schema"]
+    assert schema["$ref"].endswith("/ConsoleAuditPageResponse")
     user_id = uuid4()
     app.dependency_overrides[require_admin] = lambda: AdminPrincipal(
         user=AdminUser(id=user_id, username="operator", password_digest="unused", scopes=[], disabled_at=None),

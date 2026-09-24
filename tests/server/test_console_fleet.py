@@ -79,7 +79,27 @@ async def test_fleet_is_paginated_and_does_not_expose_raw_context() -> None:
             dashboard = await dashboard_fleet(session)
     finally:
         event.remove(engine.sync_engine, "before_cursor_execute", count_query)
-        await engine.dispose()
+    settings = Settings(
+        database_url="postgresql+asyncpg://unused@localhost/unused",
+        public_base_url="https://endpoint.sosnadmin.local",
+        device_token_pepper=b"fleet-test-device-pepper", service_token_pepper=b"fleet-test-service-pepper",
+        session_secret=b"fleet-test-session-secret", allowed_agent_cidrs=(), allowed_admin_cidrs=(),
+        artifact_root=Path("artifacts"),
+    )
+    app = create_app(settings, session_provider=sessions)
+    responses = app.openapi()["paths"]
+    assert responses["/api/admin/console/devices/{device_id}/context/collections"]["post"]["responses"]["201"]["content"]["application/json"]["schema"]["$ref"].endswith("ConsoleCollectionResponse")
+    assert responses["/api/admin/console/context/collections/{collection_id}"]["get"]["responses"]["200"]["content"]["application/json"]["schema"]["$ref"].endswith("ConsoleCollectionResponse")
+    user_id = uuid4()
+    principal = AdminPrincipal(
+        user=AdminUser(id=user_id, username="operator", password_digest="unused", scopes=[], disabled_at=None),
+        session=AdminSession(id=uuid4(), admin_user_id=user_id, session_digest="unused", expires_at=now + timedelta(hours=1), revoked_at=None),
+    )
+    app.dependency_overrides[require_admin] = lambda: principal
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="https://endpoint.sosnadmin.local") as client:
+        dashboard_response = await client.get("/api/admin/console/dashboard")
+        fleet_response = await client.get("/api/admin/console/devices?limit=1")
+    await engine.dispose()
     assert page["total"] == 2
     assert len(page["data"]) == 1
     assert online["total"] == 1
@@ -92,6 +112,9 @@ async def test_fleet_is_paginated_and_does_not_expose_raw_context() -> None:
     assert dashboard["context_stale"] == 1
     assert {item["version"] for item in dashboard["versions"]} == {"3.2.63", None}
     assert "must-not-leak" not in str(page)
+    assert dashboard_response.status_code == fleet_response.status_code == 200
+    assert dashboard_response.json()["total"] == fleet_response.json()["total"] == 2
+    assert "must-not-leak" not in fleet_response.text
     assert list_queries <= 6
     assert queries <= 20
 
@@ -173,6 +196,13 @@ async def test_console_device_api_uses_session_and_safe_projection() -> None:
         artifact_root=Path("artifacts"),
     )
     app = create_app(settings, session_provider=sessions)
+    for path, model in (
+        ("/api/admin/console/dashboard", "ConsoleDashboardResponse"),
+        ("/api/admin/console/devices", "ConsoleFleetPageResponse"),
+        ("/api/admin/console/devices/{device_id}", "ConsoleDeviceDetailResponse"),
+    ):
+        schema = app.openapi()["paths"][path]["get"]["responses"]["200"]["content"]["application/json"]["schema"]
+        assert schema["$ref"].endswith(f"/{model}")
     changes_schema = app.openapi()["paths"][f"/api/admin/console/devices/{{device_id}}/changes"]["get"]["responses"]["200"]["content"]["application/json"]["schema"]
     assert changes_schema["$ref"].endswith("/ConsoleChangesPageResponse")
     user_id = uuid4()
