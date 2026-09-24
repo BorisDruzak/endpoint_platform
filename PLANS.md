@@ -20,7 +20,7 @@ also corrected module operation detail projection and the approved enrollment
 queue/label, and aligned campaign display names with the Russian Console.
 Device detail now projects the current user, OS and version from safe snapshots;
 Context shows collection state and server-derived freshness. The full Python
-suite passed with 1779 passed and 39 skipped; 15 frontend unit tests, build,
+suite passed with 1780 passed and 39 skipped; 17 frontend unit tests, build,
 and two browser E2E flows passed. The browser flow now covers Setup download,
 campaign editing, and a Russian-label regression guard across primary pages.
 Completed rollout history now
@@ -29,21 +29,25 @@ shows backend-provided Russian names, platforms, minimum Agent version, risk,
 consent, and parameter rules.
 Published modules on device detail and compatible devices in Module Lab now
 use bounded, paginated API queries and visible page controls.
+Windows campaigns and active Setup releases now also have bounded, paginated
+Console queries. Campaign policy can select a signed release from later pages;
+the Setup catalog publishes a typed page response. The legacy enrollment
+campaign list contract remains unchanged.
 Authenticated production browser acceptance and live Agent module labs remain
 open. Production runs release
-`3f39665248cb276debc7db103d049f75974ea26b` with DB revision
-`0025_console_enrollment_queue`; the previous `55faa6510c0e` release is retained for
+`71249efaf289b5c7d140e83d9079d0fd1a1230d3` with DB revision
+`0025_console_enrollment_queue`; the previous `3f39665248cb` release is retained for
 rollback. The new pre-release PostgreSQL backup is
-`/var/backups/endpoint-platform/pre-console-3f39665248cb-20260923T234050Z.dump`
-(16,985,430 bytes; SHA-256 `0fd63e1e8d5f4ab3a0165c36d72a25ffd347ac1749aee13a356e972a273784ab`).
-The production archive SHA-256 is `a2d78ccc9c00a5205cde00d11d38bd326db440421d295400ffc558616f9f59b4`.
+`/var/backups/endpoint-platform/pre-console-71249efaf289-20260923T235910Z.dump`
+(17,003,657 bytes; SHA-256 `385cc4b680b5a1b2f211fb70ce720e5da26bac813d601b6e83c5814837ee91d7`).
+The production archive SHA-256 is `55dd04ddab6c5cfd47bab062b63752f13a22d0aeba485b6e736d4a3c1f3c879b`.
 Strict CA/hostname HTTPS passed for health, login, and the matching JS asset;
 unauthenticated Console routes returned 401. API, worker, Nginx, and PostgreSQL
 are active; migration reports success, module platform and execution flags
 remain disabled, and recent API/worker journals contain no errors. The
 dedicated test Agent is unreachable over SSH from the workstation and did not
-answer ARP from the production host. Provider release-gate CI passed for the
-release commit. The historical
+answer ARP from the production host. Provider release-gate CI for the branch
+is tracked in draft PR #35. The historical
 Wave 1 plan below is retained as a record, not a current deployment gate.
 
 ## Goal
