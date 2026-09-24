@@ -66,6 +66,14 @@ freshness mismatches. Agent `3.2.65` remained connected and completed fresh
 health and session observations after the second API restart. API, worker,
 PostgreSQL and Nginx remained active, strict HTTPS health returned `200`, and
 post-release warning-or-higher service journal entries counted zero.
+At 13:55 UTC, a separate disposable PostgreSQL 16 database on the production
+host was migrated through revision 0027 and used for an actual concurrent
+Evidence PIN versus expiry cleanup check. The uncommitted PIN held the row;
+the cleanup transaction's `SKIP LOCKED` batch processed zero rows. After the
+PIN committed, another cleanup processed zero rows, the safe payload remained,
+`expires_at` was NULL, `pinned_at` was set, and one immutable PIN audit event
+existed. The disposable database was dropped. This check used synthetic
+records and did not change production application data.
 
 ## Current Console v1 work (2026-09-24)
 
