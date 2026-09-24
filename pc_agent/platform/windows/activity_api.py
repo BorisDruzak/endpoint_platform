@@ -18,13 +18,14 @@ from pc_agent.browser_protocol import (
 )
 
 from .local_ipc import (
-    ClientIdentity, LocalIpcRejected, authorize_pipe_client, read_pipe_frame,
+    PIPE_NAME, ClientIdentity, LocalIpcRejected, authorize_pipe_client, read_pipe_frame,
     resolve_user_login, write_pipe_frame,
 )
 from .local_sensor_protocol import (
     LocalSensorProtocolError,
     LocalUserSessionEnvelopeV1, parse_local_sensor_payload,
 )
+from .sensor_pipe_listener import LocalSensorPipeListener
 from .user_sensor import UserSessionSampleV1
 
 
@@ -192,6 +193,24 @@ def handle_local_sensor_connection(
         payload = read_pipe_frame(pipe_handle)
     except LocalIpcRejected:
         return None  # A broken frame cannot be safely ACKed on the same stream.
+    reply = handle_local_sensor_payload(
+        pipe_handle, payload, ingress=ingress, policy_provider=policy_provider,
+        on_observation=on_observation, received_at=received_at,
+    )
+    write_pipe_frame(pipe_handle, reply.model_dump_json().encode("utf-8"))
+    return reply
+
+
+def handle_local_sensor_payload(
+    pipe_handle: object,
+    payload: bytes,
+    *,
+    ingress: ActivityIngress,
+    policy_provider: Callable[[], EndpointPolicyV1 | None],
+    on_observation: Callable[[ActivityObservationV1], None],
+    received_at: datetime | None = None,
+) -> BrowserBridgeAckV1:
+    """Authorize the writer of an already-framed request before projection."""
     try:
         identity = authorize_pipe_client(pipe_handle)
     except LocalIpcRejected:
@@ -207,5 +226,22 @@ def handle_local_sensor_connection(
                 on_observation(observation)
         except Exception:
             reply = _ack("IPC_UNAVAILABLE")
-    write_pipe_frame(pipe_handle, reply.model_dump_json().encode("utf-8"))
     return reply
+
+
+def create_activity_pipe_listener(
+    *,
+    ingress: ActivityIngress,
+    policy_provider: Callable[[], EndpointPolicyV1 | None],
+    on_observation: Callable[[ActivityObservationV1], None],
+    pipe_name: str = PIPE_NAME,
+) -> LocalSensorPipeListener:
+    """Bind the bounded pipe to OS-authorized, policy-gated activity projection."""
+    def on_frame(pipe_handle: object, payload: bytes) -> bytes:
+        reply = handle_local_sensor_payload(
+            pipe_handle, payload, ingress=ingress, policy_provider=policy_provider,
+            on_observation=on_observation,
+        )
+        return reply.model_dump_json().encode("utf-8")
+
+    return LocalSensorPipeListener(on_frame, pipe_name=pipe_name)

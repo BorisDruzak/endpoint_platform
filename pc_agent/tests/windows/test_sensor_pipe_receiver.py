@@ -1,7 +1,11 @@
 """The service reads, impersonates, projects and ACKs one local sensor frame."""
 
+import os
+import threading
 from datetime import UTC, datetime
 from uuid import uuid4
+
+import pytest
 
 from endpoint_contracts.endpoint_policy import EndpointPolicyV1
 from pc_agent.platform.windows import activity_api
@@ -92,3 +96,74 @@ def test_receiver_does_not_ack_success_when_handoff_fails(monkeypatch) -> None:
         policy_provider=policy, on_observation=unavailable, received_at=NOW,
     )
     assert reply.error_code == "IPC_UNAVAILABLE"
+
+
+def test_preframed_receiver_authorizes_writer_without_reading_pipe(monkeypatch) -> None:
+    from pc_agent.platform.windows.activity_api import handle_local_sensor_payload
+
+    sent = []
+    monkeypatch.setattr(activity_api, "read_pipe_frame", lambda _pipe: (_ for _ in ()).throw(
+        AssertionError("listener already framed this payload")
+    ))
+    monkeypatch.setattr(activity_api, "authorize_pipe_client", lambda _pipe: IDENTITY)
+    monkeypatch.setattr(activity_api, "resolve_user_login", lambda _identity: "CORP\\user")
+
+    reply = handle_local_sensor_payload(
+        object(), user_payload(3),
+        ingress=ActivityIngress(expected_extension_id=EXTENSION_ID),
+        policy_provider=policy, on_observation=sent.append, received_at=NOW,
+    )
+    assert reply.accepted
+    assert len(sent) == 1
+    assert sent[0].user_login == "CORP\\user"
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows named pipe")
+def test_listener_sends_ack_only_after_activity_handoff(monkeypatch) -> None:
+    from pc_agent.browser_protocol import BrowserBridgeAckV1
+    from pc_agent.platform.windows.activity_api import create_activity_pipe_listener
+    from pc_agent.platform.windows.local_ipc import (
+        CLIENT_ACCESS_MASK, PIPE_NAME, read_pipe_frame, write_pipe_frame,
+    )
+
+    import win32con
+    import win32file
+    import win32pipe
+
+    monkeypatch.setattr(activity_api, "authorize_pipe_client", lambda _pipe: IDENTITY)
+    monkeypatch.setattr(activity_api, "resolve_user_login", lambda _identity: "CORP\\user")
+    sent = []
+    pipe_name = f"{PIPE_NAME}.test.{uuid4().hex}"
+    listener = create_activity_pipe_listener(
+        ingress=ActivityIngress(expected_extension_id=EXTENSION_ID),
+        policy_provider=policy, on_observation=sent.append, pipe_name=pipe_name,
+    )
+    listener.start()
+    replies: list[BrowserBridgeAckV1] = []
+    failures: list[BaseException] = []
+
+    def client_run() -> None:
+        try:
+            win32pipe.WaitNamedPipe(pipe_name, 2000)
+            handle = win32file.CreateFile(
+                pipe_name, CLIENT_ACCESS_MASK, 0, None, win32con.OPEN_EXISTING, 0, None,
+            )
+            try:
+                write_pipe_frame(handle, user_payload(3))
+                replies.append(BrowserBridgeAckV1.model_validate_json(read_pipe_frame(handle)))
+            finally:
+                win32file.CloseHandle(handle)
+        except BaseException as error:
+            failures.append(error)
+
+    try:
+        client = threading.Thread(target=client_run, daemon=True)
+        client.start()
+        client.join(timeout=3)
+        assert not client.is_alive()
+        assert not failures
+        assert replies[0].accepted
+        assert len(sent) == 1
+        assert sent[0].user_login == "CORP\\user"
+    finally:
+        listener.stop()
