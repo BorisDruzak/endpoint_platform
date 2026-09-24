@@ -131,6 +131,7 @@ if (typeof importScripts === 'function') importScripts('protocol.js');
       if (alarm.name === ALARM) {
         connect();
         heartbeat();
+        void reportCurrentTab();
       }
     });
     function start() {

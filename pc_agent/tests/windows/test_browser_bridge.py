@@ -9,13 +9,16 @@ from types import SimpleNamespace
 
 import pytest
 
-from pc_agent.browser_protocol import BrowserBridgeAckV1, BrowserHelloV1, BrowserMessageV1
+from pc_agent.browser_protocol import BrowserBridgeAckV1, BrowserHelloV1
 from pc_agent.platform.windows import browser_bridge
 from pc_agent.platform.windows.browser_bridge import (
     BrowserBridgeInvocationError,
     forward_to_agent,
     run_native_bridge,
     validate_native_invocation,
+)
+from pc_agent.platform.windows.local_sensor_protocol import (
+    LocalBrowserEnvelopeV1, LocalSensorProtocolError,
 )
 
 
@@ -69,7 +72,7 @@ def test_valid_native_invocation_accepts_chromium_window_hint() -> None:
 
 
 def test_hello_and_heartbeat_forward_as_typed_messages_only() -> None:
-    sent: list[BrowserMessageV1] = []
+    sent: list[LocalBrowserEnvelopeV1] = []
     stdout = BytesIO()
     run_native_bridge(
         stdin=BytesIO(frame(hello()) + frame(heartbeat())), stdout=stdout,
@@ -78,14 +81,15 @@ def test_hello_and_heartbeat_forward_as_typed_messages_only() -> None:
             schema_version="browser_bridge_ack_v1", accepted=True, error_code="OK",
         ),
     )
-    assert [message.schema_version for message in sent] == [
+    assert [envelope.message.schema_version for envelope in sent] == [
         "browser_sensor_hello_v1", "browser_sensor_heartbeat_v1",
     ]
+    assert all(envelope.extension_id == EXTENSION_ID for envelope in sent)
     assert [reply.accepted for reply in read_acks(stdout.getvalue())] == [True, True]
 
 
 def test_unknown_fields_do_not_reach_ipc_and_ack_is_bounded() -> None:
-    sent: list[BrowserMessageV1] = []
+    sent: list[LocalBrowserEnvelopeV1] = []
     stdout = BytesIO()
     run_native_bridge(
         stdin=BytesIO(frame({**hello(), "secret_content": "SECRET_MARKER_7348"})),
@@ -98,7 +102,7 @@ def test_unknown_fields_do_not_reach_ipc_and_ack_is_bounded() -> None:
 
 
 def test_ipc_failure_is_reported_without_claiming_delivery() -> None:
-    def unavailable(_message: BrowserMessageV1) -> BrowserBridgeAckV1:
+    def unavailable(_message: LocalBrowserEnvelopeV1) -> BrowserBridgeAckV1:
         raise OSError("secret-local-path")
 
     stdout = BytesIO()
@@ -108,6 +112,18 @@ def test_ipc_failure_is_reported_without_claiming_delivery() -> None:
     )
     assert read_acks(stdout.getvalue())[0].error_code == "IPC_UNAVAILABLE"
     assert b"secret-local-path" not in stdout.getvalue()
+
+
+def test_local_envelope_oversize_is_reported_as_oversize() -> None:
+    stdout = BytesIO()
+    def oversized(_message: LocalBrowserEnvelopeV1) -> BrowserBridgeAckV1:
+        raise LocalSensorProtocolError("OVERSIZE")
+
+    run_native_bridge(
+        stdin=BytesIO(frame(hello())), stdout=stdout,
+        arguments=[ORIGIN], expected_extension_id=EXTENSION_ID, forward=oversized,
+    )
+    assert read_acks(stdout.getvalue())[0].error_code == "OVERSIZE"
 
 
 def test_oversized_header_stops_stream_before_reading_body() -> None:
@@ -133,7 +149,10 @@ def test_forward_to_agent_sends_typed_json_and_requires_typed_ack(monkeypatch) -
     monkeypatch.setattr(browser_bridge, "connect_client_pipe", lambda: handle)
     monkeypatch.setattr(browser_bridge, "write_pipe_frame", lambda _handle, data: written.append(data))
     monkeypatch.setattr(browser_bridge, "read_pipe_frame", lambda _handle: b'{"schema_version":"browser_bridge_ack_v1","accepted":true,"error_code":"OK"}')
-    message = BrowserHelloV1.model_validate(hello())
+    message = LocalBrowserEnvelopeV1(
+        schema_version="local_sensor_envelope_v1", source="browser",
+        extension_id=EXTENSION_ID, message=BrowserHelloV1.model_validate(hello()),
+    )
 
     assert forward_to_agent(message).accepted
     assert json.loads(written[0]) == message.model_dump(mode="json")

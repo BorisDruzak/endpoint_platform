@@ -8,7 +8,7 @@ function signal() {
   return { addListener: (listener) => listeners.push(listener), fire: (...args) => listeners.forEach((listener) => listener(...args)) };
 }
 
-function harness() {
+function harness(queryTabs = async () => []) {
   const sent = [];
   const ports = [];
   const alarms = [];
@@ -27,7 +27,7 @@ function harness() {
     },
     tabs: { onActivated: events.activated, onUpdated: events.updated,
       get: async () => ({ active: true, url: 'https://example.test/private?secret=1' }),
-      query: async () => [],
+      query: queryTabs,
     },
     alarms: { create: (...args) => alarms.push(args), onAlarm: events.alarm },
   };
@@ -70,4 +70,16 @@ test('worker validates content metadata and reconnects with bounded queue', () =
   assert.equal(value.ports.length, 2);
   assert.equal(value.sent.filter((item) => item.event_type === 'BROWSER_UPLOAD').length, 1);
   assert.equal(JSON.stringify(value.sent).includes(secret), false);
+});
+
+test('heartbeat refreshes active-tab context without sending URL path', async () => {
+  const value = harness(async () => [{ active: true, url: 'https://example.test/secret?q=secret' }]);
+  await new Promise((resolve) => setImmediate(resolve));
+  const before = value.sent.filter((item) => item.schema_version === 'browser_sensor_context_v1').length;
+  value.events.alarm.fire({ name: 'endpoint-browser-heartbeat' });
+  await new Promise((resolve) => setImmediate(resolve));
+  const contexts = value.sent.filter((item) => item.schema_version === 'browser_sensor_context_v1');
+  assert.equal(contexts.length, before + 1);
+  assert.equal(contexts.at(-1).origin, 'https://example.test');
+  assert.equal(JSON.stringify(contexts).includes('secret'), false);
 });

@@ -124,7 +124,7 @@ class BrowserBridgeAckV1(ContractModelV1):
     accepted: StrictBool
     error_code: Literal[
         "OK", "INVALID_MESSAGE", "UNSUPPORTED_VERSION", "OVERSIZE",
-        "IDENTITY_MISMATCH", "IPC_UNAVAILABLE",
+        "IDENTITY_MISMATCH", "IPC_UNAVAILABLE", "POLICY_DISABLED", "SENSOR_NOT_READY",
     ]
 
     @model_validator(mode="after")
