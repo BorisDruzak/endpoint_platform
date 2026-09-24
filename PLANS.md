@@ -21,7 +21,9 @@ queue/label, and aligned campaign display names with the Russian Console.
 Device detail now projects the current user, OS and version from safe snapshots;
 Context shows collection state and server-derived freshness. The browser flow
 covers Setup download, campaign editing, and a Russian-label regression guard
-across primary pages.
+across primary pages. Campaign editing now formats the existing expiration in
+the browser's local time and preserves the original instant when only other
+fields change; a browser regression runs in `Asia/Yekaterinburg`.
 Completed rollout history now
 uses its own filtered, paginated server query. The Module Capability Catalog
 shows backend-provided Russian names, platforms, minimum Agent version, risk,
@@ -40,19 +42,20 @@ summary of all passed platforms, including evidence beyond the current page.
 Authenticated production browser acceptance and live Agent module labs remain
 open. All Console, operation journal, and audit JSON routes now publish typed
 response models; the Setup binary download remains a file response. The
-2026-09-24 release of `172f399e569aa2cc500633f55a156e8957a0c1c4` runs in
+2026-09-24 release of `590e1ea10095b118ec65653afd4822a8713a3e75` runs in
 production with DB revision `0025_console_enrollment_queue`; the previous
-`8931f2b4cb2f` release is retained for rollback. The verified pre-release
+`172f399e569a` release is retained for rollback. The verified pre-release
 PostgreSQL backup is
-`/var/backups/endpoint-platform/pre-console-172f399e569a-20260924T010541Z.dump`
-(17,080,988 bytes; SHA-256 `1c0b202307121ff0901c1c53b3deac8844cecb2039fe9c79c49ca157e4c17caa`).
-The release archive SHA-256 is `1114186f23a9509dff43cfb45c917dc27aac2fd42c2a62b051732095c046ca71`.
-The release passed 1781 Python tests (39 skipped), 20 frontend unit tests,
-two Playwright E2E flows, contract generation check, compileall, and diff check.
+`/var/backups/endpoint-platform/pre-console-590e1ea10095-20260924T012111Z.dump`
+(17,099,389 bytes; SHA-256 `242f7349fe2ce835e6e1cb2c6f4bab2f9ab8d9ea3a75e7b4d5bb09b527248575`).
+The release archive SHA-256 is `686b4f49d8094b71e23a1f9d6a55628200f1f8bbe03f44b03d42e01ed8cbc240`.
+The preceding backend revision passed 1781 Python tests (39 skipped),
+contract generation check, and compileall. The frontend-only change passed 20
+frontend unit tests, two Playwright E2E flows, build, and diff check.
 Strict CA/hostname HTTPS returned 200 for health and login and 401 for
 protected routes without a session; the deployed JS asset matched the local
 build SHA-256
-`feaf21402ec5173b25f2660d9225e31ae5999602c0044cfac9229026e52227e5`.
+`a9233c72c8e1b84bfcd977373ffa3c8941470f9748388441eb9686187887b2a3`.
 API, worker, Nginx, and PostgreSQL are active, and the API/worker warning
 journal since the switch is empty. Module platform and execution remain
 disabled pending a real compatible Agent lab. The browser is at the login page
