@@ -91,11 +91,13 @@ The interactive `EndpointUserSensor` and authenticated local IPC are still Task 
 
 ### Task 4: Shared MV3 browser extension
 
-**Files:** Create `browser_sensor/{manifest.json,background.js,content.js,protocol.js,package.json,tests/}`; tests also in `tests/architecture/` for manifest permissions and forbidden APIs.
+**Files:** Create `browser_sensor/{manifest.json,background.js,content.js,protocol.js,package.json,README.md,tests/}`. The Node suite checks manifest permissions and forbidden APIs alongside behavior.
 
-- [ ] Write failing Node tests for URL normalization, upload MIME categories/count/bytes, paste types without values, heartbeat, family detection, reconnect and 16-KiB bounds; fixture secret marker must never appear in emitted messages.
-- [ ] Implement one source/manifest using `tabs`, `nativeMessaging` and only justified page access. Content script sends file-input and paste metadata to the service worker; worker connects only to stable native host.
-- [ ] Run browser unit and permission/security guards; commit.
+- [x] Write failing Node tests for URL normalization, upload MIME categories/count/bytes, paste types without values, heartbeat, family detection, reconnect and 16-KiB bounds; fixture secret marker must never appear in emitted messages.
+- [x] Implement one source/manifest using `tabs`, `nativeMessaging` and only justified page access. Content script sends file-input and paste metadata to the service worker; worker connects only to stable native host.
+- [x] Run browser unit and permission/security guards; commit. `npm test --prefix browser_sensor`: 9 passed. Commit `b99ea87946f32c629f8531454bde3305c6cf6cb2`.
+
+This is unsigned source only. The bridge, stable signed extension ID, browser policy and live Chrome/Yandex acceptance remain Tasks 5, 6 and 11.
 
 ### Task 5: Native bridge and authenticated local IPC
 
