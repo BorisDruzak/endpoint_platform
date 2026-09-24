@@ -34,6 +34,12 @@ from .modules import (
     ModuleVersion,
 )
 from .updates import UpdateBuild, UpdateReport, UpdateRollout, UpdateTarget
+from endpoint_server.policy.models import (
+    PolicyAssignment,
+    PolicyDefinition,
+    PolicyDeviceState,
+    PolicyVersion,
+)
 
 __all__ = [
     "AdminSession",
@@ -61,6 +67,10 @@ __all__ = [
     "EndpointOperation",
     "ModuleOperationStep",
     "OperationEvidence",
+    "PolicyAssignment",
+    "PolicyDefinition",
+    "PolicyDeviceState",
+    "PolicyVersion",
     "ModuleDefinition",
     "ModuleLiveTest",
     "ModuleValidationRun",

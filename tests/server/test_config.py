@@ -117,6 +117,35 @@ def test_from_environment_keeps_module_platform_and_execution_default_closed(
     assert enabled_settings.endpoint_module_execution_enabled is True
 
 
+def test_policy_sensor_flags_are_default_closed_and_explicit(tmp_path: Path) -> None:
+    default_settings = Settings.from_environment(_environment(tmp_path))
+    flag_names = (
+        "ENDPOINT_POLICY_ENABLED",
+        "ENDPOINT_ACTIVITY_SENSOR_ENABLED",
+        "ENDPOINT_BROWSER_SENSOR_ENABLED",
+        "ENDPOINT_DLP_AUDIT_ENABLED",
+    )
+    attributes = (
+        "endpoint_policy_enabled",
+        "endpoint_activity_sensor_enabled",
+        "endpoint_browser_sensor_enabled",
+        "endpoint_dlp_audit_enabled",
+    )
+    assert all(getattr(default_settings, attribute) is False for attribute in attributes)
+
+    environment = _environment(tmp_path)
+    environment.update({name: "true" for name in flag_names})
+    enabled_settings = Settings.from_environment(environment)
+    assert all(getattr(enabled_settings, attribute) is True for attribute in attributes)
+
+
+def test_policy_sensor_flag_rejects_ambiguous_values(tmp_path: Path) -> None:
+    environment = _environment(tmp_path)
+    environment["ENDPOINT_BROWSER_SENSOR_ENABLED"] = "sometimes"
+    with pytest.raises(ValueError, match="ENDPOINT_BROWSER_SENSOR_ENABLED"):
+        Settings.from_environment(environment)
+
+
 def test_from_environment_rejects_module_execution_without_platform_flag(
     tmp_path: Path,
 ) -> None:

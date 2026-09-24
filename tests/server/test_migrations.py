@@ -63,6 +63,12 @@ APPLICATION_TABLES = {
     "update_rollouts",
     "update_targets",
 }
+POLICY_TABLES = {
+    "policy_assignments",
+    "policy_definitions",
+    "policy_device_states",
+    "policy_versions",
+}
 CREDENTIAL_TABLE_COLUMNS = {
     "admin_users": {"password_digest"},
     "device_credentials": {"token_digest"},
@@ -141,7 +147,19 @@ def test_migration_history_has_exactly_one_head() -> None:
         _alembic_config("postgresql+asyncpg://unused@127.0.0.1/unused")
     )
 
-    assert script.get_heads() == ["0028_capability_platform_v2"]
+    assert script.get_heads() == ["0029_endpoint_policy_dlp_v1"]
+
+
+def test_policy_migration_adds_immutable_versions_and_unique_assignments() -> None:
+    output = io.StringIO()
+    config = Config(REPOSITORY_ROOT / "alembic.ini", output_buffer=output)
+    config.set_main_option("sqlalchemy.url", "postgresql+asyncpg://unused@127.0.0.1/unused")
+    command.upgrade(config, "0028_capability_platform_v2:0029_endpoint_policy_dlp_v1", sql=True)
+    rendered = " ".join(output.getvalue().split())
+    assert all(f"CREATE TABLE {table}" in rendered for table in POLICY_TABLES)
+    assert "uq_policy_versions_definition_version" in rendered
+    assert "uq_policy_assignments_default" in rendered
+    assert "policy_versions_append_only" in rendered
 
 
 def test_console_enrollment_queue_index_matches_status_and_page_order() -> None:

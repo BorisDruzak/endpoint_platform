@@ -166,6 +166,10 @@ class Settings:
     endpoint_network_probe_allowed_suffixes: tuple[str, ...] = ()
     endpoint_module_platform_enabled: bool = False
     endpoint_module_execution_enabled: bool = False
+    endpoint_policy_enabled: bool = False
+    endpoint_activity_sensor_enabled: bool = False
+    endpoint_browser_sensor_enabled: bool = False
+    endpoint_dlp_audit_enabled: bool = False
 
     @classmethod
     def from_environment(cls, environment: Mapping[str, str] | None = None) -> Settings:
@@ -251,6 +255,20 @@ class Settings:
             "ENDPOINT_MODULE_EXECUTION_ENABLED",
             values.get("ENDPOINT_MODULE_EXECUTION_ENABLED", ""),
         )
+        endpoint_policy_enabled = _parse_optional_boolean(
+            "ENDPOINT_POLICY_ENABLED", values.get("ENDPOINT_POLICY_ENABLED", "")
+        )
+        endpoint_activity_sensor_enabled = _parse_optional_boolean(
+            "ENDPOINT_ACTIVITY_SENSOR_ENABLED",
+            values.get("ENDPOINT_ACTIVITY_SENSOR_ENABLED", ""),
+        )
+        endpoint_browser_sensor_enabled = _parse_optional_boolean(
+            "ENDPOINT_BROWSER_SENSOR_ENABLED",
+            values.get("ENDPOINT_BROWSER_SENSOR_ENABLED", ""),
+        )
+        endpoint_dlp_audit_enabled = _parse_optional_boolean(
+            "ENDPOINT_DLP_AUDIT_ENABLED", values.get("ENDPOINT_DLP_AUDIT_ENABLED", "")
+        )
         if (
             endpoint_module_execution_enabled
             and not endpoint_module_platform_enabled
@@ -283,4 +301,8 @@ class Settings:
             endpoint_network_probe_allowed_suffixes=endpoint_network_probe_allowed_suffixes,
             endpoint_module_platform_enabled=endpoint_module_platform_enabled,
             endpoint_module_execution_enabled=endpoint_module_execution_enabled,
+            endpoint_policy_enabled=endpoint_policy_enabled,
+            endpoint_activity_sensor_enabled=endpoint_activity_sensor_enabled,
+            endpoint_browser_sensor_enabled=endpoint_browser_sensor_enabled,
+            endpoint_dlp_audit_enabled=endpoint_dlp_audit_enabled,
         )
