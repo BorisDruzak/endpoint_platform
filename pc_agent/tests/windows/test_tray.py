@@ -6,8 +6,11 @@ from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 from pc_agent.platform.windows.tray import _WindowsTray, status_to_view
 from pc_agent.platform.windows.tray_status import TrayStatus
+from pc_agent.version import AGENT_VERSION
 
 
 NOW = datetime(2026, 9, 21, 10, 0, tzinfo=UTC)
@@ -35,7 +38,7 @@ def test_update_failure_precedes_connected_icon() -> None:
 
     assert view.icon == "red"
     assert view.tooltip == (
-        "Endpoint Agent: error; Endpoint: connected; Update: failed; Version: 3.2.51"
+        "Агент Endpoint: ошибка; Endpoint: подключён; Обновление: ошибка; Версия: 3.2.51"
     )
 
 
@@ -44,7 +47,7 @@ def test_pending_precedes_fresh_connected_icon() -> None:
 
     assert view.icon == "blue"
     assert view.tooltip == (
-        "Endpoint Agent: running; Endpoint: connected; Update: applying; Version: 3.2.51"
+        "Агент Endpoint: работает; Endpoint: подключён; Обновление: устанавливается; Версия: 3.2.51"
     )
 
 
@@ -53,10 +56,10 @@ def test_connected_running_agent_is_green_with_exact_status_labels() -> None:
 
     assert view.icon == "green"
     assert view.menu_labels == (
-        "Endpoint Agent: running",
-        "Endpoint: connected",
-        "Update: up_to_date",
-        "Version: 3.2.51",
+        "Агент Endpoint: работает",
+        "Endpoint: подключён",
+        "Обновление: актуально",
+        "Версия: 3.2.51",
     )
 
 
@@ -69,8 +72,49 @@ def test_missing_or_invalid_projection_is_grey() -> None:
 
     assert view.icon == "grey"
     assert view.tooltip == (
-        "Endpoint Agent: unknown; Endpoint: unknown; Update: unknown; Version: 3.2.64"
+        "Агент Endpoint: неизвестно; Endpoint: неизвестно; Обновление: неизвестно; "
+        f"Версия: {AGENT_VERSION}"
     )
+
+
+@pytest.mark.parametrize(("agent", "label"), [
+    ("starting", "запускается"), ("stopped", "остановлен"),
+])
+def test_agent_states_have_russian_labels(agent: str, label: str) -> None:
+    assert status_to_view(_status(agent_state=agent), NOW).menu_labels[0] == f"Агент Endpoint: {label}"
+
+
+@pytest.mark.parametrize(("endpoint", "label"), [
+    ("connecting", "подключается"), ("disconnected", "нет соединения"),
+    ("unknown", "неизвестно"),
+])
+def test_endpoint_states_have_russian_labels(endpoint: str, label: str) -> None:
+    assert status_to_view(_status(endpoint_state=endpoint), NOW).menu_labels[1] == f"Endpoint: {label}"
+
+
+@pytest.mark.parametrize(("update", "label"), [
+    ("pending", "ожидает"), ("applying", "устанавливается"),
+    ("failed", "ошибка"), ("unknown", "неизвестно"),
+])
+def test_update_states_have_russian_labels(update: str, label: str) -> None:
+    assert status_to_view(_status(update_state=update), NOW).menu_labels[2] == f"Обновление: {label}"
+
+
+def test_tray_actions_and_details_are_russian() -> None:
+    from pc_agent.platform.windows.tray import _DETAILS_COMMAND, _EXIT_COMMAND, _REFRESH_COMMAND
+
+    tray = _WindowsTray(Path("C:/ProgramData/Endpoint Platform/Agent"))
+    assert tray._menu_label(_DETAILS_COMMAND) == "Сведения"
+    assert tray._menu_label(_REFRESH_COMMAND) == "Обновить"
+    assert tray._menu_label(_EXIT_COMMAND) == "Закрыть значок"
+    tray._view = status_to_view(_status(reason_code="UPDATE_VALIDATION"), NOW)
+    tray._status = _status(reason_code="UPDATE_VALIDATION")
+    calls: list[tuple[object, ...]] = []
+    user32 = SimpleNamespace(MessageBoxW=lambda *args: calls.append(args))
+    tray._show_details(user32, 101)
+    assert calls[0][2] == "Агент Endpoint"
+    assert "Наблюдалось:" in str(calls[0][1])
+    assert "Причина: UPDATE_VALIDATION" in str(calls[0][1])
 
 
 def test_tray_module_has_no_transport_or_service_control_imports() -> None:

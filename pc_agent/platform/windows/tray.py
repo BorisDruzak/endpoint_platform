@@ -55,6 +55,26 @@ _DT_SINGLELINE = 0x0020
 _TRANSPARENT = 1
 _MENU_ITEM_HEIGHT = 24
 _MENU_ITEM_WIDTH = 280
+_AGENT_STATES = {
+    "running": "работает",
+    "starting": "запускается",
+    "stopped": "остановлен",
+    "error": "ошибка",
+    "unknown": "неизвестно",
+}
+_ENDPOINT_STATES = {
+    "connected": "подключён",
+    "connecting": "подключается",
+    "disconnected": "нет соединения",
+    "unknown": "неизвестно",
+}
+_UPDATE_STATES = {
+    "up_to_date": "актуально",
+    "pending": "ожидает",
+    "applying": "устанавливается",
+    "failed": "ошибка",
+    "unknown": "неизвестно",
+}
 
 
 def _configure_menu_api(user32: object) -> None:
@@ -140,10 +160,10 @@ def _view(
     version: str,
 ) -> TrayView:
     labels = (
-        f"Endpoint Agent: {agent_state}",
-        f"Endpoint: {endpoint_state}",
-        f"Update: {update_state}",
-        f"Version: {version}",
+        f"Агент Endpoint: {_AGENT_STATES[agent_state]}",
+        f"Endpoint: {_ENDPOINT_STATES[endpoint_state]}",
+        f"Обновление: {_UPDATE_STATES[update_state]}",
+        f"Версия: {version}",
     )
     return TrayView(icon=icon, tooltip="; ".join(labels), menu_labels=labels)
 
@@ -222,7 +242,7 @@ class _WindowsTray:
             if not atom:
                 return 1
             hwnd = user32.CreateWindowExW(
-                0, class_name, "Endpoint Agent Tray", 0, 0, 0, 0, 0, None, None, hinstance, None
+                0, class_name, "Агент Endpoint", 0, 0, 0, 0, 0, None, None, hinstance, None
             )
             if not hwnd:
                 return 1
@@ -308,9 +328,9 @@ class _WindowsTray:
         if item_id in _STATUS_COMMANDS:
             return self._view.menu_labels[_STATUS_COMMANDS.index(item_id)]
         return {
-            _DETAILS_COMMAND: "Details",
-            _REFRESH_COMMAND: "Refresh",
-            _EXIT_COMMAND: "Exit tray icon",
+            _DETAILS_COMMAND: "Сведения",
+            _REFRESH_COMMAND: "Обновить",
+            _EXIT_COMMAND: "Закрыть значок",
         }.get(item_id)
 
     def _measure_menu_item(self, lparam: int) -> int:
@@ -381,10 +401,10 @@ class _WindowsTray:
     def _show_details(self, user32: object, hwnd: int) -> None:
         details = self._view.tooltip
         if self._status is not None:
-            details += "\nObserved: " + self._status.observed_at.isoformat()
+            details += "\nНаблюдалось: " + self._status.observed_at.isoformat()
             if self._status.reason_code:
-                details += "\nReason: " + self._status.reason_code
-        user32.MessageBoxW(hwnd, details, "Endpoint Agent", 0)
+                details += "\nПричина: " + self._status.reason_code
+        user32.MessageBoxW(hwnd, details, "Агент Endpoint", 0)
 
     def _notify(self, shell32: object, action: int) -> None:
         if self._hwnd is None:
