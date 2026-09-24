@@ -39,11 +39,16 @@ def test_embedded_msi_install_uses_provenance_wrapper(
 ) -> None:
     msi = _payload(tmp_path)
     calls: list[list[str]] = []
+    monkeypatch.setenv("SystemRoot", r"C:\Windows")
+    monkeypatch.setenv("PSModulePath", r"C:\Program Files\PowerShell\Modules")
 
     def run(command: list[str], **kwargs: object) -> SimpleNamespace:
         calls.append(command)
         assert kwargs["shell"] is False
         assert kwargs["stdin"] is setup_entry.subprocess.DEVNULL
+        assert kwargs["env"]["PSModulePath"] == (
+            r"C:\Windows\System32\WindowsPowerShell\v1.0\Modules"
+        )
         return SimpleNamespace(returncode=0)
 
     monkeypatch.setattr(setup_entry.subprocess, "run", run)

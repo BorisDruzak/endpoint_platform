@@ -158,7 +158,15 @@ def _verify_embedded_msi(msi_path: Path) -> tuple[Path, Path]:
 
 def _install_embedded_msi(msi_path: Path) -> None:
     manifest_path, wrapper_path = _verify_embedded_msi(msi_path)
-    powershell = Path(os.environ.get("SystemRoot", r"C:\Windows")) / "System32" / "WindowsPowerShell" / "v1.0" / "powershell.exe"
+    windows_powershell = (
+        Path(os.environ.get("SystemRoot", r"C:\Windows"))
+        / "System32" / "WindowsPowerShell" / "v1.0"
+    )
+    powershell = windows_powershell / "powershell.exe"
+    environment = os.environ.copy()
+    # A frozen Python process can inherit PowerShell 7's module path. Windows
+    # PowerShell 5.1 then cannot autoload its own Get-FileHash/JSON modules.
+    environment["PSModulePath"] = str(windows_powershell / "Modules")
     try:
         completed = subprocess.run(
             [str(powershell), "-NoLogo", "-NoProfile", "-NonInteractive",
@@ -170,6 +178,7 @@ def _install_embedded_msi(msi_path: Path) -> None:
             stderr=subprocess.DEVNULL,
             check=False,
             shell=False,
+            env=environment,
             creationflags=_windowless_creation_flags(),
         )
     except OSError as error:
