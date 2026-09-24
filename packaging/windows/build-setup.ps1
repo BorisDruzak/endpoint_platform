@@ -100,26 +100,38 @@ function Resolve-VerifiedExistingMsi {
     catch {
         throw "Existing MSI release manifest is invalid."
     }
+    $expectedProperties = @(
+        'initial_runtime_tree_sha256', 'package_sha256', 'product_code',
+        'schema_version', 'source_revision', 'version'
+    )
+    $actualProperties = @($manifest.PSObject.Properties.Name | Sort-Object)
     if (
-        $manifest.schema_version -ne 'endpoint_windows_setup_release_v1' -or
-        [string]$manifest.agent_version -ne $ExpectedVersion -or
-        [string]$manifest.source_commit -notmatch '^[0-9a-f]{40}$' -or
-        [string]$manifest.msi_sha256 -notmatch '^[0-9a-f]{64}$'
+        [string]::Join('|', $actualProperties) -ne [string]::Join('|', $expectedProperties) -or
+        $manifest.schema_version -ne 'endpoint_windows_release_v1' -or
+        [string]$manifest.version -ne $ExpectedVersion -or
+        [string]$manifest.source_revision -notmatch '^[0-9a-f]{40}$' -or
+        [string]$manifest.product_code -notmatch '^\{[0-9A-F-]{36}\}$' -or
+        [string]$manifest.initial_runtime_tree_sha256 -notmatch '^[0-9a-f]{64}$' -or
+        [string]$manifest.package_sha256 -notmatch '^[0-9a-f]{64}$'
     ) {
         throw "Existing MSI release manifest is invalid."
     }
     $actualSha256 = (Get-FileHash -LiteralPath $MsiPath -Algorithm SHA256).Hash.ToLowerInvariant()
-    if ($actualSha256 -ne [string]$manifest.msi_sha256) {
+    if ($actualSha256 -ne [string]$manifest.package_sha256) {
         throw "Existing MSI SHA-256 does not match its release manifest."
     }
     return [pscustomobject]@{
         Path = [IO.Path]::GetFullPath($MsiPath)
-        SourceCommit = [string]$manifest.source_commit
+        SourceCommit = [string]$manifest.source_revision
     }
 }
 
 $repositoryRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..'))
 $packagingRoot = [IO.Path]::GetFullPath($PSScriptRoot)
+$setupWrapperSource = Join-Path $PSScriptRoot 'Install-EndpointAgentCanary.ps1'
+if (-not (Test-Path -LiteralPath $setupWrapperSource -PathType Leaf)) {
+    throw "Windows Setup canary wrapper is missing."
+}
 $python = (Get-Command python -ErrorAction Stop).Source
 $sourceCommit = (& git -C $repositoryRoot rev-parse HEAD).Trim()
 if ($LASTEXITCODE -ne 0 -or $sourceCommit -notmatch '^[0-9a-f]{40}$') {
@@ -178,6 +190,10 @@ if ($hasExistingMsi) {
     New-Item -ItemType Directory -Path (Split-Path -Parent $msiPath) -Force | Out-Null
     Copy-Item -LiteralPath ([string]$verifiedExistingMsi.Path) -Destination $msiPath -Force
     $msiSourceCommit = [string]$verifiedExistingMsi.SourceCommit
+    $releaseMsiManifestPath = Join-Path $releaseRoot "EndpointAgent-$Version-x64.release.json"
+    if ([IO.Path]::GetFullPath($ExistingMsiReleaseManifest) -ne [IO.Path]::GetFullPath($releaseMsiManifestPath)) {
+        Copy-Item -LiteralPath $ExistingMsiReleaseManifest -Destination $releaseMsiManifestPath -Force
+    }
 }
 else {
     & (Join-Path $PSScriptRoot 'build-msi.ps1') @msiParameters
@@ -189,14 +205,28 @@ $releaseMsi = Join-Path $releaseRoot "EndpointAgent-$Version-x64.msi"
 Copy-Item -LiteralPath $msiPath -Destination $releaseMsi -Force
 $releaseMsiSha256 = (Get-FileHash -LiteralPath $releaseMsi -Algorithm SHA256).Hash.ToLowerInvariant()
 $releaseMsiManifestPath = Join-Path $releaseRoot "EndpointAgent-$Version-x64.release.json"
-if (Test-Path -LiteralPath $releaseMsiManifestPath -PathType Leaf) {
-    $releaseMsiManifest = Get-Content -LiteralPath $releaseMsiManifestPath -Raw | ConvertFrom-Json
-    if (-not ($releaseMsiManifest.PSObject.Properties.Name -contains 'package_sha256')) {
-        throw "MSI release manifest is missing package_sha256."
-    }
-    $releaseMsiManifest.package_sha256 = $releaseMsiSha256
-    Write-Utf8NoBom $releaseMsiManifestPath ($releaseMsiManifest | ConvertTo-Json -Compress)
+if (-not (Test-Path -LiteralPath $releaseMsiManifestPath -PathType Leaf)) {
+    throw "MSI release manifest is missing."
 }
+$releaseMsiManifest = Get-Content -LiteralPath $releaseMsiManifestPath -Raw | ConvertFrom-Json
+$releaseMsiManifestProperties = @($releaseMsiManifest.PSObject.Properties.Name | Sort-Object)
+$expectedMsiManifestProperties = @(
+    'initial_runtime_tree_sha256', 'package_sha256', 'product_code',
+    'schema_version', 'source_revision', 'version'
+)
+if (
+    [string]::Join('|', $releaseMsiManifestProperties) -ne [string]::Join('|', $expectedMsiManifestProperties) -or
+    [string]$releaseMsiManifest.schema_version -ne 'endpoint_windows_release_v1' -or
+    [string]$releaseMsiManifest.version -ne $Version -or
+    [string]$releaseMsiManifest.source_revision -notmatch '^[0-9a-f]{40}$' -or
+    [string]$releaseMsiManifest.product_code -notmatch '^\{[0-9A-F-]{36}\}$' -or
+    [string]$releaseMsiManifest.initial_runtime_tree_sha256 -notmatch '^[0-9a-f]{64}$' -or
+    [string]$releaseMsiManifest.package_sha256 -notmatch '^[0-9a-f]{64}$'
+) {
+    throw "MSI release manifest is invalid."
+}
+$releaseMsiManifest.package_sha256 = $releaseMsiSha256
+Write-Utf8NoBom $releaseMsiManifestPath ($releaseMsiManifest | ConvertTo-Json -Compress)
 
 $setupRoot = Join-Path $effectiveWixBuildRoot 'setup'
 if (Test-Path -LiteralPath $setupRoot) { Remove-Item -LiteralPath $setupRoot -Recurse -Force }
@@ -207,8 +237,10 @@ New-Item -ItemType Directory -Path $payloadRoot, $distRoot, $workRoot, $releaseR
 $setupMsi = Join-Path $payloadRoot 'EndpointAgent.msi'
 $setupCa = Join-Path $payloadRoot 'endpoint-ca.crt'
 $setupConfig = Join-Path $payloadRoot 'setup-config.json'
+$setupMsiReleaseManifest = Join-Path $payloadRoot 'EndpointAgent.release.json'
 Copy-Item -LiteralPath $msiPath -Destination $setupMsi -Force
 Copy-Item -LiteralPath $EndpointCaFile -Destination $setupCa -Force
+Copy-Item -LiteralPath $releaseMsiManifestPath -Destination $setupMsiReleaseManifest -Force
 Write-Utf8NoBom $setupConfig (@{
     schema_version = 'endpoint_windows_setup_config_v1'
     endpoint_origin = $EndpointOrigin.TrimEnd('/')
@@ -219,10 +251,12 @@ Write-Utf8NoBom $setupConfig (@{
 $previousMsi = $env:ENDPOINT_SETUP_MSI
 $previousCa = $env:ENDPOINT_SETUP_CA_FILE
 $previousConfig = $env:ENDPOINT_SETUP_CONFIG
+$previousMsiReleaseManifest = $env:ENDPOINT_SETUP_MSI_RELEASE_MANIFEST
 try {
     $env:ENDPOINT_SETUP_MSI = $setupMsi
     $env:ENDPOINT_SETUP_CA_FILE = $setupCa
     $env:ENDPOINT_SETUP_CONFIG = $setupConfig
+    $env:ENDPOINT_SETUP_MSI_RELEASE_MANIFEST = $setupMsiReleaseManifest
     & $python -m PyInstaller --noconfirm --clean --distpath $distRoot --workpath $workRoot (Join-Path $repositoryRoot 'pc_agent\pyinstaller_windows_setup.spec')
     if ($LASTEXITCODE -ne 0) { throw "Windows Setup PyInstaller build failed." }
 }
@@ -230,6 +264,7 @@ finally {
     $env:ENDPOINT_SETUP_MSI = $previousMsi
     $env:ENDPOINT_SETUP_CA_FILE = $previousCa
     $env:ENDPOINT_SETUP_CONFIG = $previousConfig
+    $env:ENDPOINT_SETUP_MSI_RELEASE_MANIFEST = $previousMsiReleaseManifest
 }
 $setupExe = Join-Path $distRoot 'EndpointAgentSetup.exe'
 if (-not (Test-Path -LiteralPath $setupExe -PathType Leaf)) { throw "Windows Setup executable is missing." }

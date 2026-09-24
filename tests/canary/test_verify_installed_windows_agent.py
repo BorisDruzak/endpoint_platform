@@ -66,6 +66,7 @@ def _valid_projection() -> dict[str, object]:
             },
         },
         "runtime": {
+            "origin": "msi",
             "selector_regular": True,
             "selector_reparse": False,
             "selector_version": "3.2.16",
@@ -74,7 +75,11 @@ def _valid_projection() -> dict[str, object]:
             "http_fallback": False,
             "helpdesk_reference": False,
         },
-        "msi": {"version": "3.2.16", "sha256": "b" * 64, "owned_files": True},
+        "msi": {
+            "version": "3.2.16", "source_revision": "a" * 40,
+            "sha256": "b" * 64, "product_code": "{11111111-1111-4111-8111-111111111111}",
+            "owned_files": True,
+        },
         "acl": {
             "data_root_protected": True,
             "required_principals": True,
@@ -117,6 +122,66 @@ def test_valid_projection_is_ready() -> None:
         "status": "READY",
         "platform": "windows_amd64",
     }
+
+
+def _zip_projection() -> dict[str, object]:
+    projection = _valid_projection()
+    projection["agent"].update(version="3.2.17", source_revision="c" * 40)
+    projection["runtime"].update(
+        origin="zip", selector_version="3.2.17",
+        selector_source_revision="c" * 40,
+        bundle_sha256="d" * 64, bundle_size=12000,
+        bundle_manifest_verified=True, bundle_receipt_verified=True,
+        bundle_acl_protected=True,
+    )
+    projection["safe_status"].update(
+        release_version="3.2.17", release_source_revision="c" * 40,
+    )
+    return projection
+
+
+def _split_manifest() -> dict[str, object]:
+    return {
+        "installer": {
+            "platform": "windows_amd64", "version": "3.2.16",
+            "source_revision": "a" * 40, "package_sha256": "b" * 64,
+        },
+        "agent": {
+            "platform": "windows_amd64", "version": "3.2.17",
+            "source_revision": "c" * 40, "package_sha256": "d" * 64,
+        },
+    }
+
+
+def test_newer_zip_runtime_keeps_installed_msi_identity_distinct() -> None:
+    assert validate_preflight(_zip_projection(), _split_manifest()) == {
+        "status": "READY", "platform": "windows_amd64",
+    }
+
+
+def test_zip_runtime_requires_explicit_installer_expectation() -> None:
+    with pytest.raises(WindowsPreflightError, match="installer"):
+        validate_preflight(_zip_projection(), {"agent": _split_manifest()["agent"]})
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        lambda value: value["runtime"].pop("bundle_sha256"),
+        lambda value: value["runtime"].update(bundle_sha256="e" * 64),
+        lambda value: value["runtime"].update(bundle_size=0),
+        lambda value: value["runtime"].update(bundle_manifest_verified=False),
+        lambda value: value["runtime"].update(bundle_receipt_verified=False),
+        lambda value: value["runtime"].update(bundle_acl_protected=False),
+        lambda value: value["runtime"].update(selector_source_revision="e" * 40),
+        lambda value: value["msi"].update(source_revision="e" * 40),
+    ],
+)
+def test_zip_runtime_rejects_missing_or_conflicting_evidence(mutation) -> None:
+    projection = _zip_projection()
+    mutation(projection)
+    with pytest.raises(WindowsPreflightError):
+        validate_preflight(projection, _split_manifest())
 
 
 def test_unknown_projection_field_fails_closed() -> None:

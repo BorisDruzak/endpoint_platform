@@ -80,12 +80,14 @@ Use `Install-EndpointAgentCanary.ps1` only from an elevated PowerShell session
 with the versioned MSI and its adjacent `*.release.json` sidecar. The wrapper
 verifies the exact release manifest and MSI hash, copies that verified MSI to
 a protected Program Files execution cache before invoking Windows Installer,
-then records the same verified bytes and secret-free provenance in the
-MSI-protected ProgramData evidence cache. It never accepts an arbitrary cache
+then stages the same verified bytes and secret-free provenance in the
+MSI-protected ProgramData evidence cache. It publishes provenance atomically
+after checking the installed MSI product and starting `EndpointAgent`, while
+preserving prior evidence if staging fails. It never accepts an arbitrary cache
 location or enrollment material. Before invoking the MSI it stops only the
 fixed `EndpointAgent` and `EndpointAgentUpdater` services and the system
 Windows Installer service, starts
-`EndpointAgent` after recording provenance, and restores a previously running
+`EndpointAgent` before publishing provenance, and restores a previously running
 core agent if installation fails.
 
 After the agent has completed a strict Gateway WSS connection, collect a
@@ -134,8 +136,19 @@ ProgramData so repair or reinstall retains machine identity and credentials.
 ## Universal Windows setup EXE
 
 For a new Windows machine, build the public, single-file setup EXE rather than
-distributing the MSI directly. It embeds only the MSI, endpoint CA, and a
-public HTTPS configuration; campaign choice, claims, and credentials are never
+distributing the MSI directly. It embeds the MSI, canonical MSI release
+manifest, canary installation wrapper, endpoint CA, and a public HTTPS
+configuration. The embedded manifest binds the MSI hash, product code,
+version, and initial runtime identity. Setup uses the wrapper to create the
+same protected MSI cache and installer provenance as a direct canary install.
+When `-ExistingMsi` is used, `-ExistingMsiReleaseManifest` must name the
+canonical `endpoint_windows_release_v1` MSI sidecar; a Setup sidecar cannot
+supply the required MSI identity.
+An enrolled-machine rerun compares the verified installed MSI provenance with
+the bundled MSI release, independently of a selected ZIP runtime in
+`current.json`. Missing or stale installer evidence causes the MSI path to run
+again so the wrapper can restore it before Setup reports success.
+Campaign choice, claims, and credentials are never
 build inputs or command-line arguments:
 
 ```powershell
@@ -163,8 +176,9 @@ documented denial, claim, provisioning, service, or repair outcome.
 On success or failure, Setup writes the machine-readable, non-secret result to
 `C:\ProgramData\Endpoint Platform\Installer\install-result.json` and appends
 the redacted installer flow to `C:\ProgramData\Endpoint Platform\Agent\install.log`.
-For example, a Windows Installer failure records `status=INSTALL_FAILED`,
-`stage=MSI`, and a bounded `MSI_EXIT_<code>` detail. During a major upgrade,
+For example, a Windows Installer or provenance failure records
+`status=INSTALL_FAILED`, `stage=MSI`, and the bounded `MSI_EVIDENCE_FAILED`
+detail. During a major upgrade,
 the new Setup stops the visible tray before invoking MSI; MSI intentionally
 does not execute a legacy installed tray helper before replacing its files.
 This keeps upgrades from older agents compatible while repair retains its

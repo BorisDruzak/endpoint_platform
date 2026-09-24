@@ -49,6 +49,19 @@ function Get-SafeFileFact {
     }
 }
 
+function Get-FileSha256 {
+    param([Parameter(Mandatory = $true)][string]$Path)
+    $stream = [IO.File]::OpenRead($Path)
+    $algorithm = [Security.Cryptography.SHA256]::Create()
+    try {
+        return [BitConverter]::ToString($algorithm.ComputeHash($stream)).Replace('-', '').ToLowerInvariant()
+    }
+    finally {
+        $algorithm.Dispose()
+        $stream.Dispose()
+    }
+}
+
 function ConvertTo-CanonicalServiceStartMode {
     param([Parameter(Mandatory = $true)][string]$Value)
     if ($Value -eq 'Auto') { return 'Automatic' }
@@ -200,7 +213,7 @@ function Read-InstallerProvenance {
     if (-not $cacheFact.regular -or $cacheFact.reparse) { throw 'Installer cache is unsafe.' }
     Assert-ProtectedEvidenceAcl -Path $provenancePath -AllowedSids @($SystemSid, $AdministratorsSid) -RequiredSids @($SystemSid, $AdministratorsSid) -AllowedOwnerSids @($SystemSid, $AdministratorsSid)
     Assert-ProtectedEvidenceAcl -Path $cachePath -AllowedSids @($SystemSid, $AdministratorsSid) -RequiredSids @($SystemSid, $AdministratorsSid) -AllowedOwnerSids @($SystemSid, $AdministratorsSid)
-    $hash = (Get-FileHash -LiteralPath $cachePath -Algorithm SHA256).Hash.ToLowerInvariant()
+    $hash = Get-FileSha256 -Path $cachePath
     if ($hash -ne [string]$provenance.package_sha256) { throw 'Installer cache hash is invalid.' }
     $installer = New-Object -ComObject WindowsInstaller.Installer
     if ($installer.ProductState([string]$provenance.product_code) -ne 5) { throw 'MSI product is not installed.' }
@@ -208,6 +221,139 @@ function Read-InstallerProvenance {
         throw 'Installed MSI version is invalid.'
     }
     return [ordered]@{ provenance = $provenance; cache_fact = $cacheFact; hash = $hash }
+}
+
+function Assert-TrustedRuntimeAcl {
+    param([Parameter(Mandatory = $true)][string]$Path)
+    $acl = Get-Acl -LiteralPath $Path
+    $owner = $acl.GetOwner([Security.Principal.SecurityIdentifier]).Value
+    if ($owner -notin @($SystemSid, $AdministratorsSid)) {
+        throw 'Selected runtime owner is unsafe.'
+    }
+    $trustedInstallerSid = Get-SidValue -Identity ([Security.Principal.NTAccount]::new('NT SERVICE\TrustedInstaller'))
+    $trustedWriters = @($SystemSid, $AdministratorsSid, $trustedInstallerSid, 'S-1-3-0')
+    $writeRights = [Security.AccessControl.FileSystemRights]::WriteData -bor
+        [Security.AccessControl.FileSystemRights]::AppendData -bor
+        [Security.AccessControl.FileSystemRights]::WriteAttributes -bor
+        [Security.AccessControl.FileSystemRights]::WriteExtendedAttributes -bor
+        [Security.AccessControl.FileSystemRights]::Delete -bor
+        [Security.AccessControl.FileSystemRights]::DeleteSubdirectoriesAndFiles -bor
+        [Security.AccessControl.FileSystemRights]::ChangePermissions -bor
+        [Security.AccessControl.FileSystemRights]::TakeOwnership
+    foreach ($rule in $acl.Access) {
+        if ($rule.AccessControlType -ne [Security.AccessControl.AccessControlType]::Allow) {
+            throw 'Selected runtime ACL contains a deny rule.'
+        }
+        try { $sid = Get-SidValue -Identity $rule.IdentityReference }
+        catch {
+            if ([bool]($rule.FileSystemRights -band $writeRights)) {
+                throw 'Selected runtime ACL permits untrusted writes.'
+            }
+            continue
+        }
+        if ($sid -notin $trustedWriters -and
+            [bool]($rule.FileSystemRights -band $writeRights)) {
+            throw 'Selected runtime ACL permits untrusted writes.'
+        }
+    }
+}
+
+function Read-SelectedRuntimeEvidence {
+    param(
+        [Parameter(Mandatory = $true)][string]$InstallRoot,
+        [Parameter(Mandatory = $true)]$SelectorValue,
+        [Parameter(Mandatory = $true)]$InstallerProvenance
+    )
+    $versionsRoot = Join-Path $InstallRoot 'versions'
+    $runtimeDirectory = Join-Path $versionsRoot ([string]$SelectorValue.version)
+    foreach ($path in @($InstallRoot, $versionsRoot, $runtimeDirectory)) {
+        Assert-NoReparsePointInPath -Path $path
+        Assert-TrustedRuntimeAcl -Path $path
+    }
+    $msiMarker = Join-Path $runtimeDirectory '.endpoint-msi-runtime.json'
+    $receiptPath = Join-Path $runtimeDirectory '.endpoint-update.json'
+    $manifestPath = Join-Path $runtimeDirectory 'endpoint-update-manifest.json'
+    $hasMsiMarker = Test-Path -LiteralPath $msiMarker
+    $hasReceipt = Test-Path -LiteralPath $receiptPath
+    $hasManifest = Test-Path -LiteralPath $manifestPath
+    if ($hasMsiMarker) {
+        if ($hasReceipt -or $hasManifest) { throw 'Selected runtime provenance is ambiguous.' }
+        $marker = Read-ExactJsonObject -Path $msiMarker -ExpectedProperties @('component_guid', 'schema_version', 'version') -Label 'MSI runtime marker'
+        Assert-TrustedRuntimeAcl -Path $msiMarker
+        if (
+            $marker.schema_version -ne 1 -or
+            [string]$marker.component_guid -notmatch '^[0-9A-Fa-f-]{36}$' -or
+            [string]$marker.version -ne [string]$SelectorValue.version -or
+            [string]$SelectorValue.version -ne [string]$InstallerProvenance.version -or
+            [string]$SelectorValue.source_revision -ne [string]$InstallerProvenance.source_revision
+        ) { throw 'MSI-selected runtime provenance is invalid.' }
+        return [ordered]@{ origin = 'msi' }
+    }
+    if (-not $hasReceipt -or -not $hasManifest) {
+        throw 'Selected ZIP runtime evidence is incomplete.'
+    }
+    $receipt = Read-ExactJsonObject -Path $receiptPath -ExpectedProperties @('sha256', 'size', 'version') -Label 'ZIP runtime receipt'
+    $manifest = Read-ExactJsonObject -Path $manifestPath -ExpectedProperties @('files', 'schema_version', 'source_revision', 'version') -Label 'ZIP runtime manifest'
+    Assert-TrustedRuntimeAcl -Path $receiptPath
+    Assert-TrustedRuntimeAcl -Path $manifestPath
+    if (
+        [string]$receipt.sha256 -notmatch '^[0-9a-f]{64}$' -or
+        -not ($receipt.size -is [int] -or $receipt.size -is [long]) -or
+        $receipt.size -le 0 -or
+        [string]$receipt.version -ne [string]$SelectorValue.version -or
+        $manifest.schema_version -ne 1 -or
+        [string]$manifest.version -ne [string]$SelectorValue.version -or
+        [string]$manifest.source_revision -notmatch '^[0-9a-f]{40}$' -or
+        [string]$manifest.source_revision -ne [string]$SelectorValue.source_revision -or
+        -not ($manifest.files -is [array]) -or
+        @($manifest.files).Count -eq 0
+    ) { throw 'Selected ZIP runtime metadata is invalid.' }
+    $listed = @{}
+    foreach ($file in @($manifest.files)) {
+        if ($null -eq $file -or
+            [string]::Join('|', @($file.PSObject.Properties.Name | Sort-Object)) -ne 'path|sha256|size' -or
+            [string]$file.path -notmatch '^[^/\\:]+(?:/[^/\\:]+)*$' -or
+            @(([string]$file.path).Split('/') | Where-Object { $_ -in @('.', '..') }).Count -gt 0 -or
+            [string]$file.path -in @('endpoint-update-manifest.json', '.endpoint-update.json', '.endpoint-msi-runtime.json') -or
+            [string]$file.sha256 -notmatch '^[0-9a-f]{64}$' -or
+            -not ($file.size -is [int] -or $file.size -is [long]) -or $file.size -lt 0 -or
+            $listed.ContainsKey([string]$file.path)
+        ) { throw 'Selected ZIP runtime manifest is invalid.' }
+        $listed[[string]$file.path] = $true
+        $filePath = Join-Path $runtimeDirectory (([string]$file.path).Replace('/', '\'))
+        $fact = Get-SafeFileFact -Path $filePath
+        Assert-TrustedRuntimeAcl -Path $filePath
+        if (-not $fact.regular -or $fact.reparse -or
+            (Get-Item -LiteralPath $filePath).Length -ne $file.size -or
+            (Get-FileSha256 -Path $filePath) -ne [string]$file.sha256
+        ) { throw 'Selected ZIP runtime manifest file mismatch.' }
+    }
+    if (-not $listed.ContainsKey('pc_agent.exe')) {
+        throw 'Selected ZIP runtime manifest lacks the executable.'
+    }
+    $actual = @{}
+    foreach ($item in @(Get-ChildItem -LiteralPath $runtimeDirectory -Recurse -Force)) {
+        if ($item.PSIsContainer) {
+            Assert-NoReparsePointInPath -Path $item.FullName
+            Assert-TrustedRuntimeAcl -Path $item.FullName
+            continue
+        }
+        $relative = $item.FullName.Substring($runtimeDirectory.Length).TrimStart('\').Replace('\', '/')
+        $actual[$relative] = $true
+    }
+    if ($actual.Count -ne $listed.Count + 2 -or
+        -not $actual.ContainsKey('.endpoint-update.json') -or
+        -not $actual.ContainsKey('endpoint-update-manifest.json') -or
+        @($listed.Keys | Where-Object { -not $actual.ContainsKey($_) }).Count -ne 0
+    ) { throw 'Selected ZIP runtime inventory mismatch.' }
+    return [ordered]@{
+        origin = 'zip'
+        bundle_sha256 = [string]$receipt.sha256
+        bundle_size = [long]$receipt.size
+        bundle_manifest_verified = $true
+        bundle_receipt_verified = $true
+        bundle_acl_protected = $true
+    }
 }
 
 function Assert-ExpectedCompletion {
@@ -268,9 +414,7 @@ try {
     $status = Read-CanaryStatus -DataRoot $ExpectedDataRoot -ExpectedEndpointHost $ExpectedEndpointHost
     $installerEvidence = Read-InstallerProvenance -DataRoot $ExpectedDataRoot
     $provenance = $installerEvidence.provenance
-    if ([string]$provenance.version -ne [string]$selectorValue.version -or [string]$provenance.source_revision -ne [string]$selectorValue.source_revision) {
-        throw 'Installer provenance does not match the selected runtime.'
-    }
+    $selectedEvidence = Read-SelectedRuntimeEvidence -InstallRoot $ExpectedInstallRoot -SelectorValue $selectorValue -InstallerProvenance $provenance
     if ([string]$status.release.version -ne [string]$selectorValue.version -or [string]$status.release.source_revision -ne [string]$selectorValue.source_revision) {
         throw 'Canary status does not match the selected runtime.'
     }
@@ -287,6 +431,12 @@ try {
         Assert-ExpectedCompletion -Completion $completionStatus.completion_proof
     }
 
+    $runtimeProjection = [ordered]@{ origin = [string]$selectedEvidence.origin; selector_regular = $selectorFact.regular; selector_reparse = $selectorFact.reparse; selector_version = [string]$selectorValue.version; selector_source_revision = [string]$selectorValue.source_revision; selected_runtime_present = $runtimeFact.regular -and -not $runtimeFact.reparse; http_fallback = [bool]$status.transport.http_fallback; helpdesk_reference = $false }
+    if ($selectedEvidence.origin -eq 'zip') {
+        foreach ($key in @('bundle_sha256', 'bundle_size', 'bundle_manifest_verified', 'bundle_receipt_verified', 'bundle_acl_protected')) {
+            $runtimeProjection[$key] = $selectedEvidence[$key]
+        }
+    }
     $payload = [ordered]@{
         schema_version = 'windows_agent_preflight_v1'
         agent = [ordered]@{ platform = 'windows_amd64'; source_revision = [string]$selectorValue.source_revision; version = [string]$selectorValue.version }
@@ -294,8 +444,8 @@ try {
             agent = [ordered]@{ name = $agent.name; start_mode = $agent.start_mode; state = $agent.state; account = $agent.account; pid_present = $agent.pid_present; host = [ordered]@{ path = $hostFact.path; regular = $hostFact.regular; reparse = $hostFact.reparse; fixed_entrypoint = $agent.path_name -match 'endpoint-agent-service\.exe' }; runtime_children = $children }
             updater = [ordered]@{ name = $updater.name; start_mode = $updater.start_mode; state = $updater.state; account = $updater.account; regular = $true; listener = $false; safe_command = $updater.path_name -notmatch '(?i)https?://' }
         }
-        runtime = [ordered]@{ selector_regular = $selectorFact.regular; selector_reparse = $selectorFact.reparse; selector_version = [string]$selectorValue.version; selector_source_revision = [string]$selectorValue.source_revision; selected_runtime_present = $runtimeFact.regular -and -not $runtimeFact.reparse; http_fallback = [bool]$status.transport.http_fallback; helpdesk_reference = $false }
-        msi = [ordered]@{ version = [string]$provenance.version; sha256 = [string]$installerEvidence.hash; owned_files = $installerEvidence.cache_fact.regular -and -not $installerEvidence.cache_fact.reparse }
+        runtime = $runtimeProjection
+        msi = [ordered]@{ version = [string]$provenance.version; source_revision = [string]$provenance.source_revision; product_code = [string]$provenance.product_code; sha256 = [string]$installerEvidence.hash; owned_files = $installerEvidence.cache_fact.regular -and -not $installerEvidence.cache_fact.reparse }
         acl = [ordered]@{ data_root_protected = $dataAcl.data_root_protected; required_principals = $dataAcl.required_principals; ordinary_user_read = $dataAcl.ordinary_user_read; protected_file_regular = $protectedFile.regular; protected_file_reparse = $protectedFile.reparse; status_artifact_protected = $dataAcl.status_artifact_protected; provenance_artifact_protected = $true; msi_artifact_protected = $true }
         safe_status = [ordered]@{ service = $agent.state.ToLowerInvariant(); identity_present = $identityFile.regular -and -not $identityFile.reparse; regular = $statusFile.regular; reparse = $statusFile.reparse; release_version = [string]$status.release.version; release_source_revision = [string]$status.release.source_revision }
         network = [ordered]@{ strict_tls = [bool]$status.transport.strict_tls; hostname_valid = [bool]$status.transport.hostname_valid; redirected = [bool]$status.transport.redirected; gateway_wss = [bool]$status.transport.gateway_wss; http_fallback = [bool]$status.transport.http_fallback; capability = [string]$status.capability }

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import ctypes
+import hashlib
 import json
 import os
 import re
@@ -109,20 +110,72 @@ def _read_public_setup_config(path: Path) -> dict[str, str]:
     return values
 
 
-def _install_embedded_msi(msi_path: Path) -> None:
+def _verify_embedded_msi(msi_path: Path) -> tuple[Path, Path]:
+    """Bind the extracted MSI to its embedded canonical release evidence."""
     if not msi_path.is_file():
         raise SetupInstallError("MSI_UNAVAILABLE")
-    completed = subprocess.run(
-        ["msiexec.exe", "/i", str(msi_path), "/qn", "/norestart"],
-        stdin=subprocess.DEVNULL,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        check=False,
-        shell=False,
-        creationflags=_windowless_creation_flags(),
-    )
-    if completed.returncode not in {0, 3010}:
-        raise SetupInstallError(f"MSI_EXIT_{completed.returncode}")
+    manifest_path = msi_path.with_name("EndpointAgent.release.json")
+    wrapper_path = msi_path.with_name("Install-EndpointAgentCanary.ps1")
+    if not manifest_path.is_file() or not wrapper_path.is_file():
+        raise SetupInstallError("MSI_RELEASE_UNAVAILABLE")
+    try:
+        manifest_bytes = manifest_path.read_bytes()
+        if not manifest_bytes or len(manifest_bytes) > 4096:
+            raise ValueError("invalid manifest length")
+        manifest = json.loads(manifest_bytes)
+        config = _read_public_setup_config(msi_path.with_name("setup-config.json"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError, ValueError) as error:
+        raise SetupInstallError("MSI_RELEASE_INVALID") from error
+    if not isinstance(manifest, dict) or set(manifest) != {
+        "initial_runtime_tree_sha256", "package_sha256", "product_code",
+        "schema_version", "source_revision", "version",
+    } or manifest.get("schema_version") != "endpoint_windows_release_v1":
+        raise SetupInstallError("MSI_RELEASE_INVALID")
+    if (
+        not isinstance(manifest["version"], str)
+        or manifest["version"] != config["installer_version"]
+        or not isinstance(manifest["product_code"], str)
+        or re.fullmatch(r"\{[0-9A-F-]{36}\}", manifest["product_code"]) is None
+        or not isinstance(manifest["source_revision"], str)
+        or re.fullmatch(r"[0-9a-f]{40}", manifest["source_revision"]) is None
+        or not isinstance(manifest["initial_runtime_tree_sha256"], str)
+        or re.fullmatch(r"[0-9a-f]{64}", manifest["initial_runtime_tree_sha256"]) is None
+        or not isinstance(manifest["package_sha256"], str)
+        or re.fullmatch(r"[0-9a-f]{64}", manifest["package_sha256"]) is None
+    ):
+        raise SetupInstallError("MSI_RELEASE_INVALID")
+    digest = hashlib.sha256()
+    try:
+        with msi_path.open("rb") as source:
+            for block in iter(lambda: source.read(1024 * 1024), b""):
+                digest.update(block)
+    except OSError as error:
+        raise SetupInstallError("MSI_UNAVAILABLE") from error
+    if digest.hexdigest() != manifest["package_sha256"]:
+        raise SetupInstallError("MSI_HASH_MISMATCH")
+    return manifest_path, wrapper_path
+
+
+def _install_embedded_msi(msi_path: Path) -> None:
+    manifest_path, wrapper_path = _verify_embedded_msi(msi_path)
+    powershell = Path(os.environ.get("SystemRoot", r"C:\Windows")) / "System32" / "WindowsPowerShell" / "v1.0" / "powershell.exe"
+    try:
+        completed = subprocess.run(
+            [str(powershell), "-NoLogo", "-NoProfile", "-NonInteractive",
+             "-ExecutionPolicy", "Bypass", "-WindowStyle", "Hidden", "-File",
+             str(wrapper_path), "-MsiPath", str(msi_path),
+             "-ReleaseManifest", str(manifest_path)],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False,
+            shell=False,
+            creationflags=_windowless_creation_flags(),
+        )
+    except OSError as error:
+        raise SetupInstallError("MSI_EVIDENCE_FAILED") from error
+    if completed.returncode != 0:
+        raise SetupInstallError("MSI_EVIDENCE_FAILED")
 
 
 def _stop_tray_before_msi_update() -> None:
@@ -232,23 +285,83 @@ def _data_root() -> Path:
     return Path(program_data) / "Endpoint Platform" / "Agent"
 
 
-def _installed_runtime_version() -> str | None:
-    """Read the fixed selector version without treating arbitrary files as state."""
-    program_files = os.environ.get("ProgramW6432") or os.environ.get("ProgramFiles")
-    if not program_files:
+def _installed_product_version(product_code: str) -> str | None:
+    """Read Windows Installer's installed product identity, independent of ZIP selection."""
+    if os.name != "nt":
         return None
-    path = Path(program_files) / "Endpoint Platform" / "Agent" / "current.json"
     try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
+        installer = ctypes.WinDLL("msi", use_last_error=True)
+        query_state = installer.MsiQueryProductStateW
+        query_state.argtypes = [wintypes.LPCWSTR]
+        query_state.restype = ctypes.c_int
+        if query_state(product_code) != 5:
+            return None
+        product_info = installer.MsiGetProductInfoW
+        product_info.argtypes = [
+            wintypes.LPCWSTR, wintypes.LPCWSTR, wintypes.LPWSTR,
+            ctypes.POINTER(wintypes.DWORD),
+        ]
+        product_info.restype = wintypes.UINT
+        value = ctypes.create_unicode_buffer(64)
+        length = wintypes.DWORD(len(value))
+        if product_info(product_code, "VersionString", value, ctypes.byref(length)) != 0:
+            return None
+    except (AttributeError, OSError):
         return None
-    if not isinstance(payload, dict) or set(payload) not in (
-        {"version"},
-        {"schema_version", "source_revision", "version"},
+    return value.value
+
+
+def _installed_msi_version() -> str | None:
+    """Trust an installed MSI version only with matching protected cache and product."""
+    cache_root = _data_root() / "installer-cache"
+    provenance_path = cache_root / "installer-provenance.json"
+    try:
+        raw = provenance_path.read_bytes()
+        if not raw or len(raw) > 4096:
+            return None
+        provenance = json.loads(raw)
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        return None
+    if not isinstance(provenance, dict) or set(provenance) != {
+        "cache_file", "initial_runtime_tree_sha256", "package_sha256", "product_code",
+        "release_manifest_schema_version", "schema_version", "source_revision", "version",
+    }:
+        return None
+    version = provenance["version"]
+    package_hash = provenance["package_sha256"]
+    product_code = provenance["product_code"]
+    if (
+        provenance["schema_version"] != "endpoint_windows_installer_provenance_v1"
+        or provenance["release_manifest_schema_version"] != "endpoint_windows_release_v1"
+        or not isinstance(version, str)
+        or re.fullmatch(r"\d+\.\d+\.\d+", version) is None
+        or not isinstance(package_hash, str)
+        or re.fullmatch(r"[0-9a-f]{64}", package_hash) is None
+        or provenance["cache_file"] != f"msi-{package_hash}/EndpointAgent.msi"
+        or not isinstance(product_code, str)
+        or re.fullmatch(r"\{[0-9A-F-]{36}\}", product_code) is None
+        or not isinstance(provenance["source_revision"], str)
+        or re.fullmatch(r"[0-9a-f]{40}", provenance["source_revision"]) is None
+        or not isinstance(provenance["initial_runtime_tree_sha256"], str)
+        or re.fullmatch(r"[0-9a-f]{64}", provenance["initial_runtime_tree_sha256"]) is None
     ):
         return None
-    version = payload.get("version")
-    return version if isinstance(version, str) and _SEMVER.fullmatch(version) else None
+    cache_path = cache_root / f"msi-{package_hash}" / "EndpointAgent.msi"
+    if not cache_path.is_file() or cache_path.is_symlink() or provenance_path.is_symlink():
+        return None
+    try:
+        acl = PyWin32AclAdapter()
+        acl.assert_protected_file(provenance_path)
+        acl.assert_protected_file(cache_path)
+        digest = hashlib.sha256()
+        with cache_path.open("rb") as source:
+            for block in iter(lambda: source.read(1024 * 1024), b""):
+                digest.update(block)
+    except (OSError, WindowsAclError):
+        return None
+    if digest.hexdigest() != package_hash:
+        return None
+    return version if _installed_product_version(product_code) == version else None
 
 
 def _is_strictly_newer_version(candidate: str, installed: str) -> bool:
@@ -619,18 +732,16 @@ def main(argv: Sequence[str] | None = None) -> int:
             stage="PREFLIGHT",
             detail="PREFLIGHT_INVALID",
         )
+    try:
+        _verify_embedded_msi(resources / "EndpointAgent.msi")
+    except SetupInstallError as error:
+        return _complete(
+            args, data_root, status="PREFLIGHT_FAILED", code=EXIT_PREFLIGHT_FAILED,
+            stage="PREFLIGHT", detail=error.detail,
+        )
     if installation_state == "valid":
-        installed_version = _installed_runtime_version()
-        if installed_version is None:
-            return _complete(
-                args,
-                data_root,
-                status="REPAIR_REQUIRED",
-                code=EXIT_REPAIR_REQUIRED,
-                stage="SETUP",
-                detail="LOCAL_RUNTIME_CONFLICT",
-            )
-        if _is_strictly_newer_version(config.installer_version, installed_version):
+        installed_version = _installed_msi_version()
+        if installed_version is None or _is_strictly_newer_version(config.installer_version, installed_version):
             _finish(
                 data_root,
                 status="STARTED",

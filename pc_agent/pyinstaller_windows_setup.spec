@@ -22,6 +22,12 @@ def _public_payload(name: str, expected_filename: str) -> Path:
 setup_msi = _public_payload("ENDPOINT_SETUP_MSI", "EndpointAgent.msi")
 setup_ca = _public_payload("ENDPOINT_SETUP_CA_FILE", "endpoint-ca.crt")
 setup_config = _public_payload("ENDPOINT_SETUP_CONFIG", "setup-config.json")
+setup_msi_release_manifest = _public_payload(
+    "ENDPOINT_SETUP_MSI_RELEASE_MANIFEST", "EndpointAgent.release.json"
+)
+setup_installer_wrapper = project_root / "packaging" / "windows" / "Install-EndpointAgentCanary.ps1"
+if not setup_installer_wrapper.is_file():
+    raise SystemExit("Install-EndpointAgentCanary.ps1 is required for a Windows Setup build")
 
 a = Analysis(
     [str(pc_agent_root / "platform" / "windows" / "setup_entry.py")],
@@ -31,6 +37,8 @@ a = Analysis(
         (str(setup_msi), "payload"),
         (str(setup_ca), "payload"),
         (str(setup_config), "payload"),
+        (str(setup_msi_release_manifest), "payload"),
+        (str(setup_installer_wrapper), "payload"),
     ],
     hookspath=[],
     hooksconfig={},

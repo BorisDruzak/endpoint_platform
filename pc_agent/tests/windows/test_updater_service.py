@@ -293,6 +293,96 @@ def test_pending_validator_rejects_different_bytes_for_existing_target_version(
         updater._publish(staging, pending)
 
 
+def test_publish_reuses_identical_msi_runtime_without_zip_metadata(tmp_path: Path) -> None:
+    """A ZIP rollback may select an MSI-owned directory with identical runtime bytes."""
+    import shutil
+
+    from pc_agent.platform.windows.updater_service import PendingUpdateValidator, WindowsUpdater
+
+    paths = _paths(tmp_path)
+    artifact = _artifact(paths.downloads_root / "rollback.zip")
+    _pending(paths, artifact)
+    pending = PendingUpdateValidator(paths, _Acl()).load()
+    updater = WindowsUpdater(paths, acl=_Acl())
+    staging = updater._extract_to_staging(pending)
+    target = paths.versions_root / pending.version
+    target.mkdir(parents=True)
+    shutil.copy2(staging / "pc_agent.exe", target / "pc_agent.exe")
+    (target / "_internal").mkdir()
+    shutil.copy2(staging / "_internal" / "runtime.dat", target / "_internal" / "runtime.dat")
+    target.joinpath(".endpoint-msi-runtime.json").write_text(json.dumps({
+        "component_guid": "A7BB0338-5F15-45A2-9B4C-1BF55148FD2B",
+        "schema_version": 1,
+        "version": pending.version,
+    }), encoding="utf-8")
+
+    assert updater._publish(staging, pending) == target
+    assert target.joinpath("pc_agent.exe").read_bytes() == b"agent"
+    assert not target.joinpath("endpoint-update-manifest.json").exists()
+    assert not staging.exists()
+
+
+@pytest.mark.parametrize("mutation", ["changed", "missing", "extra", "conflicting_manifest", "missing_marker"])
+def test_publish_rejects_nonidentical_existing_runtime(tmp_path: Path, mutation: str) -> None:
+    """Only transport metadata may differ from a verified ZIP rollback."""
+    import shutil
+
+    from pc_agent.platform.windows.updater_service import PendingUpdateValidator, WindowsUpdater
+
+    paths = _paths(tmp_path)
+    artifact = _artifact(paths.downloads_root / "rollback.zip")
+    _pending(paths, artifact)
+    pending = PendingUpdateValidator(paths, _Acl()).load()
+    updater = WindowsUpdater(paths, acl=_Acl())
+    staging = updater._extract_to_staging(pending)
+    target = paths.versions_root / pending.version
+    target.mkdir(parents=True)
+    shutil.copy2(staging / "pc_agent.exe", target / "pc_agent.exe")
+    (target / "_internal").mkdir()
+    shutil.copy2(staging / "_internal" / "runtime.dat", target / "_internal" / "runtime.dat")
+    if mutation != "missing_marker":
+        target.joinpath(".endpoint-msi-runtime.json").write_text(json.dumps({
+            "component_guid": "A7BB0338-5F15-45A2-9B4C-1BF55148FD2B",
+            "schema_version": 1,
+            "version": pending.version,
+        }), encoding="utf-8")
+    if mutation == "changed":
+        target.joinpath("pc_agent.exe").write_bytes(b"other")
+    elif mutation == "missing":
+        target.joinpath("_internal", "runtime.dat").unlink()
+    elif mutation == "extra":
+        target.joinpath("unexpected.dat").write_bytes(b"other")
+    else:
+        target.joinpath("endpoint-update-manifest.json").write_text("{}", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="collision"):
+        updater._publish(staging, pending)
+
+
+@pytest.mark.parametrize("receipt", [None, {"sha256": "f" * 64, "size": 99, "version": "3.2.0"}])
+def test_publish_requires_matching_receipt_for_existing_zip_runtime(
+    tmp_path: Path, receipt: dict[str, object] | None,
+) -> None:
+    """An already published ZIP cannot silently inherit another archive identity."""
+    import shutil
+
+    from pc_agent.platform.windows.updater_service import PendingUpdateValidator, WindowsUpdater
+
+    paths = _paths(tmp_path)
+    artifact = _artifact(paths.downloads_root / "candidate.zip")
+    _pending(paths, artifact)
+    pending = PendingUpdateValidator(paths, _Acl()).load()
+    updater = WindowsUpdater(paths, acl=_Acl())
+    staging = updater._extract_to_staging(pending)
+    target = paths.versions_root / pending.version
+    shutil.copytree(staging, target)
+    if receipt is not None:
+        target.joinpath(".endpoint-update.json").write_text(json.dumps(receipt), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="collision"):
+        updater._publish(staging, pending)
+
+
 def test_updater_records_a_rejected_handoff_for_the_reconnected_agent(
     tmp_path: Path,
 ) -> None:

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
@@ -47,6 +48,10 @@ _TOP_LEVEL_KEYS = frozenset(
     }
 )
 _INSTALL_ROOT = "c:\\program files\\endpoint platform\\agent\\"
+_REVISION = re.compile(r"[0-9a-f]{40}\Z")
+_SHA256 = re.compile(r"[0-9a-f]{64}\Z")
+_VERSION = re.compile(r"(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\Z")
+_PRODUCT_CODE = re.compile(r"\{[0-9A-Fa-f-]{36}\}\Z")
 
 
 def _mapping(value: object, *, name: str) -> Mapping[str, object]:
@@ -56,8 +61,24 @@ def _mapping(value: object, *, name: str) -> Mapping[str, object]:
 
 
 def _require(value: object, *, name: str, expected: object = True) -> None:
-    if value != expected:
+    if value != expected or (isinstance(expected, bool) and type(value) is not bool):
         raise WindowsPreflightError(f"{name} is invalid")
+
+
+def _manifest_identity(value: object, *, name: str) -> Mapping[str, object]:
+    identity = _mapping(value, name=name)
+    if (
+        set(identity) != {"platform", "version", "source_revision", "package_sha256"}
+        or identity.get("platform") != "windows_amd64"
+        or not isinstance(identity.get("version"), str)
+        or not _VERSION.fullmatch(identity["version"])
+        or not isinstance(identity.get("source_revision"), str)
+        or not _REVISION.fullmatch(identity["source_revision"])
+        or not isinstance(identity.get("package_sha256"), str)
+        or not _SHA256.fullmatch(identity["package_sha256"])
+    ):
+        raise WindowsPreflightError(f"{name} is invalid")
+    return identity
 
 
 def _safe_path(value: object, *, name: str, suffix: str) -> None:
@@ -105,6 +126,18 @@ def _validate_runtime(
     projection: Mapping[str, object], manifest_agent: Mapping[str, object]
 ) -> None:
     runtime = _mapping(projection.get("runtime"), name="runtime")
+    origin = runtime.get("origin")
+    common_keys = {
+        "origin", "selector_regular", "selector_reparse", "selector_version",
+        "selector_source_revision", "selected_runtime_present", "http_fallback",
+        "helpdesk_reference",
+    }
+    zip_keys = {
+        "bundle_sha256", "bundle_size", "bundle_manifest_verified",
+        "bundle_receipt_verified", "bundle_acl_protected",
+    }
+    if origin not in ("msi", "zip") or set(runtime) != (common_keys | (zip_keys if origin == "zip" else set())):
+        raise WindowsPreflightError("runtime schema is invalid")
     _require(runtime.get("selector_regular"), name="selector regular")
     _require(runtime.get("selector_reparse"), name="selector reparse", expected=False)
     _require(runtime.get("selected_runtime_present"), name="selected runtime")
@@ -116,15 +149,32 @@ def _validate_runtime(
         name="selector source revision",
         expected=manifest_agent.get("source_revision"),
     )
+    agent = _mapping(projection.get("agent"), name="agent")
+    _require(agent.get("version"), name="agent version", expected=manifest_agent["version"])
+    _require(agent.get("source_revision"), name="agent source revision", expected=manifest_agent["source_revision"])
+    if origin == "zip":
+        _require(runtime.get("bundle_sha256"), name="ZIP SHA-256", expected=manifest_agent["package_sha256"])
+        if type(runtime.get("bundle_size")) is not int or runtime["bundle_size"] <= 0:
+            raise WindowsPreflightError("ZIP size is invalid")
+        for key in ("bundle_manifest_verified", "bundle_receipt_verified", "bundle_acl_protected"):
+            _require(runtime.get(key), name=f"ZIP {key}")
 
 
 def _validate_msi_acl_network(
-    projection: Mapping[str, object], manifest_agent: Mapping[str, object]
+    projection: Mapping[str, object], manifest_agent: Mapping[str, object],
+    manifest_installer: Mapping[str, object],
 ) -> None:
     msi = _mapping(projection.get("msi"), name="MSI")
-    _require(msi.get("version"), name="MSI version", expected=manifest_agent.get("version"))
-    _require(msi.get("sha256"), name="MSI SHA-256", expected=manifest_agent.get("package_sha256"))
+    if set(msi) != {"version", "source_revision", "sha256", "product_code", "owned_files"}:
+        raise WindowsPreflightError("MSI schema is invalid")
+    _require(msi.get("version"), name="MSI version", expected=manifest_installer["version"])
+    _require(msi.get("source_revision"), name="MSI source revision", expected=manifest_installer["source_revision"])
+    _require(msi.get("sha256"), name="MSI SHA-256", expected=manifest_installer["package_sha256"])
+    if not isinstance(msi.get("product_code"), str) or not _PRODUCT_CODE.fullmatch(msi["product_code"]):
+        raise WindowsPreflightError("MSI product code is invalid")
     _require(msi.get("owned_files"), name="MSI ownership")
+    if _mapping(projection.get("runtime"), name="runtime").get("origin") == "msi" and manifest_agent != manifest_installer:
+        raise WindowsPreflightError("MSI-selected runtime identity is invalid")
     acl = _mapping(projection.get("acl"), name="ACL")
     for key in (
         "data_root_protected",
@@ -231,7 +281,16 @@ def validate_preflight(
     if projection.get("schema_version") != "windows_agent_preflight_v1":
         raise WindowsPreflightError("projection schema is invalid")
     agent = _mapping(projection["agent"], name="agent")
-    manifest_agent = _mapping(manifest.get("agent"), name="manifest agent")
+    manifest_agent = _manifest_identity(manifest.get("agent"), name="manifest agent")
+    origin = _mapping(projection.get("runtime"), name="runtime").get("origin")
+    if "installer" in manifest:
+        if set(manifest) != {"agent", "installer"}:
+            raise WindowsPreflightError("manifest schema is invalid")
+        manifest_installer = _manifest_identity(manifest["installer"], name="manifest installer")
+    elif set(manifest) == {"agent"} and origin == "msi":
+        manifest_installer = manifest_agent
+    else:
+        raise WindowsPreflightError("manifest installer is missing")
     if agent.get("platform") != "windows_amd64":
         raise WindowsPreflightError("agent platform is invalid")
     if manifest_agent.get("platform") != "windows_amd64":
@@ -244,7 +303,7 @@ def validate_preflight(
     _validate_agent_service(services)
     _validate_updater(services)
     _validate_runtime(projection, manifest_agent)
-    _validate_msi_acl_network(projection, manifest_agent)
+    _validate_msi_acl_network(projection, manifest_agent, manifest_installer)
     _validate_completion(projection.get("completion_proof"), require_completion)
     return {"status": "READY", "platform": "windows_amd64"}
 

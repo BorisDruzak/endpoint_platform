@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
+
+import pytest
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -57,7 +60,7 @@ def test_setup_builder_binds_the_exact_msi_and_public_ca_without_secrets() -> No
     assert "credential" not in source.lower()
 
 
-def test_frozen_setup_spec_embeds_only_msi_ca_and_public_configuration() -> None:
+def test_frozen_setup_spec_embeds_msi_release_evidence_and_public_configuration() -> None:
     source = (PROJECT_ROOT / "pc_agent" / "pyinstaller_windows_setup.spec").read_text(
         encoding="utf-8"
     )
@@ -65,10 +68,56 @@ def test_frozen_setup_spec_embeds_only_msi_ca_and_public_configuration() -> None
     assert "ENDPOINT_SETUP_MSI" in source
     assert "ENDPOINT_SETUP_CA_FILE" in source
     assert "ENDPOINT_SETUP_CONFIG" in source
+    assert "ENDPOINT_SETUP_MSI_RELEASE_MANIFEST" in source
+    assert "Install-EndpointAgentCanary.ps1" in source
     assert '"EndpointAgent.msi"' in source
     assert '"endpoint-ca.crt"' in source
     assert '"setup-config.json"' in source
+    assert '"EndpointAgent.release.json"' in source
     assert "datas=[" in source
+
+
+def test_setup_builder_requires_and_embeds_canonical_msi_release_manifest() -> None:
+    source = (WINDOWS_PACKAGING / "build-setup.ps1").read_text(encoding="utf-8")
+
+    assert "endpoint_windows_release_v1" in source
+    assert "ENDPOINT_SETUP_MSI_RELEASE_MANIFEST" in source
+    assert "EndpointAgent.release.json" in source
+    assert "Install-EndpointAgentCanary.ps1" in source
+    assert "MSI release manifest is missing." in source
+
+
+def test_setup_spec_places_release_evidence_and_wrapper_in_payload(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+) -> None:
+    names = {
+        "ENDPOINT_SETUP_MSI": "EndpointAgent.msi",
+        "ENDPOINT_SETUP_CA_FILE": "endpoint-ca.crt",
+        "ENDPOINT_SETUP_CONFIG": "setup-config.json",
+        "ENDPOINT_SETUP_MSI_RELEASE_MANIFEST": "EndpointAgent.release.json",
+    }
+    for env_name, filename in names.items():
+        file_path = tmp_path / filename
+        file_path.write_bytes(b"fixture")
+        monkeypatch.setenv(env_name, str(file_path))
+    collected: dict[str, object] = {}
+
+    def analysis(*_args: object, **kwargs: object) -> SimpleNamespace:
+        collected["datas"] = kwargs["datas"]
+        return SimpleNamespace(pure=[], scripts=[], binaries=[], datas=kwargs["datas"])
+
+    spec = PROJECT_ROOT / "pc_agent" / "pyinstaller_windows_setup.spec"
+    exec(compile(spec.read_text(encoding="utf-8"), str(spec), "exec"), {
+        "SPECPATH": str(spec.parent),
+        "Analysis": analysis,
+        "PYZ": lambda *_a, **_k: None,
+        "EXE": lambda *_a, **_k: None,
+    })
+
+    datas = collected["datas"]
+    assert {Path(source).name for source, target in datas if target == "payload"} == {
+        *names.values(), "Install-EndpointAgentCanary.ps1",
+    }
 
 
 def test_frozen_setup_spec_requires_elevation_for_machine_provisioning() -> None:
@@ -98,7 +147,7 @@ def test_setup_entry_installs_embedded_msi_before_using_its_provisioner() -> Non
 
     assert "sys._MEIPASS" in source
     assert "EndpointAgent.msi" in source
-    assert "msiexec.exe" in source
+    assert "Install-EndpointAgentCanary.ps1" in source
     assert "endpoint-agent-provision.exe" in source
     assert "setup-config.json" in source
     assert "--endpoint-origin" in source

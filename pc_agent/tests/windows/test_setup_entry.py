@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -19,6 +20,15 @@ from pc_agent.windows_setup import (
 
 def _write_public_payload(root: Path) -> None:
     (root / "EndpointAgent.msi").write_bytes(b"msi")
+    (root / "EndpointAgent.release.json").write_text(json.dumps({
+        "schema_version": "endpoint_windows_release_v1",
+        "version": "1.0.0",
+        "source_revision": "a" * 40,
+        "product_code": "{11111111-1111-4111-8111-111111111111}",
+        "initial_runtime_tree_sha256": "b" * 64,
+        "package_sha256": hashlib.sha256(b"msi").hexdigest(),
+    }), encoding="utf-8")
+    (root / "Install-EndpointAgentCanary.ps1").write_text("# trusted wrapper fixture", encoding="utf-8")
     (root / "endpoint-ca.crt").write_text("public CA", encoding="ascii")
     (root / "setup-config.json").write_text(
         json.dumps(
@@ -31,6 +41,17 @@ def _write_public_payload(root: Path) -> None:
         ),
         encoding="utf-8",
     )
+
+
+def _set_payload_version(root: Path, version: str) -> None:
+    config_path = root / "setup-config.json"
+    config = json.loads(config_path.read_text(encoding="utf-8"))
+    config["installer_version"] = version
+    config_path.write_text(json.dumps(config), encoding="utf-8")
+    manifest_path = root / "EndpointAgent.release.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["version"] = version
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
 
 
 def test_setup_entry_installs_embedded_msi_before_enrollment(
@@ -202,8 +223,8 @@ def test_embedded_msi_installation_is_silent_and_windowless(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     """Removing quiet MSI flags or child window suppression would reintroduce UI flashes."""
+    _write_public_payload(tmp_path)
     msi_path = tmp_path / "EndpointAgent.msi"
-    msi_path.write_bytes(b"msi")
     captured: dict[str, object] = {}
 
     def fake_run(*args: object, **kwargs: object) -> SimpleNamespace:
@@ -218,8 +239,8 @@ def test_embedded_msi_installation_is_silent_and_windowless(
 
     setup_entry._install_embedded_msi(msi_path)
 
-    assert "/qn" in captured["args"][0]
-    assert "/passive" not in captured["args"][0]
+    assert "-WindowStyle" in captured["args"][0]
+    assert "Hidden" in captured["args"][0]
     assert captured["kwargs"]["creationflags"] == 4242
 
 
@@ -312,14 +333,12 @@ def test_successful_interactive_update_restarts_the_tray_companion(
     resources = tmp_path / "payload"
     resources.mkdir()
     _write_public_payload(resources)
-    config = json.loads((resources / "setup-config.json").read_text(encoding="utf-8"))
-    config["installer_version"] = "3.2.56"
-    (resources / "setup-config.json").write_text(json.dumps(config), encoding="utf-8")
+    _set_payload_version(resources, "3.2.56")
     started: list[object] = []
 
     monkeypatch.setattr(setup_entry, "_data_root", lambda: tmp_path)
     monkeypatch.setattr(setup_entry, "_resource_root", lambda: resources)
-    monkeypatch.setattr(setup_entry, "_installed_runtime_version", lambda: "3.2.55")
+    monkeypatch.setattr(setup_entry, "_installed_msi_version", lambda: "3.2.55")
     monkeypatch.setattr(setup_entry, "_install_embedded_msi", lambda _path: None)
     monkeypatch.setattr(setup_entry, "_wait_for_agent_service_running", lambda: True)
     monkeypatch.setattr(setup_entry, "_is_interactive_windows_session", lambda: True)
@@ -621,7 +640,7 @@ def test_valid_rerun_stops_before_msi_or_enrollment(
     resources.mkdir()
     _write_public_payload(resources)
     monkeypatch.setattr(setup_entry, "_resource_root", lambda: resources)
-    monkeypatch.setattr(setup_entry, "_installed_runtime_version", lambda: "1.0.0")
+    monkeypatch.setattr(setup_entry, "_installed_msi_version", lambda: "1.0.0")
     monkeypatch.setattr(
         setup_entry,
         "_install_embedded_msi",
@@ -643,15 +662,12 @@ def test_valid_existing_agent_installs_a_strictly_newer_embedded_msi(
     resources = tmp_path / "payload"
     resources.mkdir()
     _write_public_payload(resources)
-    config_path = resources / "setup-config.json"
-    config = json.loads(config_path.read_text(encoding="utf-8"))
-    config["installer_version"] = "3.2.49"
-    config_path.write_text(json.dumps(config), encoding="utf-8")
+    _set_payload_version(resources, "3.2.49")
     calls: list[str] = []
     monkeypatch.setattr(setup_entry, "_data_root", lambda: tmp_path)
     monkeypatch.setattr(setup_entry, "_resource_root", lambda: resources)
     monkeypatch.setattr(
-        setup_entry, "_installed_runtime_version", lambda: "3.2.47", raising=False
+        setup_entry, "_installed_msi_version", lambda: "3.2.47", raising=False
     )
     monkeypatch.setattr(
         setup_entry, "_install_embedded_msi", lambda path: calls.append(path.name)
@@ -679,14 +695,11 @@ def test_valid_existing_agent_stops_tray_before_invoking_a_newer_msi(
     resources = tmp_path / "payload"
     resources.mkdir()
     _write_public_payload(resources)
-    config_path = resources / "setup-config.json"
-    config = json.loads(config_path.read_text(encoding="utf-8"))
-    config["installer_version"] = "3.2.62"
-    config_path.write_text(json.dumps(config), encoding="utf-8")
+    _set_payload_version(resources, "3.2.62")
     order: list[str] = []
     monkeypatch.setattr(setup_entry, "_data_root", lambda: tmp_path)
     monkeypatch.setattr(setup_entry, "_resource_root", lambda: resources)
-    monkeypatch.setattr(setup_entry, "_installed_runtime_version", lambda: "3.2.59")
+    monkeypatch.setattr(setup_entry, "_installed_msi_version", lambda: "3.2.59")
     monkeypatch.setattr(setup_entry, "_stop_tray_before_msi_update", lambda: order.append("tray"))
     monkeypatch.setattr(setup_entry, "_install_embedded_msi", lambda _: order.append("msi"))
     monkeypatch.setattr(setup_entry, "_wait_for_agent_service_running", lambda: True)
@@ -711,7 +724,7 @@ def test_valid_existing_agent_does_not_install_an_equal_embedded_msi(
     monkeypatch.setattr(setup_entry, "_data_root", lambda: tmp_path)
     monkeypatch.setattr(setup_entry, "_resource_root", lambda: resources)
     monkeypatch.setattr(
-        setup_entry, "_installed_runtime_version", lambda: "1.0.0", raising=False
+        setup_entry, "_installed_msi_version", lambda: "1.0.0", raising=False
     )
     monkeypatch.setattr(
         setup_entry, "_install_embedded_msi", lambda _path: calls.append("msi")

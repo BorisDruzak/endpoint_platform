@@ -51,6 +51,28 @@ def test_wrapper_verifies_cache_hash_and_machine_protection_after_install() -> N
     assert "MSI installation failed" in source
 
 
+def test_wrapper_checks_installed_product_before_publishing_provenance() -> None:
+    source = WRAPPER.read_text(encoding="utf-8")
+
+    product_check = source.index("$installedMsi.ProductState([string]$manifest.product_code)")
+    version_check = source.index("$installedMsi.ProductInfo([string]$manifest.product_code, 'VersionString')")
+    provenance_write = source.index("$provenance = [ordered]@{")
+    install = source.index("Start-Process -FilePath 'msiexec.exe'")
+    assert install < product_check < provenance_write
+    assert install < version_check < provenance_write
+
+
+def test_wrapper_stages_provenance_before_atomic_publication() -> None:
+    source = WRAPPER.read_text(encoding="utf-8")
+
+    assert "[IO.File]::Replace($provenanceStagePath, $provenancePath" in source
+    assert "[IO.File]::Move($provenanceStagePath, $provenancePath)" in source
+    assert "Set-CacheArtifactProtection -Path $provenanceStagePath" in source
+    assert "Assert-CacheArtifactProtection -Path $provenanceStagePath" in source
+    assert "[IO.File]::WriteAllText(\n        $provenancePath," not in source
+    assert source.index("Start-ManagedEndpointAgent", source.index("$provenance = [ordered]@{")) < source.index("[IO.File]::Replace($provenanceStagePath")
+
+
 def test_wrapper_protects_a_hash_addressed_cache_before_privileged_execution() -> None:
     """A user-controlled ProgramData cache must never reach msiexec as an admin."""
     source = WRAPPER.read_text(encoding="utf-8")

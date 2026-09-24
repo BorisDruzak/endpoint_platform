@@ -506,7 +506,37 @@ class WindowsUpdater:
         target = self._paths.versions_root / pending.version
         if target.exists() or target.is_symlink():
             _reject_reparse_path(target)
-            if _release_manifest(target) != _release_manifest(staging):
+            for child in target.rglob("*"):
+                _reject_reparse_path(child)
+            bundle_path = target / BUNDLE_MANIFEST_FILENAME
+            if bundle_path.exists():
+                try:
+                    receipt = json.loads(
+                        (target / ".endpoint-update.json").read_text(encoding="utf-8"),
+                        object_pairs_hook=_no_duplicate_keys,
+                    )
+                except (OSError, UnicodeDecodeError, json.JSONDecodeError, ValueError):
+                    receipt = None
+                matches = (
+                    receipt == {
+                        "sha256": pending.sha256,
+                        "size": pending.size,
+                        "version": pending.version,
+                    }
+                    and _release_manifest(target) == _release_manifest(staging)
+                )
+            else:
+                from .selector_migration import MSI_RUNTIME_MARKER_FILENAME, _is_msi_owned_runtime
+
+                matches = (
+                    not (target / ".endpoint-update.json").exists()
+                    and _is_msi_owned_runtime(self._paths, pending.version)
+                    and _release_manifest(target, excluded={MSI_RUNTIME_MARKER_FILENAME})
+                    == _release_manifest(
+                        staging, excluded={BUNDLE_MANIFEST_FILENAME, ".endpoint-update.json"}
+                    )
+                )
+            if not matches:
                 raise ValueError("target version collision with different bytes")
             shutil.rmtree(staging, ignore_errors=True)
             return target

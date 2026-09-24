@@ -305,6 +305,13 @@ try {
     if ($installer.ExitCode -ne 0) {
         throw "MSI installation failed with exit code $($installer.ExitCode)."
     }
+    $installedMsi = New-Object -ComObject WindowsInstaller.Installer
+    if ($installedMsi.ProductState([string]$manifest.product_code) -ne 5) {
+        throw 'Installed MSI product code does not match release manifest.'
+    }
+    if ([string]$installedMsi.ProductInfo([string]$manifest.product_code, 'VersionString') -ne [string]$manifest.version) {
+        throw 'Installed MSI version does not match release manifest.'
+    }
 
     $programData = [Environment]::GetFolderPath([Environment+SpecialFolder]::CommonApplicationData)
     $dataRoot = Join-Path $programData 'Endpoint Platform\Agent'
@@ -321,11 +328,27 @@ try {
         New-ProtectedDirectory -Path $cacheDirectory
     }
     Assert-InstallerCacheProtection -Path $cacheDirectory
-    Copy-Item -LiteralPath $executionCachePath -Destination $cachePath
-    Set-CacheArtifactProtection -Path $cachePath
+    if (Test-Path -LiteralPath $cachePath) {
+        Assert-CacheArtifactProtection -Path $cachePath
+    }
+    else {
+        $cacheStagePath = Join-Path $cacheDirectory ("EndpointAgent-" + [guid]::NewGuid().ToString('N') + '.tmp')
+        try {
+            Copy-Item -LiteralPath $executionCachePath -Destination $cacheStagePath
+            Set-CacheArtifactProtection -Path $cacheStagePath
+            if ((Get-FileHash -LiteralPath $cacheStagePath -Algorithm SHA256).Hash.ToLowerInvariant() -ne $inputHash) {
+                throw 'Installed MSI cache SHA-256 does not match release manifest.'
+            }
+            [IO.File]::Move($cacheStagePath, $cachePath)
+        }
+        finally {
+            if (Test-Path -LiteralPath $cacheStagePath) { Remove-Item -LiteralPath $cacheStagePath -Force }
+        }
+    }
     if ((Get-FileHash -LiteralPath $cachePath -Algorithm SHA256).Hash.ToLowerInvariant() -ne $inputHash) {
         throw 'Installed MSI cache SHA-256 does not match release manifest.'
     }
+    Assert-CacheArtifactProtection -Path $cachePath
 
     $provenance = [ordered]@{
         cache_file = "msi-$($manifest.package_sha256)/EndpointAgent.msi"
@@ -337,14 +360,41 @@ try {
         source_revision = [string]$manifest.source_revision
         version = [string]$manifest.version
     }
-    [IO.File]::WriteAllText(
-        $provenancePath,
-        ($provenance | ConvertTo-Json -Compress),
-        [Text.UTF8Encoding]::new($false)
-    )
-    Set-CacheArtifactProtection -Path $provenancePath
-    Start-ManagedEndpointAgent
-    $installationCompleted = $true
+    $provenanceStagePath = Join-Path $cacheRoot ("installer-provenance-" + [guid]::NewGuid().ToString('N') + '.tmp')
+    $provenanceBackupPath = Join-Path $cacheRoot ("installer-provenance-" + [guid]::NewGuid().ToString('N') + '.bak')
+    $hadPreviousProvenance = Test-Path -LiteralPath $provenancePath
+    try {
+        [IO.File]::WriteAllText(
+            $provenanceStagePath,
+            ($provenance | ConvertTo-Json -Compress),
+            [Text.UTF8Encoding]::new($false)
+        )
+        Set-CacheArtifactProtection -Path $provenanceStagePath
+        Assert-CacheArtifactProtection -Path $provenanceStagePath
+        if ($hadPreviousProvenance) { Assert-CacheArtifactProtection -Path $provenancePath }
+        Start-ManagedEndpointAgent
+        if ($hadPreviousProvenance) {
+            [IO.File]::Replace($provenanceStagePath, $provenancePath, $provenanceBackupPath)
+        }
+        else {
+            [IO.File]::Move($provenanceStagePath, $provenancePath)
+        }
+        Assert-CacheArtifactProtection -Path $provenancePath
+        $installationCompleted = $true
+    }
+    catch {
+        if (Test-Path -LiteralPath $provenanceBackupPath) {
+            [IO.File]::Replace($provenanceBackupPath, $provenancePath, $null)
+        }
+        elseif (-not $hadPreviousProvenance -and (Test-Path -LiteralPath $provenancePath)) {
+            Remove-Item -LiteralPath $provenancePath -Force
+        }
+        throw
+    }
+    finally {
+        if (Test-Path -LiteralPath $provenanceStagePath) { Remove-Item -LiteralPath $provenanceStagePath -Force }
+        if (Test-Path -LiteralPath $provenanceBackupPath) { Remove-Item -LiteralPath $provenanceBackupPath -Force }
+    }
 }
 finally {
     if (-not $installationCompleted -and $previousServiceStates['EndpointAgent'] -eq [ServiceProcess.ServiceControllerStatus]::Running) {
