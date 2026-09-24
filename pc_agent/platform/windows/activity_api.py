@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections import OrderedDict
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
@@ -16,7 +17,10 @@ from pc_agent.browser_protocol import (
     BrowserPasteV1, BrowserUploadV1,
 )
 
-from .local_ipc import ClientIdentity
+from .local_ipc import (
+    ClientIdentity, LocalIpcRejected, authorize_pipe_client, read_pipe_frame,
+    resolve_user_login, write_pipe_frame,
+)
 from .local_sensor_protocol import (
     LocalSensorProtocolError,
     LocalUserSessionEnvelopeV1, parse_local_sensor_payload,
@@ -173,3 +177,35 @@ class ActivityIngress:
             observed_at=now, user_login=user_login, session_state=state,
             idle_seconds=idle, foreground=foreground, browser=browser,
         )
+
+
+def handle_local_sensor_connection(
+    pipe_handle: object,
+    *,
+    ingress: ActivityIngress,
+    policy_provider: Callable[[], EndpointPolicyV1 | None],
+    on_observation: Callable[[ActivityObservationV1], None],
+    received_at: datetime | None = None,
+) -> BrowserBridgeAckV1 | None:
+    """Read exactly one frame, then impersonate its writer before projection."""
+    try:
+        payload = read_pipe_frame(pipe_handle)
+    except LocalIpcRejected:
+        return None  # A broken frame cannot be safely ACKed on the same stream.
+    try:
+        identity = authorize_pipe_client(pipe_handle)
+    except LocalIpcRejected:
+        reply = _ack("IDENTITY_MISMATCH")
+    else:
+        try:
+            current_policy = policy_provider()
+            reply, observation = ingress.ingest(
+                payload, identity=identity, user_login=resolve_user_login(identity),
+                policy=current_policy, received_at=received_at or datetime.now(UTC),
+            )
+            if reply.accepted and observation is not None:
+                on_observation(observation)
+        except Exception:
+            reply = _ack("IPC_UNAVAILABLE")
+    write_pipe_frame(pipe_handle, reply.model_dump_json().encode("utf-8"))
+    return reply

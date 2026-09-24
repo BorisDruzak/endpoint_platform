@@ -243,3 +243,18 @@ def authorize_pipe_server(pipe_handle) -> None:
     except Exception as error:
         raise LocalIpcRejected("local IPC server identity unavailable") from error
     raise LocalIpcRejected("local IPC server identity rejected")
+
+
+def resolve_user_login(identity: ClientIdentity) -> str | None:
+    """Resolve login from the OS token SID, never from client-supplied JSON."""
+    import win32security
+
+    try:
+        sid = win32security.ConvertStringSidToSid(identity.user_sid)
+        name, domain, _kind = win32security.LookupAccountSid(None, sid)
+        login = f"{domain}\\{name}" if domain else name
+        if not 1 <= len(login) <= 256 or any(ord(char) < 32 for char in login):
+            return None
+        return login
+    except Exception:
+        return None
