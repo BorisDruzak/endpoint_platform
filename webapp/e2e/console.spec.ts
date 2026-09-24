@@ -1,5 +1,7 @@
 import { expect, test } from '@playwright/test'
 
+test.use({ timezoneId: 'Asia/Yekaterinburg' })
+
 test('administrator can approve enrollment, roll back an update and run a module', async ({ page }) => {
   await page.goto('/admin/login')
   await expect(page.getByRole('heading', { name: 'Вход в консоль' })).toBeVisible()
@@ -35,10 +37,23 @@ test('administrator can approve enrollment, roll back an update and run a module
   await page.getByRole('link', { name: 'Скачать установщик' }).click()
   expect((await downloadPromise).suggestedFilename()).toBe('EndpointAgentSetup-3.2.63-x64.exe')
   await page.getByRole('button', { name: 'Кампании' }).click()
+  const campaignsBefore = await page.request.get('/api/admin/console/campaigns?limit=50&offset=0')
+  expect(campaignsBefore.status()).toBe(200)
+  const originalExpiry = (await campaignsBefore.json()).data[0].expires_at as string
+  const expectedLocalExpiry = await page.evaluate(iso => {
+    const date = new Date(iso)
+    const two = (value: number) => String(value).padStart(2, '0')
+    return `${date.getFullYear()}-${two(date.getMonth() + 1)}-${two(date.getDate())}T${two(date.getHours())}:${two(date.getMinutes())}`
+  }, originalExpiry)
   await page.getByRole('article').filter({ hasText: 'Тестовая ручная кампания' }).getByRole('button', { name: 'Изменить' }).click()
+  await expect(page.getByLabel('Действует до')).toHaveValue(expectedLocalExpiry)
   await page.getByLabel('Название').fill('Тестовая кампания Console')
   await page.getByRole('button', { name: 'Сохранить' }).click()
   await expect(page.getByRole('article').filter({ hasText: 'Тестовая кампания Console' })).toBeVisible()
+  const campaignsAfter = await page.request.get('/api/admin/console/campaigns?limit=50&offset=0')
+  expect(campaignsAfter.status()).toBe(200)
+  const savedExpiry = (await campaignsAfter.json()).data[0].expires_at as string
+  expect(Date.parse(savedExpiry)).toBe(Date.parse(originalExpiry))
   await page.getByRole('button', { name: 'Запросы регистрации' }).click()
   await expect(page.getByText('Тестовая заявка')).toBeVisible()
   page.once('dialog', dialog => dialog.accept())

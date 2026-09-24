@@ -26,6 +26,10 @@ type SetupRelease = {
 type SetupReleasePage = { data: SetupRelease[]; total: number; limit: number; offset: number }
 
 const dateText = (value: string | null) => value ? new Intl.DateTimeFormat('ru-RU', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value)) : '—'
+const datetimeLocalText = (value: string) => {
+  const date = new Date(value)
+  return new Date(date.getTime() - date.getTimezoneOffset() * 60_000).toISOString().slice(0, 16)
+}
 const requestLabels: Record<string, string> = {
   created: 'Создан', validating: 'Проверяется', auto_approved: 'Одобрен автоматически', approved: 'Одобрен вручную',
   waiting_approval: 'Ожидает подтверждения', review_required: 'Требует проверки',
@@ -170,13 +174,14 @@ export function EnrollmentPage() {
     setEditing(campaign); setLabel(campaign.label ?? ''); setSite(campaign.site ?? '')
     setMode(campaign.policy.enrollment_mode ?? 'manual'); setPolicyId(campaign.policy.policy_id ?? 'windows-office-v1')
     setNetworks(campaign.allowed_cidrs.join(', ')); setAllowedVersions(campaign.policy.allowed_installer_releases ?? [])
-    setExpires(new Date(campaign.expires_at).toISOString().slice(0, 16)); setMaxUses(campaign.max_uses); setFormOpen(true)
+    setExpires(datetimeLocalText(campaign.expires_at)); setMaxUses(campaign.max_uses); setFormOpen(true)
   }
   async function saveCampaign(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); setBusy(true); setError('')
     try {
       const body = {
-        label, site: site || null, target_platform: 'windows', expires_at: new Date(expires).toISOString(),
+        label, site: site || null, target_platform: 'windows',
+        expires_at: editing && expires === datetimeLocalText(editing.expires_at) ? editing.expires_at : new Date(expires).toISOString(),
         max_uses: maxUses, allowed_cidrs: networks.split(',').map(value => value.trim()).filter(Boolean),
         policy: { policy_id: policyId, enrollment_mode: mode, allowed_installer_releases: allowedVersions },
       }
