@@ -163,6 +163,8 @@ async def test_device_published_module_runs_network_and_read_only_steps() -> Non
         session=AdminSession(id=uuid4(), admin_user_id=user_id, session_digest="unused", expires_at=datetime.now(UTC) + timedelta(hours=1), revoked_at=None),
     )
     async with AsyncClient(transport=ASGITransport(app=app), base_url="https://endpoint.sosnadmin.local") as client:
+        catalog_first = await client.get("/api/admin/console/modules?limit=1")
+        catalog_second = await client.get("/api/admin/console/modules?limit=1&offset=1")
         available = await client.get(f"/api/admin/console/devices/{device.id}/modules")
         first_page = await client.get(f"/api/admin/console/devices/{device.id}/modules?limit=1")
         second_page = await client.get(f"/api/admin/console/devices/{device.id}/modules?limit=1&offset=1")
@@ -172,6 +174,11 @@ async def test_device_published_module_runs_network_and_read_only_steps() -> Non
         })
         operation_detail = await client.get(f"/api/admin/operations/{run.json()['data']['operation_id']}")
     await engine.dispose()
+    assert catalog_first.json()["total"] == catalog_second.json()["total"] == 2
+    assert {
+        catalog_first.json()["data"][0]["versions"][0]["version"],
+        catalog_second.json()["data"][0]["versions"][0]["version"],
+    } == {"1.0.0", "1.1.0"}
     assert available.status_code == 200 and available.json()["data"][0]["compatible"] is True
     assert first_page.json()["total"] == second_page.json()["total"] == 2
     assert {first_page.json()["data"][0]["version"], second_page.json()["data"][0]["version"]} == {"1.0.0", "1.1.0"}

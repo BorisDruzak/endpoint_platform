@@ -263,6 +263,25 @@ describe('Русский интерфейс Console', () => {
     expect(await screen.findByText(/Поздний модуль/)).toBeTruthy()
   })
 
+  it('показывает следующую страницу истории версий модуля', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (url.includes('module-capabilities')) return jsonResponse({ data: { items: [] } })
+      if (url.includes('/modules?')) return jsonResponse({
+        data: [{ module_key: 'network.check', display_name: 'Проверка сети',
+          versions: [{ version: url.includes('offset=50') ? '1.0.0' : '1.1.0',
+            state: 'published', created_at: '2026-09-24T08:00:00Z' }] }],
+        total: 51, limit: 50, offset: url.includes('offset=50') ? 50 : 0,
+      })
+      throw new Error(`Unexpected route ${url}`)
+    }))
+    render(<MemoryRouter><ModulesPage /></MemoryRouter>)
+
+    const history = (await screen.findByRole('heading', { name: 'Модули и версии' })).closest('section')!
+    expect(within(history).getByText('1.1.0')).toBeTruthy()
+    fireEvent.click(within(history).getByRole('button', { name: 'Далее' }))
+    expect(await within(history).findByText('1.0.0')).toBeTruthy()
+  })
+
   it('показывает следующую страницу совместимых устройств лаборатории', async () => {
     vi.stubGlobal('fetch', vi.fn(async (url: string) => {
       if (url.includes('module-capabilities')) return jsonResponse({ data: { items: [] } })

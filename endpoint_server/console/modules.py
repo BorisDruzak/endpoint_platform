@@ -97,26 +97,28 @@ async def console_list_modules(
 ) -> dict[str, object]:
     _require_platform(request)
     async with request.app.state.session_provider() as session:
-        total = await session.scalar(select(func.count()).select_from(ModuleDefinition)) or 0
-        definitions = (await session.execute(
-            select(ModuleDefinition).order_by(ModuleDefinition.module_key).limit(limit).offset(offset)
-        )).scalars().all()
-        ids = [item.id for item in definitions]
-        versions = (await session.execute(
-            select(ModuleVersion)
-            .where(ModuleVersion.module_definition_id.in_(ids))
-            .order_by(ModuleVersion.created_at.desc(), ModuleVersion.id.desc())
-        )).scalars().all() if ids else []
-    by_definition: dict[UUID, list[dict[str, object]]] = {item.id: [] for item in definitions}
-    for version in versions:
-        by_definition[version.module_definition_id].append({
+        total = await session.scalar(
+            select(func.count()).select_from(ModuleVersion)
+            .join(ModuleDefinition, ModuleDefinition.id == ModuleVersion.module_definition_id)
+        ) or 0
+        rows = (await session.execute(
+            select(ModuleDefinition, ModuleVersion)
+            .join(ModuleVersion, ModuleVersion.module_definition_id == ModuleDefinition.id)
+            .order_by(ModuleDefinition.module_key, ModuleVersion.created_at.desc(), ModuleVersion.id.desc())
+            .limit(limit).offset(offset)
+        )).all()
+    grouped: dict[UUID, tuple[ModuleDefinition, list[dict[str, object]]]] = {}
+    for definition, version in rows:
+        if definition.id not in grouped:
+            grouped[definition.id] = (definition, [])
+        grouped[definition.id][1].append({
             "id": str(version.id), "version": version.version,
             "state": version.state, "created_at": version.created_at,
         })
     return {"data": [{
-        "module_key": item.module_key, "display_name": item.display_name,
-        "versions": by_definition[item.id],
-    } for item in definitions], "total": total, "limit": limit, "offset": offset}
+        "module_key": definition.module_key, "display_name": definition.display_name,
+        "versions": versions,
+    } for definition, versions in grouped.values()], "total": total, "limit": limit, "offset": offset}
 
 
 @router.get("/modules/{module_key}/versions/{version}")
