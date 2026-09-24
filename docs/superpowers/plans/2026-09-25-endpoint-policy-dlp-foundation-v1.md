@@ -81,11 +81,13 @@ Chrome `ExtensionSettings` is preferred; Yandex `ExtensionInstallForcelist` or `
 
 ### Task 3: Activity contract and Context retention
 
-**Files:** Create `endpoint_contracts/activity.py`, `endpoint_server/activity/{ingestion,projection}.py`; modify `endpoint_contracts/context.py`, `endpoint_server/context/{policy,canonicalize,ingestion,retention,projection}.py`, `endpoint_server/gateway/{protocol,ws_routes}.py`. Tests in `tests/context/`, `tests/activity/`, `pc_agent/tests/windows/`.
+**Files:** Create `endpoint_contracts/activity.py` and `endpoint_server/activity/ingestion.py`; modify Context models, policy, canonicalization, retention and projection, Gateway protocol/routes, and generated contracts; add migration `0030_activity_current_projection`. Tests in `tests/activity/`, `tests/context/`, `tests/gateway/`, and migration checks. Agent-side Windows tests belong to Task 5.
 
-- [ ] Write failing tests for `ACTIVE/IDLE/LOCKED/DISCONNECTED/UNKNOWN`, idle threshold, bounded foreground/browser identity, semantic dedup, observed-time advance and 24-hour hot history.
-- [ ] Add typed continuous activity envelope and `activity_v1` current/snapshot handling without Module Operation. Reject query/path/title fields at all entry points.
-- [ ] Run focused Context/Gateway/retention tests and diff check; commit.
+- [x] Write failing tests for `ACTIVE/IDLE/LOCKED/DISCONNECTED/UNKNOWN`, idle threshold, bounded foreground/browser identity, semantic dedup, observed-time advance and 24-hour hot history.
+- [x] Add typed continuous activity envelope and `activity_v1` current/snapshot handling without Module Operation. Reject query/path/title fields at all entry points.
+- [x] Run focused Context/Gateway/retention tests and diff check; commit. Server-side result: 571 passed, 6 skipped; generated contract artifacts pass `--check`. Commit `f0efcf740f772d0d27d00998d35754eb71f1b708`.
+
+The interactive `EndpointUserSensor` and authenticated local IPC are still Task 5. Phase 3 acceptance remains open until a real Windows user-session observation reaches this server path through the Agent.
 
 ### Task 4: Shared MV3 browser extension
 
