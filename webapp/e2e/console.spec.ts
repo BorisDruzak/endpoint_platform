@@ -195,3 +195,24 @@ test('primary Console labels remain Russian', async ({ page }) => {
     }
   }
 })
+
+test('administrator can create a module without input parameters', async ({ page }) => {
+  await page.goto('/admin/login')
+  await page.getByLabel('Имя пользователя').fill('console-e2e')
+  await page.getByLabel('Пароль').fill('console-e2e-password')
+  await page.getByRole('button', { name: 'Войти' }).click()
+  await page.getByRole('navigation', { name: 'Основная навигация' }).getByRole('link', { name: 'Модули' }).click()
+  const draft = page.locator('form').last()
+  await draft.getByLabel('Название').fill('Список адаптеров')
+  await draft.getByLabel('Ключ модуля').fill('inventory.adapter.preview')
+  await draft.getByRole('checkbox', { name: 'linux_amd64' }).uncheck()
+  await draft.getByRole('checkbox', { name: 'windows_amd64' }).check()
+  await draft.getByRole('button', { name: 'Добавить шаг' }).click()
+  await draft.getByRole('combobox', { name: 'Возможность' }).selectOption('adapter.list')
+  await expect(draft.getByRole('heading', { name: 'Входные параметры (0/8)' })).toBeVisible()
+  await expect(draft.getByRole('button', { name: 'Создать черновик' })).toBeEnabled()
+  const createResponse = page.waitForResponse(response => response.url().endsWith('/api/admin/console/modules/versions') && response.request().method() === 'POST')
+  await draft.getByRole('button', { name: 'Создать черновик' }).click()
+  expect((await createResponse).status()).toBe(201)
+  await expect(page.getByRole('status')).toContainText('Черновик создан')
+})
