@@ -85,6 +85,7 @@ def test_setup_builder_requires_and_embeds_canonical_msi_release_manifest() -> N
     assert "EndpointAgent.release.json" in source
     assert "Install-EndpointAgentCanary.ps1" in source
     assert "MSI release manifest is missing." in source
+    assert "$msiSourceCommit = [string]$releaseMsiManifest.source_revision" in source
 
 
 def test_setup_spec_places_release_evidence_and_wrapper_in_payload(

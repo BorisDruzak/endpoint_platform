@@ -227,6 +227,7 @@ if (
 }
 $releaseMsiManifest.package_sha256 = $releaseMsiSha256
 Write-Utf8NoBom $releaseMsiManifestPath ($releaseMsiManifest | ConvertTo-Json -Compress)
+$msiSourceCommit = [string]$releaseMsiManifest.source_revision
 
 $setupRoot = Join-Path $effectiveWixBuildRoot 'setup'
 if (Test-Path -LiteralPath $setupRoot) { Remove-Item -LiteralPath $setupRoot -Recurse -Force }
