@@ -338,7 +338,8 @@ describe('Русский интерфейс Console', () => {
         version: '1.0.0', state: 'validated',
         recipe: { schema_version: 'endpoint_recipe_module_v1', module_key: 'network.check',
           supported_platforms: ['linux_amd64'], inputs: [], steps: [] },
-        validations: [], labs: [],
+        validations: [], validations_total: 0, labs: [], labs_total: 0,
+        passed_lab_platforms: [],
       } })
     }))
     render(<MemoryRouter initialEntries={['/admin/modules?module_key=network.check&version=1.0.0']}><ModulesPage /></MemoryRouter>)
@@ -347,6 +348,41 @@ describe('Русский интерфейс Console', () => {
     expect(await within(form).findByRole('option', { name: 'Лаборатория 1' })).toBeTruthy()
     fireEvent.click(within(form).getByRole('button', { name: 'Далее' }))
     expect(await within(form).findByRole('option', { name: 'Лаборатория 51' })).toBeTruthy()
+  })
+
+  it('учитывает старое успешное испытание и листает историю модуля', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (url.includes('module-capabilities')) return jsonResponse({ data: { items: [] } })
+      if (url.includes('/modules?')) return jsonResponse({ data: [], total: 0 })
+      if (url.includes('/lab-devices')) return jsonResponse({ data: [], total: 0 })
+      const olderLab = url.includes('lab_offset=20')
+      const olderValidation = url.includes('validation_offset=20')
+      return jsonResponse({ data: {
+        id: 'version-1', module_key: 'network.check', display_name: 'Проверка сети',
+        version: '1.0.0', state: 'validated',
+        recipe: { schema_version: 'endpoint_recipe_module_v1', module_key: 'network.check',
+          supported_platforms: ['linux_amd64'], inputs: [], steps: [] },
+        validations: [{ status: olderValidation ? 'succeeded' : 'failed', error_codes: [], warning_codes: [],
+          validator_version: olderValidation ? 'old-validator' : 'new-validator', completed_at: '2026-09-24T08:00:00Z' }],
+        validations_total: 21, validation_limit: 20, validation_offset: olderValidation ? 20 : 0,
+        labs: [{ platform: 'linux_amd64', status: olderLab ? 'passed' : 'failed',
+          operation_id: olderLab ? 'old-operation' : 'new-operation', device_id: 'device-1',
+          tested_at: '2026-09-24T08:00:00Z' }],
+        labs_total: 21, lab_limit: 20, lab_offset: olderLab ? 20 : 0,
+        passed_lab_platforms: ['linux_amd64'],
+      } })
+    }))
+    render(<MemoryRouter initialEntries={['/admin/modules?module_key=network.check&version=1.0.0']}><ModulesPage /></MemoryRouter>)
+
+    const accept = await screen.findByRole('button', { name: 'Принять испытания' })
+    expect((accept as HTMLButtonElement).disabled).toBe(false)
+    expect(screen.getByText('Подтверждённые платформы: Linux x64')).toBeTruthy()
+    const checks = screen.getByRole('heading', { name: 'Проверки' }).closest('section')!
+    fireEvent.click(within(checks).getByRole('button', { name: 'Далее' }))
+    expect(await screen.findByText(/old-validator/)).toBeTruthy()
+    const labs = screen.getByRole('heading', { name: 'Лабораторные испытания' }).closest('section')!
+    fireEvent.click(within(labs).getByRole('button', { name: 'Далее' }))
+    expect(await screen.findByText(/Пройдено/)).toBeTruthy()
   })
 
   it('показывает кампании Windows на следующей странице', async () => {

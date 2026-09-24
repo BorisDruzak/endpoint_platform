@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -46,6 +46,8 @@ async def test_admin_module_catalog_draft_validation_and_fake_lab_rejection() ->
         endpoint_operations_api_enabled=True,
     )
     app = create_app(settings, session_provider=sessions)
+    detail_schema = app.openapi()["paths"]["/api/admin/console/modules/{module_key}/versions/{version}"]["get"]["responses"]["200"]["content"]["application/json"]["schema"]
+    assert detail_schema["$ref"].endswith("/ConsoleModuleVersionDetailResponse")
     user_id = uuid4()
     principal = AdminPrincipal(
         user=AdminUser(id=user_id, username="operator", password_digest="unused", scopes=[], disabled_at=None),
@@ -90,7 +92,6 @@ async def test_admin_module_catalog_draft_validation_and_fake_lab_rejection() ->
         detail = await client.get("/api/admin/console/modules/network.basic.check/versions/1.0.0")
         fake_evidence = await client.post(f"/api/admin/console/modules/network.basic.check/versions/1.0.0/lab-evidence/{uuid4()}")
         premature_publish = await client.post("/api/admin/console/modules/network.basic.check/versions/1.0.0/publish")
-    await engine.dispose()
     assert catalog.status_code == 200 and len(catalog.json()["data"]["items"]) == 6
     catalog_items = catalog.json()["data"]["items"]
     assert {item["capability"] for item in catalog_items} == {
@@ -109,6 +110,49 @@ async def test_admin_module_catalog_draft_validation_and_fake_lab_rejection() ->
     assert detail.status_code == 200 and detail.json()["data"]["validations"][0]["status"] == "succeeded"
     assert fake_evidence.status_code == 409
     assert premature_publish.status_code == 409
+
+    version_id = UUID(created.json()["data"]["id"])
+    older = datetime.now(UTC) - timedelta(days=30)
+    async with sessions() as session:
+        session.add(ModuleLiveTest(
+            id=uuid4(), module_version_id=version_id, platform="linux_amd64",
+            endpoint_device_id=lab_device.id, operation_id=uuid4(), status="passed",
+            safe_result_snapshot={}, tested_at=older,
+        ))
+        session.add_all(ModuleLiveTest(
+            id=uuid4(), module_version_id=version_id, platform="linux_amd64",
+            endpoint_device_id=lab_device.id, operation_id=uuid4(), status="failed",
+            safe_result_snapshot={}, tested_at=older + timedelta(days=index + 1),
+        ) for index in range(21))
+        session.add_all(ModuleValidationRun(
+            id=uuid4(), module_version_id=version_id, validator_version="test",
+            status="failed", error_codes=["recipe_catalog_invalid"], warning_codes=[],
+            completed_at=older + timedelta(days=index + 1),
+        ) for index in range(21))
+        await session.commit()
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="https://endpoint.sosnadmin.local") as client:
+        recent = await client.get("/api/admin/console/modules/network.basic.check/versions/1.0.0")
+        older_page = await client.get(
+            "/api/admin/console/modules/network.basic.check/versions/1.0.0"
+            "?validation_limit=2&validation_offset=20&lab_limit=2&lab_offset=20"
+        )
+        invalid_page = await client.get(
+            "/api/admin/console/modules/network.basic.check/versions/1.0.0?lab_limit=51"
+        )
+        accepted = await client.post(
+            "/api/admin/console/modules/network.basic.check/versions/1.0.0/accept-labs"
+        )
+    assert len(recent.json()["data"]["labs"]) == 20
+    assert recent.json()["data"]["labs_total"] == 22
+    assert recent.json()["data"]["validations_total"] == 22
+    assert recent.json()["data"]["passed_lab_platforms"] == ["linux_amd64"]
+    assert "safe_result_snapshot" not in recent.text
+    assert older_page.json()["data"]["labs"][-1]["status"] == "passed"
+    assert len(older_page.json()["data"]["validations"]) == 2
+    assert older_page.json()["data"]["validation_offset"] == 20
+    assert invalid_page.status_code == 422
+    assert accepted.status_code == 200
+    await engine.dispose()
 
 
 @pytest.mark.asyncio

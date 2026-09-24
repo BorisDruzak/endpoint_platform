@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-from typing import Annotated
+from datetime import datetime
+from typing import Annotated, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Path, Query, Request
-from pydantic import ValidationError
+from pydantic import BaseModel, ConfigDict, ValidationError
 from sqlalchemy import func, select
 
 from endpoint_contracts.capabilities import module_capability_catalog
@@ -43,6 +44,48 @@ _CAPABILITY_DISPLAY_NAMES = {
     "system.service_status": "Состояние службы",
 }
 ModuleKey = Annotated[str, Path(min_length=1, max_length=128)]
+
+
+class ConsoleModuleValidation(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    status: Literal["succeeded", "failed"]
+    validator_version: str
+    error_codes: list[str]
+    warning_codes: list[str]
+    completed_at: datetime
+
+
+class ConsoleModuleLab(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    platform: Literal["linux_amd64", "windows_amd64"]
+    status: Literal["passed", "failed"]
+    operation_id: UUID
+    device_id: UUID
+    tested_at: datetime
+
+
+class ConsoleModuleVersionDetail(ModuleVersionViewV1):
+    id: UUID
+    created_at: datetime
+    validations_total: int
+    validation_limit: int
+    validation_offset: int
+    labs_total: int
+    lab_limit: int
+    lab_offset: int
+    passed_lab_platforms: list[Literal["linux_amd64", "windows_amd64"]]
+    validations: list[ConsoleModuleValidation]
+    labs: list[ConsoleModuleLab]
+
+
+class ConsoleModuleVersionDetailResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    data: ConsoleModuleVersionDetail
+
+
 ModuleVersionName = Annotated[str, Path(pattern=r"^\d+\.\d+\.\d+$", max_length=64)]
 
 
@@ -121,24 +164,44 @@ async def console_list_modules(
     } for definition, versions in grouped.values()], "total": total, "limit": limit, "offset": offset}
 
 
-@router.get("/modules/{module_key}/versions/{version}")
+@router.get("/modules/{module_key}/versions/{version}", response_model=ConsoleModuleVersionDetailResponse)
 async def console_module_version(
     module_key: ModuleKey,
     version: ModuleVersionName,
     request: Request,
     _: Annotated[AdminPrincipal, Depends(require_admin)],
+    validation_limit: Annotated[int, Query(ge=1, le=50)] = 20,
+    validation_offset: Annotated[int, Query(ge=0, le=100_000)] = 0,
+    lab_limit: Annotated[int, Query(ge=1, le=50)] = 20,
+    lab_offset: Annotated[int, Query(ge=0, le=100_000)] = 0,
 ) -> dict[str, object]:
     _require_platform(request)
     async with request.app.state.session_provider() as session:
         definition, record = await _version(session, module_key, version)
+        validations_total = await session.scalar(
+            select(func.count()).select_from(ModuleValidationRun)
+            .where(ModuleValidationRun.module_version_id == record.id)
+        ) or 0
         validations = (await session.execute(
             select(ModuleValidationRun).where(ModuleValidationRun.module_version_id == record.id)
-            .order_by(ModuleValidationRun.completed_at.desc()).limit(20)
+            .order_by(ModuleValidationRun.completed_at.desc(), ModuleValidationRun.id.desc())
+            .limit(validation_limit).offset(validation_offset)
         )).scalars().all()
+        labs_total = await session.scalar(
+            select(func.count()).select_from(ModuleLiveTest)
+            .where(ModuleLiveTest.module_version_id == record.id)
+        ) or 0
         labs = (await session.execute(
             select(ModuleLiveTest).where(ModuleLiveTest.module_version_id == record.id)
-            .order_by(ModuleLiveTest.tested_at.desc()).limit(20)
+            .order_by(ModuleLiveTest.tested_at.desc(), ModuleLiveTest.id.desc())
+            .limit(lab_limit).offset(lab_offset)
         )).scalars().all()
+        passed_lab_platforms = sorted(set(await session.scalars(
+            select(ModuleLiveTest.platform).where(
+                ModuleLiveTest.module_version_id == record.id,
+                ModuleLiveTest.status == "passed",
+            ).distinct()
+        )))
     try:
         view = ModuleVersionViewV1(
             module_key=definition.module_key, display_name=definition.display_name,
@@ -148,6 +211,13 @@ async def console_module_version(
         raise HTTPException(status_code=503, detail="Рецепт модуля недоступен") from error
     return {"data": {
         **view, "id": str(record.id), "created_at": record.created_at,
+        "validations_total": validations_total,
+        "validation_limit": validation_limit,
+        "validation_offset": validation_offset,
+        "labs_total": labs_total,
+        "lab_limit": lab_limit,
+        "lab_offset": lab_offset,
+        "passed_lab_platforms": passed_lab_platforms,
         "validations": [{
             "status": item.status, "validator_version": item.validator_version,
             "error_codes": item.error_codes, "warning_codes": item.warning_codes,
