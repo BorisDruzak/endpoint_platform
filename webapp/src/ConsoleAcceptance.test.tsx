@@ -1,5 +1,5 @@
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
-import { MemoryRouter } from 'react-router'
+import { MemoryRouter, Route, Routes } from 'react-router'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { AuditPage } from './AuditPage'
 import { EnrollmentPage } from './EnrollmentPage'
@@ -48,7 +48,9 @@ describe('Русский интерфейс Console', () => {
         ],
       },
     )))
-    render(<MemoryRouter initialEntries={['/admin/devices/device-1']}><DeviceDetailPage /></MemoryRouter>)
+    render(<MemoryRouter initialEntries={['/admin/devices/device-1']}><Routes>
+      <Route path="/admin/devices/:deviceId" element={<DeviceDetailPage />} />
+    </Routes></MemoryRouter>)
 
     await screen.findByRole('heading', { name: 'Рабочая станция' })
     expect(screen.getByText(/Пользователь: operator/)).toBeTruthy()
@@ -66,6 +68,46 @@ describe('Русский интерфейс Console', () => {
     expect(screen.getByText('0.0 ГБ')).toBeTruthy()
     expect(screen.getByText('Службы')).toBeTruthy()
     expect(screen.getByText('Активна')).toBeTruthy()
+  })
+
+  it('открывает старые изменения и обновления устройства по страницам', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (url.endsWith('/devices/device-1')) return jsonResponse({
+        device: { id: 'device-1', display_name: 'Рабочая станция', device_identifier: 'PC-01',
+          online: true, last_seen_at: null, agent_version: '3.2.63', hostname: 'PC-01',
+          os_name: 'Windows 11', os_version: '11', current_user: 'operator' }, snapshots: [],
+      })
+      if (url.includes('/changes?')) {
+        const older = url.includes('offset=20')
+        return jsonResponse({ data: [{ code: 'HOSTNAME_CHANGED', profile: 'inventory_v1',
+          collected_at: '2026-09-24T08:00:00Z', before_snapshot_id: older ? 'old-1' : 'new-1',
+          after_snapshot_id: older ? 'old-2' : 'new-2',
+          before_value: older ? 'PC-Old' : 'PC-New', after_value: older ? 'PC-New' : 'PC-Now' }],
+          limit: 20, offset: older ? 20 : 0, has_more: !older })
+      }
+      if (url.includes('/updates?')) {
+        const older = url.includes('offset=50')
+        return jsonResponse({ data: [{ rollout_id: older ? 'older' : 'newer',
+          version: older ? '3.2.61' : '3.2.63', mode: 'canary', status: 'applied',
+          assigned_at: '2026-09-24T08:00:00Z', terminal_at: null, safe_reason: null }],
+          total: 51, limit: 50, offset: older ? 50 : 0 })
+      }
+      throw new Error(`Unexpected route ${url}`)
+    }))
+    render(<MemoryRouter initialEntries={['/admin/devices/device-1']}><Routes>
+      <Route path="/admin/devices/:deviceId" element={<DeviceDetailPage />} />
+    </Routes></MemoryRouter>)
+    await screen.findByRole('heading', { name: 'Рабочая станция' })
+    fireEvent.click(screen.getByRole('button', { name: 'Изменения' }))
+    const changes = screen.getByRole('heading', { name: 'Изменения Context' }).closest('section')!
+    expect(await within(changes).findByText(/PC-New → PC-Now/)).toBeTruthy()
+    fireEvent.click(within(changes).getByRole('button', { name: 'Далее' }))
+    expect(await within(changes).findByText(/PC-Old → PC-New/)).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Обновления' }))
+    const updates = screen.getByRole('heading', { name: 'История обновлений' }).closest('section')!
+    expect(await within(updates).findByText('3.2.63')).toBeTruthy()
+    fireEvent.click(within(updates).getByRole('button', { name: 'Далее' }))
+    expect(await within(updates).findByText('3.2.61')).toBeTruthy()
   })
 
   it('показывает русские подписи фильтров и колонок аудита', async () => {

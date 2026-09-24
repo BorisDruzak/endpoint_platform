@@ -78,6 +78,48 @@ class ConsoleCampaignPageResponse(BaseModel):
     offset: int
 
 
+class ConsoleContextChange(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    code: str
+    profile: str
+    collected_at: datetime
+    before_snapshot_id: UUID
+    after_snapshot_id: UUID
+    before_value: str | int | float | None
+    after_value: str | int | float | None
+
+
+class ConsoleChangesPageResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    data: list[ConsoleContextChange]
+    limit: int
+    offset: int
+    has_more: bool
+
+
+class ConsoleDeviceUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    rollout_id: UUID
+    version: str
+    mode: str
+    status: str
+    assigned_at: datetime
+    terminal_at: datetime | None
+    safe_reason: str | None
+
+
+class ConsoleDeviceUpdatesPageResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    data: list[ConsoleDeviceUpdate]
+    total: int
+    limit: int
+    offset: int
+
+
 EnrollmentQueue = Literal["pending", "review", "active", "denied", "completed", "failed", "other"]
 _ENROLLMENT_QUEUE_STATUSES: dict[str, tuple[str, ...]] = {
     "pending": ("waiting_approval",),
@@ -302,90 +344,113 @@ async def console_device_detail(
         }
 
 
-@router.get("/api/admin/console/devices/{device_id}/changes")
+@router.get("/api/admin/console/devices/{device_id}/changes", response_model=ConsoleChangesPageResponse)
 async def console_device_changes(
     request: Request,
     device_id: UUID,
     _: Annotated[AdminPrincipal, Depends(require_admin)],
-) -> dict[str, object]:
+    limit: Annotated[int, Query(ge=1, le=50)] = 20,
+    offset: Annotated[int, Query(ge=0, le=100_000)] = 0,
+) -> ConsoleChangesPageResponse:
     async with request.app.state.session_provider() as session:
         exists = await session.scalar(select(Device.id).where(Device.id == device_id, Device.retired_at.is_(None)))
         if exists is None:
             raise HTTPException(status_code=404, detail="Устройство не найдено")
-        rows: list[ContextSnapshot] = []
-        for profile in ("baseline_v1", "inventory_v1"):
-            rows.extend((await session.execute(
-                select(ContextSnapshot)
-                .where(ContextSnapshot.device_id == device_id, ContextSnapshot.profile == profile)
-                .order_by(ContextSnapshot.collected_at.desc(), ContextSnapshot.id.desc())
-                .limit(20)
-            )).scalars().all())
+        ranked = select(
+            ContextSnapshot.id.label("after_id"),
+            func.lead(ContextSnapshot.id).over(
+                partition_by=ContextSnapshot.profile,
+                order_by=(ContextSnapshot.collected_at.desc(), ContextSnapshot.id.desc()),
+            ).label("before_id"),
+            ContextSnapshot.collected_at.label("collected_at"),
+        ).where(
+            ContextSnapshot.device_id == device_id,
+            ContextSnapshot.profile.in_(("baseline_v1", "inventory_v1")),
+        ).subquery()
+        pairs = (await session.execute(
+            select(ranked.c.after_id, ranked.c.before_id)
+            .where(ranked.c.before_id.is_not(None))
+            .order_by(ranked.c.collected_at.desc(), ranked.c.after_id.desc())
+            .limit(limit + 1).offset(offset)
+        )).all()
+        has_more = len(pairs) > limit
+        page_pairs = [(UUID(str(after_id)), UUID(str(before_id))) for after_id, before_id in pairs[:limit]]
+        snapshot_ids = {snapshot_id for pair in page_pairs for snapshot_id in pair}
+        snapshots = (await session.execute(
+            select(ContextSnapshot).where(ContextSnapshot.id.in_(snapshot_ids))
+        )).scalars().all() if snapshot_ids else []
+        by_id = {snapshot.id: snapshot for snapshot in snapshots}
     changes: list[dict[str, object]] = []
-    by_profile: dict[str, list[ContextSnapshot]] = {"baseline_v1": [], "inventory_v1": []}
-    for row in rows:
-        by_profile[row.profile].append(row)
-    for profile_rows in by_profile.values():
-        for after, before in zip(profile_rows, profile_rows[1:]):
-            after_safe = snapshot_projection(after)
-            before_safe = snapshot_projection(before)
-            if after_safe is None or before_safe is None:
-                continue
-            try:
-                diff = compare_snapshots(before_safe, after_safe)
-            except (TypeError, ValueError):
-                continue
-            for change in diff.changes:
-                before_sections = before_safe["sections"]
-                after_sections = after_safe["sections"]
-                field_path = {
-                    "RAM_CHANGED": ("memory", "total_bytes"),
-                    "HOSTNAME_CHANGED": ("system", "hostname"),
-                    "OS_CHANGED": ("system", "os_name"),
-                }.get(change.code)
-                old_value = new_value = None
-                if field_path is not None:
-                    before_part = before_sections.get(field_path[0], {})
-                    after_part = after_sections.get(field_path[0], {})
-                    if isinstance(before_part, dict) and isinstance(after_part, dict):
-                        old_value = before_part.get(field_path[1])
-                        new_value = after_part.get(field_path[1])
-                changes.append({
-                    "code": change.code,
-                    "profile": after.profile,
-                    "collected_at": after.collected_at,
-                    "before_snapshot_id": str(before.id),
-                    "after_snapshot_id": str(after.id),
-                    "before_value": old_value,
-                    "after_value": new_value,
-                })
+    for after_id, before_id in page_pairs:
+        after, before = by_id[after_id], by_id[before_id]
+        after_safe = snapshot_projection(after)
+        before_safe = snapshot_projection(before)
+        if after_safe is None or before_safe is None:
+            continue
+        try:
+            diff = compare_snapshots(before_safe, after_safe)
+        except (TypeError, ValueError):
+            continue
+        for change in diff.changes:
+            before_sections = before_safe["sections"]
+            after_sections = after_safe["sections"]
+            field_path = {
+                "RAM_CHANGED": ("memory", "total_bytes"),
+                "HOSTNAME_CHANGED": ("system", "hostname"),
+                "OS_CHANGED": ("system", "os_name"),
+            }.get(change.code)
+            old_value = new_value = None
+            if field_path is not None:
+                before_part = before_sections.get(field_path[0], {})
+                after_part = after_sections.get(field_path[0], {})
+                if isinstance(before_part, dict) and isinstance(after_part, dict):
+                    old_value = before_part.get(field_path[1])
+                    new_value = after_part.get(field_path[1])
+            changes.append({
+                "code": change.code,
+                "profile": after.profile,
+                "collected_at": after.collected_at,
+                "before_snapshot_id": str(before.id),
+                "after_snapshot_id": str(after.id),
+                "before_value": old_value,
+                "after_value": new_value,
+            })
     changes.sort(key=lambda row: row["collected_at"], reverse=True)
-    return {"data": changes[:50]}
+    return ConsoleChangesPageResponse(
+        data=[ConsoleContextChange.model_validate(change) for change in changes],
+        limit=limit, offset=offset, has_more=has_more,
+    )
 
 
-@router.get("/api/admin/console/devices/{device_id}/updates")
+@router.get("/api/admin/console/devices/{device_id}/updates", response_model=ConsoleDeviceUpdatesPageResponse)
 async def console_device_updates(
     request: Request,
     device_id: UUID,
     _: Annotated[AdminPrincipal, Depends(require_admin)],
-) -> dict[str, object]:
+    limit: Annotated[int, Query(ge=1, le=100)] = 50,
+    offset: Annotated[int, Query(ge=0, le=100_000)] = 0,
+) -> ConsoleDeviceUpdatesPageResponse:
     async with request.app.state.session_provider() as session:
         exists = await session.scalar(select(Device.id).where(Device.id == device_id, Device.retired_at.is_(None)))
         if exists is None:
             raise HTTPException(status_code=404, detail="Устройство не найдено")
+        total = await session.scalar(
+            select(func.count()).select_from(UpdateTarget).where(UpdateTarget.device_id == device_id)
+        ) or 0
         rows = (await session.execute(
             select(UpdateTarget, UpdateRollout, UpdateBuild)
             .join(UpdateRollout, UpdateRollout.id == UpdateTarget.rollout_id)
             .join(UpdateBuild, UpdateBuild.id == UpdateRollout.build_id)
             .where(UpdateTarget.device_id == device_id)
             .order_by(UpdateTarget.assigned_at.desc(), UpdateTarget.id.desc())
-            .limit(50)
+            .limit(limit).offset(offset)
         )).all()
-    return {"data": [{
-        "rollout_id": str(rollout.id), "version": build.version,
-        "mode": rollout.mode, "status": target.status,
-        "assigned_at": target.assigned_at, "terminal_at": target.terminal_at,
-        "safe_reason": target.safe_reason,
-    } for target, rollout, build in rows]}
+    return ConsoleDeviceUpdatesPageResponse(data=[ConsoleDeviceUpdate(
+        rollout_id=rollout.id, version=build.version,
+        mode=rollout.mode, status=target.status,
+        assigned_at=target.assigned_at, terminal_at=target.terminal_at,
+        safe_reason=target.safe_reason,
+    ) for target, rollout, build in rows], total=total, limit=limit, offset=offset)
 
 
 def install_console_assets(app: FastAPI) -> None:

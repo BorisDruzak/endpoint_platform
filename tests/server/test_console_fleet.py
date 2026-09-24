@@ -132,8 +132,35 @@ async def test_console_device_api_uses_session_and_safe_projection() -> None:
             },
         },
     ) for index, size in enumerate((8 * 1024 ** 3, 16 * 1024 ** 3))]
+    older_inventory = [ContextSnapshot(
+        id=uuid4(), collection_id=uuid4(), device_id=device.id, profile="inventory_v1",
+        collected_at=now - timedelta(days=8 + index), raw_payload={"secret": "older-private"},
+        normalized_projection={
+            "schema_version": "device_context_v1", "profile": "inventory_v1",
+            "collected_at": (now - timedelta(days=8 + index)).isoformat(), "warnings": [],
+            "sections": {
+                "system": {"hostname": "CONSOLE-01", "platform": "windows", "os_name": "Windows 11"},
+                "hardware": {}, "memory": {"total_bytes": (index + 1) * 1024 ** 3, "module_count": 0, "modules": []},
+                "storage": {"physical_devices": []}, "interfaces": [],
+            },
+        },
+    ) for index in range(22)]
+    baseline_snapshots = [ContextSnapshot(
+        id=uuid4(), collection_id=uuid4(), device_id=device.id, profile="baseline_v1",
+        collected_at=now - timedelta(days=1 + 2 * index), raw_payload={"secret": "baseline-private"},
+        normalized_projection={
+            "schema_version": "device_context_v1", "profile": "baseline_v1",
+            "collected_at": (now - timedelta(days=1 + 2 * index)).isoformat(), "warnings": [],
+            "sections": {
+                "system": {"platform": "windows" if index == 0 else "linux", "distribution": "Test OS", "architecture": "x86_64"},
+                "hardware": {"manufacturer": "Test", "model": "Model", "cpu_model": "CPU", "memory_bytes": 1024},
+                "storage": [{"stable_key": "disk-1", "model": "Disk", "size_bytes": 1024}],
+                "interfaces": [], "software": [],
+            },
+        },
+    ) for index in range(2)]
     async with sessions() as session:
-        session.add_all([device, snapshot, *inventory_snapshots])
+        session.add_all([device, snapshot, *inventory_snapshots, *older_inventory, *baseline_snapshots])
         await session.flush()
         session.add(ContextCurrent(device_id=device.id, profile="session_v1", snapshot_id=snapshot.id, updated_at=now))
         session.add(ContextCurrent(device_id=device.id, profile="inventory_v1", snapshot_id=inventory_snapshots[-1].id, updated_at=now))
@@ -146,6 +173,8 @@ async def test_console_device_api_uses_session_and_safe_projection() -> None:
         artifact_root=Path("artifacts"),
     )
     app = create_app(settings, session_provider=sessions)
+    changes_schema = app.openapi()["paths"][f"/api/admin/console/devices/{{device_id}}/changes"]["get"]["responses"]["200"]["content"]["application/json"]["schema"]
+    assert changes_schema["$ref"].endswith("/ConsoleChangesPageResponse")
     user_id = uuid4()
     principal = AdminPrincipal(
         user=AdminUser(id=user_id, username="operator", password_digest="unused", scopes=[], disabled_at=None),
@@ -155,6 +184,8 @@ async def test_console_device_api_uses_session_and_safe_projection() -> None:
     async with AsyncClient(transport=ASGITransport(app=app), base_url="https://endpoint.sosnadmin.local") as client:
         response = await client.get(f"/api/admin/console/devices/{device.id}")
         changes = await client.get(f"/api/admin/console/devices/{device.id}/changes")
+        changes_first = await client.get(f"/api/admin/console/devices/{device.id}/changes?limit=2")
+        changes_second = await client.get(f"/api/admin/console/devices/{device.id}/changes?limit=2&offset=2")
         first_refresh = await client.post(
             f"/api/admin/console/devices/{device.id}/context/collections",
             headers={"Idempotency-Key": "console-refresh-1"}, json={"profile": "health_v1"},
@@ -179,6 +210,17 @@ async def test_console_device_api_uses_session_and_safe_projection() -> None:
     assert changes.status_code == 200
     assert any(row["code"] == "RAM_CHANGED" and row["before_value"] == 8 * 1024 ** 3 and row["after_value"] == 16 * 1024 ** 3 for row in changes.json()["data"])
     assert "inventory-private" not in changes.text
+    assert changes.json()["has_more"] is True
+    assert changes_first.json()["has_more"] is True
+    assert changes_second.json()["data"]
+    assert [row["after_snapshot_id"] for row in changes_first.json()["data"]] == [
+        str(inventory_snapshots[1].id), str(baseline_snapshots[0].id),
+    ]
+    assert changes_second.json()["data"][0]["after_snapshot_id"] == str(inventory_snapshots[0].id)
+    assert {row["after_snapshot_id"] for row in changes_first.json()["data"]}.isdisjoint(
+        row["after_snapshot_id"] for row in changes_second.json()["data"]
+    )
+    assert "older-private" not in changes_second.text
     assert first_refresh.status_code == 201
     assert replay_refresh.status_code == 200
     assert first_refresh.json()["data"]["id"] == replay_refresh.json()["data"]["id"]

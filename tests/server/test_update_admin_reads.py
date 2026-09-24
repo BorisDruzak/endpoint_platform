@@ -23,6 +23,8 @@ async def test_rollout_read_has_exact_status_counts_and_bounded_targets() -> Non
         await connection.run_sync(lambda sync: [table.create(sync) for table in (
             Device.__table__, UpdateBuild.__table__, UpdateRollout.__table__, UpdateTarget.__table__,
         )])
+        # SQLite cannot express the PostgreSQL-only active-target partial index.
+        await connection.exec_driver_sql("DROP INDEX uq_update_targets_active_device")
     sessions = async_sessionmaker(engine, expire_on_commit=False)
     now = datetime.now(UTC)
     build = UpdateBuild(
@@ -50,8 +52,13 @@ async def test_rollout_read_has_exact_status_counts_and_bounded_targets() -> Non
         target_identifier=f"target-{index}", operation_id=f"op-{index}",
         status=status, assigned_at=now,
     ) for index, (device, status) in enumerate(zip(devices, ("applied", "failed", "scheduled")))]
+    previous_target = UpdateTarget(
+        id=uuid4(), rollout_id=completed.id, device_id=devices[1].id,
+        target_identifier="target-previous", operation_id="op-previous",
+        status="applied", assigned_at=now - timedelta(days=1), terminal_at=now - timedelta(days=1),
+    )
     async with sessions() as session:
-        session.add_all([build, rollout, completed, cancelled, *devices, *targets]); await session.commit()
+        session.add_all([build, rollout, completed, cancelled, *devices, *targets, previous_target]); await session.commit()
     settings = Settings(
         database_url="postgresql+asyncpg://unused@localhost/unused",
         public_base_url="https://endpoint.sosnadmin.local",
@@ -60,6 +67,8 @@ async def test_rollout_read_has_exact_status_counts_and_bounded_targets() -> Non
         artifact_root=Path("artifacts"),
     )
     app = create_app(settings, session_provider=sessions)
+    updates_schema = app.openapi()["paths"]["/api/admin/console/devices/{device_id}/updates"]["get"]["responses"]["200"]["content"]["application/json"]["schema"]
+    assert updates_schema["$ref"].endswith("/ConsoleDeviceUpdatesPageResponse")
     user_id = uuid4()
     principal = AdminPrincipal(
         user=AdminUser(id=user_id, username="operator", password_digest="unused", scopes=[], disabled_at=None),
@@ -73,6 +82,8 @@ async def test_rollout_read_has_exact_status_counts_and_bounded_targets() -> Non
         detail = await client.get(f"/api/admin/updates/rollouts/{rollout.id}?limit=1")
         builds = await client.get("/api/admin/updates/builds")
         device_updates = await client.get(f"/api/admin/console/devices/{devices[1].id}/updates")
+        device_updates_first = await client.get(f"/api/admin/console/devices/{devices[1].id}/updates?limit=1")
+        device_updates_second = await client.get(f"/api/admin/console/devices/{devices[1].id}/updates?limit=1&offset=1")
     await engine.dispose()
     assert listing.status_code == 200
     assert listing.json()["total"] == 3
@@ -87,3 +98,6 @@ async def test_rollout_read_has_exact_status_counts_and_bounded_targets() -> Non
     assert "artifact_url" not in builds.text
     assert device_updates.status_code == 200
     assert device_updates.json()["data"][0]["status"] == "failed"
+    assert device_updates_first.json()["total"] == device_updates_second.json()["total"] == 2
+    assert device_updates_first.json()["data"][0]["rollout_id"] == str(rollout.id)
+    assert device_updates_second.json()["data"][0]["rollout_id"] == str(completed.id)
