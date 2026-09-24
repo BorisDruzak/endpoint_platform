@@ -11,11 +11,12 @@ The Module Platform capability constraint repair is revision
 `0023_windows_setup_releases`; the credential-free Console module owner is
 revision `0024_console_module_owner`, and enrollment queue pagination uses
 revision `0025_console_enrollment_queue`. The Console foundation, fleet/context,
-enrollment, updates, operations, Module Workbench, and audit are implemented
-on `codex/endpoint-console-v1`. The approved Windows Agent 3.2.63 runtime
-contract is unchanged. An isolated browser test covers the real local API
-through manual enrollment approval, canary creation and rollback, and module
-publication and device execution with simulated Agent results. The local run
+enrollment, updates, operations, Module Workbench, and audit were implemented
+on `codex/endpoint-console-v1` and published to `main` at
+`4801e21b20c342ba006b9bd9c40c42e6642ce27b`. The approved Windows Agent
+3.2.63 runtime contract is unchanged. An isolated browser test covers the real
+local API through manual enrollment approval, canary creation and rollback,
+and module publication and device execution with simulated Agent results. The local run
 also corrected module operation detail projection and the approved enrollment
 queue/label, and aligned campaign display names with the Russian Console.
 Device detail now projects the current user, OS and version from safe snapshots;
@@ -65,10 +66,17 @@ platform, execution, and read-only primitive flags are enabled; network
 primitives remain disabled. The original mode-600 environment file is backed
 up at
 `/etc/endpoint-platform/endpoint-platform.env.pre-console-local-agent-20260924T054931Z`.
-The workstation's MSI preflight found no installed MSI product although its
-Agent runtime is `3.2.63`; live MSI update/rollback acceptance there remains
-unverified. The browser E2E covers canary and rollback with simulated Agent
-outcomes. Draft PR #35 records the evidence and risk. The historical Wave 1
+The workstation does have Endpoint Agent MSI `3.2.63` installed. The failed
+preflight checked stale canary provenance for MSI `3.2.41`, whose ProductCode
+was removed by later universal Setup major upgrades. Reinstalling the same
+signed, SHA-256-verified `3.2.63` MSI through the canary wrapper refreshed the
+protected provenance; the collector and validator then reported `READY`.
+Universal Setup does not refresh that canary-only record, so another Setup
+major upgrade can make this particular preflight stale again. Console rollout
+and rollback use verified ZIP runtime builds and the Windows runtime selector,
+not MSI. A live Console rollout/rollback cycle on this workstation remains
+unverified; browser E2E covers those actions with simulated Agent outcomes.
+PR #35 was merged by fast-forward into `main`. The historical Wave 1
 plan below is retained as a record, not a current deployment gate.
 
 ## Goal
