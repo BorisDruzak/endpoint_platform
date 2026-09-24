@@ -638,7 +638,7 @@ Choose actual value after resource testing.
 
 Do not create a server request every heartbeat.
 
-Heartbeat goes through local bridge → Agent, and Agent batches/reports state through existing control plane.
+Heartbeat goes through local bridge → Agent. Agent coalesces per-browser health and reports a strict, bounded browser-status envelope over authenticated Gateway WSS on state change or a bounded refresh interval, rather than sending one server request per extension heartbeat. Server persists the latest Chrome and Yandex status separately, including observation time and the source of each policy/host fact; it must distinguish a missing report from an observed negative state. The status envelope carries no page URL, title or content.
 
 ---
 
@@ -798,7 +798,7 @@ Do not put the private signing key into release metadata.
 
 # 26. Chrome deployment
 
-Support enterprise force-install in both `agent_managed` and `external_managed` ownership modes. In `agent_managed`, Endpoint Agent applies only its own machine-level enterprise policy; in `external_managed`, the external administrator supplies that policy and Agent only observes its result.
+Support enterprise force-install under either deployment owner. In `agent_managed`, Endpoint Agent applies only its own machine-level enterprise policy; in `external_managed`, the external administrator supplies that policy and Agent only observes its result.
 
 Provide managed-policy deployment artifact/template for:
 
@@ -1221,7 +1221,9 @@ ERROR
 
 with `last_seen_at`.
 
-Server and Console must distinguish browser detected, externally managed, policy applied, never seen, active, stale, browser closed and conflict. In `agent_managed`, failure to apply the policy is separate from failure of the browser to download the extension. In `external_managed`, Agent must not claim it applied installation policy.
+Track Chrome and Yandex independently, including when one is not installed. Each bounded status projection must include browser detection and current running state, configured deployment owner, installation-policy state and owner, Native Messaging host registration, extension version and last heartbeat, plus a reason code when the extension is not active. The minimum distinct observations are `BROWSER_DETECTED`, `MANAGED_POLICY_APPLIED`, `NATIVE_HOST_REGISTERED`, `EXTENSION_NEVER_SEEN`, `EXTENSION_ACTIVE`, `EXTENSION_STALE`, `POLICY_CONFLICT`, `EXTERNALLY_MANAGED`, and `BROWSER_CLOSED`. These are independent facts, not one mutually exclusive enum: a closed browser may retain a previously observed extension and an applied policy.
+
+In `agent_managed`, failure to apply policy is separate from the browser not yet downloading the extension. In `external_managed`, Agent must not claim it applied installation policy. `EXTENSION_NEVER_SEEN` after policy application is not an installation error solely because the browser has not been launched; a closed browser with an earlier heartbeat is not `EXTENSION_NEVER_SEEN`. Derive overall compliance on the server from these facts and the policy's `required` flag; do not infer installation failure from heartbeat absence alone.
 
 ---
 
@@ -1698,42 +1700,32 @@ Unsupported
 
 # 64. Console — Browser Sensor status
 
-For each browser:
+For each browser, render the independently reported facts with Russian labels. For example:
 
 ```text
 Chrome
-
-Browser installed:
-Да
-
-Management:
-Endpoint Agent | external policy
-
-Installation policy:
-applied | conflict | external | not applied
-
-Native Host:
-Готов
-
-Extension:
-ACTIVE
-
-Version:
-1.0.0
-
-Last seen:
-1 минуту назад
+Браузер: обнаружен
+Управление: Endpoint Agent
+Политика установки: применена
+Native Bridge: готов
+Расширение: активно
+Версия: 1.0.0
+Последняя связь: 1 минуту назад
 ```
 
-Same for:
+An extension not yet observed after Agent policy application must have its own explanation:
 
 ```text
-Yandex Browser
+Chrome
+Управление: Endpoint Agent
+Политика установки: применена
+Расширение: ещё не обнаружено
+Причина: браузер не запускался после применения политики
 ```
 
-Do not show `Extension missing` merely because browser is closed.
+For Yandex Browser show a separate card headed `Яндекс Браузер` with the same fields. In `external_managed`, show `Управление: внешняя политика` and the observed installation-policy state without claiming an Agent write. Display policy conflict and Native Bridge failure as distinct reasons. Display `Браузер закрыт` separately from `Расширение: ещё не обнаружено` and `Расширение: связь устарела`; preserve the last known extension version and heartbeat while the browser is closed.
 
-Use Russian labels for each state. If Agent applied policy but the browser has not run since then, show that as the reason for `NEVER_SEEN`. Show Chrome and Yandex separately, including browser detection, policy owner, native host, extension version and last seen time.
+Do not show `Extension missing` merely because the browser is closed. If the Agent has applied policy but the browser has not run since then, show that as the reason for `NEVER_SEEN`.
 
 ---
 

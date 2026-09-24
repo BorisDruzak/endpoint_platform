@@ -22,7 +22,7 @@
 
 ## Phase 0 decisions
 
-1. **WSS path:** Advertise `endpoint.policy.v1`, `endpoint.activity.v1`, and `endpoint.security-events.v1` as protocol features in Agent hello, not Module capabilities. Send a `endpoint_policy_delivery_v1` envelope after gateway hello and on assignment changes; accept typed policy acknowledgement. Independently accept activity observations and bounded event batches, and ACK only committed batches. Keep sequence and 64-KiB gateway limit.
+1. **WSS path:** Advertise `endpoint.policy.v1`, `endpoint.activity.v1`, `endpoint.browser-status.v1`, and `endpoint.security-events.v1` as protocol features in Agent hello, not Module capabilities. Send a `endpoint_policy_delivery_v1` envelope after gateway hello and on assignment changes; accept typed policy acknowledgement. Independently accept activity observations, coalesced per-browser status and bounded event batches, and ACK only committed batches. Keep sequence and 64-KiB gateway limit. Add browser-status negotiation and transport with the Task 8 projection; the completed Task 2 policy path need not be rewritten.
 2. **Old Agents:** Check advertised protocol features and minimum Agent version before delivery. An old hello receives its existing gateway hello and command flow unchanged; server derives `UNSUPPORTED` and an update prompt.
 3. **User startup:** Install `EndpointUserSensor.exe` next to `EndpointAgentTray.exe` with an HKLM Run value and per-session mutex. MSI upgrade stops/restarts it under the same ownership rules as Tray. The user process receives no device credential.
 4. **Local IPC:** Service-owned Windows named pipe, with a DACL granting the service SID, SYSTEM and the expected interactive user SID. On every connection impersonate the pipe client, validate token SID and `ProcessIdToSessionId` against the current interactive session, enforce 16-KiB framed typed messages, then revert impersonation. Never open localhost TCP. Explicitly test rejection before allowing browser-origin data into Agent state.
@@ -58,7 +58,7 @@ Chrome `ExtensionSettings` is preferred; Yandex `ExtensionInstallForcelist` or `
 2. A user switch or concurrent RDP session must not let one user's browser report through another session's pipe; add impersonation/session tests in Task 5.
 3. URLs with credentials, Unicode hostnames, ports, query and fragments must normalize safely or reject; add browser normalization and server DTO tests in Tasks 3 and 4.
 4. Replayed event ACK, crash between DB commit and ACK, and spool overflow must never duplicate rows or grow disk unbounded; add fault tests in Task 7.
-5. Browser closed, browser absent and extension never seen must be distinct, with no false critical alert; add state tests in Tasks 8 and 9.
+5. Browser closed, browser absent, extension never seen and extension stale must be distinct per browser, with no false installation failure on heartbeat absence alone; add state tests in Tasks 8 and 9.
 6. Existing Chrome/Yandex policies and CryptoPro/native hosts must survive agent-managed application and mode switching; add foreign-entry, GPO ownership, conflict, no-op and restart tests in Tasks 6 and 10.
 
 ## Tasks
@@ -101,21 +101,24 @@ This is unsigned source only. The bridge, stable signed extension ID, browser po
 
 ### Task 5: Native bridge and authenticated local IPC
 
-**Files:** Create `pc_agent/platform/windows/{user_sensor,activity_api,browser_bridge,local_ipc}.py`, `pc_agent/browser_protocol.py`, PyInstaller entry/spec files; integrate service runtime and fixed pipe ACL. Tests in `pc_agent/tests/windows/`, `tests/packaging/`.
+**Files:** Create `pc_agent/platform/windows/{user_sensor,activity_api,browser_bridge,local_ipc}.py`, `pc_agent/{browser_protocol,activity_dispatch}.py`, PyInstaller entry/spec files; integrate service runtime and fixed pipe ACL. Tests in `pc_agent/tests/windows/`, `pc_agent/tests/runtime/`, `tests/packaging/`.
 
 - [ ] Write failing framing/protocol/oversize/unknown-field/wrong-version tests plus pipe DACL, SID/session mismatch, fake-server rejection, disconnect/reconnect and no-network-path tests.
 - [ ] Implement unprivileged user-session sampling, native messaging binary framing and bounded ACK; service validates the impersonated pipe client before forwarding activity/browser observations. Keep all device credentials service-side.
 - [ ] Test on Windows with a real second user/session where available; run focused suite and diff check; commit.
 
-Native framing, typed ACK, bounded pipe frames, the service-SID DACL, OS-backed
-client session checks and fake-server rejection are implemented in the first
-two Task 5 commits. The service-side receiver, user-session sensor, signed
+Native framing, typed ACK, bounded pipe frames, service-SID DACL, OS-backed
+client session checks and fake-server rejection are implemented. A safe
+user-session sampler and a one-frame service receiver are also implemented,
+and typed activity observations can be sent over Gateway WSS. A bounded
+in-memory handoff retains unsent observations across WSS reconnects. The long-lived
+pipe listener, service lifecycle wiring, user-process launch, signed
 binary/manifest packaging, reconnection and real second-session acceptance
 remain open; do not mark this task complete or report a live sensor path yet.
 
 ### Task 6: Signed browser release and Browser Integration Policy Applicator
 
-**Files:** Create `browser_sensor/tools/build_release.py`, `endpoint_server/browser_sensor/{models,artifacts,admin_routes}.py`, `endpoint_server/db/migrations/versions/0030_browser_sensor_release.py`, `pc_agent/platform/windows/{browser_policy,browser_policy_helper}.py`, Windows/ALT managed policy templates and `docs/runbooks/browser-sensor-{chrome,yandex,alt,release}.md`; modify server route registration. Tests in `pc_agent/tests/windows/test_browser_policy.py` and `tests/browser_sensor/`.
+**Files:** Create `browser_sensor/tools/build_release.py`, `endpoint_server/browser_sensor/{models,artifacts,admin_routes}.py`, `endpoint_server/db/migrations/versions/0031_browser_sensor_release.py`, `pc_agent/platform/windows/{browser_policy,browser_policy_helper}.py`, Windows/ALT managed policy templates and `docs/runbooks/browser-sensor-{chrome,yandex,alt,release}.md`; modify server route registration. Tests in `pc_agent/tests/windows/test_browser_policy.py` and `tests/browser_sensor/`.
 
 - [ ] Write failing tests for deterministic release metadata, stable extension ID, manifest/update XML digest, immutable registry, exact public download route, hash verification and no directory listing.
 - [ ] Write failing Windows tests for `agent_managed` absent-policy application, no-op repeat, preservation of foreign extension/native-host entries, malformed or externally owned policy conflict, concurrent-change rejection, restart recovery, exact owned-entry hand-off cleanup and `external_managed` no-write after transition. The helper must reject unpinned IDs, URLs and registry paths.
@@ -124,25 +127,25 @@ remain open; do not mark this task complete or report a live sensor path yet.
 
 ### Task 7: SecurityEvent ingestion and durable Agent spool
 
-**Files:** Create `endpoint_contracts/security_events.py`, `endpoint_server/security/{models,ingestion,retention,admin_routes}.py`, `endpoint_server/db/migrations/versions/0031_security_events.py`, `pc_agent/security/{spool,runtime}.py`; modify `endpoint_contracts/gateway_ws.py`, Gateway handlers and worker. Tests in `tests/security/`, `pc_agent/tests/security/`.
+**Files:** Create `endpoint_contracts/security_events.py`, `endpoint_server/security/{models,ingestion,retention,admin_routes}.py`, `endpoint_server/db/migrations/versions/0032_security_events.py`, `pc_agent/security/{spool,runtime}.py`; modify `endpoint_contracts/gateway_ws.py`, Gateway handlers and worker. Tests in `tests/security/`, `pc_agent/tests/security/`.
 
 - [ ] Write failing tests for per-type metadata allowlists, privacy rejection, `(device_id,event_identifier)` idempotency, ACK after commit, crash/replay, <=50 events/64 KiB, 1000-event/5-MiB/24-hour spool bounds, overflow counter and 7..365-day retention (default 30).
 - [ ] Implement typed event batch, persisted ACK and protected SQLite spool; no per-observation AuditEvent, Module Operation or raw transport persistence.
 - [ ] Run migration, gateway, spool and retention tests; commit.
 
-### Task 8: USB and print audit sensors and compliance
+### Task 8: USB and print audit sensors, browser status and compliance
 
-**Files:** Create `pc_agent/platform/windows/{usb_sensor,print_sensor}.py`, `endpoint_server/policy/compliance.py`; adjust Agent runtime feature state and server DTOs. Tests in `pc_agent/tests/windows/`, `tests/policy/`.
+**Files:** Create `pc_agent/platform/windows/{usb_sensor,print_sensor,browser_status}.py`, `endpoint_contracts/browser_status.py`, `endpoint_server/policy/{browser_status,compliance}.py`, `endpoint_server/db/migrations/versions/0033_browser_status.py`; adjust Agent runtime feature state, Gateway protocol/routes and server DTOs. Tests in `pc_agent/tests/windows/`, `tests/policy/`, `tests/gateway/`.
 
-- [ ] Write failing tests for USB connect/disconnect, serial hashing, print metadata stripping, disabled/audit behavior, availability and server-derived compliance including browser-closed, policy-applied, conflict, never-seen and externally managed semantics.
-- [ ] Implement bounded best-effort USB and print watchers; mark unsupported/unavailable honestly. Do not implement removable writes without proof of safe reliability.
+- [ ] Write failing tests for USB connect/disconnect, serial hashing, print metadata stripping, disabled/audit behavior, availability and server-derived compliance. For each browser independently test detected/absent, running/closed, policy applied/conflict/external, Native Bridge ready/unavailable, extension never seen/active/stale, and `required=false/true`; heartbeat absence while closed must not itself become installation failure. Test strict browser-status DTOs, old-Agent negotiation, coalescing, out-of-order reports, separate Chrome/Yandex persistence and missing-report semantics.
+- [ ] Implement bounded best-effort USB and print watchers plus per-browser discovery/running, effective policy owner/state and Native Bridge health. Coalesce bridge heartbeats into a typed WSS status envelope; persist latest per-family status and derive compliance on the server. Mark unsupported/unavailable honestly. Do not implement removable writes without proof of safe reliability.
 - [ ] Run Windows and compliance tests; commit.
 
 ### Task 9: Russian Console
 
 **Files:** Create `webapp/src/SecurityPage.tsx` and typed client DTOs; modify `webapp/src/{App,FleetPages,api,styles.css}` and `endpoint_server/console/` routes/projections. Tests in `webapp/src/`, `webapp/e2e/`, `tests/server/`.
 
-- [ ] Write failing tests for policy version/assignment controls, fleet compliance pagination/filtering, separate Chrome/Yandex policy ownership and application state, browser-closed/never-seen/conflict reasons, device activity, safe event list/detail, release metadata and no unsupported fake-active status.
+- [ ] Write failing tests for policy version/assignment controls, fleet compliance pagination/filtering, separate Chrome/Yandex policy ownership and application state, Russian labels for detected/applied/Native Bridge/never-seen/active/stale/conflict/external/closed, reason for a browser not launched after policy application, preserved last version/heartbeat when closed, device activity, safe event list/detail, release metadata and no unsupported fake-active status.
 - [ ] Add `Политики и DLP`, bounded admin APIs and device tabs with Russian labels/empty/error states; use existing session/CSRF and safe DTO conventions.
 - [ ] Run frontend unit, Playwright E2E, production build and Console API tests; commit.
 
