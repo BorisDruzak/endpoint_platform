@@ -48,7 +48,24 @@ Post-deployment audit found that revision 0026 backfilled `last_observed_at`
 only from the last changed snapshot. Existing completed deduplicated baseline
 and inventory collections could be newer. Revision 0027 backfills those
 observations from retained collection timestamps without changing snapshots;
-its production deployment and post-check are recorded below after verification.
+the pre-migration query found 12 affected current rows (eight baseline and four
+inventory). Follow-up release `db107f895bfc54cedef80a981eacb4f6794d79f1`
+was published and deployed after `1850 passed, 41 skipped`, contract and
+compile checks, offline Alembic SQL, and a successful full migration through
+0027 on a disposable PostgreSQL database. Its test current pointer preserved
+the original snapshot/`updated_at` and advanced `last_observed_at`; the
+disposable database was removed. The second verified custom-format backup is
+`/var/backups/endpoint-platform/pre-observation-backfill-20260924T134545Z.dump`
+(17,451,925 bytes, SHA-256
+`47c79fa17d8c4dbd98cedb0e98bba13ebc73ceb83b73a98e60c0f67de0ef3510`).
+The follow-up release archive matched on both machines at SHA-256
+`c434799debbdf317d063801a91cbc9f9cffd38a0714e222d1036d490ef70f86a`.
+The migration unit returned `success`; production revision is
+`0027_context_observed_backfill` with zero remaining current/collection
+freshness mismatches. Agent `3.2.65` remained connected and completed fresh
+health and session observations after the second API restart. API, worker,
+PostgreSQL and Nginx remained active, strict HTTPS health returned `200`, and
+post-release warning-or-higher service journal entries counted zero.
 
 ## Current Console v1 work (2026-09-24)
 
