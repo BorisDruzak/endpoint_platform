@@ -17,12 +17,12 @@ Agent's advertised set with server support, platform, version, flag and
 policy. Module Lab/Run uses the connected session's effective set. Evidence
 remains in the Operation retention flow (24-hour TTL with optional PIN).
 
-Drift still exists in `ModuleCapabilityNameV1`, `ModuleStepSafeResultV1`,
-`EndpointCapabilityAvailabilityV1`, the Agent dispatcher and Hello list, the
-persisted step check constraint, Console names, and the six-item catalog
-bound. The migration must expand the physical DB constraint *before* any new
-step can be inserted. A regression test compares the registry with each
-executable boundary and the migration constraint.
+The v2 implementation aligns `ModuleCapabilityNameV1`,
+`ModuleStepSafeResultV1`, `EndpointCapabilityAvailabilityV1`, the Agent
+dispatcher and Hello list, the persisted step check constraint and Console
+catalog. Migration `0028_capability_platform_v2` expanded the physical DB
+constraint before new steps were inserted. A regression test compares the
+registry with each executable boundary and the migration constraint.
 
 There is no capability-authoring endpoint. Descriptors may only select a
 fixed typed handler; they contain no executable, command, script, path or
@@ -31,9 +31,10 @@ remain unchanged.
 
 ## Catalog
 
-The following are proposed executable IDs. `W` and `ALT` mean an explicit
-runtime implementation is required before the descriptor may advertise that
-platform. Feature flags for all new groups start disabled. Every result has
+The following executable IDs are implemented. `W` and `ALT` denote runtime
+implementations covered by platform tests; ALT live acceptance remains a
+separate deployment gate. Feature flags for all new groups start disabled.
+Every result has
 bounded fields, a status/error code and a timestamp; every list has a fixed
 item cap. Parameter/result schema versions start at `v1` per capability.
 
@@ -42,7 +43,7 @@ item cap. Parameter/result schema versions start at `v1` per capability.
 | `system.resource_snapshot` | system | W | ALT | safe_read | none | none | uptime, CPU, memory, system volume free |
 | `process.list` | process | W | ALT | controlled_read | process_metadata | none | ≤32 PID/name/state/CPU/RSS records |
 | `process.find` | process | W | ALT | safe_read | process_metadata | bounded exact name | presence, count, ≤20 summaries |
-| `service.list` | service | W | ALT | controlled_read | service_catalog | none | ≤8 fixed logical service facts |
+| `service.list` | service | W | ALT | controlled_read | service_catalog | none | ≤3 fixed logical service facts |
 | `service.status` | service | W | ALT | safe_read | service_catalog | enum `service_key` | one fixed service fact |
 | `printer.list` | printer | W | ALT | controlled_read | local_printers | none | ≤16 installed printer facts |
 | `printer.status` | printer | W | ALT | safe_read | local_printers | bounded installed printer name | existence and flags |
