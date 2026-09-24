@@ -84,15 +84,17 @@ def create_pipe_security_attributes():
     return attributes
 
 
-def create_server_pipe(*, pipe_name: str = PIPE_NAME):
+def create_server_pipe(*, pipe_name: str = PIPE_NAME, overlapped: bool = False):
     """Create the single local server instance; fail if another owns the name."""
+    import win32file
     import win32pipe
 
     if not pipe_name.startswith(r"\\.\pipe\EndpointPlatform.Agent."):
         raise ValueError("invalid Endpoint Agent pipe name")
     return win32pipe.CreateNamedPipe(
         pipe_name,
-        win32pipe.PIPE_ACCESS_DUPLEX | win32pipe.FILE_FLAG_FIRST_PIPE_INSTANCE,
+        win32pipe.PIPE_ACCESS_DUPLEX | win32pipe.FILE_FLAG_FIRST_PIPE_INSTANCE |
+        (win32file.FILE_FLAG_OVERLAPPED if overlapped else 0),
         win32pipe.PIPE_TYPE_BYTE | win32pipe.PIPE_READMODE_BYTE |
         win32pipe.PIPE_WAIT | win32pipe.PIPE_REJECT_REMOTE_CLIENTS,
         1,
