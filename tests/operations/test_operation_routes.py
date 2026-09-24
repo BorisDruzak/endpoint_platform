@@ -1050,6 +1050,57 @@ async def test_validated_module_lab_operation_route_is_scoped_and_creates_parent
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("execution_mode", ["published", "lab"])
+async def test_service_module_operation_routes_accept_zero_input_recipe(
+    route_fixture: RouteFixture, execution_mode: str,
+) -> None:
+    app = create_app(
+        _settings(enabled=True, network_primitives_enabled=True,
+                  module_platform_enabled=True, module_execution_enabled=True),
+        route_fixture.session_provider,
+    )
+    async with route_fixture.session_provider() as session:
+        definition = ModuleDefinition(id=uuid4(), module_key="system.adapters", display_name="Adapters")
+        version = ModuleVersion(
+            id=uuid4(), module_definition_id=definition.id, version="1.0.0",
+            recipe={
+                "schema_version": "endpoint_recipe_module_v1", "module_key": "system.adapters",
+                "supported_platforms": ["linux_amd64"], "inputs": [],
+                "steps": [{"step_id": "adapters", "capability": "adapter.list", "parameters": {}}],
+            },
+            state=execution_mode if execution_mode == "published" else "validated",
+        )
+        session.add_all((definition, version))
+        await session.commit()
+
+    if execution_mode == "published":
+        path = f"/api/v1/devices/{route_fixture.device.id}/module-operations"
+        body = {"schema_version": "endpoint_module_operation_create_v1",
+                "module_key": "system.adapters", "version": "1.0.0", "inputs": {}}
+        scope = "module-operator"
+    else:
+        path = f"/api/v1/modules/system.adapters/versions/1.0.0/lab-operations/{route_fixture.device.id}"
+        body = {"schema_version": "endpoint_module_lab_operation_create_v1", "inputs": {}}
+        scope = "modules-validator"
+    headers = {
+        **_authorization(scope), "Idempotency-Key": f"zero-input-{execution_mode}-route",
+        "X-Correlation-ID": f"zero-input-{execution_mode}-route",
+    }
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="https://endpoint.sosnadmin.local",
+    ) as client:
+        response = await client.post(path, json=body, headers=headers)
+
+    assert response.status_code == 201, response.text
+    assert response.json()["data"]["status"] == "queued"
+    async with route_fixture.session_provider() as session:
+        operation = await session.get(EndpointOperation, UUID(response.json()["data"]["operation_id"]))
+        assert operation is not None
+        assert operation.module_inputs == {}
+        assert operation.expected_step_count == 1
+
+
+@pytest.mark.asyncio
 async def test_module_operation_execution_route_is_flagged_scoped_and_idempotent(
     route_fixture: RouteFixture,
 ) -> None:

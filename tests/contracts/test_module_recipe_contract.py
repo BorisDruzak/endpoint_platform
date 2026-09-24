@@ -11,6 +11,8 @@ from datetime import UTC, datetime
 
 from endpoint_contracts.modules import (
     EndpointRecipeModuleSpecV1,
+    ModuleLabOperationCreateV1,
+    ModuleOperationCreateV1,
     ModuleValidationRunV1,
     ModuleVersionCreateV1,
 )
@@ -71,6 +73,22 @@ def test_module_version_create_contract_requires_semantic_version() -> None:
     payload["version"] = "latest"
     with pytest.raises(ValidationError):
         ModuleVersionCreateV1.model_validate(payload)
+
+
+@pytest.mark.parametrize(
+    ("model", "payload"),
+    [
+        (ModuleOperationCreateV1, {
+            "schema_version": "endpoint_module_operation_create_v1",
+            "module_key": "system.adapters", "version": "1.0.0", "inputs": {},
+        }),
+        (ModuleLabOperationCreateV1, {
+            "schema_version": "endpoint_module_lab_operation_create_v1", "inputs": {},
+        }),
+    ],
+)
+def test_module_operation_create_contract_accepts_zero_inputs(model: type, payload: dict[str, object]) -> None:
+    assert model.model_validate(payload).inputs == {}
 
 
 def test_module_validation_result_contract_is_bounded_and_versioned() -> None:

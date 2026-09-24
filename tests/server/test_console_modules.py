@@ -67,6 +67,12 @@ async def test_admin_module_catalog_draft_validation_and_fake_lab_rejection() ->
     for path, method, status, model in typed_routes:
         schema = paths[f"/api/admin/console{path}"][method]["responses"][status]["content"]["application/json"]["schema"]
         assert schema["$ref"].endswith(f"/{model}")
+    for path, model in (
+        ("/devices/{device_id}/module-operations", "ModuleOperationCreateV1"),
+        ("/modules/{module_key}/versions/{version}/lab-operations/{device_id}", "ModuleLabOperationCreateV1"),
+    ):
+        schema = paths[f"/api/admin/console{path}"]["post"]["requestBody"]["content"]["application/json"]["schema"]
+        assert schema["$ref"].endswith(f"/{model}")
     user_id = uuid4()
     principal = AdminPrincipal(
         user=AdminUser(id=user_id, username="operator", password_digest="unused", scopes=[], disabled_at=None),

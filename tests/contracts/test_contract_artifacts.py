@@ -376,6 +376,27 @@ def test_committed_contract_artifacts_match_renderer_without_mutation(
         assert (Path.cwd() / relative_path).read_text(encoding="utf-8") == expected
 
 
+@pytest.mark.parametrize(
+    ("filename", "component", "payload"),
+    [
+        (
+            "endpoint-module-operation-create-v1.json", "ModuleOperationCreateV1",
+            {"schema_version": "endpoint_module_operation_create_v1",
+             "module_key": "system.adapters", "version": "1.0.0", "inputs": {}},
+        ),
+        (
+            "endpoint-module-lab-operation-create-v1.json", "ModuleLabOperationCreateV1",
+            {"schema_version": "endpoint_module_lab_operation_create_v1", "inputs": {}},
+        ),
+    ],
+)
+def test_published_module_operation_schemas_allow_zero_inputs(
+    filename: str, component: str, payload: dict[str, object],
+) -> None:
+    _schema_validator(filename).validate(payload)
+    _openapi_component_validator(component).validate(payload)
+
+
 def test_generated_artifact_writer_preserves_canonical_lf_bytes(tmp_path: Path) -> None:
     result = subprocess.run(
         [
