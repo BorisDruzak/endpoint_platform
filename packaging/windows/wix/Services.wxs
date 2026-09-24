@@ -33,6 +33,15 @@
                        Name="EndpointAgentTray" Value="&quot;[#filEndpointAgentTray]&quot;"
                        Type="string" KeyPath="no" />
       </Component>
+      <Component Id="cmpUserSensor" Directory="INSTALLFOLDER"
+                 Guid="*" Bitness="always64">
+        <File Id="filEndpointUserSensor" Source="$(var.StagingDir)\ProgramFiles\EndpointUserSensor.exe"
+              Name="EndpointUserSensor.exe" KeyPath="yes" />
+        <RegistryValue Id="regEndpointUserSensor" Root="HKLM"
+                       Key="Software\Microsoft\Windows\CurrentVersion\Run"
+                       Name="EndpointUserSensor" Value="&quot;[#filEndpointUserSensor]&quot;"
+                       Type="string" KeyPath="no" />
+      </Component>
     </ComponentGroup>
 
     <CustomAction Id="ApplyProgramDataAcl" FileRef="filServiceHost"

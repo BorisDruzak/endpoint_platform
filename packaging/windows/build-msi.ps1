@@ -363,6 +363,7 @@ $launcherSpec = Join-Path $repositoryRoot 'pc_agent\pyinstaller_launcher_win.spe
 $serviceHostSpec = Join-Path $repositoryRoot 'pc_agent\pyinstaller_windows_service_launcher.spec'
 $provisionerSpec = Join-Path $repositoryRoot 'pc_agent\pyinstaller_windows_provision.spec'
 $traySpec = Join-Path $repositoryRoot 'pc_agent\pyinstaller_windows_tray.spec'
+$userSensorSpec = Join-Path $repositoryRoot 'pc_agent\pyinstaller_windows_user_sensor.spec'
 $commonPyInstaller = @('--noconfirm', '--clean', '--distpath', $distRoot, '--workpath', $workRoot)
 if (-not $ReusePythonBuild) {
     Invoke-Checked $python (@('-m', 'PyInstaller') + $commonPyInstaller + @($coreSpec)) $repositoryRoot
@@ -370,6 +371,7 @@ if (-not $ReusePythonBuild) {
     Invoke-Checked $python (@('-m', 'PyInstaller') + $commonPyInstaller + @($serviceHostSpec)) $repositoryRoot
     Invoke-Checked $python (@('-m', 'PyInstaller') + $commonPyInstaller + @($provisionerSpec)) $repositoryRoot
     Invoke-Checked $python (@('-m', 'PyInstaller') + $commonPyInstaller + @($traySpec)) $repositoryRoot
+    Invoke-Checked $python (@('-m', 'PyInstaller') + $commonPyInstaller + @($userSensorSpec)) $repositoryRoot
 }
 
 $builtCore = Join-Path $distRoot 'endpoint_agent_core'
@@ -378,6 +380,7 @@ $builtLauncher = Join-Path $distRoot 'launcher.exe'
 $builtServiceHost = Join-Path $distRoot 'endpoint-agent-service.exe'
 $builtProvisioner = Join-Path $distRoot 'endpoint-agent-provision.exe'
 $builtTray = Join-Path $distRoot 'EndpointAgentTray.exe'
+$builtUserSensor = Join-Path $distRoot 'EndpointUserSensor.exe'
 if (-not (Test-Path -LiteralPath $builtCoreExe -PathType Leaf)) {
     throw "Headless core build missing $builtCoreExe"
 }
@@ -392,6 +395,9 @@ if (-not (Test-Path -LiteralPath $builtProvisioner -PathType Leaf)) {
 }
 if (-not (Test-Path -LiteralPath $builtTray -PathType Leaf)) {
     throw "Tray companion build missing $builtTray"
+}
+if (-not (Test-Path -LiteralPath $builtUserSensor -PathType Leaf)) {
+    throw "User Sensor build missing $builtUserSensor"
 }
 $runtimePayload = $builtCore
 if ([int]$manifestPreview.schema_version -ge 5) {
@@ -422,6 +428,7 @@ Copy-Item -LiteralPath $builtLauncher -Destination (Join-Path $programFilesStage
 Copy-Item -LiteralPath $builtServiceHost -Destination (Join-Path $programFilesStage 'endpoint-agent-service.exe')
 Copy-Item -LiteralPath $builtProvisioner -Destination (Join-Path $programFilesStage 'endpoint-agent-provision.exe')
 Copy-Item -LiteralPath $builtTray -Destination (Join-Path $programFilesStage 'EndpointAgentTray.exe')
+Copy-Item -LiteralPath $builtUserSensor -Destination (Join-Path $programFilesStage 'EndpointUserSensor.exe')
 New-Item -ItemType Directory -Path (Join-Path $programFilesStage 'config'), (Join-Path $programFilesStage 'docs') -Force | Out-Null
 Copy-Item -LiteralPath (Join-Path $packagingRoot 'assets\agent-config.yaml') -Destination (Join-Path $programFilesStage 'config\agent-config.yaml')
 Copy-Item -LiteralPath (Join-Path $packagingRoot 'README.md') -Destination (Join-Path $programFilesStage 'docs\README.md')
@@ -444,7 +451,7 @@ $fileManifest = foreach ($item in $allFiles) {
 $componentManifest = @(
     'cmpLauncher', 'cmpCurrentSelector', 'cmpInitialRuntimeAnchor', 'cmpConfigTemplate', 'cmpPublicReadme',
     'cmpProgramDataRoot', 'cmpInstallRootCleanup', 'cmpInitialRuntimeTransitionState',
-    'cmpServiceEntrypoints', 'cmpProvisioner', 'cmpTrayCompanion'
+    'cmpServiceEntrypoints', 'cmpProvisioner', 'cmpTrayCompanion', 'cmpUserSensor'
 ) + @($generatedItems | ForEach-Object {
     Get-StableId -Prefix 'cmpPayload' -Value (Get-RelativePath $runtimeStage $_.FullName)
 })

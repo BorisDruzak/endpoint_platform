@@ -22,10 +22,11 @@ _SEMVER_TRIPLET = re.compile(r"^(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9]
 _SOURCE_REVISION = re.compile(r"^[0-9a-f]{40}$")
 _DEFAULT_ENDPOINT_ORIGIN = "https://endpoint.sosnadmin.local"
 _TRAY_EXECUTABLE_NAME = "EndpointAgentTray.exe"
+_USER_SENSOR_EXECUTABLE_NAME = "EndpointUserSensor.exe"
 
 
 def stop_tray_companions() -> None:
-    """Stop only the installed tray executable before its MSI file is replaced."""
+    """Stop only fixed installed user companions before MSI replaces their files."""
     if os.name != "nt":
         return
     try:
@@ -39,11 +40,11 @@ def stop_tray_companions() -> None:
     program_files = os.environ.get("ProgramW6432") or os.environ.get("ProgramFiles")
     if not program_files:
         raise RuntimeError("Windows Program Files location is unavailable")
-    expected = os.path.normcase(
-        os.path.normpath(
-            str(Path(program_files) / "Endpoint Platform" / "Agent" / _TRAY_EXECUTABLE_NAME)
-        )
-    )
+    install_root = Path(program_files) / "Endpoint Platform" / "Agent"
+    expected = {
+        os.path.normcase(os.path.normpath(str(install_root / name)))
+        for name in (_TRAY_EXECUTABLE_NAME, _USER_SENSOR_EXECUTABLE_NAME)
+    }
     access = (
         win32con.PROCESS_QUERY_LIMITED_INFORMATION
         | win32con.PROCESS_TERMINATE
@@ -62,7 +63,7 @@ def stop_tray_companions() -> None:
         except win32api.error:
             handle.Close()
             continue
-        if image == expected:
+        if image in expected:
             tray_handles.append(handle)
         else:
             handle.Close()
@@ -71,7 +72,7 @@ def stop_tray_companions() -> None:
             win32process.TerminateProcess(handle, 0)
         for handle in tray_handles:
             if win32event.WaitForSingleObject(handle, 15_000) != win32event.WAIT_OBJECT_0:
-                raise RuntimeError("Endpoint Agent tray did not stop before update")
+                raise RuntimeError("Endpoint Agent user companion did not stop before update")
     finally:
         for handle in tray_handles:
             handle.Close()

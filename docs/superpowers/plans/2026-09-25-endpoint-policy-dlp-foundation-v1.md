@@ -115,8 +115,11 @@ keeps it across reconnects and stops it on exit. A bounded in-memory handoff
 retains unsent typed activity observations across WSS reconnects. Until the
 approved signed Browser Sensor ID is pinned, browser frames return
 `SENSOR_NOT_READY`; no active browser policy is reported as applied. The
-user-process launch, signed binary/manifest packaging, real second-session
-acceptance and end-to-end Windows canary evidence remain open. Do not mark
+Windows MSI now stages the per-session `EndpointUserSensor.exe` with an HKLM Run
+entry. Elevated Setup deliberately leaves the User Sensor pending until the
+next logon; a safe immediate restart for every active user session remains
+open. Signed binary and manifest proof, native Browser Bridge packaging, real
+second-session acceptance and end-to-end Windows canary evidence remain open. Do not mark
 this task complete or report a live user sensor path yet.
 
 ### Task 6: Signed browser release and Browser Integration Policy Applicator

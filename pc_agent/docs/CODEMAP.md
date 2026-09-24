@@ -15,7 +15,13 @@ cancellable named-pipe listener in `platform/windows/sensor_pipe_listener.py`.
 projects typed user/browser observations; `activity_dispatch.py` holds a
 bounded handoff for WSS reconnects. `RuntimeLifecycle` starts the listener on
 Windows WSS before connecting and stops it on exit; the sender resumes on each
-WSS connection. The user sensor/bridge are not yet packaged.
+WSS connection.
+
+The interactive `user_sensor_runtime.py` samples each logon session and sends
+bounded frames through the same authenticated pipe. MSI stages its fixed
+`EndpointUserSensor.exe` and HKLM Run entry; signed release and live acceptance
+remain open. Elevated Setup leaves it pending until a user logon; the Browser
+Bridge is not yet packaged.
 
 ## Main packages
 
@@ -24,7 +30,7 @@ WSS connection. The user sensor/bridge are not yet packaged.
 | Runtime | `pc_agent/runtime/` | headless lifecycle, local state, verification |
 | Transport | `pc_agent/transport/` | Endpoint Gateway WSS protocol and HTTP compatibility |
 | Policy | `pc_agent/policy/` | validated policy application and last-good cache |
-| Local sensors | `pc_agent/platform/windows/{local_ipc,sensor_pipe_listener,activity_api,user_sensor,browser_bridge}.py` | bounded user/browser observation boundary; service-side listener runs on Windows WSS |
+| Local sensors | `pc_agent/platform/windows/{local_ipc,sensor_pipe_listener,activity_api,user_sensor,user_sensor_runtime,browser_bridge}.py` | bounded user/browser observation boundary; service listener and per-user sampling loop |
 | Enrollment | `pc_agent/enrollment_identity.py`, `pc_agent/device_credential.py` | device identity and credentials |
 | Context | `pc_agent/context_profiles/` | typed context collection and execution |
 | Modules | `pc_agent/modules/`, `pc_agent/module_manager.py` | managed module lifecycle |

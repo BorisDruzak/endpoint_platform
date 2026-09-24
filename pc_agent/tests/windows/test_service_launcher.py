@@ -551,3 +551,41 @@ def test_tray_shutdown_uses_the_fixed_program_files_target(
         | win32con.PROCESS_TERMINATE
         | win32con.SYNCHRONIZE
     ]
+
+
+def test_companion_shutdown_stops_only_installed_tray_and_user_sensor(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    import win32api
+    import win32event
+    import win32process
+
+    from pc_agent.platform.windows import service_launcher
+
+    root = tmp_path / "Endpoint Platform" / "Agent"
+    root.mkdir(parents=True)
+    images = {
+        101: root / "EndpointAgentTray.exe",
+        102: root / "EndpointUserSensor.exe",
+        103: tmp_path / "Elsewhere" / "EndpointUserSensor.exe",
+    }
+    terminated: list[int] = []
+
+    class Handle:
+        def __init__(self, process_id: int) -> None:
+            self.process_id = process_id
+
+        def Close(self) -> None:
+            pass
+
+    monkeypatch.setattr(service_launcher.os, "name", "nt")
+    monkeypatch.setenv("ProgramW6432", str(tmp_path))
+    monkeypatch.setattr(win32process, "EnumProcesses", lambda: list(images))
+    monkeypatch.setattr(win32api, "OpenProcess", lambda _a, _b, pid: Handle(pid))
+    monkeypatch.setattr(win32process, "GetModuleFileNameEx", lambda h, _i: str(images[h.process_id]))
+    monkeypatch.setattr(win32process, "TerminateProcess", lambda h, _c: terminated.append(h.process_id))
+    monkeypatch.setattr(win32event, "WaitForSingleObject", lambda *_: win32event.WAIT_OBJECT_0)
+
+    service_launcher.stop_tray_companions()
+
+    assert terminated == [101, 102]

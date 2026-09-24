@@ -316,6 +316,25 @@ def test_build_script_builds_and_stages_the_tray_before_wix_binding() -> None:
     assert script.index("pyinstaller_windows_tray.spec") < script.index("$generatedWix")
 
 
+def test_msi_starts_unprivileged_user_sensor_at_each_logon() -> None:
+    files = {item.get("Id"): item for item in _all_elements(_trees(), "File")}
+    values = _all_elements(_trees(), "RegistryValue")
+    sensor = files["filEndpointUserSensor"]
+    logon = _by_id(values, "regEndpointUserSensor")
+
+    assert sensor.get("Name") == "EndpointUserSensor.exe"
+    assert "ProgramFiles\\EndpointUserSensor.exe" in sensor.get("Source", "")
+    assert logon.get("Root") == "HKLM"
+    assert logon.get("Key") == "Software\\Microsoft\\Windows\\CurrentVersion\\Run"
+    assert logon.get("Name") == "EndpointUserSensor"
+    assert "filEndpointUserSensor" in logon.get("Value", "")
+
+    script = (WINDOWS_PACKAGING / "build-msi.ps1").read_text(encoding="utf-8")
+    assert "pyinstaller_windows_user_sensor.spec" in script
+    assert "EndpointUserSensor.exe" in script
+    assert script.index("pyinstaller_windows_user_sensor.spec") < script.index("$generatedWix")
+
+
 def test_msi_excludes_the_universal_setup_bootstrapper() -> None:
     """The release Setup executable owns the MSI; the MSI must not contain a nested setup."""
     files = _all_elements(_trees(), "File")
