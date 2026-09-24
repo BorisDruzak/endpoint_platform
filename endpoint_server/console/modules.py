@@ -7,13 +7,14 @@ from typing import Annotated, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Path, Query, Request
-from pydantic import BaseModel, ConfigDict, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from sqlalchemy import func, select
 
 from endpoint_contracts.capabilities import ModuleCapabilityAuthoringV1, module_capability_catalog
 from endpoint_contracts.modules import (
-    EndpointRecipeModuleSpecV1, ModuleLabOperationCreateV1, ModuleRecipeInputV1,
-    ModuleOperationCreateV1, ModuleVersionCreateV1, ModuleVersionViewV1,
+    EndpointRecipeModuleSpecV1, ModuleInputNameV1, ModuleLabOperationCreateV1,
+    ModuleOperationCreateV1, ModuleOperationInputValueV1, ModuleRecipeInputV1,
+    ModuleVersionCreateV1, ModuleVersionViewV1,
 )
 from endpoint_server.audit.request_ids import audit_request_id
 from endpoint_server.audit.service import append_audit_event
@@ -44,6 +45,18 @@ _CAPABILITY_DISPLAY_NAMES = {
     "system.service_status": "Состояние службы",
 }
 ModuleKey = Annotated[str, Path(min_length=1, max_length=128)]
+
+
+class ConsoleModuleLabOperationCreateV1(ModuleLabOperationCreateV1):
+    inputs: dict[ModuleInputNameV1, ModuleOperationInputValueV1] = Field(
+        min_length=0, max_length=8,
+    )
+
+
+class ConsoleModuleOperationCreateV1(ModuleOperationCreateV1):
+    inputs: dict[ModuleInputNameV1, ModuleOperationInputValueV1] = Field(
+        min_length=0, max_length=8,
+    )
 
 
 class ConsoleModuleValidation(BaseModel):
@@ -577,7 +590,7 @@ async def _create_operation(
 @router.post("/modules/{module_key}/versions/{version}/lab-operations/{device_id}", status_code=201, response_model=ConsoleModuleOperationCreateResponse)
 async def console_start_module_lab(
     module_key: ModuleKey, version: ModuleVersionName, device_id: UUID,
-    body: ModuleLabOperationCreateV1, request: Request,
+    body: ConsoleModuleLabOperationCreateV1, request: Request,
     principal: Annotated[AdminPrincipal, Depends(require_admin)],
     idempotency_key: Annotated[str, Header(alias="Idempotency-Key", min_length=8, max_length=128)],
 ) -> dict[str, object]:
@@ -589,7 +602,7 @@ async def console_start_module_lab(
 
 @router.post("/devices/{device_id}/module-operations", status_code=201, response_model=ConsoleModuleOperationCreateResponse)
 async def console_run_module(
-    device_id: UUID, body: ModuleOperationCreateV1, request: Request,
+    device_id: UUID, body: ConsoleModuleOperationCreateV1, request: Request,
     principal: Annotated[AdminPrincipal, Depends(require_admin)],
     idempotency_key: Annotated[str, Header(alias="Idempotency-Key", min_length=8, max_length=128)],
 ) -> dict[str, object]:

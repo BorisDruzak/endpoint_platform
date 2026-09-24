@@ -9,8 +9,12 @@ Console checks the active Gateway connection, platform, minimum Agent version,
 feature flags, and target policy before queuing an operation. A new Agent
 release is required only when adding or changing a runtime capability or its
 wire or behavior contract. Recipes are never installed on endpoints as code,
-plugins, or packages. Read-only capability steps do not need a network target;
-the current operation contract still requires at least one declared input.
+plugins, or packages. Read-only capability steps do not need a network target.
+The Console accepts an empty `inputs` object for its lab and published routes
+when a recipe declares no inputs. The shared service-client operation contract
+still requires at least one input; changing it would alter Agent release
+source identity. All operation paths require an exact match with the recipe's
+declared inputs.
 Network-targeted capabilities retain the server's allowed-target policy.
 The Console displays passed lab evidence per declared platform and keeps
 **Принять испытания** unavailable until every declared platform has a passed

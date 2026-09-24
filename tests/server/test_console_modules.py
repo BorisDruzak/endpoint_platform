@@ -8,6 +8,7 @@ from uuid import UUID, uuid4
 
 import pytest
 from httpx import ASGITransport, AsyncClient
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from endpoint_server.auth.admin_sessions import AdminPrincipal, require_admin
@@ -250,3 +251,76 @@ async def test_device_published_module_runs_network_and_read_only_steps() -> Non
     assert [step["capability"] for step in operation_detail.json()["module_detail"]["steps"]] == ["dns.resolve", "adapter.list"]
     assert "api.example.test" not in operation_detail.text
     assert "console-read-only-0001" not in operation_detail.text
+
+
+@pytest.mark.asyncio
+async def test_console_runs_zero_input_read_only_module_in_lab_and_published_modes() -> None:
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    async with engine.begin() as connection:
+        await connection.run_sync(lambda sync: [table.create(sync) for table in (
+            ServiceClient.__table__, Device.__table__, AuditEvent.__table__,
+            ModuleDefinition.__table__, ModuleVersion.__table__,
+            EndpointOperation.__table__, ModuleOperationStep.__table__,
+        )])
+    sessions = async_sessionmaker(engine, expire_on_commit=False)
+    device = Device(id=uuid4(), device_identifier="LOCAL-AGENT", display_name="Local Agent")
+    owner = ServiceClient(id=uuid4(), client_identifier="endpoint-console-internal", display_name="Console")
+    definition = ModuleDefinition(id=uuid4(), module_key="system.adapters", display_name="Adapters")
+    recipe = {
+        "schema_version": "endpoint_recipe_module_v1", "module_key": definition.module_key,
+        "supported_platforms": ["windows_amd64"], "inputs": [],
+        "steps": [{"step_id": "adapters", "capability": "adapter.list", "parameters": {}}],
+    }
+    async with sessions() as session:
+        session.add_all([
+            device, owner, definition,
+            ModuleVersion(id=uuid4(), module_definition_id=definition.id, version="1.0.0", recipe=recipe, state="validated"),
+            ModuleVersion(id=uuid4(), module_definition_id=definition.id, version="1.1.0", recipe=recipe, state="published"),
+        ])
+        await session.commit()
+    settings = Settings(
+        database_url="postgresql+asyncpg://unused@localhost/unused",
+        public_base_url="https://endpoint.sosnadmin.local",
+        device_token_pepper=b"modules-test-device-pepper",
+        service_token_pepper=b"modules-test-service-pepper",
+        session_secret=b"modules-test-session-secret",
+        allowed_agent_cidrs=(), allowed_admin_cidrs=(), artifact_root=Path("artifacts"),
+        endpoint_module_platform_enabled=True, endpoint_module_execution_enabled=True,
+        endpoint_read_only_primitives_enabled=True, endpoint_operations_api_enabled=True,
+    )
+    app = create_app(settings, session_provider=sessions)
+    await app.state.gateway_connection_registry.register(GatewayConnection(
+        device.id, uuid4(), object(), agent_version="3.2.63", platform="windows_amd64",
+        effective_capabilities=frozenset({"adapter.list"}),
+    ))
+    user_id = uuid4()
+    app.dependency_overrides[require_admin] = lambda: AdminPrincipal(
+        user=AdminUser(id=user_id, username="operator", password_digest="unused", scopes=[], disabled_at=None),
+        session=AdminSession(id=uuid4(), admin_user_id=user_id, session_digest="unused", expires_at=datetime.now(UTC) + timedelta(hours=1), revoked_at=None),
+    )
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="https://endpoint.sosnadmin.local") as client:
+        mismatched = await client.post(
+            f"/api/admin/console/modules/system.adapters/versions/1.0.0/lab-operations/{device.id}",
+            headers={"Idempotency-Key": "zero-input-mismatch-0001"},
+            json={"schema_version": "endpoint_module_lab_operation_create_v1", "inputs": {"unexpected": "value"}},
+        )
+        lab = await client.post(
+            f"/api/admin/console/modules/system.adapters/versions/1.0.0/lab-operations/{device.id}",
+            headers={"Idempotency-Key": "zero-input-lab-0001"},
+            json={"schema_version": "endpoint_module_lab_operation_create_v1", "inputs": {}},
+        )
+        published = await client.post(
+            f"/api/admin/console/devices/{device.id}/module-operations",
+            headers={"Idempotency-Key": "zero-input-published-0001"},
+            json={"schema_version": "endpoint_module_operation_create_v1", "module_key": definition.module_key,
+                  "version": "1.1.0", "inputs": {}},
+        )
+    async with sessions() as session:
+        operations = (await session.scalars(select(EndpointOperation))).all()
+        steps = (await session.scalars(select(ModuleOperationStep))).all()
+    await engine.dispose()
+    assert mismatched.status_code == 409
+    assert lab.status_code == published.status_code == 201, (lab.text, published.text)
+    assert len(operations) == len(steps) == 2
+    assert all(operation.module_inputs == {} and operation.expected_step_count == 1 for operation in operations)
+    assert all(step.capability == "adapter.list" for step in steps)
