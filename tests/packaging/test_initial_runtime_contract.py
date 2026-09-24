@@ -567,8 +567,10 @@ def test_schema4_runtime_transition_requires_the_pinned_contrib_hooks(
     assert identity.version == "3.1.77"
 
 
-def test_windows_current_product_uses_a_checked_in_approved_initial_transition() -> None:
-    """A source-version change must also advance the MSI-owned immutable runtime."""
+def test_windows_current_product_uses_a_checked_in_approved_initial_transition(
+    tmp_path: Path,
+) -> None:
+    """Validate the immutable MSI against its pinned source revision."""
     project_root = Path(__file__).resolve().parents[2]
     baseline = project_root / "packaging" / "windows" / "initial-runtime.json"
     transition = project_root / "packaging" / "windows" / f"initial-runtime-{AGENT_VERSION}.json"
@@ -621,9 +623,37 @@ def test_windows_current_product_uses_a_checked_in_approved_initial_transition()
         item["path"] for item in payload["source_files"]
     }
 
-    validate = _contract_module().validate_initial_runtime
+    contract = _contract_module()
+    # Setup is rebuilt separately from the pinned MSI runtime. Its entry point
+    # may receive fixes after the MSI source revision has been sealed.
+    changed_sources = {
+        item["path"]
+        for item in payload["source_files"]
+        if contract._hash_source_file(project_root / item["path"]) != item["sha256"]
+    }
+    assert changed_sources <= {"pc_agent/platform/windows/setup_entry.py"}
+
+    subprocess.run(
+        ["git", "clone", "--quiet", "--shared", "--no-checkout", str(project_root), str(tmp_path)],
+        check=True,
+        capture_output=True,
+    )
+    for relative in {item["path"] for item in payload["source_files"]} | {
+        "pc_agent/version.py"
+    }:
+        source = subprocess.run(
+            ["git", "show", f"{payload['source_revision']}:{relative}"],
+            cwd=project_root,
+            check=True,
+            capture_output=True,
+        ).stdout
+        destination = tmp_path / relative
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_bytes(source)
+
+    validate = contract.validate_initial_runtime
     identity = validate(
-        project_root,
+        tmp_path,
         transition,
         baseline,
         approve_version=True,
