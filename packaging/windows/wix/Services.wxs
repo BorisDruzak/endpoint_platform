@@ -55,7 +55,7 @@
                        Type="string" KeyPath="no" />
       </Component>
       <Component Id="cmpBrowserBridge" Directory="INSTALLFOLDER"
-                 Guid="*" Bitness="always64">
+                 Guid="66FCD71D-4188-4CB3-8D91-983E164C9134" Bitness="always64">
         <File Id="filEndpointBrowserBridge" Source="$(var.StagingDir)\ProgramFiles\EndpointBrowserBridge.exe"
               Name="EndpointBrowserBridge.exe" KeyPath="yes" />
         <File Id="filEndpointBrowserManifest" Source="$(var.StagingDir)\ProgramFiles\ru.sosnadmin.endpoint.browser.json"

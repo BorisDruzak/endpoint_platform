@@ -5,6 +5,7 @@ from __future__ import annotations
 import ast
 import json
 import re
+import uuid
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
@@ -399,6 +400,16 @@ def test_msi_registers_pinned_native_host_for_chrome_and_yandex() -> None:
     assert "pyinstaller_windows_browser_bridge.spec" in script
     assert "EndpointBrowserBridge.exe" in script
     assert "NativeMessagingBlocklist" not in script
+
+
+def test_browser_bridge_component_has_stable_unique_guid() -> None:
+    """WiX cannot derive a GUID for the bridge EXE and unversioned manifest pair."""
+    components = _all_elements(_trees(), "Component")
+    bridge = _by_id(components, "cmpBrowserBridge")
+    assert len(bridge.findall(f"{{{WIX_NS}}}File")) == 2
+    guid = str(uuid.UUID(bridge.get("Guid", ""))).upper()
+    assert guid == bridge.get("Guid")
+    assert sum(component.get("Guid") == guid for component in components) == 1
 
 
 def test_msi_excludes_the_universal_setup_bootstrapper() -> None:
