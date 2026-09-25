@@ -21,6 +21,10 @@ read it for the browser but may not modify it. A legacy Agent-owned numbered
 entry is migrated only when it is the sole numbered entry; foreign numbered
 entries and pre-existing unowned root policies cause `POLICY_CONFLICT`.
 Agent relinquish removes only its exact pointer, file, and ownership marker.
+On Windows, Yandex documents full force-install behavior only for a domain or
+management-console policy. The WORKGROUP test VM accepted the file policy and
+installed the CRX but left the extension off; a live enabled state and heartbeat
+remain deployment gates.
 
 ## Build
 
