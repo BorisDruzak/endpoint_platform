@@ -274,6 +274,19 @@ The Device Detail `Активность` tab now reads a separate authenticated,
 
 The `Политики и DLP` page now reads the existing authenticated current Browser Sensor release projection and displays the version, pinned extension ID, protocol, artifact SHA-256, minimum Agent, source revision, publication time and public update/package URLs. It renders an explicit unpublished or load-error state and never displays signing material. Frontend unit tests (`36 passed`), the production build and a disposable Security Console Playwright flow passed on desktop and 390-pixel mobile with a mocked release. Actual published-release and managed-browser acceptance remain Task 11 gates.
 
+At the later 3.2.74 canary checkpoint, the complete current frontend unit
+suite passed (`39 passed`), `npm run build` passed TypeScript and Vite, and
+the repository's `npm run test:e2e` passed all seven Playwright tests on its
+isolated HTTPS test server. Those E2E tests include Policy Fleet, device
+policy/sensor status, Activity and bounded SecurityEvent views. The test
+server emitted a Windows connection-reset message during shutdown, while
+Playwright exited 0. These checks do not establish production Console
+`COMPLIANT`: the live Yandex extension remains absent. The production
+`activity_v1` current projection independently reported `ACTIVE`, 22 seconds
+idle and `browser.sensor_state=ACTIVE` for Chrome at
+`2026-09-25 13:27:15 UTC`; that is a live Agent/Context observation, not a
+Console visual acceptance result.
+
 ### Task 10: Windows/ALT packaging and release
 
 **Files:** Modify `packaging/windows/{build-msi,build-update-zip}.ps1`, `packaging/windows/wix/{Services,Components}.wxs`, `packaging/alt/`, `pc_agent/version.py`, release manifests, architecture/package tests. Include the fixed SYSTEM policy helper and strict service-SID channel while retaining the Agent as LocalService.
