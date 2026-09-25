@@ -254,6 +254,14 @@ then make a database backup before changing either. Keep the backup on the
 host in a PostgreSQL-owned private directory and record its SHA-256 outside
 the database. `pg_restore -l` must read the archive successfully.
 
+When updating only the Nginx site asset, back up the installed site file,
+install `deploy/server/endpoint-platform.nginx.conf`, run `sudo nginx -t`,
+then reload Nginx. The port 80 listener returns a permanent 308 redirect to
+the canonical HTTPS host and never proxies application requests. Verify the
+HTTP status and `Location` header from the workstation, then verify HTTPS with
+the trusted Endpoint CA and hostname. Restore the backed-up site before
+reload if the syntax test fails.
+
 ```bash
 set -euo pipefail
 previous_release="$(sudo readlink -f /opt/endpoint-platform/current)"

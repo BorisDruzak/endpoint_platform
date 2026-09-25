@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 
@@ -56,6 +57,22 @@ def test_proxy_limits_callers_and_replaces_forwarded_client_address() -> None:
     assert "allow 192.168.100.0/24;" in config
     assert "allow 192.168.101.0/24;" in config
     assert "deny all;" in config
+
+
+def test_plain_http_only_redirects_to_canonical_https_host() -> None:
+    """The user-facing HTTP URL must never proxy application traffic."""
+    config = (_DEPLOY_ROOT / "endpoint-platform.nginx.conf").read_text(
+        encoding="utf-8"
+    )
+    http_server = re.search(r"server\s*\{\s*listen 80;.*?\}", config, re.S)
+
+    assert http_server is not None
+    assert "server_name endpoint.sosnadmin.local;" in http_server.group()
+    assert (
+        "return 308 https://endpoint.sosnadmin.local$request_uri;"
+        in http_server.group()
+    )
+    assert "proxy_pass" not in http_server.group()
 
 
 def test_environment_template_keeps_secret_and_network_boundaries() -> None:
