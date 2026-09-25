@@ -63,6 +63,9 @@
         <RegistryValue Id="regEndpointChromeNativeHost" Root="HKLM"
                        Key="Software\Google\Chrome\NativeMessagingHosts\ru.sosnadmin.endpoint.browser"
                        Value="[#filEndpointBrowserManifest]" Type="string" KeyPath="no" />
+        <RegistryValue Id="regEndpointChromiumNativeHost" Root="HKLM"
+                       Key="Software\Chromium\NativeMessagingHosts\ru.sosnadmin.endpoint.browser"
+                       Value="[#filEndpointBrowserManifest]" Type="string" KeyPath="no" />
       </Component>
     </ComponentGroup>
 

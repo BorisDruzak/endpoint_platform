@@ -6,11 +6,13 @@ host PyInstaller specifications; the legacy Helpdesk/GUI agent specifications
 are not MSI inputs.
 
 The MSI also stages the unprivileged User Sensor and the credential-free
-`EndpointBrowserBridge.exe`. Chrome's machine-level Native Messaging registration
-points to an MSI-owned manifest beside the executable; that manifest allows only
-the pinned Endpoint Browser Sensor origin. It does not set a global Native
-Messaging blocklist. Yandex native-host registration and browser acceptance
-remain separate release gates.
+`EndpointBrowserBridge.exe`. Machine-level Chrome and Chromium Native Messaging
+registrations point to one MSI-owned manifest beside the executable; that
+manifest allows only the pinned Endpoint Browser Sensor origin. The Chromium
+registration follows the lookup string observed in the installed Yandex Browser
+26.8.3.1002 binary. It does not set a global Native Messaging blocklist.
+Installed-MSI registration and a real Yandex Browser handshake remain release
+gates.
 
 ## Build
 

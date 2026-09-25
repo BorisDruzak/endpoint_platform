@@ -126,8 +126,10 @@ The Browser Bridge entrypoint now switches Windows stdio to binary mode and
 loads the pinned extension ID embedded in its frozen executable. Its separate
 PyInstaller artifact has passed a real executable smoke test and archive check;
 the MSI stages it with a single-origin Native Messaging manifest and Chrome
-machine registration. Yandex registration, installed-MSI verification and the
-actual browser-to-Agent handshake remain open.
+machine registration. The MSI source also registers the same pinned host under
+the Chromium key seen in the installed Yandex Browser 26.8.3.1002 binary.
+Installed-MSI verification and the actual browser-to-Agent handshake in both
+browsers remain open.
 
 ### Task 6: Signed browser release and Browser Integration Policy Applicator
 

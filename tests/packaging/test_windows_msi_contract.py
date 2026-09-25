@@ -339,7 +339,7 @@ def test_msi_starts_unprivileged_user_sensor_at_each_logon() -> None:
     assert script.index("pyinstaller_windows_user_sensor.spec") < script.index("$generatedWix")
 
 
-def test_msi_registers_only_the_pinned_chrome_native_host() -> None:
+def test_msi_registers_pinned_native_host_for_chrome_and_yandex() -> None:
     extension_id = (PROJECT_ROOT / "browser_sensor" / "extension-id.txt").read_text(
         encoding="ascii"
     ).strip()
@@ -366,6 +366,18 @@ def test_msi_registers_only_the_pinned_chrome_native_host() -> None:
     )
     assert registration.get("Name") is None
     assert registration.get("Value") == "[#filEndpointBrowserManifest]"
+    chromium_registration = _by_id(values, "regEndpointChromiumNativeHost")
+    assert chromium_registration.get("Root") == "HKLM"
+    assert chromium_registration.get("Key") == (
+        "Software\\Chromium\\NativeMessagingHosts\\ru.sosnadmin.endpoint.browser"
+    )
+    assert chromium_registration.get("Name") is None
+    assert chromium_registration.get("Value") == "[#filEndpointBrowserManifest]"
+    assert {
+        item.get("Id")
+        for item in values
+        if "NativeMessagingHosts" in item.get("Key", "")
+    } == {"regEndpointChromeNativeHost", "regEndpointChromiumNativeHost"}
     script = (WINDOWS_PACKAGING / "build-msi.ps1").read_text(encoding="utf-8")
     assert "pyinstaller_windows_browser_bridge.spec" in script
     assert "EndpointBrowserBridge.exe" in script

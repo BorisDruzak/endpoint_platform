@@ -34,10 +34,13 @@ itself is not acceptance.
 
 GPO, Ansible or another corporate owner supplies the same ID and update URL.
 The Agent only checks the Bridge, accepts heartbeat and reports the observed
-state. The MSI must register its own native host for Yandex without changing
-unrelated hosts. Foundation v1 must not set a global
-`NativeMessagingBlocklist = *` automatically; the Yandex native-host
-registration path and effective browser handshake remain a live gate.
+state. The MSI registers its own host at
+`HKLM\Software\Chromium\NativeMessagingHosts\ru.sosnadmin.endpoint.browser`,
+pointing to the same fixed-origin manifest as Chrome. The installed Yandex
+Browser 26.8.3.1002 binary contains this lookup path; that observation alone
+does not prove the browser accepts or launches the host. Foundation v1 must
+not set a global `NativeMessagingBlocklist = *` automatically. Installed-MSI
+registration and an effective browser handshake remain live gates.
 
 ## Verification
 
