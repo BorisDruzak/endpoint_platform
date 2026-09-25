@@ -227,6 +227,18 @@ def _installed_tray_companion() -> Path:
     return executable
 
 
+def _installed_user_sensor_companion() -> Path:
+    program_files = os.environ.get("ProgramW6432") or os.environ.get("ProgramFiles")
+    if not program_files:
+        raise RuntimeError("Windows Setup Program Files location is unavailable")
+    executable = (
+        Path(program_files) / "Endpoint Platform" / "Agent" / "EndpointUserSensor.exe"
+    )
+    if not executable.is_file():
+        raise RuntimeError("Windows Setup user sensor companion is unavailable")
+    return executable
+
+
 def _current_process_session_id() -> int | None:
     """Return this process's Windows session identifier when it is available."""
     if os.name != "nt":
@@ -259,13 +271,12 @@ def _is_interactive_windows_session() -> bool:
     return bool(session_name)
 
 
-def _restart_tray_companion() -> bool:
-    """Restore the user-visible tray after MSI safely stopped it for an update."""
+def _start_installed_user_companion(executable: Callable[[], Path]) -> bool:
     if not _is_interactive_windows_session():
         return False
     try:
         subprocess.Popen(  # noqa: S603 - fixed, installed executable only
-            [str(_installed_tray_companion())],
+            [str(executable())],
             stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
@@ -278,15 +289,29 @@ def _restart_tray_companion() -> bool:
     return True
 
 
+def _restart_tray_companion() -> bool:
+    """Restore the user-visible tray after MSI stopped it for an update."""
+    return _start_installed_user_companion(_installed_tray_companion)
+
+
+def _restart_user_sensor_companion() -> bool:
+    """Restore Activity sampling in this interactive session after MSI update."""
+    return _start_installed_user_companion(_installed_user_sensor_companion)
+
+
 def _service_ready_detail() -> str:
-    """Keep a successful non-interactive deployment distinct from a tray launch fault."""
+    """Report whether both user companions resumed after an interactive update."""
     if not _is_interactive_windows_session():
         return "SERVICE_RUNNING"
-    return (
-        "SERVICE_RUNNING"
-        if _restart_tray_companion()
-        else "SERVICE_RUNNING_TRAY_START_FAILED"
-    )
+    tray_started = _restart_tray_companion()
+    sensor_started = _restart_user_sensor_companion()
+    if tray_started and sensor_started:
+        return "SERVICE_RUNNING"
+    if not tray_started and not sensor_started:
+        return "SERVICE_RUNNING_USER_COMPANIONS_START_FAILED"
+    if not tray_started:
+        return "SERVICE_RUNNING_TRAY_START_FAILED"
+    return "SERVICE_RUNNING_USER_SENSOR_START_FAILED"
 
 
 def _data_root() -> Path:

@@ -321,10 +321,10 @@ def test_normal_installation_displays_a_concrete_success_result(
     assert displayed == [("COMPLETED", 0, "SERVICE_RUNNING")]
 
 
-def test_successful_interactive_update_restarts_the_tray_companion(
+def test_successful_interactive_update_restarts_both_user_companions(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    """An interactive update must restore the visible tray process it stopped."""
+    """An interactive update restores both companions stopped by the MSI."""
     (tmp_path / "enrollment-identity.json").write_text(
         '{"device_id":"550e8400-e29b-41d4-a716-446655440000","schema_version":"endpoint_enrollment_identity_v1"}',
         encoding="ascii",
@@ -345,9 +345,22 @@ def test_successful_interactive_update_restarts_the_tray_companion(
     monkeypatch.setattr(
         setup_entry, "_restart_tray_companion", lambda: started.append("tray") or True
     )
+    monkeypatch.setattr(
+        setup_entry, "_restart_user_sensor_companion", lambda: started.append("sensor") or True
+    )
 
     assert setup_entry.main(["--quiet"]) == setup_entry.EXIT_SUCCESS
-    assert started == ["tray"]
+    assert started == ["tray", "sensor"]
+
+
+def test_interactive_update_reports_user_sensor_start_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(setup_entry, "_is_interactive_windows_session", lambda: True)
+    monkeypatch.setattr(setup_entry, "_restart_tray_companion", lambda: True)
+    monkeypatch.setattr(setup_entry, "_restart_user_sensor_companion", lambda: False)
+
+    assert setup_entry._service_ready_detail() == "SERVICE_RUNNING_USER_SENSOR_START_FAILED"
 
 
 def test_successful_system_update_does_not_start_an_invisible_tray(
@@ -369,6 +382,7 @@ def test_successful_system_update_does_not_start_an_invisible_tray(
     )
 
     assert setup_entry._restart_tray_companion() is False
+    assert setup_entry._restart_user_sensor_companion() is False
 
 
 def test_interactive_session_detection_uses_windows_session_id_when_env_is_absent(
