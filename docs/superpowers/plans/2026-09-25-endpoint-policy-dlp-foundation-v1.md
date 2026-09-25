@@ -282,7 +282,7 @@ The `Политики и DLP` page now reads the existing authenticated current 
 - [ ] On the installed Windows test device, snapshot foreign extension policies and Native Messaging hosts before and after MSI install/upgrade. Verify the helper leaves them unchanged, a repeated identical policy performs no installation-policy write, and a failed ownership merge reports `POLICY_CONFLICT` without partial writes.
 - [x] Build the fixed `EndpointBrowserPolicy.exe` alone and prove a temporary, correctly configured Windows SCM service reaches `Running` and stops cleanly. The LocalSystem service started, an interactive caller received pipe access denied (Win32 5), and the temporary service was stopped and deleted. The same check against the exact MSI-bound helper binary also reached `Running` as LocalSystem and denied the interactive caller.
 - [x] Retain the retired 3.2.70 release as immutable failure evidence. Build 3.2.71 and, after the helper ACL defect surfaced in its pilot, build 3.2.72 from the fixed source with a clean runtime stage, pinned provenance, signed MSI/Setup and immutable ZIP. Verify source revision, every ZIP member hash and Authenticode validity.
-- [ ] Supersede immutable 3.2.72 with the next version after committing and verifying the interactive User Sensor restart and Browser Hello fixes. Build a clean runtime stage, provenance, signed MSI/Setup and immutable ZIP; test installed upgrade, both companion processes, Hello ACK, policy/WSS readiness and rollback before registering a Setup release. Do not register the known-defective 3.2.72 Setup as the completed Foundation candidate.
+- [ ] Supersede immutable 3.2.73 with a new version containing the bounded helper-start retry. Build a clean runtime stage, provenance, signed MSI/Setup and immutable ZIP; test installed upgrade, both companion processes, Hello ACK, first policy ACK without manual service restart, WSS readiness and rollback before registering a Setup release. Do not register 3.2.72 or 3.2.73 Setup as the completed Foundation candidate.
 - [ ] Run full Python suite, contracts, Alembic, Windows packaging, frontend, browser tests, provider-release-gate and diff check; commit.
 
 The signed 3.2.70 MSI/Setup was registered as production release `bacb2f60-acb2-49ba-806d-5a94b09752d2`, then failed the local Windows canary: Windows SCM repeatedly timed out starting `EndpointBrowserPolicy.exe` because its frozen entry script used relative imports. Setup exited 21 and MSI rolled back to installed 3.2.65 with runtime 3.2.67. The Agent was restarted and strict-WSS preflight passed; identity hashes and foreign Chrome Native Messaging entries matched the preinstall snapshots. The broken 3.2.70 Setup release was retired in the production registry and must not be reused. Commit `2a393594e5469292c55d7833f033c0cc772b424c` changed the helper entry to absolute imports and added a direct-entry regression test. The 3.2.70 package had valid Authenticode signatures but no timestamp. No installed package, browser force-install, or Agent upgrade acceptance is inferred from the rolled-back attempt.
@@ -306,6 +306,30 @@ complete Python 3.14.3 suite passed with the installed Agent running:
 The next candidate must also confirm that the installed Bridge returns an
 `OK` Hello ACK and that Setup starts User Sensor automatically.
 
+The clean 3.2.73 stage was pinned to source
+`b70e6693ccc7a78452074816a1f8c2a6a07e3906` in provenance commit
+`0f2f8a5`. Its 2543-file runtime tree SHA-256 is
+`cf4128c653d24b719a0218d1c7c98ab1b3aa1d98c9fb56b817089c372e0aa288`.
+The signed MSI SHA-256 is
+`adb2082869df1e6052d51fd77a9a2e050263474b64dc52ce81ef4a46b4b64c37`,
+the signed Setup SHA-256 is
+`92557e962c44dff814dc97a8b3eb18999031cef297dd67e69a6d26f141f151a2`,
+and the verified immutable ZIP SHA-256 is
+`d052fc96c4e5cac63958dfaea535b67f11b32483c4c81492b62e9ae06e176709`.
+Both signatures validated locally without a trusted timestamp. Packaging
+tests passed (`94 passed, 1 skipped`). The 3.2.73 Setup updated the local
+Windows canary; installer log reported `UPDATED/SERVICE_RUNNING`, both Tray
+and User Sensor started in the active session, and the installed-runtime
+preflight returned `READY`. After manually restarting the Agent, the
+installed Bridge's synthetic Hello returned `OK` and the server recorded a
+policy ACK as `APPLIED`. This confirms the two installed-binary fixes but not
+live browser capture. The first ACK after installation was instead
+`BROWSER_POLICY_HELPER_UNAVAILABLE`: the Agent started about 1.5 seconds
+before its helper. Source commit `aec846e` now retries only a missing/busy
+helper pipe for a bounded period; its focused tests passed (`16 passed`),
+but that fix is absent from installed 3.2.73. Prove the first ACK with a
+fresh signed version before release registration.
+
 ### Task 11: Live Windows acceptance and limited pilot
 
 **Files:** `docs/architecture/endpoint-policy-dlp-foundation-v1.md`, `PLANS.md`, evidence under a non-secret release report path.
@@ -324,11 +348,25 @@ SecurityEvents reached the server. These observations do not prove
 capture, USB/print acceptance, Console `COMPLIANT` or Yandex acceptance.
 Yandex `ExtensionInstallForcelist` exists as an Agent-owned machine value, but
 an isolated browser profile did not install the approved extension and no
-Yandex heartbeat arrived. Confirm the installed browser's effective policy
-and corporate-management context using its supported UI; if its build does
-not honor the official machine policy, use an officially managed test browser
-context and leave this gate open. Do not replace the user's existing browser
-or use profile installation as an implicit workaround.
+Yandex heartbeat arrived. Do not replace the user's existing browser or use
+profile installation as an implicit workaround.
+The operator has confirmed that only the currently installed Yandex Browser
+is available; neither a separate Browser for Organizations package nor its
+management Console is available. The operator's `browser://policy` screenshot
+shows the Agent-owned `ExtensionInstallForcelist` value with the approved ID
+and Endpoint HTTPS update URL, source `Платформа`, scope `Локальный компьютер`,
+mandatory level and status `OK`. The update XML and referenced CRX returned
+HTTP 200 under strict CA/hostname TLS from the workstation; the XML names
+version `0.1.0`, and the CRX has a `Cr24` header. These checks establish
+browser policy recognition and server artifact availability, not browser
+download or installation. The operator also opened the XML successfully in
+Yandex Browser, while its `browser://extensions` page has no Endpoint Browser
+Sensor entry. Inspect browser installation diagnostics and the CRX request,
+then obtain a Yandex Bridge heartbeat before closing the gate. Yandex's
+published policy documentation says Windows force-install requires domain
+policy or its management Console; the current `OK` policy display does not
+yet prove that the local Agent-written value triggers installation. Do not
+assume that an unavailable corporate package is a valid completion path.
 
 ### Task 12: Final release audit
 

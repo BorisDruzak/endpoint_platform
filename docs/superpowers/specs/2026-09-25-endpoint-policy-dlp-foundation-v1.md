@@ -2362,6 +2362,21 @@ neither condition alone proves installation failure.
 
 The reference Windows workstation has both browsers installed as of 2026-09-25. Foundation v1 acceptance on that workstation therefore requires the full installation, Bridge, heartbeat and Console path in both browsers; a source-level or policy-template check alone does not satisfy this gate. Reconfirm their installed versions and effective enterprise-policy support when running acceptance.
 
+The operator has only the currently installed Yandex Browser; a separate
+Browser for Organizations package and its management Console are unavailable.
+The Agent-owned machine-policy registry value exists, but an isolated clean
+profile did not install the extension or send a heartbeat. The operator's
+`browser://policy` screenshot shows `ExtensionInstallForcelist` with the
+approved extension ID and Endpoint HTTPS update URL, source `Платформа`,
+scope `Локальный компьютер`, mandatory level and status `OK`. This proves
+that the current browser accepts the policy value; it does not prove download
+or installation. The XML opens in Yandex Browser, but the extension is absent
+from `browser://extensions`. Treat Yandex `agent_managed` installation as
+unverified and diagnose the download/install stage on this browser. Do not
+substitute a hypothetical corporate package, profile sideload or a policy ACK
+for live extension and Bridge evidence. Keep compliance non-compliant/unknown until
+the full chain passes.
+
 ---
 
 # 90. Dual-browser acceptance
