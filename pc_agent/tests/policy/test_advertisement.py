@@ -18,7 +18,7 @@ def test_policy_feature_advertisement_requires_new_windows_wss_agent() -> None:
 
 
 def test_current_release_candidate_advertises_all_policy_sensor_features() -> None:
-    assert AGENT_VERSION == "3.2.71"
+    assert AGENT_VERSION == "3.2.72"
     assert _policy_protocol_features(
         AGENT_VERSION, "windows_amd64", "gateway_wss", False,
     ) == [
