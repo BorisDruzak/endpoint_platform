@@ -45,8 +45,11 @@ from .gateway_ws import (
     EndpointPolicyDeliveryV1,
     PolicyUpdateV1,
     ResultAckV1,
+    SecurityEventAckEnvelopeV1,
+    SecurityEventBatchEnvelopeV1,
     ServerShutdownNoticeV1,
 )
+from .security_events import AgentSecurityEventBatchV1, SecurityEventAckV1
 from .endpoint_policy import EndpointPolicyV1
 from .identity import AgentSessionV1, DeviceIdentityV1
 from .network_primitives import (
@@ -108,6 +111,7 @@ from .updates import (
 )
 
 __all__ = [
+    "AgentSecurityEventBatchV1",
     "ActivityObservationEnvelopeV1",
     "ActivityObservationV1",
     "ActivitySectionsV1",
@@ -183,6 +187,9 @@ __all__ = [
     "NetworkPingResultV1",
     "PolicyUpdateV1",
     "ResultAckV1",
+    "SecurityEventAckEnvelopeV1",
+    "SecurityEventAckV1",
+    "SecurityEventBatchEnvelopeV1",
     "ServerShutdownNoticeV1",
     "TcpConnectParametersV1",
     "TcpConnectResultV1",

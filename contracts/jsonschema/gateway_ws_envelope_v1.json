@@ -462,6 +462,63 @@
       "title": "AgentResultV1",
       "type": "object"
     },
+    "AgentSecurityEventBatchV1": {
+      "additionalProperties": false,
+      "properties": {
+        "batch_id": {
+          "format": "uuid",
+          "title": "Batch Id",
+          "type": "string"
+        },
+        "events": {
+          "items": {
+            "discriminator": {
+              "mapping": {
+                "BROWSER_PASTE": "#/$defs/BrowserPasteEventV1",
+                "BROWSER_UPLOAD": "#/$defs/BrowserUploadEventV1",
+                "PRINT_JOB": "#/$defs/PrintJobEventV1",
+                "USB_DEVICE_CONNECTED": "#/$defs/UsbConnectedEventV1",
+                "USB_DEVICE_DISCONNECTED": "#/$defs/UsbDisconnectedEventV1"
+              },
+              "propertyName": "event_type"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/$defs/UsbConnectedEventV1"
+              },
+              {
+                "$ref": "#/$defs/UsbDisconnectedEventV1"
+              },
+              {
+                "$ref": "#/$defs/PrintJobEventV1"
+              },
+              {
+                "$ref": "#/$defs/BrowserUploadEventV1"
+              },
+              {
+                "$ref": "#/$defs/BrowserPasteEventV1"
+              }
+            ]
+          },
+          "maxItems": 50,
+          "minItems": 1,
+          "title": "Events",
+          "type": "array"
+        },
+        "schema_version": {
+          "const": "agent_security_event_batch_v1",
+          "title": "Schema Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema_version",
+        "batch_id",
+        "events"
+      ],
+      "title": "AgentSecurityEventBatchV1",
+      "type": "object"
+    },
     "BoundedJsonValueDepth1": {
       "anyOf": [
         {
@@ -878,6 +935,131 @@
       "title": "BrowserActivityV1",
       "type": "object"
     },
+    "BrowserPasteEventV1": {
+      "additionalProperties": false,
+      "properties": {
+        "channel": {
+          "const": "BROWSER",
+          "title": "Channel",
+          "type": "string"
+        },
+        "event_identifier": {
+          "format": "uuid",
+          "title": "Event Identifier",
+          "type": "string"
+        },
+        "event_type": {
+          "const": "BROWSER_PASTE",
+          "title": "Event Type",
+          "type": "string"
+        },
+        "occurred_at": {
+          "$comment": "model-only UTC normalization: timezone-aware values are normalized to UTC.",
+          "format": "date-time",
+          "title": "Occurred At",
+          "type": "string"
+        },
+        "policy_id": {
+          "format": "uuid",
+          "title": "Policy Id",
+          "type": "string"
+        },
+        "policy_version": {
+          "maximum": 2147483647,
+          "minimum": 1,
+          "title": "Policy Version",
+          "type": "integer"
+        },
+        "safe_metadata": {
+          "$ref": "#/$defs/BrowserPasteMetadataV1"
+        },
+        "schema_version": {
+          "const": "security_event_v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "severity": {
+          "const": "INFO",
+          "title": "Severity",
+          "type": "string"
+        },
+        "user_login": {
+          "anyOf": [
+            {
+              "maxLength": 256,
+              "pattern": "^[^\\x00-\\x1f]+$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "User Login"
+        }
+      },
+      "required": [
+        "schema_version",
+        "event_identifier",
+        "severity",
+        "occurred_at",
+        "policy_id",
+        "policy_version",
+        "event_type",
+        "channel",
+        "safe_metadata"
+      ],
+      "title": "BrowserPasteEventV1",
+      "type": "object"
+    },
+    "BrowserPasteMetadataV1": {
+      "additionalProperties": false,
+      "properties": {
+        "browser_family": {
+          "enum": [
+            "chrome",
+            "yandex"
+          ],
+          "title": "Browser Family",
+          "type": "string"
+        },
+        "clipboard_types": {
+          "items": {
+            "enum": [
+              "text",
+              "html",
+              "image",
+              "files",
+              "other"
+            ],
+            "type": "string"
+          },
+          "maxItems": 5,
+          "title": "Clipboard Types",
+          "type": "array"
+        },
+        "domain": {
+          "maxLength": 253,
+          "minLength": 1,
+          "title": "Domain",
+          "type": "string"
+        },
+        "origin": {
+          "maxLength": 512,
+          "minLength": 1,
+          "title": "Origin",
+          "type": "string"
+        }
+      },
+      "required": [
+        "domain",
+        "origin",
+        "browser_family",
+        "clipboard_types"
+      ],
+      "title": "BrowserPasteMetadataV1",
+      "type": "object"
+    },
     "BrowserSensorPolicyV1": {
       "additionalProperties": false,
       "properties": {
@@ -899,6 +1081,148 @@
         "deployment_mode"
       ],
       "title": "BrowserSensorPolicyV1",
+      "type": "object"
+    },
+    "BrowserUploadEventV1": {
+      "additionalProperties": false,
+      "properties": {
+        "channel": {
+          "const": "BROWSER",
+          "title": "Channel",
+          "type": "string"
+        },
+        "event_identifier": {
+          "format": "uuid",
+          "title": "Event Identifier",
+          "type": "string"
+        },
+        "event_type": {
+          "const": "BROWSER_UPLOAD",
+          "title": "Event Type",
+          "type": "string"
+        },
+        "occurred_at": {
+          "$comment": "model-only UTC normalization: timezone-aware values are normalized to UTC.",
+          "format": "date-time",
+          "title": "Occurred At",
+          "type": "string"
+        },
+        "policy_id": {
+          "format": "uuid",
+          "title": "Policy Id",
+          "type": "string"
+        },
+        "policy_version": {
+          "maximum": 2147483647,
+          "minimum": 1,
+          "title": "Policy Version",
+          "type": "integer"
+        },
+        "safe_metadata": {
+          "$ref": "#/$defs/BrowserUploadMetadataV1"
+        },
+        "schema_version": {
+          "const": "security_event_v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "severity": {
+          "const": "INFO",
+          "title": "Severity",
+          "type": "string"
+        },
+        "user_login": {
+          "anyOf": [
+            {
+              "maxLength": 256,
+              "pattern": "^[^\\x00-\\x1f]+$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "User Login"
+        }
+      },
+      "required": [
+        "schema_version",
+        "event_identifier",
+        "severity",
+        "occurred_at",
+        "policy_id",
+        "policy_version",
+        "event_type",
+        "channel",
+        "safe_metadata"
+      ],
+      "title": "BrowserUploadEventV1",
+      "type": "object"
+    },
+    "BrowserUploadMetadataV1": {
+      "additionalProperties": false,
+      "properties": {
+        "browser_family": {
+          "enum": [
+            "chrome",
+            "yandex"
+          ],
+          "title": "Browser Family",
+          "type": "string"
+        },
+        "domain": {
+          "maxLength": 253,
+          "minLength": 1,
+          "title": "Domain",
+          "type": "string"
+        },
+        "file_count": {
+          "maximum": 64,
+          "minimum": 1,
+          "title": "File Count",
+          "type": "integer"
+        },
+        "mime_categories": {
+          "items": {
+            "enum": [
+              "spreadsheet",
+              "document",
+              "image",
+              "video",
+              "audio",
+              "archive",
+              "other"
+            ],
+            "type": "string"
+          },
+          "maxItems": 7,
+          "minItems": 1,
+          "title": "Mime Categories",
+          "type": "array"
+        },
+        "origin": {
+          "maxLength": 512,
+          "minLength": 1,
+          "title": "Origin",
+          "type": "string"
+        },
+        "total_bytes": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "title": "Total Bytes",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "domain",
+        "origin",
+        "browser_family",
+        "file_count",
+        "total_bytes",
+        "mime_categories"
+      ],
+      "title": "BrowserUploadMetadataV1",
       "type": "object"
     },
     "CommandAckEnvelopeV1": {
@@ -2556,6 +2880,142 @@
       "title": "PolicyUpdateV1",
       "type": "object"
     },
+    "PrintEventMetadataV1": {
+      "additionalProperties": false,
+      "properties": {
+        "copies": {
+          "anyOf": [
+            {
+              "maximum": 1000000,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Copies"
+        },
+        "page_count": {
+          "anyOf": [
+            {
+              "maximum": 1000000,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Page Count"
+        },
+        "printer_identity": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[^\\\\/\\x00-\\x1f:]+$",
+          "title": "Printer Identity",
+          "type": "string"
+        },
+        "total_bytes": {
+          "anyOf": [
+            {
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Total Bytes"
+        }
+      },
+      "required": [
+        "printer_identity"
+      ],
+      "title": "PrintEventMetadataV1",
+      "type": "object"
+    },
+    "PrintJobEventV1": {
+      "additionalProperties": false,
+      "properties": {
+        "channel": {
+          "const": "PRINT",
+          "title": "Channel",
+          "type": "string"
+        },
+        "event_identifier": {
+          "format": "uuid",
+          "title": "Event Identifier",
+          "type": "string"
+        },
+        "event_type": {
+          "const": "PRINT_JOB",
+          "title": "Event Type",
+          "type": "string"
+        },
+        "occurred_at": {
+          "$comment": "model-only UTC normalization: timezone-aware values are normalized to UTC.",
+          "format": "date-time",
+          "title": "Occurred At",
+          "type": "string"
+        },
+        "policy_id": {
+          "format": "uuid",
+          "title": "Policy Id",
+          "type": "string"
+        },
+        "policy_version": {
+          "maximum": 2147483647,
+          "minimum": 1,
+          "title": "Policy Version",
+          "type": "integer"
+        },
+        "safe_metadata": {
+          "$ref": "#/$defs/PrintEventMetadataV1"
+        },
+        "schema_version": {
+          "const": "security_event_v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "severity": {
+          "const": "INFO",
+          "title": "Severity",
+          "type": "string"
+        },
+        "user_login": {
+          "anyOf": [
+            {
+              "maxLength": 256,
+              "pattern": "^[^\\x00-\\x1f]+$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "User Login"
+        }
+      },
+      "required": [
+        "schema_version",
+        "event_identifier",
+        "severity",
+        "occurred_at",
+        "policy_id",
+        "policy_version",
+        "event_type",
+        "channel",
+        "safe_metadata"
+      ],
+      "title": "PrintJobEventV1",
+      "type": "object"
+    },
     "ResultAckEnvelopeV1": {
       "additionalProperties": false,
       "properties": {
@@ -2614,6 +3074,109 @@
         "result_sequence"
       ],
       "title": "ResultAckV1",
+      "type": "object"
+    },
+    "SecurityEventAckEnvelopeV1": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "security_event_ack",
+          "title": "Kind",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/SecurityEventAckV1"
+        },
+        "schema_version": {
+          "const": "gateway_ws_envelope_v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "sequence": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Sequence",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "schema_version",
+        "sequence",
+        "kind",
+        "payload"
+      ],
+      "title": "SecurityEventAckEnvelopeV1",
+      "type": "object"
+    },
+    "SecurityEventAckV1": {
+      "additionalProperties": false,
+      "properties": {
+        "batch_id": {
+          "format": "uuid",
+          "title": "Batch Id",
+          "type": "string"
+        },
+        "event_identifiers": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "maxItems": 50,
+          "minItems": 1,
+          "title": "Event Identifiers",
+          "type": "array"
+        },
+        "persisted_at": {
+          "$comment": "model-only UTC normalization: timezone-aware values are normalized to UTC.",
+          "format": "date-time",
+          "title": "Persisted At",
+          "type": "string"
+        },
+        "schema_version": {
+          "const": "security_event_ack_v1",
+          "title": "Schema Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema_version",
+        "batch_id",
+        "event_identifiers",
+        "persisted_at"
+      ],
+      "title": "SecurityEventAckV1",
+      "type": "object"
+    },
+    "SecurityEventBatchEnvelopeV1": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "security_event_batch",
+          "title": "Kind",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/AgentSecurityEventBatchV1"
+        },
+        "schema_version": {
+          "const": "gateway_ws_envelope_v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "sequence": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Sequence",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "schema_version",
+        "sequence",
+        "kind",
+        "payload"
+      ],
+      "title": "SecurityEventBatchEnvelopeV1",
       "type": "object"
     },
     "ServerShutdownNoticeEnvelopeV1": {
@@ -2687,6 +3250,235 @@
       ],
       "title": "ServerShutdownNoticeV1",
       "type": "object"
+    },
+    "UsbConnectedEventV1": {
+      "additionalProperties": false,
+      "properties": {
+        "channel": {
+          "const": "USB",
+          "title": "Channel",
+          "type": "string"
+        },
+        "event_identifier": {
+          "format": "uuid",
+          "title": "Event Identifier",
+          "type": "string"
+        },
+        "event_type": {
+          "const": "USB_DEVICE_CONNECTED",
+          "title": "Event Type",
+          "type": "string"
+        },
+        "occurred_at": {
+          "$comment": "model-only UTC normalization: timezone-aware values are normalized to UTC.",
+          "format": "date-time",
+          "title": "Occurred At",
+          "type": "string"
+        },
+        "policy_id": {
+          "format": "uuid",
+          "title": "Policy Id",
+          "type": "string"
+        },
+        "policy_version": {
+          "maximum": 2147483647,
+          "minimum": 1,
+          "title": "Policy Version",
+          "type": "integer"
+        },
+        "safe_metadata": {
+          "$ref": "#/$defs/UsbEventMetadataV1"
+        },
+        "schema_version": {
+          "const": "security_event_v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "severity": {
+          "const": "INFO",
+          "title": "Severity",
+          "type": "string"
+        },
+        "user_login": {
+          "anyOf": [
+            {
+              "maxLength": 256,
+              "pattern": "^[^\\x00-\\x1f]+$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "User Login"
+        }
+      },
+      "required": [
+        "schema_version",
+        "event_identifier",
+        "severity",
+        "occurred_at",
+        "policy_id",
+        "policy_version",
+        "event_type",
+        "channel",
+        "safe_metadata"
+      ],
+      "title": "UsbConnectedEventV1",
+      "type": "object"
+    },
+    "UsbDisconnectedEventV1": {
+      "additionalProperties": false,
+      "properties": {
+        "channel": {
+          "const": "USB",
+          "title": "Channel",
+          "type": "string"
+        },
+        "event_identifier": {
+          "format": "uuid",
+          "title": "Event Identifier",
+          "type": "string"
+        },
+        "event_type": {
+          "const": "USB_DEVICE_DISCONNECTED",
+          "title": "Event Type",
+          "type": "string"
+        },
+        "occurred_at": {
+          "$comment": "model-only UTC normalization: timezone-aware values are normalized to UTC.",
+          "format": "date-time",
+          "title": "Occurred At",
+          "type": "string"
+        },
+        "policy_id": {
+          "format": "uuid",
+          "title": "Policy Id",
+          "type": "string"
+        },
+        "policy_version": {
+          "maximum": 2147483647,
+          "minimum": 1,
+          "title": "Policy Version",
+          "type": "integer"
+        },
+        "safe_metadata": {
+          "$ref": "#/$defs/UsbEventMetadataV1"
+        },
+        "schema_version": {
+          "const": "security_event_v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "severity": {
+          "const": "INFO",
+          "title": "Severity",
+          "type": "string"
+        },
+        "user_login": {
+          "anyOf": [
+            {
+              "maxLength": 256,
+              "pattern": "^[^\\x00-\\x1f]+$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "User Login"
+        }
+      },
+      "required": [
+        "schema_version",
+        "event_identifier",
+        "severity",
+        "occurred_at",
+        "policy_id",
+        "policy_version",
+        "event_type",
+        "channel",
+        "safe_metadata"
+      ],
+      "title": "UsbDisconnectedEventV1",
+      "type": "object"
+    },
+    "UsbEventMetadataV1": {
+      "additionalProperties": false,
+      "properties": {
+        "device_class": {
+          "anyOf": [
+            {
+              "enum": [
+                "mass_storage",
+                "hid",
+                "printer",
+                "other"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Device Class"
+        },
+        "product": {
+          "anyOf": [
+            {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[^\\\\/\\x00-\\x1f:]+$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Product"
+        },
+        "removable": {
+          "title": "Removable",
+          "type": "boolean"
+        },
+        "serial_hash": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Serial Hash"
+        },
+        "vendor": {
+          "anyOf": [
+            {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[^\\\\/\\x00-\\x1f:]+$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Vendor"
+        }
+      },
+      "required": [
+        "removable"
+      ],
+      "title": "UsbEventMetadataV1",
+      "type": "object"
     }
   },
   "discriminator": {
@@ -2704,6 +3496,8 @@
       "heartbeat": "#/$defs/HeartbeatEnvelopeV1",
       "policy_update": "#/$defs/PolicyUpdateEnvelopeV1",
       "result_ack": "#/$defs/ResultAckEnvelopeV1",
+      "security_event_ack": "#/$defs/SecurityEventAckEnvelopeV1",
+      "security_event_batch": "#/$defs/SecurityEventBatchEnvelopeV1",
       "server_shutdown_notice": "#/$defs/ServerShutdownNoticeEnvelopeV1"
     },
     "propertyName": "kind"
@@ -2744,6 +3538,12 @@
     },
     {
       "$ref": "#/$defs/ActivityObservationEnvelopeV1"
+    },
+    {
+      "$ref": "#/$defs/SecurityEventBatchEnvelopeV1"
+    },
+    {
+      "$ref": "#/$defs/SecurityEventAckEnvelopeV1"
     },
     {
       "$ref": "#/$defs/ServerShutdownNoticeEnvelopeV1"

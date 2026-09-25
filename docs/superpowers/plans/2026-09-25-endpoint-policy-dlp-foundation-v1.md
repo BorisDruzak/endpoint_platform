@@ -151,6 +151,13 @@ The public extension ID is now pinned to a protected external signing key. Relea
 - [ ] Implement typed event batch, persisted ACK and protected SQLite spool; no per-observation AuditEvent, Module Operation or raw transport persistence.
 - [ ] Run migration, gateway, spool and retention tests; commit.
 
+The typed five-event batch and persisted-event ACK contracts are now in source
+and generated JSON Schema. They enforce per-type metadata allowlists, audit-only
+severity, unique identifiers, 50-event/64-KiB batch and 2-KiB metadata bounds.
+The server still needs a database model, idempotent transaction and ACK-after-commit
+route; the Agent still needs a protected durable spool and replay. The contract
+alone is not a working SecurityEvent pipeline.
+
 ### Task 8: USB and print audit sensors, browser status and compliance
 
 **Files:** Create `pc_agent/platform/windows/{usb_sensor,print_sensor,browser_status}.py`, `endpoint_contracts/browser_status.py`, `endpoint_server/policy/{browser_status,compliance}.py`, `endpoint_server/db/migrations/versions/0033_browser_status.py`; adjust Agent runtime feature state, Gateway protocol/routes and server DTOs. Tests in `pc_agent/tests/windows/`, `tests/policy/`, `tests/gateway/`.

@@ -1,0 +1,39 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "batch_id": {
+      "format": "uuid",
+      "title": "Batch Id",
+      "type": "string"
+    },
+    "event_identifiers": {
+      "items": {
+        "format": "uuid",
+        "type": "string"
+      },
+      "maxItems": 50,
+      "minItems": 1,
+      "title": "Event Identifiers",
+      "type": "array"
+    },
+    "persisted_at": {
+      "$comment": "model-only UTC normalization: timezone-aware values are normalized to UTC.",
+      "format": "date-time",
+      "title": "Persisted At",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "security_event_ack_v1",
+      "title": "Schema Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema_version",
+    "batch_id",
+    "event_identifiers",
+    "persisted_at"
+  ],
+  "title": "SecurityEventAckV1",
+  "type": "object"
+}

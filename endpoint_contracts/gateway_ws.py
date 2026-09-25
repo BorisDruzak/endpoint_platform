@@ -22,6 +22,7 @@ from .capabilities import (
 )
 from .commands import AgentCommandAckV1, AgentCommandV1, AgentResultV1
 from .endpoint_policy import EndpointPolicyV1, policy_digest
+from .security_events import AgentSecurityEventBatchV1, SecurityEventAckV1
 from .telemetry import AgentHeartbeatV1
 
 
@@ -415,6 +416,16 @@ class ActivityObservationEnvelopeV1(_GatewayWsEnvelopeBaseV1):
     payload: ActivityObservationV1
 
 
+class SecurityEventBatchEnvelopeV1(_GatewayWsEnvelopeBaseV1):
+    kind: Literal["security_event_batch"]
+    payload: AgentSecurityEventBatchV1
+
+
+class SecurityEventAckEnvelopeV1(_GatewayWsEnvelopeBaseV1):
+    kind: Literal["security_event_ack"]
+    payload: SecurityEventAckV1
+
+
 class ServerShutdownNoticeEnvelopeV1(_GatewayWsEnvelopeBaseV1):
     kind: Literal["server_shutdown_notice"]
     payload: ServerShutdownNoticeV1
@@ -438,6 +449,8 @@ GatewayWsEnvelopeBodyV1 = Annotated[
     | EndpointPolicyDeliveryEnvelopeV1
     | EndpointPolicyAckEnvelopeV1
     | ActivityObservationEnvelopeV1
+    | SecurityEventBatchEnvelopeV1
+    | SecurityEventAckEnvelopeV1
     | ServerShutdownNoticeEnvelopeV1
     | ErrorEnvelopeV1,
     Field(discriminator="kind"),
@@ -454,6 +467,7 @@ GatewayInboundBodyV1 = Annotated[
     | ResultAckEnvelopeV1
     | PolicyUpdateEnvelopeV1
     | EndpointPolicyDeliveryEnvelopeV1
+    | SecurityEventAckEnvelopeV1
     | ServerShutdownNoticeEnvelopeV1
     | ErrorEnvelopeV1,
     Field(discriminator="kind"),
@@ -480,5 +494,7 @@ __all__ = [
     "EndpointPolicyDeliveryV1",
     "PolicyUpdateV1",
     "ResultAckV1",
+    "SecurityEventAckEnvelopeV1",
+    "SecurityEventBatchEnvelopeV1",
     "ServerShutdownNoticeV1",
 ]
