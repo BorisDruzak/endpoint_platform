@@ -1225,6 +1225,8 @@ Track Chrome and Yandex independently, including when one is not installed. Each
 
 In `agent_managed`, failure to apply policy is separate from the browser not yet downloading the extension. In `external_managed`, Agent must not claim it applied installation policy. `EXTENSION_NEVER_SEEN` after policy application is not an installation error solely because the browser has not been launched; a closed browser with an earlier heartbeat is not `EXTENSION_NEVER_SEEN`. Derive overall compliance on the server from these facts and the policy's `required` flag; do not infer installation failure from heartbeat absence alone.
 
+Show `браузер не запускался после применения политики` only when an observed browser launch history or equivalent reliable evidence establishes that fact for the current policy application. A browser that is closed now, without such history, has an unknown launch history; do not invent that reason or turn `NEVER_SEEN` into an installation error.
+
 Distinguish a machine policy value written by the applicator from a policy actually accepted by the browser. `MACHINE_POLICY_CONFIGURED` means the owned machine value was verified; `MANAGED_POLICY_APPLIED` requires browser-side evidence that the browser accepted the force-install policy. A successful registry write alone must not be presented as proof of effective force-install or extension installation. If effectiveness cannot be observed from the Agent, report the machine policy as configured and its effective browser state as unknown until browser-side evidence is available. The Windows acceptance gate must inspect each installed browser's effective policy page and then prove the extension download, Bridge handshake and heartbeat separately.
 
 ---
@@ -1984,11 +1986,13 @@ for that browser rather than being reported as an extension installation failure
 
 ## Browser Sensor installation ownership
 
+This addendum changes Browser Sensor deployment ownership only. Existing Policy, Activity, SecurityEvent and sensor work remains part of Foundation v1 and is not redesigned by this ownership change.
+
 `browser_sensor.deployment_mode` is either `agent_managed` or `external_managed`.
 
 In `agent_managed`, Endpoint Agent owns a Browser Integration Policy Applicator. It uses official machine-level Chrome and Yandex enterprise policies to force-install the approved extension ID from the Endpoint HTTPS update URL. The applicator is idempotent, narrowly scoped, merge-safe and restart-safe. It must preserve other extension entries and native hosts. It must determine policy ownership before modifying an existing value and fail closed with a reported `POLICY_CONFLICT` when it cannot safely merge. Reapplying the same policy must perform no write. When switching away, it may remove only its own exact, unchanged extension entry and ownership marker; it must never delete a foreign entry or another owner's policy value. If ownership is uncertain, it leaves the value and reports conflict.
 
-In `external_managed`, GPO, Ansible or another enterprise system owns force-install. After any safe hand-off cleanup, Agent does not change browser installation policy; it verifies Browser Bridge registration, accepts extension heartbeat and reports observed state. This mode remains compatible with a later fleet rollout.
+In `external_managed`, GPO, Ansible or another enterprise system owns force-install. A transition from `agent_managed` may first remove only the Agent's exact, unchanged policy entry under its prior ownership. If that cleanup cannot be proven safe, preserve the value, report `POLICY_CONFLICT`, and do not claim that ownership hand-off completed. After safe hand-off, Agent does not change browser installation policy; it verifies Browser Bridge registration, accepts extension heartbeat and reports observed state. This mode remains compatible with a later fleet rollout.
 
 An endpoint may enter `external_managed` directly, without ever having used
 `agent_managed`. In that case Agent makes no browser installation-policy write,
