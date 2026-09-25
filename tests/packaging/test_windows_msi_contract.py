@@ -86,6 +86,23 @@ def test_every_component_is_explicitly_64_bit() -> None:
     assert {component.get("Bitness") for component in components} == {"always64"}
 
 
+def test_binding_manifest_lists_every_authored_wix_component() -> None:
+    """Release binding must account for every authored MSI component."""
+    script = (WINDOWS_PACKAGING / "build-msi.ps1").read_text(encoding="utf-8")
+    declaration = re.search(
+        r"\$componentManifest\s*=\s*@\((.*?)\)\s*\+\s*@\(",
+        script,
+        re.S,
+    )
+    assert declaration is not None
+    declared = set(re.findall(r"'(?P<id>cmp[A-Za-z0-9]+)'", declaration.group(1)))
+    authored = {
+        component.get("Id")
+        for component in _all_elements(_trees(), "Component")
+    }
+    assert declared == authored
+
+
 def test_installer_defines_no_enrollment_or_device_secret_property() -> None:
     """Enrollment claims and permanent bearer credentials must arrive after MSI install."""
     trees = _trees()

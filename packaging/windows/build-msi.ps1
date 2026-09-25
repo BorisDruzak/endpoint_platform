@@ -466,7 +466,8 @@ $fileManifest = foreach ($item in $allFiles) {
 $componentManifest = @(
     'cmpLauncher', 'cmpCurrentSelector', 'cmpInitialRuntimeAnchor', 'cmpConfigTemplate', 'cmpPublicReadme',
     'cmpProgramDataRoot', 'cmpInstallRootCleanup', 'cmpInitialRuntimeTransitionState',
-    'cmpServiceEntrypoints', 'cmpProvisioner', 'cmpTrayCompanion', 'cmpUserSensor', 'cmpBrowserBridge'
+    'cmpServiceEntrypoints', 'cmpBrowserPolicyService', 'cmpProvisioner',
+    'cmpTrayCompanion', 'cmpUserSensor', 'cmpBrowserBridge'
 ) + @($generatedItems | ForEach-Object {
     Get-StableId -Prefix 'cmpPayload' -Value (Get-RelativePath $runtimeStage $_.FullName)
 })
