@@ -66,6 +66,41 @@ def test_active_browser_and_absent_browser_are_independent() -> None:
     assert [(item.browser_family, item.state) for item in result.browsers] == [
         ("chrome", "ACTIVE"), ("yandex", "NOT_APPLICABLE"),
     ]
+    assert [item.effective_policy_state for item in result.browsers] == [
+        "APPLIED", "UNKNOWN",
+    ]
+
+
+def test_browser_effective_policy_requires_fresh_admin_install_and_matching_machine_value() -> None:
+    policy = _required_policy()
+    value = _status(policy).model_dump(mode="python")
+    value["browsers"][0]["extension_install_type"] = "UNKNOWN"
+    unknown = derive_browser_compliance(
+        policy, "APPLIED", BrowserStatusReportV1.model_validate(value), now=NOW,
+    )
+    assert unknown.browsers[0].effective_policy_state == "UNKNOWN"
+    value["browsers"][0]["extension_install_type"] = "OTHER"
+    other = derive_browser_compliance(
+        policy, "APPLIED", BrowserStatusReportV1.model_validate(value), now=NOW,
+    )
+    assert other.browsers[0].effective_policy_state == "NOT_APPLIED"
+    value["browsers"][0]["extension_install_type"] = "ADMIN"
+    value["browsers"][0]["extension_last_seen_at"] = NOW - timedelta(minutes=10)
+    stale = derive_browser_compliance(
+        policy, "APPLIED", BrowserStatusReportV1.model_validate(value), now=NOW,
+    )
+    assert stale.browsers[0].effective_policy_state == "UNKNOWN"
+    value["browsers"][0]["extension_last_seen_at"] = NOW
+    value["browsers"][0]["installation_policy_state"] = "NOT_APPLIED"
+    unconfigured = derive_browser_compliance(
+        policy, "APPLIED", BrowserStatusReportV1.model_validate(value), now=NOW,
+    )
+    assert unconfigured.browsers[0].effective_policy_state == "UNKNOWN"
+    value["browsers"][0]["installation_policy_state"] = "APPLIED"
+    failed_ack = derive_browser_compliance(
+        policy, "ERROR", BrowserStatusReportV1.model_validate(value), now=NOW,
+    )
+    assert failed_ack.browsers[0].effective_policy_state == "UNKNOWN"
 
 
 def test_closed_browser_preserves_last_heartbeat_without_installation_error() -> None:

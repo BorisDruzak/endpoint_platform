@@ -218,6 +218,7 @@ async def test_policy_device_status_requires_current_browser_capability() -> Non
         active = await client.get(endpoint)
         assert active.json()["data"]["browser_compliance"] == "COMPLIANT"
         assert active.json()["data"]["browsers"][0]["extension_install_type"] == "ADMIN"
+        assert active.json()["data"]["browsers"][0]["effective_policy_state"] == "APPLIED"
         assert [item["compliance_state"] for item in active.json()["data"]["browsers"]] == ["ACTIVE", "NOT_APPLICABLE"]
         current = await app.state.gateway_connection_registry.get(device_id)
         assert current is not None
@@ -226,5 +227,6 @@ async def test_policy_device_status_requires_current_browser_capability() -> Non
         assert offline.json()["data"]["browser_compliance"] == "STALE"
         assert offline.json()["data"]["browsers"][0]["extension_version"] == "0.1.0"
         assert offline.json()["data"]["browsers"][0]["compliance_state"] == "UNKNOWN"
+        assert offline.json()["data"]["browsers"][0]["effective_policy_state"] == "UNKNOWN"
         assert (await client.get(f"/api/admin/console/policies/devices/{uuid4()}/status")).status_code == 404
     await engine.dispose()

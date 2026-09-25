@@ -22,6 +22,7 @@ BrowserComplianceState = Literal[
 DeviceComplianceState = Literal[
     "COMPLIANT", "PARTIAL", "NON_COMPLIANT", "STALE", "UNSUPPORTED"
 ]
+EffectivePolicyState = Literal["APPLIED", "NOT_APPLIED", "UNKNOWN"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -31,6 +32,7 @@ class BrowserCompliance:
     reason: str | None
     extension_version: str | None = None
     extension_last_seen_at: datetime | None = None
+    effective_policy_state: EffectivePolicyState = "UNKNOWN"
 
 
 @dataclass(frozen=True, slots=True)
@@ -53,13 +55,37 @@ def _family_compliance(
     policy: EndpointPolicyV1,
     *,
     now: datetime,
+    policy_applied: bool,
 ) -> BrowserCompliance:
     family = observed.browser_family
     version = observed.extension_version
     seen = observed.extension_last_seen_at
+    expected_owner = (
+        "ENDPOINT" if policy.browser_sensor.deployment_mode == "agent_managed"
+        else "EXTERNAL"
+    )
+    # The extension reports ADMIN only when its browser installed it by an
+    # administrative policy. This confirms managed installation, while the
+    # exact effective policy value still needs browser-side acceptance proof.
+    effective_policy_state: EffectivePolicyState = "UNKNOWN"
+    if (
+        policy_applied
+        and observed.browser_state == "DETECTED"
+        and observed.running_state == "RUNNING"
+        and observed.policy_owner == expected_owner
+        and observed.installation_policy_state == "APPLIED"
+        and seen is not None
+        and timedelta(0) <= now - seen <= _HEARTBEAT_FRESHNESS
+    ):
+        if observed.extension_install_type == "ADMIN":
+            effective_policy_state = "APPLIED"
+        elif observed.extension_install_type == "OTHER":
+            effective_policy_state = "NOT_APPLIED"
 
     def result(state: BrowserComplianceState, reason: str | None = None) -> BrowserCompliance:
-        return BrowserCompliance(family, state, reason, version, seen)
+        return BrowserCompliance(
+            family, state, reason, version, seen, effective_policy_state,
+        )
 
     if observed.policy_owner == "CONFLICT" or observed.installation_policy_state == "CONFLICT":
         return result("ERROR", "POLICY_CONFLICT")
@@ -67,10 +93,6 @@ def _family_compliance(
         return result("NOT_APPLICABLE", "BROWSER_ABSENT")
     if observed.browser_state == "UNKNOWN":
         return result("UNKNOWN", "BROWSER_DETECTION_UNKNOWN")
-    expected_owner = (
-        "ENDPOINT" if policy.browser_sensor.deployment_mode == "agent_managed"
-        else "EXTERNAL"
-    )
     if observed.policy_owner != expected_owner:
         return result("ERROR", "POLICY_OWNER_MISMATCH")
     if observed.installation_policy_state != "APPLIED":
@@ -131,8 +153,12 @@ def derive_browser_compliance(
         )
     by_family = {item.browser_family: item for item in report.browsers}
     browsers = (
-        _family_compliance(by_family["chrome"], policy, now=now),
-        _family_compliance(by_family["yandex"], policy, now=now),
+        _family_compliance(
+            by_family["chrome"], policy, now=now, policy_applied=policy_status == "APPLIED",
+        ),
+        _family_compliance(
+            by_family["yandex"], policy, now=now, policy_applied=policy_status == "APPLIED",
+        ),
     )
     states = {item.state for item in browsers}
     if policy_status == "ERROR" or "ERROR" in states:

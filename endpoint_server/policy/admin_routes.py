@@ -154,6 +154,7 @@ class ConsoleBrowserStatus(BaseModel):
     running_state: Literal["RUNNING", "CLOSED", "UNKNOWN"] | None
     policy_owner: Literal["ENDPOINT", "EXTERNAL", "NONE", "CONFLICT", "UNKNOWN"] | None
     installation_policy_state: Literal["APPLIED", "NOT_APPLIED", "CONFLICT", "UNKNOWN"] | None
+    effective_policy_state: Literal["APPLIED", "NOT_APPLIED", "UNKNOWN"]
     native_host_state: Literal["READY", "MISSING", "UNKNOWN"] | None
     extension_version: str | None
     extension_install_type: Literal["ADMIN", "OTHER", "UNKNOWN"] | None
@@ -383,6 +384,7 @@ async def device_policy_status(
             running_state=fact.running_state if fact else None,
             policy_owner=fact.policy_owner if fact else None,
             installation_policy_state=fact.installation_policy_state if fact else None,
+            effective_policy_state=item.effective_policy_state,
             native_host_state=fact.native_host_state if fact else None,
             extension_version=fact.extension_version if fact else None,
             extension_install_type=fact.extension_install_type if fact else None,

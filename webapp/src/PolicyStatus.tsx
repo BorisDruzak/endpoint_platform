@@ -7,6 +7,7 @@ type BrowserStatus = {
   running_state: 'RUNNING' | 'CLOSED' | 'UNKNOWN' | null
   policy_owner: 'ENDPOINT' | 'EXTERNAL' | 'NONE' | 'CONFLICT' | 'UNKNOWN' | null
   installation_policy_state: 'APPLIED' | 'NOT_APPLIED' | 'CONFLICT' | 'UNKNOWN' | null
+  effective_policy_state: 'APPLIED' | 'NOT_APPLIED' | 'UNKNOWN'
   native_host_state: 'READY' | 'MISSING' | 'UNKNOWN' | null
   extension_version: string | null
   extension_install_type: 'ADMIN' | 'OTHER' | 'UNKNOWN' | null
@@ -50,6 +51,9 @@ const ownerLabels: Record<NonNullable<BrowserStatus['policy_owner']>, string> = 
 const installationLabels: Record<NonNullable<BrowserStatus['installation_policy_state']>, string> = {
   APPLIED: 'Настроена на устройстве', NOT_APPLIED: 'Не настроена', CONFLICT: 'Конфликт', UNKNOWN: 'Неизвестно',
 }
+const effectivePolicyLabels: Record<BrowserStatus['effective_policy_state'], string> = {
+  APPLIED: 'Подтверждена браузером', NOT_APPLIED: 'Не подтверждена браузером', UNKNOWN: 'Нет подтверждения',
+}
 const nativeHostLabels: Record<NonNullable<BrowserStatus['native_host_state']>, string> = {
   READY: 'Готов', MISSING: 'Не найден', UNKNOWN: 'Неизвестно',
 }
@@ -81,7 +85,7 @@ const reasonLabels: Record<string, string> = {
 const label = <T extends string>(value: T | null, labels: Record<T, string>) => value === null ? 'Нет данных' : labels[value]
 const policyConfirmed = (browser: BrowserStatus, mode: PolicyStatus['deployment_mode']) =>
   browser.installation_policy_state === 'APPLIED'
-  && browser.extension_install_type === 'ADMIN'
+  && browser.effective_policy_state === 'APPLIED'
   && browser.policy_owner === (mode === 'agent_managed' ? 'ENDPOINT' : 'EXTERNAL')
 
 export function DevicePolicyStatus({ deviceId }: { deviceId: string }) {
@@ -118,6 +122,7 @@ export function DevicePolicyStatus({ deviceId }: { deviceId: string }) {
         <div><dt>Управление</dt><dd>{label(browser.policy_owner, ownerLabels)}</dd></div>
         <div><dt>Политика установки</dt><dd>{policyConfirmed(browser, status.deployment_mode)
           ? 'Применена' : label(browser.installation_policy_state, installationLabels)}</dd></div>
+        <div><dt>Действие в браузере</dt><dd>{effectivePolicyLabels[browser.effective_policy_state]}</dd></div>
         <div><dt>Native Bridge</dt><dd>{label(browser.native_host_state, nativeHostLabels)}</dd></div>
         <div><dt>Расширение</dt><dd>{extensionLabels[browser.compliance_state]}</dd></div>
         <div><dt>Версия расширения</dt><dd>{browser.extension_version ?? 'Нет данных'}</dd></div>
