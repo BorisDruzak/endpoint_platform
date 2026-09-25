@@ -330,6 +330,33 @@ helper pipe for a bounded period; its focused tests passed (`16 passed`),
 but that fix is absent from installed 3.2.73. Prove the first ACK with a
 fresh signed version before release registration.
 
+The next canary is 3.2.74, with the bounded helper-start retry in source
+commit `3a984720ac96be67b685679f6e7d151211f788b5` and pinned provenance
+commit `d8522b4bad65018ce9a52275128e4e5e32b7f3c3`. Its 2543-file stage
+tree SHA-256 is
+`772add8e56ef211e20c079c47d7084c9cb8e49a2729959b9381928b8c8ead73c`.
+The signed MSI SHA-256 is
+`f0a492f522dc423df43d368fa59dd87ba46ec633d422862eb0605f93994b9294`,
+the signed Setup SHA-256 is
+`0789653a65e642993d38c0ac88a7374b99c0d9ac01596381ed27351b910cd03a`,
+and the 2544-entry verified update ZIP SHA-256 is
+`ac2e06e6c2a8aa6f986cb20a516b3629bfd549a7556328065ef3a02f700c66d6`.
+Both Authenticode signatures are valid locally without a trusted timestamp.
+The full Python suite passed (`2243 passed, 41 skipped`), packaging tests
+passed (`94 passed, 1 skipped`), and Browser Sensor Node tests passed
+(`12 passed`). Before and after Setup, the installed-runtime preflight was
+`READY`; the exact signed 3.2.73 rollback MSI/Setup were retained and
+hash-verified. The local 3.2.74 Setup logged `UPDATED/SERVICE_RUNNING` and
+the selector names 3.2.74 with the pinned stage revision. The first server
+policy ACK after install was `APPLIED` at `2026-09-25 12:45:53 UTC` with no
+manual Agent restart; the installed Bridge returned a synthetic Chrome Hello
+ACK `OK`. During this run, `Start-Process -Wait` kept waiting for Setup's
+long-lived companion descendants; interrupting that wait terminated Tray
+and User Sensor. Both were restored manually in the interactive session.
+This invocation does not prove companion auto-start for 3.2.74; a separate
+uninterrupted upgrade/restart check and rollback remain open. Do not register
+the Setup release or call the Foundation candidate complete on this evidence.
+
 ### Task 11: Live Windows acceptance and limited pilot
 
 **Files:** `docs/architecture/endpoint-policy-dlp-foundation-v1.md`, `PLANS.md`, evidence under a non-secret release report path.
