@@ -1,0 +1,2 @@
+# Offline Browser Sensor release tooling. Install in an isolated build environment.
+cryptography==46.0.5
