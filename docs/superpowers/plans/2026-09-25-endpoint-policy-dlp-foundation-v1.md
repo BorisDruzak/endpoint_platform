@@ -137,8 +137,18 @@ PyInstaller artifact has passed a real executable smoke test and archive check;
 the MSI stages it with a single-origin Native Messaging manifest and Chrome
 machine registration. The MSI source also registers the same pinned host under
 the Chromium key seen in the installed Yandex Browser 26.8.3.1002 binary.
-Installed-MSI verification and the actual browser-to-Agent handshake in both
-browsers remain open.
+The installed-binary and synthetic Bridge path are recorded below. The actual
+extension-to-Agent handshake in both browsers remains an acceptance gate.
+
+On the installed 3.2.72 Windows canary, the packaged User Sensor binary matched
+the MSI staging hash and ran in the interactive session after an explicit
+start. The Agent accepted its local IPC sample; the server received a fresh
+User Sensor observation and projected `activity_v1` with idle and foreground
+browser context. The MSI upgrade had stopped the companion without restarting
+it. A source fix and regression tests have been prepared to restart both Tray
+and User Sensor after an interactive upgrade; a new signed release and upgrade
+retest are required. This proves the local Activity path on one session, not
+second-user/session acceptance or automatic startup after upgrade.
 
 ### Task 6: Signed browser release and Browser Integration Policy Applicator
 
@@ -205,14 +215,15 @@ durable-spool handoff are wired. Projection/parser tests and Windows native
 subscription start/stop pass. A real disposable print job and installed-browser
 proof are still open. The strict Chrome/Yandex status contract, negotiated WSS
 frame, per-family current rows, migration `0033`, out-of-order handling and
-server-only compliance derivation now pass focused tests. The Agent does not
-yet send live browser facts in the current 3.2.67 release. The prepared policy-sensor
+server-only compliance derivation now pass focused tests. At the earlier
+3.2.67 checkpoint, the Agent did not yet send live browser facts. The prepared
+policy-sensor
 runtime now coalesces accepted Native Bridge heartbeats by browser and applied
 policy, inspects registered browser binaries, running processes, policy
 ownership and the pinned Native Host manifest without writes, and sends a
 two-family WSS report only after the current connection's policy ACK. A
 read-only local smoke found Chrome and Yandex detected/running but Native Host
-missing in the current installation; it is not installed-Bridge or heartbeat
+missing in that earlier installation; it is not installed-Bridge or heartbeat
 proof. The probe reports `UNKNOWN` when it cannot exclude a per-user browser
 installation; a reliable `ABSENT` path remains open. Console projection,
 release packaging, installed-browser acceptance and production deployment
@@ -231,6 +242,19 @@ The device-status API now exposes a separate server-derived `effective_policy_st
 The Windows policy applicator now accepts enabled Activity and browser upload/paste audit only after the local Activity pipe is started, the SecurityEvent spool is open and the approved Bridge extension identity is loaded. USB and print audit still require their live native notification sources. A synthetic Windows runtime test proves that a fully ready policy receives `APPLIED`; missing components still fail before browser-policy writes. This is local readiness, not proof that the per-user sensor, browser extension, physical USB/print sources or server ingest work on an installed Agent. Fleet-wide Activity/DLP `ACTIVE` status must come from fresh sensor observations or a separate bounded health report, never from policy ACK alone.
 
 USB availability now requires both a registered PnP notification and a live dispatch worker. A stale registration with a dead worker fails readiness and must be stopped before restart; the policy applicator cannot use that state as USB audit proof. Runtime health and installed-device event acceptance remain open.
+
+The installed 3.2.72 Bridge binary matched its MSI staging hash. Two bounded
+synthetic Native Messaging sessions through that binary produced server-side
+`BROWSER_PASTE` and `BROWSER_UPLOAD` SecurityEvents with safe metadata and
+30-day expiry. Their event ACKs were `OK`, but the preceding Hello ACK was
+`IPC_UNAVAILABLE`: the installed Agent accesses an `install_type` field absent
+from `BrowserHelloV1`. A red test reproduced the exception and the worktree
+has a source fix and regression test prepared. Rebuild and retest Hello with
+the next signed Agent; synthetic host traffic does not prove browser-extension
+action capture.
+Chrome has produced a fresh administrative-install heartbeat through the
+installed path. Yandex has no extension heartbeat, so its installation and
+Browser Bridge path remain unverified.
 
 ### Task 9: Russian Console
 
@@ -258,7 +282,7 @@ The `Политики и DLP` page now reads the existing authenticated current 
 - [ ] On the installed Windows test device, snapshot foreign extension policies and Native Messaging hosts before and after MSI install/upgrade. Verify the helper leaves them unchanged, a repeated identical policy performs no installation-policy write, and a failed ownership merge reports `POLICY_CONFLICT` without partial writes.
 - [x] Build the fixed `EndpointBrowserPolicy.exe` alone and prove a temporary, correctly configured Windows SCM service reaches `Running` and stops cleanly. The LocalSystem service started, an interactive caller received pipe access denied (Win32 5), and the temporary service was stopped and deleted. The same check against the exact MSI-bound helper binary also reached `Running` as LocalSystem and denied the interactive caller.
 - [x] Retain the retired 3.2.70 release as immutable failure evidence. Build 3.2.71 and, after the helper ACL defect surfaced in its pilot, build 3.2.72 from the fixed source with a clean runtime stage, pinned provenance, signed MSI/Setup and immutable ZIP. Verify source revision, every ZIP member hash and Authenticode validity.
-- [ ] Complete the 3.2.72 browser and rollback gates before registering its Setup release. The local MSI installation and WSS preflight alone do not satisfy the release gate.
+- [ ] Supersede immutable 3.2.72 with the next version after committing and verifying the interactive User Sensor restart and Browser Hello fixes. Build a clean runtime stage, provenance, signed MSI/Setup and immutable ZIP; test installed upgrade, both companion processes, Hello ACK, policy/WSS readiness and rollback before registering a Setup release. Do not register the known-defective 3.2.72 Setup as the completed Foundation candidate.
 - [ ] Run full Python suite, contracts, Alembic, Windows packaging, frontend, browser tests, provider-release-gate and diff check; commit.
 
 The signed 3.2.70 MSI/Setup was registered as production release `bacb2f60-acb2-49ba-806d-5a94b09752d2`, then failed the local Windows canary: Windows SCM repeatedly timed out starting `EndpointBrowserPolicy.exe` because its frozen entry script used relative imports. Setup exited 21 and MSI rolled back to installed 3.2.65 with runtime 3.2.67. The Agent was restarted and strict-WSS preflight passed; identity hashes and foreign Chrome Native Messaging entries matched the preinstall snapshots. The broken 3.2.70 Setup release was retired in the production registry and must not be reused. Commit `2a393594e5469292c55d7833f033c0cc772b424c` changed the helper entry to absolute imports and added a direct-entry regression test. The 3.2.70 package had valid Authenticode signatures but no timestamp. No installed package, browser force-install, or Agent upgrade acceptance is inferred from the rolled-back attempt.
@@ -271,16 +295,38 @@ The device-scoped `Municipal Default v1 (Policy DLP pilot)` assignment first pro
 
 The signed 3.2.72 Setup installed on the local canary; its installer log recorded `UPDATED/SERVICE_RUNNING`. A fresh preflight validated the MSI-owned 3.2.72 selector, signed MSI identity and strict Gateway WSS as `READY`. The newly installed helper process runs as LocalSystem and exposes the narrow Agent process-query ACE. The first policy ACK during service replacement was `ERROR`; after restarting the Agent with the fresh helper, the server recorded `APPLIED` at `2026-09-25 11:00:08 UTC` with the unchanged policy digest. Chrome and Yandex machine policy entries are Agent-owned and `APPLIED`; these observations do not prove browser-effective installation. Chrome has an earlier `0.1.0` administrative-install heartbeat, but it was stale at this ACK; Yandex has no extension heartbeat. Both browser effective-policy pages, fresh bridge heartbeat, update download and remaining Task 11 scenarios still require live proof.
 
+After that ACK, Chrome produced a fresh administrative-install heartbeat and
+the interactive User Sensor produced live Activity. The 3.2.72 Bridge's Hello
+failure and the Setup companion-restart defect were found in installed-binary
+checks. Source fixes and focused regressions are prepared but absent from the
+immutable installed 3.2.72 candidate; no complete single-run Python-suite
+result has been captured for this worktree state.
+The next candidate must also confirm that the installed Bridge returns an
+`OK` Hello ACK and that Setup starts User Sensor automatically.
+
 ### Task 11: Live Windows acceptance and limited pilot
 
 **Files:** `docs/architecture/endpoint-policy-dlp-foundation-v1.md`, `PLANS.md`, evidence under a non-secret release report path.
 
 - [ ] Validate production disk and backup, migration and immutable server release; verify strict CA/hostname HTTPS, WSS, service logs and previous release marker.
-- [ ] Canary Agent update on the local test workstation, then one IT and 1–3 pilot workstations only after exact rollback artifacts. Reconfirm installed browsers at the gate; both Chrome and Yandex are installed on the reference workstation as of 2026-09-25, so both require live proof. Begin without the extension, assign `Municipal Default v1` with `browser_sensor.required=true` and `deployment_mode=agent_managed`, and prove the Agent-owned machine-policy value and each browser's effective force-install policy separately, then browser download of the approved signed CRX over Endpoint HTTPS, Bridge handshake, heartbeat and `PENDING→APPLIED→COMPLIANT` in both browsers. An absent browser on another pilot device is an explicit untested gap, not proof of same-CRX support. Exercise activity, synthetic USB/print/upload/paste, Console projection, browser-closed semantics, idempotent reapply, browser/Agent restart, upgrade, `external_managed` hand-off with no subsequent Agent policy writes or removal of foreign entries, rollback and reapply. Separately start from a pre-existing externally owned force-install entry with no Agent marker; prove direct `external_managed` performs no installation-policy write while Bridge heartbeat and Console status work. Inspect effective policy pages and unrelated corporate extensions/native hosts before and after each ownership change.
+- [ ] Canary the next signed Agent on the local test workstation, then one IT and 1–3 pilot workstations only after exact rollback artifacts. Reconfirm installed browsers at the gate; both Chrome and Yandex are installed on the reference workstation as of 2026-09-25, so both require live proof. Use a disposable clean browser profile or separate test device to establish the extension-absent starting state without altering the user's active profile. Assign `Municipal Default v1` with `browser_sensor.required=true` and `deployment_mode=agent_managed`; prove the Agent-owned machine-policy value and each browser's effective force-install policy separately, then browser download of the approved signed CRX over Endpoint HTTPS, successful Bridge Hello and heartbeat, and `PENDING→APPLIED→COMPLIANT` in both browsers. An absent browser on another pilot device is an explicit untested gap, not proof of same-CRX support. Exercise activity, physical or disposable USB/print actions and browser upload/paste actions, Console projection, browser-closed semantics, idempotent reapply, browser/Agent restart, upgrade, `external_managed` hand-off with no subsequent Agent policy writes or removal of foreign entries, rollback and reapply. Keep synthetic Bridge events as transport evidence only. Separately start from a pre-existing externally owned force-install entry with no Agent marker; prove direct `external_managed` performs no installation-policy write while Bridge heartbeat and Console status work. Inspect effective policy pages and unrelated corporate extensions/native hosts before and after each ownership change.
 - [ ] At that gate, record per browser: version, domain/management prerequisite, policy value and ownership, effective policy status, signed CRX ID/version and HTTPS download source, Native Host registration, Bridge connection, Agent heartbeat and Console state. Prove a later extension update still uses Endpoint HTTPS. Keep machine-policy configuration, browser acceptance and extension activity as separate evidence; a registry write or policy ACK alone cannot yield `ACTIVE`/`COMPLIANT`. Check a closed browser retains last-known version/heartbeat without an installation error.
 - [ ] Search Agent logs, browser output, server DB, SecurityEvent, Audit and Context for a synthetic secret marker. Record negative result and browser version/package proof. If a dependency is unavailable, record the exact gap and do not claim Foundation complete.
 
 Production server deployment has partial evidence for this gate: the verified pre-deploy PostgreSQL backup is `/var/backups/endpoint-platform/pre-policy-dlp-20260925T083415Z.dump`; the immutable release under `/opt/endpoint-platform/releases/endpoint-platform-abdd5c7ef596` is current, Alembic reached `0035_policy_sensor_health`, API/worker/Nginx/PostgreSQL were active, and strict-CA/hostname HTTPS `/healthz` returned 200. The previous-release marker points to `endpoint-platform-1dc3ad3acfc5`. This does not prove a live Agent WSS policy exchange or Windows Browser Sensor acceptance. Recheck the live services and rollback marker at the final gate.
+
+The local device subsequently acknowledged its assigned policy as `APPLIED`
+over WSS; live User Sensor Activity, Chrome heartbeat and synthetic Bridge
+SecurityEvents reached the server. These observations do not prove
+`agent_managed` force-install from an absent state, live browser upload/paste
+capture, USB/print acceptance, Console `COMPLIANT` or Yandex acceptance.
+Yandex `ExtensionInstallForcelist` exists as an Agent-owned machine value, but
+an isolated browser profile did not install the approved extension and no
+Yandex heartbeat arrived. Confirm the installed browser's effective policy
+and corporate-management context using its supported UI; if its build does
+not honor the official machine policy, use an officially managed test browser
+context and leave this gate open. Do not replace the user's existing browser
+or use profile installation as an implicit workaround.
 
 ### Task 12: Final release audit
 

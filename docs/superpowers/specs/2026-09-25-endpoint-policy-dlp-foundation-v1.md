@@ -2003,9 +2003,32 @@ This addendum changes Browser Sensor deployment ownership only. Existing Policy,
 
 `browser_sensor.deployment_mode` is either `agent_managed` or `external_managed`.
 
+The `agent_managed` installation path is:
+
+```text
+Endpoint Policy (required=true, deployment_mode=agent_managed)
+  → Endpoint Agent
+  → authenticated Browser Integration Policy Applicator
+  → Chrome / Yandex machine-level enterprise force-install policy
+  → browser downloads the signed extension from Endpoint HTTPS
+  → EndpointBrowserBridge → Agent heartbeat → Console status
+```
+
+Each arrow is a separate acceptance observation. An Agent policy ACK or an
+Agent-owned registry entry proves neither that a browser accepted its policy
+nor that the extension was installed. The extension's administrative install
+type and a fresh heartbeat demonstrate browser-managed activity, while the
+effective policy page and HTTPS artifact evidence establish the exact
+force-install source during live acceptance.
+
 In `agent_managed`, Endpoint Agent owns a Browser Integration Policy Applicator. It uses official machine-level Chrome and Yandex enterprise policies to force-install the approved extension ID from the Endpoint HTTPS update URL. The applicator is idempotent, narrowly scoped, merge-safe and restart-safe. It must preserve other extension entries and native hosts. It must determine policy ownership before modifying an existing value and fail closed with a reported `POLICY_CONFLICT` when it cannot safely merge. Reapplying the same policy must perform no write. When switching away, it may remove only its own exact, unchanged extension entry and ownership marker; it must never delete a foreign entry or another owner's policy value. If ownership is uncertain, it leaves the value and reports conflict.
 
 In `external_managed`, GPO, Ansible or another enterprise system owns force-install. A transition from `agent_managed` may first remove only the Agent's exact, unchanged policy entry under its prior ownership. If that cleanup cannot be proven safe, preserve the value, report `POLICY_CONFLICT`, and do not claim that ownership hand-off completed. After safe hand-off, Agent does not change browser installation policy; it verifies Browser Bridge registration, accepts extension heartbeat and reports observed state. This mode remains compatible with a later fleet rollout.
+
+The signed Agent package still owns installation and registration of its own
+Native Messaging host in either mode. `external_managed` changes only who
+writes the browser's extension installation policy; it does not disable the
+Bridge or change the shared Browser Sensor source and protocol.
 
 An endpoint may enter `external_managed` directly, without ever having used
 `agent_managed`. In that case Agent makes no browser installation-policy write,
