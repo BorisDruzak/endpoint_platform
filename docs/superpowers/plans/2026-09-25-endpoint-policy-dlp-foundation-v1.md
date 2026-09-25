@@ -392,6 +392,17 @@ candidate complete on this evidence.
 
 Production server deployment has partial evidence for this gate: the verified pre-deploy PostgreSQL backup is `/var/backups/endpoint-platform/pre-policy-dlp-20260925T083415Z.dump`; the immutable release under `/opt/endpoint-platform/releases/endpoint-platform-abdd5c7ef596` is current, Alembic reached `0035_policy_sensor_health`, API/worker/Nginx/PostgreSQL were active, and strict-CA/hostname HTTPS `/healthz` returned 200. The previous-release marker points to `endpoint-platform-1dc3ad3acfc5`. This does not prove a live Agent WSS policy exchange or Windows Browser Sensor acceptance. Recheck the live services and rollback marker at the final gate.
 
+A read-only recheck on 2026-09-25 found all four services active, 19 GiB
+available on the 39 GiB production filesystem, the same immutable current
+release, an existing previous-release target, the 11 MiB pre-deploy backup,
+Alembic `0035_policy_sensor_health`, and strict-CA/hostname HTTPS `/healthz`
+HTTP 200. Against the current branch's code, the provider-gate command
+`py -m pytest tests/contracts tests/operations tests/gateway -q` passed
+(`594 passed, 6 skipped`); contract artifact generation `--check`,
+`compileall` over contracts/server/Agent, and `git diff --check` also exited
+successfully. These are targeted gate results, not a full retest after the
+final deployment candidate is frozen.
+
 The local device subsequently acknowledged its assigned policy as `APPLIED`
 over WSS; live User Sensor Activity, Chrome heartbeat and synthetic Bridge
 SecurityEvents reached the server. These observations do not prove
