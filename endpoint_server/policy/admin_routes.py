@@ -20,7 +20,7 @@ from endpoint_server.db.models import Device
 
 from .browser_status import load_browser_status
 from .compliance import derive_browser_compliance
-from .models import PolicyDefinition, PolicyDeviceState, PolicyVersion
+from .models import PolicyAssignment, PolicyDefinition, PolicyDeviceState, PolicyVersion
 from .service import (
     PolicyNotFound,
     assign_default_policy,
@@ -70,6 +70,12 @@ class PolicyPageResponse(BaseModel):
     offset: int
 
 
+class PolicySummaryResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    data: PolicySummary
+
+
 class PolicyVersionCreated(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -85,6 +91,34 @@ class PolicyVersionCreatedResponse(BaseModel):
     data: PolicyVersionCreated
 
 
+class PolicyVersionSummary(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    version_id: UUID
+    policy_version: int
+    digest: str
+    created_at: datetime
+
+
+class PolicyVersionPageResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    data: list[PolicyVersionSummary]
+    total: int
+    limit: int
+    offset: int
+
+
+class PolicyVersionDetail(PolicyVersionSummary):
+    policy: EndpointPolicyV1
+
+
+class PolicyVersionDetailResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    data: PolicyVersionDetail
+
+
 class PolicyAssignmentView(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -98,6 +132,18 @@ class PolicyAssignmentResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     data: PolicyAssignmentView
+
+
+class PolicyAssignmentCurrentView(PolicyAssignmentView):
+    policy_id: UUID
+    policy_version: int
+    policy_name: str
+
+
+class PolicyAssignmentCurrentResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    data: PolicyAssignmentCurrentView | None
 
 
 class ConsoleBrowserStatus(BaseModel):
@@ -196,6 +242,98 @@ async def list_policies(
         ) for row in rows],
         total=total, limit=limit, offset=offset,
     )
+
+
+@router.get("/{policy_id}", response_model=PolicySummaryResponse)
+async def read_policy_summary(
+    policy_id: UUID,
+    request: Request,
+    _: Annotated[AdminPrincipal, Depends(require_admin)],
+) -> PolicySummaryResponse:
+    _require_enabled(request)
+    async with request.app.state.session_provider() as session:
+        row = await session.get(PolicyDefinition, policy_id)
+        if row is None:
+            raise HTTPException(status_code=404, detail="Политика не найдена")
+        count = await session.scalar(select(func.count()).select_from(PolicyVersion).where(
+            PolicyVersion.definition_id == policy_id,
+        )) or 0
+        return PolicySummaryResponse(data=PolicySummary(
+            id=row.id, name=row.name, created_at=row.created_at,
+            versions_total=count,
+        ))
+
+
+@router.get("/{policy_id}/versions", response_model=PolicyVersionPageResponse)
+async def list_policy_versions(
+    policy_id: UUID,
+    request: Request,
+    _: Annotated[AdminPrincipal, Depends(require_admin)],
+    limit: Annotated[int, Query(ge=1, le=100)] = 50,
+    offset: Annotated[int, Query(ge=0, le=100_000)] = 0,
+) -> PolicyVersionPageResponse:
+    _require_enabled(request)
+    async with request.app.state.session_provider() as session:
+        if await session.get(PolicyDefinition, policy_id) is None:
+            raise HTTPException(status_code=404, detail="Политика не найдена")
+        total = await session.scalar(select(func.count()).select_from(PolicyVersion).where(
+            PolicyVersion.definition_id == policy_id,
+        )) or 0
+        rows = (await session.scalars(
+            select(PolicyVersion).where(PolicyVersion.definition_id == policy_id)
+            .order_by(PolicyVersion.version.desc()).limit(limit).offset(offset)
+        )).all()
+    return PolicyVersionPageResponse(
+        data=[PolicyVersionSummary(
+            version_id=row.id, policy_version=row.version,
+            digest=row.digest, created_at=row.created_at,
+        ) for row in rows],
+        total=total, limit=limit, offset=offset,
+    )
+
+
+@router.get("/{policy_id}/versions/{version_id}", response_model=PolicyVersionDetailResponse)
+async def read_policy_version(
+    policy_id: UUID,
+    version_id: UUID,
+    request: Request,
+    _: Annotated[AdminPrincipal, Depends(require_admin)],
+) -> PolicyVersionDetailResponse:
+    _require_enabled(request)
+    async with request.app.state.session_provider() as session:
+        row = await session.get(PolicyVersion, version_id)
+        if row is None or row.definition_id != policy_id:
+            raise HTTPException(status_code=404, detail="Версия политики не найдена")
+        return PolicyVersionDetailResponse(data=PolicyVersionDetail(
+            version_id=row.id, policy_version=row.version,
+            digest=row.digest, created_at=row.created_at,
+            policy=EndpointPolicyV1.model_validate(row.document),
+        ))
+
+
+@router.get("/assignments/default", response_model=PolicyAssignmentCurrentResponse)
+async def read_default_assignment(
+    request: Request,
+    _: Annotated[AdminPrincipal, Depends(require_admin)],
+) -> PolicyAssignmentCurrentResponse:
+    _require_enabled(request)
+    async with request.app.state.session_provider() as session:
+        current = (await session.execute(
+            select(PolicyAssignment, PolicyVersion, PolicyDefinition)
+            .join(PolicyVersion, PolicyAssignment.policy_version_id == PolicyVersion.id)
+            .join(PolicyDefinition, PolicyVersion.definition_id == PolicyDefinition.id)
+            .where(PolicyAssignment.scope == "default")
+        )).one_or_none()
+        if current is None:
+            return PolicyAssignmentCurrentResponse(data=None)
+        assignment, version, definition = current
+        return PolicyAssignmentCurrentResponse(data=PolicyAssignmentCurrentView(
+            scope=assignment.scope, device_id=assignment.device_id,
+            policy_version_id=assignment.policy_version_id,
+            assigned_at=assignment.assigned_at,
+            policy_id=definition.id, policy_version=version.version,
+            policy_name=definition.name,
+        ))
 
 
 @router.get("/devices/{device_id}/status", response_model=ConsolePolicyDeviceStatusResponse)

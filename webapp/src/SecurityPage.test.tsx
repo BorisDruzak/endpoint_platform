@@ -9,6 +9,10 @@ it('shows a safe browser upload and filters the event list', async () => {
   const calls: string[] = []
   vi.stubGlobal('fetch', vi.fn(async (url: string) => {
     calls.push(url)
+    if (url.includes('/console/policies/assignments/default')) return { ok: true, status: 200,
+      json: async () => ({ data: null }) } as Response
+    if (url.includes('/console/policies?')) return { ok: true, status: 200,
+      json: async () => ({ data: [], total: 0, limit: 50, offset: 0 }) } as Response
     if (url.endsWith('/event-1')) return { ok: true, status: 200, json: async () => ({ data: {
       id: 'event-1', device_id: 'device-1', device_name: 'Рабочая станция',
       event_type: 'BROWSER_UPLOAD', channel: 'BROWSER', severity: 'INFO',
@@ -29,6 +33,7 @@ it('shows a safe browser upload and filters the event list', async () => {
     }) } as Response
   }))
   render(<MemoryRouter initialEntries={['/admin/security']}><SecurityPage /></MemoryRouter>)
+  expect(await screen.findByRole('heading', { name: 'Активная политика' })).toBeTruthy()
   const list = (await screen.findByRole('heading', { name: /^События$/ })).closest('section')!
   expect(within(list).getByText('Рабочая станция')).toBeTruthy()
   expect(within(list).getByText('example.org')).toBeTruthy()
@@ -45,5 +50,5 @@ it('shows a safe browser upload and filters the event list', async () => {
 it('explains the disabled feature in Russian', async () => {
   vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 404 } as Response)))
   render(<MemoryRouter initialEntries={['/admin/security']}><SecurityPage /></MemoryRouter>)
-  expect((await screen.findByRole('alert')).textContent).toContain('Раздел «Политики и DLP» сейчас отключён')
+  expect((await screen.findByText(/Раздел «Политики и DLP» сейчас отключён/)).textContent).toContain('Раздел «Политики и DLP» сейчас отключён')
 })

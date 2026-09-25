@@ -47,7 +47,7 @@ const ownerLabels: Record<NonNullable<BrowserStatus['policy_owner']>, string> = 
   CONFLICT: 'Конфликт', UNKNOWN: 'Неизвестно',
 }
 const installationLabels: Record<NonNullable<BrowserStatus['installation_policy_state']>, string> = {
-  APPLIED: 'Применена', NOT_APPLIED: 'Не применена', CONFLICT: 'Конфликт', UNKNOWN: 'Неизвестно',
+  APPLIED: 'Настроена на устройстве', NOT_APPLIED: 'Не настроена', CONFLICT: 'Конфликт', UNKNOWN: 'Неизвестно',
 }
 const nativeHostLabels: Record<NonNullable<BrowserStatus['native_host_state']>, string> = {
   READY: 'Готов', MISSING: 'Не найден', UNKNOWN: 'Неизвестно',
@@ -67,9 +67,9 @@ const reasonLabels: Record<string, string> = {
   BROWSER_ABSENT: 'Браузер не обнаружен',
   BROWSER_DETECTION_UNKNOWN: 'Не удалось определить наличие браузера',
   POLICY_OWNER_MISMATCH: 'Политикой установки управляет другой владелец',
-  INSTALLATION_POLICY_NOT_APPLIED: 'Политика установки не применена',
+  INSTALLATION_POLICY_NOT_APPLIED: 'Политика установки не настроена',
   NATIVE_HOST_UNAVAILABLE: 'Native Bridge недоступен',
-  BROWSER_NOT_LAUNCHED: 'Браузер не запускался после применения политики',
+  BROWSER_NOT_LAUNCHED: 'Браузер не запускался после настройки политики',
   EXTENSION_NEVER_SEEN: 'Расширение ещё не выходило на связь',
   BROWSER_CLOSED: 'Браузер сейчас закрыт',
   BROWSER_RUNNING_UNKNOWN: 'Не удалось определить, открыт ли браузер',
@@ -115,6 +115,7 @@ export function DevicePolicyStatus({ deviceId }: { deviceId: string }) {
         <div><dt>Версия расширения</dt><dd>{browser.extension_version ?? 'Нет данных'}</dd></div>
         <div><dt>Последняя связь</dt><dd>{dateText(browser.extension_last_seen_at)}</dd></div>
       </dl>
+      {browser.installation_policy_state === 'APPLIED' && <p className="muted">Действие политики в браузере не подтверждено</p>}
       {browser.reason && <p className="muted">Причина: {reasonLabels[browser.reason] ?? 'Состояние требует проверки'}</p>}
     </section>)}</div>
   </>

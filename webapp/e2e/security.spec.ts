@@ -6,6 +6,12 @@ test('administrator inspects a bounded browser SecurityEvent', async ({ page }) 
   const browserErrors: string[] = []
   page.on('pageerror', error => browserErrors.push(error.message))
   page.on('console', message => { if (message.type() === 'error') browserErrors.push(message.text()) })
+  await page.route('**/api/admin/console/policies**', async route => {
+    const url = new URL(route.request().url())
+    await route.fulfill({ json: url.pathname.endsWith('/assignments/default')
+      ? { data: null }
+      : { data: [], total: 0, limit: 50, offset: 0 } })
+  })
   await page.route('**/api/admin/console/security/events**', async route => {
     const url = new URL(route.request().url())
     if (url.pathname.endsWith('/event-1')) {
@@ -37,6 +43,8 @@ test('administrator inspects a bounded browser SecurityEvent', async ({ page }) 
   await page.getByRole('navigation', { name: 'Основная навигация' }).getByRole('link', { name: 'Политики и DLP' }).click()
   await expect(page).toHaveURL(/\/admin\/security$/)
   await expect(page.getByRole('heading', { name: 'События безопасности' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Активная политика' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Создать политику' })).toBeVisible()
   await expect(page.getByRole('table').getByText('Тестовый компьютер')).toBeVisible()
   await page.getByLabel('Канал').selectOption('BROWSER')
   await expect(page).toHaveURL(/channel=BROWSER/)

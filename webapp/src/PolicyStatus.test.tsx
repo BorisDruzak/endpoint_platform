@@ -37,7 +37,7 @@ it('shows separate managed and external browser facts without raw status codes',
   expect(within(chrome).getByText('Связь устарела')).toBeTruthy()
   expect(within(chrome).getByText(/Браузер сейчас закрыт/)).toBeTruthy()
   expect(within(chrome).getByText('0.1.0')).toBeTruthy()
-  expect(within(yandex).getByText(/Браузер не запускался после применения политики/)).toBeTruthy()
+  expect(within(yandex).getByText(/Браузер не запускался после настройки политики/)).toBeTruthy()
   expect(within(yandex).getByText('Ещё не обнаружено')).toBeTruthy()
   expect(screen.getAllByText('Внешняя политика').length).toBeGreaterThan(0)
   expect(screen.queryByText('BROWSER_CLOSED')).toBeNull()
@@ -60,4 +60,15 @@ it('does not present an unsupported agent as active', async () => {
   expect(await screen.findByText('Не поддерживается агентом')).toBeTruthy()
   expect(screen.getAllByText('Нет подтверждения')).toHaveLength(2)
   expect(screen.queryByText('Активно')).toBeNull()
+})
+
+it('does not present a configured registry policy as browser-effective', async () => {
+  vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, status: 200,
+    json: async () => ({ data: status() }),
+  })))
+  render(<DevicePolicyStatus deviceId="device-1" />)
+  const chrome = (await screen.findByRole('heading', { name: 'Chrome' })).closest('section')!
+  expect(within(chrome).getByText('Настроена на устройстве')).toBeTruthy()
+  expect(within(chrome).getByText('Действие политики в браузере не подтверждено')).toBeTruthy()
+  expect(within(chrome).queryByText('Применена')).toBeNull()
 })

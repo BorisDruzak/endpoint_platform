@@ -63,6 +63,9 @@ button:disabled { cursor: wait; opacity: .65; }
 .filters { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 16px; }
 .filters label { display: flex; flex-direction: column; gap: 6px; min-width: 145px; flex: 1; color: #526176; font-size: 12px; font-weight: 650; }
 .filters input, .filters select { width: 100%; height: 38px; border: 1px solid #bac6d4; border-radius: 4px; background: #fff; padding: 0 9px; color: #17263a; font-size: 13px; }
+.policy-action, .policy-assign button { background: #fff; color: #1b5eaa; border: 1px solid #aebccd; border-radius: 4px; padding: 8px 14px; margin-right: 8px; }
+.policy-assign { align-items: flex-end; margin-top: 16px; }
+.policy-assign button { height: 38px; margin-right: 0; }
 .table-panel { padding: 0; }
 .table-top { display: flex; align-items: baseline; justify-content: space-between; padding: 18px 20px 5px; }
 .table-top h2 { margin: 0; }

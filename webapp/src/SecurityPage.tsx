@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link, useSearchParams } from 'react-router'
 import { ApiError, request } from './api'
+import { PolicyCatalog } from './PolicyCatalog'
 
 type EventType = 'USB_DEVICE_CONNECTED' | 'USB_DEVICE_DISCONNECTED' | 'PRINT_JOB' | 'BROWSER_UPLOAD' | 'BROWSER_PASTE'
 type SecurityEvent = {
@@ -89,6 +90,7 @@ export function SecurityPage() {
 
   return <>
     <div className="page-heading"><div><p className="eyebrow">ПОЛИТИКИ И DLP</p><h1>События безопасности</h1><p className="muted">События аудита USB, печати и действий в браузере</p></div><button onClick={() => setRevision(value => value + 1)}>Обновить</button></div>
+    <PolicyCatalog />
     <div className="filters panel">
       <label>С<input type="datetime-local" value={params.get('since')?.slice(0, 16) ?? ''} onChange={event => filter('since', event.target.value ? new Date(event.target.value).toISOString() : '')} /></label>
       <label>По<input type="datetime-local" value={params.get('until')?.slice(0, 16) ?? ''} onChange={event => filter('until', event.target.value ? new Date(event.target.value).toISOString() : '')} /></label>

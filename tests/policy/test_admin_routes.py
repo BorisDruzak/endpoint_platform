@@ -87,6 +87,17 @@ async def test_policy_console_versions_assignments_and_audit() -> None:
             json={"policy_version_id": version_id},
         )
         listing = await client.get("/api/admin/console/policies?limit=1")
+        policy_id = created.json()["data"]["policy_id"]
+        policy_summary = await client.get(f"/api/admin/console/policies/{policy_id}")
+        missing_policy = await client.get(f"/api/admin/console/policies/{uuid4()}")
+        versions = await client.get(f"/api/admin/console/policies/{policy_id}/versions?limit=1")
+        version_detail = await client.get(
+            f"/api/admin/console/policies/{policy_id}/versions/{second_version.json()['data']['version_id']}"
+        )
+        default_assignment = await client.get("/api/admin/console/policies/assignments/default")
+        wrong_policy_version = await client.get(
+            f"/api/admin/console/policies/{uuid4()}/versions/{version_id}"
+        )
         invalid_page = await client.get("/api/admin/console/policies?limit=101")
         missing_device = await client.put(
             f"/api/admin/console/policies/assignments/devices/{uuid4()}",
@@ -103,6 +114,21 @@ async def test_policy_console_versions_assignments_and_audit() -> None:
     assert default.status_code == override.status_code == 200
     assert listing.status_code == 200 and listing.json()["total"] == 1
     assert listing.json()["data"][0]["versions_total"] == 2
+    assert policy_summary.status_code == 200
+    assert policy_summary.json()["data"]["name"] == "Муниципальная"
+    assert policy_summary.json()["data"]["versions_total"] == 2
+    assert missing_policy.status_code == 404
+    assert versions.status_code == 200 and versions.json()["total"] == 2
+    assert versions.json()["data"][0]["policy_version"] == 2
+    assert version_detail.status_code == 200
+    assert version_detail.json()["data"]["policy"]["policy_version"] == 2
+    assert version_detail.json()["data"]["policy"]["policy_id"] == policy_id
+    assert default_assignment.status_code == 200
+    assert default_assignment.json()["data"]["policy_version_id"] == version_id
+    assert default_assignment.json()["data"]["policy_id"] == policy_id
+    assert default_assignment.json()["data"]["policy_version"] == 1
+    assert default_assignment.json()["data"]["policy_name"] == "Муниципальная"
+    assert wrong_policy_version.status_code == 404
     assert missing_device.status_code == 404
     assert len(assignments) == 2
     assert actions.count("policy.version.created") == 2
