@@ -946,6 +946,8 @@ Do not require a second manual installer.
 
 The current Windows Agent service runs as `LocalService`, so it must not silently gain broad administrator rights. `agent_managed` policy writes require a fixed, narrowly privileged component installed by the signed MSI/Setup and controlled by Agent through a typed local contract. The component must authenticate the calling Agent service identity on each local request and accept only versioned apply/relinquish operations for the pinned extension ID and approved Endpoint HTTPS update URL. It may write only the approved Endpoint extension's machine-level browser policy and its ownership marker; no arbitrary registry path/value API is allowed. A failed authentication or unsafe policy merge must leave the existing browser policy unchanged and be reported separately from extension heartbeat state.
 
+The LocalService client also verifies the helper's live LocalSystem process and token before sending a request. The helper must publish only the rights needed for that check to the Agent service SID: `PROCESS_QUERY_LIMITED_INFORMATION` on its process, `TOKEN_QUERY` on its token, and synchronize, read/write data plus `FILE_READ_ATTRIBUTES` on the single fixed named pipe. The helper must publish these ACLs before accepting requests. A pipe ACL alone is insufficient because the client would be unable to authenticate the server identity; broad access to the helper process, token, or registry is prohibited.
+
 ---
 
 # 32. Upgrade behavior
