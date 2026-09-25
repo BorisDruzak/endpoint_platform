@@ -26,9 +26,9 @@ replays it on timeout, and removes rows only after an exact persisted ACK. The
 sender waits until `RuntimeLifecycle` has sent the policy ACK frame on the
 current WSS connection before replaying any queued batch. The last registered
 production Agent 3.2.67 does not advertise `endpoint.security-events.v1`; the
-3.2.70 release candidate enables this path but still requires installed-agent proof.
+3.2.71 release candidate enables this path but still requires installed-agent proof.
 The WSS transport also defines a negotiated `endpoint.browser-status.v1` frame
-for bounded Chrome/Yandex observations. The 3.2.70 Windows release candidate
+for bounded Chrome/Yandex observations. The 3.2.71 Windows release candidate
 coalesces authenticated Native Bridge Hello/Heartbeat facts by browser and
 applied policy, inspects App Paths, process metadata, owned policy values and
 the installed Native Host manifest without writes, and sends one two-family
