@@ -26,6 +26,12 @@ its console-mode `EndpointBrowserBridge.exe` and Chrome machine-level native-hos
 registration are MSI inputs. Yandex registration and live browser acceptance
 remain open.
 
+`platform/windows/browser_policy.py` contains the fixed Chrome/Yandex
+machine-policy value applicator and ownership-marker checks for the pinned
+Browser Sensor extension. It is privileged-helper code: the LocalService Agent
+does not call its HKLM writer directly. The authenticated helper channel, MSI
+service registration and effective-browser-policy proof remain open.
+
 ## Main packages
 
 | Surface | Location | Responsibility |
@@ -33,6 +39,7 @@ remain open.
 | Runtime | `pc_agent/runtime/` | headless lifecycle, local state, verification |
 | Transport | `pc_agent/transport/` | Endpoint Gateway WSS protocol and HTTP compatibility |
 | Policy | `pc_agent/policy/` | validated policy application and last-good cache |
+| Browser machine policy | `pc_agent/platform/windows/browser_policy.py` | fixed extension force-install values, ownership marker and safe relinquish; helper integration pending |
 | Local sensors | `pc_agent/platform/windows/{local_ipc,sensor_pipe_listener,activity_api,user_sensor,user_sensor_runtime,browser_bridge,browser_bridge_entry}.py` | bounded user/browser observation boundary; service listener, per-user sampler and binary native-host entrypoint |
 | Enrollment | `pc_agent/enrollment_identity.py`, `pc_agent/device_credential.py` | device identity and credentials |
 | Context | `pc_agent/context_profiles/` | typed context collection and execution |
