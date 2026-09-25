@@ -17,9 +17,11 @@ import aiohttp
 from pydantic import ValidationError
 
 from endpoint_contracts.activity import ActivityObservationV1
+from endpoint_contracts.browser_status import BrowserStatusReportV1
 from endpoint_contracts.security_events import AgentSecurityEventBatchV1
 from endpoint_contracts.gateway_ws import (
     ActivityObservationEnvelopeV1,
+    BrowserStatusReportEnvelopeV1,
     AgentHelloEnvelopeV1,
     CommandAckEnvelopeV1,
     CommandResultEnvelopeV1,
@@ -275,6 +277,13 @@ class WebSocketGatewayTransport:
             ActivityObservationEnvelopeV1,
             kind="activity_observation",
             payload=observation,
+        )
+
+    async def send_browser_status_report(self, report: BrowserStatusReportV1) -> None:
+        await self._send(
+            BrowserStatusReportEnvelopeV1,
+            kind="browser_status_report",
+            payload=report,
         )
 
     async def send_security_event_batch(

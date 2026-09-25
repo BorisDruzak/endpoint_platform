@@ -27,6 +27,10 @@ sender waits until `RuntimeLifecycle` has sent the policy ACK frame on the
 current WSS connection before replaying any queued batch. The current 3.2.67
 Agent does not advertise `endpoint.security-events.v1`; this
 path activates at 3.2.70 after sensor integration and installed-agent proof.
+The WSS transport also defines a negotiated `endpoint.browser-status.v1` frame
+for bounded Chrome/Yandex observations. The Agent does not yet collect or send
+those observations; the server stores per-family current facts and derives
+compliance from policy and report freshness.
 For the future feature version, the Agent core bundle includes the release-pinned
 extension ID. The service pipe maps approved browser upload/paste metadata to
 typed SecurityEvents and waits for a durable spool write before returning the

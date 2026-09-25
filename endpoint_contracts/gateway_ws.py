@@ -15,6 +15,7 @@ from pydantic import (
 
 from .base import ContractModelV1
 from .activity import ActivityObservationV1
+from .browser_status import BrowserStatusReportV1
 from .capabilities import (
     MODULE_CAPABILITY_REGISTRY,
     module_capability_gateway_parameter_schema,
@@ -64,10 +65,11 @@ CapabilityListV1 = Annotated[
     Field(max_length=MAX_CAPABILITIES_V1, json_schema_extra={"uniqueItems": True}),
 ]
 ProtocolFeatureV1 = Literal[
-    "endpoint.policy.v1", "endpoint.activity.v1", "endpoint.security-events.v1"
+    "endpoint.policy.v1", "endpoint.activity.v1", "endpoint.security-events.v1",
+    "endpoint.browser-status.v1",
 ]
 ProtocolFeaturesV1 = Annotated[
-    list[ProtocolFeatureV1], Field(strict=True, max_length=3)
+    list[ProtocolFeatureV1], Field(strict=True, max_length=4)
 ]
 
 
@@ -416,6 +418,11 @@ class ActivityObservationEnvelopeV1(_GatewayWsEnvelopeBaseV1):
     payload: ActivityObservationV1
 
 
+class BrowserStatusReportEnvelopeV1(_GatewayWsEnvelopeBaseV1):
+    kind: Literal["browser_status_report"]
+    payload: BrowserStatusReportV1
+
+
 class SecurityEventBatchEnvelopeV1(_GatewayWsEnvelopeBaseV1):
     kind: Literal["security_event_batch"]
     payload: AgentSecurityEventBatchV1
@@ -449,6 +456,7 @@ GatewayWsEnvelopeBodyV1 = Annotated[
     | EndpointPolicyDeliveryEnvelopeV1
     | EndpointPolicyAckEnvelopeV1
     | ActivityObservationEnvelopeV1
+    | BrowserStatusReportEnvelopeV1
     | SecurityEventBatchEnvelopeV1
     | SecurityEventAckEnvelopeV1
     | ServerShutdownNoticeEnvelopeV1
@@ -483,6 +491,7 @@ class GatewayInboundV1(RootModel[GatewayInboundBodyV1]):
 __all__ = [
     "AgentHelloV1",
     "ActivityObservationEnvelopeV1",
+    "BrowserStatusReportEnvelopeV1",
     "CommandCancelV1",
     "GatewayErrorV1",
     "GatewayHelloV1",

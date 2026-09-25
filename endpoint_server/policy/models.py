@@ -132,7 +132,40 @@ class PolicyApplication(OwnershipRecord, Base):
     acknowledged_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
+class BrowserStatusCurrent(OwnershipRecord, Base):
+    """Last per-browser facts reported by one Agent, independent of compliance."""
+
+    __tablename__ = "browser_status_current"
+    __table_args__ = (
+        UniqueConstraint("device_id", "browser_family", name="uq_browser_status_device_family"),
+        CheckConstraint(
+            "browser_family IN ('chrome', 'yandex')",
+            name="ck_browser_status_family",
+        ),
+        Index("ix_browser_status_observed", "device_id", "observed_at"),
+    )
+
+    device_id: Mapped[UUID] = mapped_column(
+        ForeignKey("devices.id", ondelete="CASCADE"), nullable=False,
+    )
+    browser_family: Mapped[str] = mapped_column(String(16), nullable=False)
+    observation_id: Mapped[UUID] = mapped_column(nullable=False)
+    policy_id: Mapped[UUID] = mapped_column(nullable=False)
+    policy_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    observed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    received_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    browser_state: Mapped[str] = mapped_column(String(16), nullable=False)
+    running_state: Mapped[str] = mapped_column(String(16), nullable=False)
+    policy_owner: Mapped[str] = mapped_column(String(16), nullable=False)
+    installation_policy_state: Mapped[str] = mapped_column(String(16), nullable=False)
+    native_host_state: Mapped[str] = mapped_column(String(16), nullable=False)
+    extension_version: Mapped[str | None] = mapped_column(String(32))
+    extension_last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_running_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
 __all__ = [
+    "BrowserStatusCurrent",
     "PolicyApplication",
     "PolicyAssignment",
     "PolicyDefinition",

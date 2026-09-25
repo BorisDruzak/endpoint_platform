@@ -193,8 +193,12 @@ callback passed on Windows; physical plug/unplug and on-device retention/health
 proof are still required. The local spooler ADD_JOB source now requests only
 printer name, user name, total pages and total bytes; its policy gate and
 durable-spool handoff are wired. Projection/parser tests and Windows native
-subscription start/stop pass. A real disposable print job, per-browser status,
-server-derived compliance and installed-browser proof are still open.
+subscription start/stop pass. A real disposable print job and installed-browser
+proof are still open. The strict Chrome/Yandex status contract, negotiated WSS
+frame, per-family current rows, migration `0033`, out-of-order handling and
+server-only compliance derivation now pass focused tests. The Agent does not
+yet collect or send live browser facts; Console projection and installed-browser
+acceptance remain open. These server changes have not been deployed.
 
 ### Task 9: Russian Console
 

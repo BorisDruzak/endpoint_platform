@@ -16,6 +16,7 @@ from starlette.websockets import WebSocketDisconnect
 from endpoint_contracts import AgentHelloV1, GatewayErrorV1, GatewayHelloV1
 from endpoint_contracts.gateway_ws import (
     ActivityObservationEnvelopeV1,
+    BrowserStatusReportEnvelopeV1,
     AgentHelloEnvelopeV1,
     CommandAckEnvelopeV1,
     CommandResultEnvelopeV1,
@@ -31,6 +32,7 @@ from endpoint_server.operations.capabilities import module_capability_is_compati
 from endpoint_server.updates.agent_routes import DevicePrincipal, _authenticate_device
 from endpoint_server.context.connect_refresh import queue_connect_refreshes
 from endpoint_server.activity.ingestion import ingest_gateway_activity
+from endpoint_server.policy.browser_status import BrowserStatusRejected, ingest_browser_status
 from endpoint_server.security.ingestion import (
     SecurityEventRejected,
     commit_and_ack_security_events,
@@ -311,6 +313,16 @@ async def connect_agent(websocket: WebSocket) -> None:
                 async with websocket.app.state.session_provider() as session:
                     await ingest_gateway_activity(session, device_id, envelope.payload)
                     await session.commit()
+            elif isinstance(envelope, BrowserStatusReportEnvelopeV1):
+                if (
+                    not websocket.app.state.settings.endpoint_policy_enabled
+                    or "endpoint.browser-status.v1" not in connection.protocol_features
+                    or first.payload.platform != "windows_amd64"
+                ):
+                    raise GatewayProtocolError(1008, "browser_status_disabled")
+                async with websocket.app.state.session_provider() as session:
+                    await ingest_browser_status(session, device_id, envelope.payload)
+                    await session.commit()
             elif isinstance(envelope, SecurityEventBatchEnvelopeV1):
                 if (
                     not websocket.app.state.settings.endpoint_policy_enabled
@@ -354,6 +366,7 @@ async def connect_agent(websocket: WebSocket) -> None:
         PresenceRejected,
         PolicyAcknowledgementRejected,
         ContextValidationError,
+        BrowserStatusRejected,
         SecurityEventRejected,
     ) as error:
         logger.warning("Gateway state rejected: %s: %s", type(error).__name__, error)

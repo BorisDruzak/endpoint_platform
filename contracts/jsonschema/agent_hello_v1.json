@@ -69,11 +69,12 @@
         "enum": [
           "endpoint.policy.v1",
           "endpoint.activity.v1",
-          "endpoint.security-events.v1"
+          "endpoint.security-events.v1",
+          "endpoint.browser-status.v1"
         ],
         "type": "string"
       },
-      "maxItems": 3,
+      "maxItems": 4,
       "title": "Protocol Features",
       "type": "array"
     },

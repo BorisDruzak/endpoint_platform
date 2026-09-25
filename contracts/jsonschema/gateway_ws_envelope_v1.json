@@ -362,11 +362,12 @@
             "enum": [
               "endpoint.policy.v1",
               "endpoint.activity.v1",
-              "endpoint.security-events.v1"
+              "endpoint.security-events.v1",
+              "endpoint.browser-status.v1"
             ],
             "type": "string"
           },
-          "maxItems": 3,
+          "maxItems": 4,
           "title": "Protocol Features",
           "type": "array"
         },
@@ -935,6 +936,120 @@
       "title": "BrowserActivityV1",
       "type": "object"
     },
+    "BrowserFamilyStatusV1": {
+      "additionalProperties": false,
+      "properties": {
+        "browser_family": {
+          "enum": [
+            "chrome",
+            "yandex"
+          ],
+          "title": "Browser Family",
+          "type": "string"
+        },
+        "browser_state": {
+          "enum": [
+            "DETECTED",
+            "ABSENT",
+            "UNKNOWN"
+          ],
+          "title": "Browser State",
+          "type": "string"
+        },
+        "extension_last_seen_at": {
+          "anyOf": [
+            {
+              "$comment": "model-only UTC normalization: timezone-aware values are normalized to UTC.",
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Extension Last Seen At"
+        },
+        "extension_version": {
+          "anyOf": [
+            {
+              "maxLength": 32,
+              "minLength": 1,
+              "pattern": "^[0-9]+(?:\\.[0-9]+){1,3}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Extension Version"
+        },
+        "installation_policy_state": {
+          "enum": [
+            "APPLIED",
+            "NOT_APPLIED",
+            "CONFLICT",
+            "UNKNOWN"
+          ],
+          "title": "Installation Policy State",
+          "type": "string"
+        },
+        "last_running_at": {
+          "anyOf": [
+            {
+              "$comment": "model-only UTC normalization: timezone-aware values are normalized to UTC.",
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Last Running At"
+        },
+        "native_host_state": {
+          "enum": [
+            "READY",
+            "MISSING",
+            "UNKNOWN"
+          ],
+          "title": "Native Host State",
+          "type": "string"
+        },
+        "policy_owner": {
+          "enum": [
+            "ENDPOINT",
+            "EXTERNAL",
+            "NONE",
+            "CONFLICT",
+            "UNKNOWN"
+          ],
+          "title": "Policy Owner",
+          "type": "string"
+        },
+        "running_state": {
+          "enum": [
+            "RUNNING",
+            "CLOSED",
+            "UNKNOWN"
+          ],
+          "title": "Running State",
+          "type": "string"
+        }
+      },
+      "required": [
+        "browser_family",
+        "browser_state",
+        "running_state",
+        "policy_owner",
+        "installation_policy_state",
+        "native_host_state"
+      ],
+      "title": "BrowserFamilyStatusV1",
+      "type": "object"
+    },
     "BrowserPasteEventV1": {
       "additionalProperties": false,
       "properties": {
@@ -1081,6 +1196,89 @@
         "deployment_mode"
       ],
       "title": "BrowserSensorPolicyV1",
+      "type": "object"
+    },
+    "BrowserStatusReportEnvelopeV1": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "browser_status_report",
+          "title": "Kind",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/BrowserStatusReportV1"
+        },
+        "schema_version": {
+          "const": "gateway_ws_envelope_v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "sequence": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Sequence",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "schema_version",
+        "sequence",
+        "kind",
+        "payload"
+      ],
+      "title": "BrowserStatusReportEnvelopeV1",
+      "type": "object"
+    },
+    "BrowserStatusReportV1": {
+      "additionalProperties": false,
+      "properties": {
+        "browsers": {
+          "items": {
+            "$ref": "#/$defs/BrowserFamilyStatusV1"
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "title": "Browsers",
+          "type": "array"
+        },
+        "observation_id": {
+          "format": "uuid",
+          "title": "Observation Id",
+          "type": "string"
+        },
+        "observed_at": {
+          "$comment": "model-only UTC normalization: timezone-aware values are normalized to UTC.",
+          "format": "date-time",
+          "title": "Observed At",
+          "type": "string"
+        },
+        "policy_id": {
+          "format": "uuid",
+          "title": "Policy Id",
+          "type": "string"
+        },
+        "policy_version": {
+          "maximum": 2147483647,
+          "minimum": 1,
+          "title": "Policy Version",
+          "type": "integer"
+        },
+        "schema_version": {
+          "const": "browser_status_report_v1",
+          "title": "Schema Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema_version",
+        "observation_id",
+        "policy_id",
+        "policy_version",
+        "observed_at",
+        "browsers"
+      ],
+      "title": "BrowserStatusReportV1",
       "type": "object"
     },
     "BrowserUploadEventV1": {
@@ -3485,6 +3683,7 @@
     "mapping": {
       "activity_observation": "#/$defs/ActivityObservationEnvelopeV1",
       "agent_hello": "#/$defs/AgentHelloEnvelopeV1",
+      "browser_status_report": "#/$defs/BrowserStatusReportEnvelopeV1",
       "command": "#/$defs/CommandEnvelopeV1",
       "command_ack": "#/$defs/CommandAckEnvelopeV1",
       "command_cancel": "#/$defs/CommandCancelEnvelopeV1",
@@ -3538,6 +3737,9 @@
     },
     {
       "$ref": "#/$defs/ActivityObservationEnvelopeV1"
+    },
+    {
+      "$ref": "#/$defs/BrowserStatusReportEnvelopeV1"
     },
     {
       "$ref": "#/$defs/SecurityEventBatchEnvelopeV1"

@@ -36,6 +36,7 @@ from .modules import (
 )
 from .updates import UpdateBuild, UpdateReport, UpdateRollout, UpdateTarget
 from endpoint_server.policy.models import (
+    BrowserStatusCurrent,
     PolicyApplication,
     PolicyAssignment,
     PolicyDefinition,
@@ -45,6 +46,7 @@ from endpoint_server.policy.models import (
 from endpoint_server.security.models import SecurityEvent
 
 __all__ = [
+    "BrowserStatusCurrent",
     "AdminSession",
     "AdminUser",
     "AuditEvent",

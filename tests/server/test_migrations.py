@@ -147,7 +147,18 @@ def test_migration_history_has_exactly_one_head() -> None:
         _alembic_config("postgresql+asyncpg://unused@127.0.0.1/unused")
     )
 
-    assert script.get_heads() == ["0032_security_events"]
+    assert script.get_heads() == ["0033_browser_status"]
+
+
+def test_browser_status_migration_has_two_family_current_projection() -> None:
+    output = io.StringIO()
+    config = Config(REPOSITORY_ROOT / "alembic.ini", output_buffer=output)
+    config.set_main_option("sqlalchemy.url", "postgresql+asyncpg://unused@127.0.0.1/unused")
+    command.upgrade(config, "0032_security_events:0033_browser_status", sql=True)
+    rendered = " ".join(output.getvalue().split())
+    assert "CREATE TABLE browser_status_current" in rendered
+    assert "uq_browser_status_device_family" in rendered
+    assert "extension_last_seen_at" in rendered
 
 
 def test_activity_migration_adds_latest_safe_projection() -> None:
