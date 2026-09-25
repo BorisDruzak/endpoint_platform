@@ -25,6 +25,11 @@ exceed the payload bound. `security/runtime.py` sends one WSS batch at a time,
 replays it on timeout, and removes rows only after an exact persisted ACK. The
 current 3.2.67 Agent does not advertise `endpoint.security-events.v1`; this
 path activates at 3.2.70 after sensor integration and installed-agent proof.
+For the future feature version, the Agent core bundle includes the release-pinned
+extension ID. The service pipe maps approved browser upload/paste metadata to
+typed SecurityEvents and waits for a durable spool write before returning the
+Native Messaging ACK. Duplicate IDs succeed only for identical queued payloads.
+USB/print producers and server health/compliance projection remain open.
 
 The interactive `user_sensor_runtime.py` samples each logon session and sends
 bounded frames through the same authenticated pipe. MSI stages its fixed

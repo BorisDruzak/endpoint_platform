@@ -8,11 +8,12 @@ from uuid import uuid4
 import pytest
 
 from endpoint_contracts.endpoint_policy import EndpointPolicyV1
+from pc_agent.browser_protocol import BrowserUploadV1
 from pc_agent.platform.windows import activity_api
 from pc_agent.platform.windows.activity_api import ActivityIngress, handle_local_sensor_connection
 from pc_agent.platform.windows.local_ipc import ClientIdentity, LocalIpcRejected
 from pc_agent.platform.windows.local_sensor_protocol import (
-    LocalUserSessionEnvelopeV1, serialize_local_sensor_payload,
+    LocalBrowserEnvelopeV1, LocalUserSessionEnvelopeV1, serialize_local_sensor_payload,
 )
 from pc_agent.platform.windows.user_sensor import UserSessionSampleV1
 
@@ -116,6 +117,39 @@ def test_preframed_receiver_authorizes_writer_without_reading_pipe(monkeypatch) 
     assert reply.accepted
     assert len(sent) == 1
     assert sent[0].user_login == "CORP\\user"
+
+
+def test_browser_security_event_is_stored_before_local_ack(monkeypatch) -> None:
+    from pc_agent.platform.windows.activity_api import handle_local_sensor_payload
+
+    document = policy().model_dump(mode="json")
+    document["dlp"]["browser_upload_events"] = "audit"
+    active_policy = EndpointPolicyV1.model_validate(document)
+    payload = serialize_local_sensor_payload(LocalBrowserEnvelopeV1(
+        schema_version="local_sensor_envelope_v1", source="browser",
+        extension_id=EXTENSION_ID,
+        message=BrowserUploadV1(
+            schema_version="browser_sensor_event_v1", protocol_version=1,
+            event_identifier=uuid4(), browser_family="chrome",
+            destination_origin="https://example.test",
+            destination_domain="example.test", observed_at=NOW,
+            event_type="BROWSER_UPLOAD", file_count=1, total_bytes=42,
+            mime_categories=["document"],
+        ),
+    ))
+    order = []
+    monkeypatch.setattr(activity_api, "authorize_pipe_client", lambda _pipe: order.append("authorize") or IDENTITY)
+    monkeypatch.setattr(activity_api, "resolve_user_login", lambda _identity: "CORP\\user")
+
+    reply = handle_local_sensor_payload(
+        object(), payload, ingress=ActivityIngress(expected_extension_id=EXTENSION_ID),
+        policy_provider=lambda: active_policy,
+        on_observation=lambda _observation: order.append("activity"),
+        on_security_event=lambda _event: order.append("stored") or True,
+        received_at=NOW,
+    )
+    assert reply.accepted
+    assert order == ["authorize", "stored"]
 
 
 @pytest.mark.skipif(os.name != "nt", reason="Windows named pipe")

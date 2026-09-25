@@ -15,8 +15,10 @@ from pc_agent.platform.windows.user_sensor import UserSessionSampleV1
 from pc_agent.browser_protocol import (
     BrowserContextV1,
     BrowserHeartbeatV1,
+    BrowserPasteV1,
     BrowserUploadV1,
 )
+from endpoint_contracts.security_events import BrowserPasteEventV1, BrowserUploadEventV1
 
 
 EXTENSION_ID = "a" * 32
@@ -167,6 +169,100 @@ def test_dlp_event_is_not_acknowledged_before_durable_spool() -> None:
         policy=policy(), received_at=NOW,
     )
     assert ack.error_code == "SENSOR_NOT_READY" and observed is None
+
+
+def test_browser_upload_is_acknowledged_only_after_safe_event_is_stored() -> None:
+    ingress = ActivityIngress(expected_extension_id=EXTENSION_ID)
+    current_policy = policy()
+    identifier = uuid4()
+    upload = BrowserUploadV1(
+        schema_version="browser_sensor_event_v1", protocol_version=1,
+        event_identifier=identifier, browser_family="yandex",
+        destination_origin="https://example.test",
+        destination_domain="example.test", observed_at=NOW,
+        event_type="BROWSER_UPLOAD", file_count=2, total_bytes=42,
+        mime_categories=["document"],
+    )
+    stored = []
+    ack, observation = ingress.ingest(
+        browser_payload(upload), identity=IDENTITY, user_login="CORP\\user",
+        policy=current_policy, received_at=NOW,
+        on_security_event=lambda event: stored.append(event) or True,
+    )
+    assert ack.accepted and observation is None
+    assert len(stored) == 1
+    event = stored[0]
+    assert isinstance(event, BrowserUploadEventV1)
+    assert event.event_identifier == identifier
+    assert event.policy_id == current_policy.policy_id
+    assert event.policy_version == current_policy.policy_version
+    assert event.user_login == "CORP\\user"
+    assert event.safe_metadata.model_dump(exclude_none=True) == {
+        "domain": "example.test", "origin": "https://example.test",
+        "browser_family": "yandex", "file_count": 2, "total_bytes": 42,
+        "mime_categories": ["document"],
+    }
+
+
+def test_browser_event_fails_closed_when_spool_rejects_it() -> None:
+    ingress = ActivityIngress(expected_extension_id=EXTENSION_ID)
+    upload = BrowserUploadV1(
+        schema_version="browser_sensor_event_v1", protocol_version=1,
+        event_identifier=uuid4(), browser_family="chrome",
+        destination_origin="https://example.test",
+        destination_domain="example.test", observed_at=NOW,
+        event_type="BROWSER_UPLOAD", file_count=1, total_bytes=0,
+        mime_categories=["other"],
+    )
+    ack, observation = ingress.ingest(
+        browser_payload(upload), identity=IDENTITY, user_login=None,
+        policy=policy(), received_at=NOW,
+        on_security_event=lambda _event: False,
+    )
+    assert ack.error_code == "IPC_UNAVAILABLE" and observation is None
+
+
+def test_disabled_browser_paste_never_enters_spool() -> None:
+    ingress = ActivityIngress(expected_extension_id=EXTENSION_ID)
+    paste = BrowserPasteV1(
+        schema_version="browser_sensor_event_v1", protocol_version=1,
+        event_identifier=uuid4(), browser_family="chrome",
+        destination_origin="https://example.test",
+        destination_domain="example.test", observed_at=NOW,
+        event_type="BROWSER_PASTE", clipboard_types=["text"],
+    )
+    stored = []
+    ack, observation = ingress.ingest(
+        browser_payload(paste), identity=IDENTITY, user_login=None,
+        policy=policy(), received_at=NOW,
+        on_security_event=lambda event: stored.append(event) or True,
+    )
+    assert ack.error_code == "POLICY_DISABLED" and observation is None
+    assert stored == []
+
+
+def test_browser_paste_records_types_without_clipboard_content() -> None:
+    ingress = ActivityIngress(expected_extension_id=EXTENSION_ID)
+    document = policy().model_dump(mode="json")
+    document["dlp"]["browser_paste_events"] = "audit"
+    current_policy = EndpointPolicyV1.model_validate(document)
+    paste = BrowserPasteV1(
+        schema_version="browser_sensor_event_v1", protocol_version=1,
+        event_identifier=uuid4(), browser_family="chrome",
+        destination_origin="https://example.test",
+        destination_domain="example.test", observed_at=NOW,
+        event_type="BROWSER_PASTE", clipboard_types=["text", "html"],
+    )
+    stored = []
+    ack, observation = ingress.ingest(
+        browser_payload(paste), identity=IDENTITY, user_login="CORP\\user",
+        policy=current_policy, received_at=NOW,
+        on_security_event=lambda event: stored.append(event) or True,
+    )
+    assert ack.accepted and observation is None
+    assert len(stored) == 1 and isinstance(stored[0], BrowserPasteEventV1)
+    assert stored[0].safe_metadata.clipboard_types == ["text", "html"]
+    assert "content" not in stored[0].model_dump_json().lower()
 
 
 def test_disabled_activity_does_not_emit_user_observation() -> None:

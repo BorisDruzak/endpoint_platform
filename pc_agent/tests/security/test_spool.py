@@ -7,7 +7,8 @@ from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
 from endpoint_contracts.security_events import SecurityEventAckV1, UsbConnectedEventV1, UsbEventMetadataV1
-from pc_agent.security.spool import SecurityEventSpool
+from pc_agent.security.spool import SecurityEventSpool, SecurityEventSpoolError
+import pytest
 
 
 NOW = datetime(2026, 9, 25, 12, tzinfo=UTC)
@@ -105,5 +106,23 @@ def test_spool_enforces_byte_bound(tmp_path) -> None:
         assert [item.event_identifier for item in batch.events] == [
             events[1].event_identifier, events[2].event_identifier,
         ]
+
+    asyncio.run(scenario())
+
+
+def test_duplicate_browser_delivery_is_acknowledged_only_if_payload_matches(tmp_path) -> None:
+    async def scenario() -> None:
+        spool = SecurityEventSpool(tmp_path)
+        await spool.open()
+        event = _event()
+        assert await spool.enqueue(event, now=NOW)
+        assert await spool.enqueue(event, now=NOW)
+        assert (await spool.stats()).queued_events == 1
+        changed = event.model_copy(update={
+            "safe_metadata": UsbEventMetadataV1(removable=False),
+        })
+        with pytest.raises(SecurityEventSpoolError, match="conflicts"):
+            await spool.enqueue(changed, now=NOW)
+        assert (await spool.stats()).queued_events == 1
 
     asyncio.run(scenario())

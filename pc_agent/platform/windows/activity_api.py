@@ -12,6 +12,10 @@ from endpoint_contracts.activity import (
     ActivityObservationV1, BrowserActivityV1,
 )
 from endpoint_contracts.endpoint_policy import EndpointPolicyV1
+from endpoint_contracts.security_events import (
+    BrowserPasteEventV1, BrowserPasteMetadataV1,
+    BrowserUploadEventV1, BrowserUploadMetadataV1, SecurityEventV1,
+)
 from pc_agent.browser_protocol import (
     BrowserBridgeAckV1, BrowserContextV1, BrowserHeartbeatV1, BrowserHelloV1,
     BrowserPasteV1, BrowserUploadV1,
@@ -80,6 +84,7 @@ class ActivityIngress:
         user_login: str | None,
         policy: EndpointPolicyV1 | None,
         received_at: datetime,
+        on_security_event: Callable[[SecurityEventV1], bool] | None = None,
     ) -> tuple[BrowserBridgeAckV1, ActivityObservationV1 | None]:
         if received_at.tzinfo is None or received_at.utcoffset() is None:
             raise ValueError("local sensor receipt time must be timezone-aware")
@@ -109,7 +114,18 @@ class ActivityIngress:
                 policy.dlp.browser_upload_events if isinstance(message, BrowserUploadV1)
                 else policy.dlp.browser_paste_events
             )
-            return _ack("SENSOR_NOT_READY" if mode == "audit" else "POLICY_DISABLED"), None
+            if mode != "audit":
+                return _ack("POLICY_DISABLED"), None
+            if on_security_event is None:
+                return _ack("SENSOR_NOT_READY"), None
+            if not timedelta(0) <= now - message.observed_at.astimezone(UTC) <= timedelta(hours=24):
+                return _ack("INVALID_MESSAGE"), None
+            event = _browser_security_event(message, policy, user_login)
+            try:
+                accepted = on_security_event(event)
+            except Exception:
+                accepted = False
+            return _ack() if accepted else _ack("IPC_UNAVAILABLE"), None
         if not (
             policy.browser_sensor.required
             or (policy.activity.enabled and policy.activity.browser_context)
@@ -184,12 +200,50 @@ class ActivityIngress:
         )
 
 
+def _browser_security_event(
+    message: BrowserUploadV1 | BrowserPasteV1,
+    policy: EndpointPolicyV1,
+    user_login: str | None,
+) -> BrowserUploadEventV1 | BrowserPasteEventV1:
+    common = dict(
+        schema_version="security_event_v1",
+        event_identifier=message.event_identifier,
+        severity="INFO",
+        occurred_at=message.observed_at,
+        user_login=user_login,
+        policy_id=policy.policy_id,
+        policy_version=policy.policy_version,
+        channel="BROWSER",
+    )
+    metadata = dict(
+        domain=message.destination_domain,
+        origin=message.destination_origin,
+        browser_family=message.browser_family,
+    )
+    if isinstance(message, BrowserUploadV1):
+        return BrowserUploadEventV1(
+            **common, event_type="BROWSER_UPLOAD",
+            safe_metadata=BrowserUploadMetadataV1(
+                **metadata, file_count=message.file_count,
+                total_bytes=message.total_bytes,
+                mime_categories=message.mime_categories,
+            ),
+        )
+    return BrowserPasteEventV1(
+        **common, event_type="BROWSER_PASTE",
+        safe_metadata=BrowserPasteMetadataV1(
+            **metadata, clipboard_types=message.clipboard_types,
+        ),
+    )
+
+
 def handle_local_sensor_connection(
     pipe_handle: object,
     *,
     ingress: ActivityIngress,
     policy_provider: Callable[[], EndpointPolicyV1 | None],
     on_observation: Callable[[ActivityObservationV1], None],
+    on_security_event: Callable[[SecurityEventV1], bool] | None = None,
     received_at: datetime | None = None,
 ) -> BrowserBridgeAckV1 | None:
     """Read exactly one frame, then impersonate its writer before projection."""
@@ -200,6 +254,7 @@ def handle_local_sensor_connection(
     reply = handle_local_sensor_payload(
         pipe_handle, payload, ingress=ingress, policy_provider=policy_provider,
         on_observation=on_observation, received_at=received_at,
+        on_security_event=on_security_event,
     )
     write_pipe_frame(pipe_handle, reply.model_dump_json().encode("utf-8"))
     return reply
@@ -212,6 +267,7 @@ def handle_local_sensor_payload(
     ingress: ActivityIngress,
     policy_provider: Callable[[], EndpointPolicyV1 | None],
     on_observation: Callable[[ActivityObservationV1], None],
+    on_security_event: Callable[[SecurityEventV1], bool] | None = None,
     received_at: datetime | None = None,
 ) -> BrowserBridgeAckV1:
     """Authorize the writer of an already-framed request before projection."""
@@ -225,6 +281,7 @@ def handle_local_sensor_payload(
             reply, observation = ingress.ingest(
                 payload, identity=identity, user_login=resolve_user_login(identity),
                 policy=current_policy, received_at=received_at or datetime.now(UTC),
+                on_security_event=on_security_event,
             )
             if reply.accepted and observation is not None:
                 on_observation(observation)
@@ -238,6 +295,7 @@ def create_activity_pipe_listener(
     ingress: ActivityIngress,
     policy_provider: Callable[[], EndpointPolicyV1 | None],
     on_observation: Callable[[ActivityObservationV1], None],
+    on_security_event: Callable[[SecurityEventV1], bool] | None = None,
     pipe_name: str = PIPE_NAME,
 ) -> LocalSensorPipeListener:
     """Bind the bounded pipe to OS-authorized, policy-gated activity projection."""
@@ -245,6 +303,7 @@ def create_activity_pipe_listener(
         reply = handle_local_sensor_payload(
             pipe_handle, payload, ingress=ingress, policy_provider=policy_provider,
             on_observation=on_observation,
+            on_security_event=on_security_event,
         )
         return reply.model_dump_json().encode("utf-8")
 

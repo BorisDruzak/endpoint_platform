@@ -468,6 +468,49 @@ def test_windows_wss_defaults_start_policy_gated_local_listener(monkeypatch, tmp
     assert events == ["start", "stop"]
 
 
+@pytest.mark.skipif(os.name != "nt", reason="Windows local sensor")
+@pytest.mark.asyncio
+async def test_security_feature_pins_browser_identity_and_durable_handoff(
+    monkeypatch, tmp_path: Path,
+) -> None:
+    from pc_agent.platform.windows import activity_api, browser_bridge_entry
+    from pc_agent.tests.security.test_spool import NOW, _event
+    from pc_agent.security.spool import SecurityEventSpool
+
+    data_root = tmp_path / "data"
+    data_root.mkdir()
+    settings = RuntimeSettings(
+        data_root=data_root, install_root=tmp_path / "install",
+        ca_file=tmp_path / "endpoint-ca.crt",
+        endpoint_origin="https://endpoint.sosnadmin.local",
+        transport_mode="gateway_wss",
+    )
+    monkeypatch.setattr(runtime_application, "AGENT_VERSION", "3.2.70")
+    monkeypatch.setattr(browser_bridge_entry, "_extension_id", lambda: "a" * 32)
+    captured = {}
+
+    class Listener:
+        def start(self):
+            pass
+
+        def stop(self):
+            pass
+
+    def create_listener(**kwargs):
+        captured.update(kwargs)
+        return Listener()
+
+    monkeypatch.setattr(activity_api, "create_activity_pipe_listener", create_listener)
+    dependencies = runtime_application._default_dependencies(settings)
+    await dependencies.restore_policy(settings)
+    dependencies.start_local_sensor(settings)
+    assert captured["ingress"]._extension_id == "a" * 32
+    assert await asyncio.to_thread(captured["on_security_event"], _event(occurred_at=NOW))
+    spool = SecurityEventSpool(data_root)
+    await spool.open()
+    assert (await spool.stats()).queued_events == 1
+
+
 @pytest.mark.asyncio
 async def test_strict_windows_wss_lifecycle_clears_then_publishes_transport_readiness(
     tmp_path: Path,

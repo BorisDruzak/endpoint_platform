@@ -44,7 +44,7 @@ a = Analysis(
         "pc_agent.context_profiles.probe",
         "pc_agent.context_profiles.registry",
     ],
-    datas=[],
+    datas=[(str(project_root / "browser_sensor" / "extension-id.txt"), "browser_sensor")],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],

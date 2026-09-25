@@ -44,3 +44,10 @@ def test_entrypoint_writes_one_binary_ack_for_oversized_frame() -> None:
         "accepted": False,
         "error_code": "OVERSIZE",
     }
+
+
+def test_agent_core_bundle_contains_pinned_browser_identity() -> None:
+    spec = (REPO_ROOT / "pc_agent" / "pyinstaller_endpoint_core_windows.spec").read_text(
+        encoding="utf-8"
+    )
+    assert 'browser_sensor" / "extension-id.txt"' in spec

@@ -123,8 +123,19 @@ class SecurityEventSpool:
                 await cursor.close()
                 if inserted:
                     await self._trim(connection)
+                else:
+                    async with connection.execute(
+                        "SELECT payload_json FROM security_event_spool "
+                        "WHERE event_identifier = ?",
+                        (str(event.event_identifier),),
+                    ) as cursor:
+                        existing = await cursor.fetchone()
+                    if existing is None or existing[0] != payload:
+                        raise SecurityEventSpoolError(
+                            "security event identifier conflicts with queued event"
+                        )
                 await connection.commit()
-                return inserted
+                return True
             except BaseException:
                 await connection.rollback()
                 raise

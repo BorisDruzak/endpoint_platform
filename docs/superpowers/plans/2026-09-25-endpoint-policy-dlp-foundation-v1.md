@@ -177,6 +177,13 @@ yet a working SecurityEvent pipeline on a deployed Agent.
 - [ ] Implement bounded best-effort USB and print watchers plus per-browser discovery/running, effective policy owner/state and Native Bridge health. Coalesce bridge heartbeats into a typed WSS status envelope; persist latest per-family status and derive compliance on the server. Mark unsupported/unavailable honestly. Do not implement removable writes without proof of safe reliability.
 - [ ] Run Windows and compliance tests; commit.
 
+The Browser Bridge upload/paste route now validates the pinned extension ID,
+policy audit mode and a bounded typed payload, then persists the event in the
+Agent spool before local ACK. The Agent core build includes the public ID and
+the feature remains gated to the future 3.2.70 release. USB/print producers,
+per-browser status, server-derived compliance and installed-browser proof are
+still open.
+
 ### Task 9: Russian Console
 
 **Files:** Create `webapp/src/SecurityPage.tsx` and typed client DTOs; modify `webapp/src/{App,FleetPages,api,styles.css}` and `endpoint_server/console/` routes/projections. Tests in `webapp/src/`, `webapp/e2e/`, `tests/server/`.

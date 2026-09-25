@@ -8,6 +8,7 @@ import os
 import re
 import ssl
 import stat
+import threading
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
@@ -172,11 +173,35 @@ def _default_dependencies(
         from pc_agent.platform.windows.activity_api import (
             ActivityIngress, create_activity_pipe_listener,
         )
+        from pc_agent.platform.windows.browser_bridge_entry import _extension_id
+
+        on_security_event = None
+        extension_id = None
+        if security_runtime is not None:
+            extension_id = _extension_id()
+            loop = asyncio.get_running_loop()
+            loop_thread = threading.get_ident()
+
+            def persist_security_event(event):
+                if threading.get_ident() == loop_thread:
+                    return False
+                future = asyncio.run_coroutine_threadsafe(
+                    security_runtime.record(event), loop,
+                )
+                try:
+                    # Keep this below the pipe listener's three-second stop bound.
+                    return future.result(timeout=2)
+                except Exception:
+                    future.cancel()
+                    return False
+
+            on_security_event = persist_security_event
 
         listener = create_activity_pipe_listener(
-            ingress=ActivityIngress(expected_extension_id=None),
+            ingress=ActivityIngress(expected_extension_id=extension_id),
             policy_provider=lambda: policy_runtime.current_policy,
             on_observation=activity_dispatch.enqueue,
+            on_security_event=on_security_event,
         )
         listener.start()
         return listener
