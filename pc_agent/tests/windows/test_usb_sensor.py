@@ -87,6 +87,23 @@ def test_generated_usb_location_is_not_claimed_as_stable_serial() -> None:
     assert event.safe_metadata.serial_hash is None
 
 
+def test_usb_registration_without_live_dispatch_worker_is_unavailable() -> None:
+    source = UsbInterfaceNotifications(lambda _action, _path: None)
+    release = threading.Event()
+    worker = threading.Thread(target=release.wait)
+    source._handle = ctypes.c_void_p(1)
+    source._thread = worker
+    worker.start()
+    try:
+        assert source.available
+    finally:
+        release.set()
+        worker.join(timeout=2)
+    assert not source.available
+    with pytest.raises(RuntimeError, match="must be stopped"):
+        source.start()
+
+
 @pytest.mark.skipif(os.name != "nt", reason="CfgMgr32 notifications need Windows")
 def test_native_usb_callback_dispatches_off_system_callback_thread() -> None:
     delivered = []

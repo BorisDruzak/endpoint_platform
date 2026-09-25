@@ -91,11 +91,18 @@ class UsbInterfaceNotifications:
 
     @property
     def available(self) -> bool:
-        return self._handle is not None
+        return bool(
+            self._handle is not None
+            and self._thread is not None
+            and self._thread.is_alive()
+            and not self._stop.is_set()
+        )
 
     def start(self) -> None:
         if self.available:
             return
+        if self._handle is not None:
+            raise RuntimeError("USB notification must be stopped before restart")
         if not hasattr(ctypes, "WinDLL") or not hasattr(ctypes, "WINFUNCTYPE"):
             raise OSError("USB PnP notification is available only on Windows")
         cfgmgr = ctypes.WinDLL("CfgMgr32", use_last_error=True)

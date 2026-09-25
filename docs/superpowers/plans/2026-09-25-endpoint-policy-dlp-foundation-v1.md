@@ -223,6 +223,8 @@ The device-status API now exposes a separate server-derived `effective_policy_st
 
 The Windows policy applicator now accepts enabled Activity and browser upload/paste audit only after the local Activity pipe is started, the SecurityEvent spool is open and the approved Bridge extension identity is loaded. USB and print audit still require their live native notification sources. A synthetic Windows runtime test proves that a fully ready policy receives `APPLIED`; missing components still fail before browser-policy writes. This is local readiness, not proof that the per-user sensor, browser extension, physical USB/print sources or server ingest work on an installed Agent. Fleet-wide Activity/DLP `ACTIVE` status must come from fresh sensor observations or a separate bounded health report, never from policy ACK alone.
 
+USB availability now requires both a registered PnP notification and a live dispatch worker. A stale registration with a dead worker fails readiness and must be stopped before restart; the policy applicator cannot use that state as USB audit proof. Runtime health and installed-device event acceptance remain open.
+
 ### Task 9: Russian Console
 
 **Files:** Create `webapp/src/SecurityPage.tsx` and typed client DTOs; modify `webapp/src/{App,FleetPages,api,styles.css}` and `endpoint_server/console/` routes/projections. Tests in `webapp/src/`, `webapp/e2e/`, `tests/server/`.
