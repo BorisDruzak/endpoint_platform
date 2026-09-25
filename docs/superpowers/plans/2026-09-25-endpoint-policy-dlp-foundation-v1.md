@@ -353,9 +353,33 @@ manual Agent restart; the installed Bridge returned a synthetic Chrome Hello
 ACK `OK`. During this run, `Start-Process -Wait` kept waiting for Setup's
 long-lived companion descendants; interrupting that wait terminated Tray
 and User Sensor. Both were restored manually in the interactive session.
-This invocation does not prove companion auto-start for 3.2.74; a separate
-uninterrupted upgrade/restart check and rollback remain open. Do not register
-the Setup release or call the Foundation candidate complete on this evidence.
+That invocation did not prove companion auto-start for 3.2.74. A subsequent
+rollback and uninterrupted reapply closed those two local canary checks.
+The 3.2.74 MSI was uninstalled, and the retained, signed 3.2.73 MSI was
+installed. The 3.2.73 rollback preflight returned `READY`; hashes of the
+device credential and enrollment identity were unchanged. On 3.2.73, the
+first policy ACK hit the known `BROWSER_POLICY_HELPER_UNAVAILABLE` startup
+race; a manual Agent restart then yielded `APPLIED` at
+`2026-09-25 13:00:31 UTC`. This is rollback operability, not evidence that
+3.2.73 satisfies the first-ACK gate.
+
+From an absent extension state in a disposable Chrome profile, the retained
+3.2.73 installation then force-installed the approved `0.1.0` package.
+The production Nginx log recorded policy-driven Chrome update-XML and CRX
+requests with HTTP 200 at `13:02:07–13:02:09 UTC`; the server recorded an
+administrative-install Chrome heartbeat at `13:02:11 UTC`. The signed 3.2.74
+Setup was reapplied without waiting on its long-lived companion descendants.
+It logged `UPDATED/SERVICE_RUNNING` at `13:05:56 UTC`. New Tray and User
+Sensor processes appeared in session 1 at local `18:05:56–18:05:58` without
+manual launch. The reapply preflight returned `READY` for 3.2.74 and the
+pinned source revision; credential and identity hashes stayed unchanged.
+The server recorded policy ACK `APPLIED` at `13:05:39 UTC` and a fresh Chrome
+`0.1.0`/`ADMIN` heartbeat at `13:07:09 UTC`. These observations prove local
+rollback/reapply, companion auto-start, Chrome force-install from absent
+state, and continuing Chrome Bridge activity. They do not prove live browser
+upload/paste capture, Yandex installation, a later extension update, or full
+Console compliance. Do not register the Setup release or call the Foundation
+candidate complete on this evidence.
 
 ### Task 11: Live Windows acceptance and limited pilot
 
