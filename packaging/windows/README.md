@@ -23,8 +23,8 @@ evidence for the retained initial-runtime stage. From the repository root:
 
 ```powershell
 .\packaging\windows\build-msi.ps1 -Configuration Release -Platform x64 `
-  -InitialRuntimeManifest .\packaging\windows\initial-runtime-3.2.70.json `
-  -InitialRuntimeStageRoot <retained-runtime-stage-3.2.70> `
+  -InitialRuntimeManifest .\packaging\windows\initial-runtime-3.2.71.json `
+  -InitialRuntimeStageRoot <retained-runtime-stage-3.2.71> `
   -InitialRuntimeStageEvidence <stage-evidence.json> `
   -ApproveInitialRuntimeTransition -ApproveInitialRuntimeSourceChange
 ```
@@ -40,9 +40,11 @@ enrollment or device material and does not read such input.
 The checked-in `initial-runtime.json` remains the immutable historical baseline.
 The reviewed `initial-runtime-3.2.62.json` transition pins the Windows Device
 Context, universal enrollment setup, and WSS diagnostic-canary runtime.
-`initial-runtime-3.2.70.json` pins the Policy and DLP release candidate to
-the clean `1422ab400fddc101e484e4721afadaa9af234f3f` source and its
-separately retained core stage. Both transitions use distinct component GUIDs
+`initial-runtime-3.2.71.json` pins the corrected Policy and DLP release candidate to
+the clean `5de1399617d78174347537993952c938bc387cfb` source and its
+separately retained core stage. The 3.2.70 manifest remains historical
+evidence for the retired candidate whose policy service failed to start during
+the Windows canary. These transitions use distinct component GUIDs
 and require the explicit approval switches shown above. Each manifest pins its runtime version,
 component GUID, canonical-LF source-file hashes, complete staged artifact tree identity,
 and the CPython/PyInstaller producer identity, including
@@ -167,8 +169,8 @@ build inputs or command-line arguments:
 .\packaging\windows\build-setup.ps1 `
   -EndpointOrigin https://endpoint.sosnadmin.local `
   -EndpointCaFile 'C:\path\to\sosnadmin-local-ca.crt' `
-  -InitialRuntimeManifest .\packaging\windows\initial-runtime-3.2.70.json `
-  -InitialRuntimeStageRoot <retained-runtime-stage-3.2.70> `
+  -InitialRuntimeManifest .\packaging\windows\initial-runtime-3.2.71.json `
+  -InitialRuntimeStageRoot <retained-runtime-stage-3.2.71> `
   -InitialRuntimeStageEvidence <stage-evidence.json> `
   -ApproveInitialRuntimeTransition -ApproveInitialRuntimeSourceChange
 ```
