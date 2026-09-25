@@ -1225,6 +1225,8 @@ Track Chrome and Yandex independently, including when one is not installed. Each
 
 In `agent_managed`, failure to apply policy is separate from the browser not yet downloading the extension. In `external_managed`, Agent must not claim it applied installation policy. `EXTENSION_NEVER_SEEN` after policy application is not an installation error solely because the browser has not been launched; a closed browser with an earlier heartbeat is not `EXTENSION_NEVER_SEEN`. Derive overall compliance on the server from these facts and the policy's `required` flag; do not infer installation failure from heartbeat absence alone.
 
+Distinguish a machine policy value written by the applicator from a policy actually accepted by the browser. A successful registry write alone must not be presented as proof of effective force-install or extension installation. If effectiveness cannot be observed from the Agent, report the machine policy as configured and its effective browser state as unknown until browser-side evidence is available. The Windows acceptance gate must inspect each installed browser's effective policy page and then prove the extension download, Bridge handshake and heartbeat separately.
+
 ---
 
 # 44. SecurityEvent
