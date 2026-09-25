@@ -16,9 +16,26 @@ const fact = (browser_family: 'chrome' | 'yandex', overrides: Record<string, unk
 const status = (overrides: Record<string, unknown> = {}) => ({
   policy_id: 'policy-1', policy_version: 1, policy_version_id: 'version-1',
   browser_required: true, deployment_mode: 'agent_managed', delivery_status: 'APPLIED',
-  acknowledged_at: '2026-09-25T11:59:00Z', browser_compliance: 'COMPLIANT',
+  acknowledged_at: '2026-09-25T11:59:00Z', compliance: 'COMPLIANT',
+  activity_sensor: 'ACTIVE', browser_sensor: 'ACTIVE', dlp_sensor: 'ACTIVE',
+  browser_compliance: 'COMPLIANT',
   observed_at: '2026-09-25T12:00:00Z', browsers: [fact('chrome'), fact('yandex')],
   ...overrides,
+})
+
+it('shows server-derived overall and individual sensor status separately', async () => {
+  const payload = status({
+    compliance: 'PARTIAL', activity_sensor: 'STALE', browser_sensor: 'ACTIVE',
+    dlp_sensor: 'UNAVAILABLE', browser_compliance: 'COMPLIANT',
+  })
+  vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, status: 200, json: async () => ({ data: payload }) })))
+  render(<DevicePolicyStatus deviceId="device-1" />)
+  const summary = (await screen.findByRole('heading', { name: 'Политика и датчики' })).closest('section')!
+  expect(within(summary).getByText('Общее соответствие').closest('div')?.textContent).toContain('Частично соответствует')
+  expect(within(summary).getByText('Датчик активности').closest('div')?.textContent).toContain('Данные устарели')
+  expect(within(summary).getByText('Browser Sensor').closest('div')?.textContent).toContain('Активен')
+  expect(within(summary).getByText('DLP').closest('div')?.textContent).toContain('Недоступен')
+  expect(within(summary).getByText('Соответствие браузеров').closest('div')?.textContent).toContain('Соответствует')
 })
 
 it('shows separate managed and external browser facts without raw status codes', async () => {

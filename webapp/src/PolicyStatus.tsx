@@ -16,12 +16,18 @@ type BrowserStatus = {
   compliance_state: 'NOT_APPLICABLE' | 'UNKNOWN' | 'NEVER_SEEN' | 'ACTIVE' | 'STALE' | 'ERROR'
   reason: string | null
 }
+type ComplianceState = 'COMPLIANT' | 'PARTIAL' | 'NON_COMPLIANT' | 'STALE' | 'UNSUPPORTED'
+type SensorState = 'NOT_APPLICABLE' | 'ACTIVE' | 'UNKNOWN' | 'UNAVAILABLE' | 'STALE' | 'UNSUPPORTED'
 type PolicyStatus = {
   policy_id: string; policy_version: number; policy_version_id: string
   browser_required: boolean; deployment_mode: 'agent_managed' | 'external_managed'
   delivery_status: 'PENDING' | 'APPLIED' | 'STALE' | 'UNSUPPORTED' | 'ERROR'
   acknowledged_at: string | null
-  browser_compliance: 'COMPLIANT' | 'PARTIAL' | 'NON_COMPLIANT' | 'STALE' | 'UNSUPPORTED'
+  compliance: ComplianceState
+  activity_sensor: SensorState
+  browser_sensor: SensorState
+  dlp_sensor: SensorState
+  browser_compliance: ComplianceState
   observed_at: string | null
   browsers: BrowserStatus[]
 }
@@ -36,6 +42,10 @@ const deliveryLabels: Record<PolicyStatus['delivery_status'], string> = {
 const complianceLabels: Record<PolicyStatus['browser_compliance'], string> = {
   COMPLIANT: 'Соответствует', PARTIAL: 'Частично соответствует',
   NON_COMPLIANT: 'Не соответствует', STALE: 'Данные устарели', UNSUPPORTED: 'Не поддерживается агентом',
+}
+const sensorLabels: Record<SensorState, string> = {
+  NOT_APPLICABLE: 'Не требуется', ACTIVE: 'Активен', UNKNOWN: 'Нет подтверждения',
+  UNAVAILABLE: 'Недоступен', STALE: 'Данные устарели', UNSUPPORTED: 'Не поддерживается агентом',
 }
 const browserLabels: Record<BrowserStatus['browser_family'], string> = { chrome: 'Chrome', yandex: 'Яндекс Браузер' }
 const browserStateLabels: Record<NonNullable<BrowserStatus['browser_state']>, string> = {
@@ -103,15 +113,19 @@ export function DevicePolicyStatus({ deviceId }: { deviceId: string }) {
 
   if (error) return <section className="panel" role="alert">{error}</section>
   if (status === undefined) return <p aria-live="polite">Загрузка политики…</p>
-  if (status === null) return <section className="panel"><h2>Политика и Browser Sensor</h2><p>Политика устройству не назначена.</p></section>
+  if (status === null) return <section className="panel"><h2>Политика и датчики</h2><p>Политика устройству не назначена.</p></section>
   return <>
-    <section className="panel"><h2>Политика и Browser Sensor</h2><dl className="detail-grid">
+    <section className="panel"><h2>Политика и датчики</h2><dl className="detail-grid">
       <div><dt>Версия политики</dt><dd>{status.policy_version}</dd></div>
       <div><dt>Применение</dt><dd>{deliveryLabels[status.delivery_status]}</dd></div>
       <div><dt>Подтверждена</dt><dd>{dateText(status.acknowledged_at)}</dd></div>
-      <div><dt>Browser Sensor</dt><dd>{status.browser_required ? 'Обязателен' : 'Не требуется'}</dd></div>
+      <div><dt>Обязательность Browser Sensor</dt><dd>{status.browser_required ? 'Обязателен' : 'Не требуется'}</dd></div>
       <div><dt>Управление</dt><dd>{status.deployment_mode === 'agent_managed' ? 'Endpoint Agent' : 'Внешняя политика'}</dd></div>
-      <div><dt>Соответствие</dt><dd>{complianceLabels[status.browser_compliance]}</dd></div>
+      <div><dt>Общее соответствие</dt><dd>{complianceLabels[status.compliance]}</dd></div>
+      <div><dt>Датчик активности</dt><dd>{sensorLabels[status.activity_sensor]}</dd></div>
+      <div><dt>Browser Sensor</dt><dd>{sensorLabels[status.browser_sensor]}</dd></div>
+      <div><dt>DLP</dt><dd>{sensorLabels[status.dlp_sensor]}</dd></div>
+      <div><dt>Соответствие браузеров</dt><dd>{complianceLabels[status.browser_compliance]}</dd></div>
       <div><dt>Последний отчёт</dt><dd>{dateText(status.observed_at)}</dd></div>
     </dl></section>
     <div className="detail-columns">{status.browsers.map(browser => <section className="panel" key={browser.browser_family}>
