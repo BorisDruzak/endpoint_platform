@@ -1221,11 +1221,11 @@ ERROR
 
 with `last_seen_at`.
 
-Track Chrome and Yandex independently, including when one is not installed. Each bounded status projection must include browser detection and current running state, configured deployment owner, installation-policy state and owner, Native Messaging host registration, extension version and last heartbeat, plus a reason code when the extension is not active. The minimum distinct observations are `BROWSER_DETECTED`, `MANAGED_POLICY_APPLIED`, `NATIVE_HOST_REGISTERED`, `EXTENSION_NEVER_SEEN`, `EXTENSION_ACTIVE`, `EXTENSION_STALE`, `POLICY_CONFLICT`, `EXTERNALLY_MANAGED`, and `BROWSER_CLOSED`. These are independent facts, not one mutually exclusive enum: a closed browser may retain a previously observed extension and an applied policy.
+Track Chrome and Yandex independently, including when one is not installed. Each bounded status projection must include browser detection and current running state, configured deployment owner, machine installation-policy state and owner, effective browser-policy state, Native Messaging host registration, extension version and last heartbeat, plus a reason code when the extension is not active. The minimum distinct observations are `BROWSER_DETECTED`, `MACHINE_POLICY_CONFIGURED`, `MANAGED_POLICY_APPLIED`, `NATIVE_HOST_REGISTERED`, `EXTENSION_NEVER_SEEN`, `EXTENSION_ACTIVE`, `EXTENSION_STALE`, `POLICY_CONFLICT`, `EXTERNALLY_MANAGED`, and `BROWSER_CLOSED`. These are independent facts, not one mutually exclusive enum: a closed browser may retain a previously observed extension and an applied policy.
 
 In `agent_managed`, failure to apply policy is separate from the browser not yet downloading the extension. In `external_managed`, Agent must not claim it applied installation policy. `EXTENSION_NEVER_SEEN` after policy application is not an installation error solely because the browser has not been launched; a closed browser with an earlier heartbeat is not `EXTENSION_NEVER_SEEN`. Derive overall compliance on the server from these facts and the policy's `required` flag; do not infer installation failure from heartbeat absence alone.
 
-Distinguish a machine policy value written by the applicator from a policy actually accepted by the browser. A successful registry write alone must not be presented as proof of effective force-install or extension installation. If effectiveness cannot be observed from the Agent, report the machine policy as configured and its effective browser state as unknown until browser-side evidence is available. The Windows acceptance gate must inspect each installed browser's effective policy page and then prove the extension download, Bridge handshake and heartbeat separately.
+Distinguish a machine policy value written by the applicator from a policy actually accepted by the browser. `MACHINE_POLICY_CONFIGURED` means the owned machine value was verified; `MANAGED_POLICY_APPLIED` requires browser-side evidence that the browser accepted the force-install policy. A successful registry write alone must not be presented as proof of effective force-install or extension installation. If effectiveness cannot be observed from the Agent, report the machine policy as configured and its effective browser state as unknown until browser-side evidence is available. The Windows acceptance gate must inspect each installed browser's effective policy page and then prove the extension download, Bridge handshake and heartbeat separately.
 
 ---
 
@@ -1716,7 +1716,7 @@ Unsupported
 
 # 64. Console — Browser Sensor status
 
-For each browser, render the independently reported facts with Russian labels. For example:
+For each browser, render the independently reported facts with Russian labels. Show `Политика установки: применена` only with evidence that the browser accepted the policy; an Agent-written machine value alone is `Политика установки: настроена` with browser effectiveness unknown. For example, after effective policy and extension activity are proven:
 
 ```text
 Chrome
@@ -1729,7 +1729,7 @@ Native Bridge: готов
 Последняя связь: 1 минуту назад
 ```
 
-An extension not yet observed after Agent policy application must have its own explanation:
+An extension not yet observed after effective policy application must have its own explanation:
 
 ```text
 Chrome
