@@ -1508,6 +1508,86 @@ paths:
                 "$ref": "#/components/schemas/HTTPValidationError"
       x-required-scopes:
         - "context.read"
+  "/api/v1/browser-sensor/update.xml":
+    get:
+      tags:
+        - "browser-sensor-release"
+      summary: "Current Update Manifest"
+      operationId: "current_update_manifest_api_v1_browser_sensor_update_xml_get"
+      responses:
+        "200":
+          description: "Current signed Browser Sensor update manifest"
+          content:
+            "application/xml":
+              schema:
+                type: "string"
+        "404":
+          description: "No Browser Sensor release published"
+        "503":
+          description: "Published artifact failed verification"
+  "/api/v1/browser-sensor/releases/{version}/sensor.crx":
+    get:
+      tags:
+        - "browser-sensor-release"
+      summary: "Download Browser Sensor"
+      operationId: "download_browser_sensor_api_v1_browser_sensor_releases__version__sensor_crx_get"
+      parameters:
+        -
+          name: "version"
+          in: "path"
+          required: true
+          schema:
+            type: "string"
+            title: "Version"
+      responses:
+        "200":
+          description: "Immutable signed CRX3 package"
+          content:
+            "application/x-chrome-extension":
+              schema:
+                type: "string"
+                format: "binary"
+        "404":
+          description: "Browser Sensor release not found"
+        "503":
+          description: "Published artifact failed verification"
+        "422":
+          description: "Validation Error"
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/HTTPValidationError"
+  "/api/v1/browser-sensor/releases/{version}/release.json":
+    get:
+      tags:
+        - "browser-sensor-release"
+      summary: "Browser Sensor Release Metadata"
+      operationId: "browser_sensor_release_metadata_api_v1_browser_sensor_releases__version__release_json_get"
+      parameters:
+        -
+          name: "version"
+          in: "path"
+          required: true
+          schema:
+            type: "string"
+            title: "Version"
+      responses:
+        "200":
+          description: "Immutable public Browser Sensor release metadata"
+          content:
+            "application/json":
+              schema:
+                type: "object"
+        "404":
+          description: "Browser Sensor release not found"
+        "503":
+          description: "Published artifact failed verification"
+        "422":
+          description: "Validation Error"
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/HTTPValidationError"
 components:
   schemas:
     ActivityObservationV1:

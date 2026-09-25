@@ -480,6 +480,23 @@ def test_generated_openapi_has_only_resolvable_local_references(tmp_path: Path) 
         assert _resolve_json_pointer(openapi, reference) is not None
 
 
+def test_public_browser_release_contract_matches_fixed_runtime_routes(tmp_path: Path) -> None:
+    openapi = yaml.safe_load(
+        render_artifacts(tmp_path)[Path("contracts/openapi/endpoint-platform-v1.yaml")]
+    )
+    paths = openapi["paths"]
+    expected = {
+        "/api/v1/browser-sensor/update.xml": "application/xml",
+        "/api/v1/browser-sensor/releases/{version}/sensor.crx": "application/x-chrome-extension",
+        "/api/v1/browser-sensor/releases/{version}/release.json": "application/json",
+    }
+    for path, media_type in expected.items():
+        operation = paths[path]["get"]
+        assert "security" not in operation
+        assert media_type in operation["responses"]["200"]["content"]
+        assert {"404", "503"} <= set(operation["responses"])
+
+
 def test_secret_agent_transport_is_published_without_golden_credentials(
     tmp_path: Path,
 ) -> None:

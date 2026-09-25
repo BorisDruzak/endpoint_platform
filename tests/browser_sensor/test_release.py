@@ -22,6 +22,7 @@ from browser_sensor.tools.build_release import (
     load_signing_identity,
     main,
     verify_crx,
+    verify_crx_for_extension_id,
 )
 
 
@@ -139,6 +140,10 @@ def test_crx_verifier_checks_signature_identity_and_exact_payload(
     path.write_bytes(crx)
 
     assert verify_crx(path, public_der, extension_id, set(files)) == files
+    assert verify_crx_for_extension_id(path, extension_id, set(files)) == files
+
+    with pytest.raises(ValueError, match="pinned extension ID"):
+        verify_crx_for_extension_id(path, "a" * 32, set(files))
 
     path.write_bytes(crx[:-1] + bytes([crx[-1] ^ 1]))
     with pytest.raises(ValueError, match="signature"):

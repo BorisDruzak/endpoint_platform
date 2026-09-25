@@ -11,6 +11,8 @@ from fastapi.responses import JSONResponse
 from starlette.middleware.base import RequestResponseEndpoint
 
 from endpoint_server.auth.admin_sessions import router as admin_auth_router
+from endpoint_server.browser_sensor.public_routes import router as browser_sensor_public_router
+from endpoint_server.browser_sensor.admin_routes import router as browser_sensor_admin_router
 from endpoint_server.auth.validation import redacting_validation_exception_handler
 from endpoint_server.config import Settings
 from endpoint_server.console.routes import (
@@ -121,6 +123,7 @@ def create_app(
         return response
 
     app.include_router(health_router)
+    app.include_router(browser_sensor_public_router)
     app.include_router(admin_auth_router)
     app.include_router(enrollment_admin_router)
     app.include_router(enrollment_admin_request_router)
@@ -143,6 +146,7 @@ def create_app(
         app.include_router(module_execution_router)
     install_console_assets(app)
     app.include_router(console_installer_router)
+    app.include_router(browser_sensor_admin_router)
     app.include_router(console_operations_router)
     app.include_router(console_modules_router)
     app.include_router(console_audit_router)

@@ -27,6 +27,17 @@ UPDATE_URL = "https://endpoint.sosnadmin.local/api/v1/browser-sensor/update.xml"
 _CRX_URL_PREFIX = "https://endpoint.sosnadmin.local/api/v1/browser-sensor/releases"
 
 
+def render_update_xml(extension_id: str, version: str) -> bytes:
+    """Render the exact self-hosted update document accepted at publication."""
+    crx_url = f"{_CRX_URL_PREFIX}/{version}/sensor.crx"
+    return (
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        '<gupdate xmlns="http://www.google.com/update2/response" protocol="2.0">\n'
+        f'  <app appid="{extension_id}"><updatecheck codebase="{crx_url}" version="{version}"/></app>\n'
+        "</gupdate>\n"
+    ).encode("utf-8")
+
+
 def extension_id_from_public_key(public_key_der: bytes) -> str:
     """Return Chromium's 32-character ID for a DER SPKI public key."""
     prefix = hashlib.sha256(public_key_der).digest()[:16]
@@ -167,6 +178,30 @@ def verify_crx(
     return result
 
 
+def verify_crx_for_extension_id(
+    path: Path, expected_id: str, expected_files: set[str]
+) -> dict[str, bytes]:
+    """Verify a published CRX without access to its private signing key."""
+    if path.stat().st_size > _MAX_CRX_BYTES:
+        raise ValueError("CRX exceeds size limit")
+    crx = path.read_bytes()
+    if len(crx) < 12 or crx[:4] != b"Cr24" or int.from_bytes(crx[4:8], "little") != 3:
+        raise ValueError("expected CRX3 package")
+    header_size = int.from_bytes(crx[8:12], "little")
+    if header_size > _MAX_HEADER_BYTES or 12 + header_size >= len(crx):
+        raise ValueError("invalid CRX header size")
+    public_keys = [
+        value
+        for number, proof in _byte_fields(crx[12 : 12 + header_size])
+        if number == 2
+        for field, value in _byte_fields(proof)
+        if field == 1 and extension_id_from_public_key(value) == expected_id
+    ]
+    if len(public_keys) != 1:
+        raise ValueError("CRX signing identity does not match pinned extension ID")
+    return verify_crx(path, public_keys[0], expected_id, expected_files)
+
+
 def build_release(
     source_dir: Path,
     key_path: Path,
@@ -236,13 +271,7 @@ def build_release(
             raise ValueError("CRX content differs from approved source")
 
         artifact_name = "sensor.crx"
-        crx_url = f"{_CRX_URL_PREFIX}/{version}/{artifact_name}"
-        update_xml = (
-            '<?xml version="1.0" encoding="UTF-8"?>\n'
-            '<gupdate xmlns="http://www.google.com/update2/response" protocol="2.0">\n'
-            f'  <app appid="{extension_id}"><updatecheck codebase="{crx_url}" version="{version}"/></app>\n'
-            "</gupdate>\n"
-        ).encode("utf-8")
+        update_xml = render_update_xml(extension_id, version)
         metadata: dict[str, str | int] = {
             "schema_version": "browser_sensor_release_v1",
             "extension_version": version,

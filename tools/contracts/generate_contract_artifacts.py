@@ -77,6 +77,9 @@ from endpoint_server.modules.routes import router as modules_router  # noqa: E40
 from endpoint_server.modules.execution_routes import router as module_execution_router  # noqa: E402
 from endpoint_server.operations.routes import router as operations_router  # noqa: E402
 from endpoint_server.context.routes import router as context_router  # noqa: E402
+from endpoint_server.browser_sensor.public_routes import (  # noqa: E402
+    router as browser_sensor_public_router,
+)
 
 
 _SERVICE_OPERATION_PATHS = (
@@ -108,6 +111,12 @@ _SERVICE_CONTEXT_PATHS = (
     "/api/v1/devices/{device_id}/context/collections",
     "/api/v1/context/collections/{collection_id}",
     "/api/v1/devices/{device_id}/context/snapshots/compare",
+)
+
+_PUBLIC_BROWSER_RELEASE_PATHS = (
+    "/api/v1/browser-sensor/update.xml",
+    "/api/v1/browser-sensor/releases/{version}/sensor.crx",
+    "/api/v1/browser-sensor/releases/{version}/release.json",
 )
 
 
@@ -700,11 +709,12 @@ def _service_operation_openapi() -> dict[str, object]:
     application.include_router(module_capability_catalog_router)
     application.include_router(module_execution_router)
     application.include_router(context_router)
+    application.include_router(browser_sensor_public_router)
     generated = application.openapi()
     return {
         "paths": {
             path: generated["paths"][path]
-            for path in (*_SERVICE_OPERATION_PATHS, *_SERVICE_CONTEXT_PATHS)
+            for path in (*_SERVICE_OPERATION_PATHS, *_SERVICE_CONTEXT_PATHS, *_PUBLIC_BROWSER_RELEASE_PATHS)
         },
         "components": generated["components"],
     }

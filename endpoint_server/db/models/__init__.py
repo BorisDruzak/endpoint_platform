@@ -18,6 +18,7 @@ from endpoint_server.context.models import (
 )
 from .devices import Device, DeviceCredential, DeviceInstance, DeviceSession
 from .installer import WindowsSetupRelease
+from endpoint_server.browser_sensor.models import BrowserSensorRelease
 from .enrollment import (
     EnrollmentCampaign,
     EnrollmentClaim,
@@ -82,4 +83,5 @@ __all__ = [
     "UpdateRollout",
     "UpdateTarget",
     "WindowsSetupRelease",
+    "BrowserSensorRelease",
 ]

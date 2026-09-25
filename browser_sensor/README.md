@@ -21,6 +21,8 @@ python -m browser_sensor.tools.build_release `
   --minimum-agent-version 3.2.68
 ```
 
-The builder verifies the key against the pinned ID, packages only the four extension source files, adds the approved HTTPS `update_url`, invokes Chrome, verifies the CRX3 signature and ZIP payload, and writes `sensor.crx`, `update.xml`, and `release.json` into an immutable version directory. It rejects dirty Browser Sensor source and an existing version directory. The URL in `update.xml` is a contract for the upcoming Endpoint HTTPS artifact route; this step alone does not publish the release or establish browser installation.
+The builder verifies the key against the pinned ID, packages only the four extension source files, adds the approved HTTPS `update_url`, invokes Chrome, verifies the CRX3 signature and ZIP payload, and writes `sensor.crx`, `update.xml`, and `release.json` into an immutable version directory. It rejects dirty Browser Sensor source and an existing version directory. The URL in `update.xml` matches the Endpoint HTTPS artifact route; this build step alone does not publish the release or establish browser installation. Select `--minimum-agent-version` from the verified Agent release, rather than relying on the example value above.
+
+After the server migration and deployment, follow `docs/runbooks/browser-sensor-release.md` to validate and register the candidate without copying the signing key to the server. Registration makes the fixed HTTPS update/CRX/metadata routes available; managed-browser installation remains a separate acceptance gate.
 
 Chrome's [current CRX creator](https://chromium.googlesource.com/chromium/src/+/lkgr/components/crx_file/crx_creator.cc) and [verifier](https://chromium.googlesource.com/chromium/src/+/refs/heads/main/components/crx_file/crx_verifier.cc) use RSA PKCS#1 SHA-256 for this proof. The release verifier follows that implementation and checks the actual package produced by installed Chrome.
