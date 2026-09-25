@@ -1003,7 +1003,7 @@ dlp:
     browser_paste_events
 
 browser_sensor:
-    required
+    required: boolean
     deployment_mode: agent_managed | external_managed
 
 event_retention:
@@ -2262,8 +2262,8 @@ On a Windows lab workstation with Chrome and/or Yandex:
 1. install new Agent;
 2. verify User Sensor;
 3. verify Native Messaging host registration;
-4. install Browser Sensor using managed policy where possible;
-   for `agent_managed`, start with the extension absent and verify that Agent applies only its own machine-level policy and the browser downloads the signed extension;
+4. start with Browser Sensor absent and apply a scoped Endpoint Policy with `browser_sensor.required = true` and `deployment_mode = agent_managed`;
+   verify that Agent applies only its own machine-level policy and each installed browser downloads the signed extension from the approved Endpoint HTTPS source;
 5. verify extension handshake;
 6. open approved test domains;
 7. verify only origin/domain arrive;
@@ -2274,7 +2274,7 @@ On a Windows lab workstation with Chrome and/or Yandex:
 12. close browser and verify status semantics;
 13. restart browser and verify reconnect.
 
-Repeat the `agent_managed` install path for Chrome and Yandex where installed. Verify idempotent reapplication, browser restart, Agent restart and Agent upgrade. Switch to `external_managed` and prove that Agent stops policy writes without removing another owner's configuration. Inspect both browsers' effective policy pages and unrelated corporate extension/native-host entries before and after.
+Repeat the `agent_managed` install path for Chrome and Yandex when both are installed on the test device; record an explicit untested gap for any absent browser. Verify idempotent reapplication, browser restart, Agent restart and Agent upgrade. Switch to `external_managed` and prove that Agent stops policy writes after removing only its own exact, unchanged entry; if safe removal is impossible, preserve the existing value and report `POLICY_CONFLICT`. Inspect both browsers' effective policy pages and unrelated corporate extension/native-host entries before and after.
 
 ---
 
@@ -2629,11 +2629,7 @@ SHA-256 metadata
 self-host
 ```
 
-Prepare Chrome/Yandex managed-policy templates.
-
-Perform local managed-browser acceptance.
-
-Implement the narrowly privileged, typed Browser Integration Policy Applicator for `agent_managed`; test merge-safe ownership and `external_managed` no-write behavior before live acceptance. Do not apply a global Native Messaging blocklist.
+Prepare Chrome/Yandex managed-policy templates and implement the narrowly privileged, typed Browser Integration Policy Applicator for `agent_managed`. Test merge-safe ownership, idempotency and `external_managed` hand-off before live acceptance. Verify the selected policy mechanism against the installed browser versions and their effective policy state. Do not apply a global Native Messaging blocklist.
 
 ---
 
@@ -2694,6 +2690,7 @@ Build new signed Windows Agent release containing:
 ```text
 User Sensor
 Browser Bridge
+Browser Integration Policy Applicator
 Policy runtime
 DLP audit runtime
 ```
@@ -2722,6 +2719,8 @@ Console
 ```
 
 with synthetic data.
+
+For every installed target browser, start with the extension absent and prove the full `agent_managed` chain: Endpoint Policy → Agent → machine-level browser policy → browser download of the approved signed extension over Endpoint HTTPS → Native Messaging Bridge → Agent heartbeat → Console ACTIVE. If both Chrome and Yandex are installed, prove this for both. Then verify idempotent reapplication, browser and Agent restart, Agent upgrade, and `external_managed` hand-off without changing another owner's policy.
 
 Then Agent rollback/reapply.
 
