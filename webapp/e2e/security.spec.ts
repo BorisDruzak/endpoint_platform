@@ -6,6 +6,17 @@ test('administrator inspects a bounded browser SecurityEvent', async ({ page }) 
   const browserErrors: string[] = []
   page.on('pageerror', error => browserErrors.push(error.message))
   page.on('console', message => { if (message.type() === 'error') browserErrors.push(message.text()) })
+  await page.route('**/api/admin/console/browser-sensor/release', async route => {
+    await route.fulfill({ json: {
+      extension_version: '0.1.0', extension_id: 'abcdefghijklmnopabcdefghijklmnop',
+      protocol_version: 1, source_revision: 'a'.repeat(40),
+      artifact_sha256: 'b'.repeat(64), minimum_agent_version: '3.2.70',
+      built_at: '2026-09-25T12:00:00Z', published_at: '2026-09-25T13:00:00Z',
+      update_url: '/api/v1/browser-sensor/update.xml',
+      artifact_url: '/api/v1/browser-sensor/releases/0.1.0/sensor.crx',
+      signing_private_key: 'MUST_NOT_LEAK',
+    } })
+  })
   await page.route('**/api/admin/console/policies**', async route => {
     const url = new URL(route.request().url())
     await route.fulfill({ json: url.pathname.endsWith('/assignments/default')
@@ -44,6 +55,9 @@ test('administrator inspects a bounded browser SecurityEvent', async ({ page }) 
   await expect(page).toHaveURL(/\/admin\/security$/)
   await expect(page.getByRole('heading', { name: 'События безопасности' })).toBeVisible()
   await expect(page.getByRole('heading', { name: 'Активная политика' })).toBeVisible()
+  const release = page.getByRole('heading', { name: 'Browser Sensor' }).locator('..')
+  await expect(release.getByText('0.1.0')).toBeVisible()
+  await expect(release).not.toContainText('MUST_NOT_LEAK')
   await expect(page.getByRole('button', { name: 'Создать политику' })).toBeVisible()
   await expect(page.getByRole('table').getByText('Тестовый компьютер')).toBeVisible()
   await page.getByLabel('Канал').selectOption('BROWSER')

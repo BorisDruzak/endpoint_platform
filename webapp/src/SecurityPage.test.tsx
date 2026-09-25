@@ -5,10 +5,43 @@ import { SecurityPage } from './SecurityPage'
 
 afterEach(() => { cleanup(); vi.unstubAllGlobals() })
 
+it('shows only published Browser Sensor release metadata and deployment URLs', async () => {
+  vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+    if (url.endsWith('/browser-sensor/release')) return { ok: true, status: 200,
+      json: async () => ({
+        extension_version: '0.1.0', extension_id: 'abcdefghijklmnopabcdefghijklmnop',
+        protocol_version: 1, source_revision: 'a'.repeat(40),
+        artifact_sha256: 'b'.repeat(64), minimum_agent_version: '3.2.70',
+        built_at: '2026-09-25T12:00:00Z', published_at: '2026-09-25T13:00:00Z',
+        update_url: '/api/v1/browser-sensor/update.xml',
+        artifact_url: '/api/v1/browser-sensor/releases/0.1.0/sensor.crx',
+        signing_private_key: 'MUST_NOT_LEAK',
+      }),
+    } as Response
+    if (url.includes('/console/policies/assignments/default')) return { ok: true, status: 200,
+      json: async () => ({ data: null }) } as Response
+    if (url.includes('/console/policies?')) return { ok: true, status: 200,
+      json: async () => ({ data: [], total: 0, limit: 50, offset: 0 }) } as Response
+    if (url.includes('/security/events')) return { ok: true, status: 200,
+      json: async () => ({ data: [], total: 0, limit: 50, offset: 0 }) } as Response
+    throw new Error(`Unexpected route ${url}`)
+  }))
+  render(<MemoryRouter initialEntries={['/admin/security']}><SecurityPage /></MemoryRouter>)
+  const release = (await screen.findByRole('heading', { name: 'Browser Sensor' })).closest('section')!
+  expect(within(release).getByText('0.1.0')).toBeTruthy()
+  expect(within(release).getByText('abcdefghijklmnopabcdefghijklmnop')).toBeTruthy()
+  expect(within(release).getByText('b'.repeat(64))).toBeTruthy()
+  expect(within(release).getByText('3.2.70')).toBeTruthy()
+  expect(within(release).getByRole('link', { name: 'Манифест обновления' }).getAttribute('href'))
+    .toBe('/api/v1/browser-sensor/update.xml')
+  expect(release.textContent).not.toContain('MUST_NOT_LEAK')
+})
+
 it('shows a safe browser upload and filters the event list', async () => {
   const calls: string[] = []
   vi.stubGlobal('fetch', vi.fn(async (url: string) => {
     calls.push(url)
+    if (url.endsWith('/browser-sensor/release')) return { ok: false, status: 404 } as Response
     if (url.includes('/console/policies/assignments/default')) return { ok: true, status: 200,
       json: async () => ({ data: null }) } as Response
     if (url.includes('/console/policies?')) return { ok: true, status: 200,
@@ -34,6 +67,7 @@ it('shows a safe browser upload and filters the event list', async () => {
   }))
   render(<MemoryRouter initialEntries={['/admin/security']}><SecurityPage /></MemoryRouter>)
   expect(await screen.findByRole('heading', { name: 'Активная политика' })).toBeTruthy()
+  expect(await screen.findByText('Релиз Browser Sensor ещё не опубликован.')).toBeTruthy()
   const list = (await screen.findByRole('heading', { name: /^События$/ })).closest('section')!
   expect(within(list).getByText('Рабочая станция')).toBeTruthy()
   expect(within(list).getByText('example.org')).toBeTruthy()
