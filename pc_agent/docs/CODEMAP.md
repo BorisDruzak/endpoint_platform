@@ -31,7 +31,7 @@ For the future feature version, the Agent core bundle includes the release-pinne
 extension ID. The service pipe maps approved browser upload/paste metadata to
 typed SecurityEvents and waits for a durable spool write before returning the
 Native Messaging ACK. Duplicate IDs succeed only for identical queued payloads.
-Print producer and server health/compliance projection remain open.
+Server health/compliance projection and installed-Agent print proof remain open.
 
 `platform/windows/usb_sensor.py` registers CfgMgr32 USB device-interface
 arrival/removal notifications and hands bounded callbacks to a worker thread.
@@ -41,7 +41,16 @@ serialized into a SecurityEvent. The runtime starts the notification source
 before restoring cached policy, and accepts `usb_device_events=audit` only
 while that source is registered and the protected SecurityEvent spool exists.
 Native callback delivery has been exercised synthetically on Windows; actual
-plug/unplug, queue-loss health, print events and server compliance remain open.
+plug/unplug, queue-loss health and server compliance remain open.
+
+`platform/windows/print_sensor.py` subscribes to local spooler ADD_JOB changes
+with only printer name, user name, total pages and total bytes requested. It
+does not request the document-title field, read spool files or persist the
+local job ID. Unsafe printer names become bounded hashes. The runtime starts
+the worker before restoring cached policy and accepts `print_events=audit` only
+while the notification worker and protected SecurityEvent spool are available.
+Native subscription start/stop has passed on Windows; a real disposable print
+job and durable server/Console projection are still acceptance gates.
 
 The interactive `user_sensor_runtime.py` samples each logon session and sends
 bounded frames through the same authenticated pipe. MSI stages its fixed
@@ -68,6 +77,7 @@ effective-browser-policy and browser download/heartbeat proof remain open.
 | Transport | `pc_agent/transport/` | Endpoint Gateway WSS protocol and HTTP compatibility |
 | Policy | `pc_agent/policy/` | validated policy application and last-good cache |
 | Security events | `pc_agent/security/` | protected bounded SQLite spool and ACK-gated WSS replay |
+| USB/print audit | `pc_agent/platform/windows/{usb_sensor,print_sensor}.py` | local OS notifications projected to content-free SecurityEvents only under audit policy |
 | Browser machine policy | `pc_agent/platform/windows/{browser_policy,browser_policy_helper,browser_policy_service_entry}.py`, `pc_agent/policy/windows_sensors.py` | fixed extension force-install values, authenticated helper IPC, ownership marker and safe relinquish |
 | Local sensors | `pc_agent/platform/windows/{local_ipc,sensor_pipe_listener,activity_api,user_sensor,user_sensor_runtime,browser_bridge,browser_bridge_entry}.py` | bounded user/browser observation boundary; service listener, per-user sampler and binary native-host entrypoint |
 | Enrollment | `pc_agent/enrollment_identity.py`, `pc_agent/device_credential.py` | device identity and credentials |

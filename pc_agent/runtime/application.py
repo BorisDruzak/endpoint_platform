@@ -141,6 +141,7 @@ def _default_dependencies(
     transport_state = _EndpointHttpPullState()
     policy_runtime = None
     usb_notifications = None
+    print_notifications = None
     if settings is not None:
         cache = AppliedPolicyCache(settings.data_root)
         applicator = _policy_applicator_for(os.name)
@@ -154,6 +155,11 @@ def _default_dependencies(
                         security_runtime is not None
                         and usb_notifications is not None
                         and usb_notifications.available
+                    ),
+                    print_available=(
+                        security_runtime is not None
+                        and print_notifications is not None
+                        and print_notifications.available
                     ),
                 )
 
@@ -181,7 +187,7 @@ def _default_dependencies(
             await policy_runtime.restore_offline()
 
     def start_local_sensor(current_settings: object):
-        nonlocal usb_notifications
+        nonlocal usb_notifications, print_notifications
         if not (
             os.name == "nt"
             and isinstance(current_settings, RuntimeSettings)
@@ -195,6 +201,9 @@ def _default_dependencies(
         from pc_agent.platform.windows.browser_bridge_entry import _extension_id
         from pc_agent.platform.windows.usb_sensor import (
             UsbInterfaceNotifications, project_usb_change,
+        )
+        from pc_agent.platform.windows.print_sensor import (
+            PrintJobNotifications, project_print_job,
         )
 
         on_security_event = None
@@ -226,6 +235,7 @@ def _default_dependencies(
             on_security_event=on_security_event,
         )
         listener.start()
+        sources = []
         if security_runtime is not None:
             def handle_usb_change(action: str, path: str) -> None:
                 event = project_usb_change(
@@ -243,16 +253,44 @@ def _default_dependencies(
                 logger.warning("USB notification source is unavailable")
             else:
                 usb_notifications = source
+                sources.append(source)
 
-                class LocalSensors:
-                    def stop(self) -> None:
+            def handle_print_job(facts) -> None:
+                event = project_print_job(
+                    facts, policy_runtime.current_policy,
+                    occurred_at=datetime.now(UTC),
+                )
+                if event is not None and on_security_event is not None:
+                    if not on_security_event(event):
+                        raise RuntimeError("print SecurityEvent persistence unavailable")
+
+            print_source = PrintJobNotifications(handle_print_job)
+            try:
+                print_source.start()
+            except Exception:
+                logger.warning("print notification source is unavailable")
+            else:
+                print_notifications = print_source
+                sources.append(print_source)
+
+        if not sources:
+            return listener
+
+        class LocalSensors:
+            def stop(self) -> None:
+                nonlocal usb_notifications, print_notifications
+                try:
+                    for active_source in reversed(sources):
                         try:
-                            source.stop()
-                        finally:
-                            listener.stop()
+                            active_source.stop()
+                        except Exception:
+                            logger.warning("local security sensor failed to stop")
+                finally:
+                    usb_notifications = None
+                    print_notifications = None
+                    listener.stop()
 
-                return LocalSensors()
-        return listener
+        return LocalSensors()
 
     def create_transport(
         settings: object, credential: str, executor: RuntimeExecutor

@@ -497,7 +497,9 @@ def test_windows_wss_defaults_start_policy_gated_local_listener(monkeypatch, tmp
 async def test_security_feature_pins_browser_identity_and_durable_handoff(
     monkeypatch, tmp_path: Path,
 ) -> None:
-    from pc_agent.platform.windows import activity_api, browser_bridge_entry, usb_sensor
+    from pc_agent.platform.windows import (
+        activity_api, browser_bridge_entry, print_sensor, usb_sensor,
+    )
     from pc_agent.tests.security.test_spool import NOW, _event
     from pc_agent.security.spool import SecurityEventSpool
 
@@ -539,6 +541,24 @@ async def test_security_feature_pins_browser_identity_and_durable_handoff(
             pass
 
     monkeypatch.setattr(usb_sensor, "UsbInterfaceNotifications", UsbSource)
+
+    class PrintSource:
+        available = True
+
+        def __init__(self, on_job):
+            captured["on_print_job"] = on_job
+
+        def start(self):
+            pass
+
+        def stop(self):
+            pass
+
+    monkeypatch.setattr(print_sensor, "PrintJobNotifications", PrintSource)
+    monkeypatch.setattr(
+        print_sensor, "project_print_job",
+        lambda _facts, _policy, *, occurred_at: _event(occurred_at=NOW),
+    )
     dependencies = runtime_application._default_dependencies(settings)
     sensor = dependencies.start_local_sensor(settings)
     assert sensor is not None
@@ -546,9 +566,10 @@ async def test_security_feature_pins_browser_identity_and_durable_handoff(
         await dependencies.restore_policy(settings)
         assert captured["ingress"]._extension_id == "a" * 32
         assert await asyncio.to_thread(captured["on_security_event"], _event(occurred_at=NOW))
+        await asyncio.to_thread(captured["on_print_job"], object())
         spool = SecurityEventSpool(data_root)
         await spool.open()
-        assert (await spool.stats()).queued_events == 1
+        assert (await spool.stats()).queued_events == 2
     finally:
         sensor.stop()
 

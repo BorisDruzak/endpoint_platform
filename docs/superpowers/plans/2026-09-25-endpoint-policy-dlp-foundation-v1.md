@@ -190,8 +190,11 @@ arrival/removal now has a bounded CfgMgr32 notification source, safe event
 projection and protected spool handoff. Policy ACK rejects USB audit when
 native registration is unavailable. Native registration and a synthetic
 callback passed on Windows; physical plug/unplug and on-device retention/health
-proof are still required. Print producers, per-browser status, server-derived
-compliance and installed-browser proof are still open.
+proof are still required. The local spooler ADD_JOB source now requests only
+printer name, user name, total pages and total bytes; its policy gate and
+durable-spool handoff are wired. Projection/parser tests and Windows native
+subscription start/stop pass. A real disposable print job, per-browser status,
+server-derived compliance and installed-browser proof are still open.
 
 ### Task 9: Russian Console
 

@@ -86,6 +86,24 @@ async def test_usb_audit_requires_live_notification_source(monkeypatch) -> None:
 
 
 @pytest.mark.asyncio
+async def test_print_audit_requires_live_notification_source(monkeypatch) -> None:
+    calls: list[tuple[str, str]] = []
+    monkeypatch.setattr(
+        "pc_agent.policy.windows_sensors.send_policy_request",
+        lambda operation, family: calls.append((operation, family)) or "EXTERNALLY_MANAGED",
+    )
+    disabled = _delivery(active=False).policy
+    policy = disabled.model_copy(update={
+        "dlp": disabled.dlp.model_copy(update={"print_events": "audit"}),
+    })
+    with pytest.raises(PolicyApplicationError, match="SENSOR_NOT_READY"):
+        await apply_windows_policy_sensors(policy, print_available=False)
+    assert calls == []
+    await apply_windows_policy_sensors(policy, print_available=True)
+    assert calls == [("relinquish", "chrome"), ("relinquish", "yandex")]
+
+
+@pytest.mark.asyncio
 async def test_conflict_from_helper_prevents_policy_application(monkeypatch) -> None:
     calls: list[tuple[str, str]] = []
 
