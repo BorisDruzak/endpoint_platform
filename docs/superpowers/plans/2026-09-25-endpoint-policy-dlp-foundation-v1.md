@@ -156,9 +156,13 @@ and generated JSON Schema. They enforce per-type metadata allowlists, audit-only
 severity, unique identifiers, 50-event/64-KiB batch and 2-KiB metadata bounds.
 The independent `security_events` table and migration `0032` are now in source,
 with a unique `(device_id, event_identifier)` constraint and expiry index.
-The server still needs an idempotent transaction, retention worker and
-ACK-after-commit route; the Agent still needs a protected durable spool and
-replay. These schemas alone are not a working SecurityEvent pipeline.
+The Gateway now gates SecurityEvent batches on negotiated Windows support and
+an applied matching policy, stages idempotent rows with per-type enablement and
+24-hour event-age checks, commits, then sends the typed ACK. SQLite tests prove
+replay deduplication, changed-payload rejection and commit-before-ACK ordering;
+the full Gateway suite passed. The retention worker, Agent protected durable
+spool and end-to-end Windows replay remain open. This is not yet a working
+SecurityEvent pipeline on a deployed Agent.
 
 ### Task 8: USB and print audit sensors, browser status and compliance
 

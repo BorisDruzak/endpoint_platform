@@ -14,7 +14,9 @@ from endpoint_contracts.gateway_ws import (
     EndpointPolicyAckEnvelopeV1,
     GatewayWsEnvelopeV1,
     HeartbeatEnvelopeV1,
+    SecurityEventBatchEnvelopeV1,
 )
+from endpoint_contracts.security_events import MAX_SECURITY_EVENT_BATCH_BYTES_V1
 
 
 AgentEnvelope: TypeAlias = (
@@ -24,6 +26,7 @@ AgentEnvelope: TypeAlias = (
     | CommandResultEnvelopeV1
     | EndpointPolicyAckEnvelopeV1
     | ActivityObservationEnvelopeV1
+    | SecurityEventBatchEnvelopeV1
 )
 
 
@@ -51,6 +54,11 @@ def parse_agent_envelope(
         envelope = GatewayWsEnvelopeV1.model_validate_json(encoded).root
     except (UnicodeDecodeError, ValidationError, ValueError) as error:
         raise GatewayProtocolError(1008, "invalid_message") from error
+    if (
+        isinstance(envelope, SecurityEventBatchEnvelopeV1)
+        and len(encoded) > MAX_SECURITY_EVENT_BATCH_BYTES_V1
+    ):
+        raise GatewayProtocolError(1009, "message_too_large")
     if not isinstance(
         envelope,
         (
@@ -60,6 +68,7 @@ def parse_agent_envelope(
             CommandResultEnvelopeV1,
             EndpointPolicyAckEnvelopeV1,
             ActivityObservationEnvelopeV1,
+            SecurityEventBatchEnvelopeV1,
         ),
     ):
         raise GatewayProtocolError(1008, "invalid_direction")

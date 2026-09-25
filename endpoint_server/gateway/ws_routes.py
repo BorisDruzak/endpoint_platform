@@ -23,6 +23,7 @@ from endpoint_contracts.gateway_ws import (
     ErrorEnvelopeV1,
     GatewayHelloEnvelopeV1,
     HeartbeatEnvelopeV1,
+    SecurityEventBatchEnvelopeV1,
 )
 from endpoint_server.network import observed_client_address
 from endpoint_contracts.capabilities import MODULE_CAPABILITY_REGISTRY
@@ -30,6 +31,10 @@ from endpoint_server.operations.capabilities import module_capability_is_compati
 from endpoint_server.updates.agent_routes import DevicePrincipal, _authenticate_device
 from endpoint_server.context.connect_refresh import queue_connect_refreshes
 from endpoint_server.activity.ingestion import ingest_gateway_activity
+from endpoint_server.security.ingestion import (
+    SecurityEventRejected,
+    commit_and_ack_security_events,
+)
 from endpoint_server.context.service import ContextValidationError
 from endpoint_server.policy.delivery import (
     PolicyAcknowledgementRejected,
@@ -268,7 +273,9 @@ async def connect_agent(websocket: WebSocket) -> None:
                 if websocket.app.state.settings.endpoint_policy_enabled:
                     async with websocket.app.state.session_provider() as session:
                         changed_policy = await prepare_policy_delivery(
-                            session, first.payload, only_if_changed=True,
+                            session,
+                            first.payload,
+                            only_if_changed=True,
                         )
                         await session.commit()
                     if changed_policy is not None:
@@ -304,6 +311,20 @@ async def connect_agent(websocket: WebSocket) -> None:
                 async with websocket.app.state.session_provider() as session:
                     await ingest_gateway_activity(session, device_id, envelope.payload)
                     await session.commit()
+            elif isinstance(envelope, SecurityEventBatchEnvelopeV1):
+                if (
+                    not websocket.app.state.settings.endpoint_policy_enabled
+                    or "endpoint.security-events.v1" not in connection.protocol_features
+                    or first.payload.platform != "windows_amd64"
+                ):
+                    raise GatewayProtocolError(1008, "security_events_disabled")
+                await commit_and_ack_security_events(
+                    websocket.app.state.session_provider,
+                    device_id,
+                    envelope.payload,
+                    sequence=envelope.sequence,
+                    send=connection.send,
+                )
             else:
                 raise GatewayProtocolError(1008, "unexpected_message")
             await command_service.deliver_next(
@@ -328,7 +349,13 @@ async def connect_agent(websocket: WebSocket) -> None:
     except RegistryCapacityExceeded:
         close_reason = "registry_capacity"
         await websocket.close(code=1013)
-    except (CommandStateRejected, PresenceRejected, PolicyAcknowledgementRejected, ContextValidationError) as error:
+    except (
+        CommandStateRejected,
+        PresenceRejected,
+        PolicyAcknowledgementRejected,
+        ContextValidationError,
+        SecurityEventRejected,
+    ) as error:
         logger.warning("Gateway state rejected: %s: %s", type(error).__name__, error)
         close_reason = "state_rejected"
         await _send_safe_error(websocket, "state_rejected")
