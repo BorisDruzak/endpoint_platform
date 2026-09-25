@@ -142,11 +142,15 @@ class LocalSensorPipeListener:
         *,
         pipe_name: str = PIPE_NAME,
         frame_timeout_seconds: float = 5.0,
+        server_factory: Callable[[], object] | None = None,
     ) -> None:
         if not 0.05 <= frame_timeout_seconds <= 30:
             raise ValueError("invalid local IPC frame timeout")
         self._on_frame = on_frame
         self._pipe_name = pipe_name
+        self._server_factory = server_factory or (
+            lambda: create_server_pipe(pipe_name=self._pipe_name, overlapped=True)
+        )
         self._frame_timeout = frame_timeout_seconds
         self._stop = Event()
         self._thread: Thread | None = None
@@ -154,7 +158,7 @@ class LocalSensorPipeListener:
     def start(self) -> None:
         if self._thread is not None:
             raise RuntimeError("local IPC listener already started")
-        pipe = create_server_pipe(pipe_name=self._pipe_name, overlapped=True)
+        pipe = self._server_factory()
         self._thread = Thread(target=self._run, args=(pipe,), name="EndpointSensorPipe", daemon=True)
         self._thread.start()
 

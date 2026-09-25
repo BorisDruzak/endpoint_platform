@@ -23,7 +23,8 @@ from pc_agent.enrollment_identity import (
 )
 from pc_agent.primitives.network.policy import AgentNetworkProbePolicy
 from pc_agent.policy.cache import AppliedPolicyCache
-from pc_agent.policy.runtime import PolicyRuntime
+from pc_agent.policy.runtime import PolicyApplicator, PolicyRuntime
+from pc_agent.policy.windows_sensors import apply_windows_policy_sensors
 from pc_agent.activity_dispatch import ActivityDispatch
 from pc_agent.transport.base import GatewayTerminalError, GatewayTransport
 from pc_agent.transport.http_pull import ClassifiedGatewayTransport
@@ -131,10 +132,14 @@ def _default_dependencies(
     settings: RuntimeSettings | None = None,
 ) -> RuntimeDependencies:
     transport_state = _EndpointHttpPullState()
-    policy_runtime = (
-        PolicyRuntime(AppliedPolicyCache(settings.data_root))
-        if settings is not None else None
-    )
+    policy_runtime = None
+    if settings is not None:
+        cache = AppliedPolicyCache(settings.data_root)
+        applicator = _policy_applicator_for(os.name)
+        policy_runtime = (
+            PolicyRuntime(cache, apply_sensors=applicator)
+            if applicator is not None else PolicyRuntime(cache)
+        )
     activity_dispatch = ActivityDispatch()
 
     async def restore_policy(_settings: object) -> None:
@@ -216,6 +221,10 @@ def _default_dependencies(
         create_canary_status_writer=_create_canary_status_writer,
         create_tray_status_writer=_create_tray_status_writer,
     )
+
+
+def _policy_applicator_for(platform_name: str) -> PolicyApplicator | None:
+    return apply_windows_policy_sensors if platform_name == "nt" else None
 
 
 def _create_canary_status_writer(settings: object):

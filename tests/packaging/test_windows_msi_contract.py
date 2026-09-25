@@ -148,11 +148,14 @@ def test_service_components_remove_services_and_fail_the_transaction_on_error() 
     assert {item.get("Name") for item in controls} == {
         "EndpointAgent",
         "EndpointAgentUpdater",
+        "EndpointBrowserPolicy",
     }
     core_control = _by_id(controls, "ctlEndpointAgent")
     updater_control = _by_id(controls, "ctlEndpointAgentUpdater")
+    browser_control = _by_id(controls, "ctlEndpointBrowserPolicy")
     assert core_control.get("Start") == "install"
     assert updater_control.get("Start") is None
+    assert browser_control.get("Start") == "install"
     assert all(item.get("Remove") == "uninstall" for item in controls)
     assert all(item.get("Wait") == "yes" for item in controls)
     assert all(item.get("Vital") == "yes" for item in _all_elements(trees, "ServiceInstall"))

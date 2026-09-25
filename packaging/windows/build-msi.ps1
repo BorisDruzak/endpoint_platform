@@ -365,6 +365,7 @@ $provisionerSpec = Join-Path $repositoryRoot 'pc_agent\pyinstaller_windows_provi
 $traySpec = Join-Path $repositoryRoot 'pc_agent\pyinstaller_windows_tray.spec'
 $userSensorSpec = Join-Path $repositoryRoot 'pc_agent\pyinstaller_windows_user_sensor.spec'
 $browserBridgeSpec = Join-Path $repositoryRoot 'pc_agent\pyinstaller_windows_browser_bridge.spec'
+$browserPolicySpec = Join-Path $repositoryRoot 'pc_agent\pyinstaller_windows_browser_policy_service.spec'
 $commonPyInstaller = @('--noconfirm', '--clean', '--distpath', $distRoot, '--workpath', $workRoot)
 if (-not $ReusePythonBuild) {
     Invoke-Checked $python (@('-m', 'PyInstaller') + $commonPyInstaller + @($coreSpec)) $repositoryRoot
@@ -374,6 +375,7 @@ if (-not $ReusePythonBuild) {
     Invoke-Checked $python (@('-m', 'PyInstaller') + $commonPyInstaller + @($traySpec)) $repositoryRoot
     Invoke-Checked $python (@('-m', 'PyInstaller') + $commonPyInstaller + @($userSensorSpec)) $repositoryRoot
     Invoke-Checked $python (@('-m', 'PyInstaller') + $commonPyInstaller + @($browserBridgeSpec)) $repositoryRoot
+    Invoke-Checked $python (@('-m', 'PyInstaller') + $commonPyInstaller + @($browserPolicySpec)) $repositoryRoot
 }
 
 $builtCore = Join-Path $distRoot 'endpoint_agent_core'
@@ -384,6 +386,7 @@ $builtProvisioner = Join-Path $distRoot 'endpoint-agent-provision.exe'
 $builtTray = Join-Path $distRoot 'EndpointAgentTray.exe'
 $builtUserSensor = Join-Path $distRoot 'EndpointUserSensor.exe'
 $builtBrowserBridge = Join-Path $distRoot 'EndpointBrowserBridge.exe'
+$builtBrowserPolicy = Join-Path $distRoot 'EndpointBrowserPolicy.exe'
 if (-not (Test-Path -LiteralPath $builtCoreExe -PathType Leaf)) {
     throw "Headless core build missing $builtCoreExe"
 }
@@ -404,6 +407,9 @@ if (-not (Test-Path -LiteralPath $builtUserSensor -PathType Leaf)) {
 }
 if (-not (Test-Path -LiteralPath $builtBrowserBridge -PathType Leaf)) {
     throw "Browser Bridge build missing $builtBrowserBridge"
+}
+if (-not (Test-Path -LiteralPath $builtBrowserPolicy -PathType Leaf)) {
+    throw "Browser Policy service build missing $builtBrowserPolicy"
 }
 $runtimePayload = $builtCore
 if ([int]$manifestPreview.schema_version -ge 5) {
@@ -436,6 +442,7 @@ Copy-Item -LiteralPath $builtProvisioner -Destination (Join-Path $programFilesSt
 Copy-Item -LiteralPath $builtTray -Destination (Join-Path $programFilesStage 'EndpointAgentTray.exe')
 Copy-Item -LiteralPath $builtUserSensor -Destination (Join-Path $programFilesStage 'EndpointUserSensor.exe')
 Copy-Item -LiteralPath $builtBrowserBridge -Destination (Join-Path $programFilesStage 'EndpointBrowserBridge.exe')
+Copy-Item -LiteralPath $builtBrowserPolicy -Destination (Join-Path $programFilesStage 'EndpointBrowserPolicy.exe')
 Copy-Item -LiteralPath (Join-Path $packagingRoot 'assets\ru.sosnadmin.endpoint.browser.json') -Destination (Join-Path $programFilesStage 'ru.sosnadmin.endpoint.browser.json')
 New-Item -ItemType Directory -Path (Join-Path $programFilesStage 'config'), (Join-Path $programFilesStage 'docs') -Force | Out-Null
 Copy-Item -LiteralPath (Join-Path $packagingRoot 'assets\agent-config.yaml') -Destination (Join-Path $programFilesStage 'config\agent-config.yaml')
@@ -482,7 +489,8 @@ $binding = [ordered]@{
     components = @($componentManifest | Sort-Object)
     services = @(
         [ordered]@{ name = 'EndpointAgent'; account = 'NT AUTHORITY\LocalService'; start = 'auto'; recovery = 'restart'; binary = 'ProgramFiles/endpoint-agent-service.exe'; arguments = '--agent-service'; selector = 'ProgramFiles/current.json' },
-        [ordered]@{ name = 'EndpointAgentUpdater'; account = 'LocalSystem'; start = 'demand'; recovery = 'restart'; binary = 'ProgramFiles/endpoint-agent-service.exe'; arguments = '--updater-service' }
+        [ordered]@{ name = 'EndpointAgentUpdater'; account = 'LocalSystem'; start = 'demand'; recovery = 'restart'; binary = 'ProgramFiles/endpoint-agent-service.exe'; arguments = '--updater-service' },
+        [ordered]@{ name = 'EndpointBrowserPolicy'; account = 'LocalSystem'; start = 'auto'; recovery = 'restart'; binary = 'ProgramFiles/EndpointBrowserPolicy.exe' }
     )
     state = [ordered]@{
         program_data_permanent = $true

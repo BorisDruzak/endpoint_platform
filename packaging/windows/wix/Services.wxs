@@ -24,6 +24,18 @@
         <ServiceControl Id="ctlEndpointAgentUpdater" Name="EndpointAgentUpdater"
                         Stop="both" Remove="uninstall" Wait="yes" />
       </Component>
+      <Component Id="cmpBrowserPolicyService" Directory="INSTALLFOLDER"
+                 Guid="8D2171DB-5357-4139-A3E4-F251B6AF602E" Bitness="always64">
+        <File Id="filEndpointBrowserPolicy" Source="$(var.StagingDir)\ProgramFiles\EndpointBrowserPolicy.exe"
+              Name="EndpointBrowserPolicy.exe" KeyPath="yes" />
+        <ServiceInstall Id="svcEndpointBrowserPolicy" Name="EndpointBrowserPolicy"
+                        DisplayName="Endpoint Browser Policy"
+                        Description="Fixed Browser Sensor enterprise policy applicator"
+                        Type="ownProcess" Start="auto" ErrorControl="normal"
+                        Account="LocalSystem" Vital="yes" />
+        <ServiceControl Id="ctlEndpointBrowserPolicy" Name="EndpointBrowserPolicy"
+                        Start="install" Stop="both" Remove="uninstall" Wait="yes" />
+      </Component>
       <Component Id="cmpTrayCompanion" Directory="INSTALLFOLDER"
                  Guid="*" Bitness="always64">
         <File Id="filEndpointAgentTray" Source="$(var.StagingDir)\ProgramFiles\EndpointAgentTray.exe"

@@ -28,9 +28,11 @@ remain open.
 
 `platform/windows/browser_policy.py` contains the fixed Chrome/Yandex
 machine-policy value applicator and ownership-marker checks for the pinned
-Browser Sensor extension. It is privileged-helper code: the LocalService Agent
-does not call its HKLM writer directly. The authenticated helper channel, MSI
-service registration and effective-browser-policy proof remain open.
+Browser Sensor extension. `browser_policy_helper.py` owns the typed named-pipe
+contract and OS service-SID checks; `browser_policy_service_entry.py` runs the
+MSI-owned LocalSystem service. The LocalService Agent calls it through
+`policy/windows_sensors.py` and does not write HKLM itself. Installed-MSI,
+effective-browser-policy and browser download/heartbeat proof remain open.
 
 ## Main packages
 
@@ -39,7 +41,7 @@ service registration and effective-browser-policy proof remain open.
 | Runtime | `pc_agent/runtime/` | headless lifecycle, local state, verification |
 | Transport | `pc_agent/transport/` | Endpoint Gateway WSS protocol and HTTP compatibility |
 | Policy | `pc_agent/policy/` | validated policy application and last-good cache |
-| Browser machine policy | `pc_agent/platform/windows/browser_policy.py` | fixed extension force-install values, ownership marker and safe relinquish; helper integration pending |
+| Browser machine policy | `pc_agent/platform/windows/{browser_policy,browser_policy_helper,browser_policy_service_entry}.py`, `pc_agent/policy/windows_sensors.py` | fixed extension force-install values, authenticated helper IPC, ownership marker and safe relinquish |
 | Local sensors | `pc_agent/platform/windows/{local_ipc,sensor_pipe_listener,activity_api,user_sensor,user_sensor_runtime,browser_bridge,browser_bridge_entry}.py` | bounded user/browser observation boundary; service listener, per-user sampler and binary native-host entrypoint |
 | Enrollment | `pc_agent/enrollment_identity.py`, `pc_agent/device_credential.py` | device identity and credentials |
 | Context | `pc_agent/context_profiles/` | typed context collection and execution |

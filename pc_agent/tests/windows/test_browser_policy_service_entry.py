@@ -1,0 +1,61 @@
+"""The privileged browser-policy service loads one packaged extension ID."""
+
+from __future__ import annotations
+
+import json
+import sys
+
+from pc_agent.platform.windows.browser_policy import CHROME_POLICY_PATH
+from pc_agent.platform.windows.browser_policy_service_entry import (
+    load_packaged_extension_id,
+    make_policy_listener,
+)
+from pc_agent.tests.windows.test_browser_policy import EXTENSION_ID, MemoryRegistry
+
+
+def test_service_entry_loads_only_packaged_extension_identity(
+    monkeypatch, tmp_path
+) -> None:
+    bundle = tmp_path / "bundle"
+    identity = bundle / "browser_sensor" / "extension-id.txt"
+    identity.parent.mkdir(parents=True)
+    identity.write_text(EXTENSION_ID, encoding="ascii")
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setattr(sys, "_MEIPASS", str(bundle), raising=False)
+    assert load_packaged_extension_id() == EXTENSION_ID
+    identity.write_text("malformed", encoding="ascii")
+    try:
+        load_packaged_extension_id()
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("malformed packaged extension identity accepted")
+
+
+def test_service_listener_authenticates_then_applies_only_packaged_id(
+    monkeypatch,
+) -> None:
+    registry = MemoryRegistry()
+    calls: list[str] = []
+    monkeypatch.setattr(
+        "pc_agent.platform.windows.browser_policy_service_entry.WindowsPolicyRegistry",
+        lambda: registry,
+    )
+    monkeypatch.setattr(
+        "pc_agent.platform.windows.browser_policy_service_entry.load_packaged_extension_id",
+        lambda: EXTENSION_ID,
+    )
+    monkeypatch.setattr(
+        "pc_agent.platform.windows.browser_policy_service_entry.authorize_agent_pipe_client",
+        lambda _handle: calls.append("authorized"),
+    )
+    listener = make_policy_listener()
+    reply = listener._on_frame(
+        object(),
+        b'{"schema_version":"endpoint_browser_policy_request_v1","operation":"apply","browser_family":"chrome"}',
+    )
+    assert calls == ["authorized"]
+    assert json.loads(reply)["status"] == "APPLIED"
+    assert EXTENSION_ID in json.loads(
+        registry.read(CHROME_POLICY_PATH, "ExtensionSettings")
+    )

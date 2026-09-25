@@ -318,6 +318,9 @@ def test_msi_service_sid_configuration_uses_only_fixed_service_names() -> None:
         ("service", ("scm", "EndpointAgentUpdater", 2)),
         ("sid", ("EndpointAgentUpdater", 5, 1)),
         ("close", "EndpointAgentUpdater"),
+        ("service", ("scm", "EndpointBrowserPolicy", 2)),
+        ("sid", ("EndpointBrowserPolicy", 5, 1)),
+        ("close", "EndpointBrowserPolicy"),
         ("close", "scm"),
     ]
 
@@ -352,6 +355,18 @@ def test_msi_service_recovery_configuration_uses_only_fixed_restart_policy() -> 
                 r"C:\Windows\System32\sc.exe",
                 "failure",
                 "EndpointAgentUpdater",
+                "reset=",
+                "86400",
+                "actions=",
+                "restart/60000/restart/60000/restart/60000",
+            ],
+            {"check": False, "stderr": -3, "stdin": -3, "stdout": -3, "timeout": 15},
+        ),
+        (
+            [
+                r"C:\Windows\System32\sc.exe",
+                "failure",
+                "EndpointBrowserPolicy",
                 "reset=",
                 "86400",
                 "actions=",
