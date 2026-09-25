@@ -145,9 +145,9 @@ the MSI staging hash and ran in the interactive session after an explicit
 start. The Agent accepted its local IPC sample; the server received a fresh
 User Sensor observation and projected `activity_v1` with idle and foreground
 browser context. The MSI upgrade had stopped the companion without restarting
-it. A source fix and regression tests have been prepared to restart both Tray
-and User Sensor after an interactive upgrade; a new signed release and upgrade
-retest are required. This proves the local Activity path on one session, not
+it. Commit `341a68f` adds the Setup fix and regression tests to restart both
+Tray and User Sensor after an interactive upgrade; a new signed release and
+upgrade retest are required. This proves the local Activity path on one session, not
 second-user/session acceptance or automatic startup after upgrade.
 
 ### Task 6: Signed browser release and Browser Integration Policy Applicator
@@ -248,8 +248,8 @@ synthetic Native Messaging sessions through that binary produced server-side
 `BROWSER_PASTE` and `BROWSER_UPLOAD` SecurityEvents with safe metadata and
 30-day expiry. Their event ACKs were `OK`, but the preceding Hello ACK was
 `IPC_UNAVAILABLE`: the installed Agent accesses an `install_type` field absent
-from `BrowserHelloV1`. A red test reproduced the exception and the worktree
-has a source fix and regression test prepared. Rebuild and retest Hello with
+from `BrowserHelloV1`. A red test reproduced the exception; commit `db427bb`
+fixes it and adds a regression test. Rebuild and retest Hello with
 the next signed Agent; synthetic host traffic does not prove browser-extension
 action capture.
 Chrome has produced a fresh administrative-install heartbeat through the
@@ -298,9 +298,11 @@ The signed 3.2.72 Setup installed on the local canary; its installer log recorde
 After that ACK, Chrome produced a fresh administrative-install heartbeat and
 the interactive User Sensor produced live Activity. The 3.2.72 Bridge's Hello
 failure and the Setup companion-restart defect were found in installed-binary
-checks. Source fixes and focused regressions are prepared but absent from the
-immutable installed 3.2.72 candidate; no complete single-run Python-suite
-result has been captured for this worktree state.
+checks. Source fixes `db427bb` and `341a68f` are committed but absent from the
+immutable installed 3.2.72 candidate. Test isolation commit `6725ccb` lets
+WSS identity tests run while the installed Agent owns the machine pipe. The
+complete Python 3.14.3 suite passed with the installed Agent running:
+`2239 passed, 41 skipped` in 374.62 seconds. Ruff and 111 focused tests passed.
 The next candidate must also confirm that the installed Bridge returns an
 `OK` Hello ACK and that Setup starts User Sensor automatically.
 
