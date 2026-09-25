@@ -131,14 +131,16 @@ def test_report_keeps_browser_and_heartbeat_facts_separate() -> None:
                 native_host_state="MISSING", last_running_at=None,
             ),
         },
-        {"chrome": BrowserHeartbeatFact("0.1.0", NOW - timedelta(minutes=1))},
+        {"chrome": BrowserHeartbeatFact("0.1.0", NOW - timedelta(minutes=1), "admin")},
         observed_at=NOW,
     )
     assert report.policy_id == policy.policy_id
     assert report.browsers[0].browser_family == "chrome"
     assert report.browsers[0].extension_last_seen_at == NOW - timedelta(minutes=1)
+    assert report.browsers[0].extension_install_type == "ADMIN"
     assert report.browsers[1].browser_family == "yandex"
     assert report.browsers[1].extension_version is None
+    assert report.browsers[1].extension_install_type == "UNKNOWN"
     assert "origin" not in report.model_dump_json()
 
 

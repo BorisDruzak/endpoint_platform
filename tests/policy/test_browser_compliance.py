@@ -30,6 +30,7 @@ def _status(policy: EndpointPolicyV1, *, yandex_absent: bool = True) -> BrowserS
     chrome.update({
         "running_state": "RUNNING", "last_running_at": NOW,
         "extension_version": "0.1.0", "extension_last_seen_at": NOW,
+        "extension_install_type": "ADMIN",
     })
     if yandex_absent:
         value["browsers"][1].update({
@@ -41,6 +42,7 @@ def _status(policy: EndpointPolicyV1, *, yandex_absent: bool = True) -> BrowserS
         value["browsers"][1].update({
             "running_state": "RUNNING", "last_running_at": NOW,
             "extension_version": "0.1.0", "extension_last_seen_at": NOW,
+            "extension_install_type": "ADMIN",
         })
     return BrowserStatusReportV1.model_validate(value)
 
@@ -88,6 +90,7 @@ def test_never_seen_after_agent_policy_explains_browser_not_launched() -> None:
     value["browsers"][0].update({
         "running_state": "CLOSED", "last_running_at": None,
         "extension_version": None, "extension_last_seen_at": None,
+        "extension_install_type": "UNKNOWN",
     })
     report = BrowserStatusReportV1.model_validate(value)
     result = derive_browser_compliance(policy, "APPLIED", report, now=NOW)
@@ -147,6 +150,23 @@ def test_external_mode_accepts_external_owner_but_not_endpoint_owner() -> None:
         policy, "APPLIED", BrowserStatusReportV1.model_validate(value), now=NOW,
     )
     assert result.browsers[0].reason == "POLICY_OWNER_MISMATCH"
+
+
+def test_registry_and_heartbeat_alone_do_not_prove_managed_installation() -> None:
+    policy = _required_policy()
+    value = _status(policy).model_dump(mode="python")
+    value["browsers"][0]["extension_install_type"] = "UNKNOWN"
+    unproven = derive_browser_compliance(
+        policy, "APPLIED", BrowserStatusReportV1.model_validate(value), now=NOW,
+    )
+    assert unproven.overall == "PARTIAL"
+    assert unproven.browsers[0].reason == "BROWSER_POLICY_EFFECT_UNKNOWN"
+    value["browsers"][0]["extension_install_type"] = "OTHER"
+    manual = derive_browser_compliance(
+        policy, "APPLIED", BrowserStatusReportV1.model_validate(value), now=NOW,
+    )
+    assert manual.overall == "NON_COMPLIANT"
+    assert manual.browsers[0].reason == "EXTENSION_NOT_MANAGED"
 
 
 def test_missing_stale_or_wrong_policy_report_cannot_be_compliant() -> None:

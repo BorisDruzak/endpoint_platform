@@ -19,6 +19,7 @@ BrowserInstallationPolicyStateV1 = Literal[
     "APPLIED", "NOT_APPLIED", "CONFLICT", "UNKNOWN"
 ]
 NativeHostStateV1 = Literal["READY", "MISSING", "UNKNOWN"]
+ExtensionInstallTypeV1 = Literal["ADMIN", "OTHER", "UNKNOWN"]
 ExtensionVersionV1 = Annotated[
     str | None, Field(strict=True, min_length=1, max_length=32, pattern=r"^[0-9]+(?:\.[0-9]+){1,3}$")
 ]
@@ -33,6 +34,7 @@ class BrowserFamilyStatusV1(ContractModelV1):
     native_host_state: NativeHostStateV1
     extension_version: ExtensionVersionV1 = None
     extension_last_seen_at: AwareDatetime | None = None
+    extension_install_type: ExtensionInstallTypeV1 = "UNKNOWN"
     last_running_at: AwareDatetime | None = None
 
     @model_validator(mode="after")
@@ -43,6 +45,8 @@ class BrowserFamilyStatusV1(ContractModelV1):
             raise ValueError("running browser requires last_running_at")
         if (self.extension_version is None) != (self.extension_last_seen_at is None):
             raise ValueError("extension version and last seen time must agree")
+        if self.extension_version is None and self.extension_install_type != "UNKNOWN":
+            raise ValueError("install type requires observed extension")
         if self.policy_owner == "CONFLICT" and self.installation_policy_state != "CONFLICT":
             raise ValueError("policy owner conflict requires conflict state")
         return self

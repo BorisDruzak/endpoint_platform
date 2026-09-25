@@ -142,6 +142,10 @@ class BrowserStatusCurrent(OwnershipRecord, Base):
             "browser_family IN ('chrome', 'yandex')",
             name="ck_browser_status_family",
         ),
+        CheckConstraint(
+            "extension_install_type IN ('ADMIN', 'OTHER', 'UNKNOWN')",
+            name="ck_browser_status_install_type",
+        ),
         Index("ix_browser_status_observed", "device_id", "observed_at"),
     )
 
@@ -161,6 +165,9 @@ class BrowserStatusCurrent(OwnershipRecord, Base):
     native_host_state: Mapped[str] = mapped_column(String(16), nullable=False)
     extension_version: Mapped[str | None] = mapped_column(String(32))
     extension_last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    extension_install_type: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="UNKNOWN", server_default="UNKNOWN",
+    )
     last_running_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 

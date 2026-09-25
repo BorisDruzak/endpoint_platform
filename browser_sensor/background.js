@@ -9,6 +9,7 @@ if (typeof importScripts === 'function') importScripts('protocol.js');
   const ALARM = 'endpoint-browser-heartbeat';
   const PROTOCOL_VERSION = 1;
   const MAX_QUEUE = 64;
+  const INSTALL_TYPES = new Set(['admin', 'development', 'normal', 'sideload', 'other']);
 
   function createBrowserSensorRuntime(api, options = {}) {
     const family = protocol.browserFamily(options.userAgent || root.navigator.userAgent);
@@ -20,6 +21,7 @@ if (typeof importScripts === 'function') importScripts('protocol.js');
     let port = null;
     let reconnectScheduled = false;
     let reconnectDelay = 1000;
+    let installType = 'unknown';
 
     function observedAt() { return now().toISOString(); }
 
@@ -80,7 +82,24 @@ if (typeof importScripts === 'function') importScripts('protocol.js');
       post({
         schema_version: 'browser_sensor_heartbeat_v1', protocol_version: PROTOCOL_VERSION,
         extension_version: version, browser_family: family, observed_at: observedAt(),
+        install_type: installType,
       });
+    }
+
+    async function refreshInstallType() {
+      let detected = 'unknown';
+      try {
+        if (typeof api.management?.getSelf === 'function') {
+          const self = await api.management.getSelf();
+          if (self && self.id === api.runtime.id && INSTALL_TYPES.has(self.installType)) {
+            detected = self.installType;
+          }
+        }
+      } catch (_) { /* Unsupported browser API leaves installation proof unknown. */ }
+      if (installType !== detected) {
+        installType = detected;
+        heartbeat();
+      }
     }
 
     function reportTab(tab) {
@@ -131,12 +150,15 @@ if (typeof importScripts === 'function') importScripts('protocol.js');
       if (alarm.name === ALARM) {
         connect();
         heartbeat();
+        void refreshInstallType();
         void reportCurrentTab();
       }
     });
     function start() {
       api.alarms.create(ALARM, { periodInMinutes: 1 });
       connect();
+      heartbeat();
+      void refreshInstallType();
       void reportCurrentTab();
     }
     api.runtime.onStartup.addListener(start);

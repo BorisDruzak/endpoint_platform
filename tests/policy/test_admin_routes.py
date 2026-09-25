@@ -206,6 +206,7 @@ async def test_policy_device_status_requires_current_browser_capability() -> Non
         observation["browsers"][0].update({
             "running_state": "RUNNING", "last_running_at": now,
             "extension_version": "0.1.0", "extension_last_seen_at": now,
+            "extension_install_type": "ADMIN",
         })
         observation["browsers"][1].update({
             "browser_state": "ABSENT", "policy_owner": "NONE",
@@ -216,6 +217,7 @@ async def test_policy_device_status_requires_current_browser_capability() -> Non
             await session.commit()
         active = await client.get(endpoint)
         assert active.json()["data"]["browser_compliance"] == "COMPLIANT"
+        assert active.json()["data"]["browsers"][0]["extension_install_type"] == "ADMIN"
         assert [item["compliance_state"] for item in active.json()["data"]["browsers"]] == ["ACTIVE", "NOT_APPLICABLE"]
         current = await app.state.gateway_connection_registry.get(device_id)
         assert current is not None

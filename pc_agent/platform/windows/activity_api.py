@@ -52,6 +52,7 @@ class _SessionProjection:
 class BrowserHeartbeatFact:
     extension_version: str
     last_seen_at: datetime
+    install_type: str = "unknown"
 
 
 def _ack(error_code: str = "OK") -> BrowserBridgeAckV1:
@@ -190,7 +191,7 @@ class ActivityIngress:
                     ):
                         self._heartbeats[message.browser_family] = (
                             policy.policy_id, policy.policy_version,
-                            BrowserHeartbeatFact(extension_version, now),
+                            BrowserHeartbeatFact(extension_version, now, message.install_type),
                         )
         if not (policy.activity.enabled and policy.activity.browser_context):
             return _ack(), None

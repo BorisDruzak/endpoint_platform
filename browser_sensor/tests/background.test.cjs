@@ -8,7 +8,7 @@ function signal() {
   return { addListener: (listener) => listeners.push(listener), fire: (...args) => listeners.forEach((listener) => listener(...args)) };
 }
 
-function harness(queryTabs = async () => []) {
+function harness(queryTabs = async () => [], getSelf = null) {
   const sent = [];
   const ports = [];
   const alarms = [];
@@ -31,6 +31,7 @@ function harness(queryTabs = async () => []) {
     },
     alarms: { create: (...args) => alarms.push(args), onAlarm: events.alarm },
   };
+  if (getSelf) chromeApi.management = { getSelf };
   createBrowserSensorRuntime(chromeApi, {
     userAgent: 'Chrome/130.0 YaBrowser/24.0',
     now: () => new Date('2026-09-25T10:00:00Z'),
@@ -39,6 +40,32 @@ function harness(queryTabs = async () => []) {
   });
   return { sent, ports, alarms, timeouts, events };
 }
+
+test('worker reports only its own administrative install type without management permission', async () => {
+  const value = harness(async () => [], async () => ({
+    id: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', installType: 'admin',
+    name: 'Must not leave browser', permissions: ['secret'],
+  }));
+  await new Promise((resolve) => setImmediate(resolve));
+  const heartbeats = value.sent.filter((item) => item.schema_version === 'browser_sensor_heartbeat_v1');
+  assert.equal(heartbeats.at(-1).install_type, 'admin');
+  assert.equal(JSON.stringify(value.sent).includes('Must not leave browser'), false);
+  assert.equal(JSON.stringify(value.sent).includes('secret'), false);
+});
+
+test('worker keeps install type unknown when self inspection is unavailable or mismatched', async () => {
+  const unavailable = harness();
+  const mismatched = harness(async () => [], async () => ({
+    id: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb', installType: 'admin',
+  }));
+  const rejected = harness(async () => [], async () => { throw new Error('unavailable'); });
+  await new Promise((resolve) => setImmediate(resolve));
+  for (const value of [unavailable, mismatched, rejected]) {
+    const heartbeat = value.sent.find((item) => item.schema_version === 'browser_sensor_heartbeat_v1');
+    assert.equal(heartbeat.install_type, 'unknown');
+    assert.equal(value.sent.some((item) => item.install_type === 'admin'), false);
+  }
+});
 
 test('worker sends hello, normalized active origin and heartbeat only to native host', async () => {
   const value = harness();

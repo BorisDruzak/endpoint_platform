@@ -75,6 +75,7 @@ def _browser_report() -> BrowserStatusReportV1:
     value["browsers"][0].update({
         "running_state": "RUNNING", "last_running_at": NOW,
         "extension_version": "0.1.0", "extension_last_seen_at": NOW,
+        "extension_install_type": "ADMIN",
     })
     return BrowserStatusReportV1.model_validate(value)
 
@@ -91,13 +92,14 @@ async def test_report_persists_families_and_preserves_last_heartbeat(browser_ses
     assert loaded is not None
     assert [item.browser_family for item in loaded.browsers] == ["chrome", "yandex"]
     assert loaded.browsers[0].extension_version == "0.1.0"
+    assert loaded.browsers[0].extension_install_type == "ADMIN"
 
     second = first.model_dump(mode="python")
     second["observation_id"] = uuid4()
     second["observed_at"] = NOW + timedelta(minutes=1)
     second["browsers"][0].update({
         "running_state": "CLOSED", "extension_version": None,
-        "extension_last_seen_at": None,
+        "extension_last_seen_at": None, "extension_install_type": "UNKNOWN",
     })
     async with sessions() as session:
         await ingest_browser_status(
@@ -110,6 +112,7 @@ async def test_report_persists_families_and_preserves_last_heartbeat(browser_ses
     assert loaded.browsers[0].running_state == "CLOSED"
     assert loaded.browsers[0].extension_version == "0.1.0"
     assert loaded.browsers[0].extension_last_seen_at == NOW
+    assert loaded.browsers[0].extension_install_type == "ADMIN"
 
 
 @pytest.mark.asyncio

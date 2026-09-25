@@ -394,6 +394,11 @@ def build_browser_status_report(
             native_host_state=host.native_host_state,
             extension_version=heartbeat.extension_version if heartbeat else None,
             extension_last_seen_at=heartbeat.last_seen_at if heartbeat else None,
+            extension_install_type=(
+                "ADMIN" if heartbeat.install_type == "admin"
+                else "UNKNOWN" if heartbeat.install_type == "unknown"
+                else "OTHER"
+            ) if heartbeat else "UNKNOWN",
             last_running_at=host.last_running_at,
         ))
     return BrowserStatusReportV1(

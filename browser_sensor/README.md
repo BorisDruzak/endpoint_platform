@@ -6,6 +6,8 @@ Run `npm test --prefix browser_sensor` from the repository root. The tests requi
 
 Version 0.1 observes active HTTP(S) origin/domain, file-input selection metadata, and paste MIME categories. It does not read file names, clipboard values, page text, titles, cookies or browser history. File-input selection does not cover every upload mechanism, including drag/drop and custom JavaScript transfers.
 
+The worker asks `chrome.management.getSelf()` for its own `installType` and sends only that bounded value in heartbeat. [Chrome documents](https://developer.chrome.com/docs/extensions/reference/api/management) that `getSelf()` needs no `management` manifest permission; the manifest keeps that broad permission absent. If the API is unavailable, rejects, or returns a different extension ID, the Agent reports `unknown`. Server compliance requires `admin` for a live managed Browser Sensor. This is browser-side evidence of administrative installation, not proof of the exact policy source or update URL; inspect each browser's effective policy page during Windows acceptance. Yandex support for this signal still requires installed-browser verification.
+
 The public extension ID is pinned in `extension-id.txt`. The signing key is kept in protected operator storage outside Git. Losing or changing that key changes the extension ID and breaks the installed release lineage.
 
 On a clean committed source tree, build a signed CRX with Chrome's packer:

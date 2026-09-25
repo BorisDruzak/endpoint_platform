@@ -23,6 +23,7 @@ Version = Annotated[str, Field(strict=True, min_length=1, max_length=64,
 Family = Literal["chrome", "yandex"]
 Category = Literal["spreadsheet", "document", "image", "video", "audio", "archive", "other"]
 ClipboardType = Literal["text", "html", "image", "files", "other"]
+InstallType = Literal["admin", "development", "normal", "sideload", "other", "unknown"]
 
 
 class BrowserProtocolError(ValueError):
@@ -59,6 +60,7 @@ class BrowserHeartbeatV1(ContractModelV1):
     extension_version: Version
     browser_family: Family
     observed_at: AwareDatetime
+    install_type: InstallType = "unknown"
 
 
 class BrowserContextV1(ContractModelV1):

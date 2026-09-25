@@ -9,6 +9,7 @@ type BrowserStatus = {
   installation_policy_state: 'APPLIED' | 'NOT_APPLIED' | 'CONFLICT' | 'UNKNOWN' | null
   native_host_state: 'READY' | 'MISSING' | 'UNKNOWN' | null
   extension_version: string | null
+  extension_install_type: 'ADMIN' | 'OTHER' | 'UNKNOWN' | null
   extension_last_seen_at: string | null
   last_running_at: string | null
   compliance_state: 'NOT_APPLICABLE' | 'UNKNOWN' | 'NEVER_SEEN' | 'ACTIVE' | 'STALE' | 'ERROR'
@@ -68,6 +69,8 @@ const reasonLabels: Record<string, string> = {
   BROWSER_DETECTION_UNKNOWN: 'Не удалось определить наличие браузера',
   POLICY_OWNER_MISMATCH: 'Политикой установки управляет другой владелец',
   INSTALLATION_POLICY_NOT_APPLIED: 'Политика установки не настроена',
+  EXTENSION_NOT_MANAGED: 'Расширение установлено без корпоративной политики',
+  BROWSER_POLICY_EFFECT_UNKNOWN: 'Браузер не подтвердил корпоративную установку расширения',
   NATIVE_HOST_UNAVAILABLE: 'Native Bridge недоступен',
   BROWSER_NOT_LAUNCHED: 'Браузер не запускался после настройки политики',
   EXTENSION_NEVER_SEEN: 'Расширение ещё не выходило на связь',
@@ -76,6 +79,10 @@ const reasonLabels: Record<string, string> = {
   EXTENSION_STALE: 'Связь с расширением устарела',
 }
 const label = <T extends string>(value: T | null, labels: Record<T, string>) => value === null ? 'Нет данных' : labels[value]
+const policyConfirmed = (browser: BrowserStatus, mode: PolicyStatus['deployment_mode']) =>
+  browser.installation_policy_state === 'APPLIED'
+  && browser.extension_install_type === 'ADMIN'
+  && browser.policy_owner === (mode === 'agent_managed' ? 'ENDPOINT' : 'EXTERNAL')
 
 export function DevicePolicyStatus({ deviceId }: { deviceId: string }) {
   const [status, setStatus] = useState<PolicyStatus | null | undefined>(undefined)
@@ -109,13 +116,15 @@ export function DevicePolicyStatus({ deviceId }: { deviceId: string }) {
         <div><dt>Браузер</dt><dd>{label(browser.browser_state, browserStateLabels)}</dd></div>
         <div><dt>Сейчас</dt><dd>{label(browser.running_state, runningLabels)}</dd></div>
         <div><dt>Управление</dt><dd>{label(browser.policy_owner, ownerLabels)}</dd></div>
-        <div><dt>Политика установки</dt><dd>{label(browser.installation_policy_state, installationLabels)}</dd></div>
+        <div><dt>Политика установки</dt><dd>{policyConfirmed(browser, status.deployment_mode)
+          ? 'Применена' : label(browser.installation_policy_state, installationLabels)}</dd></div>
         <div><dt>Native Bridge</dt><dd>{label(browser.native_host_state, nativeHostLabels)}</dd></div>
         <div><dt>Расширение</dt><dd>{extensionLabels[browser.compliance_state]}</dd></div>
         <div><dt>Версия расширения</dt><dd>{browser.extension_version ?? 'Нет данных'}</dd></div>
         <div><dt>Последняя связь</dt><dd>{dateText(browser.extension_last_seen_at)}</dd></div>
       </dl>
-      {browser.installation_policy_state === 'APPLIED' && <p className="muted">Действие политики в браузере не подтверждено</p>}
+      {browser.installation_policy_state === 'APPLIED' && !policyConfirmed(browser, status.deployment_mode)
+        ? <p className="muted">Действие политики в браузере не подтверждено</p> : null}
       {browser.reason && <p className="muted">Причина: {reasonLabels[browser.reason] ?? 'Состояние требует проверки'}</p>}
     </section>)}</div>
   </>

@@ -79,6 +79,19 @@ def test_extension_heartbeat_requires_version_and_cannot_be_in_future() -> None:
     assert BrowserStatusReportV1.model_validate(value).browsers[0].extension_version == "0.1.0"
 
 
+def test_install_type_requires_observed_extension_and_rejects_unbounded_values() -> None:
+    value = _report()
+    value["browsers"][0]["extension_install_type"] = "ADMIN"
+    with pytest.raises(ValidationError):
+        BrowserStatusReportV1.model_validate(value)
+    value["browsers"][0]["extension_last_seen_at"] = NOW
+    value["browsers"][0]["extension_version"] = "0.1.0"
+    assert BrowserStatusReportV1.model_validate(value).browsers[0].extension_install_type == "ADMIN"
+    value["browsers"][0]["extension_install_type"] = "secret arbitrary value"
+    with pytest.raises(ValidationError):
+        BrowserStatusReportV1.model_validate(value)
+
+
 def test_report_requires_timezone_aware_observation() -> None:
     value = _report()
     value["observed_at"] = NOW.replace(tzinfo=None)

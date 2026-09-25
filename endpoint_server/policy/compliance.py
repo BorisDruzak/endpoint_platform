@@ -90,6 +90,10 @@ def _family_compliance(
         return result("UNKNOWN", "BROWSER_RUNNING_UNKNOWN")
     if not timedelta(0) <= now - seen <= _HEARTBEAT_FRESHNESS:
         return result("STALE", "EXTENSION_STALE")
+    if observed.extension_install_type == "OTHER":
+        return result("ERROR", "EXTENSION_NOT_MANAGED")
+    if observed.extension_install_type != "ADMIN":
+        return result("UNKNOWN", "BROWSER_POLICY_EFFECT_UNKNOWN")
     return result("ACTIVE")
 
 

@@ -94,9 +94,11 @@ async def ingest_browser_status(
         if incoming_seen is not None and (prior_seen is None or incoming_seen > prior_seen):
             row.extension_last_seen_at = incoming_seen
             row.extension_version = item.extension_version
+            row.extension_install_type = item.extension_install_type
         else:
             row.extension_last_seen_at = prior_seen
             row.extension_version = row.extension_version if prior_seen is not None else None
+            row.extension_install_type = row.extension_install_type if prior_seen is not None else "UNKNOWN"
         incoming_running = item.last_running_at
         row.last_running_at = max(
             [value for value in (prior_running, incoming_running) if value is not None],
@@ -140,6 +142,7 @@ async def load_browser_status(
                 installation_policy_state=row.installation_policy_state,
                 native_host_state=row.native_host_state,
                 extension_version=row.extension_version,
+                extension_install_type=row.extension_install_type,
                 extension_last_seen_at=(
                     _utc(row.extension_last_seen_at) if row.extension_last_seen_at else None
                 ),

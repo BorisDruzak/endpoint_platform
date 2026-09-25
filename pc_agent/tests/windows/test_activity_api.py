@@ -140,14 +140,15 @@ def test_heartbeat_does_not_keep_old_origin_indefinitely() -> None:
 def test_heartbeats_coalesce_by_family_and_applied_policy() -> None:
     ingress = ActivityIngress(expected_extension_id=EXTENSION_ID)
     current_policy = policy()
-    for family, delay, version in (
-        ("chrome", 0, "0.1.0"),
-        ("chrome", 60, "0.2.0"),
-        ("yandex", 90, "0.1.0"),
+    for family, delay, version, install_type in (
+        ("chrome", 0, "0.1.0", "unknown"),
+        ("chrome", 60, "0.2.0", "admin"),
+        ("yandex", 90, "0.1.0", "normal"),
     ):
         heartbeat = BrowserHeartbeatV1(
             schema_version="browser_sensor_heartbeat_v1", protocol_version=1,
             extension_version=version, browser_family=family, observed_at=NOW,
+            install_type=install_type,
         )
         ack, _ = ingress.ingest(
             browser_payload(heartbeat), identity=IDENTITY, user_login="u1",
@@ -157,7 +158,9 @@ def test_heartbeats_coalesce_by_family_and_applied_policy() -> None:
     facts = ingress.latest_heartbeats(current_policy)
     assert facts["chrome"].extension_version == "0.2.0"
     assert facts["chrome"].last_seen_at == NOW + timedelta(seconds=60)
+    assert facts["chrome"].install_type == "admin"
     assert facts["yandex"].last_seen_at == NOW + timedelta(seconds=90)
+    assert facts["yandex"].install_type == "normal"
     assert ingress.latest_heartbeats(policy()) == {}
 
     bad = BrowserHeartbeatV1(

@@ -214,6 +214,8 @@ effectiveness depends on domain or management-console context. The read-only
 inspector recognizes an external `ExtensionSettings` entry, but registry observations alone do not
 prove the browser accepted it; Task 11 must inspect the effective policy page.
 
+The shared extension now requests only its own installation type through Chrome's documented permission-free `management.getSelf()` method. The bounded heartbeat carries `admin`, another install type, or `unknown`; the Agent forwards a three-state fact without granting `management` permission. Migration `0034_browser_install_proof` persists that fact with `UNKNOWN` for existing rows. Server compliance now requires administrative installation in addition to a fresh heartbeat and configured machine policy; a registry value or heartbeat alone cannot produce `COMPLIANT`. Console distinguishes configured from browser-confirmed installation. The API behavior in the installed Yandex version, exact effective policy values, signed CRX and full browser-to-Console path remain Task 11 live gates.
+
 ### Task 9: Russian Console
 
 **Files:** Create `webapp/src/SecurityPage.tsx` and typed client DTOs; modify `webapp/src/{App,FleetPages,api,styles.css}` and `endpoint_server/console/` routes/projections. Tests in `webapp/src/`, `webapp/e2e/`, `tests/server/`.

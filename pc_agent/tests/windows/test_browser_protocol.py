@@ -107,3 +107,17 @@ def test_bounded_ack_never_echoes_source_payload() -> None:
     assert length == len(encoded) - 4
     assert length < 1024
     assert b"SECRET_MARKER_7348" not in encoded
+
+
+def test_heartbeat_accepts_only_bounded_self_install_type() -> None:
+    heartbeat = {
+        "schema_version": "browser_sensor_heartbeat_v1", "protocol_version": 1,
+        "extension_version": "0.1.0", "browser_family": "chrome", "observed_at": NOW,
+        "install_type": "admin",
+    }
+    accepted = decode_native_message(_frame(heartbeat))
+    assert accepted.install_type == "admin"
+    legacy_heartbeat = {key: value for key, value in heartbeat.items() if key != "install_type"}
+    assert decode_native_message(_frame(legacy_heartbeat)).install_type == "unknown"
+    with pytest.raises(BrowserProtocolError):
+        decode_native_message(_frame({**heartbeat, "install_type": "policy-private-value"}))

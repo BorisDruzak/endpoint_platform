@@ -147,7 +147,7 @@ def test_migration_history_has_exactly_one_head() -> None:
         _alembic_config("postgresql+asyncpg://unused@127.0.0.1/unused")
     )
 
-    assert script.get_heads() == ["0033_browser_status"]
+    assert script.get_heads() == ["0034_browser_install_proof"]
 
 
 def test_browser_status_migration_has_two_family_current_projection() -> None:
@@ -159,6 +159,17 @@ def test_browser_status_migration_has_two_family_current_projection() -> None:
     assert "CREATE TABLE browser_status_current" in rendered
     assert "uq_browser_status_device_family" in rendered
     assert "extension_last_seen_at" in rendered
+
+
+def test_browser_install_proof_migration_defaults_existing_rows_to_unknown() -> None:
+    output = io.StringIO()
+    config = Config(REPOSITORY_ROOT / "alembic.ini", output_buffer=output)
+    config.set_main_option("sqlalchemy.url", "postgresql+asyncpg://unused@127.0.0.1/unused")
+    command.upgrade(config, "0033_browser_status:0034_browser_install_proof", sql=True)
+    rendered = " ".join(output.getvalue().split())
+    assert "ALTER TABLE browser_status_current ADD COLUMN extension_install_type" in rendered
+    assert "DEFAULT 'UNKNOWN' NOT NULL" in rendered
+    assert "ck_browser_status_install_type" in rendered
 
 
 def test_activity_migration_adds_latest_safe_projection() -> None:

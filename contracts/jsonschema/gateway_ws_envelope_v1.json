@@ -956,6 +956,16 @@
           "title": "Browser State",
           "type": "string"
         },
+        "extension_install_type": {
+          "default": "UNKNOWN",
+          "enum": [
+            "ADMIN",
+            "OTHER",
+            "UNKNOWN"
+          ],
+          "title": "Extension Install Type",
+          "type": "string"
+        },
         "extension_last_seen_at": {
           "anyOf": [
             {
