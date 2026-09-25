@@ -17,14 +17,23 @@ bounded handoff for WSS reconnects. `RuntimeLifecycle` starts the listener on
 Windows WSS before connecting and stops it on exit; the sender resumes on each
 WSS connection.
 
+`security/spool.py` keeps typed SecurityEvents in a protected SQLite file under
+the Agent data root. It discards the oldest event on the 1000-event or 5-MiB
+serialized-payload bound, expires events after 24 hours, and persists separate
+overflow and expiry counters. SQLite pages and rollback-journal overhead can
+exceed the payload bound. `security/runtime.py` sends one WSS batch at a time,
+replays it on timeout, and removes rows only after an exact persisted ACK. The
+current 3.2.67 Agent does not advertise `endpoint.security-events.v1`; this
+path activates at 3.2.70 after sensor integration and installed-agent proof.
+
 The interactive `user_sensor_runtime.py` samples each logon session and sends
 bounded frames through the same authenticated pipe. MSI stages its fixed
 `EndpointUserSensor.exe` and HKLM Run entry; signed release and live acceptance
 remain open. Elevated Setup leaves it pending until a user logon. The fixed
 `browser_bridge_entry.py` uses binary stdio and a packaged, pinned extension ID;
-its console-mode `EndpointBrowserBridge.exe` and Chrome machine-level native-host
-registration are MSI inputs. Yandex registration and live browser acceptance
-remain open.
+its console-mode `EndpointBrowserBridge.exe` and Chrome/Yandex machine-level
+native-host registrations are MSI inputs. Live native-host handshake and browser
+acceptance remain open.
 
 `platform/windows/browser_policy.py` contains the fixed Chrome/Yandex
 machine-policy value applicator and ownership-marker checks for the pinned
@@ -41,6 +50,7 @@ effective-browser-policy and browser download/heartbeat proof remain open.
 | Runtime | `pc_agent/runtime/` | headless lifecycle, local state, verification |
 | Transport | `pc_agent/transport/` | Endpoint Gateway WSS protocol and HTTP compatibility |
 | Policy | `pc_agent/policy/` | validated policy application and last-good cache |
+| Security events | `pc_agent/security/` | protected bounded SQLite spool and ACK-gated WSS replay |
 | Browser machine policy | `pc_agent/platform/windows/{browser_policy,browser_policy_helper,browser_policy_service_entry}.py`, `pc_agent/policy/windows_sensors.py` | fixed extension force-install values, authenticated helper IPC, ownership marker and safe relinquish |
 | Local sensors | `pc_agent/platform/windows/{local_ipc,sensor_pipe_listener,activity_api,user_sensor,user_sensor_runtime,browser_bridge,browser_bridge_entry}.py` | bounded user/browser observation boundary; service listener, per-user sampler and binary native-host entrypoint |
 | Enrollment | `pc_agent/enrollment_identity.py`, `pc_agent/device_credential.py` | device identity and credentials |

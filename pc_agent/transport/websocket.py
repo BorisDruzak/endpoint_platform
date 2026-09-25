@@ -17,6 +17,7 @@ import aiohttp
 from pydantic import ValidationError
 
 from endpoint_contracts.activity import ActivityObservationV1
+from endpoint_contracts.security_events import AgentSecurityEventBatchV1
 from endpoint_contracts.gateway_ws import (
     ActivityObservationEnvelopeV1,
     AgentHelloEnvelopeV1,
@@ -27,6 +28,7 @@ from endpoint_contracts.gateway_ws import (
     GatewayHelloEnvelopeV1,
     GatewayWsEnvelopeV1,
     HeartbeatEnvelopeV1,
+    SecurityEventBatchEnvelopeV1,
 )
 
 from .backoff import bounded_exponential_backoff
@@ -273,6 +275,15 @@ class WebSocketGatewayTransport:
             ActivityObservationEnvelopeV1,
             kind="activity_observation",
             payload=observation,
+        )
+
+    async def send_security_event_batch(
+        self, batch: AgentSecurityEventBatchV1
+    ) -> None:
+        await self._send(
+            SecurityEventBatchEnvelopeV1,
+            kind="security_event_batch",
+            payload=batch,
         )
 
     async def _receive_envelope(self):

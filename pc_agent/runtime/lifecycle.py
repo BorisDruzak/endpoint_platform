@@ -19,6 +19,7 @@ from endpoint_contracts import (
     GatewayHelloV1,
 )
 from endpoint_contracts.gateway_ws import EndpointPolicyAckV1, EndpointPolicyDeliveryV1
+from endpoint_contracts.security_events import SecurityEventAckV1
 from pc_agent.transport.base import (
     GatewayCredentialRejected,
     GatewayIdle,
@@ -128,6 +129,7 @@ class RuntimeDependencies:
     restore_policy: Callable[[object], Awaitable[object]] = _noop_restore_policy
     start_local_sensor: Callable[[object], LocalSensorService | None] = _no_local_sensor
     policy_handler: Callable[[EndpointPolicyDeliveryV1], Awaitable[EndpointPolicyAckV1]] | None = None
+    security_ack_handler: Callable[[SecurityEventAckV1], Awaitable[bool]] | None = None
     create_connected_tasks: Callable[
         [object, str, GatewayTransport], Iterable[Awaitable[None]]
     ] = _no_connected_tasks
@@ -238,6 +240,7 @@ class RuntimeLifecycle:
                         connected_tasks=connected_tasks,
                         completion_sink=completion_sink,
                         policy_handler=self._dependencies.policy_handler,
+                        security_ack_handler=self._dependencies.security_ack_handler,
                     )
                     raise GatewayTerminalError(
                         "Gateway connected loops stopped unexpectedly"
@@ -390,10 +393,13 @@ async def _run_connected(
     connected_tasks: Iterable[Awaitable[None]] = (),
     completion_sink: Callable[[dict[str, object]], None] | None = None,
     policy_handler: Callable[[EndpointPolicyDeliveryV1], Awaitable[EndpointPolicyAckV1]] | None = None,
+    security_ack_handler: Callable[[SecurityEventAckV1], Awaitable[bool]] | None = None,
 ) -> None:
     """Run receive and heartbeat loops for the lifetime of one connection."""
     tasks = {
-        asyncio.create_task(_receive_loop(transport, executor, completion_sink, policy_handler)),
+        asyncio.create_task(_receive_loop(
+            transport, executor, completion_sink, policy_handler, security_ack_handler,
+        )),
         asyncio.create_task(
             _heartbeat_loop(
                 transport,
@@ -431,12 +437,14 @@ async def _receive_loop(
     executor: RuntimeExecutor,
     completion_sink: Callable[[dict[str, object]], None] | None,
     policy_handler: Callable[[EndpointPolicyDeliveryV1], Awaitable[EndpointPolicyAckV1]] | None,
+    security_ack_handler: Callable[[SecurityEventAckV1], Awaitable[bool]] | None,
 ) -> None:
     while True:
         inbound = await transport.receive()
         await _handle_inbound(
             transport, executor, inbound, completion_sink,
             policy_handler=policy_handler,
+            security_ack_handler=security_ack_handler,
         )
 
 
@@ -467,6 +475,7 @@ async def _handle_inbound(
     completion_sink: Callable[[dict[str, object]], None] | None = None,
     *,
     policy_handler: Callable[[EndpointPolicyDeliveryV1], Awaitable[EndpointPolicyAckV1]] | None = None,
+    security_ack_handler: Callable[[SecurityEventAckV1], Awaitable[bool]] | None = None,
 ) -> None:
     """Handle the bounded server-to-agent messages owned by the common runtime."""
     if inbound.root.kind == "result_ack":
@@ -479,6 +488,11 @@ async def _handle_inbound(
             raise GatewayTerminalError("Endpoint Policy runtime is unavailable")
         ack = await policy_handler(inbound.root.payload)
         await send_ack(ack)
+        return
+    if inbound.root.kind == "security_event_ack":
+        if security_ack_handler is None:
+            raise GatewayTerminalError("SecurityEvent ACK runtime is unavailable")
+        await security_ack_handler(inbound.root.payload)
         return
     if inbound.root.kind == "command_cancel":
         return

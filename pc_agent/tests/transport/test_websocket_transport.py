@@ -17,6 +17,8 @@ from endpoint_contracts import (
     GatewayHelloV1,
 )
 from endpoint_contracts.activity import ActivityObservationV1
+from endpoint_contracts.security_events import AgentSecurityEventBatchV1
+from pc_agent.tests.security.test_spool import _event
 
 
 _DEVICE_ID = UUID("00000000-0000-4000-8000-000000000701")
@@ -48,6 +50,30 @@ async def test_activity_observation_uses_canonical_gateway_envelope() -> None:
     assert socket.sent == [{
         "schema_version": "gateway_ws_envelope_v1", "sequence": 1,
         "kind": "activity_observation", "payload": observation.model_dump(mode="json"),
+    }]
+
+
+@pytest.mark.asyncio
+async def test_security_event_batch_uses_canonical_gateway_envelope() -> None:
+    from pc_agent.transport.websocket import WebSocketGatewayTransport
+
+    socket = _HandshakeSocket(_gateway_hello_body())
+    transport = WebSocketGatewayTransport(
+        ca_file=Path("endpoint-ca.pem"), credential=_TOKEN, endpoint_origin=_ORIGIN,
+    )
+    transport._socket = socket
+    transport._maximum_message_bytes = 65536
+    batch = AgentSecurityEventBatchV1(
+        schema_version="agent_security_event_batch_v1",
+        batch_id=UUID("00000000-0000-4000-8000-000000000705"),
+        events=[_event()],
+    )
+
+    await transport.send_security_event_batch(batch)
+
+    assert socket.sent == [{
+        "schema_version": "gateway_ws_envelope_v1", "sequence": 1,
+        "kind": "security_event_batch", "payload": batch.model_dump(mode="json"),
     }]
 
 

@@ -26,6 +26,8 @@ from pc_agent.policy.cache import AppliedPolicyCache
 from pc_agent.policy.runtime import PolicyApplicator, PolicyRuntime
 from pc_agent.policy.windows_sensors import apply_windows_policy_sensors
 from pc_agent.activity_dispatch import ActivityDispatch
+from pc_agent.security.runtime import SecurityEventRuntime
+from pc_agent.security.spool import SecurityEventSpool
 from pc_agent.transport.base import GatewayTerminalError, GatewayTransport
 from pc_agent.transport.http_pull import ClassifiedGatewayTransport
 from pc_agent.transport.protocol import (
@@ -51,6 +53,7 @@ from .status import RuntimeStatus
 _SOURCE_REVISION = re.compile(r"^[0-9a-f]{40}$")
 _AGENT_SEMVER = re.compile(r"^([0-9]+)\.([0-9]+)\.([0-9]+)$")
 _MIN_POLICY_AGENT_VERSION = (3, 2, 68)
+_MIN_SECURITY_EVENTS_AGENT_VERSION = (3, 2, 70)
 
 
 @dataclass(frozen=True, slots=True)
@@ -141,8 +144,20 @@ def _default_dependencies(
             if applicator is not None else PolicyRuntime(cache)
         )
     activity_dispatch = ActivityDispatch()
+    security_runtime = None
+    if (
+        settings is not None
+        and os.name == "nt"
+        and "endpoint.security-events.v1" in _policy_protocol_features(
+            AGENT_VERSION, "windows_amd64", settings.transport_mode,
+            settings.migration_http_pull_fallback,
+        )
+    ):
+        security_runtime = SecurityEventRuntime(SecurityEventSpool(settings.data_root))
 
     async def restore_policy(_settings: object) -> None:
+        if security_runtime is not None:
+            await security_runtime.open()
         if policy_runtime is not None:
             await policy_runtime.restore_offline()
 
@@ -185,10 +200,13 @@ def _default_dependencies(
             and isinstance(transport, WebSocketGatewayTransport)
         ):
             if os.name == "nt":
-                return (
+                tasks = [
                     _periodic_windows_update_checks(settings, credential),
                     activity_dispatch.send_forever(transport),
-                )
+                ]
+                if security_runtime is not None:
+                    tasks.append(security_runtime.send_forever(transport))
+                return tuple(tasks)
             return (
                 _periodic_https_update_checks(
                     settings,
@@ -216,6 +234,9 @@ def _default_dependencies(
         restore_policy=restore_policy,
         start_local_sensor=start_local_sensor,
         policy_handler=policy_runtime.apply_delivery if policy_runtime is not None else None,
+        security_ack_handler=(
+            security_runtime.receive_ack if security_runtime is not None else None
+        ),
         create_connected_tasks=create_connected_tasks,
         create_completion_sink=_create_completion_sink,
         create_canary_status_writer=_create_canary_status_writer,
@@ -352,7 +373,10 @@ def _policy_protocol_features(
         or tuple(int(part) for part in match.groups()) < _MIN_POLICY_AGENT_VERSION
     ):
         return []
-    return ["endpoint.policy.v1"]
+    features = ["endpoint.policy.v1"]
+    if tuple(int(part) for part in match.groups()) >= _MIN_SECURITY_EVENTS_AGENT_VERSION:
+        features.append("endpoint.security-events.v1")
+    return features
 
 
 def _create_transport(

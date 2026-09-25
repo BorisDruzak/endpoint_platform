@@ -9,3 +9,6 @@ def test_policy_feature_advertisement_requires_new_windows_wss_agent() -> None:
     assert _policy_protocol_features("3.2.69", "linux_amd64", "gateway_wss", False) == []
     assert _policy_protocol_features("3.2.69", "windows_amd64", "gateway_http_pull", False) == []
     assert _policy_protocol_features("3.2.69", "windows_amd64", "gateway_wss", True) == []
+    assert _policy_protocol_features("3.2.70", "windows_amd64", "gateway_wss", False) == [
+        "endpoint.policy.v1", "endpoint.security-events.v1",
+    ]

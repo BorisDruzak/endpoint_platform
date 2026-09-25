@@ -161,9 +161,13 @@ an applied matching policy, stages idempotent rows with per-type enablement and
 24-hour event-age checks, commits, then sends the typed ACK. SQLite tests prove
 replay deduplication, changed-payload rejection and commit-before-ACK ordering;
 the full Gateway suite passed. The worker now deletes expired rows in bounded
-transactional batches; the Agent protected durable spool and end-to-end Windows
-replay remain open. This is not yet a working SecurityEvent pipeline on a
-deployed Agent.
+transactional batches. The Agent now has a protected SQLite event spool with
+1000-event, 5-MiB serialized-payload and 24-hour bounds, durable drop counters,
+oldest-first overflow, one in-flight WSS batch and exact-ACK deletion. The
+server and Agent producer/consumer tests pass. The feature remains gated to a
+future 3.2.70 Agent; Windows event-source wiring, health/compliance projection,
+installed-Agent replay proof and production migration remain open. This is not
+yet a working SecurityEvent pipeline on a deployed Agent.
 
 ### Task 8: USB and print audit sensors, browser status and compliance
 

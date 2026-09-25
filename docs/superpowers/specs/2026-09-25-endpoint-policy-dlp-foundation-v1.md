@@ -1478,7 +1478,7 @@ Use protected Agent data storage.
 
 SQLite is acceptable if consistent with repository constraints.
 
-Suggested bounds:
+Foundation v1 bounds:
 
 ```text
 max 1000 events
@@ -1486,7 +1486,10 @@ max 5 MiB
 max event age 24 hours
 ```
 
-Choose actual constants after testing.
+The 5 MiB limit applies to serialized queued event payloads. SQLite pages,
+indexes and rollback-journal overhead are additional; verify the maximum
+on-disk footprint on an installed Agent before release. Keep the database in
+the protected Agent data directory and reclaim deleted pages.
 
 ---
 
@@ -1496,7 +1499,8 @@ Never grow without bounds.
 
 When full:
 
-* discard according to deterministic documented policy;
+* discard the oldest queued event first until both count and serialized-byte
+  bounds hold;
 * increment drop counter;
 * surface degradation in Agent health/compliance.
 
