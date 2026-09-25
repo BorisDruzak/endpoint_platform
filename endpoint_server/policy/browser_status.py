@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
@@ -115,6 +116,13 @@ async def load_browser_status(
     rows = (await session.scalars(select(BrowserStatusCurrent).where(
         BrowserStatusCurrent.device_id == device_id,
     ))).all()
+    return browser_status_from_rows(rows)
+
+
+def browser_status_from_rows(
+    rows: Sequence[BrowserStatusCurrent],
+) -> BrowserStatusReportV1 | None:
+    """Reconstruct a complete report from one device's two current rows."""
     if len(rows) != 2 or {row.browser_family for row in rows} != {"chrome", "yandex"}:
         return None
     by_family = {row.browser_family: row for row in rows}

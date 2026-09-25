@@ -103,6 +103,13 @@ async def load_sensor_health(
     row = await session.scalar(select(PolicySensorHealthCurrent).where(
         PolicySensorHealthCurrent.device_id == device_id,
     ))
+    return sensor_health_from_row(row)
+
+
+def sensor_health_from_row(
+    row: PolicySensorHealthCurrent | None,
+) -> PolicySensorHealthReportV1 | None:
+    """Reconstruct a strict report from one current database row."""
     if row is None:
         return None
     return PolicySensorHealthReportV1(

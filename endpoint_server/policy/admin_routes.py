@@ -23,7 +23,8 @@ from endpoint_server.db.models import Device
 
 from .browser_status import load_browser_status
 from .compliance import derive_browser_compliance
-from .device_compliance import ActivityEvidence, SensorState, derive_device_compliance
+from .device_compliance import ActivityEvidence, PolicyStatus, SensorState, derive_device_compliance
+from .fleet import ComplianceFilter, list_policy_fleet
 from .models import PolicyAssignment, PolicyDefinition, PolicyDeviceState, PolicyVersion
 from .sensor_health import load_sensor_health
 from .service import (
@@ -194,6 +195,34 @@ class ConsolePolicyDeviceStatusResponse(BaseModel):
     data: ConsolePolicyDeviceStatus | None
 
 
+class ConsolePolicyFleetRow(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: UUID
+    device_identifier: str
+    display_name: str
+    agent_version: str | None
+    online: bool
+    policy_name: str | None
+    policy_version: int | None
+    applied_version: int | None
+    delivery_status: PolicyStatus | None
+    compliance: Literal["COMPLIANT", "PARTIAL", "NON_COMPLIANT", "STALE", "UNSUPPORTED"] | None
+    acknowledged_at: datetime | None
+    activity_sensor: SensorState
+    browser_sensor: SensorState
+    dlp_sensor: SensorState
+
+
+class ConsolePolicyFleetPage(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    data: list[ConsolePolicyFleetRow]
+    total: int
+    limit: int
+    offset: int
+
+
 def _require_enabled(request: Request) -> None:
     if not request.app.state.settings.endpoint_policy_enabled:
         raise HTTPException(status_code=404, detail="Политики Endpoint отключены")
@@ -253,6 +282,28 @@ async def list_policies(
         ) for row in rows],
         total=total, limit=limit, offset=offset,
     )
+
+
+@router.get("/fleet", response_model=ConsolePolicyFleetPage)
+async def policy_fleet(
+    request: Request,
+    _: Annotated[AdminPrincipal, Depends(require_admin)],
+    limit: Annotated[int, Query(ge=1, le=100)] = 50,
+    offset: Annotated[int, Query(ge=0, le=100_000)] = 0,
+    compliance: ComplianceFilter | None = None,
+    search: Annotated[str | None, Query(max_length=128)] = None,
+) -> ConsolePolicyFleetPage:
+    _require_enabled(request)
+    connections = {
+        item.device_id: item
+        for item in await request.app.state.gateway_connection_registry.connected()
+    }
+    async with request.app.state.session_provider() as session:
+        page = await list_policy_fleet(
+            session, connections, limit=limit, offset=offset,
+            compliance=compliance, search=search,
+        )
+    return ConsolePolicyFleetPage.model_validate(page)
 
 
 @router.get("/{policy_id}", response_model=PolicySummaryResponse)
