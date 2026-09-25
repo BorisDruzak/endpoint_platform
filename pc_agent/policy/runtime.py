@@ -53,6 +53,7 @@ class PolicyRuntime:
         self._apply_sensors = apply_sensors
         self._policy_lock = Lock()
         self._current_policy: EndpointPolicyV1 | None = None
+        self._report_policy: EndpointPolicyV1 | None = None
 
     @property
     def current_policy(self) -> EndpointPolicyV1 | None:
@@ -60,9 +61,16 @@ class PolicyRuntime:
         with self._policy_lock:
             return self._current_policy
 
+    @property
+    def report_policy(self) -> EndpointPolicyV1 | None:
+        """Report the latest delivered policy, including a failed application."""
+        with self._policy_lock:
+            return self._report_policy
+
     def _set_current_policy(self, policy: EndpointPolicyV1) -> None:
         with self._policy_lock:
             self._current_policy = policy
+            self._report_policy = policy
 
     async def restore_offline(self) -> bool:
         """Reactivate last applied policy before network connection when possible."""
@@ -96,6 +104,8 @@ class PolicyRuntime:
         except Exception:
             logger.exception("Endpoint Policy sensor application failed")
             error_code = "SENSOR_APPLY_FAILED"
+        with self._policy_lock:
+            self._report_policy = delivery.policy
         return EndpointPolicyAckV1(
             schema_version="endpoint_policy_ack_v1",
             policy_id=delivery.policy.policy_id,

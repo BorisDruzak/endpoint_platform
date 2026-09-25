@@ -6,6 +6,9 @@ from collections import OrderedDict
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
+import re
+from threading import Lock
+from uuid import UUID
 from uuid import uuid4
 
 from endpoint_contracts.activity import (
@@ -45,6 +48,12 @@ class _SessionProjection:
     context_seen_at: dict[str, datetime] = field(default_factory=dict)
 
 
+@dataclass(frozen=True, slots=True)
+class BrowserHeartbeatFact:
+    extension_version: str
+    last_seen_at: datetime
+
+
 def _ack(error_code: str = "OK") -> BrowserBridgeAckV1:
     return BrowserBridgeAckV1(
         schema_version="browser_bridge_ack_v1",
@@ -64,6 +73,17 @@ class ActivityIngress:
             raise ValueError("invalid pinned Browser Sensor extension ID")
         self._extension_id = expected_extension_id
         self._sessions: OrderedDict[tuple[str, str, int], _SessionProjection] = OrderedDict()
+        self._heartbeat_lock = Lock()
+        self._heartbeats: dict[str, tuple[UUID, int, BrowserHeartbeatFact]] = {}
+
+    def latest_heartbeats(self, policy: EndpointPolicyV1) -> dict[str, BrowserHeartbeatFact]:
+        """Return only typed Hello/Heartbeat facts accepted under this policy."""
+        with self._heartbeat_lock:
+            return {
+                family: fact
+                for family, (policy_id, version, fact) in self._heartbeats.items()
+                if policy_id == policy.policy_id and version == policy.policy_version
+            }
 
     def _session(self, key: tuple[str, str, int]) -> _SessionProjection:
         existing = self._sessions.get(key)
@@ -156,6 +176,22 @@ class ActivityIngress:
             ),
             now,
         )
+        if isinstance(message, (BrowserHelloV1, BrowserHeartbeatV1)):
+            extension_version = message.extension_version
+            if len(extension_version) <= 32 and re.fullmatch(
+                r"[0-9]+(?:\.[0-9]+){1,3}", extension_version,
+            ):
+                with self._heartbeat_lock:
+                    previous = self._heartbeats.get(message.browser_family)
+                    if (
+                        previous is None
+                        or previous[:2] != (policy.policy_id, policy.policy_version)
+                        or now >= previous[2].last_seen_at
+                    ):
+                        self._heartbeats[message.browser_family] = (
+                            policy.policy_id, policy.policy_version,
+                            BrowserHeartbeatFact(extension_version, now),
+                        )
         if not (policy.activity.enabled and policy.activity.browser_context):
             return _ack(), None
         return _ack(), self._project(projection, user_login, policy, now)

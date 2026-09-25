@@ -137,6 +137,42 @@ def test_heartbeat_does_not_keep_old_origin_indefinitely() -> None:
     assert observed.browser.origin is None and observed.browser.domain is None
 
 
+def test_heartbeats_coalesce_by_family_and_applied_policy() -> None:
+    ingress = ActivityIngress(expected_extension_id=EXTENSION_ID)
+    current_policy = policy()
+    for family, delay, version in (
+        ("chrome", 0, "0.1.0"),
+        ("chrome", 60, "0.2.0"),
+        ("yandex", 90, "0.1.0"),
+    ):
+        heartbeat = BrowserHeartbeatV1(
+            schema_version="browser_sensor_heartbeat_v1", protocol_version=1,
+            extension_version=version, browser_family=family, observed_at=NOW,
+        )
+        ack, _ = ingress.ingest(
+            browser_payload(heartbeat), identity=IDENTITY, user_login="u1",
+            policy=current_policy, received_at=NOW + timedelta(seconds=delay),
+        )
+        assert ack.accepted
+    facts = ingress.latest_heartbeats(current_policy)
+    assert facts["chrome"].extension_version == "0.2.0"
+    assert facts["chrome"].last_seen_at == NOW + timedelta(seconds=60)
+    assert facts["yandex"].last_seen_at == NOW + timedelta(seconds=90)
+    assert ingress.latest_heartbeats(policy()) == {}
+
+    bad = BrowserHeartbeatV1(
+        schema_version="browser_sensor_heartbeat_v1", protocol_version=1,
+        extension_version="0.3.0", browser_family="chrome", observed_at=NOW,
+    )
+    rejected, _ = ingress.ingest(
+        browser_payload(bad, extension_id="b" * 32), identity=IDENTITY,
+        user_login="u1", policy=current_policy,
+        received_at=NOW + timedelta(seconds=120),
+    )
+    assert rejected.error_code == "IDENTITY_MISMATCH"
+    assert ingress.latest_heartbeats(current_policy)["chrome"].extension_version == "0.2.0"
+
+
 def test_wrong_extension_and_unapplied_policy_fail_closed() -> None:
     ingress = ActivityIngress(expected_extension_id=EXTENSION_ID)
     heartbeat = BrowserHeartbeatV1(

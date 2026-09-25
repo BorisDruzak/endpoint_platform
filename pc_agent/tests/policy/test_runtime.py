@@ -82,13 +82,18 @@ async def test_local_sensor_sees_only_last_successfully_applied_policy(tmp_path)
     cache = AppliedPolicyCache(tmp_path, protector=lambda _: None, inspector=lambda _: None)
     runtime = PolicyRuntime(cache)
     assert runtime.current_policy is None
+    assert runtime.report_policy is None
     disabled = _delivery(active=False)
     assert (await runtime.apply_delivery(disabled)).status == "APPLIED"
     assert runtime.current_policy == disabled.policy
-    assert (await runtime.apply_delivery(_delivery(active=True))).status == "ERROR"
+    assert runtime.report_policy == disabled.policy
+    rejected = _delivery(active=True)
+    assert (await runtime.apply_delivery(rejected)).status == "ERROR"
     assert runtime.current_policy == disabled.policy
+    assert runtime.report_policy == rejected.policy
 
     restored = PolicyRuntime(cache)
     assert restored.current_policy is None
     assert await restored.restore_offline() is True
     assert restored.current_policy == disabled.policy
+    assert restored.report_policy == disabled.policy

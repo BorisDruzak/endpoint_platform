@@ -28,9 +28,14 @@ current WSS connection before replaying any queued batch. The current 3.2.67
 Agent does not advertise `endpoint.security-events.v1`; this
 path activates at 3.2.70 after sensor integration and installed-agent proof.
 The WSS transport also defines a negotiated `endpoint.browser-status.v1` frame
-for bounded Chrome/Yandex observations. The Agent does not yet collect or send
-those observations; the server stores per-family current facts and derives
-compliance from policy and report freshness.
+for bounded Chrome/Yandex observations. The future 3.2.70 Windows runtime
+coalesces authenticated Native Bridge Hello/Heartbeat facts by browser and
+applied policy, inspects App Paths, process metadata, owned policy values and
+the installed Native Host manifest without writes, and sends one two-family
+report per minute after the current WSS policy ACK. Missing App Paths or stale
+registration is `UNKNOWN`, since it cannot prove browser absence. The server
+stores per-family current facts and derives compliance from policy and report
+freshness. Installed Bridge, extension heartbeat and package proof remain open.
 For the future feature version, the Agent core bundle includes the release-pinned
 extension ID. The service pipe maps approved browser upload/paste metadata to
 typed SecurityEvents and waits for a durable spool write before returning the

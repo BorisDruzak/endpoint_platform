@@ -563,6 +563,14 @@ async def test_security_feature_pins_browser_identity_and_durable_handoff(
     sensor = dependencies.start_local_sensor(settings)
     assert sensor is not None
     try:
+        websocket = object.__new__(runtime_application.WebSocketGatewayTransport)
+        connected_tasks = tuple(dependencies.create_connected_tasks(
+            settings, "d" * 43, websocket,
+        ))
+        assert len(connected_tasks) == 4
+        for task in connected_tasks:
+            task.close()
+        assert dependencies.security_policy_ack_sent is not None
         await dependencies.restore_policy(settings)
         assert captured["ingress"]._extension_id == "a" * 32
         assert await asyncio.to_thread(captured["on_security_event"], _event(occurred_at=NOW))

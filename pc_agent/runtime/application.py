@@ -142,6 +142,7 @@ def _default_dependencies(
     policy_runtime = None
     usb_notifications = None
     print_notifications = None
+    browser_status_runtime = None
     if settings is not None:
         cache = AppliedPolicyCache(settings.data_root)
         applicator = _policy_applicator_for(os.name)
@@ -170,13 +171,17 @@ def _default_dependencies(
         )
     activity_dispatch = ActivityDispatch()
     security_runtime = None
+    policy_features = (
+        _policy_protocol_features(
+            AGENT_VERSION, "windows_amd64" if os.name == "nt" else "linux_amd64",
+            settings.transport_mode, settings.migration_http_pull_fallback,
+        ) if settings is not None else []
+    )
+    browser_status_enabled = "endpoint.browser-status.v1" in policy_features
     if (
         settings is not None
         and os.name == "nt"
-        and "endpoint.security-events.v1" in _policy_protocol_features(
-            AGENT_VERSION, "windows_amd64", settings.transport_mode,
-            settings.migration_http_pull_fallback,
-        )
+        and "endpoint.security-events.v1" in policy_features
     ):
         security_runtime = SecurityEventRuntime(SecurityEventSpool(settings.data_root))
 
@@ -187,7 +192,7 @@ def _default_dependencies(
             await policy_runtime.restore_offline()
 
     def start_local_sensor(current_settings: object):
-        nonlocal usb_notifications, print_notifications
+        nonlocal usb_notifications, print_notifications, browser_status_runtime
         if not (
             os.name == "nt"
             and isinstance(current_settings, RuntimeSettings)
@@ -199,6 +204,10 @@ def _default_dependencies(
             ActivityIngress, create_activity_pipe_listener,
         )
         from pc_agent.platform.windows.browser_bridge_entry import _extension_id
+        from pc_agent.platform.windows.browser_policy import WindowsPolicyRegistry
+        from pc_agent.platform.windows.browser_status import (
+            BrowserStatusRuntime, WindowsBrowserProbe,
+        )
         from pc_agent.platform.windows.usb_sensor import (
             UsbInterfaceNotifications, project_usb_change,
         )
@@ -228,13 +237,24 @@ def _default_dependencies(
 
             on_security_event = persist_security_event
 
+        ingress = ActivityIngress(expected_extension_id=extension_id)
         listener = create_activity_pipe_listener(
-            ingress=ActivityIngress(expected_extension_id=extension_id),
+            ingress=ingress,
             policy_provider=lambda: policy_runtime.current_policy,
             on_observation=activity_dispatch.enqueue,
             on_security_event=on_security_event,
         )
         listener.start()
+        if extension_id is not None and browser_status_enabled:
+            browser_status_runtime = BrowserStatusRuntime(
+                policy_provider=lambda: policy_runtime.report_policy,
+                ingress=ingress,
+                probe=WindowsBrowserProbe(
+                    registry=WindowsPolicyRegistry(),
+                    install_root=current_settings.install_root,
+                    extension_id=extension_id,
+                ),
+            )
         sources = []
         if security_runtime is not None:
             def handle_usb_change(action: str, path: str) -> None:
@@ -318,6 +338,9 @@ def _default_dependencies(
                 if security_runtime is not None:
                     security_runtime.begin_connection()
                     tasks.append(security_runtime.send_forever(transport))
+                if browser_status_runtime is not None:
+                    browser_status_runtime.begin_connection()
+                    tasks.append(browser_status_runtime.send_forever(transport))
                 return tuple(tasks)
             return (
                 _periodic_https_update_checks(
@@ -337,6 +360,12 @@ def _default_dependencies(
 
         create_executor = create_configured_executor
 
+    def on_policy_ack_sent() -> None:
+        if security_runtime is not None:
+            security_runtime.policy_ack_sent()
+        if browser_status_runtime is not None:
+            browser_status_runtime.policy_ack_sent()
+
     return RuntimeDependencies(
         load_credential=_load_credential,
         create_executor=create_executor,
@@ -350,7 +379,8 @@ def _default_dependencies(
             security_runtime.receive_ack if security_runtime is not None else None
         ),
         security_policy_ack_sent=(
-            security_runtime.policy_ack_sent if security_runtime is not None else None
+            on_policy_ack_sent
+            if security_runtime is not None or browser_status_enabled else None
         ),
         create_connected_tasks=create_connected_tasks,
         create_completion_sink=_create_completion_sink,
@@ -491,6 +521,7 @@ def _policy_protocol_features(
     features = ["endpoint.policy.v1"]
     if tuple(int(part) for part in match.groups()) >= _MIN_SECURITY_EVENTS_AGENT_VERSION:
         features.append("endpoint.security-events.v1")
+        features.append("endpoint.browser-status.v1")
     return features
 
 

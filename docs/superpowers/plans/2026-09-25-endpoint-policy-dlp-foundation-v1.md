@@ -197,8 +197,21 @@ subscription start/stop pass. A real disposable print job and installed-browser
 proof are still open. The strict Chrome/Yandex status contract, negotiated WSS
 frame, per-family current rows, migration `0033`, out-of-order handling and
 server-only compliance derivation now pass focused tests. The Agent does not
-yet collect or send live browser facts; Console projection and installed-browser
-acceptance remain open. These server changes have not been deployed.
+yet send live browser facts in the current 3.2.67 release. The future 3.2.70
+runtime now coalesces accepted Native Bridge heartbeats by browser and applied
+policy, inspects registered browser binaries, running processes, policy
+ownership and the pinned Native Host manifest without writes, and sends a
+two-family WSS report only after the current connection's policy ACK. A
+read-only local smoke found Chrome and Yandex detected/running but Native Host
+missing in the current installation; it is not installed-Bridge or heartbeat
+proof. The probe reports `UNKNOWN` when it cannot exclude a per-user browser
+installation; a reliable `ABSENT` path remains open. Console projection,
+release packaging, installed-browser acceptance and production deployment
+remain open. [Yandex's enterprise documentation](https://browser.yandex.ru/support/browser-corporate/ru/policy/extension-settings)
+says `ExtensionSettings` supersedes other extension policies and Windows policy
+effectiveness depends on domain or management-console context. The read-only
+inspector recognizes an external `ExtensionSettings` entry, but registry observations alone do not
+prove the browser accepted it; Task 11 must inspect the effective policy page.
 
 ### Task 9: Russian Console
 
