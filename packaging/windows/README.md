@@ -31,8 +31,8 @@ evidence for the retained initial-runtime stage. From the repository root:
 
 ```powershell
 .\packaging\windows\build-msi.ps1 -Configuration Release -Platform x64 `
-  -InitialRuntimeManifest .\packaging\windows\initial-runtime-3.2.74.json `
-  -InitialRuntimeStageRoot <retained-runtime-stage-3.2.74> `
+  -InitialRuntimeManifest .\packaging\windows\initial-runtime-3.2.75.json `
+  -InitialRuntimeStageRoot <retained-runtime-stage-3.2.75> `
   -InitialRuntimeStageEvidence <stage-evidence.json> `
   -ApproveInitialRuntimeTransition -ApproveInitialRuntimeSourceChange
 ```
@@ -46,6 +46,7 @@ and paths inside the repository are rejected. The build has no parameter for
 enrollment or device material and does not read such input.
 
 The checked-in `initial-runtime.json` remains the immutable historical baseline.
+`initial-runtime-3.2.75.json` pins the Yandex file-backed force-list policy to source revision `bcb7d88b73eb60e411883a9dd5519c618b48f78e` and its separately retained core stage.
 The reviewed `initial-runtime-3.2.62.json` transition pins the Windows Device
 Context, universal enrollment setup, and WSS diagnostic-canary runtime.
 `initial-runtime-3.2.74.json` pins the Browser Policy helper startup retry,
@@ -182,8 +183,8 @@ build inputs or command-line arguments:
 .\packaging\windows\build-setup.ps1 `
   -EndpointOrigin https://endpoint.sosnadmin.local `
   -EndpointCaFile 'C:\path\to\sosnadmin-local-ca.crt' `
-  -InitialRuntimeManifest .\packaging\windows\initial-runtime-3.2.74.json `
-  -InitialRuntimeStageRoot <retained-runtime-stage-3.2.74> `
+  -InitialRuntimeManifest .\packaging\windows\initial-runtime-3.2.75.json `
+  -InitialRuntimeStageRoot <retained-runtime-stage-3.2.75> `
   -InitialRuntimeStageEvidence <stage-evidence.json> `
   -ApproveInitialRuntimeTransition -ApproveInitialRuntimeSourceChange
 ```
