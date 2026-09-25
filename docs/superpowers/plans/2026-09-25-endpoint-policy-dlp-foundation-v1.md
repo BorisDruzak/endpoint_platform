@@ -425,6 +425,35 @@ in that log. This narrows the Yandex gap to policy enforcement/request
 initiation before the Endpoint artifact service; inspect browser diagnostics
 before attributing the cause to a specific management prerequisite.
 
+On the reinstalled 3.2.74 canary, the live source-health report at
+`2026-09-25 13:12:39 UTC` marked the Activity listener, SecurityEvent spool,
+USB source and print source `READY`. A synthetic job sent to the local
+`Microsoft Print to PDF` virtual printer produced a real PDF and a server
+`PRINT_JOB` SecurityEvent at `13:13:50 UTC`. Its safe metadata contained only
+the printer identity and `page_count=0`, `total_bytes=0`; those zeroes reflect
+the early `ADD_JOB` notification and do not establish final job size/pages.
+The synthetic document name contained
+`ENDPOINT_DLP_SECRET_MUST_NOT_LEAK_20260925_PRINT`. A targeted search found
+zero occurrences in SecurityEvent, Audit, current/snapshot/diff/finding
+Context rows, two local Agent text logs and the relevant API/worker journal
+window. This proves a live virtual-print audit path and a bounded privacy
+check, not physical printer or USB event acceptance.
+
+After the operator was asked to paste a synthetic marker into a normal
+Chrome input without submitting it, the server received a new live
+`BROWSER_PASTE` event at `2026-09-25 13:15:52 UTC`. Its safe metadata was
+limited to `https://www.google.com`, `www.google.com`, `chrome`, and clipboard
+type labels `html`/`text`; the marker was not in the event. The exact
+`ENDPOINT_DLP_SECRET_MUST_NOT_LEAK_20260925_PASTE` marker had zero matches in
+SecurityEvent, Audit, current/snapshot/diff/finding Context rows, two local
+Agent text logs, two local Agent SQLite databases, and the relevant
+API/worker journal window. This is a live browser-paste audit and bounded
+privacy check; browser-upload and broader privacy acceptance remain open.
+The operator has no separate disposable USB device for a safe physical
+connect/disconnect test, and the suggested external file-input page did not
+open in their Chrome session. Neither gate is satisfied by source-health
+`READY` or by synthetic Bridge events.
+
 ### Task 12: Final release audit
 
 - [ ] Inspect complete branch diff, migration/config/contract effects, untracked files and remote ancestry. Run `git diff --check` and required gates against frozen SHA.
