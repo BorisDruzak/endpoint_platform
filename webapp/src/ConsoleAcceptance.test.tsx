@@ -108,6 +108,41 @@ describe('Русский интерфейс Console', () => {
     expect(screen.getByText('Активна')).toBeTruthy()
   })
 
+  it('показывает текущую активность устройства из отдельной безопасной проекции', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (url.endsWith('/devices/device-1')) return jsonResponse({
+        device: { id: 'device-1', display_name: 'Рабочая станция', device_identifier: 'PC-01',
+          online: true, last_seen_at: null, agent_version: '3.2.70', hostname: 'PC-01',
+          os_name: 'Windows 11', os_version: '11', current_user: 'operator' },
+        snapshots: [], capabilities: [],
+      })
+      if (url.endsWith('/devices/device-1/activity')) return jsonResponse({ data: {
+        collected_at: '2026-09-25T11:59:00Z', last_observed_at: '2026-09-25T12:00:00Z',
+        fresh: true, online: true,
+        sections: {
+          user_login: 'operator', session_state: 'ACTIVE', idle_seconds: 23,
+          foreground: { process_name: 'chrome.exe', application_category: 'browser' },
+          browser: { browser_family: 'chrome', origin: 'https://example.org',
+            domain: 'example.org', sensor_state: 'ACTIVE', extension_version: '0.1.0',
+            last_seen_at: '2026-09-25T12:00:00Z' },
+          window_title: 'MUST_NOT_LEAK',
+        },
+      } })
+      throw new Error(`Unexpected route ${url}`)
+    }))
+    render(<MemoryRouter initialEntries={['/admin/devices/device-1']}><Routes>
+      <Route path="/admin/devices/:deviceId" element={<DeviceDetailPage />} />
+    </Routes></MemoryRouter>)
+    await screen.findByRole('heading', { name: 'Рабочая станция' })
+    fireEvent.click(screen.getByRole('button', { name: 'Активность' }))
+    const activity = (await screen.findByRole('heading', { name: 'Активность' })).closest('section')!
+    expect(within(activity).getByText('Активен')).toBeTruthy()
+    expect(within(activity).getByText('23 с')).toBeTruthy()
+    expect(within(activity).getByText('chrome.exe')).toBeTruthy()
+    expect(within(activity).getByText('example.org')).toBeTruthy()
+    expect(activity.textContent).not.toContain('MUST_NOT_LEAK')
+  })
+
   it('открывает долговечные события и обновления устройства по страницам', async () => {
     vi.stubGlobal('fetch', vi.fn(async (url: string) => {
       if (url.endsWith('/devices/device-1')) return jsonResponse({

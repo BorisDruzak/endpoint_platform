@@ -30,6 +30,7 @@ from endpoint_server.console.installer import router as console_installer_router
 from endpoint_server.console.operations import router as console_operations_router
 from endpoint_server.console.modules import router as console_modules_router
 from endpoint_server.console.audit import router as console_audit_router
+from endpoint_server.console.activity import router as console_activity_router
 from endpoint_server.policy.admin_routes import router as policy_admin_router
 from endpoint_server.security.admin_routes import router as security_admin_router
 from endpoint_server.enrollment.provisioning_routes import (
@@ -154,5 +155,6 @@ def create_app(
     if settings.endpoint_policy_enabled:
         app.include_router(policy_admin_router)
         app.include_router(security_admin_router)
+        app.include_router(console_activity_router)
     app.include_router(console_router)
     return app

@@ -3,6 +3,7 @@ import { Link, useParams, useSearchParams } from 'react-router'
 import { request } from './api'
 import { DeviceModules } from './ModulesPage'
 import { DevicePolicyStatus } from './PolicyStatus'
+import { DeviceActivityStatus } from './ActivityStatus'
 
 type Device = {
   id: string; device_identifier: string; display_name: string; online: boolean
@@ -220,7 +221,8 @@ export function DeviceDetailPage() {
   return <>
     <Link className="back-link" to="/admin/devices">← Все устройства</Link>
     <div className="page-heading"><div><p className="eyebrow">УСТРОЙСТВО</p><h1>{detail.device.display_name}</h1><p className="muted">{detail.device.hostname ?? detail.device.device_identifier} · {detail.device.online ? 'В сети' : 'Не в сети'} · Пользователь: {detail.device.current_user ?? '—'} · {detail.device.os_name ?? 'ОС неизвестна'} {detail.device.os_version ?? ''} · Агент {detail.device.agent_version ?? '—'} · Последняя связь: {dateText(detail.device.last_seen_at)}</p></div><button onClick={() => setRevision(value => value + 1)}>Обновить</button></div>
-    <nav className="tabs" aria-label="Разделы устройства">{[['overview', 'Обзор'], ['policy', 'Политика и DLP'], ['context', 'Контекст'], ['changes', 'Изменения'], ['operations', 'Операции'], ['updates', 'Обновления'], ['modules', 'Модули'], ['audit', 'Аудит']].map(([key, label]) => <button key={key} className={tab === key ? 'selected' : ''} onClick={() => setTab(key)}>{label}</button>)}</nav>
+    <nav className="tabs" aria-label="Разделы устройства">{[['overview', 'Обзор'], ['activity', 'Активность'], ['policy', 'Политика и DLP'], ['context', 'Контекст'], ['changes', 'Изменения'], ['operations', 'Операции'], ['updates', 'Обновления'], ['modules', 'Модули'], ['audit', 'Аудит']].map(([key, label]) => <button key={key} className={tab === key ? 'selected' : ''} onClick={() => setTab(key)}>{label}</button>)}</nav>
+    {tab === 'activity' && deviceId && <DeviceActivityStatus key={`${deviceId}-${revision}`} deviceId={deviceId} />}
     {tab === 'policy' && deviceId && <DevicePolicyStatus key={`${deviceId}-${revision}`} deviceId={deviceId} />}
     {tab === 'modules' && deviceId && <DeviceModules deviceId={deviceId} />}
     {tab === 'overview' && <div className="detail-columns">{inventory ? Object.entries(inventory.sections).map(([name, value]) => <section className="panel" key={name}><h2>{{system:'Система',hardware:'Оборудование',memory:'Память',storage:'Накопители',interfaces:'Сеть'}[name] ?? name}</h2><SectionRows data={typeof value === 'object' && !Array.isArray(value) && value ? value as Record<string, unknown> : { [name]: value }} /></section>) : <section className="panel"><p>Инвентаризационный Context ещё не получен.</p></section>}{session && <section className="panel"><h2>Сеанс</h2><SectionRows data={session.sections} /></section>}<section className="panel"><h2>Поддерживаемые возможности</h2>{detail.capabilities?.length ? <ul>{detail.capabilities.map(item => <li key={item.capability}>{item.display_name_ru} <code>{item.capability}</code></li>)}</ul> : <p className="muted">Нет доступных возможностей для подключённого агента.</p>}</section></div>}
