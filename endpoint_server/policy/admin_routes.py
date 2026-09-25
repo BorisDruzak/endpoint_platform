@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from datetime import datetime
-from typing import Annotated
+from datetime import UTC, datetime
+from typing import Annotated, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -12,17 +12,21 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 
 from endpoint_contracts.endpoint_policy import EndpointPolicyV1
+from endpoint_contracts.browser_status import BrowserFamilyStatusV1
 from endpoint_server.audit.request_ids import audit_request_id
 from endpoint_server.audit.service import append_audit_event
 from endpoint_server.auth.admin_sessions import AdminPrincipal, require_admin
 from endpoint_server.db.models import Device
 
-from .models import PolicyDefinition, PolicyVersion
+from .browser_status import load_browser_status
+from .compliance import derive_browser_compliance
+from .models import PolicyDefinition, PolicyDeviceState, PolicyVersion
 from .service import (
     PolicyNotFound,
     assign_default_policy,
     assign_device_policy,
     create_policy_version,
+    resolve_effective_policy,
 )
 
 
@@ -96,6 +100,43 @@ class PolicyAssignmentResponse(BaseModel):
     data: PolicyAssignmentView
 
 
+class ConsoleBrowserStatus(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    browser_family: Literal["chrome", "yandex"]
+    browser_state: Literal["DETECTED", "ABSENT", "UNKNOWN"] | None
+    running_state: Literal["RUNNING", "CLOSED", "UNKNOWN"] | None
+    policy_owner: Literal["ENDPOINT", "EXTERNAL", "NONE", "CONFLICT", "UNKNOWN"] | None
+    installation_policy_state: Literal["APPLIED", "NOT_APPLIED", "CONFLICT", "UNKNOWN"] | None
+    native_host_state: Literal["READY", "MISSING", "UNKNOWN"] | None
+    extension_version: str | None
+    extension_last_seen_at: datetime | None
+    last_running_at: datetime | None
+    compliance_state: Literal["NOT_APPLICABLE", "UNKNOWN", "NEVER_SEEN", "ACTIVE", "STALE", "ERROR"]
+    reason: str | None
+
+
+class ConsolePolicyDeviceStatus(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    policy_id: UUID
+    policy_version: int
+    policy_version_id: UUID
+    browser_required: bool
+    deployment_mode: Literal["agent_managed", "external_managed"]
+    delivery_status: Literal["PENDING", "APPLIED", "STALE", "UNSUPPORTED", "ERROR"]
+    acknowledged_at: datetime | None
+    browser_compliance: Literal["COMPLIANT", "PARTIAL", "NON_COMPLIANT", "STALE", "UNSUPPORTED"]
+    observed_at: datetime | None
+    browsers: list[ConsoleBrowserStatus] = Field(min_length=2, max_length=2)
+
+
+class ConsolePolicyDeviceStatusResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    data: ConsolePolicyDeviceStatus | None
+
+
 def _require_enabled(request: Request) -> None:
     if not request.app.state.settings.endpoint_policy_enabled:
         raise HTTPException(status_code=404, detail="Политики Endpoint отключены")
@@ -155,6 +196,72 @@ async def list_policies(
         ) for row in rows],
         total=total, limit=limit, offset=offset,
     )
+
+
+@router.get("/devices/{device_id}/status", response_model=ConsolePolicyDeviceStatusResponse)
+async def device_policy_status(
+    device_id: UUID,
+    request: Request,
+    _: Annotated[AdminPrincipal, Depends(require_admin)],
+) -> ConsolePolicyDeviceStatusResponse:
+    """Project current policy and browser facts without trusting Agent compliance."""
+    _require_enabled(request)
+    async with request.app.state.session_provider() as session:
+        device = await session.get(Device, device_id)
+        if device is None or device.retired_at is not None:
+            raise HTTPException(status_code=404, detail="Устройство не найдено")
+        version = await resolve_effective_policy(session, device_id)
+        if version is None:
+            return ConsolePolicyDeviceStatusResponse(data=None)
+        policy = EndpointPolicyV1.model_validate(version.document)
+        state = await session.scalar(select(PolicyDeviceState).where(
+            PolicyDeviceState.device_id == device_id,
+        ))
+        report = await load_browser_status(session, device_id)
+    connection = await request.app.state.gateway_connection_registry.get(device_id)
+    delivery_status: Literal["PENDING", "APPLIED", "STALE", "UNSUPPORTED", "ERROR"] = "PENDING"
+    acknowledged_at = None
+    if state is not None:
+        delivery_status = state.status
+        acknowledged_at = state.acknowledged_at
+        if state.policy_version_id != version.id or state.policy_digest != version.digest:
+            delivery_status = "STALE"
+    browser_status = delivery_status
+    if connection is None and browser_status == "APPLIED":
+        browser_status = "STALE"
+    elif connection is not None and "endpoint.browser-status.v1" not in connection.protocol_features:
+        browser_status = "UNSUPPORTED"
+    compliance = derive_browser_compliance(policy, browser_status, report, now=datetime.now(UTC))
+    facts: dict[str, BrowserFamilyStatusV1] = (
+        {item.browser_family: item for item in report.browsers} if report is not None else {}
+    )
+    browsers = []
+    for item in compliance.browsers:
+        fact = facts.get(item.browser_family)
+        browsers.append(ConsoleBrowserStatus(
+            browser_family=item.browser_family,
+            browser_state=fact.browser_state if fact else None,
+            running_state=fact.running_state if fact else None,
+            policy_owner=fact.policy_owner if fact else None,
+            installation_policy_state=fact.installation_policy_state if fact else None,
+            native_host_state=fact.native_host_state if fact else None,
+            extension_version=fact.extension_version if fact else None,
+            extension_last_seen_at=fact.extension_last_seen_at if fact else None,
+            last_running_at=fact.last_running_at if fact else None,
+            compliance_state=item.state,
+            reason=item.reason,
+        ))
+    return ConsolePolicyDeviceStatusResponse(data=ConsolePolicyDeviceStatus(
+        policy_id=policy.policy_id, policy_version=policy.policy_version,
+        policy_version_id=version.id,
+        browser_required=policy.browser_sensor.required,
+        deployment_mode=policy.browser_sensor.deployment_mode,
+        delivery_status=delivery_status,
+        acknowledged_at=acknowledged_at,
+        browser_compliance=compliance.overall,
+        observed_at=report.observed_at if report else None,
+        browsers=browsers,
+    ))
 
 
 @router.post("", response_model=PolicyVersionCreatedResponse, status_code=201)

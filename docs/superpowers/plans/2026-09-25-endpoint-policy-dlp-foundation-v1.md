@@ -221,6 +221,8 @@ prove the browser accepted it; Task 11 must inspect the effective policy page.
 - [ ] Add `Политики и DLP`, bounded admin APIs and device tabs with Russian labels/empty/error states; use existing session/CSRF and safe DTO conventions.
 - [ ] Run frontend unit, Playwright E2E, production build and Console API tests; commit.
 
+The first device-detail slice now has an authenticated, bounded read-only policy/browser-status projection and a Russian tab with separate Chrome and Yandex facts. Server compliance is gated by the current process's active Agent connection and `endpoint.browser-status.v1`; a disconnected or older Agent cannot appear ACTIVE, while the last observed extension version and heartbeat remain visible. This conservative process-local connection gate may show `STALE` when Console and Gateway run in different workers; resolve with shared presence/capability evidence before production acceptance. Policy editing, fleet compliance filters, Activity, Security Events, release view, browser E2E and deployment remain open, so Task 9 is not complete.
+
 ### Task 10: Windows/ALT packaging and release
 
 **Files:** Modify `packaging/windows/{build-msi,build-update-zip}.ps1`, `packaging/windows/wix/{Services,Components}.wxs`, `packaging/alt/`, `pc_agent/version.py`, release manifests, architecture/package tests. Include the fixed SYSTEM policy helper and strict service-SID channel while retaining the Agent as LocalService.
