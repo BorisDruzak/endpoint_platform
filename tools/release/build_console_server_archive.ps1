@@ -39,7 +39,7 @@ try {
     $releaseDirectory = Join-Path $stageResolved "endpoint-platform-$releaseCommit"
     New-Item -ItemType Directory -Path $releaseDirectory | Out-Null
     $sourceTar = Join-Path $stageResolved 'source.tar'
-    git archive --format=tar --output="$sourceTar" HEAD endpoint_server endpoint_contracts alembic.ini requirements-server.txt tools/__init__.py tools/register_windows_setup_release.py
+    git archive --format=tar --output="$sourceTar" HEAD endpoint_server endpoint_contracts browser_sensor alembic.ini requirements-server.txt tools/__init__.py tools/register_windows_setup_release.py tools/register_browser_sensor_release.py
     if ($LASTEXITCODE -ne 0) { throw 'git archive failed.' }
     tar -xf $sourceTar -C $releaseDirectory
     if ($LASTEXITCODE -ne 0) { throw 'Source archive extraction failed.' }

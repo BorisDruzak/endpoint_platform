@@ -79,10 +79,12 @@ def test_runbook_preserves_secret_and_tls_boundaries() -> None:
         encoding="utf-8"
     )
     assert "tools/register_windows_setup_release.py" in archive_builder
+    assert "tools/register_browser_sensor_release.py" in archive_builder
+    assert "HEAD endpoint_server endpoint_contracts browser_sensor" in archive_builder
 
     assert "build_console_server_archive.ps1 -OutputPath $releaseArchive" in runbook
     assert "git archive" in archive_builder
-    assert 'HEAD endpoint_server endpoint_contracts alembic.ini requirements-server.txt' in archive_builder
+    assert 'HEAD endpoint_server endpoint_contracts browser_sensor alembic.ini requirements-server.txt' in archive_builder
     assert "webapp\\dist" in archive_builder
     assert "npm ci" in archive_builder
     assert "npm run build" in archive_builder

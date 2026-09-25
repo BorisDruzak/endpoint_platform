@@ -271,8 +271,9 @@ Require at least 10 GiB free and verify the workstation and uploaded archive
 SHA-256 values match. Extract the archive to its immutable release directory,
 create its Python 3.12 venv, and install `requirements-server.txt` before
 switching `current`. Do not copy credentials, CA files, or local build caches
-into the release directory. The archive contains the Console bundle and the
-Setup release importer; verify both paths with `tar -tzf` before upload.
+into the release directory. The archive contains the Console bundle, Setup
+release importer, Browser Sensor source and Browser Sensor release importer;
+verify these paths with `tar -tzf` before upload.
 
 ```bash
 set -euo pipefail
