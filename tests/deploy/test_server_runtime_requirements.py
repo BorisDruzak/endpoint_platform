@@ -17,6 +17,13 @@ def test_server_runtime_declares_wsproto_for_proxy_websocket_headers() -> None:
     assert "--ws wsproto" in unit
 
 
+def test_async_sqlalchemy_installs_greenlet_in_server_and_ci() -> None:
+    """A clean SQLAlchemy 2.1 install must support the async DB session."""
+    for filename in ("requirements-server.txt", "requirements-ci.txt"):
+        requirements = (_REPOSITORY_ROOT / filename).read_text(encoding="utf-8")
+        assert "SQLAlchemy[asyncio]>=2.0" in requirements.splitlines()
+
+
 def test_server_migration_history_includes_production_runtime_head() -> None:
     """A server release must recognize the production database revision."""
     migrations = _REPOSITORY_ROOT / "endpoint_server/db/migrations/versions"
