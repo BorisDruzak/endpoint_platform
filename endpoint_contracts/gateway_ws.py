@@ -24,6 +24,7 @@ from .capabilities import (
 from .commands import AgentCommandAckV1, AgentCommandV1, AgentResultV1
 from .endpoint_policy import EndpointPolicyV1, policy_digest
 from .security_events import AgentSecurityEventBatchV1, SecurityEventAckV1
+from .sensor_health import PolicySensorHealthReportV1
 from .telemetry import AgentHeartbeatV1
 
 
@@ -66,10 +67,10 @@ CapabilityListV1 = Annotated[
 ]
 ProtocolFeatureV1 = Literal[
     "endpoint.policy.v1", "endpoint.activity.v1", "endpoint.security-events.v1",
-    "endpoint.browser-status.v1",
+    "endpoint.browser-status.v1", "endpoint.sensor-health.v1",
 ]
 ProtocolFeaturesV1 = Annotated[
-    list[ProtocolFeatureV1], Field(strict=True, max_length=4)
+    list[ProtocolFeatureV1], Field(strict=True, max_length=5)
 ]
 
 
@@ -423,6 +424,11 @@ class BrowserStatusReportEnvelopeV1(_GatewayWsEnvelopeBaseV1):
     payload: BrowserStatusReportV1
 
 
+class PolicySensorHealthReportEnvelopeV1(_GatewayWsEnvelopeBaseV1):
+    kind: Literal["policy_sensor_health_report"]
+    payload: PolicySensorHealthReportV1
+
+
 class SecurityEventBatchEnvelopeV1(_GatewayWsEnvelopeBaseV1):
     kind: Literal["security_event_batch"]
     payload: AgentSecurityEventBatchV1
@@ -457,6 +463,7 @@ GatewayWsEnvelopeBodyV1 = Annotated[
     | EndpointPolicyAckEnvelopeV1
     | ActivityObservationEnvelopeV1
     | BrowserStatusReportEnvelopeV1
+    | PolicySensorHealthReportEnvelopeV1
     | SecurityEventBatchEnvelopeV1
     | SecurityEventAckEnvelopeV1
     | ServerShutdownNoticeEnvelopeV1
@@ -492,6 +499,7 @@ __all__ = [
     "AgentHelloV1",
     "ActivityObservationEnvelopeV1",
     "BrowserStatusReportEnvelopeV1",
+    "PolicySensorHealthReportEnvelopeV1",
     "CommandCancelV1",
     "GatewayErrorV1",
     "GatewayHelloV1",

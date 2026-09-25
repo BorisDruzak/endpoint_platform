@@ -70,11 +70,12 @@
           "endpoint.policy.v1",
           "endpoint.activity.v1",
           "endpoint.security-events.v1",
-          "endpoint.browser-status.v1"
+          "endpoint.browser-status.v1",
+          "endpoint.sensor-health.v1"
         ],
         "type": "string"
       },
-      "maxItems": 4,
+      "maxItems": 5,
       "title": "Protocol Features",
       "type": "array"
     },

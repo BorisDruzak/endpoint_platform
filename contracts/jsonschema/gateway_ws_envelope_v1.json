@@ -363,11 +363,12 @@
               "endpoint.policy.v1",
               "endpoint.activity.v1",
               "endpoint.security-events.v1",
-              "endpoint.browser-status.v1"
+              "endpoint.browser-status.v1",
+              "endpoint.sensor-health.v1"
             ],
             "type": "string"
           },
-          "maxItems": 4,
+          "maxItems": 5,
           "title": "Protocol Features",
           "type": "array"
         },
@@ -3021,6 +3022,133 @@
       "title": "HeartbeatEnvelopeV1",
       "type": "object"
     },
+    "PolicySensorHealthReportEnvelopeV1": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "policy_sensor_health_report",
+          "title": "Kind",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/PolicySensorHealthReportV1"
+        },
+        "schema_version": {
+          "const": "gateway_ws_envelope_v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "sequence": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Sequence",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "schema_version",
+        "sequence",
+        "kind",
+        "payload"
+      ],
+      "title": "PolicySensorHealthReportEnvelopeV1",
+      "type": "object"
+    },
+    "PolicySensorHealthReportV1": {
+      "additionalProperties": false,
+      "properties": {
+        "activity_listener_state": {
+          "enum": [
+            "READY",
+            "UNAVAILABLE",
+            "UNKNOWN"
+          ],
+          "title": "Activity Listener State",
+          "type": "string"
+        },
+        "observation_id": {
+          "format": "uuid",
+          "title": "Observation Id",
+          "type": "string"
+        },
+        "observed_at": {
+          "$comment": "model-only UTC normalization: timezone-aware values are normalized to UTC.",
+          "format": "date-time",
+          "title": "Observed At",
+          "type": "string"
+        },
+        "policy_id": {
+          "format": "uuid",
+          "title": "Policy Id",
+          "type": "string"
+        },
+        "policy_version": {
+          "maximum": 2147483647,
+          "minimum": 1,
+          "title": "Policy Version",
+          "type": "integer"
+        },
+        "print_source_state": {
+          "enum": [
+            "READY",
+            "UNAVAILABLE",
+            "UNKNOWN"
+          ],
+          "title": "Print Source State",
+          "type": "string"
+        },
+        "schema_version": {
+          "const": "policy_sensor_health_report_v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "security_spool_state": {
+          "enum": [
+            "READY",
+            "UNAVAILABLE",
+            "UNKNOWN"
+          ],
+          "title": "Security Spool State",
+          "type": "string"
+        },
+        "usb_source_state": {
+          "enum": [
+            "READY",
+            "UNAVAILABLE",
+            "UNKNOWN"
+          ],
+          "title": "Usb Source State",
+          "type": "string"
+        },
+        "user_sensor_last_seen_at": {
+          "anyOf": [
+            {
+              "$comment": "model-only UTC normalization: timezone-aware values are normalized to UTC.",
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "User Sensor Last Seen At"
+        }
+      },
+      "required": [
+        "schema_version",
+        "observation_id",
+        "policy_id",
+        "policy_version",
+        "observed_at",
+        "activity_listener_state",
+        "security_spool_state",
+        "usb_source_state",
+        "print_source_state"
+      ],
+      "title": "PolicySensorHealthReportV1",
+      "type": "object"
+    },
     "PolicyUpdateEnvelopeV1": {
       "additionalProperties": false,
       "properties": {
@@ -3703,6 +3831,7 @@
       "error": "#/$defs/ErrorEnvelopeV1",
       "gateway_hello": "#/$defs/GatewayHelloEnvelopeV1",
       "heartbeat": "#/$defs/HeartbeatEnvelopeV1",
+      "policy_sensor_health_report": "#/$defs/PolicySensorHealthReportEnvelopeV1",
       "policy_update": "#/$defs/PolicyUpdateEnvelopeV1",
       "result_ack": "#/$defs/ResultAckEnvelopeV1",
       "security_event_ack": "#/$defs/SecurityEventAckEnvelopeV1",
@@ -3750,6 +3879,9 @@
     },
     {
       "$ref": "#/$defs/BrowserStatusReportEnvelopeV1"
+    },
+    {
+      "$ref": "#/$defs/PolicySensorHealthReportEnvelopeV1"
     },
     {
       "$ref": "#/$defs/SecurityEventBatchEnvelopeV1"
