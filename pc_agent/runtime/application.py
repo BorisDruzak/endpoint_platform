@@ -533,6 +533,7 @@ def _policy_protocol_features(
         return []
     features = ["endpoint.policy.v1"]
     if tuple(int(part) for part in match.groups()) >= _MIN_SECURITY_EVENTS_AGENT_VERSION:
+        features.append("endpoint.activity.v1")
         features.append("endpoint.security-events.v1")
         features.append("endpoint.browser-status.v1")
     return features

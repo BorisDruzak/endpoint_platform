@@ -124,6 +124,8 @@ open. Signed binary and manifest proof, native Browser Bridge packaging, real
 second-session acceptance and end-to-end Windows canary evidence remain open. Do not mark
 this task complete or report a live user sensor path yet.
 
+The future Windows WSS Agent 3.2.70 now advertises `endpoint.activity.v1` alongside Policy, SecurityEvent and Browser Status. The server already requires this negotiated feature for Activity observations; without it, a running User Sensor would be rejected at the Gateway. Agent advertisement, Gateway Activity ingestion and WSS contract tests pass together. The current installed 3.2.67 Agent still advertises none of these features, and installed User Sensor acceptance remains open.
+
 The Browser Bridge entrypoint now switches Windows stdio to binary mode and
 loads the pinned extension ID embedded in its frozen executable. Its separate
 PyInstaller artifact has passed a real executable smoke test and archive check;
