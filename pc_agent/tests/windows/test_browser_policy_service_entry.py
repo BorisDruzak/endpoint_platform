@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import json
+import runpy
 import sys
+from pathlib import Path
 
 from pc_agent.platform.windows.browser_policy import CHROME_POLICY_PATH
 from pc_agent.platform.windows.browser_policy_service_entry import (
@@ -11,6 +13,13 @@ from pc_agent.platform.windows.browser_policy_service_entry import (
     make_policy_listener,
 )
 from pc_agent.tests.windows.test_browser_policy import EXTENSION_ID, MemoryRegistry
+
+
+def test_service_entry_imports_when_run_as_frozen_main_script() -> None:
+    """PyInstaller executes its Analysis script without a package context."""
+    entry = Path(__file__).resolve().parents[2] / "platform/windows/browser_policy_service_entry.py"
+    namespace = runpy.run_path(str(entry), run_name="frozen_main_import_smoke")
+    assert callable(namespace["run_browser_policy_service"])
 
 
 def test_service_entry_loads_only_packaged_extension_identity(

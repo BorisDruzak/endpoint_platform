@@ -7,18 +7,18 @@ import sys
 from pathlib import Path
 from threading import Event
 
-from .browser_policy import (
+from pc_agent.platform.windows.browser_policy import (
     APPROVED_UPDATE_URL,
     BrowserPolicyApplicator,
     WindowsPolicyRegistry,
 )
-from .browser_policy_helper import (
+from pc_agent.platform.windows.browser_policy_helper import (
     HELPER_SERVICE_NAME,
     authorize_agent_pipe_client,
     create_helper_server_pipe,
     handle_policy_frame,
 )
-from .sensor_pipe_listener import LocalSensorPipeListener
+from pc_agent.platform.windows.sensor_pipe_listener import LocalSensorPipeListener
 
 
 def load_packaged_extension_id() -> str:
