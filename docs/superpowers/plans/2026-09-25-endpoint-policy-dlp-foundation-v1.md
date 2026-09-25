@@ -122,6 +122,13 @@ open. Signed binary and manifest proof, native Browser Bridge packaging, real
 second-session acceptance and end-to-end Windows canary evidence remain open. Do not mark
 this task complete or report a live user sensor path yet.
 
+The Browser Bridge entrypoint now switches Windows stdio to binary mode and
+loads the pinned extension ID embedded in its frozen executable. Its separate
+PyInstaller artifact has passed a real executable smoke test and archive check;
+the MSI stages it with a single-origin Native Messaging manifest and Chrome
+machine registration. Yandex registration, installed-MSI verification and the
+actual browser-to-Agent handshake remain open.
+
 ### Task 6: Signed browser release and Browser Integration Policy Applicator
 
 **Files:** Create `browser_sensor/tools/build_release.py`, `endpoint_server/browser_sensor/{models,artifacts,admin_routes}.py`, `endpoint_server/db/migrations/versions/0031_browser_sensor_release.py`, `pc_agent/platform/windows/{browser_policy,browser_policy_helper,browser_policy_helper_entry}.py`, Windows/ALT managed policy templates and `docs/runbooks/browser-sensor-{chrome,yandex,alt,release}.md`; modify server route registration and `pc_agent/policy/runtime.py` to dispatch validated policy ownership changes through the authenticated helper channel. Tests in `pc_agent/tests/windows/test_browser_policy.py`, `pc_agent/tests/policy/` and `tests/browser_sensor/`.

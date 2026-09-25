@@ -20,8 +20,11 @@ WSS connection.
 The interactive `user_sensor_runtime.py` samples each logon session and sends
 bounded frames through the same authenticated pipe. MSI stages its fixed
 `EndpointUserSensor.exe` and HKLM Run entry; signed release and live acceptance
-remain open. Elevated Setup leaves it pending until a user logon; the Browser
-Bridge is not yet packaged.
+remain open. Elevated Setup leaves it pending until a user logon. The fixed
+`browser_bridge_entry.py` uses binary stdio and a packaged, pinned extension ID;
+its console-mode `EndpointBrowserBridge.exe` and Chrome machine-level native-host
+registration are MSI inputs. Yandex registration and live browser acceptance
+remain open.
 
 ## Main packages
 
@@ -30,7 +33,7 @@ Bridge is not yet packaged.
 | Runtime | `pc_agent/runtime/` | headless lifecycle, local state, verification |
 | Transport | `pc_agent/transport/` | Endpoint Gateway WSS protocol and HTTP compatibility |
 | Policy | `pc_agent/policy/` | validated policy application and last-good cache |
-| Local sensors | `pc_agent/platform/windows/{local_ipc,sensor_pipe_listener,activity_api,user_sensor,user_sensor_runtime,browser_bridge}.py` | bounded user/browser observation boundary; service listener and per-user sampling loop |
+| Local sensors | `pc_agent/platform/windows/{local_ipc,sensor_pipe_listener,activity_api,user_sensor,user_sensor_runtime,browser_bridge,browser_bridge_entry}.py` | bounded user/browser observation boundary; service listener, per-user sampler and binary native-host entrypoint |
 | Enrollment | `pc_agent/enrollment_identity.py`, `pc_agent/device_credential.py` | device identity and credentials |
 | Context | `pc_agent/context_profiles/` | typed context collection and execution |
 | Modules | `pc_agent/modules/`, `pc_agent/module_manager.py` | managed module lifecycle |

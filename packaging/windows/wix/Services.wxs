@@ -42,6 +42,16 @@
                        Name="EndpointUserSensor" Value="&quot;[#filEndpointUserSensor]&quot;"
                        Type="string" KeyPath="no" />
       </Component>
+      <Component Id="cmpBrowserBridge" Directory="INSTALLFOLDER"
+                 Guid="*" Bitness="always64">
+        <File Id="filEndpointBrowserBridge" Source="$(var.StagingDir)\ProgramFiles\EndpointBrowserBridge.exe"
+              Name="EndpointBrowserBridge.exe" KeyPath="yes" />
+        <File Id="filEndpointBrowserManifest" Source="$(var.StagingDir)\ProgramFiles\ru.sosnadmin.endpoint.browser.json"
+              Name="ru.sosnadmin.endpoint.browser.json" />
+        <RegistryValue Id="regEndpointChromeNativeHost" Root="HKLM"
+                       Key="Software\Google\Chrome\NativeMessagingHosts\ru.sosnadmin.endpoint.browser"
+                       Value="[#filEndpointBrowserManifest]" Type="string" KeyPath="no" />
+      </Component>
     </ComponentGroup>
 
     <CustomAction Id="ApplyProgramDataAcl" FileRef="filServiceHost"

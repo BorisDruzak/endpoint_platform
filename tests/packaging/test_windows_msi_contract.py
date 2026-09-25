@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ast
+import json
 import re
 import xml.etree.ElementTree as ET
 from pathlib import Path
@@ -333,6 +334,39 @@ def test_msi_starts_unprivileged_user_sensor_at_each_logon() -> None:
     assert "pyinstaller_windows_user_sensor.spec" in script
     assert "EndpointUserSensor.exe" in script
     assert script.index("pyinstaller_windows_user_sensor.spec") < script.index("$generatedWix")
+
+
+def test_msi_registers_only_the_pinned_chrome_native_host() -> None:
+    extension_id = (PROJECT_ROOT / "browser_sensor" / "extension-id.txt").read_text(
+        encoding="ascii"
+    ).strip()
+    manifest = json.loads(
+        (WINDOWS_PACKAGING / "assets" / "ru.sosnadmin.endpoint.browser.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert manifest == {
+        "name": "ru.sosnadmin.endpoint.browser",
+        "description": "Endpoint Browser Sensor bridge",
+        "path": "EndpointBrowserBridge.exe",
+        "type": "stdio",
+        "allowed_origins": [f"chrome-extension://{extension_id}/"],
+    }
+    files = {item.get("Id"): item for item in _all_elements(_trees(), "File")}
+    values = _all_elements(_trees(), "RegistryValue")
+    assert files["filEndpointBrowserBridge"].get("Name") == "EndpointBrowserBridge.exe"
+    assert files["filEndpointBrowserManifest"].get("Name") == "ru.sosnadmin.endpoint.browser.json"
+    registration = _by_id(values, "regEndpointChromeNativeHost")
+    assert registration.get("Root") == "HKLM"
+    assert registration.get("Key") == (
+        "Software\\Google\\Chrome\\NativeMessagingHosts\\ru.sosnadmin.endpoint.browser"
+    )
+    assert registration.get("Name") is None
+    assert registration.get("Value") == "[#filEndpointBrowserManifest]"
+    script = (WINDOWS_PACKAGING / "build-msi.ps1").read_text(encoding="utf-8")
+    assert "pyinstaller_windows_browser_bridge.spec" in script
+    assert "EndpointBrowserBridge.exe" in script
+    assert "NativeMessagingBlocklist" not in script
 
 
 def test_msi_excludes_the_universal_setup_bootstrapper() -> None:

@@ -364,6 +364,7 @@ $serviceHostSpec = Join-Path $repositoryRoot 'pc_agent\pyinstaller_windows_servi
 $provisionerSpec = Join-Path $repositoryRoot 'pc_agent\pyinstaller_windows_provision.spec'
 $traySpec = Join-Path $repositoryRoot 'pc_agent\pyinstaller_windows_tray.spec'
 $userSensorSpec = Join-Path $repositoryRoot 'pc_agent\pyinstaller_windows_user_sensor.spec'
+$browserBridgeSpec = Join-Path $repositoryRoot 'pc_agent\pyinstaller_windows_browser_bridge.spec'
 $commonPyInstaller = @('--noconfirm', '--clean', '--distpath', $distRoot, '--workpath', $workRoot)
 if (-not $ReusePythonBuild) {
     Invoke-Checked $python (@('-m', 'PyInstaller') + $commonPyInstaller + @($coreSpec)) $repositoryRoot
@@ -372,6 +373,7 @@ if (-not $ReusePythonBuild) {
     Invoke-Checked $python (@('-m', 'PyInstaller') + $commonPyInstaller + @($provisionerSpec)) $repositoryRoot
     Invoke-Checked $python (@('-m', 'PyInstaller') + $commonPyInstaller + @($traySpec)) $repositoryRoot
     Invoke-Checked $python (@('-m', 'PyInstaller') + $commonPyInstaller + @($userSensorSpec)) $repositoryRoot
+    Invoke-Checked $python (@('-m', 'PyInstaller') + $commonPyInstaller + @($browserBridgeSpec)) $repositoryRoot
 }
 
 $builtCore = Join-Path $distRoot 'endpoint_agent_core'
@@ -381,6 +383,7 @@ $builtServiceHost = Join-Path $distRoot 'endpoint-agent-service.exe'
 $builtProvisioner = Join-Path $distRoot 'endpoint-agent-provision.exe'
 $builtTray = Join-Path $distRoot 'EndpointAgentTray.exe'
 $builtUserSensor = Join-Path $distRoot 'EndpointUserSensor.exe'
+$builtBrowserBridge = Join-Path $distRoot 'EndpointBrowserBridge.exe'
 if (-not (Test-Path -LiteralPath $builtCoreExe -PathType Leaf)) {
     throw "Headless core build missing $builtCoreExe"
 }
@@ -398,6 +401,9 @@ if (-not (Test-Path -LiteralPath $builtTray -PathType Leaf)) {
 }
 if (-not (Test-Path -LiteralPath $builtUserSensor -PathType Leaf)) {
     throw "User Sensor build missing $builtUserSensor"
+}
+if (-not (Test-Path -LiteralPath $builtBrowserBridge -PathType Leaf)) {
+    throw "Browser Bridge build missing $builtBrowserBridge"
 }
 $runtimePayload = $builtCore
 if ([int]$manifestPreview.schema_version -ge 5) {
@@ -429,6 +435,8 @@ Copy-Item -LiteralPath $builtServiceHost -Destination (Join-Path $programFilesSt
 Copy-Item -LiteralPath $builtProvisioner -Destination (Join-Path $programFilesStage 'endpoint-agent-provision.exe')
 Copy-Item -LiteralPath $builtTray -Destination (Join-Path $programFilesStage 'EndpointAgentTray.exe')
 Copy-Item -LiteralPath $builtUserSensor -Destination (Join-Path $programFilesStage 'EndpointUserSensor.exe')
+Copy-Item -LiteralPath $builtBrowserBridge -Destination (Join-Path $programFilesStage 'EndpointBrowserBridge.exe')
+Copy-Item -LiteralPath (Join-Path $packagingRoot 'assets\ru.sosnadmin.endpoint.browser.json') -Destination (Join-Path $programFilesStage 'ru.sosnadmin.endpoint.browser.json')
 New-Item -ItemType Directory -Path (Join-Path $programFilesStage 'config'), (Join-Path $programFilesStage 'docs') -Force | Out-Null
 Copy-Item -LiteralPath (Join-Path $packagingRoot 'assets\agent-config.yaml') -Destination (Join-Path $programFilesStage 'config\agent-config.yaml')
 Copy-Item -LiteralPath (Join-Path $packagingRoot 'README.md') -Destination (Join-Path $programFilesStage 'docs\README.md')
@@ -451,7 +459,7 @@ $fileManifest = foreach ($item in $allFiles) {
 $componentManifest = @(
     'cmpLauncher', 'cmpCurrentSelector', 'cmpInitialRuntimeAnchor', 'cmpConfigTemplate', 'cmpPublicReadme',
     'cmpProgramDataRoot', 'cmpInstallRootCleanup', 'cmpInitialRuntimeTransitionState',
-    'cmpServiceEntrypoints', 'cmpProvisioner', 'cmpTrayCompanion', 'cmpUserSensor'
+    'cmpServiceEntrypoints', 'cmpProvisioner', 'cmpTrayCompanion', 'cmpUserSensor', 'cmpBrowserBridge'
 ) + @($generatedItems | ForEach-Object {
     Get-StableId -Prefix 'cmpPayload' -Value (Get-RelativePath $runtimeStage $_.FullName)
 })

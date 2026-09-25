@@ -5,6 +5,13 @@ Agent. It uses the neutral core, non-GUI launcher, and fixed Windows service
 host PyInstaller specifications; the legacy Helpdesk/GUI agent specifications
 are not MSI inputs.
 
+The MSI also stages the unprivileged User Sensor and the credential-free
+`EndpointBrowserBridge.exe`. Chrome's machine-level Native Messaging registration
+points to an MSI-owned manifest beside the executable; that manifest allows only
+the pinned Endpoint Browser Sensor origin. It does not set a global Native
+Messaging blocklist. Yandex native-host registration and browser acceptance
+remain separate release gates.
+
 ## Build
 
 Prerequisites are Python with PyInstaller and the WiX Toolset 4 `wix` command

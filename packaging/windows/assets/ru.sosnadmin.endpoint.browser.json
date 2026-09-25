@@ -1,0 +1,7 @@
+{
+  "name": "ru.sosnadmin.endpoint.browser",
+  "description": "Endpoint Browser Sensor bridge",
+  "path": "EndpointBrowserBridge.exe",
+  "type": "stdio",
+  "allowed_origins": ["chrome-extension://kkkoaifoohdbdaccmnnoagedifflbide/"]
+}
