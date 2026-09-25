@@ -460,9 +460,10 @@ async def test_local_sensor_starts_before_cached_policy_is_restored(tmp_path: Pa
 
 
 @pytest.mark.skipif(os.name != "nt", reason="Windows local sensor")
-def test_windows_wss_defaults_start_policy_gated_local_listener(monkeypatch, tmp_path: Path) -> None:
+def test_policy_only_wss_runtime_starts_gated_local_listener(monkeypatch, tmp_path: Path) -> None:
     from pc_agent.platform.windows import activity_api
 
+    monkeypatch.setattr(runtime_application, "AGENT_VERSION", "3.2.68")
     settings = RuntimeSettings(
         data_root=tmp_path / "data", install_root=tmp_path / "install",
         ca_file=tmp_path / "endpoint-ca.crt",

@@ -24,11 +24,11 @@ overflow and expiry counters. SQLite pages and rollback-journal overhead can
 exceed the payload bound. `security/runtime.py` sends one WSS batch at a time,
 replays it on timeout, and removes rows only after an exact persisted ACK. The
 sender waits until `RuntimeLifecycle` has sent the policy ACK frame on the
-current WSS connection before replaying any queued batch. The current 3.2.67
-Agent does not advertise `endpoint.security-events.v1`; this
-path activates at 3.2.70 after sensor integration and installed-agent proof.
+current WSS connection before replaying any queued batch. The last registered
+production Agent 3.2.67 does not advertise `endpoint.security-events.v1`; the
+3.2.70 release candidate enables this path but still requires installed-agent proof.
 The WSS transport also defines a negotiated `endpoint.browser-status.v1` frame
-for bounded Chrome/Yandex observations. The future 3.2.70 Windows runtime
+for bounded Chrome/Yandex observations. The 3.2.70 Windows release candidate
 coalesces authenticated Native Bridge Hello/Heartbeat facts by browser and
 applied policy, inspects App Paths, process metadata, owned policy values and
 the installed Native Host manifest without writes, and sends one two-family
@@ -36,7 +36,7 @@ report per minute after the current WSS policy ACK. Missing App Paths or stale
 registration is `UNKNOWN`, since it cannot prove browser absence. The server
 stores per-family current facts and derives compliance from policy and report
 freshness. Installed Bridge, extension heartbeat and package proof remain open.
-For the future feature version, the Agent core bundle includes the release-pinned
+For this feature version, the Agent core bundle includes the release-pinned
 extension ID. The service pipe maps approved browser upload/paste metadata to
 typed SecurityEvents and waits for a durable spool write before returning the
 Native Messaging ACK. Duplicate IDs succeed only for identical queued payloads.
