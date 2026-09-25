@@ -2007,6 +2007,8 @@ policy entry.
 
 In either mode the browser itself fetches the signed CRX from the approved Endpoint HTTPS artifact source. Agent never edits browser profiles, uses developer mode, performs unsupported sideloading or stores the extension private key. Agent does not set a global Native Messaging blocklist. Existing corporate Native Messaging hosts must remain usable.
 
+The signed MSI/Setup must install the privileged applicator as a working service. Before an `agent_managed` policy is assigned to a pilot device, prove that the installed service starts under its configured Windows service identity and accepts only the authenticated, typed Agent request. If it fails to start or cannot authenticate the Agent, report the browser policy as unavailable, leave existing browser policy unchanged, and do not claim installation or compliance. A successful isolated source test or a registry write does not replace this installed-service check.
+
 Keep deployment evidence per browser and per policy version: the requested ownership mode; detected/running state; ownership and exact value of the machine policy; effective browser policy and any browser-reported conflict; Native Host registration; extension installation/version; and last Bridge heartbeat. Record `UNKNOWN` when effective policy cannot be observed. Neither a policy ACK, a registry write nor an extension heartbeat alone proves the entire installation chain. Browser closure must retain the last known version and heartbeat without turning their absence into an installation error.
 
 ---
