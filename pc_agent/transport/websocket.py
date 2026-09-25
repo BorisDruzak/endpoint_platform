@@ -19,9 +19,11 @@ from pydantic import ValidationError
 from endpoint_contracts.activity import ActivityObservationV1
 from endpoint_contracts.browser_status import BrowserStatusReportV1
 from endpoint_contracts.security_events import AgentSecurityEventBatchV1
+from endpoint_contracts.sensor_health import PolicySensorHealthReportV1
 from endpoint_contracts.gateway_ws import (
     ActivityObservationEnvelopeV1,
     BrowserStatusReportEnvelopeV1,
+    PolicySensorHealthReportEnvelopeV1,
     AgentHelloEnvelopeV1,
     CommandAckEnvelopeV1,
     CommandResultEnvelopeV1,
@@ -283,6 +285,13 @@ class WebSocketGatewayTransport:
         await self._send(
             BrowserStatusReportEnvelopeV1,
             kind="browser_status_report",
+            payload=report,
+        )
+
+    async def send_sensor_health_report(self, report: PolicySensorHealthReportV1) -> None:
+        await self._send(
+            PolicySensorHealthReportEnvelopeV1,
+            kind="policy_sensor_health_report",
             payload=report,
         )
 

@@ -45,6 +45,14 @@ class SecurityEventRuntime:
     async def open(self) -> None:
         await self._spool.open()
 
+    async def available(self) -> bool:
+        """Check the actual spool read path before reporting it ready."""
+        try:
+            await self._spool.stats()
+        except Exception:
+            return False
+        return True
+
     def begin_connection(self) -> None:
         """Block replay until this WSS session has sent its policy ACK."""
         self._policy_ready.clear()

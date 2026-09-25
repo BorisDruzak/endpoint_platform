@@ -28,6 +28,7 @@ def test_listener_processes_frame_then_stops_with_stalled_client() -> None:
         frame_timeout_seconds=10,
     )
     listener.start()
+    assert listener.available
     try:
         response: list[bytes] = []
         failures: list[BaseException] = []
@@ -61,6 +62,7 @@ def test_listener_processes_frame_then_stops_with_stalled_client() -> None:
         try:
             started = time.monotonic()
             listener.stop()
+            assert not listener.available
             assert time.monotonic() - started < 2
         finally:
             win32file.CloseHandle(stalled)

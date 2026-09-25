@@ -16,6 +16,14 @@ from pc_agent.transport.protocol import GatewayInboundV1
 from .test_spool import NOW, _event
 
 
+@pytest.mark.asyncio
+async def test_runtime_health_checks_open_spool(tmp_path) -> None:
+    runtime = SecurityEventRuntime(SecurityEventSpool(tmp_path))
+    assert not await runtime.available()
+    await runtime.open()
+    assert await runtime.available()
+
+
 def test_sender_retries_same_batch_until_exact_ack(tmp_path) -> None:
     async def scenario() -> None:
         sent = asyncio.Queue()

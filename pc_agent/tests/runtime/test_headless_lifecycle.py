@@ -520,7 +520,18 @@ async def test_security_feature_pins_browser_identity_and_durable_handoff(
     )
     captured = {}
 
+    real_health_runtime = runtime_application.SensorHealthRuntime
+
+    def capture_health_runtime(**kwargs):
+        runtime = real_health_runtime(**kwargs)
+        captured["health_runtime"] = runtime
+        return runtime
+
+    monkeypatch.setattr(runtime_application, "SensorHealthRuntime", capture_health_runtime)
+
     class Listener:
+        available = True
+
         def start(self):
             pass
 
@@ -529,7 +540,8 @@ async def test_security_feature_pins_browser_identity_and_durable_handoff(
 
     def create_listener(**kwargs):
         captured.update(kwargs)
-        return Listener()
+        captured["listener"] = Listener()
+        return captured["listener"]
 
     monkeypatch.setattr(activity_api, "create_activity_pipe_listener", create_listener)
 
@@ -572,7 +584,7 @@ async def test_security_feature_pins_browser_identity_and_durable_handoff(
         connected_tasks = tuple(dependencies.create_connected_tasks(
             settings, "d" * 43, websocket,
         ))
-        assert len(connected_tasks) == 4
+        assert len(connected_tasks) == 5
         for task in connected_tasks:
             task.close()
         assert dependencies.security_policy_ack_sent is not None
@@ -581,6 +593,26 @@ async def test_security_feature_pins_browser_identity_and_durable_handoff(
         assert dependencies.policy_handler is not None
         applied = await dependencies.policy_handler(_delivery(active=True))
         assert applied.status == "APPLIED", applied.error_code
+
+        class HealthTransport:
+            reports = []
+
+            async def send_sensor_health_report(self, report):
+                self.reports.append(report)
+
+        health_transport = HealthTransport()
+        health_runtime = captured["health_runtime"]
+        assert not await health_runtime.send_once(health_transport, observed_at=NOW)
+        dependencies.security_policy_ack_sent()
+        assert await health_runtime.send_once(health_transport, observed_at=NOW)
+        assert health_transport.reports[0].activity_listener_state == "READY"
+        assert health_transport.reports[0].security_spool_state == "READY"
+        assert health_transport.reports[0].usb_source_state == "READY"
+        assert health_transport.reports[0].print_source_state == "READY"
+        assert health_transport.reports[0].user_sensor_last_seen_at is None
+        captured["listener"].available = False
+        assert await health_runtime.send_once(health_transport, observed_at=NOW)
+        assert health_transport.reports[-1].activity_listener_state == "UNAVAILABLE"
         assert captured["ingress"]._extension_id == "a" * 32
         assert await asyncio.to_thread(captured["on_security_event"], _event(occurred_at=NOW))
         await asyncio.to_thread(captured["on_print_job"], object())

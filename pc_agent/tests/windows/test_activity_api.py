@@ -86,6 +86,49 @@ def test_user_sample_uses_server_policy_idle_threshold_and_os_login() -> None:
     assert idle.foreground.process_name == "chrome.exe"
 
 
+def test_latest_user_sample_is_policy_scoped_and_rejected_samples_do_not_count() -> None:
+    ingress = ActivityIngress(expected_extension_id=EXTENSION_ID)
+    current_policy = policy()
+    assert ingress.latest_user_sample_at(current_policy) is None
+    accepted, _ = ingress.ingest(
+        user_payload(12), identity=IDENTITY, user_login="u",
+        policy=current_policy, received_at=NOW,
+    )
+    assert accepted.accepted
+    assert ingress.latest_user_sample_at(current_policy) == NOW
+    rotated = current_policy.model_copy(update={"policy_version": 2})
+    assert ingress.latest_user_sample_at(rotated) is None
+    disabled = policy(activity_enabled=False)
+    rejected, _ = ingress.ingest(
+        user_payload(10), identity=IDENTITY, user_login="u",
+        policy=disabled, received_at=NOW + timedelta(seconds=1),
+    )
+    assert not rejected.accepted
+    assert ingress.latest_user_sample_at(disabled) is None
+
+
+def test_browser_activity_after_policy_rotation_does_not_reuse_old_user_sample() -> None:
+    ingress = ActivityIngress(expected_extension_id=EXTENSION_ID)
+    original = policy()
+    ingress.ingest(
+        user_payload(12), identity=IDENTITY, user_login="u",
+        policy=original, received_at=NOW,
+    )
+    rotated = original.model_copy(update={"policy_version": 2})
+    heartbeat = BrowserHeartbeatV1(
+        schema_version="browser_sensor_heartbeat_v1", protocol_version=1,
+        extension_version="0.1.0", browser_family="chrome", observed_at=NOW,
+    )
+    ack, observation = ingress.ingest(
+        browser_payload(heartbeat), identity=IDENTITY, user_login="u",
+        policy=rotated, received_at=NOW + timedelta(seconds=1),
+    )
+    assert ack.accepted
+    assert observation is not None
+    assert observation.session_state == "UNKNOWN"
+    assert observation.idle_seconds is None
+
+
 def test_browser_context_stays_in_its_os_logon_session() -> None:
     ingress = ActivityIngress(expected_extension_id=EXTENSION_ID)
     current_policy = policy()

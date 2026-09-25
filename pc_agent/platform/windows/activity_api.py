@@ -42,6 +42,7 @@ _MAX_TRACKED_SESSIONS = 128
 
 @dataclass
 class _SessionProjection:
+    policy_ref: tuple[UUID, int] | None = None
     sample: UserSessionSampleV1 | None = None
     sampled_at: datetime | None = None
     browsers: dict[str, tuple[BrowserActivityV1, datetime]] = field(default_factory=dict)
@@ -76,6 +77,16 @@ class ActivityIngress:
         self._sessions: OrderedDict[tuple[str, str, int], _SessionProjection] = OrderedDict()
         self._heartbeat_lock = Lock()
         self._heartbeats: dict[str, tuple[UUID, int, BrowserHeartbeatFact]] = {}
+        self._sample_lock = Lock()
+        self._latest_user_sample: tuple[UUID, int, datetime] | None = None
+
+    def latest_user_sample_at(self, policy: EndpointPolicyV1) -> datetime | None:
+        """Return receipt time of an accepted User Sensor sample for this policy."""
+        with self._sample_lock:
+            latest = self._latest_user_sample
+            if latest is None or latest[:2] != (policy.policy_id, policy.policy_version):
+                return None
+            return latest[2]
 
     def latest_heartbeats(self, policy: EndpointPolicyV1) -> dict[str, BrowserHeartbeatFact]:
         """Return only typed Hello/Heartbeat facts accepted under this policy."""
@@ -86,12 +97,18 @@ class ActivityIngress:
                 if policy_id == policy.policy_id and version == policy.policy_version
             }
 
-    def _session(self, key: tuple[str, str, int]) -> _SessionProjection:
+    def _session(
+        self, key: tuple[str, str, int], policy: EndpointPolicyV1,
+    ) -> _SessionProjection:
+        policy_ref = (policy.policy_id, policy.policy_version)
         existing = self._sessions.get(key)
         if existing is not None:
             self._sessions.move_to_end(key)
+            if existing.policy_ref != policy_ref:
+                existing = _SessionProjection(policy_ref=policy_ref)
+                self._sessions[key] = existing
             return existing
-        projection = _SessionProjection()
+        projection = _SessionProjection(policy_ref=policy_ref)
         self._sessions[key] = projection
         if len(self._sessions) > _MAX_TRACKED_SESSIONS:
             self._sessions.popitem(last=False)
@@ -120,9 +137,17 @@ class ActivityIngress:
         if isinstance(envelope, LocalUserSessionEnvelopeV1):
             if not policy.activity.enabled:
                 return _ack("POLICY_DISABLED"), None
-            projection = self._session(key)
+            projection = self._session(key, policy)
             projection.sample = envelope.sample
             projection.sampled_at = now
+            with self._sample_lock:
+                previous_sample = self._latest_user_sample
+                if (
+                    previous_sample is None
+                    or previous_sample[:2] != (policy.policy_id, policy.policy_version)
+                    or now >= previous_sample[2]
+                ):
+                    self._latest_user_sample = (policy.policy_id, policy.policy_version, now)
             return _ack(), self._project(projection, user_login, policy, now)
 
         if self._extension_id is None:
@@ -152,7 +177,7 @@ class ActivityIngress:
             or (policy.activity.enabled and policy.activity.browser_context)
         ):
             return _ack("POLICY_DISABLED"), None
-        projection = self._session(key)
+        projection = self._session(key, policy)
         previous = projection.browsers.get(message.browser_family)
         prior_browser = previous[0] if previous else None
         version = (

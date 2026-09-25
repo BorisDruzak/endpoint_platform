@@ -31,6 +31,7 @@ from pc_agent.policy.windows_sensors import apply_windows_policy_sensors
 from pc_agent.activity_dispatch import ActivityDispatch
 from pc_agent.security.runtime import SecurityEventRuntime
 from pc_agent.security.spool import SecurityEventSpool
+from pc_agent.sensor_health import SensorHealthFacts, SensorHealthRuntime
 from pc_agent.transport.base import GatewayTerminalError, GatewayTransport
 from pc_agent.transport.http_pull import ClassifiedGatewayTransport
 from pc_agent.transport.protocol import (
@@ -143,6 +144,9 @@ def _default_dependencies(
     usb_notifications = None
     print_notifications = None
     browser_status_runtime = None
+    sensor_health_runtime = None
+    activity_ingress = None
+    activity_listener = None
     activity_listener_ready = False
     security_spool_ready = False
     browser_bridge_ready = False
@@ -186,12 +190,47 @@ def _default_dependencies(
         ) if settings is not None else []
     )
     browser_status_enabled = "endpoint.browser-status.v1" in policy_features
+    sensor_health_enabled = "endpoint.sensor-health.v1" in policy_features
     if (
         settings is not None
         and os.name == "nt"
         and "endpoint.security-events.v1" in policy_features
     ):
         security_runtime = SecurityEventRuntime(SecurityEventSpool(settings.data_root))
+
+    if sensor_health_enabled and policy_runtime is not None:
+        async def collect_sensor_health(policy):
+            listener_ready = (
+                activity_listener_ready
+                and activity_listener is not None
+                and activity_listener.available
+            )
+            spool_ready = (
+                security_spool_ready
+                and security_runtime is not None
+                and await security_runtime.available()
+            )
+            return SensorHealthFacts(
+                activity_listener_state="READY" if listener_ready else "UNAVAILABLE",
+                user_sensor_last_seen_at=(
+                    activity_ingress.latest_user_sample_at(policy)
+                    if activity_ingress is not None else None
+                ),
+                security_spool_state="READY" if spool_ready else "UNAVAILABLE",
+                usb_source_state=(
+                    "READY" if usb_notifications is not None and usb_notifications.available
+                    else "UNAVAILABLE"
+                ),
+                print_source_state=(
+                    "READY" if print_notifications is not None and print_notifications.available
+                    else "UNAVAILABLE"
+                ),
+            )
+
+        sensor_health_runtime = SensorHealthRuntime(
+            policy_provider=lambda: policy_runtime.report_policy,
+            fact_provider=collect_sensor_health,
+        )
 
     async def restore_policy(_settings: object) -> None:
         nonlocal security_spool_ready
@@ -203,6 +242,7 @@ def _default_dependencies(
 
     def start_local_sensor(current_settings: object):
         nonlocal usb_notifications, print_notifications, browser_status_runtime
+        nonlocal activity_ingress, activity_listener
         nonlocal activity_listener_ready, browser_bridge_ready
         if not (
             os.name == "nt"
@@ -256,6 +296,8 @@ def _default_dependencies(
             on_security_event=on_security_event,
         )
         listener.start()
+        activity_ingress = ingress
+        activity_listener = listener
         activity_listener_ready = True
         browser_bridge_ready = extension_id is not None
         if extension_id is not None and browser_status_enabled:
@@ -309,6 +351,7 @@ def _default_dependencies(
         class LocalSensors:
             def stop(self) -> None:
                 nonlocal usb_notifications, print_notifications
+                nonlocal activity_ingress, activity_listener
                 nonlocal activity_listener_ready, browser_bridge_ready
                 try:
                     for active_source in reversed(sources):
@@ -322,6 +365,8 @@ def _default_dependencies(
                     activity_listener_ready = False
                     browser_bridge_ready = False
                     listener.stop()
+                    activity_ingress = None
+                    activity_listener = None
 
         return LocalSensors()
 
@@ -354,6 +399,9 @@ def _default_dependencies(
                 if browser_status_runtime is not None:
                     browser_status_runtime.begin_connection()
                     tasks.append(browser_status_runtime.send_forever(transport))
+                if sensor_health_runtime is not None:
+                    sensor_health_runtime.begin_connection()
+                    tasks.append(sensor_health_runtime.send_forever(transport))
                 return tuple(tasks)
             return (
                 _periodic_https_update_checks(
@@ -378,6 +426,8 @@ def _default_dependencies(
             security_runtime.policy_ack_sent()
         if browser_status_runtime is not None:
             browser_status_runtime.policy_ack_sent()
+        if sensor_health_runtime is not None:
+            sensor_health_runtime.policy_ack_sent()
 
     return RuntimeDependencies(
         load_credential=_load_credential,
@@ -393,7 +443,8 @@ def _default_dependencies(
         ),
         security_policy_ack_sent=(
             on_policy_ack_sent
-            if security_runtime is not None or browser_status_enabled else None
+            if security_runtime is not None or browser_status_enabled or sensor_health_enabled
+            else None
         ),
         create_connected_tasks=create_connected_tasks,
         create_completion_sink=_create_completion_sink,
@@ -536,6 +587,7 @@ def _policy_protocol_features(
         features.append("endpoint.activity.v1")
         features.append("endpoint.security-events.v1")
         features.append("endpoint.browser-status.v1")
+        features.append("endpoint.sensor-health.v1")
     return features
 
 

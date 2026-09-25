@@ -155,6 +155,11 @@ class LocalSensorPipeListener:
         self._stop = Event()
         self._thread: Thread | None = None
 
+    @property
+    def available(self) -> bool:
+        thread = self._thread
+        return thread is not None and thread.is_alive() and not self._stop.is_set()
+
     def start(self) -> None:
         if self._thread is not None:
             raise RuntimeError("local IPC listener already started")
