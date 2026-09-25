@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { request } from './api'
+import { ApiError, request } from './api'
 
 type BrowserStatus = {
   browser_family: 'chrome' | 'yandex'
@@ -84,7 +84,9 @@ export function DevicePolicyStatus({ deviceId }: { deviceId: string }) {
     let active = true
     request<{ data: PolicyStatus | null }>(`/api/admin/console/policies/devices/${deviceId}/status`)
       .then(value => { if (active) { setStatus(value.data); setError('') } })
-      .catch(reason => { if (active) setError(reason instanceof Error ? reason.message : 'Не удалось загрузить состояние политики') })
+      .catch(reason => { if (active) setError(reason instanceof ApiError && reason.status === 404
+        ? 'Состояние политики недоступно для этого устройства'
+        : reason instanceof Error ? reason.message : 'Не удалось загрузить состояние политики') })
     return () => { active = false }
   }, [deviceId])
 

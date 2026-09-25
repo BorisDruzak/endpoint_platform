@@ -170,8 +170,7 @@ Agent waits for the policy ACK frame before replaying queued batches after
 reconnect. Tests cover mixed-version replay after rotation and rejection of
 events claiming the prior version after the new version was applied. The
 server and Agent producer/consumer tests pass. The feature remains gated to a
-future 3.2.70 Agent; Windows event-source wiring, health/compliance projection,
-installed-Agent replay proof and production migration remain open. This is not
+future 3.2.70 Agent; installed-Agent replay proof and production migration remain open. This is not
 yet a working SecurityEvent pipeline on a deployed Agent.
 
 ### Task 8: USB and print audit sensors, browser status and compliance
@@ -221,7 +220,7 @@ prove the browser accepted it; Task 11 must inspect the effective policy page.
 - [ ] Add `Политики и DLP`, bounded admin APIs and device tabs with Russian labels/empty/error states; use existing session/CSRF and safe DTO conventions.
 - [ ] Run frontend unit, Playwright E2E, production build and Console API tests; commit.
 
-The first device-detail slice now has an authenticated, bounded read-only policy/browser-status projection and a Russian tab with separate Chrome and Yandex facts. Server compliance is gated by the current process's active Agent connection and `endpoint.browser-status.v1`; a disconnected or older Agent cannot appear ACTIVE, while the last observed extension version and heartbeat remain visible. This conservative process-local connection gate may show `STALE` when Console and Gateway run in different workers; resolve with shared presence/capability evidence before production acceptance. Policy editing, fleet compliance filters, Activity, Security Events, release view, browser E2E and deployment remain open, so Task 9 is not complete.
+The first device-detail slice has an authenticated, bounded read-only policy/browser-status projection and a Russian tab with separate Chrome and Yandex facts. Server compliance is gated by the current process's active Agent connection and `endpoint.browser-status.v1`; a disconnected or older Agent cannot appear ACTIVE, while the last observed extension version and heartbeat remain visible. The server currently enforces a single Gateway worker through `assert_single_gateway_worker()` and `GatewayWorkerLease`; verify that deployment invariant at acceptance, and use shared presence/capability evidence if multi-worker hosting is introduced. A bounded authenticated SecurityEvent list/detail API and Russian `/admin/security` page now filter by period, device, user, channel, type, severity and domain; stored metadata is revalidated before display. Console Playwright passed with mocked SecurityEvent data on desktop and a 390-pixel mobile viewport, including a mobile width check; this is not Browser Sensor/Agent acceptance. Policy editing, fleet compliance filters, Activity, release view, installed-Agent event proof and deployment remain open, so Task 9 is not complete.
 
 ### Task 10: Windows/ALT packaging and release
 

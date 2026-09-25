@@ -165,9 +165,9 @@ test('administrator can approve enrollment, roll back an update and run a module
 
   await page.getByRole('navigation', { name: 'Основная навигация' }).getByRole('link', { name: 'Аудит' }).click()
   await expect(page.getByRole('heading', { name: 'Аудит' })).toBeVisible()
-  await expect(page.getByText('Вход администратора')).toBeVisible()
+  await expect(page.getByText('Вход администратора').first()).toBeVisible()
   await page.getByLabel('Действие').fill('admin_session.created')
-  await expect(page.getByText('Вход администратора')).toBeVisible()
+  await expect(page.getByText('Вход администратора').first()).toBeVisible()
 })
 
 test('primary Console labels remain Russian', async ({ page }) => {

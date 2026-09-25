@@ -139,10 +139,10 @@ td a, .back-link { color: #1b5eaa; font-weight: 650; }
 .capability-card ul { margin: 0; padding-left: 18px; }
 
 @media (max-width: 800px) {
-  .app-shell { grid-template-columns: 1fr; }
-  .sidebar { position: static; }
+  .app-shell { grid-template-columns: minmax(0, 1fr); }
+  .sidebar { position: static; min-width: 0; }
   .brand { min-height: auto; padding: 14px 18px; }
-  .sidebar nav { display: flex; overflow-x: auto; padding: 0 8px; }
+  .sidebar nav { display: flex; overflow-x: auto; max-width: 100%; padding: 0 8px; }
   .nav-link { flex: none; border-left: 0; border-bottom: 3px solid transparent; padding: 11px; }
   .nav-link.active { border-left: 0; border-bottom-color: #3485e3; }
   .topbar { height: 54px; padding: 0 16px; }
