@@ -154,9 +154,11 @@ The public extension ID is now pinned to a protected external signing key. Relea
 The typed five-event batch and persisted-event ACK contracts are now in source
 and generated JSON Schema. They enforce per-type metadata allowlists, audit-only
 severity, unique identifiers, 50-event/64-KiB batch and 2-KiB metadata bounds.
-The server still needs a database model, idempotent transaction and ACK-after-commit
-route; the Agent still needs a protected durable spool and replay. The contract
-alone is not a working SecurityEvent pipeline.
+The independent `security_events` table and migration `0032` are now in source,
+with a unique `(device_id, event_identifier)` constraint and expiry index.
+The server still needs an idempotent transaction, retention worker and
+ACK-after-commit route; the Agent still needs a protected durable spool and
+replay. These schemas alone are not a working SecurityEvent pipeline.
 
 ### Task 8: USB and print audit sensors, browser status and compliance
 

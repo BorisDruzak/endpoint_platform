@@ -147,7 +147,7 @@ def test_migration_history_has_exactly_one_head() -> None:
         _alembic_config("postgresql+asyncpg://unused@127.0.0.1/unused")
     )
 
-    assert script.get_heads() == ["0031_browser_sensor_release"]
+    assert script.get_heads() == ["0032_security_events"]
 
 
 def test_activity_migration_adds_latest_safe_projection() -> None:

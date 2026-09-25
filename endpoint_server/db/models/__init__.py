@@ -41,6 +41,7 @@ from endpoint_server.policy.models import (
     PolicyDeviceState,
     PolicyVersion,
 )
+from endpoint_server.security.models import SecurityEvent
 
 __all__ = [
     "AdminSession",
@@ -78,6 +79,7 @@ __all__ = [
     "ModuleVersion",
     "ServiceClient",
     "ServiceCredential",
+    "SecurityEvent",
     "UpdateBuild",
     "UpdateReport",
     "UpdateRollout",
