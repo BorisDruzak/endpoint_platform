@@ -1975,6 +1975,13 @@ but extension not deployed
 
 must be valid and visible as non-compliance/partial state, not Agent failure.
 
+When `required = true`, a browser that has not been launched since an
+`agent_managed` policy was configured may be `PARTIAL` with extension
+`NEVER_SEEN`; it is not an installation `ERROR` on heartbeat absence alone.
+Keep machine-policy configuration, browser-side policy acceptance and extension
+activity as separate facts. A genuinely absent browser remains `NOT_APPLICABLE`
+for that browser rather than being reported as an extension installation failure.
+
 ## Browser Sensor installation ownership
 
 `browser_sensor.deployment_mode` is either `agent_managed` or `external_managed`.
@@ -1982,6 +1989,13 @@ must be valid and visible as non-compliance/partial state, not Agent failure.
 In `agent_managed`, Endpoint Agent owns a Browser Integration Policy Applicator. It uses official machine-level Chrome and Yandex enterprise policies to force-install the approved extension ID from the Endpoint HTTPS update URL. The applicator is idempotent, narrowly scoped, merge-safe and restart-safe. It must preserve other extension entries and native hosts. It must determine policy ownership before modifying an existing value and fail closed with a reported `POLICY_CONFLICT` when it cannot safely merge. Reapplying the same policy must perform no write. When switching away, it may remove only its own exact, unchanged extension entry and ownership marker; it must never delete a foreign entry or another owner's policy value. If ownership is uncertain, it leaves the value and reports conflict.
 
 In `external_managed`, GPO, Ansible or another enterprise system owns force-install. After any safe hand-off cleanup, Agent does not change browser installation policy; it verifies Browser Bridge registration, accepts extension heartbeat and reports observed state. This mode remains compatible with a later fleet rollout.
+
+An endpoint may enter `external_managed` directly, without ever having used
+`agent_managed`. In that case Agent makes no browser installation-policy write,
+does not claim ownership of a pre-existing force-install entry, and reports
+the external owner independently of Bridge and extension health. Switching
+from `agent_managed` must not transfer an Agent ownership marker to a foreign
+policy entry.
 
 In either mode the browser itself fetches the signed CRX from the approved Endpoint HTTPS artifact source. Agent never edits browser profiles, uses developer mode, performs unsupported sideloading or stores the extension private key. Agent does not set a global Native Messaging blocklist. Existing corporate Native Messaging hosts must remain usable.
 
@@ -2291,6 +2305,14 @@ On a Windows lab workstation with Chrome and/or Yandex:
 13. restart browser and verify reconnect.
 
 Repeat the `agent_managed` install path for Chrome and Yandex when both are installed on the test device; record an explicit untested gap for any absent browser. Verify idempotent reapplication, browser restart, Agent restart and Agent upgrade. Switch to `external_managed` and prove that Agent stops policy writes after removing only its own exact, unchanged entry; if safe removal is impossible, preserve the existing value and report `POLICY_CONFLICT`. Inspect both browsers' effective policy pages and unrelated corporate extension/native-host entries before and after.
+
+Also test a separately prepared `external_managed` device or isolated policy
+state with a pre-existing externally owned force-install entry. Confirm Agent
+makes no installation-policy write, keeps the foreign entry and unrelated
+extensions/native hosts intact, reports `Управление: внешняя политика`, and
+still accepts a valid Bridge heartbeat. With the browser closed, distinguish
+`NEVER_SEEN` from a previously active extension whose heartbeat is now stale;
+neither condition alone proves installation failure.
 
 The reference Windows workstation has both browsers installed as of 2026-09-25. Foundation v1 acceptance on that workstation therefore requires the full installation, Bridge, heartbeat and Console path in both browsers; a source-level or policy-template check alone does not satisfy this gate. Reconfirm their installed versions and effective enterprise-policy support when running acceptance.
 
