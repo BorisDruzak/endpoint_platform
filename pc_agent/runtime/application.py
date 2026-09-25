@@ -143,6 +143,9 @@ def _default_dependencies(
     usb_notifications = None
     print_notifications = None
     browser_status_runtime = None
+    activity_listener_ready = False
+    security_spool_ready = False
+    browser_bridge_ready = False
     if settings is not None:
         cache = AppliedPolicyCache(settings.data_root)
         applicator = _policy_applicator_for(os.name)
@@ -152,13 +155,18 @@ def _default_dependencies(
             async def apply_available_sensors(policy):
                 await windows_applicator(
                     policy,
+                    activity_available=activity_listener_ready,
+                    browser_audit_available=(
+                        activity_listener_ready and security_spool_ready
+                        and browser_bridge_ready
+                    ),
                     usb_available=(
-                        security_runtime is not None
+                        security_spool_ready
                         and usb_notifications is not None
                         and usb_notifications.available
                     ),
                     print_available=(
-                        security_runtime is not None
+                        security_spool_ready
                         and print_notifications is not None
                         and print_notifications.available
                     ),
@@ -186,13 +194,16 @@ def _default_dependencies(
         security_runtime = SecurityEventRuntime(SecurityEventSpool(settings.data_root))
 
     async def restore_policy(_settings: object) -> None:
+        nonlocal security_spool_ready
         if security_runtime is not None:
             await security_runtime.open()
+            security_spool_ready = True
         if policy_runtime is not None:
             await policy_runtime.restore_offline()
 
     def start_local_sensor(current_settings: object):
         nonlocal usb_notifications, print_notifications, browser_status_runtime
+        nonlocal activity_listener_ready, browser_bridge_ready
         if not (
             os.name == "nt"
             and isinstance(current_settings, RuntimeSettings)
@@ -245,6 +256,8 @@ def _default_dependencies(
             on_security_event=on_security_event,
         )
         listener.start()
+        activity_listener_ready = True
+        browser_bridge_ready = extension_id is not None
         if extension_id is not None and browser_status_enabled:
             browser_status_runtime = BrowserStatusRuntime(
                 policy_provider=lambda: policy_runtime.report_policy,
@@ -293,12 +306,10 @@ def _default_dependencies(
                 print_notifications = print_source
                 sources.append(print_source)
 
-        if not sources:
-            return listener
-
         class LocalSensors:
             def stop(self) -> None:
                 nonlocal usb_notifications, print_notifications
+                nonlocal activity_listener_ready, browser_bridge_ready
                 try:
                     for active_source in reversed(sources):
                         try:
@@ -308,6 +319,8 @@ def _default_dependencies(
                 finally:
                     usb_notifications = None
                     print_notifications = None
+                    activity_listener_ready = False
+                    browser_bridge_ready = False
                     listener.stop()
 
         return LocalSensors()

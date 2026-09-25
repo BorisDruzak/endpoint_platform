@@ -16,22 +16,28 @@ _LOG = logging.getLogger(__name__)
 
 
 async def apply_windows_policy_sensors(
-    policy: EndpointPolicyV1, *, usb_available: bool = False,
+    policy: EndpointPolicyV1, *, activity_available: bool = False,
+    browser_audit_available: bool = False, usb_available: bool = False,
     print_available: bool = False,
 ) -> None:
     """Apply browser ownership only after requested local sensors are ready."""
     if (
-        policy.activity.enabled
-        or policy.activity.foreground_application
-        or policy.activity.browser_context
+        (
+            (
+                policy.activity.enabled
+                or policy.activity.foreground_application
+                or policy.activity.browser_context
+            )
+            and not activity_available
+        )
         or (policy.dlp.usb_device_events == "audit" and not usb_available)
         or (policy.dlp.print_events == "audit" and not print_available)
-        or any(
-            mode == "audit"
-            for mode in (
-                policy.dlp.browser_upload_events,
-                policy.dlp.browser_paste_events,
+        or (
+            (
+                policy.dlp.browser_upload_events == "audit"
+                or policy.dlp.browser_paste_events == "audit"
             )
+            and not browser_audit_available
         )
     ):
         raise PolicyApplicationError("SENSOR_NOT_READY")

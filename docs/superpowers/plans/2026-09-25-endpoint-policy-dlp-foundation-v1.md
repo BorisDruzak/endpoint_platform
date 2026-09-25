@@ -219,6 +219,8 @@ The shared extension now requests only its own installation type through Chrome'
 
 `last_running_at = null` only means no running process was observed in the available reports; it does not prove the browser never launched after policy application. Compliance now uses `EXTENSION_NEVER_SEEN` for a closed, never-seen browser without launch proof. The more specific `BROWSER_NOT_LAUNCHED` reason remains gated on the reliable launch-since-policy observation required above; Task 8 is still open.
 
+The Windows policy applicator now accepts enabled Activity and browser upload/paste audit only after the local Activity pipe is started, the SecurityEvent spool is open and the approved Bridge extension identity is loaded. USB and print audit still require their live native notification sources. A synthetic Windows runtime test proves that a fully ready policy receives `APPLIED`; missing components still fail before browser-policy writes. This is local readiness, not proof that the per-user sensor, browser extension, physical USB/print sources or server ingest work on an installed Agent. Fleet-wide Activity/DLP `ACTIVE` status must come from fresh sensor observations or a separate bounded health report, never from policy ACK alone.
+
 ### Task 9: Russian Console
 
 **Files:** Create `webapp/src/SecurityPage.tsx` and typed client DTOs; modify `webapp/src/{App,FleetPages,api,styles.css}` and `endpoint_server/console/` routes/projections. Tests in `webapp/src/`, `webapp/e2e/`, `tests/server/`.

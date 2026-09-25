@@ -487,8 +487,9 @@ def test_windows_wss_defaults_start_policy_gated_local_listener(monkeypatch, tmp
 
     monkeypatch.setattr(activity_api, "create_activity_pipe_listener", create_listener)
     dependencies = runtime_application._default_dependencies(settings)
-    assert dependencies.start_local_sensor(settings) is listener
-    listener.stop()
+    local_sensor = dependencies.start_local_sensor(settings)
+    assert local_sensor is not None
+    local_sensor.stop()
     assert events == ["start", "stop"]
 
 
@@ -513,6 +514,10 @@ async def test_security_feature_pins_browser_identity_and_durable_handoff(
     )
     monkeypatch.setattr(runtime_application, "AGENT_VERSION", "3.2.70")
     monkeypatch.setattr(browser_bridge_entry, "_extension_id", lambda: "a" * 32)
+    monkeypatch.setattr(
+        "pc_agent.policy.windows_sensors.send_policy_request",
+        lambda operation, family: "APPLIED",
+    )
     captured = {}
 
     class Listener:
@@ -572,6 +577,10 @@ async def test_security_feature_pins_browser_identity_and_durable_handoff(
             task.close()
         assert dependencies.security_policy_ack_sent is not None
         await dependencies.restore_policy(settings)
+        from pc_agent.tests.policy.test_runtime import _delivery
+        assert dependencies.policy_handler is not None
+        applied = await dependencies.policy_handler(_delivery(active=True))
+        assert applied.status == "APPLIED", applied.error_code
         assert captured["ingress"]._extension_id == "a" * 32
         assert await asyncio.to_thread(captured["on_security_event"], _event(occurred_at=NOW))
         await asyncio.to_thread(captured["on_print_job"], object())

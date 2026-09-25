@@ -54,7 +54,7 @@ async def test_external_managed_relinquishes_only_owned_policy(monkeypatch) -> N
 
 
 @pytest.mark.asyncio
-async def test_unsupported_activity_fails_before_any_helper_side_effect(
+async def test_unavailable_activity_fails_before_any_helper_side_effect(
     monkeypatch,
 ) -> None:
     calls: list[tuple[str, str]] = []
@@ -63,8 +63,47 @@ async def test_unsupported_activity_fails_before_any_helper_side_effect(
         lambda operation, family: calls.append((operation, family)) or "APPLIED",
     )
     with pytest.raises(PolicyApplicationError, match="SENSOR_NOT_READY"):
-        await apply_windows_policy_sensors(_delivery(active=True).policy)
+        await apply_windows_policy_sensors(
+            _delivery(active=True).policy,
+            browser_audit_available=True, usb_available=True, print_available=True,
+        )
     assert calls == []
+
+
+@pytest.mark.asyncio
+async def test_unavailable_browser_audit_fails_before_any_helper_side_effect(
+    monkeypatch,
+) -> None:
+    calls: list[tuple[str, str]] = []
+    monkeypatch.setattr(
+        "pc_agent.policy.windows_sensors.send_policy_request",
+        lambda operation, family: calls.append((operation, family)) or "APPLIED",
+    )
+    with pytest.raises(PolicyApplicationError, match="SENSOR_NOT_READY"):
+        await apply_windows_policy_sensors(
+            _delivery(active=True).policy,
+            activity_available=True, usb_available=True, print_available=True,
+        )
+    assert calls == []
+
+
+@pytest.mark.asyncio
+async def test_active_policy_applies_after_local_activity_and_dlp_sources_are_ready(
+    monkeypatch,
+) -> None:
+    calls: list[tuple[str, str]] = []
+    monkeypatch.setattr(
+        "pc_agent.policy.windows_sensors.send_policy_request",
+        lambda operation, family: calls.append((operation, family)) or "APPLIED",
+    )
+    await apply_windows_policy_sensors(
+        _delivery(active=True).policy,
+        activity_available=True,
+        browser_audit_available=True,
+        usb_available=True,
+        print_available=True,
+    )
+    assert calls == [("apply", "chrome"), ("apply", "yandex")]
 
 
 @pytest.mark.asyncio
