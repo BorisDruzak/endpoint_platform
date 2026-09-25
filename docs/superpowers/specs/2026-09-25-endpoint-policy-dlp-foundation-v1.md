@@ -817,7 +817,14 @@ Verify both initial installation and subsequent updates use the approved Endpoin
 
 Do not require Chrome Web Store.
 
-Production target is a domain-managed workstation.
+Google's Chrome Enterprise guidance requires a Microsoft Active Directory
+domain-joined computer to automatically install an extension hosted outside
+Chrome Web Store. Verify that prerequisite on each `agent_managed` Windows
+pilot device before interpreting a local machine policy as an install failure;
+record the browser's effective policy status as separate evidence. The local
+reference workstation is domain-joined, but that fact does not establish
+Chrome's effective policy state on its own. See
+[Chrome app and extension policies](https://support.google.com/chrome/a/answer/7532015?hl=en).
 
 The Agent MUST NOT copy the extension into a browser profile, edit `User Data/Extensions` or browser databases, use developer mode or unsupported sideloading, or store the extension signing key. It must preserve other extensions' settings. If an existing policy cannot be safely merged or its ownership cannot be established, report a policy conflict and do not overwrite it.
 
@@ -837,7 +844,7 @@ or `ExtensionSettings` where better supported by the current corporate browser.
 
 Use internal update URL. In `agent_managed`, apply only the Endpoint extension's machine-level force-install setting; in `external_managed`, leave installation policy to GPO/Ansible or another external owner.
 
-Yandex Browser for Organizations documents that `ExtensionInstallForcelist` and `ExtensionSettings` on Windows work only when set inside a domain or through its management console. Domain membership alone does not prove that an Agent-written local machine value meets this condition. Before claiming `agent_managed` support for Yandex, prove on the installed pilot browser that its own effective policy page accepts the Agent-owned value and force-installs the extension. A local machine value without effective policy is `MACHINE_POLICY_CONFIGURED`, not `MANAGED_POLICY_APPLIED`. If the Agent-owned value is ignored, report the mode as unsupported for that browser/context and resolve the official enterprise-policy mechanism before completion; do not substitute profile edits or sideloading. Verify initial and later updates from Endpoint HTTPS. See [Yandex ExtensionInstallForcelist](https://browser.yandex.ru/support/browser-corporate/ru/policy/extension-install-forcelist) and [ExtensionSettings](https://browser.yandex.ru/support/browser-corporate/ru/policy/extension-settings).
+Yandex Browser for Organizations documents `ExtensionInstallForcelist` and `ExtensionSettings`, while Yandex's consumer-browser security documentation describes a restriction on `ExtensionInstallForcelist`. These sources cannot establish what the installed pilot browser will accept. Domain membership alone does not prove that an Agent-written local machine value is effective. Before claiming `agent_managed` support for Yandex, prove on the installed pilot browser that its own effective policy page accepts the Agent-owned value and force-installs the extension. A local machine value without effective policy is `MACHINE_POLICY_CONFIGURED`, not `MANAGED_POLICY_APPLIED`. If the Agent-owned value is ignored, report the mode as unsupported for that browser/context and resolve the official enterprise-policy mechanism before completion; do not substitute profile edits or sideloading. Verify initial and later updates from Endpoint HTTPS. See [Yandex ExtensionInstallForcelist](https://browser.yandex.ru/support/browser-corporate/ru/policy/extension-install-forcelist), [ExtensionSettings](https://browser.yandex.ru/support/browser-corporate/ru/policy/extension-settings), and [consumer-browser protection](https://browser.yandex.com/help/en/security/check-extensions).
 
 Register and, where an existing allowlist requires it, allow only the Endpoint native host without deleting or overwriting other hosts. Foundation v1 MUST NOT automatically set a global `NativeMessagingBlocklist = *`; existing corporate hosts such as CryptoPro must keep working.
 
