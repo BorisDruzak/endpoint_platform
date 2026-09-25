@@ -37,9 +37,9 @@ it('shows the active policy and its bounded typed sections', async () => {
   expect(await within(section).findByText('По умолчанию')).toBeTruthy()
   expect(within(section).getAllByText('Муниципальная')).toHaveLength(2)
   expect(within(section).getAllByText('Версия 1')).toHaveLength(2)
-  expect(screen.getByText('Активность')).toBeTruthy()
-  expect(screen.getByText('Browser Sensor')).toBeTruthy()
-  expect(screen.getByText('DLP')).toBeTruthy()
+  expect(screen.getByRole('heading', { name: 'Активность' })).toBeTruthy()
+  expect(screen.getByRole('heading', { name: 'Browser Sensor' })).toBeTruthy()
+  expect(screen.getByRole('heading', { name: 'DLP' })).toBeTruthy()
   expect(screen.getByText('Хранение событий')).toBeTruthy()
 })
 

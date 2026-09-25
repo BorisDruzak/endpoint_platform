@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { request } from './api'
+import { PolicyFleet } from './PolicyFleet'
 
 type PolicySummary = { id: string; name: string; created_at: string; versions_total: number }
 type VersionSummary = { version_id: string; policy_version: number; digest: string; created_at: string }
@@ -207,6 +208,7 @@ export function PolicyCatalog() {
         <div className="pagination"><button type="button" onClick={() => { setDraft(null); setDraftMode(null) }}>Отмена</button><button type="submit" disabled={saving}>{saving ? 'Сохранение…' : draftMode === 'create' ? 'Сохранить политику' : 'Сохранить версию'}</button></div>
       </form>
     </section>}
+    <PolicyFleet />
     {doc && <div className="detail-columns">
       <section className="panel"><h2>Активность</h2><dl className="detail-grid">
         <div><dt>Сбор состояния</dt><dd>{enabledText(doc.activity.enabled)}</dd></div>
