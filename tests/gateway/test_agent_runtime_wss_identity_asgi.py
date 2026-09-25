@@ -36,6 +36,19 @@ from .conftest import (
 _RUNTIME_DEVICE_TOKEN = "w" * 43
 
 
+def _isolate_machine_activity_pipe(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep identity acceptance independent of a locally installed Agent."""
+    from pc_agent.platform.windows import activity_api
+
+    monkeypatch.setattr(
+        activity_api,
+        "create_activity_pipe_listener",
+        lambda **_kwargs: SimpleNamespace(
+            start=lambda: None, stop=lambda: None, available=False,
+        ),
+    )
+
+
 class _AsgiWebSocket:
     """Minimal aiohttp socket facade backed by Starlette's in-process client."""
 
@@ -138,6 +151,7 @@ async def test_default_runtime_wss_accepts_persisted_authoritative_device_id(
     tmp_path: Path,
 ) -> None:
     """The default app must send the credential-bound enrollment Device.id to Task6."""
+    _isolate_machine_activity_pipe(monkeypatch)
     device = await seed_device(
         gateway_route_harness.provider,
         token=_RUNTIME_DEVICE_TOKEN,
@@ -201,6 +215,7 @@ async def test_default_runtime_wss_rejects_a_non_authoritative_identity_for_vali
     tmp_path: Path,
 ) -> None:
     """The Task6 route must reject any valid UUID not bound to the bearer."""
+    _isolate_machine_activity_pipe(monkeypatch)
     await seed_device(gateway_route_harness.provider, token=_RUNTIME_DEVICE_TOKEN)
     settings = _settings(tmp_path)
     non_authoritative_id = UUID("00000000-0000-4000-8000-000000000437")

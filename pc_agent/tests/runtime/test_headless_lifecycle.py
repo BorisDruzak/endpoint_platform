@@ -1049,6 +1049,17 @@ async def test_default_wss_composition_binds_bearer_to_stored_server_device_id(
 ) -> None:
     """Catches breaking identity loading before the real default WSS boundary."""
     from pc_agent.transport.websocket import WebSocketGatewayTransport
+    from pc_agent.platform.windows import activity_api
+
+    # An installed Agent may already own the machine-wide pipe on a Windows
+    # development host. This test exercises WSS identity, not IPC binding.
+    monkeypatch.setattr(
+        activity_api,
+        "create_activity_pipe_listener",
+        lambda **_kwargs: SimpleNamespace(
+            start=lambda: None, stop=lambda: None, available=False,
+        ),
+    )
 
     stored_device_id = UUID("00000000-0000-4000-8000-000000000436")
     settings = RuntimeSettings(
