@@ -216,7 +216,13 @@ class ActivityIngress:
                     ):
                         self._heartbeats[message.browser_family] = (
                             policy.policy_id, policy.policy_version,
-                            BrowserHeartbeatFact(extension_version, now, message.install_type),
+                            BrowserHeartbeatFact(
+                                extension_version,
+                                now,
+                                message.install_type
+                                if isinstance(message, BrowserHeartbeatV1)
+                                else "unknown",
+                            ),
                         )
         if not (policy.activity.enabled and policy.activity.browser_context):
             return _ack(), None

@@ -15,6 +15,7 @@ from pc_agent.platform.windows.user_sensor import UserSessionSampleV1
 from pc_agent.browser_protocol import (
     BrowserContextV1,
     BrowserHeartbeatV1,
+    BrowserHelloV1,
     BrowserPasteV1,
     BrowserUploadV1,
 )
@@ -217,6 +218,38 @@ def test_heartbeats_coalesce_by_family_and_applied_policy() -> None:
     )
     assert rejected.error_code == "IDENTITY_MISMATCH"
     assert ingress.latest_heartbeats(current_policy)["chrome"].extension_version == "0.2.0"
+
+
+def test_browser_hello_is_accepted_before_first_install_type_heartbeat() -> None:
+    ingress = ActivityIngress(expected_extension_id=EXTENSION_ID)
+    current_policy = policy()
+    hello = BrowserHelloV1(
+        schema_version="browser_sensor_hello_v1", protocol_version=1,
+        extension_id=EXTENSION_ID, extension_version="0.1.0",
+        browser_family="chrome", observed_at=NOW,
+    )
+
+    ack, observation = ingress.ingest(
+        browser_payload(hello), identity=IDENTITY, user_login="u1",
+        policy=current_policy, received_at=NOW,
+    )
+
+    assert ack.accepted
+    assert observation is not None
+    assert observation.browser.extension_version == "0.1.0"
+    assert ingress.latest_heartbeats(current_policy)["chrome"].install_type == "unknown"
+
+    heartbeat = BrowserHeartbeatV1(
+        schema_version="browser_sensor_heartbeat_v1", protocol_version=1,
+        extension_version="0.1.0", browser_family="chrome", observed_at=NOW,
+        install_type="admin",
+    )
+    heartbeat_ack, _ = ingress.ingest(
+        browser_payload(heartbeat), identity=IDENTITY, user_login="u1",
+        policy=current_policy, received_at=NOW + timedelta(seconds=1),
+    )
+    assert heartbeat_ack.accepted
+    assert ingress.latest_heartbeats(current_policy)["chrome"].install_type == "admin"
 
 
 def test_wrong_extension_and_unapplied_policy_fail_closed() -> None:
