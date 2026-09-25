@@ -258,6 +258,8 @@ The `Политики и DLP` page now reads the existing authenticated current 
 - [ ] Select next Agent version from current registry; build signed MSI/Setup and immutable ZIP with source revision, all member hashes, WSS startup proof and verified rollback artifact.
 - [ ] Run full Python suite, contracts, Alembic, Windows packaging, frontend, browser tests, provider-release-gate and diff check; commit.
 
+The 3.2.70 Windows candidate now has a clean-source initial runtime stage and a locally verified 2,543-member update ZIP. The full MSI build initially exposed WiX's inability to derive an auto-GUID for the two-file Browser Bridge component; the component now has a stable GUID, a regression test, and a successful WiX build. The resulting MSI is 204,015,089 bytes, SHA-256 `f3301bfbd353fdb90624462fb85ae45bbb478b957e99cf97527f79622a854ff8`; MSI table inspection confirms the Bridge, manifest and SYSTEM policy service. A Setup candidate built from that exact MSI is 237,583,981 bytes, SHA-256 `8b62383c23afa9c7a0a5650bfad6dd4107c812f1a4d7e398cf8c38a4858c7e14`. Both artifacts are unsigned local candidates and have not been installed, published or registered. The release sidecars record the runtime source commit separately from the later packaging/Setup source commit. The production 3.2.67 ZIP hash was verified on the server as rollback evidence, but its protected artifact was not copied locally. Signing, installed package/upgrade proof, effective browser policy and pilot acceptance remain open.
+
 ### Task 11: Live Windows acceptance and limited pilot
 
 **Files:** `docs/architecture/endpoint-policy-dlp-foundation-v1.md`, `PLANS.md`, evidence under a non-secret release report path.
