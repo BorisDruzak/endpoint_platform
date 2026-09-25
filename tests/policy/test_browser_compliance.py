@@ -84,7 +84,7 @@ def test_closed_browser_preserves_last_heartbeat_without_installation_error() ->
     assert chrome.extension_last_seen_at == NOW - timedelta(minutes=10)
 
 
-def test_never_seen_after_agent_policy_explains_browser_not_launched() -> None:
+def test_closed_never_seen_without_launch_proof_does_not_claim_browser_not_launched() -> None:
     policy = _required_policy()
     value = _status(policy).model_dump(mode="python")
     value["browsers"][0].update({
@@ -95,7 +95,7 @@ def test_never_seen_after_agent_policy_explains_browser_not_launched() -> None:
     report = BrowserStatusReportV1.model_validate(value)
     result = derive_browser_compliance(policy, "APPLIED", report, now=NOW)
     assert result.browsers[0].state == "NEVER_SEEN"
-    assert result.browsers[0].reason == "BROWSER_NOT_LAUNCHED"
+    assert result.browsers[0].reason == "EXTENSION_NEVER_SEEN"
     assert result.overall == "PARTIAL"
 
 

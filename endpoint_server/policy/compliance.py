@@ -78,12 +78,8 @@ def _family_compliance(
     if observed.native_host_state != "READY":
         return result("ERROR", "NATIVE_HOST_UNAVAILABLE")
     if seen is None:
-        reason = (
-            "BROWSER_NOT_LAUNCHED"
-            if observed.running_state == "CLOSED" and observed.last_running_at is None
-            else "EXTENSION_NEVER_SEEN"
-        )
-        return result("NEVER_SEEN", reason)
+        # An unobserved process launch is not proof that no launch occurred.
+        return result("NEVER_SEEN", "EXTENSION_NEVER_SEEN")
     if observed.running_state == "CLOSED":
         return result("STALE", "BROWSER_CLOSED")
     if observed.running_state == "UNKNOWN":

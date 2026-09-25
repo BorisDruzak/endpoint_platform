@@ -217,6 +217,8 @@ prove the browser accepted it; Task 11 must inspect the effective policy page.
 
 The shared extension now requests only its own installation type through Chrome's documented permission-free `management.getSelf()` method. The bounded heartbeat carries `admin`, another install type, or `unknown`; the Agent forwards a three-state fact without granting `management` permission. Migration `0034_browser_install_proof` persists that fact with `UNKNOWN` for existing rows. Server compliance now requires administrative installation in addition to a fresh heartbeat and configured machine policy; a registry value or heartbeat alone cannot produce `COMPLIANT`. Console distinguishes configured from browser-confirmed installation. The API behavior in the installed Yandex version, exact effective policy values, signed CRX and full browser-to-Console path remain Task 11 live gates.
 
+`last_running_at = null` only means no running process was observed in the available reports; it does not prove the browser never launched after policy application. Compliance now uses `EXTENSION_NEVER_SEEN` for a closed, never-seen browser without launch proof. The more specific `BROWSER_NOT_LAUNCHED` reason remains gated on the reliable launch-since-policy observation required above; Task 8 is still open.
+
 ### Task 9: Russian Console
 
 **Files:** Create `webapp/src/SecurityPage.tsx` and typed client DTOs; modify `webapp/src/{App,FleetPages,api,styles.css}` and `endpoint_server/console/` routes/projections. Tests in `webapp/src/`, `webapp/e2e/`, `tests/server/`.
