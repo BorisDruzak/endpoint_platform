@@ -24,6 +24,7 @@ from endpoint_contracts.endpoint_policy import EndpointPolicyV1
 from .activity_api import BrowserHeartbeatFact
 from .browser_policy import (
     APPROVED_UPDATE_URL, CHROME_POLICY_PATH, MARKER_PATH, YANDEX_POLICY_PATH,
+    YANDEX_POLICY_FILE_NAME,
     BrowserPolicyConflict,
 )
 
@@ -83,9 +84,11 @@ def _marker_slot(raw: str | None, family: BrowserFamily, extension_id: str) -> s
         raise ValueError("invalid Chrome ownership marker")
     if family == "yandex" and (
         not isinstance(slot, str)
-        or not slot.isdecimal()
-        or not 1 <= int(slot) <= 1000
-        or str(int(slot)) != slot
+        or (slot != "file" and (
+            not slot.isdecimal()
+            or not 1 <= int(slot) <= 1000
+            or str(int(slot)) != slot
+        ))
     ):
         raise ValueError("invalid Yandex ownership marker")
     return slot
@@ -102,6 +105,8 @@ def inspect_browser_policy(
     registry: ReadOnlyRegistry,
     family: BrowserFamily,
     extension_id: str,
+    *,
+    yandex_policy_file: Path | None = None,
 ) -> tuple[PolicyOwner, PolicyState]:
     """Inspect only the pinned extension entry; never modify machine policy."""
     if family not in ("chrome", "yandex") or not re.fullmatch(r"[a-p]{32}", extension_id):
@@ -145,8 +150,30 @@ def inspect_browser_policy(
                 return "NONE", "NOT_APPLIED"
             return ("EXTERNAL", "APPLIED" if _force_install_entry(entry)
                     else "NOT_APPLIED")
-        if registry.read(_YANDEX_ROOT_PATH, "ExtensionInstallForcelist") is not None:
-            return "CONFLICT", "CONFLICT"
+        root = registry.read(_YANDEX_ROOT_PATH, "ExtensionInstallForcelist")
+        if root is not None or slot == "file":
+            if slot != "file" or root is None or yandex_policy_file is None:
+                return "CONFLICT", "CONFLICT"
+            if yandex_policy_file.name != YANDEX_POLICY_FILE_NAME:
+                return "CONFLICT", "CONFLICT"
+            pointer = json.loads(root)
+            if pointer != [{"_FILE_": {"name": yandex_policy_file.as_posix()}}]:
+                return "CONFLICT", "CONFLICT"
+            if registry.values_at(YANDEX_POLICY_PATH):
+                return "CONFLICT", "CONFLICT"
+            try:
+                details = yandex_policy_file.lstat()
+                if (yandex_policy_file.is_symlink()
+                    or getattr(details, "st_file_attributes", 0) & 0x400
+                    or not yandex_policy_file.is_file()
+                    or details.st_size > _MAX_CHROME_POLICY_BYTES):
+                    return "CONFLICT", "CONFLICT"
+                file_value = json.loads(yandex_policy_file.read_text(encoding="utf-8"))
+            except FileNotFoundError:
+                return "CONFLICT", "CONFLICT"
+            if file_value != [f"{extension_id};{APPROVED_UPDATE_URL}"]:
+                return "CONFLICT", "CONFLICT"
+            return "ENDPOINT", "APPLIED"
         values = registry.values_at(YANDEX_POLICY_PATH)
         for name, value in values.items():
             if (
@@ -280,6 +307,7 @@ class WindowsBrowserProbe:
                 browser_state, running_state = "UNKNOWN", "UNKNOWN"
             owner, installation = inspect_browser_policy(
                 self._registry, family, self._extension_id,
+                yandex_policy_file=self._install_root / YANDEX_POLICY_FILE_NAME,
             )
             result[family] = BrowserHostFacts(
                 browser_state=browser_state,

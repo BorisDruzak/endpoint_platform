@@ -10,6 +10,8 @@ from __future__ import annotations
 import json
 import os
 import re
+import tempfile
+from pathlib import Path
 from typing import Literal, Protocol
 
 
@@ -22,6 +24,7 @@ APPROVED_UPDATE_URL = (
 )
 _CHROME_VALUE = "ExtensionSettings"
 _MAX_POLICY_BYTES = 256 * 1024
+YANDEX_POLICY_FILE_NAME = "yandex-forcelist.json"
 BrowserFamily = Literal["chrome", "yandex"]
 
 
@@ -39,6 +42,74 @@ class PolicyRegistry(Protocol):
     ) -> None: ...
 
     def remove(self, path: str, name: str, *, expected: str) -> None: ...
+
+
+class PolicyFile(Protocol):
+    path: Path
+
+    def read(self) -> str | None: ...
+
+    def put(self, value: str, *, expected: str | None) -> None: ...
+
+    def remove(self, *, expected: str) -> None: ...
+
+
+class YandexPolicyFile:
+    """Keep the public LIST file beside the MSI-owned privileged helper."""
+
+    def __init__(self, path: Path) -> None:
+        if not path.is_absolute() or path.name != YANDEX_POLICY_FILE_NAME:
+            raise ValueError("invalid Yandex policy file path")
+        self.path = path
+
+    @staticmethod
+    def _reject_reparse(path: Path) -> None:
+        details = path.lstat()
+        if path.is_symlink() or getattr(details, "st_file_attributes", 0) & 0x400:
+            raise BrowserPolicyConflict("POLICY_CONFLICT")
+
+    def read(self) -> str | None:
+        try:
+            self._reject_reparse(self.path.parent)
+            self._reject_reparse(self.path)
+            if not self.path.is_file() or self.path.stat().st_size > _MAX_POLICY_BYTES:
+                raise BrowserPolicyConflict("POLICY_CONFLICT")
+            return self.path.read_text(encoding="utf-8")
+        except FileNotFoundError:
+            return None
+        except (OSError, UnicodeError) as error:
+            raise BrowserPolicyConflict("POLICY_CONFLICT") from error
+
+    def put(self, value: str, *, expected: str | None) -> None:
+        if self.read() != expected or len(value.encode("utf-8")) > _MAX_POLICY_BYTES:
+            raise BrowserPolicyConflict("POLICY_CONFLICT")
+        temporary: str | None = None
+        try:
+            self._reject_reparse(self.path.parent)
+            with tempfile.NamedTemporaryFile(
+                mode="w", encoding="utf-8", dir=self.path.parent,
+                prefix=".yandex-forcelist-", suffix=".tmp", delete=False,
+            ) as handle:
+                temporary = handle.name
+                handle.write(value)
+                handle.flush()
+                os.fsync(handle.fileno())
+            if self.read() != expected:
+                raise BrowserPolicyConflict("POLICY_CONFLICT")
+            os.replace(temporary, self.path)
+        except OSError as error:
+            raise BrowserPolicyConflict("POLICY_CONFLICT") from error
+        finally:
+            if temporary is not None and os.path.exists(temporary):
+                os.unlink(temporary)
+
+    def remove(self, *, expected: str) -> None:
+        if self.read() != expected:
+            raise BrowserPolicyConflict("POLICY_CONFLICT")
+        try:
+            self.path.unlink()
+        except OSError as error:
+            raise BrowserPolicyConflict("POLICY_CONFLICT") from error
 
 
 class WindowsPolicyRegistry:
@@ -135,6 +206,7 @@ class BrowserPolicyApplicator:
         *,
         extension_id: str,
         update_url: str,
+        yandex_file: PolicyFile | None = None,
     ) -> None:
         if not re.fullmatch(r"[a-p]{32}", extension_id):
             raise ValueError("invalid packaged Browser Sensor identity")
@@ -143,6 +215,7 @@ class BrowserPolicyApplicator:
         self._registry = registry
         self._extension_id = extension_id
         self._update_url = update_url
+        self._yandex_file = yandex_file
 
     def _entry(self) -> dict[str, str]:
         return {"installation_mode": "force_installed", "update_url": self._update_url}
@@ -184,9 +257,14 @@ class BrowserPolicyApplicator:
             raise BrowserPolicyConflict("POLICY_CONFLICT")
         if family == "yandex" and (
             not isinstance(slot, str)
-            or not slot.isdecimal()
-            or not 1 <= int(slot) <= 1000
-            or str(int(slot)) != slot
+            or (
+                slot != "file"
+                and (
+                    not slot.isdecimal()
+                    or not 1 <= int(slot) <= 1000
+                    or str(int(slot)) != slot
+                )
+            )
         ):
             raise BrowserPolicyConflict("POLICY_CONFLICT")
         return raw, slot
@@ -252,52 +330,91 @@ class BrowserPolicyApplicator:
         return "EXTERNALLY_MANAGED"
 
     def _apply_yandex(self) -> str:
-        self._check_yandex_conflicting_policy()
+        self._check_yandex_settings()
         marker, slot = self._read_marker("yandex")
         values = self._registry.values_at(YANDEX_POLICY_PATH)
         self._validate_yandex_values(values)
         entry = f"{self._extension_id};{self._update_url}"
+        expected_file = _serialize([entry])
+        policy_file = self._required_yandex_file()
+        pointer = self._yandex_pointer(policy_file.path)
+        root = self._registry.read(_YANDEX_ROOT_PATH, "ExtensionInstallForcelist")
+        current_file = policy_file.read()
         if marker is None:
-            if any(
-                value.split(";", 1)[0] == self._extension_id
-                for value in values.values()
-            ):
+            if values or root is not None or current_file is not None:
                 raise BrowserPolicyConflict("POLICY_CONFLICT")
-            next_slot = next(
-                (number for number in range(1, 1001) if str(number) not in values), None
-            )
-            if next_slot is None:
+            self._registry.put(MARKER_PATH, "yandex", self._marker("file"), expected=None)
+        elif slot == "file":
+            if values:
                 raise BrowserPolicyConflict("POLICY_CONFLICT")
-            slot = str(next_slot)
-            self._registry.put(MARKER_PATH, "yandex", self._marker(slot), expected=None)
-        assert slot is not None
-        current = values.get(slot)
-        if current is None:
-            self._registry.put(YANDEX_POLICY_PATH, slot, entry, expected=None)
-        elif current != entry:
+        else:
+            # A legacy Agent marker authorizes removal of precisely its own
+            # numbered value. Any foreign numbered entry would collide with
+            # the file pointer in Yandex Browser and must remain untouched.
+            if any(name != slot for name in values) or (
+                slot in values and values[slot] != entry
+            ) or (slot not in values and current_file != expected_file):
+                raise BrowserPolicyConflict("POLICY_CONFLICT")
+        if root is not None and root != pointer:
             raise BrowserPolicyConflict("POLICY_CONFLICT")
+        if current_file is None:
+            policy_file.put(expected_file, expected=None)
+        elif current_file != expected_file:
+            raise BrowserPolicyConflict("POLICY_CONFLICT")
+        if marker is not None and slot != "file" and slot in values:
+            self._registry.remove(YANDEX_POLICY_PATH, slot, expected=entry)
+        if root is None:
+            self._registry.put(
+                _YANDEX_ROOT_PATH, "ExtensionInstallForcelist", pointer, expected=None,
+            )
+        if marker is not None and slot != "file":
+            self._registry.put(MARKER_PATH, "yandex", self._marker("file"), expected=marker)
         return "APPLIED"
 
     def _relinquish_yandex(self) -> str:
         marker, slot = self._read_marker("yandex")
         if marker is None:
             return "EXTERNALLY_MANAGED"
-        self._check_yandex_conflicting_policy()
+        self._check_yandex_settings()
         assert slot is not None
-        current = self._registry.read(YANDEX_POLICY_PATH, slot)
-        if current is not None:
-            if current != f"{self._extension_id};{self._update_url}":
-                raise BrowserPolicyConflict("POLICY_CONFLICT")
-            self._registry.remove(YANDEX_POLICY_PATH, slot, expected=current)
+        entry = f"{self._extension_id};{self._update_url}"
+        policy_file = self._required_yandex_file()
+        pointer = self._yandex_pointer(policy_file.path)
+        root = self._registry.read(_YANDEX_ROOT_PATH, "ExtensionInstallForcelist")
+        values = self._registry.values_at(YANDEX_POLICY_PATH)
+        self._validate_yandex_values(values)
+        if any(name != slot for name in values) or (
+            slot in values and values[slot] != entry
+        ) or (slot == "file" and values):
+            raise BrowserPolicyConflict("POLICY_CONFLICT")
+        if root is not None and root != pointer:
+            raise BrowserPolicyConflict("POLICY_CONFLICT")
+        current_file = policy_file.read()
+        if current_file is not None and current_file != _serialize([entry]):
+            raise BrowserPolicyConflict("POLICY_CONFLICT")
+        if root is not None:
+            self._registry.remove(
+                _YANDEX_ROOT_PATH, "ExtensionInstallForcelist", expected=root,
+            )
+        if current_file is not None:
+            policy_file.remove(expected=current_file)
+        if slot != "file" and slot in values:
+            self._registry.remove(YANDEX_POLICY_PATH, slot, expected=entry)
         self._registry.remove(MARKER_PATH, "yandex", expected=marker)
         return "EXTERNALLY_MANAGED"
 
-    def _check_yandex_conflicting_policy(self) -> None:
-        if any(
-            self._registry.read(_YANDEX_ROOT_PATH, name) is not None
-            for name in ("ExtensionInstallForcelist", "ExtensionSettings")
-        ):
+    def _check_yandex_settings(self) -> None:
+        if self._registry.read(_YANDEX_ROOT_PATH, "ExtensionSettings") is not None:
             raise BrowserPolicyConflict("POLICY_CONFLICT")
+
+    def _required_yandex_file(self) -> PolicyFile:
+        if self._yandex_file is None:
+            raise RuntimeError("Yandex policy file is not configured")
+        return self._yandex_file
+
+    @staticmethod
+    def _yandex_pointer(path: Path) -> str:
+        return _serialize([{"_FILE_": {"name": path.as_posix()}}])
 
     @staticmethod
     def _validate_yandex_values(values: dict[str, str]) -> None:

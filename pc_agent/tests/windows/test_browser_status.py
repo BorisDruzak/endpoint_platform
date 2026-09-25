@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
 from endpoint_contracts.endpoint_policy import EndpointPolicyV1
 from pc_agent.platform.windows.activity_api import BrowserHeartbeatFact
@@ -113,6 +114,26 @@ def test_yandex_external_extension_settings_is_recognized_without_agent_marker()
     assert inspect_browser_policy(registry, "yandex", EXTENSION_ID) == (
         "CONFLICT", "CONFLICT",
     )
+
+
+def test_yandex_owned_file_policy_requires_matching_pointer_and_file(tmp_path: Path) -> None:
+    registry = Registry()
+    policy_file = tmp_path / "yandex-forcelist.json"
+    policy_file.write_text(
+        json.dumps([EXTENSION_ID + ";" + APPROVED_UPDATE_URL]), encoding="utf-8",
+    )
+    parent = YANDEX_POLICY_PATH.rsplit("\\", 1)[0]
+    registry.values[(MARKER_PATH, "yandex")] = _marker("file")
+    registry.values[(parent, "ExtensionInstallForcelist")] = json.dumps([
+        {"_FILE_": {"name": policy_file.as_posix()}},
+    ])
+    assert inspect_browser_policy(
+        registry, "yandex", EXTENSION_ID, yandex_policy_file=policy_file,
+    ) == ("ENDPOINT", "APPLIED")
+    policy_file.write_text(json.dumps(["b" * 32]), encoding="utf-8")
+    assert inspect_browser_policy(
+        registry, "yandex", EXTENSION_ID, yandex_policy_file=policy_file,
+    ) == ("CONFLICT", "CONFLICT")
 
 
 def test_report_keeps_browser_and_heartbeat_facts_separate() -> None:

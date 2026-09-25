@@ -11,6 +11,8 @@ from pc_agent.platform.windows.browser_policy import (
     APPROVED_UPDATE_URL,
     BrowserPolicyApplicator,
     WindowsPolicyRegistry,
+    YANDEX_POLICY_FILE_NAME,
+    YandexPolicyFile,
 )
 from pc_agent.platform.windows.browser_policy_helper import (
     HELPER_SERVICE_NAME,
@@ -44,6 +46,9 @@ def make_policy_listener() -> LocalSensorPipeListener:
         WindowsPolicyRegistry(),
         extension_id=load_packaged_extension_id(),
         update_url=APPROVED_UPDATE_URL,
+        yandex_file=YandexPolicyFile(
+            Path(sys.executable).parent / YANDEX_POLICY_FILE_NAME,
+        ),
     )
     return LocalSensorPipeListener(
         lambda handle, payload: handle_policy_frame(

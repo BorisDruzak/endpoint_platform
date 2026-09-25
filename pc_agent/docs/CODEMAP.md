@@ -77,6 +77,12 @@ contract and OS service-SID checks; `browser_policy_service_entry.py` runs the
 MSI-owned LocalSystem service. The LocalService Agent calls it through
 `policy/windows_sensors.py` and does not write HKLM itself. Installed-MSI,
 effective-browser-policy and browser download/heartbeat proof remain open.
+For Yandex `agent_managed`, the helper writes a root `ExtensionInstallForcelist`
+`_FILE_` pointer to a public-read, administrator-owned LIST file beside the
+MSI helper. It migrates only an exact legacy Agent-owned numbered value.
+Foreign numbered values or an unowned root value fail closed because the
+combined registry forms are rejected by the tested Yandex Browser. The status
+probe checks the pointer and file contents before reporting `APPLIED`.
 
 ## Main packages
 

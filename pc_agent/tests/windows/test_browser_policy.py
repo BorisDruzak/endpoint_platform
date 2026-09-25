@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import pytest
 
@@ -13,6 +14,7 @@ from pc_agent.platform.windows.browser_policy import (
     BrowserPolicyApplicator,
     BrowserPolicyConflict,
     WindowsPolicyRegistry,
+    YandexPolicyFile,
 )
 
 
@@ -26,6 +28,7 @@ class MemoryRegistry:
         self.values: dict[tuple[str, str], str] = {}
         self.writes: list[tuple[str, str, str | None]] = []
         self.interfere_at: tuple[str, str] | None = None
+        self.policy_file = MemoryPolicyFile()
 
     def read(self, path: str, name: str) -> str | None:
         return self.values.get((path, name))
@@ -53,9 +56,33 @@ class MemoryRegistry:
         self.writes.append((path, name, None))
 
 
+class MemoryPolicyFile:
+    path = Path("C:/Program Files/Endpoint Platform/Agent/yandex-forcelist.json")
+
+    def __init__(self) -> None:
+        self.content: str | None = None
+        self.writes: list[str | None] = []
+
+    def read(self) -> str | None:
+        return self.content
+
+    def put(self, value: str, *, expected: str | None) -> None:
+        if self.content != expected:
+            raise BrowserPolicyConflict("POLICY_CONFLICT")
+        self.content = value
+        self.writes.append(value)
+
+    def remove(self, *, expected: str) -> None:
+        if self.content != expected:
+            raise BrowserPolicyConflict("POLICY_CONFLICT")
+        self.content = None
+        self.writes.append(None)
+
+
 def _app(registry: MemoryRegistry) -> BrowserPolicyApplicator:
     return BrowserPolicyApplicator(
-        registry, extension_id=EXTENSION_ID, update_url=UPDATE_URL
+        registry, extension_id=EXTENSION_ID, update_url=UPDATE_URL,
+        yandex_file=registry.policy_file,
     )
 
 
@@ -156,21 +183,102 @@ def test_chrome_detects_change_between_read_and_write() -> None:
     )
 
 
-def test_yandex_uses_one_free_number_and_preserves_foreign_entries() -> None:
+def test_yandex_file_policy_applies_idempotently_and_relinquishes() -> None:
     registry = MemoryRegistry()
-    foreign_value = f"{FOREIGN_ID};https://example.org/update.xml"
-    registry.values[(YANDEX_POLICY_PATH, "1")] = foreign_value
     app = _app(registry)
     assert app.apply("yandex") == "APPLIED"
-    assert registry.read(YANDEX_POLICY_PATH, "1") == foreign_value
-    assert registry.read(YANDEX_POLICY_PATH, "2") == f"{EXTENSION_ID};{UPDATE_URL}"
+    parent = YANDEX_POLICY_PATH.rsplit("\\", 1)[0]
+    pointer = registry.read(parent, "ExtensionInstallForcelist")
+    assert json.loads(pointer) == [{"_FILE_": {"name": registry.policy_file.path.as_posix()}}]
+    assert json.loads(registry.policy_file.read()) == [f"{EXTENSION_ID};{UPDATE_URL}"]
+    assert registry.values_at(YANDEX_POLICY_PATH) == {}
     writes = list(registry.writes)
+    file_writes = list(registry.policy_file.writes)
     assert app.apply("yandex") == "APPLIED"
     assert registry.writes == writes
+    assert registry.policy_file.writes == file_writes
     assert app.relinquish("yandex") == "EXTERNALLY_MANAGED"
-    assert registry.values_at(YANDEX_POLICY_PATH) == {
-        "1": foreign_value,
-    }
+    assert registry.read(parent, "ExtensionInstallForcelist") is None
+    assert registry.policy_file.read() is None
+    assert registry.values_at(MARKER_PATH) == {}
+
+
+def test_yandex_rejects_foreign_numbered_entries_without_writes() -> None:
+    registry = MemoryRegistry()
+    registry.values[(YANDEX_POLICY_PATH, "1")] = (
+        f"{FOREIGN_ID};https://example.org/update.xml"
+    )
+    with pytest.raises(BrowserPolicyConflict):
+        _app(registry).apply("yandex")
+    assert registry.writes == []
+    assert registry.policy_file.writes == []
+
+
+def test_yandex_migrates_only_its_legacy_numbered_entry() -> None:
+    registry = MemoryRegistry()
+    old = f"{EXTENSION_ID};{UPDATE_URL}"
+    registry.values[(YANDEX_POLICY_PATH, "1")] = old
+    registry.values[(MARKER_PATH, "yandex")] = json.dumps({
+        "schema_version": 1, "extension_id": EXTENSION_ID,
+        "update_url": UPDATE_URL, "slot": "1",
+    })
+    app = _app(registry)
+    assert app.apply("yandex") == "APPLIED"
+    assert registry.values_at(YANDEX_POLICY_PATH) == {}
+    assert json.loads(registry.policy_file.read()) == [old]
+    assert json.loads(registry.read(MARKER_PATH, "yandex"))["slot"] == "file"
+    assert registry.writes.index((YANDEX_POLICY_PATH, "1", None)) < next(
+        index for index, write in enumerate(registry.writes)
+        if write[:2] == (YANDEX_POLICY_PATH.rsplit("\\", 1)[0], "ExtensionInstallForcelist")
+    )
+    assert app.relinquish("yandex") == "EXTERNALLY_MANAGED"
+    assert registry.values_at(MARKER_PATH) == {}
+
+
+def test_yandex_resumes_migration_after_owned_slot_removal() -> None:
+    registry = MemoryRegistry()
+    registry.values[(MARKER_PATH, "yandex")] = json.dumps({
+        "schema_version": 1, "extension_id": EXTENSION_ID,
+        "update_url": UPDATE_URL, "slot": "1",
+    })
+    registry.policy_file.content = json.dumps([f"{EXTENSION_ID};{UPDATE_URL}"],
+                                              separators=(",", ":"))
+    assert _app(registry).apply("yandex") == "APPLIED"
+    assert json.loads(registry.read(MARKER_PATH, "yandex"))["slot"] == "file"
+
+
+def test_yandex_rejects_tampered_owned_file_on_relinquish() -> None:
+    registry = MemoryRegistry()
+    app = _app(registry)
+    app.apply("yandex")
+    registry.policy_file.content = json.dumps([f"{FOREIGN_ID};{UPDATE_URL}"])
+    before = dict(registry.values)
+    with pytest.raises(BrowserPolicyConflict):
+        app.relinquish("yandex")
+    assert registry.values == before
+
+
+def test_yandex_retries_after_registry_interference_without_clobbering_it() -> None:
+    registry = MemoryRegistry()
+    parent = YANDEX_POLICY_PATH.rsplit("\\", 1)[0]
+    registry.interfere_at = (parent, "ExtensionInstallForcelist")
+    app = _app(registry)
+    with pytest.raises(BrowserPolicyConflict):
+        app.apply("yandex")
+    assert registry.read(parent, "ExtensionInstallForcelist") == "externally changed"
+    assert registry.policy_file.read() is not None
+    del registry.values[(parent, "ExtensionInstallForcelist")]
+    assert app.apply("yandex") == "APPLIED"
+
+
+def test_yandex_policy_file_rejects_external_change_before_cleanup(tmp_path: Path) -> None:
+    policy_file = YandexPolicyFile(tmp_path / "yandex-forcelist.json")
+    policy_file.put('["owned"]', expected=None)
+    assert policy_file.read() == '["owned"]'
+    policy_file.path.write_text('["other"]', encoding="utf-8")
+    with pytest.raises(BrowserPolicyConflict):
+        policy_file.remove(expected='["owned"]')
+    assert policy_file.read() == '["other"]'
 
 
 def test_yandex_rejects_unowned_same_id_and_changed_owned_slot() -> None:

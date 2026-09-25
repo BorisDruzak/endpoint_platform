@@ -14,6 +14,14 @@ registration follows the lookup string observed in the installed Yandex Browser
 Installed-MSI registration and a real Yandex Browser handshake remain release
 gates.
 
+The Browser Policy helper writes the Yandex `ExtensionInstallForcelist` through
+a root registry `_FILE_` pointer to `yandex-forcelist.json` beside the helper
+binary. The file inherits the MSI-owned Program Files ACL: ordinary users may
+read it for the browser but may not modify it. A legacy Agent-owned numbered
+entry is migrated only when it is the sole numbered entry; foreign numbered
+entries and pre-existing unowned root policies cause `POLICY_CONFLICT`.
+Agent relinquish removes only its exact pointer, file, and ownership marker.
+
 ## Build
 
 Prerequisites are Python with PyInstaller and the WiX Toolset 4 `wix` command
