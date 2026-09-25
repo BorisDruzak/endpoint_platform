@@ -24,6 +24,7 @@ from pc_agent.platform.windows.browser_policy_helper import (
     decode_policy_request,
     handle_policy_frame,
     helper_identity_allowed,
+    publish_helper_identity_acl,
     send_policy_request,
 )
 from pc_agent.platform.windows.local_ipc import LocalIpcRejected
@@ -160,11 +161,67 @@ def test_helper_pipe_dacl_grants_data_access_only_to_agent_service_sid() -> None
         ]
         for index in range(dacl.GetAceCount())
     }
-    assert rights[AGENT_SERVICE_SID] == 0x00100003
+    assert rights[AGENT_SERVICE_SID] == 0x00100083
     assert rights[AGENT_SERVICE_SID] & 0x4 == 0
+    assert rights[AGENT_SERVICE_SID] & 0x80
     assert rights["S-1-5-18"] == 0x10000000
     assert "S-1-5-4" not in rights
     assert "S-1-1-0" not in rights
+
+
+def test_helper_grants_agent_only_identity_query_rights(monkeypatch) -> None:
+    events: list[tuple[object, ...]] = []
+
+    class Dacl:
+        def GetAceCount(self) -> int:
+            return 0
+
+        def AddAccessAllowedAceEx(self, *args) -> None:
+            events.append(("grant", *args))
+
+    class Descriptor:
+        def GetSecurityDescriptorDacl(self) -> Dacl:
+            return Dacl()
+
+    class Handle:
+        def Close(self) -> None:
+            events.append(("close",))
+
+    security = SimpleNamespace(
+        SE_KERNEL_OBJECT=6,
+        DACL_SECURITY_INFORMATION=4,
+        ACL_REVISION=2,
+        GetSecurityInfo=lambda handle, *_: events.append(("read", handle)) or Descriptor(),
+        SetSecurityInfo=lambda handle, _, __, ___, ____, acl, _____: events.append(
+            ("set", handle, acl)
+        ),
+        ConvertStringSidToSid=lambda sid: sid,
+        OpenProcessToken=lambda process, rights: events.append(
+            ("open-token", process, rights)
+        ) or Handle(),
+    )
+    monkeypatch.setitem(sys.modules, "win32security", security)
+    monkeypatch.setitem(sys.modules, "win32api", SimpleNamespace(GetCurrentProcess=lambda: "process"))
+    monkeypatch.setitem(
+        sys.modules,
+        "win32con",
+        SimpleNamespace(
+            PROCESS_QUERY_LIMITED_INFORMATION=0x1000,
+            TOKEN_QUERY=0x8,
+            READ_CONTROL=0x20000,
+            WRITE_DAC=0x40000,
+        ),
+    )
+
+    publish_helper_identity_acl()
+
+    grants = [item for item in events if item[0] == "grant"]
+    assert grants == [
+        ("grant", 2, 0, 0x1000, AGENT_SERVICE_SID),
+        ("grant", 2, 0, 0x8, AGENT_SERVICE_SID),
+    ]
+    assert ("open-token", "process", 0x60008) in events
+    assert ("close",) in events
 
 
 @pytest.mark.parametrize(

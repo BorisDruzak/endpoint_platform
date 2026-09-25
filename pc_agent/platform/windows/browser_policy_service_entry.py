@@ -17,6 +17,7 @@ from pc_agent.platform.windows.browser_policy_helper import (
     authorize_agent_pipe_client,
     create_helper_server_pipe,
     handle_policy_frame,
+    publish_helper_identity_acl,
 )
 from pc_agent.platform.windows.sensor_pipe_listener import LocalSensorPipeListener
 
@@ -64,6 +65,8 @@ def run_browser_policy_service() -> int:
         import win32serviceutil  # type: ignore[import-not-found]
     except ImportError as error:
         raise RuntimeError("pywin32 is required for Browser Policy service") from error
+
+    publish_helper_identity_acl()
 
     class BrowserPolicyWindowsService(win32serviceutil.ServiceFramework):
         _svc_name_ = HELPER_SERVICE_NAME

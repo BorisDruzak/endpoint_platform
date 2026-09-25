@@ -30,6 +30,7 @@ def _service_sid(service_name: str) -> str:
 
 HELPER_SERVICE_SID = _service_sid(HELPER_SERVICE_NAME)
 _AGENT_PIPE_ACCESS = 0x00100003  # SYNCHRONIZE | read/write data; no pipe creation
+_AGENT_PIPE_DACL = 0x00100083  # Above plus FILE_READ_ATTRIBUTES for CreateFile
 
 
 class BrowserPolicyRequestError(ValueError):
@@ -48,12 +49,67 @@ def create_helper_pipe_security_attributes():
     import win32security
 
     descriptor = win32security.ConvertStringSecurityDescriptorToSecurityDescriptor(
-        f"D:P(A;;GA;;;SY)(A;;0x00100003;;;{AGENT_SERVICE_SID})",
+        f"D:P(A;;GA;;;SY)(A;;0x{_AGENT_PIPE_DACL:08x};;;{AGENT_SERVICE_SID})",
         win32security.SDDL_REVISION_1,
     )
     attributes = pywintypes.SECURITY_ATTRIBUTES()
     attributes.SECURITY_DESCRIPTOR = descriptor
     return attributes
+
+
+def publish_helper_identity_acl() -> None:
+    """Let only EndpointAgent query this service process and token identity.
+
+    The Agent authenticates the pipe server using its live process token.
+    LocalSystem's default process/token DACLs do not grant that query to the
+    LocalService Agent service SID. Grant only the two query rights before the
+    pipe listener is published; never grant token duplication or mutation.
+    """
+    import win32api
+    import win32con
+    import win32security
+
+    agent_sid = win32security.ConvertStringSidToSid(AGENT_SERVICE_SID)
+
+    def grant(handle: object, right: int) -> None:
+        descriptor = win32security.GetSecurityInfo(
+            handle,
+            win32security.SE_KERNEL_OBJECT,
+            win32security.DACL_SECURITY_INFORMATION,
+        )
+        dacl = descriptor.GetSecurityDescriptorDacl()
+        if dacl is None:
+            raise RuntimeError("helper identity has an unsafe NULL DACL")
+        for index in range(dacl.GetAceCount()):
+            ace = dacl.GetAce(index)
+            if (
+                ace[0][0] == win32security.ACCESS_ALLOWED_ACE_TYPE
+                and win32security.ConvertSidToStringSid(ace[2]) == AGENT_SERVICE_SID
+                and ace[1] & right == right
+            ):
+                return
+        dacl.AddAccessAllowedAceEx(
+            win32security.ACL_REVISION, 0, right, agent_sid,
+        )
+        win32security.SetSecurityInfo(
+            handle,
+            win32security.SE_KERNEL_OBJECT,
+            win32security.DACL_SECURITY_INFORMATION,
+            None,
+            None,
+            dacl,
+            None,
+        )
+
+    process = win32api.GetCurrentProcess()
+    grant(process, win32con.PROCESS_QUERY_LIMITED_INFORMATION)
+    token = win32security.OpenProcessToken(
+        process, win32con.TOKEN_QUERY | win32con.READ_CONTROL | win32con.WRITE_DAC,
+    )
+    try:
+        grant(token, win32con.TOKEN_QUERY)
+    finally:
+        token.Close()
 
 
 def authorize_agent_pipe_client(pipe_handle: object) -> None:
