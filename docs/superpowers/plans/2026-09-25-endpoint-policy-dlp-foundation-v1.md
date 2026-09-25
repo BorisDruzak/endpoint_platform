@@ -160,9 +160,10 @@ The Gateway now gates SecurityEvent batches on negotiated Windows support and
 an applied matching policy, stages idempotent rows with per-type enablement and
 24-hour event-age checks, commits, then sends the typed ACK. SQLite tests prove
 replay deduplication, changed-payload rejection and commit-before-ACK ordering;
-the full Gateway suite passed. The retention worker, Agent protected durable
-spool and end-to-end Windows replay remain open. This is not yet a working
-SecurityEvent pipeline on a deployed Agent.
+the full Gateway suite passed. The worker now deletes expired rows in bounded
+transactional batches; the Agent protected durable spool and end-to-end Windows
+replay remain open. This is not yet a working SecurityEvent pipeline on a
+deployed Agent.
 
 ### Task 8: USB and print audit sensors, browser status and compliance
 

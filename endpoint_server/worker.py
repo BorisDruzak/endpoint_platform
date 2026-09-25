@@ -14,6 +14,7 @@ from endpoint_server.db.session import SessionProvider, create_session_provider
 from endpoint_server.enrollment.delivery import cleanup_expired_retry_envelopes
 from endpoint_server.operations.service import expire_operations
 from endpoint_server.operations.evidence import cleanup_module_step_results, cleanup_operation_results
+from endpoint_server.security.retention import retain_security_events
 
 
 async def _run_transactional_job(
@@ -72,6 +73,7 @@ async def run_worker(
                 await _run_transactional_job(provider, cleanup_context_collections)
                 await _run_transactional_job(provider, cleanup_operation_results)
                 await _run_transactional_job(provider, cleanup_module_step_results)
+                await _run_transactional_job(provider, retain_security_events)
                 last_payload_cleanup = elapsed
             if elapsed - last_schedule >= context_schedule_interval_seconds:
                 await _run_transactional_job(provider, schedule_due_collections)

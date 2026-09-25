@@ -427,13 +427,14 @@ async def test_worker_runs_payload_cleanup_on_minute_cadence_independently_of_sn
 
     async def record(name: str, _: WorkerSession) -> int:
         calls.append(name)
-        if len(calls) == 4:
+        if len(calls) == 5:
             completed.set()
         return 0
 
     for name in (
         "cleanup_raw_context_payloads", "cleanup_context_collections",
         "cleanup_operation_results", "cleanup_module_step_results",
+        "retain_security_events",
     ):
         monkeypatch.setattr(
             "endpoint_server.worker." + name,
@@ -454,4 +455,5 @@ async def test_worker_runs_payload_cleanup_on_minute_cadence_independently_of_sn
     assert calls == [
         "cleanup_raw_context_payloads", "cleanup_context_collections",
         "cleanup_operation_results", "cleanup_module_step_results",
+        "retain_security_events",
     ]
