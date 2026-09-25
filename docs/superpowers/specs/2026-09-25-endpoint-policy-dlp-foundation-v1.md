@@ -813,6 +813,8 @@ installation_mode = force_installed
 update_url = internal Endpoint URL
 ```
 
+Verify both initial installation and subsequent updates use the approved Endpoint HTTPS source. Chrome may use the extension manifest's update URL for later updates unless `override_update_url` is enabled; keep the manifest URL and the effective managed setting consistent. Confirm the exact effective policy and its status in the installed browser, rather than treating a machine registry value as browser acceptance. See [Chrome ExtensionSettings](https://support.google.com/chrome/a/answer/9867568?hl=en).
+
 Do not require Chrome Web Store.
 
 Production target is a domain-managed workstation.
@@ -834,6 +836,8 @@ ExtensionInstallForcelist
 or `ExtensionSettings` where better supported by the current corporate browser.
 
 Use internal update URL. In `agent_managed`, apply only the Endpoint extension's machine-level force-install setting; in `external_managed`, leave installation policy to GPO/Ansible or another external owner.
+
+Yandex Browser for Organizations documents that `ExtensionInstallForcelist` and `ExtensionSettings` on Windows work only when set inside a domain or through its management console. Domain membership alone does not prove that an Agent-written local machine value meets this condition. Before claiming `agent_managed` support for Yandex, prove on the installed pilot browser that its own effective policy page accepts the Agent-owned value and force-installs the extension. A local machine value without effective policy is `MACHINE_POLICY_CONFIGURED`, not `MANAGED_POLICY_APPLIED`. If the Agent-owned value is ignored, report the mode as unsupported for that browser/context and resolve the official enterprise-policy mechanism before completion; do not substitute profile edits or sideloading. Verify initial and later updates from Endpoint HTTPS. See [Yandex ExtensionInstallForcelist](https://browser.yandex.ru/support/browser-corporate/ru/policy/extension-install-forcelist) and [ExtensionSettings](https://browser.yandex.ru/support/browser-corporate/ru/policy/extension-settings).
 
 Register and, where an existing allowlist requires it, allow only the Endpoint native host without deleting or overwriting other hosts. Foundation v1 MUST NOT automatically set a global `NativeMessagingBlocklist = *`; existing corporate hosts such as CryptoPro must keep working.
 
@@ -2003,6 +2007,8 @@ policy entry.
 
 In either mode the browser itself fetches the signed CRX from the approved Endpoint HTTPS artifact source. Agent never edits browser profiles, uses developer mode, performs unsupported sideloading or stores the extension private key. Agent does not set a global Native Messaging blocklist. Existing corporate Native Messaging hosts must remain usable.
 
+Keep deployment evidence per browser and per policy version: the requested ownership mode; detected/running state; ownership and exact value of the machine policy; effective browser policy and any browser-reported conflict; Native Host registration; extension installation/version; and last Bridge heartbeat. Record `UNKNOWN` when effective policy cannot be observed. Neither a policy ACK, a registry write nor an extension heartbeat alone proves the entire installation chain. Browser closure must retain the last known version and heartbeat without turning their absence into an installation error.
+
 ---
 
 # 74. Deployment templates
@@ -2309,6 +2315,8 @@ On a Windows lab workstation with Chrome and/or Yandex:
 13. restart browser and verify reconnect.
 
 Repeat the `agent_managed` install path for Chrome and Yandex when both are installed on the test device; record an explicit untested gap for any absent browser. Verify idempotent reapplication, browser restart, Agent restart and Agent upgrade. Switch to `external_managed` and prove that Agent stops policy writes after removing only its own exact, unchanged entry; if safe removal is impossible, preserve the existing value and report `POLICY_CONFLICT`. Inspect both browsers' effective policy pages and unrelated corporate extension/native-host entries before and after.
+
+Before this path, verify the Windows machine's domain/enterprise-management state, both browser versions, trusted Endpoint HTTPS access from each browser, and any pre-existing managed extension entries. Record the effective policy value/status separately for Chrome and Yandex. After installation, prove the approved CRX identity and update source, Native Messaging connection and fresh Agent/Console heartbeat independently for each browser; repeat the source check after an extension update. Do not mark a browser `ACTIVE` or the device `COMPLIANT` from registry or policy ACK evidence alone.
 
 Also test a separately prepared `external_managed` device or isolated policy
 state with a pre-existing externally owned force-install entry. Confirm Agent
