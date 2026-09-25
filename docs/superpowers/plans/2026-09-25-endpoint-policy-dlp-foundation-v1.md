@@ -367,6 +367,12 @@ published policy documentation says Windows force-install requires domain
 policy or its management Console; the current `OK` policy display does not
 yet prove that the local Agent-written value triggers installation. Do not
 assume that an unavailable corporate package is a valid completion path.
+The production Nginx access log through `2026-09-25 12:20:39 UTC` contains
+Chrome's policy-driven update XML and CRX requests, plus the operator's
+manual Yandex XML request, but no Yandex policy-driven update or CRX request
+in that log. This narrows the Yandex gap to policy enforcement/request
+initiation before the Endpoint artifact service; inspect browser diagnostics
+before attributing the cause to a specific management prerequisite.
 
 ### Task 12: Final release audit
 
