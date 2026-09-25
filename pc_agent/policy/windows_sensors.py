@@ -13,6 +13,21 @@ from .runtime import PolicyApplicationError
 
 
 _LOG = logging.getLogger(__name__)
+_HELPER_STARTUP_RETRY_DELAYS = (0.25, 0.5, 1.0, 2.0, 2.0, 2.0)
+
+
+async def _request_browser_policy_with_startup_retry(
+    operation: str, family: str,
+) -> str:
+    """Wait briefly for the fixed helper pipe when SCM starts it after Agent."""
+    for delay in _HELPER_STARTUP_RETRY_DELAYS:
+        try:
+            return await asyncio.to_thread(send_policy_request, operation, family)
+        except Exception as error:
+            if getattr(error, "winerror", None) not in (2, 231):
+                raise
+            await asyncio.sleep(delay)
+    return await asyncio.to_thread(send_policy_request, operation, family)
 
 
 async def apply_windows_policy_sensors(
@@ -50,7 +65,7 @@ async def apply_windows_policy_sensors(
     expected = "APPLIED" if operation == "apply" else "EXTERNALLY_MANAGED"
     for family in ("chrome", "yandex"):
         try:
-            status = await asyncio.to_thread(send_policy_request, operation, family)
+            status = await _request_browser_policy_with_startup_retry(operation, family)
         except Exception as error:
             _LOG.warning("Browser policy helper request failed for %s", family)
             raise PolicyApplicationError("BROWSER_POLICY_HELPER_UNAVAILABLE") from error

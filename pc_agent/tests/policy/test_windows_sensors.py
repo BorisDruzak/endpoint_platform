@@ -41,6 +41,66 @@ async def test_agent_managed_applies_both_fixed_browser_policies(monkeypatch) ->
 
 
 @pytest.mark.asyncio
+async def test_policy_helper_startup_pipe_is_retried_before_error_ack(monkeypatch) -> None:
+    class PipeNotReady(Exception):
+        winerror = 2
+
+    calls: list[tuple[str, str]] = []
+
+    def helper(operation: str, family: str) -> str:
+        calls.append((operation, family))
+        if len(calls) <= 2:
+            raise PipeNotReady("helper pipe has not been created")
+        return "APPLIED"
+
+    monkeypatch.setattr("pc_agent.policy.windows_sensors.send_policy_request", helper)
+    await apply_windows_policy_sensors(_browser_policy(mode="agent_managed"))
+    assert calls == [
+        ("apply", "chrome"),
+        ("apply", "chrome"),
+        ("apply", "chrome"),
+        ("apply", "yandex"),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_policy_helper_access_denied_fails_without_retry(monkeypatch) -> None:
+    class AccessDenied(Exception):
+        winerror = 5
+
+    calls: list[tuple[str, str]] = []
+
+    def helper(operation: str, family: str) -> str:
+        calls.append((operation, family))
+        raise AccessDenied("helper refused the caller")
+
+    monkeypatch.setattr("pc_agent.policy.windows_sensors.send_policy_request", helper)
+    with pytest.raises(PolicyApplicationError, match="BROWSER_POLICY_HELPER_UNAVAILABLE"):
+        await apply_windows_policy_sensors(_browser_policy(mode="agent_managed"))
+    assert calls == [("apply", "chrome")]
+
+
+@pytest.mark.asyncio
+async def test_policy_helper_missing_pipe_retries_for_bounded_time(monkeypatch) -> None:
+    class PipeNotReady(Exception):
+        winerror = 2
+
+    calls: list[tuple[str, str]] = []
+
+    def helper(operation: str, family: str) -> str:
+        calls.append((operation, family))
+        raise PipeNotReady("helper never started")
+
+    monkeypatch.setattr("pc_agent.policy.windows_sensors.send_policy_request", helper)
+    monkeypatch.setattr(
+        "pc_agent.policy.windows_sensors._HELPER_STARTUP_RETRY_DELAYS", (0, 0),
+    )
+    with pytest.raises(PolicyApplicationError, match="BROWSER_POLICY_HELPER_UNAVAILABLE"):
+        await apply_windows_policy_sensors(_browser_policy(mode="agent_managed"))
+    assert calls == [("apply", "chrome")] * 3
+
+
+@pytest.mark.asyncio
 async def test_external_managed_relinquishes_only_owned_policy(monkeypatch) -> None:
     calls: list[tuple[str, str]] = []
     monkeypatch.setattr(
