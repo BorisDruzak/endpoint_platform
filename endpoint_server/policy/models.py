@@ -171,6 +171,37 @@ class BrowserStatusCurrent(OwnershipRecord, Base):
     last_running_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
+class PolicySensorHealthCurrent(OwnershipRecord, Base):
+    """Latest bounded local sensor facts for one device and policy version."""
+
+    __tablename__ = "policy_sensor_health_current"
+    __table_args__ = (
+        UniqueConstraint("device_id", name="uq_policy_sensor_health_device"),
+        CheckConstraint(
+            "activity_listener_state IN ('READY', 'UNAVAILABLE', 'UNKNOWN') AND "
+            "security_spool_state IN ('READY', 'UNAVAILABLE', 'UNKNOWN') AND "
+            "usb_source_state IN ('READY', 'UNAVAILABLE', 'UNKNOWN') AND "
+            "print_source_state IN ('READY', 'UNAVAILABLE', 'UNKNOWN')",
+            name="ck_policy_sensor_health_source_states",
+        ),
+        Index("ix_policy_sensor_health_observed", "device_id", "observed_at"),
+    )
+
+    device_id: Mapped[UUID] = mapped_column(
+        ForeignKey("devices.id", ondelete="CASCADE"), nullable=False,
+    )
+    observation_id: Mapped[UUID] = mapped_column(nullable=False)
+    policy_id: Mapped[UUID] = mapped_column(nullable=False)
+    policy_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    observed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    received_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    activity_listener_state: Mapped[str] = mapped_column(String(16), nullable=False)
+    user_sensor_last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    security_spool_state: Mapped[str] = mapped_column(String(16), nullable=False)
+    usb_source_state: Mapped[str] = mapped_column(String(16), nullable=False)
+    print_source_state: Mapped[str] = mapped_column(String(16), nullable=False)
+
+
 __all__ = [
     "BrowserStatusCurrent",
     "PolicyApplication",
@@ -178,5 +209,6 @@ __all__ = [
     "PolicyDefinition",
     "PolicyDeviceState",
     "PolicyMutationError",
+    "PolicySensorHealthCurrent",
     "PolicyVersion",
 ]

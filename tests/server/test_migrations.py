@@ -147,7 +147,18 @@ def test_migration_history_has_exactly_one_head() -> None:
         _alembic_config("postgresql+asyncpg://unused@127.0.0.1/unused")
     )
 
-    assert script.get_heads() == ["0034_browser_install_proof"]
+    assert script.get_heads() == ["0035_policy_sensor_health"]
+
+
+def test_sensor_health_migration_has_one_bounded_current_row_per_device() -> None:
+    output = io.StringIO()
+    config = Config(REPOSITORY_ROOT / "alembic.ini", output_buffer=output)
+    config.set_main_option("sqlalchemy.url", "postgresql+asyncpg://unused@127.0.0.1/unused")
+    command.upgrade(config, "0034_browser_install_proof:0035_policy_sensor_health", sql=True)
+    rendered = " ".join(output.getvalue().split())
+    assert "CREATE TABLE policy_sensor_health_current" in rendered
+    assert "uq_policy_sensor_health_device" in rendered
+    assert "ck_policy_sensor_health_source_states" in rendered
 
 
 def test_browser_status_migration_has_two_family_current_projection() -> None:

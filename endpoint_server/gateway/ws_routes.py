@@ -17,6 +17,7 @@ from endpoint_contracts import AgentHelloV1, GatewayErrorV1, GatewayHelloV1
 from endpoint_contracts.gateway_ws import (
     ActivityObservationEnvelopeV1,
     BrowserStatusReportEnvelopeV1,
+    PolicySensorHealthReportEnvelopeV1,
     AgentHelloEnvelopeV1,
     CommandAckEnvelopeV1,
     CommandResultEnvelopeV1,
@@ -33,6 +34,7 @@ from endpoint_server.updates.agent_routes import DevicePrincipal, _authenticate_
 from endpoint_server.context.connect_refresh import queue_connect_refreshes
 from endpoint_server.activity.ingestion import ingest_gateway_activity
 from endpoint_server.policy.browser_status import BrowserStatusRejected, ingest_browser_status
+from endpoint_server.policy.sensor_health import SensorHealthRejected, ingest_sensor_health
 from endpoint_server.security.ingestion import (
     SecurityEventRejected,
     commit_and_ack_security_events,
@@ -323,6 +325,16 @@ async def connect_agent(websocket: WebSocket) -> None:
                 async with websocket.app.state.session_provider() as session:
                     await ingest_browser_status(session, device_id, envelope.payload)
                     await session.commit()
+            elif isinstance(envelope, PolicySensorHealthReportEnvelopeV1):
+                if (
+                    not websocket.app.state.settings.endpoint_policy_enabled
+                    or "endpoint.sensor-health.v1" not in connection.protocol_features
+                    or first.payload.platform != "windows_amd64"
+                ):
+                    raise GatewayProtocolError(1008, "sensor_health_disabled")
+                async with websocket.app.state.session_provider() as session:
+                    await ingest_sensor_health(session, device_id, envelope.payload)
+                    await session.commit()
             elif isinstance(envelope, SecurityEventBatchEnvelopeV1):
                 if (
                     not websocket.app.state.settings.endpoint_policy_enabled
@@ -367,6 +379,7 @@ async def connect_agent(websocket: WebSocket) -> None:
         PolicyAcknowledgementRejected,
         ContextValidationError,
         BrowserStatusRejected,
+        SensorHealthRejected,
         SecurityEventRejected,
     ) as error:
         logger.warning("Gateway state rejected: %s: %s", type(error).__name__, error)

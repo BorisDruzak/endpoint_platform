@@ -41,6 +41,7 @@ from endpoint_server.policy.models import (
     PolicyAssignment,
     PolicyDefinition,
     PolicyDeviceState,
+    PolicySensorHealthCurrent,
     PolicyVersion,
 )
 from endpoint_server.security.models import SecurityEvent
@@ -76,6 +77,7 @@ __all__ = [
     "PolicyApplication",
     "PolicyDefinition",
     "PolicyDeviceState",
+    "PolicySensorHealthCurrent",
     "PolicyVersion",
     "ModuleDefinition",
     "ModuleLiveTest",

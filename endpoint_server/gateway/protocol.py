@@ -9,6 +9,7 @@ from pydantic import ValidationError
 from endpoint_contracts.gateway_ws import (
     ActivityObservationEnvelopeV1,
     BrowserStatusReportEnvelopeV1,
+    PolicySensorHealthReportEnvelopeV1,
     AgentHelloEnvelopeV1,
     CommandAckEnvelopeV1,
     CommandResultEnvelopeV1,
@@ -28,6 +29,7 @@ AgentEnvelope: TypeAlias = (
     | EndpointPolicyAckEnvelopeV1
     | ActivityObservationEnvelopeV1
     | BrowserStatusReportEnvelopeV1
+    | PolicySensorHealthReportEnvelopeV1
     | SecurityEventBatchEnvelopeV1
 )
 
@@ -71,6 +73,7 @@ def parse_agent_envelope(
             EndpointPolicyAckEnvelopeV1,
             ActivityObservationEnvelopeV1,
             BrowserStatusReportEnvelopeV1,
+            PolicySensorHealthReportEnvelopeV1,
             SecurityEventBatchEnvelopeV1,
         ),
     ):
