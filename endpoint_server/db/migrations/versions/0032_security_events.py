@@ -19,6 +19,21 @@ depends_on = None
 
 def upgrade() -> None:
     op.create_table(
+        "policy_applications",
+        sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True),
+        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
+        sa.Column("device_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("devices.id", ondelete="CASCADE"), nullable=False),
+        sa.Column("policy_version_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("policy_versions.id", ondelete="RESTRICT"), nullable=False),
+        sa.Column("policy_digest", sa.String(64), nullable=False),
+        sa.Column("applied_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("acknowledged_at", sa.DateTime(timezone=True), nullable=False),
+        sa.UniqueConstraint("device_id", "policy_version_id", "applied_at", name="uq_policy_applications_device_version_time"),
+    )
+    op.create_index(
+        "ix_policy_applications_device_applied", "policy_applications",
+        ["device_id", "applied_at"],
+    )
+    op.create_table(
         "security_events",
         sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True),
         sa.Column(
@@ -81,3 +96,5 @@ def downgrade() -> None:
     op.drop_index("ix_security_events_expires", table_name="security_events")
     op.drop_index("ix_security_events_device_occurred", table_name="security_events")
     op.drop_table("security_events")
+    op.drop_index("ix_policy_applications_device_applied", table_name="policy_applications")
+    op.drop_table("policy_applications")

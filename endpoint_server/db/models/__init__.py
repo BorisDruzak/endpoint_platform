@@ -36,6 +36,7 @@ from .modules import (
 )
 from .updates import UpdateBuild, UpdateReport, UpdateRollout, UpdateTarget
 from endpoint_server.policy.models import (
+    PolicyApplication,
     PolicyAssignment,
     PolicyDefinition,
     PolicyDeviceState,
@@ -70,6 +71,7 @@ __all__ = [
     "ModuleOperationStep",
     "OperationEvidence",
     "PolicyAssignment",
+    "PolicyApplication",
     "PolicyDefinition",
     "PolicyDeviceState",
     "PolicyVersion",

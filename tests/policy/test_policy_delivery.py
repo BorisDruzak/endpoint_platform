@@ -19,7 +19,7 @@ from endpoint_server.policy.delivery import (
     record_policy_ack,
 )
 from endpoint_server.policy.models import (
-    PolicyAssignment, PolicyDefinition, PolicyDeviceState, PolicyVersion,
+    PolicyApplication, PolicyAssignment, PolicyDefinition, PolicyDeviceState, PolicyVersion,
 )
 from endpoint_server.policy.service import assign_default_policy, create_policy_version
 from tests.contracts.test_endpoint_policy_v1 import POLICY_ID, _policy
@@ -32,6 +32,7 @@ async def policy_sessions():
         await connection.run_sync(lambda sync: Base.metadata.create_all(sync, tables=[
             PolicyDefinition.__table__, PolicyVersion.__table__,
             PolicyAssignment.__table__, PolicyDeviceState.__table__,
+            PolicyApplication.__table__,
         ]))
     sessions = async_sessionmaker(engine, expire_on_commit=False)
     async with sessions() as session:
@@ -87,8 +88,11 @@ async def test_advertised_agent_receives_digest_bound_policy_and_ack(policy_sess
     async with policy_sessions() as session:
         state = await record_policy_ack(session, device_id, ack)
         await session.commit()
+        applications = (await session.scalars(select(PolicyApplication))).all()
     assert state.status == "APPLIED"
     assert state.acknowledged_at is not None
+    assert len(applications) == 1
+    assert applications[0].policy_digest == delivery.payload.policy_digest
 
 
 @pytest.mark.asyncio
@@ -132,6 +136,7 @@ async def test_assignment_change_before_ack_keeps_connection_and_marks_old_ack_s
     async with policy_sessions() as session:
         state = await record_policy_ack(session, device_id, old_ack)
         assert state.status == "STALE"
+        assert len((await session.scalars(select(PolicyApplication))).all()) == 1
         second_delivery = await prepare_policy_delivery(session, hello, only_if_changed=True)
         await session.commit()
     assert second_delivery is not None

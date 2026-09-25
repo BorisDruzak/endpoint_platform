@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import asyncio
 
+import pytest
+
 from endpoint_contracts.security_events import SecurityEventAckV1
 from endpoint_contracts.gateway_ws import SecurityEventAckEnvelopeV1
 from pc_agent.runtime.lifecycle import _handle_inbound
@@ -27,6 +29,8 @@ def test_sender_retries_same_batch_until_exact_ack(tmp_path) -> None:
         runtime = SecurityEventRuntime(spool, ack_timeout_seconds=0.02)
         event = _event()
         assert await runtime.record(event, now=NOW)
+        runtime.begin_connection()
+        runtime.policy_ack_sent()
         task = asyncio.create_task(runtime.send_forever(Transport(), now=lambda: NOW))
         try:
             first = await asyncio.wait_for(sent.get(), 1)
@@ -75,5 +79,34 @@ def test_gateway_inbound_routes_security_ack_to_runtime() -> None:
             object(), object(), inbound, security_ack_handler=handler,
         )
         assert received == [ack]
+
+    asyncio.run(scenario())
+
+
+def test_sender_waits_for_policy_ack_frame_before_replaying(tmp_path) -> None:
+    async def scenario() -> None:
+        sent = asyncio.Queue()
+
+        class Transport:
+            async def send_security_event_batch(self, batch):
+                await sent.put(batch)
+
+        spool = SecurityEventSpool(tmp_path)
+        await spool.open()
+        runtime = SecurityEventRuntime(spool, ack_timeout_seconds=1)
+        await runtime.record(_event(), now=NOW)
+        runtime.begin_connection()
+        task = asyncio.create_task(runtime.send_forever(Transport(), now=lambda: NOW))
+        try:
+            with pytest.raises(TimeoutError):
+                await asyncio.wait_for(sent.get(), 0.05)
+            runtime.policy_ack_sent()
+            assert (await asyncio.wait_for(sent.get(), 1)).events
+        finally:
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
 
     asyncio.run(scenario())

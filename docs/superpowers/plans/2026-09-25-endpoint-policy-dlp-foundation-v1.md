@@ -147,7 +147,7 @@ The public extension ID is now pinned to a protected external signing key. Relea
 
 **Files:** Create `endpoint_contracts/security_events.py`, `endpoint_server/security/{models,ingestion,retention,admin_routes}.py`, `endpoint_server/db/migrations/versions/0032_security_events.py`, `pc_agent/security/{spool,runtime}.py`; modify `endpoint_contracts/gateway_ws.py`, Gateway handlers and worker. Tests in `tests/security/`, `pc_agent/tests/security/`.
 
-- [ ] Write failing tests for per-type metadata allowlists, privacy rejection, `(device_id,event_identifier)` idempotency, ACK after commit, crash/replay, <=50 events/64 KiB, 1000-event/5-MiB/24-hour spool bounds, overflow counter and 7..365-day retention (default 30).
+- [ ] Write failing tests for per-type metadata allowlists, privacy rejection, `(device_id,event_identifier)` idempotency, ACK after commit, crash/replay, replay across policy rotation, <=50 events/64 KiB, 1000-event/5-MiB/24-hour spool bounds, overflow counter and 7..365-day retention (default 30).
 - [ ] Implement typed event batch, persisted ACK and protected SQLite spool; no per-observation AuditEvent, Module Operation or raw transport persistence.
 - [ ] Run migration, gateway, spool and retention tests; commit.
 
@@ -157,13 +157,18 @@ severity, unique identifiers, 50-event/64-KiB batch and 2-KiB metadata bounds.
 The independent `security_events` table and migration `0032` are now in source,
 with a unique `(device_id, event_identifier)` constraint and expiry index.
 The Gateway now gates SecurityEvent batches on negotiated Windows support and
-an applied matching policy, stages idempotent rows with per-type enablement and
+the version applied when each event occurred, stages idempotent rows with
+per-type enablement and
 24-hour event-age checks, commits, then sends the typed ACK. SQLite tests prove
 replay deduplication, changed-payload rejection and commit-before-ACK ordering;
 the full Gateway suite passed. The worker now deletes expired rows in bounded
 transactional batches. The Agent now has a protected SQLite event spool with
 1000-event, 5-MiB serialized-payload and 24-hour bounds, durable drop counters,
 oldest-first overflow, one in-flight WSS batch and exact-ACK deletion. The
+server records each acknowledged application in `policy_applications`; the
+Agent waits for the policy ACK frame before replaying queued batches after
+reconnect. Tests cover mixed-version replay after rotation and rejection of
+events claiming the prior version after the new version was applied. The
 server and Agent producer/consumer tests pass. The feature remains gated to a
 future 3.2.70 Agent; Windows event-source wiring, health/compliance projection,
 installed-Agent replay proof and production migration remain open. This is not

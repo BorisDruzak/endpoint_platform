@@ -17,7 +17,7 @@ from endpoint_contracts.gateway_ws import (
     EndpointPolicyDeliveryV1,
 )
 
-from .models import PolicyDeviceState, PolicyVersion
+from .models import PolicyApplication, PolicyDeviceState, PolicyVersion
 from .service import resolve_effective_policy
 
 
@@ -127,6 +127,26 @@ async def record_policy_ack(
     state.error_code = "SUPERSEDED" if superseded else ack.error_code
     state.received_at = ack.received_at
     state.applied_at = ack.applied_at
-    state.acknowledged_at = datetime.now(UTC)
+    acknowledged_at = datetime.now(UTC)
+    state.acknowledged_at = acknowledged_at
+    if ack.status == "APPLIED" and ack.applied_at is not None:
+        applied_at = ack.applied_at.astimezone(UTC)
+        application = await session.scalar(
+            select(PolicyApplication).where(
+                PolicyApplication.device_id == device_id,
+                PolicyApplication.policy_version_id == delivered.id,
+                PolicyApplication.applied_at == applied_at,
+            )
+        )
+        if application is None:
+            session.add(PolicyApplication(
+                device_id=device_id,
+                policy_version_id=delivered.id,
+                policy_digest=delivered.digest,
+                applied_at=applied_at,
+                acknowledged_at=acknowledged_at,
+            ))
+        elif application.policy_digest != delivered.digest:
+            raise PolicyAcknowledgementRejected("applied policy history conflicts")
     await session.flush()
     return state

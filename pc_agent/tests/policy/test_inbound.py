@@ -55,3 +55,47 @@ async def test_inbound_policy_uses_runtime_before_sending_ack(tmp_path) -> None:
 async def test_inbound_policy_without_runtime_fails_closed() -> None:
     with pytest.raises(GatewayTerminalError):
         await _handle_inbound(_Transport(), object(), _inbound())
+
+
+@pytest.mark.asyncio
+async def test_security_replay_opens_only_after_policy_ack_frame() -> None:
+    order: list[str] = []
+
+    class Transport(_Transport):
+        async def send_policy_ack(self, ack) -> None:
+            order.append("sent")
+            await super().send_policy_ack(ack)
+
+    async def apply(_delivery):
+        order.append("applied")
+        return object()
+
+    transport = Transport()
+    await _handle_inbound(
+        transport, object(), _inbound(), policy_handler=apply,
+        security_policy_ack_sent=lambda: order.append("replay_ready"),
+    )
+    assert order == ["applied", "sent", "replay_ready"]
+
+
+@pytest.mark.asyncio
+async def test_security_replay_stays_blocked_when_policy_ack_send_fails() -> None:
+    called = False
+
+    class Transport(_Transport):
+        async def send_policy_ack(self, ack) -> None:
+            raise GatewayTerminalError("policy ACK transport failed")
+
+    async def apply(_delivery):
+        return object()
+
+    def ready() -> None:
+        nonlocal called
+        called = True
+
+    with pytest.raises(GatewayTerminalError):
+        await _handle_inbound(
+            Transport(), object(), _inbound(), policy_handler=apply,
+            security_policy_ack_sent=ready,
+        )
+    assert not called

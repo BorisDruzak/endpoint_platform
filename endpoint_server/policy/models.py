@@ -109,7 +109,31 @@ class PolicyDeviceState(OwnershipRecord, Base):
     acknowledged_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
+class PolicyApplication(OwnershipRecord, Base):
+    """Immutable proof that one Agent applied a policy at a specific time."""
+
+    __tablename__ = "policy_applications"
+    __table_args__ = (
+        UniqueConstraint(
+            "device_id", "policy_version_id", "applied_at",
+            name="uq_policy_applications_device_version_time",
+        ),
+        Index("ix_policy_applications_device_applied", "device_id", "applied_at"),
+    )
+
+    device_id: Mapped[UUID] = mapped_column(
+        ForeignKey("devices.id", ondelete="CASCADE"), nullable=False
+    )
+    policy_version_id: Mapped[UUID] = mapped_column(
+        ForeignKey("policy_versions.id", ondelete="RESTRICT"), nullable=False
+    )
+    policy_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    applied_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    acknowledged_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
 __all__ = [
+    "PolicyApplication",
     "PolicyAssignment",
     "PolicyDefinition",
     "PolicyDeviceState",

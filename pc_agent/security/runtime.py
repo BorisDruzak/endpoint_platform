@@ -37,12 +37,20 @@ class SecurityEventRuntime:
         self._ack_timeout_seconds = ack_timeout_seconds
         self._wake = asyncio.Event()
         self._acked = asyncio.Event()
+        self._policy_ready = asyncio.Event()
         self._lock = asyncio.Lock()
         self._inflight: AgentSecurityEventBatchV1 | None = None
         self.acknowledged = asyncio.Event()
 
     async def open(self) -> None:
         await self._spool.open()
+
+    def begin_connection(self) -> None:
+        """Block replay until this WSS session has sent its policy ACK."""
+        self._policy_ready.clear()
+
+    def policy_ack_sent(self) -> None:
+        self._policy_ready.set()
 
     async def record(self, event: SecurityEventV1, *, now: datetime | None = None) -> bool:
         accepted = await self._spool.enqueue(event, now=now or datetime.now(UTC))
@@ -67,6 +75,7 @@ class SecurityEventRuntime:
     ) -> None:
         try:
             while True:
+                await self._policy_ready.wait()
                 batch = await self._spool.next_batch(now=now())
                 if batch is None:
                     self._wake.clear()

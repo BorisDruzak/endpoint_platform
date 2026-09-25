@@ -230,6 +230,7 @@ def _default_dependencies(
                     activity_dispatch.send_forever(transport),
                 ]
                 if security_runtime is not None:
+                    security_runtime.begin_connection()
                     tasks.append(security_runtime.send_forever(transport))
                 return tuple(tasks)
             return (
@@ -261,6 +262,9 @@ def _default_dependencies(
         policy_handler=policy_runtime.apply_delivery if policy_runtime is not None else None,
         security_ack_handler=(
             security_runtime.receive_ack if security_runtime is not None else None
+        ),
+        security_policy_ack_sent=(
+            security_runtime.policy_ack_sent if security_runtime is not None else None
         ),
         create_connected_tasks=create_connected_tasks,
         create_completion_sink=_create_completion_sink,

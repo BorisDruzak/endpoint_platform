@@ -23,7 +23,9 @@ serialized-payload bound, expires events after 24 hours, and persists separate
 overflow and expiry counters. SQLite pages and rollback-journal overhead can
 exceed the payload bound. `security/runtime.py` sends one WSS batch at a time,
 replays it on timeout, and removes rows only after an exact persisted ACK. The
-current 3.2.67 Agent does not advertise `endpoint.security-events.v1`; this
+sender waits until `RuntimeLifecycle` has sent the policy ACK frame on the
+current WSS connection before replaying any queued batch. The current 3.2.67
+Agent does not advertise `endpoint.security-events.v1`; this
 path activates at 3.2.70 after sensor integration and installed-agent proof.
 For the future feature version, the Agent core bundle includes the release-pinned
 extension ID. The service pipe maps approved browser upload/paste metadata to

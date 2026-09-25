@@ -17,9 +17,9 @@ from endpoint_contracts.gateway_ws import SecurityEventAckEnvelopeV1
 from endpoint_contracts.security_events import (
     AgentSecurityEventBatchV1,
     SecurityEventAckV1,
+    SecurityEventV1,
 )
-from endpoint_server.policy.models import PolicyDeviceState
-from endpoint_server.policy.service import resolve_effective_policy
+from endpoint_server.policy.models import PolicyApplication, PolicyVersion
 from endpoint_server.security.models import SecurityEvent
 
 
@@ -72,24 +72,30 @@ async def ingest_gateway_security_events(
 ) -> SecurityEventAckV1:
     """Stage idempotent rows; caller must commit before sending returned ACK."""
     when = _utc(received_at or datetime.now(UTC))
-    version = await resolve_effective_policy(session, device_id)
-    state = await session.scalar(
-        select(PolicyDeviceState).where(PolicyDeviceState.device_id == device_id)
-    )
-    if (
-        version is None
-        or state is None
-        or state.status != "APPLIED"
-        or state.policy_version_id != version.id
-        or state.policy_digest != version.digest
-    ):
-        raise SecurityEventRejected("security event policy is not applied")
-    try:
-        policy = EndpointPolicyV1.model_validate(version.document)
-    except ValidationError as error:
-        raise SecurityEventRejected("security event policy is invalid") from error
+    validated: list[tuple[SecurityEventV1, EndpointPolicyV1]] = []
     for event in batch.events:
         occurred = _utc(event.occurred_at)
+        application = await session.scalar(
+            select(PolicyApplication)
+            .where(
+                PolicyApplication.device_id == device_id,
+                PolicyApplication.applied_at <= occurred,
+            )
+            .order_by(
+                PolicyApplication.applied_at.desc(),
+                PolicyApplication.acknowledged_at.desc(),
+            )
+            .limit(1)
+        )
+        if application is None:
+            raise SecurityEventRejected("security event policy was not applied")
+        version = await session.get(PolicyVersion, application.policy_version_id)
+        if version is None or application.policy_digest != version.digest:
+            raise SecurityEventRejected("security event policy history is invalid")
+        try:
+            policy = EndpointPolicyV1.model_validate(version.document)
+        except ValidationError as error:
+            raise SecurityEventRejected("security event policy is invalid") from error
         if (
             event.policy_id != policy.policy_id
             or event.policy_version != policy.policy_version
@@ -100,6 +106,7 @@ async def ingest_gateway_security_events(
             minutes=5
         ):
             raise SecurityEventRejected("security event time is outside live bounds")
+        validated.append((event, policy))
 
     dialect = session.get_bind().dialect.name
     if dialect == "postgresql":
@@ -108,7 +115,7 @@ async def ingest_gateway_security_events(
         insert = sqlite_insert
     else:
         raise SecurityEventRejected("unsupported security event database")
-    for event in batch.events:
+    for event, policy in validated:
         metadata = event.safe_metadata.model_dump(mode="json", exclude_none=True)
         statement = (
             insert(SecurityEvent)

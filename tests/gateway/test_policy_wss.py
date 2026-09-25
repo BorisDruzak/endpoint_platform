@@ -13,7 +13,7 @@ from sqlalchemy import select
 from endpoint_server.db.base import Base
 from endpoint_server.main import create_app
 from endpoint_server.policy.models import (
-    PolicyAssignment, PolicyDefinition, PolicyDeviceState, PolicyVersion,
+    PolicyApplication, PolicyAssignment, PolicyDefinition, PolicyDeviceState, PolicyVersion,
 )
 from endpoint_server.policy.service import assign_default_policy, create_policy_version
 from tests.contracts.test_endpoint_policy_v1 import POLICY_ID, _policy
@@ -57,6 +57,7 @@ def test_wss_policy_sync_preserves_legacy_and_records_real_ack(
             await connection.run_sync(lambda sync: Base.metadata.create_all(sync, tables=[
                 PolicyDefinition.__table__, PolicyVersion.__table__,
                 PolicyAssignment.__table__, PolicyDeviceState.__table__,
+                PolicyApplication.__table__,
             ]))
         async with provider() as session:
             session.add(PolicyDefinition(id=POLICY_ID, name="Municipal Default"))

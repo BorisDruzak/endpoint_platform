@@ -13,6 +13,7 @@ from sqlalchemy import select
 from endpoint_server.db.base import Base
 from endpoint_server.main import create_app
 from endpoint_server.policy.models import (
+    PolicyApplication,
     PolicyAssignment,
     PolicyDefinition,
     PolicyDeviceState,
@@ -101,6 +102,7 @@ def test_route_acks_committed_security_event_and_idempotent_replay(
                         PolicyVersion.__table__,
                         PolicyAssignment.__table__,
                         PolicyDeviceState.__table__,
+                        PolicyApplication.__table__,
                         SecurityEvent.__table__,
                     ],
                 )

@@ -1459,6 +1459,16 @@ Agent removes events from local spool only after valid ACK.
 
 Do not implement fire-and-forget for security events.
 
+After each WSS reconnect, the Agent sends its policy ACK before replaying
+queued SecurityEvents on that connection. The server keeps durable proof of
+every acknowledged application (`device_id`, immutable policy version and
+digest, `applied_at`) and validates each event against the policy actually
+applied when that event occurred. A later assignment or policy rotation must
+not reject a still-valid event queued under the previous applied version;
+an event claiming a version never applied at its occurrence is rejected.
+Mixed-version batches remain atomic, idempotent and subject to the 24-hour
+age bound.
+
 ---
 
 # 54. Offline event spool

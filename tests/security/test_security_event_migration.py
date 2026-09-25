@@ -49,6 +49,14 @@ def test_security_event_migration_has_identity_retention_and_safe_columns(
         assert "uq_security_events_device_identifier" in {
             item["name"] for item in inspector.get_unique_constraints("security_events")
         }
+        application_columns = {
+            column["name"] for column in inspector.get_columns("policy_applications")
+        }
+        assert application_columns == {
+            "id", "created_at", "device_id", "policy_version_id",
+            "policy_digest", "applied_at", "acknowledged_at",
+        }
         migration.downgrade()
         assert "security_events" not in inspect(connection).get_table_names()
+        assert "policy_applications" not in inspect(connection).get_table_names()
     engine.dispose()
