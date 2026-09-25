@@ -1743,7 +1743,7 @@ Chrome
 
 For Yandex Browser show a separate card headed `Яндекс Браузер` with the same fields. In `external_managed`, show `Управление: внешняя политика` and the observed installation-policy state without claiming an Agent write. Display policy conflict and Native Bridge failure as distinct reasons. Display `Браузер закрыт` separately from `Расширение: ещё не обнаружено` and `Расширение: связь устарела`; preserve the last known extension version and heartbeat while the browser is closed.
 
-Do not show `Extension missing` merely because the browser is closed. If the Agent has applied policy but the browser has not run since then, show that as the reason for `NEVER_SEEN`.
+Do not show `Extension missing` merely because the browser is closed. Show `браузер не запускался после применения политики` as the reason for `NEVER_SEEN` only when reliable launch-history evidence establishes that the browser has not run since the current policy was applied; otherwise report launch history as unknown.
 
 ---
 
