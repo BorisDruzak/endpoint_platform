@@ -2276,6 +2276,8 @@ On a Windows lab workstation with Chrome and/or Yandex:
 
 Repeat the `agent_managed` install path for Chrome and Yandex when both are installed on the test device; record an explicit untested gap for any absent browser. Verify idempotent reapplication, browser restart, Agent restart and Agent upgrade. Switch to `external_managed` and prove that Agent stops policy writes after removing only its own exact, unchanged entry; if safe removal is impossible, preserve the existing value and report `POLICY_CONFLICT`. Inspect both browsers' effective policy pages and unrelated corporate extension/native-host entries before and after.
 
+The reference Windows workstation has both browsers installed as of 2026-09-25. Foundation v1 acceptance on that workstation therefore requires the full installation, Bridge, heartbeat and Console path in both browsers; a source-level or policy-template check alone does not satisfy this gate. Reconfirm their installed versions and effective enterprise-policy support when running acceptance.
+
 ---
 
 # 90. Dual-browser acceptance
