@@ -15,16 +15,18 @@ from .runtime import PolicyApplicationError
 _LOG = logging.getLogger(__name__)
 
 
-async def apply_windows_policy_sensors(policy: EndpointPolicyV1) -> None:
-    """Apply browser install ownership only after unsupported sensors are rejected."""
+async def apply_windows_policy_sensors(
+    policy: EndpointPolicyV1, *, usb_available: bool = False,
+) -> None:
+    """Apply browser ownership only after requested local sensors are ready."""
     if (
         policy.activity.enabled
         or policy.activity.foreground_application
         or policy.activity.browser_context
+        or (policy.dlp.usb_device_events == "audit" and not usb_available)
         or any(
             mode == "audit"
             for mode in (
-                policy.dlp.usb_device_events,
                 policy.dlp.print_events,
                 policy.dlp.browser_upload_events,
                 policy.dlp.browser_paste_events,

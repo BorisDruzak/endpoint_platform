@@ -68,6 +68,24 @@ async def test_unsupported_activity_fails_before_any_helper_side_effect(
 
 
 @pytest.mark.asyncio
+async def test_usb_audit_requires_live_notification_source(monkeypatch) -> None:
+    calls: list[tuple[str, str]] = []
+    monkeypatch.setattr(
+        "pc_agent.policy.windows_sensors.send_policy_request",
+        lambda operation, family: calls.append((operation, family)) or "EXTERNALLY_MANAGED",
+    )
+    disabled = _delivery(active=False).policy
+    policy = disabled.model_copy(update={
+        "dlp": disabled.dlp.model_copy(update={"usb_device_events": "audit"}),
+    })
+    with pytest.raises(PolicyApplicationError, match="SENSOR_NOT_READY"):
+        await apply_windows_policy_sensors(policy, usb_available=False)
+    assert calls == []
+    await apply_windows_policy_sensors(policy, usb_available=True)
+    assert calls == [("relinquish", "chrome"), ("relinquish", "yandex")]
+
+
+@pytest.mark.asyncio
 async def test_conflict_from_helper_prevents_policy_application(monkeypatch) -> None:
     calls: list[tuple[str, str]] = []
 

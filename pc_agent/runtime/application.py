@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import os
 import re
 import ssl
 import stat
 import threading
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal
 from urllib.parse import urlsplit
@@ -55,6 +57,7 @@ _SOURCE_REVISION = re.compile(r"^[0-9a-f]{40}$")
 _AGENT_SEMVER = re.compile(r"^([0-9]+)\.([0-9]+)\.([0-9]+)$")
 _MIN_POLICY_AGENT_VERSION = (3, 2, 68)
 _MIN_SECURITY_EVENTS_AGENT_VERSION = (3, 2, 70)
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True, slots=True)
@@ -137,9 +140,24 @@ def _default_dependencies(
 ) -> RuntimeDependencies:
     transport_state = _EndpointHttpPullState()
     policy_runtime = None
+    usb_notifications = None
     if settings is not None:
         cache = AppliedPolicyCache(settings.data_root)
         applicator = _policy_applicator_for(os.name)
+        if applicator is not None:
+            windows_applicator = applicator
+
+            async def apply_available_sensors(policy):
+                await windows_applicator(
+                    policy,
+                    usb_available=(
+                        security_runtime is not None
+                        and usb_notifications is not None
+                        and usb_notifications.available
+                    ),
+                )
+
+            applicator = apply_available_sensors
         policy_runtime = (
             PolicyRuntime(cache, apply_sensors=applicator)
             if applicator is not None else PolicyRuntime(cache)
@@ -163,6 +181,7 @@ def _default_dependencies(
             await policy_runtime.restore_offline()
 
     def start_local_sensor(current_settings: object):
+        nonlocal usb_notifications
         if not (
             os.name == "nt"
             and isinstance(current_settings, RuntimeSettings)
@@ -174,6 +193,9 @@ def _default_dependencies(
             ActivityIngress, create_activity_pipe_listener,
         )
         from pc_agent.platform.windows.browser_bridge_entry import _extension_id
+        from pc_agent.platform.windows.usb_sensor import (
+            UsbInterfaceNotifications, project_usb_change,
+        )
 
         on_security_event = None
         extension_id = None
@@ -204,6 +226,32 @@ def _default_dependencies(
             on_security_event=on_security_event,
         )
         listener.start()
+        if security_runtime is not None:
+            def handle_usb_change(action: str, path: str) -> None:
+                event = project_usb_change(
+                    action, path, policy_runtime.current_policy,
+                    occurred_at=datetime.now(UTC),
+                )
+                if event is not None and on_security_event is not None:
+                    if not on_security_event(event):
+                        raise RuntimeError("USB SecurityEvent persistence unavailable")
+
+            source = UsbInterfaceNotifications(handle_usb_change)
+            try:
+                source.start()
+            except Exception:
+                logger.warning("USB notification source is unavailable")
+            else:
+                usb_notifications = source
+
+                class LocalSensors:
+                    def stop(self) -> None:
+                        try:
+                            source.stop()
+                        finally:
+                            listener.stop()
+
+                return LocalSensors()
         return listener
 
     def create_transport(

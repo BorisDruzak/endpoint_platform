@@ -31,7 +31,17 @@ For the future feature version, the Agent core bundle includes the release-pinne
 extension ID. The service pipe maps approved browser upload/paste metadata to
 typed SecurityEvents and waits for a durable spool write before returning the
 Native Messaging ACK. Duplicate IDs succeed only for identical queued payloads.
-USB/print producers and server health/compliance projection remain open.
+Print producer and server health/compliance projection remain open.
+
+`platform/windows/usb_sensor.py` registers CfgMgr32 USB device-interface
+arrival/removal notifications and hands bounded callbacks to a worker thread.
+It projects only VID/PID, a hash of a stable instance serial when available,
+and a USB removable flag; raw symbolic links remain local and are never
+serialized into a SecurityEvent. The runtime starts the notification source
+before restoring cached policy, and accepts `usb_device_events=audit` only
+while that source is registered and the protected SecurityEvent spool exists.
+Native callback delivery has been exercised synthetically on Windows; actual
+plug/unplug, queue-loss health, print events and server compliance remain open.
 
 The interactive `user_sensor_runtime.py` samples each logon session and sends
 bounded frames through the same authenticated pipe. MSI stages its fixed

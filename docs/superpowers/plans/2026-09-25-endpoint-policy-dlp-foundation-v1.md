@@ -185,9 +185,13 @@ yet a working SecurityEvent pipeline on a deployed Agent.
 The Browser Bridge upload/paste route now validates the pinned extension ID,
 policy audit mode and a bounded typed payload, then persists the event in the
 Agent spool before local ACK. The Agent core build includes the public ID and
-the feature remains gated to the future 3.2.70 release. USB/print producers,
-per-browser status, server-derived compliance and installed-browser proof are
-still open.
+the feature remains gated to the future 3.2.70 release. USB interface
+arrival/removal now has a bounded CfgMgr32 notification source, safe event
+projection and protected spool handoff. Policy ACK rejects USB audit when
+native registration is unavailable. Native registration and a synthetic
+callback passed on Windows; physical plug/unplug and on-device retention/health
+proof are still required. Print producers, per-browser status, server-derived
+compliance and installed-browser proof are still open.
 
 ### Task 9: Russian Console
 

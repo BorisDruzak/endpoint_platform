@@ -435,6 +435,30 @@ async def test_local_sensor_lives_across_wss_reconnect_and_stops_at_exit(tmp_pat
     assert events.index("sensor.stop") < events.index("executor.stop")
 
 
+@pytest.mark.asyncio
+async def test_local_sensor_starts_before_cached_policy_is_restored(tmp_path: Path) -> None:
+    events: list[str] = []
+
+    class Sensor:
+        def stop(self) -> None:
+            events.append("sensor.stop")
+
+    async def restore_policy(_settings: object) -> None:
+        events.append("policy.restore")
+
+    def start_sensor(_settings: object) -> Sensor:
+        events.append("sensor.start")
+        return Sensor()
+
+    dependencies = replace(
+        _dependencies(events, [None]),
+        restore_policy=restore_policy,
+        start_local_sensor=start_sensor,
+    )
+    assert await RuntimeApplication(_settings(tmp_path), dependencies).run() == 0
+    assert events.index("sensor.start") < events.index("policy.restore")
+
+
 @pytest.mark.skipif(os.name != "nt", reason="Windows local sensor")
 def test_windows_wss_defaults_start_policy_gated_local_listener(monkeypatch, tmp_path: Path) -> None:
     from pc_agent.platform.windows import activity_api
@@ -473,7 +497,7 @@ def test_windows_wss_defaults_start_policy_gated_local_listener(monkeypatch, tmp
 async def test_security_feature_pins_browser_identity_and_durable_handoff(
     monkeypatch, tmp_path: Path,
 ) -> None:
-    from pc_agent.platform.windows import activity_api, browser_bridge_entry
+    from pc_agent.platform.windows import activity_api, browser_bridge_entry, usb_sensor
     from pc_agent.tests.security.test_spool import NOW, _event
     from pc_agent.security.spool import SecurityEventSpool
 
@@ -501,14 +525,32 @@ async def test_security_feature_pins_browser_identity_and_durable_handoff(
         return Listener()
 
     monkeypatch.setattr(activity_api, "create_activity_pipe_listener", create_listener)
+
+    class UsbSource:
+        available = True
+
+        def __init__(self, _on_change):
+            pass
+
+        def start(self):
+            pass
+
+        def stop(self):
+            pass
+
+    monkeypatch.setattr(usb_sensor, "UsbInterfaceNotifications", UsbSource)
     dependencies = runtime_application._default_dependencies(settings)
-    await dependencies.restore_policy(settings)
-    dependencies.start_local_sensor(settings)
-    assert captured["ingress"]._extension_id == "a" * 32
-    assert await asyncio.to_thread(captured["on_security_event"], _event(occurred_at=NOW))
-    spool = SecurityEventSpool(data_root)
-    await spool.open()
-    assert (await spool.stats()).queued_events == 1
+    sensor = dependencies.start_local_sensor(settings)
+    assert sensor is not None
+    try:
+        await dependencies.restore_policy(settings)
+        assert captured["ingress"]._extension_id == "a" * 32
+        assert await asyncio.to_thread(captured["on_security_event"], _event(occurred_at=NOW))
+        spool = SecurityEventSpool(data_root)
+        await spool.open()
+        assert (await spool.stats()).queued_events == 1
+    finally:
+        sensor.stop()
 
 
 @pytest.mark.asyncio

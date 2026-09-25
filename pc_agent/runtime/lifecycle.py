@@ -183,8 +183,8 @@ class RuntimeLifecycle:
         try:
             await executor.start()
             executor_started = True
-            await self._dependencies.restore_policy(self._settings)
             local_sensor = self._dependencies.start_local_sensor(self._settings)
+            await self._dependencies.restore_policy(self._settings)
             completion_sink = self._dependencies.create_completion_sink(self._settings)
             canary_status_writer = self._dependencies.create_canary_status_writer(
                 self._settings
