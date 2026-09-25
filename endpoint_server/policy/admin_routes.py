@@ -11,16 +11,21 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 
+from endpoint_contracts.activity import ActivitySectionsV1
 from endpoint_contracts.endpoint_policy import EndpointPolicyV1
 from endpoint_contracts.browser_status import BrowserFamilyStatusV1
 from endpoint_server.audit.request_ids import audit_request_id
 from endpoint_server.audit.service import append_audit_event
 from endpoint_server.auth.admin_sessions import AdminPrincipal, require_admin
+from endpoint_server.context.models import ContextCurrent
+from endpoint_server.context.projection import activity_current_projection
 from endpoint_server.db.models import Device
 
 from .browser_status import load_browser_status
 from .compliance import derive_browser_compliance
+from .device_compliance import ActivityEvidence, SensorState, derive_device_compliance
 from .models import PolicyAssignment, PolicyDefinition, PolicyDeviceState, PolicyVersion
+from .sensor_health import load_sensor_health
 from .service import (
     PolicyNotFound,
     assign_default_policy,
@@ -174,6 +179,10 @@ class ConsolePolicyDeviceStatus(BaseModel):
     deployment_mode: Literal["agent_managed", "external_managed"]
     delivery_status: Literal["PENDING", "APPLIED", "STALE", "UNSUPPORTED", "ERROR"]
     acknowledged_at: datetime | None
+    compliance: Literal["COMPLIANT", "PARTIAL", "NON_COMPLIANT", "STALE", "UNSUPPORTED"]
+    activity_sensor: SensorState
+    browser_sensor: SensorState
+    dlp_sensor: SensorState
     browser_compliance: Literal["COMPLIANT", "PARTIAL", "NON_COMPLIANT", "STALE", "UNSUPPORTED"]
     observed_at: datetime | None
     browsers: list[ConsoleBrowserStatus] = Field(min_length=2, max_length=2)
@@ -358,6 +367,14 @@ async def device_policy_status(
             PolicyDeviceState.device_id == device_id,
         ))
         report = await load_browser_status(session, device_id)
+        health = await load_sensor_health(session, device_id)
+        current_activity = await session.scalar(select(ContextCurrent).where(
+            ContextCurrent.device_id == device_id,
+            ContextCurrent.profile == "activity_v1",
+        ))
+        activity_projection = (
+            activity_current_projection(current_activity) if current_activity is not None else None
+        )
     connection = await request.app.state.gateway_connection_registry.get(device_id)
     delivery_status: Literal["PENDING", "APPLIED", "STALE", "UNSUPPORTED", "ERROR"] = "PENDING"
     acknowledged_at = None
@@ -371,7 +388,25 @@ async def device_policy_status(
         browser_status = "STALE"
     elif connection is not None and "endpoint.browser-status.v1" not in connection.protocol_features:
         browser_status = "UNSUPPORTED"
-    compliance = derive_browser_compliance(policy, browser_status, report, now=datetime.now(UTC))
+    now = datetime.now(UTC)
+    compliance = derive_browser_compliance(policy, browser_status, report, now=now)
+    activity_evidence = None
+    if activity_projection is not None:
+        observed_at = activity_projection["last_observed_at"]
+        assert isinstance(observed_at, datetime)
+        if observed_at.tzinfo is None:
+            observed_at = observed_at.replace(tzinfo=UTC)
+        sections = ActivitySectionsV1.model_validate(activity_projection["sections"])
+        activity_evidence = ActivityEvidence(
+            last_observed_at=observed_at,
+            session_state=sections.session_state,
+        )
+    device_compliance = derive_device_compliance(
+        policy, delivery_status, health, report, activity_evidence,
+        online=connection is not None,
+        protocol_features=connection.protocol_features if connection is not None else frozenset(),
+        now=now,
+    )
     facts: dict[str, BrowserFamilyStatusV1] = (
         {item.browser_family: item for item in report.browsers} if report is not None else {}
     )
@@ -400,6 +435,10 @@ async def device_policy_status(
         deployment_mode=policy.browser_sensor.deployment_mode,
         delivery_status=delivery_status,
         acknowledged_at=acknowledged_at,
+        compliance=device_compliance.overall,
+        activity_sensor=device_compliance.activity,
+        browser_sensor=device_compliance.browser,
+        dlp_sensor=device_compliance.dlp,
         browser_compliance=compliance.overall,
         observed_at=report.observed_at if report else None,
         browsers=browsers,

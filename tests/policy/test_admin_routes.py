@@ -13,9 +13,11 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from endpoint_server.auth.admin_sessions import AdminPrincipal, require_admin
 from endpoint_server.config import Settings
+from endpoint_server.context.models import ContextCurrent, ContextSnapshot
 from endpoint_server.db.models import (
     AdminSession, AdminUser, AuditEvent, Device, PolicyAssignment,
     PolicyDefinition, PolicyVersion, PolicyDeviceState, BrowserStatusCurrent,
+    PolicySensorHealthCurrent,
 )
 from endpoint_server.gateway.connection_registry import GatewayConnection
 from endpoint_server.policy.browser_status import ingest_browser_status
@@ -142,7 +144,8 @@ async def test_policy_device_status_requires_current_browser_capability() -> Non
         await connection.run_sync(lambda sync: [table.create(sync) for table in (
             Device.__table__, PolicyDefinition.__table__, PolicyVersion.__table__,
             PolicyAssignment.__table__, PolicyDeviceState.__table__,
-            BrowserStatusCurrent.__table__,
+            BrowserStatusCurrent.__table__, PolicySensorHealthCurrent.__table__,
+            ContextSnapshot.__table__, ContextCurrent.__table__,
         )])
     sessions = async_sessionmaker(engine, expire_on_commit=False)
     settings = Settings(
@@ -217,13 +220,57 @@ async def test_policy_device_status_requires_current_browser_capability() -> Non
             await session.commit()
         active = await client.get(endpoint)
         assert active.json()["data"]["browser_compliance"] == "COMPLIANT"
+        assert active.json()["data"]["compliance"] == "UNSUPPORTED"
         assert active.json()["data"]["browsers"][0]["extension_install_type"] == "ADMIN"
         assert active.json()["data"]["browsers"][0]["effective_policy_state"] == "APPLIED"
         assert [item["compliance_state"] for item in active.json()["data"]["browsers"]] == ["ACTIVE", "NOT_APPLICABLE"]
+        await app.state.gateway_connection_registry.register(GatewayConnection(
+            device_id=device_id, session_id=uuid4(), websocket=object(), agent_version="3.2.70",
+            protocol_features=frozenset({
+                "endpoint.policy.v1", "endpoint.activity.v1", "endpoint.browser-status.v1",
+                "endpoint.security-events.v1", "endpoint.sensor-health.v1",
+            }),
+        ))
+        snapshot_id = uuid4()
+        activity = {
+            "schema_version": "device_context_v1", "profile": "activity_v1",
+            "collected_at": now.isoformat(), "warnings": [],
+            "sections": {
+                "user_login": "operator", "session_state": "ACTIVE", "idle_seconds": 12,
+                "foreground": None, "browser": None,
+            },
+        }
+        async with sessions() as session:
+            session.add_all([
+                ContextSnapshot(
+                    id=snapshot_id, collection_id=uuid4(), device_id=device_id,
+                    profile="activity_v1", collected_at=now,
+                    raw_payload={}, normalized_projection=activity,
+                ),
+                ContextCurrent(
+                    device_id=device_id, profile="activity_v1", snapshot_id=snapshot_id,
+                    updated_at=now, last_observed_at=now, last_projection=activity,
+                ),
+                PolicySensorHealthCurrent(
+                    device_id=device_id, observation_id=uuid4(), policy_id=policy_id,
+                    policy_version=1, observed_at=now, received_at=now,
+                    activity_listener_state="READY", user_sensor_last_seen_at=now,
+                    security_spool_state="READY", usb_source_state="READY",
+                    print_source_state="READY",
+                ),
+            ])
+            await session.commit()
+        healthy = await client.get(endpoint)
+        assert healthy.status_code == 200, healthy.text
+        assert healthy.json()["data"]["compliance"] == "COMPLIANT"
+        assert healthy.json()["data"]["activity_sensor"] == "ACTIVE"
+        assert healthy.json()["data"]["browser_sensor"] == "ACTIVE"
+        assert healthy.json()["data"]["dlp_sensor"] == "ACTIVE"
         current = await app.state.gateway_connection_registry.get(device_id)
         assert current is not None
         await app.state.gateway_connection_registry.unregister(device_id, current.session_id)
         offline = await client.get(endpoint)
+        assert offline.json()["data"]["compliance"] == "STALE"
         assert offline.json()["data"]["browser_compliance"] == "STALE"
         assert offline.json()["data"]["browsers"][0]["extension_version"] == "0.1.0"
         assert offline.json()["data"]["browsers"][0]["compliance_state"] == "UNKNOWN"
