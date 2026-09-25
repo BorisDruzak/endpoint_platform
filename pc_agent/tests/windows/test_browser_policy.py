@@ -92,6 +92,33 @@ def test_chrome_never_replaces_unowned_or_malformed_extension_settings() -> None
     assert registry.writes == []
 
 
+def test_direct_external_management_never_writes_browser_or_native_host_policy() -> None:
+    registry = MemoryRegistry()
+    chrome_policy = {
+        EXTENSION_ID: {
+            "installation_mode": "force_installed",
+            "update_url": UPDATE_URL,
+        },
+        FOREIGN_ID: {"installation_mode": "allowed"},
+    }
+    registry.values[(CHROME_POLICY_PATH, "ExtensionSettings")] = json.dumps(chrome_policy)
+    registry.values[(YANDEX_POLICY_PATH, "1")] = f"{EXTENSION_ID};{UPDATE_URL}"
+    registry.values[(YANDEX_POLICY_PATH, "2")] = (
+        f"{FOREIGN_ID};https://example.org/update.xml"
+    )
+    native_host_path = r"SOFTWARE\Policies\Google\Chrome\NativeMessagingAllowlist"
+    registry.values[(native_host_path, "1")] = "com.cryptopro.browser"
+    before = dict(registry.values)
+
+    applicator = _app(registry)
+    assert applicator.relinquish("chrome") == "EXTERNALLY_MANAGED"
+    assert applicator.relinquish("yandex") == "EXTERNALLY_MANAGED"
+
+    assert registry.values == before
+    assert registry.writes == []
+    assert registry.values_at(MARKER_PATH) == {}
+
+
 def test_chrome_preserves_foreign_entries_added_after_ownership() -> None:
     registry = MemoryRegistry()
     app = _app(registry)
