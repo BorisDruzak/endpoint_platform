@@ -58,8 +58,9 @@ def test_windows_pilot_controller_exposes_only_structured_provisioner_failure(
     assert secret.decode("ascii") not in str(error.value)
 
 
+@pytest.mark.parametrize("origin", ["https://endpoint.sosnadmin.local", "https://endpoint-staging.sosnadmin.local"])
 def test_windows_pilot_pipes_claim_only_to_provisioner_stdin(
-    monkeypatch, tmp_path: Path
+    monkeypatch, tmp_path: Path, origin: str
 ) -> None:
     from tools import provision_windows_test_agent as controller
 
@@ -103,7 +104,10 @@ def test_windows_pilot_pipes_claim_only_to_provisioner_stdin(
             return _Response(204)
 
     observed = {}
-    monkeypatch.setattr(controller.httpx, "Client", lambda **_kwargs: _Client())
+    def client_factory(**kwargs):
+        observed["client_origin"] = kwargs["base_url"]
+        return _Client()
+    monkeypatch.setattr(controller.httpx, "Client", client_factory)
     monkeypatch.setattr(controller, "_validate_ca", lambda _path: object())
     monkeypatch.setattr(controller, "windows_hardware_fingerprint", lambda: "sha256:" + "a" * 64)
     monkeypatch.setattr(
@@ -124,10 +128,25 @@ def test_windows_pilot_pipes_claim_only_to_provisioner_stdin(
         allowed_cidr="10.10.10.2/32",
         executable=executable,
         data_root=tmp_path / "data",
+        endpoint_origin=origin,
     )
 
     assert observed["secret"] == claim.encode("ascii")
+    assert observed["client_origin"] == origin
+    assert observed["arguments"][observed["arguments"].index("--endpoint-origin") + 1] == origin
     assert all(claim not in argument for argument in observed["arguments"])
     campaign_call = next(call for call in _Client.calls if call[1] == "/api/admin/enrollment/campaigns")
     assert campaign_call[2]["json"]["target_platform"] == "windows"
     assert campaign_call[2]["json"]["allowed_cidrs"] == ["10.10.10.2/32"]
+
+
+@pytest.mark.parametrize("origin", ["http://endpoint-staging.sosnadmin.local", "https://user:password@example.test", "https://example.test/path", "https://example.test?query=1", "https://example.test#fragment", "https://", "https://example.test:bad"])
+def test_windows_pilot_rejects_invalid_origin_before_secrets(monkeypatch, tmp_path, origin):
+    from tools import provision_windows_test_agent as controller
+    def forbidden(*args, **kwargs):
+        pytest.fail("invalid origin must fail before reading secrets or contacting a server")
+    monkeypatch.setattr(controller, "_validate_ca", forbidden)
+    monkeypatch.setattr(controller.getpass, "getpass", forbidden)
+    monkeypatch.setattr(controller.httpx, "Client", forbidden)
+    with pytest.raises(ValueError, match="origin"):
+        controller.provision_windows_pilot(ca_file=tmp_path / "ca.crt", installation_id="windows-pilot-001", administrator_username="pilot-admin", allowed_cidr="10.10.10.2/32", endpoint_origin=origin)

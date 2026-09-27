@@ -13,6 +13,7 @@ import ssl
 import subprocess
 import sys
 from typing import Any, Sequence
+from urllib.parse import urlsplit
 from uuid import UUID
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
@@ -29,6 +30,24 @@ from endpoint_contracts.identity import normalize_install_session_id
 ENDPOINT_ORIGIN = "https://endpoint.sosnadmin.local"
 DEFAULT_EXECUTABLE = Path(r"C:\Program Files\Endpoint Platform\Agent\endpoint-agent-provision.exe")
 DEFAULT_DATA_ROOT = Path(r"C:\ProgramData\Endpoint Platform\Agent")
+
+
+def _validate_endpoint_origin(value: str) -> str:
+    try:
+        parsed = urlsplit(value)
+        port = parsed.port
+        valid = (
+            parsed.scheme == "https" and parsed.hostname
+            and parsed.username is None and parsed.password is None
+            and parsed.path in {"", "/"} and not parsed.query and not parsed.fragment
+            and (port is None or 1 <= port <= 65535)
+            and not any(character.isspace() for character in value)
+        )
+    except ValueError:
+        valid = False
+    if not valid:
+        raise ValueError("Endpoint origin must be an absolute HTTPS origin")
+    return value.rstrip("/")
 
 
 def _validate_ca(path: Path) -> ssl.SSLContext:
@@ -82,8 +101,10 @@ def provision_windows_pilot(
     executable: Path = DEFAULT_EXECUTABLE,
     data_root: Path = DEFAULT_DATA_ROOT,
     administrator_password: str | None = None,
+    endpoint_origin: str = ENDPOINT_ORIGIN,
 ) -> UUID:
     """Create a bound claim and hand it to the installed provisioner via stdin."""
+    endpoint_origin = _validate_endpoint_origin(endpoint_origin)
     context = _validate_ca(ca_file)
     if executable.is_symlink() or not executable.is_file():
         raise ValueError("installed provisioning executable is missing")
@@ -96,7 +117,7 @@ def provision_windows_pilot(
     campaign_id: str | None = None
     credential_id: str | None = None
     csrf = ""
-    with httpx.Client(base_url=ENDPOINT_ORIGIN, verify=context, timeout=20.0) as client:
+    with httpx.Client(base_url=endpoint_origin, verify=context, timeout=20.0) as client:
         try:
             login = _response(client.post("/api/admin/session", json={"username": administrator_username, "password": password}), 201, "administrator authentication failed")
             csrf = login.get("csrf_token", "")
@@ -126,7 +147,7 @@ def provision_windows_pilot(
             claim = issued.get("claim")
             if not isinstance(claim, str):
                 raise RuntimeError("Windows pilot claim issuance failed")
-            _run_provisioner(executable, ["--endpoint-origin", ENDPOINT_ORIGIN, "--ca-file", str(ca_file), "--data-dir", str(data_root), "--installation-id", installation_id], claim.encode("ascii"))
+            _run_provisioner(executable, ["--endpoint-origin", endpoint_origin, "--ca-file", str(ca_file), "--data-dir", str(data_root), "--installation-id", installation_id], claim.encode("ascii"))
             return UUID(campaign_id)
         finally:
             if csrf:
@@ -144,8 +165,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--installation-id", required=True)
     parser.add_argument("--admin-username", required=True)
     parser.add_argument("--allowed-cidr", required=True)
+    parser.add_argument("--endpoint-origin", default=ENDPOINT_ORIGIN)
     args = parser.parse_args(argv)
-    provision_windows_pilot(ca_file=args.ca_file, installation_id=args.installation_id, administrator_username=args.admin_username, allowed_cidr=args.allowed_cidr)
+    provision_windows_pilot(ca_file=args.ca_file, installation_id=args.installation_id, administrator_username=args.admin_username, allowed_cidr=args.allowed_cidr, endpoint_origin=args.endpoint_origin)
     print("Windows pilot enrollment completed.")
     return 0
 

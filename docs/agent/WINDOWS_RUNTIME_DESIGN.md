@@ -117,3 +117,14 @@ The Python contract is import-safe on non-Windows hosts and has injected SCM,
 ACL, service-control, and enrollment adapters for tests. The Windows build
 host produces and inspects the WiX MSI, and the disposable local Windows pilot
 is used for installation, protected enrollment, WSS and update acceptance.
+
+The operator controller `tools/provision_windows_test_agent.py` accepts
+`--endpoint-origin https://endpoint-staging.sosnadmin.local` for an isolated
+staging campaign. Its default remains `https://endpoint.sosnadmin.local`.
+The selected HTTPS origin is used for both the administrator session and the
+installed provisioner; credentials in URLs, paths, queries and fragments are
+rejected before reading secrets. CA validation remains mandatory and the
+hardware-bound claim is passed only through provisioner stdin. An existing
+agent must be stopped and its protected identity/configuration recovery plan
+recorded before changing its enrollment; choosing an origin alone does not
+update the runtime configuration or prove a Gateway connection.
