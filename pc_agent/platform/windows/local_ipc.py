@@ -105,7 +105,7 @@ def create_server_pipe(*, pipe_name: str = PIPE_NAME, overlapped: bool = False):
     )
 
 
-def connect_client_pipe(*, pipe_name: str = PIPE_NAME):
+def connect_client_pipe(*, pipe_name: str = PIPE_NAME, overlapped: bool = False):
     """Open a server-owned pipe for bounded request/ACK exchange."""
     import win32con
     import win32file
@@ -113,7 +113,8 @@ def connect_client_pipe(*, pipe_name: str = PIPE_NAME):
     if not pipe_name.startswith(r"\\.\pipe\EndpointPlatform.Agent."):
         raise ValueError("invalid Endpoint Agent pipe name")
     handle = win32file.CreateFile(
-        pipe_name, CLIENT_ACCESS_MASK, 0, None, win32con.OPEN_EXISTING, 0, None,
+        pipe_name, CLIENT_ACCESS_MASK, 0, None, win32con.OPEN_EXISTING,
+        win32file.FILE_FLAG_OVERLAPPED if overlapped else 0, None,
     )
     try:
         authorize_pipe_server(handle)

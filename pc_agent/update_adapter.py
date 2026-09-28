@@ -15,6 +15,7 @@ from uuid import uuid4
 
 import aiohttp
 from endpoint_contracts import AgentUpdateRecommendationV1
+from endpoint_contracts.device_binding import DeviceBindingChallengeV1
 from pydantic import ValidationError
 
 
@@ -34,6 +35,7 @@ _SEMVER = re.compile(
 
 class _Response(Protocol):
     status: int
+    content: aiohttp.StreamReader
 
     async def text(self) -> str: ...
 
@@ -45,7 +47,8 @@ class _Response(Protocol):
 class _Session(Protocol):
     def get(self, url: str, *, headers: dict[str, str]) -> _Response: ...
     def post(
-        self, url: str, *, headers: dict[str, str], json: dict[str, object]
+        self, url: str, *, headers: dict[str, str], json: dict[str, object],
+        allow_redirects: bool = True,
     ) -> _Response: ...
 
 
@@ -108,6 +111,34 @@ class EndpointUpdateAdapter:
         self._session = session
         self._legacy_fetch = legacy_fetch
         self._data_root = Path(data_root) if data_root is not None else None
+
+    async def create_device_binding_challenge(self) -> DeviceBindingChallengeV1:
+        """Reuse the device session for a fixed, credential-safe possession API."""
+        from pc_agent.platform.windows.device_binding import (
+            BindingUnavailable, MAX_CHALLENGE_BYTES, parse_challenge,
+        )
+        from pc_agent.transport.http_pull import validate_endpoint_origin
+        try:
+            validate_endpoint_origin(self._api_url)
+            bearer = self._bearer_token()
+            if not isinstance(bearer, str) or not bearer:
+                raise BindingUnavailable()
+            async with self._session.post(
+                f"{self._api_url}/api/v1/device-binding/challenges",
+                headers={"Authorization": f"Bearer {bearer}"},
+                json={"purpose":"helpdesk_device_binding"},
+                allow_redirects=False,
+            ) as response:
+                if response.status != 200:
+                    raise BindingUnavailable()
+                body = bytearray()
+                async for chunk in response.content.iter_chunked(512):
+                    body.extend(chunk)
+                    if len(body) > MAX_CHALLENGE_BYTES:
+                        raise BindingUnavailable()
+                return parse_challenge(json.loads(body))
+        except (aiohttp.ClientError, asyncio.TimeoutError, ValueError, TypeError):
+            raise BindingUnavailable() from None
 
     async def fetch_recommendation(
         self, *, platform: UpdatePlatform, channel: UpdateChannel

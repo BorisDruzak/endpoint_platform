@@ -15,6 +15,7 @@ from endpoint_server.browser_sensor.public_routes import router as browser_senso
 from endpoint_server.browser_sensor.admin_routes import router as browser_sensor_admin_router
 from endpoint_server.auth.validation import redacting_validation_exception_handler
 from endpoint_server.config import Settings
+from endpoint_server.device_binding.routes import router as device_binding_router
 from endpoint_server.console.routes import (
     install_console_assets,
     router as console_router,
@@ -125,6 +126,7 @@ def create_app(
         return response
 
     app.include_router(health_router)
+    app.include_router(device_binding_router)
     app.include_router(browser_sensor_public_router)
     app.include_router(admin_auth_router)
     app.include_router(enrollment_admin_router)

@@ -147,7 +147,7 @@ def test_migration_history_has_exactly_one_head() -> None:
         _alembic_config("postgresql+asyncpg://unused@127.0.0.1/unused")
     )
 
-    assert script.get_heads() == ["0035_policy_sensor_health"]
+    assert script.get_heads() == ["0036_device_binding"]
 
 
 def test_sensor_health_migration_has_one_bounded_current_row_per_device() -> None:
@@ -159,6 +159,90 @@ def test_sensor_health_migration_has_one_bounded_current_row_per_device() -> Non
     assert "CREATE TABLE policy_sensor_health_current" in rendered
     assert "uq_policy_sensor_health_device" in rendered
     assert "ck_policy_sensor_health_source_states" in rendered
+
+
+def test_device_binding_migration_has_digest_only_and_active_unique_constraints() -> None:
+    output = io.StringIO()
+    config = Config(REPOSITORY_ROOT / "alembic.ini", output_buffer=output)
+    config.set_main_option("sqlalchemy.url", "postgresql+asyncpg://unused@127.0.0.1/unused")
+    command.upgrade(config, "0035_policy_sensor_health:0036_device_binding", sql=True)
+    rendered = " ".join(output.getvalue().split())
+    assert "CREATE TABLE device_binding_challenges" in rendered
+    assert "CREATE TABLE device_binding_throttles" in rendered
+    assert "CREATE UNIQUE INDEX uq_binding_active_digest" in rendered
+    assert "CREATE UNIQUE INDEX uq_binding_active_device" in rendered
+    assert "WHERE status = 'active'" in rendered
+    assert "code_digest VARCHAR(64) NOT NULL" in rendered
+    assert "code VARCHAR" not in rendered
+
+
+def test_device_binding_concurrent_redemption_has_exactly_one_winner(empty_database_url: str) -> None:
+    from endpoint_server.db.models import Device
+    from endpoint_server.device_binding.service import create_challenge, redeem_challenge, ChallengeUnavailable
+    command.upgrade(_alembic_config(empty_database_url), "head")
+
+    async def scenario():
+        engine = create_async_engine(empty_database_url)
+        sessions = async_sessionmaker(engine, expire_on_commit=False)
+        try:
+            async with sessions() as session:
+                device = Device(id=uuid4(), device_identifier=uuid4().hex)
+                session.add(device)
+                await session.commit()
+                proof = await create_challenge(session, device.id, b"fixture-pepper")
+                await session.commit()
+            ready = asyncio.Event()
+            async def attempt():
+                async with sessions() as session:
+                    await ready.wait()
+                    try:
+                        verified = await redeem_challenge(session, proof.code, b"fixture-pepper")
+                        await session.commit()
+                        return verified
+                    except ChallengeUnavailable:
+                        await session.commit()
+                        return None
+            tasks = [asyncio.create_task(attempt()) for _ in range(2)]
+            ready.set()
+            outcomes = await asyncio.gather(*tasks)
+            assert outcomes.count(device.id) == 1
+            assert outcomes.count(None) == 1
+        finally:
+            await engine.dispose()
+    asyncio.run(scenario())
+
+
+def test_device_binding_concurrent_creation_keeps_one_active_proof(empty_database_url: str) -> None:
+    from sqlalchemy import select
+    from endpoint_server.db.models import Device, DeviceBindingChallenge
+    from endpoint_server.device_binding.service import create_challenge
+    command.upgrade(_alembic_config(empty_database_url), "head")
+
+    async def scenario():
+        engine = create_async_engine(empty_database_url)
+        sessions = async_sessionmaker(engine, expire_on_commit=False)
+        try:
+            async with sessions() as session:
+                device = Device(id=uuid4(), device_identifier=uuid4().hex)
+                session.add(device)
+                await session.commit()
+            ready = asyncio.Event()
+            async def issue():
+                async with sessions() as session:
+                    await ready.wait()
+                    proof = await create_challenge(session, device.id, b"fixture-pepper")
+                    await session.commit()
+                    return proof
+            tasks = [asyncio.create_task(issue()) for _ in range(2)]
+            ready.set()
+            proofs = await asyncio.gather(*tasks)
+            assert proofs[0].challenge_id != proofs[1].challenge_id
+            async with sessions() as session:
+                rows = (await session.scalars(select(DeviceBindingChallenge))).all()
+                assert sorted(r.status for r in rows) == ["active", "revoked"]
+        finally:
+            await engine.dispose()
+    asyncio.run(scenario())
 
 
 def test_browser_status_migration_has_two_family_current_projection() -> None:
@@ -474,6 +558,11 @@ def test_module_step_count_backfill_upgrades_a_populated_original_0018_operation
         )
     )
     command.upgrade(config, "0019_module_step_count_backfill")
+    assert asyncio.run(_fetch(plain_url,
+        f"SELECT expected_step_count FROM endpoint_operations WHERE id = '{operation_id}'"))[0]["expected_step_count"] == 2
+    # The current ORM projection requires columns from later revisions too.
+    # Verify the historical backfill before advancing to that runtime schema.
+    command.upgrade(config, "head")
 
     async def project() -> tuple[int, list[int]]:
         engine = create_async_engine(empty_database_url)

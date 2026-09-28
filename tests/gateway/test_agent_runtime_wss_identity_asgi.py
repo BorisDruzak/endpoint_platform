@@ -47,6 +47,12 @@ def _isolate_machine_activity_pipe(monkeypatch: pytest.MonkeyPatch) -> None:
             start=lambda: None, stop=lambda: None, available=False,
         ),
     )
+    async def isolated_binding_pipe(*_args):
+        await asyncio.Event().wait()
+
+    # The in-process WSS facade is not an HTTPS ClientSession or a service-SID
+    # authenticated desktop pipe server. Binding has its own IPC/API coverage.
+    monkeypatch.setattr(runtime_application, "_serve_windows_device_binding", isolated_binding_pipe)
 
 
 class _AsgiWebSocket:

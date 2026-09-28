@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Literal
 
 from pc_agent.version import AGENT_VERSION
+from pc_agent.platform.windows.device_binding import DEFAULT_BINDING_ORIGIN
 from pc_agent.platform.windows.tray_status import (
     TrayStatus,
     TrayStatusError,
@@ -32,6 +33,7 @@ _REFRESH_TIMER = 31
 _DETAILS_COMMAND = 1001
 _REFRESH_COMMAND = 1002
 _EXIT_COMMAND = 1003
+_BINDING_COMMAND = 1004
 _STATUS_COMMANDS = (1101, 1102, 1103, 1104)
 _NIM_ADD = 0x00000000
 _NIM_MODIFY = 0x00000001
@@ -183,21 +185,23 @@ def _load_view(data_root: Path) -> tuple[TrayView, TrayStatus | None]:
     return status_to_view(status, now), status
 
 
-def run_tray(data_root: Path) -> int:
+def run_tray(data_root: Path, *, binding_origin: str = DEFAULT_BINDING_ORIGIN) -> int:
     """Run an interactive notification icon without network or service-control access."""
     if os.name != "nt":
         return 1
-    return _WindowsTray(data_root).run()
+    return _WindowsTray(data_root, binding_origin=binding_origin).run()
 
 
 class _WindowsTray:
-    def __init__(self, data_root: Path) -> None:
+    def __init__(self, data_root: Path, *, binding_origin: str = DEFAULT_BINDING_ORIGIN) -> None:
         self._data_root = data_root
+        self._binding_origin = binding_origin
         self._view, self._status = _load_view(data_root)
         self._hwnd: int | None = None
         self._icon: int | None = None
         self._notify_added = False
         self._window_proc = None
+        self._binding_dialog_open = False
 
     def run(self) -> int:
         user32 = ctypes.windll.user32
@@ -276,6 +280,13 @@ class _WindowsTray:
                 self._show_details(user32, hwnd)
             elif command == _REFRESH_COMMAND:
                 self._refresh()
+            elif command == _BINDING_COMMAND and not self._binding_dialog_open:
+                from pc_agent.platform.windows.binding_dialog import show_binding_dialog
+                self._binding_dialog_open = True
+                try:
+                    show_binding_dialog(binding_origin=self._binding_origin)
+                finally:
+                    self._binding_dialog_open = False
             elif command == _EXIT_COMMAND:
                 user32.DestroyWindow(hwnd)
             return 0
@@ -311,6 +322,7 @@ class _WindowsTray:
                 user32.AppendMenuW(menu, _MF_OWNERDRAW | _MF_DISABLED, command, None)
             user32.AppendMenuW(menu, _MF_SEPARATOR, 0, None)
             user32.AppendMenuW(menu, _MF_OWNERDRAW, _DETAILS_COMMAND, None)
+            user32.AppendMenuW(menu, _MF_OWNERDRAW, _BINDING_COMMAND, None)
             user32.AppendMenuW(menu, _MF_OWNERDRAW, _REFRESH_COMMAND, None)
             user32.AppendMenuW(menu, _MF_OWNERDRAW, _EXIT_COMMAND, None)
             point = wintypes.POINT()
@@ -328,6 +340,7 @@ class _WindowsTray:
         if item_id in _STATUS_COMMANDS:
             return self._view.menu_labels[_STATUS_COMMANDS.index(item_id)]
         return {
+            _BINDING_COMMAND: "Привязать компьютер к Helpdesk",
             _DETAILS_COMMAND: "Сведения",
             _REFRESH_COMMAND: "Обновить",
             _EXIT_COMMAND: "Закрыть значок",
@@ -475,7 +488,8 @@ def _create_colored_icon(color: TrayIcon) -> int:
 
 
 def main() -> int:
-    return run_tray(default_windows_data_root())
+    from pc_agent.platform.windows.device_binding import tray_binding_origin
+    return run_tray(default_windows_data_root(), binding_origin=tray_binding_origin())
 
 
 if __name__ == "__main__":

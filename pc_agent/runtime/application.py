@@ -400,6 +400,7 @@ def _default_dependencies(
                 activity_dispatch.begin_connection()
                 tasks = [
                     _periodic_windows_update_checks(settings, credential),
+                    _serve_windows_device_binding(settings, credential),
                     activity_dispatch.send_forever(transport),
                 ]
                 if security_runtime is not None:
@@ -687,6 +688,43 @@ async def _periodic_windows_update_checks(
                 # only its MSI-owned updater service.
                 pass
         await sleep(endpoint_gateway.GATEWAY_UPDATE_POLL_INTERVAL_SEC)
+
+
+async def _serve_windows_device_binding(settings: RuntimeSettings, credential: str) -> None:
+    """Keep protected device credentials in the service; publish only ephemeral IPC replies."""
+    from pc_agent.platform.windows.device_binding import BindingPipeHandler, BindingUnavailable, PIPE_NAME
+    from pc_agent.platform.windows.sensor_pipe_listener import LocalSensorPipeListener
+    from pc_agent.transport.http_pull import reject_endpoint_redirect
+    from pc_agent.update_adapter import EndpointUpdateAdapter
+
+    context = ssl.create_default_context(cafile=str(settings.ca_file))
+    trace = aiohttp.TraceConfig()
+    trace.on_request_redirect.append(reject_endpoint_redirect)
+    async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=2),
+        connector=aiohttp.TCPConnector(ssl=context), trace_configs=[trace]) as session:
+        adapter = EndpointUpdateAdapter(api_url=settings.endpoint_origin,
+            bearer_token=lambda:credential, session=session)
+        loop = asyncio.get_running_loop()
+
+        def issue():
+            pending = asyncio.run_coroutine_threadsafe(adapter.create_device_binding_challenge(), loop)
+            try:
+                return pending.result(timeout=2.5).model_dump(mode="json")
+            except Exception:
+                pending.cancel()
+                raise BindingUnavailable() from None
+
+        listener = LocalSensorPipeListener(BindingPipeHandler(issue).handle,
+            pipe_name=PIPE_NAME, frame_timeout_seconds=5)
+        try:
+            listener.start()
+        except Exception:
+            # Binding availability must not disconnect the authenticated Agent.
+            await asyncio.Future()
+        try:
+            await asyncio.Future()
+        finally:
+            await asyncio.to_thread(listener.stop)
 
 
 async def _run_windows_startup_report(

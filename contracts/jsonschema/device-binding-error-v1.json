@@ -1,0 +1,16 @@
+{
+  "additionalProperties": false,
+  "description": "Binding routes return a bounded message, never reflected request details.",
+  "properties": {
+    "detail": {
+      "maxLength": 64,
+      "title": "Detail",
+      "type": "string"
+    }
+  },
+  "required": [
+    "detail"
+  ],
+  "title": "DeviceBindingErrorV1",
+  "type": "object"
+}

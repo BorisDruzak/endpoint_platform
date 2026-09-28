@@ -1,0 +1,44 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "device_id": {
+      "format": "uuid",
+      "title": "Device Id",
+      "type": "string"
+    },
+    "hostname": {
+      "anyOf": [
+        {
+          "maxLength": 256,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Hostname"
+    },
+    "platform": {
+      "default": "unknown",
+      "enum": [
+        "windows",
+        "linux",
+        "unknown"
+      ],
+      "title": "Platform",
+      "type": "string"
+    },
+    "status": {
+      "const": "verified",
+      "default": "verified",
+      "title": "Status",
+      "type": "string"
+    }
+  },
+  "required": [
+    "device_id"
+  ],
+  "title": "DeviceBindingVerifiedV1",
+  "type": "object"
+}

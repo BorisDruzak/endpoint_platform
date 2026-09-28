@@ -1588,8 +1588,218 @@ paths:
             "application/json":
               schema:
                 "$ref": "#/components/schemas/HTTPValidationError"
+  "/api/v1/device-binding/challenges":
+    post:
+      tags:
+        - "device-binding"
+      summary: "Create"
+      operationId: "create_api_v1_device_binding_challenges_post"
+      requestBody:
+        content:
+          "application/json":
+            schema:
+              "$ref": "#/components/schemas/DeviceBindingCreateV1"
+        required: true
+      responses:
+        "200":
+          description: "Successful Response"
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/DeviceBindingChallengeV1"
+        "400":
+          description: "Challenge unavailable"
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/DeviceBindingErrorV1"
+        "401":
+          description: "Invalid credential"
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/DeviceBindingErrorV1"
+        "403":
+          description: "Required scope or source policy missing"
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/DeviceBindingErrorV1"
+        "422":
+          description: "Invalid binding request"
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/DeviceBindingErrorV1"
+        "429":
+          description: "Challenge request throttled"
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/DeviceBindingErrorV1"
+      security:
+        -
+          AgentBearer: []
+  "/api/v1/device-binding/challenges/redeem":
+    post:
+      tags:
+        - "device-binding"
+      summary: "Redeem"
+      operationId: "redeem_api_v1_device_binding_challenges_redeem_post"
+      requestBody:
+        content:
+          "application/json":
+            schema:
+              "$ref": "#/components/schemas/DeviceBindingRedeemV1"
+        required: true
+      responses:
+        "200":
+          description: "Successful Response"
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/DeviceBindingVerifiedV1"
+        "400":
+          description: "Challenge unavailable"
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/DeviceBindingErrorV1"
+        "401":
+          description: "Invalid credential"
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/DeviceBindingErrorV1"
+        "403":
+          description: "Required scope or source policy missing"
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/DeviceBindingErrorV1"
+        "422":
+          description: "Invalid binding request"
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/DeviceBindingErrorV1"
+        "429":
+          description: "Challenge request throttled"
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/DeviceBindingErrorV1"
+      security:
+        -
+          ServiceBearer: []
+      x-required-scopes:
+        - "device-binding.redeem"
 components:
   schemas:
+    DeviceBindingErrorV1:
+      additionalProperties: false
+      description: "Binding routes return a bounded message, never reflected request details."
+      properties:
+        detail:
+          maxLength: 64
+          title: "Detail"
+          type: "string"
+      required:
+        - "detail"
+      title: "DeviceBindingErrorV1"
+      type: "object"
+    DeviceBindingCreateV1:
+      additionalProperties: false
+      properties:
+        purpose:
+          const: "helpdesk_device_binding"
+          title: "Purpose"
+          type: "string"
+      required:
+        - "purpose"
+      title: "DeviceBindingCreateV1"
+      type: "object"
+    DeviceBindingRedeemV1:
+      additionalProperties: false
+      properties:
+        purpose:
+          const: "helpdesk_device_binding"
+          title: "Purpose"
+          type: "string"
+        code:
+          pattern: "^[0-9]{6}$"
+          title: "Code"
+          type: "string"
+      required:
+        - "purpose"
+        - "code"
+      title: "DeviceBindingRedeemV1"
+      type: "object"
+    DeviceBindingChallengeV1:
+      additionalProperties: false
+      properties:
+        challenge_id:
+          format: "uuid"
+          title: "Challenge Id"
+          type: "string"
+        code:
+          pattern: "^[0-9]{6}$"
+          title: "Code"
+          type: "string"
+        display_code:
+          pattern: "^[0-9]{3}-[0-9]{3}$"
+          title: "Display Code"
+          type: "string"
+        expires_at:
+          format: "date-time"
+          title: "Expires At"
+          type: "string"
+          "$comment": "model-only UTC normalization: timezone-aware values are normalized to UTC."
+        expires_in_seconds:
+          const: 600
+          title: "Expires In Seconds"
+          type: "integer"
+      required:
+        - "challenge_id"
+        - "code"
+        - "display_code"
+        - "expires_at"
+        - "expires_in_seconds"
+      title: "DeviceBindingChallengeV1"
+      type: "object"
+    DeviceBindingVerifiedV1:
+      additionalProperties: false
+      properties:
+        status:
+          const: "verified"
+          default: "verified"
+          title: "Status"
+          type: "string"
+        device_id:
+          format: "uuid"
+          title: "Device Id"
+          type: "string"
+        hostname:
+          anyOf:
+            -
+              maxLength: 256
+              type: "string"
+            -
+              type: "null"
+          default: null
+          title: "Hostname"
+        platform:
+          default: "unknown"
+          enum:
+            - "windows"
+            - "linux"
+            - "unknown"
+          title: "Platform"
+          type: "string"
+      required:
+        - "device_id"
+      title: "DeviceBindingVerifiedV1"
+      type: "object"
     ActivityObservationV1:
       additionalProperties: false
       properties:

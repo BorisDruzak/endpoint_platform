@@ -1,0 +1,15 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "purpose": {
+      "const": "helpdesk_device_binding",
+      "title": "Purpose",
+      "type": "string"
+    }
+  },
+  "required": [
+    "purpose"
+  ],
+  "title": "DeviceBindingCreateV1",
+  "type": "object"
+}
