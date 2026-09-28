@@ -290,9 +290,14 @@ def test_schema5_manifest_rejects_hashes_not_from_the_declared_revision(
 
 
 def test_schema5_production_validation_rejects_evidence_for_another_artifact(
-    tmp_path: Path, artifact_root: Path
+    tmp_path: Path, artifact_root: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """A retained stage cannot lend provenance to a different candidate tree."""
+    monkeypatch.setenv("PYTHONHASHSEED", "0")
+    monkeypatch.setenv("SOURCE_DATE_EPOCH", "1767225600")
+    # This subprocess test must pass producer validation before it reaches
+    # the deliberately mismatched stage, including on supported Python 3.12.
+    toolchain = _contract_module().discover_toolchain()
     candidate_artifact = tmp_path / "candidate-artifact"
     (candidate_artifact / "_internal").mkdir(parents=True)
     (candidate_artifact / "pc_agent.exe").write_bytes(b"candidate-exe")
@@ -302,7 +307,7 @@ def test_schema5_production_validation_rejects_evidence_for_another_artifact(
         version="3.1.76",
         guid="980AE24B-57BC-4B59-A18A-65B9B33A7906",
         artifact_root=candidate_artifact,
-        toolchain=TOOLCHAIN_HOOKS_PINNED,
+        toolchain=toolchain,
         schema_version=4,
     )
     staged_revision = _commit_source_tree(tmp_path)

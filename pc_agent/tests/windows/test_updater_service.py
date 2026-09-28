@@ -217,6 +217,7 @@ def test_pending_validator_rejects_reparse_point_traversal(
 
     class _Details:
         st_file_attributes = 0x400
+        st_mode = original_lstat(paths.downloads_root).st_mode
 
     def reparse_lstat(path: Path):
         if path == paths.downloads_root:

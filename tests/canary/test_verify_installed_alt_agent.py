@@ -159,11 +159,16 @@ def test_collect_preflight_projects_protected_credential_state_without_naming_it
         lambda _root, _revision: {"version": "3.2.30", "source_revision": "c" * 40},
     )
     monkeypatch.setattr(preflight, "_verify_origin", lambda _origin, _ca: {"strict_tls": "passed"})
-    monkeypatch.setattr(
-        Path,
-        "stat",
-        lambda _self: SimpleNamespace(st_mode=stat.S_IFREG | 0o600),
-    )
+    original_stat = Path.stat
+    protected_files = {data_root / "device-credential", data_root / "enrollment-identity.json"}
+
+    def protected_stat(path, *args, **kwargs):
+        if path in protected_files:
+            return SimpleNamespace(st_mode=stat.S_IFREG | 0o600)
+        return original_stat(path, *args, **kwargs)
+
+    # Do not replace pathlib metadata for pytest itself or unrelated paths.
+    monkeypatch.setattr(Path, "stat", protected_stat)
 
     payload = preflight.collect_preflight(
         expected_endpoint_origin="https://endpoint-staging.sosnadmin.local",
