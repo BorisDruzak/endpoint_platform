@@ -17,6 +17,7 @@ from typing import Literal
 from urllib.parse import urlsplit
 
 import aiohttp
+from endpoint_contracts.gateway_ws import EndpointPolicyAckV1, EndpointPolicyDeliveryV1
 
 from pc_agent import endpoint_gateway
 from pc_agent.device_credential import DeviceCredentialError, read_device_credential
@@ -240,6 +241,13 @@ def _default_dependencies(
         if policy_runtime is not None:
             await policy_runtime.restore_offline()
 
+    async def apply_policy_delivery(delivery: EndpointPolicyDeliveryV1) -> EndpointPolicyAckV1:
+        # A replacement policy must also stop Activity while its ACK is pending.
+        activity_dispatch.begin_connection()
+        if policy_runtime is None:
+            raise GatewayTerminalError("Endpoint Policy runtime is unavailable")
+        return await policy_runtime.apply_delivery(delivery)
+
     def start_local_sensor(current_settings: object):
         nonlocal usb_notifications, print_notifications, browser_status_runtime
         nonlocal activity_ingress, activity_listener
@@ -389,6 +397,7 @@ def _default_dependencies(
             and isinstance(transport, WebSocketGatewayTransport)
         ):
             if os.name == "nt":
+                activity_dispatch.begin_connection()
                 tasks = [
                     _periodic_windows_update_checks(settings, credential),
                     activity_dispatch.send_forever(transport),
@@ -437,7 +446,8 @@ def _default_dependencies(
         after_server_handshake=_startup_proof_hook,
         restore_policy=restore_policy,
         start_local_sensor=start_local_sensor,
-        policy_handler=policy_runtime.apply_delivery if policy_runtime is not None else None,
+        policy_handler=apply_policy_delivery if policy_runtime is not None else None,
+        activity_policy_ack_sent=activity_dispatch.policy_ack_sent,
         security_ack_handler=(
             security_runtime.receive_ack if security_runtime is not None else None
         ),

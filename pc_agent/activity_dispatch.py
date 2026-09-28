@@ -28,6 +28,14 @@ class ActivityDispatch:
         self._max_pending = max_pending
         self._pending: deque[ActivityObservationV1] = deque()
         self._lock = Lock()
+        self._policy_ready = asyncio.Event()
+
+    def begin_connection(self) -> None:
+        """Block Activity until this session has sent an APPLIED policy ACK."""
+        self._policy_ready.clear()
+
+    def policy_ack_sent(self) -> None:
+        self._policy_ready.set()
 
     @property
     def pending_count(self) -> int:
@@ -43,6 +51,8 @@ class ActivityDispatch:
             self._pending.append(observation)
 
     async def flush_one(self, transport: ActivitySender) -> bool:
+        if not self._policy_ready.is_set():
+            return False
         with self._lock:
             if not self._pending:
                 return False
@@ -60,5 +70,6 @@ class ActivityDispatch:
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
     ) -> None:
         while True:
+            await self._policy_ready.wait()
             if not await self.flush_one(transport):
                 await sleep(0.25)

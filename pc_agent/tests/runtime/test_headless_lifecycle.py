@@ -496,6 +496,50 @@ def test_policy_only_wss_runtime_starts_gated_local_listener(monkeypatch, tmp_pa
 
 @pytest.mark.skipif(os.name != "nt", reason="Windows local sensor")
 @pytest.mark.asyncio
+async def test_default_activity_wiring_resets_gate_for_reconnect_and_policy_delivery(
+    monkeypatch, tmp_path: Path,
+) -> None:
+    from pc_agent.activity_dispatch import ActivityDispatch
+    from pc_agent.tests.runtime.test_activity_dispatch import observation
+    from pc_agent.tests.policy.test_runtime import _delivery
+
+    dispatch = ActivityDispatch()
+    monkeypatch.setattr(runtime_application, "ActivityDispatch", lambda: dispatch)
+    settings = replace(_settings(tmp_path), transport_mode="gateway_wss")
+    dependencies = runtime_application._default_dependencies(settings)
+    dispatch.enqueue(observation())
+
+    class Transport:
+        sent = []
+
+        async def send_activity_observation(self, item):
+            self.sent.append(item)
+
+    transport = Transport()
+    assert not await dispatch.flush_one(transport)
+    assert dependencies.activity_policy_ack_sent is not None
+    dependencies.activity_policy_ack_sent()
+    websocket = object.__new__(runtime_application.WebSocketGatewayTransport)
+    for task in dependencies.create_connected_tasks(settings, "d" * 43, websocket):
+        task.close()
+    assert not await dispatch.flush_one(transport)
+    dependencies.activity_policy_ack_sent()
+
+    async def apply(_runtime, _delivery):
+        assert not await dispatch.flush_one(transport)
+        return SimpleNamespace(status="ERROR")
+
+    monkeypatch.setattr(runtime_application.PolicyRuntime, "apply_delivery", apply)
+    assert dependencies.policy_handler is not None
+    ack = await dependencies.policy_handler(_delivery(active=True))
+    assert ack.status == "ERROR"
+    assert not await dispatch.flush_one(transport)
+    assert dispatch.pending_count == 1
+    assert transport.sent == []
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows local sensor")
+@pytest.mark.asyncio
 async def test_security_feature_pins_browser_identity_and_durable_handoff(
     monkeypatch, tmp_path: Path,
 ) -> None:

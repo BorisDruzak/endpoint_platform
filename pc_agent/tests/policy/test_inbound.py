@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
@@ -97,5 +98,53 @@ async def test_security_replay_stays_blocked_when_policy_ack_send_fails() -> Non
         await _handle_inbound(
             Transport(), object(), _inbound(), policy_handler=apply,
             security_policy_ack_sent=ready,
+        )
+    assert not called
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status", ["APPLIED", "ERROR"])
+async def test_activity_gate_opens_only_after_successful_policy_ack(status) -> None:
+    order = []
+
+    class Transport(_Transport):
+        async def send_policy_ack(self, ack):
+            order.append("ack_sent")
+            await super().send_policy_ack(ack)
+
+    async def apply(_delivery):
+        order.append("policy_applied")
+        return SimpleNamespace(status=status)
+
+    await _handle_inbound(
+        Transport(), object(), _inbound(), policy_handler=apply,
+        activity_policy_ack_sent=lambda: order.append("activity_ready"),
+        security_policy_ack_sent=lambda: order.append("health_ready"),
+    )
+    expected = ["policy_applied", "ack_sent", "health_ready"]
+    if status == "APPLIED":
+        expected.append("activity_ready")
+    assert order == expected
+
+
+@pytest.mark.asyncio
+async def test_activity_stays_blocked_when_applied_policy_ack_send_fails() -> None:
+    called = False
+
+    class Transport(_Transport):
+        async def send_policy_ack(self, ack):
+            raise GatewayTerminalError("policy ACK transport failed")
+
+    async def apply(_delivery):
+        return SimpleNamespace(status="APPLIED")
+
+    def ready():
+        nonlocal called
+        called = True
+
+    with pytest.raises(GatewayTerminalError):
+        await _handle_inbound(
+            Transport(), object(), _inbound(), policy_handler=apply,
+            activity_policy_ack_sent=ready,
         )
     assert not called

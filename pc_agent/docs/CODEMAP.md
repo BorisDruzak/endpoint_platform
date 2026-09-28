@@ -15,7 +15,12 @@ cancellable named-pipe listener in `platform/windows/sensor_pipe_listener.py`.
 projects typed user/browser observations; `activity_dispatch.py` holds a
 bounded handoff for WSS reconnects. `RuntimeLifecycle` starts the listener on
 Windows WSS before connecting and stops it on exit; the sender resumes on each
-WSS connection.
+WSS connection only after the Agent has applied its policy and successfully
+sent an `APPLIED` policy ACK. `ActivityDispatch` closes this gate on every
+connection and before applying a replacement policy; an `ERROR` ACK or failed
+ACK send leaves Activity queued. Health/status reporting keeps its independent
+ACK gate so policy errors can still be reported. No Gateway frame or server
+contract changes are required.
 
 `security/spool.py` keeps typed SecurityEvents in a protected SQLite file under
 the Agent data root. It discards the oldest event on the 1000-event or 5-MiB
