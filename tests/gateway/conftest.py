@@ -9,6 +9,7 @@ from types import SimpleNamespace
 from typing import Any
 from uuid import UUID, uuid4
 
+import anyio
 import pytest
 import pytest_asyncio
 from sqlalchemy import text
@@ -143,6 +144,12 @@ class FixedWebSocketPeerApp:
     async def __call__(self, scope: dict[str, Any], receive: Any, send: Any) -> None:
         if scope["type"] == "websocket":
             scope = {**scope, "client": ("127.0.0.1", 54321)}
+            # TestClient sends disconnect and immediately cancels its task group.
+            # Let the actual route finish its DB cleanup before portal shutdown;
+            # otherwise SQLite cleanup can remain shielded in a detached task.
+            with anyio.CancelScope(shield=True):
+                await self._app(scope, receive, send)
+            return
         await self._app(scope, receive, send)
 
 
