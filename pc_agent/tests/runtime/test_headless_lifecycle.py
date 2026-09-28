@@ -505,6 +505,7 @@ async def test_security_feature_pins_browser_identity_and_durable_handoff(
     from pc_agent.tests.security.test_spool import NOW, _event
     from pc_agent.security.spool import SecurityEventSpool
 
+    event_time = datetime.now(UTC)
     data_root = tmp_path / "data"
     data_root.mkdir()
     settings = RuntimeSettings(
@@ -575,7 +576,7 @@ async def test_security_feature_pins_browser_identity_and_durable_handoff(
     monkeypatch.setattr(print_sensor, "PrintJobNotifications", PrintSource)
     monkeypatch.setattr(
         print_sensor, "project_print_job",
-        lambda _facts, _policy, *, occurred_at: _event(occurred_at=NOW),
+        lambda _facts, _policy, *, occurred_at: _event(occurred_at=event_time),
     )
     dependencies = runtime_application._default_dependencies(settings)
     sensor = dependencies.start_local_sensor(settings)
@@ -615,7 +616,7 @@ async def test_security_feature_pins_browser_identity_and_durable_handoff(
         assert await health_runtime.send_once(health_transport, observed_at=NOW)
         assert health_transport.reports[-1].activity_listener_state == "UNAVAILABLE"
         assert captured["ingress"]._extension_id == "a" * 32
-        assert await asyncio.to_thread(captured["on_security_event"], _event(occurred_at=NOW))
+        assert await asyncio.to_thread(captured["on_security_event"], _event(occurred_at=event_time))
         await asyncio.to_thread(captured["on_print_job"], object())
         spool = SecurityEventSpool(data_root)
         await spool.open()
