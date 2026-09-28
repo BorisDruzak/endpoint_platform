@@ -5,16 +5,20 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import threading
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any
 from uuid import UUID
 
 import aiohttp
 import certifi
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 from starlette.websockets import WebSocketDisconnect
 
+from endpoint_server.db.models import DeviceSession
 from endpoint_server.main import create_app
 from pc_agent import endpoint_gateway
 from pc_agent.enrollment_identity import (
@@ -34,6 +38,21 @@ from .conftest import (
 
 
 _RUNTIME_DEVICE_TOKEN = "w" * 43
+
+
+class _DisconnectCompletePeerApp(FixedWebSocketPeerApp):
+    """Let the real route finish DB cleanup before TestClient cancels its portal."""
+
+    def __init__(self, app: Any) -> None:
+        super().__init__(app)
+        self.disconnected = threading.Event()
+
+    async def __call__(self, scope: dict[str, Any], receive: Any, send: Any) -> None:
+        try:
+            await super().__call__(scope, receive, send)
+        finally:
+            if scope["type"] == "websocket":
+                self.disconnected.set()
 
 
 def _isolate_machine_activity_pipe(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -58,7 +77,13 @@ def _isolate_machine_activity_pipe(monkeypatch: pytest.MonkeyPatch) -> None:
 class _AsgiWebSocket:
     """Minimal aiohttp socket facade backed by Starlette's in-process client."""
 
-    def __init__(self, client: TestClient, headers: dict[str, str]) -> None:
+    def __init__(
+        self,
+        client: TestClient,
+        headers: dict[str, str],
+        disconnected: threading.Event,
+    ) -> None:
+        self._disconnected = disconnected
         self._context = client.websocket_connect("/agent/v1/connect", headers=headers)
         self._websocket = self._context.__enter__()
         self._received_gateway_hello = False
@@ -95,14 +120,21 @@ class _AsgiWebSocket:
         context = self._context
         self._context = None
         if context is not None:
+            # Starlette 0.41 cancels the ASGI task immediately on context exit.
+            # Send disconnect first and await the real route's finally/DB commit.
+            self._websocket.close()
+            assert await asyncio.to_thread(self._disconnected.wait, 5), (
+                "Gateway disconnect cleanup did not complete"
+            )
             context.__exit__(None, None, None)
 
 
 class _AsgiClientSession:
     """Minimal ClientSession facade preserving the production WSS transport path."""
 
-    def __init__(self, client: TestClient) -> None:
+    def __init__(self, client: TestClient, disconnected: threading.Event) -> None:
         self._client = client
+        self._disconnected = disconnected
         self.sockets: list[_AsgiWebSocket] = []
 
     async def ws_connect(
@@ -118,7 +150,7 @@ class _AsgiClientSession:
             "X-Forwarded-For": "192.168.101.20",
             "X-Forwarded-Proto": "https",
         }
-        socket = _AsgiWebSocket(self._client, request_headers)
+        socket = _AsgiWebSocket(self._client, request_headers, self._disconnected)
         self.sockets.append(socket)
         return socket
 
@@ -182,8 +214,9 @@ async def test_default_runtime_wss_accepts_persisted_authoritative_device_id(
     )
 
     app = create_app(gateway_route_harness.settings, gateway_route_harness.provider)
-    with TestClient(FixedWebSocketPeerApp(app)) as client:
-        bridge = _AsgiClientSession(client)
+    peer = _DisconnectCompletePeerApp(app)
+    with TestClient(peer) as client:
+        bridge = _AsgiClientSession(client, peer.disconnected)
         monkeypatch.setattr(
             "pc_agent.transport.websocket.aiohttp.ClientSession",
             lambda **_kwargs: bridge,
@@ -212,6 +245,14 @@ async def test_default_runtime_wss_accepts_persisted_authoritative_device_id(
     assert device.id != UUID(int=0)
     assert payload["agent_version"] == AGENT_VERSION
     assert payload["launcher_version"] == AGENT_VERSION
+    async with gateway_route_harness.provider() as session:
+        sessions = (
+            await session.scalars(
+                select(DeviceSession).where(DeviceSession.device_id == device.id)
+            )
+        ).all()
+    assert sessions
+    assert all(item.closed_at is not None for item in sessions)
 
 
 @pytest.mark.asyncio
@@ -239,8 +280,9 @@ async def test_default_runtime_wss_rejects_a_non_authoritative_identity_for_vali
     )
 
     app = create_app(gateway_route_harness.settings, gateway_route_harness.provider)
-    with TestClient(FixedWebSocketPeerApp(app)) as client:
-        bridge = _AsgiClientSession(client)
+    peer = _DisconnectCompletePeerApp(app)
+    with TestClient(peer) as client:
+        bridge = _AsgiClientSession(client, peer.disconnected)
         monkeypatch.setattr(
             "pc_agent.transport.websocket.aiohttp.ClientSession",
             lambda **_kwargs: bridge,
