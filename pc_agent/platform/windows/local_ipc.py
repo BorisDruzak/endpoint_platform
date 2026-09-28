@@ -15,6 +15,7 @@ from typing import Collection
 
 PIPE_NAME = r"\\.\pipe\EndpointPlatform.Agent.Sensor.v1"
 CLIENT_ACCESS_MASK = 0x00100003  # SYNCHRONIZE | FILE_READ_DATA | FILE_WRITE_DATA
+CLIENT_PIPE_DACL_MASK = CLIENT_ACCESS_MASK | 0x80  # CreateFile requires FILE_READ_ATTRIBUTES.
 MAX_IPC_MESSAGE_BYTES = 16 * 1024
 SERVICE_ACCOUNT_NAME = r"NT SERVICE\EndpointAgent"
 
@@ -76,7 +77,7 @@ def create_pipe_security_attributes():
 
     descriptor = win32security.ConvertStringSecurityDescriptorToSecurityDescriptor(
         f"D:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;GA;;;{SERVICE_SID})"
-        "(A;;0x00100003;;;IU)",
+        f"(A;;0x{CLIENT_PIPE_DACL_MASK:08x};;;IU)",
         win32security.SDDL_REVISION_1,
     )
     attributes = pywintypes.SECURITY_ATTRIBUTES()
@@ -122,6 +123,50 @@ def connect_client_pipe(*, pipe_name: str = PIPE_NAME, overlapped: bool = False)
         win32file.CloseHandle(handle)
         raise
     return handle
+
+
+def publish_agent_identity_acl() -> None:
+    """Allow interactive clients to verify the service's live token identity.
+
+    Publish only process/token query rights, as the BrowserPolicy helper does.
+    Clients still require the LocalService user and EndpointAgent service SID;
+    no token duplication, process-memory access or mutation is granted.
+    """
+    import win32api
+    import win32con
+    import win32security
+
+    interactive_sid = win32security.ConvertStringSidToSid(_INTERACTIVE_SID)
+
+    def grant(handle, right):
+        descriptor = win32security.GetSecurityInfo(
+            handle, win32security.SE_KERNEL_OBJECT,
+            win32security.DACL_SECURITY_INFORMATION,
+        )
+        dacl = descriptor.GetSecurityDescriptorDacl()
+        if dacl is None:
+            raise LocalIpcRejected("unsafe local IPC identity DACL")
+        for index in range(dacl.GetAceCount()):
+            ace = dacl.GetAce(index)
+            if (ace[0][0] == win32security.ACCESS_ALLOWED_ACE_TYPE
+                and win32security.ConvertSidToStringSid(ace[2]) == _INTERACTIVE_SID
+                and ace[1] & right == right):
+                return
+        dacl.AddAccessAllowedAceEx(win32security.ACL_REVISION, 0, right, interactive_sid)
+        win32security.SetSecurityInfo(
+            handle, win32security.SE_KERNEL_OBJECT,
+            win32security.DACL_SECURITY_INFORMATION, None, None, dacl, None,
+        )
+
+    process = win32api.GetCurrentProcess()
+    grant(process, win32con.PROCESS_QUERY_LIMITED_INFORMATION)
+    token = win32security.OpenProcessToken(
+        process, win32con.TOKEN_QUERY | win32con.READ_CONTROL | win32con.WRITE_DAC,
+    )
+    try:
+        grant(token, win32con.TOKEN_QUERY)
+    finally:
+        token.Close()
 
 
 def _read_exact(pipe_handle, count: int) -> bytes:

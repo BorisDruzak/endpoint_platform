@@ -694,6 +694,7 @@ async def _serve_windows_device_binding(settings: RuntimeSettings, credential: s
     """Keep protected device credentials in the service; publish only ephemeral IPC replies."""
     from pc_agent.platform.windows.device_binding import BindingPipeHandler, BindingUnavailable, PIPE_NAME
     from pc_agent.platform.windows.sensor_pipe_listener import LocalSensorPipeListener
+    from pc_agent.platform.windows.local_ipc import publish_agent_identity_acl
     from pc_agent.transport.http_pull import reject_endpoint_redirect
     from pc_agent.update_adapter import EndpointUpdateAdapter
 
@@ -717,6 +718,7 @@ async def _serve_windows_device_binding(settings: RuntimeSettings, credential: s
         listener = LocalSensorPipeListener(BindingPipeHandler(issue).handle,
             pipe_name=PIPE_NAME, frame_timeout_seconds=5)
         try:
+            publish_agent_identity_acl()
             listener.start()
         except Exception:
             # Binding availability must not disconnect the authenticated Agent.

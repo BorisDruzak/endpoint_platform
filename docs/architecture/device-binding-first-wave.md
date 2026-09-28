@@ -67,7 +67,13 @@ Tray never opens the protected device credential or directly calls Endpoint.
 `EndpointPlatform.Agent.DeviceBinding.v1` reuses the service-owned named pipe,
 DACL, remote-client rejection, first-instance protection, server service-SID
 check, and active-interactive-session client authorization. IPC accepts only
-the fixed create action. The connected Windows runtime uses the existing
+the fixed create action. The Windows runtime uses the service-owned
+pipe DACL with `FILE_READ_ATTRIBUTES`, which Windows implicitly requires on
+client open. Before publishing the listener, the service grants interactive
+clients only `PROCESS_QUERY_LIMITED_INFORMATION` and `TOKEN_QUERY` on its own
+process/token so the existing LocalService and service-SID checks can run.
+It grants no process-memory, token-duplication, mutation or pipe-creation rights.
+The connected Windows runtime uses the existing
 device adapter/CA-verified HTTPS session, rejects redirects, bounds the reply
 to 2048 bytes and returns only a challenge or a fixed unavailable error.
 IPC and network operations time out, and the listener stops on disconnect/exit.

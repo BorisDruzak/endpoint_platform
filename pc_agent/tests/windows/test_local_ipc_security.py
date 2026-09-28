@@ -1,6 +1,8 @@
 """The local sensor pipe authorizes an OS-backed interactive SID/session."""
 
 import os
+import subprocess
+import sys
 import threading
 from uuid import uuid4
 
@@ -64,11 +66,38 @@ def test_real_pipe_dacl_grants_interactive_data_only() -> None:
         win32security.ConvertSidToStringSid(dacl.GetAce(index)[2]): dacl.GetAce(index)[1]
         for index in range(dacl.GetAceCount())
     }
-    assert rights["S-1-5-4"] == CLIENT_ACCESS_MASK
+    # Windows implicitly requires FILE_READ_ATTRIBUTES when opening a pipe.
+    assert rights["S-1-5-4"] == CLIENT_ACCESS_MASK | 0x80
     assert rights["S-1-5-4"] & 0x4 == 0
     assert rights[SERVICE_SID] == 0x10000000  # The EndpointAgent service owns server instances.
     assert "S-1-5-19" not in rights  # Other LocalService processes cannot own this pipe.
     assert "S-1-1-0" not in rights  # Everyone
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows process/token security")
+def test_agent_publishes_only_identity_query_rights_to_interactive_clients() -> None:
+    # Run outside the test runner: this changes only its own process/token DACLs.
+    code = '''
+import win32api, win32con, win32security
+from pc_agent.platform.windows import local_ipc
+assert hasattr(local_ipc, "publish_agent_identity_acl"), "identity query publication missing"
+local_ipc.publish_agent_identity_acl()
+local_ipc.publish_agent_identity_acl()
+process = win32api.GetCurrentProcess()
+token = win32security.OpenProcessToken(process, win32con.TOKEN_QUERY | win32con.READ_CONTROL)
+try:
+    for handle, expected in ((process, win32con.PROCESS_QUERY_LIMITED_INFORMATION),
+                             (token, win32con.TOKEN_QUERY)):
+        dacl = win32security.GetSecurityInfo(handle, win32security.SE_KERNEL_OBJECT,
+            win32security.DACL_SECURITY_INFORMATION).GetSecurityDescriptorDacl()
+        masks = [dacl.GetAce(i)[1] for i in range(dacl.GetAceCount())
+                 if win32security.ConvertSidToStringSid(dacl.GetAce(i)[2]) == "S-1-5-4"]
+        assert masks == [expected], masks
+finally:
+    token.Close()
+'''
+    completed = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, timeout=15)
+    assert completed.returncode == 0, completed.stderr
 
 
 @pytest.mark.skipif(os.name != "nt", reason="Windows service SID mapping")
