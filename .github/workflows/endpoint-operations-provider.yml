@@ -47,6 +47,7 @@ permissions:
 jobs:
   provider-release-gate:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     services:
       postgres:
         image: postgres:16
@@ -71,9 +72,10 @@ jobs:
 
       - name: Run provider contract, operations, and Gateway suites
         run: >-
+          timeout --signal=INT --kill-after=15s 10m
           python -m pytest tests/contracts tests/operations tests/gateway
           tests/server/test_device_binding.py tests/server/test_device_binding_api.py
-          tests/server/test_migrations.py -q
+          tests/server/test_migrations.py -v -o faulthandler_timeout=120
           --junitxml=artifacts/endpoint-operations-provider.xml
 
       - name: Check generated contract artifacts

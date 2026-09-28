@@ -27,7 +27,7 @@ def test_operations_provider_release_workflow_covers_required_gate_surface() -> 
         "python -m pytest tests/contracts tests/operations tests/gateway",
         "tests/server/test_device_binding.py",
         "tests/server/test_device_binding_api.py",
-        "tests/server/test_migrations.py -q",
+        "tests/server/test_migrations.py",
         "ENDPOINT_TEST_POSTGRES_URL:",
         "image: postgres:16",
         "python tools/contracts/generate_contract_artifacts.py --check",
