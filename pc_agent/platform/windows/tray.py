@@ -79,6 +79,36 @@ _UPDATE_STATES = {
 }
 
 
+def _configure_window_api(user32: object, kernel32: object) -> None:
+    """Keep module/window handles and message results pointer-sized on x64."""
+    kernel32.CreateMutexW.argtypes = [ctypes.c_void_p, wintypes.BOOL, wintypes.LPCWSTR]
+    kernel32.CreateMutexW.restype = wintypes.HANDLE
+    kernel32.GetModuleHandleW.argtypes = [wintypes.LPCWSTR]
+    kernel32.GetModuleHandleW.restype = wintypes.HINSTANCE
+    kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+    kernel32.CloseHandle.restype = wintypes.BOOL
+    user32.RegisterClassW.argtypes = [ctypes.c_void_p]
+    user32.RegisterClassW.restype = wintypes.ATOM
+    user32.CreateWindowExW.argtypes = [
+        wintypes.DWORD, wintypes.LPCWSTR, wintypes.LPCWSTR, wintypes.DWORD,
+        ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int,
+        wintypes.HWND, wintypes.HMENU, wintypes.HINSTANCE, ctypes.c_void_p,
+    ]
+    user32.CreateWindowExW.restype = wintypes.HWND
+    user32.DefWindowProcW.argtypes = [
+        wintypes.HWND, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM,
+    ]
+    user32.DefWindowProcW.restype = ctypes.c_ssize_t
+    user32.SetTimer.argtypes = [wintypes.HWND, ctypes.c_size_t, wintypes.UINT, ctypes.c_void_p]
+    user32.SetTimer.restype = ctypes.c_size_t
+    user32.GetMessageW.argtypes = [ctypes.POINTER(wintypes.MSG), wintypes.HWND, wintypes.UINT, wintypes.UINT]
+    user32.GetMessageW.restype = wintypes.BOOL
+    user32.TranslateMessage.argtypes = [ctypes.POINTER(wintypes.MSG)]
+    user32.TranslateMessage.restype = wintypes.BOOL
+    user32.DispatchMessageW.argtypes = [ctypes.POINTER(wintypes.MSG)]
+    user32.DispatchMessageW.restype = ctypes.c_ssize_t
+
+
 def _configure_menu_api(user32: object) -> None:
     """Declare pointer-width menu signatures before passing text to user32."""
     user32.CreatePopupMenu.restype = wintypes.HMENU
@@ -207,6 +237,7 @@ class _WindowsTray:
         user32 = ctypes.windll.user32
         kernel32 = ctypes.windll.kernel32
         shell32 = ctypes.windll.shell32
+        _configure_window_api(user32, kernel32)
         instance_mutex = kernel32.CreateMutexW(None, False, r"Local\EndpointAgentTray")
         if not instance_mutex or kernel32.GetLastError() == _ERROR_ALREADY_EXISTS:
             if instance_mutex:
@@ -222,7 +253,7 @@ class _WindowsTray:
                 ("cbWndExtra", ctypes.c_int),
                 ("hInstance", wintypes.HINSTANCE),
                 ("hIcon", wintypes.HICON),
-                ("hCursor", wintypes.HCURSOR),
+                ("hCursor", wintypes.HANDLE),
                 ("hbrBackground", wintypes.HBRUSH),
                 ("lpszMenuName", wintypes.LPCWSTR),
                 ("lpszClassName", wintypes.LPCWSTR),

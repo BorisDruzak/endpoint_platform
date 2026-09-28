@@ -3,7 +3,11 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+import os
 from pathlib import Path
+import subprocess
+import sys
+import textwrap
 from types import SimpleNamespace
 
 import pytest
@@ -166,6 +170,71 @@ class _FakeWinApi:
     def __call__(self, *args: object) -> int:
         self.calls.append(args)
         return self.result
+
+
+def test_tray_initializes_window_without_optional_wintypes_cursor_alias(monkeypatch) -> None:
+    """The packaged Python 3.12 runtime omits wintypes.HCURSOR."""
+    import ctypes
+    from ctypes import wintypes
+    from pc_agent.platform.windows import tray as tray_module
+
+    monkeypatch.delattr(wintypes, "HCURSOR", raising=False)
+    kernel32 = SimpleNamespace(
+        CreateMutexW=_FakeWinApi(1), GetLastError=_FakeWinApi(0),
+        GetModuleHandleW=_FakeWinApi(0x1234567887654321), CloseHandle=_FakeWinApi(1),
+    )
+    user32 = SimpleNamespace(**{
+        name: _FakeWinApi(0 if name == "GetMessageW" else 1)
+        for name in ("RegisterClassW", "CreateWindowExW", "SetTimer", "GetMessageW",
+                     "TranslateMessage", "DispatchMessageW", "DefWindowProcW")
+    })
+    monkeypatch.setattr(ctypes, "windll", SimpleNamespace(
+        kernel32=kernel32, user32=user32, shell32=SimpleNamespace(),
+    ), raising=False)
+    monkeypatch.setattr(ctypes, "WINFUNCTYPE", ctypes.CFUNCTYPE, raising=False)
+    monkeypatch.setattr(tray_module, "_create_colored_icon", lambda _: 1)
+    tray = tray_module._WindowsTray(Path("C:/ProgramData/Endpoint Platform/Agent"))
+    monkeypatch.setattr(tray, "_notify", lambda *_: None)
+
+    assert tray.run() == 0
+    assert len(user32.RegisterClassW.calls) == 1
+    assert kernel32.CloseHandle.calls == [(1,)]
+    assert kernel32.GetModuleHandleW.restype is wintypes.HINSTANCE
+    assert user32.CreateWindowExW.restype is wintypes.HWND
+    assert user32.DefWindowProcW.restype is ctypes.c_ssize_t
+
+
+@pytest.mark.skipif(os.name != "nt", reason="requires the native Windows shell")
+def test_native_tray_creates_notification_icon_and_closes_cleanly() -> None:
+    """Exercise the actual Win32 initialization/message path in a bounded child."""
+    probe = textwrap.dedent(r'''
+        import ctypes, os
+        from ctypes import wintypes
+        from pathlib import Path
+        from pc_agent.platform.windows.tray import _WindowsTray, _configure_window_api
+        if hasattr(wintypes, "HCURSOR"):
+            del wintypes.HCURSOR
+        user32, kernel32 = ctypes.windll.user32, ctypes.windll.kernel32
+        _configure_window_api(user32, kernel32)
+        create_mutex, get_message = kernel32.CreateMutexW, user32.GetMessageW
+        kernel32.CreateMutexW = lambda security, owner, name: create_mutex(
+            security, owner, "Local\\EndpointTrayNativeSmoke-" + str(os.getpid()))
+        tray = _WindowsTray(Path("C:/nonexistent-endpoint-native-tray-test"))
+        observed = []
+        def finish(message, hwnd, first, last):
+            if not observed:
+                observed.append(tray._notify_added)
+                user32.PostMessageW(tray._hwnd, 0x0010, 0, 0)
+            return get_message(message, hwnd, first, last)
+        user32.GetMessageW = finish
+        assert tray.run() == 0
+        assert observed == [True], "native Shell_NotifyIconW rejected the icon"
+    ''')
+    result = subprocess.run(
+        [sys.executable, "-c", probe], capture_output=True, text=True,
+        timeout=15, check=False,
+    )
+    assert result.returncode == 0, result.stderr
 
 
 def test_tray_uses_owner_drawn_status_items_for_visible_text() -> None:

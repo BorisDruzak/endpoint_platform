@@ -57,6 +57,11 @@ The tray defaults to the canonical Helpdesk HTTPS origin. Staging acceptance
 starts the same executable with `--helpdesk-origin https://helpdesk-staging.sosnadmin.local`.
 Only these two approved HTTPS origins are accepted; credentials, extra paths,
 arbitrary domains and HTTP are rejected. This avoids altering workstation DNS.
+The native tray uses pointer-sized Win32 window/module signatures and the
+portable `wintypes.HANDLE` cursor field, since packaged Python 3.12 does not
+provide `wintypes.HCURSOR`. A Windows-only subprocess smoke creates the real
+notification icon and exits through the window message loop; model-only tests
+are insufficient to establish tray startup.
 
 Tray never opens the protected device credential or directly calls Endpoint.
 `EndpointPlatform.Agent.DeviceBinding.v1` reuses the service-owned named pipe,

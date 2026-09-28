@@ -406,6 +406,14 @@ call.
 
 ## Next Steps
 
+Requester device-binding staging acceptance found a native tray startup defect
+in MSI 3.2.76: packaged Python 3.12 lacks `wintypes.HCURSOR`. Correct the cursor
+handle and x64 window/module signatures, exercise a real Windows notification
+icon/message loop, and build/install source-bound MSI 3.2.77 before continuing
+manual Windows tray acceptance. Keep the original staging database/config and
+Windows 3.2.75 package backups for final restoration. Full First Wave acceptance
+remains open; the green prior CI does not prove the repaired package.
+
 1. Review and merge the local Endpoint Operations API v1 package described in
    `docs/superpowers/specs/2026-08-09-endpoint-operation-v1-design.md` and
    `docs/superpowers/plans/2026-08-09-endpoint-operation-v1.md`. The first
