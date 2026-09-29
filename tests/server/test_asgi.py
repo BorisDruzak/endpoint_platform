@@ -13,6 +13,7 @@ def test_asgi_exposes_health_route_from_valid_environment(monkeypatch, tmp_path)
     }
     for path in secret_paths.values():
         path.write_bytes(b"test-secret")
+        path.chmod(0o600)
     for name, path in secret_paths.items():
         monkeypatch.setenv(name, str(path))
     monkeypatch.setenv(
