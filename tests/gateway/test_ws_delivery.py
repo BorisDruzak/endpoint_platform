@@ -16,6 +16,54 @@ from .conftest import seed_device
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("existing_command", [False, True])
+async def test_expired_collection_cannot_block_delivery_of_fresh_work(
+    session_provider: async_sessionmaker[AsyncSession], existing_command: bool,
+) -> None:
+    device = await seed_device(session_provider)
+    now = datetime.now(UTC)
+    session_id = uuid4()
+    expired_id, fresh_id, command_id = uuid4(), uuid4(), uuid4()
+    async with session_provider() as session:
+        session.add(DeviceSession(id=session_id, device_id=device.id,
+            session_identifier=f"expiry-{session_id.hex}", expires_at=now+timedelta(minutes=2),
+            last_seen_at=now, source_address="192.168.101.20"))
+        if existing_command:
+            session.add(Command(id=command_id, device_id=device.id,
+                command_identifier=f"expired-{command_id.hex}", command_kind="context.baseline.collect",
+                status="delivered", created_at=now-timedelta(hours=2), expires_at=now-timedelta(hours=1)))
+            await session.flush()
+            session.add(CommandDelivery(id=uuid4(),command_id=command_id,
+                delivery_identifier=f"expired-delivery-{command_id.hex}", status="delivered"))
+        session.add_all([
+            ContextCollection(id=expired_id,device_id=device.id,profile="baseline_v1",
+                requested_by="connect-refresh",idempotency_key="expired-request",
+                status="delivered" if existing_command else "requested",
+                command_id=command_id if existing_command else None,
+                requested_at=now-timedelta(hours=2),expires_at=now-timedelta(hours=1)),
+            ContextCollection(id=fresh_id,device_id=device.id,profile="inventory_v1",
+                requested_by="connect-refresh",idempotency_key="fresh-request",
+                status="requested",requested_at=now,expires_at=now+timedelta(minutes=15)),
+        ])
+        await session.commit()
+    sent=[]
+    assert await CommandService(session_provider).deliver_next(device.id,session_id,sent.append,
+        allowed_capabilities={"context.baseline.collect","context.inventory.collect"},agent_platform="windows_amd64")
+    assert len(sent)==1
+    assert sent[0].payload.capability=="context.inventory.collect"
+    assert sent[0].payload.deadline_at>sent[0].payload.created_at
+    async with session_provider() as session:
+        expired=await session.get(ContextCollection,expired_id)
+        assert expired.status=="expired"
+        assert expired.failure_code=="collection_expired"
+        assert expired.failed_at is not None
+        if existing_command:
+            assert (await session.get(Command,command_id)).status=="expired"
+            delivery=await session.scalar(select(CommandDelivery).where(CommandDelivery.command_id==command_id))
+            assert delivery.status=="expired"
+
+
+@pytest.mark.asyncio
 async def test_command_is_committed_before_websocket_send(
     session_provider: async_sessionmaker[AsyncSession],
 ) -> None:

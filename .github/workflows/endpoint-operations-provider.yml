@@ -9,11 +9,13 @@ on:
       - "endpoint_server/http/**"
       - "endpoint_server/operations/**"
       - "endpoint_server/gateway/**"
+      - "endpoint_server/context/**"
       - "contracts/**"
       - "tools/contracts/**"
       - "tests/contracts/**"
       - "tests/operations/**"
       - "tests/gateway/**"
+      - "tests/context/**"
       - ".github/workflows/endpoint-operations-provider.yml"
   push:
     branches:
@@ -23,11 +25,13 @@ on:
       - "endpoint_server/http/**"
       - "endpoint_server/operations/**"
       - "endpoint_server/gateway/**"
+      - "endpoint_server/context/**"
       - "contracts/**"
       - "tools/contracts/**"
       - "tests/contracts/**"
       - "tests/operations/**"
       - "tests/gateway/**"
+      - "tests/context/**"
       - ".github/workflows/endpoint-operations-provider.yml"
   workflow_dispatch:
 
@@ -47,9 +51,9 @@ jobs:
       - name: Install CI dependencies
         run: python -m pip install -r requirements-ci.txt
 
-      - name: Run provider contract, operations, and Gateway suites
+      - name: Run server, contract, operations, Gateway, and context suites
         run: >-
-          python -m pytest tests/contracts tests/operations tests/gateway -q
+          python -m pytest tests -q
           --junitxml=artifacts/endpoint-operations-provider.xml
 
       - name: Check generated contract artifacts

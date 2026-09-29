@@ -29,7 +29,7 @@ from endpoint_contracts.gateway_ws import (
 )
 from endpoint_server.context.ingestion import ingest_context_result
 from endpoint_server.context.models import ContextCollection, ContextSnapshot
-from endpoint_server.context.repository import link_collection_command
+from endpoint_server.context.repository import expire_overdue_collections, link_collection_command
 from endpoint_server.context.service import ContextError
 from endpoint_server.audit.service import append_audit_event
 from endpoint_server.db.models import (
@@ -736,6 +736,7 @@ async def next_pending_command(
     """Replay only unacknowledged deliveries before creating a new command."""
     if transport not in {"http_pull", "gateway_wss"}:
         raise ValueError("unsupported gateway transport")
+    await expire_overdue_collections(session, device_id, now=datetime.now(UTC))
     if transport == "gateway_wss":
         module_payload = await _next_pending_module_command(
             session,

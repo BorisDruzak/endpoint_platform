@@ -8,7 +8,7 @@ from uuid import UUID, uuid4
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from endpoint_server.db.models import Command, Device
+from endpoint_server.db.models import Command, CommandDelivery, Device
 
 from .models import ContextCollection
 from .service import ContextConflict, ContextNotFound, ContextValidationError, require_profile, require_uuid
@@ -24,6 +24,44 @@ def _now(value: datetime | None = None) -> datetime:
 async def _advisory_lock(session: AsyncSession, key: str) -> None:
     if session.get_bind().dialect.name == "postgresql":
         await session.execute(text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"), {"key": key})
+
+
+async def expire_overdue_collections(
+    session: AsyncSession, device_id: UUID, *, now: datetime, profile: str | None = None,
+) -> None:
+    """Terminate overdue ordinary work before refreshing or delivering it.
+
+    Endpoint Operations retain their own deadline/audit state machine. Results
+    already received or validated are left to ingestion rather than expired.
+    """
+    expired_at = _now(now)
+    query = select(ContextCollection).where(
+        ContextCollection.device_id == device_id,
+        ContextCollection.operation_id.is_(None),
+        ContextCollection.status.in_(("requested", "queued", "delivered", "collecting")),
+        ContextCollection.expires_at.is_not(None),
+        ContextCollection.expires_at <= expired_at,
+    )
+    if profile is not None:
+        query = query.where(ContextCollection.profile == profile)
+    overdue = (await session.scalars(query.order_by(ContextCollection.id).with_for_update())).all()
+    for collection in overdue:
+        collection.status = "expired"
+        collection.failed_at = expired_at
+        collection.failure_code = "collection_expired"
+        if collection.command_id is None:
+            continue
+        command = await session.scalar(select(Command).where(
+            Command.id == collection.command_id, Command.device_id == device_id,
+        ).with_for_update())
+        if command is not None and command.status in {"queued", "delivered", "acknowledged", "running"}:
+            command.status = "expired"
+            delivery = await session.scalar(select(CommandDelivery).where(
+                CommandDelivery.command_id == command.id,
+            ).with_for_update())
+            if delivery is not None and delivery.status in {"queued", "delivered", "acknowledged", "running"}:
+                delivery.status = "expired"
+    await session.flush()
 
 
 async def request_collection(

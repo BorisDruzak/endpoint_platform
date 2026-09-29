@@ -441,6 +441,24 @@ separate baseline repairs, not evidence to enable the feature.
 
 ## Handoff
 
+### ADMIN-2 Gateway disconnect incident, 2026-09-29
+
+- Reproduced on deployed production `abdd5c7ef596`: expired ordinary connect-refresh
+  collections created a command with deadline before creation, raising Pydantic
+  ValidationError and closing authenticated WSS sessions with internal_error.
+- Branch `codex/fix-expired-connect-refresh` is synchronized with main; the server
+  runtime differs from exact production base in only the three corrected context/
+  delivery files. Requester-binding changes are excluded. Expire overdue collections and
+  their active delivery state before refresh/delivery; preserve operation-owned
+  deadlines and already received/terminal results. Refresh idempotency buckets use
+  the delivery window so a retry does not replay an expired request for 24 hours.
+- Added failing-before-fix delivery/replay and same-day retry regressions, plus
+  guards for operation ownership, received results, unrelated devices and no TTL.
+- Verify Linux provider/context CI, generated contracts and production archive;
+  deploy an immutable release using PRODUCTION_RUNBOOK with backup/rollback.
+  Confirm stable ADMIN-2 WSS heartbeats and successful fresh collections afterward.
+  Windows broad checks have separate fixture failures; record exact receipts.
+
 Production deployment, the dedicated test-agent pilot, and the Wave 1 network
 list presentation passed their gates. The deployed `web_ovpn` integration
 remains a narrow service-to-service boundary; its page cache is MAC-free and

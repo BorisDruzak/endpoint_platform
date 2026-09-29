@@ -11,7 +11,7 @@ from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .models import ContextCollection, ContextSnapshot
-from .repository import request_collection_outcome
+from .repository import expire_overdue_collections, request_collection_outcome
 
 
 @dataclass(frozen=True, slots=True)
@@ -60,6 +60,7 @@ async def queue_connect_refreshes(
         if rule.capability not in capabilities:
             continue
         await _advisory_lock(session, f"context.connect-refresh:{device_id}:{rule.profile}")
+        await expire_overdue_collections(session, device_id, now=observed_at, profile=rule.profile)
         active = await session.scalar(
             select(ContextCollection)
             .where(
@@ -83,7 +84,7 @@ async def queue_connect_refreshes(
         )
         if latest is not None and observed_at - _utc(latest.collected_at) < rule.freshness:
             continue
-        bucket = int(observed_at.timestamp() // rule.freshness.total_seconds())
+        bucket = int(observed_at.timestamp() // _DELIVERY_WINDOW.total_seconds())
         collection, inserted = await request_collection_outcome(
             session,
             device_id,

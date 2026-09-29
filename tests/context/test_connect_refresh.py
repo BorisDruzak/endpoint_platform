@@ -1,6 +1,6 @@
 """Capability-aware refresh requests created when an agent connects."""
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
 from sqlalchemy import select
@@ -42,3 +42,24 @@ async def test_connect_refresh_does_not_duplicate_active_collection(session) -> 
 
     queued = (await session.scalars(select(ContextCollection))).all()
     assert len(queued) == 3
+
+
+async def test_connect_refresh_replaces_expired_work_in_the_same_freshness_bucket(session) -> None:
+    device = Device(id=uuid4(), device_identifier="connect-expired", display_name="Expired")
+    session.add(device)
+    await session.flush()
+    capabilities = {"context.baseline.collect"}
+    now = datetime(2026, 9, 18, 10, 0, tzinfo=UTC)
+    assert await queue_connect_refreshes(session, device.id, capabilities, now=now) == 1
+    old = await session.scalar(select(ContextCollection))
+
+    renewed_at = now + timedelta(minutes=15)
+    assert await queue_connect_refreshes(session, device.id, capabilities, now=renewed_at) == 1
+    await session.refresh(old)
+    assert old.status == "expired"
+    assert old.failure_code == "collection_expired"
+    active = (await session.scalars(select(ContextCollection).where(ContextCollection.status == "requested"))).all()
+    assert len(active) == 1
+    assert active[0].id != old.id
+    assert active[0].expires_at.replace(tzinfo=UTC) == renewed_at + timedelta(minutes=15)
+    assert await queue_connect_refreshes(session, device.id, capabilities, now=renewed_at) == 0
