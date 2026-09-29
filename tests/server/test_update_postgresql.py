@@ -231,7 +231,9 @@ def test_update_downgrade_preserves_history_and_neutralizes_active_state(
         )
     )
 
-    command.upgrade(config, "head")
+    # Exercise the reversible update migration itself; later Policy migrations
+    # are deliberately forward-only and must never be traversed by this test.
+    command.upgrade(config, "0006_update_control_plane")
     upgraded = asyncio.run(
         _fetch(
             plain_url,
