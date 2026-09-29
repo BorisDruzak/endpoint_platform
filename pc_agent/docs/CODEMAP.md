@@ -2,6 +2,14 @@
 
 ## Runtime boundary
 
+The Windows device-binding dialog lives in `platform/windows/binding_dialog.py`
+inside the existing tray executable. `platform/windows/device_binding.py`
+validates ephemeral proofs and exchanges the fixed create action over the
+existing protected named-pipe helpers. `runtime/application.py` owns the
+connected service listener and `update_adapter.py` reuses the device-authenticated
+HTTPS session. Tray never reads credentials or calls Endpoint. See
+`docs/architecture/device-binding-first-wave.md` for scope, limits and acceptance.
+
 `pc_agent/runtime/main.py` is the only supported runtime entrypoint. It builds
 `RuntimeSettings`, starts `runtime/application.py`, and uses the authenticated
 Endpoint Gateway WSS transport. The runtime owns enrollment identity, device

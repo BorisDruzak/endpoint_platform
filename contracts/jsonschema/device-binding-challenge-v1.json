@@ -1,0 +1,40 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "challenge_id": {
+      "format": "uuid",
+      "title": "Challenge Id",
+      "type": "string"
+    },
+    "code": {
+      "pattern": "^[0-9]{6}$",
+      "title": "Code",
+      "type": "string"
+    },
+    "display_code": {
+      "pattern": "^[0-9]{3}-[0-9]{3}$",
+      "title": "Display Code",
+      "type": "string"
+    },
+    "expires_at": {
+      "$comment": "model-only UTC normalization: timezone-aware values are normalized to UTC.",
+      "format": "date-time",
+      "title": "Expires At",
+      "type": "string"
+    },
+    "expires_in_seconds": {
+      "const": 600,
+      "title": "Expires In Seconds",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "challenge_id",
+    "code",
+    "display_code",
+    "expires_at",
+    "expires_in_seconds"
+  ],
+  "title": "DeviceBindingChallengeV1",
+  "type": "object"
+}

@@ -17,6 +17,7 @@ from endpoint_server.context.models import (
     ContextSnapshot,
 )
 from .devices import Device, DeviceCredential, DeviceInstance, DeviceSession
+from .device_binding import DeviceBindingChallenge, DeviceBindingThrottle
 from .installer import WindowsSetupRelease
 from endpoint_server.browser_sensor.models import BrowserSensorRelease
 from .enrollment import (
@@ -47,6 +48,8 @@ from endpoint_server.policy.models import (
 from endpoint_server.security.models import SecurityEvent
 
 __all__ = [
+    "DeviceBindingChallenge",
+    "DeviceBindingThrottle",
     "BrowserStatusCurrent",
     "AdminSession",
     "AdminUser",

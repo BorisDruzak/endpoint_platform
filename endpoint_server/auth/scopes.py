@@ -32,6 +32,7 @@ MODULES_PUBLISH_SCOPE = "modules.publish"
 MODULE_OPERATIONS_CREATE_SCOPE = "module_operations.create"
 MODULE_OPERATIONS_READ_SCOPE = "module_operations.read"
 PROVISIONING_INSTALL_CLAIMS_ISSUE_SCOPE = "provisioning.install-claims.issue"
+DEVICE_BINDING_REDEEM_SCOPE = "device-binding.redeem"
 
 
 @dataclass(frozen=True, slots=True)

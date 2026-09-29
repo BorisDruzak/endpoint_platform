@@ -10,12 +10,17 @@ on:
       - "endpoint_server/operations/**"
       - "endpoint_server/gateway/**"
       - "endpoint_server/context/**"
+      - "endpoint_server/device_binding/**"
+      - "endpoint_server/auth/**"
+      - "endpoint_server/db/**"
       - "contracts/**"
       - "tools/contracts/**"
       - "tests/contracts/**"
       - "tests/operations/**"
       - "tests/gateway/**"
       - "tests/context/**"
+      - "tests/server/test_device_binding*.py"
+      - "tests/server/test_migrations.py"
       - ".github/workflows/endpoint-operations-provider.yml"
   push:
     branches:
@@ -26,12 +31,17 @@ on:
       - "endpoint_server/operations/**"
       - "endpoint_server/gateway/**"
       - "endpoint_server/context/**"
+      - "endpoint_server/device_binding/**"
+      - "endpoint_server/auth/**"
+      - "endpoint_server/db/**"
       - "contracts/**"
       - "tools/contracts/**"
       - "tests/contracts/**"
       - "tests/operations/**"
       - "tests/gateway/**"
       - "tests/context/**"
+      - "tests/server/test_device_binding*.py"
+      - "tests/server/test_migrations.py"
       - ".github/workflows/endpoint-operations-provider.yml"
   workflow_dispatch:
 
@@ -41,6 +51,19 @@ permissions:
 jobs:
   provider-release-gate:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready --health-interval 10s
+          --health-timeout 5s --health-retries 5
+    env:
+      ENDPOINT_TEST_POSTGRES_URL: postgresql://postgres@127.0.0.1:5432/postgres
     steps:
       - uses: actions/checkout@v4
         with:
@@ -55,7 +78,8 @@ jobs:
 
       - name: Run server, contract, operations, Gateway, and context suites
         run: >-
-          python -m pytest tests -q
+          timeout --signal=INT --kill-after=15s 10m
+          python -m pytest tests -q -o faulthandler_timeout=120
           --junitxml=artifacts/endpoint-operations-provider.xml
 
       - name: Check generated contract artifacts

@@ -246,6 +246,11 @@ def _operation_references(tree: ast.AST) -> set[str]:
 
 def _text_references(path: Path) -> set[str]:
     text = path.read_text(encoding="utf-8-sig", errors="replace").casefold()
+    # This product action opens a browser to the external Helpdesk; it does
+    # not restore a Helpdesk runtime, account session or Ticket API client.
+    # Imports and identifiers are still inspected independently through AST.
+    if path.relative_to(REPOSITORY_ROOT).as_posix() == "pc_agent/platform/windows/tray.py":
+        text = text.replace('"привязать компьютер к helpdesk"', '"device binding"')
     return {marker for marker in _FORBIDDEN_TEXT_MARKERS if marker in text}
 
 
@@ -324,6 +329,14 @@ def scan_released_paths(paths: Iterable[Path]) -> list[str]:
 def test_released_surfaces_exclude_helpdesk_runtime() -> None:
     """A release root importing a legacy Ticket/UI/execution path must fail CI."""
     assert scan_released_paths(RELEASED_PATHS) == []
+
+
+def test_browser_binding_action_cannot_mask_a_helpdesk_runtime_import(tmp_path, monkeypatch):
+    tray = tmp_path / "pc_agent/platform/windows/tray.py"
+    tray.parent.mkdir(parents=True)
+    tray.write_text('label = "Привязать компьютер к Helpdesk"\nimport helpdesk\n', encoding="utf-8")
+    monkeypatch.setattr(sys.modules[__name__], "REPOSITORY_ROOT", tmp_path)
+    assert any(item.endswith(":helpdesk") for item in scan_released_paths((tray,)))
 
 
 def test_release_packaging_uses_only_headless_entrypoints() -> None:

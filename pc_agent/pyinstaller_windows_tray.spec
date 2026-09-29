@@ -10,7 +10,9 @@ sys.path.insert(0, str(project_root))
 a = Analysis(
     [str(pc_agent_root / "platform" / "windows" / "tray.py")],
     pathex=[str(project_root), str(pc_agent_root)],
-    hiddenimports=["pc_agent.platform.windows.tray_status"],
+    hiddenimports=["pc_agent.platform.windows.tray_status", "pc_agent.platform.windows.binding_dialog",
+                   "pc_agent.platform.windows.device_binding", "tkinter", "tkinter.ttk",
+                   "win32api", "win32con", "win32file", "win32pipe", "win32security", "win32event", "win32ts"],
     datas=[],
     hookspath=[],
     hooksconfig={},

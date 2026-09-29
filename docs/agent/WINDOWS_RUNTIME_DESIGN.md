@@ -23,8 +23,11 @@ open. This makes both a
 candidate selector change and rollback effective at the next SCM start while
 SCM itself remains bound to a stable installed path. The runtime continues to
 own Gateway reconnects and update exit `42`; the host starts only the fixed
-demand-start updater on that exit. The Windows boundary does not import Qt, UI
-bridge, desktop APIs, Helpdesk, or the legacy `ws_agent` runtime.
+demand-start updater on that exit. The service boundary does not import Qt,
+UI bridge, or the legacy `ws_agent` runtime. The existing unprivileged tray
+opens a device-binding dialog and an external Helpdesk browser link; no
+Helpdesk account/session or Ticket API runtime is packaged. See
+[device binding](../architecture/device-binding-first-wave.md).
 
 ## ACL contract
 

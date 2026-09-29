@@ -1,0 +1,21 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "code": {
+      "pattern": "^[0-9]{6}$",
+      "title": "Code",
+      "type": "string"
+    },
+    "purpose": {
+      "const": "helpdesk_device_binding",
+      "title": "Purpose",
+      "type": "string"
+    }
+  },
+  "required": [
+    "purpose",
+    "code"
+  ],
+  "title": "DeviceBindingRedeemV1",
+  "type": "object"
+}

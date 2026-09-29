@@ -79,6 +79,10 @@ from endpoint_server.modules.routes import router as modules_router  # noqa: E40
 from endpoint_server.modules.execution_routes import router as module_execution_router  # noqa: E402
 from endpoint_server.operations.routes import router as operations_router  # noqa: E402
 from endpoint_server.context.routes import router as context_router  # noqa: E402
+from endpoint_server.device_binding.routes import router as device_binding_router  # noqa: E402
+from endpoint_contracts.device_binding import (  # noqa: E402
+    DeviceBindingCreateV1, DeviceBindingRedeemV1, DeviceBindingChallengeV1, DeviceBindingVerifiedV1, DeviceBindingErrorV1,
+)
 from endpoint_server.browser_sensor.public_routes import (  # noqa: E402
     router as browser_sensor_public_router,
 )
@@ -123,6 +127,11 @@ _PUBLIC_BROWSER_RELEASE_PATHS = (
 
 
 PUBLIC_MODELS: dict[str, type[ContractModelV1]] = {
+    "device-binding-error-v1.json": DeviceBindingErrorV1,
+    "device-binding-create-v1.json": DeviceBindingCreateV1,
+    "device-binding-redeem-v1.json": DeviceBindingRedeemV1,
+    "device-binding-challenge-v1.json": DeviceBindingChallengeV1,
+    "device-binding-verified-v1.json": DeviceBindingVerifiedV1,
     "activity-observation-v1.json": ActivityObservationV1,
     "device_context_activity_v1.json": DeviceContextActivityV1,
     "device-identity-v1.json": DeviceIdentityV1,
@@ -713,12 +722,14 @@ def _service_operation_openapi() -> dict[str, object]:
     application.include_router(module_capability_catalog_router)
     application.include_router(module_execution_router)
     application.include_router(context_router)
+    application.include_router(device_binding_router)
     application.include_router(browser_sensor_public_router)
     generated = application.openapi()
     return {
         "paths": {
             path: generated["paths"][path]
-            for path in (*_SERVICE_OPERATION_PATHS, *_SERVICE_CONTEXT_PATHS, *_PUBLIC_BROWSER_RELEASE_PATHS)
+            for path in (*_SERVICE_OPERATION_PATHS, *_SERVICE_CONTEXT_PATHS, *_PUBLIC_BROWSER_RELEASE_PATHS,
+                         "/api/v1/device-binding/challenges", "/api/v1/device-binding/challenges/redeem")
         },
         "components": generated["components"],
     }

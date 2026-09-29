@@ -140,9 +140,9 @@ def test_fixture_rejects_query_target_override_before_database_use(
     assert calls == []
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture
 def operation_database_url() -> Iterator[str]:
-    """Create a disposable loopback database migrated through the real head."""
+    """Isolate each ownership/expiry test in a migrated loopback database."""
     admin_url = os.environ.get("ENDPOINT_TEST_POSTGRES_URL")
     if not admin_url:
         pytest.skip(

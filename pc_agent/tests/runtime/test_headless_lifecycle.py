@@ -630,7 +630,8 @@ async def test_security_feature_pins_browser_identity_and_durable_handoff(
         connected_tasks = tuple(dependencies.create_connected_tasks(
             settings, "d" * 43, websocket,
         ))
-        assert len(connected_tasks) == 5
+        assert len(connected_tasks) == 6
+        assert any(task.cr_code.co_name == "_serve_windows_device_binding" for task in connected_tasks)
         for task in connected_tasks:
             task.close()
         assert dependencies.security_policy_ack_sent is not None

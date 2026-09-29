@@ -134,6 +134,9 @@ async def test_retention_waits_for_the_same_postgresql_profile_lock(
             task = asyncio.create_task(retain_context_snapshots(retention_session))
             waiting = False
             for _ in range(20):
+                # Statistics are cached inside the lock-holder transaction.
+                # Refresh them so the poll can observe a newly waiting backend.
+                await holder.execute(text("SELECT pg_stat_clear_snapshot()"))
                 waiting = bool(await holder.scalar(text(
                     "SELECT EXISTS (SELECT 1 FROM pg_stat_activity "
                     "WHERE datname = current_database() "
