@@ -1,5 +1,5 @@
 """Exercise real device/service authentication through the possession API."""
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from ipaddress import ip_network
 from pathlib import Path
 from uuid import uuid4
@@ -95,15 +95,63 @@ async def test_device_auth_and_bounded_redeem_projection(api):
 
 
 @pytest.mark.asyncio
-async def test_failed_attempts_are_durable_and_throttled(api):
+async def test_failed_attempts_are_durable_and_throttled(api, monkeypatch):
+    from endpoint_server.device_binding import routes
+    from endpoint_server.device_binding.service import consume_budget
+    from endpoint_server.db.models import DeviceBindingThrottle
     client, sessions, device_id, service_token = api
     headers = {"Authorization":f"Bearer {service_token}"}
-    for _ in range(5):
+    started_at = datetime.now(UTC)
+    clock = [started_at]
+    async def timed_budget(session, bucket, **kwargs):
+        await consume_budget(session, bucket, now=clock[0], **kwargs)
+    monkeypatch.setattr(routes, "consume_budget", timed_budget)
+    for index in range(60):
+        # Stay below the unchanged 30/min request budgets while attacking the
+        # same ServiceClient from distributed requester identities upstream.
+        clock[0] = started_at + timedelta(seconds=index * 3)
         response = await client.post("/api/v1/device-binding/challenges/redeem", headers=headers,
             json={"purpose":"helpdesk_device_binding", "code":"999999"})
         assert response.status_code == 400
+    async with sessions() as session:
+        bucket = await session.scalar(select(DeviceBindingThrottle).where(DeviceBindingThrottle.bucket.like("failed:%")))
+        assert bucket.attempts == 60
+    blocked = await client.post("/api/v1/device-binding/challenges/redeem", headers=headers,
+        json={"purpose":"helpdesk_device_binding", "code":"999999"})
+    assert blocked.status_code == 429
+    assert blocked.headers["retry-after"] == "600"
+    assert blocked.headers["cache-control"] == "no-store"
+    clock[0] = started_at + timedelta(seconds=600)
     assert (await client.post("/api/v1/device-binding/challenges/redeem", headers=headers,
-        json={"purpose":"helpdesk_device_binding", "code":"999999"})).status_code == 429
+        json={"purpose":"helpdesk_device_binding", "code":"999999"})).status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_five_bad_codes_leave_valid_code_available_for_same_service_client(api):
+    from endpoint_server.db.models import DeviceBindingThrottle
+    client, sessions, device_id, service_token = api
+    path = "/api/v1/device-binding/challenges"
+    created = await client.post(path, headers={"Authorization":"Bearer test-device-token"},
+        json={"purpose":"helpdesk_device_binding"})
+    assert created.status_code == 200
+    code = created.json()["code"]
+    bad_code = "000000" if code != "000000" else "999999"
+    headers = {"Authorization":f"Bearer {service_token}"}
+    for _ in range(5):
+        invalid = await client.post(path+"/redeem", headers=headers,
+            json={"purpose":"helpdesk_device_binding", "code":bad_code})
+        assert invalid.status_code == 400
+    valid = await client.post(path+"/redeem", headers=headers,
+        json={"purpose":"helpdesk_device_binding", "code":code})
+    assert valid.status_code == 200
+    assert valid.json()["device_id"] == str(device_id)
+    async with sessions() as session:
+        bucket = await session.scalar(select(DeviceBindingThrottle).where(DeviceBindingThrottle.bucket.like("failed:%")))
+        assert bucket.attempts == 5  # success adds no shared failure
+    replay = await client.post(path+"/redeem", headers=headers,
+        json={"purpose":"helpdesk_device_binding", "code":code})
+    assert replay.status_code == invalid.status_code == 400
+    assert replay.json() == invalid.json()
 
 
 @pytest.mark.asyncio

@@ -19,6 +19,7 @@ from endpoint_server.context.projection import snapshot_projection
 from .service import ChallengeThrottled, ChallengeUnavailable, consume_budget, create_challenge, redeem_challenge
 
 REDEEM_SCOPE = DEVICE_BINDING_REDEEM_SCOPE
+FAILED_REDEEM_LIMIT = 60
 router = APIRouter(prefix="/api/v1/device-binding/challenges", tags=["device-binding"])
 _ERROR_RESPONSES = {
     code: {"model": DeviceBindingErrorV1, "description": description}
@@ -103,7 +104,7 @@ async def redeem(body: DeviceBindingRedeemV1, request: Request, response: Respon
             # per-client budgets survive token rotation and process restarts.
             await consume_budget(session, "redeem:global", limit=30, window_seconds=60)
             await consume_budget(session, "redeem:"+str(principal.client.id), limit=30, window_seconds=60)
-            await consume_budget(session, "failed:"+str(principal.client.id), limit=5, window_seconds=600, consume=False)
+            await consume_budget(session, "failed:"+str(principal.client.id), limit=FAILED_REDEEM_LIMIT, window_seconds=600, consume=False)
             device_id = await redeem_challenge(session, body.code, request.app.state.settings.device_token_pepper)
             challenge = await session.scalar(select(DeviceBindingChallenge).where(
                 DeviceBindingChallenge.device_id == device_id,
@@ -118,7 +119,7 @@ async def redeem(body: DeviceBindingRedeemV1, request: Request, response: Respon
             raise HTTPException(429, "Challenge request throttled", headers={"Retry-After":"600","Cache-Control":"no-store"}) from None
         except ChallengeUnavailable as error:
             # Persist failed-attempt budgets and expired lifecycle state.
-            await consume_budget(session, "failed:"+str(principal.client.id), limit=5, window_seconds=600)
+            await consume_budget(session, "failed:"+str(principal.client.id), limit=FAILED_REDEEM_LIMIT, window_seconds=600)
             if error.expired:
                 challenge_id, device_id = error.expired
                 await _audit(session, "challenge_expired", actor_kind="service", actor_identifier=principal.client.id,

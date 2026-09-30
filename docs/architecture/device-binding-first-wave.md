@@ -37,9 +37,12 @@ invalidates outstanding proofs.
 Attempt budgets live in `device_binding_throttles` and use transactional row
 locks and collision-safe bucket insertion. Creation allows three requests per
 device per 600s. Redemption permits thirty attempts per service client and
-globally per 60s; a separate budget blocks after five failed attempts per client
+globally per 60s; a separate budget blocks after 60 failed attempts per client
 per 600s. Successful bindings do not consume the failed-attempt budget. Token
 rotation does not reset the client budgets.
+This service-level budget is a secondary circuit breaker. Helpdesk applies its
+existing local limiter to each authenticated actor + trusted client IP pair
+(5 attempts / 600s) before redeem. Endpoint receives no requester identity or IP.
 An additional shared namespace budget permits 120 operations per 60s. Fixed
 window expiry resets the counters; restarting the service does not. Failed
 redemptions commit their budgets. Invalid, expired, revoked and replayed codes
