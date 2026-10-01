@@ -158,6 +158,8 @@ async def test_fleet_ties_and_profile_allowlist(session_provider, monkeypatch):
         response = await client.get("/api/v1/devices/context-summary", headers={"Authorization": "Bearer fleet"})
         item = response.json()["data"]["items"][0]
         assert item["device"]["display_name"] == "nameless"
+        detail = await client.get(f"/api/v1/devices/{device_id}/context", headers={"Authorization": "Bearer fleet"})
+        assert detail.json()["data"]["device"]["display_name"] == "nameless"
         assert item["device"]["online"] is False
         assert {profile["profile"] for profile in item["profiles"]} == set(profiles)
         assert next(profile for profile in item["profiles"] if profile["profile"] == "inventory_v1")["status"] == "queued"
