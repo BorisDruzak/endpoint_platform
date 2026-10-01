@@ -29,6 +29,99 @@ from endpoint_server.main import create_app
 from endpoint_server.auth.scopes import ServicePrincipal
 
 
+@pytest.mark.asyncio
+async def test_fleet_summary_keeps_devices_without_context_and_pages_exactly(session_provider, monkeypatch):
+    ids = [UUID(int=i) for i in range(1, 4)]
+    now = datetime.now(UTC)
+    async with session_provider() as session:
+        session.add_all([Device(id=value, device_identifier=f"fleet-{value.int}",
+            display_name=f"Device {value.int}", retired_at=now if value.int == 3 else None)
+            for value in ids])
+        await session.flush()
+        session.add(DeviceSession(id=uuid4(), device_id=ids[0], created_at=now, last_seen_at=now,
+            session_identifier="fleet-online", expires_at=now))
+        await session.commit()
+    _install_principals(monkeypatch, {"fleet": _principal(["devices.read", "context.read"])})
+    app = create_app(_settings(), session_provider)
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="https://endpoint.sosnadmin.local") as client:
+        response = await client.get("/api/v1/devices/context-summary?limit=2", headers={"Authorization": "Bearer fleet"})
+        assert response.status_code == 200
+        page = response.json()
+        assert [item["device"]["id"] for item in page["data"]["items"]] == list(map(str, ids[:2]))
+        assert page["data"]["items"][0]["device"]["online"] is True
+        assert page["data"]["items"][1]["device"]["online"] is False
+        assert all(item["inventory_summary"] is None for item in page["data"]["items"])
+        assert page["data"]["next_cursor"] == str(ids[1])
+        last = await client.get(f"/api/v1/devices/context-summary?cursor={ids[1]}&limit=2", headers={"Authorization": "Bearer fleet"})
+        assert last.json()["data"]["items"][0]["device"]["retired_at"] is not None
+        assert last.json()["data"]["next_cursor"] is None
+        assert "credential" not in response.text and "raw_payload" not in response.text
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("scopes", [[], ["devices.read"], ["context.read"]])
+async def test_fleet_summary_requires_both_scopes(session_provider, monkeypatch, scopes):
+    _install_principals(monkeypatch, {"fleet": _principal(scopes)})
+    app = create_app(_settings(), session_provider)
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="https://endpoint.sosnadmin.local") as client:
+        assert (await client.get("/api/v1/devices/context-summary", headers={"Authorization": "Bearer fleet"})).status_code == 403
+        assert (await client.get("/api/v1/devices/context-summary")).status_code == 401
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("malformed", [False, True])
+async def test_fleet_inventory_is_bounded_fresh_and_bulk(session_provider, monkeypatch, malformed):
+    now = datetime.now(UTC)
+    observed = now.replace(year=2025)
+    device_id = uuid4()
+    projection = {
+        "schema_version": "device_context_v1", "profile": "inventory_v1", "collected_at": observed.isoformat(), "warnings": [],
+        "sections": {"system": {"hostname": "WIN", "platform": "windows", "os_name": "Windows", "os_version": "11"},
+            "hardware": {"manufacturer": "Acme", "model": "M1", "serial_number": "S1", "cpu_model": "CPU"},
+            "memory": {"total_bytes": 4096, "module_count": 0, "modules": []},
+            "storage": {"physical_devices": []}, "interfaces": []}}
+    if malformed:
+        projection["sections"]["memory"]["total_bytes"] = -1
+    async with session_provider() as session:
+        collection = ContextCollection(id=uuid4(), device_id=device_id, profile="inventory_v1",
+            requested_by="svc", idempotency_key="seed", status="completed", requested_at=observed)
+        snapshot = ContextSnapshot(id=uuid4(), collection_id=collection.id, device_id=device_id,
+            profile="inventory_v1", collected_at=observed, semantic_hash="a" * 64,
+            raw_payload={"private": "DO_NOT_EXPOSE"}, normalized_projection=projection)
+        session.add(Device(id=device_id, device_identifier="inventory-device", display_name="Inventory"))
+        await session.flush()
+        session.add(collection)
+        await session.flush()
+        session.add(snapshot)
+        await session.flush()
+        session.add(ContextCurrent(id=uuid4(), device_id=device_id, profile="inventory_v1",
+                snapshot_id=snapshot.id, updated_at=observed, last_observed_at=now))
+        await session.commit()
+    _install_principals(monkeypatch, {"fleet": _principal(["devices.read", "context.read"])})
+    statements = []
+    def capture(_conn, _cursor, statement, _params, _ctx, _many):
+        if statement.lstrip().upper().startswith("SELECT"):
+            statements.append(statement)
+    event.listen(session_provider.kw["bind"].sync_engine, "before_cursor_execute", capture)
+    app = create_app(_settings(), session_provider)
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="https://endpoint.sosnadmin.local") as client:
+        response = await client.get("/api/v1/devices/context-summary", headers={"Authorization": "Bearer fleet"})
+        if malformed:
+            assert response.status_code == 503
+        else:
+            assert response.status_code == 200
+            item = response.json()["data"]["items"][0]
+            assert item["inventory_summary"]["memory_bytes"] == 4096
+            assert item["inventory_summary"]["hostname"] == "WIN"
+            assert datetime.fromisoformat(item["profiles"][0]["last_collected_at"].replace("Z", "+00:00")) == now
+            assert "sections" not in response.text and "DO_NOT_EXPOSE" not in response.text
+            assert len(statements) == 3
+            assert all("raw_payload" not in sql and "raw_result_payload" not in sql
+                and "last_projection" not in sql for sql in statements)
+        for query in ("limit=0", "limit=251", "cursor=invalid"):
+            assert (await client.get(f"/api/v1/devices/context-summary?{query}", headers={"Authorization": "Bearer fleet"})).status_code == 422
+
+
 def _settings() -> Settings:
     return Settings(
         database_url="sqlite+aiosqlite:///:memory:",
@@ -40,6 +133,36 @@ def _settings() -> Settings:
         allowed_admin_cidrs=(ipaddress.ip_network("127.0.0.0/8"),),
         artifact_root=Path("artifacts"),
     )
+
+
+@pytest.mark.asyncio
+async def test_fleet_ties_and_profile_allowlist(session_provider, monkeypatch):
+    now = datetime.now(UTC)
+    device_id = uuid4()
+    profiles = ("baseline_v1", "health_v1", "network_v1", "inventory_v1", "session_v1")
+    async with session_provider() as session:
+        session.add(Device(id=device_id, device_identifier="nameless", display_name=None))
+        await session.flush()
+        for i, closed in ((1, None), (2, now)):
+            session.add(DeviceSession(id=UUID(int=i), device_id=device_id, session_identifier=f"tie-{i}",
+                created_at=now, last_seen_at=now, expires_at=now, closed_at=closed))
+        for i, profile in enumerate((*profiles, "diagnostic_v1", "activity_v1"), 10):
+            session.add(ContextCollection(id=UUID(int=i), device_id=device_id, profile=profile,
+                requested_by="svc", idempotency_key=profile, status="completed", requested_at=now))
+        session.add(ContextCollection(id=UUID(int=99), device_id=device_id, profile="inventory_v1",
+            requested_by="svc", idempotency_key="latest", status="queued", requested_at=now))
+        await session.commit()
+    _install_principals(monkeypatch, {"fleet": _principal(["devices.read", "context.read"])})
+    app = create_app(_settings(), session_provider)
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="https://endpoint.sosnadmin.local") as client:
+        response = await client.get("/api/v1/devices/context-summary", headers={"Authorization": "Bearer fleet"})
+        item = response.json()["data"]["items"][0]
+        assert item["device"]["display_name"] == "nameless"
+        assert item["device"]["online"] is False
+        assert {profile["profile"] for profile in item["profiles"]} == set(profiles)
+        assert next(profile for profile in item["profiles"] if profile["profile"] == "inventory_v1")["status"] == "queued"
+        empty = await client.get(f"/api/v1/devices/context-summary?cursor={UUID(int=2**128-1)}", headers={"Authorization": "Bearer fleet"})
+        assert empty.json()["data"] == {"items": [], "next_cursor": None}
 
 
 @pytest_asyncio.fixture

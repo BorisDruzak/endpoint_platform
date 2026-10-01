@@ -20,6 +20,7 @@ from fastapi import (
 from pydantic import BaseModel, ConfigDict, Field, WithJsonSchema
 from sqlalchemy import and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import load_only
 
 from endpoint_contracts import ContextProfileV1
 from endpoint_contracts.context import (
@@ -178,6 +179,42 @@ class ServiceDeviceListResponse(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     data: list[ServiceDevice]
+
+
+class ServiceInventorySummary(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    hostname: str | None = Field(default=None, max_length=256)
+    platform: Literal["linux", "windows"] | None = None
+    os_name: str | None = Field(default=None, max_length=256)
+    os_version: str | None = Field(default=None, max_length=256)
+    architecture: Literal["x86_64", "aarch64"] | None = None
+    manufacturer: str | None = Field(default=None, max_length=256)
+    model: str | None = Field(default=None, max_length=256)
+    serial_number: str | None = Field(default=None, max_length=256)
+    cpu_model: str | None = Field(default=None, max_length=256)
+    memory_bytes: int | None = Field(default=None, ge=1)
+
+
+class ServiceFleetItem(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    device: ServiceDevice
+    profiles: list[ServiceContextAvailability] = Field(max_length=5)
+    inventory_summary: ServiceInventorySummary | None
+
+
+class ServiceFleetPage(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    items: list[ServiceFleetItem] = Field(max_length=250)
+    next_cursor: UUID | None
+
+
+class ServiceFleetResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    data: ServiceFleetPage
 
 
 class ServiceNetworkIdentityPage(BaseModel):
@@ -340,6 +377,82 @@ async def list_devices(
             for device, last_seen_at, closed_at in rows
         ]
     return {"data": projections}
+
+
+@router.get(
+    "/devices/context-summary",
+    dependencies=[Security(service_bearer, scopes=[DEVICES_READ_SCOPE, CONTEXT_READ_SCOPE])],
+    responses={200: {"model": ServiceFleetResponse},
+        503: {"description": "Current context projection is invalid or unavailable"},
+        **_SERVICE_ERROR_RESPONSES},
+    openapi_extra={"x-required-scopes": [DEVICES_READ_SCOPE, CONTEXT_READ_SCOPE]},
+)
+async def list_device_context_summary(
+    request: Request,
+    _: Annotated[ServicePrincipal, Depends(require_service_scope(DEVICES_READ_SCOPE))],
+    __: Annotated[ServicePrincipal, Depends(require_service_scope(CONTEXT_READ_SCOPE))],
+    limit: Annotated[int, Query(ge=1, le=250)] = 250,
+    cursor: UUID | None = None,
+) -> dict[str, object]:
+    """Bounded fleet with three bulk reads, including devices without observations."""
+    async with request.app.state.session_provider() as session:
+        page_ids = select(Device.id).order_by(Device.id).limit(limit + 1)
+        if cursor is not None:
+            page_ids = page_ids.where(Device.id > cursor)
+        observed_at = func.coalesce(DeviceSession.last_seen_at, DeviceSession.created_at)
+        latest = select(
+            DeviceSession.device_id, observed_at.label("last_seen_at"), DeviceSession.closed_at,
+            func.row_number().over(partition_by=DeviceSession.device_id,
+                order_by=(observed_at.desc(), DeviceSession.id.desc())).label("rank"),
+        ).where(DeviceSession.device_id.in_(page_ids)).subquery()
+        query = select(Device, latest.c.last_seen_at, latest.c.closed_at).outerjoin(
+            latest, and_(Device.id == latest.c.device_id, latest.c.rank == 1),
+        ).where(Device.id.in_(page_ids)).order_by(Device.id)
+        rows = (await session.execute(query)).all()
+        ids = [device.id for device, _, _ in rows[:limit]]
+        currents = (await session.execute(
+            select(ContextCurrent, ContextSnapshot).join(ContextSnapshot,
+                and_(ContextSnapshot.id == ContextCurrent.snapshot_id,
+                    ContextSnapshot.device_id == ContextCurrent.device_id,
+                    ContextSnapshot.profile == ContextCurrent.profile))
+            .where(ContextCurrent.device_id.in_(ids), ContextCurrent.profile.in_(_SAFE_SERVICE_PROFILES))
+            .options(load_only(ContextCurrent.device_id, ContextCurrent.profile, ContextCurrent.updated_at,
+                ContextCurrent.last_observed_at), load_only(ContextSnapshot.profile,
+                ContextSnapshot.normalized_projection, ContextSnapshot.semantic_hash))
+        )).all()
+        ranked = select(ContextCollection.id.label("id"),
+            func.row_number().over(partition_by=(ContextCollection.device_id, ContextCollection.profile),
+                order_by=(ContextCollection.requested_at.desc(), ContextCollection.id.desc())).label("rank")
+        ).where(ContextCollection.device_id.in_(ids), ContextCollection.profile.in_(_SAFE_SERVICE_PROFILES)).subquery()
+        collections = (await session.scalars(select(ContextCollection).join(
+            ranked, and_(ContextCollection.id == ranked.c.id, ranked.c.rank == 1))
+            .options(load_only(ContextCollection.device_id, ContextCollection.profile, ContextCollection.status)))).all()
+        profiles: dict[UUID, dict[str, ServiceContextAvailability]] = {value: {} for value in ids}
+        summaries: dict[UUID, ServiceInventorySummary] = {}
+        for current, snapshot in currents:
+            safe = snapshot_projection(snapshot)
+            if safe is None or safe["profile"] != current.profile:
+                raise HTTPException(status_code=503, detail="Invalid current context projection")
+            profiles[current.device_id][current.profile] = ServiceContextAvailability(
+                profile=current.profile, status="completed",
+                last_collected_at=_aware_timestamp(current.last_observed_at or current.updated_at))
+            if current.profile == "inventory_v1":
+                sections = InventorySectionsV1.model_validate(safe["sections"])
+                summaries[current.device_id] = ServiceInventorySummary(
+                    **sections.system.model_dump(exclude={"os_build"}),
+                    **sections.hardware.model_dump(include={"manufacturer", "model", "serial_number", "cpu_model"}),
+                    memory_bytes=sections.memory.total_bytes)
+        for collection in collections:
+            previous = profiles[collection.device_id].get(collection.profile)
+            profiles[collection.device_id][collection.profile] = ServiceContextAvailability(
+                profile=collection.profile, status=collection.status,
+                last_collected_at=previous.last_collected_at if previous else None)
+        items = [ServiceFleetItem(device={**_device_projection(device, seen, closed),
+                "display_name": device.display_name or device.device_identifier},
+            profiles=[profiles[device.id][name] for name in sorted(profiles[device.id])],
+            inventory_summary=summaries.get(device.id)) for device, seen, closed in rows[:limit]]
+    return {"data": ServiceFleetPage(items=items,
+        next_cursor=ids[-1] if len(rows) > limit else None).model_dump(mode="json")}
 
 
 @router.get(
