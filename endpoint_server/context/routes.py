@@ -294,7 +294,7 @@ def _device_projection(
     return {
         "id": str(device.id),
         "device_identifier": device.device_identifier,
-        "display_name": device.display_name,
+        "display_name": device.display_name or device.device_identifier,
         "retired_at": device.retired_at,
         "last_seen_at": last_seen_at,
         "online": _is_online(last_seen_at, closed_at),
