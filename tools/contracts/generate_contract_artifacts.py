@@ -111,6 +111,7 @@ _SERVICE_OPERATION_PATHS = (
 
 _SERVICE_CONTEXT_PATHS = (
     "/api/v1/devices",
+    "/api/v1/devices/context-summary",
     "/api/v1/devices/network-identities",
     "/api/v1/devices/{device_id}/context",
     "/api/v1/devices/{device_id}/context/snapshots",

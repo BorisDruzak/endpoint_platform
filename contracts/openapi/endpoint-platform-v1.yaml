@@ -1173,6 +1173,64 @@ paths:
           ServiceBearer: []
       x-required-scopes:
         - "devices.read"
+  "/api/v1/devices/context-summary":
+    get:
+      tags:
+        - "device-context"
+      summary: "List Device Context Summary"
+      description: "Bounded fleet with three bulk reads, including devices without observations."
+      operationId: "list_device_context_summary_api_v1_devices_context_summary_get"
+      security:
+        -
+          ServiceBearer: []
+      parameters:
+        -
+          name: "limit"
+          in: "query"
+          required: false
+          schema:
+            type: "integer"
+            maximum: 250
+            minimum: 1
+            default: 250
+            title: "Limit"
+        -
+          name: "cursor"
+          in: "query"
+          required: false
+          schema:
+            anyOf:
+              -
+                type: "string"
+                format: "uuid"
+              -
+                type: "null"
+            title: "Cursor"
+      responses:
+        "200":
+          description: "Successful Response"
+          content:
+            "application/json":
+              schema:
+                type: "object"
+                additionalProperties: true
+                title: "Response List Device Context Summary Api V1 Devices Context Summary Get"
+                "$ref": "#/components/schemas/ServiceFleetResponse"
+        "503":
+          description: "Current context projection is invalid or unavailable"
+        "401":
+          description: "Service authentication failed"
+        "403":
+          description: "Service scope is insufficient"
+        "422":
+          description: "Validation Error"
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/HTTPValidationError"
+      x-required-scopes:
+        - "devices.read"
+        - "context.read"
   "/api/v1/devices/network-identities":
     get:
       tags:
@@ -10351,6 +10409,149 @@ components:
         - "state"
         - "startup_type"
       title: "ServiceFactV1"
+    ServiceFleetItem:
+      properties:
+        device:
+          "$ref": "#/components/schemas/ServiceDevice"
+        profiles:
+          items:
+            "$ref": "#/components/schemas/ServiceContextAvailability"
+          type: "array"
+          maxItems: 5
+          title: "Profiles"
+        inventory_summary:
+          anyOf:
+            -
+              "$ref": "#/components/schemas/ServiceInventorySummary"
+            -
+              type: "null"
+      additionalProperties: false
+      type: "object"
+      required:
+        - "device"
+        - "profiles"
+        - "inventory_summary"
+      title: "ServiceFleetItem"
+    ServiceFleetPage:
+      properties:
+        items:
+          items:
+            "$ref": "#/components/schemas/ServiceFleetItem"
+          type: "array"
+          maxItems: 250
+          title: "Items"
+        next_cursor:
+          anyOf:
+            -
+              type: "string"
+              format: "uuid"
+            -
+              type: "null"
+          title: "Next Cursor"
+      additionalProperties: false
+      type: "object"
+      required:
+        - "items"
+        - "next_cursor"
+      title: "ServiceFleetPage"
+    ServiceFleetResponse:
+      properties:
+        data:
+          "$ref": "#/components/schemas/ServiceFleetPage"
+      additionalProperties: false
+      type: "object"
+      required:
+        - "data"
+      title: "ServiceFleetResponse"
+    ServiceInventorySummary:
+      properties:
+        hostname:
+          anyOf:
+            -
+              type: "string"
+              maxLength: 256
+            -
+              type: "null"
+          title: "Hostname"
+        platform:
+          anyOf:
+            -
+              type: "string"
+              enum:
+                - "linux"
+                - "windows"
+            -
+              type: "null"
+          title: "Platform"
+        os_name:
+          anyOf:
+            -
+              type: "string"
+              maxLength: 256
+            -
+              type: "null"
+          title: "Os Name"
+        os_version:
+          anyOf:
+            -
+              type: "string"
+              maxLength: 256
+            -
+              type: "null"
+          title: "Os Version"
+        architecture:
+          anyOf:
+            -
+              type: "string"
+              enum:
+                - "x86_64"
+                - "aarch64"
+            -
+              type: "null"
+          title: "Architecture"
+        manufacturer:
+          anyOf:
+            -
+              type: "string"
+              maxLength: 256
+            -
+              type: "null"
+          title: "Manufacturer"
+        model:
+          anyOf:
+            -
+              type: "string"
+              maxLength: 256
+            -
+              type: "null"
+          title: "Model"
+        serial_number:
+          anyOf:
+            -
+              type: "string"
+              maxLength: 256
+            -
+              type: "null"
+          title: "Serial Number"
+        cpu_model:
+          anyOf:
+            -
+              type: "string"
+              maxLength: 256
+            -
+              type: "null"
+          title: "Cpu Model"
+        memory_bytes:
+          anyOf:
+            -
+              type: "integer"
+              minimum: 1.0
+            -
+              type: "null"
+          title: "Memory Bytes"
+      additionalProperties: false
+      type: "object"
+      title: "ServiceInventorySummary"
     ServiceListResultV1:
       properties:
         schema_version:
