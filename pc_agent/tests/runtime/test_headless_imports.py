@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import builtins
-import importlib
+import subprocess
 import sys
 from pathlib import Path
 
@@ -33,25 +33,26 @@ def _is_forbidden(module_name: str) -> bool:
 
 def test_runtime_main_imports_without_gui_helpdesk_or_protocol_v3(monkeypatch) -> None:
     """Adding a forbidden dependency to the core must make its public import fail."""
-    original_import = builtins.__import__
-
-    def guarded_import(name, *args, **kwargs):
-        if _is_forbidden(name):
-            raise AssertionError(f"forbidden headless runtime import: {name}")
-        return original_import(name, *args, **kwargs)
-
-    for module_name in list(sys.modules):
-        if module_name == "pc_agent.runtime" or module_name.startswith(
-            "pc_agent.runtime."
-        ):
-            sys.modules.pop(module_name)
-    monkeypatch.setattr(builtins, "__import__", guarded_import)
-
-    runtime_main = importlib.import_module("pc_agent.runtime.main")
-
-    assert runtime_main.RuntimeSettings.__module__ == "pc_agent.runtime.application"
-    assert callable(runtime_main.run_runtime)
-    assert callable(runtime_main.run_verify)
+    # Use a fresh interpreter: replacing runtime modules in the pytest process
+    # creates different exception/dataclass identities for later lifecycle tests.
+    code = f"""
+import builtins
+import importlib
+forbidden = {_FORBIDDEN_IMPORTS!r}
+original = builtins.__import__
+def guarded(name, *args, **kwargs):
+    if any(name == item or name.startswith(item + '.') for item in forbidden):
+        raise AssertionError('forbidden headless runtime import: ' + name)
+    return original(name, *args, **kwargs)
+builtins.__import__ = guarded
+module = importlib.import_module('pc_agent.runtime.main')
+assert module.RuntimeSettings.__module__ == 'pc_agent.runtime.application'
+assert callable(module.run_runtime)
+assert callable(module.run_verify)
+"""
+    result = subprocess.run([sys.executable, "-c", code], capture_output=True,
+        text=True, timeout=30, check=False)
+    assert result.returncode == 0, result.stderr
 
 
 def test_retired_gui_and_helpdesk_transport_sources_are_absent() -> None:

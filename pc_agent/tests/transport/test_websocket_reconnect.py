@@ -678,44 +678,31 @@ def test_windows_wss_runtime_does_not_start_the_linux_update_poller(tmp_path: Pa
             settings, "d" * 43, websocket
         )
     )
-    assert len(tasks) == 2
-    assert tasks[0].cr_code.co_name == "_periodic_windows_update_checks"
-    assert tasks[1].cr_code.co_name == "send_forever"
-    tasks[0].close()
-    tasks[1].close()
+    try:
+        assert [task.cr_code.co_name for task in tasks] == [
+            "_serve_windows_device_binding", "send_forever",
+        ]
+    finally:
+        for task in tasks:
+            task.close()
 
 
-@pytest.mark.asyncio
-async def test_windows_wss_runtime_starts_its_fixed_update_stager_and_activity_sender(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
-) -> None:
-    """Windows receives HTTPS recommendations without constructing HTTP command polling."""
+def test_windows_has_one_service_update_owner_outside_connected_tasks(tmp_path):
     from pc_agent.runtime import application
-
     settings = application.RuntimeSettings(
-        data_root=tmp_path / "data",
-        install_root=tmp_path / "install",
-        ca_file=tmp_path / "endpoint-ca.pem",
-        endpoint_origin=_ORIGIN,
-        transport_mode="gateway_wss",
-    )
-    observed: list[tuple[object, str]] = []
-
-    async def staged(settings_arg, credential):
-        observed.append((settings_arg, credential))
-
-    monkeypatch.setattr(application, "_periodic_windows_update_checks", staged)
+        data_root=tmp_path / "data", install_root=tmp_path / "install",
+        ca_file=tmp_path / "ca.crt", endpoint_origin=_ORIGIN,
+        transport_mode="gateway_wss")
+    deps = application._default_dependencies()
+    service_tasks = tuple(deps.create_service_tasks(settings, "c" * 43, lambda _: None))
     websocket = object.__new__(application.WebSocketGatewayTransport)
-    tasks = tuple(
-        application._default_dependencies().create_connected_tasks(
-            settings, "d" * 43, websocket
-        )
-    )
-
-    assert len(tasks) == 2
-    await tasks[0]
-    tasks[1].close()
-    assert observed == [(settings, "d" * 43)]
+    connected = tuple(deps.create_connected_tasks(settings, "c" * 43, websocket))
+    try:
+        assert len(service_tasks) == 1
+        assert all("update" not in task.cr_code.co_name for task in connected)
+    finally:
+        for task in (*service_tasks, *connected):
+            task.close()
 
 
 @pytest.mark.asyncio
@@ -747,9 +734,12 @@ async def test_windows_update_task_reports_a_confirmed_startup_before_polling(
     monkeypatch.setattr(application, "_run_windows_startup_report", report)
     monkeypatch.setattr(application, "_run_windows_update_check", check)
     with pytest.raises(asyncio.CancelledError):
-        await application._periodic_windows_update_checks(
-            settings, "d" * 43, sleep=stop_after_interval
-        )
+        from pc_agent.platform.windows.update_supervisor import WindowsRecoveryUpdateSupervisor
+        await WindowsRecoveryUpdateSupervisor(
+            check=lambda: check(settings, "d" * 43),
+            report=lambda: report(settings, "d" * 43),
+            trigger=lambda: None, sleep=stop_after_interval,
+        ).run()
     assert events == ["report", "check", "sleep"]
 
 
@@ -885,3 +875,22 @@ def test_migration_fallback_cli_defaults_off_and_supports_explicit_disable(
         .migration_http_pull_fallback
         is False
     )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("close_code", [4401, 4403])
+async def test_authentication_close_before_hello_is_terminal(monkeypatch, tmp_path, close_code):
+    from pc_agent.transport import websocket
+
+    class DeniedSocket(_Socket):
+        async def receive(self):
+            return SimpleNamespace(type=aiohttp.WSMsgType.CLOSE, data=close_code)
+
+    monkeypatch.setattr(websocket.ssl, "create_default_context", lambda **kwargs: object())
+    monkeypatch.setattr(websocket.aiohttp, "TCPConnector", lambda **kwargs: object())
+    monkeypatch.setattr(websocket.aiohttp, "ClientSession", lambda **kwargs: _SuccessfulSession(DeniedSocket()))
+    transport = websocket.WebSocketGatewayTransport(
+        ca_file=tmp_path / "ca.pem", credential="r" * 43, endpoint_origin=_ORIGIN
+    )
+    with pytest.raises(GatewayCredentialRejected):
+        await transport.connect(_hello())

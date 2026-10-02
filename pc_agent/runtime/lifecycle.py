@@ -25,6 +25,7 @@ from pc_agent.transport.base import (
     GatewayIdle,
     GatewayRetryableError,
     GatewayTerminalError,
+    GatewayProtocolIncompatible,
     GatewayTransport,
 )
 from pc_agent.transport.protocol import GatewayInboundV1, compatibility_agent_hello
@@ -40,6 +41,14 @@ _TRAY_STATUS_HEARTBEAT_SECONDS = 60.0
 CredentialRejected = GatewayCredentialRejected
 RetryableTransportError = GatewayRetryableError
 TerminalTransportError = GatewayTerminalError
+
+
+class UpdatePending(Exception):
+    """A service-owned update supervisor requests controlled root shutdown."""
+
+
+def _no_service_tasks(_settings, _credential, _publish):
+    return ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -145,6 +154,10 @@ class RuntimeDependencies:
         _no_tray_status_writer
     )
     reconnect_delay: float = 5.0
+    recover_protocol_errors: bool = False
+    create_service_tasks: Callable[
+        [object, str, Callable[[str], None]], Iterable[Awaitable[None]]
+    ] = _no_service_tasks
 
 
 class RuntimeLifecycle:
@@ -159,6 +172,8 @@ class RuntimeLifecycle:
         self._settings = settings
         self._dependencies = dependencies
         self._status = status
+        self._update_state = "unknown"
+        self._endpoint_state = "connecting"
 
     async def run(self) -> int:
         self._status.transition(RuntimePhase.STARTING)
@@ -181,6 +196,7 @@ class RuntimeLifecycle:
         local_sensor: LocalSensorService | None = None
         terminal_phase: RuntimePhase | None = None
         tray_status_writer: TrayStatusWriter | None = None
+        service_tasks: set[asyncio.Task] = set()
         try:
             await executor.start()
             executor_started = True
@@ -202,6 +218,25 @@ class RuntimeLifecycle:
                 endpoint_state="connecting",
                 update_state="unknown",
             )
+            def publish_update(state: str) -> None:
+                self._update_state = state
+                _publish_tray_status(
+                    tray_status_writer, agent_state="running",
+                    endpoint_state=self._endpoint_state, update_state=state,
+                )
+
+            service_tasks = {
+                asyncio.ensure_future(task)
+                for task in self._dependencies.create_service_tasks(
+                    self._settings, credential, publish_update
+                )
+            }
+            if tray_status_writer is not None:
+                service_tasks.add(asyncio.create_task(_tray_status_heartbeat(
+                    tray_status_writer, self._dependencies.heartbeat_sleep,
+                    update_state=lambda: self._update_state,
+                    endpoint_state=lambda: self._endpoint_state,
+                )))
             while True:
                 transport = self._dependencies.create_transport(
                     self._settings, credential, executor
@@ -211,29 +246,23 @@ class RuntimeLifecycle:
                     if canary_status_writer is not None:
                         canary_status_writer.write_not_ready()
                     self._status.transition(RuntimePhase.CONNECTING)
-                    gateway_hello = await transport.connect(hello)
+                    self._endpoint_state = "connecting"
+                    gateway_hello = await _await_with_services(transport.connect(hello), service_tasks)
                     self._status.transition(RuntimePhase.RUNNING)
+                    self._endpoint_state = "connected"
                     if canary_status_writer is not None:
                         canary_status_writer.write_wss_ready()
                     _publish_tray_status(
                         tray_status_writer,
                         agent_state="running",
                         endpoint_state="connected",
-                        update_state="up_to_date",
+                        update_state=self._update_state,
                     )
                     await self._dependencies.after_server_handshake(self._settings)
                     connected_tasks = self._dependencies.create_connected_tasks(
                         self._settings, credential, transport
                     )
-                    if tray_status_writer is not None:
-                        connected_tasks = (
-                            *connected_tasks,
-                            _tray_status_heartbeat(
-                                tray_status_writer,
-                                self._dependencies.heartbeat_sleep,
-                            ),
-                        )
-                    await _run_connected(
+                    await _await_with_services(_run_connected(
                         transport,
                         executor,
                         hello,
@@ -245,7 +274,7 @@ class RuntimeLifecycle:
                         security_ack_handler=self._dependencies.security_ack_handler,
                         security_policy_ack_sent=self._dependencies.security_policy_ack_sent,
                         activity_policy_ack_sent=self._dependencies.activity_policy_ack_sent,
-                    )
+                    ), service_tasks)
                     raise GatewayTerminalError(
                         "Gateway connected loops stopped unexpectedly"
                     )
@@ -284,24 +313,35 @@ class RuntimeLifecycle:
                     if canary_status_writer is not None:
                         canary_status_writer.write_not_ready()
                     self._status.record_reconnect(error)
+                    self._endpoint_state = "disconnected"
                     _publish_tray_status(
                         tray_status_writer,
                         agent_state="running",
                         endpoint_state="disconnected",
-                        update_state="up_to_date",
+                        update_state=self._update_state,
                     )
                     next_delay = self._dependencies.reconnect_delay
                 except TerminalTransportError as error:
-                    terminal_phase = RuntimePhase.FAILED
-                    self._status.transition(terminal_phase, error=error)
-                    _publish_tray_status(
-                        tray_status_writer,
-                        agent_state="error",
-                        endpoint_state="unknown",
-                        update_state="unknown",
-                        reason_code="TRANSPORT_TERMINAL",
-                    )
-                    return 1
+                    if self._dependencies.recover_protocol_errors and isinstance(error, GatewayProtocolIncompatible):
+                        self._endpoint_state = "disconnected"
+                        self._status.record_reconnect(error)
+                        logger.warning("control_channel_recoverable_failure")
+                        _publish_tray_status(
+                            tray_status_writer, agent_state="running",
+                            endpoint_state="disconnected", update_state=self._update_state,
+                        )
+                        next_delay = self._dependencies.reconnect_delay
+                    else:
+                        terminal_phase = RuntimePhase.FAILED
+                        self._status.transition(terminal_phase, error=error)
+                        _publish_tray_status(
+                            tray_status_writer,
+                            agent_state="error",
+                            endpoint_state="unknown",
+                            update_state="unknown",
+                            reason_code="TRANSPORT_TERMINAL",
+                        )
+                        return 1
                 except asyncio.CancelledError:
                     terminal_phase = RuntimePhase.STOPPED
                     self._status.transition(RuntimePhase.STOPPING)
@@ -309,8 +349,10 @@ class RuntimeLifecycle:
                         tray_status_writer,
                         agent_state="stopped",
                         endpoint_state="unknown",
-                        update_state="up_to_date",
+                        update_state=self._update_state,
                     )
+                    if asyncio.current_task().cancelling():
+                        raise
                     return 0
                 except GatewayIdle as idle:
                     if canary_status_writer is not None:
@@ -321,7 +363,22 @@ class RuntimeLifecycle:
                     await _cleanup(transport.close)
 
                 if next_delay:
-                    await self._dependencies.sleep(next_delay)
+                    await _await_with_services(self._dependencies.sleep(next_delay), service_tasks)
+        except UpdatePending:
+            terminal_phase = RuntimePhase.UPDATE_PENDING
+            _publish_tray_status(
+                tray_status_writer, agent_state="running",
+                endpoint_state=self._endpoint_state, update_state="pending",
+            )
+            return EXIT_UPDATE_PENDING
+        except CredentialRejected as error:
+            terminal_phase = RuntimePhase.CREDENTIAL_REJECTED
+            self._status.transition(terminal_phase, error=error)
+            return 75
+        except asyncio.CancelledError:
+            terminal_phase = RuntimePhase.STOPPED
+            self._status.transition(RuntimePhase.STOPPING)
+            raise
         except Exception as error:
             terminal_phase = RuntimePhase.FAILED
             self._status.transition(terminal_phase, error=error)
@@ -334,6 +391,9 @@ class RuntimeLifecycle:
             )
             return 1
         finally:
+            for task in service_tasks:
+                task.cancel()
+            await asyncio.gather(*service_tasks, return_exceptions=True)
             if local_sensor is not None:
                 await _cleanup(lambda: asyncio.to_thread(local_sensor.stop))
             if executor_started:
@@ -361,12 +421,14 @@ def _publish_tray_status(
             reason_code=reason_code,
         )
     except Exception:
-        logger.warning("could not publish Windows tray status", exc_info=True)
+        logger.warning("could not publish Windows tray status")
 
 
 async def _tray_status_heartbeat(
     writer: TrayStatusWriter,
     sleep: Callable[[float], Awaitable[None]],
+    *, update_state: Callable[[], str] = lambda: "unknown",
+    endpoint_state: Callable[[], str] = lambda: "connected",
 ) -> None:
     """Keep a healthy, quiet WSS session visible to the local tray."""
     while True:
@@ -374,9 +436,32 @@ async def _tray_status_heartbeat(
         _publish_tray_status(
             writer,
             agent_state="running",
-            endpoint_state="connected",
-            update_state="up_to_date",
+            endpoint_state=endpoint_state(),
+            update_state=update_state(),
         )
+
+
+async def _await_with_services(awaitable, service_tasks):
+    """Race one control operation against persistent service tasks; own all cleanup."""
+    if not service_tasks:
+        return await awaitable
+    operation = asyncio.ensure_future(awaitable)
+    try:
+        done, _ = await asyncio.wait(
+            {operation, *service_tasks}, return_when=asyncio.FIRST_COMPLETED,
+        )
+        # Authentication/trust failure wins over a simultaneous update signal.
+        failures = [task.exception() for task in done if not task.cancelled()]
+        for failure in failures:
+            if isinstance(failure, (CredentialRejected, TerminalTransportError)):
+                raise failure
+        for task in service_tasks & done:
+            await task
+            raise RuntimeError("service task stopped unexpectedly")
+        return await operation
+    finally:
+        operation.cancel()
+        await asyncio.gather(operation, return_exceptions=True)
 
 
 async def _cleanup(action: Callable[[], Awaitable[None]]) -> None:

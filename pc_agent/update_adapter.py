@@ -5,6 +5,8 @@ from __future__ import annotations
 import asyncio
 import json
 import re
+import ssl
+from ipaddress import ip_address
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -17,6 +19,7 @@ import aiohttp
 from endpoint_contracts import AgentUpdateRecommendationV1
 from endpoint_contracts.device_binding import DeviceBindingChallengeV1
 from pydantic import ValidationError
+from pc_agent.transport.base import GatewayCredentialRejected, GatewayTerminalError
 
 
 UpdatePlatform = Literal["windows_amd64", "linux_amd64"]
@@ -105,7 +108,20 @@ class EndpointUpdateAdapter:
         session: _Session,
         legacy_fetch: Callable[[], Awaitable[object]] | None = None,
         data_root: Path | None = None,
+        strict_recovery: bool = False,
     ) -> None:
+        self._strict_recovery = strict_recovery
+        if strict_recovery:
+            from pc_agent.transport.http_pull import validate_endpoint_origin
+            validate_endpoint_origin(api_url)
+            try:
+                ip_address(urlsplit(api_url).hostname or "")
+            except ValueError:
+                pass
+            else:
+                raise ValueError("Endpoint recovery requires its configured hostname")
+            if legacy_fetch is not None:
+                raise ValueError("Endpoint recovery cannot use legacy fallback")
         self._api_url = api_url.rstrip("/")
         self._bearer_token = bearer_token
         self._session = session
@@ -153,6 +169,8 @@ class EndpointUpdateAdapter:
 
         bearer = self._bearer_token()
         if not isinstance(bearer, str) or not bearer:
+            if self._strict_recovery:
+                raise GatewayCredentialRejected("Endpoint update credential missing")
             return RecommendationResult(
                 "endpoint", None, False, "endpoint_auth_missing"
             )
@@ -164,8 +182,10 @@ class EndpointUpdateAdapter:
         received_primary_response = False
         try:
             async with self._session.get(
-                url, headers={"Authorization": f"Bearer {bearer}"}
+                url, headers={"Authorization": f"Bearer {bearer}"},
+                **({"allow_redirects": False} if self._strict_recovery else {}),
             ) as response:
+                self._require_recovery_response(response.status)
                 received_primary_response = True
                 if response.status == 204:
                     return RecommendationResult("endpoint", None, False, None)
@@ -173,9 +193,13 @@ class EndpointUpdateAdapter:
                     return await self._fetch_legacy()
                 if response.status != 200:
                     return RecommendationResult(
-                        "endpoint", None, False, "endpoint_unavailable"
+                        "endpoint", None, self._strict_recovery, "endpoint_unavailable"
                     )
                 raw_body = await response.text()
+        except (aiohttp.ClientConnectorCertificateError, aiohttp.ClientConnectorSSLError, ssl.SSLError) as exc:
+            if self._strict_recovery:
+                raise GatewayTerminalError("Endpoint update TLS trust failed") from exc
+            return RecommendationResult("endpoint", None, False, "endpoint_unavailable")
         except (aiohttp.ClientError, asyncio.TimeoutError) as exc:
             if received_primary_response:
                 return RecommendationResult(
@@ -207,8 +231,14 @@ class EndpointUpdateAdapter:
                 f"{self._api_url}/agent/v1/updates/{operation_id}/ack",
                 headers={"Authorization": f"Bearer {bearer}"},
                 json={"schema_version": "agent_update_ack_v1", "status": status},
+                **({"allow_redirects": False} if self._strict_recovery else {}),
             ) as response:
+                self._require_recovery_response(response.status)
                 return response.status == 204
+        except (aiohttp.ClientConnectorCertificateError, aiohttp.ClientConnectorSSLError, ssl.SSLError) as exc:
+            if self._strict_recovery:
+                raise GatewayTerminalError("Endpoint update TLS trust failed") from exc
+            return False
         except (aiohttp.ClientError, asyncio.TimeoutError):
             return False
 
@@ -306,14 +336,28 @@ class EndpointUpdateAdapter:
                 f"{self._api_url}/agent/v1/updates/{operation_id}/reports",
                 headers={"Authorization": f"Bearer {bearer}"},
                 json=payload,
+                **({"allow_redirects": False} if self._strict_recovery else {}),
             ) as response:
+                self._require_recovery_response(response.status)
                 if response.status != 200:
                     return False
+        except (aiohttp.ClientConnectorCertificateError, aiohttp.ClientConnectorSSLError, ssl.SSLError) as exc:
+            if self._strict_recovery:
+                raise GatewayTerminalError("Endpoint update TLS trust failed") from exc
+            return False
         except (aiohttp.ClientError, asyncio.TimeoutError):
             return False
         record["delivered_at"] = datetime.now(timezone.utc).isoformat()
         self._write_report_journal(self._load_report_journal_with(record))
         return True
+
+    def _require_recovery_response(self, status: int) -> None:
+        if not self._strict_recovery:
+            return
+        if status in {401, 403}:
+            raise GatewayCredentialRejected("Endpoint update credential rejected")
+        if 300 <= status < 400:
+            raise GatewayTerminalError("Endpoint update redirect rejected")
 
     async def _fetch_legacy(self) -> RecommendationResult:
         if self._legacy_fetch is None:

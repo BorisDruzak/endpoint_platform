@@ -40,6 +40,7 @@ from .base import (
     GatewayCredentialRejected,
     GatewayRetryableError,
     GatewayTerminalError,
+    GatewayProtocolIncompatible,
     GatewayTransport,
 )
 from .http_pull import (
@@ -161,6 +162,8 @@ class WebSocketGatewayTransport:
                 if error.status in {404, 500, 501, 502, 503, 504}:
                     await self._retry_unavailable(attempt, error)
                     continue
+                if error.status in {400, 426}:
+                    raise GatewayProtocolIncompatible("Gateway WSS upgrade incompatible") from error
                 raise GatewayTerminalError(type(error).__name__) from error
             except (
                 aiohttp.ClientConnectionError,
@@ -216,18 +219,10 @@ class WebSocketGatewayTransport:
             await self._socket.send_json(
                 envelope.model_dump(mode="json", exclude_defaults=True)
             )
-            response = await self._socket.receive()
-            if response.type is not aiohttp.WSMsgType.TEXT:
-                raise GatewayTerminalError("Gateway hello must be a text message")
-            encoded = response.data.encode("utf-8")
-            if len(encoded) > INITIAL_MAXIMUM_MESSAGE_BYTES:
-                raise GatewayTerminalError("Gateway hello exceeds the message limit")
-            try:
-                parsed = GatewayWsEnvelopeV1.model_validate_json(encoded).root
-            except (ValidationError, ValueError) as error:
-                raise GatewayTerminalError("invalid Gateway hello") from error
+            self._maximum_message_bytes = INITIAL_MAXIMUM_MESSAGE_BYTES
+            parsed = await self._receive_envelope()
             if not isinstance(parsed, GatewayHelloEnvelopeV1) or parsed.sequence != 0:
-                raise GatewayTerminalError("expected Gateway hello")
+                raise GatewayProtocolIncompatible("expected Gateway hello")
             self._maximum_message_bytes = parsed.payload.maximum_message_bytes
             self._outgoing_sequence = 0
             if self._on_connected is not None:
@@ -244,7 +239,7 @@ class WebSocketGatewayTransport:
         try:
             return GatewayInboundV1(root=parsed)
         except (ValidationError, ValueError) as error:
-            raise GatewayTerminalError("invalid Gateway inbound message") from error
+            raise GatewayProtocolIncompatible("invalid Gateway inbound message") from error
 
     async def send_ack(self, ack: AgentCommandAckV1) -> None:
         await self._send(
@@ -331,16 +326,18 @@ class WebSocketGatewayTransport:
                 raise GatewayCredentialRejected("Endpoint Gateway rejected device")
             if close_code in {1000, 1001, 1011, 1012, 1013, 4000, 4001}:
                 raise GatewayTransportUnavailable("Gateway WSS connection closed")
+            if close_code in {1002, 1003, 1007, 1009}:
+                raise GatewayProtocolIncompatible("Gateway WSS protocol close")
             raise GatewayTerminalError("Gateway WSS policy or protocol close")
         if response.type is not aiohttp.WSMsgType.TEXT:
-            raise GatewayTerminalError("Gateway messages must use text frames")
+            raise GatewayProtocolIncompatible("Gateway messages must use text frames")
         encoded = response.data.encode("utf-8")
         if len(encoded) > self._maximum_message_bytes:
-            raise GatewayTerminalError("Gateway message exceeds the negotiated limit")
+            raise GatewayProtocolIncompatible("Gateway message exceeds the negotiated limit")
         try:
             return GatewayWsEnvelopeV1.model_validate_json(encoded).root
         except (ValidationError, ValueError) as error:
-            raise GatewayTerminalError("invalid Gateway message") from error
+            raise GatewayProtocolIncompatible("invalid Gateway message") from error
 
     async def _send(self, envelope_type, *, kind: str, payload: object) -> None:
         socket = self._require_socket()

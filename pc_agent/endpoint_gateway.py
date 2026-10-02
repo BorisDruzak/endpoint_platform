@@ -33,11 +33,13 @@ from pc_agent.transport.http_pull import (
 )
 from pc_agent.transport.protocol import compatibility_agent_hello
 from pc_agent.update_adapter import EndpointRecommendation, EndpointUpdateAdapter
+from pc_agent.update_schedule import UPDATE_POLL_INTERVAL_SEC
 from pc_agent.version import EXIT_UPDATE_PENDING
 
 _ORIGIN = DEFAULT_ENDPOINT_ORIGIN
 _ALT_CURRENT_SELECTOR = Path("/opt/endpoint-agent/current.json")
-GATEWAY_UPDATE_POLL_INTERVAL_SEC = 300.0
+# Compatibility alias for existing Linux/migration consumers.
+GATEWAY_UPDATE_POLL_INTERVAL_SEC = UPDATE_POLL_INTERVAL_SEC
 
 
 @dataclass(frozen=True, slots=True)
@@ -111,9 +113,8 @@ async def _download_gateway_artifact(
         os.chmod(temporary, 0o600)
         temporary.replace(destination)
         return actual, size
-    except Exception:
+    finally:
         temporary.unlink(missing_ok=True)
-        raise
 
 
 def _gateway_update_runtime(

@@ -281,7 +281,7 @@ async def test_connected_runtime_refreshes_the_tray_projection_before_it_stales(
 
     task = asyncio.create_task(_tray_status_heartbeat(writer, sleep))
     await refreshed.wait()
-    assert writer.events == [("running", "connected", "up_to_date", None)]
+    assert writer.events == [("running", "connected", "unknown", None)]
     task.cancel()
     with pytest.raises(asyncio.CancelledError):
         await task
@@ -305,9 +305,9 @@ async def test_runtime_projects_connected_and_retrying_tray_states(
 
     assert await lifecycle.run() == 0
     assert ("starting", "connecting", "unknown", None) in tray_status_writer.events
-    assert ("running", "disconnected", "up_to_date", None) in tray_status_writer.events
-    assert ("running", "connected", "up_to_date", None) in tray_status_writer.events
-    assert tray_status_writer.events[-1] == ("stopped", "unknown", "up_to_date", None)
+    assert ("running", "disconnected", "unknown", None) in tray_status_writer.events
+    assert ("running", "connected", "unknown", None) in tray_status_writer.events
+    assert tray_status_writer.events[-1] == ("stopped", "unknown", "unknown", None)
 
 
 @pytest.mark.asyncio
@@ -630,7 +630,7 @@ async def test_security_feature_pins_browser_identity_and_durable_handoff(
         connected_tasks = tuple(dependencies.create_connected_tasks(
             settings, "d" * 43, websocket,
         ))
-        assert len(connected_tasks) == 6
+        assert len(connected_tasks) == 5
         assert any(task.cr_code.co_name == "_serve_windows_device_binding" for task in connected_tasks)
         for task in connected_tasks:
             task.close()
@@ -1106,6 +1106,10 @@ async def test_default_wss_composition_binds_bearer_to_stored_server_device_id(
             start=lambda: None, stop=lambda: None, available=False,
         ),
     )
+
+    # This identity-only fixture has a placeholder CA, so keep the independent
+    # HTTPS task out of this test; recovery/TLS are exercised separately.
+    monkeypatch.setattr(runtime_application, "_create_service_tasks", lambda *_: ())
 
     stored_device_id = UUID("00000000-0000-4000-8000-000000000436")
     settings = RuntimeSettings(

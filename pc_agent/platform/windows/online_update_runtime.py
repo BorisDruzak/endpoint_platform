@@ -5,13 +5,17 @@ from __future__ import annotations
 import json
 import os
 import re
+import ssl
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
+import aiohttp
+
 from pc_agent.gateway_update_runtime import _is_eligible_recommendation
 from pc_agent.update_adapter import EndpointRecommendation
+from pc_agent.transport.base import GatewayCredentialRejected, GatewayTerminalError
 
 from .update_paths import WindowsUpdatePaths
 
@@ -58,7 +62,24 @@ class WindowsOnlineUpdateRuntime:
 
     async def run_once(self) -> WindowsOnlineUpdateResult:
         current = _load_current_version(self._paths.current_path)
+        if (self._paths.updates_root / _TERMINAL_OUTCOME_FILENAME).exists():
+            return WindowsOnlineUpdateResult("report_pending")
         if self._paths.pending_path.exists():
+            attempt_path = self._paths.updates_root / "startup-attempt.json"
+            if attempt_path.exists():
+                try:
+                    pending = json.loads(self._paths.pending_path.read_text(encoding="utf-8"))
+                    attempt = json.loads(attempt_path.read_text(encoding="utf-8"))
+                    if (
+                        pending["version"] == current == attempt["version"]
+                        and pending["operation_id"] == attempt["operation_id"]
+                        and isinstance(attempt["attempt_id"], str)
+                    ):
+                        # The privileged worker is already applying this update
+                        # and waiting for this candidate's post-WSS proof.
+                        return WindowsOnlineUpdateResult("verifying")
+                except (OSError, ValueError, KeyError, TypeError):
+                    raise ValueError("Windows update startup attempt is invalid") from None
             return WindowsOnlineUpdateResult("pending")
         result = await self._adapter.fetch_recommendation(
             platform="windows_amd64", channel="canary"
@@ -66,7 +87,7 @@ class WindowsOnlineUpdateRuntime:
         recommendation = result.recommendation
         if recommendation is None:
             return WindowsOnlineUpdateResult(
-                "unavailable" if result.unavailable else "idle"
+                "unavailable" if result.unavailable or result.safe_error else "idle"
             )
         if (
             recommendation.archive_type != "zip"
@@ -87,6 +108,12 @@ class WindowsOnlineUpdateRuntime:
         )
         try:
             actual_hash, actual_size = await self._download(recommendation, artifact)
+        except (aiohttp.ClientConnectorCertificateError, aiohttp.ClientConnectorSSLError, ssl.SSLError) as error:
+            artifact.unlink(missing_ok=True)
+            raise GatewayTerminalError("Endpoint update artifact TLS trust failed") from error
+        except (GatewayCredentialRejected, GatewayTerminalError):
+            artifact.unlink(missing_ok=True)
+            raise
         except Exception:
             artifact.unlink(missing_ok=True)
             return WindowsOnlineUpdateResult("download_rejected")
@@ -141,6 +168,9 @@ class WindowsOnlineUpdateRuntime:
                     return False
             except (OSError, TypeError, json.JSONDecodeError):
                 return False
+            scheduled = await self._adapter.retry_scheduled_acknowledgement(outcome["operation_id"])
+            if not scheduled and status == "rolled_back":
+                return False
             delivered = await self._adapter.report_terminal(
                 outcome["operation_id"],
                 status=status,
@@ -170,6 +200,8 @@ class WindowsOnlineUpdateRuntime:
             ):
                 return False
         except (OSError, ValueError, TypeError, json.JSONDecodeError):
+            return False
+        if not await self._adapter.retry_scheduled_acknowledgement(proof["operation_id"]):
             return False
         return await self._adapter.report_terminal(
             proof["operation_id"],
