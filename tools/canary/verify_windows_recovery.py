@@ -220,7 +220,17 @@ async def _scenario(root: Path, artifact: Path, revision: str, negative: bool, p
     runtime = application.RuntimeApplication(settings, deps)
     task = asyncio.create_task(runtime.run())
     try:
-        await asyncio.wait_for(root_running.wait(), 30)
+        discovery = asyncio.create_task(root_running.wait())
+        try:
+            done, _ = await asyncio.wait({task, discovery}, timeout=30,
+                return_when=asyncio.FIRST_COMPLETED)
+            if discovery not in done:
+                if task in done:
+                    raise RuntimeError(f"baseline stopped before discovery: exit={task.result()} phase={runtime.status.phase}")
+                raise TimeoutError("baseline did not discover recommendation")
+        finally:
+            discovery.cancel()
+            await asyncio.gather(discovery, return_exceptions=True)
         assert not task.done(), "runtime did not remain alive through WSS failure"
         assert await asyncio.wait_for(task, 90) == 42
         assert facts["handshakes"] == 0
@@ -361,7 +371,19 @@ def main():
     async def run():
         await scenario(root / "positive", args.artifact.resolve(), args.source_revision, False, args.packaged_candidate)
         await scenario(root / "negative", args.artifact.resolve(), args.source_revision, True, args.packaged_candidate)
-    asyncio.run(run())
+    fixtures = []
+    try:
+        if args.packaged_candidate:
+            # Production ACLs resolve canonical virtual service SIDs. Register
+            # disabled records only; they cannot run and point to no executable.
+            for name in ("EndpointAgent", "EndpointAgentUpdater"):
+                subprocess.run(["sc.exe", "create", name, "binPath=", str(root / "never-run.exe"),
+                    "start=", "disabled"], check=True, capture_output=True)
+                fixtures.append(name)
+        asyncio.run(run())
+    finally:
+        for name in reversed(fixtures):
+            subprocess.run(["sc.exe", "delete", name], check=True, capture_output=True)
     print(json.dumps({"positive": "passed", "negative": "passed", "evidence_root": str(root)}))
 
 
