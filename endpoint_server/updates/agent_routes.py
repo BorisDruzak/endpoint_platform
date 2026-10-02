@@ -277,7 +277,7 @@ async def get_update_recommendation(
             principal.device.id,
             query.platform,
         )
-        if recommendation is None or recommendation.channel != query.channel:
+        if recommendation is None:
             return Response(status_code=status.HTTP_204_NO_CONTENT)
         return recommendation
 

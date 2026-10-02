@@ -52,6 +52,15 @@ def _valid_payload() -> str:
     }"""
 
 
+@pytest.mark.asyncio
+async def test_legacy_canary_query_accepts_server_assigned_stable_channel() -> None:
+    adapter, _ = _adapter(_Response(200, _valid_payload()))
+    result = await adapter.fetch_recommendation(platform="windows_amd64", channel="canary")
+    assert result.safe_error is None
+    assert result.recommendation is not None
+    assert result.recommendation.channel == "stable"
+
+
 def _adapter(
     response: _Response,
     *,

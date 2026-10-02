@@ -501,7 +501,7 @@ def _validate_wire_form(
         raise ValueError("operation_id")
     if not isinstance(version, str) or not _SEMVER.fullmatch(version):
         raise ValueError("version")
-    if payload.get("platform") != platform or payload.get("channel") != channel:
+    if payload.get("platform") != platform or payload.get("channel") not in {"stable", "canary"}:
         raise ValueError("target")
     if not isinstance(artifact_url, str):
         raise ValueError("artifact_url")

@@ -278,8 +278,9 @@ async def test_agent_cannot_read_another_devices_recommendation(
     assert str(device_b.id) not in identity_injection.text
     assert foreign_platform.status_code == 204
     assert foreign_platform.content == b""
-    assert foreign_channel.status_code == 204
-    assert foreign_channel.content == b""
+    # The authenticated assignment owns the channel, including legacy canary queries.
+    assert foreign_channel.status_code == 200
+    assert foreign_channel.json()["channel"] == "stable"
 
 
 @pytest.mark.asyncio
