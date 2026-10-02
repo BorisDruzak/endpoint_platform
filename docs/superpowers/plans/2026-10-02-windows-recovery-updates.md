@@ -49,14 +49,27 @@ Files: `pc_agent/update_adapter.py`, `pc_agent/transport/{base,websocket}.py`, `
 
 Files: `pc_agent/version.py`, release documentation, existing Windows build tools.
 
-- [ ] Increment 3.2.78 to 3.2.79 per current source; focused runtime/transport/adapter/online/updater/launcher/packaging/contract tests, compile and generated-contract checks.
-- [ ] Run full provider release gate against a frozen revision and report platform skips/failures explicitly.
-- [ ] Inspect complete diff, GitNexus impact and whitespace; commit only task files, build exact ZIP from that SHA and record artifact hash/source revision.
-- [ ] Isolated Windows acceptance: WSS-only failure while HTTPS stages candidate, offline updater applies, candidate WSS confirms; negative candidate rolls back where practical. Preserve working installed services.
-- [ ] Record all requested acceptance facts, CI run, residual risks and six explicit invariant answers; mark goal complete only after required work is verified.
+- [x] Increment 3.2.78 to 3.2.79 per current source; focused runtime/transport/adapter/online/updater/launcher/packaging/contract tests, compile and generated-contract checks.
+- [x] Run full provider release gate against a frozen revision and report platform skips/failures explicitly.
+- [x] Inspect complete diff, GitNexus impact and whitespace; commit only task files, build exact ZIP from that SHA and record artifact hash/source revision.
+- [x] Isolated Windows acceptance: WSS-only failure while HTTPS stages candidate, offline updater applies, candidate WSS confirms; negative candidate rolls back where practical. Preserve working installed services.
+- [x] Record all requested acceptance facts, CI run, residual risks and six explicit invariant answers; mark goal complete only after required work is verified.
 
 ## Acceptance limitation
 
 The authorized local workstation runs the working Agent. A normal packaged candidate uses machine-wide named pipes even with separate data/install directories. Therefore the local exercise uses a source candidate with those facilities disabled and the exact packaged candidate only for offline --verify. This does not claim packaged online, SCM or LocalService acceptance. Full binary canary requires a dedicated Windows environment.
 
 User subsequently authorized removal of the Agent from the test Windows VM (or local machine). Dedicated `endpoint-windows-canary-101-120` / `192.168.101.120` is reachable; MSI 3.2.78 removal returned 0 and left no Agent services. Packaged-candidate mode fails closed if Agent services exist and can now execute the exact EXE on that VM. Baseline remains the exact source runtime with injected process trigger; this is distinct from full LocalService/SCM acceptance.
+
+## Verified completion evidence
+
+- Release runtime source: `04665824c8d758607b76f06fe6686c4653eb3e6c`, Agent `3.2.79`.
+- Frozen Windows full suite: `2331 passed, 45 skipped`; focused final suite: `208 passed`.
+- Provider CI: `1524 passed, 8 skipped`, contracts/compile/whitespace passed: https://github.com/BorisDruzak/endpoint_platform/actions/runs/37004333632 .
+- Exact ZIP SHA-256: `4cd3ea700825c6adf8c677a030dc268359080cbb62d133930993896f1a44402f`.
+- Dedicated Windows VM positive: authenticated HTTPS download/staging before WSS handshake, real offline worker verification, packaged candidate handshake/proof and applied report.
+- Negative: no handshake/proof; rollback restored selector3.2.78 and delivered rolled_back report.
+- All temporary keys, credentials, candidate processes and disabled SID-fixture services removed; working operator Agent preserved.
+- Scope is a source discovery baseline plus exact packaged online candidate, local TLS fixture and injected process service boundary. Full LocalService/SCM acceptance and production Console ONLINE state remain separate and are not claimed.
+- No production deployment, mass rollout, MSI/Setup release or campaign promotion. `main` remains unchanged.
+- Documentation-only closure commits do not change the verified runtime release source or ZIP.
