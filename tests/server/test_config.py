@@ -30,6 +30,22 @@ def _environment(tmp_path: Path) -> dict[str, str]:
     }
 
 
+def test_per_device_gateway_minimum_is_loaded_without_a_global_floor(tmp_path):
+    values = _environment(tmp_path)
+    values["GATEWAY_MINIMUM_AGENT_VERSIONS"] = '{"00000000-0000-4000-8000-000000000001":"3.2.80"}'
+    settings = Settings.from_environment(values)
+    assert settings.gateway_minimum_agent_versions == (("00000000-0000-4000-8000-000000000001", "3.2.80"),)
+    assert Settings.from_environment(_environment(tmp_path)).gateway_minimum_agent_versions == ()
+
+
+@pytest.mark.parametrize("invalid", ['{"all":"3.2.80"}', '{"00000000-0000-4000-8000-000000000001":"latest"}', '[]', 'invalid'])
+def test_malformed_gateway_minimum_fails_startup(tmp_path, invalid):
+    values = _environment(tmp_path)
+    values["GATEWAY_MINIMUM_AGENT_VERSIONS"] = invalid
+    with pytest.raises(ValueError, match="GATEWAY_MINIMUM_AGENT_VERSIONS"):
+        Settings.from_environment(values)
+
+
 def test_from_environment_loads_secret_bytes_and_parses_cidrs(tmp_path: Path) -> None:
     """Removing safe secret loading or CIDR parsing must break startup settings."""
     settings = Settings.from_environment(_environment(tmp_path))

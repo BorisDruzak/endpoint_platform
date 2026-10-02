@@ -194,6 +194,19 @@ async def connect_agent(websocket: WebSocket) -> None:
         if not isinstance(first, AgentHelloEnvelopeV1):
             raise GatewayProtocolError(1008, "agent_hello_required")
         validate_agent_hello(authenticated, first.payload)
+        minimum_version = dict(websocket.app.state.settings.gateway_minimum_agent_versions).get(str(device_id))
+        if minimum_version is not None:
+            try:
+                actual = tuple(int(part) for part in first.payload.agent_version.split("."))
+                required = tuple(int(part) for part in minimum_version.split("."))
+                below_minimum = len(actual) != 3 or actual < required
+            except ValueError:
+                below_minimum = True
+            if below_minimum:
+                if "endpoint.recovery-update.v2" in first.payload.protocol_features:
+                    await _send_safe_error(websocket, "agent_upgrade_required")
+                await websocket.close(code=1002)
+                return
         presence = await presence_service.open_session(
             device_id=device_id,
             hello=first.payload,

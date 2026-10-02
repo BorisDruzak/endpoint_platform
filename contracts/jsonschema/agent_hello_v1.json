@@ -71,11 +71,12 @@
           "endpoint.activity.v1",
           "endpoint.security-events.v1",
           "endpoint.browser-status.v1",
-          "endpoint.sensor-health.v1"
+          "endpoint.sensor-health.v1",
+          "endpoint.recovery-update.v2"
         ],
         "type": "string"
       },
-      "maxItems": 5,
+      "maxItems": 6,
       "title": "Protocol Features",
       "type": "array"
     },

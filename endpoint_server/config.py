@@ -3,13 +3,16 @@
 from __future__ import annotations
 
 import ipaddress
+import json
 import os
+import re
 import stat
 from dataclasses import dataclass
 from pathlib import Path
 from types import MappingProxyType
 from typing import Mapping, TypeAlias
 from urllib.parse import urlsplit
+from uuid import UUID
 
 
 Network: TypeAlias = ipaddress.IPv4Network | ipaddress.IPv6Network
@@ -17,6 +20,23 @@ Network: TypeAlias = ipaddress.IPv4Network | ipaddress.IPv6Network
 _PRODUCTION_PUBLIC_HOST = "endpoint.sosnadmin.local"
 _STAGING_PUBLIC_HOST = "endpoint-staging.sosnadmin.local"
 _SECRET_MODE_MASK = stat.S_IRGRP | stat.S_IROTH
+
+
+def _parse_gateway_minimum_agent_versions(value: str) -> tuple[tuple[str, str], ...]:
+    if not value.strip():
+        return ()
+    try:
+        payload = json.loads(value)
+        if not isinstance(payload, dict) or len(payload) > 128:
+            raise ValueError
+        for device_id, version in payload.items():
+            if str(UUID(device_id)) != device_id or not isinstance(version, str):
+                raise ValueError
+            if not re.fullmatch(r"(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)", version) or len(version) > 32:
+                raise ValueError
+        return tuple(sorted(payload.items()))
+    except (ValueError, TypeError, AttributeError):
+        raise ValueError("GATEWAY_MINIMUM_AGENT_VERSIONS must map device UUIDs to versions") from None
 
 
 def _require_setting(name: str, environment: Mapping[str, str]) -> str:
@@ -170,6 +190,7 @@ class Settings:
     endpoint_activity_sensor_enabled: bool = False
     endpoint_browser_sensor_enabled: bool = False
     endpoint_dlp_audit_enabled: bool = False
+    gateway_minimum_agent_versions: tuple[tuple[str, str], ...] = ()
 
     @classmethod
     def from_environment(cls, environment: Mapping[str, str] | None = None) -> Settings:
@@ -305,4 +326,7 @@ class Settings:
             endpoint_activity_sensor_enabled=endpoint_activity_sensor_enabled,
             endpoint_browser_sensor_enabled=endpoint_browser_sensor_enabled,
             endpoint_dlp_audit_enabled=endpoint_dlp_audit_enabled,
+            gateway_minimum_agent_versions=_parse_gateway_minimum_agent_versions(
+                values.get("GATEWAY_MINIMUM_AGENT_VERSIONS", "")
+            ),
         )

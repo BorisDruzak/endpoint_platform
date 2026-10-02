@@ -68,9 +68,10 @@ CapabilityListV1 = Annotated[
 ProtocolFeatureV1 = Literal[
     "endpoint.policy.v1", "endpoint.activity.v1", "endpoint.security-events.v1",
     "endpoint.browser-status.v1", "endpoint.sensor-health.v1",
+    "endpoint.recovery-update.v2",
 ]
 ProtocolFeaturesV1 = Annotated[
-    list[ProtocolFeatureV1], Field(strict=True, max_length=5)
+    list[ProtocolFeatureV1], Field(strict=True, max_length=6)
 ]
 
 

@@ -23,6 +23,8 @@ class StartupProofWriter:
             pending = json.loads(self._paths.pending_path.read_text(encoding="utf-8"))
             current = json.loads(self._paths.current_path.read_text(encoding="utf-8"))
             attempt = json.loads((self._paths.updates_root / "startup-attempt.json").read_text(encoding="utf-8"))
+            if not all(isinstance(value, dict) for value in (pending, current, attempt)):
+                return False
             version = pending["version"]
             operation_id = pending["operation_id"]
             if (

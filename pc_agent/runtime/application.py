@@ -542,9 +542,13 @@ async def _startup_proof_hook(settings: object) -> None:
         from pc_agent.platform.windows.startup_confirmation import StartupProofWriter
         from pc_agent.platform.windows.update_paths import WindowsUpdatePaths
 
-        StartupProofWriter(
-            WindowsUpdatePaths(settings.install_root, settings.data_root / "updates" / "pending_update.json")
-        ).record_after_server_handshake()
+        try:
+            StartupProofWriter(
+                WindowsUpdatePaths(settings.install_root, settings.data_root / "updates" / "pending_update.json")
+            ).record_after_server_handshake()
+        except (OSError, ValueError, TypeError):
+            # A missing proof causes candidate rollback; it must not kill WSS.
+            logger.warning("recovery_update_startup_proof_failed")
 
 
 def _load_credential(settings: object) -> str:
@@ -576,6 +580,8 @@ def _load_hello(settings: object) -> AgentHelloV1:
             AGENT_VERSION, platform, settings.transport_mode,
             settings.migration_http_pull_fallback,
         )
+        if platform == "windows_amd64" and not settings.migration_http_pull_fallback:
+            features.append("endpoint.recovery-update.v2")
         if features:
             values["protocol_features"] = features
     return compatibility_agent_hello(platform=platform).model_copy(update=values)

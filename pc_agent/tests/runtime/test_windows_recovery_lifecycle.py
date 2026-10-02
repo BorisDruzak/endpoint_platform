@@ -14,6 +14,57 @@ from pc_agent.transport.websocket import GatewayTransportUnavailable
 from pc_agent.tests.runtime.test_headless_lifecycle import _Executor, _settings
 
 
+@pytest.mark.asyncio
+async def test_upgrade_required_control_message_is_recoverable():
+    from pc_agent.runtime.lifecycle import _handle_inbound
+    from pc_agent.transport.protocol import GatewayInboundV1
+    from pc_agent.transport.base import GatewayProtocolIncompatible
+    inbound = GatewayInboundV1.model_validate({
+        "schema_version": "gateway_ws_envelope_v1", "sequence": 0, "kind": "error",
+        "payload": {"schema_version": "gateway_error_v1", "code": "agent_upgrade_required",
+                    "message": "Upgrade required", "retryable": False},
+    })
+    with pytest.raises(GatewayProtocolIncompatible):
+        await _handle_inbound(None, None, inbound)
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows startup proof")
+@pytest.mark.asyncio
+async def test_corrupt_startup_state_cannot_abort_a_successful_wss_handshake(tmp_path):
+    settings = _settings(tmp_path)
+    settings.install_root.mkdir()
+    updates = settings.data_root / "updates"
+    updates.mkdir(parents=True)
+    (settings.install_root / "current.json").write_text('[]')
+    (updates / "pending_update.json").write_text('[]')
+    (updates / "startup-attempt.json").write_text('[]')
+    await application._startup_proof_hook(settings)
+    assert not (updates / "startup-confirmation.json").exists()
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows startup proof")
+@pytest.mark.asyncio
+async def test_startup_proof_write_failure_keeps_control_connected(tmp_path, monkeypatch):
+    import json
+    from pathlib import Path
+    from pc_agent.version import AGENT_VERSION
+    settings = _settings(tmp_path)
+    settings.install_root.mkdir()
+    updates = settings.data_root / "updates"
+    updates.mkdir(parents=True)
+    (settings.install_root / "current.json").write_text(json.dumps({"version": AGENT_VERSION}))
+    pending = {"version": AGENT_VERSION, "operation_id": "operation"}
+    (updates / "pending_update.json").write_text(json.dumps(pending))
+    (updates / "startup-attempt.json").write_text(json.dumps({**pending, "attempt_id": "attempt"}))
+    original_write = Path.write_text
+    def write(path, *args, **kwargs):
+        if path.name.startswith(".startup-confirmation.json"):
+            raise PermissionError("test ACL failure")
+        return original_write(path, *args, **kwargs)
+    monkeypatch.setattr(Path, "write_text", write)
+    await application._startup_proof_hook(settings)
+    assert not (updates / "startup-confirmation.json").exists()
+
 @pytest.mark.skipif(sys.platform != "win32", reason="Windows default composition")
 @pytest.mark.asyncio
 async def test_windows_checks_updates_before_any_successful_wss(monkeypatch, tmp_path):
@@ -147,9 +198,10 @@ async def test_candidate_pending_does_not_restart_updater_before_wss_proof(tmp_p
     paths.install_root.mkdir()
     paths.updates_root.mkdir(parents=True)
     paths.current_path.write_text('{"version":"3.2.79"}')
-    paths.pending_path.write_text('{"version":"3.2.79","operation_id":"operation"}')
+    operation_id = "caa31a48-bf2f-4f1c-8b77-d1be77e12b4e"
+    paths.pending_path.write_text(json.dumps({"version": "3.2.79", "operation_id": operation_id}))
     (paths.updates_root / "startup-attempt.json").write_text(json.dumps({
-        "version": "3.2.79", "operation_id": "operation", "attempt_id": "fresh",
+        "version": "3.2.79", "operation_id": operation_id, "attempt_id": "fresh",
     }))
     runtime = WindowsOnlineUpdateRuntime(adapter=None, paths=paths, acl=None, download=None)
     assert (await runtime.run_once()).status == "verifying"

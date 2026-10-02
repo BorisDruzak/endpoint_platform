@@ -606,6 +606,8 @@ async def _handle_inbound(
         raise GatewayIdle(float(notice.retry_after_seconds or 0))
     if inbound.root.kind == "error":
         error = inbound.root.payload
+        if error.code == "agent_upgrade_required":
+            raise GatewayProtocolIncompatible(error.code)
         if error.retryable:
             raise GatewayRetryableError(error.code)
         raise GatewayTerminalError(error.code)
