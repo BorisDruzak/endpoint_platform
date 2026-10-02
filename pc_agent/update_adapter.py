@@ -127,6 +127,9 @@ class EndpointUpdateAdapter:
         self._session = session
         self._legacy_fetch = legacy_fetch
         self._data_root = Path(data_root) if data_root is not None else None
+        if self._strict_recovery and self._data_root is not None:
+            self._load_report_journal()
+            self._load_update_state()
 
     async def create_device_binding_challenge(self) -> DeviceBindingChallengeV1:
         """Reuse the device session for a fixed, credential-safe possession API."""
@@ -174,6 +177,10 @@ class EndpointUpdateAdapter:
             return RecommendationResult(
                 "endpoint", None, False, "endpoint_auth_missing"
             )
+
+        if self._strict_recovery and self._data_root is not None:
+            self._load_report_journal()
+            self._load_update_state()
 
         url = (
             f"{self._api_url}/agent/v1/updates/recommendation"
@@ -380,7 +387,7 @@ class EndpointUpdateAdapter:
 
     def _load_update_state(self) -> list[dict[str, str | None]]:
         assert self._data_root is not None
-        return load_endpoint_update_handoffs(self._data_root)
+        return load_endpoint_update_handoffs(self._data_root, strict=self._strict_recovery)
 
     def _write_update_state(self, records: list[dict[str, str | None]]) -> None:
         path = self._update_state_path()
@@ -433,6 +440,8 @@ class EndpointUpdateAdapter:
         try:
             raw = json.loads(path.read_text(encoding="utf-8")) if path.exists() else []
         except (OSError, json.JSONDecodeError):
+            if self._strict_recovery:
+                raise ValueError("Endpoint recovery report journal is unreadable") from None
             return []
         fields = {
             "operation_id",
@@ -442,6 +451,16 @@ class EndpointUpdateAdapter:
             "safe_code",
             "delivered_at",
         }
+        if self._strict_recovery and (
+            not isinstance(raw, list)
+            or any(
+                not isinstance(item, dict)
+                or set(item) != fields
+                or not all(isinstance(item.get(key), str) or item.get(key) is None for key in fields)
+                for item in raw
+            )
+        ):
+            raise ValueError("Endpoint recovery report journal is invalid")
         return (
             [
                 {key: item[key] for key in fields}
@@ -524,13 +543,18 @@ def _is_operation_id(value: str) -> bool:
 
 def load_endpoint_update_handoffs(
     data_root: Path,
+    *, strict: bool = False,
 ) -> list[dict[str, str | None]]:
     path = Path(data_root) / "updates" / "endpoint_update_state.json"
     try:
         raw = json.loads(path.read_text(encoding="utf-8")) if path.exists() else []
     except (OSError, json.JSONDecodeError):
+        if strict:
+            raise ValueError("Endpoint recovery handoff journal is unreadable") from None
         return []
     if not isinstance(raw, list):
+        if strict:
+            raise ValueError("Endpoint recovery handoff journal is invalid")
         return []
     records: list[dict[str, str | None]] = []
     for item in raw:
@@ -548,6 +572,8 @@ def load_endpoint_update_handoffs(
                 and not isinstance(item.get("scheduled_ack_delivered_at"), str)
             )
         ):
+            if strict:
+                raise ValueError("Endpoint recovery handoff journal contains an invalid record")
             continue
         records.append({key: item[key] for key in _STATE_FIELDS})
     return records

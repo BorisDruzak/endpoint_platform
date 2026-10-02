@@ -30,7 +30,7 @@ class _Session:
         self.response = response
         self.requests: list[tuple[str, dict[str, str]]] = []
 
-    def get(self, url: str, *, headers: dict[str, str]) -> _Response:
+    def get(self, url: str, *, headers: dict[str, str], allow_redirects: bool = False) -> _Response:
         self.requests.append((url, headers))
         return self.response
 
@@ -59,6 +59,22 @@ async def test_legacy_canary_query_accepts_server_assigned_stable_channel() -> N
     assert result.safe_error is None
     assert result.recommendation is not None
     assert result.recommendation.channel == "stable"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("corrupt", ["{", "{}", '[{"operation_id":"lost"}]'])
+@pytest.mark.parametrize("journal", ["reports", "handoffs"])
+async def test_strict_recovery_refuses_discovery_with_corrupt_report_journal(tmp_path, corrupt, journal):
+    session = _Session(_Response(204, ""))
+    adapter = EndpointUpdateAdapter(api_url="https://endpoint.example.test",
+        bearer_token=lambda: "device-bearer", session=session,
+        strict_recovery=True, data_root=tmp_path)
+    path = adapter._report_journal_path() if journal == "reports" else adapter._update_state_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(corrupt)
+    with pytest.raises(ValueError, match="journal"):
+        await adapter.fetch_recommendation(platform="windows_amd64", channel="canary")
+    assert session.requests == []
 
 
 def _adapter(
