@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import subprocess
+
 import hashlib
 import inspect
 import json
@@ -12,6 +14,17 @@ from pathlib import Path
 from types import ModuleType, SimpleNamespace
 
 import pytest
+
+
+def test_offline_updater_import_graph_has_no_http_clients():
+    result = subprocess.run([sys.executable, "-c",
+        "import sys; import pc_agent.platform.windows.service_launcher; "
+        "import pc_agent.platform.windows.updater_service; "
+        "blocked=('aiohttp','httpx','requests','urllib.request'); "
+        "found=sorted(n for n in sys.modules if any(n==p or n.startswith(p+'.') for p in blocked)); "
+        "print(found); raise SystemExit(bool(found))"],
+        capture_output=True, text=True, check=False)
+    assert result.returncode == 0, result.stdout + result.stderr
 
 
 def _pending(paths, artifact: Path, **changes: object) -> Path:

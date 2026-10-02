@@ -21,7 +21,7 @@ from datetime import datetime
 from pathlib import Path, PureWindowsPath
 from typing import Any, Protocol
 
-from pc_agent.gateway_update_runtime import _is_eligible_recommendation
+from pc_agent.update_eligibility import _is_eligible_recommendation
 
 from .acl import EXPECTED_PRINCIPALS
 from .service_control import SERVICE_NAME, UPDATER_SERVICE_NAME
