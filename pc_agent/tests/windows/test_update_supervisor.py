@@ -25,7 +25,7 @@ async def test_one_immediate_check_then_bounded_interval(result, state):
         events.append("report")
         return False
     async def sleep(delay):
-        assert delay == UPDATE_POLL_INTERVAL_SEC == 300
+        assert 0 < delay <= 360
         events.append("sleep")
         raise asyncio.CancelledError
     with pytest.raises(asyncio.CancelledError):
@@ -77,8 +77,61 @@ async def test_pending_updater_trigger_failure_retries_without_busy_loop():
         if len(triggers) == 1:
             raise RuntimeError("SCM unavailable")
     async def sleep(delay):
-        assert delay == 300
+        assert 0 < delay <= 30
     with pytest.raises(UpdatePending):
         await WindowsRecoveryUpdateSupervisor(check=check, report=report,
             trigger=trigger, sleep=sleep).run()
     assert len(triggers) == 2
+
+
+@pytest.mark.asyncio
+async def test_network_retry_grows_is_bounded_and_resets_after_success():
+    results = iter(["unavailable"] * 9 + ["idle", "unavailable"])
+    delays = []
+    async def check():
+        return next(results)
+    async def report():
+        return False
+    async def sleep(delay):
+        delays.append(delay)
+        if len(delays) == 11:
+            raise asyncio.CancelledError
+    with pytest.raises(asyncio.CancelledError):
+        await WindowsRecoveryUpdateSupervisor(check=check, report=report,
+            trigger=lambda: None, sleep=sleep, random_sample=lambda: 0.5).run()
+    assert delays[:9] == [5, 10, 20, 40, 80, 160, 300, 300, 300]
+    assert delays[9:] == [300, 5]
+
+
+@pytest.mark.asyncio
+async def test_successful_poll_checks_do_not_align_for_different_devices():
+    delays = []
+    async def check():
+        return "idle"
+    async def report():
+        return False
+    async def sleep(delay):
+        delays.append(delay)
+        raise asyncio.CancelledError
+    for sample in (0.0, 0.5, 1.0):
+        with pytest.raises(asyncio.CancelledError):
+            await WindowsRecoveryUpdateSupervisor(check=check, report=report,
+                trigger=lambda: None, sleep=sleep, random_sample=lambda: sample).run()
+    assert delays == [240, 300, 360]
+
+
+@pytest.mark.asyncio
+async def test_corrupt_local_update_state_keeps_supervisor_alive_and_disables_trigger():
+    states = []
+    async def check():
+        raise ValueError("invalid local journal")
+    async def report():
+        return False
+    async def sleep(delay):
+        assert delay > 0
+        raise asyncio.CancelledError
+    with pytest.raises(asyncio.CancelledError):
+        await WindowsRecoveryUpdateSupervisor(check=check, report=report,
+            trigger=lambda: pytest.fail("corrupt state must never trigger"),
+            publish=states.append, sleep=sleep).run()
+    assert states == ["checking", "failed"]
