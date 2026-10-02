@@ -70,6 +70,28 @@ class _Service:
         return self.crash
 
 
+@pytest.mark.parametrize("failure", ["verify", "confirmation"])
+def test_terminal_outcome_is_durable_before_restored_agent_starts(tmp_path, failure):
+    from pc_agent.platform.windows.updater_service import WindowsUpdater
+    paths = _setup(tmp_path)
+    starts = []
+    class Service(_Service):
+        def start(self):
+            current = json.loads(paths.current_path.read_text())["version"]
+            if current == "3.1.0":
+                outcome = json.loads((paths.updates_root / "terminal-outcome.json").read_text())
+                assert outcome["reported_version"] == current
+                starts.append(outcome["status"])
+            super().start()
+    class Verifier:
+        def verify(self, *_):
+            return failure != "verify"
+    result = WindowsUpdater(paths, acl=_Acl(), service=Service(), verifier=Verifier(),
+        deadline_seconds=0).run_once()
+    assert starts == ["failed" if failure == "verify" else "rolled_back"]
+    assert result.status == ("rejected" if failure == "verify" else "rolled_back")
+
+
 class _Verifier:
     def __init__(self, events: list[str]) -> None: self.events = events
     def verify(self, executable: Path, expected_version: str) -> bool:
@@ -315,3 +337,22 @@ def test_rollback_refuses_selector_switch_when_stop_wait_is_false(tmp_path: Path
         "source_revision": "a" * 40,
         "version": "3.2.0",
     }
+
+
+@pytest.mark.parametrize("failure", ["verify", "confirmation"])
+def test_outcome_write_failure_still_restores_and_restarts_previous(tmp_path, monkeypatch, failure):
+    from pc_agent.platform.windows import updater_service
+    paths = _setup(tmp_path)
+    service = _Service()
+    class Verifier:
+        def verify(self, *_):
+            return failure != "verify"
+    def disk_full(*args, **kwargs):
+        raise OSError("disk full")
+    monkeypatch.setattr(updater_service, "_write_terminal_outcome", disk_full)
+    result = updater_service.WindowsUpdater(paths, acl=_Acl(), service=service,
+        verifier=Verifier(), deadline_seconds=0).run_once()
+    assert service.running
+    assert json.loads(paths.current_path.read_text())["version"] == "3.1.0"
+    assert not paths.pending_path.exists()
+    assert result.status in {"rejected", "rolled_back"}

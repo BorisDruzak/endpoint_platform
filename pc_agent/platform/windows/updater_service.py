@@ -425,6 +425,13 @@ class WindowsUpdater:
             _clear_startup_attempt(self._paths)
             return UpdateResult("applied", str(target))
         except (OSError, ValueError, zipfile.BadZipFile) as error:
+            if pending is not None and previous is not None:
+                self._record_terminal_outcome(
+                    operation_id=pending.operation_id,
+                    status="failed",
+                    reported_version=previous,
+                    safe_code="launcher_apply_failed",
+                )
             if service_stopped and previous_selector is not None:
                 # Every failure after the controlled stop restores the known
                 # selector before restarting the old agent.
@@ -434,13 +441,6 @@ class WindowsUpdater:
                 except Exception:
                     pass
             if pending is not None and previous is not None:
-                _write_terminal_outcome(
-                    self._paths,
-                    operation_id=pending.operation_id,
-                    status="failed",
-                    reported_version=previous,
-                    safe_code="launcher_apply_failed",
-                )
                 self._publish_tray_status(
                     previous,
                     agent_state="error",
@@ -452,6 +452,15 @@ class WindowsUpdater:
         finally:
             if staging is not None and staging.exists():
                 shutil.rmtree(staging, ignore_errors=True)
+
+    def _record_terminal_outcome(self, **outcome) -> None:
+        try:
+            _write_terminal_outcome(self._paths, **outcome)
+        except OSError:
+            # Journal exhaustion must not strand the known-good service stopped.
+            # Remove/quarantine the stale handoff before restarting when possible;
+            # reporting may be unavailable until filesystem health is restored.
+            _quarantine_invalid_pending(self._paths)
 
     def _publish_tray_status(
         self,
@@ -567,14 +576,13 @@ class WindowsUpdater:
                 return UpdateResult("rejected", "candidate did not stop for rollback")
         _write_json_atomic(self._paths.current_path, previous_selector)
         _clear_startup_attempt(self._paths)
-        self._service.start()
-        _write_terminal_outcome(
-            self._paths,
+        self._record_terminal_outcome(
             operation_id=pending.operation_id,
             status="rolled_back",
             reported_version=previous,
             safe_code="launcher_rolled_back",
         )
+        self._service.start()
         return UpdateResult("rolled_back", reason)
 
     def _wait_for_candidate_confirmation(self, pending: PendingUpdate) -> bool:

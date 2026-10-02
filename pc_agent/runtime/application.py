@@ -399,7 +399,6 @@ def _default_dependencies(
             if os.name == "nt":
                 activity_dispatch.begin_connection()
                 tasks = [
-                    _periodic_windows_update_checks(settings, credential),
                     _serve_windows_device_binding(settings, credential),
                     activity_dispatch.send_forever(transport),
                 ]
@@ -458,6 +457,10 @@ def _default_dependencies(
             else None
         ),
         create_connected_tasks=create_connected_tasks,
+        create_service_tasks=_create_service_tasks,
+        recover_protocol_errors=(os.name == "nt" and settings is not None
+            and settings.transport_mode == "gateway_wss"
+            and not settings.migration_http_pull_fallback),
         create_completion_sink=_create_completion_sink,
         create_canary_status_writer=_create_canary_status_writer,
         create_tray_status_writer=_create_tray_status_writer,
@@ -664,30 +667,23 @@ async def _periodic_https_update_checks(
         await sleep(endpoint_gateway.GATEWAY_UPDATE_POLL_INTERVAL_SEC)
 
 
-async def _periodic_windows_update_checks(
-    settings: RuntimeSettings,
-    credential: str,
-    *,
-    sleep=asyncio.sleep,
-) -> None:
-    """Stage Windows updates over HTTPS while WSS remains the sole command channel."""
-    await _run_windows_startup_report(settings, credential)
-    while True:
-        result = await _run_windows_update_check(settings, credential)
-        if result == "scheduled":
-            from pc_agent.version import EXIT_UPDATE_PENDING
+def _create_service_tasks(settings, credential, publish):
+    if (
+        os.name != "nt" or not isinstance(settings, RuntimeSettings)
+        or settings.transport_mode != "gateway_wss"
+        or settings.migration_http_pull_fallback
+    ):
+        return ()
+    from pc_agent.platform.windows.update_supervisor import WindowsRecoveryUpdateSupervisor
+    from pc_agent.platform.windows.service_control import trigger_pending_updater
 
-            raise SystemExit(EXIT_UPDATE_PENDING)
-        if result == "pending":
-            from pc_agent.platform.windows.service_control import trigger_pending_updater
-
-            try:
-                trigger_pending_updater()
-            except Exception:
-                # Keep EndpointAgent connected: the next bounded poll retries
-                # only its MSI-owned updater service.
-                pass
-        await sleep(endpoint_gateway.GATEWAY_UPDATE_POLL_INTERVAL_SEC)
+    supervisor = WindowsRecoveryUpdateSupervisor(
+        check=lambda: _run_windows_update_check(settings, credential),
+        report=lambda: _run_windows_startup_report(settings, credential),
+        trigger=trigger_pending_updater,
+        publish=publish,
+    )
+    return (supervisor.run(),)
 
 
 async def _serve_windows_device_binding(settings: RuntimeSettings, credential: str) -> None:
@@ -753,6 +749,7 @@ async def _run_windows_startup_report(
             bearer_token=lambda: credential,
             session=session,
             data_root=settings.data_root,
+            strict_recovery=True,
         )
         runtime = WindowsOnlineUpdateRuntime(
             adapter=adapter,
@@ -794,6 +791,7 @@ async def _run_windows_update_check(
             bearer_token=lambda: credential,
             session=session,
             data_root=settings.data_root,
+            strict_recovery=True,
         )
         runtime = WindowsOnlineUpdateRuntime(
             adapter=adapter,

@@ -40,6 +40,10 @@ class _Adapter:
         self.calls.append((operation_id, f"{status}:{reported_version}:{safe_code}"))
         return True
 
+    async def retry_scheduled_acknowledgement(self, operation_id: str) -> bool:
+        self.calls.append((operation_id, "scheduled_retry"))
+        return True
+
 
 class _Acl:
     def __init__(self) -> None:
@@ -168,6 +172,7 @@ async def test_windows_agent_reports_applied_only_from_a_post_handshake_proof(
 
     assert await runtime.report_startup_outcome() is True
     assert adapter.calls == [
+        (_OPERATION_ID, "scheduled_retry"),
         (_OPERATION_ID, "applied:3.2.3:post_restart_handshake_confirmed"),
     ]
 
@@ -212,6 +217,6 @@ async def test_windows_agent_reports_a_durable_updater_failure_after_wss(
     )
 
     assert await runtime.report_startup_outcome() is True
-    assert adapter.calls == [(_OPERATION_ID, "failed:3.2.5:launcher_apply_failed")]
+    assert adapter.calls == [(_OPERATION_ID, "scheduled_retry"), (_OPERATION_ID, "failed:3.2.5:launcher_apply_failed")]
     assert not paths.pending_path.exists()
     assert not (paths.updates_root / "terminal-outcome.json").exists()

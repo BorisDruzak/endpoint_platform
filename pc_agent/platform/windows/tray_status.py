@@ -38,12 +38,12 @@ _ENDPOINT_STATES: Final = frozenset(
     {"connected", "connecting", "disconnected", "unknown"}
 )
 _UPDATE_STATES: Final = frozenset(
-    {"up_to_date", "pending", "applying", "failed", "unknown"}
+    {"up_to_date", "checking", "pending", "applying", "failed", "unknown"}
 )
 
 AgentState = Literal["running", "starting", "stopped", "error"]
 EndpointState = Literal["connected", "connecting", "disconnected", "unknown"]
-UpdateState = Literal["up_to_date", "pending", "applying", "failed", "unknown"]
+UpdateState = Literal["up_to_date", "checking", "pending", "applying", "failed", "unknown"]
 
 
 class TrayStatusError(RuntimeError):

@@ -72,6 +72,7 @@ _ENDPOINT_STATES = {
 }
 _UPDATE_STATES = {
     "up_to_date": "актуально",
+    "checking": "проверяется",
     "pending": "ожидает",
     "applying": "устанавливается",
     "failed": "ошибка",

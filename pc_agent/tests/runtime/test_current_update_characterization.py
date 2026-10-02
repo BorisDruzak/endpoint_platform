@@ -44,10 +44,15 @@ async def test_windows_pending_handoff_retries_only_the_fixed_updater(
         service_control, "trigger_pending_updater", lambda: starts.append("updater")
     )
 
-    with pytest.raises(asyncio.CancelledError):
-        await application._periodic_windows_update_checks(
-            object(), "credential", sleep=stop_after_first_poll
-        )
+    from pc_agent.platform.windows.update_supervisor import WindowsRecoveryUpdateSupervisor
+    from pc_agent.runtime.lifecycle import UpdatePending
+    with pytest.raises(UpdatePending):
+        await WindowsRecoveryUpdateSupervisor(
+            check=lambda: pending(object(), "credential"),
+            report=lambda: no_startup_report(object(), "credential"),
+            trigger=service_control.trigger_pending_updater,
+            sleep=stop_after_first_poll,
+        ).run()
 
     assert starts == ["updater"]
 

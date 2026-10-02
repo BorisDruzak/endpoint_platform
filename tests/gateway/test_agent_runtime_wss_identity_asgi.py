@@ -208,7 +208,7 @@ async def test_default_runtime_wss_accepts_persisted_authoritative_device_id(
         raise AssertionError("WSS acceptance must not construct an HTTP pull fallback")
 
     update_hook = (
-        "_periodic_windows_update_checks"
+        "_create_service_tasks"
         if os.name == "nt"
         else "_periodic_https_update_checks"
     )
@@ -224,7 +224,7 @@ async def test_default_runtime_wss_accepts_persisted_authoritative_device_id(
         monkeypatch.setattr(
             runtime_application,
             update_hook,
-            lambda *_args, **_kwargs: skip_update_poll(),
+            lambda *_args, **_kwargs: (skip_update_poll(),) if os.name == "nt" else skip_update_poll(),
         )
         monkeypatch.setattr(
             endpoint_gateway,
@@ -271,10 +271,10 @@ async def test_default_runtime_wss_rejects_a_non_authoritative_identity_for_vali
     )
 
     async def skip_update_poll() -> None:
-        return None
+        await asyncio.Event().wait()
 
     update_hook = (
-        "_periodic_windows_update_checks"
+        "_create_service_tasks"
         if os.name == "nt"
         else "_periodic_https_update_checks"
     )
@@ -290,11 +290,11 @@ async def test_default_runtime_wss_rejects_a_non_authoritative_identity_for_vali
         monkeypatch.setattr(
             runtime_application,
             update_hook,
-            lambda *_args, **_kwargs: skip_update_poll(),
+            lambda *_args, **_kwargs: (skip_update_poll(),) if os.name == "nt" else skip_update_poll(),
         )
 
         application = RuntimeApplication(settings)
-        assert await application.run() == 1
+        assert await application.run() == 75
 
     socket = bridge.sockets[0]
     assert not socket.gateway_hello_received

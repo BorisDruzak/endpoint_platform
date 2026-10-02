@@ -27,6 +27,10 @@ class GatewayTerminalError(RuntimeError):
     """A transport failure that must stop the runtime."""
 
 
+class GatewayProtocolIncompatible(GatewayTerminalError):
+    """Authenticated control frames cannot be understood by this Agent version."""
+
+
 @dataclass(frozen=True, slots=True)
 class GatewayIdle(RuntimeError):
     """A successful transport attempt has no inbound work until a later poll."""
