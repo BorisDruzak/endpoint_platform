@@ -456,9 +456,12 @@ class EndpointUpdateAdapter:
             or any(
                 not isinstance(item, dict)
                 or set(item) != fields
-                or not all(isinstance(item.get(key), str) or item.get(key) is None for key in fields)
+                or not _valid_report_record(item)
                 for item in raw
             )
+            or len({item["report_key"] for item in raw}) != len(raw)
+            or len({(item["operation_id"], item["status"], item["reported_version"], item["safe_code"])
+                    for item in raw}) != len(raw)
         ):
             raise ValueError("Endpoint recovery report journal is invalid")
         return (
@@ -541,6 +544,32 @@ def _is_operation_id(value: str) -> bool:
     return bool(_LOWERCASE_UUID.fullmatch(value))
 
 
+def _valid_delivery_time(value: object) -> bool:
+    if value is None:
+        return True
+    if not isinstance(value, str):
+        return False
+    try:
+        return datetime.fromisoformat(value).tzinfo is not None
+    except ValueError:
+        return False
+
+
+def _valid_report_record(item: dict[str, object]) -> bool:
+    codes = {"failed": "launcher_apply_failed", "rolled_back": "launcher_rolled_back",
+             "applied": "post_restart_handshake_confirmed"}
+    return (
+        isinstance(item["operation_id"], str) and _is_operation_id(item["operation_id"])
+        and isinstance(item["report_key"], str)
+        and re.fullmatch(r"[0-9a-f]{32}", item["report_key"]) is not None
+        and isinstance(item["reported_version"], str)
+        and _SEMVER.fullmatch(item["reported_version"]) is not None
+        and isinstance(item["status"], str) and item["status"] in codes
+        and item["safe_code"] == codes[item["status"]]
+        and _valid_delivery_time(item["delivered_at"])
+    )
+
+
 def load_endpoint_update_handoffs(
     data_root: Path,
     *, strict: bool = False,
@@ -571,6 +600,8 @@ def load_endpoint_update_handoffs(
                 item.get("scheduled_ack_delivered_at") is not None
                 and not isinstance(item.get("scheduled_ack_delivered_at"), str)
             )
+            or (strict and not _valid_delivery_time(item.get("scheduled_ack_delivered_at")))
+            or (strict and any(record["operation_id"] == item.get("operation_id") for record in records))
         ):
             if strict:
                 raise ValueError("Endpoint recovery handoff journal contains an invalid record")

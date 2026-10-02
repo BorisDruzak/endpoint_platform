@@ -130,6 +130,18 @@ async def test_windows_agent_stages_a_verified_pending_update_for_the_fixed_upda
         (_OPERATION_ID, "scheduled:3.2.2:3.2.1"),
     ]
 
+    # A restart between pending publication and journal persistence must repair
+    # the durable scheduled handoff before the supervisor can start SCM.
+    adapter.calls.clear()
+    assert (await runtime.run_once()).status == "pending"
+    assert adapter.calls == [(_OPERATION_ID, "scheduled:3.2.2:3.2.1")]
+
+    async def unavailable_handoff(*args, **kwargs):
+        return False
+
+    adapter.record_scheduled_handoff = unavailable_handoff
+    assert (await runtime.run_once()).status == "request_ack_pending"
+
 
 @pytest.mark.asyncio
 async def test_windows_agent_reports_applied_only_from_a_post_handshake_proof(

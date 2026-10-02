@@ -14,7 +14,7 @@ from pathlib import Path
 import aiohttp
 
 from pc_agent.gateway_update_runtime import _is_eligible_recommendation
-from pc_agent.update_adapter import EndpointRecommendation
+from pc_agent.update_adapter import EndpointRecommendation, _is_operation_id
 from pc_agent.transport.base import GatewayCredentialRejected, GatewayTerminalError
 
 from .update_paths import WindowsUpdatePaths
@@ -65,10 +65,20 @@ class WindowsOnlineUpdateRuntime:
         if (self._paths.updates_root / _TERMINAL_OUTCOME_FILENAME).exists():
             return WindowsOnlineUpdateResult("report_pending")
         if self._paths.pending_path.exists():
+            try:
+                pending = json.loads(self._paths.pending_path.read_text(encoding="utf-8"))
+                if (
+                    not isinstance(pending, dict)
+                    or not isinstance(pending.get("operation_id"), str)
+                    or not _is_operation_id(pending["operation_id"])
+                    or not isinstance(pending.get("version"), str)
+                ):
+                    raise ValueError
+            except (OSError, ValueError, TypeError):
+                raise ValueError("Windows pending update is invalid") from None
             attempt_path = self._paths.updates_root / "startup-attempt.json"
             if attempt_path.exists():
                 try:
-                    pending = json.loads(self._paths.pending_path.read_text(encoding="utf-8"))
                     attempt = json.loads(attempt_path.read_text(encoding="utf-8"))
                     if (
                         pending["version"] == current == attempt["version"]
@@ -80,6 +90,12 @@ class WindowsOnlineUpdateRuntime:
                         return WindowsOnlineUpdateResult("verifying")
                 except (OSError, ValueError, KeyError, TypeError):
                     raise ValueError("Windows update startup attempt is invalid") from None
+            if not _is_eligible_recommendation(pending["version"], current, pending.get("requested_reason")):
+                raise ValueError("Windows pending update version is invalid")
+            if not await self._adapter.record_scheduled_handoff(
+                pending["operation_id"], assigned_version=pending["version"], rollback_version=current,
+            ):
+                return WindowsOnlineUpdateResult("request_ack_pending")
             return WindowsOnlineUpdateResult("pending")
         result = await self._adapter.fetch_recommendation(
             platform="windows_amd64", channel="canary"
@@ -121,6 +137,14 @@ class WindowsOnlineUpdateRuntime:
             artifact.unlink(missing_ok=True)
             return WindowsOnlineUpdateResult("download_rejected")
         self._acl.protect_update_path(artifact)
+        # Persist operation metadata and acknowledge scheduled before publishing
+        # the SCM request; a process crash must never strand terminal reporting.
+        if not await self._adapter.record_scheduled_handoff(
+            recommendation.operation_id,
+            assigned_version=recommendation.version,
+            rollback_version=current,
+        ):
+            return WindowsOnlineUpdateResult("request_ack_pending")
         _write_json_atomically(
             self._paths.pending_path,
             {
@@ -138,11 +162,6 @@ class WindowsOnlineUpdateRuntime:
             },
         )
         self._acl.protect_update_path(self._paths.pending_path)
-        await self._adapter.record_scheduled_handoff(
-            recommendation.operation_id,
-            assigned_version=recommendation.version,
-            rollback_version=current,
-        )
         return WindowsOnlineUpdateResult("scheduled")
 
     async def report_startup_outcome(self) -> bool:

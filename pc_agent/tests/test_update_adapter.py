@@ -77,6 +77,45 @@ async def test_strict_recovery_refuses_discovery_with_corrupt_report_journal(tmp
     assert session.requests == []
 
 
+@pytest.mark.parametrize("field,value", [
+    ("operation_id", "bad-id"), ("report_key", "bad-key"),
+    ("status", "scheduled"), ("reported_version", "bad-version"),
+    ("safe_code", "launcher_rolled_back"), ("delivered_at", "CORRUPT"),
+    ("delivered_at", "2026-10-02T10:00:00"), ("status", None),
+])
+def test_strict_report_journal_rejects_semantic_corruption(tmp_path, field, value):
+    record = dict(operation_id="caa31a48-bf2f-4f1c-8b77-d1be77e12b4e",
+        report_key="a" * 32, status="failed", reported_version="3.2.79",
+        safe_code="launcher_apply_failed", delivered_at=None)
+    record[field] = value
+    path = tmp_path / "updates" / "endpoint_update_reports.json"
+    path.parent.mkdir()
+    path.write_text(json.dumps([record]))
+    with pytest.raises(ValueError, match="journal"):
+        EndpointUpdateAdapter(api_url="https://endpoint.example.test",
+            bearer_token=lambda: "token", session=_Session(_Response(204, "")),
+            data_root=tmp_path, strict_recovery=True)
+
+
+@pytest.mark.parametrize("journal", ["reports", "handoffs"])
+def test_strict_journals_reject_duplicate_records(tmp_path, journal):
+    record = dict(operation_id="caa31a48-bf2f-4f1c-8b77-d1be77e12b4e",
+        assigned_version="3.2.80", rollback_version="3.2.79",
+        scheduled_ack_delivered_at=None)
+    if journal == "reports":
+        record = dict(operation_id=record["operation_id"], report_key="a" * 32,
+            status="failed", reported_version="3.2.79", safe_code="launcher_apply_failed",
+            delivered_at=None)
+    path = tmp_path / "updates" / ("endpoint_update_reports.json" if journal == "reports"
+        else "endpoint_update_state.json")
+    path.parent.mkdir()
+    path.write_text(json.dumps([record, record]))
+    with pytest.raises(ValueError, match="journal"):
+        EndpointUpdateAdapter(api_url="https://endpoint.example.test",
+            bearer_token=lambda: "token", session=_Session(_Response(204, "")),
+            data_root=tmp_path, strict_recovery=True)
+
+
 def _adapter(
     response: _Response,
     *,
