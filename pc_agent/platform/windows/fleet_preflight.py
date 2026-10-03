@@ -431,18 +431,17 @@ def collect_fleet_preflight(
             for name in SERVICES
         }
     credential, ca, origin = _shape(paths), _ca(paths), _origin(paths)
+    from .setup_entry import _setup_msi_required
+
     no_transition = (
         core["verified"]
         and foundation["native_verified"]
-        and version_tuple(core["version"]) >= version_tuple(target_version)
-        and version_tuple(foundation["version"]) >= version_tuple(target_version)
-        and foundation["feature_state"] == "complete"
-        and (
-            version_tuple(core["version"]) > version_tuple(target_version)
-            or (
-                core["origin"] == "msi"
-                and core["package_sha256"] == foundation["package_sha256"]
-            )
+        and not _setup_msi_required(
+            target_version,
+            foundation["version"],
+            installation_valid=True,
+            msi_path=setup_package,
+            paths=paths,
         )
     )
     try:

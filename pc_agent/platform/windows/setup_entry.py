@@ -512,12 +512,12 @@ def _installed_msi_version() -> str | None:
     return version if _installed_product_version(product_code) == version else None
 
 
-def _msi_reconciliation_required(msi_path: Path) -> bool:
+def _msi_reconciliation_required(msi_path: Path, *, paths=None) -> bool:
     """Version equality cannot prove the optional runtime feature or ownership."""
     from . import installation_provenance as provenance, msi_inventory
     from .installer_fence import state_root
     from endpoint_contracts.runtime_payload import read_json
-    paths=WindowsUpdatePaths.production()
+    paths = WindowsUpdatePaths.production() if paths is None else paths
     try:
         release=json.loads(msi_path.with_name('EndpointAgent.release.json').read_text(encoding='utf-8'))
         expected=msi_inventory.read_expected_package(msi_path,release)
@@ -536,6 +536,35 @@ def _msi_reconciliation_required(msi_path: Path) -> bool:
         # The locked wrapper performs authoritative conflict/repair selection;
         # this read-only decision never authorizes an overwrite on its own.
         return True
+
+
+def _setup_msi_required(
+    target_version: str,
+    installed_version: str | None,
+    *,
+    installation_valid: bool,
+    interrupted_setup: bool = False,
+    recovery_operation=None,
+    msi_path: Path | None = None,
+    paths=None,
+) -> bool:
+    """Share Setup's no-downgrade and strict equal-package operation decision."""
+    if interrupted_setup or recovery_operation is not None or not installation_valid:
+        return True
+    if installed_version is None or _is_strictly_newer_version(
+        target_version, installed_version
+    ):
+        return True
+    if installed_version == target_version:
+        # A target version alone supplies no package-bound reconciliation proof.
+        if msi_path is None:
+            return True
+        return (
+            _msi_reconciliation_required(msi_path)
+            if paths is None
+            else _msi_reconciliation_required(msi_path, paths=paths)
+        )
+    return False
 
 
 def _is_strictly_newer_version(candidate: str, installed: str) -> bool:
@@ -986,9 +1015,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         _verify_embedded_msi(resources / "EndpointAgent.msi")
         recovery_operation = _embedded_recovery_operation(resources / "EndpointAgent.msi")
         installed_version = _installed_msi_version() if installation_state == "valid" else None
-        needs_msi = interrupted_setup or recovery_operation is not None or installation_state != "valid" or installed_version is None or _is_strictly_newer_version(
-            config.installer_version, installed_version
-        ) or (installed_version == config.installer_version and _msi_reconciliation_required(resources / "EndpointAgent.msi"))
+        needs_msi = _setup_msi_required(
+            config.installer_version,
+            installed_version,
+            installation_valid=installation_state == "valid",
+            interrupted_setup=interrupted_setup,
+            recovery_operation=recovery_operation,
+            msi_path=resources / "EndpointAgent.msi",
+        )
         if needs_msi:
             _require_setup_disk(resources / "EndpointAgent.msi")
     except DiskInsufficient:

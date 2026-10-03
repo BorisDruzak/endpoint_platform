@@ -884,6 +884,25 @@ def test_equal_version_missing_runtime_feature_still_runs_canonical_msi(monkeypa
     assert calls==['EndpointAgent.msi']
 
 
+@pytest.mark.parametrize("foundation", ["1.0.0", "1.0.2"])
+def test_shared_operation_decision_keeps_higher_foundation_and_checks_equal_candidate(
+    monkeypatch, tmp_path, foundation
+):
+    _write_public_payload(tmp_path)
+    monkeypatch.setattr(setup_entry, "_data_root", lambda: tmp_path / "data")
+    monkeypatch.setattr(setup_entry, "_resource_root", lambda: tmp_path)
+    monkeypatch.setattr(setup_entry, "_classify_installation_state", lambda *_a, **_kw: "valid")
+    monkeypatch.setattr(setup_entry, "_installed_msi_version", lambda: foundation)
+    monkeypatch.setattr(setup_entry, "_wait_for_agent_service_running", lambda: True)
+    calls = []
+    monkeypatch.setattr(setup_entry, "_msi_reconciliation_required", lambda _: calls.append("candidate") or True)
+    monkeypatch.setattr(setup_entry, "_require_setup_disk", lambda _: calls.append("cost"))
+    monkeypatch.setattr(setup_entry, "_install_embedded_msi", lambda _: calls.append("install"))
+    result = setup_entry.main(["--quiet"])
+    assert result == (setup_entry.EXIT_SUCCESS if foundation == "1.0.0" else setup_entry.EXIT_ALREADY_INSTALLED)
+    assert calls == (["candidate", "cost", "install"] if foundation == "1.0.0" else [])
+
+
 def test_same_package_interruption_selects_wrapper_recovery_without_clearing_fence(monkeypatch,tmp_path):
     from pc_agent.platform.windows import installer_fence
     _write_public_payload(tmp_path)

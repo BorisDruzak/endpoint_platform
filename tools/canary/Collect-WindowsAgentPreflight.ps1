@@ -112,6 +112,8 @@ function Assert-FleetPreflightSchema {
         Assert-ExactFleetKeys $service @('present','state','start_mode','identity_valid')
         if (($null -ne $service.present -and $service.present -isnot [bool]) -or
             ($null -ne $service.identity_valid -and $service.identity_valid -isnot [bool]) -or
+            ($null -ne $service.state -and $service.state -isnot [string]) -or
+            ($null -ne $service.start_mode -and $service.start_mode -isnot [string]) -or
             ($null -ne $service.state -and $service.state -notin @('running','stopped','transitioning')) -or
             ($null -ne $service.start_mode -and $service.start_mode -notin @('automatic','manual','disabled','invalid'))) { throw 'Canonical service fact is invalid.' }
     }
@@ -153,13 +155,93 @@ function Invoke-BoundedSetupPreflight {
     }
 }
 
+function Initialize-SetupPreflightPinType {
+    if ($null -ne ('EndpointSetupPreflightNative' -as [type])) { return }
+    Add-Type -TypeDefinition @'
+using System;
+using System.ComponentModel;
+using System.Runtime.InteropServices;
+using Microsoft.Win32.SafeHandles;
+public static class EndpointSetupPreflightNative {
+    [StructLayout(LayoutKind.Sequential)]
+    private struct FileInformation {
+        public uint Attributes;
+        public System.Runtime.InteropServices.ComTypes.FILETIME Creation, Access, Write;
+        public uint VolumeSerial, SizeHigh, SizeLow, Links, IndexHigh, IndexLow;
+    }
+    [DllImport("kernel32.dll", CharSet=CharSet.Unicode, SetLastError=true)]
+    private static extern SafeFileHandle CreateFileW(string path, uint access,
+        uint sharing, IntPtr security, uint disposition, uint flags, IntPtr template);
+    [DllImport("kernel32.dll", SetLastError=true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool GetFileInformationByHandle(SafeFileHandle handle, out FileInformation information);
+    public static SafeFileHandle Open(string path, bool directory) {
+        // OPEN_EXISTING only. Deny WRITE and DELETE sharing for the image AND
+        // each namespace ancestor; check attributes on the acquired handle.
+        SafeFileHandle handle = CreateFileW(path, directory ? 0x80u : 0x80000000u,
+            1u, IntPtr.Zero, 3u, 0x00200000u | (directory ? 0x02000000u : 0u), IntPtr.Zero);
+        if (handle.IsInvalid) { handle.Dispose(); throw new Win32Exception(); }
+        try {
+            FileInformation info;
+            if (!GetFileInformationByHandle(handle, out info)) { throw new Win32Exception(); }
+            if ((info.Attributes & 0x400u) != 0 || ((info.Attributes & 0x10u) != 0) != directory ||
+                (!directory && info.Links != 1u)) { throw new InvalidOperationException("Setup path identity is invalid."); }
+            return handle;
+        } catch { handle.Dispose(); throw; }
+    }
+}
+'@
+}
+
+function Open-SetupPathHandle {
+    param([string]$Path, [bool]$Directory)
+    Initialize-SetupPreflightPinType
+    return [EndpointSetupPreflightNative]::Open($Path, $Directory)
+}
+
+function Close-SetupPreflightPin {
+    param($Pin)
+    for ($i = $Pin.handles.Count - 1; $i -ge 0; $i--) { $Pin.handles[$i].Dispose() }
+}
+
+function Open-SetupPreflightPin {
+    param([string]$Path)
+    $full = [IO.Path]::GetFullPath($Path)
+    if ($full.Length -gt 32767) { throw 'Canonical Setup path exceeds bound.' }
+    $names = [Collections.Generic.List[string]]::new()
+    $current = $full
+    while (-not [string]::IsNullOrEmpty($current)) {
+        $names.Add($current)
+        if ($names.Count -gt 128) { throw 'Canonical Setup path exceeds bound.' }
+        $current = [IO.Path]::GetDirectoryName($current)
+    }
+    $handles = [Collections.Generic.List[IDisposable]]::new()
+    try {
+        # Root first: each later open resolves under an already held namespace.
+        for ($i = $names.Count - 1; $i -ge 0; $i--) {
+            $handle = Open-SetupPathHandle -Path $names[$i] -Directory ($i -ne 0)
+            $handles.Add($handle)
+        }
+        return [pscustomobject]@{path=$full;handles=$handles.ToArray()}
+    } catch {
+        Close-SetupPreflightPin ([pscustomobject]@{handles=$handles.ToArray()})
+        throw
+    }
+}
+
 function Read-CanonicalSetupPreflight {
     param([string]$Path, [string]$TargetVersion)
     $fact = Get-SafeFileFact -Path $Path
     if (-not $fact.regular -or $fact.reparse) { throw 'Canonical Setup path is invalid.' }
-    $signature = Get-AuthenticodeSignature -FilePath $fact.path
-    if ([string]$signature.Status -ne 'Valid' -or $null -eq $signature.TimeStamperCertificate) { throw 'Canonical Setup must have a valid timestamped signature.' }
-    $record = Invoke-BoundedSetupPreflight -Path $fact.path
+    $pin = Open-SetupPreflightPin -Path $fact.path
+    try {
+        $fact = Get-SafeFileFact -Path $pin.path
+        if (-not $fact.regular -or $fact.reparse -or
+            -not $fact.path.Equals($pin.path,[StringComparison]::OrdinalIgnoreCase)) { throw 'Canonical Setup path identity is invalid.' }
+        $signature = Get-AuthenticodeSignature -FilePath $pin.path
+        if ([string]$signature.Status -ne 'Valid' -or $null -eq $signature.TimeStamperCertificate) { throw 'Canonical Setup must have a valid timestamped signature.' }
+        $record = Invoke-BoundedSetupPreflight -Path $pin.path
+    } finally { Close-SetupPreflightPin $pin }
     if ($record.exit_code -ne 0 -or [string]::IsNullOrWhiteSpace($record.stdout) -or
         [Text.Encoding]::UTF8.GetByteCount($record.stdout) -gt 16384) { throw 'Canonical Setup preflight failed.' }
     try { $value = $record.stdout | ConvertFrom-Json } catch { throw 'Canonical Setup preflight JSON is invalid.' }

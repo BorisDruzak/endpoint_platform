@@ -14,6 +14,7 @@ from pc_agent.platform.windows import (
     msi_inventory,
 )
 from pc_agent.platform.windows.update_paths import WindowsUpdatePaths
+from pc_agent.platform.windows.fleet_preflight import _disk as _PRODUCTION_DISK
 from pc_agent.tests.windows.test_installation_provenance import (
     handoff_input as _task7_handoff,
 )
@@ -183,7 +184,7 @@ def test_upgrade_snapshot_is_bounded_redacted_and_does_not_mutate(machine, tmp_p
 def test_each_eligibility_state(machine, tmp_path, monkeypatch, defect, want):
     module, paths, package, release, services = machine
     if defect == "current":
-        package.version = release["version"] = "3.2.82"
+        package.version = release["version"] = "3.2.83"
         (installer_fence.state_root(paths) / "foundation.json").write_text(
             json.dumps({"schema_version": 1, "release": release})
         )
@@ -244,7 +245,7 @@ def test_current_core_stale_foundation_and_equal_feature_absent_need_setup(machi
         )
 
 
-def test_newer_compatible_zip_is_preserved_two_layer_current(machine):
+def test_newer_zip_under_equal_foundation_needs_package_candidate_proof(machine):
     module, paths, package, release, _ = machine
     write_zip(paths, "3.2.83", "3.2.82")
     package.version = release["version"] = "3.2.82"
@@ -252,7 +253,7 @@ def test_newer_compatible_zip_is_preserved_two_layer_current(machine):
         json.dumps({"schema_version": 1, "release": release})
     )
     result = module.collect_fleet_preflight(paths, "3.2.82")
-    assert result["eligibility"] == "ALREADY_CURRENT"
+    assert result["eligibility"] == "READY_FOR_SETUP_UPGRADE"
     assert result["core"]["version"] == "3.2.83"
 
 
@@ -743,8 +744,8 @@ def test_canonical_current_skips_transition_costing(machine, monkeypatch, tmp_pa
 
     module, paths, package, release, *_ = machine
     write_zip(paths, "3.2.83")
-    package.version = "3.2.82"
-    release["version"] = "3.2.82"
+    package.version = "3.2.84"
+    release["version"] = "3.2.84"
     (installer_fence.state_root(paths) / "foundation.json").write_text(
         json.dumps({"schema_version": 1, "release": release})
     )
@@ -771,6 +772,144 @@ def test_canonical_current_skips_transition_costing(machine, monkeypatch, tmp_pa
         )["eligibility"]
         == "ALREADY_CURRENT"
     )
+
+
+@pytest.mark.parametrize(
+    "core_version,minimum,feature",
+    [
+        ("3.2.82", "3.2.82", "complete"),
+        ("3.2.81", "3.2.81", "complete"),
+        ("3.2.82", "3.2.84", "complete"),
+        ("3.2.83", "3.2.84", "foundation_only"),
+    ],
+)
+def test_higher_actual_foundation_skips_older_setup_and_cost(
+    machine, monkeypatch, tmp_path, core_version, minimum, feature
+):
+    from pc_agent.platform.windows import setup_entry
+
+    module, paths, package, release, *_ = machine
+    package.version = release["version"] = "3.2.84"
+    (installer_fence.state_root(paths) / "foundation.json").write_text(
+        json.dumps({"schema_version": 1, "release": release})
+    )
+    # This is a modern explicit-floor payload fixture, not a grant to immutable81.
+    write_zip(paths, core_version, minimum)
+    monkeypatch.setattr(msi_inventory, "verify_foundation", lambda *_a, **_kw: feature)
+    canonical = tmp_path / "EndpointAgent.release.json"
+    canonical.write_text(json.dumps({"version": "3.2.82", "package_sha256": "d" * 64}))
+    monkeypatch.setattr(
+        setup_entry, "_verify_embedded_msi", lambda _: (canonical, canonical)
+    )
+    monkeypatch.setattr(
+        setup_entry,
+        "_setup_disk_allocations",
+        lambda *_: pytest.fail("older Setup has no transition to cost"),
+    )
+    # Restore production cost dispatch; the native cost provider must stay unused.
+    monkeypatch.setattr(module, "_disk", _PRODUCTION_DISK)
+    before = snapshot(tmp_path)
+    result = module.collect_fleet_preflight(paths, "3.2.82", setup_package=canonical)
+    assert result["eligibility"] == "ALREADY_CURRENT"
+    assert result["core"]["version"] == core_version
+    assert result["foundation"]["version"] == "3.2.84"
+    assert snapshot(tmp_path) == before
+
+
+@pytest.mark.parametrize("defect", [None, "missing", "damaged", "owner"])
+def test_equal_foundation_checks_actual_target_candidate_while_preserving_newer_zip(
+    handoff_input, monkeypatch, tmp_path, defect
+):
+    from pc_agent.platform.windows import (
+        fleet_preflight as module,
+        setup_entry,
+        update_transaction,
+    )
+    from pc_agent.tests.windows.test_installation_provenance import zip_core
+
+    provenance, paths, root, request, expected = handoff_input
+    monkeypatch.setattr(update_transaction, "_assert_state_security", lambda _: None)
+    provenance.prepare_installer_provenance(paths, request)
+    (root / ".endpoint-msi-runtime.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "version": "3.2.82",
+                "component_guid": "33333333-3333-4333-8333-333333333333",
+            }
+        )
+    )
+    provenance.reconcile_installed_core(paths, request)
+    paths.previous_path.unlink(missing_ok=True)
+    zip_core(paths, version="3.2.83", minimum="3.2.82")
+    if defect == "missing":
+        (root / "pc_agent.exe").unlink()
+    elif defect == "damaged":
+        (root / "pc_agent.exe").write_bytes(b"changed")
+    elif defect == "owner":
+        (installer_fence.state_root(paths) / "core-owners/3.2.82.json").unlink()
+    canonical = request["package_path"].with_name("EndpointAgent.release.json")
+    canonical.write_text(json.dumps(request["release"]))
+    monkeypatch.setattr(
+        setup_entry, "_verify_embedded_msi", lambda _: (canonical, canonical)
+    )
+    monkeypatch.setattr(msi_inventory, "installed_feature_state", lambda _: "complete")
+    monkeypatch.setattr(
+        module,
+        "_foundation",
+        lambda _: {
+            "version": expected.package.version,
+            "source_revision": expected.identity.source_revision,
+            "package_sha256": expected.package.sha256,
+            "product_code": expected.package.product_code,
+            "native_verified": True,
+            "feature_state": "complete",
+        },
+    )
+    monkeypatch.setattr(
+        module,
+        "_services",
+        lambda _: {
+            name: {
+                "present": True,
+                "state": "running",
+                "start_mode": "automatic",
+                "identity_valid": True,
+            }
+            for name in module.SERVICES
+        },
+    )
+    monkeypatch.setattr(
+        module,
+        "_shape",
+        lambda _: {
+            "present": True,
+            "shape_valid": True,
+            "enrollment_shape_valid": True,
+            "authenticated": None,
+        },
+    )
+    monkeypatch.setattr(
+        module,
+        "_ca",
+        lambda _: {"present": True, "parseable": True, "strict_live_tls": None},
+    )
+    costs = []
+    monkeypatch.setattr(
+        setup_entry,
+        "_msi_disk_costs",
+        lambda _: costs.append("native") or [(tmp_path, 4096)],
+    )
+    before = snapshot(tmp_path)
+    result = module.collect_fleet_preflight(
+        paths, "3.2.82", setup_package=request["package_path"]
+    )
+    assert result["eligibility"] == (
+        "ALREADY_CURRENT" if defect is None else "READY_FOR_SETUP_UPGRADE"
+    )
+    assert result["core"]["version"] == "3.2.83"
+    assert costs == ([] if defect is None else ["native"])
+    assert snapshot(tmp_path) == before
 
 
 @pytest.mark.parametrize("operation", ["retire-initial-runtime", "uninstall"])
