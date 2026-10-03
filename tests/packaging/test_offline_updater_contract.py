@@ -40,3 +40,79 @@ def test_msi_builder_validates_dedicated_worker_even_when_reusing_builds():
     stage = script.index("Copy-Item -LiteralPath $builtUpdater")
     assert reuse_end < gate < stage
     assert "binary = 'ProgramFiles/endpoint-agent-updater.exe'" in script
+
+
+def _durable_dependency_names(source, *, relative_ok=False):
+    """Gate the primitive's imports; local/network wrappers are forbidden too."""
+    import ast
+
+    tree = ast.parse(source)
+    names = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            names.extend(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom):
+            assert relative_ok or node.level == 0, 'durable state must not import local wrappers'
+            names.append(node.module or '')
+    return names
+
+
+def test_durable_state_dependency_gate():
+    from tools.canary.offline_updater_contract import assert_offline_modules
+
+    source = (ROOT / 'pc_agent/platform/windows/durable_state.py').read_text(encoding='utf-8')
+    names = _durable_dependency_names(source)
+    assert_offline_modules(names)
+    # Closed dependencies prevent an innocent-looking project wrapper from
+    # indirectly bringing the network runtime into the privileged worker.
+    assert set(names) <= {'__future__', 'collections.abc', 'json', 'os', 'pathlib',
+                          'stat', 'uuid', 'win32con', 'win32file'}
+    for parent in ['pc_agent/__init__.py', 'pc_agent/platform/__init__.py',
+                   'pc_agent/platform/windows/__init__.py']:
+        if (ROOT / parent).exists():
+            dependencies = _durable_dependency_names((ROOT / parent).read_text(encoding='utf-8'), relative_ok=True)
+            assert dependencies == (['service_control'] if parent.endswith('windows/__init__.py') else [])
+    # The Windows package initializer already imports this SCM-only boundary.
+    # Gate its lazy imports as well so an indirect runtime/network import fails.
+    service_names = _durable_dependency_names(
+        (ROOT / 'pc_agent/platform/windows/service_control.py').read_text(encoding='utf-8'))
+    assert_offline_modules(service_names)
+    assert set(service_names) <= {'__future__', 'os', 'subprocess', 'dataclasses', 'pathlib',
+                                  'typing', 'win32con', 'win32security', 'win32service', 'win32serviceutil'}
+
+
+@pytest.mark.parametrize('name', ['socket', 'ssl', 'http', 'urllib.request', 'aiohttp',
+                                  'httpx', 'requests', 'websockets', 'asyncio', 'libssl-3-x64.dll'])
+def test_durable_state_dependency_gate_rejects_network(name):
+    from tools.canary.offline_updater_contract import assert_offline_modules
+
+    names = [name] if name.endswith('.dll') else _durable_dependency_names(f'import {name}')
+    with pytest.raises(ValueError, match='network'):
+        assert_offline_modules(names)
+
+
+def test_durable_state_fresh_process_has_no_indirect_network_imports():
+    import subprocess
+    import sys
+
+    script = '''import builtins, sys
+sys.path.insert(0, sys.argv[1])
+original = builtins.__import__
+forbidden = ('socket', '_socket', 'ssl', '_ssl', 'http', 'urllib.request', 'aiohttp',
+             'httpx', 'requests', 'websockets', 'asyncio', '_asyncio')
+def offline_import(name, *args, **kwargs):
+    if any(name == prefix or name.startswith(prefix + '.') for prefix in forbidden):
+        raise AssertionError('indirect network import: ' + name)
+    return original(name, *args, **kwargs)
+builtins.__import__ = offline_import
+from pc_agent.platform.windows import durable_state
+import tempfile
+from pathlib import Path
+with tempfile.TemporaryDirectory() as directory:
+    root = Path(directory)
+    durable_state.write_json_atomic(root / 'state', [{'offline': True}], trusted_root=root, max_bytes=100)
+    durable_state.durable_unlink(root / 'state', trusted_root=root)
+'''
+    result = subprocess.run([sys.executable, '-I', '-c', script, str(ROOT)],
+                            check=True, capture_output=True, text=True)
+    assert result.stdout == result.stderr == ''
