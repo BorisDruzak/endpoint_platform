@@ -28,3 +28,24 @@ Although the server now returns the assigned release channel independently of
 that query, this does not repair already installed 3.2.79 bytes. Record an actual
 stable-response rejection as a failed legacy upgrade scenario; changing the
 release to canary is not evidence for stable-channel compatibility.
+
+## Corrective 3.2.81 bridge and offline worker
+
+For an explicitly authorized migration, publish a new immutable canary build
+3.2.81 and assign only the selected legacy device. Its unchanged 3.2.79 parser
+accepts the channel `canary` response. This is a compatibility bridge, not a passing
+retroactive stable 3.2.80 acceptance. Never replace 3.2.80 bytes or retag a
+registered 3.2.81 identity. A later stable rollout uses its own release identity.
+
+ZIP updates change the selected Agent runtime, not fixed MSI-owned service
+binaries. Identify the legacy worker used during 79→81 independently from the
+corrected worker. Install canonical MSI 3.2.81 to transition EndpointAgentUpdater
+to `endpoint-agent-updater.exe --updater-service`. It retains LocalSystem,
+demand start and service SID/DACL restrictions. EndpointAgent keeps its original
+fixed launcher and LocalService identity.
+
+The MSI builder rejects network modules/native TLS/socket libraries before
+binding, including reused builds. `--verify-offline` checks imports and MSI-owned runtime validation in a temporary fixture;
+it must never be presented as evidence of SCM application. Verify the actual
+registered updater executable, archive proof, real SCM execution, WFP events,
+WSS-bound startup confirmation, terminal reports and rollback separately.
