@@ -53,7 +53,7 @@ def _settings(tmp_path: Path) -> RuntimeSettings:
     )
 
 
-@pytest.mark.parametrize("core_version", ["3.2.83", "3.2.82", "3.2.81"])
+@pytest.mark.parametrize("core_version", ["3.2.83", "3.2.82"])
 def test_hello_reports_core83_foundation82(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, core_version: str
 ) -> None:

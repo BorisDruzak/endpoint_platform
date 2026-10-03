@@ -53,8 +53,58 @@ def test_service_host_resolves_current_selector_on_each_start(
         "--endpoint-origin", "https://endpoint.sosnadmin.local",
         "--transport-mode", "gateway_wss",
         "--no-migration-http-pull-fallback",
-        "--launcher-version", "3.2.82",
     ]
+
+
+@pytest.mark.parametrize("foundation_version", ["3.2.81", "3.2.82"])
+def test_service_host_rolls_back_to_actual_frozen_core81_parser(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, foundation_version: str
+) -> None:
+    """A newer fixed host must start the unmodified 3.2.81 CLI on rollback."""
+    from pc_agent.platform.windows import service_launcher
+    from pc_agent.tests.windows.fixtures.core_3_2_81_parser import _parser
+
+    paths = _paths(tmp_path)
+    core = paths.versions_root / "3.2.81" / "pc_agent.exe"
+    core.parent.mkdir()
+    core.write_bytes(b"test-only selected runtime path; never executed")
+    paths.current_path.write_text('{"version":"3.2.81"}', encoding="utf-8")
+    monkeypatch.setattr(service_launcher, "AGENT_VERSION", foundation_version)
+    monkeypatch.setenv("ENDPOINT_AGENT_LAUNCHER_VERSION", "99.0.0")
+
+    command = service_launcher.build_agent_child_command(paths)
+    arguments = _parser().parse_args(command[1:])
+
+    assert command[0] == str(core)
+    assert arguments.windows_service_child
+    assert arguments.transport_mode == "gateway_wss"
+    assert arguments.migration_http_pull_fallback is False
+    assert "--launcher-version" not in command
+
+
+@pytest.mark.parametrize("version", ["3.2.82", "3.2.83", "3.10.0", "4.0.0"])
+def test_service_host_passes_compiled_foundation_to_protocol82_cores(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, version: str
+) -> None:
+    """Protocol-aware selected cores receive the host version, never their own."""
+    from pc_agent.platform.windows import service_launcher
+    from pc_agent.runtime.main import _parser
+
+    paths = _paths(tmp_path)
+    core = paths.versions_root / version / "pc_agent.exe"
+    core.parent.mkdir()
+    core.write_bytes(b"test-only selected runtime path; never executed")
+    paths.current_path.write_text(json.dumps({"version": version}), encoding="utf-8")
+    monkeypatch.setattr(service_launcher, "AGENT_VERSION", "3.2.82")
+    monkeypatch.setenv("ENDPOINT_AGENT_LAUNCHER_VERSION", "99.0.0")
+
+    command = service_launcher.build_agent_child_command(paths)
+    arguments = _parser().parse_args(command[1:])
+
+    assert arguments.launcher_version == "3.2.82"
+    assert arguments.windows_service_child
+    assert arguments.transport_mode == "gateway_wss"
+    assert arguments.migration_http_pull_fallback is False
 
 
 def test_service_host_uses_provisioned_endpoint_origin(tmp_path: Path) -> None:

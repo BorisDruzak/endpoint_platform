@@ -21,6 +21,7 @@ from pc_agent.platform.windows.runtime_identity import _reject_reparse_chain, va
 
 _SEMVER_TRIPLET = re.compile(r"^(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)$")
 _SOURCE_REVISION = re.compile(r"^[0-9a-f]{40}$")
+_MIN_LAUNCHER_VERSION_PROTOCOL = (3, 2, 82)
 _DEFAULT_ENDPOINT_ORIGIN = "https://endpoint.sosnadmin.local"
 _TRAY_EXECUTABLE_NAME = "EndpointAgentTray.exe"
 _USER_SENSOR_EXECUTABLE_NAME = "EndpointUserSensor.exe"
@@ -106,7 +107,7 @@ def build_agent_child_command(paths: WindowsUpdatePaths | None = None) -> list[s
     executable = validate_runtime_executable(paths, version)
     data_root = paths.pending_path.parents[1]
     endpoint_origin = _provisioned_endpoint_origin(data_root)
-    return [
+    command = [
         str(executable),
         "--windows-service-child",
         "--data-dir", str(data_root),
@@ -115,8 +116,12 @@ def build_agent_child_command(paths: WindowsUpdatePaths | None = None) -> list[s
         "--endpoint-origin", endpoint_origin,
         "--transport-mode", "gateway_wss",
         "--no-migration-http-pull-fallback",
-        "--launcher-version", AGENT_VERSION,
     ]
+    # Immutable older cores cannot parse this option. Protocol support starts
+    # at 3.2.82 independently of the host's own compiled version.
+    if tuple(int(part) for part in version.split(".")) >= _MIN_LAUNCHER_VERSION_PROTOCOL:
+        command.extend(["--launcher-version", AGENT_VERSION])
+    return command
 
 
 def _provisioned_endpoint_origin(data_root: Path) -> str:
