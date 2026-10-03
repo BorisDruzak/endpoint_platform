@@ -31,7 +31,15 @@ and extracted files are flushed before durable handoff. A disk-full rejection
 keeps valid pending state for retry and reports bounded `disk_insufficient`.
 The Windows recovery supervisor keeps the current core and WSS alive after
 SCM starts the updater; the offline worker owns stopping the Agent only after
-verified staging and durable preparation. Setup alone lazily imports
+verified staging and durable preparation. The worker first reserves exact old
+selector bytes in `current-restore.json` with the current selector's ACL and
+persists an operation/candidate/attempt-bound `selector-transition.json`.
+Shared `publish_prepared` restores this slot without a fresh payload allocation;
+interrupted transitions reconcile before normal version eligibility. A proven
+accepted journal precedes pending deletion and remains until cleanup finishes.
+The online supervisor's bounded `recovery_pending` SCM starts are idempotent for
+an active worker and reach a stopped worker without premature core shutdown;
+HTTP terminal reporting waits for transition reconciliation. Setup alone lazily imports
 `msi_disk_costing.py`, which uses restricted read-only Installer costing and
 bounded inventory/path accounting for new MSI, cache, temp and old rollback
 copies. This conservative budget does not claim completed native component

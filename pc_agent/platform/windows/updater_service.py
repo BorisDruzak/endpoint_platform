@@ -23,8 +23,8 @@ from typing import Any, Callable, Protocol
 
 from pc_agent.update_eligibility import _is_eligible_recommendation
 
-from .acl import EXPECTED_PRINCIPALS, PyWin32AclAdapter, WindowsAclError, preserve_state_file_permissions
-from .durable_state import durable_unlink, flush_directory, write_bytes_atomic, write_json_atomic
+from .acl import EXPECTED_PRINCIPALS, PyWin32AclAdapter, WindowsAclError, preserve_state_file_permissions, assert_state_file_permissions_match
+from .durable_state import durable_unlink, flush_directory, write_bytes_atomic, write_json_atomic, publish_prepared
 from .disk_readiness import allocation_required_bytes, apply_required_bytes, is_disk_full, require_disk_space
 from .service_control import SERVICE_NAME, UPDATER_SERVICE_NAME
 from .update_paths import UPDATE_EXECUTABLE_NAME, WindowsUpdatePaths
@@ -360,6 +360,8 @@ class WindowsUpdater:
         self._tray_status_writer = tray_status_writer
         self._deadline_seconds = deadline_seconds
         self._attempt_id: str | None = None
+        self._transition: dict[str, object] | None = None
+        self._proof_confirmed = False
 
     def run_once(self) -> UpdateResult:
         previous: str | None = None
@@ -368,12 +370,36 @@ class WindowsUpdater:
         staging: Path | None = None
         service_stopped = False
         candidate_confirmed = False
+        self._proof_confirmed = False
+        self._transition = None
         try:
+            self._transition = _load_selector_transition(self._paths)
+            if self._transition is not None and self._transition["status"] == "accepted":
+                # Acceptance was durably recorded before pending/proof deletion;
+                # cleanup no longer depends on a retained archive or proof leaf.
+                if _load_selector(self._paths.current_path) != self._transition["candidate"]:
+                    raise ValueError("accepted selector transition does not match current")
+                self._complete_accepted()
+                return UpdateResult("applied", "accepted transition cleanup completed")
+            if self._transition is not None and not self._paths.pending_path.exists():
+                expected = bytes.fromhex(self._transition["previous_bytes"])
+                _reject_reparse_chain(self._paths.install_root, self._paths.current_path)
+                if self._paths.current_path.read_bytes() != expected:
+                    raise ValueError("unconfirmed transition is missing pending identity")
+                # A terminal-report cleanup may already have deleted pending.
+                # Exact old bytes permit barrier cleanup, never candidate acceptance.
+                flush_directory(self._paths.install_root)
+                self._clear_transition()
+                return UpdateResult("rejected", "known-good transition cleanup completed")
             try:
                 pending = self._validator.load()
             except (OSError, ValueError) as error:
                 _quarantine_invalid_pending(self._paths, self._validator._security)
                 return UpdateResult("rejected", str(error))
+            if self._transition is not None:
+                recovered = self._reconcile_transition(pending)
+                if recovered is not None:
+                    return recovered
             previous_selector = _load_selector(self._paths.current_path)
             previous = _selector_version(previous_selector)
             if not _is_eligible_recommendation(
@@ -394,13 +420,17 @@ class WindowsUpdater:
             target = self._publish(staging, pending)
             # Existing core/retention occupies space already. Reserve only the
             # new selector/journal allocations on each of their target volumes.
-            require_disk_space(self._paths.install_root, allocation_required_bytes(8192))
+            require_disk_space(self._paths.install_root, allocation_required_bytes(24 * 1024))
             require_disk_space(self._paths.updates_root, allocation_required_bytes(8192))
             _write_json_atomic(self._paths.previous_path, previous_selector,
                 trusted_root=self._paths.install_root, template=self._paths.current_path)
             # The old core cannot confirm this attempt: proof requires pending,
             # selected and compiled versions to agree. A retry uses a fresh id.
             self._attempt_id = _write_startup_attempt(self._paths, pending)
+            candidate_selector = {
+                "schema_version": 1, "source_revision": bundle.source_revision, "version": pending.version,
+            }
+            self._prepare_transition(pending, candidate_selector)
             try:
                 self._service.stop()
             except Exception as error:
@@ -409,16 +439,8 @@ class WindowsUpdater:
             service_stopped = True
             if not self._service.wait_stopped():
                 raise ValueError("EndpointAgent did not stop")
-            _write_json_atomic(self._paths.current_path, {
-                "schema_version": 1,
-                "source_revision": bundle.source_revision,
-                "version": pending.version,
-            }, trusted_root=self._paths.install_root)
-            try:
-                self._service.start()
-            except Exception:
-                _clear_startup_attempt(self._paths)
-                raise
+            _write_json_atomic(self._paths.current_path, candidate_selector, trusted_root=self._paths.install_root)
+            self._service.start()
             if not self._wait_for_candidate_confirmation(pending):
                 result = self._rollback(
                     pending, previous, previous_selector, "startup confirmation failed"
@@ -432,15 +454,17 @@ class WindowsUpdater:
                 )
                 return result
             candidate_confirmed = True
-            durable_unlink(self._paths.pending_path, trusted_root=self._paths.updates_root)
-            _clear_startup_attempt(self._paths)
+            self._mark_accepted()
+            self._complete_accepted()
             return UpdateResult("applied", str(target))
         except (OSError, ValueError, WindowsAclError, zipfile.BadZipFile) as error:
-            if candidate_confirmed:
+            if candidate_confirmed or self._proof_confirmed:
                 # Acceptance already has operation-bound WSS proof. A failed
                 # lifecycle cleanup must not switch a still-running candidate
                 # to the previous selector or create a contradictory failure.
-                return UpdateResult("rejected", "confirmed candidate cleanup pending: " + str(error))
+                return UpdateResult("rejected", "confirmed candidate cleanup pending")
+            if self._transition is not None and self._transition["status"] == "accepted":
+                return UpdateResult("rejected", "accepted transition cleanup pending")
             disk_full = is_disk_full(error)
             if not disk_full and pending is not None and previous is not None:
                 self._record_terminal_outcome(
@@ -453,8 +477,7 @@ class WindowsUpdater:
                 # Every failure after the controlled stop restores the known
                 # selector before restarting the old agent.
                 try:
-                    _write_json_atomic(self._paths.current_path, previous_selector,
-                        trusted_root=self._paths.install_root)
+                    self._restore_prepared()
                     self._service.start()
                 except Exception:
                     # A file fsync/allocation failure may leave the old selector
@@ -464,6 +487,13 @@ class WindowsUpdater:
                             self._service.start()
                     except Exception:
                         pass
+            if not disk_full and self._transition is not None:
+                try:
+                    if _load_selector(self._paths.current_path) == previous_selector:
+                        flush_directory(self._paths.install_root)
+                        self._clear_transition()
+                except (OSError, ValueError, WindowsAclError):
+                    pass
             if pending is not None and previous is not None:
                 self._publish_tray_status(
                     previous,
@@ -487,6 +517,149 @@ class WindowsUpdater:
             # Remove/quarantine the stale handoff before restarting when possible;
             # reporting may be unavailable until filesystem health is restored.
             _quarantine_invalid_pending(self._paths, self._validator._security)
+
+    def _write_transition(self) -> None:
+        write_json_atomic(self._paths.transition_path, self._transition,
+            trusted_root=self._paths.install_root, max_bytes=16 * 1024,
+            protect=lambda temporary: preserve_state_file_permissions(self._paths.current_path, temporary))
+
+    def _prepare_transition(self, pending: PendingUpdate, candidate: dict[str, object]) -> None:
+        _reject_reparse_chain(self._paths.install_root, self._paths.current_path)
+        with self._paths.current_path.open("rb") as current:
+            previous_bytes = current.read(4097)
+        if not 0 < len(previous_bytes) <= 4096:
+            raise ValueError("known-good selector exceeds restore bound")
+        _validate_selector(json.loads(previous_bytes, object_pairs_hook=_no_duplicate_keys))
+        write_bytes_atomic(self._paths.restore_path, previous_bytes, trusted_root=self._paths.install_root,
+            max_bytes=4096, protect=lambda temporary: preserve_state_file_permissions(self._paths.current_path, temporary))
+        self._transition = {
+            "schema_version": 1, "status": "prepared", "previous_bytes": previous_bytes.hex(), "candidate": candidate,
+            "operation_id": pending.operation_id, "attempt_id": self._attempt_id,
+            "artifact_sha256": pending.sha256, "artifact_size": pending.size,
+            "received_at": pending.received_at.isoformat(), "requested_reason": pending.requested_reason,
+        }
+        self._write_transition()
+
+    def _matches_transition(self, pending) -> bool:
+        transition = self._transition
+        try:
+            same_time = datetime.fromisoformat(pending.get("received_at", "")) == datetime.fromisoformat(transition["received_at"])
+        except (ValueError, TypeError):
+            return False
+        if not same_time or type(pending.get("size")) is not int:
+            return False
+        return all(pending.get(key) == value for key, value in {
+            "version": transition["candidate"]["version"], "operation_id": transition["operation_id"],
+            "sha256": transition["artifact_sha256"], "size": transition["artifact_size"],
+            "requested_reason": transition["requested_reason"],
+        }.items())
+
+    def _clear_transition(self) -> None:
+        durable_unlink(self._paths.restore_path, trusted_root=self._paths.install_root, missing_ok=True)
+        durable_unlink(self._paths.transition_path, trusted_root=self._paths.install_root, missing_ok=True)
+        self._transition = None
+
+    def _restore_prepared(self) -> None:
+        if self._transition is None:
+            raise ValueError("known-good restoration is not prepared")
+        expected = bytes.fromhex(self._transition["previous_bytes"])
+        _reject_reparse_chain(self._paths.install_root, self._paths.current_path)
+        if self._paths.current_path.read_bytes() == expected:
+            # A previous replacement may be visible despite failed metadata fsync.
+            flush_directory(self._paths.install_root)
+            return
+        publish_prepared(self._paths.restore_path, self._paths.current_path,
+            expected_bytes=expected, trusted_root=self._paths.install_root, max_bytes=4096,
+            validate=lambda source: assert_state_file_permissions_match(self._paths.current_path, source))
+
+    def _mark_accepted(self) -> None:
+        accepted = dict(self._transition)
+        accepted["status"] = "accepted"
+        # Keep memory prepared until the protected acceptance record is durable.
+        previous_transition = self._transition
+        self._transition = accepted
+        try:
+            self._write_transition()
+        except (OSError, ValueError, WindowsAclError):
+            self._transition = previous_transition
+            raise
+
+    def _complete_accepted(self) -> None:
+        # Visible accepted state or prior cleanup deletion is not durable success
+        # until its interrupted directory barrier has completed on retry.
+        flush_directory(self._paths.install_root)
+        if self._paths.pending_path.exists():
+            _reject_reparse_chain(self._paths.updates_root, self._paths.pending_path)
+            with self._paths.pending_path.open("rb") as pending:
+                payload = json.loads(pending.read(16 * 1024 + 1), object_pairs_hook=_no_duplicate_keys)
+            if not isinstance(payload, dict) or not self._matches_transition(payload):
+                raise ValueError("accepted transition pending identity differs")
+            self._validator._security.assert_update_path(self._paths.pending_path)
+        durable_unlink(self._paths.pending_path, trusted_root=self._paths.updates_root, missing_ok=True)
+        _clear_startup_attempt(self._paths)
+        self._clear_transition()
+
+    def _reconcile_transition(self, pending: PendingUpdate) -> UpdateResult | None:
+        if not self._matches_transition({"version": pending.version, "operation_id": pending.operation_id,
+            "sha256": pending.sha256, "size": pending.size, "received_at": pending.received_at.isoformat(),
+            "requested_reason": pending.requested_reason}):
+            raise ValueError("selector transition pending identity differs")
+        current = _load_selector(self._paths.current_path)
+        previous = _validate_selector(json.loads(bytes.fromhex(self._transition["previous_bytes"])))
+        attempt_path = self._paths.updates_root / "startup-attempt.json"
+        _reject_reparse_chain(self._paths.updates_root, attempt_path)
+        self._validator._security.assert_update_path(attempt_path)
+        with attempt_path.open("rb") as attempt_file:
+            attempt = json.loads(attempt_file.read(4097), object_pairs_hook=_no_duplicate_keys)
+        if attempt != {"attempt_id": self._transition["attempt_id"], "operation_id": pending.operation_id, "version": pending.version}:
+            raise ValueError("selector transition startup attempt differs")
+        self._attempt_id = self._transition["attempt_id"]
+        if current == previous:
+            self._restore_prepared()
+            self._start_known_good()
+            self._clear_transition()
+            return None
+        if current != self._transition["candidate"]:
+            raise ValueError("selector transition candidate differs")
+        target = self._paths.versions_root / pending.version
+        _reject_reparse_chain(self._paths.versions_root, target)
+        for index, child in enumerate(target.rglob("*")):
+            if index >= MAX_ARCHIVE_MEMBERS:
+                raise ValueError("recovery payload member count exceeds limit")
+            _reject_reparse_path(child)
+        receipt = json.loads((target / ".endpoint-update.json").read_text(encoding="utf-8"))
+        bundle = _load_bundle_manifest(target, pending)
+        if (receipt != {"version": pending.version, "sha256": pending.sha256, "size": pending.size}
+            or bundle.source_revision != current["source_revision"]):
+            raise ValueError("selector transition published payload differs")
+        if self._confirmation.is_confirmed(version=pending.version, operation_id=pending.operation_id,
+            attempt_id=self._attempt_id, not_before=pending.received_at):
+            self._proof_confirmed = True
+            self._mark_accepted()
+            self._complete_accepted()
+            return UpdateResult("applied", "proven transition cleanup completed")
+        try:
+            self._service.stop()
+        except Exception as error:
+            if not _is_service_not_active(error):
+                return UpdateResult("rejected", "interrupted candidate stop failed")
+        if not self._service.wait_stopped():
+            raise ValueError("interrupted candidate did not stop")
+        try:
+            self._restore_prepared()
+        finally:
+            # Only exact known-good bytes justify restart on a failed metadata flush.
+            if self._paths.current_path.read_bytes() == bytes.fromhex(self._transition["previous_bytes"]):
+                self._start_known_good()
+        self._clear_transition()
+        return None
+
+    def _start_known_good(self) -> None:
+        try:
+            self._service.start()
+        except Exception as error:
+            if getattr(error, "winerror", None) != 1056:
+                raise
 
     def _publish_tray_status(
         self,
@@ -614,8 +787,8 @@ class WindowsUpdater:
                 return UpdateResult("rejected", "candidate stop state is unknown")
             if not stopped:
                 return UpdateResult("rejected", "candidate did not stop for rollback")
-        _write_json_atomic(self._paths.current_path, previous_selector,
-            trusted_root=self._paths.install_root)
+        self._restore_prepared()
+        self._clear_transition()
         _clear_startup_attempt(self._paths)
         self._record_terminal_outcome(
             operation_id=pending.operation_id,
@@ -824,11 +997,56 @@ def _extract_zip_member(archive: zipfile.ZipFile, member: zipfile.ZipInfo, stagi
         os.fsync(output.fileno())
 
 
+def _load_selector_transition(paths: WindowsUpdatePaths) -> dict[str, object] | None:
+    path = paths.transition_path
+    if not path.exists() and not path.is_symlink():
+        return None
+    _reject_reparse_chain(paths.install_root, path)
+    assert_state_file_permissions_match(paths.current_path, path)
+    details = path.stat()
+    if details.st_nlink != 1 or not 0 < details.st_size <= 16 * 1024:
+        raise ValueError("selector transition size or identity is invalid")
+    with path.open("rb") as source:
+        opened = os.fstat(source.fileno())
+        if (details.st_dev, details.st_ino) != (opened.st_dev, opened.st_ino):
+            raise ValueError("selector transition identity changed")
+        raw = source.read(16 * 1024 + 1)
+    payload = json.loads(raw, object_pairs_hook=_no_duplicate_keys)
+    if not isinstance(payload, dict) or set(payload) != {
+        "schema_version", "status", "previous_bytes", "candidate", "operation_id", "attempt_id",
+        "artifact_sha256", "artifact_size", "received_at", "requested_reason",
+    }:
+        raise ValueError("selector transition fields are invalid")
+    if (type(payload["schema_version"]) is not int or payload["schema_version"] != 1
+        or not isinstance(payload["status"], str) or payload["status"] not in {"prepared", "accepted"}
+        or not isinstance(payload["previous_bytes"], str) or not 0 < len(payload["previous_bytes"]) <= 8192
+        or not re.fullmatch(r"[0-9a-f]+", payload["previous_bytes"])
+        or not isinstance(payload["attempt_id"], str) or not re.fullmatch(r"[0-9a-f]{32}", payload["attempt_id"])
+        or not isinstance(payload["operation_id"], str) or not 0 < len(payload["operation_id"]) <= 256
+        or not isinstance(payload["artifact_sha256"], str) or not _SHA256.fullmatch(payload["artifact_sha256"])
+        or type(payload["artifact_size"]) is not int or not 0 < payload["artifact_size"] <= MAX_PENDING_ARCHIVE_BYTES
+        or not isinstance(payload["requested_reason"], str) or len(payload["requested_reason"]) > 512
+        or not isinstance(payload["received_at"], str) or len(payload["received_at"]) > 64
+        or datetime.fromisoformat(payload["received_at"]).tzinfo is None):
+        raise ValueError("selector transition identity is invalid")
+    previous = _validate_selector(json.loads(bytes.fromhex(payload["previous_bytes"]), object_pairs_hook=_no_duplicate_keys))
+    candidate = _validate_selector(payload["candidate"])
+    if set(candidate) != {"schema_version", "source_revision", "version"}:
+        raise ValueError("selector transition candidate identity is incomplete")
+    if not _is_eligible_recommendation(candidate["version"], previous["version"], payload["requested_reason"]):
+        raise ValueError("selector transition has no eligible known-good origin")
+    return payload
+
+
 def _load_selector(path: Path) -> dict[str, object]:
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as error:
         raise ValueError("current selector is unreadable") from error
+    return _validate_selector(payload)
+
+
+def _validate_selector(payload) -> dict[str, object]:
     if not isinstance(payload, dict):
         raise ValueError("current selector is invalid")
     if set(payload) == {"version"}:

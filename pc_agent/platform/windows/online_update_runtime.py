@@ -72,6 +72,35 @@ class WindowsOnlineUpdateRuntime:
 
     async def _run_once(self) -> WindowsOnlineUpdateResult:
         current = _load_current_version(self._paths.current_path)
+        if self._paths.transition_path.exists() or self._paths.transition_path.is_symlink():
+            # A canonical operation journal makes an interrupted offline worker
+            # reachable without treating selection as acceptance. SCM start is
+            # idempotent while an active worker still waits for Gateway proof.
+            from .updater_service import _load_selector_transition, _load_selector
+            transition = _load_selector_transition(self._paths)
+            selected = _load_selector(self._paths.current_path)
+            if transition["status"] == "accepted":
+                if selected != transition["candidate"]:
+                    raise ValueError("Windows accepted recovery selector differs")
+                return WindowsOnlineUpdateResult("recovery_pending")
+            if not self._paths.pending_path.exists() and selected == json.loads(bytes.fromhex(transition["previous_bytes"])):
+                return WindowsOnlineUpdateResult("recovery_pending")
+            with self._paths.pending_path.open("rb") as source:
+                pending = json.loads(source.read(16 * 1024 + 1))
+            with (self._paths.updates_root / "startup-attempt.json").open("rb") as source:
+                attempt = json.loads(source.read(4097))
+            if (not isinstance(pending, dict) or type(pending.get("size")) is not int
+                or any(pending.get(key) != value for key, value in {
+                    "version": transition["candidate"]["version"], "operation_id": transition["operation_id"],
+                    "sha256": transition["artifact_sha256"], "size": transition["artifact_size"],
+                    "requested_reason": transition["requested_reason"],
+                }.items())
+                or datetime.fromisoformat(pending.get("received_at", "")) != datetime.fromisoformat(transition["received_at"])
+                or attempt != {"attempt_id": transition["attempt_id"], "operation_id": transition["operation_id"],
+                    "version": transition["candidate"]["version"]}
+                or selected not in (transition["candidate"], json.loads(bytes.fromhex(transition["previous_bytes"])))):
+                raise ValueError("Windows recovery transition identity differs")
+            return WindowsOnlineUpdateResult("recovery_pending")
         if (self._paths.updates_root / _TERMINAL_OUTCOME_FILENAME).exists():
             return WindowsOnlineUpdateResult("report_pending")
         if self._paths.pending_path.exists():
@@ -187,6 +216,10 @@ class WindowsOnlineUpdateRuntime:
 
     async def report_startup_outcome(self) -> bool:
         """Report a durable updater outcome or a post-handshake applied proof."""
+        if self._paths.transition_path.exists() or self._paths.transition_path.is_symlink():
+            # The worker finishes/reconciles this operation's selector metadata
+            # before an HTTP ACK/report can consume its lifecycle state.
+            return False
         try:
             current = _load_current_version(self._paths.current_path)
         except ValueError:

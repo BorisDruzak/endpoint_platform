@@ -81,6 +81,80 @@ async def test_disk_rejected_offline_worker_preserves_connected_root_lifecycle(t
 
 
 @pytest.mark.asyncio
+async def test_root_supervisor_reaches_stopped_interrupted_worker_and_active_poll_is_idempotent(tmp_path):
+    import json
+    from types import SimpleNamespace
+    from pc_agent.platform.windows import updater_service
+    from pc_agent.platform.windows.online_update_runtime import WindowsOnlineUpdateRuntime
+    from pc_agent.platform.windows.update_supervisor import WindowsRecoveryUpdateSupervisor
+    from pc_agent.tests.windows.test_updater_service import _interrupted_transition, _Acl
+    from pc_agent.tests.windows.test_windows_online_update_runtime import _Adapter, _Acl as OnlineAcl
+    from pc_agent.tests.runtime.test_headless_lifecycle import _dependencies, _Transport
+    paths, old = _interrupted_transition(tmp_path)
+    events, starts, launches, statuses, delays = [], [], [], [], []
+    connected, recovered = asyncio.Event(), asyncio.Event()
+    service = SimpleNamespace(stop=lambda: starts.append("stop"),
+        start=lambda: starts.append(json.loads(paths.current_path.read_text())["version"]), wait_stopped=lambda: True,
+        crashed_early=lambda: False)
+    proofs = []
+    def confirmed(**_):
+        proofs.append(True)
+        return len(proofs) > 1
+    worker = updater_service.WindowsUpdater(paths, acl=_Acl(), service=service,
+        verifier=SimpleNamespace(verify=lambda *_: True), confirmation=SimpleNamespace(is_confirmed=confirmed))
+    adapter = _Adapter(None)
+    online = WindowsOnlineUpdateRuntime(adapter=adapter, paths=paths, acl=OnlineAcl(), download=None)
+    running = True
+    polls = 0
+    async def check():
+        status = (await online.run_once()).status
+        statuses.append(status)
+        return status
+    async def report():
+        return False
+    def trigger():
+        nonlocal running
+        # Fixed SCM StartService returns already-running1056 during active proof
+        # wait. Only a stopped worker creates a new native service invocation.
+        if not running:
+            launches.append(worker.run_once().status)
+            running = True
+            recovered.set()
+    async def sleep(delay):
+        nonlocal running, polls
+        assert 24 <= delay <= 36
+        delays.append(delay)
+        polls += 1
+        if polls < 3:
+            assert starts == [] and launches == []
+            running = False if polls == 2 else True
+            await asyncio.sleep(0)
+        else:
+            await asyncio.Future()
+    class Connected(_Transport):
+        async def receive(self):
+            connected.set()
+            await asyncio.Future()
+    supervisor = WindowsRecoveryUpdateSupervisor(check=check, report=report, trigger=trigger, sleep=sleep)
+    deps = replace(_dependencies(events, []), create_transport=lambda *_: Connected(events),
+        create_service_tasks=lambda *_: (supervisor.run(),))
+    task = asyncio.create_task(RuntimeLifecycle(_settings(tmp_path), deps, RuntimeStatus()).run())
+    try:
+        await asyncio.wait_for(asyncio.gather(connected.wait(), recovered.wait()), 2)
+        assert not task.done()
+        assert statuses == ["recovery_pending"] * 3
+        assert launches == ["applied"]
+        assert starts == ["stop", old["version"], "stop", "3.2.0"]
+        assert adapter.calls == []
+        assert "executor.stop" not in events and "transport.close" not in events
+        assert not paths.pending_path.exists()
+    finally:
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+
+@pytest.mark.asyncio
 async def test_upgrade_required_control_message_is_recoverable():
     from pc_agent.runtime.lifecycle import _handle_inbound
     from pc_agent.transport.protocol import GatewayInboundV1
@@ -346,8 +420,13 @@ async def test_broken_wss_real_stager_fetches_acks_validates_and_hands_off(tmp_p
     async def check():
         return (await online.run_once()).status
     trigger = []
+    triggered = asyncio.Event()
+    loop = asyncio.get_running_loop()
+    def trigger_worker():
+        trigger.append(True)
+        loop.call_soon_threadsafe(triggered.set)
     supervisor = WindowsRecoveryUpdateSupervisor(check=check,
-        report=online.report_startup_outcome, trigger=lambda: trigger.append(True))
+        report=online.report_startup_outcome, trigger=trigger_worker)
     events = []
     class Broken:
         async def connect(self, _hello):
@@ -358,10 +437,7 @@ async def test_broken_wss_real_stager_fetches_acks_validates_and_hands_off(tmp_p
         create_service_tasks=lambda *_: (supervisor.run(),))
     task = asyncio.create_task(RuntimeLifecycle(_settings(tmp_path), deps, RuntimeStatus()).run())
     try:
-        for _ in range(100):
-            if trigger:
-                break
-            await asyncio.sleep(0.01)
+        await asyncio.wait_for(triggered.wait(), 3)
         assert trigger == [True]
         assert not task.done()
         assert json.loads(paths.current_path.read_text())["version"] == "3.2.78"

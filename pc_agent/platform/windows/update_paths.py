@@ -50,6 +50,14 @@ class WindowsUpdatePaths:
     def previous_path(self) -> Path:
         return self.install_root / "previous.json"
 
+    @property
+    def restore_path(self) -> Path:
+        return self.install_root / "current-restore.json"
+
+    @property
+    def transition_path(self) -> Path:
+        return self.install_root / "selector-transition.json"
+
 
 __all__ = [
     "INSTALL_ROOT",

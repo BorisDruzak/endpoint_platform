@@ -139,6 +139,50 @@ def write_json_atomic(
     write_bytes_atomic(path, data, trusted_root=trusted_root, max_bytes=max_bytes, protect=protect)
 
 
+def publish_prepared(
+    source: Path, path: Path, *, expected_bytes: bytes, trusted_root: Path,
+    max_bytes: int, validate: Callable[[Path], None] | None = None,
+) -> None:
+    """Consume an already protected, file/directory-flushed same-parent slot.
+
+    The caller prepared it with write_bytes_atomic before exhaustion. No new
+    payload allocation or writer is used here. A failed metadata flush remains
+    an error even when the exact restoration bytes have become visible.
+    """
+    if type(max_bytes) is not int or max_bytes <= 0:
+        raise ValueError("max_bytes must be a positive integer")
+    if not isinstance(expected_bytes, bytes) or len(expected_bytes) > max_bytes:
+        raise ValueError("prepared state bytes exceed bound")
+    prepared = _checked_path(source, trusted_root)
+    destination = _checked_path(path, trusted_root)
+    if prepared == destination or prepared.parent != destination.parent:
+        raise ValueError("prepared state must be a different same-parent file")
+    descriptor = os.open(prepared, os.O_RDONLY | getattr(os, "O_BINARY", 0) | getattr(os, "O_NOFOLLOW", 0))
+    try:
+        identity = os.fstat(descriptor)
+        _reject_reparse(identity)
+        _check_temporary(prepared, trusted_root, identity)
+        if not stat.S_ISREG(identity.st_mode) or identity.st_size != len(expected_bytes):
+            raise ValueError("prepared state size is invalid")
+        if validate is not None:
+            validate(prepared)
+        data = bytearray()
+        while len(data) <= max_bytes:
+            block = os.read(descriptor, min(4096, max_bytes + 1 - len(data)))
+            if not block:
+                break
+            data.extend(block)
+        if bytes(data) != expected_bytes:
+            raise ValueError("prepared state contents differ")
+        _check_temporary(prepared, trusted_root, identity)
+    finally:
+        os.close(descriptor)
+    _checked_path(destination, trusted_root)
+    _check_temporary(prepared, trusted_root, identity)
+    os.replace(prepared, destination)
+    flush_directory(destination.parent)
+
+
 def durable_unlink(path: Path, *, trusted_root: Path, missing_ok: bool = False) -> None:
     """Delete a regular state leaf and flush its containing directory."""
     destination = _checked_path(path, trusted_root)

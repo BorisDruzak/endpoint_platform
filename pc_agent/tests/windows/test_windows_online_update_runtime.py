@@ -54,6 +54,20 @@ class _Acl:
 
 
 @pytest.mark.asyncio
+async def test_transition_reconciliation_precedes_applied_http_report(tmp_path, monkeypatch):
+    from pc_agent.platform.windows import startup_confirmation
+    from pc_agent.platform.windows.online_update_runtime import WindowsOnlineUpdateRuntime
+    from pc_agent.tests.windows.test_updater_service import _interrupted_transition
+    paths, _ = _interrupted_transition(tmp_path)
+    monkeypatch.setattr(startup_confirmation, "AGENT_VERSION", "3.2.0")
+    assert startup_confirmation.StartupProofWriter(paths).record_after_server_handshake()
+    adapter = _Adapter(None)
+    runtime = WindowsOnlineUpdateRuntime(adapter=adapter, paths=paths, acl=_Acl(), download=None)
+    assert await runtime.report_startup_outcome() is False
+    assert adapter.calls == []
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("failure", ["capacity", "download", "artifact_fsync", "pending_journal"])
 async def test_disk_full_download_has_no_handoff_and_can_retry(tmp_path, monkeypatch, failure):
     import errno

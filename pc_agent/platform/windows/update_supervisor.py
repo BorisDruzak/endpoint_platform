@@ -54,7 +54,7 @@ class WindowsRecoveryUpdateSupervisor:
                 result = "local_state_failed"
             delay = min(300.0, network_delay * self._jitter())
             network_delay = min(300.0, network_delay * 2)
-            if result in {"pending", "scheduled"}:
+            if result in {"pending", "scheduled", "recovery_pending"}:
                 self._publish("pending")
                 try:
                     await asyncio.to_thread(self._trigger)

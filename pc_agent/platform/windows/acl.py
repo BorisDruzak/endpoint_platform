@@ -63,6 +63,40 @@ def preserve_state_file_permissions(source: Path, temporary: Path) -> None:
         raise WindowsAclError("could not preserve state owner and DACL") from error
 
 
+def assert_state_file_permissions_match(template: Path, path: Path) -> None:
+    """Validate a reserved privileged leaf against the selector ACL it carries."""
+    for leaf in (template, path):
+        details = leaf.lstat()
+        if not stat.S_ISREG(details.st_mode) or getattr(details, "st_file_attributes", 0) & 0x400:
+            raise WindowsAclError("reserved state permissions contain an unsafe leaf")
+    if os.name != "nt":
+        if stat.S_IMODE(template.stat().st_mode) != stat.S_IMODE(path.stat().st_mode):
+            raise WindowsAclError("reserved state permissions differ")
+        return
+    win32security, _rights = PyWin32AclAdapter._modules()
+    def permissions(leaf):
+        descriptor = win32security.GetNamedSecurityInfo(str(leaf), win32security.SE_FILE_OBJECT,
+            win32security.OWNER_SECURITY_INFORMATION | win32security.DACL_SECURITY_INFORMATION)
+        owner, dacl = descriptor.GetSecurityDescriptorOwner(), descriptor.GetSecurityDescriptorDacl()
+        if owner is None or dacl is None:
+            raise WindowsAclError("reserved state permissions are missing")
+        aces = []
+        for index in range(dacl.GetAceCount()):
+            ace = dacl.GetAce(index)
+            if len(ace) != 3:
+                raise WindowsAclError("reserved state permissions have unsupported ACEs")
+            aces.append((*ace[:-1], win32security.ConvertSidToStringSid(ace[-1])))
+        return (win32security.ConvertSidToStringSid(owner),
+            descriptor.GetSecurityDescriptorControl()[0] & win32security.SE_DACL_PROTECTED, aces)
+    try:
+        if permissions(template) != permissions(path):
+            raise WindowsAclError("reserved state permissions differ")
+    except WindowsAclError:
+        raise
+    except Exception as error:
+        raise WindowsAclError("could not inspect reserved state permissions") from error
+
+
 class AclAdapter(Protocol):
     def protect_directory(self, path: Path) -> None: ...
     def protect_claim(self, path: Path) -> None: ...

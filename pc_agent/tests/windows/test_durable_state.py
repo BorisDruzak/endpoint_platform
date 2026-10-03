@@ -105,6 +105,96 @@ def test_short_writes_preserve_exact_bytes(tmp_path, monkeypatch):
     assert target.read_bytes() == b"1234567"
 
 
+def test_prepared_publication_needs_no_new_payload_allocation(tmp_path, monkeypatch):
+    source, target = tmp_path / "prepared", tmp_path / "current"
+    durable.write_bytes_atomic(source, b"known-good", trusted_root=tmp_path, max_bytes=10)
+    target.write_bytes(b"candidate")
+    def exhausted(*_):
+        raise OSError("payload allocation exhausted")
+    monkeypatch.setattr(durable.os, "write", exhausted)
+    durable.publish_prepared(source, target, expected_bytes=b"known-good", trusted_root=tmp_path, max_bytes=10)
+    assert target.read_bytes() == b"known-good"
+    assert not source.exists()
+
+
+@pytest.mark.parametrize("problem", ["different_bytes", "hardlink", "different_parent", "too_large"])
+def test_prepared_publication_rejects_unsafe_source(tmp_path, problem):
+    source, target = tmp_path / "prepared", tmp_path / "current"
+    source.write_bytes(b"known-good")
+    target.write_bytes(b"candidate")
+    expected, maximum = b"known-good", 10
+    if problem == "different_bytes":
+        expected = b"different"
+    elif problem == "hardlink":
+        os.link(source, tmp_path / "alias")
+    elif problem == "different_parent":
+        (tmp_path / "other").mkdir()
+        target = tmp_path / "other" / "current"
+        target.write_bytes(b"candidate")
+    else:
+        maximum = 5
+    with pytest.raises(ValueError):
+        durable.publish_prepared(source, target, expected_bytes=expected, trusted_root=tmp_path, max_bytes=maximum)
+    assert target.read_bytes() == b"candidate"
+    assert source.read_bytes() == b"known-good"
+
+
+@pytest.mark.parametrize("fault", ["replacement", "directory", "validator"])
+def test_prepared_publication_failure_never_claims_durable_success(tmp_path, monkeypatch, fault):
+    source, target = tmp_path / "prepared", tmp_path / "current"
+    durable.write_bytes_atomic(source, b"known-good", trusted_root=tmp_path, max_bytes=10)
+    target.write_bytes(b"candidate")
+    def fail(*_):
+        raise OSError("prepared publication interrupted")
+    validator = None
+    if fault == "replacement":
+        monkeypatch.setattr(durable.os, "replace", fail)
+    elif fault == "directory":
+        monkeypatch.setattr(durable, "flush_directory", fail)
+    else:
+        validator = fail
+    with pytest.raises(OSError, match="publication interrupted"):
+        durable.publish_prepared(source, target, expected_bytes=b"known-good", trusted_root=tmp_path,
+            max_bytes=10, validate=validator)
+    assert target.read_bytes() == (b"known-good" if fault == "directory" else b"candidate")
+    assert source.exists() == (fault != "directory")
+
+
+def test_prepared_publication_rejects_handle_path_substitution(tmp_path, monkeypatch):
+    source, target = tmp_path / "prepared", tmp_path / "current"
+    source.write_bytes(b"known-good")
+    target.write_bytes(b"candidate")
+    original = durable.os.fstat
+    def different_handle(descriptor):
+        details = original(descriptor)
+        return SimpleNamespace(st_dev=details.st_dev, st_ino=details.st_ino + 1,
+            st_mode=details.st_mode, st_nlink=details.st_nlink, st_size=details.st_size)
+    monkeypatch.setattr(durable.os, "fstat", different_handle)
+    with pytest.raises(ValueError, match="identity"):
+        durable.publish_prepared(source, target, expected_bytes=b"known-good", trusted_root=tmp_path, max_bytes=10)
+    assert target.read_bytes() == b"candidate"
+
+
+@pytest.mark.skipif(os.name != "nt", reason="native selector ACL carry-forward")
+def test_native_prepared_slot_preserves_selector_acl_and_rejects_acl_change(tmp_path):
+    from pc_agent.platform.windows.acl import preserve_state_file_permissions, assert_state_file_permissions_match, WindowsAclError
+    import win32security
+    source, target = tmp_path / "prepared", tmp_path / "current"
+    target.write_bytes(b"old")
+    durable.write_bytes_atomic(source, b"old", trusted_root=tmp_path, max_bytes=3,
+        protect=lambda temporary: preserve_state_file_permissions(target, temporary))
+    assert_state_file_permissions_match(target, source)
+    changed = win32security.ACL()
+    changed.AddAccessAllowedAce(win32security.ACL_REVISION, 0x00120089, win32security.ConvertStringSidToSid("S-1-1-0"))
+    win32security.SetNamedSecurityInfo(str(source), win32security.SE_FILE_OBJECT,
+        win32security.DACL_SECURITY_INFORMATION | win32security.PROTECTED_DACL_SECURITY_INFORMATION,
+        None, None, changed, None)
+    with pytest.raises(WindowsAclError):
+        durable.publish_prepared(source, target, expected_bytes=b"old", trusted_root=tmp_path, max_bytes=3,
+            validate=lambda prepared: assert_state_file_permissions_match(target, prepared))
+    assert target.read_bytes() == b"old" and source.exists()
+
+
 def test_zero_write_fails_and_cleans_temporary(tmp_path, monkeypatch):
     monkeypatch.setattr(durable.os, "write", lambda fd, data: 0)
     with pytest.raises(OSError, match="short write"):

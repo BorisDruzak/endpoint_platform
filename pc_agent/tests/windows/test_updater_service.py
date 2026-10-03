@@ -285,6 +285,237 @@ def test_prepared_attempt_cannot_grant_old_core_confirmation(tmp_path, monkeypat
     assert not (paths.updates_root / "startup-confirmation.json").exists()
 
 
+def test_persistent_exhaustion_restores_without_new_payload_allocation(tmp_path, monkeypatch):
+    import errno
+    from pc_agent.platform.windows import durable_state, updater_service
+    paths = _paths(tmp_path)
+    artifact = _artifact(paths.downloads_root / "candidate.zip")
+    _pending(paths, artifact)
+    paths.install_root.mkdir(parents=True)
+    old = {"schema_version": 1, "source_revision": "b" * 40, "version": "3.1.9"}
+    paths.current_path.write_text(json.dumps(old))
+    events = []
+    service = SimpleNamespace(stop=lambda: events.append("stop"), start=lambda: events.append("start"),
+        wait_stopped=lambda: True, crashed_early=lambda: False)
+    worker = updater_service.WindowsUpdater(paths, acl=_Acl(), service=service,
+        verifier=SimpleNamespace(verify=lambda *_: True), confirmation=SimpleNamespace(is_confirmed=lambda **_: True))
+    original_flush, original_write = durable_state.flush_directory, durable_state.os.write
+    exhausted = False
+    def flush(path):
+        nonlocal exhausted
+        if path == paths.install_root and json.loads(paths.current_path.read_text())["version"] == "3.2.0":
+            exhausted = True
+        if exhausted:
+            raise OSError(errno.ENOSPC, "persistent disk exhaustion")
+        original_flush(path)
+    def write(descriptor, data):
+        if exhausted:
+            raise OSError(errno.ENOSPC, "persistent disk exhaustion")
+        return original_write(descriptor, data)
+    with monkeypatch.context() as patch:
+        patch.setattr(durable_state, "flush_directory", flush)
+        patch.setattr(durable_state.os, "write", write)
+        assert worker.run_once().status == "disk_insufficient"
+        assert json.loads(paths.current_path.read_text()) == old
+        assert events == ["stop", "start"]
+        assert paths.pending_path.exists()
+    restarted = updater_service.WindowsUpdater(paths, acl=_Acl(), service=service,
+        verifier=SimpleNamespace(verify=lambda *_: True), confirmation=SimpleNamespace(is_confirmed=lambda **_: True))
+    assert restarted.run_once().status == "applied"
+
+
+def _interrupted_transition(tmp_path, *, selected=True):
+    from pc_agent.platform.windows import updater_service
+    paths = _paths(tmp_path)
+    artifact = _artifact(paths.downloads_root / "candidate.zip")
+    _pending(paths, artifact)
+    paths.install_root.mkdir(parents=True)
+    old = {"schema_version": 1, "source_revision": "b" * 40, "version": "3.1.9"}
+    paths.current_path.write_text(json.dumps(old))
+    worker = updater_service.WindowsUpdater(paths, acl=_Acl())
+    pending = worker._validator.load()
+    staging = worker._extract_to_staging(pending)
+    worker._publish(staging, pending)
+    candidate = {"schema_version": 1, "source_revision": "a" * 40, "version": "3.2.0"}
+    worker._attempt_id = updater_service._write_startup_attempt(paths, pending)
+    worker._prepare_transition(pending, candidate)
+    if selected:
+        updater_service._write_json_atomic(paths.current_path, candidate, trusted_root=paths.install_root)
+    return paths, old
+
+
+@pytest.mark.parametrize("selected", [False, True])
+def test_restart_reconciles_unaccepted_transition_before_normal_eligibility(tmp_path, selected):
+    from pc_agent.platform.windows import updater_service
+    paths, old = _interrupted_transition(tmp_path, selected=selected)
+    starts, stops, proofs = [], [], []
+    service = SimpleNamespace(stop=lambda: stops.append(True),
+        start=lambda: starts.append(json.loads(paths.current_path.read_text())), wait_stopped=lambda: True,
+        crashed_early=lambda: False)
+    def confirmed(**_):
+        proofs.append(True)
+        return not selected or len(proofs) > 1
+    restarted = updater_service.WindowsUpdater(paths, acl=_Acl(), service=service,
+        verifier=SimpleNamespace(verify=lambda *_: True), confirmation=SimpleNamespace(is_confirmed=confirmed))
+    assert restarted.run_once().status == "applied"
+    assert starts[0] == old
+    assert starts[-1]["version"] == "3.2.0"
+    assert len(stops) == (2 if selected else 1)
+    assert not paths.transition_path.exists()
+    assert not paths.restore_path.exists()
+
+
+@pytest.mark.parametrize("mismatch", ["operation", "archive", "attempt", "revision", "acl", "partial", "payload", "reparse"])
+def test_restart_rejects_mismatched_transition_identity_before_service_mutation(tmp_path, monkeypatch, mismatch):
+    from pc_agent.platform.windows import updater_service
+    paths, _ = _interrupted_transition(tmp_path)
+    if mismatch in {"operation", "archive"}:
+        payload = json.loads(paths.pending_path.read_text())
+        payload["operation_id" if mismatch == "operation" else "sha256"] = "different" if mismatch == "operation" else "f" * 64
+        paths.pending_path.write_text(json.dumps(payload))
+    elif mismatch == "attempt":
+        attempt = paths.updates_root / "startup-attempt.json"
+        payload = json.loads(attempt.read_text())
+        payload["attempt_id"] = "f" * 32
+        attempt.write_text(json.dumps(payload))
+    elif mismatch == "revision":
+        current = json.loads(paths.current_path.read_text())
+        current["source_revision"] = "f" * 40
+        paths.current_path.write_text(json.dumps(current))
+    elif mismatch == "acl":
+        def denied(*_):
+            raise updater_service.WindowsAclError("reserved ACL differs")
+        monkeypatch.setattr(updater_service, "assert_state_file_permissions_match", denied)
+    elif mismatch == "partial":
+        transition = json.loads(paths.transition_path.read_text())
+        del transition["artifact_size"]
+        paths.transition_path.write_text(json.dumps(transition))
+    elif mismatch == "payload":
+        (paths.versions_root / "3.2.0" / "pc_agent.exe").write_bytes(b"different")
+    else:
+        # Model a native reparse attribute on the reserved source boundary;
+        # no real Windows symlink privilege is required for the hermetic case.
+        original = updater_service._reject_reparse_chain
+        def reject(root, path):
+            if path == paths.transition_path:
+                raise ValueError("state path contains a reparse point")
+            original(root, path)
+        monkeypatch.setattr(updater_service, "_reject_reparse_chain", reject)
+    events = []
+    service = SimpleNamespace(stop=lambda: events.append("stop"), start=lambda: events.append("start"), wait_stopped=lambda: True)
+    worker = updater_service.WindowsUpdater(paths, acl=_Acl(), service=service,
+        confirmation=SimpleNamespace(is_confirmed=lambda **_: False))
+    assert worker.run_once().status == "rejected"
+    assert events == []
+    assert json.loads(paths.current_path.read_text())["version"] == "3.2.0"
+
+
+@pytest.mark.parametrize("leaf", ["pending", "attempt", "restore", "transition"])
+@pytest.mark.parametrize("after", [False, True])
+def test_accepted_cleanup_restart_needs_no_archive_attempt_or_repeated_service_action(tmp_path, monkeypatch, leaf, after):
+    from pc_agent.platform.windows import updater_service
+    paths, _ = _interrupted_transition(tmp_path)
+    events = []
+    service = SimpleNamespace(stop=lambda: events.append("stop"), start=lambda: events.append("start"), wait_stopped=lambda: True)
+    worker = updater_service.WindowsUpdater(paths, acl=_Acl(), service=service,
+        confirmation=SimpleNamespace(is_confirmed=lambda **_: True))
+    target = {"pending": paths.pending_path, "attempt": paths.updates_root / "startup-attempt.json",
+        "restore": paths.restore_path, "transition": paths.transition_path}[leaf]
+    original = updater_service.durable_unlink
+    def interrupted(path, **kwargs):
+        if path == target:
+            if after:
+                original(path, **kwargs)
+            raise OSError("interrupted accepted cleanup")
+        original(path, **kwargs)
+    with monkeypatch.context() as patch:
+        patch.setattr(updater_service, "durable_unlink", interrupted)
+        assert worker.run_once().status == "rejected"
+    assert events == []
+    artifact = paths.downloads_root / "candidate.zip"
+    artifact.unlink()
+    restarted = updater_service.WindowsUpdater(paths, acl=_Acl(), service=service)
+    result = restarted.run_once()
+    # If the journal deletion itself completed before the interruption, cleanup
+    # is already finished; otherwise the accepted journal completes idempotently.
+    assert result.status == ("rejected" if leaf == "transition" and after else "applied")
+    assert events == []
+    assert not paths.transition_path.exists()
+    assert not paths.pending_path.exists()
+
+
+@pytest.mark.parametrize("failure", ["acceptance_metadata", "pending_metadata", "attempt_metadata"])
+def test_accepted_transition_metadata_failure_retains_acceptance_for_cleanup_retry(tmp_path, monkeypatch, failure):
+    import errno
+    from pc_agent.platform.windows import durable_state, updater_service
+    paths, _ = _interrupted_transition(tmp_path)
+    events = []
+    worker = updater_service.WindowsUpdater(paths, acl=_Acl(),
+        service=SimpleNamespace(stop=lambda: events.append("stop"), start=lambda: events.append("start")),
+        confirmation=SimpleNamespace(is_confirmed=lambda **_: True))
+    original = durable_state.flush_directory
+    def interrupted(path):
+        transition = json.loads(paths.transition_path.read_text()) if paths.transition_path.exists() else None
+        if transition and transition["status"] == "accepted":
+            should_fail = (
+                failure == "acceptance_metadata" and path == paths.install_root
+                or failure == "pending_metadata" and path == paths.updates_root and not paths.pending_path.exists()
+                or failure == "attempt_metadata" and path == paths.updates_root and not (path / "startup-attempt.json").exists()
+            )
+            if should_fail:
+                raise OSError(errno.ENOSPC, "persistent accepted metadata exhaustion")
+        original(path)
+    with monkeypatch.context() as patch:
+        patch.setattr(durable_state, "flush_directory", interrupted)
+        assert worker.run_once().status == "rejected"
+    assert events == []
+    assert json.loads(paths.transition_path.read_text())["status"] == "accepted"
+    assert not (paths.updates_root / "terminal-outcome.json").exists()
+    (paths.downloads_root / "candidate.zip").unlink()
+    restarted = updater_service.WindowsUpdater(paths, acl=_Acl(), service=worker._service)
+    assert restarted.run_once().status == "applied"
+    assert events == []
+    assert not paths.transition_path.exists()
+
+
+@pytest.mark.parametrize("invalid", ["operation", "attempt", "time"])
+def test_interrupted_selection_requires_actual_fresh_operation_proof(tmp_path, invalid):
+    from pc_agent.platform.windows import updater_service
+    paths, old = _interrupted_transition(tmp_path)
+    transition = json.loads(paths.transition_path.read_text())
+    proof = {"status": "confirmed", "version": "3.2.0", "operation_id": transition["operation_id"],
+        "attempt_id": transition["attempt_id"], "confirmed_at": datetime.now(UTC).isoformat()}
+    proof[{"operation": "operation_id", "attempt": "attempt_id", "time": "confirmed_at"}[invalid]] = (
+        (datetime.now(UTC) - timedelta(days=1)).isoformat() if invalid == "time" else "unbound"
+    )
+    (paths.updates_root / "startup-confirmation.json").write_text(json.dumps(proof))
+    starts = []
+    worker = updater_service.WindowsUpdater(paths, acl=_Acl(),
+        service=SimpleNamespace(stop=lambda: None, start=lambda: starts.append(json.loads(paths.current_path.read_text())),
+            wait_stopped=lambda: True, crashed_early=lambda: False),
+        verifier=SimpleNamespace(verify=lambda *_: True), deadline_seconds=0)
+    assert worker.run_once().status == "rolled_back"
+    assert starts[0] == old
+    assert json.loads(paths.current_path.read_text()) == old
+    assert not paths.transition_path.exists()
+
+
+def test_equal_selected_pending_without_bound_transition_remains_ineligible(tmp_path):
+    from pc_agent.platform.windows import updater_service
+    paths = _paths(tmp_path)
+    artifact = _artifact(paths.downloads_root / "candidate.zip")
+    _pending(paths, artifact)
+    paths.install_root.mkdir(parents=True)
+    paths.current_path.write_text('{"version":"3.2.0"}')
+    events = []
+    worker = updater_service.WindowsUpdater(paths, acl=_Acl(),
+        service=SimpleNamespace(stop=lambda: events.append("stop"), start=lambda: events.append("start")))
+    result = worker.run_once()
+    assert result.status == "rejected"
+    assert "not eligible" in result.message
+    assert events == []
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize("failure", ["capacity", "extract"])
 async def test_supervisor_retains_live_core_when_real_worker_cannot_allocate(tmp_path, monkeypatch, failure):
