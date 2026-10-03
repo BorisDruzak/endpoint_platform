@@ -9,6 +9,12 @@ from types import SimpleNamespace
 
 import pytest
 
+
+@pytest.fixture(autouse=True)
+def literal_msi_costing_boundary(monkeypatch, tmp_path):
+    from pc_agent.platform.windows import setup_entry
+    monkeypatch.setattr(setup_entry, "_msi_disk_costs", lambda _: [(tmp_path, 4096)], raising=False)
+
 from pc_agent.platform.windows import setup_entry
 
 

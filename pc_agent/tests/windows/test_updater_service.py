@@ -202,6 +202,137 @@ def _paths(tmp_path: Path):
     )
 
 
+@pytest.mark.parametrize("failure", ["capacity", "extract", "extraction_fsync", "pinned_fsync", "previous", "attempt", "selector", "selector_directory"])
+def test_disk_failure_preserves_old_core_and_can_retry(tmp_path, monkeypatch, failure):
+    import errno
+    from pc_agent.platform.windows import durable_state, updater_service
+    paths = _paths(tmp_path)
+    artifact = _artifact(paths.downloads_root / "candidate.zip")
+    _pending(paths, artifact)
+    paths.install_root.mkdir(parents=True)
+    paths.current_path.write_text('{"version":"3.1.9"}')
+    events = []
+    service = SimpleNamespace(stop=lambda: events.append("stop"), start=lambda: events.append("start"),
+        wait_stopped=lambda: True, crashed_early=lambda: False)
+    updater = updater_service.WindowsUpdater(paths, acl=_Acl(), service=service,
+        verifier=SimpleNamespace(verify=lambda *_: True), confirmation=SimpleNamespace(is_confirmed=lambda **_: True))
+    original_write = updater_service._write_json_atomic
+    original_attempt = updater_service._write_startup_attempt
+    original_flush = durable_state.flush_directory
+    def full(*_, **__):
+        raise OSError(errno.ENOSPC, "private/path must never escape")
+    def write(path, *args, **kwargs):
+        if path.name == {"previous": "previous.json", "selector": "current.json"}.get(failure):
+            full()
+        original_write(path, *args, **kwargs)
+    with monkeypatch.context() as patch:
+        if failure == "capacity":
+            import shutil
+            patch.setattr(shutil, "disk_usage", lambda _: SimpleNamespace(free=0))
+        elif failure == "extract":
+            patch.setattr(updater_service, "_extract_zip_member", full)
+        elif failure in {"extraction_fsync", "pinned_fsync"}:
+            original_fsync = updater_service.os.fsync
+            def file_full(descriptor):
+                if updater_service.os.fstat(descriptor).st_size == (len(b"agent") if failure == "extraction_fsync" else artifact.stat().st_size):
+                    full()
+                original_fsync(descriptor)
+            patch.setattr(updater_service.os, "fsync", file_full)
+        elif failure == "attempt":
+            patch.setattr(updater_service, "_write_startup_attempt", full)
+        elif failure == "selector_directory":
+            failed = False
+            def flush(path):
+                nonlocal failed
+                if not failed and path == paths.install_root and json.loads(paths.current_path.read_text())["version"] == "3.2.0":
+                    failed = True
+                    full()
+                original_flush(path)
+            patch.setattr(durable_state, "flush_directory", flush)
+        else:
+            patch.setattr(updater_service, "_write_json_atomic", write)
+        result = updater.run_once()
+    assert result.status == "disk_insufficient"
+    assert result.message == "DISK_INSUFFICIENT"
+    assert json.loads(paths.current_path.read_text()) == {"version": "3.1.9"}
+    assert paths.pending_path.exists()
+    assert not (paths.updates_root / "terminal-outcome.json").exists()
+    if failure in {"capacity", "extract", "extraction_fsync", "pinned_fsync", "previous", "attempt"}:
+        assert events == []
+    else:
+        assert events == ["stop", "start"]
+    assert updater.run_once().status == "applied"
+
+
+@pytest.mark.parametrize("size", [-1, 2 * 1024 * 1024 * 1024 + 1])
+def test_archive_total_rejects_invalid_members_before_budget(size):
+    from pc_agent.platform.windows.updater_service import _validate_archive_limits
+    with pytest.raises(ValueError):
+        _validate_archive_limits([SimpleNamespace(file_size=size)])
+
+
+def test_prepared_attempt_cannot_grant_old_core_confirmation(tmp_path, monkeypatch):
+    from pc_agent.platform.windows import startup_confirmation, updater_service
+    paths = _paths(tmp_path)
+    artifact = _artifact(paths.downloads_root / "candidate.zip")
+    _pending(paths, artifact)
+    paths.install_root.mkdir(parents=True)
+    paths.current_path.write_text('{"version":"3.1.9"}')
+    pending = updater_service.PendingUpdateValidator(paths, _Acl()).load()
+    updater_service._write_startup_attempt(paths, pending)
+    monkeypatch.setattr(startup_confirmation, "AGENT_VERSION", "3.1.9")
+    assert not startup_confirmation.StartupProofWriter(paths).record_after_server_handshake()
+    assert not (paths.updates_root / "startup-confirmation.json").exists()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure", ["capacity", "extract"])
+async def test_supervisor_retains_live_core_when_real_worker_cannot_allocate(tmp_path, monkeypatch, failure):
+    import asyncio
+    import errno
+    import shutil
+    from pc_agent.platform.windows import updater_service
+    from pc_agent.platform.windows.update_supervisor import WindowsRecoveryUpdateSupervisor
+    from pc_agent.platform.windows.online_update_runtime import WindowsOnlineUpdateRuntime
+    from pc_agent.tests.windows.test_windows_online_update_runtime import _Adapter, _Acl as OnlineAcl
+    paths = _paths(tmp_path)
+    artifact = _artifact(paths.downloads_root / "candidate.zip")
+    _pending(paths, artifact)
+    paths.install_root.mkdir(parents=True)
+    paths.current_path.write_text('{"version":"3.1.9"}')
+    events = []
+    service = SimpleNamespace(stop=lambda: events.append("stop"), start=lambda: events.append("start"),
+        wait_stopped=lambda: True, crashed_early=lambda: False)
+    worker = updater_service.WindowsUpdater(paths, acl=_Acl(), service=service,
+        verifier=SimpleNamespace(verify=lambda *_: True), confirmation=SimpleNamespace(is_confirmed=lambda **_: True))
+    online = WindowsOnlineUpdateRuntime(adapter=_Adapter(None), paths=paths, acl=OnlineAcl(), download=None)
+    checks = []
+    async def check():
+        return (await online.run_once()).status
+    async def no_report():
+        return False
+    def trigger():
+        checks.append(worker.run_once().status)
+    async def sleep(delay):
+        assert 0 < delay <= 300
+        assert events == []
+        assert checks == ["disk_insufficient"]
+        raise asyncio.CancelledError
+    with monkeypatch.context() as patch:
+        if failure == "capacity":
+            patch.setattr(shutil, "disk_usage", lambda _: SimpleNamespace(free=0))
+        else:
+            def full(*_):
+                raise OSError(errno.ENOSPC, "private/path")
+            patch.setattr(updater_service, "_extract_zip_member", full)
+        with pytest.raises(asyncio.CancelledError):
+            await WindowsRecoveryUpdateSupervisor(check=check, report=no_report, trigger=trigger, sleep=sleep).run()
+    assert json.loads(paths.current_path.read_text()) == {"version":"3.1.9"}
+    assert paths.pending_path.exists()
+    assert worker.run_once().status == "applied"
+    assert events == ["stop", "start"]
+
+
 def test_updater_reads_a_revision_bound_installed_selector(tmp_path: Path) -> None:
     """A fresh MSI selector must remain eligible for normal offline updates."""
     from pc_agent.platform.windows.updater_service import _load_current

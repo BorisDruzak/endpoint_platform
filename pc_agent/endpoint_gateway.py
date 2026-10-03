@@ -35,6 +35,7 @@ from pc_agent.transport.protocol import compatibility_agent_hello
 from pc_agent.update_adapter import EndpointRecommendation, EndpointUpdateAdapter
 from pc_agent.update_schedule import UPDATE_POLL_INTERVAL_SEC
 from pc_agent.version import EXIT_UPDATE_PENDING
+from pc_agent.platform.windows.disk_readiness import download_required_bytes, require_disk_space
 
 _ORIGIN = DEFAULT_ENDPOINT_ORIGIN
 _ALT_CURRENT_SELECTOR = Path("/opt/endpoint-agent/current.json")
@@ -89,6 +90,7 @@ async def _download_gateway_artifact(
     parsed = urlsplit(item.artifact_url)
     if (parsed.scheme, parsed.netloc) != (origin_scheme, origin_netloc):
         raise ValueError("Gateway update artifact must use the Endpoint origin")
+    require_disk_space(destination, download_required_bytes(item.size))
     temporary = destination.with_name(f".{destination.name}.tmp")
     digest = hashlib.sha256()
     size = 0
@@ -105,8 +107,12 @@ async def _download_gateway_artifact(
             with temporary.open("wb") as output:
                 async for chunk in response.content.iter_chunked(1024 * 1024):
                     size += len(chunk)
+                    if size > item.size:
+                        raise ValueError("Gateway update artifact integrity mismatch")
                     digest.update(chunk)
                     output.write(chunk)
+                output.flush()
+                os.fsync(output.fileno())
         actual = digest.hexdigest()
         if actual != item.sha256 or size != item.size:
             raise ValueError("Gateway update artifact integrity mismatch")

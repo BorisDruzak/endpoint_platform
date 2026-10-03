@@ -27,6 +27,10 @@ from pc_agent.enrollment_identity import (
     read_enrollment_device_id,
 )
 from pc_agent.platform.windows.acl import PyWin32AclAdapter, WindowsAclError
+from pc_agent.platform.windows.disk_readiness import (
+    DiskInsufficient, MAX_ARTIFACT_BYTES,
+    allocation_required_bytes, is_disk_full, require_disk_space, require_allocation_space,
+)
 from pc_agent.windows_setup import (
     HttpsSetupTransport,
     SetupClaimError,
@@ -185,6 +189,32 @@ def _install_embedded_msi(msi_path: Path) -> None:
         raise SetupInstallError("MSI_EVIDENCE_FAILED") from error
     if completed.returncode != 0:
         raise SetupInstallError("MSI_EVIDENCE_FAILED")
+
+
+def _msi_disk_costs(msi_path: Path) -> list[tuple[Path, int]]:
+    from .msi_disk_costing import MsiCostError, msi_disk_allocations
+    try:
+        return msi_disk_allocations(msi_path)
+    except MsiCostError as error:
+        if is_disk_full(error):
+            raise DiskInsufficient() from error
+        raise SetupInstallError("MSI_COST_UNAVAILABLE") from error
+
+
+def _require_setup_disk(msi_path: Path) -> None:
+    size = msi_path.stat().st_size
+    if not 0 < size <= MAX_ARTIFACT_BYTES:
+        raise SetupInstallError("MSI_COST_INVALID")
+    # PyInstaller's extracted MSI already exists. Cost only new Windows
+    # Installer components/cache/temp plus our additional protected MSI copy.
+    require_disk_space(_data_root(), allocation_required_bytes(size + 16 * 1024))
+    allocations = _msi_disk_costs(msi_path)
+    # The provenance wrapper allocates an execution copy in ProgramFiles and
+    # a protected cache copy in ProgramData. Both coexist with input.
+    program_files = Path(os.environ.get("ProgramW6432") or os.environ.get("ProgramFiles", r"C:\Program Files"))
+    allocations.extend([(program_files / "Endpoint Platform" / "installer-cache", size),
+        (_data_root(), size + 16 * 1024)])
+    require_allocation_space(allocations)
 
 
 def _stop_tray_before_msi_update() -> None:
@@ -768,14 +798,28 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
     try:
         _verify_embedded_msi(resources / "EndpointAgent.msi")
+        installed_version = _installed_msi_version() if installation_state == "valid" else None
+        needs_msi = installation_state != "valid" or installed_version is None or _is_strictly_newer_version(
+            config.installer_version, installed_version
+        )
+        if needs_msi:
+            _require_setup_disk(resources / "EndpointAgent.msi")
+    except DiskInsufficient:
+        return _complete(args, data_root, status="DISK_INSUFFICIENT", code=EXIT_PREFLIGHT_FAILED,
+            stage="PREFLIGHT", detail="DISK_INSUFFICIENT")
     except SetupInstallError as error:
         return _complete(
             args, data_root, status="PREFLIGHT_FAILED", code=EXIT_PREFLIGHT_FAILED,
             stage="PREFLIGHT", detail=error.detail,
         )
+    except OSError as error:
+        detail = "DISK_INSUFFICIENT" if is_disk_full(error) else "DISK_UNAVAILABLE"
+        return _complete(
+            args, data_root, status=detail if is_disk_full(error) else "PREFLIGHT_FAILED",
+            code=EXIT_PREFLIGHT_FAILED, stage="PREFLIGHT", detail=detail,
+        )
     if installation_state == "valid":
-        installed_version = _installed_msi_version()
-        if installed_version is None or _is_strictly_newer_version(config.installer_version, installed_version):
+        if needs_msi:
             _finish(
                 data_root,
                 status="STARTED",

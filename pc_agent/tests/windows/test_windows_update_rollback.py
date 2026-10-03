@@ -88,7 +88,8 @@ def test_terminal_outcome_is_durable_before_restored_agent_starts(tmp_path, fail
             return failure != "verify"
     result = WindowsUpdater(paths, acl=_Acl(), service=Service(), verifier=Verifier(),
         deadline_seconds=0).run_once()
-    assert starts == ["failed" if failure == "verify" else "rolled_back"]
+    # Verification rejects before stopping the still-running old Agent.
+    assert starts == ([] if failure == "verify" else ["rolled_back"])
     assert result.status == ("rejected" if failure == "verify" else "rolled_back")
 
 
@@ -148,7 +149,7 @@ def test_updater_applies_then_waits_for_server_side_startup_confirmation(tmp_pat
     updater = WindowsUpdater(paths, acl=_Acl(), service=service, verifier=_Verifier(service.events), confirmation=_Confirmation(service.events, confirmed=True))
 
     assert updater.run_once().status == "applied"
-    assert service.events == ["stop", "wait_stopped", "verify", "start", "confirmation"]
+    assert service.events == ["verify", "stop", "wait_stopped", "start", "confirmation"]
     assert json.loads(paths.current_path.read_text()) == {
         "schema_version": 1,
         "source_revision": "a" * 40,
@@ -165,7 +166,7 @@ def test_updater_rolls_back_selector_when_startup_confirmation_deadline_expires(
     updater = WindowsUpdater(paths, acl=_Acl(), service=service, verifier=_Verifier(service.events), confirmation=_Confirmation(service.events, confirmed=False), deadline_seconds=0)
 
     assert updater.run_once().status == "rolled_back"
-    assert service.events == ["stop", "wait_stopped", "verify", "start", "stop", "wait_stopped", "start"]
+    assert service.events == ["verify", "stop", "wait_stopped", "start", "stop", "wait_stopped", "start"]
     assert json.loads(paths.current_path.read_text()) == {"version": "3.1.0"}
 
 
@@ -176,7 +177,7 @@ def test_updater_rolls_back_before_confirmation_after_an_early_crash(tmp_path: P
     updater = WindowsUpdater(paths, acl=_Acl(), service=service, verifier=_Verifier(service.events), confirmation=_Confirmation(service.events, confirmed=True))
 
     assert updater.run_once().status == "rolled_back"
-    assert service.events == ["stop", "wait_stopped", "verify", "start", "stop", "wait_stopped", "start"]
+    assert service.events == ["verify", "stop", "wait_stopped", "start", "stop", "wait_stopped", "start"]
     assert json.loads(paths.current_path.read_text()) == {"version": "3.1.0"}
 
 
@@ -211,7 +212,8 @@ def test_updater_restarts_the_previous_agent_when_new_verify_fails(tmp_path: Pat
     updater = WindowsUpdater(paths, acl=_Acl(), service=service, verifier=_FailingVerifier(service.events), confirmation=_Confirmation(service.events, confirmed=True))
 
     assert updater.run_once().status == "rejected"
-    assert service.events == ["stop", "wait_stopped", "verify", "start"]
+    assert service.events == ["verify"]
+    assert service.running
     assert json.loads(paths.current_path.read_text()) == {"version": "3.1.0"}
     assert not list((paths.versions_root / "_staging").glob("*"))
 
@@ -254,12 +256,13 @@ def test_attempt_marker_is_durable_before_candidate_start(
     updater = updater_service.WindowsUpdater(paths, acl=_Acl(), service=service, verifier=_Verifier(service.events), confirmation=_Confirmation(service.events, confirmed=True))
     assert updater.run_once().status == "applied"
     start = events.index("start")
-    assert events[start - 3:start + 1] == [
+    attempt = events.index("replace:startup-attempt.json")
+    assert events[attempt - 1:attempt + 2] == [
         "file_flush",
         "replace:startup-attempt.json",
         "directory_flush:updates",
-        "start",
     ]
+    assert attempt < events.index("replace:current.json") < start
 
 
 def test_rollback_refuses_selector_switch_when_candidate_stop_fails(tmp_path: Path) -> None:

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import ssl
 from collections.abc import Awaitable, Callable
@@ -18,6 +19,7 @@ from pc_agent.transport.base import GatewayCredentialRejected, GatewayTerminalEr
 
 from .update_paths import WindowsUpdatePaths
 from .durable_state import durable_unlink, write_json_atomic
+from .disk_readiness import download_required_bytes, is_disk_full, require_disk_space
 
 
 _TERMINAL_OUTCOME_FIELDS = {
@@ -61,6 +63,14 @@ class WindowsOnlineUpdateRuntime:
         self._now = now
 
     async def run_once(self) -> WindowsOnlineUpdateResult:
+        try:
+            return await self._run_once()
+        except OSError as error:
+            if is_disk_full(error):
+                return WindowsOnlineUpdateResult("disk_insufficient")
+            raise
+
+    async def _run_once(self) -> WindowsOnlineUpdateResult:
         current = _load_current_version(self._paths.current_path)
         if (self._paths.updates_root / _TERMINAL_OUTCOME_FILENAME).exists():
             return WindowsOnlineUpdateResult("report_pending")
@@ -115,6 +125,7 @@ class WindowsOnlineUpdateRuntime:
         if not await self._adapter.acknowledge(recommendation.operation_id, "requested"):
             return WindowsOnlineUpdateResult("request_ack_pending")
 
+        require_disk_space(self._paths.downloads_root, download_required_bytes(recommendation.size))
         self._paths.updates_root.mkdir(parents=True, exist_ok=True)
         self._acl.protect_update_path(self._paths.updates_root)
         self._paths.downloads_root.mkdir(parents=True, exist_ok=True)
@@ -130,6 +141,11 @@ class WindowsOnlineUpdateRuntime:
         except (GatewayCredentialRejected, GatewayTerminalError):
             artifact.unlink(missing_ok=True)
             raise
+        except OSError as error:
+            artifact.unlink(missing_ok=True)
+            if is_disk_full(error):
+                return WindowsOnlineUpdateResult("disk_insufficient")
+            return WindowsOnlineUpdateResult("download_rejected")
         except Exception:
             artifact.unlink(missing_ok=True)
             return WindowsOnlineUpdateResult("download_rejected")
@@ -137,6 +153,9 @@ class WindowsOnlineUpdateRuntime:
             artifact.unlink(missing_ok=True)
             return WindowsOnlineUpdateResult("download_rejected")
         self._acl.protect_update_path(artifact)
+        # Injected downloaders obey the same durability gate as the HTTP owner.
+        with artifact.open("r+b") as downloaded:
+            os.fsync(downloaded.fileno())
         # Persist operation metadata and acknowledge scheduled before publishing
         # the SCM request; a process crash must never strand terminal reporting.
         if not await self._adapter.record_scheduled_handoff(

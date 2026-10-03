@@ -25,6 +25,7 @@ from pc_agent.update_eligibility import _is_eligible_recommendation
 
 from .acl import EXPECTED_PRINCIPALS, PyWin32AclAdapter, WindowsAclError, preserve_state_file_permissions
 from .durable_state import durable_unlink, flush_directory, write_bytes_atomic, write_json_atomic
+from .disk_readiness import allocation_required_bytes, apply_required_bytes, is_disk_full, require_disk_space
 from .service_control import SERVICE_NAME, UPDATER_SERVICE_NAME
 from .update_paths import UPDATE_EXECUTABLE_NAME, WindowsUpdatePaths
 
@@ -385,6 +386,21 @@ class WindowsUpdater:
                 endpoint_state="unknown",
                 update_state="applying",
             )
+            staging = self._extract_to_staging(pending)
+            bundle = _load_bundle_manifest(staging, pending)
+            executable = staging / UPDATE_EXECUTABLE_NAME
+            if not executable.is_file() or not self._verifier.verify(executable, pending.version):
+                raise ValueError("new version verification failed")
+            target = self._publish(staging, pending)
+            # Existing core/retention occupies space already. Reserve only the
+            # new selector/journal allocations on each of their target volumes.
+            require_disk_space(self._paths.install_root, allocation_required_bytes(8192))
+            require_disk_space(self._paths.updates_root, allocation_required_bytes(8192))
+            _write_json_atomic(self._paths.previous_path, previous_selector,
+                trusted_root=self._paths.install_root, template=self._paths.current_path)
+            # The old core cannot confirm this attempt: proof requires pending,
+            # selected and compiled versions to agree. A retry uses a fresh id.
+            self._attempt_id = _write_startup_attempt(self._paths, pending)
             try:
                 self._service.stop()
             except Exception as error:
@@ -393,20 +409,11 @@ class WindowsUpdater:
             service_stopped = True
             if not self._service.wait_stopped():
                 raise ValueError("EndpointAgent did not stop")
-            staging = self._extract_to_staging(pending)
-            bundle = _load_bundle_manifest(staging, pending)
-            executable = staging / UPDATE_EXECUTABLE_NAME
-            if not executable.is_file() or not self._verifier.verify(executable, pending.version):
-                raise ValueError("new version verification failed")
-            target = self._publish(staging, pending)
-            _write_json_atomic(self._paths.previous_path, previous_selector,
-                trusted_root=self._paths.install_root, template=self._paths.current_path)
             _write_json_atomic(self._paths.current_path, {
                 "schema_version": 1,
                 "source_revision": bundle.source_revision,
                 "version": pending.version,
             }, trusted_root=self._paths.install_root)
-            self._attempt_id = _write_startup_attempt(self._paths, pending)
             try:
                 self._service.start()
             except Exception:
@@ -434,7 +441,8 @@ class WindowsUpdater:
                 # lifecycle cleanup must not switch a still-running candidate
                 # to the previous selector or create a contradictory failure.
                 return UpdateResult("rejected", "confirmed candidate cleanup pending: " + str(error))
-            if pending is not None and previous is not None:
+            disk_full = is_disk_full(error)
+            if not disk_full and pending is not None and previous is not None:
                 self._record_terminal_outcome(
                     operation_id=pending.operation_id,
                     status="failed",
@@ -449,7 +457,13 @@ class WindowsUpdater:
                         trusted_root=self._paths.install_root)
                     self._service.start()
                 except Exception:
-                    pass
+                    # A file fsync/allocation failure may leave the old selector
+                    # unchanged. It is safe to restart only after checking it.
+                    try:
+                        if _load_selector(self._paths.current_path) == previous_selector:
+                            self._service.start()
+                    except Exception:
+                        pass
             if pending is not None and previous is not None:
                 self._publish_tray_status(
                     previous,
@@ -458,6 +472,8 @@ class WindowsUpdater:
                     update_state="failed",
                     reason_code="UPDATE_APPLY",
                 )
+            if disk_full:
+                return UpdateResult("disk_insufficient", "DISK_INSUFFICIENT")
             return UpdateResult("rejected", str(error))
         finally:
             if staging is not None and staging.exists():
@@ -503,6 +519,14 @@ class WindowsUpdater:
 
     def _extract_to_staging(self, pending: PendingUpdate) -> Path:
         staging_parent = self._paths.versions_root / "_staging"
+        _reject_reparse_path(pending.artifact_path)
+        with pending.artifact_path.open("rb") as source:
+            if os.fstat(source.fileno()).st_size != pending.size or _hash_descriptor(source.fileno()) != pending.sha256:
+                raise ValueError("artifact changed before extraction")
+            source.seek(0)
+            with zipfile.ZipFile(source) as archive:
+                expanded = _validate_archive_limits(archive.infolist())
+        require_disk_space(staging_parent, apply_required_bytes(pending.size, expanded))
         staging = staging_parent / uuid.uuid4().hex
         staging.mkdir(parents=True, exist_ok=False)
         artifact_copy: Path | None = None
@@ -510,7 +534,9 @@ class WindowsUpdater:
             artifact_copy = _pin_artifact(pending, staging_parent)
             with zipfile.ZipFile(artifact_copy) as archive:
                 members = archive.infolist()
-                _validate_archive_limits(members)
+                pinned_expanded = _validate_archive_limits(members)
+                if pinned_expanded != expanded:
+                    raise ValueError("artifact changed before extraction")
                 for member in members:
                     _extract_zip_member(archive, member, staging)
         except Exception:
@@ -627,6 +653,8 @@ def _pin_artifact(pending: PendingUpdate, destination_parent: Path) -> Path:
         with copied.open("xb") as output:
             while block := os.read(descriptor, 1024 * 1024):
                 output.write(block)
+            output.flush()
+            os.fsync(output.fileno())
         if _hash_file(copied) != pending.sha256 or copied.stat().st_size != pending.size:
             raise ValueError("artifact copy verification failed")
         return copied
@@ -644,12 +672,17 @@ def _hash_descriptor(descriptor: int) -> str:
     return digest.hexdigest()
 
 
-def _validate_archive_limits(members: list[zipfile.ZipInfo]) -> None:
+def _validate_archive_limits(members: list[zipfile.ZipInfo]) -> int:
     if len(members) > MAX_ARCHIVE_MEMBERS:
         raise ValueError("archive member count exceeds limit")
-    extracted_size = sum(member.file_size for member in members)
-    if extracted_size > MAX_EXTRACTED_BYTES:
-        raise ValueError("archive extracted size exceeds limit")
+    extracted_size = 0
+    for member in members:
+        if type(member.file_size) is not int or member.file_size < 0:
+            raise ValueError("archive member size is invalid")
+        extracted_size += member.file_size
+        if extracted_size > MAX_EXTRACTED_BYTES:
+            raise ValueError("archive extracted size exceeds limit")
+    return extracted_size
 
 
 def _load_bundle_manifest(root: Path, pending: PendingUpdate) -> BundleManifest:
@@ -787,6 +820,8 @@ def _extract_zip_member(archive: zipfile.ZipFile, member: zipfile.ZipInfo, stagi
     destination.parent.mkdir(parents=True, exist_ok=True)
     with archive.open(member) as source, destination.open("xb") as output:
         shutil.copyfileobj(source, output)
+        output.flush()
+        os.fsync(output.fileno())
 
 
 def _load_selector(path: Path) -> dict[str, object]:

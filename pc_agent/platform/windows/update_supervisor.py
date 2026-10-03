@@ -8,7 +8,6 @@ from collections.abc import Awaitable, Callable
 
 import aiohttp
 
-from pc_agent.runtime.lifecycle import UpdatePending
 from pc_agent.transport.base import GatewayCredentialRejected, GatewayTerminalError
 from pc_agent.update_schedule import UPDATE_POLL_INTERVAL_SEC
 
@@ -65,9 +64,10 @@ class WindowsRecoveryUpdateSupervisor:
                     scm_delay = min(30.0, scm_delay * 2)
                 else:
                     logger.info("recovery_update_pending")
-                    # A typed signal is observed by the root before it shuts
-                    # down the socket, sensors and executor. No task exits the process.
-                    raise UpdatePending()
+                    # SCM start is not acceptance. Keep this core/WSS alive:
+                    # only the worker may stop it after verified staging and
+                    # durable preparation. Disk rejection needs a live retry owner.
+                    delay = 30.0 * self._jitter()
             elif result == "idle":
                 network_delay = 5.0
                 scm_delay = 2.0
@@ -75,7 +75,7 @@ class WindowsRecoveryUpdateSupervisor:
                 self._publish("up_to_date")
                 logger.debug("recovery_update_check_idle")
             else:
-                self._publish("failed" if result in {"download_rejected", "local_state_failed"} else "unknown")
+                self._publish("failed" if result in {"download_rejected", "local_state_failed", "disk_insufficient"} else "unknown")
                 logger.debug("recovery_update_check_unavailable")
             await self._sleep(delay)
 

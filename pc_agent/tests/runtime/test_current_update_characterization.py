@@ -45,8 +45,7 @@ async def test_windows_pending_handoff_retries_only_the_fixed_updater(
     )
 
     from pc_agent.platform.windows.update_supervisor import WindowsRecoveryUpdateSupervisor
-    from pc_agent.runtime.lifecycle import UpdatePending
-    with pytest.raises(UpdatePending):
+    with pytest.raises(asyncio.CancelledError):
         await WindowsRecoveryUpdateSupervisor(
             check=lambda: pending(object(), "credential"),
             report=lambda: no_startup_report(object(), "credential"),
@@ -102,6 +101,29 @@ class _ArtifactSession:
     def get(self, url: str, **kwargs: object) -> _ArtifactResponse:
         self.requests.append((url, kwargs))
         return self._response
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure", ["capacity", "file_fsync"])
+async def test_gateway_disk_failure_prevents_artifact_publication(tmp_path, monkeypatch, failure):
+    import errno
+    import shutil
+    from types import SimpleNamespace
+    session = _ArtifactSession(b"verified ALT artifact")
+    destination = tmp_path / "candidate.tar.gz"
+    monkeypatch.setattr(endpoint_gateway, "_credential", lambda: "device-token")
+    if failure == "capacity":
+        monkeypatch.setattr(shutil, "disk_usage", lambda _: SimpleNamespace(free=0))
+    else:
+        def full(*_):
+            raise OSError(errno.ENOSPC, "private/path")
+        monkeypatch.setattr(endpoint_gateway.os, "fsync", full)
+    with pytest.raises(OSError):
+        await endpoint_gateway._download_gateway_artifact(session, _recommendation(), destination)
+    assert not destination.exists()
+    assert not (tmp_path / ".candidate.tar.gz.tmp").exists()
+    if failure == "capacity":
+        assert session.requests == []
 
 
 @pytest.mark.asyncio

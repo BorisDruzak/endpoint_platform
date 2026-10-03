@@ -18,6 +18,32 @@ from pc_agent.windows_setup import (
 )
 
 
+@pytest.fixture(autouse=True)
+def literal_msi_costing_boundary(monkeypatch, tmp_path):
+    # Fixture MSIs are b'msi', not real Installer databases. Keep the disk
+    # accounting/check real and replace only the native package reader.
+    monkeypatch.setattr(setup_entry, "_msi_disk_costs", lambda _: [(tmp_path, 4096)], raising=False)
+
+
+def test_setup_counts_new_protected_cache_on_its_own_volume(tmp_path, monkeypatch):
+    from pc_agent.platform.windows import disk_readiness
+    _write_public_payload(tmp_path)
+    data = tmp_path / "data"
+    system = tmp_path / "system"
+    system.mkdir()
+    monkeypatch.setattr(setup_entry, "_data_root", lambda: data)
+    monkeypatch.setattr(setup_entry, "_msi_disk_costs", lambda _: [(system, 51200)])
+    observed = []
+    monkeypatch.setattr(disk_readiness, "allocation_volume", lambda path: path)
+    monkeypatch.setattr(setup_entry, "require_disk_space", lambda path, count: None)
+    monkeypatch.setattr(disk_readiness, "require_disk_space", lambda path, count: observed.append((path, count)))
+    setup_entry._require_setup_disk(tmp_path / "EndpointAgent.msi")
+    # Native costing includes Windows Installer cache/temp. Only our protected
+    # provenance cache and bounded state are added on the data volume.
+    assert (system, 67160064) in observed
+    assert (data, 67125251) in observed
+
+
 def _write_public_payload(root: Path) -> None:
     (root / "EndpointAgent.msi").write_bytes(b"msi")
     (root / "EndpointAgent.release.json").write_text(json.dumps({
@@ -52,6 +78,69 @@ def _set_payload_version(root: Path, version: str) -> None:
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     manifest["version"] = version
     manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+
+def test_low_setup_disk_never_invokes_msi_or_stops_companions(tmp_path, monkeypatch):
+    import shutil
+    _write_public_payload(tmp_path)
+    monkeypatch.setattr(setup_entry, "_resource_root", lambda: tmp_path)
+    monkeypatch.setattr(setup_entry, "_data_root", lambda: tmp_path / "data")
+    monkeypatch.setattr(setup_entry, "_diagnostics_root", lambda: tmp_path / "diagnostics")
+    monkeypatch.setattr(setup_entry, "HttpsSetupTransport", lambda *_: object())
+    monkeypatch.setattr(shutil, "disk_usage", lambda _: SimpleNamespace(free=0))
+    def forbidden(*_):
+        pytest.fail("MSI/service mutation before disk readiness")
+    monkeypatch.setattr(setup_entry, "_install_embedded_msi", forbidden)
+    monkeypatch.setattr(setup_entry, "_stop_tray_before_msi_update", forbidden)
+    assert setup_entry.main(["--quiet"]) == setup_entry.EXIT_PREFLIGHT_FAILED
+    result = json.loads((tmp_path / "diagnostics" / "install-result.json").read_text())
+    assert result["status"] == "DISK_INSUFFICIENT"
+    assert result["detail"] == "DISK_INSUFFICIENT"
+
+
+def test_unknown_msi_accounting_never_stops_services_or_installs(tmp_path, monkeypatch):
+    _write_public_payload(tmp_path)
+    monkeypatch.setattr(setup_entry, "_resource_root", lambda: tmp_path)
+    monkeypatch.setattr(setup_entry, "_data_root", lambda: tmp_path / "data")
+    monkeypatch.setattr(setup_entry, "_diagnostics_root", lambda: tmp_path / "diagnostics")
+    def unknown(_):
+        raise setup_entry.SetupInstallError("MSI_COST_UNAVAILABLE")
+    monkeypatch.setattr(setup_entry, "_msi_disk_costs", unknown)
+    monkeypatch.setattr(setup_entry, "_install_embedded_msi", lambda _: pytest.fail("unknown cost must block MSI"))
+    monkeypatch.setattr(setup_entry, "_stop_tray_before_msi_update", lambda: pytest.fail("unknown cost must block stop"))
+    assert setup_entry.main(["--quiet"]) == setup_entry.EXIT_PREFLIGHT_FAILED
+    result = json.loads((tmp_path / "diagnostics" / "install-result.json").read_text())
+    assert result["detail"] == "MSI_COST_UNAVAILABLE"
+
+
+def test_current_msi_rerun_needs_no_new_allocation_budget(tmp_path, monkeypatch):
+    _write_public_payload(tmp_path)
+    monkeypatch.setattr(setup_entry, "_resource_root", lambda: tmp_path)
+    monkeypatch.setattr(setup_entry, "_data_root", lambda: tmp_path / "data")
+    monkeypatch.setattr(setup_entry, "_diagnostics_root", lambda: tmp_path / "diagnostics")
+    monkeypatch.setattr(setup_entry, "_classify_installation_state", lambda *_args, **_kwargs: "valid")
+    monkeypatch.setattr(setup_entry, "_installed_msi_version", lambda: "1.0.0")
+    monkeypatch.setattr(setup_entry, "_wait_for_agent_service_running", lambda: True)
+    monkeypatch.setattr(setup_entry, "_require_setup_disk", lambda _: pytest.fail("current MSI allocates nothing"), raising=False)
+    assert setup_entry.main(["--quiet"]) == setup_entry.EXIT_ALREADY_INSTALLED
+
+
+@pytest.mark.parametrize("disk_full", [False, True])
+def test_setup_disk_probe_os_error_is_bounded_before_any_mutation(tmp_path, monkeypatch, disk_full):
+    import errno
+    _write_public_payload(tmp_path)
+    monkeypatch.setattr(setup_entry, "_resource_root", lambda: tmp_path)
+    monkeypatch.setattr(setup_entry, "_data_root", lambda: tmp_path / "data")
+    monkeypatch.setattr(setup_entry, "_diagnostics_root", lambda: tmp_path / "diagnostics")
+    def unavailable(_):
+        raise OSError(errno.ENOSPC if disk_full else errno.EACCES, "untrusted raw OS detail")
+    monkeypatch.setattr(setup_entry, "_require_setup_disk", unavailable)
+    monkeypatch.setattr(setup_entry, "_install_embedded_msi", lambda _: pytest.fail("probe failure must block MSI"))
+    monkeypatch.setattr(setup_entry, "_stop_tray_before_msi_update", lambda: pytest.fail("probe failure must block stop"))
+    assert setup_entry.main(["--quiet"]) == setup_entry.EXIT_PREFLIGHT_FAILED
+    result = json.loads((tmp_path / "diagnostics" / "install-result.json").read_text())
+    assert result["detail"] == ("DISK_INSUFFICIENT" if disk_full else "DISK_UNAVAILABLE")
+    assert "untrusted" not in json.dumps(result)
 
 
 def test_setup_entry_installs_embedded_msi_before_enrollment(

@@ -6,7 +6,6 @@ import asyncio
 import pytest
 
 from pc_agent.platform.windows.update_supervisor import WindowsRecoveryUpdateSupervisor
-from pc_agent.runtime.lifecycle import UpdatePending
 from pc_agent.update_schedule import UPDATE_POLL_INTERVAL_SEC
 
 
@@ -15,6 +14,7 @@ from pc_agent.update_schedule import UPDATE_POLL_INTERVAL_SEC
     ("idle", "up_to_date"), ("unavailable", "unknown"),
     ("request_ack_pending", "unknown"), ("download_rejected", "failed"),
     ("verifying", "unknown"), ("report_pending", "unknown"),
+    ("disk_insufficient", "failed"),
 ])
 async def test_one_immediate_check_then_bounded_interval(result, state):
     events = []
@@ -77,11 +77,33 @@ async def test_pending_updater_trigger_failure_retries_without_busy_loop():
         if len(triggers) == 1:
             raise RuntimeError("SCM unavailable")
     async def sleep(delay):
-        assert 0 < delay <= 30
-    with pytest.raises(UpdatePending):
+        assert 0 < delay <= 36
+        if len(triggers) == 2:
+            raise asyncio.CancelledError
+    with pytest.raises(asyncio.CancelledError):
         await WindowsRecoveryUpdateSupervisor(check=check, report=report,
             trigger=trigger, sleep=sleep).run()
     assert len(triggers) == 2
+
+
+@pytest.mark.asyncio
+async def test_verifying_candidate_keeps_core_alive_without_retriggering_worker():
+    results = iter(["scheduled", "verifying", "verifying", "verifying"])
+    triggers, delays = [], []
+    async def check():
+        return next(results)
+    async def report():
+        return False
+    async def sleep(delay):
+        assert 0 < delay <= 300
+        delays.append(delay)
+        if len(delays) == 4:
+            raise asyncio.CancelledError
+    with pytest.raises(asyncio.CancelledError):
+        await WindowsRecoveryUpdateSupervisor(check=check, report=report,
+            trigger=lambda: triggers.append(True), sleep=sleep, random_sample=lambda: 0.5).run()
+    assert triggers == [True]
+    assert len(delays) == 4
 
 
 @pytest.mark.asyncio

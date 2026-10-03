@@ -54,6 +54,50 @@ class _Acl:
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("failure", ["capacity", "download", "artifact_fsync", "pending_journal"])
+async def test_disk_full_download_has_no_handoff_and_can_retry(tmp_path, monkeypatch, failure):
+    import errno
+    import os
+    import shutil
+    from types import SimpleNamespace
+    from pc_agent.platform.windows import durable_state, online_update_runtime
+    from pc_agent.platform.windows.update_paths import WindowsUpdatePaths
+    payload = b"artifact"
+    recommendation = EndpointRecommendation(operation_id=_OPERATION_ID, version="3.2.2", platform="windows_amd64",
+        channel="canary", artifact_url="https://endpoint.sosnadmin.local/artifact", artifact_name="artifact.zip",
+        archive_type="zip", sha256=hashlib.sha256(payload).hexdigest(), size=len(payload), reason="scheduled_rollout")
+    paths = WindowsUpdatePaths(tmp_path / "install", tmp_path / "data" / "updates" / "pending_update.json")
+    paths.install_root.mkdir()
+    paths.current_path.write_text('{"version":"3.2.1"}')
+    calls = []
+    async def download(_, path):
+        calls.append("download")
+        path.write_bytes(payload)
+        if failure == "download" and len(calls) == 1:
+            raise OSError(errno.ENOSPC, "private/path")
+        return recommendation.sha256, len(payload)
+    adapter = _Adapter(recommendation)
+    runtime = online_update_runtime.WindowsOnlineUpdateRuntime(adapter=adapter, paths=paths, acl=_Acl(), download=download)
+    def full(*_, **__):
+        raise OSError(errno.ENOSPC, "private/path")
+    with monkeypatch.context() as patch:
+        if failure == "capacity":
+            patch.setattr(shutil, "disk_usage", lambda _: SimpleNamespace(free=0))
+        elif failure == "artifact_fsync":
+            patch.setattr(os, "fsync", full)
+        elif failure == "pending_journal":
+            patch.setattr(online_update_runtime, "write_json_atomic", full)
+        assert (await runtime.run_once()).status == "disk_insufficient"
+    assert not paths.pending_path.exists()
+    assert json.loads(paths.current_path.read_text()) == {"version":"3.2.1"}
+    if failure == "capacity":
+        assert calls == []
+    if failure in {"capacity", "download", "artifact_fsync"}:
+        assert not any("scheduled:" in status for _, status in adapter.calls)
+    assert (await runtime.run_once()).status == "scheduled"
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("failure", ["file_flush", "replace", "directory_flush"])
 async def test_pending_publication_failure_requires_verified_handoff_on_restart(tmp_path, monkeypatch, failure):
     from pc_agent.platform.windows import durable_state

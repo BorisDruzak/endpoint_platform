@@ -24,6 +24,19 @@ Verified reuse of a runtime directory also completes its versions-root flush
 before selector/SCM consumers. A local startup-proof ACL failure withholds proof
 while the authenticated control lifecycle continues.
 
+`platform/windows/disk_readiness.py` bounds additional download, pinned-copy,
+extraction and journal allocations with a 64-MiB or 10-percent margin, summed
+per receiving volume. Existing retained cores already occupy space. Download
+and extracted files are flushed before durable handoff. A disk-full rejection
+keeps valid pending state for retry and reports bounded `disk_insufficient`.
+The Windows recovery supervisor keeps the current core and WSS alive after
+SCM starts the updater; the offline worker owns stopping the Agent only after
+verified staging and durable preparation. Setup alone lazily imports
+`msi_disk_costing.py`, which uses restricted read-only Installer costing and
+bounded inventory/path accounting for new MSI, cache, temp and old rollback
+copies. This conservative budget does not claim completed native component
+costing and unknown inventory blocks MSI before services are stopped.
+
 The Windows device-binding dialog lives in `platform/windows/binding_dialog.py`
 inside the existing tray executable. `platform/windows/device_binding.py`
 validates ephemeral proofs and exchanges the fixed create action over the

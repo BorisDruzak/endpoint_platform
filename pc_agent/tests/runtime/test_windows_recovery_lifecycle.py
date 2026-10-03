@@ -15,6 +15,72 @@ from pc_agent.tests.runtime.test_headless_lifecycle import _Executor, _settings
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("failure", ["capacity", "extract"])
+async def test_disk_rejected_offline_worker_preserves_connected_root_lifecycle(tmp_path, monkeypatch, failure):
+    import errno
+    import json
+    import shutil
+    from types import SimpleNamespace
+    from pc_agent.platform.windows import updater_service
+    from pc_agent.platform.windows.online_update_runtime import WindowsOnlineUpdateRuntime
+    from pc_agent.platform.windows.update_supervisor import WindowsRecoveryUpdateSupervisor
+    from pc_agent.tests.windows.test_updater_service import _paths, _artifact, _pending, _Acl
+    from pc_agent.tests.windows.test_windows_online_update_runtime import _Adapter, _Acl as OnlineAcl
+    from pc_agent.tests.runtime.test_headless_lifecycle import _dependencies, _Transport
+    paths = _paths(tmp_path)
+    artifact = _artifact(paths.downloads_root / "candidate.zip")
+    _pending(paths, artifact)
+    paths.install_root.mkdir(parents=True)
+    paths.current_path.write_text('{"version":"3.1.9"}')
+    service_events, results, events = [], [], []
+    connected, checked = asyncio.Event(), asyncio.Event()
+    service = SimpleNamespace(stop=lambda: service_events.append("stop"), start=lambda: service_events.append("start"),
+        wait_stopped=lambda: True, crashed_early=lambda: False)
+    worker = updater_service.WindowsUpdater(paths, acl=_Acl(), service=service,
+        verifier=SimpleNamespace(verify=lambda *_: True), confirmation=SimpleNamespace(is_confirmed=lambda **_: True))
+    online = WindowsOnlineUpdateRuntime(adapter=_Adapter(None), paths=paths, acl=OnlineAcl(), download=None)
+    async def check():
+        return (await online.run_once()).status
+    async def report():
+        return False
+    async def sleep(delay):
+        assert 0 < delay <= 36
+        checked.set()
+        await asyncio.Future()
+    class Connected(_Transport):
+        async def receive(self):
+            connected.set()
+            await asyncio.Future()
+    supervisor = WindowsRecoveryUpdateSupervisor(check=check, report=report,
+        trigger=lambda: results.append(worker.run_once().status), sleep=sleep)
+    deps = replace(_dependencies(events, []), create_transport=lambda *_: Connected(events),
+        create_service_tasks=lambda *_: (supervisor.run(),))
+    with monkeypatch.context() as patch:
+        if failure == "capacity":
+            patch.setattr(shutil, "disk_usage", lambda _: SimpleNamespace(free=0))
+        else:
+            def full(*_):
+                raise OSError(errno.ENOSPC, "private/path")
+            patch.setattr(updater_service, "_extract_zip_member", full)
+        task = asyncio.create_task(RuntimeLifecycle(_settings(tmp_path), deps, RuntimeStatus()).run())
+        try:
+            await asyncio.wait_for(asyncio.gather(connected.wait(), checked.wait()), 1)
+            assert not task.done()
+            assert "executor.stop" not in events
+            assert "transport.close" not in events
+            assert service_events == []
+            assert results == ["disk_insufficient"]
+            assert json.loads(paths.current_path.read_text()) == {"version":"3.1.9"}
+            assert paths.pending_path.exists()
+        finally:
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+    assert worker.run_once().status == "applied"
+    assert service_events == ["stop", "start"]
+
+
+@pytest.mark.asyncio
 async def test_upgrade_required_control_message_is_recoverable():
     from pc_agent.runtime.lifecycle import _handle_inbound
     from pc_agent.transport.protocol import GatewayInboundV1
@@ -264,7 +330,6 @@ async def test_broken_wss_real_stager_fetches_acks_validates_and_hands_off(tmp_p
     from pc_agent.tests.windows.test_windows_online_update_runtime import _Adapter, _Acl, _OPERATION_ID
     from pc_agent.tests.runtime.test_headless_lifecycle import _dependencies
     from pc_agent.update_adapter import EndpointRecommendation
-    from pc_agent.version import EXIT_UPDATE_PENDING
     paths = WindowsUpdatePaths(tmp_path / "install", tmp_path / "data/updates/pending_update.json")
     paths.install_root.mkdir()
     paths.current_path.write_text('{"version":"3.2.78"}')
@@ -291,7 +356,19 @@ async def test_broken_wss_real_stager_fetches_acks_validates_and_hands_off(tmp_p
             events.append("close")
     deps = replace(_dependencies(events, []), create_transport=lambda *_: Broken(),
         create_service_tasks=lambda *_: (supervisor.run(),))
-    assert await asyncio.wait_for(RuntimeLifecycle(_settings(tmp_path), deps, RuntimeStatus()).run(), 1) == EXIT_UPDATE_PENDING
+    task = asyncio.create_task(RuntimeLifecycle(_settings(tmp_path), deps, RuntimeStatus()).run())
+    try:
+        for _ in range(100):
+            if trigger:
+                break
+            await asyncio.sleep(0.01)
+        assert trigger == [True]
+        assert not task.done()
+        assert json.loads(paths.current_path.read_text())["version"] == "3.2.78"
+    finally:
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
     assert adapter.calls == [("windows_amd64", "canary"), (_OPERATION_ID, "requested"),
         (_OPERATION_ID, "scheduled:3.2.79:3.2.78")]
     assert json.loads(paths.pending_path.read_text())["sha256"] == item.sha256
