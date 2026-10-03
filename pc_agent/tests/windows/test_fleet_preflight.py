@@ -168,6 +168,42 @@ def test_upgrade_snapshot_is_bounded_redacted_and_does_not_mutate(machine, tmp_p
     assert snapshot(tmp_path) == before
 
 
+@pytest.mark.parametrize("current", [False, True])
+@pytest.mark.parametrize(
+    "service,mode",
+    [
+        ("EndpointAgent", "manual"),
+        ("EndpointAgentUpdater", "automatic"),
+        ("EndpointAgent", "invalid"),
+        ("EndpointAgentUpdater", None),
+        ("EndpointAgent", "missing"),
+    ],
+)
+def test_wrong_service_start_mode_is_invalid_for_upgrade_and_current(
+    machine, tmp_path, current, service, mode
+):
+    module, paths, package, release, services = machine
+    if current:
+        package.version = release["version"] = "3.2.83"
+        (installer_fence.state_root(paths) / "foundation.json").write_text(
+            json.dumps({"schema_version": 1, "release": release})
+        )
+        write_zip(paths, "3.2.83", "3.2.82")
+    if mode == "missing":
+        del services[service]["start_mode"]
+    else:
+        services[service]["start_mode"] = mode
+    before = snapshot(tmp_path)
+
+    result = module.collect_fleet_preflight(paths, "3.2.82")
+
+    assert result["eligibility"] == "SERVICE_INVALID"
+    assert result["services"][service].get("start_mode") == (
+        None if mode == "missing" else mode
+    )
+    assert snapshot(tmp_path) == before
+
+
 @pytest.mark.parametrize(
     "defect,want",
     [
@@ -873,7 +909,7 @@ def test_equal_foundation_checks_actual_target_candidate_while_preserving_newer_
             name: {
                 "present": True,
                 "state": "running",
-                "start_mode": "automatic",
+                "start_mode": "automatic" if name == "EndpointAgent" else "manual",
                 "identity_valid": True,
             }
             for name in module.SERVICES

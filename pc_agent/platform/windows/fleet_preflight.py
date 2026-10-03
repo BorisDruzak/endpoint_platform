@@ -466,9 +466,13 @@ def collect_fleet_preflight(
     elif disk["sufficient"] is False:
         eligibility = "DISK_INSUFFICIENT"
     elif any(
-        fact["identity_valid"] is not True
-        or fact["start_mode"] not in ("automatic", "manual")
-        for fact in services.values()
+        not isinstance(services.get(name), dict)
+        or services[name].get("identity_valid") is not True
+        or services[name].get("start_mode") != required_mode
+        for name, required_mode in (
+            ("EndpointAgent", "automatic"),
+            ("EndpointAgentUpdater", "manual"),
+        )
     ):
         eligibility = "SERVICE_INVALID"
     elif not credential["shape_valid"] or not credential["enrollment_shape_valid"]:

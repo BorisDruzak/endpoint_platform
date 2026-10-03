@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 import shutil
 import subprocess
+from uuid import uuid4
 
 import pytest
 
@@ -295,7 +297,7 @@ try { Open-SetupPreflightPin 'C:\\own\\nested\\Setup.exe';throw 'unexpected acqu
 
 
 @pytest.mark.parametrize(
-    "destination", ["artifact", "existing", "install", "data", "state", "cache"]
+    "destination", ["artifact", "existing", "install", "data", "state", "cache", "configured_installer"]
 )
 def test_report_writes_only_explicit_new_artifact(tmp_path, destination):
     shell = shutil.which("powershell") or shutil.which("pwsh")
@@ -312,6 +314,7 @@ def test_report_writes_only_explicit_new_artifact(tmp_path, destination):
         "data": data / "report.json",
         "state": install.parent / "installer-state/report.json",
         "cache": install.parent / "installer-cache/report.json",
+        "configured_installer": tmp_path / "configured-program-data/Endpoint Platform/Installer/absent-install-result.json",
     }
     targets["existing"].write_bytes(b"preserve existing artifact")
     script = tmp_path / "report-test.ps1"
@@ -319,7 +322,7 @@ def test_report_writes_only_explicit_new_artifact(tmp_path, destination):
         """
 $ErrorActionPreference='Stop'
 $ast=[System.Management.Automation.Language.Parser]::ParseFile($args[0],[ref]$null,[ref]$null)
-foreach($name in @('Write-PreflightReport','Assert-NoReparsePointInPath')) {
+foreach($name in @('Assert-SafeReportDestination','Write-PreflightReport','Assert-NoReparsePointInPath')) {
  $function=$ast.Find({param($node) $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name},$true)
  Invoke-Expression $function.Extent.Text
 }
@@ -348,6 +351,7 @@ try { Write-PreflightReport @{safe=$true};'accepted' } catch { 'rejected' }
         capture_output=True,
         text=True,
         timeout=30,
+        env={**os.environ, "ProgramData": str(tmp_path / "configured-program-data")},
     )
     assert run.returncode == 0, run.stderr
     assert run.stdout.strip() == (
@@ -361,3 +365,34 @@ try { Write-PreflightReport @{safe=$true};'accepted' } catch { 'rejected' }
     if destination == "artifact":
         assert json.loads(after.pop("evidence\\new.json")) == {"safe": True}
     assert after == before
+
+
+def test_native_installer_diagnostics_exclusion_rejects_absent_file_without_writing(tmp_path):
+    shell = shutil.which("powershell") or shutil.which("pwsh")
+    if shell is None:
+        pytest.skip("PowerShell unavailable")
+    script = tmp_path / "native-diagnostics-guard.ps1"
+    script.write_text(
+        """
+$ErrorActionPreference='Stop'
+$ast=[System.Management.Automation.Language.Parser]::ParseFile($args[0],[ref]$null,[ref]$null)
+$definition=$ast.Find({param($node) $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Assert-SafeReportDestination'},$true)
+Invoke-Expression $definition.Extent.Text
+$ExpectedInstallRoot=$args[1];$ExpectedDataRoot=$args[2]
+$native=Join-Path ([Environment]::GetFolderPath('CommonApplicationData')) 'Endpoint Platform\\Installer'
+$destination=Join-Path $native $args[3]
+if (Test-Path -LiteralPath $destination) { throw 'Diagnostic fixture must be absent.' }
+try { Assert-SafeReportDestination -Destination $destination;'accepted' } catch { 'rejected' }
+if (Test-Path -LiteralPath $destination) { throw 'Validation wrote machine state.' }
+""",
+        encoding="utf-8",
+    )
+    run = subprocess.run(
+        [shell, "-NoProfile", "-NonInteractive", "-File", str(script), str(COLLECTOR),
+         str(tmp_path / "install"), str(tmp_path / "data"),
+         f"absent-install-result-{uuid4().hex}.json"],
+        capture_output=True, text=True, timeout=30,
+        env={**os.environ, "ProgramData": str(tmp_path / "spoofed-program-data")},
+    )
+    assert run.returncode == 0, run.stderr
+    assert run.stdout.strip() == "rejected"

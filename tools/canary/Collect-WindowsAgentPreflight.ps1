@@ -249,19 +249,33 @@ function Read-CanonicalSetupPreflight {
     return $value
 }
 
+function Assert-SafeReportDestination {
+    param([string]$Destination)
+    $nativeInstallParent = Join-Path ([Environment]::GetFolderPath('ProgramFiles')) 'Endpoint Platform'
+    $nativeProgramData = [Environment]::GetFolderPath('CommonApplicationData')
+    $roots = @($ExpectedInstallRoot, $ExpectedDataRoot,
+        (Join-Path (Split-Path -Parent $ExpectedInstallRoot) 'installer-state'),
+        (Join-Path (Split-Path -Parent $ExpectedInstallRoot) 'installer-cache'),
+        $nativeInstallParent,
+        (Join-Path $nativeProgramData 'Endpoint Platform\Agent'),
+        (Join-Path $nativeProgramData 'Endpoint Platform\Installer'))
+    # Setup may use an explicitly configured ProgramData root. It can only
+    # add an exclusion; the native known folder remains authoritative.
+    if (-not [string]::IsNullOrWhiteSpace($env:ProgramData) -and
+        [IO.Path]::IsPathRooted($env:ProgramData)) {
+        $roots += Join-Path $env:ProgramData 'Endpoint Platform\Installer'
+    }
+    foreach ($root in $roots) {
+        $fixed = [IO.Path]::GetFullPath($root).TrimEnd('\')
+        if ($Destination.Equals($fixed,[StringComparison]::OrdinalIgnoreCase) -or
+            $Destination.StartsWith($fixed+'\',[StringComparison]::OrdinalIgnoreCase)) { throw 'Report destination overlaps machine state.' }
+    }
+}
+
 function Write-PreflightReport {
     param($Payload)
     $destination = [IO.Path]::GetFullPath($OutputPath)
-    $nativeInstallParent = Join-Path ([Environment]::GetFolderPath('ProgramFiles')) 'Endpoint Platform'
-    $nativeDataRoot = Join-Path ([Environment]::GetFolderPath('CommonApplicationData')) 'Endpoint Platform\Agent'
-    foreach ($root in @($ExpectedInstallRoot, $ExpectedDataRoot,
-        (Join-Path (Split-Path -Parent $ExpectedInstallRoot) 'installer-state'),
-        (Join-Path (Split-Path -Parent $ExpectedInstallRoot) 'installer-cache'),
-        $nativeInstallParent, $nativeDataRoot)) {
-        $fixed = [IO.Path]::GetFullPath($root).TrimEnd('\')
-        if ($destination.Equals($fixed,[StringComparison]::OrdinalIgnoreCase) -or
-            $destination.StartsWith($fixed+'\',[StringComparison]::OrdinalIgnoreCase)) { throw 'Report destination overlaps machine state.' }
-    }
+    Assert-SafeReportDestination -Destination $destination
     if (Test-Path -LiteralPath $destination) { throw 'Report destination must be a new artifact.' }
     $json = $Payload | ConvertTo-Json -Depth 8
     if ([Text.Encoding]::UTF8.GetByteCount($json) -gt 65536) { throw 'Preflight report exceeds bound.' }
