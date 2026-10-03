@@ -615,8 +615,12 @@ class WindowsUpdater:
             raise ValueError("selector transition startup attempt differs")
         self._attempt_id = self._transition["attempt_id"]
         if current == previous:
-            self._restore_prepared()
-            self._start_known_good()
+            try:
+                self._restore_prepared()
+            finally:
+                # A failed metadata barrier must not strand the exact known-good core.
+                if self._paths.current_path.read_bytes() == bytes.fromhex(self._transition["previous_bytes"]):
+                    self._start_known_good()
             self._clear_transition()
             return None
         if current != self._transition["candidate"]:

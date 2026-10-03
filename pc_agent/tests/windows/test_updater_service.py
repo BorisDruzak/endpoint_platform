@@ -344,6 +344,61 @@ def _interrupted_transition(tmp_path, *, selected=True):
     return paths, old
 
 
+def test_old_selected_restart_survives_persistent_exhaustion_and_retries(tmp_path, monkeypatch):
+    import errno
+    from pc_agent.platform.windows import durable_state, updater_service
+    paths, old = _interrupted_transition(tmp_path, selected=False)
+    old_bytes = paths.current_path.read_bytes()
+    retained = {path: path.read_bytes() for path in (
+        paths.pending_path, paths.transition_path, paths.restore_path,
+        paths.updates_root / "startup-attempt.json",
+    )}
+    events, proofs = [], []
+    running = False
+    def start():
+        nonlocal running
+        if running:
+            error = OSError("service already running")
+            error.winerror = 1056
+            raise error
+        running = True
+        events.append(("start", json.loads(paths.current_path.read_text())))
+    def stop():
+        nonlocal running
+        running = False
+        events.append(("stop", None))
+    def confirmed(**_):
+        proofs.append(True)
+        return True
+    service = SimpleNamespace(start=start, stop=stop, wait_stopped=lambda: True,
+        crashed_early=lambda: False)
+    def worker():
+        return updater_service.WindowsUpdater(paths, acl=_Acl(), service=service,
+            verifier=SimpleNamespace(verify=lambda *_: True),
+            confirmation=SimpleNamespace(is_confirmed=confirmed))
+    def exhausted(*_):
+        raise OSError(errno.ENOSPC, "persistent disk exhaustion")
+    with monkeypatch.context() as patch:
+        patch.setattr(updater_service, "flush_directory", exhausted)
+        patch.setattr(durable_state, "flush_directory", exhausted)
+        patch.setattr(durable_state.os, "write", exhausted)
+        assert worker().run_once().status == "disk_insufficient"
+        assert running
+        assert events == [("start", old)]
+        assert paths.current_path.read_bytes() == old_bytes
+        assert {path: path.read_bytes() for path in retained} == retained
+        assert not proofs
+        assert not (paths.updates_root / "terminal-outcome.json").exists()
+    assert worker().run_once().status == "applied"
+    assert running
+    assert events == [("start", old), ("stop", None),
+        ("start", {"schema_version": 1, "source_revision": "a" * 40, "version": "3.2.0"})]
+    assert proofs == [True]
+    assert not paths.pending_path.exists()
+    assert not paths.transition_path.exists()
+    assert not paths.restore_path.exists()
+
+
 @pytest.mark.parametrize("selected", [False, True])
 def test_restart_reconciles_unaccepted_transition_before_normal_eligibility(tmp_path, selected):
     from pc_agent.platform.windows import updater_service
