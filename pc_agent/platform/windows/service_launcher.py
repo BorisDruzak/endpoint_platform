@@ -16,6 +16,7 @@ from pc_agent.version import EXIT_UPDATE_PENDING
 
 from pc_agent.platform.windows.service_control import SERVICE_NAME, trigger_pending_updater
 from pc_agent.platform.windows.update_paths import UPDATE_EXECUTABLE_NAME, WindowsUpdatePaths
+from pc_agent.platform.windows.runtime_identity import _reject_reparse_chain, validate_runtime_executable
 
 
 _SEMVER_TRIPLET = re.compile(r"^(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)$")
@@ -76,22 +77,6 @@ def stop_tray_companions() -> None:
     finally:
         for handle in tray_handles:
             handle.Close()
-
-
-def _reject_reparse_chain(root: Path, leaf: Path) -> None:
-    try:
-        leaf.absolute().relative_to(root.absolute())
-    except ValueError as error:
-        raise ValueError("selected runtime is outside versions root") from error
-    current = root
-    for part in (Path(), *leaf.relative_to(root).parents[::-1], leaf.relative_to(root)):
-        candidate = current if part == Path() else root / part
-        try:
-            details = candidate.lstat()
-        except OSError as error:
-            raise ValueError("selected runtime is missing") from error
-        if candidate.is_symlink() or getattr(details, "st_file_attributes", 0) & 0x400:
-            raise ValueError("selected runtime contains a reparse point")
 
 
 def build_agent_child_command(paths: WindowsUpdatePaths | None = None) -> list[str]:
@@ -159,17 +144,6 @@ def _provisioned_endpoint_origin(data_root: Path) -> str:
     ):
         raise ValueError("provisioned endpoint origin is invalid")
     return origin
-
-
-def validate_runtime_executable(paths: WindowsUpdatePaths, version: str) -> Path:
-    """Return one regular executable below the fixed non-reparse versions root."""
-    if not _SEMVER_TRIPLET.fullmatch(version):
-        raise ValueError("selected runtime version is invalid")
-    executable = paths.versions_root / version / UPDATE_EXECUTABLE_NAME
-    _reject_reparse_chain(paths.versions_root, executable)
-    if not executable.is_file():
-        raise ValueError("selected runtime executable is missing")
-    return executable
 
 
 class ChildProcessCoordinator:

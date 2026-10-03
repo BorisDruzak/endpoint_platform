@@ -56,7 +56,7 @@ def _read_current_selector(path: Path) -> dict[str, object]:
 
 
 def _validate_runtime(paths: WindowsUpdatePaths, version: str) -> None:
-    from pc_agent.platform.windows.service_launcher import validate_runtime_executable
+    from pc_agent.platform.windows.runtime_identity import validate_runtime_executable
 
     validate_runtime_executable(paths, version)
 
