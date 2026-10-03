@@ -285,6 +285,7 @@ class WindowsOnlineUpdateRuntime:
                 except (OSError, ValueError, TypeError):
                     return False
                 pending_before = None
+                pending = None
                 if self._paths.pending_path.exists() or self._paths.pending_path.is_symlink():
                     try:
                         pending_before = _read_state(self._paths.pending_path, 16384, return_bytes=True)

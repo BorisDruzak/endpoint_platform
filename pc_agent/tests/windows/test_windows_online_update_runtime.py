@@ -578,6 +578,39 @@ async def test_terminal_report_retries_with_matching_or_absent_pending(tmp_path,
     assert not paths.pending_path.exists()
     assert not outcome.exists()
 
+
+@pytest.mark.asyncio
+async def test_terminal_report_rejects_attempt_without_pending_before_http(tmp_path):
+    from pc_agent.platform.windows.online_update_runtime import WindowsOnlineUpdateRuntime
+    from pc_agent.platform.windows.update_paths import WindowsUpdatePaths
+
+    paths = WindowsUpdatePaths(tmp_path / "install", tmp_path / "data/updates/pending_update.json")
+    paths.install_root.mkdir()
+    paths.updates_root.mkdir(parents=True)
+    current_bytes = b'{"version":"3.2.79"}'
+    paths.current_path.write_bytes(current_bytes)
+    attempt = paths.updates_root / "startup-attempt.json"
+    attempt_bytes = json.dumps({
+        "operation_id": _OPERATION_ID, "version": "3.2.80", "attempt_id": "a" * 32,
+    }).encode()
+    attempt.write_bytes(attempt_bytes)
+    outcome = paths.updates_root / "terminal-outcome.json"
+    outcome_bytes = json.dumps({
+        "operation_id": _OPERATION_ID, "reported_version": "3.2.79",
+        "safe_code": "launcher_apply_failed", "status": "failed",
+    }).encode()
+    outcome.write_bytes(outcome_bytes)
+    adapter = _Adapter(None)
+    runtime = WindowsOnlineUpdateRuntime(adapter=adapter, paths=paths, acl=_Acl(), download=None)
+
+    assert await runtime.report_startup_outcome() is False
+    assert adapter.calls == []
+    assert paths.current_path.read_bytes() == current_bytes
+    assert attempt.read_bytes() == attempt_bytes
+    assert outcome.read_bytes() == outcome_bytes
+    assert not paths.pending_path.exists()
+
+
 @pytest.mark.asyncio
 async def test_terminal_report_cleanup_preserves_new_pending_from_other_owner(tmp_path):
     from pc_agent.platform.windows.online_update_runtime import WindowsOnlineUpdateRuntime
