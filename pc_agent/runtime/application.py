@@ -13,11 +13,14 @@ import threading
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 from urllib.parse import urlsplit
 
 import aiohttp
 from endpoint_contracts.gateway_ws import EndpointPolicyAckV1, EndpointPolicyDeliveryV1
+
+if TYPE_CHECKING:
+    from pc_agent.platform.windows.online_update_runtime import WindowsOnlineUpdateResult
 
 from pc_agent import endpoint_gateway
 from pc_agent.device_credential import DeviceCredentialError, read_device_credential
@@ -677,7 +680,7 @@ async def _periodic_https_update_checks(
         await sleep(endpoint_gateway.GATEWAY_UPDATE_POLL_INTERVAL_SEC)
 
 
-def _create_service_tasks(settings, credential, publish):
+def _create_service_tasks(settings, credential, hello, publish):
     if (
         os.name != "nt" or not isinstance(settings, RuntimeSettings)
         or settings.transport_mode != "gateway_wss"
@@ -688,6 +691,7 @@ def _create_service_tasks(settings, credential, publish):
     from pc_agent.platform.windows.service_control import trigger_pending_updater
 
     supervisor = WindowsRecoveryUpdateSupervisor(
+        device_id=str(hello.device_id),
         check=lambda: _run_windows_update_check(settings, credential),
         report=lambda: _run_windows_startup_report(settings, credential),
         trigger=trigger_pending_updater,
@@ -778,7 +782,7 @@ async def _unexpected_windows_startup_download() -> tuple[str, int]:
 
 async def _run_windows_update_check(
     settings: RuntimeSettings, credential: str
-) -> str:
+) -> "WindowsOnlineUpdateResult":
     """Use the configured CA and Endpoint origin for the unprivileged update stager."""
     from pc_agent.endpoint_gateway import _download_gateway_artifact
     from pc_agent.platform.windows.acl import PyWin32AclAdapter
@@ -817,7 +821,7 @@ async def _run_windows_update_check(
                 credential_source=lambda: credential,
             ),
         )
-        return (await runtime.run_once()).status
+        return await runtime.run_once()
 
 
 def _create_http_pull_transport(

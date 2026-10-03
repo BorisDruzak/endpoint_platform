@@ -29,13 +29,17 @@ async def test_windows_pending_handoff_retries_only_the_fixed_updater(
 
     starts: list[str] = []
 
-    async def pending(_settings: object, _credential: str) -> str:
-        return "pending"
+    async def pending(_settings: object, _credential: str):
+        from pc_agent.platform.windows.online_update_runtime import WindowsOnlineUpdateResult
+        return WindowsOnlineUpdateResult("pending")
 
     async def no_startup_report(_settings: object, _credential: str) -> bool:
         return False
 
     async def stop_after_first_poll(_seconds: float) -> None:
+        if not starts:
+            assert 0 <= _seconds <= 15
+            return
         raise asyncio.CancelledError
 
     monkeypatch.setattr(application, "_run_windows_update_check", pending)
@@ -47,6 +51,7 @@ async def test_windows_pending_handoff_retries_only_the_fixed_updater(
     from pc_agent.platform.windows.update_supervisor import WindowsRecoveryUpdateSupervisor
     with pytest.raises(asyncio.CancelledError):
         await WindowsRecoveryUpdateSupervisor(
+            device_id="00000000-0000-4000-8000-000000000001",
             check=lambda: pending(object(), "credential"),
             report=lambda: no_startup_report(object(), "credential"),
             trigger=service_control.trigger_pending_updater,

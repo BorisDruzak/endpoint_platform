@@ -594,12 +594,15 @@ async def test_supervisor_retains_live_core_when_real_worker_cannot_allocate(tmp
     online = WindowsOnlineUpdateRuntime(adapter=_Adapter(None), paths=paths, acl=OnlineAcl(), download=None)
     checks = []
     async def check():
-        return (await online.run_once()).status
+        return await online.run_once()
     async def no_report():
         return False
     def trigger():
         checks.append(worker.run_once().status)
     async def sleep(delay):
+        if not checks:
+            assert 0 <= delay <= 15
+            return
         assert 0 < delay <= 300
         assert events == []
         assert checks == ["disk_insufficient"]
@@ -612,7 +615,7 @@ async def test_supervisor_retains_live_core_when_real_worker_cannot_allocate(tmp
                 raise OSError(errno.ENOSPC, "private/path")
             patch.setattr(updater_service, "_extract_zip_member", full)
         with pytest.raises(asyncio.CancelledError):
-            await WindowsRecoveryUpdateSupervisor(check=check, report=no_report, trigger=trigger, sleep=sleep).run()
+            await WindowsRecoveryUpdateSupervisor(device_id="00000000-0000-4000-8000-000000000001", check=check, report=no_report, trigger=trigger, sleep=sleep).run()
     assert json.loads(paths.current_path.read_text()) == {"version":"3.1.9"}
     assert paths.pending_path.exists()
     assert worker.run_once().status == "applied"

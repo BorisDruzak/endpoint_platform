@@ -7,7 +7,7 @@ import os
 import re
 import ssl
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -37,6 +37,14 @@ _SOURCE_REVISION = re.compile(r"^[0-9a-f]{40}$")
 @dataclass(frozen=True, slots=True)
 class WindowsOnlineUpdateResult:
     status: str
+    authenticated_check: bool = False
+
+
+@dataclass(slots=True)
+class _RecommendationCheck:
+    """Per-call provenance; local journals and report ACKs cannot set it."""
+
+    authenticated: bool = False
 
 
 class WindowsUpdatePathAcl:
@@ -64,16 +72,19 @@ class WindowsOnlineUpdateRuntime:
         self._now = now
 
     async def run_once(self) -> WindowsOnlineUpdateResult:
+        check = _RecommendationCheck()
         try:
-            return await self._run_once()
+            result = await self._run_once(check)
         except UpdateInProgress:
-            return WindowsOnlineUpdateResult("update_in_progress")
+            result = WindowsOnlineUpdateResult("update_in_progress")
         except OSError as error:
             if is_disk_full(error):
-                return WindowsOnlineUpdateResult("disk_insufficient")
-            raise
+                result = WindowsOnlineUpdateResult("disk_insufficient")
+            else:
+                raise
+        return replace(result, authenticated_check=check.authenticated)
 
-    async def _run_once(self) -> WindowsOnlineUpdateResult:
+    async def _run_once(self, check: _RecommendationCheck) -> WindowsOnlineUpdateResult:
         pending = None
         with update_transaction(self._paths, timeout_ms=0):
             current = _load_current_version(self._paths.current_path)
@@ -144,6 +155,9 @@ class WindowsOnlineUpdateRuntime:
             return WindowsOnlineUpdateResult("pending")
         result = await self._adapter.fetch_recommendation(
             platform="windows_amd64", channel="canary"
+        )
+        check.authenticated = (
+            result.source == "endpoint" and not result.unavailable and not result.safe_error
         )
         recommendation = result.recommendation
         if recommendation is None:

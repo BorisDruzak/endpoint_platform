@@ -101,7 +101,9 @@ async def test_disk_full_download_has_no_handoff_and_can_retry(tmp_path, monkeyp
             patch.setattr(os, "fsync", full)
         elif failure == "pending_journal":
             patch.setattr(online_update_runtime, "write_json_atomic", full)
-        assert (await runtime.run_once()).status == "disk_insufficient"
+        result = await runtime.run_once()
+        assert result.status == "disk_insufficient"
+        assert result.authenticated_check is True
     assert not paths.pending_path.exists()
     assert json.loads(paths.current_path.read_text()) == {"version":"3.2.1"}
     if failure == "capacity":
@@ -109,6 +111,94 @@ async def test_disk_full_download_has_no_handoff_and_can_retry(tmp_path, monkeyp
     if failure in {"capacity", "download", "artifact_fsync"}:
         assert not any("scheduled:" in status for _, status in adapter.calls)
     assert (await runtime.run_once()).status == "scheduled"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("source,unavailable,safe_error,authenticated", [
+    ("endpoint", False, None, True), ("endpoint", True, None, False),
+    ("endpoint", False, "invalid_contract", False),
+    ("legacy", False, None, False), ("none", False, None, False),
+])
+async def test_recommendation_success_provenance_requires_endpoint_and_no_error(tmp_path, source, unavailable, safe_error, authenticated):
+    from pc_agent.platform.windows.online_update_runtime import WindowsOnlineUpdateRuntime
+    from pc_agent.platform.windows.update_paths import WindowsUpdatePaths
+    paths = WindowsUpdatePaths(tmp_path / "install", tmp_path / "data/updates/pending_update.json")
+    paths.install_root.mkdir()
+    paths.current_path.write_text('{"version":"3.2.1"}')
+    class Adapter(_Adapter):
+        async def fetch_recommendation(self, **_):
+            return RecommendationResult(source, None, unavailable, safe_error)
+    runtime = WindowsOnlineUpdateRuntime(adapter=Adapter(None), paths=paths, acl=_Acl(), download=None)
+    result = await runtime.run_once()
+    assert result.authenticated_check is authenticated
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("outcome", ["idle", "request_ack_pending", "download_rejected", "scheduled", "update_in_progress", "local_update_in_progress"])
+async def test_authenticated_fetch_provenance_survives_modeled_later_outcomes(tmp_path, monkeypatch, outcome):
+    from contextlib import contextmanager
+    from pc_agent.platform.windows import online_update_runtime
+    from pc_agent.platform.windows.update_paths import WindowsUpdatePaths
+    from pc_agent.platform.windows.update_transaction import UpdateInProgress
+    paths = WindowsUpdatePaths(tmp_path / "install", tmp_path / "data/updates/pending_update.json")
+    paths.install_root.mkdir()
+    paths.current_path.write_text('{"version":"3.2.1"}')
+    payload = b"artifact"
+    item = EndpointRecommendation(_OPERATION_ID, "3.2.2", "windows_amd64", "canary",
+        "https://endpoint.example.test/build.zip", "build.zip", "zip", hashlib.sha256(payload).hexdigest(), len(payload), "scheduled_rollout")
+    if outcome == "idle":
+        from dataclasses import replace
+        item = replace(item, archive_type="tar.gz")
+    class Adapter(_Adapter):
+        async def acknowledge(self, *_):
+            return outcome != "request_ack_pending"
+    async def download(_, path):
+        if outcome == "download_rejected":
+            raise RuntimeError("injected download failure")
+        path.write_bytes(payload)
+        return item.sha256, len(payload)
+    if outcome in {"update_in_progress", "local_update_in_progress"}:
+        original = online_update_runtime.update_transaction
+        count = 0
+        @contextmanager
+        def transaction(*args, **kwargs):
+            nonlocal count
+            count += 1
+            if count == (1 if outcome == "local_update_in_progress" else 2):
+                raise UpdateInProgress()
+            with original(*args, **kwargs):
+                yield
+        monkeypatch.setattr(online_update_runtime, "update_transaction", transaction)
+    runtime = online_update_runtime.WindowsOnlineUpdateRuntime(adapter=Adapter(item), paths=paths, acl=_Acl(), download=download)
+    result = await runtime.run_once()
+    assert result.status == ("update_in_progress" if outcome == "local_update_in_progress" else outcome)
+    assert result.authenticated_check is (outcome != "local_update_in_progress")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("local_status", ["pending", "request_ack_pending", "verifying", "report_pending"])
+async def test_local_recovery_and_ack_only_do_not_claim_recommendation_success(tmp_path, local_status):
+    from pc_agent.platform.windows.online_update_runtime import WindowsOnlineUpdateRuntime
+    from pc_agent.platform.windows.update_paths import WindowsUpdatePaths
+    paths = WindowsUpdatePaths(tmp_path / "install", tmp_path / "data/updates/pending_update.json")
+    paths.install_root.mkdir()
+    paths.updates_root.mkdir(parents=True)
+    paths.current_path.write_text('{"version":"3.2.1"}')
+    paths.pending_path.write_text(json.dumps({"operation_id": _OPERATION_ID, "version": "3.2.2"}))
+    class Adapter(_Adapter):
+        async def fetch_recommendation(self, **_):
+            pytest.fail("local result cannot fetch recommendation")
+        async def record_scheduled_handoff(self, *_, **__):
+            return local_status != "request_ack_pending"
+    if local_status == "verifying":
+        paths.current_path.write_text('{"version":"3.2.2"}')
+        (paths.updates_root / "startup-attempt.json").write_text(json.dumps({
+            "operation_id": _OPERATION_ID, "version": "3.2.2", "attempt_id": "attempt"}))
+    if local_status == "report_pending":
+        (paths.updates_root / "terminal-outcome.json").write_text('{}')
+    result = await WindowsOnlineUpdateRuntime(adapter=Adapter(None), paths=paths, acl=_Acl(), download=None).run_once()
+    assert result.status == local_status
+    assert result.authenticated_check is False
 
 
 @pytest.mark.asyncio

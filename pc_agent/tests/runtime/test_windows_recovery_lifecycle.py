@@ -13,6 +13,49 @@ from pc_agent.runtime.status import RuntimeStatus
 from pc_agent.transport.websocket import GatewayTransportUnavailable
 from pc_agent.tests.runtime.test_headless_lifecycle import _Executor, _settings
 
+DEVICE_ID = "00000000-0000-4000-8000-000000000001"
+
+
+def _skip_initial_sleep(sleep):
+    first = True
+    async def scheduled_sleep(delay):
+        nonlocal first
+        if first:
+            first = False
+            assert 0 <= delay <= 15
+            return
+        await sleep(delay)
+    return scheduled_sleep
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("http_status,status,authenticated", [
+    (204, "idle", True), (503, "unavailable", False), (404, "unavailable", False),
+])
+async def test_composed_https_check_retains_actual_adapter_provenance(tmp_path, monkeypatch, http_status, status, authenticated):
+    from pc_agent.tests.test_update_adapter import _Response
+    settings = replace(_settings(tmp_path), transport_mode="gateway_wss")
+    settings.install_root.mkdir()
+    (settings.install_root / "current.json").write_text('{"version":"3.2.1"}')
+    class Session:
+        def __init__(self, **_):
+            pass
+        async def __aenter__(self):
+            return self
+        async def __aexit__(self, *_):
+            pass
+        def get(self, url, *, headers, allow_redirects):
+            assert url.endswith("/agent/v1/updates/recommendation?platform=windows_amd64&channel=canary")
+            assert headers == {"Authorization": "Bearer fixture-credential"}
+            assert allow_redirects is False
+            return _Response(http_status, "")
+    monkeypatch.setattr(application.ssl, "create_default_context", lambda **_: object())
+    monkeypatch.setattr(application.aiohttp, "TCPConnector", lambda **_: object())
+    monkeypatch.setattr(application.aiohttp, "ClientSession", Session)
+    result = await application._run_windows_update_check(settings, "fixture-credential")
+    assert result.status == status
+    assert result.authenticated_check is authenticated
+
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("failure", ["capacity", "extract"])
@@ -40,7 +83,7 @@ async def test_disk_rejected_offline_worker_preserves_connected_root_lifecycle(t
         verifier=SimpleNamespace(verify=lambda *_: True), confirmation=SimpleNamespace(is_confirmed=lambda **_: True))
     online = WindowsOnlineUpdateRuntime(adapter=_Adapter(None), paths=paths, acl=OnlineAcl(), download=None)
     async def check():
-        return (await online.run_once()).status
+        return await online.run_once()
     async def report():
         return False
     async def sleep(delay):
@@ -51,8 +94,8 @@ async def test_disk_rejected_offline_worker_preserves_connected_root_lifecycle(t
         async def receive(self):
             connected.set()
             await asyncio.Future()
-    supervisor = WindowsRecoveryUpdateSupervisor(check=check, report=report,
-        trigger=lambda: results.append(worker.run_once().status), sleep=sleep)
+    supervisor = WindowsRecoveryUpdateSupervisor(device_id=DEVICE_ID, check=check, report=report,
+        trigger=lambda: results.append(worker.run_once().status), sleep=_skip_initial_sleep(sleep))
     deps = replace(_dependencies(events, []), create_transport=lambda *_: Connected(events),
         create_service_tasks=lambda *_: (supervisor.run(),))
     with monkeypatch.context() as patch:
@@ -107,9 +150,10 @@ async def test_root_supervisor_reaches_stopped_interrupted_worker_and_active_pol
     running = True
     polls = 0
     async def check():
-        status = (await online.run_once()).status
-        statuses.append(status)
-        return status
+        result = await online.run_once()
+        assert result.authenticated_check is False
+        statuses.append(result.status)
+        return result
     async def report():
         return False
     def trigger():
@@ -135,7 +179,7 @@ async def test_root_supervisor_reaches_stopped_interrupted_worker_and_active_pol
         async def receive(self):
             connected.set()
             await asyncio.Future()
-    supervisor = WindowsRecoveryUpdateSupervisor(check=check, report=report, trigger=trigger, sleep=sleep)
+    supervisor = WindowsRecoveryUpdateSupervisor(device_id=DEVICE_ID, check=check, report=report, trigger=trigger, sleep=_skip_initial_sleep(sleep))
     deps = replace(_dependencies(events, []), create_transport=lambda *_: Connected(events),
         create_service_tasks=lambda *_: (supervisor.run(),))
     task = asyncio.create_task(RuntimeLifecycle(_settings(tmp_path), deps, RuntimeStatus()).run())
@@ -259,10 +303,20 @@ async def test_windows_checks_updates_before_any_successful_wss(monkeypatch, tmp
     checks = []
     events = []
     connected = []
+    settings.data_root.mkdir(parents=True)
+    (settings.data_root / "enrollment-identity.json").write_text(
+        '{"schema_version":"endpoint_enrollment_identity_v1","device_id":"' + DEVICE_ID + '"}')
+    checked = asyncio.Event()
+    from pc_agent.platform.windows import update_supervisor
+    original = update_supervisor.WindowsRecoveryUpdateSupervisor
+    monkeypatch.setattr(update_supervisor, "WindowsRecoveryUpdateSupervisor",
+        lambda **kwargs: original(**kwargs, sleep=_skip_initial_sleep(asyncio.sleep)))
 
     async def check(_settings, _credential):
         checks.append("recommendation")
-        return "idle"
+        checked.set()
+        from pc_agent.platform.windows.online_update_runtime import WindowsOnlineUpdateResult
+        return WindowsOnlineUpdateResult("idle", authenticated_check=True)
 
     async def report(*_args):
         return False
@@ -280,14 +334,13 @@ async def test_windows_checks_updates_before_any_successful_wss(monkeypatch, tmp
         load_credential=lambda _: "c" * 43,
         create_executor=lambda: _Executor(events),
         create_transport=lambda *_: Unavailable(),
-        load_hello=lambda _: application.compatibility_agent_hello(),
         after_server_handshake=lambda _: connected.append(True),
         create_canary_status_writer=lambda _: None,
         create_tray_status_writer=lambda _: None,
         reconnect_delay=0.01,
     )
     task = asyncio.create_task(RuntimeLifecycle(settings, deps, RuntimeStatus()).run())
-    await asyncio.sleep(0.08)
+    await asyncio.wait_for(checked.wait(), 1)
     task.cancel()
     await asyncio.gather(task, return_exceptions=True)
     assert not connected
@@ -418,15 +471,15 @@ async def test_broken_wss_real_stager_fetches_acks_validates_and_hands_off(tmp_p
         return hashlib.sha256(payload).hexdigest(), len(payload)
     online = WindowsOnlineUpdateRuntime(adapter=adapter, paths=paths, acl=_Acl(), download=download)
     async def check():
-        return (await online.run_once()).status
+        return await online.run_once()
     trigger = []
     triggered = asyncio.Event()
     loop = asyncio.get_running_loop()
     def trigger_worker():
         trigger.append(True)
         loop.call_soon_threadsafe(triggered.set)
-    supervisor = WindowsRecoveryUpdateSupervisor(check=check,
-        report=online.report_startup_outcome, trigger=trigger_worker)
+    supervisor = WindowsRecoveryUpdateSupervisor(device_id=DEVICE_ID, check=check,
+        report=online.report_startup_outcome, trigger=trigger_worker, sleep=_skip_initial_sleep(asyncio.sleep))
     events = []
     class Broken:
         async def connect(self, _hello):
@@ -503,6 +556,65 @@ async def test_protocol_failure_retries_with_same_supervisor_until_control_recov
     assert await RuntimeLifecycle(_settings(tmp_path), deps, status).run() == 0
     assert status.reconnect_attempts == 1
     assert created == cancelled == [True]
+
+
+@pytest.mark.asyncio
+async def test_canonical_identity_loaded_once_for_root_across_reconnect_and_equal_setup_rerun(tmp_path, monkeypatch):
+    from pc_agent.enrollment_identity import serialize_enrollment_identity
+    from pc_agent.platform.windows import setup_entry, update_supervisor
+    from pc_agent.tests.runtime.test_headless_lifecycle import _dependencies, _Transport
+    settings = replace(_settings(tmp_path), transport_mode="gateway_wss")
+    settings.data_root.mkdir(parents=True)
+    identity_path = settings.data_root / "enrollment-identity.json"
+    identity_path.write_bytes(serialize_enrollment_identity(DEVICE_ID))
+    reads, starts, stopped, attempts = [], [], [], []
+    original_read = application.read_enrollment_device_id
+    def read(path):
+        reads.append(path)
+        return original_read(path)
+    monkeypatch.setattr(application, "read_enrollment_device_id", read)
+    monkeypatch.setattr(setup_entry, "_msi_reconciliation_required", lambda *_: False)
+    real_supervisor = update_supervisor.WindowsRecoveryUpdateSupervisor
+    class ObservedSupervisor(real_supervisor):
+        async def run(self):
+            starts.append(self)
+            try:
+                await super().run()
+            finally:
+                stopped.append(self)
+    async def sleep(_delay):
+        await asyncio.sleep(0)
+    monkeypatch.setattr(update_supervisor, "WindowsRecoveryUpdateSupervisor",
+        lambda **kwargs: ObservedSupervisor(**kwargs, sleep=sleep))
+    async def check(*_):
+        from pc_agent.platform.windows.online_update_runtime import WindowsOnlineUpdateResult
+        return WindowsOnlineUpdateResult("idle", authenticated_check=True)
+    async def report(*_):
+        return False
+    monkeypatch.setattr(application, "_run_windows_update_check", check)
+    monkeypatch.setattr(application, "_run_windows_startup_report", report)
+    events = []
+    class Reconnect(_Transport):
+        async def connect(self, hello):
+            attempts.append(str(hello.device_id))
+            assert not setup_entry._setup_msi_required("3.2.82", "3.2.82",
+                installation_valid=True, msi_path=tmp_path / "EndpointAgent.msi")
+            # A subsequent read would observe another identity: neither WSS
+            # reconnect nor an equal-package Setup decision may reload it.
+            identity_path.write_bytes(serialize_enrollment_identity(
+                "00000000-0000-4000-8000-000000000002"))
+            if len(attempts) < 3:
+                raise GatewayTransportUnavailable()
+            return await super().connect(hello)
+    deps = replace(_dependencies(events, [None]), load_hello=application._load_hello,
+        create_transport=lambda *_: Reconnect(events), sleep=sleep,
+        create_service_tasks=application._create_service_tasks)
+    assert await RuntimeLifecycle(settings, deps, RuntimeStatus()).run() == 0
+    assert reads == [identity_path]
+    assert attempts == [DEVICE_ID] * 3
+    assert len(starts) == 1
+    assert stopped == starts
+    assert starts[0]._device_id == DEVICE_ID
 
 
 @pytest.mark.asyncio

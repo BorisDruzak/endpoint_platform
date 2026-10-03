@@ -47,7 +47,7 @@ class UpdatePending(Exception):
     """A service-owned update supervisor requests controlled root shutdown."""
 
 
-def _no_service_tasks(_settings, _credential, _publish):
+def _no_service_tasks(_settings, _credential, _hello, _publish):
     return ()
 
 
@@ -156,7 +156,7 @@ class RuntimeDependencies:
     reconnect_delay: float = 5.0
     recover_protocol_errors: bool = False
     create_service_tasks: Callable[
-        [object, str, Callable[[str], None]], Iterable[Awaitable[None]]
+        [object, str, AgentHelloV1, Callable[[str], None]], Iterable[Awaitable[None]]
     ] = _no_service_tasks
 
 
@@ -228,7 +228,7 @@ class RuntimeLifecycle:
             service_tasks = {
                 asyncio.ensure_future(task)
                 for task in self._dependencies.create_service_tasks(
-                    self._settings, credential, publish_update
+                    self._settings, credential, hello, publish_update
                 )
             }
             if tray_status_writer is not None:

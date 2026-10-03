@@ -688,13 +688,15 @@ def test_windows_wss_runtime_does_not_start_the_linux_update_poller(tmp_path: Pa
 
 
 def test_windows_has_one_service_update_owner_outside_connected_tasks(tmp_path):
+    from uuid import UUID
     from pc_agent.runtime import application
     settings = application.RuntimeSettings(
         data_root=tmp_path / "data", install_root=tmp_path / "install",
         ca_file=tmp_path / "ca.crt", endpoint_origin=_ORIGIN,
         transport_mode="gateway_wss")
     deps = application._default_dependencies()
-    service_tasks = tuple(deps.create_service_tasks(settings, "c" * 43, lambda _: None))
+    hello = application.compatibility_agent_hello().model_copy(update={"device_id": UUID("00000000-0000-4000-8000-000000000001")})
+    service_tasks = tuple(deps.create_service_tasks(settings, "c" * 43, hello, lambda _: None))
     websocket = object.__new__(application.WebSocketGatewayTransport)
     connected = tuple(deps.create_connected_tasks(settings, "c" * 43, websocket))
     try:
@@ -723,11 +725,16 @@ async def test_windows_update_task_reports_a_confirmed_startup_before_polling(
         events.append("report")
         return True
 
-    async def check(_settings, _credential) -> str:
+    async def check(_settings, _credential):
         events.append("check")
-        return "idle"
+        from pc_agent.platform.windows.online_update_runtime import WindowsOnlineUpdateResult
+        return WindowsOnlineUpdateResult("idle", authenticated_check=True)
 
     async def stop_after_interval(_delay: float) -> None:
+        if not events:
+            assert 0 <= _delay <= 15
+            events.append("initial")
+            return
         events.append("sleep")
         raise asyncio.CancelledError()
 
@@ -736,11 +743,12 @@ async def test_windows_update_task_reports_a_confirmed_startup_before_polling(
     with pytest.raises(asyncio.CancelledError):
         from pc_agent.platform.windows.update_supervisor import WindowsRecoveryUpdateSupervisor
         await WindowsRecoveryUpdateSupervisor(
+            device_id="00000000-0000-4000-8000-000000000001",
             check=lambda: check(settings, "d" * 43),
             report=lambda: report(settings, "d" * 43),
             trigger=lambda: None, sleep=stop_after_interval,
         ).run()
-    assert events == ["report", "check", "sleep"]
+    assert events == ["initial", "report", "check", "sleep"]
 
 
 @pytest.mark.asyncio
