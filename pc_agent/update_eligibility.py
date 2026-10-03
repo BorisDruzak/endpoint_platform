@@ -66,5 +66,3 @@ def _compare_prerelease(
     if len(candidate) == len(installed):
         return 0
     return 1 if len(candidate) > len(installed) else -1
-
-
