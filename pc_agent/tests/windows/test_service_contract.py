@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import builtins
-import importlib
 import sys
 import threading
 import time
@@ -161,24 +159,33 @@ def test_service_boundary_imports_without_desktop_or_ui_access(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A service import that reaches Qt or the desktop cannot run before logon."""
-    forbidden = ("PySide6", "qasync", "pc_agent.ui_gui", "pc_agent.ui_bridge")
-    original_import = builtins.__import__
+    import subprocess
+    code = r"""
+import builtins
+import importlib
+import sys
+forbidden = ("PySide6", "qasync", "pc_agent.ui_gui", "pc_agent.ui_bridge")
+original_import = builtins.__import__
 
-    def guarded_import(name, *args, **kwargs):
-        if any(name == item or name.startswith(f"{item}.") for item in forbidden):
-            raise AssertionError(f"desktop import attempted: {name}")
-        return original_import(name, *args, **kwargs)
+def guarded_import(name, *args, **kwargs):
+    if any(name == item or name.startswith(f"{item}.") for item in forbidden):
+        raise AssertionError(f"desktop import attempted: {name}")
+    return original_import(name, *args, **kwargs)
 
-    for name in list(sys.modules):
-        if name == "pc_agent.platform.windows" or name.startswith(
-            "pc_agent.platform.windows."
-        ):
-            sys.modules.pop(name)
-    monkeypatch.setattr(builtins, "__import__", guarded_import)
+for name in list(sys.modules):
+    if name == "pc_agent.platform.windows" or name.startswith(
+        "pc_agent.platform.windows."
+    ):
+        sys.modules.pop(name)
+builtins.__import__ = guarded_import
 
-    service = importlib.import_module("pc_agent.platform.windows.service")
+service = importlib.import_module("pc_agent.platform.windows.service")
 
-    assert service.SERVICE_ACCOUNT == "NT AUTHORITY\\LocalService"
+assert service.SERVICE_ACCOUNT == "NT AUTHORITY\\LocalService"
+
+"""
+    result = subprocess.run([sys.executable, "-B", "-c", code], capture_output=True, text=True, timeout=20)
+    assert result.returncode == 0, result.stdout + result.stderr
 
 
 def test_headless_entrypoint_exposes_exact_windows_service_modes(
@@ -412,3 +419,28 @@ def test_safe_status_mode_reports_invalid_setup_without_requiring_a_ca_argument(
 
     assert runtime_main.main(["--print-safe-status"]) == 0
     assert len(observed) == 1
+
+
+def test_import_boundary_keeps_retained_transaction_callers_isolated():
+    """Inspect names in a child; never open the canonical object, even on failure."""
+    import subprocess
+    code = r"""
+import importlib
+from pytest import MonkeyPatch
+from pc_agent.platform.windows import update_transaction as old, setup_entry
+from pc_agent import update_adapter
+from pc_agent.tests.windows.test_service_contract import test_service_boundary_imports_without_desktop_or_ui_access
+first = MonkeyPatch()
+first.setattr(old, '_MUTEX_NAME', r'Local\ReviewFirst')
+test_service_boundary_imports_without_desktop_or_ui_access(first)
+first.undo()
+fresh = importlib.import_module('pc_agent.platform.windows.update_transaction')
+second = MonkeyPatch()
+second.setattr(fresh, '_MUTEX_NAME', r'Local\ReviewSecond')
+assert old is fresh, 'import boundary replaced retained transaction module'
+for function in (setup_entry.update_transaction, update_adapter.update_transaction):
+    assert function.__wrapped__.__globals__['_MUTEX_NAME'] == r'Local\ReviewSecond'
+second.undo()
+"""
+    result = subprocess.run([sys.executable, "-B", "-c", code], capture_output=True, text=True, timeout=20)
+    assert result.returncode == 0, result.stdout + result.stderr

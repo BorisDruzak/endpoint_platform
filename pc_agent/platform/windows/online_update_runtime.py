@@ -239,38 +239,41 @@ class WindowsOnlineUpdateRuntime:
 
     async def _report_startup_outcome(self) -> bool:
         """Report a durable updater outcome or a post-handshake applied proof."""
-        if self._paths.transition_path.exists() or self._paths.transition_path.is_symlink():
-            # The worker finishes/reconciles this operation's selector metadata
-            # before an HTTP ACK/report can consume its lifecycle state.
-            return False
-        try:
-            current = _load_current_version(self._paths.current_path)
-        except ValueError:
-            return False
         outcome_path = self._paths.updates_root / _TERMINAL_OUTCOME_FILENAME
-        if outcome_path.exists():
-            try:
-                outcome = json.loads(outcome_path.read_text(encoding="utf-8"))
-                status = outcome.get("status") if isinstance(outcome, dict) else None
-                safe_code = outcome.get("safe_code") if isinstance(outcome, dict) else None
-                if (
-                    not isinstance(outcome, dict)
-                    or set(outcome) != _TERMINAL_OUTCOME_FIELDS
-                    or not isinstance(outcome.get("operation_id"), str)
-                    or outcome.get("reported_version") != current
-                    or status not in _TERMINAL_OUTCOME_CODES
-                    or safe_code != _TERMINAL_OUTCOME_CODES[status]
-                ):
-                    return False
-            except (OSError, TypeError, json.JSONDecodeError):
+        outcome = None
+        # Capture all cleanup authority coherently before releasing for HTTP.
+        with update_transaction(self._paths, timeout_ms=0):
+            if self._paths.transition_path.exists() or self._paths.transition_path.is_symlink():
+                # The worker finishes/reconciles this operation's selector metadata
+                # before an HTTP ACK/report can consume its lifecycle state.
                 return False
-            with update_transaction(self._paths, timeout_ms=0):
+            try:
+                current = _load_current_version(self._paths.current_path)
+            except ValueError:
+                return False
+            if outcome_path.exists():
+                try:
+                    outcome = json.loads(outcome_path.read_text(encoding="utf-8"))
+                    status = outcome.get("status") if isinstance(outcome, dict) else None
+                    safe_code = outcome.get("safe_code") if isinstance(outcome, dict) else None
+                    if (
+                        not isinstance(outcome, dict)
+                        or set(outcome) != _TERMINAL_OUTCOME_FIELDS
+                        or not isinstance(outcome.get("operation_id"), str)
+                        or outcome.get("reported_version") != current
+                        or status not in _TERMINAL_OUTCOME_CODES
+                        or safe_code != _TERMINAL_OUTCOME_CODES[status]
+                    ):
+                        return False
+                except (OSError, TypeError, json.JSONDecodeError):
+                    return False
                 pending_before = None
                 if self._paths.pending_path.exists():
                     with self._paths.pending_path.open("rb") as pending_file:
                         pending_before = pending_file.read(16 * 1024 + 1)
                 if pending_before is not None and len(pending_before) > 16 * 1024:
                     return False
+        if outcome is not None:
             scheduled = await self._adapter.retry_scheduled_acknowledgement(outcome["operation_id"])
             if not scheduled and status == "rolled_back":
                 return False
@@ -287,7 +290,8 @@ class WindowsOnlineUpdateRuntime:
                 with update_transaction(self._paths, timeout_ms=0):
                     if (self._paths.transition_path.exists()
                         or _load_current_version(self._paths.current_path) != current
-                        or (outcome_path.exists() and json.loads(outcome_path.read_text(encoding="utf-8")) != outcome)):
+                        or not outcome_path.exists()
+                        or json.loads(outcome_path.read_text(encoding="utf-8")) != outcome):
                         return False
                     if self._paths.pending_path.exists():
                         with self._paths.pending_path.open("rb") as pending_file:

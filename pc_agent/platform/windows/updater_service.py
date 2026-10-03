@@ -371,6 +371,26 @@ class WindowsUpdater:
             transaction.enter_context(update_transaction(self._paths))
         except UpdateInProgress:
             return UpdateResult("update_in_progress", "UPDATE_IN_PROGRESS")
+        # A snapshot is required only across unlocked extraction/proof phases.
+        # Errors while ownership remains held recover without opening a new race.
+        held = True
+        authority = None
+
+        def release_for_work(pending):
+            nonlocal held, authority
+            authority = self._authority_snapshot(pending)
+            transaction.close()
+            held = False
+
+        def reacquire():
+            nonlocal held
+            transaction.enter_context(update_transaction(self._paths))
+            held = True
+            try:
+                return self._authority_snapshot(pending) == authority
+            except (OSError, ValueError, WindowsAclError):
+                return False
+
         previous: str | None = None
         previous_selector: dict[str, object] | None = None
         pending: PendingUpdate | None = None
@@ -420,14 +440,13 @@ class WindowsUpdater:
                 update_state="applying",
             )
             # Pending is durable authority while costly extraction runs unlocked.
-            transaction.close()
+            release_for_work(pending)
             staging = self._extract_to_staging(pending)
             bundle = _load_bundle_manifest(staging, pending)
             executable = staging / UPDATE_EXECUTABLE_NAME
             if not executable.is_file() or not self._verifier.verify(executable, pending.version):
                 raise ValueError("new version verification failed")
-            transaction.enter_context(update_transaction(self._paths))
-            if self._validator.load() != pending or _load_selector(self._paths.current_path) != previous_selector:
+            if not reacquire():
                 return UpdateResult("rejected", "update identity changed during staging")
             target = self._publish(staging, pending)
             # Existing core/retention occupies space already. Reserve only the
@@ -454,11 +473,10 @@ class WindowsUpdater:
             _write_json_atomic(self._paths.current_path, candidate_selector, trusted_root=self._paths.install_root)
             self._service.start()
             # Candidate WSS/HTTP owners must run while proof is awaited.
-            transaction.close()
-            try:
-                confirmed = self._wait_for_candidate_confirmation(pending)
-            finally:
-                transaction.enter_context(update_transaction(self._paths))
+            release_for_work(pending)
+            confirmed = self._wait_for_candidate_confirmation(pending)
+            if not reacquire():
+                return UpdateResult("rejected", "update identity changed during confirmation")
             if not confirmed:
                 result = self._rollback(
                     pending, previous, previous_selector, "startup confirmation failed"
@@ -479,8 +497,12 @@ class WindowsUpdater:
             return UpdateResult("update_in_progress", "UPDATE_IN_PROGRESS")
         except (OSError, ValueError, WindowsAclError, zipfile.BadZipFile) as error:
             # Extraction errors also mutate terminal state under the boundary.
-            transaction.close()
-            transaction.enter_context(update_transaction(self._paths))
+            if not held:
+                try:
+                    if not reacquire():
+                        return UpdateResult("rejected", "update identity changed during unlocked work")
+                except UpdateInProgress:
+                    return UpdateResult("update_in_progress", "UPDATE_IN_PROGRESS")
             if candidate_confirmed or self._proof_confirmed:
                 # Acceptance already has operation-bound WSS proof. A failed
                 # lifecycle cleanup must not switch a still-running candidate
@@ -546,6 +568,23 @@ class WindowsUpdater:
         write_json_atomic(self._paths.transition_path, self._transition,
             trusted_root=self._paths.install_root, max_bytes=16 * 1024,
             protect=lambda temporary: preserve_state_file_permissions(self._paths.current_path, temporary))
+
+    def _authority_snapshot(self, pending: PendingUpdate) -> tuple[object, ...]:
+        """Read operation, selector, transition and attempt under the transaction."""
+        actual_pending = self._validator.load()
+        if actual_pending != pending:
+            raise ValueError("pending operation changed")
+        attempt_path = self._paths.updates_root / "startup-attempt.json"
+        attempt = None
+        if attempt_path.exists() or attempt_path.is_symlink():
+            _reject_reparse_chain(self._paths.updates_root, attempt_path)
+            self._validator._security.assert_update_path(attempt_path)
+            with attempt_path.open("rb") as source:
+                attempt = source.read(4097)
+            if len(attempt) > 4096:
+                raise ValueError("startup attempt exceeds bound")
+        return (actual_pending, _load_selector(self._paths.current_path),
+                _load_selector_transition(self._paths), attempt)
 
     def _prepare_transition(self, pending: PendingUpdate, candidate: dict[str, object]) -> None:
         _reject_reparse_chain(self._paths.install_root, self._paths.current_path)

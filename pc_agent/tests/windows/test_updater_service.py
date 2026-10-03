@@ -1492,3 +1492,88 @@ with t.update_transaction(WindowsUpdatePaths(Path(sys.argv[2]),Path(sys.argv[3])
     service=SimpleNamespace(stop=lambda:None,start=lambda:None,wait_stopped=lambda:True,crashed_early=lambda:False)
     worker=updater_service.WindowsUpdater(paths,acl=_Acl(),service=service,verifier=SimpleNamespace(verify=lambda *_:True),confirmation=SimpleNamespace(is_confirmed=confirmed))
     assert worker.run_once().status=='applied'
+
+
+@pytest.mark.parametrize("phase", ["staging", "staging_error", "proof", "proof_error"])
+@pytest.mark.parametrize("newer", [False, True])
+def test_superseded_worker_preserves_successful_owner_state(tmp_path, monkeypatch, phase, newer):
+    from pc_agent.platform.windows import updater_service as module
+    paths = _paths(tmp_path)
+    artifact = _artifact(paths.downloads_root / "candidate.zip")
+    _pending(paths, artifact)
+    paths.install_root.mkdir()
+    paths.current_path.write_text('{"version":"3.1.9"}')
+
+    def worker():
+        return module.WindowsUpdater(paths, acl=_Acl(), service=SimpleNamespace(
+            stop=lambda: None, start=lambda: None, wait_stopped=lambda: True,
+            crashed_early=lambda: False), verifier=SimpleNamespace(verify=lambda *_: True),
+            confirmation=SimpleNamespace(is_confirmed=lambda **_: True))
+
+    first, second = worker(), worker()
+    preserved = {}
+
+    def competing_owner():
+        assert second.run_once().status == "applied"
+        if newer:
+            _pending(paths, artifact, operation_id="7c141250-2bba-455c-a957-c1b14cdd99c0")
+            # A later owner's state must be untouched even if not parseable by this worker.
+            paths.transition_path.write_text('{"newer":"transition"}')
+            (paths.updates_root / "startup-attempt.json").write_text('{"attempt_id":"newer"}')
+        for path in (paths.current_path, paths.pending_path, paths.transition_path,
+                     paths.updates_root / "startup-attempt.json"):
+            preserved[path] = path.read_bytes() if path.exists() else None
+
+    if phase.startswith("staging"):
+        extract = first._extract_to_staging
+        def interleaved(pending):
+            staging = extract(pending)
+            competing_owner()
+            if phase.endswith("error"):
+                raise ValueError("old extraction failed")
+            return staging
+        monkeypatch.setattr(first, "_extract_to_staging", interleaved)
+    else:
+        def interleaved(pending):
+            competing_owner()
+            if phase.endswith("error"):
+                raise ValueError("old proof failed")
+            return True
+        monkeypatch.setattr(first, "_wait_for_candidate_confirmation", interleaved)
+
+    assert first.run_once().status == "rejected"
+    assert not (paths.updates_root / "terminal-outcome.json").exists()
+    for path, expected in preserved.items():
+        assert (path.read_bytes() if path.exists() else None) == expected
+
+
+@pytest.mark.parametrize("changed", ["selector", "transition", "attempt"])
+def test_proof_acceptance_requires_unchanged_authority(tmp_path, monkeypatch, changed):
+    from pc_agent.platform.windows import updater_service as module
+    paths = _paths(tmp_path)
+    artifact = _artifact(paths.downloads_root / "candidate.zip")
+    _pending(paths, artifact)
+    paths.install_root.mkdir()
+    paths.current_path.write_text('{"version":"3.1.9"}')
+    service = SimpleNamespace(stop=lambda: None, start=lambda: None,
+                              wait_stopped=lambda: True, crashed_early=lambda: False)
+    worker = module.WindowsUpdater(paths, acl=_Acl(), service=service,
+        verifier=SimpleNamespace(verify=lambda *_: True))
+    preserved = {}
+
+    def confirmation(pending):
+        with module.update_transaction(paths):
+            path = {"selector": paths.current_path, "transition": paths.transition_path,
+                    "attempt": paths.updates_root / "startup-attempt.json"}[changed]
+            state = json.loads(path.read_text())
+            state["source_revision" if changed == "selector" else "attempt_id"] = "b" * (40 if changed == "selector" else 32)
+            path.write_text(json.dumps(state))
+            for leaf in (paths.current_path, paths.pending_path, paths.transition_path,
+                         paths.updates_root / "startup-attempt.json", paths.restore_path):
+                preserved[leaf] = leaf.read_bytes()
+        return True
+
+    monkeypatch.setattr(worker, "_wait_for_candidate_confirmation", confirmation)
+    assert worker.run_once().status == "rejected"
+    assert not (paths.updates_root / "terminal-outcome.json").exists()
+    assert all(leaf.read_bytes() == expected for leaf, expected in preserved.items())

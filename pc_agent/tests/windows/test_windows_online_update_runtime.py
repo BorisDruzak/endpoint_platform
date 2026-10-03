@@ -436,3 +436,39 @@ async def test_terminal_report_cleanup_preserves_new_pending_from_other_owner(tm
     runtime=WindowsOnlineUpdateRuntime(adapter=Adapter(None),paths=paths,acl=_Acl(),download=None)
     assert not await runtime.report_startup_outcome()
     assert json.loads(paths.pending_path.read_text())==next_pending
+
+
+@pytest.mark.asyncio
+async def test_terminal_report_snapshot_does_not_borrow_newer_pending(tmp_path, monkeypatch):
+    from contextlib import contextmanager
+    from pc_agent.platform.windows import online_update_runtime as online
+    from pc_agent.platform.windows.online_update_runtime import WindowsOnlineUpdateRuntime
+    from pc_agent.platform.windows.update_paths import WindowsUpdatePaths
+    paths = WindowsUpdatePaths(tmp_path / "install", tmp_path / "data/updates/pending_update.json")
+    paths.install_root.mkdir()
+    paths.updates_root.mkdir(parents=True)
+    paths.current_path.write_text('{"version":"3.2.79"}')
+    outcome = paths.updates_root / "terminal-outcome.json"
+    outcome.write_text(json.dumps(dict(operation_id=_OPERATION_ID, reported_version="3.2.79", status="failed", safe_code="launcher_apply_failed")))
+    paths.pending_path.write_text(json.dumps(dict(operation_id=_OPERATION_ID, version="3.2.80")))
+    newer = {"operation_id": "b" * 32, "version": "3.2.82"}
+    original = online.update_transaction
+    first = True
+
+    @contextmanager
+    def interleaved(*args, **kwargs):
+        nonlocal first
+        if first:
+            first = False
+            with original(*args, **kwargs):
+                outcome.unlink()
+                paths.pending_path.write_text(json.dumps(newer))
+        with original(*args, **kwargs):
+            yield
+
+    monkeypatch.setattr(online, "update_transaction", interleaved)
+    adapter = _Adapter(None)
+    runtime = WindowsOnlineUpdateRuntime(adapter=adapter, paths=paths, acl=_Acl(), download=None)
+    assert not await runtime.report_startup_outcome()
+    assert json.loads(paths.pending_path.read_text()) == newer
+    assert adapter.calls == []
