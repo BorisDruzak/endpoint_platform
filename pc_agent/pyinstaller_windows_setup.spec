@@ -25,6 +25,9 @@ setup_config = _public_payload("ENDPOINT_SETUP_CONFIG", "setup-config.json")
 setup_msi_release_manifest = _public_payload(
     "ENDPOINT_SETUP_MSI_RELEASE_MANIFEST", "EndpointAgent.release.json"
 )
+setup_version_file = _public_payload(
+    "ENDPOINT_SETUP_VERSION_FILE", "setup-version-info.txt"
+)
 setup_installer_wrapper = project_root / "packaging" / "windows" / "Install-EndpointAgentCanary.ps1"
 if not setup_installer_wrapper.is_file():
     raise SystemExit("Install-EndpointAgentCanary.ps1 is required for a Windows Setup build")
@@ -62,4 +65,5 @@ exe = EXE(
     console=False,
     disable_windowed_traceback=False,
     uac_admin=True,
+    version=str(setup_version_file),
 )

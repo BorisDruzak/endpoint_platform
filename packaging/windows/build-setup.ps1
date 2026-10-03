@@ -30,6 +30,81 @@ function Assert-SemVerTriplet {
     }
 }
 
+function Resolve-SetupSourceVersion {
+    param([Parameter(Mandatory)][string]$SourcePath, [string]$ExplicitVersion)
+    $versionText = [IO.File]::ReadAllText($SourcePath)
+    $match = [regex]::Match($versionText, 'AGENT_VERSION\s*=\s*"([^"]+)"')
+    if (-not $match.Success) { throw "Could not read AGENT_VERSION." }
+    $sourceVersion = $match.Groups[1].Value
+    Assert-SemVerTriplet -Value $sourceVersion
+    foreach ($component in $sourceVersion.Split('.')) {
+        $number = 0
+        if (-not [int]::TryParse($component, [ref]$number) -or $number -gt 65535) {
+            throw "Setup version components must fit 16-bit PE VERSIONINFO fields."
+        }
+    }
+    if ($ExplicitVersion) {
+        Assert-SemVerTriplet -Value $ExplicitVersion
+        if ($ExplicitVersion -ne $sourceVersion) {
+            throw "Explicit Setup version must match source AGENT_VERSION."
+        }
+    }
+    return $sourceVersion
+}
+
+function Write-SetupVersionResource {
+    param([Parameter(Mandatory)][string]$Version, [Parameter(Mandatory)][string]$Path)
+    $parts = @($Version.Split('.') | ForEach-Object { [int]$_ })
+    # PE fixed fields have four 16-bit components; display strings use source triplet.
+    $content = @"
+VSVersionInfo(
+    ffi=FixedFileInfo(
+        filevers=($($parts[0]), $($parts[1]), $($parts[2]), 0),
+        prodvers=($($parts[0]), $($parts[1]), $($parts[2]), 0),
+        mask=0x3f, flags=0x0, OS=0x40004, fileType=0x1,
+        subtype=0x0, date=(0, 0),
+    ),
+    kids=[
+        StringFileInfo([
+            StringTable('040904B0', [
+                StringStruct('CompanyName', 'Endpoint Platform'),
+                StringStruct('FileDescription', 'Endpoint Agent Setup'),
+                StringStruct('FileVersion', '$Version'),
+                StringStruct('InternalName', 'EndpointAgentSetup'),
+                StringStruct('OriginalFilename', 'EndpointAgentSetup.exe'),
+                StringStruct('ProductName', 'Endpoint Agent'),
+                StringStruct('ProductVersion', '$Version'),
+            ]),
+        ]),
+        VarFileInfo([VarStruct('Translation', [1033, 1200])]),
+    ],
+)
+"@
+    [IO.File]::WriteAllText($Path, $content, [Text.UTF8Encoding]::new($false))
+}
+
+function Assert-SetupSigningInputs {
+    param([string]$Thumbprint, [string]$Timestamp)
+    $hasSigner = -not [string]::IsNullOrWhiteSpace($Thumbprint)
+    $hasTimestamp = -not [string]::IsNullOrWhiteSpace($Timestamp)
+    if ($hasSigner -ne $hasTimestamp) {
+        throw "Code-signing certificate and timestamp must be supplied together."
+    }
+    if (-not $hasSigner) { return }
+    if ($Thumbprint -notmatch '^[A-Fa-f0-9]{40}$') {
+        throw "Code-signing certificate thumbprint is invalid."
+    }
+    $timestampUri = $null
+    if (
+        -not [Uri]::TryCreate($Timestamp, [UriKind]::Absolute, [ref]$timestampUri) -or
+        $timestampUri.Scheme -ne 'http' -or
+        [string]::IsNullOrWhiteSpace($timestampUri.Host) -or
+        $timestampUri.UserInfo -or $timestampUri.Fragment
+    ) {
+        throw "Authenticode timestamp server must be an absolute HTTP URI without user info or fragment."
+    }
+}
+
 function Write-Utf8NoBom {
     param([Parameter(Mandatory)][string]$Path, [Parameter(Mandatory)][string]$Content)
     [IO.File]::WriteAllText($Path, $Content, [Text.UTF8Encoding]::new($false))
@@ -50,19 +125,18 @@ function Set-SetupAuthenticodeSignature {
         [string]$Thumbprint,
         [string]$Timestamp
     )
+    Assert-SetupSigningInputs -Thumbprint $Thumbprint -Timestamp $Timestamp
     if (-not $Thumbprint) { return }
-    if ($Thumbprint -notmatch '^[A-Fa-f0-9]{40}$') {
-        throw "Code-signing certificate thumbprint is invalid."
-    }
-    if ($Timestamp -and -not $Timestamp.StartsWith('https://', [StringComparison]::OrdinalIgnoreCase)) {
-        throw "Authenticode timestamp server must use HTTPS."
-    }
     $certificate = Get-ChildItem -LiteralPath ("Cert:\\CurrentUser\\My\\" + $Thumbprint)
     if (-not $certificate -or -not $certificate.HasPrivateKey) {
         throw "Code-signing certificate is unavailable."
     }
-    $parameters = @{ FilePath = $Path; Certificate = $certificate }
-    if ($Timestamp) { $parameters.TimestampServer = $Timestamp }
+    $parameters = @{
+        LiteralPath = $Path
+        Certificate = $certificate
+        HashAlgorithm = 'SHA256'
+        TimestampServer = $Timestamp
+    }
     for ($attempt = 1; $attempt -le 5; $attempt++) {
         try {
             $null = Set-AuthenticodeSignature @parameters
@@ -75,9 +149,9 @@ function Set-SetupAuthenticodeSignature {
             Start-Sleep -Milliseconds (1000 * $attempt)
         }
     }
-    $verified = Get-AuthenticodeSignature -FilePath $Path
+    $verified = Get-AuthenticodeSignature -LiteralPath $Path
     if ($verified.Status -ne 'Valid') { throw "Authenticode signing failed." }
-    if ($Timestamp -and -not $verified.TimeStamperCertificate) {
+    if (-not $verified.TimeStamperCertificate) {
         throw "Authenticode timestamp failed."
     }
 }
@@ -126,6 +200,7 @@ function Resolve-VerifiedExistingMsi {
     }
 }
 
+Assert-SetupSigningInputs -Thumbprint $CodeSigningCertificateThumbprint -Timestamp $TimestampServer
 $repositoryRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..'))
 $packagingRoot = [IO.Path]::GetFullPath($PSScriptRoot)
 $setupWrapperSource = Join-Path $PSScriptRoot 'Install-EndpointAgentCanary.ps1'
@@ -137,13 +212,9 @@ $sourceCommit = (& git -C $repositoryRoot rev-parse HEAD).Trim()
 if ($LASTEXITCODE -ne 0 -or $sourceCommit -notmatch '^[0-9a-f]{40}$') {
     throw "Could not determine release source commit."
 }
-if (-not $Version) {
-    $versionText = [IO.File]::ReadAllText((Join-Path $repositoryRoot 'pc_agent\version.py'))
-    $match = [regex]::Match($versionText, 'AGENT_VERSION\s*=\s*"([^"]+)"')
-    if (-not $match.Success) { throw "Could not read AGENT_VERSION." }
-    $Version = $match.Groups[1].Value
-}
-Assert-SemVerTriplet -Value $Version
+$Version = Resolve-SetupSourceVersion `
+    -SourcePath (Join-Path $repositoryRoot 'pc_agent\version.py') `
+    -ExplicitVersion $Version
 if (-not (Test-Path -LiteralPath $EndpointCaFile -PathType Leaf)) {
     throw "Endpoint CA file is missing."
 }
@@ -239,6 +310,8 @@ $setupMsi = Join-Path $payloadRoot 'EndpointAgent.msi'
 $setupCa = Join-Path $payloadRoot 'endpoint-ca.crt'
 $setupConfig = Join-Path $payloadRoot 'setup-config.json'
 $setupMsiReleaseManifest = Join-Path $payloadRoot 'EndpointAgent.release.json'
+$setupVersionFile = Join-Path $setupRoot 'setup-version-info.txt'
+Write-SetupVersionResource -Version $Version -Path $setupVersionFile
 Copy-Item -LiteralPath $msiPath -Destination $setupMsi -Force
 Copy-Item -LiteralPath $EndpointCaFile -Destination $setupCa -Force
 Copy-Item -LiteralPath $releaseMsiManifestPath -Destination $setupMsiReleaseManifest -Force
@@ -253,11 +326,13 @@ $previousMsi = $env:ENDPOINT_SETUP_MSI
 $previousCa = $env:ENDPOINT_SETUP_CA_FILE
 $previousConfig = $env:ENDPOINT_SETUP_CONFIG
 $previousMsiReleaseManifest = $env:ENDPOINT_SETUP_MSI_RELEASE_MANIFEST
+$previousVersionFile = $env:ENDPOINT_SETUP_VERSION_FILE
 try {
     $env:ENDPOINT_SETUP_MSI = $setupMsi
     $env:ENDPOINT_SETUP_CA_FILE = $setupCa
     $env:ENDPOINT_SETUP_CONFIG = $setupConfig
     $env:ENDPOINT_SETUP_MSI_RELEASE_MANIFEST = $setupMsiReleaseManifest
+    $env:ENDPOINT_SETUP_VERSION_FILE = $setupVersionFile
     & $python -m PyInstaller --noconfirm --clean --distpath $distRoot --workpath $workRoot (Join-Path $repositoryRoot 'pc_agent\pyinstaller_windows_setup.spec')
     if ($LASTEXITCODE -ne 0) { throw "Windows Setup PyInstaller build failed." }
 }
@@ -266,6 +341,7 @@ finally {
     $env:ENDPOINT_SETUP_CA_FILE = $previousCa
     $env:ENDPOINT_SETUP_CONFIG = $previousConfig
     $env:ENDPOINT_SETUP_MSI_RELEASE_MANIFEST = $previousMsiReleaseManifest
+    $env:ENDPOINT_SETUP_VERSION_FILE = $previousVersionFile
 }
 $setupExe = Join-Path $distRoot 'EndpointAgentSetup.exe'
 if (-not (Test-Path -LiteralPath $setupExe -PathType Leaf)) { throw "Windows Setup executable is missing." }
