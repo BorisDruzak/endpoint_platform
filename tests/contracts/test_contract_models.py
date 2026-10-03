@@ -46,6 +46,21 @@ VALID_UPDATE_REPORT = {
 }
 
 
+def test_build_foundation_requirement_is_optional_and_manifest_only():
+    assert UpdateBuildManifestV1.model_validate(VALID_UPDATE_BUILD).minimum_launcher_version is None
+    manifest = UpdateBuildManifestV1.model_validate({
+        **VALID_UPDATE_BUILD, "minimum_launcher_version": "3.2.82",
+    })
+    assert manifest.minimum_launcher_version == "3.2.82"
+    assert "minimum_launcher_version" not in AgentUpdateRecommendationV1.model_fields
+
+
+@pytest.mark.parametrize("minimum", ["invalid", "3.02.82", "3.2.82\n", "3.2", 82])
+def test_build_rejects_invalid_foundation_requirement(minimum):
+    with pytest.raises(ValidationError):
+        UpdateBuildManifestV1.model_validate({**VALID_UPDATE_BUILD, "minimum_launcher_version": minimum})
+
+
 def valid_agent_command() -> dict[str, object]:
     return {
         "schema_version": "agent_command_v1",

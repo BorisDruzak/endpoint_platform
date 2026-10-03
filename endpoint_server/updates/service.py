@@ -7,7 +7,7 @@ from collections.abc import Awaitable, Callable, Mapping, Sequence
 from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
-from pydantic import ValidationError
+from pydantic import TypeAdapter, ValidationError
 from sqlalchemy import and_, or_, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -23,9 +23,11 @@ from endpoint_contracts.update_safety import (
     validate_no_opaque_update_secret,
     validate_public_update_prose,
 )
+from endpoint_contracts.updates import SemanticVersionV1
 from endpoint_server.audit.service import append_audit_event
 from endpoint_server.db.models import (
     Device,
+    DeviceInstance,
     UpdateBuild,
     UpdateReport,
     UpdateRollout,
@@ -44,6 +46,7 @@ _ACTIVE_TARGET_STATUSES = ("assigned", "requested", "scheduled")
 _TERMINAL_TARGET_STATUSES = ("applied", "failed", "rolled_back", "cancelled")
 _PLATFORMS = ("linux_amd64", "windows_amd64")
 _SAFE_IDENTIFIER = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
+_SEMANTIC_VERSION = TypeAdapter(SemanticVersionV1)
 
 
 def _timestamp(value: datetime | None) -> datetime:
@@ -96,10 +99,10 @@ def _manifest(
     value: UpdateBuildManifestV1 | Mapping[str, object],
 ) -> UpdateBuildManifestV1:
     try:
-        return (
-            value
+        return UpdateBuildManifestV1.model_validate(
+            value.model_dump(mode="json")
             if isinstance(value, UpdateBuildManifestV1)
-            else UpdateBuildManifestV1.model_validate(value)
+            else value
         )
     except ValidationError as error:
         raise UpdateValidationError("invalid immutable build manifest") from error
@@ -150,6 +153,7 @@ def _build_values(manifest: UpdateBuildManifestV1) -> dict[str, object]:
     return {
         "build_identifier": manifest.build_identifier,
         "version": manifest.version,
+        "minimum_launcher_version": manifest.minimum_launcher_version,
         "platform": manifest.platform,
         "channel": manifest.channel,
         "artifact_identifier": manifest.artifact_name,
@@ -738,6 +742,25 @@ async def recommendation_for_device(
     if row is None:
         return None
     target, rollout, build = row
+    if build.minimum_launcher_version is not None:
+        # Read the latest report, including unknown foundation; an older known
+        # instance must never authorize an update for the latest installation.
+        launcher_version = await session.scalar(
+            select(DeviceInstance.launcher_version)
+            .where(DeviceInstance.device_id == target.device_id)
+            .order_by(
+                DeviceInstance.last_seen_at.desc().nulls_last(),
+                DeviceInstance.id.desc(),
+            )
+            .limit(1)
+        )
+        try:
+            reported = _SEMANTIC_VERSION.validate_python(launcher_version)
+            minimum = _SEMANTIC_VERSION.validate_python(build.minimum_launcher_version)
+        except ValidationError:
+            return None
+        if _compare_semver(reported, minimum) < 0:
+            return None
     return AgentUpdateRecommendationV1(
         schema_version="agent_update_recommendation_v1",
         build_identifier=build.build_identifier,

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
 
 import pytest
@@ -24,6 +24,7 @@ import endpoint_server.updates.service as update_service_module
 from endpoint_server.db.models import (
     AuditEvent,
     Device,
+    DeviceInstance,
     UpdateBuild,
     UpdateReport,
     UpdateRollout,
@@ -96,6 +97,7 @@ async def session() -> AsyncIterator[AsyncSession]:
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
     tables = (
         Device.__table__,
+        DeviceInstance.__table__,
         UpdateBuild.__table__,
         UpdateRollout.__table__,
         UpdateTarget.__table__,
@@ -141,6 +143,7 @@ async def _build(
     platform: str = "linux_amd64",
     channel: str = "stable",
     suffix: str = "current",
+    minimum_launcher_version: str | None = None,
 ) -> UpdateBuild:
     archive_type = "zip" if platform == "windows_amd64" else "tar.gz"
     artifact_name = f"endpoint-{suffix}.{archive_type}"
@@ -155,11 +158,129 @@ async def _build(
             artifact_name=artifact_name,
             archive_type=archive_type,
             sha256=("2" if suffix == "old" else "1") * 64,
+            minimum_launcher_version=minimum_launcher_version,
         ),
         ADMIN_ID,
         f"register-{suffix}",
         now=NOW,
     )
+
+
+async def _instance(
+    session: AsyncSession,
+    device: Device,
+    launcher_version: str | None,
+    *,
+    instance_id: UUID | None = None,
+    seen_at: datetime = NOW,
+) -> DeviceInstance:
+    instance = DeviceInstance(
+        id=instance_id or uuid4(), device_id=device.id,
+        instance_identifier=uuid4().hex, agent_version="3.2.83",
+        last_seen_at=seen_at,
+        launcher_version=launcher_version,
+    )
+    session.add(instance)
+    await session.flush()
+    return instance
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("platform", ["linux_amd64", "windows_amd64"])
+@pytest.mark.parametrize(("launcher", "allowed"), [
+    ("3.2.81", False), ("3.2.82", True), (None, False),
+    ("invalid", False), ("3.02.82", False), ("3.2.82-rc.1", False),
+    ("3.2.82+build.1", True),
+])
+async def test_core83_requires_reported_foundation82(session, platform, launcher, allowed):
+    build = await _build(
+        session, version="3.2.83", platform=platform, minimum_launcher_version="3.2.82",
+    )
+    device = await _device(session, "foundation")
+    await _instance(session, device, launcher)
+    await create_rollout(session, build.id, "canary", [device.id], None,
+                         ADMIN_ID, "foundation-rollout", now=NOW)
+    recommendation = await recommendation_for_device(session, device.id, platform)
+    assert (recommendation is not None) is allowed
+    if recommendation is not None:
+        assert recommendation.version == "3.2.83"
+        assert "minimum_launcher_version" not in recommendation.model_dump()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("equal_seen", [False, True])
+async def test_latest_unknown_foundation_does_not_reuse_older_known_instance(session, equal_seen):
+    build = await _build(session, version="3.2.83", minimum_launcher_version="3.2.82")
+    device = await _device(session, "latest")
+    await _instance(session, device, "3.2.82", instance_id=UUID(int=1))
+    await _instance(session, device, None, instance_id=UUID(int=2),
+                    seen_at=NOW if equal_seen else NOW + timedelta(seconds=1))
+    await create_rollout(session, build.id, "canary", [device.id], None,
+                         ADMIN_ID, "latest-rollout", now=NOW)
+    assert await recommendation_for_device(session, device.id, "linux_amd64") is None
+
+
+@pytest.mark.asyncio
+async def test_missing_instance_cannot_receive_foundation_gated_build(session):
+    build = await _build(session, version="3.2.83", minimum_launcher_version="3.2.82")
+    device = await _device(session, "missing-instance")
+    await create_rollout(session, build.id, "canary", [device.id], None,
+                         ADMIN_ID, "missing-rollout", now=NOW)
+    assert await recommendation_for_device(session, device.id, "linux_amd64") is None
+
+
+@pytest.mark.asyncio
+async def test_foundation83_allows_rollback_to_core82(session):
+    trigger = await _build(session, version="3.2.83", suffix="trigger")
+    rollback = await _build(session, version="3.2.82", suffix="rollback",
+                            minimum_launcher_version="3.2.82")
+    device = await _device(session, "rollback-foundation")
+    await _instance(session, device, "3.2.83")
+    rollout = await create_rollout(session, trigger.id, "canary", [device.id], None,
+                                   ADMIN_ID, "trigger-rollout", now=NOW)
+    target = await session.scalar(select(UpdateTarget).where(UpdateTarget.rollout_id == rollout.id))
+    target.status = "applied"
+    target.terminal_at = NOW
+    await session.flush()
+    await create_rollback_rollout(session, rollout.id, rollback.id, [device.id],
+                                  "core rollback", ADMIN_ID, "rollback-rollout", now=NOW)
+    recommendation = await recommendation_for_device(session, device.id, "linux_amd64")
+    assert recommendation.version == "3.2.82"
+
+
+@pytest.mark.asyncio
+async def test_null_foundation_requirement_preserves_canary79(session):
+    build = await _build(session, version="3.2.79", channel="canary")
+    device = await _device(session, "legacy-foundation")
+    await create_rollout(session, build.id, "canary", [device.id], None,
+                         ADMIN_ID, "legacy-rollout", now=NOW)
+    recommendation = await recommendation_for_device(session, device.id, "linux_amd64")
+    assert recommendation.version == "3.2.79"
+    assert "minimum_launcher_version" not in recommendation.model_dump()
+
+
+@pytest.mark.asyncio
+async def test_build_minimum_foundation_is_immutable_and_projected(session):
+    from endpoint_server.updates.admin_routes import _build_response, _safe_build
+    manifest = _manifest(minimum_launcher_version="3.2.82")
+    first = await register_build(session, manifest, ADMIN_ID, "min-first", now=NOW)
+    replay = await register_build(session, manifest, ADMIN_ID, "min-replay", now=NOW)
+    assert first.id == replay.id
+    assert first.minimum_launcher_version == "3.2.82"
+    assert _build_response(first).minimum_launcher_version == "3.2.82"
+    assert _safe_build(first)["minimum_launcher_version"] == "3.2.82"
+    for minimum in ("3.2.83", None):
+        with pytest.raises(UpdateConflict):
+            await register_build(session, _manifest(minimum_launcher_version=minimum),
+                                 ADMIN_ID, "min-conflict", now=NOW)
+
+
+@pytest.mark.asyncio
+async def test_registration_revalidates_constructed_foundation_requirement(session):
+    manifest = _manifest().model_copy(update={"minimum_launcher_version": "3.02.82"})
+    with pytest.raises(UpdateValidationError, match="invalid immutable build manifest"):
+        await register_build(session, manifest, ADMIN_ID, "invalid-foundation", now=NOW)
+    assert await session.scalar(select(func.count()).select_from(UpdateBuild)) == 0
 
 
 @pytest.mark.asyncio

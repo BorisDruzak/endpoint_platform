@@ -72,6 +72,7 @@ class DeviceInstance(OwnershipRecord, Base):
     )
     instance_identifier: Mapped[str] = mapped_column(String(128), nullable=False)
     agent_version: Mapped[str] = mapped_column(String(128), nullable=False)
+    launcher_version: Mapped[str | None] = mapped_column(String(128))
     last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     last_result_sequence: Mapped[int] = mapped_column(
         BigInteger, nullable=False, default=0, server_default="0"

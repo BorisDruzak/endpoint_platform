@@ -6,6 +6,7 @@ from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
+import pytest
 from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
@@ -39,6 +40,50 @@ def _hello_envelope(device_id, capabilities: list[str]) -> dict[str, object]:
         "sequence": 0,
         "payload": hello,
     }
+
+
+@pytest.mark.parametrize("existing", [False, True])
+def test_authenticated_hello_persists_foundation_and_heartbeat_only_changes_core(
+    gateway_route_harness, existing,
+):
+    from sqlalchemy import select
+    from endpoint_server.db.models import DeviceInstance
+    provider = gateway_route_harness.provider
+    device = asyncio.run(seed_device(provider))
+    hello = _hello_envelope(device.id, ["agent.status.read"])
+    hello["payload"]["agent_version"] = "3.2.82"
+    hello["payload"]["launcher_version"] = "3.2.83+foundation.1"
+    if existing:
+        async def seed_instance():
+            async with provider() as session:
+                session.add(DeviceInstance(id=uuid4(), device_id=device.id,
+                    instance_identifier=hello["payload"]["agent_instance_id"],
+                    agent_version="3.2.81", last_seen_at=datetime(2025, 1, 1, tzinfo=UTC)))
+                await session.commit()
+        asyncio.run(seed_instance())
+    app = create_app(gateway_route_harness.settings, provider)
+    with TestClient(FixedWebSocketPeerApp(app)) as client:
+        with client.websocket_connect("/agent/v1/connect", headers=_headers()) as socket:
+            socket.send_json(hello)
+            assert socket.receive_json()["kind"] == "gateway_hello"
+            async def read_instance():
+                async with provider() as session:
+                    return await session.scalar(select(DeviceInstance).where(DeviceInstance.device_id == device.id))
+            before = asyncio.run(read_instance())
+            assert before.launcher_version == "3.2.83+foundation.1"
+            socket.send_json({
+                "schema_version": "gateway_ws_envelope_v1", "kind": "heartbeat", "sequence": 1,
+                "payload": {"schema_version": "agent_heartbeat_v1", "device_id": str(device.id),
+                            "platform": "linux", "agent_version": "3.2.82+core.2",
+                            "reported_at": "2026-10-03T00:00:00Z"},
+            })
+            # The error response orders our read after the preceding heartbeat.
+            socket.send_json(hello)
+            assert socket.receive_json()["kind"] == "error"
+            after = asyncio.run(read_instance())
+            assert after.agent_version == "3.2.82+core.2"
+            assert after.last_seen_at > before.last_seen_at
+            assert after.launcher_version == "3.2.83+foundation.1"
 
 
 def test_route_does_not_send_command_outside_negotiated_capabilities(

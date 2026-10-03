@@ -37,6 +37,7 @@ class UpdateBuild(OwnershipRecord, Base):
         String(128), nullable=False, unique=True
     )
     version: Mapped[str] = mapped_column(String(64), nullable=False)
+    minimum_launcher_version: Mapped[str | None] = mapped_column(String(64))
     platform: Mapped[str] = mapped_column(String(64), nullable=False)
     channel: Mapped[str] = mapped_column(String(64), nullable=False)
     artifact_identifier: Mapped[str] = mapped_column(String(256), nullable=False)

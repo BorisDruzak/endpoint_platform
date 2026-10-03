@@ -164,7 +164,65 @@ def test_migration_history_has_exactly_one_head() -> None:
         _alembic_config("postgresql+asyncpg://unused@127.0.0.1/unused")
     )
 
-    assert script.get_heads() == ["0036_device_binding"]
+    assert script.get_heads() == ["0037_launcher_foundation"]
+
+
+def test_launcher_foundation_migration_only_adds_nullable_columns():
+    output = io.StringIO()
+    config = Config(REPOSITORY_ROOT / "alembic.ini", output_buffer=output)
+    config.set_main_option("sqlalchemy.url", "postgresql+asyncpg://unused@127.0.0.1/unused")
+    command.upgrade(config, "0036_device_binding:0037_launcher_foundation", sql=True)
+    rendered = " ".join(output.getvalue().split())
+    assert "ALTER TABLE device_instances ADD COLUMN launcher_version VARCHAR(128);" in rendered
+    assert "ALTER TABLE update_builds ADD COLUMN minimum_launcher_version VARCHAR(64);" in rendered
+    assert "UPDATE device_instances" not in rendered
+    assert "UPDATE update_builds" not in rendered
+    output.truncate(0)
+    output.seek(0)
+    command.downgrade(config, "0037_launcher_foundation:0036_device_binding", sql=True)
+    rendered = " ".join(output.getvalue().split())
+    assert "ALTER TABLE update_builds DROP COLUMN minimum_launcher_version;" in rendered
+    assert "ALTER TABLE device_instances DROP COLUMN launcher_version;" in rendered
+
+
+def test_launcher_foundation_migration_preserves_existing_rows(empty_database_url: str):
+    config = _alembic_config(empty_database_url)
+    plain_url = make_url(empty_database_url).set(drivername="postgresql").render_as_string(hide_password=False)
+    command.upgrade(config, "0036_device_binding")
+    device_id, instance_id, build_id = uuid4(), uuid4(), uuid4()
+    asyncio.run(_execute(plain_url,
+        "INSERT INTO devices (id, device_identifier) "
+        f"VALUES ('{device_id}', 'foundation-migration'); "
+        "INSERT INTO device_instances (id, device_id, instance_identifier, agent_version) "
+        f"VALUES ('{instance_id}', '{device_id}', 'legacy-foundation', '3.2.83'); "
+        "INSERT INTO update_builds (id, build_identifier, version, platform, channel, "
+        "artifact_identifier, artifact_url, artifact_name, archive_type, sha256_digest, size) "
+        f"VALUES ('{build_id}', 'foundation-build', '3.2.83', 'windows_amd64', 'stable', "
+        "'core.zip', 'https://releases.example.test/core.zip', 'core.zip', 'zip', "
+        f"'{('1' * 64)}', 1)"))
+    command.upgrade(config, "0037_launcher_foundation")
+    instance = asyncio.run(_fetch(plain_url,
+        f"SELECT agent_version, launcher_version FROM device_instances WHERE id = '{instance_id}'"))[0]
+    assert instance["agent_version"] == "3.2.83"
+    assert instance["launcher_version"] is None
+    build = asyncio.run(_fetch(plain_url,
+        f"SELECT minimum_launcher_version FROM update_builds WHERE id = '{build_id}'"))[0]
+    assert build["minimum_launcher_version"] is None
+    asyncio.run(_execute(plain_url,
+        f"UPDATE device_instances SET launcher_version = '3.2.82' WHERE id = '{instance_id}'; "
+        f"UPDATE update_builds SET minimum_launcher_version = '3.2.82' WHERE id = '{build_id}'"))
+    command.downgrade(config, "0036_device_binding")
+    assert asyncio.run(_fetch(plain_url,
+        "SELECT column_name FROM information_schema.columns WHERE table_schema = 'public' "
+        "AND ((table_name = 'device_instances' AND column_name = 'launcher_version') "
+        "OR (table_name = 'update_builds' AND column_name = 'minimum_launcher_version'))")) == []
+    assert asyncio.run(_fetch(plain_url,
+        f"SELECT agent_version FROM device_instances WHERE id = '{instance_id}'"))[0]["agent_version"] == "3.2.83"
+    assert asyncio.run(_fetch(plain_url,
+        f"SELECT version FROM update_builds WHERE id = '{build_id}'"))[0]["version"] == "3.2.83"
+    command.upgrade(config, "0037_launcher_foundation")
+    assert asyncio.run(_fetch(plain_url,
+        f"SELECT launcher_version FROM device_instances WHERE id = '{instance_id}'"))[0]["launcher_version"] is None
 
 
 def test_sensor_health_migration_has_one_bounded_current_row_per_device() -> None:

@@ -128,6 +128,7 @@ class PresenceService:
                         device_id=device_id,
                         instance_identifier=str(hello.agent_instance_id),
                         agent_version=hello.agent_version,
+                        launcher_version=hello.launcher_version,
                         last_seen_at=now,
                         last_result_sequence=0,
                     )
@@ -135,6 +136,7 @@ class PresenceService:
                     await session.flush()
                 else:
                     instance.agent_version = hello.agent_version
+                    instance.launcher_version = hello.launcher_version
                     instance.last_seen_at = now
 
                 active_sessions = (

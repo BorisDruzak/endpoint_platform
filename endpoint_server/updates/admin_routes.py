@@ -11,6 +11,7 @@ from pydantic import BaseModel, ConfigDict
 from sqlalchemy import func, select
 
 from endpoint_contracts import UpdateBuildManifestV1, UpdateRolloutCreateV1
+from endpoint_contracts.updates import SemanticVersionV1
 from endpoint_server.audit.request_ids import audit_request_id
 from endpoint_server.auth.admin_sessions import (
     AdminPrincipal,
@@ -47,6 +48,7 @@ class UpdateBuildResponse(BaseModel):
     id: UUID
     build_identifier: str
     version: str
+    minimum_launcher_version: SemanticVersionV1 | None = None
     platform: Literal["linux_amd64", "windows_amd64"]
     channel: Literal["stable", "canary"]
 
@@ -72,6 +74,7 @@ def _build_response(build: UpdateBuild) -> UpdateBuildResponse:
         id=build.id,
         build_identifier=build.build_identifier,
         version=build.version,
+        minimum_launcher_version=build.minimum_launcher_version,
         platform=build.platform,
         channel=build.channel,
     )
@@ -97,6 +100,7 @@ def _safe_build(build: UpdateBuild) -> dict[str, object]:
         "version": build.version, "platform": build.platform, "channel": build.channel,
         "sha256": build.sha256_digest, "size": build.size,
         "artifact_name": build.artifact_name, "release_notes": build.release_notes,
+        "minimum_launcher_version": build.minimum_launcher_version,
         "created_at": build.created_at,
     }
 

@@ -30,6 +30,7 @@ from endpoint_contracts import (
 from endpoint_server.db.models import (
     AuditEvent,
     Device,
+    DeviceInstance,
     DeviceCredential,
     UpdateBuild,
     UpdateReport,
@@ -148,6 +149,8 @@ def test_update_models_persist_safe_control_plane_state() -> None:
     assert {"report_key", "safe_code"} <= set(report_columns.keys())
     assert not report_columns.report_key.nullable
     assert "safe_message" not in report_columns
+    assert build_columns.minimum_launcher_version.nullable
+    assert DeviceInstance.__table__.c.launcher_version.nullable
 
 
 def test_update_models_enforce_manifest_and_report_identities() -> None:

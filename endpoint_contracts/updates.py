@@ -174,6 +174,7 @@ class UpdateBuildManifestV1(_ImmutableUpdateManifestV1):
     )
 
     schema_version: Literal["update_build_manifest_v1"]
+    minimum_launcher_version: SemanticVersionV1 | None = None
     release_notes: Annotated[str, Field(min_length=1, max_length=4096)] | None = None
 
     @field_validator("release_notes")
