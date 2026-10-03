@@ -121,6 +121,27 @@ async def test_windows_registration_checks_actual_archive_before_persistence(ses
         assert replay.id == first.id
 
 
+@pytest.mark.asyncio
+async def test_windows_build_helper_distinguishes_omitted_from_explicit_null_floor(session):
+    defaulted = await _build(session, platform="windows_amd64", version="3.2.83",
+                             suffix="floor-default")
+    assert defaulted.minimum_launcher_version == "1.0.0"
+    with pytest.raises(ValueError, match="Windows fixture requires a package floor"):
+        await _build(session, platform="windows_amd64", version="3.2.84",
+                     suffix="floor-null", minimum_launcher_version=None)
+    assert await session.scalar(select(func.count()).select_from(UpdateBuild)) == 1
+
+
+@pytest.mark.asyncio
+async def test_windows_null_public_floor_cannot_register_modern_floor_bound_payload(session, tmp_path):
+    values = _windows_archive(tmp_path, version="3.2.84", minimum="3.2.82")
+    values["minimum_launcher_version"] = None
+    with pytest.raises(UpdateValidationError):
+        await register_build(session, _manifest(**values), ADMIN_ID,
+                             "null-modern-floor", artifact_root=tmp_path)
+    assert await session.scalar(select(func.count()).select_from(UpdateBuild)) == 0
+
+
 @pytest.mark.parametrize(
     ("field_name", "unsafe_value"),
     [
@@ -192,6 +213,9 @@ async def _device(session: AsyncSession, suffix: str) -> Device:
     return record
 
 
+_OMITTED_FLOOR = object()
+
+
 async def _build(
     session: AsyncSession,
     *,
@@ -199,12 +223,19 @@ async def _build(
     platform: str = "linux_amd64",
     channel: str = "stable",
     suffix: str = "current",
-    minimum_launcher_version: str | None = None,
+    minimum_launcher_version: str | None | object = _OMITTED_FLOOR,
 ) -> UpdateBuild:
+    effective_minimum = (
+        ("1.0.0" if platform == "windows_amd64" else None)
+        if minimum_launcher_version is _OMITTED_FLOOR
+        else minimum_launcher_version
+    )
+    if platform == "windows_amd64" and effective_minimum is None:
+        raise ValueError("Windows fixture requires a package floor")
     archive_type = "zip" if platform == "windows_amd64" else "tar.gz"
     artifact_name = f"endpoint-{suffix}.{archive_type}"
     artifact_values = (_windows_archive(session.info["artifact_root"], version,
-        minimum_launcher_version or "1.0.0", artifact_name)
+        effective_minimum, artifact_name)
         if platform == "windows_amd64" else {})
     return await register_build(
         session,
@@ -214,7 +245,7 @@ async def _build(
             "artifact_url": f"https://releases.example.test/{artifact_name}",
             "artifact_name": artifact_name, "archive_type": archive_type,
             "sha256": ("2" if suffix == "old" else "1") * 64,
-            "minimum_launcher_version": minimum_launcher_version,
+            "minimum_launcher_version": effective_minimum,
             **artifact_values,
         }),
         ADMIN_ID,
