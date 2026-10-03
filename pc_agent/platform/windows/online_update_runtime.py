@@ -31,6 +31,10 @@ _TERMINAL_OUTCOME_CODES = {
     "rolled_back": "launcher_rolled_back",
 }
 _TERMINAL_OUTCOME_FILENAME = "terminal-outcome.json"
+_PENDING_FIELDS = {
+    "archive_type", "artifact_path", "channel", "operation_id", "received_at",
+    "requested_by", "requested_reason", "sha256", "size", "target", "version",
+}
 _SOURCE_REVISION = re.compile(r"^[0-9a-f]{40}$")
 
 
@@ -281,10 +285,16 @@ class WindowsOnlineUpdateRuntime:
                 except (OSError, ValueError, TypeError):
                     return False
                 pending_before = None
-                if self._paths.pending_path.exists():
+                if self._paths.pending_path.exists() or self._paths.pending_path.is_symlink():
                     try:
                         pending_before = _read_state(self._paths.pending_path, 16384, return_bytes=True)
-                    except (OSError, ValueError):
+                        pending = json.loads(pending_before)
+                        if (not isinstance(pending, dict)
+                            or set(pending) != _PENDING_FIELDS
+                            or pending.get("operation_id") != outcome["operation_id"]
+                            or not isinstance(pending.get("version"), str)):
+                            return False
+                    except (OSError, ValueError, TypeError):
                         return False
                 attempt_before = None
                 if attempt_path.exists() or attempt_path.is_symlink():
@@ -292,7 +302,6 @@ class WindowsOnlineUpdateRuntime:
                         # Same 4096-byte bound as the offline attempt writer.
                         attempt_before = _read_state(attempt_path, 4096, return_bytes=True)
                         attempt = json.loads(attempt_before)
-                        pending = json.loads(pending_before) if pending_before is not None else None
                         if (not isinstance(attempt, dict)
                             or set(attempt) != {"operation_id", "version", "attempt_id"}
                             or not isinstance(attempt.get("attempt_id"), str)

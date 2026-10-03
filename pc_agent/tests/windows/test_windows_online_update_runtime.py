@@ -24,6 +24,22 @@ def provision_online_test_data_root(tmp_path):
 _OPERATION_ID = "caa31a48-bf2f-4f1c-8b77-d1be77e12b4e"
 
 
+def _pending_payload(operation_id: str = _OPERATION_ID, version: str = "3.2.2") -> dict:
+    return {
+        "archive_type": "zip",
+        "artifact_path": "C:/ProgramData/Endpoint Platform/Agent/updates/artifact.zip",
+        "channel": "canary",
+        "operation_id": operation_id,
+        "received_at": "2026-08-03T00:00:00+00:00",
+        "requested_by": "gateway",
+        "requested_reason": "scheduled_rollout",
+        "sha256": "a" * 64,
+        "size": 1,
+        "target": "windows_amd64",
+        "version": version,
+    }
+
+
 class _Adapter:
     def __init__(self, recommendation: EndpointRecommendation) -> None:
         self._recommendation = recommendation
@@ -261,7 +277,7 @@ async def test_terminal_cleanup_flush_failure_retries_without_false_applied_proo
     paths.install_root.mkdir()
     paths.updates_root.mkdir(parents=True)
     paths.current_path.write_text('{"version":"3.2.1"}')
-    paths.pending_path.write_text('{}')
+    paths.pending_path.write_text(json.dumps(_pending_payload()))
     outcome = paths.updates_root / "terminal-outcome.json"
     outcome.write_text(json.dumps({"operation_id": _OPERATION_ID, "reported_version": "3.2.1", "safe_code": "launcher_rolled_back", "status": "rolled_back"}))
     adapter = _Adapter(None)
@@ -299,7 +315,7 @@ async def test_terminal_cleanup_retry_uses_durable_adapter_report_key_without_se
     paths.install_root.mkdir()
     paths.updates_root.mkdir(parents=True)
     paths.current_path.write_text('{"version":"3.2.1"}')
-    paths.pending_path.write_text('{}')
+    paths.pending_path.write_text(json.dumps(_pending_payload()))
     outcome = paths.updates_root / "terminal-outcome.json"
     outcome.write_text(json.dumps({"operation_id": _OPERATION_ID, "reported_version": "3.2.1", "safe_code": "launcher_rolled_back", "status": "rolled_back"}))
     class Session:
@@ -485,7 +501,7 @@ async def test_windows_agent_reports_a_durable_updater_failure_after_wss(
     paths.install_root.mkdir(parents=True)
     paths.current_path.write_text('{"version":"3.2.5"}', encoding="utf-8")
     paths.updates_root.mkdir(parents=True)
-    paths.pending_path.write_text('{"stale":"handoff"}', encoding="utf-8")
+    paths.pending_path.write_text(json.dumps(_pending_payload(version="3.2.6")), encoding="utf-8")
     (paths.updates_root / "terminal-outcome.json").write_text(
         json.dumps(
             {
@@ -515,6 +531,53 @@ async def test_windows_agent_reports_a_durable_updater_failure_after_wss(
     assert not paths.pending_path.exists()
     assert not (paths.updates_root / "terminal-outcome.json").exists()
 
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("pending_payload", ["foreign", "corrupt"])
+async def test_terminal_report_rejects_foreign_pending_without_attempt_before_http(tmp_path, pending_payload):
+    from pc_agent.platform.windows.online_update_runtime import WindowsOnlineUpdateRuntime
+    from pc_agent.platform.windows.update_paths import WindowsUpdatePaths
+
+    paths = WindowsUpdatePaths(tmp_path / "install", tmp_path / "data/updates/pending_update.json")
+    paths.install_root.mkdir()
+    paths.updates_root.mkdir(parents=True)
+    paths.current_path.write_text('{"version":"3.2.79"}')
+    foreign = (json.dumps(_pending_payload(operation_id="b" * 32, version="3.2.82"))
+               if pending_payload == "foreign" else '{"operation_id":')
+    paths.pending_path.write_text(foreign)
+    outcome = paths.updates_root / "terminal-outcome.json"
+    outcome.write_text(json.dumps({"operation_id": _OPERATION_ID, "reported_version": "3.2.79", "safe_code": "launcher_apply_failed", "status": "failed"}))
+    adapter = _Adapter(None)
+    runtime = WindowsOnlineUpdateRuntime(adapter=adapter, paths=paths, acl=_Acl(), download=None)
+
+    assert await runtime.report_startup_outcome() is False
+    assert adapter.calls == []
+    assert paths.pending_path.read_text() == foreign
+    assert outcome.exists()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("pending_present", [True, False])
+async def test_terminal_report_retries_with_matching_or_absent_pending(tmp_path, pending_present):
+    from pc_agent.platform.windows.online_update_runtime import WindowsOnlineUpdateRuntime
+    from pc_agent.platform.windows.update_paths import WindowsUpdatePaths
+
+    paths = WindowsUpdatePaths(tmp_path / "install", tmp_path / "data/updates/pending_update.json")
+    paths.install_root.mkdir()
+    paths.updates_root.mkdir(parents=True)
+    paths.current_path.write_text('{"version":"3.2.79"}')
+    if pending_present:
+        paths.pending_path.write_text(json.dumps(_pending_payload(version="3.2.80")))
+    outcome = paths.updates_root / "terminal-outcome.json"
+    outcome.write_text(json.dumps({"operation_id": _OPERATION_ID, "reported_version": "3.2.79", "safe_code": "launcher_apply_failed", "status": "failed"}))
+    adapter = _Adapter(None)
+    runtime = WindowsOnlineUpdateRuntime(adapter=adapter, paths=paths, acl=_Acl(), download=None)
+
+    assert await runtime.report_startup_outcome() is True
+    assert adapter.calls == [(_OPERATION_ID, "scheduled_retry"), (_OPERATION_ID, "failed:3.2.79:launcher_apply_failed")]
+    assert not paths.pending_path.exists()
+    assert not outcome.exists()
+
 @pytest.mark.asyncio
 async def test_terminal_report_cleanup_preserves_new_pending_from_other_owner(tmp_path):
     from pc_agent.platform.windows.online_update_runtime import WindowsOnlineUpdateRuntime
@@ -524,7 +587,7 @@ async def test_terminal_report_cleanup_preserves_new_pending_from_other_owner(tm
     paths.current_path.write_text('{"version":"3.2.79"}')
     outcome=paths.updates_root/'terminal-outcome.json'
     outcome.write_text(json.dumps(dict(operation_id=_OPERATION_ID,reported_version='3.2.79',status='failed',safe_code='launcher_apply_failed')))
-    paths.pending_path.write_text(json.dumps(dict(operation_id=_OPERATION_ID,version='3.2.80')))
+    paths.pending_path.write_text(json.dumps(_pending_payload(version='3.2.80')))
     next_pending={'operation_id':'b'*32,'version':'3.2.82'}
     class Adapter(_Adapter):
         async def report_terminal(self,*_,**__):
@@ -549,7 +612,7 @@ async def test_terminal_report_snapshot_does_not_borrow_newer_pending(tmp_path, 
     paths.current_path.write_text('{"version":"3.2.79"}')
     outcome = paths.updates_root / "terminal-outcome.json"
     outcome.write_text(json.dumps(dict(operation_id=_OPERATION_ID, reported_version="3.2.79", status="failed", safe_code="launcher_apply_failed")))
-    paths.pending_path.write_text(json.dumps(dict(operation_id=_OPERATION_ID, version="3.2.80")))
+    paths.pending_path.write_text(json.dumps(_pending_payload(version="3.2.80")))
     newer = {"operation_id": "b" * 32, "version": "3.2.82"}
     original = online.update_transaction
     first = True
