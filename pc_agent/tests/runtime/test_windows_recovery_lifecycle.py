@@ -558,6 +558,7 @@ async def test_protocol_failure_retries_with_same_supervisor_until_control_recov
     assert created == cancelled == [True]
 
 
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows default composition")
 @pytest.mark.asyncio
 async def test_canonical_identity_loaded_once_for_root_across_reconnect_and_equal_setup_rerun(tmp_path, monkeypatch):
     from pc_agent.enrollment_identity import serialize_enrollment_identity
@@ -615,6 +616,53 @@ async def test_canonical_identity_loaded_once_for_root_across_reconnect_and_equa
     assert len(starts) == 1
     assert stopped == starts
     assert starts[0]._device_id == DEVICE_ID
+
+
+@pytest.mark.asyncio
+async def test_neutral_root_passes_once_loaded_identity_to_one_factory_across_reconnect(tmp_path, monkeypatch):
+    from pc_agent.enrollment_identity import serialize_enrollment_identity
+    from pc_agent.tests.runtime.test_headless_lifecycle import _dependencies, _Transport
+    settings = replace(_settings(tmp_path), transport_mode="gateway_wss")
+    settings.data_root.mkdir(parents=True)
+    identity_path = settings.data_root / "enrollment-identity.json"
+    identity_path.write_bytes(serialize_enrollment_identity(DEVICE_ID))
+    reads, factory_hellos, connection_hellos, stopped = [], [], [], []
+    original_read = application.read_enrollment_device_id
+    def read(path):
+        reads.append(path)
+        return original_read(path)
+    monkeypatch.setattr(application, "read_enrollment_device_id", read)
+    async def service():
+        try:
+            await asyncio.Future()
+        finally:
+            stopped.append(True)
+    def service_factory(factory_settings, credential, hello, publish):
+        assert factory_settings is settings
+        assert callable(publish)
+        factory_hellos.append(hello)
+        return (service(),)
+    events = []
+    class Reconnect(_Transport):
+        async def connect(self, hello):
+            connection_hellos.append(hello)
+            identity_path.write_bytes(serialize_enrollment_identity(
+                "00000000-0000-4000-8000-000000000002"))
+            if len(connection_hellos) < 3:
+                raise GatewayTransportUnavailable()
+            return await super().connect(hello)
+    async def sleep(_delay):
+        await asyncio.sleep(0)
+    deps = replace(_dependencies(events, [None]), load_hello=application._load_hello,
+        create_transport=lambda *_: Reconnect(events), sleep=sleep,
+        create_service_tasks=service_factory)
+    assert await RuntimeLifecycle(settings, deps, RuntimeStatus()).run() == 0
+    assert reads == [identity_path]
+    assert len(factory_hellos) == 1
+    assert str(factory_hellos[0].device_id) == DEVICE_ID
+    assert len(connection_hellos) == 3
+    assert all(hello is factory_hellos[0] for hello in connection_hellos)
+    assert stopped == [True]
 
 
 @pytest.mark.asyncio
