@@ -12,7 +12,12 @@ from tools.canary.verify_installed_windows_agent import (
 )
 
 
-COLLECTOR = Path(__file__).resolve().parents[2] / "tools" / "canary" / "Collect-WindowsAgentPreflight.ps1"
+COLLECTOR = (
+    Path(__file__).resolve().parents[2]
+    / "tools"
+    / "canary"
+    / "Collect-WindowsAgentPreflight.ps1"
+)
 
 
 def _manifest() -> dict[str, object]:
@@ -47,13 +52,15 @@ def _valid_projection() -> dict[str, object]:
                     "reparse": False,
                     "fixed_entrypoint": True,
                 },
-                "runtime_children": [{
-                    "path": "C:\\Program Files\\Endpoint Platform\\Agent\\versions\\3.2.16\\pc_agent.exe",
-                    "regular": True,
-                    "reparse": False,
-                    "service_child": True,
-                    "safe_command": True,
-                }],
+                "runtime_children": [
+                    {
+                        "path": "C:\\Program Files\\Endpoint Platform\\Agent\\versions\\3.2.16\\pc_agent.exe",
+                        "regular": True,
+                        "reparse": False,
+                        "service_child": True,
+                        "safe_command": True,
+                    }
+                ],
             },
             "updater": {
                 "name": "EndpointAgentUpdater",
@@ -76,8 +83,10 @@ def _valid_projection() -> dict[str, object]:
             "helpdesk_reference": False,
         },
         "msi": {
-            "version": "3.2.16", "source_revision": "a" * 40,
-            "sha256": "b" * 64, "product_code": "{11111111-1111-4111-8111-111111111111}",
+            "version": "3.2.16",
+            "source_revision": "a" * 40,
+            "sha256": "b" * 64,
+            "product_code": "{11111111-1111-4111-8111-111111111111}",
             "owned_files": True,
         },
         "acl": {
@@ -124,18 +133,171 @@ def test_valid_projection_is_ready() -> None:
     }
 
 
+def _fleet_facts(origin="zip", version="3.2.17"):
+    return {
+        "schema_version": "endpoint_windows_fleet_preflight_v1",
+        "target_version": "3.2.16",
+        "eligibility": "ALREADY_CURRENT",
+        "snapshot_scope": "local_non_atomic_read_only",
+        "core": {
+            "version": version,
+            "source_revision": "c" * 40,
+            "minimum_launcher_version": "3.2.16",
+            "origin": origin,
+            "verified": True,
+            "package_sha256": "d" * 64,
+            "package_size": 12000 if origin == "zip" else None,
+            "compatibility_scope": "payload_contract",
+        },
+        "foundation": {
+            "version": "3.2.16",
+            "source_revision": "a" * 40,
+            "package_sha256": "b" * 64,
+            "product_code": "{11111111-1111-4111-8111-111111111111}",
+            "native_verified": True,
+            "feature_state": "complete",
+        },
+        "msi": {
+            "version": "3.2.16",
+            "product_code": "{11111111-1111-4111-8111-111111111111}",
+            "native_verified": True,
+        },
+        "origin": {
+            "present": False,
+            "https_shape_valid": None,
+            "scope": "compiled_default",
+        },
+        "wss": {
+            "status_present": True,
+            "historical_proof": True,
+            "live_connected": None,
+            "scope": "historical_status_only",
+        },
+        "update_lane": {
+            "commands": "wss",
+            "updates": "https",
+            "migration_http_pull_fallback": False,
+            "live_owner": None,
+        },
+        "pending": {
+            "active_or_degraded": False,
+            "state": None,
+            "installer_phase": None,
+        },
+        "provenance": {"conflict": False, "verified": True},
+        "credential": {
+            "present": True,
+            "shape_valid": True,
+            "enrollment_shape_valid": True,
+            "authenticated": None,
+        },
+        "ca": {"present": True, "parseable": True, "strict_live_tls": None},
+        "disk": {
+            "sufficient": None,
+            "scope": "setup_allocation_unknown",
+            "free_bytes": 10000000000,
+        },
+        "services": {
+            name: {
+                "present": True,
+                "state": "running" if name == "EndpointAgent" else "stopped",
+                "start_mode": "automatic" if name == "EndpointAgent" else "manual",
+                "identity_valid": True,
+            }
+            for name in ("EndpointAgent", "EndpointAgentUpdater")
+        },
+    }
+
+
+@pytest.mark.parametrize("origin", ["zip", "msi", "retained_msi"])
+def test_canonical_core_foundation_are_independent_strict_installed_layers(origin):
+    projection = _zip_projection()
+    if origin != "zip":
+        for key in (
+            "bundle_sha256",
+            "bundle_size",
+            "bundle_manifest_verified",
+            "bundle_receipt_verified",
+            "bundle_acl_protected",
+        ):
+            projection["runtime"].pop(key)
+        projection["runtime"]["origin"] = origin
+    projection["fleet_preflight"] = _fleet_facts(origin)
+    assert validate_preflight(projection, _split_manifest())["status"] == "READY"
+
+
+@pytest.mark.parametrize(
+    "defect",
+    [
+        "pending",
+        "foundation",
+        "core",
+        "floor",
+        "auth",
+        "tls",
+        "network",
+        "service",
+        "unexpected",
+        "target",
+        "native",
+        "hash",
+        "integer_bool",
+        "product_disagreement",
+    ],
+)
+def test_eligibility_never_substitutes_for_strict_installed_acceptance(defect):
+    projection = _zip_projection()
+    facts = projection["fleet_preflight"] = _fleet_facts()
+    if defect == "pending":
+        facts["pending"]["active_or_degraded"] = True
+    elif defect == "foundation":
+        facts["foundation"]["version"] = "3.2.15"
+    elif defect == "core":
+        facts["core"]["source_revision"] = "e" * 40
+    elif defect == "floor":
+        facts["core"]["minimum_launcher_version"] = "3.2.18"
+    elif defect == "auth":
+        facts["credential"]["authenticated"] = True
+    elif defect == "tls":
+        facts["ca"]["strict_live_tls"] = True
+    elif defect == "network":
+        projection["network"]["strict_tls"] = False
+    elif defect == "service":
+        projection["services"]["agent"]["state"] = "Stopped"
+    elif defect == "unexpected":
+        facts["credential"]["secret_material"] = "private-never-allowed"
+    elif defect == "target":
+        facts["target_version"] = "invalid"
+    elif defect == "native":
+        facts["foundation"]["native_verified"] = False
+    elif defect == "hash":
+        facts["core"]["package_sha256"] = "e" * 64
+    elif defect == "integer_bool":
+        facts["pending"]["active_or_degraded"] = 0
+    elif defect == "product_disagreement":
+        facts["foundation"]["product_code"] = facts["msi"]["product_code"] = (
+            "{99999999-9999-4999-8999-999999999999}"
+        )
+    with pytest.raises(WindowsPreflightError):
+        validate_preflight(projection, _split_manifest())
+
+
 def _zip_projection() -> dict[str, object]:
     projection = _valid_projection()
     projection["agent"].update(version="3.2.17", source_revision="c" * 40)
     projection["runtime"].update(
-        origin="zip", selector_version="3.2.17",
+        origin="zip",
+        selector_version="3.2.17",
         selector_source_revision="c" * 40,
-        bundle_sha256="d" * 64, bundle_size=12000,
-        bundle_manifest_verified=True, bundle_receipt_verified=True,
+        bundle_sha256="d" * 64,
+        bundle_size=12000,
+        bundle_manifest_verified=True,
+        bundle_receipt_verified=True,
         bundle_acl_protected=True,
     )
     projection["safe_status"].update(
-        release_version="3.2.17", release_source_revision="c" * 40,
+        release_version="3.2.17",
+        release_source_revision="c" * 40,
     )
     return projection
 
@@ -143,19 +305,24 @@ def _zip_projection() -> dict[str, object]:
 def _split_manifest() -> dict[str, object]:
     return {
         "installer": {
-            "platform": "windows_amd64", "version": "3.2.16",
-            "source_revision": "a" * 40, "package_sha256": "b" * 64,
+            "platform": "windows_amd64",
+            "version": "3.2.16",
+            "source_revision": "a" * 40,
+            "package_sha256": "b" * 64,
         },
         "agent": {
-            "platform": "windows_amd64", "version": "3.2.17",
-            "source_revision": "c" * 40, "package_sha256": "d" * 64,
+            "platform": "windows_amd64",
+            "version": "3.2.17",
+            "source_revision": "c" * 40,
+            "package_sha256": "d" * 64,
         },
     }
 
 
 def test_newer_zip_runtime_keeps_installed_msi_identity_distinct() -> None:
     assert validate_preflight(_zip_projection(), _split_manifest()) == {
-        "status": "READY", "platform": "windows_amd64",
+        "status": "READY",
+        "platform": "windows_amd64",
     }
 
 
@@ -257,8 +424,14 @@ def test_preflight_collector_accepts_json_int32_completion_metrics() -> None:
     """Small JSON numbers deserialize as Int32 in PowerShell 7 on Windows."""
     source = COLLECTOR.read_text(encoding="utf-8")
 
-    assert "($Completion.duration_ms -is [int] -or $Completion.duration_ms -is [long])" in source
-    assert "($Completion.result_item_count -is [int] -or $Completion.result_item_count -is [long])" in source
+    assert (
+        "($Completion.duration_ms -is [int] -or $Completion.duration_ms -is [long])"
+        in source
+    )
+    assert (
+        "($Completion.result_item_count -is [int] -or $Completion.result_item_count -is [long])"
+        in source
+    )
 
 
 def test_preflight_allows_no_completion_before_an_operation() -> None:
@@ -280,9 +453,12 @@ def test_post_operation_requires_exact_succeeded_diagnostic_completion() -> None
     )
     projection = _valid_projection()
 
-    assert validate_preflight(
-        projection, _manifest(), require_completion=expectation
-    )["status"] == "READY"
+    assert (
+        validate_preflight(projection, _manifest(), require_completion=expectation)[
+            "status"
+        ]
+        == "READY"
+    )
     projection["completion_proof"] = None
     with pytest.raises(WindowsPreflightError, match="completion"):
         validate_preflight(projection, _manifest(), require_completion=expectation)

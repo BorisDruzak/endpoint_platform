@@ -50,7 +50,7 @@ it must never be presented as evidence of SCM application. Verify the actual
 registered updater executable, archive proof, real SCM execution, WFP events,
 WSS-bound startup confirmation, terminal reports and rollback separately.
 
-### ZIP to MSI ownership handoff
+### Historical 3.2.81 ZIP to MSI ownership handoff
 
 Installing MSI 3.2.81 over its identical ZIP runtime leaves the old ZIP receipt
 and bundle manifest beside the new MSI ownership marker. Canonical preflight
@@ -66,3 +66,53 @@ SYSTEM/Administrators backup, then restart it and rerun canonical preflight.
 Preserve the MSI marker, payload bytes, credential and selector. If any identity
 or file differs, stop the handoff; do not remove evidence to obtain a passing
 preflight. Clean MSI installation has no preceding ZIP receipt to retire.
+
+## Canonical 3.2.82 Setup gate
+
+The historical 81 handoff above is not an 82 installation or repair procedure.
+For 82 use only the approved single-file signed/timestamped Setup EXE. Its
+authenticated installer transaction owns automatic exact ZIP-to-MSI handoff,
+retained core preservation, native feature repair and interrupted recovery.
+Do not install ZIPs manually, edit receipts, clear journals/fences, or enable
+quarantined services to obtain a passing result. Preserve immutable 79/81 bytes,
+enrolled identity, credential, CA and origin.
+
+Run the SAME elevated Setup EXE with `--preflight` immediately before the
+authorized install/upgrade. It prints one bounded JSON record and does not
+enroll, stop/configure services, download, publish/clean state or run the
+installer transaction. Canonical restricted package costing reads the verified
+embedded package and sums native, wrapper, preparation and retention allocations
+with a per-volume margin. Target-version-only collection reports unknown costs;
+unavailable complete canonical costs are DISK_UNKNOWN, never readiness.
+PyInstaller and the restricted MSI engine can perform temporary scratch IO;
+verify unchanged protected state and native registration at the signed artifact
+acceptance gate rather than claiming zero host IO.
+
+To save fleet facts as an explicitly requested evidence artifact, invoke the
+canonical collector with its existing expected host/install/data arguments plus
+`-SetupPath <exact-approved-Setup-EXE> -TargetVersion 3.2.82 -FleetEligibilityOnly`
+and a NEW `-OutputPath` outside protected machine roots. The collector rejects
+invalid/untimestamped signatures, reparse paths, nonzero exit, oversized or
+unexpected JSON, mismatched target and unsupported facts. Omit
+`-FleetEligibilityOnly` for the existing installed-agent acceptance projection;
+it still requires its separate installed checks and optional command completion.
+
+Treat UPDATE_IN_PROGRESS (including malformed recovery evidence and surviving
+installer transactions), PROVENANCE_CONFLICT, FOUNDATION_UNKNOWN,
+DISK_INSUFFICIENT/DISK_UNKNOWN, SERVICE_INVALID, CREDENTIAL_REPAIR_REQUIRED and
+TLS_REPAIR_REQUIRED as non-ready. Disabled services under a surviving fence are
+intentional installer/reboot degradation, not an unfenced service repair. A
+current core plus stale foundation or required equal-version handoff cannot be
+ALREADY_CURRENT. A complete compatible newer ZIP/live MSI/retained core retains
+its independent provenance and must not be relabeled as the target MSI's core.
+
+Credential shape cannot prove authentication, installed CA cannot prove live
+hostname/chain validation and a protected old canary status cannot prove current
+WSS presence. Fleet facts therefore expose those live claims as unknown.
+Installed verifier READY accepts the collected local evidence, including its
+historical transport record; it is not fresh connectivity or fleet approval.
+Post-freeze acceptance must correlate fresh authenticated provider session /
+last_seen, actual strict TLS/WSS, a matching completion operation and installed
+READY with unchanged identity and native state. No global fleet floor or mass
+rollout follows from this report. Setup rechecks active state under the common
+mutation exclusion boundary; a read-only eligibility snapshot is not a lock.

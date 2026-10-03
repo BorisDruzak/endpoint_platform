@@ -203,6 +203,62 @@ does not execute a legacy installed tray helper before replacing its files.
 This keeps upgrades from older agents compatible while repair retains its
 tray-stop safeguard.
 
+## Fleet eligibility and installation for 3.2.82
+
+Use the approved, signed and timestamped single-file Setup EXE for operator
+installation and foundation upgrades. Run that same EXE elevated with
+`--preflight` to emit one JSON record (`endpoint_windows_fleet_preflight_v1`,
+at most 16 KiB) to inherited stdout. This branch runs before installer results,
+logs, enrollment, service control, selector/provenance publication or repair.
+The PyInstaller loader and restricted MSI costing engine may use temporary
+scratch space; preflight does not change protected installed state or native
+product/service registration. Actual signed redirected invocation and before /
+after protected-state snapshots remain the post-freeze release gate.
+
+Core and foundation are independent. Strict payload/receipt/native inventory
+checks distinguish ZIP, live MSI ownership and protected retained MSI history.
+A removed ProductCode cannot establish live ownership. Equal-version ZIP
+handoff or an absent initial-runtime feature still needs Setup; a compatible
+newer selected core is preserved. Current core with an older foundation is an
+upgrade case. Any surviving installer fence, selector recovery or update
+journal is active/degraded, including intentionally disabled services awaiting
+installer reconciliation or reboot. Preflight never clears this evidence.
+
+Eligibility precedence is UPDATE_IN_PROGRESS, PROVENANCE_CONFLICT,
+FOUNDATION_UNKNOWN, DISK_INSUFFICIENT, SERVICE_INVALID,
+CREDENTIAL_REPAIR_REQUIRED, TLS_REPAIR_REQUIRED, then ALREADY_CURRENT or
+READY_FOR_SETUP_UPGRADE. Missing complete cost evidence yields DISK_UNKNOWN
+for an otherwise-needed transition. Package-bound costing sums native MSI,
+wrapper, incoming provenance and retained-copy allocations by receiving volume
+before adding the existing margin. A target-version-only API call cannot infer
+capacity from free bytes alone. ALREADY_CURRENT skips costs only when no
+foundation, feature or ownership transition is required.
+
+Credential presence/shape is not authentication; CA presence/parseability is
+not a live strict TLS check. WSS status is historical local evidence with
+current connectivity explicitly unknown. Commands stay on WSS and updates use
+HTTPS; `migration_http_pull_fallback` remains false. Eligibility does not enable
+a fleet minimum version and does not constitute installed or release approval.
+
+For an explicitly requested report artifact, the canonical collector accepts
+`-SetupPath <exact-approved-Setup-EXE> -TargetVersion 3.2.82`. It validates the
+literal regular path, reparse ancestors, Authenticode Valid status and timestamp,
+then invokes only `--preflight`; it never auto-selects a cached/newest EXE.
+Add `-FleetEligibilityOnly` to write only fleet facts, including non-ready
+states. `-OutputPath` must be a new artifact outside install/data/installer-state
+roots. Without this switch, collection still performs the independent installed
+service/ACL/local transport-evidence checks and the optional completion check.
+Modern/retained ownership without canonical Setup input is refused; the old
+collector path is limited to known immutable 79/81 package identities.
+
+The operator is responsible for supplying the exact approved artifact; a valid
+system-trusted signature is not an application-specific signer allowlist or a
+substitute for matching retained release/source evidence. Installed verifier
+READY means its collected local acceptance evidence passed, including the
+protected historical transport record. Fresh provider presence, strict TLS/WSS
+and a matching completion operation must be proven independently at release
+acceptance. No manual ZIP installation or receipt editing is an 82 procedure.
+
 ## Update handoff
 
 The running `EndpointAgent` is the only Windows update component with a network

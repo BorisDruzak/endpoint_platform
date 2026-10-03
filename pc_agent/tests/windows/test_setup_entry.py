@@ -23,11 +23,39 @@ def literal_msi_costing_boundary(monkeypatch, tmp_path):
     # Setup unit fixtures model state schemas, not machine directory ACLs.
     # Native directory/leaf security is covered by test_update_transaction.
     from pc_agent.platform.windows import update_transaction
+
     monkeypatch.setattr(update_transaction, "_assert_state_security", lambda _: None)
     # Fixture MSIs are b'msi', not real Installer databases. Keep the disk
     # accounting/check real and replace only the native package reader.
-    monkeypatch.setattr(setup_entry, "_msi_disk_costs", lambda _: [(tmp_path, 4096)], raising=False)
-    monkeypatch.setattr(setup_entry, "_msi_reconciliation_required", lambda _: False, raising=False)
+    monkeypatch.setattr(
+        setup_entry, "_msi_disk_costs", lambda _: [(tmp_path, 4096)], raising=False
+    )
+    monkeypatch.setattr(
+        setup_entry, "_msi_reconciliation_required", lambda _: False, raising=False
+    )
+    from pc_agent.platform.windows import (
+        installation_provenance as provenance,
+        msi_inventory,
+    )
+    from pc_agent.platform.windows.update_paths import WindowsUpdatePaths
+
+    paths = WindowsUpdatePaths(
+        tmp_path / "Agent", tmp_path / "data/updates/pending_update.json"
+    )
+    monkeypatch.setattr(
+        WindowsUpdatePaths, "production", classmethod(lambda cls: paths)
+    )
+    monkeypatch.setattr(
+        msi_inventory,
+        "read_expected_package",
+        lambda *_: SimpleNamespace(package=SimpleNamespace(version="1.0.0")),
+    )
+    monkeypatch.setattr(
+        provenance,
+        "inspect_installed_core",
+        lambda *_args, **_kwargs: SimpleNamespace(current=None, previous=None),
+    )
+    monkeypatch.setattr(provenance, "recovery_cost_authority", lambda *_: None)
 
 
 def test_setup_counts_new_protected_cache_on_its_own_volume(tmp_path, monkeypatch):
@@ -40,13 +68,13 @@ def test_setup_counts_new_protected_cache_on_its_own_volume(tmp_path, monkeypatc
     monkeypatch.setattr(setup_entry, "_msi_disk_costs", lambda _: [(system, 51200)])
     observed = []
     monkeypatch.setattr(disk_readiness, "allocation_volume", lambda path: path)
-    monkeypatch.setattr(setup_entry, "require_disk_space", lambda path, count: None)
     monkeypatch.setattr(disk_readiness, "require_disk_space", lambda path, count: observed.append((path, count)))
     setup_entry._require_setup_disk(tmp_path / "EndpointAgent.msi")
     # Native costing includes Windows Installer cache/temp. Only our protected
     # provenance cache and bounded state are added on the data volume.
     assert (system, 67160064) in observed
     assert (data, 67125251) in observed
+    assert (tmp_path/'installer-state',71319558) in observed
 
 
 def _write_public_payload(root: Path) -> None:

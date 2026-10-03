@@ -31,7 +31,7 @@ from pc_agent.platform.windows.update_transaction import update_transaction, act
 from pc_agent.platform.windows.acl import PyWin32AclAdapter, WindowsAclError
 from pc_agent.platform.windows.disk_readiness import (
     DiskInsufficient, MAX_ARTIFACT_BYTES,
-    allocation_required_bytes, is_disk_full, require_disk_space, require_allocation_space,
+    is_disk_full, require_allocation_space,
 )
 from pc_agent.windows_setup import (
     HttpsSetupTransport,
@@ -80,6 +80,7 @@ class SetupInstallError(RuntimeError):
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="EndpointAgentSetup.exe")
     parser.add_argument("--quiet", action="store_true")
+    parser.add_argument("--preflight", action="store_true")
     return parser
 
 
@@ -215,29 +216,65 @@ def _install_embedded_msi(msi_path: Path) -> int:
     return completed.returncode
 
 
-def _msi_disk_costs(msi_path: Path) -> list[tuple[Path, int]]:
+def _msi_disk_costs(msi_path: Path, *, recovery_context=None) -> list[tuple[Path, int]]:
     from .msi_disk_costing import MsiCostError, msi_disk_allocations
     try:
-        return msi_disk_allocations(msi_path)
+        return msi_disk_allocations(msi_path) if recovery_context is None else msi_disk_allocations(msi_path,recovery_context=recovery_context)
     except MsiCostError as error:
         if is_disk_full(error):
             raise DiskInsufficient() from error
         raise SetupInstallError("MSI_COST_UNAVAILABLE") from error
 
 
-def _require_setup_disk(msi_path: Path) -> None:
+def _setup_disk_allocations(
+    msi_path: Path, paths: WindowsUpdatePaths
+) -> list[tuple[Path, int]]:
+    """One package-bound read-only plan for native, wrapper and retained copies."""
+    from . import installation_provenance as provenance, msi_inventory
+    from endpoint_contracts.runtime_payload import read_json
+
+    manifest_path, _wrapper = _verify_embedded_msi(msi_path)
+    release = read_json(manifest_path.read_bytes(), 4096)
+    expected = msi_inventory.read_expected_package(msi_path, release)
+    authority = provenance.recovery_cost_authority(paths, msi_path, release)
     size = msi_path.stat().st_size
     if not 0 < size <= MAX_ARTIFACT_BYTES:
         raise SetupInstallError("MSI_COST_INVALID")
     # PyInstaller's extracted MSI already exists. Cost only new Windows
     # Installer components/cache/temp plus our additional protected MSI copy.
-    require_disk_space(_data_root(), allocation_required_bytes(size + 16 * 1024))
-    allocations = _msi_disk_costs(msi_path)
+    if authority is None:
+        inspected = provenance.inspect_installed_core(
+            paths, resulting_foundation=expected.package.version
+        )
+        allocations = _msi_disk_costs(msi_path)
+        preparation, _jobs = provenance.preparation_allocations(
+            paths, inspected, expected, msi_path
+        )
+    else:
+        from .msi_disk_costing import RecoveryCostContext
+
+        allocations = _msi_disk_costs(
+            msi_path, recovery_context=RecoveryCostContext(paths, release)
+        )
+        preparation = authority.allocations
     # The provenance wrapper allocates an execution copy in ProgramFiles and
     # a protected cache copy in ProgramData. Both coexist with input.
-    program_files = Path(os.environ.get("ProgramW6432") or os.environ.get("ProgramFiles", r"C:\Program Files"))
-    allocations.extend([(program_files / "Endpoint Platform" / "installer-cache", size),
-        (_data_root(), size + 16 * 1024)])
+    allocations.extend(
+        [
+            (paths.install_root.parent / "installer-cache", size),
+            (paths.updates_root.parent, size + 16 * 1024),
+        ]
+    )
+    allocations.extend(preparation)
+    return allocations
+
+
+def _require_setup_disk(msi_path: Path) -> None:
+    paths = WindowsUpdatePaths.production()
+    try:
+        allocations = _setup_disk_allocations(msi_path, paths)
+    except ValueError as error:
+        raise SetupInstallError("PROVENANCE_CONFLICT") from error
     require_allocation_space(allocations)
 
 
@@ -487,9 +524,11 @@ def _msi_reconciliation_required(msi_path: Path) -> bool:
         if msi_inventory.installed_feature_state(expected.package)!='complete':
             return True
         authority=read_json(provenance._read(state_root(paths)/'foundation.json',4096),4096)
-        if authority!={'schema_version':1,'release':release}: return True
+        if authority!={'schema_version':1,'release':release}:
+            return True
         inspected=provenance.inspect_installed_core(paths,resulting_foundation=expected.package.version)
-        if inspected.current is None: return True
+        if inspected.current is None:
+            return True
         selector={'schema_version':1,'version':expected.identity.version,'source_revision':expected.identity.source_revision}
         candidate=provenance._inspect_core_value(paths,provenance._selector_bytes(expected.identity),selector,expected.package.version)
         return candidate.origin!='msi' or candidate.identity!=expected.identity
@@ -832,13 +871,72 @@ def _run_provisioner(
         )
 
 
+def _write_inherited_stdout(value: bytes, *, kernel=None) -> None:
+    """Windowed PyInstaller has no sys.stdout; use only its inherited pipe."""
+    kernel = kernel or ctypes.WinDLL("kernel32", use_last_error=True)
+    query = kernel.GetStdHandle
+    query.argtypes = [wintypes.DWORD]
+    query.restype = wintypes.HANDLE
+    handle = query(wintypes.DWORD(-11).value)
+    if handle in (None, 0, -1, wintypes.HANDLE(-1).value):
+        raise OSError("PREFLIGHT_STDOUT_UNAVAILABLE")
+    write = kernel.WriteFile
+    write.argtypes = [
+        wintypes.HANDLE,
+        wintypes.LPCVOID,
+        wintypes.DWORD,
+        ctypes.POINTER(wintypes.DWORD),
+        wintypes.LPVOID,
+    ]
+    write.restype = wintypes.BOOL
+    buffer = ctypes.create_string_buffer(value)
+    count = wintypes.DWORD()
+    if not write(
+        handle, buffer, len(value), ctypes.byref(count), None
+    ) or count.value != len(value):
+        raise OSError("PREFLIGHT_STDOUT_WRITE_FAILED")
+
+
+def _emit_preflight(value: dict[str, object]) -> None:
+    from pc_agent.platform.windows.fleet_preflight import MAX_PREFLIGHT_BYTES
+
+    record = json.dumps(value, separators=(",", ":"), sort_keys=True) + "\n"
+    encoded = record.encode("utf-8")
+    if len(encoded) > MAX_PREFLIGHT_BYTES:
+        raise ValueError("PREFLIGHT_BOUND_EXCEEDED")
+    if sys.stdout is None:
+        _write_inherited_stdout(encoded)
+    else:
+        sys.stdout.write(record)
+        sys.stdout.flush()
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     args = _parser().parse_args(argv)
+    if args.preflight:
+        from pc_agent.platform.windows.fleet_preflight import collect_fleet_preflight
+
+        try:
+            config = _read_public_setup_config(_resource_root() / "setup-config.json")
+            result = collect_fleet_preflight(
+                WindowsUpdatePaths.production(), config["installer_version"],
+                setup_package=_resource_root()/"EndpointAgent.msi"
+            )
+            _emit_preflight(result)
+            return EXIT_SUCCESS
+        except Exception:
+            try:
+                _emit_preflight({"error": "PREFLIGHT_UNAVAILABLE"})
+            except (OSError, ValueError):
+                pass
+            return EXIT_PREFLIGHT_FAILED
     data_root = _data_root()
     _record_in_progress()
     interrupted_setup = False
     try:
-        paths = WindowsUpdatePaths(pending_path=data_root / "updates" / "pending_update.json")
+        paths = WindowsUpdatePaths(
+            pending_path=data_root / "updates" / "pending_update.json"
+        )
         with update_transaction(paths, timeout_ms=0):
             if active_update_state(paths) is not None:
                 raise UpdateInProgress("UPDATE_IN_PROGRESS")

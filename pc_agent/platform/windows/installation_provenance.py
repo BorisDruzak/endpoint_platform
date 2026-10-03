@@ -257,8 +257,57 @@ def retention_allocations(paths: WindowsUpdatePaths, evidence: CoreEvidence, pac
         max(item.size for item in evidence.identity.files))), (paths.versions_root, payload_size + metadata_size))
 
 
-def _verify_retention_payload(root: Path, manifest: dict, package_sha256: str, compatibility_foundations,
-                              *, excluded: frozenset[str] = frozenset()):
+def preparation_allocations(
+    paths: WindowsUpdatePaths, inspected: CoreInspection, expected, package_path: Path
+):
+    """Pure read-only budget/job selection shared by Setup and preparation.
+
+    Existing ZIP/retained trees incur no new retention copy merely for existing.
+    Every distinct live MSI core whose product will change retains its exact
+    package, payload, copy temporary and possible rehydration allocation.
+    """
+    from . import msi_inventory
+    from .installer_fence import state_root
+
+    size = package_path.stat().st_size
+    if not 0 < size <= 512 * 1024 * 1024:
+        raise ProvenanceConflict()
+    allocations = [(state_root(paths), 2 * size + MAX_MANIFEST_BYTES + 16384)]
+    jobs = []
+    retained_versions = set()
+    for evidence in (inspected.current, inspected.previous):
+        if evidence is None or evidence.origin != "msi":
+            continue
+        receipt = read_json(evidence.receipt_bytes, 4096)
+        if receipt.get("schema_version") == "endpoint_windows_installer_provenance_v1":
+            old_path = (
+                paths.updates_root.parent / "installer-cache" / receipt["cache_file"]
+            )
+            old_hash = receipt["package_sha256"]
+        else:
+            old_hash = receipt["release"]["package_sha256"]
+            old_path = state_root(paths) / "packages" / old_hash / "EndpointAgent.msi"
+        old_package = msi_inventory.read_package(old_path, old_hash)
+        if (
+            old_package.product_code != expected.package.product_code
+            and evidence.identity.version not in retained_versions
+        ):
+            retained_versions.add(evidence.identity.version)
+            jobs.append((evidence, old_path, old_package))
+            allocations.extend(
+                retention_allocations(paths, evidence, old_path.stat().st_size)
+            )
+    return tuple(allocations), tuple(jobs)
+
+
+def _verify_retention_payload(
+    root: Path,
+    manifest: dict,
+    package_sha256: str,
+    compatibility_foundations,
+    *,
+    excluded: frozenset[str] = frozenset(),
+):
     if compatibility_foundations:
         from .runtime_identity import _LEGACY_MSI_CONTRACTS, verify_legacy_msi_payload
         contract = _LEGACY_MSI_CONTRACTS.get(package_sha256)
@@ -436,6 +485,90 @@ def _expected_request(expected_msi):
     return read_expected_package(Path(expected_msi['package_path']), expected_msi['release'])
 
 
+@dataclass(frozen=True)
+class RecoveryCostAuthority:
+    operation: str
+    packages: tuple
+    allocations: tuple
+
+
+def recovery_cost_authority(paths, package_path, release):
+    """Fresh exact protected authority, never a grant supplied as inventories."""
+    from . import msi_inventory
+    from .installer_fence import read_fence, state_root, assert_state_security
+    from .runtime_identity import verify_retained_archive
+
+    fence = read_fence(paths)
+    if fence is None:
+        return None
+    expected = msi_inventory.read_expected_package(package_path, release)
+    identity = {
+        "sha256": expected.package.sha256,
+        "product_code": expected.package.product_code,
+        "package_code": expected.package.package_code,
+        "version": expected.package.version,
+        "source_revision": expected.identity.source_revision,
+    }
+    if fence["package"] != identity:
+        raise ProvenanceConflict()
+    request = {
+        "package_path": package_path,
+        "release": release,
+        "transaction_id": fence["transaction_id"],
+        "selected": fence["selected"],
+        "previous": fence["previous"],
+    }
+    packages = [(package_path, expected.package)]
+    allocations = [
+        (
+            state_root(paths),
+            2 * package_path.stat().st_size + MAX_MANIFEST_BYTES + 16384,
+        )
+    ]
+    if fence["operation"] == "install":
+        validate_interrupted_reconciliation(paths, request)
+        root = state_root(paths) / "provenance" / request["transaction_id"]
+        assert_state_security(root)
+        plan = _read_plan(root, request, expected)
+        for archive_id in plan["archives"]:
+            retained = verify_retained_archive(paths, archive_id)
+            package = retained.record["package"]
+            source = retained.archive / "package.msi"
+            actual = msi_inventory.read_package(source, package["sha256"])
+            if any(
+                getattr(actual, key) != package[key]
+                for key in ("sha256", "product_code", "package_code", "version")
+            ):
+                raise ProvenanceConflict()
+            packages.append((source, actual))
+            payload_size = sum(item.size for item in retained.identity.files)
+            metadata = (
+                len(retained.record_bytes)
+                + len(retained.link_bytes)
+                + MAX_MANIFEST_BYTES
+                + 16384
+            )
+            # Existing archive is reused; reconstruct payload and its largest
+            # durable-copy temporary, separately from native rollback copies.
+            allocations.append(
+                (
+                    paths.versions_root,
+                    payload_size
+                    + metadata
+                    + max(item.size for item in retained.identity.files),
+                )
+            )
+    else:
+        validate_maintenance_recovery(paths, request, fence["operation"])
+        allocations = [(state_root(paths), 16384)]
+    products = [package.product_code for _, package in packages]
+    if len(products) != len(set(products)) or len(products) > 3:
+        raise ProvenanceConflict()
+    return RecoveryCostAuthority(
+        fence["operation"], tuple(packages), tuple(allocations)
+    )
+
+
 def _selector_bytes(identity) -> bytes:
     return json.dumps({'schema_version':1, 'source_revision':identity.source_revision, 'version':identity.version},
         separators=(',', ':')).encode()
@@ -443,7 +576,7 @@ def _selector_bytes(identity) -> bytes:
 
 def prepare_installer_provenance(paths: WindowsUpdatePaths, expected_msi) -> str:
     """Final read-only comparison followed by durable preparation, before MSI."""
-    from . import durable_state, msi_inventory
+    from . import durable_state
     from .installer_fence import state_root, protect_state, assert_state_security
     from .disk_readiness import require_allocation_space
     expected = _expected_request(expected_msi)
@@ -480,24 +613,7 @@ def prepare_installer_provenance(paths: WindowsUpdatePaths, expected_msi) -> str
         result, after = 'preserved', selected.selector_bytes
         previous_after = inspected.previous.selector_bytes if inspected.previous else None
     package_path = Path(expected_msi['package_path'])
-    allocations=[(state_root(paths),2*package_path.stat().st_size+MAX_MANIFEST_BYTES+16384)]
-    jobs=[]
-    retained_versions=set()
-    for evidence in (inspected.current, inspected.previous):
-        if evidence is None or evidence.origin != 'msi':
-            continue
-        receipt = read_json(evidence.receipt_bytes, 4096)
-        if receipt.get('schema_version') == 'endpoint_windows_installer_provenance_v1':
-            old_path = paths.updates_root.parent / 'installer-cache' / receipt['cache_file']
-            old_hash = receipt['package_sha256']
-        else:
-            old_hash = receipt['release']['package_sha256']
-            old_path = state_root(paths) / 'packages' / old_hash / 'EndpointAgent.msi'
-        old_package = msi_inventory.read_package(old_path, old_hash)
-        if old_package.product_code != expected.package.product_code and evidence.identity.version not in retained_versions:
-            retained_versions.add(evidence.identity.version)
-            jobs.append((evidence,old_path,old_package))
-            allocations.extend(retention_allocations(paths,evidence,old_path.stat().st_size))
+    allocations, jobs = preparation_allocations(paths, inspected, expected, package_path)
     # Admit the combined incoming media, every retained package/payload,
     # copy temporaries and later rehydration before the first archive byte.
     require_allocation_space(tuple(allocations))

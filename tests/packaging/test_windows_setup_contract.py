@@ -175,12 +175,14 @@ def test_setup_wrapper_owns_transaction_through_service_stop_and_provenance():
     acquire = source.index("$updateMutex = New-UpdateTransaction")
     gate = source.index("if (Test-ActiveUpdateState -InstallRoot")
     cache = source.index("$executionCacheRoot =")
-    tray = source.index("$trayStop = Start-Process")
-    stop = source.index("$previousServiceStates = Stop-ManagedAgentServices")
-    install = source.index("$installer = Start-Process")
-    publish = source.index("[IO.File]::Replace($provenanceStagePath")
+    inspect = source.index("$initial = Invoke-InstallerHelper -Bridge $bridge -Phase 'inspect'")
+    stop = source.index("Stop-ManagedAgentServices -PreviousStates $previousServiceStates")
+    prepare = source.index("Invoke-InstallerHelper -Bridge $bridge -Phase 'prepare' | Out-Null")
+    install = source.index("$installer = [Diagnostics.Process]::Start($nativeInfo)")
+    reconcile = source.index("Invoke-InstallerHelper -Bridge $bridge -Phase 'reconcile' | Out-Null")
+    publish = source.index("Invoke-InstallerHelper -Bridge $bridge -Phase 'finish' | Out-Null")
     release = source.index("$updateMutex.ReleaseMutex()")
-    assert acquire < gate < cache < tray < stop < install < publish < release
+    assert acquire < gate < cache < inspect < stop < prepare < install < reconcile < publish < release
     assert "if (-not $transactionOwned) { exit 61 }" in source
     assert "catch [Threading.AbandonedMutexException]" in source
     assert "Write-Error 'UPDATE_STATE_INVALID' -ErrorAction Continue; exit 62" in source

@@ -10,7 +10,10 @@ param(
     [string]$ExpectedDataRoot,
     [switch]$RequireCompletion,
     [string]$ExpectedCommandId,
-    [string]$ExpectedCapability
+    [string]$ExpectedCapability,
+    [string]$SetupPath,
+    [string]$TargetVersion,
+    [switch]$FleetEligibilityOnly
 )
 
 Set-StrictMode -Version Latest
@@ -23,6 +26,172 @@ $SystemSid = 'S-1-5-18'
 $AdministratorsSid = 'S-1-5-32-544'
 $LocalServiceSid = 'S-1-5-19'
 $ConsoleHostPath = Join-Path $env:WINDIR 'System32\conhost.exe'
+
+function Assert-ExactFleetKeys {
+    param($Value, [string[]]$Keys)
+    if ($null -eq $Value -or $Value -isnot [pscustomobject] -or
+        [string]::Join('|', @($Value.PSObject.Properties.Name | Sort-Object)) -ne
+        [string]::Join('|', @($Keys | Sort-Object))) { throw 'Canonical fleet fact schema is invalid.' }
+}
+
+function Assert-FleetPreflightSchema {
+    param($Value, [string]$TargetVersion)
+    Assert-ExactFleetKeys $Value @('schema_version','target_version','eligibility','snapshot_scope','core','foundation','msi','origin','wss','update_lane','pending','provenance','credential','ca','disk','services')
+    foreach ($field in @('schema_version','target_version','eligibility','snapshot_scope')) {
+        if ($Value.$field -isnot [string]) { throw 'Canonical header type is invalid.' }
+    }
+    if ($Value.schema_version -ne 'endpoint_windows_fleet_preflight_v1' -or
+        $Value.target_version -cne $TargetVersion -or $TargetVersion -notmatch '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$' -or
+        $Value.snapshot_scope -ne 'local_non_atomic_read_only' -or
+        $Value.eligibility -notin @('READY_FOR_SETUP_UPGRADE','ALREADY_CURRENT','UPDATE_IN_PROGRESS','PROVENANCE_CONFLICT','FOUNDATION_UNKNOWN','DISK_INSUFFICIENT','DISK_UNKNOWN','SERVICE_INVALID','CREDENTIAL_REPAIR_REQUIRED','TLS_REPAIR_REQUIRED')) { throw 'Canonical fleet header is invalid.' }
+    $groups = @{
+        core = @('version','source_revision','minimum_launcher_version','origin','verified','package_sha256','package_size','compatibility_scope')
+        foundation = @('version','source_revision','package_sha256','product_code','native_verified','feature_state')
+        msi = @('version','product_code','native_verified')
+        origin = @('present','https_shape_valid','scope')
+        wss = @('status_present','historical_proof','live_connected','scope')
+        update_lane = @('commands','updates','migration_http_pull_fallback','live_owner')
+        pending = @('active_or_degraded','state','installer_phase')
+        provenance = @('conflict','verified')
+        credential = @('present','shape_valid','enrollment_shape_valid','authenticated')
+        ca = @('present','parseable','strict_live_tls')
+        disk = @('sufficient','scope','free_bytes')
+        services = @('EndpointAgent','EndpointAgentUpdater')
+    }
+    foreach ($key in $groups.Keys) { Assert-ExactFleetKeys $Value.$key $groups[$key] }
+    $strings = @{
+        core = @('version','source_revision','package_sha256','minimum_launcher_version','origin','compatibility_scope')
+        foundation = @('version','source_revision','package_sha256','product_code','feature_state')
+        msi = @('version','product_code'); origin = @('scope'); wss = @('scope')
+        update_lane = @('commands','updates'); pending = @('state','installer_phase'); disk = @('scope')
+    }
+    foreach ($group in $strings.Keys) {
+        foreach ($field in $strings[$group]) {
+            if ($null -ne $Value.$group.$field -and $Value.$group.$field -isnot [string]) { throw 'Canonical string fact is invalid.' }
+        }
+    }
+    foreach ($group in @($Value.core,$Value.foundation,$Value.msi)) {
+        if ($null -ne $group.version -and [string]$group.version -notmatch '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$') { throw 'Canonical version is invalid.' }
+    }
+    foreach ($group in @($Value.core,$Value.foundation)) {
+        if (($null -ne $group.source_revision -and [string]$group.source_revision -notmatch '^[0-9a-f]{40}$') -or
+            ($null -ne $group.package_sha256 -and [string]$group.package_sha256 -notmatch '^[0-9a-f]{64}$')) { throw 'Canonical release identity is invalid.' }
+    }
+    foreach ($group in @($Value.foundation,$Value.msi)) {
+        if ($group.native_verified -isnot [bool] -or ($null -ne $group.product_code -and [string]$group.product_code -notmatch '^\{[0-9A-Fa-f-]{36}\}$')) { throw 'Canonical native identity is invalid.' }
+    }
+    foreach ($field in @('present','shape_valid','enrollment_shape_valid')) {
+        if ($Value.credential.$field -isnot [bool]) { throw 'Canonical credential fact is invalid.' }
+    }
+    foreach ($field in @('present','parseable')) {
+        if ($Value.ca.$field -isnot [bool]) { throw 'Canonical CA fact is invalid.' }
+    }
+    if ($null -ne $Value.credential.authenticated -or $null -ne $Value.ca.strict_live_tls -or
+        $null -ne $Value.wss.live_connected -or $null -ne $Value.update_lane.live_owner) { throw 'Canonical live proof scope is invalid.' }
+    if ($Value.core.verified -isnot [bool] -or $Value.pending.active_or_degraded -isnot [bool] -or
+        $Value.provenance.conflict -isnot [bool] -or $Value.provenance.verified -isnot [bool] -or
+        $Value.origin.present -isnot [bool] -or
+        ($null -ne $Value.origin.https_shape_valid -and $Value.origin.https_shape_valid -isnot [bool]) -or
+        ($null -ne $Value.disk.sufficient -and $Value.disk.sufficient -isnot [bool]) -or
+        ($null -ne $Value.wss.status_present -and $Value.wss.status_present -isnot [bool]) -or
+        ($null -ne $Value.wss.historical_proof -and $Value.wss.historical_proof -isnot [bool])) { throw 'Canonical boolean fact is invalid.' }
+    if (($null -ne $Value.core.origin -and $Value.core.origin -notin @('zip','msi','retained_msi')) -or
+        ($null -ne $Value.core.compatibility_scope -and $Value.core.compatibility_scope -notin @('payload_contract','immutable_legacy_identity')) -or
+        ($null -ne $Value.core.minimum_launcher_version -and [string]$Value.core.minimum_launcher_version -notmatch '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$') -or
+        ($null -ne $Value.foundation.feature_state -and $Value.foundation.feature_state -notin @('complete','foundation_only')) -or
+        $Value.origin.scope -notin @('compiled_default','protected_override') -or
+        $Value.wss.scope -ne 'historical_status_only' -or $Value.disk.scope -notin @('setup_allocation_unknown','verified_allocations') -or
+        $Value.update_lane.commands -ne 'wss' -or $Value.update_lane.updates -ne 'https' -or
+        $Value.update_lane.migration_http_pull_fallback -isnot [bool] -or $Value.update_lane.migration_http_pull_fallback) { throw 'Canonical factual scope is invalid.' }
+    if (($null -ne $Value.core.package_size -and ($Value.core.package_size -isnot [int] -and $Value.core.package_size -isnot [long] -or $Value.core.package_size -le 0 -or $Value.core.package_size -gt 536870912)) -or
+        ($null -ne $Value.disk.free_bytes -and ($Value.disk.free_bytes -isnot [int] -and $Value.disk.free_bytes -isnot [long] -or $Value.disk.free_bytes -lt 0))) { throw 'Canonical size fact is invalid.' }
+    if (($null -ne $Value.pending.state -and $Value.pending.state -notin @('pending','verifying','terminal-report-pending','recovery-pending','installer-recovery-required','state-invalid')) -or
+        ($null -ne $Value.pending.installer_phase -and $Value.pending.installer_phase -notin @('prepared','msi-starting','msi-executing','msi-returned','reconciling','complete'))) { throw 'Canonical recovery fact is invalid.' }
+    foreach ($name in @('EndpointAgent','EndpointAgentUpdater')) {
+        $service = $Value.services.$name
+        Assert-ExactFleetKeys $service @('present','state','start_mode','identity_valid')
+        if (($null -ne $service.present -and $service.present -isnot [bool]) -or
+            ($null -ne $service.identity_valid -and $service.identity_valid -isnot [bool]) -or
+            ($null -ne $service.state -and $service.state -notin @('running','stopped','transitioning')) -or
+            ($null -ne $service.start_mode -and $service.start_mode -notin @('automatic','manual','disabled','invalid'))) { throw 'Canonical service fact is invalid.' }
+    }
+}
+
+function Invoke-BoundedSetupPreflight {
+    param([string]$Path)
+    $process = [Diagnostics.Process]::new()
+    $process.StartInfo.FileName = $Path
+    $process.StartInfo.Arguments = '--preflight'
+    $process.StartInfo.UseShellExecute = $false
+    $process.StartInfo.CreateNoWindow = $true
+    $process.StartInfo.RedirectStandardOutput = $true
+    $process.StartInfo.RedirectStandardError = $true
+    $clock = [Diagnostics.Stopwatch]::StartNew()
+    $started = $false
+    try {
+        if (-not $process.Start()) { throw 'Canonical preflight could not start.' }
+        $started = $true
+        $output = [Text.StringBuilder]::new()
+        $buffer = [char[]]::new(16385)
+        while ($true) {
+            $read = $process.StandardOutput.ReadAsync($buffer, 0, 16385 - $output.Length)
+            while (-not $read.Wait(100)) {
+                if ($clock.ElapsedMilliseconds -gt 60000) { throw 'Canonical preflight timed out.' }
+            }
+            $count = $read.Result
+            if ($count -eq 0) { break }
+            [void]$output.Append($buffer, 0, $count)
+            if ($output.Length -gt 16384) { throw 'Canonical preflight exceeds bound.' }
+        }
+        if (-not $process.WaitForExit([Math]::Max(1, 60000 - [int]$clock.ElapsedMilliseconds))) { throw 'Canonical preflight timed out.' }
+        return @{ exit_code = $process.ExitCode; stdout = $output.ToString() }
+    }
+    finally {
+        # Own read-only child only; never touch managed services or other PIDs.
+        if ($started -and -not $process.HasExited) { $process.Kill() }
+        $process.Dispose()
+    }
+}
+
+function Read-CanonicalSetupPreflight {
+    param([string]$Path, [string]$TargetVersion)
+    $fact = Get-SafeFileFact -Path $Path
+    if (-not $fact.regular -or $fact.reparse) { throw 'Canonical Setup path is invalid.' }
+    $signature = Get-AuthenticodeSignature -FilePath $fact.path
+    if ([string]$signature.Status -ne 'Valid' -or $null -eq $signature.TimeStamperCertificate) { throw 'Canonical Setup must have a valid timestamped signature.' }
+    $record = Invoke-BoundedSetupPreflight -Path $fact.path
+    if ($record.exit_code -ne 0 -or [string]::IsNullOrWhiteSpace($record.stdout) -or
+        [Text.Encoding]::UTF8.GetByteCount($record.stdout) -gt 16384) { throw 'Canonical Setup preflight failed.' }
+    try { $value = $record.stdout | ConvertFrom-Json } catch { throw 'Canonical Setup preflight JSON is invalid.' }
+    Assert-FleetPreflightSchema -Value $value -TargetVersion $TargetVersion
+    return $value
+}
+
+function Write-PreflightReport {
+    param($Payload)
+    $destination = [IO.Path]::GetFullPath($OutputPath)
+    $nativeInstallParent = Join-Path ([Environment]::GetFolderPath('ProgramFiles')) 'Endpoint Platform'
+    $nativeDataRoot = Join-Path ([Environment]::GetFolderPath('CommonApplicationData')) 'Endpoint Platform\Agent'
+    foreach ($root in @($ExpectedInstallRoot, $ExpectedDataRoot,
+        (Join-Path (Split-Path -Parent $ExpectedInstallRoot) 'installer-state'),
+        (Join-Path (Split-Path -Parent $ExpectedInstallRoot) 'installer-cache'),
+        $nativeInstallParent, $nativeDataRoot)) {
+        $fixed = [IO.Path]::GetFullPath($root).TrimEnd('\')
+        if ($destination.Equals($fixed,[StringComparison]::OrdinalIgnoreCase) -or
+            $destination.StartsWith($fixed+'\',[StringComparison]::OrdinalIgnoreCase)) { throw 'Report destination overlaps machine state.' }
+    }
+    if (Test-Path -LiteralPath $destination) { throw 'Report destination must be a new artifact.' }
+    $json = $Payload | ConvertTo-Json -Depth 8
+    if ([Text.Encoding]::UTF8.GetByteCount($json) -gt 65536) { throw 'Preflight report exceeds bound.' }
+    $directory = Split-Path -Parent $destination
+    $existing = $directory
+    while (-not (Test-Path -LiteralPath $existing)) { $existing = Split-Path -Parent $existing }
+    Assert-NoReparsePointInPath -Path $existing
+    New-Item -ItemType Directory -Force -Path $directory | Out-Null
+    Assert-NoReparsePointInPath -Path $directory
+    $stream = [IO.File]::Open($destination, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::None)
+    try { $bytes = [Text.UTF8Encoding]::new($false).GetBytes($json); $stream.Write($bytes,0,$bytes.Length) } finally { $stream.Dispose() }
+}
 
 function Assert-NoReparsePointInPath {
     param([Parameter(Mandatory = $true)][string]$Path)
@@ -373,6 +542,14 @@ function Assert-ExpectedCompletion {
 }
 
 try {
+    $fleet = $null
+    if (-not [string]::IsNullOrEmpty($SetupPath)) {
+        if ([string]::IsNullOrEmpty($TargetVersion)) { throw 'TargetVersion is required with SetupPath.' }
+        $fleet = Read-CanonicalSetupPreflight -Path $SetupPath -TargetVersion $TargetVersion
+    } elseif ($FleetEligibilityOnly -or -not [string]::IsNullOrEmpty($TargetVersion)) {
+        throw 'Canonical SetupPath is required for fleet eligibility.'
+    }
+    if ($FleetEligibilityOnly) { Write-PreflightReport -Payload $fleet; return }
     if ($RequireCompletion -and ([string]::IsNullOrEmpty($ExpectedCommandId) -or [string]::IsNullOrEmpty($ExpectedCapability))) {
         throw 'Completion requirement is incomplete.'
     }
@@ -412,9 +589,34 @@ try {
     $identityFile = Get-SafeFileFact -Path (Join-Path $ExpectedDataRoot 'enrollment-identity.json')
     $statusFile = Get-SafeFileFact -Path (Join-Path $ExpectedDataRoot 'canary-status.json')
     $status = Read-CanaryStatus -DataRoot $ExpectedDataRoot -ExpectedEndpointHost $ExpectedEndpointHost
-    $installerEvidence = Read-InstallerProvenance -DataRoot $ExpectedDataRoot
-    $provenance = $installerEvidence.provenance
-    $selectedEvidence = Read-SelectedRuntimeEvidence -InstallRoot $ExpectedInstallRoot -SelectorValue $selectorValue -InstallerProvenance $provenance
+    if ($null -ne $fleet) {
+        if ($fleet.pending.active_or_degraded -or $fleet.provenance.conflict -or -not $fleet.provenance.verified -or
+            -not $fleet.foundation.native_verified -or -not $fleet.core.verified -or
+            $fleet.core.version -cne $selectorValue.version -or $fleet.core.source_revision -cne $selectorValue.source_revision) { throw 'Canonical installed ownership is not coherent.' }
+        $provenance = $fleet.foundation
+        $installerEvidence = @{ hash = $fleet.foundation.package_sha256; cache_fact = @{ regular = $true; reparse = $false } }
+        $selectedEvidence = @{ origin = $fleet.core.origin }
+        if ($fleet.core.origin -eq 'zip') {
+            $selectedEvidence.bundle_sha256 = $fleet.core.package_sha256
+            $selectedEvidence.bundle_size = $fleet.core.package_size
+            $selectedEvidence.bundle_manifest_verified = $true
+            $selectedEvidence.bundle_receipt_verified = $true
+            $selectedEvidence.bundle_acl_protected = $true
+        }
+    } else {
+        if (Test-Path -LiteralPath (Join-Path (Split-Path -Parent $ExpectedInstallRoot) 'installer-state\foundation.json')) { throw 'Modern ownership requires canonical SetupPath.' }
+        $installerEvidence = Read-InstallerProvenance -DataRoot $ExpectedDataRoot
+        $provenance = $installerEvidence.provenance
+        if ([string]$selectorValue.version -notin @('3.2.79','3.2.81') -or
+            [string]$provenance.version -notin @('3.2.79','3.2.81')) { throw 'Unsupported historical ownership requires canonical SetupPath.' }
+        $legacy = @{
+            '3.2.79' = @{ package = '2f7d778799f1e32645af7936dfaf3f090d6ad4df5bb883827ea8a0a5d859f72a'; source = 'd9b0fea2b14e34b05e25058e4ee004ea61643ca6'; tree = '06200efd1ee8b2914828e71eef65db8e6dd803318b44047672b8b9dc40c950c4' }
+            '3.2.81' = @{ package = 'ad4dc49703513d6dee6fd3e51ac94a09c5967112d58aed4e60a63cf6966251f5'; source = 'c05bb0a528527ed1544c88fb0b1570c64b32084d'; tree = 'a4db007c0e313f6d5b34633aeaad10a2a47f01aeed6444b97021b3e222a580e2' }
+        }[[string]$provenance.version]
+        if ($installerEvidence.hash -cne $legacy.package -or $provenance.source_revision -cne $legacy.source -or
+            $provenance.initial_runtime_tree_sha256 -cne $legacy.tree) { throw 'Unknown legacy package requires canonical SetupPath.' }
+        $selectedEvidence = Read-SelectedRuntimeEvidence -InstallRoot $ExpectedInstallRoot -SelectorValue $selectorValue -InstallerProvenance $provenance
+    }
     if ([string]$status.release.version -ne [string]$selectorValue.version -or [string]$status.release.source_revision -ne [string]$selectorValue.source_revision) {
         throw 'Canary status does not match the selected runtime.'
     }
@@ -451,11 +653,10 @@ try {
         network = [ordered]@{ strict_tls = [bool]$status.transport.strict_tls; hostname_valid = [bool]$status.transport.hostname_valid; redirected = [bool]$status.transport.redirected; gateway_wss = [bool]$status.transport.gateway_wss; http_fallback = [bool]$status.transport.http_fallback; capability = [string]$status.capability }
         completion_proof = $completionStatus.completion_proof
     }
-    $directory = Split-Path -Parent $OutputPath
-    New-Item -ItemType Directory -Force -Path $directory | Out-Null
-    [IO.File]::WriteAllText($OutputPath, ($payload | ConvertTo-Json -Depth 8), [Text.UTF8Encoding]::new($false))
+    if ($null -ne $fleet) { $payload.fleet_preflight = $fleet }
+    Write-PreflightReport -Payload $payload
 }
 catch {
-    Write-Error ("Windows agent preflight collection failed: {0}" -f $_.Exception.Message)
+    Write-Error 'Windows agent preflight collection failed.'
     exit 2
 }
