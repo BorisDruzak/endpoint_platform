@@ -19,6 +19,10 @@ Native directory API failures become chained `OSError` with their Windows
 error code so portable recovery callers can handle them. The adapter reloads
 and merges its scheduled journal after HTTP ACK; existing Linux leaf modes
 are preserved and new journals use owner-only permissions.
+Visible undelivered journal retries finish their directory flush before HTTP.
+Verified reuse of a runtime directory also completes its versions-root flush
+before selector/SCM consumers. A local startup-proof ACL failure withholds proof
+while the authenticated control lifecycle continues.
 
 The Windows device-binding dialog lives in `platform/windows/binding_dialog.py`
 inside the existing tray executable. `platform/windows/device_binding.py`

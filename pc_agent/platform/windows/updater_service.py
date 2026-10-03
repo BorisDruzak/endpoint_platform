@@ -557,6 +557,9 @@ class WindowsUpdater:
                 )
             if not matches:
                 raise ValueError("target version collision with different bytes")
+            # A prior rename can be visible even though its parent flush
+            # failed. Reuse is success only after finishing that same barrier.
+            flush_directory(target.parent)
             shutil.rmtree(staging, ignore_errors=True)
             return target
         _write_json_atomic(staging / ".endpoint-update.json", {

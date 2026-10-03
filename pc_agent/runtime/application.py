@@ -540,6 +540,7 @@ async def _startup_proof_hook(settings: object) -> None:
     if not isinstance(settings, RuntimeSettings):
         return
     if os.name == "nt":
+        from pc_agent.platform.windows.acl import WindowsAclError
         from pc_agent.platform.windows.startup_confirmation import StartupProofWriter
         from pc_agent.platform.windows.update_paths import WindowsUpdatePaths
 
@@ -547,7 +548,7 @@ async def _startup_proof_hook(settings: object) -> None:
             StartupProofWriter(
                 WindowsUpdatePaths(settings.install_root, settings.data_root / "updates" / "pending_update.json")
             ).record_after_server_handshake()
-        except (OSError, ValueError, TypeError):
+        except (OSError, ValueError, TypeError, WindowsAclError):
             # A missing proof causes candidate rollback; it must not kill WSS.
             logger.warning("recovery_update_startup_proof_failed")
 

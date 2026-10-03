@@ -438,3 +438,35 @@ def test_native_directory_flush_error_restores_known_good_service(tmp_path, monk
     assert result.status == "rejected"
     assert json.loads(paths.current_path.read_text())["version"] == "3.1.0"
     assert service.running
+
+
+def test_matching_visible_runtime_retry_flushes_before_candidate_selector_or_start(tmp_path, monkeypatch):
+    from pc_agent.platform.windows import updater_service
+    paths = _setup(tmp_path)
+    candidate_starts = []
+    class Service(_Service):
+        def start(self):
+            candidate_starts.append(json.loads(paths.current_path.read_text())["version"])
+            super().start()
+    service = Service()
+    updater = updater_service.WindowsUpdater(paths, acl=_Acl(), service=service,
+        verifier=_Verifier(service.events), confirmation=_Confirmation(service.events, confirmed=True))
+    pending = updater_service.PendingUpdateValidator(paths, _Acl()).load()
+    original_flush = updater_service.flush_directory
+    def fail(path):
+        if path == paths.versions_root:
+            raise OSError("persistent runtime metadata failure")
+        original_flush(path)
+    with monkeypatch.context() as patch:
+        patch.setattr(updater_service, "flush_directory", fail)
+        with pytest.raises(OSError, match="persistent runtime"):
+            updater._publish(updater._extract_to_staging(pending), pending)
+        assert (paths.versions_root / pending.version).exists()
+        for _ in range(2):
+            result = updater.run_once()
+            assert result.status != "applied"
+            assert json.loads(paths.current_path.read_text())["version"] == "3.1.0"
+            assert all(version == "3.1.0" for version in candidate_starts)
+            assert not (paths.updates_root / "startup-attempt.json").exists()
+    assert updater.run_once().status == "applied"
+    assert candidate_starts[-1] == "3.2.0"

@@ -303,8 +303,10 @@ class EndpointUpdateAdapter:
         )
         if record is None:
             return False
+        # A visible record may come from a replacement whose parent flush
+        # failed. Its operation metadata must be durable before HTTP yields.
+        durable_state.flush_directory(self._update_state_path().parent)
         if record["scheduled_ack_delivered_at"] is not None:
-            durable_state.flush_directory(self._update_state_path().parent)
             return True
         if not await self.acknowledge(operation_id, "scheduled"):
             return False
@@ -345,8 +347,10 @@ class EndpointUpdateAdapter:
         record = self._load_or_create_report(
             operation_id, status, reported_version, safe_code
         )
+        # Retry must durably retain the idempotency key before sending it,
+        # including when the preceding write left an undelivered visible leaf.
+        durable_state.flush_directory(self._report_journal_path().parent)
         if record["delivered_at"] is not None:
-            durable_state.flush_directory(self._report_journal_path().parent)
             return True
         payload = {
             "schema_version": "agent_update_report_v1",

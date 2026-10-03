@@ -605,3 +605,50 @@ def test_linux_adapter_branch_preserves_existing_journal_mode(tmp_path, monkeypa
     owner._write_update_state([])
     assert stat.S_IMODE(path.stat().st_mode) == expected_mode
     assert json.loads(path.read_text()) == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("journal", ["endpoint_update_state.json", "endpoint_update_reports.json"])
+@pytest.mark.parametrize("delivered", [False, True])
+async def test_visible_journal_retry_requires_flush_before_any_network(tmp_path, monkeypatch, journal, delivered):
+    from pc_agent.platform.windows import durable_state
+    events = []
+    class Session:
+        def post(self, url, *, headers, json):
+            events.append("POST")
+            return _Response(200 if url.endswith("reports") else 204, "")
+    session = Session()
+    def owner():
+        return EndpointUpdateAdapter(api_url="https://endpoint.example.test", bearer_token=lambda: "test", session=session, data_root=tmp_path)
+    operation = "caa31a48-bf2f-4f1c-8b77-d1be77e12b4e"
+    async def perform(adapter):
+        if journal == "endpoint_update_state.json":
+            return await adapter.record_scheduled_handoff(operation, assigned_version="3.2.2", rollback_version="3.2.1")
+        return await adapter.report_terminal(operation, status="rolled_back", reported_version="3.2.1", safe_code="launcher_rolled_back")
+    original_flush = durable_state.flush_directory
+    def fail(path):
+        if path == tmp_path / "updates":
+            events.append("FLUSH_FAILURE")
+            raise OSError("persistent journal metadata failure")
+        original_flush(path)
+    if delivered:
+        assert await perform(owner())
+    with monkeypatch.context() as patch:
+        patch.setattr(durable_state, "flush_directory", fail)
+        if not delivered:
+            with pytest.raises(OSError, match="persistent journal"):
+                await perform(owner())
+        path = tmp_path / "updates" / journal
+        assert path.exists()
+        visible = json.loads(path.read_text())
+        report_key = visible[0].get("report_key")
+        for _ in range(2):
+            events.clear()
+            with pytest.raises(OSError, match="persistent journal"):
+                await perform(owner())
+            assert events == ["FLUSH_FAILURE"]
+    events.clear()
+    assert await perform(owner())
+    assert events == ([] if delivered else ["POST"])
+    if report_key:
+        assert json.loads(path.read_text())[0]["report_key"] == report_key

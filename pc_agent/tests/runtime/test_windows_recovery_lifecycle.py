@@ -65,6 +65,53 @@ async def test_startup_proof_write_failure_keeps_control_connected(tmp_path, mon
     await application._startup_proof_hook(settings)
     assert not (updates / "startup-confirmation.json").exists()
 
+
+@pytest.mark.skipif(sys.platform != "win32", reason="native Windows ACL contract")
+@pytest.mark.asyncio
+@pytest.mark.parametrize("error_mode", ["native", "wrapped"])
+async def test_real_startup_proof_acl_failure_keeps_authenticated_lifecycle_connected(tmp_path, monkeypatch, error_mode):
+    import json
+    import pywintypes
+    import win32security
+    from pc_agent.platform.windows.acl import PyWin32AclAdapter, WindowsAclError
+    from pc_agent.tests.runtime.test_headless_lifecycle import _dependencies
+    from pc_agent.version import AGENT_VERSION
+    settings = replace(_settings(tmp_path), transport_mode="gateway_wss")
+    settings.install_root.mkdir()
+    updates = settings.data_root / "updates"
+    updates.mkdir(parents=True)
+    (settings.install_root / "current.json").write_text(json.dumps({"version": AGENT_VERSION}))
+    pending = {"version": AGENT_VERSION, "operation_id": "operation"}
+    (updates / "pending_update.json").write_text(json.dumps(pending))
+    (updates / "startup-attempt.json").write_text(json.dumps({**pending, "attempt_id": "attempt"}))
+    native = pywintypes.error(5, "SetNamedSecurityInfo", "injected native ACL failure")
+    def native_failure(*args):
+        raise native
+    def wrapped_failure(*args):
+        raise WindowsAclError("injected wrapped ACL failure") from native
+    if error_mode == "native":
+        monkeypatch.setattr(win32security, "SetNamedSecurityInfo", native_failure)
+    else:
+        monkeypatch.setattr(PyWin32AclAdapter, "protect_update_path", wrapped_failure)
+    events = []
+    deps = replace(_dependencies(events, [None]), after_server_handshake=application._startup_proof_hook)
+    assert await RuntimeLifecycle(settings, deps, RuntimeStatus()).run() == 0
+    assert events.index("transport.connect") < events.index("transport.receive") < events.index("transport.close")
+    assert events[-1] == "executor.stop"
+    assert not (updates / "startup-confirmation.json").exists()
+    assert not list(updates.glob(".startup-confirmation.json.*.tmp"))
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows startup proof hook")
+@pytest.mark.asyncio
+async def test_startup_proof_hook_does_not_swallow_unexpected_runtime_error(tmp_path, monkeypatch):
+    from pc_agent.platform.windows.startup_confirmation import StartupProofWriter
+    def fail(self):
+        raise RuntimeError("unexpected proof implementation error")
+    monkeypatch.setattr(StartupProofWriter, "record_after_server_handshake", fail)
+    with pytest.raises(RuntimeError, match="unexpected proof"):
+        await application._startup_proof_hook(_settings(tmp_path))
+
 @pytest.mark.skipif(sys.platform != "win32", reason="Windows default composition")
 @pytest.mark.asyncio
 async def test_windows_checks_updates_before_any_successful_wss(monkeypatch, tmp_path):
