@@ -14,7 +14,11 @@
                         Arguments="--agent-service" />
         <ServiceControl Id="ctlEndpointAgent" Name="EndpointAgent"
                         Start="install" Stop="both" Remove="uninstall" Wait="yes" />
-
+      </Component>
+      <Component Id="cmpOfflineUpdater" Directory="INSTALLFOLDER"
+                 Guid="E43B1790-43B8-4B08-A8F9-79B535026121" Bitness="always64">
+        <File Id="filOfflineUpdater" Source="$(var.StagingDir)\ProgramFiles\endpoint-agent-updater.exe"
+              Name="endpoint-agent-updater.exe" KeyPath="yes" />
         <ServiceInstall Id="svcEndpointAgentUpdater" Name="EndpointAgentUpdater"
                         DisplayName="Endpoint Agent Updater"
                         Description="Demand-start offline Endpoint Agent update worker"

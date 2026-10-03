@@ -361,6 +361,7 @@ New-Item -ItemType Directory -Path $runtimeStage, $outputRoot, $releaseRoot -For
 $coreSpec = Join-Path $repositoryRoot 'pc_agent\pyinstaller_endpoint_core_windows.spec'
 $launcherSpec = Join-Path $repositoryRoot 'pc_agent\pyinstaller_launcher_win.spec'
 $serviceHostSpec = Join-Path $repositoryRoot 'pc_agent\pyinstaller_windows_service_launcher.spec'
+$updaterSpec = Join-Path $repositoryRoot 'pc_agent\pyinstaller_windows_updater.spec'
 $provisionerSpec = Join-Path $repositoryRoot 'pc_agent\pyinstaller_windows_provision.spec'
 $traySpec = Join-Path $repositoryRoot 'pc_agent\pyinstaller_windows_tray.spec'
 $userSensorSpec = Join-Path $repositoryRoot 'pc_agent\pyinstaller_windows_user_sensor.spec'
@@ -371,6 +372,7 @@ if (-not $ReusePythonBuild) {
     Invoke-Checked $python (@('-m', 'PyInstaller') + $commonPyInstaller + @($coreSpec)) $repositoryRoot
     Invoke-Checked $python (@('-m', 'PyInstaller') + $commonPyInstaller + @($launcherSpec)) $repositoryRoot
     Invoke-Checked $python (@('-m', 'PyInstaller') + $commonPyInstaller + @($serviceHostSpec)) $repositoryRoot
+    Invoke-Checked $python (@('-m', 'PyInstaller') + $commonPyInstaller + @($updaterSpec)) $repositoryRoot
     Invoke-Checked $python (@('-m', 'PyInstaller') + $commonPyInstaller + @($provisionerSpec)) $repositoryRoot
     Invoke-Checked $python (@('-m', 'PyInstaller') + $commonPyInstaller + @($traySpec)) $repositoryRoot
     Invoke-Checked $python (@('-m', 'PyInstaller') + $commonPyInstaller + @($userSensorSpec)) $repositoryRoot
@@ -382,6 +384,7 @@ $builtCore = Join-Path $distRoot 'endpoint_agent_core'
 $builtCoreExe = Join-Path $builtCore 'endpoint_agent_core.exe'
 $builtLauncher = Join-Path $distRoot 'launcher.exe'
 $builtServiceHost = Join-Path $distRoot 'endpoint-agent-service.exe'
+$builtUpdater = Join-Path $distRoot 'endpoint-agent-updater.exe'
 $builtProvisioner = Join-Path $distRoot 'endpoint-agent-provision.exe'
 $builtTray = Join-Path $distRoot 'EndpointAgentTray.exe'
 $builtUserSensor = Join-Path $distRoot 'EndpointUserSensor.exe'
@@ -396,6 +399,11 @@ if (-not (Test-Path -LiteralPath $builtLauncher -PathType Leaf)) {
 if (-not (Test-Path -LiteralPath $builtServiceHost -PathType Leaf)) {
     throw "Service host build missing $builtServiceHost"
 }
+if (-not (Test-Path -LiteralPath $builtUpdater -PathType Leaf)) {
+    throw "Offline updater build missing $builtUpdater"
+}
+Invoke-Checked $python @('-m', 'tools.canary.offline_updater_contract', $builtUpdater, '--output', (Join-Path $outputRoot 'offline-updater-inspection.json')) $repositoryRoot
+Invoke-Checked $builtUpdater @('--verify-offline') $repositoryRoot
 if (-not (Test-Path -LiteralPath $builtProvisioner -PathType Leaf)) {
     throw "Provisioning helper build missing $builtProvisioner"
 }
@@ -438,6 +446,7 @@ Write-Utf8NoBom (Join-Path $runtimeStage '.endpoint-msi-runtime.json') (@{
 } | ConvertTo-Json -Compress)
 Copy-Item -LiteralPath $builtLauncher -Destination (Join-Path $programFilesStage 'launcher.exe')
 Copy-Item -LiteralPath $builtServiceHost -Destination (Join-Path $programFilesStage 'endpoint-agent-service.exe')
+Copy-Item -LiteralPath $builtUpdater -Destination (Join-Path $programFilesStage 'endpoint-agent-updater.exe')
 Copy-Item -LiteralPath $builtProvisioner -Destination (Join-Path $programFilesStage 'endpoint-agent-provision.exe')
 Copy-Item -LiteralPath $builtTray -Destination (Join-Path $programFilesStage 'EndpointAgentTray.exe')
 Copy-Item -LiteralPath $builtUserSensor -Destination (Join-Path $programFilesStage 'EndpointUserSensor.exe')
@@ -466,7 +475,7 @@ $fileManifest = foreach ($item in $allFiles) {
 $componentManifest = @(
     'cmpLauncher', 'cmpCurrentSelector', 'cmpInitialRuntimeAnchor', 'cmpConfigTemplate', 'cmpPublicReadme',
     'cmpProgramDataRoot', 'cmpInstallRootCleanup', 'cmpInitialRuntimeTransitionState',
-    'cmpServiceEntrypoints', 'cmpBrowserPolicyService', 'cmpProvisioner',
+    'cmpServiceEntrypoints', 'cmpOfflineUpdater', 'cmpBrowserPolicyService', 'cmpProvisioner',
     'cmpTrayCompanion', 'cmpUserSensor', 'cmpBrowserBridge'
 ) + @($generatedItems | ForEach-Object {
     Get-StableId -Prefix 'cmpPayload' -Value (Get-RelativePath $runtimeStage $_.FullName)
@@ -490,7 +499,7 @@ $binding = [ordered]@{
     components = @($componentManifest | Sort-Object)
     services = @(
         [ordered]@{ name = 'EndpointAgent'; account = 'NT AUTHORITY\LocalService'; start = 'auto'; recovery = 'restart'; binary = 'ProgramFiles/endpoint-agent-service.exe'; arguments = '--agent-service'; selector = 'ProgramFiles/current.json' },
-        [ordered]@{ name = 'EndpointAgentUpdater'; account = 'LocalSystem'; start = 'demand'; recovery = 'restart'; binary = 'ProgramFiles/endpoint-agent-service.exe'; arguments = '--updater-service' },
+        [ordered]@{ name = 'EndpointAgentUpdater'; account = 'LocalSystem'; start = 'demand'; recovery = 'restart'; binary = 'ProgramFiles/endpoint-agent-updater.exe'; arguments = '--updater-service' },
         [ordered]@{ name = 'EndpointBrowserPolicy'; account = 'LocalSystem'; start = 'auto'; recovery = 'restart'; binary = 'ProgramFiles/EndpointBrowserPolicy.exe' }
     )
     state = [ordered]@{

@@ -35,9 +35,11 @@ RELEASED_PATHS = (
     REPOSITORY_ROOT / "pc_agent" / "pyinstaller_endpoint_core_windows.spec",
     REPOSITORY_ROOT / "pc_agent" / "pyinstaller_launcher_win.spec",
     REPOSITORY_ROOT / "pc_agent" / "pyinstaller_windows_service_launcher.spec",
+    REPOSITORY_ROOT / "pc_agent" / "pyinstaller_windows_updater.spec",
     REPOSITORY_ROOT / "pc_agent" / "pyinstaller_windows_provision.spec",
     REPOSITORY_ROOT / "pc_agent" / "pyinstaller_windows_tray.spec",
     REPOSITORY_ROOT / "pc_agent" / "platform" / "windows" / "service_launcher.py",
+    REPOSITORY_ROOT / "pc_agent" / "platform" / "windows" / "updater_entry.py",
     REPOSITORY_ROOT / "pc_agent" / "platform" / "windows" / "provision_entry.py",
     REPOSITORY_ROOT / "pc_agent" / "platform" / "windows" / "tray.py",
     REPOSITORY_ROOT / "packaging" / "alt" / "build-rpm.sh",
@@ -61,6 +63,9 @@ _SPEC_ENTRYPOINTS = {
     "pc_agent/pyinstaller_endpoint_core_windows.spec": ("pc_agent.runtime.main",),
     "pc_agent/pyinstaller_windows_service_launcher.spec": (
         "pc_agent.platform.windows.service_launcher",
+    ),
+    "pc_agent/pyinstaller_windows_updater.spec": (
+        "pc_agent.platform.windows.updater_entry",
     ),
     "pc_agent/pyinstaller_launcher_linux.spec": ("pc_agent.launcher.launcher_main",),
     "pc_agent/pyinstaller_launcher_win.spec": ("pc_agent.launcher.launcher_main",),
