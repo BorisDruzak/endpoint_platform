@@ -263,8 +263,11 @@ acceptance. No manual ZIP installation or receipt editing is an 82 procedure.
 
 The running `EndpointAgent` is the only Windows update component with a network
 client. It obtains a canary recommendation and artifact only from the
-CA-verified Endpoint origin, validates the ZIP hash and size, then writes the
-fixed protected `pending_update.json` path before exiting with code `42`.
+CA-verified Endpoint origin, validates the ZIP hash and size, and durably writes
+the verified handoff to the fixed protected `pending_update.json` path. The
+process-lifetime recovery supervisor then requests the demand-start updater
+through SCM. The known-good Agent core remains alive until the offline updater
+owns the stop, selector change, and restart transition.
 `EndpointAgentUpdater` is `LocalSystem`, demand-start and offline: it consumes
 only that fixed path, validates all paths/ACLs, updates the immutable selector,
 and rolls it back after failed verification or absent startup proof. A release
