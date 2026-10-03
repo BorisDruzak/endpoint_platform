@@ -12,7 +12,13 @@ import pytest
 
 @pytest.fixture(autouse=True)
 def literal_msi_costing_boundary(monkeypatch, tmp_path):
-    from pc_agent.platform.windows import setup_entry
+    from pc_agent.platform.windows import setup_entry,update_transaction
+    from uuid import uuid4
+    # These fixtures model embedded-media identity, not operator directories.
+    monkeypatch.setattr(update_transaction,'_assert_state_security',lambda _:None)
+    monkeypatch.setattr(update_transaction,'_MUTEX_NAME','Local\\EndpointSetupProvenanceTest-'+uuid4().hex)
+    monkeypatch.setattr(setup_entry.WindowsUpdatePaths,'production',classmethod(lambda cls:cls(
+        tmp_path/'Agent',tmp_path/'agent-data/updates/pending_update.json')))
     monkeypatch.setattr(setup_entry, "_msi_disk_costs", lambda _: [(tmp_path, 4096)], raising=False)
 
 from pc_agent.platform.windows import setup_entry

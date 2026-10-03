@@ -110,6 +110,9 @@ def update_transaction(paths: WindowsUpdatePaths, *, timeout_ms: int = 30000):
     """Serialize a synchronous mutation; never change the Windows object by path."""
     if os.name == 'nt':
         with _windows_transaction(timeout_ms):
+            from .installer_fence import read_fence
+            if read_fence(paths) is not None:
+                raise UpdateInProgress('INSTALLER_RECOVERY_REQUIRED')
             yield
         return
     import fcntl

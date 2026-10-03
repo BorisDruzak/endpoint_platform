@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import re
+from pathlib import Path
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from datetime import UTC, datetime
 from uuid import UUID, uuid4
@@ -186,6 +188,7 @@ async def register_build(
     request_id: str,
     *,
     now: datetime | None = None,
+    artifact_root: Path | None = None,
 ) -> UpdateBuild:
     """Register one immutable manifest, returning an exact replay idempotently."""
     validated = _manifest(manifest)
@@ -218,6 +221,22 @@ async def register_build(
         if len(existing) == 1 and _same_manifest(existing[0], values):
             return existing[0]
         raise UpdateConflict("build identity already owns a different manifest")
+
+    if validated.platform == "windows_amd64":
+        from endpoint_contracts.runtime_payload import PayloadConflict, safe_path, verify_windows_archive
+        try:
+            if artifact_root is None or validated.archive_type != "zip":
+                raise PayloadConflict()
+            name = safe_path(validated.artifact_name)
+            if "/" in name:
+                raise PayloadConflict()
+            await asyncio.to_thread(
+                verify_windows_archive, artifact_root.absolute() / name,
+                sha256=validated.sha256, size=validated.size, version=validated.version,
+                minimum_launcher_version=validated.minimum_launcher_version,
+            )
+        except (OSError, ValueError) as error:
+            raise UpdateValidationError("Windows artifact provenance is invalid") from error
 
     build = UpdateBuild(id=uuid4(), **values)
     session.add(build)

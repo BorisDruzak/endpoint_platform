@@ -165,7 +165,22 @@ function Write-GeneratedPayloadWix {
     [void]$builder.AppendLine('<?xml version="1.0" encoding="utf-8"?>')
     [void]$builder.AppendLine('<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">')
     [void]$builder.AppendLine('  <Fragment>')
+    $directoryIds = @{}
+    $directories = Get-ChildItem -LiteralPath $RuntimeRoot -Recurse -Directory | Sort-Object FullName
+    foreach ($directory in $directories) {
+        $relative = Get-RelativePath $RuntimeRoot $directory.FullName
+        $directoryIds[$relative] = Get-StableId -Prefix 'dirPayload' -Value $relative
+    }
+    foreach ($directory in $directories) {
+        $relative = Get-RelativePath $RuntimeRoot $directory.FullName
+        $parent = [IO.Path]::GetDirectoryName($relative)
+        $parentId = if ($parent) { $directoryIds[$parent] } else { 'INITIALRUNTIMEDIR' }
+        [void]$builder.AppendLine('    <DirectoryRef Id="' + $parentId + '">')
+        [void]$builder.AppendLine('      <Directory Id="' + $directoryIds[$relative] + '" Name="' + (Escape-Xml $directory.Name) + '" />')
+        [void]$builder.AppendLine('    </DirectoryRef>')
+    }
     [void]$builder.AppendLine('    <ComponentGroup Id="EndpointAgentGeneratedPayload">')
+    $cleanupDirectories = @{}
     $items = Get-ChildItem -LiteralPath $RuntimeRoot -Recurse -File |
         Where-Object { $_.FullName -ne (Join-Path $RuntimeRoot 'pc_agent.exe') } |
         Sort-Object FullName
@@ -174,14 +189,19 @@ function Write-GeneratedPayloadWix {
         $componentId = Get-StableId -Prefix 'cmpPayload' -Value $relative
         $fileId = Get-StableId -Prefix 'filPayload' -Value $relative
         $subdirectory = [IO.Path]::GetDirectoryName($relative)
-        $subdirectoryAttribute = if ($subdirectory) {
-            ' Subdirectory="' + (Escape-Xml $subdirectory) + '"'
-        } else {
-            ''
-        }
+        $directoryId = if ($subdirectory) { $directoryIds[$subdirectory] } else { 'INITIALRUNTIMEDIR' }
         [void]$builder.AppendLine(
-            "      <Component Id=`"$componentId`" Directory=`"INITIALRUNTIMEDIR`"$subdirectoryAttribute Guid=`"*`" Bitness=`"always64`">"
+            "      <Component Id=`"$componentId`" Directory=`"$directoryId`" Guid=`"*`" Bitness=`"always64`">"
         )
+        $cleanup = $subdirectory
+        while ($cleanup) {
+            if (-not $cleanupDirectories.ContainsKey($cleanup)) {
+                $cleanupDirectories[$cleanup] = $true
+                $cleanupId = Get-StableId -Prefix 'rmRuntimeDir' -Value $cleanup
+                [void]$builder.AppendLine('        <RemoveFolder Id="' + $cleanupId + '" Directory="' + $directoryIds[$cleanup] + '" On="uninstall" />')
+            }
+            $cleanup = [IO.Path]::GetDirectoryName($cleanup)
+        }
         [void]$builder.AppendLine(
             '        <File Id="' + $fileId + '" Source="' + (Escape-Xml $item.FullName) +
             '" Name="' + (Escape-Xml $item.Name) + '" KeyPath="yes" />'
@@ -224,6 +244,63 @@ function Read-MsiTable {
     return $rows
 }
 
+function Assert-UninstallFinalizationSequence {
+    param([Parameter(Mandatory)]$Inspection)
+    # This is an allowlist of actions allowed to execute with all features absent.
+    # A newly linked extension or standard action must fail packaging until reviewed.
+    $readOnly = @('FindRelatedProducts', 'LaunchConditions', 'ValidateProductID',
+        'CostInitialize', 'FileCost', 'CostFinalize', 'InstallValidate',
+        'InstallInitialize', 'InstallExecute', 'InstallFinalize')
+    $guardTypes = @{ InstallerOwnerPreflight = 8194; InstallerOwnerEnter = 11266; InstallerOwnerComplete = 11778 }
+    $suppressedConditions = @('NOT ENDPOINT_UNINSTALL_FINALIZE',
+        'NOT ENDPOINT_UNINSTALL_FINALIZE AND NOT ENDPOINT_RUNTIME_RETIRE',
+        'NOT ENDPOINT_UNINSTALL_FINALIZE AND &EndpointAgentFeature = 3 AND NOT ENDPOINT_RUNTIME_RETIRE AND NOT REMOVE~="ALL"',
+        'NOT ENDPOINT_UNINSTALL_FINALIZE AND (!EndpointAgentInitialRuntimeFeature = 3 OR !EndpointAgentInitialRuntimeFeature = 2) AND &EndpointAgentInitialRuntimeFeature = 2 AND &EndpointAgentFeature = 3')
+    $rows = @{}
+    foreach ($row in $Inspection.execute_sequence) {
+        $name = [string]$row.action
+        if ($rows.ContainsKey($name)) { throw "Duplicate execute action: $name" }
+        $rows[$name] = $row
+        if ($guardTypes.ContainsKey($name)) {
+            if (-not [string]::IsNullOrEmpty([string]$row.condition)) { throw "Conditional owner guard: $name" }
+        } elseif ($name -in $readOnly) {
+            if (@($Inspection.custom_actions | Where-Object action -eq $name).Count) { throw "Custom action shadows a standard action: $name" }
+        } elseif ([string]$row.condition -cnotin $suppressedConditions) {
+            throw "Unreviewed action reachable during uninstall finalization: $name"
+        }
+    }
+    foreach ($name in @('ProcessComponents', 'RegisterUser', 'RegisterProduct', 'PublishFeatures', 'PublishProduct', 'RemoveExistingProducts')) {
+        if (-not $rows.ContainsKey($name) -or [string]$rows[$name].condition -cne 'NOT ENDPOINT_UNINSTALL_FINALIZE') {
+            throw "Missing finalization suppression: $name"
+        }
+    }
+    foreach ($name in $guardTypes.Keys) {
+        $actions = @($Inspection.custom_actions | Where-Object action -eq $name)
+        if (-not $rows.ContainsKey($name) -or $actions.Count -ne 1 -or
+            [int]$actions[0].type -ne $guardTypes[$name] -or [string]$actions[0].source -cne 'EndpointInstallerHost') {
+            throw "Invalid checked Binary owner guard: $name"
+        }
+    }
+    $previous = -1
+    foreach ($name in @('CostFinalize', 'InstallerOwnerPreflight', 'InstallInitialize', 'InstallerOwnerEnter', 'ProcessComponents', 'InstallerOwnerComplete', 'InstallFinalize')) {
+        if (-not $rows.ContainsKey($name) -or [int]$rows[$name].sequence -le $previous) { throw "Unsafe owner guard ordering: $name" }
+        $previous = [int]$rows[$name].sequence
+    }
+    foreach ($name in @('StopServices', 'RemoveFiles')) {
+        if ($rows.ContainsKey($name) -and [int]$rows[$name].sequence -le [int]$rows['InstallerOwnerEnter'].sequence) { throw "Mutation precedes owner guard: $name" }
+    }
+    $featureNames = @('EndpointAgentFeature', 'EndpointAgentInitialRuntimeFeature')
+    if (@($Inspection.features).Count -ne 2 -or @($Inspection.feature_conditions).Count -ne 2) { throw 'Unexpected finalization feature topology.' }
+    foreach ($name in $featureNames) {
+        $features = @($Inspection.features | Where-Object feature -eq $name)
+        $conditions = @($Inspection.feature_conditions | Where-Object feature -eq $name)
+        if ($features.Count -ne 1 -or [int]$features[0].level -ne 1 -or $conditions.Count -ne 1 -or
+            [int]$conditions[0].level -ne 0 -or [string]$conditions[0].condition -cne 'ENDPOINT_UNINSTALL_FINALIZE = 1') {
+            throw "Feature can become installed during uninstall finalization: $name"
+        }
+    }
+}
+
 function Export-MsiInspection {
     param([Parameter(Mandatory)][string]$MsiPath, [Parameter(Mandatory)][string]$OutputPath)
     $installer = $null
@@ -236,6 +313,24 @@ function Export-MsiInspection {
             components = Read-MsiTable $database 'SELECT `Component`, `ComponentId`, `Directory_`, `Attributes`, `KeyPath` FROM `Component`' @('component', 'guid', 'directory', 'attributes', 'key_path')
             services = Read-MsiTable $database 'SELECT `ServiceInstall`, `Name`, `DisplayName`, `ServiceType`, `StartType`, `ErrorControl`, `LoadOrderGroup`, `Dependencies`, `StartName`, `Password`, `Arguments`, `Component_` FROM `ServiceInstall`' @('id', 'name', 'display_name', 'service_type', 'start_type', 'error_control', 'load_order_group', 'dependencies', 'account', 'password', 'arguments', 'component')
             properties = Read-MsiTable $database 'SELECT `Property`, `Value` FROM `Property`' @('property', 'value')
+            features = Read-MsiTable $database 'SELECT `Feature`, `Feature_Parent`, `Level`, `Attributes` FROM `Feature`' @('feature', 'parent', 'level', 'attributes')
+            feature_components = Read-MsiTable $database 'SELECT `Feature_`, `Component_` FROM `FeatureComponents`' @('feature', 'component')
+            remove_files = Read-MsiTable $database 'SELECT `FileKey`, `Component_`, `FileName`, `DirProperty`, `InstallMode` FROM `RemoveFile`' @('id', 'component', 'name', 'directory', 'mode')
+            custom_actions = Read-MsiTable $database 'SELECT `Action`, `Type`, `Source`, `Target` FROM `CustomAction`' @('action', 'type', 'source', 'target')
+            execute_sequence = Read-MsiTable $database 'SELECT `Action`, `Condition`, `Sequence` FROM `InstallExecuteSequence`' @('action', 'condition', 'sequence')
+            feature_conditions = Read-MsiTable $database 'SELECT `Feature_`, `Level`, `Condition` FROM `Condition`' @('feature', 'level', 'condition')
+            binaries = Read-MsiTable $database 'SELECT `Name` FROM `Binary`' @('name')
+            cleanup_rows = Read-MsiTable $database 'SELECT `RemoveFolderEx`, `Component_`, `Property`, `InstallMode`, `Condition` FROM `Wix4RemoveFolderEx`' @('id','component','property','mode','condition')
+            cleanup_columns = Read-MsiTable $database 'SELECT `Number`, `Name`, `Type` FROM `_Columns` WHERE `Table` = ''Wix4RemoveFolderEx''' @('number','name','type')
+            cleanup_validation = Read-MsiTable $database 'SELECT `Column`, `Nullable`, `MinValue`, `MaxValue`, `KeyTable`, `KeyColumn`, `Category` FROM `_Validation` WHERE `Table` = ''Wix4RemoveFolderEx''' @('column','nullable','minimum','maximum','key_table','key_column','category')
+            upgrades = Read-MsiTable $database 'SELECT `VersionMin`, `VersionMax`, `Language`, `Attributes`, `Remove`, `ActionProperty` FROM `Upgrade`' @('minimum','maximum','language','attributes','remove','property')
+        }
+        $inspection.all_sequences = @{}
+        $tables = @(Read-MsiTable $database 'SELECT `Name` FROM `_Tables`' @('name'))
+        foreach ($name in @('InstallExecuteSequence','InstallUISequence','AdminExecuteSequence','AdminUISequence','AdvtExecuteSequence')) {
+            if (@($tables | Where-Object name -eq $name).Count) {
+                $inspection.all_sequences[$name] = @(Read-MsiTable $database ("SELECT ``Action``, ``Condition``, ``Sequence`` FROM ``{0}``" -f $name) @('action','condition','sequence'))
+            }
         }
         $forbiddenProperty = $inspection.properties | Where-Object {
             $_.property -match '(?i)(claim|campaign|device.?token|credential|enroll)'
@@ -243,6 +338,8 @@ function Export-MsiInspection {
         if ($forbiddenProperty) {
             throw "MSI inspection found a forbidden secret-bearing property name."
         }
+        Assert-UninstallFinalizationSequence $inspection
+        Assert-RootCleanupComposition $inspection
         Write-Utf8NoBom $OutputPath ($inspection | ConvertTo-Json -Depth 8)
     }
     finally {
@@ -252,6 +349,50 @@ function Export-MsiInspection {
         if ($installer) {
             [void][Runtime.InteropServices.Marshal]::FinalReleaseComObject($installer)
         }
+    }
+}
+
+function Assert-RootCleanupComposition {
+    param([Parameter(Mandatory)]$Inspection)
+    foreach ($name in @('EndpointAgent','EndpointAgentUpdater')) {
+        $service = @($Inspection.services | Where-Object name -eq $name)
+        if ($service.Count -ne 1 -or [int]$service[0].start_type -ne 4) { throw 'Canonical update service is not initially quarantined.' }
+    }
+    foreach ($sequence in $Inspection.all_sequences.Values) {
+        if (@($sequence | Where-Object action -eq 'Wix4RemoveFoldersEx_X64').Count) { throw 'Uncontrolled Util cleanup scheduler linked.' }
+    }
+    $actions = @($Inspection.custom_actions | Where-Object action -eq 'ScheduleEndpointRootCleanup')
+    if ($actions.Count -ne 1 -or [int]$actions[0].type -ne 65 -or $actions[0].source -cne 'Wix4UtilCA_X64' -or $actions[0].target -cne 'WixRemoveFoldersEx') { throw 'Unexpected cleanup implementation.' }
+    $scheduled = @($Inspection.execute_sequence | Where-Object action -eq 'ScheduleEndpointRootCleanup')
+    if ($scheduled.Count -ne 1 -or $scheduled[0].condition -cne 'NOT ENDPOINT_UNINSTALL_FINALIZE') { throw 'Unconditional cleanup scheduler.' }
+    $rows = @($Inspection.cleanup_rows)
+    if ($rows.Count -ne 1 -or $rows[0].id -cne 'RemoveEndpointAgentBinaries' -or $rows[0].component -cne 'cmpInstallRootCleanup' -or $rows[0].property -cne 'ENDPOINT_AGENT_REMEMBERED_INSTALLROOT' -or [int]$rows[0].mode -ne 2 -or $rows[0].condition -cne 'REMOVE~="ALL" AND NOT UPGRADINGPRODUCTCODE') { throw 'Unexpected cleanup row.' }
+    $columns = @($Inspection.cleanup_columns | Sort-Object { [int]$_.number })
+    $expectedNames = @('RemoveFolderEx','Component_','Property','InstallMode','Condition')
+    $expectedTypes = @(11592,3400,3400,1282,7424)
+    if ($columns.Count -ne 5) { throw 'Unexpected cleanup schema.' }
+    for ($index=0; $index -lt 5; $index++) {
+        if ([int]$columns[$index].number -ne $index+1 -or $columns[$index].name -cne $expectedNames[$index] -or [int]$columns[$index].type -ne $expectedTypes[$index]) { throw 'Unexpected cleanup column.' }
+    }
+    $validation = @{
+        RemoveFolderEx='N|||||Identifier'; Component_='N|||Component|1|Identifier';
+        Property='N|||||Identifier'; InstallMode='N|1|3|||'; Condition='Y|||||Condition'
+    }
+    if (@($Inspection.cleanup_validation).Count -ne 5) { throw 'Unexpected cleanup validation schema.' }
+    foreach ($row in $Inspection.cleanup_validation) {
+        $value = [string]::Join('|', @($row.nullable,$row.minimum,$row.maximum,$row.key_table,$row.key_column,$row.category))
+        if (-not $validation.ContainsKey([string]$row.column) -or $value -cne $validation[[string]$row.column]) { throw 'Unexpected cleanup validation column.' }
+    }
+    $version = @($Inspection.properties | Where-Object property -eq 'ProductVersion')[0].value
+    $upgrades = @($Inspection.upgrades)
+    if ($upgrades.Count -ne 2) { throw 'Unexpected upgrade topology.' }
+    foreach ($row in $upgrades) {
+        if ($row.language -cne '1033' -or $row.remove -cne '') { throw 'Changed upgrade semantics.' }
+        if ($row.property -ceq 'WIX_UPGRADE_DETECTED') {
+            if ($row.minimum -cne '' -or $row.maximum -cne $version -or [int]$row.attributes -ne 1) { throw 'Changed upgrade bounds.' }
+        } elseif ($row.property -ceq 'WIX_DOWNGRADE_DETECTED') {
+            if ($row.minimum -cne $version -or $row.maximum -cne '' -or [int]$row.attributes -ne 2) { throw 'Changed downgrade bounds.' }
+        } else { throw 'Unexpected upgrade property.' }
     }
 }
 
@@ -439,6 +580,14 @@ Get-ChildItem -LiteralPath $runtimePayload | ForEach-Object {
     Copy-Item -LiteralPath $_.FullName -Destination $runtimeStage -Recurse -Force
 }
 Move-Item -LiteralPath (Join-Path $runtimeStage 'endpoint_agent_core.exe') -Destination (Join-Path $runtimeStage 'pc_agent.exe')
+Invoke-Checked $python @(
+    (Join-Path $packagingRoot 'initial_runtime_contract.py'),
+    '--write-installed-manifest', $runtimeStage,
+    '--version', $InitialRuntimeVersion,
+    '--source-revision', $initialRuntimeSourceRevision
+) $repositoryRoot
+$runtimeInventoryPath = Join-Path $outputRoot 'initial-runtime-inventory.json'
+$contractBytes = [IO.File]::ReadAllBytes((Join-Path $runtimeStage 'endpoint-runtime-contract.json'))
 Write-Utf8NoBom (Join-Path $runtimeStage '.endpoint-msi-runtime.json') (@{
     component_guid = $InitialRuntimeComponentGuid
     schema_version = 1
@@ -452,6 +601,27 @@ Copy-Item -LiteralPath $builtTray -Destination (Join-Path $programFilesStage 'En
 Copy-Item -LiteralPath $builtUserSensor -Destination (Join-Path $programFilesStage 'EndpointUserSensor.exe')
 Copy-Item -LiteralPath $builtBrowserBridge -Destination (Join-Path $programFilesStage 'EndpointBrowserBridge.exe')
 Copy-Item -LiteralPath $builtBrowserPolicy -Destination (Join-Path $programFilesStage 'EndpointBrowserPolicy.exe')
+$foundationBindings = [ordered]@{
+    'launcher.exe'=@('filLauncher','cmpLauncher')
+    'endpoint-agent-service.exe'=@('filServiceHost','cmpServiceEntrypoints')
+    'endpoint-agent-updater.exe'=@('filOfflineUpdater','cmpOfflineUpdater')
+    'endpoint-agent-provision.exe'=@('filProvisioner','cmpProvisioner')
+    'EndpointAgentTray.exe'=@('filEndpointAgentTray','cmpTrayCompanion')
+    'EndpointUserSensor.exe'=@('filEndpointUserSensor','cmpUserSensor')
+    'EndpointBrowserBridge.exe'=@('filEndpointBrowserBridge','cmpBrowserBridge')
+    'EndpointBrowserPolicy.exe'=@('filEndpointBrowserPolicy','cmpBrowserPolicyService')
+}
+$foundationInventory = foreach ($name in $foundationBindings.Keys) {
+    $path = Join-Path $programFilesStage $name
+    @{path=$name;file=$foundationBindings[$name][0];component=$foundationBindings[$name][1];
+      size=(Get-Item -LiteralPath $path).Length;sha256=(Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant()}
+}
+Write-Utf8NoBom $runtimeInventoryPath (@{
+    schema_version = 1
+    manifest = (Get-Content -LiteralPath (Join-Path $runtimeStage 'endpoint-update-manifest.json') -Raw | ConvertFrom-Json)
+    contract_bytes = ([BitConverter]::ToString($contractBytes)).Replace('-', '').ToLowerInvariant()
+    foundation_files = @($foundationInventory)
+} | ConvertTo-Json -Depth 8 -Compress)
 Copy-Item -LiteralPath (Join-Path $packagingRoot 'assets\ru.sosnadmin.endpoint.browser.json') -Destination (Join-Path $programFilesStage 'ru.sosnadmin.endpoint.browser.json')
 New-Item -ItemType Directory -Path (Join-Path $programFilesStage 'config'), (Join-Path $programFilesStage 'docs') -Force | Out-Null
 Copy-Item -LiteralPath (Join-Path $packagingRoot 'assets\agent-config.yaml') -Destination (Join-Path $programFilesStage 'config\agent-config.yaml')
@@ -498,8 +668,8 @@ $binding = [ordered]@{
     files = @($fileManifest)
     components = @($componentManifest | Sort-Object)
     services = @(
-        [ordered]@{ name = 'EndpointAgent'; account = 'NT AUTHORITY\LocalService'; start = 'auto'; recovery = 'restart'; binary = 'ProgramFiles/endpoint-agent-service.exe'; arguments = '--agent-service'; selector = 'ProgramFiles/current.json' },
-        [ordered]@{ name = 'EndpointAgentUpdater'; account = 'LocalSystem'; start = 'demand'; recovery = 'restart'; binary = 'ProgramFiles/endpoint-agent-updater.exe'; arguments = '--updater-service' },
+        [ordered]@{ name = 'EndpointAgent'; account = 'NT AUTHORITY\LocalService'; start = 'disabled'; owner_final_start = 'auto'; recovery = 'restart'; binary = 'ProgramFiles/endpoint-agent-service.exe'; arguments = '--agent-service'; selector = 'ProgramFiles/current.json' },
+        [ordered]@{ name = 'EndpointAgentUpdater'; account = 'LocalSystem'; start = 'disabled'; owner_final_start = 'demand'; recovery = 'restart'; binary = 'ProgramFiles/endpoint-agent-updater.exe'; arguments = '--updater-service' },
         [ordered]@{ name = 'EndpointBrowserPolicy'; account = 'LocalSystem'; start = 'auto'; recovery = 'restart'; binary = 'ProgramFiles/EndpointBrowserPolicy.exe' }
     )
     state = [ordered]@{
@@ -538,6 +708,7 @@ $wixArguments = @(
     "-d", "InitialRuntimeTransitionApproved=$InitialRuntimeTransitionApproved",
     "-d", "BaselineInitialRuntimeVersion=$BaselineInitialRuntimeVersion",
     "-d", "SourceRevision=$initialRuntimeSourceRevision",
+    "-d", "InitialRuntimeInventoryPath=$runtimeInventoryPath",
     "-d", "PackageVersion=$Version", '-out', $msiPath
 ) + $wixSources
 Invoke-Checked $wixCommand.Source $wixArguments $repositoryRoot

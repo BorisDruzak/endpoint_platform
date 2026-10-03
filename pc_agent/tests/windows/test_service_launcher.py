@@ -25,6 +25,20 @@ def _paths(tmp_path: Path) -> WindowsUpdatePaths:
     return WindowsUpdatePaths(install, data / "updates" / "pending_update.json")
 
 
+def test_retained_runtime_requires_full_archive_verification_before_launch(tmp_path,monkeypatch):
+    from pc_agent.platform.windows import runtime_identity
+    paths=_paths(tmp_path)
+    (paths.versions_root/'3.1.76'/'.endpoint-retained-msi.json').write_text('{}')
+    checked=[]
+    def reject(paths,version):
+        checked.append(version)
+        raise ValueError('PROVENANCE_CONFLICT')
+    monkeypatch.setattr(runtime_identity,'verify_retained_runtime',reject)
+    with pytest.raises(ValueError,match='PROVENANCE_CONFLICT'):
+        runtime_identity.validate_runtime_executable(paths,'3.1.76')
+    assert checked==['3.1.76']
+
+
 def test_service_host_resolves_current_selector_on_each_start(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -551,8 +565,9 @@ def test_service_host_exposes_fixed_no_argument_selector_migration(
         lambda: observed.append("migrated") or "migrated",
     )
 
-    assert service_launcher.main(["--migrate-initial-selector"]) == 0
-    assert observed == ["migrated"]
+    with pytest.raises(SystemExit):
+        service_launcher.main(["--migrate-initial-selector"])
+    assert observed == []
 
 
 def test_service_host_exposes_fixed_tray_status_acl_boundary(
@@ -567,8 +582,9 @@ def test_service_host_exposes_fixed_tray_status_acl_boundary(
         lambda: observed.append("tray-acl"),
     )
 
-    assert service_launcher.main(["--apply-tray-status-acl"]) == 0
-    assert observed == ["tray-acl"]
+    with pytest.raises(SystemExit):
+        service_launcher.main(["--apply-tray-status-acl"])
+    assert observed == []
 
 
 def test_service_host_exposes_fixed_tray_shutdown_boundary(
@@ -584,8 +600,9 @@ def test_service_host_exposes_fixed_tray_shutdown_boundary(
         lambda: observed.append("tray-stopped"),
     )
 
-    assert service_launcher.main(["--stop-tray-companions"]) == 0
-    assert observed == ["tray-stopped"]
+    with pytest.raises(SystemExit):
+        service_launcher.main(["--stop-tray-companions"])
+    assert observed == []
 
 
 def test_tray_shutdown_uses_the_fixed_program_files_target(
@@ -625,7 +642,7 @@ def test_tray_shutdown_uses_the_fixed_program_files_target(
         win32event, "WaitForSingleObject", lambda *_args: win32event.WAIT_OBJECT_0
     )
 
-    service_launcher.stop_tray_companions()
+    service_launcher.stop_tray_companions(WindowsUpdatePaths(tray.parent,tmp_path/'updates/pending_update.json'))
 
     assert terminated == [0]
     assert win32con.PROCESS_TERMINATE == 1
@@ -670,6 +687,6 @@ def test_companion_shutdown_stops_only_installed_tray_and_user_sensor(
     monkeypatch.setattr(win32process, "TerminateProcess", lambda h, _c: terminated.append(h.process_id))
     monkeypatch.setattr(win32event, "WaitForSingleObject", lambda *_: win32event.WAIT_OBJECT_0)
 
-    service_launcher.stop_tray_companions()
+    service_launcher.stop_tray_companions(WindowsUpdatePaths(root,tmp_path/'updates/pending_update.json'))
 
     assert terminated == [101, 102]

@@ -1,6 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
   <Fragment>
+    <Property Id="ENDPOINT_INSTALLER_SESSION" Secure="yes" Hidden="yes" />
+    <Property Id="ENDPOINT_UNINSTALL_FINALIZE" Secure="yes" Hidden="yes" />
+    <Launch Condition="NOT ENDPOINT_UNINSTALL_FINALIZE OR (ENDPOINT_UNINSTALL_FINALIZE = 1 AND NOT REMOVE AND NOT REINSTALL AND NOT REINSTALLMODE AND NOT ADDLOCAL AND NOT ADDDEFAULT AND NOT ADDSOURCE AND NOT ADVERTISE AND NOT TRANSFORMS AND NOT PATCH AND NOT COMPADDLOCAL AND NOT COMPADDSOURCE AND NOT FILEADDLOCAL AND NOT FILEADDSOURCE)"
+            Message="The authenticated uninstall finalization mode cannot change feature or component actions." />
     <Property Id="ENDPOINT_AGENT_UPGRADE_CONTRACT"
               Value="preserve-machine-state-and-selected-runtime"
               Secure="yes" />

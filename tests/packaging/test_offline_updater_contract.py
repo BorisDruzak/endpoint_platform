@@ -66,7 +66,8 @@ def test_durable_state_dependency_gate():
     # Closed dependencies prevent an innocent-looking project wrapper from
     # indirectly bringing the network runtime into the privileged worker.
     assert set(names) <= {'__future__', 'collections.abc', 'json', 'os', 'pathlib',
-                          'stat', 'uuid', 'win32con', 'win32file', 'pywintypes'}
+                          'stat', 'uuid', 'win32con', 'win32file', 'pywintypes',
+                          'contextlib', 'contextvars', 'hashlib', 'msvcrt', 're'}
     for parent in ['pc_agent/__init__.py', 'pc_agent/platform/__init__.py',
                    'pc_agent/platform/windows/__init__.py']:
         if (ROOT / parent).exists():

@@ -163,8 +163,22 @@ def _verify_embedded_msi(msi_path: Path) -> tuple[Path, Path]:
     return manifest_path, wrapper_path
 
 
-def _install_embedded_msi(msi_path: Path) -> None:
+def _embedded_recovery_operation(msi_path: Path) -> str | None:
+    manifest_path, _ = _verify_embedded_msi(msi_path)
+    from .installer_fence import read_fence
+    fence = read_fence(WindowsUpdatePaths.production())
+    if fence is not None:
+        release = json.loads(manifest_path.read_text(encoding='utf-8'))
+        if any(fence['package'][name] != release[key] for name,key in (
+            ('sha256','package_sha256'),('product_code','product_code'),('version','version'),('source_revision','source_revision'))):
+            raise SetupInstallError('PROVENANCE_CONFLICT')
+        return fence['operation']
+    return None
+
+
+def _install_embedded_msi(msi_path: Path) -> int:
     manifest_path, wrapper_path = _verify_embedded_msi(msi_path)
+    operation = ['-Operation','RecoverInterruptedInstall'] if _embedded_recovery_operation(msi_path) else []
     windows_powershell = (
         Path(os.environ.get("SystemRoot", r"C:\Windows"))
         / "System32" / "WindowsPowerShell" / "v1.0"
@@ -179,7 +193,7 @@ def _install_embedded_msi(msi_path: Path) -> None:
             [str(powershell), "-NoLogo", "-NoProfile", "-NonInteractive",
              "-ExecutionPolicy", "Bypass", "-WindowStyle", "Hidden", "-File",
              str(wrapper_path), "-MsiPath", str(msi_path),
-             "-ReleaseManifest", str(manifest_path)],
+             "-ReleaseManifest", str(manifest_path), *operation],
             stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
@@ -194,8 +208,9 @@ def _install_embedded_msi(msi_path: Path) -> None:
         raise SetupInstallError("UPDATE_IN_PROGRESS")
     if completed.returncode == 62:
         raise SetupInstallError("UPDATE_STATE_INVALID")
-    if completed.returncode != 0:
+    if completed.returncode not in (0,3010,1641):
         raise SetupInstallError("MSI_EVIDENCE_FAILED")
+    return completed.returncode
 
 
 def _msi_disk_costs(msi_path: Path) -> list[tuple[Path, int]]:
@@ -384,6 +399,29 @@ def _installed_product_version(product_code: str) -> str | None:
 
 def _installed_msi_version() -> str | None:
     """Trust an installed MSI version only with matching protected cache and product."""
+    from .installer_fence import state_root,assert_state_security
+    from .installation_provenance import _read
+    from .msi_inventory import read_expected_package, verify_foundation
+    from endpoint_contracts.runtime_payload import read_json
+    paths = WindowsUpdatePaths.production()
+    foundation = state_root(paths) / 'foundation.json'
+    if foundation.exists():
+        try:
+            assert_state_security(foundation)
+            authority = read_json(_read(foundation,4096),4096)
+            if (set(authority) != {'schema_version','release'} or type(authority['schema_version']) is not int
+                or authority['schema_version'] != 1 or not isinstance(authority['release'],dict)
+                or not isinstance(authority['release'].get('package_sha256'),str)
+                or re.fullmatch('[0-9a-f]{64}',authority['release']['package_sha256']) is None):
+                return None
+            release = authority['release']
+            package_path=state_root(paths)/'packages'/release['package_sha256']/'EndpointAgent.msi'
+            assert_state_security(package_path)
+            package = read_expected_package(package_path,release)
+            verify_foundation(package.package,paths.install_root,expected=package)
+            return package.package.version
+        except (OSError,ValueError,KeyError,TypeError):
+            return None
     cache_root = _data_root() / "installer-cache"
     provenance_path = cache_root / "installer-provenance.json"
     try:
@@ -433,6 +471,30 @@ def _installed_msi_version() -> str | None:
     if digest.hexdigest() != package_hash:
         return None
     return version if _installed_product_version(product_code) == version else None
+
+
+def _msi_reconciliation_required(msi_path: Path) -> bool:
+    """Version equality cannot prove the optional runtime feature or ownership."""
+    from . import installation_provenance as provenance, msi_inventory
+    from .installer_fence import state_root
+    from endpoint_contracts.runtime_payload import read_json
+    paths=WindowsUpdatePaths.production()
+    try:
+        release=json.loads(msi_path.with_name('EndpointAgent.release.json').read_text(encoding='utf-8'))
+        expected=msi_inventory.read_expected_package(msi_path,release)
+        if msi_inventory.installed_feature_state(expected.package)!='complete':
+            return True
+        authority=read_json(provenance._read(state_root(paths)/'foundation.json',4096),4096)
+        if authority!={'schema_version':1,'release':release}: return True
+        inspected=provenance.inspect_installed_core(paths,resulting_foundation=expected.package.version)
+        if inspected.current is None: return True
+        selector={'schema_version':1,'version':expected.identity.version,'source_revision':expected.identity.source_revision}
+        candidate=provenance._inspect_core_value(paths,provenance._selector_bytes(expected.identity),selector,expected.package.version)
+        return candidate.origin!='msi' or candidate.identity!=expected.identity
+    except (OSError,ValueError,KeyError,TypeError):
+        # The locked wrapper performs authoritative conflict/repair selection;
+        # this read-only decision never authorizes an overwrite on its own.
+        return True
 
 
 def _is_strictly_newer_version(candidate: str, installed: str) -> bool:
@@ -772,14 +834,20 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     data_root = _data_root()
     _record_in_progress()
+    interrupted_setup = False
     try:
         paths = WindowsUpdatePaths(pending_path=data_root / "updates" / "pending_update.json")
         with update_transaction(paths, timeout_ms=0):
             if active_update_state(paths) is not None:
                 raise UpdateInProgress("UPDATE_IN_PROGRESS")
-    except UpdateInProgress:
-        return _complete(args, data_root, status="UPDATE_IN_PROGRESS", code=EXIT_UPDATE_IN_PROGRESS,
-            stage="PREFLIGHT", detail="UPDATE_IN_PROGRESS")
+    except UpdateInProgress as error:
+        if str(error) == 'INSTALLER_RECOVERY_REQUIRED':
+            # This only permits reading the embedded package and dispatching
+            # its owner wrapper. It grants no mutation/fence-bypass scope.
+            interrupted_setup = True
+        else:
+            return _complete(args, data_root, status="UPDATE_IN_PROGRESS", code=EXIT_UPDATE_IN_PROGRESS,
+                stage="PREFLIGHT", detail="UPDATE_IN_PROGRESS")
     except (OSError, ValueError):
         return _complete(args, data_root, status="REPAIR_REQUIRED", code=EXIT_REPAIR_REQUIRED,
             stage="PREFLIGHT", detail="UPDATE_STATE_INVALID")
@@ -816,10 +884,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
     try:
         _verify_embedded_msi(resources / "EndpointAgent.msi")
+        recovery_operation = _embedded_recovery_operation(resources / "EndpointAgent.msi")
         installed_version = _installed_msi_version() if installation_state == "valid" else None
-        needs_msi = installation_state != "valid" or installed_version is None or _is_strictly_newer_version(
+        needs_msi = interrupted_setup or recovery_operation is not None or installation_state != "valid" or installed_version is None or _is_strictly_newer_version(
             config.installer_version, installed_version
-        )
+        ) or (installed_version == config.installer_version and _msi_reconciliation_required(resources / "EndpointAgent.msi"))
         if needs_msi:
             _require_setup_disk(resources / "EndpointAgent.msi")
     except DiskInsufficient:
@@ -846,7 +915,11 @@ def main(argv: Sequence[str] | None = None) -> int:
                 detail="STARTED",
             )
             try:
-                _install_embedded_msi(resources / "EndpointAgent.msi")
+                native_result = _install_embedded_msi(resources / "EndpointAgent.msi")
+                if native_result in (3010,1641):
+                    return _complete(args,data_root,status='REBOOT_REQUIRED',code=native_result,stage='MSI',detail='REBOOT_REQUIRED')
+                if recovery_operation == 'uninstall':
+                    return _complete(args,data_root,status='UNINSTALLED',code=EXIT_SUCCESS,stage='MSI',detail='UNINSTALLED')
             except SetupInstallError as error:
                 return _complete(
                     args,
@@ -900,12 +973,15 @@ def main(argv: Sequence[str] | None = None) -> int:
             stage="SERVICE",
             detail="SERVICE_RUNNING",
         )
-    transport = HttpsSetupTransport(config.endpoint_origin, config.ca_file)
     _finish(
         data_root, status="STARTED", code=EXIT_SUCCESS, stage="MSI", detail="STARTED"
     )
     try:
-        _install_embedded_msi(resources / "EndpointAgent.msi")
+        native_result = _install_embedded_msi(resources / "EndpointAgent.msi")
+        if native_result in (3010,1641):
+            return _complete(args,data_root,status='REBOOT_REQUIRED',code=native_result,stage='MSI',detail='REBOOT_REQUIRED')
+        if recovery_operation == 'uninstall':
+            return _complete(args,data_root,status='UNINSTALLED',code=EXIT_SUCCESS,stage='MSI',detail='UNINSTALLED')
         if installation_state == "repairable":
             if not _wait_for_agent_service_running():
                 return _complete(
@@ -945,6 +1021,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             detail="MSI_INSTALL_FAILED",
         )
 
+    transport = HttpsSetupTransport(config.endpoint_origin, config.ca_file)
     installation_id: str | None = None
 
     def run_provisioner(claim: str) -> None:

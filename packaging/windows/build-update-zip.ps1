@@ -3,6 +3,7 @@ param(
     [Parameter(Mandatory)][string]$RuntimeRoot,
     [Parameter(Mandatory)][string]$Version,
     [Parameter(Mandatory)][string]$SourceRevision,
+    [Parameter(Mandatory)][string]$MinimumLauncherVersion,
     [Parameter(Mandatory)][string]$OutputPath
 )
 
@@ -40,6 +41,20 @@ if ($SourceRevision -notmatch '^[0-9a-f]{40}$') {
 }
 
 $tree = Assert-SafeRuntimeTree -Root $RuntimeRoot
+if ($MinimumLauncherVersion -notmatch '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$') {
+    throw 'MinimumLauncherVersion must be an explicit numeric triplet.'
+}
+$contractPath = Join-Path $tree.root 'endpoint-runtime-contract.json'
+$expectedContract = [ordered]@{
+    minimum_launcher_version = $MinimumLauncherVersion
+    schema_version = 1
+    source_revision = $SourceRevision
+    version = $Version
+} | ConvertTo-Json -Compress
+if (-not (Test-Path -LiteralPath $contractPath -PathType Leaf) -or
+    [IO.File]::ReadAllText($contractPath, [Text.Encoding]::UTF8) -cne $expectedContract) {
+    throw 'Authored payload compatibility does not match the publication contract.'
+}
 $runtimeVersion = & (Join-Path $tree.root 'pc_agent.exe') --print-version
 if ($LASTEXITCODE -ne 0 -or ([string]$runtimeVersion).Trim() -ne $Version) {
     throw 'Runtime pc_agent.exe version does not match Version.'
@@ -57,6 +72,7 @@ try {
     $entries = @()
     foreach ($file in $tree.files) {
         $relative = $file.FullName.Substring($tree.root.Length).TrimStart('\', '/') -replace '\\', '/'
+        if ($relative -in @('.endpoint-msi-runtime.json', 'endpoint-update-manifest.json')) { continue }
         $target = Join-Path $stage ($relative -replace '/', [IO.Path]::DirectorySeparatorChar)
         New-Item -ItemType Directory -Path (Split-Path -Parent $target) -Force | Out-Null
         Copy-Item -LiteralPath $file.FullName -Destination $target -Force

@@ -20,6 +20,7 @@ a = Analysis(
 )
 assert_offline_modules(name for name, *_ in [*a.pure, *a.binaries, *a.scripts])
 pyz = PYZ(a.pure)
-exe = EXE(pyz, a.scripts, a.binaries, a.datas, name='endpoint-agent-updater',
+exe = EXE(pyz, a.scripts, a.binaries, a.datas,
+          [('pyi-enable-onefile-parent-verification', None, 'OPTION')], name='endpoint-agent-updater',
           debug=False, bootloader_ignore_signals=False, strip=False,
           upx=True, console=True, disable_windowed_traceback=False)

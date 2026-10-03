@@ -9,16 +9,30 @@
            Compressed="yes"
            InstallerVersion="500">
     <MediaTemplate EmbedCab="yes" />
-    <MajorUpgrade DowngradeErrorMessage="A newer Endpoint Agent package is already installed."
-                  Schedule="afterInstallExecute"
-                  MigrateFeatures="yes" />
+    <Binary Id="EndpointInstallerHost" SourceFile="$(var.StagingDir)\ProgramFiles\endpoint-agent-service.exe" />
+    <Binary Id="EndpointInitialRuntimeInventory" SourceFile="$(var.InitialRuntimeInventoryPath)" />
+    <Upgrade Id="D4F3045C-51CF-49D9-AF9C-3AEBF206ED1F">
+      <UpgradeVersion Maximum="$(var.PackageVersion)" IncludeMaximum="no" IncludeMinimum="no"
+                      Language="1033" MigrateFeatures="yes" IgnoreRemoveFailure="no"
+                      Property="WIX_UPGRADE_DETECTED" />
+      <UpgradeVersion Minimum="$(var.PackageVersion)" IncludeMinimum="no" IncludeMaximum="no"
+                      Language="1033" OnlyDetect="yes" IgnoreRemoveFailure="no"
+                      Property="WIX_DOWNGRADE_DETECTED" />
+    </Upgrade>
+    <Launch Condition="NOT WIX_DOWNGRADE_DETECTED"
+            Message="A newer Endpoint Agent package is already installed." />
     <PropertyRef Id="ENDPOINT_AGENT_UPGRADE_CONTRACT" />
     <Property Id="ENDPOINT_AGENT_INITIAL_RUNTIME_TRANSITION"
               Value="$(var.InitialRuntimeTransitionApproved)" Secure="yes" />
 
     <Feature Id="EndpointAgentFeature" Title="Endpoint Agent" Level="1">
+      <Level Value="0" Condition="ENDPOINT_UNINSTALL_FINALIZE = 1" />
       <ComponentGroupRef Id="EndpointAgentComponents" />
       <ComponentGroupRef Id="EndpointAgentServiceComponents" />
+    </Feature>
+    <Feature Id="EndpointAgentInitialRuntimeFeature" Title="Initial Endpoint runtime" Level="1">
+      <Level Value="0" Condition="ENDPOINT_UNINSTALL_FINALIZE = 1" />
+      <ComponentGroupRef Id="EndpointAgentInitialRuntimeComponents" />
       <ComponentGroupRef Id="EndpointAgentGeneratedPayload" />
     </Feature>
   </Package>

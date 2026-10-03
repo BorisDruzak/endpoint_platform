@@ -27,7 +27,7 @@ _TRAY_EXECUTABLE_NAME = "EndpointAgentTray.exe"
 _USER_SENSOR_EXECUTABLE_NAME = "EndpointUserSensor.exe"
 
 
-def stop_tray_companions() -> None:
+def stop_tray_companions(paths: WindowsUpdatePaths | None = None) -> None:
     """Stop only fixed installed user companions before MSI replaces their files."""
     if os.name != "nt":
         return
@@ -39,10 +39,7 @@ def stop_tray_companions() -> None:
     except ImportError as error:
         raise RuntimeError("pywin32 is required to stop Endpoint Agent tray") from error
 
-    program_files = os.environ.get("ProgramW6432") or os.environ.get("ProgramFiles")
-    if not program_files:
-        raise RuntimeError("Windows Program Files location is unavailable")
-    install_root = Path(program_files) / "Endpoint Platform" / "Agent"
+    install_root = (paths or WindowsUpdatePaths.production()).install_root
     expected = {
         os.path.normcase(os.path.normpath(str(install_root / name)))
         for name in (_TRAY_EXECUTABLE_NAME, _USER_SENSOR_EXECUTABLE_NAME)
@@ -83,6 +80,8 @@ def stop_tray_companions() -> None:
 def build_agent_child_command(paths: WindowsUpdatePaths | None = None) -> list[str]:
     """Resolve the immutable runtime selected by the strict current selector."""
     paths = paths or WindowsUpdatePaths.production()
+    from .installer_fence import assert_launch_allowed
+    assert_launch_allowed(paths)
     _reject_reparse_chain(paths.install_root, paths.current_path)
     try:
         payload = json.loads(paths.current_path.read_text(encoding="utf-8"))
@@ -228,66 +227,38 @@ def _parser() -> argparse.ArgumentParser:
     modes = parser.add_mutually_exclusive_group(required=True)
     modes.add_argument("--agent-service", action="store_true")
     modes.add_argument("--updater-service", action="store_true")
-    modes.add_argument("--apply-programdata-acl", action="store_true")
-    modes.add_argument("--apply-tray-status-acl", action="store_true")
-    modes.add_argument("--stop-tray-companions", action="store_true")
-    modes.add_argument("--configure-service-sids", action="store_true")
-    modes.add_argument("--restrict-updater-start", action="store_true")
-    modes.add_argument("--migrate-initial-selector", action="store_true")
-    modes.add_argument("--rollback-initial-selector", action="store_true")
-    modes.add_argument("--finalize-initial-selector", action="store_true")
+    modes.add_argument("--installer-phase", choices=("inspect","prepare","msi-preflight","msi-enter","foundation-config","msi-complete","reconcile","finish","verify-settled"))
+    parser.add_argument("--installer-session")
+    parser.add_argument("--foundation-state", type=int)
+    parser.add_argument("--foundation-action", type=int)
+    parser.add_argument("--runtime-state", type=int)
+    parser.add_argument("--runtime-action", type=int)
+    parser.add_argument("--rollback-disabled", default="")
+    parser.add_argument("--uninstall-finalization", default="")
     return parser
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = _parser().parse_args(argv)
+    if args.installer_phase:
+        from pc_agent.platform.windows.installer_transaction_bridge import owner_authorized_phase, execute_authorized_phase
+        try:
+            with owner_authorized_phase(args.installer_session,args.installer_phase) as client:
+                execute_authorized_phase(client,WindowsUpdatePaths.production(),
+                    feature_states=(args.foundation_state,args.foundation_action,args.runtime_state,args.runtime_action),
+                    rollback_disabled=args.rollback_disabled,uninstall_finalization=args.uninstall_finalization)
+            return 0
+        except (OSError,ValueError,TypeError,KeyError,RuntimeError) as error:
+            if str(error)=="UPDATE_IN_PROGRESS": return 61
+            if str(error)=="UPDATE_STATE_INVALID": return 62
+            return 1
     if args.agent_service:
         return run_agent_service()
     if args.updater_service:
         from pc_agent.platform.windows.updater_service import run_windows_updater_service
 
         return run_windows_updater_service()
-    if args.apply_programdata_acl:
-        from pc_agent.platform.windows.acl import apply_machine_data_acl
-
-        apply_machine_data_acl()
-        return 0
-    if args.apply_tray_status_acl:
-        from pc_agent.platform.windows.acl import apply_tray_status_acl
-
-        apply_tray_status_acl()
-        return 0
-    if args.stop_tray_companions:
-        stop_tray_companions()
-        return 0
-    if args.configure_service_sids:
-        from pc_agent.platform.windows.service_control import configure_service_sids
-
-        configure_service_sids()
-        return 0
-    if args.migrate_initial_selector:
-        from pc_agent.platform.windows.selector_migration import (
-            migrate_production_selector,
-        )
-
-        migrate_production_selector()
-        return 0
-    if args.rollback_initial_selector:
-        from pc_agent.platform.windows.selector_migration import rollback_production_selector
-
-        rollback_production_selector()
-        return 0
-    if args.finalize_initial_selector:
-        from pc_agent.platform.windows.selector_migration import (
-            finalize_production_selector_migration,
-        )
-
-        finalize_production_selector_migration()
-        return 0
-    from pc_agent.platform.windows.service_control import restrict_updater_start_permissions
-
-    restrict_updater_start_permissions()
-    return 0
+    raise ValueError("unsupported service host mode")
 
 
 if __name__ == "__main__":

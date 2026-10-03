@@ -41,6 +41,38 @@ def _contract_module():
     return module
 
 
+def test_payload_contract_is_inventoried_before_stage_freeze(tmp_path):
+    module = _contract_module()
+    (tmp_path / 'endpoint_agent_core.exe').write_bytes(b'compiled')
+    before = module.artifact_identity(tmp_path)
+    module.write_payload_contract(tmp_path, version='3.2.82', source_revision='a'*40,
+        minimum_launcher_version='3.2.81')
+    after = module.artifact_identity(tmp_path)
+    assert after['file_count'] == before['file_count'] + 1
+    assert after['tree_sha256'] != before['tree_sha256']
+    original = (tmp_path / 'endpoint-runtime-contract.json').read_bytes()
+    with pytest.raises(ValueError):
+        module.write_payload_contract(tmp_path, version='3.2.82', source_revision='a'*40,
+            minimum_launcher_version='3.2.82')
+    assert (tmp_path / 'endpoint-runtime-contract.json').read_bytes() == original
+
+
+def test_installed_manifest_preserves_exact_authored_contract(tmp_path):
+    module = _contract_module()
+    (tmp_path / 'endpoint_agent_core.exe').write_bytes(b'compiled')
+    module.write_payload_contract(tmp_path, version='3.2.82', source_revision='a'*40,
+        minimum_launcher_version='3.2.81')
+    original = (tmp_path / 'endpoint-runtime-contract.json').read_bytes()
+    (tmp_path / 'endpoint_agent_core.exe').rename(tmp_path / 'pc_agent.exe')
+    (tmp_path / '.endpoint-msi-runtime.json').write_text('{}')
+    module.write_installed_manifest(tmp_path, version='3.2.82', source_revision='a'*40)
+    manifest = json.loads((tmp_path / 'endpoint-update-manifest.json').read_text())
+    assert {row['path'] for row in manifest['files']} == {'pc_agent.exe', 'endpoint-runtime-contract.json'}
+    assert (tmp_path / 'endpoint-runtime-contract.json').read_bytes() == original
+    with pytest.raises(ValueError):
+        module.write_installed_manifest(tmp_path, version='3.2.82', source_revision='b'*40)
+
+
 def _contract_cli(*arguments: str) -> subprocess.CompletedProcess[str]:
     script = Path(__file__).resolve().parents[2] / "packaging" / "windows" / "initial_runtime_contract.py"
     environment = {**os.environ, "PYTHONHASHSEED": "0", "SOURCE_DATE_EPOCH": "1767225600"}

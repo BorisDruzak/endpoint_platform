@@ -9,11 +9,11 @@
         <ServiceInstall Id="svcEndpointAgent" Name="EndpointAgent"
                         DisplayName="Endpoint Agent"
                         Description="Headless Endpoint Platform device agent"
-                        Type="ownProcess" Start="auto" ErrorControl="normal"
+                        Type="ownProcess" Start="disabled" ErrorControl="normal"
                         Account="NT AUTHORITY\LocalService" Vital="yes"
                         Arguments="--agent-service" />
         <ServiceControl Id="ctlEndpointAgent" Name="EndpointAgent"
-                        Start="install" Stop="both" Remove="uninstall" Wait="yes" />
+                        Stop="both" Remove="uninstall" Wait="yes" />
       </Component>
       <Component Id="cmpOfflineUpdater" Directory="INSTALLFOLDER"
                  Guid="E43B1790-43B8-4B08-A8F9-79B535026121" Bitness="always64">
@@ -22,7 +22,7 @@
         <ServiceInstall Id="svcEndpointAgentUpdater" Name="EndpointAgentUpdater"
                         DisplayName="Endpoint Agent Updater"
                         Description="Demand-start offline Endpoint Agent update worker"
-                        Type="ownProcess" Start="demand" ErrorControl="normal"
+                        Type="ownProcess" Start="disabled" ErrorControl="normal"
                         Account="LocalSystem" Vital="yes"
                         Arguments="--updater-service" />
         <ServiceControl Id="ctlEndpointAgentUpdater" Name="EndpointAgentUpdater"
@@ -73,47 +73,48 @@
       </Component>
     </ComponentGroup>
 
-    <CustomAction Id="ApplyProgramDataAcl" FileRef="filServiceHost"
-                  ExeCommand="--apply-programdata-acl"
+    <CustomAction Id="ConfigureFoundation" BinaryRef="EndpointInstallerHost"
+                  ExeCommand="--installer-phase foundation-config --installer-session &quot;[ENDPOINT_INSTALLER_SESSION]&quot;"
                   Execute="deferred" Impersonate="no" Return="check" HideTarget="yes" />
-    <CustomAction Id="ApplyTrayStatusAcl" FileRef="filServiceHost"
-                  ExeCommand="--apply-tray-status-acl"
+    <CustomAction Id="ClassifyRuntimeRetirement" Property="ENDPOINT_RUNTIME_RETIRE" Value="1" />
+    <CustomAction Id="ScheduleEndpointRootCleanup" BinaryRef="Wix4UtilCA_X64"
+                  DllEntry="WixRemoveFoldersEx" Execute="immediate" Return="ignore" />
+    <CustomAction Id="InstallerOwnerPreflight" BinaryRef="EndpointInstallerHost"
+                  ExeCommand="--installer-phase msi-preflight --installer-session &quot;[ENDPOINT_INSTALLER_SESSION]&quot; --foundation-state &quot;[!EndpointAgentFeature]&quot; --foundation-action &quot;[&amp;EndpointAgentFeature]&quot; --runtime-state &quot;[!EndpointAgentInitialRuntimeFeature]&quot; --runtime-action &quot;[&amp;EndpointAgentInitialRuntimeFeature]&quot; --rollback-disabled &quot;[RollbackDisabled]&quot; --uninstall-finalization &quot;[ENDPOINT_UNINSTALL_FINALIZE]&quot;"
+                  Execute="immediate" Return="check" HideTarget="yes" />
+    <CustomAction Id="InstallerOwnerEnter" BinaryRef="EndpointInstallerHost"
+                  ExeCommand="--installer-phase msi-enter --installer-session &quot;[ENDPOINT_INSTALLER_SESSION]&quot;"
                   Execute="deferred" Impersonate="no" Return="check" HideTarget="yes" />
-    <CustomAction Id="StopTrayCompanions" FileRef="filServiceHost"
-                  ExeCommand="--stop-tray-companions"
-                  Execute="deferred" Impersonate="no" Return="check" HideTarget="yes" />
-    <CustomAction Id="RestrictUpdaterServiceStart" FileRef="filServiceHost"
-                  ExeCommand="--restrict-updater-start"
-                  Execute="deferred" Impersonate="no" Return="check" HideTarget="yes" />
-    <CustomAction Id="ConfigureServiceSids" FileRef="filServiceHost"
-                  ExeCommand="--configure-service-sids"
-                  Execute="deferred" Impersonate="no" Return="check" HideTarget="yes" />
-    <CustomAction Id="MigrateInitialSelector" FileRef="filServiceHost"
-                  ExeCommand="--migrate-initial-selector"
-                  Execute="deferred" Impersonate="no" Return="check" HideTarget="yes" />
-    <CustomAction Id="RollbackInitialSelector" FileRef="filServiceHost"
-                  ExeCommand="--rollback-initial-selector"
-                  Execute="rollback" Impersonate="no" Return="check" HideTarget="yes" />
-    <CustomAction Id="FinalizeInitialSelectorMigration" FileRef="filServiceHost"
-                  ExeCommand="--finalize-initial-selector"
+    <CustomAction Id="InstallerOwnerComplete" BinaryRef="EndpointInstallerHost"
+                  ExeCommand="--installer-phase msi-complete --installer-session &quot;[ENDPOINT_INSTALLER_SESSION]&quot;"
                   Execute="commit" Impersonate="no" Return="check" HideTarget="yes" />
     <InstallExecuteSequence>
-      <Custom Action="StopTrayCompanions" Before="InstallFiles"
-              Condition="Installed AND NOT WIX_UPGRADE_DETECTED AND NOT REMOVE~=&quot;ALL&quot;" />
-      <Custom Action="ConfigureServiceSids" After="InstallServices"
-              Condition="NOT REMOVE~=&quot;ALL&quot;" />
-      <Custom Action="ApplyProgramDataAcl" After="ConfigureServiceSids"
-              Condition="NOT REMOVE~=&quot;ALL&quot;" />
-      <Custom Action="ApplyTrayStatusAcl" After="ApplyProgramDataAcl"
-              Condition="NOT REMOVE~=&quot;ALL&quot;" />
-      <Custom Action="RestrictUpdaterServiceStart" After="ConfigureServiceSids"
-              Condition="NOT REMOVE~=&quot;ALL&quot;" />
-      <Custom Action="RollbackInitialSelector" Before="MigrateInitialSelector"
-              Condition="ENDPOINT_AGENT_INITIAL_RUNTIME_TRANSITION = 1 AND NOT REMOVE~=&quot;ALL&quot;" />
-      <Custom Action="MigrateInitialSelector" After="RestrictUpdaterServiceStart"
-              Condition="ENDPOINT_AGENT_INITIAL_RUNTIME_TRANSITION = 1 AND NOT REMOVE~=&quot;ALL&quot;" />
-      <Custom Action="FinalizeInitialSelectorMigration" After="MigrateInitialSelector"
-              Condition="ENDPOINT_AGENT_INITIAL_RUNTIME_TRANSITION = 1 AND NOT REMOVE~=&quot;ALL&quot;" />
+      <Custom Action="ClassifyRuntimeRetirement" After="CostFinalize"
+              Condition="NOT ENDPOINT_UNINSTALL_FINALIZE AND (!EndpointAgentInitialRuntimeFeature = 3 OR !EndpointAgentInitialRuntimeFeature = 2) AND &amp;EndpointAgentInitialRuntimeFeature = 2 AND &amp;EndpointAgentFeature = 3" />
+      <Custom Action="InstallerOwnerPreflight" After="ClassifyRuntimeRetirement" />
+      <Custom Action="InstallerOwnerEnter" After="InstallInitialize" />
+      <Custom Action="InstallerOwnerComplete" Before="InstallFinalize" />
+      <StopServices Condition="NOT ENDPOINT_UNINSTALL_FINALIZE AND NOT ENDPOINT_RUNTIME_RETIRE" />
+      <DeleteServices Condition="NOT ENDPOINT_UNINSTALL_FINALIZE AND NOT ENDPOINT_RUNTIME_RETIRE" />
+      <InstallServices Condition="NOT ENDPOINT_UNINSTALL_FINALIZE AND NOT ENDPOINT_RUNTIME_RETIRE" />
+      <StartServices Condition="NOT ENDPOINT_UNINSTALL_FINALIZE AND NOT ENDPOINT_RUNTIME_RETIRE" />
+      <MigrateFeatureStates Condition="NOT ENDPOINT_UNINSTALL_FINALIZE" />
+      <ProcessComponents Condition="NOT ENDPOINT_UNINSTALL_FINALIZE" />
+      <UnpublishFeatures Condition="NOT ENDPOINT_UNINSTALL_FINALIZE" />
+      <RemoveRegistryValues Condition="NOT ENDPOINT_UNINSTALL_FINALIZE" />
+      <RemoveFiles Condition="NOT ENDPOINT_UNINSTALL_FINALIZE" />
+      <RemoveFolders Condition="NOT ENDPOINT_UNINSTALL_FINALIZE" />
+      <CreateFolders Condition="NOT ENDPOINT_UNINSTALL_FINALIZE" />
+      <InstallFiles Condition="NOT ENDPOINT_UNINSTALL_FINALIZE" />
+      <WriteRegistryValues Condition="NOT ENDPOINT_UNINSTALL_FINALIZE" />
+      <RegisterUser Condition="NOT ENDPOINT_UNINSTALL_FINALIZE" />
+      <RegisterProduct Condition="NOT ENDPOINT_UNINSTALL_FINALIZE" />
+      <PublishFeatures Condition="NOT ENDPOINT_UNINSTALL_FINALIZE" />
+      <PublishProduct Condition="NOT ENDPOINT_UNINSTALL_FINALIZE" />
+      <RemoveExistingProducts After="InstallExecute" Condition="NOT ENDPOINT_UNINSTALL_FINALIZE" />
+      <Custom Action="ScheduleEndpointRootCleanup" Before="CostInitialize" Condition="NOT ENDPOINT_UNINSTALL_FINALIZE" />
+      <Custom Action="ConfigureFoundation" After="InstallServices"
+              Condition="NOT ENDPOINT_UNINSTALL_FINALIZE AND &amp;EndpointAgentFeature = 3 AND NOT ENDPOINT_RUNTIME_RETIRE AND NOT REMOVE~=&quot;ALL&quot;" />
     </InstallExecuteSequence>
   </Fragment>
 </Wix>

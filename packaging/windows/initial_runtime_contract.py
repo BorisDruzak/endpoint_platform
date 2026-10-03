@@ -10,6 +10,7 @@ import os
 import platform
 import re
 import subprocess
+import sys
 import sysconfig
 import uuid
 from dataclasses import dataclass
@@ -131,6 +132,47 @@ def write_stage_evidence(repository_root: Path, artifact_root: Path, path: Path)
         "source_revision": _clean_source_revision(repository_root.resolve()),
     }
     path.write_text(json.dumps(payload, separators=(",", ":")), encoding="utf-8")
+
+
+def write_payload_contract(root: Path, *, version: str, source_revision: str,
+                           minimum_launcher_version: str | None) -> None:
+    """Author once before freezing the artifact tree; never revise frozen bytes."""
+    if (not _SEMVER.fullmatch(version)
+        or (minimum_launcher_version is not None and not _SEMVER.fullmatch(minimum_launcher_version))
+        or not re.fullmatch(r'[0-9a-f]{40}', source_revision)):
+        raise ValueError('payload compatibility identity is invalid')
+    artifact_identity(root)
+    payload = {'schema_version': 1, 'version': version, 'source_revision': source_revision,
+        'minimum_launcher_version': minimum_launcher_version}
+    data = json.dumps(payload, separators=(',', ':'), sort_keys=True).encode('utf-8')
+    path = root / 'endpoint-runtime-contract.json'
+    if path.exists():
+        if path.read_bytes() != data:
+            raise ValueError('payload compatibility identity is already authored')
+        return
+    with path.open('xb') as stream:
+        stream.write(data)
+
+
+def write_installed_manifest(root: Path, *, version: str, source_revision: str) -> None:
+    """Inventory the normalized installed tree without altering authored payload."""
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+    from endpoint_contracts.runtime_payload import BUNDLE_FILENAME, verify_payload
+    excluded = frozenset({BUNDLE_FILENAME, '.endpoint-msi-runtime.json'})
+    artifact_identity(root)
+    files = [{'path': path.relative_to(root).as_posix(), 'size': path.stat().st_size,
+              'sha256': _hash_file(path)}
+        for path in sorted(root.rglob('*')) if path.is_file() and path.relative_to(root).as_posix() not in excluded]
+    payload = {'schema_version': 1, 'version': version, 'source_revision': source_revision, 'files': files}
+    verify_payload(root, payload, excluded=excluded)
+    data = json.dumps(payload, separators=(',', ':'), sort_keys=True).encode('utf-8')
+    destination = root / BUNDLE_FILENAME
+    if destination.exists():
+        if destination.read_bytes() != data:
+            raise ValueError('installed payload manifest already differs')
+        return
+    with destination.open('xb') as stream:
+        stream.write(data)
 
 
 def _stage_evidence_identity(artifact_root: Path, path: Path) -> tuple[str, dict[str, object]]:
@@ -411,11 +453,27 @@ def main() -> int:
     parser.add_argument("--stage-root", type=Path)
     parser.add_argument("--stage-evidence", type=Path)
     parser.add_argument("--write-stage-evidence", type=Path)
+    parser.add_argument("--write-payload-contract", type=Path)
+    parser.add_argument("--write-installed-manifest", type=Path)
+    parser.add_argument("--version")
+    parser.add_argument("--minimum-launcher-version")
     parser.add_argument("--print-artifact", type=Path)
     parser.add_argument("--approve-version", action="store_true")
     parser.add_argument("--approve-source", action="store_true")
     parser.add_argument("--source-revision")
     args = parser.parse_args()
+    if args.write_payload_contract is not None:
+        if args.repository_root is None or args.version is None or args.minimum_launcher_version is None:
+            parser.error('--repository-root, --version and --minimum-launcher-version are required')
+        write_payload_contract(args.write_payload_contract, version=args.version,
+            source_revision=_clean_source_revision(args.repository_root),
+            minimum_launcher_version=args.minimum_launcher_version)
+        return 0
+    if args.write_installed_manifest is not None:
+        if args.version is None or args.source_revision is None:
+            parser.error('--version and --source-revision are required')
+        write_installed_manifest(args.write_installed_manifest, version=args.version, source_revision=args.source_revision)
+        return 0
     if args.print_artifact is not None:
         print(json.dumps(artifact_identity(args.print_artifact), separators=(",", ":")))
         return 0

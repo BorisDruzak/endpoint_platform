@@ -31,6 +31,7 @@ exe = EXE(
     a.scripts,
     a.binaries,
     a.datas,
+    [('pyi-enable-onefile-parent-verification', None, 'OPTION')],
     name="endpoint-agent-provision",
     debug=False,
     bootloader_ignore_signals=False,

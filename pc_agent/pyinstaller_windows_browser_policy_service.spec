@@ -37,6 +37,7 @@ exe = EXE(
     a.scripts,
     a.binaries,
     a.datas,
+    [('pyi-enable-onefile-parent-verification', None, 'OPTION')],
     name="EndpointBrowserPolicy",
     debug=False,
     bootloader_ignore_signals=False,

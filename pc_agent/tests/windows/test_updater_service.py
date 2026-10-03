@@ -841,8 +841,8 @@ def test_pending_validator_rejects_different_bytes_for_existing_target_version(
         updater._publish(staging, pending)
 
 
-def test_publish_reuses_identical_msi_runtime_without_zip_metadata(tmp_path: Path) -> None:
-    """A ZIP rollback may select an MSI-owned directory with identical runtime bytes."""
+def test_publish_does_not_reinterpret_msi_ownership_as_zip_identity(tmp_path: Path) -> None:
+    """A file/marker match cannot substitute for transport ownership authority."""
     import shutil
 
     from pc_agent.platform.windows.updater_service import PendingUpdateValidator, WindowsUpdater
@@ -864,10 +864,11 @@ def test_publish_reuses_identical_msi_runtime_without_zip_metadata(tmp_path: Pat
         "version": pending.version,
     }), encoding="utf-8")
 
-    assert updater._publish(staging, pending) == target
+    with pytest.raises(ValueError,match='collision'):
+        updater._publish(staging, pending)
     assert target.joinpath("pc_agent.exe").read_bytes() == b"agent"
     assert not target.joinpath("endpoint-update-manifest.json").exists()
-    assert not staging.exists()
+    assert staging.exists()
 
 
 @pytest.mark.parametrize("mutation", ["changed", "missing", "extra", "conflicting_manifest", "missing_marker"])

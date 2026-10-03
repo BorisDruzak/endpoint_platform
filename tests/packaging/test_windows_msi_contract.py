@@ -15,6 +15,123 @@ import pytest
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 WINDOWS_PACKAGING = PROJECT_ROOT / "packaging" / "windows"
 WIX_ROOT = WINDOWS_PACKAGING / "wix"
+
+
+def test_generated_runtime_directory_cleanup_belongs_to_runtime_components(tmp_path):
+    import subprocess
+    runtime=tmp_path/'runtime';(runtime/'nested/deep').mkdir(parents=True)
+    for name in ['pc_agent.exe','endpoint-runtime-contract.json','nested/a.dll','nested/deep/b.dll','nested/deep/c.dll']:
+        (runtime/name).write_bytes(b'payload')
+    output=tmp_path/'payload.wxs'
+    script=tmp_path/'generate.ps1';script.write_text(r'''param($Source,$Runtime,$Output)
+$ErrorActionPreference='Stop'
+$tokens=$null;$errors=$null
+$ast=[Management.Automation.Language.Parser]::ParseFile($Source,[ref]$tokens,[ref]$errors)
+foreach($node in $ast.FindAll({param($n) $n -is [Management.Automation.Language.FunctionDefinitionAst]},$true)){Invoke-Expression $node.Extent.Text}
+Write-GeneratedPayloadWix $Runtime $Output | Out-Null
+''',encoding='utf-8')
+    result=subprocess.run(['powershell.exe','-NoProfile','-NonInteractive','-File',str(script),
+        str(WINDOWS_PACKAGING/'build-msi.ps1'),str(runtime),str(output)],capture_output=True,text=True,timeout=30)
+    assert result.returncode==0,result.stderr
+    tree=ET.parse(output).getroot()
+    namespace={'w':'http://wixtoolset.org/schemas/v4/wxs'}
+    directories={d.attrib['Id'] for d in tree.findall('.//w:Directory',namespace)}
+    group=tree.find('.//w:ComponentGroup',namespace)
+    assert group.attrib['Id']=='EndpointAgentGeneratedPayload'
+    removals=group.findall('.//w:RemoveFolder',namespace)
+    assert len(removals)==len(directories)==2
+    assert {r.attrib['Directory'] for r in removals}==directories
+    assert {r.attrib['On'] for r in removals}=={'uninstall'}
+    assert len(group.findall('.//w:File',namespace))==4
+
+
+def test_synthetic_wix4_package_links_with_finalization_audit(tmp_path):
+    """Compile dummy bytes only; never execute MSI, ICEs, services or release tools."""
+    import shutil
+    import subprocess
+    wix=shutil.which('wix') or str(Path.home()/'.dotnet/tools/wix.exe')
+    if not Path(wix).is_file(): pytest.skip('WiX4 authoring compiler unavailable')
+    version=subprocess.run([wix,'--version'],capture_output=True,text=True,timeout=15)
+    assert version.returncode==0 and version.stdout.startswith('4.0.6'),version.stdout
+    stage=tmp_path/'dummy';stage.mkdir()
+    variables={'StagingDir':str(stage),'PackageVersion':'0.0.1','InitialRuntimeVersion':'0.0.1',
+        'InitialRuntimeComponentGuid':str(uuid.uuid4()),'InitialRuntimeTransitionApproved':'0',
+        'BaselineInitialRuntimeVersion':'0.0.0','SourceRevision':'a'*40,
+        'InitialRuntimeInventoryPath':str(stage/'dummy-inventory.json')}
+    sources=[]
+    fixture_upgrade=str(uuid.uuid4()).upper()
+    for name in WIX_FILES:
+        source=(WIX_ROOT/name).read_text()
+        for key,value in variables.items(): source=source.replace('$(var.'+key+')',value)
+        source=source.replace(STABLE_UPGRADE_CODE,fixture_upgrade)
+        root=ET.fromstring(source)
+        for node in root.iter():
+            if node.tag.endswith('}Package'):
+                node.set('Name','Task7 Synthetic Authoring Only');node.set('Manufacturer','Synthetic Test')
+            if node.tag.endswith('}Component') and node.get('Guid')!='*': node.set('Guid',str(uuid.uuid4()))
+            if node.tag.endswith('}Directory') and node.get('Id') in {'VENDORFOLDER','PROGRAMDATAVENDOR'}: node.set('Name','Task7 Synthetic Authoring Only')
+            for key in ('Source','SourceFile'):
+                if key in node.attrib:
+                    path=Path(node.attrib[key].replace('\\','/'))
+                    path.parent.mkdir(parents=True,exist_ok=True);path.write_bytes(b'NONEXECUTABLE SYNTHETIC AUTHORING FIXTURE')
+        target=tmp_path/name;ET.ElementTree(root).write(target,encoding='utf-8',xml_declaration=True);sources.append(target)
+    generated=tmp_path/'empty-payload.wxs'
+    generated.write_text('<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"><Fragment><ComponentGroup Id="EndpointAgentGeneratedPayload" /></Fragment></Wix>')
+    output=tmp_path/'synthetic-authoring-only.msi'
+    # wix.exe build only links; ICE execution is the separate msi validate verb.
+    result=subprocess.run([wix,'build','-arch','x64','-ext','WixToolset.Util.wixext/4.0.6',
+        '-out',str(output),*map(str,sources),str(generated)],capture_output=True,text=True,timeout=60)
+    assert result.returncode==0,result.stdout+result.stderr
+    script=tmp_path/'inspect.ps1';inspection=tmp_path/'inspection.json'
+    script.write_text(r'''param($Source,$Msi,$Output)
+$ErrorActionPreference='Stop'
+$tokens=$null;$errors=$null
+$ast=[Management.Automation.Language.Parser]::ParseFile($Source,[ref]$tokens,[ref]$errors)
+foreach($node in $ast.FindAll({param($n) $n -is [Management.Automation.Language.FunctionDefinitionAst]},$true)){Invoke-Expression $node.Extent.Text}
+Export-MsiInspection $Msi $Output
+''',encoding='utf-8')
+    result=subprocess.run(['powershell.exe','-NoProfile','-NonInteractive','-File',str(script),
+        str(WINDOWS_PACKAGING/'build-msi.ps1'),str(output),str(inspection)],capture_output=True,text=True,timeout=30)
+    assert result.returncode==0,result.stdout+result.stderr
+    rows=json.loads(inspection.read_text())['execute_sequence']
+    assert not any(row['action']=='Wix4RemoveFoldersEx_X64' for row in rows)
+    cleanup=next(row for row in rows if row['action']=='ScheduleEndpointRootCleanup')
+    assert cleanup['condition']=='NOT ENDPOINT_UNINSTALL_FINALIZE'
+
+
+@pytest.mark.parametrize('defect',['none','unknown','condition','feature','guard_type','guard_order'])
+def test_compiled_finalization_sequence_rejects_unreviewed_reachable_actions(tmp_path,defect):
+    import subprocess
+    sequence=[{'action':name,'condition':'','sequence':number} for name,number in
+        [('CostFinalize',1000),('InstallerOwnerPreflight',1002),('InstallInitialize',1500),
+         ('InstallerOwnerEnter',1501),('InstallerOwnerComplete',6599),('InstallFinalize',6600)]]
+    for name,number in [('ProcessComponents',1600),('StopServices',1900),('RemoveFiles',3500),
+                        ('RegisterUser',6000),('RegisterProduct',6100),('PublishFeatures',6300),('PublishProduct',6400),('RemoveExistingProducts',6501)]:
+        sequence.append({'action':name,'condition':'NOT ENDPOINT_UNINSTALL_FINALIZE','sequence':number})
+    inspection={'execute_sequence':sequence,
+        'features':[{'feature':name,'level':'1'} for name in ['EndpointAgentFeature','EndpointAgentInitialRuntimeFeature']],
+        'feature_conditions':[{'feature':name,'level':'0','condition':'ENDPOINT_UNINSTALL_FINALIZE = 1'} for name in ['EndpointAgentFeature','EndpointAgentInitialRuntimeFeature']],
+        'custom_actions':[{'action':name,'type':kind,'source':'EndpointInstallerHost'} for name,kind in
+            [('InstallerOwnerPreflight',8194),('InstallerOwnerEnter',11266),('InstallerOwnerComplete',11778)]]}
+    if defect=='unknown': sequence.append({'action':'UnreviewedMutation','condition':'','sequence':3000})
+    elif defect=='condition': sequence[6]['condition']='NOT ENDPOINT_UNINSTALL_FINALIZE OR 1'
+    elif defect=='feature': inspection['feature_conditions'].pop()
+    elif defect=='guard_type': inspection['custom_actions'][1]['type']=1154
+    elif defect=='guard_order': sequence[3]['sequence']=4000
+    data=tmp_path/'inspection.json';data.write_text(json.dumps(inspection))
+    script=tmp_path/'audit.ps1';script.write_text(r'''param($Source,$Data)
+$ErrorActionPreference='Stop'
+$tokens=$null;$errors=$null
+$ast=[Management.Automation.Language.Parser]::ParseFile($Source,[ref]$tokens,[ref]$errors)
+$node=$ast.Find({param($n) $n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'Assert-UninstallFinalizationSequence'},$true)
+if($null -eq $node){throw 'compiled audit missing'}
+Invoke-Expression $node.Extent.Text
+Assert-UninstallFinalizationSequence ([IO.File]::ReadAllText($Data) | ConvertFrom-Json)
+''',encoding='utf-8')
+    result=subprocess.run(['powershell.exe','-NoProfile','-NonInteractive','-File',str(script),
+        str(WINDOWS_PACKAGING/'build-msi.ps1'),str(data)],capture_output=True,text=True,timeout=30)
+    assert (result.returncode==0)==(defect=='none'),result.stderr
+
 WIX_FILES = (
     "Package.wxs",
     "Directories.wxs",
@@ -26,6 +143,37 @@ WIX_NS = "http://wixtoolset.org/schemas/v4/wxs"
 UTIL_NS = "http://wixtoolset.org/schemas/v4/wxs/util"
 NS = {"w": WIX_NS, "util": UTIL_NS}
 STABLE_UPGRADE_CODE = "D4F3045C-51CF-49D9-AF9C-3AEBF206ED1F"
+
+
+def test_privileged_foundation_uses_patched_bootloader_and_forced_parent_check():
+    requirements = (PROJECT_ROOT / "requirements/build-windows.txt").read_text()
+    assert "PyInstaller==6.22.3" in requirements
+    assert "pyinstaller-hooks-contrib==2026.8" in requirements
+    for name in ("windows_service_launcher", "windows_updater", "windows_setup", "windows_provision", "windows_browser_policy_service", "launcher_win"):
+        tree = ast.parse((PROJECT_ROOT / "pc_agent" / f"pyinstaller_{name}.spec").read_text())
+        executables = [node for node in ast.walk(tree) if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name) and node.func.id == "EXE"]
+        assert len(executables) == 1
+        options = [node for argument in executables[0].args for node in ast.walk(argument)
+            if isinstance(node, ast.Tuple)]
+        assert any(ast.literal_eval(node) == ("pyi-enable-onefile-parent-verification", None, "OPTION")
+            for node in options), name
+
+
+def test_initial_runtime_has_separate_default_feature_and_owner_started_agent():
+    trees = _trees()
+    features = {node.attrib['Id']:node for node in trees['Package.wxs'].findall('.//w:Feature', NS)}
+    assert features['EndpointAgentInitialRuntimeFeature'].attrib['Level'] == '1'
+    runtime_groups = {node.attrib['Id'] for node in features['EndpointAgentInitialRuntimeFeature'].findall('w:ComponentGroupRef', NS)}
+    assert runtime_groups == {'EndpointAgentInitialRuntimeComponents', 'EndpointAgentGeneratedPayload'}
+    foundation_groups = {node.attrib['Id'] for node in features['EndpointAgentFeature'].findall('w:ComponentGroupRef', NS)}
+    assert 'EndpointAgentGeneratedPayload' not in foundation_groups
+    anchor = trees['Components.wxs'].find(".//w:ComponentGroup[@Id='EndpointAgentInitialRuntimeComponents']/w:Component[@Id='cmpInitialRuntimeAnchor']", NS)
+    assert anchor is not None and anchor.find('w:RemoveFolder', NS) is not None
+    control = trees['Services.wxs'].find(".//w:ServiceControl[@Name='EndpointAgent']", NS)
+    assert 'Start' not in control.attrib
+    cleanup = trees['Components.wxs'].find('.//w:CustomTable/w:Row/w:Data[@Column="Condition"]', NS)
+    assert cleanup.attrib['Value'] == 'REMOVE~="ALL" AND NOT UPGRADINGPRODUCTCODE'
 
 
 def _trees() -> dict[str, ET.Element]:
@@ -128,12 +276,12 @@ def test_services_use_fixed_accounts_start_modes_and_recovery() -> None:
 
     assert core.get("Name") == "EndpointAgent"
     assert core.get("Account") == "NT AUTHORITY\\LocalService"
-    assert core.get("Start") == "auto"
+    assert core.get("Start") == "disabled"
     assert core.get("Vital") == "yes"
     assert core.get("Arguments") == "--agent-service"
     assert updater.get("Name") == "EndpointAgentUpdater"
     assert updater.get("Account") == "LocalSystem"
-    assert updater.get("Start") == "demand"
+    assert updater.get("Start") == "disabled"
     assert updater.get("Vital") == "yes"
     assert updater.get("Arguments") == "--updater-service"
 
@@ -171,51 +319,23 @@ def test_service_components_remove_services_and_fail_the_transaction_on_error() 
     core_control = _by_id(controls, "ctlEndpointAgent")
     updater_control = _by_id(controls, "ctlEndpointAgentUpdater")
     browser_control = _by_id(controls, "ctlEndpointBrowserPolicy")
-    assert core_control.get("Start") == "install"
+    assert core_control.get("Start") is None
     assert updater_control.get("Start") is None
     assert browser_control.get("Start") == "install"
     assert all(item.get("Remove") == "uninstall" for item in controls)
     assert all(item.get("Wait") == "yes" for item in controls)
     assert all(item.get("Vital") == "yes" for item in _all_elements(trees, "ServiceInstall"))
-    custom_actions = _all_elements(trees, "CustomAction")
-    restrict = _by_id(custom_actions, "RestrictUpdaterServiceStart")
-    configure_sids = _by_id(custom_actions, "ConfigureServiceSids")
-    stop_tray = _by_id(custom_actions, "StopTrayCompanions")
-    assert configure_sids.get("FileRef") == "filServiceHost"
-    assert configure_sids.get("ExeCommand") == "--configure-service-sids"
-    assert configure_sids.get("Execute") == "deferred"
-    assert configure_sids.get("Impersonate") == "no"
-    assert configure_sids.get("Return") == "check"
-    assert restrict.get("Execute") == "deferred"
-    assert restrict.get("Impersonate") == "no"
-    assert restrict.get("Return") == "check"
-    assert stop_tray.get("FileRef") == "filServiceHost"
-    assert stop_tray.get("ExeCommand") == "--stop-tray-companions"
-    assert stop_tray.get("Execute") == "deferred"
-    assert stop_tray.get("Impersonate") == "no"
-    assert stop_tray.get("Return") == "check"
-
-    configure_sequence = next(
-        item
-        for item in _all_elements(trees, "Custom")
-        if item.get("Action") == "ConfigureServiceSids"
-    )
-    restrict_sequence = next(
-        item
-        for item in _all_elements(trees, "Custom")
-        if item.get("Action") == "RestrictUpdaterServiceStart"
-    )
-    stop_tray_sequence = next(
-        item
-        for item in _all_elements(trees, "Custom")
-        if item.get("Action") == "StopTrayCompanions"
-    )
-    assert configure_sequence.get("After") == "InstallServices"
-    assert restrict_sequence.get("After") == "ConfigureServiceSids"
-    assert stop_tray_sequence.get("Before") == "InstallFiles"
-    assert stop_tray_sequence.get("Condition") == (
-        'Installed AND NOT WIX_UPGRADE_DETECTED AND NOT REMOVE~="ALL"'
-    )
+    actions = _all_elements(trees, "CustomAction")
+    configure = _by_id(actions, "ConfigureFoundation")
+    assert configure.get("BinaryRef") == "EndpointInstallerHost"
+    assert configure.get("ExeCommand") == '--installer-phase foundation-config --installer-session "[ENDPOINT_INSTALLER_SESSION]"'
+    assert configure.get("Execute") == "deferred"
+    assert configure.get("Impersonate") == "no"
+    assert configure.get("Return") == "check"
+    sequence = next(item for item in _all_elements(trees, "Custom") if item.get("Action") == "ConfigureFoundation")
+    assert sequence.get("After") == "InstallServices"
+    assert sequence.get("Condition") == 'NOT ENDPOINT_UNINSTALL_FINALIZE AND &EndpointAgentFeature = 3 AND NOT ENDPOINT_RUNTIME_RETIRE AND NOT REMOVE~="ALL"'
+    assert not any(item.get("FileRef") == "filServiceHost" for item in actions)
 
 
 def test_updater_acl_custom_action_reaches_only_the_fixed_no_argument_boundary(
@@ -230,8 +350,9 @@ def test_updater_acl_custom_action_reaches_only_the_fixed_no_argument_boundary(
         lambda: observed.append("restricted"),
     )
 
-    assert runtime_main.main(["--windows-restrict-updater-start"]) == 0
-    assert observed == ["restricted"]
+    with pytest.raises(SystemExit):
+        runtime_main.main(["--windows-restrict-updater-start"])
+    assert observed == []
 
 
 def test_programdata_acl_is_replaced_by_fixed_elevated_action() -> None:
@@ -243,9 +364,9 @@ def test_programdata_acl_is_replaced_by_fixed_elevated_action() -> None:
     assert data.get("Permanent") == "yes"
     assert not list(data.iter(f"{{{UTIL_NS}}}PermissionEx"))
     actions = _all_elements(trees, "CustomAction")
-    action = _by_id(actions, "ApplyProgramDataAcl")
-    assert action.get("FileRef") == "filServiceHost"
-    assert action.get("ExeCommand") == "--apply-programdata-acl"
+    action = _by_id(actions, "ConfigureFoundation")
+    assert action.get("BinaryRef") == "EndpointInstallerHost"
+    assert action.get("ExeCommand") == '--installer-phase foundation-config --installer-session "[ENDPOINT_INSTALLER_SESSION]"'
     assert action.get("Execute") == "deferred"
     assert action.get("Impersonate") == "no"
     assert action.get("Return") == "check"
@@ -263,19 +384,19 @@ def test_programdata_acl_is_replaced_by_fixed_elevated_action() -> None:
 def test_tray_status_directory_is_prepared_by_a_fixed_elevated_action() -> None:
     """The service must never inherit a user-writable public status directory."""
     actions = _all_elements(_trees(), "CustomAction")
-    action = _by_id(actions, "ApplyTrayStatusAcl")
+    action = _by_id(actions, "ConfigureFoundation")
     sequence = next(
         item
         for item in _all_elements(_trees(), "Custom")
-        if item.get("Action") == "ApplyTrayStatusAcl"
+        if item.get("Action") == "ConfigureFoundation"
     )
 
-    assert action.get("FileRef") == "filServiceHost"
-    assert action.get("ExeCommand") == "--apply-tray-status-acl"
+    assert action.get("BinaryRef") == "EndpointInstallerHost"
+    assert action.get("ExeCommand") == '--installer-phase foundation-config --installer-session "[ENDPOINT_INSTALLER_SESSION]"'
     assert action.get("Execute") == "deferred"
     assert action.get("Impersonate") == "no"
     assert action.get("Return") == "check"
-    assert sequence.get("After") == "ApplyProgramDataAcl"
+    assert sequence.get("After") == "InstallServices"
 
 
 def test_payload_has_launcher_immutable_core_config_documentation_and_selector() -> None:
@@ -442,10 +563,13 @@ def test_selector_never_overwrite_is_authored_on_the_wix4_component() -> None:
 def test_major_upgrade_preserves_state_and_requires_explicit_runtime_transition() -> None:
     """A routine major upgrade must not reset identity, credential, or selected runtime."""
     trees = _trees()
-    upgrade = _all_elements(trees, "MajorUpgrade")
-    assert len(upgrade) == 1
-    assert upgrade[0].get("Schedule") == "afterInstallExecute"
-    assert upgrade[0].get("DowngradeErrorMessage")
+    assert not _all_elements(trees, "MajorUpgrade")
+    versions = _all_elements(trees, "UpgradeVersion")
+    assert len(versions) == 2
+    assert {v.get('Property') for v in versions} == {'WIX_UPGRADE_DETECTED','WIX_DOWNGRADE_DETECTED'}
+    removal = _all_elements(trees, 'RemoveExistingProducts')
+    assert len(removal) == 1 and removal[0].get('After') == 'InstallExecute'
+    assert removal[0].get('Condition') == 'NOT ENDPOINT_UNINSTALL_FINALIZE'
 
     script = (WINDOWS_PACKAGING / "build-msi.ps1").read_text(encoding="utf-8")
     assert "ApproveInitialRuntimeTransition" in script
@@ -464,22 +588,14 @@ def test_approved_runtime_transition_migrates_selector_before_service_start() ->
     assert transition_property.get("Value") == "$(var.InitialRuntimeTransitionApproved)"
 
     actions = _all_elements(trees, "CustomAction")
-    migration = _by_id(actions, "MigrateInitialSelector")
-    assert migration.get("FileRef") == "filServiceHost"
-    assert migration.get("ExeCommand") == "--migrate-initial-selector"
-    assert migration.get("Execute") == "deferred"
-    assert migration.get("Impersonate") == "no"
-    assert migration.get("Return") == "check"
-
-    sequence = next(
-        item for item in _all_elements(trees, "Custom")
-        if item.get("Action") == "MigrateInitialSelector"
-    )
-    assert sequence.get("Action") == "MigrateInitialSelector"
-    assert sequence.get("After") == "RestrictUpdaterServiceStart"
-    assert "ENDPOINT_AGENT_INITIAL_RUNTIME_TRANSITION = 1" in sequence.get(
-        "Condition", ""
-    )
+    guard = _by_id(actions, "InstallerOwnerEnter")
+    assert guard.get("BinaryRef") == "EndpointInstallerHost"
+    assert guard.get("Execute") == "deferred"
+    assert guard.get("Impersonate") == "no"
+    assert guard.get("Return") == "check"
+    sequence = next(item for item in _all_elements(trees, "Custom") if item.get("Action") == "InstallerOwnerEnter")
+    assert sequence.get("After") == "InstallInitialize"
+    assert not any(item.get("Id") == "MigrateInitialSelector" for item in actions)
 
     registry_values = [
         item for item in _all_elements(trees, "RegistryValue")
@@ -497,33 +613,24 @@ def test_approved_runtime_transition_migrates_selector_before_service_start() ->
     assert "BaselineInitialRuntimeVersion" in script
 
 
-def test_selector_migration_has_a_no_argument_rollback_pair() -> None:
-    """A later MSI failure must restore current.json before old components are removed."""
+def test_owner_guards_are_embedded_and_have_no_unowned_rollback_writer() -> None:
     actions = _all_elements(_trees(), "CustomAction")
-    rollback = _by_id(actions, "RollbackInitialSelector")
-    finalize = _by_id(actions, "FinalizeInitialSelectorMigration")
-    for action, command, execution in (
-        (rollback, "--rollback-initial-selector", "rollback"),
-        (finalize, "--finalize-initial-selector", "commit"),
-    ):
-        assert action.get("FileRef") == "filServiceHost"
-        assert action.get("ExeCommand") == command
-        assert action.get("Execute") == execution
-        assert action.get("Impersonate") == "no"
-        assert action.get("Return") == "check"
-        assert action.get("HideTarget") == "yes"
-
-    sequence = _all_elements(_trees(), "Custom")
-    rollback_sequence = next(item for item in sequence if item.get("Action") == "RollbackInitialSelector")
-    migrate_sequence = next(item for item in sequence if item.get("Action") == "MigrateInitialSelector")
-    finalize_sequence = next(item for item in sequence if item.get("Action") == "FinalizeInitialSelectorMigration")
-    assert rollback_sequence.get("Before") == "MigrateInitialSelector"
-    assert migrate_sequence.get("After") == "RestrictUpdaterServiceStart"
-    assert finalize_sequence.get("After") == "MigrateInitialSelector"
-    assert all(
-        "ENDPOINT_AGENT_INITIAL_RUNTIME_TRANSITION = 1" in item.get("Condition", "")
-        for item in (rollback_sequence, migrate_sequence, finalize_sequence)
-    )
+    assert not any(item.get("Id") in {"RollbackInitialSelector", "FinalizeInitialSelectorMigration"} for item in actions)
+    for name,execution in (("InstallerOwnerPreflight","immediate"),("InstallerOwnerEnter","deferred"),("InstallerOwnerComplete","commit")):
+        action=_by_id(actions,name)
+        assert action.get("BinaryRef")=="EndpointInstallerHost"
+        assert action.get("Execute")==execution
+        assert action.get("Return")=="check"
+        assert action.get("HideTarget")=="yes"
+    sequence=_all_elements(_trees(),"Custom")
+    preflight=next(item for item in sequence if item.get("Action")=="InstallerOwnerPreflight")
+    assert preflight.get("After")=="ClassifyRuntimeRetirement"
+    classifier=next(item for item in sequence if item.get("Action")=="ClassifyRuntimeRetirement")
+    assert classifier.get("After")=="CostFinalize"
+    assert "&EndpointAgentInitialRuntimeFeature = 2" in classifier.get("Condition")
+    assert "&EndpointAgentFeature = 3" in classifier.get("Condition")
+    complete=next(item for item in sequence if item.get("Action")=="InstallerOwnerComplete")
+    assert complete.get("Before")=="InstallFinalize"
 
 
 def test_initial_runtime_marker_is_staged_for_msi_ownership_provenance() -> None:
@@ -597,8 +704,10 @@ def test_default_uninstall_retains_programdata_and_documents_admin_purge() -> No
 
 def test_uninstall_cleanup_uses_the_resolved_install_folder_not_a_registry_search() -> None:
     """RemoveFolderEx must still receive a path after uninstall removes registry values."""
-    cleanup = _by_id(_all_elements(_trees(), "RemoveFolderEx"), "RemoveEndpointAgentBinaries")
-    assert cleanup.get("Property") == "ENDPOINT_AGENT_REMEMBERED_INSTALLROOT"
+    cleanup = _by_id(_all_elements(_trees(), "CustomTable"), "Wix4RemoveFolderEx")
+    values = {item.get('Column'):item.get('Value') for item in cleanup.findall('w:Row/w:Data',NS)}
+    assert values['Property'] == "ENDPOINT_AGENT_REMEMBERED_INSTALLROOT"
+    assert not cleanup.findall('w:Column',NS)
     root = _all_elements(_trees(), "Property")
     remembered = next(item for item in root if item.get("Id") == "ENDPOINT_AGENT_REMEMBERED_INSTALLROOT")
     assert remembered.get("Value") == "C:\\Program Files\\Endpoint Platform\\Agent\\"

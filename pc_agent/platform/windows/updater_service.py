@@ -811,16 +811,9 @@ class WindowsUpdater:
                     and _release_manifest(target) == _release_manifest(staging)
                 )
             else:
-                from .selector_migration import MSI_RUNTIME_MARKER_FILENAME, _is_msi_owned_runtime
-
-                matches = (
-                    not (target / ".endpoint-update.json").exists()
-                    and _is_msi_owned_runtime(self._paths, pending.version)
-                    and _release_manifest(target, excluded={MSI_RUNTIME_MARKER_FILENAME})
-                    == _release_manifest(
-                        staging, excluded={BUNDLE_MANIFEST_FILENAME, ".endpoint-update.json"}
-                    )
-                )
+                # MSI and retained MSI ownership cannot become ZIP ownership
+                # merely because the payload bytes happen to match.
+                matches = False
             if not matches:
                 raise ValueError("target version collision with different bytes")
             # A prior rename can be visible even though its parent flush

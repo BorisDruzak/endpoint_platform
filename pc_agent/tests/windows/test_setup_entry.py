@@ -27,6 +27,7 @@ def literal_msi_costing_boundary(monkeypatch, tmp_path):
     # Fixture MSIs are b'msi', not real Installer databases. Keep the disk
     # accounting/check real and replace only the native package reader.
     monkeypatch.setattr(setup_entry, "_msi_disk_costs", lambda _: [(tmp_path, 4096)], raising=False)
+    monkeypatch.setattr(setup_entry, "_msi_reconciliation_required", lambda _: False, raising=False)
 
 
 def test_setup_counts_new_protected_cache_on_its_own_volume(tmp_path, monkeypatch):
@@ -841,6 +842,45 @@ def test_valid_existing_agent_does_not_install_an_equal_embedded_msi(
     assert calls == []
 
 
+def test_equal_version_missing_runtime_feature_still_runs_canonical_msi(monkeypatch,tmp_path):
+    _write_public_payload(tmp_path)
+    monkeypatch.setattr(setup_entry,'_data_root',lambda:tmp_path/'data')
+    monkeypatch.setattr(setup_entry,'_resource_root',lambda:tmp_path)
+    monkeypatch.setattr(setup_entry,'_classify_installation_state',lambda *_a,**_kw:'valid')
+    monkeypatch.setattr(setup_entry,'_installed_msi_version',lambda:'1.0.0')
+    monkeypatch.setattr(setup_entry,'_msi_reconciliation_required',lambda _:True)
+    monkeypatch.setattr(setup_entry,'_wait_for_agent_service_running',lambda:True)
+    calls=[]
+    monkeypatch.setattr(setup_entry,'_install_embedded_msi',lambda path:calls.append(path.name))
+    assert setup_entry.main(['--quiet'])==setup_entry.EXIT_SUCCESS
+    assert calls==['EndpointAgent.msi']
+
+
+def test_same_package_interruption_selects_wrapper_recovery_without_clearing_fence(monkeypatch,tmp_path):
+    from pc_agent.platform.windows import installer_fence
+    _write_public_payload(tmp_path)
+    release=json.loads((tmp_path/'EndpointAgent.release.json').read_text())
+    fence={'operation':'install','package':{'sha256':release['package_sha256'],'product_code':release['product_code'],
+        'version':release['version'],'source_revision':release['source_revision']}}
+    monkeypatch.setattr(installer_fence,'read_fence',lambda _:fence)
+    calls=[]
+    monkeypatch.setattr(setup_entry.subprocess,'run',lambda command,**kw:(calls.append(command) or SimpleNamespace(returncode=0)))
+    setup_entry._install_embedded_msi(tmp_path/'EndpointAgent.msi')
+    assert calls[0][-2:]==['-Operation','RecoverInterruptedInstall']
+    fence['package']['sha256']='0'*64
+    with pytest.raises(setup_entry.SetupInstallError) as failure:
+        setup_entry._install_embedded_msi(tmp_path/'EndpointAgent.msi')
+    assert failure.value.detail=='PROVENANCE_CONFLICT'
+    assert len(calls)==1
+
+
+@pytest.mark.parametrize('native_result',[3010,1641])
+def test_native_reboot_success_is_preserved_as_reboot_requirement(monkeypatch,tmp_path,native_result):
+    _write_public_payload(tmp_path)
+    monkeypatch.setattr(setup_entry.subprocess,'run',lambda *_a,**_kw:SimpleNamespace(returncode=native_result))
+    assert setup_entry._install_embedded_msi(tmp_path/'EndpointAgent.msi')==native_result
+
+
 def test_conflicted_rerun_stops_before_msi_or_enrollment(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -882,3 +922,31 @@ def test_wrapper_exclusion_codes_survive_suppressed_output(tmp_path,monkeypatch,
     with pytest.raises(setup_entry.SetupInstallError) as caught:
         setup_entry._install_embedded_msi(tmp_path/'EndpointAgent.msi')
     assert caught.value.detail==detail
+
+
+@pytest.mark.parametrize('installation_state',['valid','fresh'])
+def test_completed_uninstall_recovery_never_starts_or_enrolls(tmp_path,monkeypatch,installation_state):
+    _write_public_payload(tmp_path)
+    monkeypatch.setattr(setup_entry,'_resource_root',lambda:tmp_path)
+    monkeypatch.setattr(setup_entry,'_data_root',lambda:tmp_path/'data')
+    monkeypatch.setattr(setup_entry,'_diagnostics_root',lambda:tmp_path/'diagnostics')
+    monkeypatch.setattr(setup_entry,'_classify_installation_state',lambda *_a,**_k:installation_state)
+    monkeypatch.setattr(setup_entry,'_installed_msi_version',lambda:None)
+    monkeypatch.setattr(setup_entry,'_embedded_recovery_operation',lambda _: 'uninstall',raising=False)
+    monkeypatch.setattr(setup_entry,'_require_setup_disk',lambda _:None)
+    monkeypatch.setattr(setup_entry,'_install_embedded_msi',lambda _:0)
+    monkeypatch.setattr(setup_entry,'_wait_for_agent_service_running',lambda:pytest.fail('uninstalled service start'))
+    monkeypatch.setattr(setup_entry,'_installed_provisioner',lambda:pytest.fail('uninstalled enrollment'))
+    assert setup_entry.main(['--quiet'])==0
+    assert json.loads((tmp_path/'diagnostics'/'install-result.json').read_text())['status']=='UNINSTALLED'
+
+
+def test_other_package_recovery_rejects_before_native_costing(tmp_path,monkeypatch):
+    _write_public_payload(tmp_path)
+    monkeypatch.setattr(setup_entry,'_resource_root',lambda:tmp_path)
+    monkeypatch.setattr(setup_entry,'_data_root',lambda:tmp_path/'data')
+    monkeypatch.setattr(setup_entry,'_diagnostics_root',lambda:tmp_path/'diagnostics')
+    def conflict(_): raise setup_entry.SetupInstallError('PROVENANCE_CONFLICT')
+    monkeypatch.setattr(setup_entry,'_embedded_recovery_operation',conflict,raising=False)
+    monkeypatch.setattr(setup_entry,'_require_setup_disk',lambda _:pytest.fail('unrelated package costed'))
+    assert setup_entry.main(['--quiet'])==setup_entry.EXIT_PREFLIGHT_FAILED

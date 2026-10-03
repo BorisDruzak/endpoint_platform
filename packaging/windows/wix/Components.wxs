@@ -19,11 +19,6 @@
         <File Id="filCurrentSelector" Source="$(var.StagingDir)\ProgramFiles\current.json"
               Name="current.json" KeyPath="yes" />
       </Component>
-      <Component Id="cmpInitialRuntimeAnchor" Directory="INITIALRUNTIMEDIR"
-                 Guid="$(var.InitialRuntimeComponentGuid)" Bitness="always64">
-        <File Id="filInitialCore" Source="$(var.StagingDir)\ProgramFiles\versions\$(var.InitialRuntimeVersion)\pc_agent.exe"
-              Name="pc_agent.exe" KeyPath="yes" />
-      </Component>
       <Component Id="cmpConfigTemplate" Directory="CONFIGFOLDER"
                  Guid="DD9BB8D3-96EF-4595-8E51-4E8E52E9FEAF" Bitness="always64">
         <File Id="filConfigTemplate" Source="$(var.StagingDir)\ProgramFiles\config\agent-config.yaml"
@@ -44,10 +39,6 @@
         <RegistryValue Root="HKLM" Key="Software\Endpoint Platform\Endpoint Agent"
                        Name="InstallRoot" Type="string" Value="[INSTALLFOLDER]"
                        KeyPath="yes" />
-        <util:RemoveFolderEx Id="RemoveEndpointAgentBinaries"
-                             Property="ENDPOINT_AGENT_REMEMBERED_INSTALLROOT"
-                             On="uninstall"
-                             Condition="NOT UPGRADINGPRODUCTCODE" />
       </Component>
       <Component Id="cmpInitialRuntimeTransitionState" Directory="INSTALLFOLDER"
                  Guid="8E72E50B-C4EE-4686-8C99-636D7B41275E" Bitness="always64">
@@ -65,6 +56,24 @@
                        Value="$(var.InitialRuntimeVersion)" />
       </Component>
     </ComponentGroup>
+    <ComponentGroup Id="EndpointAgentInitialRuntimeComponents">
+      <Component Id="cmpInitialRuntimeAnchor" Directory="INITIALRUNTIMEDIR"
+                 Guid="$(var.InitialRuntimeComponentGuid)" Bitness="always64">
+        <File Id="filInitialCore" Source="$(var.StagingDir)\ProgramFiles\versions\$(var.InitialRuntimeVersion)\pc_agent.exe"
+              Name="pc_agent.exe" KeyPath="yes" />
+        <RemoveFolder Id="RemoveInitialRuntimeDirectory" Directory="INITIALRUNTIMEDIR" On="uninstall" />
+      </Component>
+    </ComponentGroup>
+    <!-- Exact WiX 4.0.6 Util table contract; the scheduler is explicitly guarded. -->
+    <CustomTable Id="Wix4RemoveFolderEx">
+      <Row>
+        <Data Column="RemoveFolderEx" Value="RemoveEndpointAgentBinaries" />
+        <Data Column="Component_" Value="cmpInstallRootCleanup" />
+        <Data Column="Property" Value="ENDPOINT_AGENT_REMEMBERED_INSTALLROOT" />
+        <Data Column="InstallMode" Value="2" />
+        <Data Column="Condition" Value="REMOVE~=&quot;ALL&quot; AND NOT UPGRADINGPRODUCTCODE" />
+      </Row>
+    </CustomTable>
     <Property Id="ENDPOINT_AGENT_REMEMBERED_INSTALLROOT" Value="C:\Program Files\Endpoint Platform\Agent\" />
   </Fragment>
 </Wix>

@@ -196,7 +196,6 @@ def _parser() -> argparse.ArgumentParser:
     modes.add_argument("--windows-service", action="store_true")
     modes.add_argument("--windows-service-child", action="store_true")
     modes.add_argument("--windows-updater-service", action="store_true")
-    modes.add_argument("--windows-restrict-updater-start", action="store_true")
     modes.add_argument("--verify", action="store_true")
     modes.add_argument("--print-safe-status", action="store_true")
     modes.add_argument("--print-version", action="store_true")
@@ -219,16 +218,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     if not str(ca_value).strip() and not (
         args.print_safe_status
         or args.windows_updater_service
-        or args.windows_restrict_updater_start
     ):
         return 75
-    if args.windows_restrict_updater_start:
-        from pc_agent.platform.windows.service_control import (
-            restrict_updater_start_permissions,
-        )
-
-        restrict_updater_start_permissions()
-        return 0
     if args.windows_updater_service:
         from pc_agent.platform.windows.updater_service import run_windows_updater_service
 

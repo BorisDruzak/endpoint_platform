@@ -291,6 +291,7 @@ async def create_update_build(
                 body,
                 principal.user.id,
                 audit_request_id(request),
+                artifact_root=request.app.state.settings.artifact_root,
             ),
         )
     return _build_response(build)

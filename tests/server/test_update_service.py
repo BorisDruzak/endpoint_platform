@@ -8,6 +8,9 @@ from uuid import UUID, uuid4
 
 import pytest
 import pytest_asyncio
+import hashlib
+import json
+import zipfile
 from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import (
     AsyncSession,
@@ -66,6 +69,58 @@ VALID_MANIFEST = {
 }
 
 
+def _windows_archive(root, version="3.2.83", minimum="3.2.82", name="runtime.zip"):
+    contract = {"schema_version": 1, "version": version, "source_revision": "a" * 40,
+        "minimum_launcher_version": minimum}
+    contents = {"pc_agent.exe": b"compiled runtime fixture",
+        "endpoint-runtime-contract.json": json.dumps(contract).encode()}
+    bundle = {"schema_version": 1, "version": version, "source_revision": "a" * 40,
+        "files": [{"path": key, "size": len(value), "sha256": hashlib.sha256(value).hexdigest()}
+            for key, value in contents.items()]}
+    path = root / name
+    with zipfile.ZipFile(path, "w") as archive:
+        for key, value in contents.items():
+            archive.writestr(key, value)
+        archive.writestr("endpoint-update-manifest.json", json.dumps(bundle))
+    return {"platform": "windows_amd64", "version": version, "archive_type": "zip",
+        "artifact_name": name, "artifact_url": f"https://releases.example.test/{name}",
+        "sha256": hashlib.sha256(path.read_bytes()).hexdigest(), "size": path.stat().st_size,
+        "minimum_launcher_version": minimum}
+
+
+@pytest.mark.asyncio
+async def test_windows_registration_requires_trusted_payload_root(session, tmp_path):
+    manifest = _manifest(**_windows_archive(tmp_path))
+    with pytest.raises(UpdateValidationError):
+        await register_build(session, manifest, ADMIN_ID, "missing-root")
+    assert await session.scalar(select(func.count()).select_from(UpdateBuild)) == 0
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("defect", [None, "minimum", "missing_minimum", "hash", "size", "version"])
+async def test_windows_registration_checks_actual_archive_before_persistence(session, tmp_path, defect):
+    values = _windows_archive(tmp_path)
+    if defect == "minimum":
+        values["minimum_launcher_version"] = "3.2.83"
+    elif defect == "missing_minimum":
+        values["minimum_launcher_version"] = None
+    elif defect == "hash":
+        values["sha256"] = "f" * 64
+    elif defect == "size":
+        values["size"] += 1
+    elif defect == "version":
+        values["version"] = "3.2.84"
+    if defect:
+        with pytest.raises(UpdateValidationError):
+            await register_build(session, _manifest(**values), ADMIN_ID, "invalid-archive", artifact_root=tmp_path)
+        assert await session.scalar(select(func.count()).select_from(UpdateBuild)) == 0
+    else:
+        first = await register_build(session, _manifest(**values), ADMIN_ID, "first", artifact_root=tmp_path)
+        # Exact immutable replay does not create or change a build even after archival.
+        replay = await register_build(session, _manifest(**values), ADMIN_ID, "replay")
+        assert replay.id == first.id
+
+
 @pytest.mark.parametrize(
     ("field_name", "unsafe_value"),
     [
@@ -93,7 +148,7 @@ def test_report_service_revalidates_constructed_contract_secret_fields(
 
 
 @pytest_asyncio.fixture
-async def session() -> AsyncIterator[AsyncSession]:
+async def session(tmp_path) -> AsyncIterator[AsyncSession]:
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
     tables = (
         Device.__table__,
@@ -116,6 +171,7 @@ async def session() -> AsyncIterator[AsyncSession]:
         await connection.execute(text("DROP INDEX uq_update_targets_active_device"))
     factory = async_sessionmaker(engine, expire_on_commit=False)
     async with factory() as database_session:
+        database_session.info["artifact_root"] = tmp_path
         yield database_session
     await engine.dispose()
 
@@ -147,22 +203,24 @@ async def _build(
 ) -> UpdateBuild:
     archive_type = "zip" if platform == "windows_amd64" else "tar.gz"
     artifact_name = f"endpoint-{suffix}.{archive_type}"
+    artifact_values = (_windows_archive(session.info["artifact_root"], version,
+        minimum_launcher_version or "1.0.0", artifact_name)
+        if platform == "windows_amd64" else {})
     return await register_build(
         session,
-        _manifest(
-            build_identifier=f"endpoint-{suffix}",
-            version=version,
-            platform=platform,
-            channel=channel,
-            artifact_url=f"https://releases.example.test/{artifact_name}",
-            artifact_name=artifact_name,
-            archive_type=archive_type,
-            sha256=("2" if suffix == "old" else "1") * 64,
-            minimum_launcher_version=minimum_launcher_version,
-        ),
+        _manifest(**{
+            "build_identifier": f"endpoint-{suffix}", "version": version,
+            "platform": platform, "channel": channel,
+            "artifact_url": f"https://releases.example.test/{artifact_name}",
+            "artifact_name": artifact_name, "archive_type": archive_type,
+            "sha256": ("2" if suffix == "old" else "1") * 64,
+            "minimum_launcher_version": minimum_launcher_version,
+            **artifact_values,
+        }),
         ADMIN_ID,
         f"register-{suffix}",
         now=NOW,
+        artifact_root=session.info["artifact_root"],
     )
 
 
