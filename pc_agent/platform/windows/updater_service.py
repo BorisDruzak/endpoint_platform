@@ -159,8 +159,8 @@ class FileStartupConfirmation:
 
     def is_confirmed(self, *, version: str, operation_id: str, attempt_id: str, not_before: datetime) -> bool:
         try:
-            _reject_reparse_path(self._path)
-            payload = json.loads(self._path.read_text(encoding="utf-8"))
+            from .update_transaction import _read_state
+            payload = _read_state(self._path, 4096)
             confirmed_at = datetime.fromisoformat(payload["confirmed_at"])
             if confirmed_at.tzinfo is None:
                 return False
@@ -653,8 +653,8 @@ class WindowsUpdater:
         flush_directory(self._paths.install_root)
         if self._paths.pending_path.exists():
             _reject_reparse_chain(self._paths.updates_root, self._paths.pending_path)
-            with self._paths.pending_path.open("rb") as pending:
-                payload = json.loads(pending.read(16 * 1024 + 1), object_pairs_hook=_no_duplicate_keys)
+            from .update_transaction import _read_state
+            payload = _read_state(self._paths.pending_path, 16384)
             if not isinstance(payload, dict) or not self._matches_transition(payload):
                 raise ValueError("accepted transition pending identity differs")
             self._validator._security.assert_update_path(self._paths.pending_path)
@@ -672,8 +672,8 @@ class WindowsUpdater:
         attempt_path = self._paths.updates_root / "startup-attempt.json"
         _reject_reparse_chain(self._paths.updates_root, attempt_path)
         self._validator._security.assert_update_path(attempt_path)
-        with attempt_path.open("rb") as attempt_file:
-            attempt = json.loads(attempt_file.read(4097), object_pairs_hook=_no_duplicate_keys)
+        from .update_transaction import _read_state
+        attempt = _read_state(attempt_path, 4096)
         if attempt != {"attempt_id": self._transition["attempt_id"], "operation_id": pending.operation_id, "version": pending.version}:
             raise ValueError("selector transition startup attempt differs")
         self._attempt_id = self._transition["attempt_id"]
@@ -694,7 +694,8 @@ class WindowsUpdater:
             if index >= MAX_ARCHIVE_MEMBERS:
                 raise ValueError("recovery payload member count exceeds limit")
             _reject_reparse_path(child)
-        receipt = json.loads((target / ".endpoint-update.json").read_text(encoding="utf-8"))
+        from .update_transaction import _read_state
+        receipt = _read_state(target / ".endpoint-update.json", 4096)
         bundle = _load_bundle_manifest(target, pending)
         if (receipt != {"version": pending.version, "sha256": pending.sha256, "size": pending.size}
             or bundle.source_revision != current["source_revision"]):
@@ -1100,8 +1101,9 @@ def _load_selector_transition(paths: WindowsUpdatePaths) -> dict[str, object] | 
 
 def _load_selector(path: Path) -> dict[str, object]:
     try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as error:
+        from .update_transaction import _read_state
+        payload = _read_state(path, 4096)
+    except (OSError, ValueError) as error:
         raise ValueError("current selector is unreadable") from error
     return _validate_selector(payload)
 

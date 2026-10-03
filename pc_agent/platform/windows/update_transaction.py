@@ -203,7 +203,7 @@ def _matches(pattern, value):
     return isinstance(value, str) and pattern.fullmatch(value) is not None
 
 
-def _read_state(path, limit):
+def _read_state(path, limit, *, return_bytes=False):
     for parent in (path, *path.parents):
         if parent.exists() or parent.is_symlink():
             details = parent.lstat()
@@ -217,18 +217,25 @@ def _read_state(path, limit):
         raise ValueError('update state size or identity is invalid')
     with path.open('rb') as stream:
         opened = os.fstat(stream.fileno())
-        if (details.st_dev, details.st_ino) != (opened.st_dev, opened.st_ino):
+        def identity(value):
+            return (value.st_dev, value.st_ino, value.st_size, value.st_mtime_ns, value.st_nlink)
+        if identity(details) != identity(opened):
             raise ValueError('update state identity changed')
         raw = stream.read(limit+1)
-    if len(raw) > limit:
-        raise ValueError('update state exceeds bound')
+        finished = os.fstat(stream.fileno())
+    after = path.lstat()
+    if (identity(opened) != identity(finished) or identity(opened) != identity(after)
+        or stat.S_ISLNK(after.st_mode) or getattr(after, 'st_file_attributes', 0) & 0x400
+        or len(raw) != opened.st_size or len(raw) > limit):
+        raise ValueError('update state identity or size changed')
     try:
-        payload = json.loads(raw, object_pairs_hook=_unique)
+        payload = json.loads(raw, object_pairs_hook=_unique,
+            parse_constant=lambda _: (_ for _ in ()).throw(ValueError('update state has invalid constant')))
     except RecursionError as error:
         raise ValueError('update state nesting exceeds bound') from error
     if payload is None:
         raise ValueError('update state cannot be null')
-    return payload
+    return raw if return_bytes else payload
 
 
 def active_update_state(paths: WindowsUpdatePaths) -> str | None:

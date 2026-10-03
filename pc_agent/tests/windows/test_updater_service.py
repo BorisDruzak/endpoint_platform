@@ -15,6 +15,8 @@ from types import ModuleType, SimpleNamespace
 
 import pytest
 
+pytestmark = pytest.mark.usefixtures("protected_update_state_root")
+
 
 @pytest.mark.parametrize("filename", ["current.json", "previous.json", "startup-attempt.json",
     "terminal-outcome.json", ".endpoint-initial-runtime-selector.rollback.json",
@@ -1088,11 +1090,12 @@ def test_updater_contract_has_fixed_identity_and_no_network_or_listener_api() ->
     assert "socket" not in source
 
 
-def test_updater_default_adapters_remain_import_safe_off_windows() -> None:
+def test_updater_default_adapters_remain_import_safe_off_windows(tmp_path) -> None:
     """MSI can construct the demand-start worker before pywin32 is available on test hosts."""
     from pc_agent.platform.windows.updater_service import WindowsUpdater
 
-    assert isinstance(WindowsUpdater(), WindowsUpdater)
+    # Native production-folder discovery is separate from adapter construction.
+    assert isinstance(WindowsUpdater(paths=_paths(tmp_path)), WindowsUpdater)
 
 
 def test_updater_install_contract_is_demand_start_with_fixed_start_acl() -> None:

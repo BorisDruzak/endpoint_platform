@@ -10,6 +10,7 @@ from pc_agent.version import AGENT_VERSION
 from .update_paths import WindowsUpdatePaths
 from .acl import PyWin32AclAdapter
 from .durable_state import write_json_atomic
+from .update_transaction import _read_state
 
 
 class StartupProofWriter:
@@ -20,9 +21,9 @@ class StartupProofWriter:
 
     def record_after_server_handshake(self) -> bool:
         try:
-            pending = json.loads(self._paths.pending_path.read_text(encoding="utf-8"))
-            current = json.loads(self._paths.current_path.read_text(encoding="utf-8"))
-            attempt = json.loads((self._paths.updates_root / "startup-attempt.json").read_text(encoding="utf-8"))
+            pending = _read_state(self._paths.pending_path, 16384)
+            current = _read_state(self._paths.current_path, 4096)
+            attempt = _read_state(self._paths.updates_root / "startup-attempt.json", 4096)
             if not all(isinstance(value, dict) for value in (pending, current, attempt)):
                 return False
             version = pending["version"]

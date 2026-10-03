@@ -13,6 +13,13 @@ from pc_agent.runtime.status import RuntimeStatus
 from pc_agent.transport.websocket import GatewayTransportUnavailable
 from pc_agent.tests.runtime.test_headless_lifecycle import _Executor, _settings
 
+pytestmark = pytest.mark.usefixtures("protected_update_state_root")
+
+
+@pytest.fixture(autouse=True)
+def enrolled_data_root(tmp_path):
+    (tmp_path / "data").mkdir(exist_ok=True)
+
 DEVICE_ID = "00000000-0000-4000-8000-000000000001"
 
 
@@ -303,7 +310,7 @@ async def test_windows_checks_updates_before_any_successful_wss(monkeypatch, tmp
     checks = []
     events = []
     connected = []
-    settings.data_root.mkdir(parents=True)
+    settings.data_root.mkdir(parents=True, exist_ok=True)
     (settings.data_root / "enrollment-identity.json").write_text(
         '{"schema_version":"endpoint_enrollment_identity_v1","device_id":"' + DEVICE_ID + '"}')
     checked = asyncio.Event()
@@ -565,7 +572,7 @@ async def test_canonical_identity_loaded_once_for_root_across_reconnect_and_equa
     from pc_agent.platform.windows import setup_entry, update_supervisor
     from pc_agent.tests.runtime.test_headless_lifecycle import _dependencies, _Transport
     settings = replace(_settings(tmp_path), transport_mode="gateway_wss")
-    settings.data_root.mkdir(parents=True)
+    settings.data_root.mkdir(parents=True, exist_ok=True)
     identity_path = settings.data_root / "enrollment-identity.json"
     identity_path.write_bytes(serialize_enrollment_identity(DEVICE_ID))
     reads, starts, stopped, attempts = [], [], [], []
@@ -623,7 +630,7 @@ async def test_neutral_root_passes_once_loaded_identity_to_one_factory_across_re
     from pc_agent.enrollment_identity import serialize_enrollment_identity
     from pc_agent.tests.runtime.test_headless_lifecycle import _dependencies, _Transport
     settings = replace(_settings(tmp_path), transport_mode="gateway_wss")
-    settings.data_root.mkdir(parents=True)
+    settings.data_root.mkdir(parents=True, exist_ok=True)
     identity_path = settings.data_root / "enrollment-identity.json"
     identity_path.write_bytes(serialize_enrollment_identity(DEVICE_ID))
     reads, factory_hellos, connection_hellos, stopped = [], [], [], []

@@ -11,6 +11,15 @@ import pytest
 
 from pc_agent.update_adapter import EndpointRecommendation, RecommendationResult
 
+pytestmark = pytest.mark.usefixtures("protected_update_state_root")
+
+
+@pytest.fixture(autouse=True)
+def provision_online_test_data_root(tmp_path):
+    # Production enrollment provisions this root before the first transaction.
+    # POSIX source tests must satisfy the same precondition as Windows fixtures.
+    (tmp_path / "data").mkdir(exist_ok=True)
+
 
 _OPERATION_ID = "caa31a48-bf2f-4f1c-8b77-d1be77e12b4e"
 

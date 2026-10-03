@@ -18,7 +18,7 @@ from pc_agent.update_adapter import EndpointRecommendation, _is_operation_id
 from pc_agent.transport.base import GatewayCredentialRejected, GatewayTerminalError
 
 from .update_paths import WindowsUpdatePaths
-from .update_transaction import update_transaction, UpdateInProgress
+from .update_transaction import update_transaction, UpdateInProgress, _read_state
 from .durable_state import durable_unlink, write_json_atomic
 from .disk_readiness import download_required_bytes, is_disk_full, require_disk_space
 
@@ -101,10 +101,8 @@ class WindowsOnlineUpdateRuntime:
                     return WindowsOnlineUpdateResult("recovery_pending")
                 if not self._paths.pending_path.exists() and selected == json.loads(bytes.fromhex(transition["previous_bytes"])):
                     return WindowsOnlineUpdateResult("recovery_pending")
-                with self._paths.pending_path.open("rb") as source:
-                    pending = json.loads(source.read(16 * 1024 + 1))
-                with (self._paths.updates_root / "startup-attempt.json").open("rb") as source:
-                    attempt = json.loads(source.read(4097))
+                pending = _read_state(self._paths.pending_path, 16384)
+                attempt = _read_state(self._paths.updates_root / "startup-attempt.json", 4096)
                 if (not isinstance(pending, dict) or type(pending.get("size")) is not int
                     or any(pending.get(key) != value for key, value in {
                         "version": transition["candidate"]["version"], "operation_id": transition["operation_id"],
@@ -121,7 +119,7 @@ class WindowsOnlineUpdateRuntime:
                 return WindowsOnlineUpdateResult("report_pending")
             if self._paths.pending_path.exists():
                 try:
-                    pending = json.loads(self._paths.pending_path.read_text(encoding="utf-8"))
+                    pending = _read_state(self._paths.pending_path, 16384)
                     if (
                         not isinstance(pending, dict)
                         or not isinstance(pending.get("operation_id"), str)
@@ -134,7 +132,7 @@ class WindowsOnlineUpdateRuntime:
                 attempt_path = self._paths.updates_root / "startup-attempt.json"
                 if attempt_path.exists():
                     try:
-                        attempt = json.loads(attempt_path.read_text(encoding="utf-8"))
+                        attempt = _read_state(attempt_path, 4096)
                         if (
                             pending["version"] == current == attempt["version"]
                             and pending["operation_id"] == attempt["operation_id"]
@@ -254,6 +252,7 @@ class WindowsOnlineUpdateRuntime:
     async def _report_startup_outcome(self) -> bool:
         """Report a durable updater outcome or a post-handshake applied proof."""
         outcome_path = self._paths.updates_root / _TERMINAL_OUTCOME_FILENAME
+        attempt_path = self._paths.updates_root / "startup-attempt.json"
         outcome = None
         # Capture all cleanup authority coherently before releasing for HTTP.
         with update_transaction(self._paths, timeout_ms=0):
@@ -267,7 +266,7 @@ class WindowsOnlineUpdateRuntime:
                 return False
             if outcome_path.exists():
                 try:
-                    outcome = json.loads(outcome_path.read_text(encoding="utf-8"))
+                    outcome = _read_state(outcome_path, 4096)
                     status = outcome.get("status") if isinstance(outcome, dict) else None
                     safe_code = outcome.get("safe_code") if isinstance(outcome, dict) else None
                     if (
@@ -279,14 +278,33 @@ class WindowsOnlineUpdateRuntime:
                         or safe_code != _TERMINAL_OUTCOME_CODES[status]
                     ):
                         return False
-                except (OSError, TypeError, json.JSONDecodeError):
+                except (OSError, ValueError, TypeError):
                     return False
                 pending_before = None
                 if self._paths.pending_path.exists():
-                    with self._paths.pending_path.open("rb") as pending_file:
-                        pending_before = pending_file.read(16 * 1024 + 1)
-                if pending_before is not None and len(pending_before) > 16 * 1024:
-                    return False
+                    try:
+                        pending_before = _read_state(self._paths.pending_path, 16384, return_bytes=True)
+                    except (OSError, ValueError):
+                        return False
+                attempt_before = None
+                if attempt_path.exists() or attempt_path.is_symlink():
+                    try:
+                        # Same 4096-byte bound as the offline attempt writer.
+                        attempt_before = _read_state(attempt_path, 4096, return_bytes=True)
+                        attempt = json.loads(attempt_before)
+                        pending = json.loads(pending_before) if pending_before is not None else None
+                        if (not isinstance(attempt, dict)
+                            or set(attempt) != {"operation_id", "version", "attempt_id"}
+                            or not isinstance(attempt.get("attempt_id"), str)
+                            or re.fullmatch(r"[0-9a-f]{32}", attempt["attempt_id"]) is None
+                            or not isinstance(pending, dict)
+                            or attempt.get("operation_id") != outcome["operation_id"]
+                            or pending.get("operation_id") != outcome["operation_id"]
+                            or not isinstance(attempt.get("version"), str)
+                            or attempt["version"] != pending.get("version")):
+                            return False
+                    except (OSError, ValueError, TypeError):
+                        return False
         if outcome is not None:
             scheduled = await self._adapter.retry_scheduled_acknowledgement(outcome["operation_id"])
             if not scheduled and status == "rolled_back":
@@ -305,13 +323,19 @@ class WindowsOnlineUpdateRuntime:
                     if (self._paths.transition_path.exists()
                         or _load_current_version(self._paths.current_path) != current
                         or not outcome_path.exists()
-                        or json.loads(outcome_path.read_text(encoding="utf-8")) != outcome):
+                        or _read_state(outcome_path, 4096) != outcome):
                         return False
-                    if self._paths.pending_path.exists():
-                        with self._paths.pending_path.open("rb") as pending_file:
-                            pending_after = pending_file.read(16 * 1024 + 1)
-                        if pending_after != pending_before:
-                            return False
+                    pending_after = (_read_state(self._paths.pending_path, 16384, return_bytes=True)
+                        if self._paths.pending_path.exists() or self._paths.pending_path.is_symlink() else None)
+                    if pending_after != pending_before:
+                        return False
+                    attempt_after = (_read_state(attempt_path, 4096, return_bytes=True)
+                        if attempt_path.exists() or attempt_path.is_symlink() else None)
+                    if attempt_after != attempt_before:
+                        return False
+                    # The attempt uses DIRECTORY_ACL (Agent/Updater modify).
+                    # Keep pending/outcome retry authority until it is retired.
+                    durable_unlink(attempt_path, trusted_root=self._paths.updates_root, missing_ok=True)
                     durable_unlink(self._paths.pending_path, trusted_root=self._paths.updates_root, missing_ok=True)
                     durable_unlink(outcome_path, trusted_root=self._paths.updates_root, missing_ok=True)
             return delivered
@@ -323,11 +347,7 @@ class WindowsOnlineUpdateRuntime:
                 # cleanup before considering a separate applied proof.
                 durable_unlink(outcome_path, trusted_root=self._paths.updates_root, missing_ok=True)
         try:
-            proof = json.loads(
-                (self._paths.updates_root / "startup-confirmation.json").read_text(
-                    encoding="utf-8"
-                )
-            )
+            proof = _read_state(self._paths.updates_root / "startup-confirmation.json", 4096)
             if (
                 not isinstance(proof, dict)
                 or set(proof)
@@ -354,8 +374,8 @@ class WindowsOnlineUpdateRuntime:
 
 def _load_current_version(path: Path) -> str:
     try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as error:
+        payload = _read_state(path, 4096)
+    except (OSError, ValueError) as error:
         raise ValueError("Windows current selector is unreadable") from error
     if not isinstance(payload, dict):
         raise ValueError("Windows current selector is invalid")

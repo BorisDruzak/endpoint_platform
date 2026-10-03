@@ -10,6 +10,8 @@ from pathlib import Path
 
 import pytest
 
+pytestmark = pytest.mark.usefixtures("protected_update_state_root")
+
 
 def _setup(tmp_path: Path):
     from pc_agent.platform.windows.update_paths import WindowsUpdatePaths
