@@ -19,11 +19,12 @@ import zipfile
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path, PureWindowsPath
-from typing import Any, Protocol
+from typing import Any, Callable, Protocol
 
 from pc_agent.update_eligibility import _is_eligible_recommendation
 
-from .acl import EXPECTED_PRINCIPALS
+from .acl import EXPECTED_PRINCIPALS, PyWin32AclAdapter, WindowsAclError, preserve_state_file_permissions
+from .durable_state import durable_unlink, flush_directory, write_bytes_atomic, write_json_atomic
 from .service_control import SERVICE_NAME, UPDATER_SERVICE_NAME
 from .update_paths import UPDATE_EXECUTABLE_NAME, WindowsUpdatePaths
 
@@ -365,11 +366,12 @@ class WindowsUpdater:
         pending: PendingUpdate | None = None
         staging: Path | None = None
         service_stopped = False
+        candidate_confirmed = False
         try:
             try:
                 pending = self._validator.load()
             except (OSError, ValueError) as error:
-                _quarantine_invalid_pending(self._paths)
+                _quarantine_invalid_pending(self._paths, self._validator._security)
                 return UpdateResult("rejected", str(error))
             previous_selector = _load_selector(self._paths.current_path)
             previous = _selector_version(previous_selector)
@@ -397,12 +399,13 @@ class WindowsUpdater:
             if not executable.is_file() or not self._verifier.verify(executable, pending.version):
                 raise ValueError("new version verification failed")
             target = self._publish(staging, pending)
-            _write_json_atomic(self._paths.previous_path, previous_selector)
+            _write_json_atomic(self._paths.previous_path, previous_selector,
+                trusted_root=self._paths.install_root, template=self._paths.current_path)
             _write_json_atomic(self._paths.current_path, {
                 "schema_version": 1,
                 "source_revision": bundle.source_revision,
                 "version": pending.version,
-            })
+            }, trusted_root=self._paths.install_root)
             self._attempt_id = _write_startup_attempt(self._paths, pending)
             try:
                 self._service.start()
@@ -421,10 +424,16 @@ class WindowsUpdater:
                     reason_code="UPDATE_ROLLBACK",
                 )
                 return result
-            self._paths.pending_path.unlink()
+            candidate_confirmed = True
+            durable_unlink(self._paths.pending_path, trusted_root=self._paths.updates_root)
             _clear_startup_attempt(self._paths)
             return UpdateResult("applied", str(target))
-        except (OSError, ValueError, zipfile.BadZipFile) as error:
+        except (OSError, ValueError, WindowsAclError, zipfile.BadZipFile) as error:
+            if candidate_confirmed:
+                # Acceptance already has operation-bound WSS proof. A failed
+                # lifecycle cleanup must not switch a still-running candidate
+                # to the previous selector or create a contradictory failure.
+                return UpdateResult("rejected", "confirmed candidate cleanup pending: " + str(error))
             if pending is not None and previous is not None:
                 self._record_terminal_outcome(
                     operation_id=pending.operation_id,
@@ -436,7 +445,8 @@ class WindowsUpdater:
                 # Every failure after the controlled stop restores the known
                 # selector before restarting the old agent.
                 try:
-                    _write_json_atomic(self._paths.current_path, previous_selector)
+                    _write_json_atomic(self._paths.current_path, previous_selector,
+                        trusted_root=self._paths.install_root)
                     self._service.start()
                 except Exception:
                     pass
@@ -456,11 +466,11 @@ class WindowsUpdater:
     def _record_terminal_outcome(self, **outcome) -> None:
         try:
             _write_terminal_outcome(self._paths, **outcome)
-        except OSError:
+        except (OSError, WindowsAclError):
             # Journal exhaustion must not strand the known-good service stopped.
             # Remove/quarantine the stale handoff before restarting when possible;
             # reporting may be unavailable until filesystem health is restored.
-            _quarantine_invalid_pending(self._paths)
+            _quarantine_invalid_pending(self._paths, self._validator._security)
 
     def _publish_tray_status(
         self,
@@ -551,8 +561,9 @@ class WindowsUpdater:
             return target
         _write_json_atomic(staging / ".endpoint-update.json", {
             "sha256": pending.sha256, "size": pending.size, "version": pending.version,
-        })
+        }, trusted_root=self._paths.install_root, template=self._paths.current_path)
         os.replace(staging, target)
+        flush_directory(target.parent)
         return target
 
     def _rollback(
@@ -574,7 +585,8 @@ class WindowsUpdater:
                 return UpdateResult("rejected", "candidate stop state is unknown")
             if not stopped:
                 return UpdateResult("rejected", "candidate did not stop for rollback")
-        _write_json_atomic(self._paths.current_path, previous_selector)
+        _write_json_atomic(self._paths.current_path, previous_selector,
+            trusted_root=self._paths.install_root)
         _clear_startup_attempt(self._paths)
         self._record_terminal_outcome(
             operation_id=pending.operation_id,
@@ -810,47 +822,17 @@ def _load_current(path: Path) -> str:
     return _selector_version(_load_selector(path))
 
 
-def _write_json_atomic(path: Path, payload: dict[str, object]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
-    try:
-        with temporary.open("x", encoding="utf-8") as output:
-            output.write(json.dumps(payload, separators=(",", ":")))
-            output.flush()
-            os.fsync(output.fileno())
-        os.replace(temporary, path)
-        _flush_directory(path.parent)
-    finally:
-        temporary.unlink(missing_ok=True)
-
-
-def _flush_directory(path: Path) -> None:
-    """Persist atomic-rename metadata before starting a marker consumer."""
-    if os.name == "nt":
-        try:
-            import win32con  # type: ignore[import-not-found]
-            import win32file  # type: ignore[import-not-found]
-        except ImportError as error:
-            raise OSError("pywin32 is required for Windows directory durability") from error
-        handle = win32file.CreateFile(
-            str(path),
-            win32con.GENERIC_READ | win32con.GENERIC_WRITE,
-            win32con.FILE_SHARE_READ | win32con.FILE_SHARE_WRITE | win32con.FILE_SHARE_DELETE,
-            None,
-            win32con.OPEN_EXISTING,
-            win32con.FILE_FLAG_BACKUP_SEMANTICS,
-            None,
-        )
-        try:
-            win32file.FlushFileBuffers(handle)
-        finally:
-            handle.Close()
-        return
-    descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
-    try:
-        os.fsync(descriptor)
-    finally:
-        os.close(descriptor)
+def _write_json_atomic(
+    path: Path, payload: dict[str, object], *, trusted_root: Path,
+    template: Path | None = None, protect: Callable[[Path], None] | None = None,
+) -> None:
+    """Select the owner's ACL policy; the shared primitive owns durability."""
+    if protect is None:
+        source = path if path.exists() else template
+        if source is None:
+            raise ValueError("state permission template is missing")
+        protect = lambda temporary: preserve_state_file_permissions(source, temporary)
+    write_json_atomic(path, payload, trusted_root=trusted_root, max_bytes=4096, protect=protect)
 
 
 def _write_startup_attempt(paths: WindowsUpdatePaths, pending: PendingUpdate) -> str:
@@ -858,12 +840,13 @@ def _write_startup_attempt(paths: WindowsUpdatePaths, pending: PendingUpdate) ->
     _write_json_atomic(
         paths.updates_root / "startup-attempt.json",
         {"attempt_id": attempt_id, "operation_id": pending.operation_id, "version": pending.version},
+        trusted_root=paths.updates_root, protect=PyWin32AclAdapter().protect_update_path,
     )
     return attempt_id
 
 
 def _clear_startup_attempt(paths: WindowsUpdatePaths) -> None:
-    (paths.updates_root / "startup-attempt.json").unlink(missing_ok=True)
+    durable_unlink(paths.updates_root / "startup-attempt.json", trusted_root=paths.updates_root, missing_ok=True)
 
 
 def _write_terminal_outcome(
@@ -883,33 +866,36 @@ def _write_terminal_outcome(
             "safe_code": safe_code,
             "status": status,
         },
+        trusted_root=paths.updates_root, protect=PyWin32AclAdapter().protect_update_path,
     )
 
 
-def _quarantine_invalid_pending(paths: WindowsUpdatePaths) -> None:
+def _quarantine_invalid_pending(paths: WindowsUpdatePaths, security: UpdatePathSecurity) -> None:
     """Move one malformed local handoff away from the active fixed leaf.
 
     No network report is possible because an invalid document has no trusted
-    operation id.  A unique same-directory rename preserves forensic bytes
+    operation id.  A unique same-directory publication preserves forensic bytes
     without leaving the agent in an infinite `pending` state.
     """
     pending = paths.pending_path
     try:
         _assert_within(paths.updates_root, pending, "pending")
+        security.assert_update_path(paths.updates_root)
         details = pending.lstat()
-    except OSError:
+    except (OSError, ValueError):
         return
     if pending.is_symlink() or getattr(details, "st_file_attributes", 0) & 0x400:
-        try:
-            pending.unlink()
-        except OSError:
-            pass
+        # The shared lifecycle primitive deliberately refuses a reparse leaf.
+        # Keep unsafe state for operator repair rather than deleting a target.
         return
     destination = paths.updates_root / f"rejected-pending-{uuid.uuid4().hex}.json"
     try:
-        os.replace(pending, destination)
-        _flush_directory(paths.updates_root)
-    except OSError:
+        if details.st_size > 16 * 1024:
+            return
+        write_bytes_atomic(destination, pending.read_bytes(), trusted_root=paths.updates_root,
+            max_bytes=16 * 1024, protect=PyWin32AclAdapter().protect_update_path)
+        durable_unlink(pending, trusted_root=paths.updates_root)
+    except (OSError, ValueError, WindowsAclError):
         # Preserve the original handoff if it cannot be moved safely.  The
         # agent will retry only the fixed updater on its next poll.
         return

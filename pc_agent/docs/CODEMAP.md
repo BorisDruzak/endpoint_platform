@@ -2,6 +2,24 @@
 
 ## Runtime boundary
 
+Recovery-critical Windows update state uses `platform/windows/durable_state.py`:
+pending handoffs, adapter journal arrays, selectors, startup attempt/proof,
+terminal outcome and MSI selector rollback snapshots are file-flushed,
+atomically replaced and directory-flushed before their consumer proceeds.
+Lifecycle deletion also flushes metadata, including an already absent marker
+on retry. ProgramData writers apply the fixed service DACL before temporary
+payload bytes; privileged selector writers preserve the existing leaf owner
+and DACL, using current.json as the policy for a new previous/snapshot leaf.
+The offline updater imports this primitive and ACL boundary without importing
+the online adapter/runtime. A confirmed candidate with failed cleanup remains
+selected while cleanup is degraded; cleanup failure cannot manufacture a
+terminal failure or replace the running candidate's selector. This API-level
+durability does not establish acceptance under a genuine VM power reset.
+Native directory API failures become chained `OSError` with their Windows
+error code so portable recovery callers can handle them. The adapter reloads
+and merges its scheduled journal after HTTP ACK; existing Linux leaf modes
+are preserved and new journals use owner-only permissions.
+
 The Windows device-binding dialog lives in `platform/windows/binding_dialog.py`
 inside the existing tray executable. `platform/windows/device_binding.py`
 validates ephemeral proofs and exchanges the fixed create action over the

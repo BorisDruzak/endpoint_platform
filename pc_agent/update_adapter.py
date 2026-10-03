@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import re
 import ssl
 from ipaddress import ip_address
@@ -20,6 +21,9 @@ from endpoint_contracts import AgentUpdateRecommendationV1
 from endpoint_contracts.device_binding import DeviceBindingChallengeV1
 from pydantic import ValidationError
 from pc_agent.transport.base import GatewayCredentialRejected, GatewayTerminalError
+from pc_agent.platform.windows.acl import PyWin32AclAdapter, preserve_state_file_permissions
+from pc_agent.platform.windows.durable_state import write_json_atomic
+from pc_agent.platform.windows import durable_state
 
 
 UpdatePlatform = Literal["windows_amd64", "linux_amd64"]
@@ -300,9 +304,21 @@ class EndpointUpdateAdapter:
         if record is None:
             return False
         if record["scheduled_ack_delivered_at"] is not None:
+            durable_state.flush_directory(self._update_state_path().parent)
             return True
         if not await self.acknowledge(operation_id, "scheduled"):
             return False
+        # HTTP yields to other update operations. Reload and merge into the
+        # current journal rather than publishing the pre-ACK list. There is no
+        # await between this read and durable publication in the owning loop.
+        expected = (record["assigned_version"], record["rollback_version"])
+        records = self._load_update_state()
+        record = next((candidate for candidate in records if candidate["operation_id"] == operation_id), None)
+        if record is None or (record["assigned_version"], record["rollback_version"]) != expected:
+            return False
+        if record["scheduled_ack_delivered_at"] is not None:
+            durable_state.flush_directory(self._update_state_path().parent)
+            return True
         record["scheduled_ack_delivered_at"] = datetime.now(timezone.utc).isoformat()
         self._write_update_state(records)
         return True
@@ -330,6 +346,7 @@ class EndpointUpdateAdapter:
             operation_id, status, reported_version, safe_code
         )
         if record["delivered_at"] is not None:
+            durable_state.flush_directory(self._report_journal_path().parent)
             return True
         payload = {
             "schema_version": "agent_update_report_v1",
@@ -390,13 +407,35 @@ class EndpointUpdateAdapter:
         return load_endpoint_update_handoffs(self._data_root, strict=self._strict_recovery)
 
     def _write_update_state(self, records: list[dict[str, str | None]]) -> None:
-        path = self._update_state_path()
-        path.parent.mkdir(parents=True, exist_ok=True)
-        temporary = path.with_name(f"{path.name}.{uuid4().hex}.tmp")
-        temporary.write_text(
-            json.dumps(records[-100:], ensure_ascii=False), encoding="utf-8"
-        )
-        temporary.replace(path)
+        self._write_journal(self._update_state_path(), records[-100:], max_bytes=256 * 1024)
+
+    def _write_journal(self, path: Path, records: object, *, max_bytes: int) -> None:
+        assert self._data_root is not None
+        # This online owner provisions the protected directory before asking
+        # the primitive to publish. No worker imports this adapter.
+        # Validate the existing owner root before creating/protecting any child.
+        for directory in [self._data_root.absolute(), *self._data_root.absolute().parents]:
+            details = directory.lstat()
+            if directory.is_symlink() or getattr(details, "st_file_attributes", 0) & 0x400:
+                raise ValueError("update journal root contains a reparse point")
+            if not directory.is_dir():
+                raise ValueError("update journal root is not a directory")
+        if path.parent.exists():
+            details = path.parent.lstat()
+            if path.parent.is_symlink() or getattr(details, "st_file_attributes", 0) & 0x400:
+                raise ValueError("update journal directory is a reparse point")
+        if os.name == "nt":
+            acl = PyWin32AclAdapter()
+            acl.protect_directory(path.parent)
+            protect = acl.protect_update_path
+        else:
+            path.parent.mkdir(exist_ok=True)
+            protect = (lambda temporary: preserve_state_file_permissions(path, temporary)) if path.exists() else None
+        # Also persists newly provisioned updates/ and finishes a prior failed
+        # parent flush even when that directory is already visible on retry.
+        durable_state.flush_directory(self._data_root)
+        write_json_atomic(path, records, trusted_root=self._data_root / "updates",
+            max_bytes=max_bytes, protect=protect)
 
     def _load_or_create_report(
         self, operation_id: str, status: str, reported_version: str, safe_code: str
@@ -480,11 +519,7 @@ class EndpointUpdateAdapter:
         )
 
     def _write_report_journal(self, journal: list[dict[str, str | None]]) -> None:
-        path = self._report_journal_path()
-        path.parent.mkdir(parents=True, exist_ok=True)
-        temporary = path.with_name(f"{path.name}.{uuid4().hex}.tmp")
-        temporary.write_text(json.dumps(journal, ensure_ascii=False), encoding="utf-8")
-        temporary.replace(path)
+        self._write_journal(self._report_journal_path(), journal, max_bytes=4 * 1024 * 1024)
 
 
 def _parse_recommendation(

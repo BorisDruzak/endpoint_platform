@@ -373,6 +373,31 @@ def test_approved_transition_atomically_migrates_old_initial_selector(
     assert not list(paths.install_root.glob(".current.json.*.tmp"))
 
 
+@pytest.mark.parametrize("operation", ["rollback", "finalize"])
+def test_selector_snapshot_delete_failure_is_flushable_after_restart(tmp_path, monkeypatch, operation):
+    from pc_agent.platform.windows import durable_state, selector_migration
+    paths = _paths(tmp_path)
+    paths.current_path.write_text('{"version":"3.1.77"}')
+    snapshot = paths.install_root / selector_migration.ROLLBACK_SNAPSHOT_FILENAME
+    snapshot.write_text('{"schema_version":1,"version":"3.1.76"}')
+    action = selector_migration.rollback_initial_selector if operation == "rollback" else selector_migration.finalize_initial_selector_migration
+    original = durable_state.flush_directory
+    def flush(path):
+        if not snapshot.exists():
+            raise OSError("snapshot metadata failed")
+        original(path)
+    with monkeypatch.context() as patch:
+        patch.setattr(durable_state, "flush_directory", flush)
+        with pytest.raises(OSError, match="snapshot metadata"):
+            action(paths)
+    assert not snapshot.exists()
+    flushed = []
+    monkeypatch.setattr(durable_state, "flush_directory", lambda path: flushed.append(path))
+    assert action(paths) == "not_migrated"
+    assert flushed == [paths.install_root]
+    assert json.loads(paths.current_path.read_text())["version"] == ("3.1.76" if operation == "rollback" else "3.1.77")
+
+
 def test_approved_transition_accepts_a_revision_bound_initial_selector(
     tmp_path: Path,
 ) -> None:

@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import json
-import os
 import re
 import uuid
 from pathlib import Path
 
 from pc_agent.platform.windows.update_paths import WindowsUpdatePaths
+from .acl import preserve_state_file_permissions
+from .durable_state import durable_unlink, write_json_atomic
 
 
 TRANSITION_REGISTRY_KEY = (
@@ -68,22 +69,11 @@ def _write_selector_atomic(
         source_revision is not None and not _SOURCE_REVISION.fullmatch(source_revision)
     ):
         raise ValueError("transition contract is invalid")
-    temporary = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
-    try:
-        with temporary.open("x", encoding="utf-8") as output:
-            payload: dict[str, object] = {"version": version}
-            if source_revision is not None:
-                payload = {
-                    "schema_version": 1,
-                    "source_revision": source_revision,
-                    "version": version,
-                }
-            output.write(json.dumps(payload, separators=(",", ":")))
-            output.flush()
-            os.fsync(output.fileno())
-        os.replace(temporary, path)
-    finally:
-        temporary.unlink(missing_ok=True)
+    payload: dict[str, object] = {"version": version}
+    if source_revision is not None:
+        payload = {"schema_version": 1, "source_revision": source_revision, "version": version}
+    write_json_atomic(path, payload, trusted_root=path.parent, max_bytes=4096,
+        protect=lambda temporary: preserve_state_file_permissions(path, temporary))
 
 
 def _rollback_path(paths: WindowsUpdatePaths) -> Path:
@@ -92,15 +82,10 @@ def _rollback_path(paths: WindowsUpdatePaths) -> Path:
 
 def _write_rollback_snapshot(paths: WindowsUpdatePaths, version: str) -> None:
     snapshot = _rollback_path(paths)
-    temporary = snapshot.with_name(f".{snapshot.name}.{uuid.uuid4().hex}.tmp")
-    try:
-        with temporary.open("x", encoding="utf-8") as output:
-            output.write(json.dumps({"schema_version": 1, "version": version}, separators=(",", ":")))
-            output.flush()
-            os.fsync(output.fileno())
-        os.replace(temporary, snapshot)
-    finally:
-        temporary.unlink(missing_ok=True)
+    source = snapshot if snapshot.exists() else paths.current_path
+    write_json_atomic(snapshot, {"schema_version": 1, "version": version},
+        trusted_root=paths.install_root, max_bytes=4096,
+        protect=lambda temporary: preserve_state_file_permissions(source, temporary))
 
 
 def _is_msi_owned_runtime(paths: WindowsUpdatePaths, version: str) -> bool:
@@ -199,23 +184,23 @@ def rollback_initial_selector(paths: WindowsUpdatePaths) -> str:
         payload = _read_exact_json(snapshot, _SNAPSHOT_FIELDS, "selector rollback snapshot")
     except ValueError as error:
         if not snapshot.exists():
+            durable_unlink(snapshot, trusted_root=paths.install_root, missing_ok=True)
             return "not_migrated"
         raise error
     version = payload.get("version")
     if payload.get("schema_version") != 1 or not isinstance(version, str) or not _SEMVER.fullmatch(version):
         raise ValueError("selector rollback snapshot is invalid")
     _write_selector_atomic(paths.current_path, version)
-    snapshot.unlink(missing_ok=True)
+    durable_unlink(snapshot, trusted_root=paths.install_root, missing_ok=True)
     return "restored"
 
 
 def finalize_initial_selector_migration(paths: WindowsUpdatePaths) -> str:
     """Discard a rollback snapshot only after MSI commits successfully."""
     snapshot = _rollback_path(paths)
-    if snapshot.exists():
-        snapshot.unlink()
-        return "finalized"
-    return "not_migrated"
+    existed = snapshot.exists()
+    durable_unlink(snapshot, trusted_root=paths.install_root, missing_ok=True)
+    return "finalized" if existed else "not_migrated"
 
 
 def rollback_production_selector() -> str:

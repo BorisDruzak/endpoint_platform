@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import os
 import re
 import ssl
 from collections.abc import Awaitable, Callable
@@ -18,6 +17,7 @@ from pc_agent.update_adapter import EndpointRecommendation, _is_operation_id
 from pc_agent.transport.base import GatewayCredentialRejected, GatewayTerminalError
 
 from .update_paths import WindowsUpdatePaths
+from .durable_state import durable_unlink, write_json_atomic
 
 
 _TERMINAL_OUTCOME_FIELDS = {
@@ -145,7 +145,7 @@ class WindowsOnlineUpdateRuntime:
             rollback_version=current,
         ):
             return WindowsOnlineUpdateResult("request_ack_pending")
-        _write_json_atomically(
+        write_json_atomic(
             self._paths.pending_path,
             {
                 "archive_type": "zip",
@@ -160,8 +160,10 @@ class WindowsOnlineUpdateRuntime:
                 "target": "windows_amd64",
                 "version": recommendation.version,
             },
+            trusted_root=self._paths.updates_root,
+            max_bytes=16 * 1024,
+            protect=self._acl.protect_update_path,
         )
-        self._acl.protect_update_path(self._paths.pending_path)
         return WindowsOnlineUpdateResult("scheduled")
 
     async def report_startup_outcome(self) -> bool:
@@ -197,9 +199,16 @@ class WindowsOnlineUpdateRuntime:
                 safe_code=safe_code,
             )
             if delivered:
-                outcome_path.unlink(missing_ok=True)
-                self._paths.pending_path.unlink(missing_ok=True)
+                # Keep the outcome as retry authority until pending deletion
+                # and its metadata flush complete. The adapter report key is
+                # durable, so reconnect/retry cannot duplicate terminal reports.
+                durable_unlink(self._paths.pending_path, trusted_root=self._paths.updates_root, missing_ok=True)
+                durable_unlink(outcome_path, trusted_root=self._paths.updates_root, missing_ok=True)
             return delivered
+        if self._paths.updates_root.exists():
+            # Finish metadata for an outcome already removed by an interrupted
+            # cleanup before considering a separate applied proof.
+            durable_unlink(outcome_path, trusted_root=self._paths.updates_root, missing_ok=True)
         try:
             proof = json.loads(
                 (self._paths.updates_root / "startup-confirmation.json").read_text(
@@ -252,18 +261,6 @@ def _load_current_version(path: Path) -> str:
     if not isinstance(version, str):
         raise ValueError("Windows current selector is invalid")
     return version
-
-
-def _write_json_atomically(path: Path, payload: dict[str, object]) -> None:
-    temporary = path.with_name(f".{path.name}.tmp")
-    try:
-        temporary.write_text(
-            json.dumps(payload, separators=(",", ":"), sort_keys=True),
-            encoding="utf-8",
-        )
-        os.replace(temporary, path)
-    finally:
-        temporary.unlink(missing_ok=True)
 
 
 __all__ = [

@@ -420,6 +420,7 @@ def test_windows_api_order_and_errors(tmp_path, monkeypatch, failure):
     constants = SimpleNamespace(GENERIC_READ=1, GENERIC_WRITE=2, FILE_SHARE_READ=4, FILE_SHARE_WRITE=8,
                                FILE_SHARE_DELETE=16, OPEN_EXISTING=32, FILE_FLAG_BACKUP_SEMANTICS=64)
     monkeypatch.setitem(sys.modules, "win32con", constants)
+    monkeypatch.setitem(sys.modules, "pywintypes", SimpleNamespace(error=type("NativeError", (Exception,), {})))
     monkeypatch.setitem(sys.modules, "win32file", SimpleNamespace(CreateFile=create, FlushFileBuffers=flush,
                                                                GetFileInformationByHandle=lambda handle: (0x400 if failure == "reparse" else 0,),
                                                                FILE_FLAG_OPEN_REPARSE_POINT=128))
@@ -456,3 +457,28 @@ def test_posix_directory_branch_simulated(tmp_path, monkeypatch, failure):
         durable.flush_directory(tmp_path)
     assert events == [("open", os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0)),
                       ("fsync", 123), ("close", 123)]
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="native pywin32 error type")
+@pytest.mark.parametrize("stage", ["create", "info", "flush", "close"])
+def test_native_directory_errors_are_portable_with_code_and_cause(tmp_path, monkeypatch, stage):
+    import pywintypes
+    import win32file
+    error = pywintypes.error(5, "directory " + stage, "native directory failure")
+    events = []
+    def step(name, result=None):
+        events.append(name)
+        if stage == name:
+            raise error
+        return result
+    class Handle:
+        def Close(self):
+            step("close")
+    monkeypatch.setattr(win32file, "CreateFile", lambda *args: step("create", Handle()))
+    monkeypatch.setattr(win32file, "GetFileInformationByHandle", lambda handle: step("info", (0,)))
+    monkeypatch.setattr(win32file, "FlushFileBuffers", lambda handle: step("flush"))
+    with pytest.raises(OSError) as caught:
+        durable.flush_directory(tmp_path)
+    assert caught.value.winerror == 5
+    assert caught.value.__cause__ is error
+    assert events == (["create"] if stage == "create" else ["create", "info", "close"] if stage == "info" else ["create", "info", "flush", "close"])

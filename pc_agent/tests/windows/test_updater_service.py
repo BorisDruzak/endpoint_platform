@@ -16,6 +16,123 @@ from types import ModuleType, SimpleNamespace
 import pytest
 
 
+@pytest.mark.parametrize("filename", ["current.json", "previous.json", "startup-attempt.json",
+    "terminal-outcome.json", ".endpoint-initial-runtime-selector.rollback.json",
+    "startup-confirmation.json", "endpoint_update_state.json", "endpoint_update_reports.json"])
+@pytest.mark.parametrize("failure", ["file_flush", "replace", "directory_flush"])
+def test_critical_publication_failure_preserves_parseable_restart_state(tmp_path, monkeypatch, filename, failure):
+    """Every owning writer must propagate durability failure; visibility is not success."""
+    from pc_agent.platform.windows import durable_state, selector_migration, startup_confirmation, updater_service
+    from pc_agent.update_adapter import EndpointUpdateAdapter
+    paths = _paths(tmp_path)
+    paths.install_root.mkdir(parents=True)
+    paths.updates_root.mkdir(parents=True)
+    paths.current_path.write_text('{"version":"3.1.0"}')
+    root = paths.install_root if filename in {"current.json", "previous.json", selector_migration.ROLLBACK_SNAPSHOT_FILENAME} else paths.updates_root
+    destination = root / filename
+    old = [] if filename.startswith("endpoint_update_") else {"version": "3.1.0"}
+    destination.write_text(json.dumps(old))
+    adapter = EndpointUpdateAdapter(api_url="https://endpoint.example.test", bearer_token=lambda: "test", session=object(), data_root=paths.updates_root.parent)
+    if filename == "startup-confirmation.json":
+        paths.current_path.write_text('{"version":"3.2.0"}')
+        paths.pending_path.write_text('{"version":"3.2.0","operation_id":"operation"}')
+        (paths.updates_root / "startup-attempt.json").write_text('{"version":"3.2.0","operation_id":"operation","attempt_id":"attempt"}')
+        monkeypatch.setattr(startup_confirmation, "AGENT_VERSION", "3.2.0")
+    original_flush = durable_state.flush_directory
+    def fault(*args, **kwargs):
+        if failure == "directory_flush" and Path(args[0]) != root:
+            return original_flush(*args, **kwargs)
+        raise OSError("injected " + failure)
+    if failure == "file_flush":
+        monkeypatch.setattr(durable_state.os, "fsync", fault)
+    elif failure == "replace":
+        monkeypatch.setattr(durable_state.os, "replace", fault)
+    else:
+        monkeypatch.setattr(durable_state, "flush_directory", fault)
+    with pytest.raises(OSError, match="injected"):
+        if filename in {"current.json", "previous.json"}:
+            updater_service._write_json_atomic(destination, {"version": "3.2.0"}, trusted_root=root)
+        elif filename == "startup-attempt.json":
+            pending = SimpleNamespace(operation_id="operation", version="3.2.0")
+            updater_service._write_startup_attempt(paths, pending)
+        elif filename == "terminal-outcome.json":
+            updater_service._write_terminal_outcome(paths, operation_id="operation", status="failed", reported_version="3.1.0", safe_code="launcher_apply_failed")
+        elif filename == selector_migration.ROLLBACK_SNAPSHOT_FILENAME:
+            selector_migration._write_rollback_snapshot(paths, "3.1.0")
+        elif filename == "startup-confirmation.json":
+            startup_confirmation.StartupProofWriter(paths).record_after_server_handshake()
+        elif filename == "endpoint_update_state.json":
+            adapter._write_update_state([{ "operation_id": "operation" }])
+        else:
+            adapter._write_report_journal([{ "report_key": "key" }])
+    recovered = json.loads(destination.read_text())
+    if failure != "directory_flush":
+        assert recovered == old
+    else:
+        assert isinstance(recovered, list if filename.startswith("endpoint_update_") else dict)
+    # A new worker can never infer authenticated WSS proof from other journals.
+    confirmation = updater_service.FileStartupConfirmation(paths)
+    assert not confirmation.is_confirmed(version="3.2.0", operation_id="operation", attempt_id="other", not_before=datetime.now(UTC))
+
+
+@pytest.mark.parametrize("filename,existing", [("current.json", True), ("previous.json", True),
+    (".endpoint-initial-runtime-selector.rollback.json", True), ("previous.json", False),
+    (".endpoint-initial-runtime-selector.rollback.json", False)])
+def test_selector_replacement_preserves_explicit_native_dacl(tmp_path, filename, existing):
+    """An explicit stricter leaf policy must survive atomic replacement."""
+    import os
+    if os.name != "nt":
+        pytest.skip("native Windows ACL evidence")
+    import win32security
+    from pc_agent.platform.windows import selector_migration, updater_service
+    from pc_agent.platform.windows.update_paths import WindowsUpdatePaths
+    paths = WindowsUpdatePaths(tmp_path, tmp_path / "updates" / "pending_update.json")
+    path = tmp_path / filename
+    paths.current_path.write_text('{"version":"3.1.0"}')
+    if existing:
+        path.write_text('{"version":"3.1.0"}')
+    source = path if existing else paths.current_path
+    acl = win32security.ACL()
+    sid = win32security.ConvertStringSidToSid("S-1-5-32-544")
+    acl.AddAccessAllowedAce(win32security.ACL_REVISION, 0x1F01FF, sid)
+    win32security.SetNamedSecurityInfo(str(source), win32security.SE_FILE_OBJECT,
+        win32security.DACL_SECURITY_INFORMATION | win32security.PROTECTED_DACL_SECURITY_INFORMATION,
+        None, None, acl, None)
+    owner_before = win32security.GetNamedSecurityInfo(str(source), win32security.SE_FILE_OBJECT,
+        win32security.OWNER_SECURITY_INFORMATION).GetSecurityDescriptorOwner()
+    if filename == "current.json":
+        selector_migration._write_selector_atomic(path, "3.2.0")
+    elif filename == "previous.json":
+        updater_service._write_json_atomic(path, {"version":"3.2.0"}, trusted_root=paths.install_root, template=paths.current_path)
+    else:
+        selector_migration._write_rollback_snapshot(paths, "3.2.0")
+    descriptor = win32security.GetNamedSecurityInfo(str(path), win32security.SE_FILE_OBJECT,
+        win32security.DACL_SECURITY_INFORMATION | win32security.OWNER_SECURITY_INFORMATION)
+    assert win32security.ConvertSidToStringSid(descriptor.GetSecurityDescriptorOwner()) == win32security.ConvertSidToStringSid(owner_before)
+    assert descriptor.GetSecurityDescriptorControl()[0] & win32security.SE_DACL_PROTECTED
+    assert descriptor.GetSecurityDescriptorDacl().GetAceCount() == 1
+    assert win32security.ConvertSidToStringSid(descriptor.GetSecurityDescriptorDacl().GetAce(0)[2]) == "S-1-5-32-544"
+
+
+def test_startup_attempt_delete_failure_flushes_absent_marker_on_retry(tmp_path, monkeypatch):
+    from pc_agent.platform.windows import durable_state, updater_service
+    paths = _paths(tmp_path)
+    paths.updates_root.mkdir(parents=True)
+    attempt = paths.updates_root / "startup-attempt.json"
+    attempt.write_text('{"attempt_id":"bound"}')
+    def fail(path):
+        raise OSError("attempt metadata failed")
+    with monkeypatch.context() as patch:
+        patch.setattr(durable_state, "flush_directory", fail)
+        with pytest.raises(OSError, match="attempt metadata"):
+            updater_service._clear_startup_attempt(paths)
+    assert not attempt.exists()
+    flushed = []
+    monkeypatch.setattr(durable_state, "flush_directory", lambda path: flushed.append(path))
+    updater_service._clear_startup_attempt(paths)
+    assert flushed == [paths.updates_root]
+
+
 def test_offline_updater_import_graph_has_no_http_clients():
     result = subprocess.run([sys.executable, "-c",
         "import sys; import pc_agent.platform.windows.service_launcher; "

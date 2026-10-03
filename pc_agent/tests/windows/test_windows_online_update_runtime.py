@@ -54,6 +54,129 @@ class _Acl:
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("failure", ["file_flush", "replace", "directory_flush"])
+async def test_pending_publication_failure_requires_verified_handoff_on_restart(tmp_path, monkeypatch, failure):
+    from pc_agent.platform.windows import durable_state
+    from pc_agent.platform.windows.online_update_runtime import WindowsOnlineUpdateRuntime
+    from pc_agent.platform.windows.update_paths import WindowsUpdatePaths
+    paths = WindowsUpdatePaths(tmp_path / "install", tmp_path / "data" / "updates" / "pending_update.json")
+    paths.install_root.mkdir()
+    paths.current_path.write_text('{"version":"3.2.1"}')
+    payload = b"verified archive"
+    recommendation = EndpointRecommendation(_OPERATION_ID, "3.2.2", "windows_amd64", "canary",
+        "https://endpoint.example.test/build.zip", "build.zip", "zip", hashlib.sha256(payload).hexdigest(), len(payload), "scheduled_rollout")
+    class Acl(_Acl):
+        def protect_update_path(self, path):
+            if path.name.startswith(".pending_update"):
+                assert path.read_bytes() == b""
+                assert not paths.pending_path.exists()
+            super().protect_update_path(path)
+    async def download(item, path):
+        path.write_bytes(payload)
+        return item.sha256, item.size
+    adapter = _Adapter(recommendation)
+    runtime = WindowsOnlineUpdateRuntime(adapter=adapter, paths=paths, acl=Acl(), download=download)
+    def fault(*args, **kwargs):
+        raise OSError("injected")
+    with monkeypatch.context() as patch:
+        target, attribute = (durable_state, "flush_directory") if failure == "directory_flush" else (durable_state.os, "fsync" if failure == "file_flush" else "replace")
+        patch.setattr(target, attribute, fault)
+        with pytest.raises(OSError, match="injected"):
+            await runtime.run_once()
+    assert json.loads(paths.current_path.read_text())["version"] == "3.2.1"
+    assert not (paths.updates_root / "startup-confirmation.json").exists()
+    adapter.calls.clear()
+    if failure == "directory_flush":
+        assert (await runtime.run_once()).status == "pending"
+        assert adapter.calls == [(_OPERATION_ID, "scheduled:3.2.2:3.2.1")]
+    else:
+        assert not paths.pending_path.exists()
+        assert (await runtime.run_once()).status == "scheduled"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("filename", ["pending_update.json", "terminal-outcome.json"])
+async def test_terminal_cleanup_flush_failure_retries_without_false_applied_proof(tmp_path, monkeypatch, filename):
+    from pc_agent.platform.windows import durable_state
+    from pc_agent.platform.windows.online_update_runtime import WindowsOnlineUpdateRuntime
+    from pc_agent.platform.windows.update_paths import WindowsUpdatePaths
+    paths = WindowsUpdatePaths(tmp_path / "install", tmp_path / "data" / "updates" / "pending_update.json")
+    paths.install_root.mkdir()
+    paths.updates_root.mkdir(parents=True)
+    paths.current_path.write_text('{"version":"3.2.1"}')
+    paths.pending_path.write_text('{}')
+    outcome = paths.updates_root / "terminal-outcome.json"
+    outcome.write_text(json.dumps({"operation_id": _OPERATION_ID, "reported_version": "3.2.1", "safe_code": "launcher_rolled_back", "status": "rolled_back"}))
+    adapter = _Adapter(None)
+    runtime = WindowsOnlineUpdateRuntime(adapter=adapter, paths=paths, acl=_Acl(), download=None)
+    original = durable_state.flush_directory
+    flushed = []
+    def flush(path):
+        flushed.append(Path(path))
+        if not (paths.updates_root / filename).exists():
+            raise OSError("delete metadata failed")
+        original(path)
+    with monkeypatch.context() as patch:
+        patch.setattr(durable_state, "flush_directory", flush)
+        with pytest.raises(OSError, match="delete metadata"):
+            await runtime.report_startup_outcome()
+    assert flushed
+    assert not (paths.updates_root / "startup-confirmation.json").exists()
+    if filename == "pending_update.json":
+        assert outcome.exists()
+        assert await runtime.report_startup_outcome()
+        assert not outcome.exists()
+    else:
+        assert not await runtime.report_startup_outcome()
+    assert all("applied:" not in call[1] for call in adapter.calls)
+
+
+@pytest.mark.asyncio
+async def test_terminal_cleanup_retry_uses_durable_adapter_report_key_without_second_post(tmp_path, monkeypatch):
+    from pc_agent.platform.windows import durable_state
+    from pc_agent.platform.windows.online_update_runtime import WindowsOnlineUpdateRuntime
+    from pc_agent.platform.windows.update_paths import WindowsUpdatePaths
+    from pc_agent.update_adapter import EndpointUpdateAdapter
+    from pc_agent.tests.test_update_adapter import _Response
+    paths = WindowsUpdatePaths(tmp_path / "install", tmp_path / "data" / "updates" / "pending_update.json")
+    paths.install_root.mkdir()
+    paths.updates_root.mkdir(parents=True)
+    paths.current_path.write_text('{"version":"3.2.1"}')
+    paths.pending_path.write_text('{}')
+    outcome = paths.updates_root / "terminal-outcome.json"
+    outcome.write_text(json.dumps({"operation_id": _OPERATION_ID, "reported_version": "3.2.1", "safe_code": "launcher_rolled_back", "status": "rolled_back"}))
+    class Session:
+        def __init__(self):
+            self.posts = []
+        def post(self, url, *, headers, json):
+            self.posts.append(json)
+            return _Response(200 if url.endswith("reports") else 204, "")
+    session = Session()
+    def owner():
+        return EndpointUpdateAdapter(api_url="https://endpoint.example.test", bearer_token=lambda: "test", session=session, data_root=paths.updates_root.parent)
+    first = owner()
+    assert await first.record_scheduled_handoff(_OPERATION_ID, assigned_version="3.2.2", rollback_version="3.2.1")
+    runtime = WindowsOnlineUpdateRuntime(adapter=first, paths=paths, acl=_Acl(), download=None)
+    original = durable_state.flush_directory
+    def flush(path):
+        if not paths.pending_path.exists():
+            raise OSError("cleanup metadata failed")
+        original(path)
+    with monkeypatch.context() as patch:
+        patch.setattr(durable_state, "flush_directory", flush)
+        with pytest.raises(OSError, match="cleanup metadata"):
+            await runtime.report_startup_outcome()
+    assert outcome.exists()
+    restarted = WindowsOnlineUpdateRuntime(adapter=owner(), paths=paths, acl=_Acl(), download=None)
+    assert await restarted.report_startup_outcome()
+    assert len(session.posts) == 2  # one scheduled ACK and one terminal report
+    journal = json.loads((paths.updates_root / "endpoint_update_reports.json").read_text())
+    assert journal[0]["report_key"] == session.posts[1]["report_key"]
+    assert journal[0]["delivered_at"] is not None
+    assert not outcome.exists()
+
+
+@pytest.mark.asyncio
 async def test_windows_agent_stages_a_verified_pending_update_for_the_fixed_updater(
     tmp_path: Path,
 ) -> None:
@@ -117,13 +240,15 @@ async def test_windows_agent_stages_a_verified_pending_update_for_the_fixed_upda
         "target": "windows_amd64",
         "version": "3.2.2",
     }
-    assert acl.protected == [
+    assert acl.protected[:3] == [
         paths.updates_root,
         paths.downloads_root,
         paths.downloads_root / "build-3.2.2-caa31a48-bf2f-4f1c-8b77-d1be77e12b4e.zip",
-        pending_path := paths.pending_path,
     ]
-    assert pending_path.is_file()
+    assert len(acl.protected) == 4
+    assert acl.protected[-1].name.startswith(".pending_update.json.")
+    assert acl.protected[-1].suffix == ".tmp"
+    assert paths.pending_path.is_file()
     assert adapter.calls == [
         ("windows_amd64", "canary"),
         (_OPERATION_ID, "requested"),

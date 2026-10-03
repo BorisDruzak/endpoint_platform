@@ -220,7 +220,7 @@ def test_attempt_marker_is_durable_before_candidate_start(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The candidate must not read a marker whose data or rename can still be lost."""
-    from pc_agent.platform.windows import updater_service
+    from pc_agent.platform.windows import durable_state, updater_service
 
     paths = _setup(tmp_path)
     events: list[str] = []
@@ -241,7 +241,7 @@ def test_attempt_marker_is_durable_before_candidate_start(
     monkeypatch.setattr(updater_service.os, "fsync", capture_fsync)
     monkeypatch.setattr(updater_service.os, "replace", capture_replace)
     monkeypatch.setattr(
-        updater_service, "_flush_directory", capture_directory_flush, raising=False
+        durable_state, "flush_directory", capture_directory_flush
     )
 
     class _MarkerService(_Service):
@@ -253,7 +253,8 @@ def test_attempt_marker_is_durable_before_candidate_start(
     service = _MarkerService()
     updater = updater_service.WindowsUpdater(paths, acl=_Acl(), service=service, verifier=_Verifier(service.events), confirmation=_Confirmation(service.events, confirmed=True))
     assert updater.run_once().status == "applied"
-    assert events[-4:] == [
+    start = events.index("start")
+    assert events[start - 3:start + 1] == [
         "file_flush",
         "replace:startup-attempt.json",
         "directory_flush:updates",
@@ -356,3 +357,84 @@ def test_outcome_write_failure_still_restores_and_restarts_previous(tmp_path, mo
     assert json.loads(paths.current_path.read_text())["version"] == "3.1.0"
     assert not paths.pending_path.exists()
     assert result.status in {"rejected", "rolled_back"}
+
+
+@pytest.mark.parametrize("filename", ["current.json", "previous.json", "startup-attempt.json", "terminal-outcome.json"])
+@pytest.mark.parametrize("failure", ["file_flush", "replace", "directory_flush"])
+def test_updater_durability_fault_never_accepts_candidate_without_wss_proof(tmp_path, monkeypatch, filename, failure):
+    from pc_agent.platform.windows import durable_state, updater_service
+    paths = _setup(tmp_path)
+    service = _Service()
+    destination = (paths.install_root if filename in {"current.json", "previous.json"} else paths.updates_root) / filename
+    original_write = durable_state.write_bytes_atomic
+    failed = False
+    def write(path, data, **kwargs):
+        nonlocal failed
+        if Path(path) != destination or failed:
+            return original_write(path, data, **kwargs)
+        failed = True
+        def fault(*args, **kwargs):
+            raise OSError("injected " + failure)
+        with monkeypatch.context() as patch:
+            target, attribute = (durable_state, "flush_directory") if failure == "directory_flush" else (durable_state.os, "fsync" if failure == "file_flush" else "replace")
+            patch.setattr(target, attribute, fault)
+            return original_write(path, data, **kwargs)
+    monkeypatch.setattr(durable_state, "write_bytes_atomic", write)
+    confirmation = updater_service.FileStartupConfirmation(paths)
+    result = updater_service.WindowsUpdater(paths, acl=_Acl(), service=service,
+        verifier=_Verifier(service.events), confirmation=confirmation, deadline_seconds=0).run_once()
+    assert failed
+    assert result.status != "applied"
+    assert json.loads(paths.current_path.read_text())["version"] == "3.1.0"
+    assert service.running
+    assert not (paths.updates_root / "startup-confirmation.json").exists()
+
+
+def test_confirmed_candidate_cleanup_failure_does_not_switch_running_service_selector(tmp_path, monkeypatch):
+    from pc_agent.platform.windows import durable_state, updater_service
+    paths = _setup(tmp_path)
+    service = _Service()
+    def fail_delete(path):
+        raise OSError("metadata failure")
+    original = durable_state.flush_directory
+    def flush(path):
+        if not paths.pending_path.exists():
+            fail_delete(path)
+        original(path)
+    monkeypatch.setattr(durable_state, "flush_directory", flush)
+    result = updater_service.WindowsUpdater(paths, acl=_Acl(), service=service,
+        verifier=_Verifier(service.events), confirmation=_Confirmation(service.events, confirmed=True)).run_once()
+    assert result.status == "rejected"
+    assert json.loads(paths.current_path.read_text())["version"] == "3.2.0"
+    assert service.events.count("start") == 1
+    assert not (paths.updates_root / "terminal-outcome.json").exists()
+
+
+def test_native_directory_flush_error_restores_known_good_service(tmp_path, monkeypatch):
+    import sys
+    if sys.platform != "win32":
+        pytest.skip("native pywin32 error type")
+    import pywintypes
+    import win32file
+    from pc_agent.platform.windows import durable_state, updater_service
+    paths = _setup(tmp_path)
+    service = _Service()
+    original_write = durable_state.write_bytes_atomic
+    failed = False
+    def write(path, data, **kwargs):
+        nonlocal failed
+        if Path(path) != paths.current_path or failed:
+            return original_write(path, data, **kwargs)
+        failed = True
+        def flush(path):
+            raise pywintypes.error(5, "FlushFileBuffers", "injected native metadata failure")
+        with monkeypatch.context() as patch:
+            patch.setattr(win32file, "FlushFileBuffers", flush)
+            return original_write(path, data, **kwargs)
+    monkeypatch.setattr(durable_state, "write_bytes_atomic", write)
+    result = updater_service.WindowsUpdater(paths, acl=_Acl(), service=service,
+        verifier=_Verifier(service.events), deadline_seconds=0).run_once()
+    assert failed
+    assert result.status == "rejected"
+    assert json.loads(paths.current_path.read_text())["version"] == "3.1.0"
+    assert service.running

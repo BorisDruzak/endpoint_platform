@@ -29,6 +29,40 @@ class WindowsAclError(RuntimeError):
     """The protected Windows DACL could not be applied or inspected."""
 
 
+def preserve_state_file_permissions(source: Path, temporary: Path) -> None:
+    """Carry an existing selector's owner and exact DACL to an empty temporary.
+
+    Only the privileged selector writer uses this boundary. ProgramData writers
+    apply their own service DACL, without trying to adopt a SYSTEM-owned leaf.
+    """
+    for path in (source, temporary):
+        details = path.lstat()
+        if stat.S_ISLNK(details.st_mode) or getattr(details, "st_file_attributes", 0) & 0x400:
+            raise WindowsAclError("state permission source is a reparse point")
+        if not stat.S_ISREG(details.st_mode):
+            raise WindowsAclError("state permission source is not a regular file")
+    if os.name != "nt":
+        temporary.chmod(stat.S_IMODE(source.stat().st_mode))
+        return
+    win32security, _rights = PyWin32AclAdapter._modules()
+    try:
+        information = win32security.OWNER_SECURITY_INFORMATION | win32security.DACL_SECURITY_INFORMATION
+        descriptor = win32security.GetNamedSecurityInfo(str(source), win32security.SE_FILE_OBJECT, information)
+        dacl = descriptor.GetSecurityDescriptorDacl()
+        owner = descriptor.GetSecurityDescriptorOwner()
+        if dacl is None or owner is None:
+            raise WindowsAclError("state permission source has no owner or DACL")
+        protected = descriptor.GetSecurityDescriptorControl()[0] & win32security.SE_DACL_PROTECTED
+        information |= (win32security.PROTECTED_DACL_SECURITY_INFORMATION if protected
+                        else win32security.UNPROTECTED_DACL_SECURITY_INFORMATION)
+        win32security.SetNamedSecurityInfo(str(temporary), win32security.SE_FILE_OBJECT,
+            information, owner, None, dacl, None)
+    except WindowsAclError:
+        raise
+    except Exception as error:
+        raise WindowsAclError("could not preserve state owner and DACL") from error
+
+
 class AclAdapter(Protocol):
     def protect_directory(self, path: Path) -> None: ...
     def protect_claim(self, path: Path) -> None: ...

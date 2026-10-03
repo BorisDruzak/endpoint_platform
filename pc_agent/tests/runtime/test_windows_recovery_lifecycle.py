@@ -46,7 +46,7 @@ async def test_corrupt_startup_state_cannot_abort_a_successful_wss_handshake(tmp
 @pytest.mark.asyncio
 async def test_startup_proof_write_failure_keeps_control_connected(tmp_path, monkeypatch):
     import json
-    from pathlib import Path
+    from pc_agent.platform.windows.acl import PyWin32AclAdapter
     from pc_agent.version import AGENT_VERSION
     settings = _settings(tmp_path)
     settings.install_root.mkdir()
@@ -56,12 +56,12 @@ async def test_startup_proof_write_failure_keeps_control_connected(tmp_path, mon
     pending = {"version": AGENT_VERSION, "operation_id": "operation"}
     (updates / "pending_update.json").write_text(json.dumps(pending))
     (updates / "startup-attempt.json").write_text(json.dumps({**pending, "attempt_id": "attempt"}))
-    original_write = Path.write_text
-    def write(path, *args, **kwargs):
+    original_protect = PyWin32AclAdapter.protect_update_path
+    def protect(self, path):
         if path.name.startswith(".startup-confirmation.json"):
             raise PermissionError("test ACL failure")
-        return original_write(path, *args, **kwargs)
-    monkeypatch.setattr(Path, "write_text", write)
+        return original_protect(self, path)
+    monkeypatch.setattr(PyWin32AclAdapter, "protect_update_path", protect)
     await application._startup_proof_hook(settings)
     assert not (updates / "startup-confirmation.json").exists()
 

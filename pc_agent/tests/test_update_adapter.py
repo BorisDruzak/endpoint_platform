@@ -453,3 +453,155 @@ async def test_scheduled_handoff_ack_is_durable_across_adapter_restart(
         }
     ]
     assert isinstance(state[0]["scheduled_ack_delivered_at"], str)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("journal", ["endpoint_update_state.json", "endpoint_update_reports.json"])
+@pytest.mark.parametrize("failure", ["file_flush", "replace", "directory_flush"])
+async def test_journal_failure_blocks_network_until_durable_restart(tmp_path, monkeypatch, journal, failure):
+    from pc_agent.platform.windows import durable_state
+    class Session:
+        def __init__(self):
+            self.bodies = []
+        def post(self, url, *, headers, json):
+            self.bodies.append(json)
+            return _Response(200 if url.endswith("reports") else 204, "")
+    session = Session()
+    def adapter():
+        return EndpointUpdateAdapter(api_url="https://endpoint.example.test", bearer_token=lambda: "test", session=session, data_root=tmp_path)
+    operation = "caa31a48-bf2f-4f1c-8b77-d1be77e12b4e"
+    async def perform(owner):
+        if journal == "endpoint_update_state.json":
+            return await owner.record_scheduled_handoff(operation, assigned_version="3.2.2", rollback_version="3.2.1")
+        return await owner.report_terminal(operation, status="rolled_back", reported_version="3.2.1", safe_code="launcher_rolled_back")
+    original_flush = durable_state.flush_directory
+    def fault(*args, **kwargs):
+        if failure == "directory_flush" and args[0] != tmp_path / "updates":
+            return original_flush(*args, **kwargs)
+        raise OSError("injected")
+    with monkeypatch.context() as patch:
+        target, attribute = (durable_state, "flush_directory") if failure == "directory_flush" else (durable_state.os, "fsync" if failure == "file_flush" else "replace")
+        patch.setattr(target, attribute, fault)
+        with pytest.raises(OSError, match="injected"):
+            await perform(adapter())
+    assert session.bodies == []
+    path = tmp_path / "updates" / journal
+    persisted = json.loads(path.read_text()) if path.exists() else []
+    key = persisted[0]["report_key"] if persisted and journal.endswith("reports.json") else None
+    assert await perform(adapter())
+    if key is not None:
+        assert session.bodies[0]["report_key"] == key
+    assert len(json.loads(path.read_text())) == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("journal", ["endpoint_update_state.json", "endpoint_update_reports.json"])
+async def test_delivered_journal_retry_finishes_failed_directory_flush(tmp_path, monkeypatch, journal):
+    from pc_agent.platform.windows import durable_state
+    class Session:
+        def __init__(self):
+            self.bodies = []
+        def post(self, url, *, headers, json):
+            self.bodies.append(json)
+            return _Response(200 if url.endswith("reports") else 204, "")
+    session = Session()
+    def adapter():
+        return EndpointUpdateAdapter(api_url="https://endpoint.example.test", bearer_token=lambda: "test", session=session, data_root=tmp_path)
+    operation = "caa31a48-bf2f-4f1c-8b77-d1be77e12b4e"
+    async def perform(owner):
+        if journal == "endpoint_update_state.json":
+            return await owner.record_scheduled_handoff(operation, assigned_version="3.2.2", rollback_version="3.2.1")
+        return await owner.report_terminal(operation, status="rolled_back", reported_version="3.2.1", safe_code="launcher_rolled_back")
+    original = durable_state.flush_directory
+    calls = []
+    def flush(path):
+        calls.append(path)
+        if session.bodies and path == tmp_path / "updates":
+            raise OSError("delivered metadata failure")
+        original(path)
+    with monkeypatch.context() as patch:
+        patch.setattr(durable_state, "flush_directory", flush)
+        with pytest.raises(OSError, match="delivered metadata"):
+            await perform(adapter())
+    assert len(session.bodies) == 1
+    calls.clear()
+    with monkeypatch.context() as patch:
+        patch.setattr(durable_state, "flush_directory", lambda path: calls.append(path))
+        assert await perform(adapter())
+    assert calls == [tmp_path / "updates"]
+    assert len(session.bodies) == 1
+
+
+@pytest.mark.asyncio
+async def test_scheduled_ack_merges_operations_created_while_network_ack_waits(tmp_path):
+    import asyncio
+    first_operation = "caa31a48-bf2f-4f1c-8b77-d1be77e12b4e"
+    second_operation = "daa31a48-bf2f-4f1c-8b77-d1be77e12b4e"
+    entered, release = asyncio.Event(), asyncio.Event()
+    owner = EndpointUpdateAdapter(api_url="https://endpoint.example.test", bearer_token=lambda: "test", session=object(), data_root=tmp_path)
+    async def ack(operation, status):
+        if operation == first_operation:
+            entered.set()
+            await release.wait()
+        return True
+    owner.acknowledge = ack
+    first = asyncio.create_task(owner.record_scheduled_handoff(first_operation, assigned_version="3.2.2", rollback_version="3.2.1"))
+    await entered.wait()
+    assert await owner.record_scheduled_handoff(second_operation, assigned_version="3.2.3", rollback_version="3.2.1")
+    release.set()
+    assert await first
+    records = json.loads((tmp_path / "updates" / "endpoint_update_state.json").read_text())
+    assert {item["operation_id"] for item in records} == {first_operation, second_operation}
+    assert all(item["scheduled_ack_delivered_at"] is not None for item in records)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("same_operation", [False, True])
+async def test_concurrent_terminal_reports_merge_and_reuse_operation_report_key(tmp_path, same_operation):
+    import asyncio
+    entered, release = asyncio.Event(), asyncio.Event()
+    first_operation = "caa31a48-bf2f-4f1c-8b77-d1be77e12b4e"
+    second_operation = first_operation if same_operation else "daa31a48-bf2f-4f1c-8b77-d1be77e12b4e"
+    class Response(_Response):
+        async def __aenter__(self):
+            entered.set()
+            await release.wait()
+            return self
+    class Session:
+        def __init__(self):
+            self.bodies = []
+        def post(self, url, *, headers, json):
+            self.bodies.append(json)
+            return Response(200, "") if len(self.bodies) == 1 else _Response(200, "")
+    session = Session()
+    owner = EndpointUpdateAdapter(api_url="https://endpoint.example.test", bearer_token=lambda: "test", session=session, data_root=tmp_path)
+    async def report(operation):
+        return await owner.report_terminal(operation, status="rolled_back", reported_version="3.2.1", safe_code="launcher_rolled_back")
+    first = asyncio.create_task(report(first_operation))
+    await entered.wait()
+    assert await report(second_operation)
+    release.set()
+    assert await first
+    records = json.loads((tmp_path / "updates" / "endpoint_update_reports.json").read_text())
+    assert {item["operation_id"] for item in records} == {first_operation, second_operation}
+    assert all(item["delivered_at"] is not None for item in records)
+    assert len(records) == (1 if same_operation else 2)
+    if same_operation:
+        assert session.bodies[0]["report_key"] == session.bodies[1]["report_key"]
+
+
+def test_linux_adapter_branch_preserves_existing_journal_mode(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+    import stat
+    from pc_agent import update_adapter
+    from pc_agent.platform.windows import acl
+    path = tmp_path / "updates" / "endpoint_update_state.json"
+    path.parent.mkdir()
+    path.write_text('[]')
+    expected_mode = stat.S_IMODE(path.stat().st_mode)
+    monkeypatch.setattr(update_adapter, "os", SimpleNamespace(name="posix"))
+    monkeypatch.setattr(acl, "os", SimpleNamespace(name="posix"))
+    owner = EndpointUpdateAdapter(api_url="https://endpoint.example.test", bearer_token=lambda: "test", session=object(), data_root=tmp_path)
+    owner._write_update_state([])
+    assert stat.S_IMODE(path.stat().st_mode) == expected_mode
+    assert json.loads(path.read_text()) == []

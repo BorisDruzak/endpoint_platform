@@ -152,30 +152,36 @@ def durable_unlink(path: Path, *, trusted_root: Path, missing_ok: bool = False) 
 
 
 def flush_directory(path: Path) -> None:
-    """Persist rename/delete metadata; propagate every open/flush/close error."""
+    """Persist metadata; surface native Windows failures as chained OSError."""
     path = path.absolute()
     _check_directories(path)
     if _WINDOWS:
         try:
             import win32con  # type: ignore[import-not-found]
             import win32file  # type: ignore[import-not-found]
+            import pywintypes  # type: ignore[import-not-found]
         except ImportError as error:
             raise OSError("pywin32 is required for Windows directory durability") from error
-        handle = win32file.CreateFile(
-            str(path),
-            win32con.GENERIC_READ | win32con.GENERIC_WRITE,
-            win32con.FILE_SHARE_READ | win32con.FILE_SHARE_WRITE | win32con.FILE_SHARE_DELETE,
-            None,
-            win32con.OPEN_EXISTING,
-            win32con.FILE_FLAG_BACKUP_SEMANTICS | win32file.FILE_FLAG_OPEN_REPARSE_POINT,
-            None,
-        )
         try:
-            if win32file.GetFileInformationByHandle(handle)[0] & _REPARSE_POINT:
-                raise ValueError("directory handle is a reparse point")
-            win32file.FlushFileBuffers(handle)
-        finally:
-            handle.Close()
+            handle = win32file.CreateFile(
+                str(path),
+                win32con.GENERIC_READ | win32con.GENERIC_WRITE,
+                win32con.FILE_SHARE_READ | win32con.FILE_SHARE_WRITE | win32con.FILE_SHARE_DELETE,
+                None,
+                win32con.OPEN_EXISTING,
+                win32con.FILE_FLAG_BACKUP_SEMANTICS | win32file.FILE_FLAG_OPEN_REPARSE_POINT,
+                None,
+            )
+            try:
+                if win32file.GetFileInformationByHandle(handle)[0] & _REPARSE_POINT:
+                    raise ValueError("directory handle is a reparse point")
+                win32file.FlushFileBuffers(handle)
+            finally:
+                handle.Close()
+        except pywintypes.error as error:
+            # Portable callers recover OSError; preserve the native code/cause
+            # for diagnosis without mistaking a visible transition for success.
+            raise OSError(None, str(error), str(path), error.winerror) from error
         return
     descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0))
     try:

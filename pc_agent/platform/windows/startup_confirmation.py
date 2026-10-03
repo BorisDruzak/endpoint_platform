@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 import json
-import os
-import uuid
 from datetime import UTC, datetime
 
 from pc_agent.version import AGENT_VERSION
 
 from .update_paths import WindowsUpdatePaths
+from .acl import PyWin32AclAdapter
+from .durable_state import write_json_atomic
 
 
 class StartupProofWriter:
@@ -40,26 +40,20 @@ class StartupProofWriter:
                 return False
         except (OSError, ValueError, json.JSONDecodeError, KeyError):
             return False
-        self._paths.updates_root.mkdir(parents=True, exist_ok=True)
         path = self._paths.updates_root / "startup-confirmation.json"
-        temporary = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
-        try:
-            temporary.write_text(
-                json.dumps(
-                    {
-                        "attempt_id": attempt["attempt_id"],
-                        "confirmed_at": datetime.now(UTC).isoformat(),
-                        "operation_id": operation_id,
-                        "status": "confirmed",
-                        "version": version,
-                    },
-                    separators=(",", ":"),
-                ),
-                encoding="utf-8",
-            )
-            os.replace(temporary, path)
-        finally:
-            temporary.unlink(missing_ok=True)
+        write_json_atomic(
+            path,
+            {
+                "attempt_id": attempt["attempt_id"],
+                "confirmed_at": datetime.now(UTC).isoformat(),
+                "operation_id": operation_id,
+                "status": "confirmed",
+                "version": version,
+            },
+            trusted_root=self._paths.updates_root,
+            max_bytes=4096,
+            protect=PyWin32AclAdapter().protect_update_path,
+        )
         return True
 
 
