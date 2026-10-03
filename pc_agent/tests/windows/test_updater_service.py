@@ -1468,3 +1468,27 @@ def test_updater_dispatcher_leaves_single_terminal_status_to_native_pywin32_host
         ]
     else:
         assert errors == []
+
+@pytest.mark.skipif(__import__('os').name!='nt',reason='native competing proof-process evidence')
+def test_candidate_proof_wait_leaves_transaction_available(tmp_path):
+    from pc_agent.platform.windows import updater_service,update_transaction
+    paths=_paths(tmp_path)
+    artifact=_artifact(paths.downloads_root/'candidate.zip');_pending(paths,artifact)
+    paths.install_root.mkdir();paths.current_path.write_text('{"version":"3.1.9"}')
+    code='''
+import sys
+from pathlib import Path
+from pc_agent.platform.windows import update_transaction as t
+from pc_agent.platform.windows.update_paths import WindowsUpdatePaths
+t._MUTEX_NAME=sys.argv[1]
+with t.update_transaction(WindowsUpdatePaths(Path(sys.argv[2]),Path(sys.argv[3])),timeout_ms=0):
+    print('proof-owner-entered')
+'''
+    def confirmed(**_):
+        child=subprocess.run([sys.executable,'-c',code,update_transaction._MUTEX_NAME,str(paths.install_root),str(paths.pending_path)],capture_output=True,text=True,timeout=5)
+        assert child.returncode==0,child.stderr
+        assert child.stdout.strip()=='proof-owner-entered'
+        return True
+    service=SimpleNamespace(stop=lambda:None,start=lambda:None,wait_stopped=lambda:True,crashed_early=lambda:False)
+    worker=updater_service.WindowsUpdater(paths,acl=_Acl(),service=service,verifier=SimpleNamespace(verify=lambda *_:True),confirmation=SimpleNamespace(is_confirmed=confirmed))
+    assert worker.run_once().status=='applied'

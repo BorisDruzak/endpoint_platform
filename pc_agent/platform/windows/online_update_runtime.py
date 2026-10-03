@@ -18,6 +18,7 @@ from pc_agent.update_adapter import EndpointRecommendation, _is_operation_id
 from pc_agent.transport.base import GatewayCredentialRejected, GatewayTerminalError
 
 from .update_paths import WindowsUpdatePaths
+from .update_transaction import update_transaction, UpdateInProgress
 from .durable_state import durable_unlink, write_json_atomic
 from .disk_readiness import download_required_bytes, is_disk_full, require_disk_space
 
@@ -65,72 +66,77 @@ class WindowsOnlineUpdateRuntime:
     async def run_once(self) -> WindowsOnlineUpdateResult:
         try:
             return await self._run_once()
+        except UpdateInProgress:
+            return WindowsOnlineUpdateResult("update_in_progress")
         except OSError as error:
             if is_disk_full(error):
                 return WindowsOnlineUpdateResult("disk_insufficient")
             raise
 
     async def _run_once(self) -> WindowsOnlineUpdateResult:
-        current = _load_current_version(self._paths.current_path)
-        if self._paths.transition_path.exists() or self._paths.transition_path.is_symlink():
-            # A canonical operation journal makes an interrupted offline worker
-            # reachable without treating selection as acceptance. SCM start is
-            # idempotent while an active worker still waits for Gateway proof.
-            from .updater_service import _load_selector_transition, _load_selector
-            transition = _load_selector_transition(self._paths)
-            selected = _load_selector(self._paths.current_path)
-            if transition["status"] == "accepted":
-                if selected != transition["candidate"]:
-                    raise ValueError("Windows accepted recovery selector differs")
+        pending = None
+        with update_transaction(self._paths, timeout_ms=0):
+            current = _load_current_version(self._paths.current_path)
+            if self._paths.transition_path.exists() or self._paths.transition_path.is_symlink():
+                # A canonical operation journal makes an interrupted offline worker
+                # reachable without treating selection as acceptance. SCM start is
+                # idempotent while an active worker still waits for Gateway proof.
+                from .updater_service import _load_selector_transition, _load_selector
+                transition = _load_selector_transition(self._paths)
+                selected = _load_selector(self._paths.current_path)
+                if transition["status"] == "accepted":
+                    if selected != transition["candidate"]:
+                        raise ValueError("Windows accepted recovery selector differs")
+                    return WindowsOnlineUpdateResult("recovery_pending")
+                if not self._paths.pending_path.exists() and selected == json.loads(bytes.fromhex(transition["previous_bytes"])):
+                    return WindowsOnlineUpdateResult("recovery_pending")
+                with self._paths.pending_path.open("rb") as source:
+                    pending = json.loads(source.read(16 * 1024 + 1))
+                with (self._paths.updates_root / "startup-attempt.json").open("rb") as source:
+                    attempt = json.loads(source.read(4097))
+                if (not isinstance(pending, dict) or type(pending.get("size")) is not int
+                    or any(pending.get(key) != value for key, value in {
+                        "version": transition["candidate"]["version"], "operation_id": transition["operation_id"],
+                        "sha256": transition["artifact_sha256"], "size": transition["artifact_size"],
+                        "requested_reason": transition["requested_reason"],
+                    }.items())
+                    or datetime.fromisoformat(pending.get("received_at", "")) != datetime.fromisoformat(transition["received_at"])
+                    or attempt != {"attempt_id": transition["attempt_id"], "operation_id": transition["operation_id"],
+                        "version": transition["candidate"]["version"]}
+                    or selected not in (transition["candidate"], json.loads(bytes.fromhex(transition["previous_bytes"])))):
+                    raise ValueError("Windows recovery transition identity differs")
                 return WindowsOnlineUpdateResult("recovery_pending")
-            if not self._paths.pending_path.exists() and selected == json.loads(bytes.fromhex(transition["previous_bytes"])):
-                return WindowsOnlineUpdateResult("recovery_pending")
-            with self._paths.pending_path.open("rb") as source:
-                pending = json.loads(source.read(16 * 1024 + 1))
-            with (self._paths.updates_root / "startup-attempt.json").open("rb") as source:
-                attempt = json.loads(source.read(4097))
-            if (not isinstance(pending, dict) or type(pending.get("size")) is not int
-                or any(pending.get(key) != value for key, value in {
-                    "version": transition["candidate"]["version"], "operation_id": transition["operation_id"],
-                    "sha256": transition["artifact_sha256"], "size": transition["artifact_size"],
-                    "requested_reason": transition["requested_reason"],
-                }.items())
-                or datetime.fromisoformat(pending.get("received_at", "")) != datetime.fromisoformat(transition["received_at"])
-                or attempt != {"attempt_id": transition["attempt_id"], "operation_id": transition["operation_id"],
-                    "version": transition["candidate"]["version"]}
-                or selected not in (transition["candidate"], json.loads(bytes.fromhex(transition["previous_bytes"])))):
-                raise ValueError("Windows recovery transition identity differs")
-            return WindowsOnlineUpdateResult("recovery_pending")
-        if (self._paths.updates_root / _TERMINAL_OUTCOME_FILENAME).exists():
-            return WindowsOnlineUpdateResult("report_pending")
-        if self._paths.pending_path.exists():
-            try:
-                pending = json.loads(self._paths.pending_path.read_text(encoding="utf-8"))
-                if (
-                    not isinstance(pending, dict)
-                    or not isinstance(pending.get("operation_id"), str)
-                    or not _is_operation_id(pending["operation_id"])
-                    or not isinstance(pending.get("version"), str)
-                ):
-                    raise ValueError
-            except (OSError, ValueError, TypeError):
-                raise ValueError("Windows pending update is invalid") from None
-            attempt_path = self._paths.updates_root / "startup-attempt.json"
-            if attempt_path.exists():
+            if (self._paths.updates_root / _TERMINAL_OUTCOME_FILENAME).exists():
+                return WindowsOnlineUpdateResult("report_pending")
+            if self._paths.pending_path.exists():
                 try:
-                    attempt = json.loads(attempt_path.read_text(encoding="utf-8"))
+                    pending = json.loads(self._paths.pending_path.read_text(encoding="utf-8"))
                     if (
-                        pending["version"] == current == attempt["version"]
-                        and pending["operation_id"] == attempt["operation_id"]
-                        and isinstance(attempt["attempt_id"], str)
+                        not isinstance(pending, dict)
+                        or not isinstance(pending.get("operation_id"), str)
+                        or not _is_operation_id(pending["operation_id"])
+                        or not isinstance(pending.get("version"), str)
                     ):
-                        # The privileged worker is already applying this update
-                        # and waiting for this candidate's post-WSS proof.
-                        return WindowsOnlineUpdateResult("verifying")
-                except (OSError, ValueError, KeyError, TypeError):
-                    raise ValueError("Windows update startup attempt is invalid") from None
-            if not _is_eligible_recommendation(pending["version"], current, pending.get("requested_reason")):
-                raise ValueError("Windows pending update version is invalid")
+                        raise ValueError
+                except (OSError, ValueError, TypeError):
+                    raise ValueError("Windows pending update is invalid") from None
+                attempt_path = self._paths.updates_root / "startup-attempt.json"
+                if attempt_path.exists():
+                    try:
+                        attempt = json.loads(attempt_path.read_text(encoding="utf-8"))
+                        if (
+                            pending["version"] == current == attempt["version"]
+                            and pending["operation_id"] == attempt["operation_id"]
+                            and isinstance(attempt["attempt_id"], str)
+                        ):
+                            # The privileged worker is already applying this update
+                            # and waiting for this candidate's post-WSS proof.
+                            return WindowsOnlineUpdateResult("verifying")
+                    except (OSError, ValueError, KeyError, TypeError):
+                        raise ValueError("Windows update startup attempt is invalid") from None
+                if not _is_eligible_recommendation(pending["version"], current, pending.get("requested_reason")):
+                    raise ValueError("Windows pending update version is invalid")
+        if pending is not None:
             if not await self._adapter.record_scheduled_handoff(
                 pending["operation_id"], assigned_version=pending["version"], rollback_version=current,
             ):
@@ -154,11 +160,12 @@ class WindowsOnlineUpdateRuntime:
         if not await self._adapter.acknowledge(recommendation.operation_id, "requested"):
             return WindowsOnlineUpdateResult("request_ack_pending")
 
-        require_disk_space(self._paths.downloads_root, download_required_bytes(recommendation.size))
-        self._paths.updates_root.mkdir(parents=True, exist_ok=True)
-        self._acl.protect_update_path(self._paths.updates_root)
-        self._paths.downloads_root.mkdir(parents=True, exist_ok=True)
-        self._acl.protect_update_path(self._paths.downloads_root)
+        with update_transaction(self._paths, timeout_ms=0):
+            require_disk_space(self._paths.downloads_root, download_required_bytes(recommendation.size))
+            self._paths.updates_root.mkdir(parents=True, exist_ok=True)
+            self._acl.protect_update_path(self._paths.updates_root)
+            self._paths.downloads_root.mkdir(parents=True, exist_ok=True)
+            self._acl.protect_update_path(self._paths.downloads_root)
         artifact = self._paths.downloads_root / (
             f"build-{recommendation.version}-{recommendation.operation_id}.zip"
         )
@@ -193,28 +200,44 @@ class WindowsOnlineUpdateRuntime:
             rollback_version=current,
         ):
             return WindowsOnlineUpdateResult("request_ack_pending")
-        write_json_atomic(
-            self._paths.pending_path,
-            {
-                "archive_type": "zip",
-                "artifact_path": str(artifact),
-                "channel": recommendation.channel,
-                "operation_id": recommendation.operation_id,
-                "received_at": self._now().astimezone(UTC).isoformat(),
-                "requested_by": "gateway",
-                "requested_reason": recommendation.reason or "scheduled_rollout",
-                "sha256": actual_hash,
-                "size": actual_size,
-                "target": "windows_amd64",
-                "version": recommendation.version,
-            },
-            trusted_root=self._paths.updates_root,
-            max_bytes=16 * 1024,
-            protect=self._acl.protect_update_path,
-        )
+        with update_transaction(self._paths, timeout_ms=0):
+            if (self._paths.pending_path.exists() or self._paths.transition_path.exists()
+                or (self._paths.updates_root / _TERMINAL_OUTCOME_FILENAME).exists()):
+                return WindowsOnlineUpdateResult("update_in_progress")
+            changed = _load_current_version(self._paths.current_path) != current
+            if not changed:
+                write_json_atomic(
+                    self._paths.pending_path,
+                    {
+                        "archive_type": "zip",
+                        "artifact_path": str(artifact),
+                        "channel": recommendation.channel,
+                        "operation_id": recommendation.operation_id,
+                        "received_at": self._now().astimezone(UTC).isoformat(),
+                        "requested_by": "gateway",
+                        "requested_reason": recommendation.reason or "scheduled_rollout",
+                        "sha256": actual_hash,
+                        "size": actual_size,
+                        "target": "windows_amd64",
+                        "version": recommendation.version,
+                    },
+                    trusted_root=self._paths.updates_root,
+                    max_bytes=16 * 1024,
+                    protect=self._acl.protect_update_path,
+                )
+        if changed:
+            await self._adapter.report_terminal(recommendation.operation_id, status="failed",
+                reported_version=_load_current_version(self._paths.current_path), safe_code="launcher_apply_failed")
+            return WindowsOnlineUpdateResult("update_in_progress")
         return WindowsOnlineUpdateResult("scheduled")
 
     async def report_startup_outcome(self) -> bool:
+        try:
+            return await self._report_startup_outcome()
+        except UpdateInProgress:
+            return False
+
+    async def _report_startup_outcome(self) -> bool:
         """Report a durable updater outcome or a post-handshake applied proof."""
         if self._paths.transition_path.exists() or self._paths.transition_path.is_symlink():
             # The worker finishes/reconciles this operation's selector metadata
@@ -241,6 +264,13 @@ class WindowsOnlineUpdateRuntime:
                     return False
             except (OSError, TypeError, json.JSONDecodeError):
                 return False
+            with update_transaction(self._paths, timeout_ms=0):
+                pending_before = None
+                if self._paths.pending_path.exists():
+                    with self._paths.pending_path.open("rb") as pending_file:
+                        pending_before = pending_file.read(16 * 1024 + 1)
+                if pending_before is not None and len(pending_before) > 16 * 1024:
+                    return False
             scheduled = await self._adapter.retry_scheduled_acknowledgement(outcome["operation_id"])
             if not scheduled and status == "rolled_back":
                 return False
@@ -254,13 +284,26 @@ class WindowsOnlineUpdateRuntime:
                 # Keep the outcome as retry authority until pending deletion
                 # and its metadata flush complete. The adapter report key is
                 # durable, so reconnect/retry cannot duplicate terminal reports.
-                durable_unlink(self._paths.pending_path, trusted_root=self._paths.updates_root, missing_ok=True)
-                durable_unlink(outcome_path, trusted_root=self._paths.updates_root, missing_ok=True)
+                with update_transaction(self._paths, timeout_ms=0):
+                    if (self._paths.transition_path.exists()
+                        or _load_current_version(self._paths.current_path) != current
+                        or (outcome_path.exists() and json.loads(outcome_path.read_text(encoding="utf-8")) != outcome)):
+                        return False
+                    if self._paths.pending_path.exists():
+                        with self._paths.pending_path.open("rb") as pending_file:
+                            pending_after = pending_file.read(16 * 1024 + 1)
+                        if pending_after != pending_before:
+                            return False
+                    durable_unlink(self._paths.pending_path, trusted_root=self._paths.updates_root, missing_ok=True)
+                    durable_unlink(outcome_path, trusted_root=self._paths.updates_root, missing_ok=True)
             return delivered
-        if self._paths.updates_root.exists():
-            # Finish metadata for an outcome already removed by an interrupted
-            # cleanup before considering a separate applied proof.
-            durable_unlink(outcome_path, trusted_root=self._paths.updates_root, missing_ok=True)
+        with update_transaction(self._paths, timeout_ms=0):
+            if outcome_path.exists() or self._paths.transition_path.exists():
+                return False
+            if self._paths.updates_root.exists():
+                # Finish metadata for an outcome already removed by an interrupted
+                # cleanup before considering a separate applied proof.
+                durable_unlink(outcome_path, trusted_root=self._paths.updates_root, missing_ok=True)
         try:
             proof = json.loads(
                 (self._paths.updates_root / "startup-confirmation.json").read_text(

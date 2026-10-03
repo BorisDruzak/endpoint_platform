@@ -20,6 +20,10 @@ from pc_agent.windows_setup import (
 
 @pytest.fixture(autouse=True)
 def literal_msi_costing_boundary(monkeypatch, tmp_path):
+    # Setup unit fixtures model state schemas, not machine directory ACLs.
+    # Native directory/leaf security is covered by test_update_transaction.
+    from pc_agent.platform.windows import update_transaction
+    monkeypatch.setattr(update_transaction, "_assert_state_security", lambda _: None)
     # Fixture MSIs are b'msi', not real Installer databases. Keep the disk
     # accounting/check real and replace only the native package reader.
     monkeypatch.setattr(setup_entry, "_msi_disk_costs", lambda _: [(tmp_path, 4096)], raising=False)
@@ -786,7 +790,7 @@ def test_valid_existing_agent_installs_a_strictly_newer_embedded_msi(
     assert calls == ["EndpointAgent.msi"]
 
 
-def test_valid_existing_agent_stops_tray_before_invoking_a_newer_msi(
+def test_valid_existing_agent_delegates_tray_stop_to_locked_wrapper(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     """The Setup payload is newer than the MSI-installed helper during an upgrade."""
@@ -808,7 +812,7 @@ def test_valid_existing_agent_stops_tray_before_invoking_a_newer_msi(
     monkeypatch.setattr(setup_entry, "_wait_for_agent_service_running", lambda: True)
 
     assert setup_entry.main(["--quiet"]) == setup_entry.EXIT_SUCCESS
-    assert order == ["tray", "msi"]
+    assert order == ["msi"]  # Wrapper owns tray/service stop under the transaction.
 
 
 def test_valid_existing_agent_does_not_install_an_equal_embedded_msi(
@@ -849,3 +853,32 @@ def test_conflicted_rerun_stops_before_msi_or_enrollment(
     )
 
     assert setup_entry.main(["--quiet"]) == 60
+
+@pytest.mark.parametrize('leaf,payload',[
+    ('pending_update.json',{'operation_id':'operation','version':'3.2.82'}),
+    ('startup-attempt.json',{'operation_id':'operation','version':'3.2.82','attempt_id':'a'*32}),
+    ('terminal-outcome.json',{'operation_id':'operation','reported_version':'3.2.79','status':'failed','safe_code':'launcher_apply_failed'}),
+])
+def test_active_ota_prevents_all_setup_mutation(tmp_path,monkeypatch,leaf,payload):
+    from pc_agent.tests.windows.test_update_transaction import _protect
+    data=tmp_path/'data';updates=data/'updates';updates.mkdir(parents=True)
+    marker=updates/leaf;marker.write_text(json.dumps(payload));_protect(marker)
+    monkeypatch.setattr(setup_entry,'_data_root',lambda:data)
+    monkeypatch.setattr(setup_entry,'_diagnostics_root',lambda:tmp_path/'diagnostics')
+    monkeypatch.setattr(setup_entry,'_install_embedded_msi',lambda *_:pytest.fail('active OTA reached MSI'))
+    monkeypatch.setattr(setup_entry,'_stop_tray_before_msi_update',lambda:pytest.fail('active OTA stopped tray'))
+    monkeypatch.setattr(setup_entry,'_agent_service_installed',lambda:pytest.fail('active OTA reached service phase'))
+    before=marker.read_bytes()
+    assert setup_entry.main(['--quiet'])==61
+    result=json.loads((tmp_path/'diagnostics'/'install-result.json').read_text())
+    assert result['status']==result['detail']=='UPDATE_IN_PROGRESS'
+    assert marker.read_bytes()==before
+
+
+@pytest.mark.parametrize('wrapper_code,detail',[(61,'UPDATE_IN_PROGRESS'),(62,'UPDATE_STATE_INVALID')])
+def test_wrapper_exclusion_codes_survive_suppressed_output(tmp_path,monkeypatch,wrapper_code,detail):
+    _write_public_payload(tmp_path)
+    monkeypatch.setattr(setup_entry.subprocess,'run',lambda *_a,**_k:SimpleNamespace(returncode=wrapper_code))
+    with pytest.raises(setup_entry.SetupInstallError) as caught:
+        setup_entry._install_embedded_msi(tmp_path/'EndpointAgent.msi')
+    assert caught.value.detail==detail

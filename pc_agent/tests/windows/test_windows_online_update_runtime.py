@@ -415,3 +415,24 @@ async def test_windows_agent_reports_a_durable_updater_failure_after_wss(
     assert adapter.calls == [(_OPERATION_ID, "scheduled_retry"), (_OPERATION_ID, "failed:3.2.5:launcher_apply_failed")]
     assert not paths.pending_path.exists()
     assert not (paths.updates_root / "terminal-outcome.json").exists()
+
+@pytest.mark.asyncio
+async def test_terminal_report_cleanup_preserves_new_pending_from_other_owner(tmp_path):
+    from pc_agent.platform.windows.online_update_runtime import WindowsOnlineUpdateRuntime
+    from pc_agent.platform.windows.update_paths import WindowsUpdatePaths
+    paths=WindowsUpdatePaths(tmp_path/'install',tmp_path/'data'/'updates'/'pending_update.json')
+    paths.install_root.mkdir();paths.updates_root.mkdir(parents=True)
+    paths.current_path.write_text('{"version":"3.2.79"}')
+    outcome=paths.updates_root/'terminal-outcome.json'
+    outcome.write_text(json.dumps(dict(operation_id=_OPERATION_ID,reported_version='3.2.79',status='failed',safe_code='launcher_apply_failed')))
+    paths.pending_path.write_text(json.dumps(dict(operation_id=_OPERATION_ID,version='3.2.80')))
+    next_pending={'operation_id':'b'*32,'version':'3.2.82'}
+    class Adapter(_Adapter):
+        async def report_terminal(self,*_,**__):
+            # Another owner completed the old cleanup while this HTTP was in flight.
+            outcome.unlink()
+            paths.pending_path.write_text(json.dumps(next_pending))
+            return True
+    runtime=WindowsOnlineUpdateRuntime(adapter=Adapter(None),paths=paths,acl=_Acl(),download=None)
+    assert not await runtime.report_startup_outcome()
+    assert json.loads(paths.pending_path.read_text())==next_pending

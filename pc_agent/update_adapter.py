@@ -23,6 +23,8 @@ from pydantic import ValidationError
 from pc_agent.transport.base import GatewayCredentialRejected, GatewayTerminalError
 from pc_agent.platform.windows.acl import PyWin32AclAdapter, preserve_state_file_permissions
 from pc_agent.platform.windows.durable_state import write_json_atomic
+from pc_agent.platform.windows.update_paths import WindowsUpdatePaths
+from pc_agent.platform.windows.update_transaction import update_transaction, UpdateInProgress
 from pc_agent.platform.windows import durable_state
 
 
@@ -95,6 +97,18 @@ _STATE_FIELDS = {
     "rollback_version",
     "scheduled_ack_delivered_at",
 }
+
+
+def _defer_busy_update(method):
+    """Do not block the connection event loop behind Setup's MSI transaction."""
+    from functools import wraps
+    @wraps(method)
+    async def deferred(*args, **kwargs):
+        try:
+            return await method(*args, **kwargs)
+        except UpdateInProgress:
+            return False
+    return deferred
 
 
 class EndpointUpdateAdapter:
@@ -253,6 +267,7 @@ class EndpointUpdateAdapter:
         except (aiohttp.ClientError, asyncio.TimeoutError):
             return False
 
+    @_defer_busy_update
     async def record_scheduled_handoff(
         self,
         operation_id: str,
@@ -267,64 +282,67 @@ class EndpointUpdateAdapter:
             or not _SEMVER.fullmatch(rollback_version)
         ):
             return False
-        records = self._load_update_state()
-        existing = next(
-            (record for record in records if record["operation_id"] == operation_id),
-            None,
-        )
-        if existing is None:
-            records.append(
-                {
-                    "operation_id": operation_id,
-                    "assigned_version": assigned_version,
-                    "rollback_version": rollback_version,
-                    "scheduled_ack_delivered_at": None,
-                }
+        with self._journal_transaction():
+            records = self._load_update_state()
+            existing = next(
+                (record for record in records if record["operation_id"] == operation_id),
+                None,
             )
-            self._write_update_state(records)
-        elif (
-            existing["assigned_version"] != assigned_version
-            or existing["rollback_version"] != rollback_version
-        ):
-            return False
+            if existing is None:
+                records.append(
+                    {
+                        "operation_id": operation_id,
+                        "assigned_version": assigned_version,
+                        "rollback_version": rollback_version,
+                        "scheduled_ack_delivered_at": None,
+                    }
+                )
+                self._write_update_state(records)
+            elif (
+                existing["assigned_version"] != assigned_version
+                or existing["rollback_version"] != rollback_version
+            ):
+                return False
         return await self.retry_scheduled_acknowledgement(operation_id)
 
+    @_defer_busy_update
     async def retry_scheduled_acknowledgement(self, operation_id: str) -> bool:
         if self._data_root is None or not _is_operation_id(operation_id):
             return False
-        records = self._load_update_state()
-        record = next(
-            (
-                candidate
-                for candidate in records
-                if candidate["operation_id"] == operation_id
-            ),
-            None,
-        )
-        if record is None:
-            return False
-        # A visible record may come from a replacement whose parent flush
-        # failed. Its operation metadata must be durable before HTTP yields.
-        durable_state.flush_directory(self._update_state_path().parent)
-        if record["scheduled_ack_delivered_at"] is not None:
-            return True
+        with self._journal_transaction():
+            records = self._load_update_state()
+            record = next(
+                (
+                    candidate
+                    for candidate in records
+                    if candidate["operation_id"] == operation_id
+                ),
+                None,
+            )
+            if record is None:
+                return False
+            # A visible record may come from a replacement whose parent flush
+            # failed. Its operation metadata must be durable before HTTP yields.
+            durable_state.flush_directory(self._update_state_path().parent)
+            if record["scheduled_ack_delivered_at"] is not None:
+                return True
         if not await self.acknowledge(operation_id, "scheduled"):
             return False
-        # HTTP yields to other update operations. Reload and merge into the
-        # current journal rather than publishing the pre-ACK list. There is no
-        # await between this read and durable publication in the owning loop.
-        expected = (record["assigned_version"], record["rollback_version"])
-        records = self._load_update_state()
-        record = next((candidate for candidate in records if candidate["operation_id"] == operation_id), None)
-        if record is None or (record["assigned_version"], record["rollback_version"]) != expected:
-            return False
-        if record["scheduled_ack_delivered_at"] is not None:
-            durable_state.flush_directory(self._update_state_path().parent)
-            return True
-        record["scheduled_ack_delivered_at"] = datetime.now(timezone.utc).isoformat()
-        self._write_update_state(records)
+        # HTTP may yield to other processes; reload, bind identity, then merge.
+        with self._journal_transaction():
+            expected = (record["assigned_version"], record["rollback_version"])
+            records = self._load_update_state()
+            record = next((candidate for candidate in records if candidate["operation_id"] == operation_id), None)
+            if record is None or (record["assigned_version"], record["rollback_version"]) != expected:
+                return False
+            if record["scheduled_ack_delivered_at"] is not None:
+                durable_state.flush_directory(self._update_state_path().parent)
+                return True
+            record["scheduled_ack_delivered_at"] = datetime.now(timezone.utc).isoformat()
+            self._write_update_state(records)
         return True
 
+    @_defer_busy_update
     async def report_terminal(
         self,
         operation_id: str,
@@ -344,14 +362,15 @@ class EndpointUpdateAdapter:
         bearer = self._bearer_token()
         if not isinstance(bearer, str) or not bearer:
             return False
-        record = self._load_or_create_report(
-            operation_id, status, reported_version, safe_code
-        )
-        # Retry must durably retain the idempotency key before sending it,
-        # including when the preceding write left an undelivered visible leaf.
-        durable_state.flush_directory(self._report_journal_path().parent)
-        if record["delivered_at"] is not None:
-            return True
+        with self._journal_transaction():
+            record = self._load_or_create_report(
+                operation_id, status, reported_version, safe_code
+            )
+            # Retry must durably retain the idempotency key before sending it,
+            # including when the preceding write left an undelivered visible leaf.
+            durable_state.flush_directory(self._report_journal_path().parent)
+            if record["delivered_at"] is not None:
+                return True
         payload = {
             "schema_version": "agent_update_report_v1",
             "report_key": record["report_key"],
@@ -375,8 +394,14 @@ class EndpointUpdateAdapter:
             return False
         except (aiohttp.ClientError, asyncio.TimeoutError):
             return False
-        record["delivered_at"] = datetime.now(timezone.utc).isoformat()
-        self._write_report_journal(self._load_report_journal_with(record))
+        with self._journal_transaction():
+            journal = self._load_report_journal()
+            current = next((item for item in journal if item["report_key"] == record["report_key"]), None)
+            if current is None or any(current[key] != record[key] for key in
+                ("operation_id", "status", "reported_version", "safe_code")):
+                return False
+            current["delivered_at"] = current["delivered_at"] or datetime.now(timezone.utc).isoformat()
+            self._write_report_journal(journal)
         return True
 
     def _require_recovery_response(self, status: int) -> None:
@@ -397,6 +422,11 @@ class EndpointUpdateAdapter:
         return RecommendationResult(
             "legacy", None, False, "endpoint_unavailable", legacy_result
         )
+
+    def _journal_transaction(self):
+        assert self._data_root is not None
+        # Paths bind POSIX journals; Windows always uses the canonical fixed mutex.
+        return update_transaction(WindowsUpdatePaths(pending_path=self._data_root / "updates" / "pending_update.json"), timeout_ms=0)
 
     def _report_journal_path(self) -> Path:
         assert self._data_root is not None

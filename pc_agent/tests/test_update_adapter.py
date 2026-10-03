@@ -652,3 +652,71 @@ async def test_visible_journal_retry_requires_flush_before_any_network(tmp_path,
     assert events == ([] if delivered else ["POST"])
     if report_key:
         assert json.loads(path.read_text())[0]["report_key"] == report_key
+
+@pytest.mark.skipif(__import__('os').name != 'nt', reason='native Windows journal process race')
+@pytest.mark.parametrize('same_operation',[False,True])
+def test_real_processes_merge_scheduled_and_terminal_journals(tmp_path,same_operation):
+    import subprocess, sys
+    from uuid import uuid4
+    name = 'Local\\EndpointJournalTest-' + uuid4().hex
+    code = '''
+import asyncio,json,sys,time
+from pathlib import Path
+from pc_agent.platform.windows import update_transaction as transaction
+from pc_agent.update_adapter import EndpointUpdateAdapter
+transaction._MUTEX_NAME=sys.argv[2]
+class Response:
+    status=200
+    async def __aenter__(self): return self
+    async def __aexit__(self,*_): pass
+class Session:
+    def post(self,url,**__):
+        response=Response(); response.status=204 if url.endswith('/ack') else 200; return response
+a=EndpointUpdateAdapter(api_url='https://example.test',bearer_token=lambda:'test',session=Session(),data_root=Path(sys.argv[1]))
+original=a._load_update_state
+def slow():
+    value=original(); time.sleep(.1); return value
+a._load_update_state=slow
+async def run():
+    for _ in range(100):
+        if await a.record_scheduled_handoff(sys.argv[3],assigned_version='3.2.82',rollback_version='3.2.79'): break
+        await asyncio.sleep(.02)
+    else: raise AssertionError('handoff busy indefinitely')
+    for _ in range(100):
+        if await a.report_terminal(sys.argv[3],status='failed',reported_version='3.2.79',safe_code='launcher_apply_failed'): break
+        await asyncio.sleep(.02)
+    else: raise AssertionError('report busy indefinitely')
+asyncio.run(run())
+'''
+    operations=[str(uuid4()) for _ in range(4)]
+    if same_operation:operations=[operations[0]]*4
+    children=[subprocess.Popen([sys.executable,'-c',code,str(tmp_path),name,op],stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True) for op in operations]
+    for child in children:
+        out,err=child.communicate(timeout=30)
+        assert child.returncode == 0, out+err
+    states=json.loads((tmp_path/'updates'/'endpoint_update_state.json').read_text())
+    reports=json.loads((tmp_path/'updates'/'endpoint_update_reports.json').read_text())
+    assert {r['operation_id'] for r in states} == set(operations)
+    assert {r['operation_id'] for r in reports} == set(operations)
+    assert len(reports)==len({r['report_key'] for r in reports})==len(set(operations))
+    assert all(r['scheduled_ack_delivered_at'] for r in states)
+    assert all(r['delivered_at'] for r in reports)
+
+@pytest.mark.asyncio
+async def test_contended_transaction_defers_adapter_without_blocking_event_loop(tmp_path):
+    import threading
+    from pc_agent.platform.windows import update_transaction
+    from pc_agent.platform.windows.update_paths import WindowsUpdatePaths
+    paths=WindowsUpdatePaths(tmp_path,tmp_path/'updates'/'pending_update.json')
+    acquired=threading.Event();release=threading.Event()
+    def hold():
+        with update_transaction.update_transaction(paths):
+            acquired.set();release.wait(5)
+    owner=threading.Thread(target=hold);owner.start();assert acquired.wait(3)
+    adapter=EndpointUpdateAdapter(api_url='https://example.test',bearer_token=lambda:'token',session=object(),data_root=tmp_path)
+    try:
+        assert not await adapter.record_scheduled_handoff('caa31a48-bf2f-4f1c-8b77-d1be77e12b4e',assigned_version='3.2.82',rollback_version='3.2.79')
+        assert not release.is_set() and owner.is_alive()
+        assert not adapter._update_state_path().exists()
+    finally:
+        release.set();owner.join(5)

@@ -168,3 +168,20 @@ def test_runbook_documents_campaign_authority_and_safe_quiet_mode() -> None:
     assert "install-result.json" in source
     assert "EndpointAgent" in source
     assert "CMD" in source
+
+
+def test_setup_wrapper_owns_transaction_through_service_stop_and_provenance():
+    source = (WINDOWS_PACKAGING / "Install-EndpointAgentCanary.ps1").read_text(encoding="utf-8")
+    acquire = source.index("$updateMutex = New-UpdateTransaction")
+    gate = source.index("if (Test-ActiveUpdateState -InstallRoot")
+    cache = source.index("$executionCacheRoot =")
+    tray = source.index("$trayStop = Start-Process")
+    stop = source.index("$previousServiceStates = Stop-ManagedAgentServices")
+    install = source.index("$installer = Start-Process")
+    publish = source.index("[IO.File]::Replace($provenanceStagePath")
+    release = source.index("$updateMutex.ReleaseMutex()")
+    assert acquire < gate < cache < tray < stop < install < publish < release
+    assert "if (-not $transactionOwned) { exit 61 }" in source
+    assert "catch [Threading.AbandonedMutexException]" in source
+    assert "Write-Error 'UPDATE_STATE_INVALID' -ErrorAction Continue; exit 62" in source
+    assert source.count("Assert-UpdateTransactionSecurity -Mutex $updateMutex") == 2

@@ -16,6 +16,7 @@ import stat
 import subprocess
 import uuid
 import zipfile
+from contextlib import ExitStack
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path, PureWindowsPath
@@ -28,6 +29,7 @@ from .durable_state import durable_unlink, flush_directory, write_bytes_atomic, 
 from .disk_readiness import allocation_required_bytes, apply_required_bytes, is_disk_full, require_disk_space
 from .service_control import SERVICE_NAME, UPDATER_SERVICE_NAME
 from .update_paths import UPDATE_EXECUTABLE_NAME, WindowsUpdatePaths
+from .update_transaction import update_transaction, UpdateInProgress
 
 
 _PENDING_FIELDS = frozenset(
@@ -364,6 +366,11 @@ class WindowsUpdater:
         self._proof_confirmed = False
 
     def run_once(self) -> UpdateResult:
+        transaction = ExitStack()
+        try:
+            transaction.enter_context(update_transaction(self._paths))
+        except UpdateInProgress:
+            return UpdateResult("update_in_progress", "UPDATE_IN_PROGRESS")
         previous: str | None = None
         previous_selector: dict[str, object] | None = None
         pending: PendingUpdate | None = None
@@ -412,11 +419,16 @@ class WindowsUpdater:
                 endpoint_state="unknown",
                 update_state="applying",
             )
+            # Pending is durable authority while costly extraction runs unlocked.
+            transaction.close()
             staging = self._extract_to_staging(pending)
             bundle = _load_bundle_manifest(staging, pending)
             executable = staging / UPDATE_EXECUTABLE_NAME
             if not executable.is_file() or not self._verifier.verify(executable, pending.version):
                 raise ValueError("new version verification failed")
+            transaction.enter_context(update_transaction(self._paths))
+            if self._validator.load() != pending or _load_selector(self._paths.current_path) != previous_selector:
+                return UpdateResult("rejected", "update identity changed during staging")
             target = self._publish(staging, pending)
             # Existing core/retention occupies space already. Reserve only the
             # new selector/journal allocations on each of their target volumes.
@@ -441,7 +453,13 @@ class WindowsUpdater:
                 raise ValueError("EndpointAgent did not stop")
             _write_json_atomic(self._paths.current_path, candidate_selector, trusted_root=self._paths.install_root)
             self._service.start()
-            if not self._wait_for_candidate_confirmation(pending):
+            # Candidate WSS/HTTP owners must run while proof is awaited.
+            transaction.close()
+            try:
+                confirmed = self._wait_for_candidate_confirmation(pending)
+            finally:
+                transaction.enter_context(update_transaction(self._paths))
+            if not confirmed:
                 result = self._rollback(
                     pending, previous, previous_selector, "startup confirmation failed"
                 )
@@ -457,7 +475,12 @@ class WindowsUpdater:
             self._mark_accepted()
             self._complete_accepted()
             return UpdateResult("applied", str(target))
+        except UpdateInProgress:
+            return UpdateResult("update_in_progress", "UPDATE_IN_PROGRESS")
         except (OSError, ValueError, WindowsAclError, zipfile.BadZipFile) as error:
+            # Extraction errors also mutate terminal state under the boundary.
+            transaction.close()
+            transaction.enter_context(update_transaction(self._paths))
             if candidate_confirmed or self._proof_confirmed:
                 # Acceptance already has operation-bound WSS proof. A failed
                 # lifecycle cleanup must not switch a still-running candidate
@@ -506,6 +529,7 @@ class WindowsUpdater:
                 return UpdateResult("disk_insufficient", "DISK_INSUFFICIENT")
             return UpdateResult("rejected", str(error))
         finally:
+            transaction.close()
             if staging is not None and staging.exists():
                 shutil.rmtree(staging, ignore_errors=True)
 

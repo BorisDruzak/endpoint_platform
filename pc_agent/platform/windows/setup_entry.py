@@ -26,6 +26,8 @@ from pc_agent.enrollment_identity import (
     ENROLLMENT_IDENTITY_FILENAME,
     read_enrollment_device_id,
 )
+from pc_agent.platform.windows.update_paths import WindowsUpdatePaths
+from pc_agent.platform.windows.update_transaction import update_transaction, active_update_state, UpdateInProgress
 from pc_agent.platform.windows.acl import PyWin32AclAdapter, WindowsAclError
 from pc_agent.platform.windows.disk_readiness import (
     DiskInsufficient, MAX_ARTIFACT_BYTES,
@@ -54,6 +56,7 @@ EXIT_SERVICE_FAILED = 50
 EXIT_WSS_TIMEOUT = 51
 EXIT_CONTEXT_TIMEOUT = 52
 EXIT_REPAIR_REQUIRED = 60
+EXIT_UPDATE_IN_PROGRESS = 61
 _SAFE_LOG_DETAIL = re.compile(r"^[A-Z][A-Z0-9_]{0,63}$")
 _INSTALL_RESULT_FILENAME = "install-result.json"
 _PROVISIONER_ERROR = re.compile(
@@ -187,6 +190,10 @@ def _install_embedded_msi(msi_path: Path) -> None:
         )
     except OSError as error:
         raise SetupInstallError("MSI_EVIDENCE_FAILED") from error
+    if completed.returncode == 61:
+        raise SetupInstallError("UPDATE_IN_PROGRESS")
+    if completed.returncode == 62:
+        raise SetupInstallError("UPDATE_STATE_INVALID")
     if completed.returncode != 0:
         raise SetupInstallError("MSI_EVIDENCE_FAILED")
 
@@ -765,6 +772,17 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     data_root = _data_root()
     _record_in_progress()
+    try:
+        paths = WindowsUpdatePaths(pending_path=data_root / "updates" / "pending_update.json")
+        with update_transaction(paths, timeout_ms=0):
+            if active_update_state(paths) is not None:
+                raise UpdateInProgress("UPDATE_IN_PROGRESS")
+    except UpdateInProgress:
+        return _complete(args, data_root, status="UPDATE_IN_PROGRESS", code=EXIT_UPDATE_IN_PROGRESS,
+            stage="PREFLIGHT", detail="UPDATE_IN_PROGRESS")
+    except (OSError, ValueError):
+        return _complete(args, data_root, status="REPAIR_REQUIRED", code=EXIT_REPAIR_REQUIRED,
+            stage="PREFLIGHT", detail="UPDATE_STATE_INVALID")
     installation_state = _classify_installation_state(
         data_root, service_installed=_agent_service_installed()
     )
@@ -828,14 +846,13 @@ def main(argv: Sequence[str] | None = None) -> int:
                 detail="STARTED",
             )
             try:
-                _stop_tray_before_msi_update()
                 _install_embedded_msi(resources / "EndpointAgent.msi")
             except SetupInstallError as error:
                 return _complete(
                     args,
                     data_root,
-                    status="INSTALL_FAILED",
-                    code=EXIT_INSTALL_FAILED,
+                    status=("UPDATE_IN_PROGRESS" if error.detail == "UPDATE_IN_PROGRESS" else "REPAIR_REQUIRED" if error.detail == "UPDATE_STATE_INVALID" else "INSTALL_FAILED"),
+                    code=(EXIT_UPDATE_IN_PROGRESS if error.detail == "UPDATE_IN_PROGRESS" else EXIT_REPAIR_REQUIRED if error.detail == "UPDATE_STATE_INVALID" else EXIT_INSTALL_FAILED),
                     stage="MSI",
                     detail=error.detail,
                 )
@@ -913,8 +930,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _complete(
             args,
             data_root,
-            status="INSTALL_FAILED",
-            code=EXIT_INSTALL_FAILED,
+            status=("UPDATE_IN_PROGRESS" if error.detail == "UPDATE_IN_PROGRESS" else "REPAIR_REQUIRED" if error.detail == "UPDATE_STATE_INVALID" else "INSTALL_FAILED"),
+            code=(EXIT_UPDATE_IN_PROGRESS if error.detail == "UPDATE_IN_PROGRESS" else EXIT_REPAIR_REQUIRED if error.detail == "UPDATE_STATE_INVALID" else EXIT_INSTALL_FAILED),
             stage="MSI",
             detail=error.detail,
         )

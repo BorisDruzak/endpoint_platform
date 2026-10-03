@@ -246,6 +246,158 @@ function Read-ReleaseManifest {
     return $value
 }
 
+function New-UpdateTransaction {
+    $name = 'Global\EndpointPlatform.Agent.UpdateTransaction'
+    $serviceSids = @('S-1-5-80-1102781572-1373263041-1070489469-7526906-1468061691', 'S-1-5-80-327494974-20047353-929432329-1920152597-707704661')
+    $script:UpdateMutexRights = @{'S-1-5-18'=0x1f0001; 'S-1-5-32-544'=0x1f0001; 'S-1-3-4'=0x20000}
+    foreach ($sid in $serviceSids) { $script:UpdateMutexRights[$sid] = 0x120001 }
+    $script:UpdateTrustedOwners = @('S-1-5-18','S-1-5-32-544','S-1-5-19') + $serviceSids
+    $sddl = 'D:P(A;;0x1f0001;;;S-1-5-18)(A;;0x1f0001;;;S-1-5-32-544)(A;;0x120001;;;S-1-5-80-1102781572-1373263041-1070489469-7526906-1468061691)(A;;0x120001;;;S-1-5-80-327494974-20047353-929432329-1920152597-707704661)(A;;0x20000;;;S-1-3-4)'
+    $security = [Security.AccessControl.MutexSecurity]::new()
+    $security.SetSecurityDescriptorSddlForm($sddl)
+    $security.SetOwner([Security.Principal.SecurityIdentifier]::new('S-1-5-32-544'))
+    $created = $false
+    return [Threading.Mutex]::new($false, $name, [ref]$created, $security)
+}
+
+function Assert-UpdateTransactionSecurity {
+    param($Mutex)
+    $security = $Mutex.GetAccessControl()
+    $raw = [Security.AccessControl.RawSecurityDescriptor]::new($security.GetSecurityDescriptorBinaryForm(), 0)
+    if ($raw.Owner.Value -notin $script:UpdateTrustedOwners -or -not $security.AreAccessRulesProtected -or $null -eq $raw.DiscretionaryAcl -or $raw.DiscretionaryAcl.Count -ne 5) { throw 'Invalid update mutex security.' }
+    $seen = @{}
+    foreach ($ace in $raw.DiscretionaryAcl) {
+        $sid = $ace.SecurityIdentifier.Value
+        if ($ace.AceType -ne [Security.AccessControl.AceType]::AccessAllowed -or $ace.AceFlags -ne 0 -or $seen.ContainsKey($sid) -or -not $script:UpdateMutexRights.ContainsKey($sid) -or $ace.AccessMask -ne $script:UpdateMutexRights[$sid]) { throw 'Invalid update mutex ACE.' }
+        $seen[$sid] = $true
+    }
+}
+
+function Assert-UpdateGateAcl {
+    param([string]$Path)
+    $acl = Get-Acl -LiteralPath $Path
+    $raw = [Security.AccessControl.RawSecurityDescriptor]::new($acl.GetSecurityDescriptorBinaryForm(),0)
+    if ($null -eq $raw.DiscretionaryAcl) { throw 'Update state has a null DACL.' }
+    $owner = $acl.GetOwner([Security.Principal.SecurityIdentifier]).Value
+    if ($owner -notin $script:UpdateTrustedOwners) { throw 'Invalid update state owner.' }
+    foreach ($rule in $acl.GetAccessRules($true,$true,[Security.Principal.SecurityIdentifier])) {
+        if ($rule.AccessControlType -ne [Security.AccessControl.AccessControlType]::Allow -or (([int64]$rule.FileSystemRights -band 0x500d0156) -ne 0 -and $rule.IdentityReference.Value -notin @('S-1-5-18','S-1-5-32-544','S-1-5-80-1102781572-1373263041-1070489469-7526906-1468061691','S-1-5-80-327494974-20047353-929432329-1920152597-707704661'))) { throw 'Invalid update state writer.' }
+    }
+}
+
+function Read-UpdateGateState {
+    param([string]$Path, [int]$Limit)
+    Assert-ExistingPathChain -Path $Path
+    if (-not (Test-Path -LiteralPath $Path)) { return $null }
+    Assert-RegularNonReparseFile -Path $Path -Label 'Update state'
+    Assert-UpdateGateAcl -Path $Path
+    $stream = [IO.File]::Open($Path,[IO.FileMode]::Open,[IO.FileAccess]::Read,[IO.FileShare]::Read)
+    try {
+        if ($stream.Length -le 0 -or $stream.Length -gt $Limit) { throw 'Invalid update state length.' }
+        $bytes = [byte[]]::new([int]$stream.Length)
+        $count = 0
+        while ($count -lt $bytes.Length) {
+            $read = $stream.Read($bytes,$count,$bytes.Length-$count)
+            if ($read -le 0) { throw 'Short update state read.' }
+            $count += $read
+        }
+    } finally { $stream.Dispose() }
+    # The XML JSON reader retains duplicate object keys, unlike ConvertFrom-Json.
+    Add-Type -AssemblyName System.Runtime.Serialization
+    Add-Type -AssemblyName System.Web.Extensions
+    $reader = [Runtime.Serialization.Json.JsonReaderWriterFactory]::CreateJsonReader($bytes,[Xml.XmlDictionaryReaderQuotas]::Max)
+    try {
+        $document = [Xml.XmlDocument]::new()
+        $document.Load($reader)
+        foreach ($node in $document.SelectNodes('//*[@type="object"]')) {
+            $keys = @{}
+            foreach ($child in $node.ChildNodes) {
+                if ($keys.ContainsKey($child.LocalName)) { throw 'Duplicate update state key.' }
+                $keys[$child.LocalName] = $true
+            }
+        }
+    } finally { $reader.Close() }
+    $json = [Web.Script.Serialization.JavaScriptSerializer]::new()
+    $json.MaxJsonLength = 4194304
+    $json.RecursionLimit = 64
+    return @{ Value = $json.DeserializeObject([Text.UTF8Encoding]::new($false,$true).GetString($bytes)) }
+}
+
+function Test-UpdateDeliveryTime {
+    param($Value)
+    if ($null -eq $Value) { return $true }
+    $parsed = [DateTimeOffset]::MinValue
+    return ($Value -is [string] -and $Value -match '(Z|[+-][0-9]{2}:[0-9]{2})$' -and [DateTimeOffset]::TryParse($Value,[ref]$parsed))
+}
+
+function Test-ActiveUpdateState {
+    param([string]$InstallRoot,[string]$DataRoot)
+    $updates = Join-Path $DataRoot 'updates'
+    foreach ($root in @($InstallRoot,$DataRoot,$updates)) {
+        Assert-ExistingPathChain -Path $root
+        if (Test-Path -LiteralPath $root) { Assert-UpdateGateAcl -Path $root }
+    }
+    $active = $false
+    $versionPattern = '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:[-+][0-9A-Za-z.-]+)?$'
+    $leaves = @(
+        @((Join-Path $updates 'pending_update.json'),16384,@('operation_id','version')),
+        @((Join-Path $updates 'startup-attempt.json'),4096,@('operation_id','version','attempt_id')),
+        @((Join-Path $updates 'terminal-outcome.json'),4096,@('operation_id','reported_version','status','safe_code')),
+        @((Join-Path $InstallRoot 'current-restore.json'),4096,@('version')),
+        @((Join-Path $InstallRoot 'selector-transition.json'),16384,@('operation_id','attempt_id','candidate','previous_bytes','status'))
+    )
+    foreach ($leaf in $leaves) {
+        $state = Read-UpdateGateState -Path $leaf[0] -Limit $leaf[1]
+        if ($null -ne $state) {
+            if ($state.Value -isnot [Collections.IDictionary]) { throw 'Invalid lifecycle state.' }
+            foreach ($key in $leaf[2]) {
+                if (-not $state.Value.ContainsKey($key) -or $null -eq $state.Value[$key] -or $state.Value[$key] -ceq '') { throw 'Invalid lifecycle identity.' }
+            }
+            foreach ($key in $leaf[2]) {
+                $value = $state.Value[$key]
+                if ($key -eq 'candidate') {
+                    if ($value -isnot [Collections.IDictionary] -or -not $value.ContainsKey('version') -or $value.version -isnot [string] -or $value.version -cnotmatch $versionPattern) { throw 'Invalid candidate identity.' }
+                } elseif ($value -isnot [string] -or $value.Length -lt 1 -or $value.Length -gt 8192) { throw 'Invalid lifecycle field.' }
+            }
+            foreach ($key in @('version','reported_version')) {
+                if ($state.Value.ContainsKey($key) -and ($state.Value[$key] -isnot [string] -or $state.Value[$key] -cnotmatch $versionPattern)) { throw 'Invalid lifecycle version.' }
+            }
+            if ($state.Value.ContainsKey('status')) {
+                $allowed = if ($leaf[0] -eq (Join-Path $InstallRoot 'selector-transition.json')) { @('prepared','accepted') } else { @('failed','rolled_back') }
+                if ($state.Value.status -cnotin $allowed) { throw 'Invalid lifecycle status.' }
+            }
+            $active = $true
+        }
+    }
+    $idPattern = '^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+    $versionPattern = '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:[-+][0-9A-Za-z.-]+)?$'
+    $codes = @{failed='launcher_apply_failed'; rolled_back='launcher_rolled_back'; applied='post_restart_handshake_confirmed'}
+    $delivered = @{}; $keys = @{}; $identities = @{}
+    $state = Read-UpdateGateState -Path (Join-Path $updates 'endpoint_update_reports.json') -Limit 4194304
+    if ($null -ne $state) {
+        if ($state.Value -isnot [array]) { throw 'Invalid report journal.' }
+        foreach ($record in $state.Value) {
+            if ($record -isnot [Collections.IDictionary] -or [string]::Join('|',@($record.Keys | Sort-Object)) -ne 'delivered_at|operation_id|report_key|reported_version|safe_code|status') { throw 'Invalid report fields.' }
+            $identity = [string]::Join('|',@($record.operation_id,$record.status,$record.reported_version,$record.safe_code))
+            if ($record.operation_id -isnot [string] -or $record.operation_id -cnotmatch $idPattern -or $record.report_key -isnot [string] -or $record.report_key -cnotmatch '^[0-9a-f]{32}$' -or $record.reported_version -isnot [string] -or $record.reported_version -cnotmatch $versionPattern -or $record.status -isnot [string] -or -not $codes.ContainsKey($record.status) -or $record.safe_code -cne $codes[$record.status] -or -not (Test-UpdateDeliveryTime $record.delivered_at) -or $keys.ContainsKey($record.report_key) -or $identities.ContainsKey($identity)) { throw 'Invalid report identity.' }
+            $keys[$record.report_key]=$true; $identities[$identity]=$true
+            if ($null -eq $record.delivered_at) { $active=$true } else { $delivered[$record.operation_id]=$true }
+        }
+    }
+    $seen = @{}
+    $state = Read-UpdateGateState -Path (Join-Path $updates 'endpoint_update_state.json') -Limit 262144
+    if ($null -ne $state) {
+        if ($state.Value -isnot [array]) { throw 'Invalid handoff journal.' }
+        foreach ($record in $state.Value) {
+            if ($record -isnot [Collections.IDictionary] -or [string]::Join('|',@($record.Keys | Sort-Object)) -ne 'assigned_version|operation_id|rollback_version|scheduled_ack_delivered_at') { throw 'Invalid handoff fields.' }
+            if ($record.operation_id -isnot [string] -or $record.operation_id -cnotmatch $idPattern -or $record.assigned_version -isnot [string] -or $record.assigned_version -cnotmatch $versionPattern -or $record.rollback_version -isnot [string] -or $record.rollback_version -cnotmatch $versionPattern -or -not (Test-UpdateDeliveryTime $record.scheduled_ack_delivered_at) -or $seen.ContainsKey($record.operation_id)) { throw 'Invalid handoff identity.' }
+            $seen[$record.operation_id]=$true
+            if (-not $delivered.ContainsKey($record.operation_id)) { $active=$true }
+        }
+    }
+    return $active
+}
+
 $principal = [Security.Principal.WindowsPrincipal]([Security.Principal.WindowsIdentity]::GetCurrent())
 if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
     throw 'Administrator rights are required.'
@@ -259,6 +411,21 @@ $inputHash = (Get-FileHash -LiteralPath $MsiPath -Algorithm SHA256).Hash.ToLower
 if ($inputHash -ne [string]$manifest.package_sha256) {
     throw 'MSI SHA-256 does not match release manifest.'
 }
+
+$updateMutex = $null
+$transactionOwned = $false
+try {
+    try {
+        $updateMutex = New-UpdateTransaction
+        Assert-UpdateTransactionSecurity -Mutex $updateMutex
+        try { $transactionOwned = $updateMutex.WaitOne(30000) }
+        catch [Threading.AbandonedMutexException] { $transactionOwned = $true }
+        if (-not $transactionOwned) { exit 61 }
+        Assert-UpdateTransactionSecurity -Mutex $updateMutex
+        $gateInstallRoot = Join-Path ([Environment]::GetFolderPath([Environment+SpecialFolder]::ProgramFiles)) 'Endpoint Platform\Agent'
+        $gateDataRoot = Join-Path ([Environment]::GetFolderPath([Environment+SpecialFolder]::CommonApplicationData)) 'Endpoint Platform\Agent'
+        if (Test-ActiveUpdateState -InstallRoot $gateInstallRoot -DataRoot $gateDataRoot) { exit 61 }
+    } catch { Write-Error 'UPDATE_STATE_INVALID' -ErrorAction Continue; exit 62 }
 
 $programFiles = [Environment]::GetFolderPath([Environment+SpecialFolder]::ProgramFiles)
 $packageRoot = Join-Path $programFiles 'Endpoint Platform'
@@ -296,6 +463,13 @@ Assert-InstallerCacheProtection -Path $executionCacheRoot
 Assert-InstallerCacheProtection -Path $executionCacheDirectory
 Assert-CacheArtifactProtection -Path $executionCachePath
 
+$serviceHost = Join-Path $gateInstallRoot 'endpoint-agent-service.exe'
+if (Test-Path -LiteralPath $serviceHost) {
+    Assert-ExistingPathChain -Path $serviceHost
+    Assert-RegularNonReparseFile -Path $serviceHost -Label 'Canonical service host'
+    $trayStop = Start-Process -FilePath $serviceHost -ArgumentList '--stop-tray-companions' -WindowStyle Hidden -Wait -PassThru
+    if ($trayStop.ExitCode -ne 0) { throw 'TRAY_SHUTDOWN_FAILED' }
+}
 $previousServiceStates = Stop-ManagedAgentServices
 $installationCompleted = $false
 try {
@@ -400,4 +574,9 @@ finally {
     if (-not $installationCompleted -and $previousServiceStates['EndpointAgent'] -eq [ServiceProcess.ServiceControllerStatus]::Running) {
         Start-ManagedEndpointAgent
     }
+}
+
+} finally {
+    if ($transactionOwned) { $updateMutex.ReleaseMutex() }
+    if ($null -ne $updateMutex) { $updateMutex.Dispose() }
 }
