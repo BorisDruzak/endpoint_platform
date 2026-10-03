@@ -5,6 +5,16 @@ on:
     branches:
       - main
     paths:
+      - "endpoint_server/**"
+      - "pc_agent/**"
+      - "packaging/**"
+      - "tools/**"
+      - "tests/**"
+      - "requirements/**"
+      - "requirements-ci.txt"
+      - "pyproject.toml"
+      - "pytest.ini"
+      - "webapp/**"
       - "endpoint_contracts/**"
       - "endpoint_server/http/**"
       - "endpoint_server/operations/**"
@@ -26,6 +36,16 @@ on:
     branches:
       - main
     paths:
+      - "endpoint_server/**"
+      - "pc_agent/**"
+      - "packaging/**"
+      - "tools/**"
+      - "tests/**"
+      - "requirements/**"
+      - "requirements-ci.txt"
+      - "pyproject.toml"
+      - "pytest.ini"
+      - "webapp/**"
       - "endpoint_contracts/**"
       - "endpoint_server/http/**"
       - "endpoint_server/operations/**"
@@ -51,7 +71,7 @@ permissions:
 jobs:
   provider-release-gate:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
     services:
       postgres:
         image: postgres:16
@@ -76,10 +96,25 @@ jobs:
       - name: Install CI dependencies
         run: python -m pip install -r requirements-ci.txt -r requirements/build-linux.txt
 
-      - name: Run server, contract, operations, Gateway, and context suites
+      - name: Record exact source and dependency evidence
+        run: |
+          mkdir -p artifacts
+          python - <<'PY'
+          import json, os, platform, subprocess
+          from pathlib import Path
+          head = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
+          assert head == os.environ["GITHUB_SHA"], "checkout differs from dispatched source"
+          evidence = {key: os.environ.get(key) for key in (
+              "GITHUB_REF", "GITHUB_SHA", "GITHUB_RUN_ID", "GITHUB_RUN_ATTEMPT", "GITHUB_WORKFLOW_REF")}
+          evidence.update(head=head, python=platform.python_version(), os=platform.platform())
+          Path("artifacts/source.json").write_text(json.dumps(evidence, indent=2) + "\n")
+          PY
+          python -m pip freeze > artifacts/dependencies.txt
+
+      - name: Run complete server and agent runtime suites
         run: >-
-          timeout --signal=INT --kill-after=15s 10m
-          python -m pytest tests -q -o faulthandler_timeout=120
+          timeout --signal=INT --kill-after=30s 20m
+          python -m pytest tests pc_agent/tests -q -o faulthandler_timeout=120
           --junitxml=artifacts/endpoint-operations-provider.xml
 
       - name: Check generated contract artifacts
@@ -96,5 +131,8 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: endpoint-operations-provider
-          path: artifacts/endpoint-operations-provider.xml
+          path: |
+            artifacts/endpoint-operations-provider.xml
+            artifacts/source.json
+            artifacts/dependencies.txt
           if-no-files-found: error
