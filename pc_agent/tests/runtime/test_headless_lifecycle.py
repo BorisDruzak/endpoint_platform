@@ -53,6 +53,102 @@ def _settings(tmp_path: Path) -> RuntimeSettings:
     )
 
 
+@pytest.mark.parametrize("core_version", ["3.2.83", "3.2.82", "3.2.81"])
+def test_hello_reports_core83_foundation82(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, core_version: str
+) -> None:
+    """An OTA-selected core must not impersonate the fixed service foundation."""
+    settings = replace(
+        _settings(tmp_path), transport_mode="gateway_wss", launcher_version="3.2.82"
+    )
+    settings.data_root.mkdir()
+    (settings.data_root / "enrollment-identity.json").write_text(json.dumps({
+        "device_id": "00000000-0000-4000-8000-000000000437",
+        "schema_version": "endpoint_enrollment_identity_v1",
+    }), encoding="utf-8")
+    monkeypatch.setattr(runtime_application, "AGENT_VERSION", core_version)
+    monkeypatch.setenv("ENDPOINT_AGENT_LAUNCHER_VERSION", "99.0.0")
+
+    hello = runtime_application._load_hello(settings)
+
+    assert hello.agent_version == core_version
+    assert hello.launcher_version == "3.2.82"
+
+
+@pytest.mark.parametrize("version", [
+    None, "", "3.2", "3.2.82.0", "3.2.82-beta", "03.2.82", "3.02.82",
+    "3.2.082", " 3.2.82", "3.2.82\n", "３.2.82", "-1.2.3",
+])
+def test_service_child_rejects_missing_or_invalid_foundation_before_start(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, version: str | None
+) -> None:
+    """Missing host authority must fail closed even with a spoofed environment."""
+    monkeypatch.setenv("ENDPOINT_AGENT_LAUNCHER_VERSION", "3.2.82")
+
+    async def forbidden_start(_settings: RuntimeSettings) -> int:
+        pytest.fail("invalid foundation must not start the service child")
+
+    monkeypatch.setattr(runtime_main, "_run_service_child", forbidden_start)
+    arguments = ["--windows-service-child", "--ca-file", str(tmp_path / "ca.crt")]
+    if version is not None:
+        arguments.extend(["--launcher-version", version])
+
+    with pytest.raises(SystemExit) as error:
+        runtime_main.main(arguments)
+    assert error.value.code == 2
+
+
+def test_service_child_propagates_fixed_host_foundation(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv("ENDPOINT_AGENT_LAUNCHER_VERSION", "99.0.0")
+    observed: list[RuntimeSettings] = []
+
+    async def capture_start(settings: RuntimeSettings) -> int:
+        observed.append(settings)
+        return 0
+
+    monkeypatch.setattr(runtime_main, "_run_service_child", capture_start)
+
+    assert runtime_main.main([
+        "--windows-service-child", "--launcher-version", "3.2.82",
+        "--ca-file", str(tmp_path / "ca.crt"),
+    ]) == 0
+    assert observed[0].launcher_version == "3.2.82"
+
+
+@pytest.mark.parametrize("transport_mode", ["gateway_wss", "gateway_http_pull"])
+@pytest.mark.parametrize("platform_name", ["nt", "posix"])
+def test_non_service_runtime_keeps_bounded_foundation_fallback(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, transport_mode: str, platform_name: str
+) -> None:
+    """Development/Linux entrypoints need no Windows fixed-host argument."""
+    monkeypatch.setenv("ENDPOINT_AGENT_LAUNCHER_VERSION", "99.0.0")
+    observed: list[RuntimeSettings] = []
+
+    async def capture_start(settings: RuntimeSettings) -> int:
+        observed.append(settings)
+        return 0
+
+    monkeypatch.setattr(runtime_main, "_run_runtime_after_first_boot_enrollment", capture_start)
+    assert runtime_main.main([
+        "--ca-file", str(tmp_path / "ca.crt"), "--transport-mode", transport_mode,
+        "--data-dir", str(tmp_path / "data"), "--install-root", str(tmp_path / "install"),
+    ]) == 0
+    settings = observed[0]
+    assert settings.launcher_version is None
+    settings.data_root.mkdir(parents=True, exist_ok=True)
+    (settings.data_root / "enrollment-identity.json").write_text(json.dumps({
+        "device_id": "00000000-0000-4000-8000-000000000437",
+        "schema_version": "endpoint_enrollment_identity_v1",
+    }), encoding="utf-8")
+    monkeypatch.setattr(runtime_application, "os", SimpleNamespace(name=platform_name))
+    hello = runtime_application._load_hello(settings)
+    expected = AGENT_VERSION if transport_mode == "gateway_wss" else compatibility_agent_hello().launcher_version
+    assert hello.launcher_version == expected
+    assert hello.platform == ("windows_amd64" if platform_name == "nt" else "linux_amd64")
+
+
 def test_headless_runtime_prints_its_compiled_version_without_runtime_inputs(
     capsys: pytest.CaptureFixture[str],
 ) -> None:

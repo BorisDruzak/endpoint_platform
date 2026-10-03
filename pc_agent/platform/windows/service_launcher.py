@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Sequence
 from urllib.parse import urlsplit
 
-from pc_agent.version import EXIT_UPDATE_PENDING
+from pc_agent.version import AGENT_VERSION, EXIT_UPDATE_PENDING
 
 from pc_agent.platform.windows.service_control import SERVICE_NAME, trigger_pending_updater
 from pc_agent.platform.windows.update_paths import UPDATE_EXECUTABLE_NAME, WindowsUpdatePaths
@@ -115,6 +115,7 @@ def build_agent_child_command(paths: WindowsUpdatePaths | None = None) -> list[s
         "--endpoint-origin", endpoint_origin,
         "--transport-mode", "gateway_wss",
         "--no-migration-http-pull-fallback",
+        "--launcher-version", AGENT_VERSION,
     ]
 
 

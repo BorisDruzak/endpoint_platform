@@ -25,11 +25,17 @@ def _paths(tmp_path: Path) -> WindowsUpdatePaths:
     return WindowsUpdatePaths(install, data / "updates" / "pending_update.json")
 
 
-def test_service_host_resolves_current_selector_on_each_start(tmp_path: Path) -> None:
+def test_service_host_resolves_current_selector_on_each_start(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     """Pinning SCM to the initial core would make an applied update ineffective."""
-    from pc_agent.platform.windows.service_launcher import build_agent_child_command
+    from pc_agent.platform.windows import service_launcher
+
+    build_agent_child_command = service_launcher.build_agent_child_command
 
     paths = _paths(tmp_path)
+    monkeypatch.setattr(service_launcher, "AGENT_VERSION", "3.2.82", raising=False)
+    monkeypatch.setenv("ENDPOINT_AGENT_LAUNCHER_VERSION", "99.0.0")
     paths.current_path.write_text('{"version":"3.1.76"}', encoding="utf-8")
     old = build_agent_child_command(paths)
 
@@ -47,6 +53,7 @@ def test_service_host_resolves_current_selector_on_each_start(tmp_path: Path) ->
         "--endpoint-origin", "https://endpoint.sosnadmin.local",
         "--transport-mode", "gateway_wss",
         "--no-migration-http-pull-fallback",
+        "--launcher-version", "3.2.82",
     ]
 
 
@@ -130,6 +137,7 @@ def test_service_child_stops_when_host_closes_control_pipe(
 
     assert runtime_main.main([
         "--windows-service-child",
+        "--launcher-version", "3.2.82",
         "--data-dir", "data",
         "--install-root", "install",
         "--ca-file", "ca.crt",
@@ -192,6 +200,7 @@ def test_service_child_propagates_exit_42_while_host_pipe_remains_open(
     worker = threading.Thread(
         target=lambda: result.append(runtime_main.main([
             "--windows-service-child",
+            "--launcher-version", "3.2.82",
             "--data-dir", str(tmp_path / "data"),
             "--install-root", str(tmp_path / "install"),
             "--ca-file", str(tmp_path / "ca.crt"),
@@ -222,7 +231,7 @@ async def update_pending(_settings):
 main.run_runtime = update_pending
 raise SystemExit(main.main([
     '--windows-service-child', '--data-dir', 'data', '--install-root', 'install',
-    '--ca-file', 'ca.crt',
+    '--ca-file', 'ca.crt', '--launcher-version', '3.2.82',
 ]))
 """
     environment = {**os.environ, "PYTHONPATH": str(project_root)}

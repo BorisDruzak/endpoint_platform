@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import os
+import re
 import select
 import sys
 from pathlib import Path
@@ -144,11 +145,19 @@ async def _run_service_child(settings: RuntimeSettings) -> int:
     return 0
 
 
+def _launcher_version(value: str) -> str:
+    """Accept only the fixed host's canonical version triplet."""
+    if re.fullmatch(r"(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)", value) is None:
+        raise argparse.ArgumentTypeError("launcher version must be a canonical version triplet")
+    return value
+
+
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Endpoint Agent headless runtime")
     parser.add_argument("--data-dir", default=None)
     parser.add_argument("--install-root", default=None)
     parser.add_argument("--ca-file", default=None)
+    parser.add_argument("--launcher-version", type=_launcher_version, default=None)
     parser.add_argument(
         "--endpoint-origin",
         default=os.environ.get(
@@ -196,7 +205,10 @@ def _parser() -> argparse.ArgumentParser:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    args = _parser().parse_args(argv)
+    parser = _parser()
+    args = parser.parse_args(argv)
+    if args.windows_service_child and args.launcher_version is None:
+        parser.error("--windows-service-child requires --launcher-version from the fixed host")
     if args.print_version:
         print(AGENT_VERSION)
         return 0
@@ -233,6 +245,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         endpoint_origin=endpoint_origin,
         transport_mode=args.transport_mode,
         migration_http_pull_fallback=args.migration_http_pull_fallback,
+        launcher_version=args.launcher_version,
         network_probe_allowed_cidrs=_network_probe_values(
             args.network_probe_allowed_cidrs,
             "ENDPOINT_AGENT_NETWORK_PROBE_ALLOWED_CIDRS",

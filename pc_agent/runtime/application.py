@@ -72,6 +72,7 @@ class RuntimeSettings:
     migration_http_pull_fallback: bool = False
     network_probe_allowed_cidrs: tuple[str, ...] = ()
     network_probe_allowed_suffixes: tuple[str, ...] = ()
+    launcher_version: str | None = None
 
     def validate(self) -> None:
         for name in ("data_root", "install_root", "ca_file"):
@@ -574,7 +575,9 @@ def _load_hello(settings: object) -> AgentHelloV1:
     if settings.transport_mode == "gateway_wss":
         values.update(
             agent_version=AGENT_VERSION,
-            launcher_version=AGENT_VERSION,
+            # The protected fixed host owns this value; direct development and
+            # Linux entrypoints retain their compiled compatibility fallback.
+            launcher_version=settings.launcher_version or AGENT_VERSION,
         )
         features = _policy_protocol_features(
             AGENT_VERSION, platform, settings.transport_mode,
