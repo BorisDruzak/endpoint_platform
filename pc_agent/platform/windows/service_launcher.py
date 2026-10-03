@@ -77,6 +77,15 @@ def stop_tray_companions(paths: WindowsUpdatePaths | None = None) -> None:
             handle.Close()
 
 
+def _verify_selected_runtime(paths: WindowsUpdatePaths, selector: dict) -> None:
+    """Affirm ownership at boot without adding MSI imports to the worker."""
+    from .installation_provenance import _selector, _inspect_core_value, ProvenanceConflict
+    selector_bytes, observed = _selector(paths.current_path)
+    if observed != selector:
+        raise ProvenanceConflict()
+    _inspect_core_value(paths, selector_bytes, observed, AGENT_VERSION)
+
+
 def build_agent_child_command(paths: WindowsUpdatePaths | None = None) -> list[str]:
     """Resolve the immutable runtime selected by the strict current selector."""
     paths = paths or WindowsUpdatePaths.production()
@@ -104,6 +113,7 @@ def build_agent_child_command(paths: WindowsUpdatePaths | None = None) -> list[s
     if not isinstance(version, str) or not _SEMVER_TRIPLET.fullmatch(version):
         raise ValueError("current selector is invalid")
     executable = validate_runtime_executable(paths, version)
+    _verify_selected_runtime(paths, payload)
     data_root = paths.pending_path.parents[1]
     endpoint_origin = _provisioned_endpoint_origin(data_root)
     command = [
@@ -251,6 +261,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         except (OSError,ValueError,TypeError,KeyError,RuntimeError) as error:
             if str(error)=="UPDATE_IN_PROGRESS": return 61
             if str(error)=="UPDATE_STATE_INVALID": return 62
+            if str(error)=="PROVENANCE_CONFLICT": return 63
             return 1
     if args.agent_service:
         return run_agent_service()

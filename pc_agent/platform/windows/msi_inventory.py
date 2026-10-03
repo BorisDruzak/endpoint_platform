@@ -1,4 +1,4 @@
-"""Setup-only read-only MSI package and installed ownership adapter.
+"""Setup and fixed-host read-only MSI package and installed ownership adapter.
 
 Opening the database never opens an installation session or runs MSI actions.
 The offline worker must not import this module.

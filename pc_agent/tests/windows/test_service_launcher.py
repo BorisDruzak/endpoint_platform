@@ -14,6 +14,14 @@ from pc_agent.version import EXIT_UPDATE_PENDING
 from pc_agent.platform.windows.update_paths import WindowsUpdatePaths
 
 
+@pytest.fixture
+def modeled_runtime_ownership(monkeypatch):
+    # Argument/selector tests use dummy executables; dedicated boot ownership
+    # regressions below exercise real inventory and receipt verification.
+    from pc_agent.platform.windows import service_launcher
+    monkeypatch.setattr(service_launcher, '_verify_selected_runtime', lambda *_: None)
+
+
 def _paths(tmp_path: Path) -> WindowsUpdatePaths:
     install = tmp_path / "install"
     data = tmp_path / "data"
@@ -39,6 +47,7 @@ def test_retained_runtime_requires_full_archive_verification_before_launch(tmp_p
     assert checked==['3.1.76']
 
 
+@pytest.mark.usefixtures("modeled_runtime_ownership")
 def test_service_host_resolves_current_selector_on_each_start(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -71,6 +80,7 @@ def test_service_host_resolves_current_selector_on_each_start(
 
 
 @pytest.mark.parametrize("foundation_version", ["3.2.81", "3.2.82"])
+@pytest.mark.usefixtures("modeled_runtime_ownership")
 def test_service_host_rolls_back_to_actual_frozen_core81_parser(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, foundation_version: str
 ) -> None:
@@ -97,6 +107,7 @@ def test_service_host_rolls_back_to_actual_frozen_core81_parser(
 
 
 @pytest.mark.parametrize("version", ["3.2.82", "3.2.83", "3.10.0", "4.0.0"])
+@pytest.mark.usefixtures("modeled_runtime_ownership")
 def test_service_host_passes_compiled_foundation_to_protocol82_cores(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, version: str
 ) -> None:
@@ -121,6 +132,7 @@ def test_service_host_passes_compiled_foundation_to_protocol82_cores(
     assert arguments.migration_http_pull_fallback is False
 
 
+@pytest.mark.usefixtures("modeled_runtime_ownership")
 def test_service_host_uses_provisioned_endpoint_origin(tmp_path: Path) -> None:
     """A staging enrollment must not be redirected to the production endpoint."""
     from pc_agent.platform.windows.service_launcher import build_agent_child_command
@@ -138,6 +150,7 @@ def test_service_host_uses_provisioned_endpoint_origin(tmp_path: Path) -> None:
     )
 
 
+@pytest.mark.usefixtures("modeled_runtime_ownership")
 def test_service_host_accepts_revision_bound_current_selector(tmp_path: Path) -> None:
     """A freshly installed immutable MSI selector binds a runtime to its source SHA."""
     from pc_agent.platform.windows.service_launcher import build_agent_child_command
@@ -209,6 +222,7 @@ def test_service_child_stops_when_host_closes_control_pipe(
     assert cancelled.is_set()
 
 
+@pytest.mark.usefixtures("modeled_runtime_ownership")
 def test_service_host_latches_stop_before_selected_child_is_spawned(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -690,3 +704,33 @@ def test_companion_shutdown_stops_only_installed_tray_and_user_sensor(
     service_launcher.stop_tray_companions(WindowsUpdatePaths(root,tmp_path/'updates/pending_update.json'))
 
     assert terminated == [101, 102]
+
+
+def test_boot_rejects_executable_without_any_ownership_evidence(tmp_path,monkeypatch):
+    from pc_agent.platform.windows import service_launcher,installation_provenance
+    monkeypatch.setattr(installation_provenance,'_assert_security',lambda _:None)
+    paths=_paths(tmp_path)
+    paths.current_path.write_text('{"version":"3.1.76"}')
+    with pytest.raises(ValueError,match='PROVENANCE_CONFLICT'):
+        service_launcher.build_agent_child_command(paths)
+
+
+@pytest.mark.parametrize('defect',[None,'missing_receipt','missing_manifest','changed_payload','wrong_source','incompatible_floor','ambiguous_owner'])
+def test_boot_requires_complete_zip_ownership(tmp_path,monkeypatch,defect):
+    from pc_agent.platform.windows import service_launcher,installation_provenance
+    from pc_agent.tests.windows.test_installation_provenance import zip_core
+    paths=WindowsUpdatePaths(tmp_path/'Agent',tmp_path/'data/updates/pending_update.json')
+    root=zip_core(paths,version='3.2.83',minimum='3.2.83' if defect=='incompatible_floor' else '3.2.82')
+    monkeypatch.setattr(installation_provenance,'_assert_security',lambda _:None)
+    monkeypatch.setattr(service_launcher,'AGENT_VERSION','3.2.82')
+    if defect=='missing_receipt': (root/'.endpoint-update.json').unlink()
+    elif defect=='missing_manifest': (root/'endpoint-update-manifest.json').unlink()
+    elif defect=='changed_payload': (root/'pc_agent.exe').write_bytes(b'changed')
+    elif defect=='wrong_source': paths.current_path.write_text(json.dumps({'schema_version':1,'version':'3.2.83','source_revision':'b'*40}))
+    elif defect=='ambiguous_owner': (root/'.endpoint-msi-runtime.json').write_text('{}')
+    if defect:
+        with pytest.raises(ValueError,match='PROVENANCE_CONFLICT'):
+            service_launcher.build_agent_child_command(paths)
+    else:
+        command=service_launcher.build_agent_child_command(paths)
+        assert command[0]==str(root/'pc_agent.exe') and command[-2:]==['--launcher-version','3.2.82']

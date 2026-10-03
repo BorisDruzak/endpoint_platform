@@ -501,6 +501,8 @@ function Invoke-InstallerOwnerPump {
             throw 'UPDATE_IN_PROGRESS'
         } elseif ($Process.ExitCode -eq 62) {
             throw 'UPDATE_STATE_INVALID'
+        } elseif ($Process.ExitCode -eq 63) {
+            throw 'PROVENANCE_CONFLICT'
         } elseif ($Process.ExitCode -ne 0 -or -not $completed -or -not $Bridge.Policy.AllHelpersComplete) {
             throw 'RECOVERY_REQUIRED'
         }
@@ -1091,7 +1093,10 @@ try {
         if ($null -ne $interruptedFence -and $Operation -ne 'RecoverInterruptedInstall') { exit 61 }
         if ($Operation -eq 'RecoverInterruptedInstall' -and $null -eq $interruptedFence) { exit 61 }
         if ($null -ne $interruptedFence -and ($interruptedFence.package.sha256 -cne $manifest.package_sha256 -or $interruptedFence.package.product_code -cne $manifest.product_code -or $interruptedFence.package.version -cne $manifest.version -or $interruptedFence.package.source_revision -cne $manifest.source_revision)) { throw 'PROVENANCE_CONFLICT' }
-    } catch { Write-Error 'UPDATE_STATE_INVALID' -ErrorAction Continue; exit 62 }
+    } catch {
+        if ($_.Exception.Message -eq 'PROVENANCE_CONFLICT') { exit 63 }
+        Write-Error 'UPDATE_STATE_INVALID' -ErrorAction Continue; exit 62
+    }
 
 $programFiles = [Environment]::GetFolderPath([Environment+SpecialFolder]::ProgramFiles)
 $packageRoot = Join-Path $programFiles 'Endpoint Platform'
@@ -1209,6 +1214,7 @@ try {
 catch {
     if ($_.Exception.Message -eq 'UPDATE_IN_PROGRESS') { exit 61 }
     if ($_.Exception.Message -eq 'UPDATE_STATE_INVALID') { exit 62 }
+    if ($_.Exception.Message -eq 'PROVENANCE_CONFLICT') { exit 63 }
     throw
 }
 finally {

@@ -783,7 +783,20 @@ def reconcile_installed_core(paths: WindowsUpdatePaths, expected_msi) -> str:
     elif _present(candidate_root / ZIP_RECEIPT):
         raise ProvenanceConflict()
     for archive_id in plan['archives']:
-        restore_retained_core(paths, archive_id)
+        from .runtime_identity import verify_retained_archive
+        retained = verify_retained_archive(paths, archive_id)
+        product_state = msi_inventory.NativeMsi().product(retained.record['package']['product_code'])
+        if product_state == -1:
+            restore_retained_core(paths, archive_id)
+        elif product_state == 5:
+            # Capture is contingency evidence, not authority to convert an
+            # owner that survived native maintenance into historical ownership.
+            selector_data = bytes.fromhex(retained.record['selector_bytes'])
+            live = _inspect_core_value(paths, selector_data, read_json(selector_data,4096), expected.package.version)
+            if live.origin != 'msi' or live.digest != archive_id:
+                raise ProvenanceConflict()
+        else:
+            raise ProvenanceConflict()
     if plan['phase'] == 'prepared':
         plan['phase'] = 'native_verified'
         durable_state.write_json_atomic(plan_path, plan, trusted_root=root, max_bytes=16384, protect=protect_state)

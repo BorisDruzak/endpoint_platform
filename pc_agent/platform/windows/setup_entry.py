@@ -208,6 +208,8 @@ def _install_embedded_msi(msi_path: Path) -> int:
         raise SetupInstallError("UPDATE_IN_PROGRESS")
     if completed.returncode == 62:
         raise SetupInstallError("UPDATE_STATE_INVALID")
+    if completed.returncode == 63:
+        raise SetupInstallError("PROVENANCE_CONFLICT")
     if completed.returncode not in (0,3010,1641):
         raise SetupInstallError("MSI_EVIDENCE_FAILED")
     return completed.returncode

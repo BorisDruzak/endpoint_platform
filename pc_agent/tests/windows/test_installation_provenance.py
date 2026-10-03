@@ -292,6 +292,9 @@ def test_reviewed_legacy_native_owner_survives_as_explicit_retained_archive(msi_
     captured = module.inspect_installed_core(paths, resulting_foundation='3.2.82').current
     assert captured.origin == 'msi'
     assert captured.compatibility_foundations == ('3.2.82',)
+    from pc_agent.platform.windows import service_launcher
+    monkeypatch.setattr(service_launcher,'AGENT_VERSION','3.2.82')
+    assert service_launcher.build_agent_child_command(paths)[0]==str(core/'pc_agent.exe')
     with pytest.raises(module.ProvenanceConflict): module.inspect_installed_core(paths, resulting_foundation='3.2.83')
     archive = module.archive_retained_core(paths, captured, package_path=cached, package=package,
         transaction_id='11111111-1111-4111-8111-111111111111')
@@ -689,3 +692,80 @@ def test_uninstall_finalization_requires_fresh_durable_barrier_before_retirement
         bridge.execute_authorized_phase(client,paths)
         assert installer_fence.read_fence(paths) is None
         assert (archive/'completed.json').is_file()
+
+
+@pytest.mark.parametrize('defect',[None,'component','receipt','payload'])
+def test_newer_msi_owner_remaining_installed_is_preserved(handoff_input,monkeypatch,defect):
+    from dataclasses import replace
+    from types import SimpleNamespace
+    from pc_agent.platform.windows import msi_inventory
+    from endpoint_contracts.runtime_payload import verify_payload
+    module,paths,candidate,request,expected=handoff_input
+    newer=zip_core(paths,version='3.2.83',minimum='3.2.81')
+    (newer/'.endpoint-update.json').unlink()
+    manifest=json.loads((newer/'endpoint-update-manifest.json').read_text())
+    identity=verify_payload(newer,manifest,excluded=frozenset({'endpoint-update-manifest.json'}))
+    old_bytes=b'exact newer MSI package'
+    old_hash=hashlib.sha256(old_bytes).hexdigest()
+    old_file=replace(expected.package.files[0],path='versions/3.2.83/pc_agent.exe')
+    old_package=replace(expected.package,version='3.2.83',sha256=old_hash,
+        product_code='{44444444-4444-4444-8444-444444444444}',files=(old_file,))
+    old_expected=replace(expected,package=old_package,identity=identity,manifest=manifest,
+        contract_bytes=(newer/'endpoint-runtime-contract.json').read_bytes())
+    old_release={**request['release'],'version':'3.2.83','product_code':old_package.product_code,'package_sha256':old_hash}
+    state=paths.install_root.parent/'installer-state'
+    media=state/'packages'/old_hash/'EndpointAgent.msi';media.parent.mkdir(parents=True);media.write_bytes(old_bytes)
+    owners=state/'core-owners';owners.mkdir()
+    receipt=owners/'3.2.83.json';receipt.write_text(json.dumps({'schema_version':1,'release':old_release}))
+    marker=json.dumps({'schema_version':1,'version':'3.2.83','component_guid':'33333333-3333-4333-8333-333333333333'})
+    (newer/'.endpoint-msi-runtime.json').write_text(marker)
+    monkeypatch.setattr(msi_inventory,'read_expected_package',lambda _path,release:old_expected if release==old_release else expected)
+    monkeypatch.setattr(msi_inventory,'read_package',lambda _path,digest:old_package if digest==old_hash else expected.package)
+    state_after={'bad_component':False}
+    checked=[]
+    def verify(package,root):
+        checked.append(package.product_code)
+        if package==old_package and state_after['bad_component']: raise module.ProvenanceConflict()
+    monkeypatch.setattr(msi_inventory,'verify_installed',verify)
+    monkeypatch.setattr(msi_inventory,'NativeMsi',lambda:SimpleNamespace(product=lambda _:5))
+    before=module.inspect_installed_core(paths,resulting_foundation='3.2.82').current
+    request['selected']=before.digest
+    assert module.prepare_installer_provenance(paths,request)=='preserved'
+    (candidate/'.endpoint-msi-runtime.json').write_text(json.dumps({'schema_version':1,'version':'3.2.82','component_guid':'33333333-3333-4333-8333-333333333333'}))
+    if defect=='component': state_after['bad_component']=True
+    elif defect=='receipt': receipt.write_text('{}')
+    elif defect=='payload': (newer/'pc_agent.exe').write_bytes(b'changed')
+    checked.clear()
+    if defect:
+        with pytest.raises(module.ProvenanceConflict): module.reconcile_installed_core(paths,request)
+    else:
+        assert module.reconcile_installed_core(paths,request)=='preserved'
+        assert old_package.product_code in checked
+        after=module.inspect_installed_core(paths,resulting_foundation='3.2.82').current
+        assert after.origin=='msi' and after.digest==before.digest
+        from pc_agent.platform.windows import service_launcher
+        monkeypatch.setattr(service_launcher,'AGENT_VERSION','3.2.82')
+        assert service_launcher.build_agent_child_command(paths)[0]==str(newer/'pc_agent.exe')
+        assert module.reconcile_installed_core(paths,request)=='preserved'
+    assert (newer/'.endpoint-msi-runtime.json').read_text()==marker
+    assert not (newer/'.endpoint-retained-msi.json').exists()
+
+
+@pytest.mark.parametrize('defect',[None,'missing_link','missing_archive_receipt','changed_payload'])
+def test_boot_requires_complete_retained_ownership(msi_archive_input,monkeypatch,defect):
+    from types import SimpleNamespace
+    from pc_agent.platform.windows import msi_inventory,service_launcher
+    module,paths,root,evidence,package_path,package=msi_archive_input
+    archive=module.archive_retained_core(paths,evidence,package_path=package_path,package=package,
+        transaction_id='11111111-1111-4111-8111-111111111111')
+    monkeypatch.setattr(msi_inventory,'NativeMsi',lambda:SimpleNamespace(product=lambda _:-1))
+    monkeypatch.setattr(service_launcher,'AGENT_VERSION','3.2.82')
+    module.restore_retained_core(paths,archive.name)
+    if defect=='missing_link': (root/'.endpoint-retained-msi.json').unlink()
+    elif defect=='missing_archive_receipt': (archive/'receipt.json').unlink()
+    elif defect=='changed_payload': (root/'pc_agent.exe').write_bytes(b'changed')
+    if defect:
+        with pytest.raises((ValueError,OSError)):
+            service_launcher.build_agent_child_command(paths)
+    else:
+        assert service_launcher.build_agent_child_command(paths)[0]==str(root/'pc_agent.exe')

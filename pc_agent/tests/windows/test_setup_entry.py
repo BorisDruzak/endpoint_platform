@@ -950,3 +950,50 @@ def test_other_package_recovery_rejects_before_native_costing(tmp_path,monkeypat
     monkeypatch.setattr(setup_entry,'_embedded_recovery_operation',conflict,raising=False)
     monkeypatch.setattr(setup_entry,'_require_setup_disk',lambda _:pytest.fail('unrelated package costed'))
     assert setup_entry.main(['--quiet'])==setup_entry.EXIT_PREFLIGHT_FAILED
+
+
+def test_provenance_conflict_survives_helper_wrapper_and_setup_evidence(tmp_path,monkeypatch):
+    from contextlib import contextmanager
+    import subprocess
+    from pc_agent.platform.windows import service_launcher,installer_transaction_bridge as bridge
+    from endpoint_contracts.runtime_payload import PayloadConflict
+    @contextmanager
+    def owned(*_): yield object()
+    monkeypatch.setattr(bridge,'owner_authorized_phase',owned)
+    monkeypatch.setattr(service_launcher.WindowsUpdatePaths,'production',classmethod(lambda cls:cls(tmp_path/'Agent',tmp_path/'data/updates/pending_update.json')))
+    def conflict(*_a,**_kw): raise PayloadConflict()
+    monkeypatch.setattr(bridge,'execute_authorized_phase',conflict)
+    helper_code=service_launcher.main(['--installer-phase','inspect','--installer-session','11111111-1111-4111-8111-111111111111'])
+    script=tmp_path/'classified-failure.ps1'
+    script.write_text(r'''param($Source,[int]$Code)
+$ErrorActionPreference='Stop'
+$tokens=$null;$errors=$null
+$ast=[Management.Automation.Language.Parser]::ParseFile($Source,[ref]$tokens,[ref]$errors)
+if($errors.Count){throw 'parse failure'}
+$pump=$ast.Find({param($n) $n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'Invoke-InstallerOwnerPump'},$true)
+$classification=$pump.Find({param($n) $n -is [Management.Automation.Language.IfStatementAst] -and $n.Extent.Text.Contains('$Bridge.Policy.MarkMsiExited($Process.ExitCode)')},$true)
+$outer=$ast.Find({param($n) $n -is [Management.Automation.Language.CatchClauseAst] -and $n.Extent.Text.Contains("if (`$_.Exception.Message -eq 'UPDATE_IN_PROGRESS')")},$true)
+if($null -eq $classification -or $null -eq $outer){throw 'classification boundary missing'}
+$Msi=$false;$Process=[pscustomobject]@{ExitCode=$Code};$completed=$false
+Invoke-Expression ('try {'+$classification.Extent.Text+'} '+$outer.Extent.Text)
+''',encoding='utf-8')
+    wrapper=Path(__file__).resolve().parents[3]/'packaging/windows/Install-EndpointAgentCanary.ps1'
+    actual_run=subprocess.run
+    def wrapper_result(*_a,**kw):
+        assert kw['stdout']==subprocess.DEVNULL and kw['stderr']==subprocess.DEVNULL
+        result=actual_run(['powershell.exe','-NoProfile','-NonInteractive','-File',str(script),str(wrapper),str(helper_code)],capture_output=True,text=True,timeout=15)
+        assert 'classification boundary missing' not in result.stderr and 'null-valued' not in result.stderr,result.stderr
+        return result
+    _write_public_payload(tmp_path)
+    monkeypatch.setattr(setup_entry,'_resource_root',lambda:tmp_path)
+    monkeypatch.setattr(setup_entry,'_data_root',lambda:tmp_path/'data')
+    monkeypatch.setattr(setup_entry,'_diagnostics_root',lambda:tmp_path/'diagnostics')
+    monkeypatch.setattr(setup_entry,'_classify_installation_state',lambda *_a,**_kw:'fresh')
+    monkeypatch.setattr(setup_entry,'_embedded_recovery_operation',lambda _:None)
+    monkeypatch.setattr(setup_entry,'_require_setup_disk',lambda _:None)
+    monkeypatch.setattr(setup_entry,'_agent_service_installed',lambda:False)
+    monkeypatch.setattr(setup_entry.subprocess,'run',wrapper_result)
+    assert setup_entry.main(['--quiet'])==setup_entry.EXIT_INSTALL_FAILED
+    result=json.loads((tmp_path/'diagnostics/install-result.json').read_text())
+    assert result['detail']=='PROVENANCE_CONFLICT'
+    assert helper_code==63

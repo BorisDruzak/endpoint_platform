@@ -37,4 +37,7 @@ def test_msi_owned_runtime_validation_does_not_import_excluded_agent_launcher(tm
         'schema_version': 1, 'version': '3.2.81',
         'component_guid': '421BA1C1-4612-49F6-B504-74E62922EDD9'}), encoding='utf-8')
     monkeypatch.setitem(sys.modules, 'pc_agent.platform.windows.service_launcher', None)
+    monkeypatch.setitem(sys.modules, 'pc_agent.platform.windows.installation_provenance', None)
+    monkeypatch.setitem(sys.modules, 'pc_agent.platform.windows.msi_inventory', None)
+    monkeypatch.setitem(sys.modules, 'msilib', None)
     assert _is_msi_owned_runtime(paths, '3.2.81') is True
