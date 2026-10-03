@@ -49,3 +49,20 @@ binding, including reused builds. `--verify-offline` checks imports and MSI-owne
 it must never be presented as evidence of SCM application. Verify the actual
 registered updater executable, archive proof, real SCM execution, WFP events,
 WSS-bound startup confirmation, terminal reports and rollback separately.
+
+### ZIP to MSI ownership handoff
+
+Installing MSI 3.2.81 over its identical ZIP runtime leaves the old ZIP receipt
+and bundle manifest beside the new MSI ownership marker. Canonical preflight
+rejects this mixed provenance. This handoff is an explicit operator step;
+the MSI and canary wrapper do not automatically retire those ZIP records.
+
+Before retiring them, verify the active MSI product and release sidecar, the
+MSI marker component GUID, selector version/source, exact ZIP receipt identity,
+every payload file size/hash and the complete file inventory. They must all
+identify the same retained canonical runtime. Stop EndpointAgent, archive only
+`.endpoint-update.json` and `endpoint-update-manifest.json` in a protected
+SYSTEM/Administrators backup, then restart it and rerun canonical preflight.
+Preserve the MSI marker, payload bytes, credential and selector. If any identity
+or file differs, stop the handoff; do not remove evidence to obtain a passing
+preflight. Clean MSI installation has no preceding ZIP receipt to retire.
