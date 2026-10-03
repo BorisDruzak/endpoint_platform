@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import ast
 import json
+import os
 import re
+import shutil
 import uuid
 import xml.etree.ElementTree as ET
 from pathlib import Path
@@ -17,6 +19,7 @@ WINDOWS_PACKAGING = PROJECT_ROOT / "packaging" / "windows"
 WIX_ROOT = WINDOWS_PACKAGING / "wix"
 
 
+@pytest.mark.skipif(os.name != "nt", reason="generated WiX helper requires Windows URI/path semantics")
 def test_generated_runtime_directory_cleanup_belongs_to_runtime_components(tmp_path):
     import subprocess
     runtime=tmp_path/'runtime';(runtime/'nested/deep').mkdir(parents=True)
@@ -102,6 +105,9 @@ Export-MsiInspection $Msi $Output
 @pytest.mark.parametrize('defect',['none','unknown','condition','feature','guard_type','guard_order'])
 def test_compiled_finalization_sequence_rejects_unreviewed_reachable_actions(tmp_path,defect):
     import subprocess
+    powershell = shutil.which("powershell.exe") or shutil.which("pwsh")
+    if powershell is None:
+        pytest.skip("PowerShell is required to execute the extracted finalization audit; static WXS checks still run")
     sequence=[{'action':name,'condition':'','sequence':number} for name,number in
         [('CostFinalize',1000),('InstallerOwnerPreflight',1002),('InstallInitialize',1500),
          ('InstallerOwnerEnter',1501),('InstallerOwnerComplete',6599),('InstallFinalize',6600)]]
@@ -128,7 +134,7 @@ if($null -eq $node){throw 'compiled audit missing'}
 Invoke-Expression $node.Extent.Text
 Assert-UninstallFinalizationSequence ([IO.File]::ReadAllText($Data) | ConvertFrom-Json)
 ''',encoding='utf-8')
-    result=subprocess.run(['powershell.exe','-NoProfile','-NonInteractive','-File',str(script),
+    result=subprocess.run([powershell,'-NoProfile','-NonInteractive','-File',str(script),
         str(WINDOWS_PACKAGING/'build-msi.ps1'),str(data)],capture_output=True,text=True,timeout=30)
     assert (result.returncode==0)==(defect=='none'),result.stderr
 

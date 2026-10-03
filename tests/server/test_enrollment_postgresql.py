@@ -40,6 +40,7 @@ from endpoint_server.main import create_app
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
+pytestmark = pytest.mark.usefixtures("preserve_migration_loggers")
 PEPPER = b"postgres-concurrency-device-pepper"
 
 

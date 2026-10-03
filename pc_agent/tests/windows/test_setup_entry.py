@@ -20,6 +20,8 @@ from pc_agent.windows_setup import (
 
 @pytest.fixture(autouse=True)
 def literal_msi_costing_boundary(monkeypatch, tmp_path):
+    (tmp_path / "data").mkdir(exist_ok=True)
+    (tmp_path / "agent-data").mkdir(exist_ok=True)
     # Setup unit fixtures model state schemas, not machine directory ACLs.
     # Native directory/leaf security is covered by test_update_transaction.
     from pc_agent.platform.windows import update_transaction
@@ -1000,6 +1002,10 @@ def test_other_package_recovery_rejects_before_native_costing(tmp_path,monkeypat
 
 
 def test_provenance_conflict_survives_helper_wrapper_and_setup_evidence(tmp_path,monkeypatch):
+    import shutil
+    powershell = shutil.which("powershell.exe") or shutil.which("pwsh")
+    if powershell is None:
+        pytest.skip("PowerShell required for extracted exception classification contract")
     from contextlib import contextmanager
     import subprocess
     from pc_agent.platform.windows import service_launcher,installer_transaction_bridge as bridge
@@ -1028,7 +1034,7 @@ Invoke-Expression ('try {'+$classification.Extent.Text+'} '+$outer.Extent.Text)
     actual_run=subprocess.run
     def wrapper_result(*_a,**kw):
         assert kw['stdout']==subprocess.DEVNULL and kw['stderr']==subprocess.DEVNULL
-        result=actual_run(['powershell.exe','-NoProfile','-NonInteractive','-File',str(script),str(wrapper),str(helper_code)],capture_output=True,text=True,timeout=15)
+        result=actual_run([powershell,'-NoProfile','-NonInteractive','-File',str(script),str(wrapper),str(helper_code)],capture_output=True,text=True,timeout=15)
         assert 'classification boundary missing' not in result.stderr and 'null-valued' not in result.stderr,result.stderr
         return result
     _write_public_payload(tmp_path)

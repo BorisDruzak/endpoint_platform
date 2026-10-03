@@ -45,6 +45,7 @@ from endpoint_server.policy.network_targets import NetworkTargetPolicyV1
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
+pytestmark = pytest.mark.usefixtures("preserve_migration_loggers")
 NOW = datetime(2026, 8, 9, 12, 0, tzinfo=UTC)
 
 

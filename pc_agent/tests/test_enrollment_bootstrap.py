@@ -64,10 +64,10 @@ def _config(tmp_path: Path) -> BootstrapConfig:
         credential_path=enrollment_bootstrap.PERMANENT_CREDENTIAL_PATH,
         identity_path=enrollment_bootstrap.ENROLLMENT_IDENTITY_PATH,
         handoff_request_path=enrollment_bootstrap.HANDOFF_REQUEST_PATH,
-        # The production path is Linux-only.  The unit test runs on Windows,
-        # where stat reports the synthetic zero owner/group.
-        service_uid=0,
-        service_gid=0,
+        # Use the actual temporary fixture owner without changing production
+        # root/service ownership policy or mocking filesystem identity checks.
+        service_uid=tmp_path.stat().st_uid,
+        service_gid=tmp_path.stat().st_gid,
         retry_attempts=3,
     )
 

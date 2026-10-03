@@ -124,6 +124,7 @@ def test_restricted_native_session_has_exact_flags_actions_and_no_fallback(monke
         costing.ctypes,
         "OleDLL",
         lambda _: SimpleNamespace(CoInitializeEx=init, CoUninitialize=finish),
+        raising=False,
     )
     native = costing._NativeMsi.__new__(costing._NativeMsi)
 

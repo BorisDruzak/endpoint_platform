@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import io
-import logging
 import os
 import re
 from collections.abc import Iterator
@@ -31,19 +30,7 @@ from endpoint_server.modules.execution_routes import _project_module_operation
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 
 
-@pytest.fixture(autouse=True)
-def restore_loggers_after_migration_configuration():
-    """Alembic fileConfig must not leak disabled loggers into Agent tests."""
-    previous = {
-        logger: logger.disabled
-        for logger in logging.root.manager.loggerDict.values()
-        if isinstance(logger, logging.Logger)
-    }
-    try:
-        yield
-    finally:
-        for logger, disabled in previous.items():
-            logger.disabled = disabled
+pytestmark = pytest.mark.usefixtures("preserve_migration_loggers")
 
 APPLICATION_TABLES = {
     "admin_sessions",

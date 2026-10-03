@@ -56,6 +56,9 @@ from endpoint_server.updates import (
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 
 
+pytestmark = pytest.mark.usefixtures("preserve_migration_loggers")
+
+
 async def _execute(database_url: str, statement: str) -> None:
     connection = await asyncpg.connect(database_url)
     try:

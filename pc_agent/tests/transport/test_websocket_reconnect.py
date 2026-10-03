@@ -661,9 +661,11 @@ def test_runtime_wss_selection_constructs_only_secure_primary_initially(
     assert "on_connected" not in observed
 
 
-def test_windows_wss_runtime_does_not_start_the_linux_update_poller(tmp_path: Path) -> None:
+def test_windows_wss_runtime_does_not_start_the_linux_update_poller(tmp_path: Path, monkeypatch) -> None:
     """The ALT selector reader must not terminate a connected Windows service."""
     from pc_agent.runtime import application
+    from types import SimpleNamespace
+    monkeypatch.setattr(application, "os", SimpleNamespace(name="nt"))
 
     settings = application.RuntimeSettings(
         data_root=tmp_path / "data",
@@ -687,9 +689,11 @@ def test_windows_wss_runtime_does_not_start_the_linux_update_poller(tmp_path: Pa
             task.close()
 
 
-def test_windows_has_one_service_update_owner_outside_connected_tasks(tmp_path):
+def test_windows_has_one_service_update_owner_outside_connected_tasks(tmp_path, monkeypatch):
     from uuid import UUID
     from pc_agent.runtime import application
+    from types import SimpleNamespace
+    monkeypatch.setattr(application, "os", SimpleNamespace(name="nt"))
     settings = application.RuntimeSettings(
         data_root=tmp_path / "data", install_root=tmp_path / "install",
         ca_file=tmp_path / "ca.crt", endpoint_origin=_ORIGIN,

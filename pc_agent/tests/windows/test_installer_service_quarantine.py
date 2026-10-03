@@ -92,7 +92,7 @@ def test_flush_failure_stops_before_second_service(tmp_path):
 
 
 def test_flush_opens_only_fixed_service_key_with_query_access(monkeypatch):
-    import winreg
+    winreg = pytest.importorskip("winreg", reason="native Windows API contract")
     events=[]
     class Key:
         def __enter__(self): return self

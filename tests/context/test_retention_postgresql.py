@@ -24,6 +24,7 @@ from endpoint_server.db.models import Device
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 NOW = datetime(2026, 7, 29, 12, 0, tzinfo=UTC)
+pytestmark = pytest.mark.usefixtures("preserve_migration_loggers")
 
 
 def _admin_database_url() -> str:
@@ -44,7 +45,7 @@ async def _execute(database_url: str, statement: str) -> None:
 
 
 @pytest.fixture
-def postgresql_url() -> Iterator[str]:
+def postgresql_url(preserve_migration_loggers) -> Iterator[str]:
     """Create an isolated migration-backed database for a real lock test."""
     admin_url = _admin_database_url()
     database_name = f"endpoint_retention_{uuid4().hex}"

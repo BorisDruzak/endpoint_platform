@@ -804,7 +804,7 @@ async def test_strict_windows_wss_lifecycle_clears_then_publishes_transport_read
 
 
 def test_default_runtime_creates_canary_status_only_for_strict_wss(
-    tmp_path: Path,
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """HTTP-pull and migration fallback agents must stay ineligible for the strict canary."""
     data_root = tmp_path / "data"
@@ -838,6 +838,9 @@ def test_default_runtime_creates_canary_status_only_for_strict_wss(
         migration_http_pull_fallback=True,
     )
 
+    monkeypatch.setattr(runtime_application, "os", SimpleNamespace(name="posix"))
+    assert runtime_application._create_canary_status_writer(strict) is None
+    monkeypatch.setattr(runtime_application, "os", SimpleNamespace(name="nt"))
     writer = runtime_application._create_canary_status_writer(strict)
 
     assert writer is not None
@@ -1276,7 +1279,7 @@ def test_default_hello_loader_reports_windows_gateway_platform(
         ),
         encoding="utf-8",
     )
-    monkeypatch.setattr(runtime_application.os, "name", "nt")
+    monkeypatch.setattr(runtime_application, "os", SimpleNamespace(name="nt"))
 
     hello = runtime_application._default_dependencies().load_hello(settings)
 

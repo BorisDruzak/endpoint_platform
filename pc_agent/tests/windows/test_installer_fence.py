@@ -57,6 +57,7 @@ def state():
 def fenced(tmp_path, monkeypatch):
     from pc_agent.platform.windows import installer_fence
     paths = WindowsUpdatePaths(tmp_path / "Agent", tmp_path / "data/updates/pending_update.json")
+    paths.updates_root.parent.mkdir()
     directory = installer_fence.state_root(paths)
     directory.mkdir()
     monkeypatch.setattr(installer_fence, "assert_state_security", lambda *_a, **_kw: None)
@@ -65,6 +66,7 @@ def fenced(tmp_path, monkeypatch):
     return paths, path
 
 
+@pytest.mark.skipif(os.name != "nt", reason="Windows Installer fence is enforced by the native Windows transaction")
 def test_normal_mutex_acquisition_honors_surviving_installer_fence(fenced):
     from pc_agent.platform.windows.update_transaction import UpdateInProgress, update_transaction
     paths, path = fenced
@@ -76,6 +78,7 @@ def test_normal_mutex_acquisition_honors_surviving_installer_fence(fenced):
 
 
 @pytest.mark.parametrize("defect", ["truncated", "duplicate", "unknown_phase", "unknown_package", "secret_field"])
+@pytest.mark.skipif(os.name != "nt", reason="Windows Installer fence is enforced by the native Windows transaction")
 def test_invalid_fence_does_not_become_absence(fenced, defect):
     from pc_agent.platform.windows.update_transaction import update_transaction
     paths, path = fenced
@@ -103,6 +106,7 @@ def test_fixed_host_refuses_launch_before_fence_retirement(fenced):
         build_agent_child_command(paths)
 
 
+@pytest.mark.skipif(os.name != "nt", reason="Windows Installer fence is enforced by the native Windows transaction")
 def test_visible_complete_fence_still_requires_durable_retirement(fenced):
     from pc_agent.platform.windows.update_transaction import UpdateInProgress, update_transaction
     paths, path = fenced

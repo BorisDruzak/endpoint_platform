@@ -1,5 +1,34 @@
 import json
+import sys
 from pathlib import Path
+from types import ModuleType
+
+import pytest
+
+
+@pytest.fixture(autouse=True)
+def isolated_factory_thread_boundary(monkeypatch):
+    """Factory tests do not instantiate the optional Qt/WebRTC thread runtime."""
+    import pc_agent.remote_assist as package
+    old_path = list(sys.path)
+    thread = ModuleType("pc_agent.remote_assist.thread")
+    class UnusedThread:
+        def __init__(self, **_):
+            raise AssertionError("factory test must provide its thread implementation")
+    thread.RemoteAssistThread = UnusedThread
+    monkeypatch.setitem(sys.modules, "pc_agent.remote_assist.thread", thread)
+    monkeypatch.delitem(sys.modules, "pc_agent.remote_assist.runtime_host", raising=False)
+    monkeypatch.delattr(package, "runtime_host", raising=False)
+    monkeypatch.setattr(package, "thread", thread, raising=False)
+    try:
+        yield
+    finally:
+        # The imported module holds the scoped fake, so remove it before the
+        # monkeypatch fixture restores any pre-existing module/package binding.
+        sys.modules.pop("pc_agent.remote_assist.runtime_host", None)
+        if hasattr(package, "runtime_host"):
+            delattr(package, "runtime_host")
+        sys.path[:] = old_path
 
 
 def test_runtime_host_falls_back_to_bundled_thread(tmp_path, monkeypatch):

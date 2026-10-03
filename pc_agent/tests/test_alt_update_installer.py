@@ -546,9 +546,9 @@ def test_valid_alt_update_preserves_selector_schema_and_prior_release(
     chmod_calls: list[tuple[Path, int]] = []
     original_chmod = alt_update_installer.os.chmod
 
-    def capture_chmod(path: str | Path, mode: int) -> None:
+    def capture_chmod(path: str | Path, mode: int, **kwargs) -> None:
         chmod_calls.append((Path(path), mode))
-        original_chmod(path, mode)
+        original_chmod(path, mode, **kwargs)
 
     monkeypatch.setattr(alt_update_installer.os, "chmod", capture_chmod)
 

@@ -383,7 +383,7 @@ def test_setup_preflight_branches_before_any_diagnostic_or_machine_mutation(
 def test_native_inventory_access_failure_is_unknown_without_exception_text(
     machine, monkeypatch
 ):
-    import pywintypes
+    pywintypes = pytest.importorskip("pywintypes", reason="native Windows API contract")
 
     module, paths, *_ = machine
 
@@ -966,7 +966,7 @@ def test_maintenance_recovery_budget_has_no_install_archive_jobs(
 def test_canonical_service_query_accepts_only_fixed_command_arguments(
     machine, monkeypatch
 ):
-    import win32service
+    win32service = pytest.importorskip("win32service", reason="native Windows API contract")
 
     module, paths, *_ = machine
     # Restore only the production query function replaced by the machine fixture.

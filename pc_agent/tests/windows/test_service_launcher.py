@@ -623,7 +623,7 @@ def test_tray_shutdown_uses_the_fixed_program_files_target(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     """MSI may extract its FileRef custom-action EXE, so sys.executable is not authority."""
-    import win32api
+    win32api = pytest.importorskip("win32api", reason="native Windows process handle contract")
     import win32con
     import win32event
     import win32process
@@ -671,7 +671,7 @@ def test_tray_shutdown_uses_the_fixed_program_files_target(
 def test_companion_shutdown_stops_only_installed_tray_and_user_sensor(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    import win32api
+    win32api = pytest.importorskip("win32api", reason="native Windows process handle contract")
     import win32event
     import win32process
 

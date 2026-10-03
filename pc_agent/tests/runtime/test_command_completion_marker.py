@@ -6,6 +6,7 @@ import logging
 import json
 from datetime import UTC, datetime
 from pathlib import Path
+from types import SimpleNamespace
 from uuid import UUID
 
 import pytest
@@ -87,7 +88,7 @@ def test_command_completed_marker_forwards_only_bounded_values_to_windows_sink()
 
 
 def test_windows_completion_sink_updates_only_the_matching_canary_status(
-    tmp_path: Path,
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A completed diagnostic must become post-operation proof without persisting its payload."""
     data_root = tmp_path / "data"
@@ -112,6 +113,9 @@ def test_windows_completion_sink_updates_only_the_matching_canary_status(
         transport_mode="gateway_wss",
         migration_http_pull_fallback=False,
     )
+    monkeypatch.setattr(runtime_application, "os", SimpleNamespace(name="posix"))
+    assert runtime_application._create_completion_sink(settings) is None
+    monkeypatch.setattr(runtime_application, "os", SimpleNamespace(name="nt"))
     writer = runtime_application._create_canary_status_writer(settings)
     assert writer is not None
     writer.write_wss_ready()

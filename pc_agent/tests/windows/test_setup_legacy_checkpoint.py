@@ -1,7 +1,16 @@
 """Execute isolated wrapper functions without touching operator SCM services."""
 from pathlib import Path
 import subprocess
+import shutil
 import pytest
+
+
+@pytest.fixture
+def powershell():
+    executable = shutil.which("powershell.exe") or shutil.which("pwsh")
+    if executable is None:
+        pytest.skip("PowerShell required for extracted mocked service checkpoint behavior")
+    return executable
 
 
 @pytest.mark.parametrize('failure,expected', [
@@ -11,7 +20,7 @@ import pytest
     ('partial-agent', ['stop:EndpointAgent', 'start:EndpointAgent']),
     ('partial-updater', ['stop:EndpointAgent', 'gate', 'stop:EndpointAgentUpdater', 'start:EndpointAgent', 'start:EndpointAgentUpdater']),
 ])
-def test_quiescence_gate_precedes_old_updater_stop_and_restores_partial_failure(tmp_path, failure, expected):
+def test_quiescence_gate_precedes_old_updater_stop_and_restores_partial_failure(tmp_path, failure, expected, powershell):
     source = Path(__file__).resolve().parents[3] / 'packaging/windows/Install-EndpointAgentCanary.ps1'
     script = tmp_path / 'checkpoint.ps1'
     script.write_text(r'''param($Source,$Failure)
@@ -56,13 +65,13 @@ try { Stop-ManagedAgentServices -PreviousStates $states -StoppedBySetup $stopped
 }
 ConvertTo-Json -InputObject @($script:events) -Compress
 ''', encoding='utf-8')
-    result = subprocess.run(['powershell.exe', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', str(script), str(source), failure], capture_output=True, text=True, timeout=30)
+    result = subprocess.run([powershell, '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', str(script), str(source), failure], capture_output=True, text=True, timeout=30)
     assert result.returncode == 0, result.stderr
     import json
     assert json.loads(result.stdout) == expected
 
 
-def test_restoration_evidence_failure_cannot_mask_update_in_progress(tmp_path):
+def test_restoration_evidence_failure_cannot_mask_update_in_progress(tmp_path, powershell):
     source=Path(__file__).resolve().parents[3]/'packaging/windows/Install-EndpointAgentCanary.ps1'
     script=tmp_path/'restore-exit.ps1'
     script.write_text(r'''param($Source)
@@ -77,6 +86,6 @@ $packagePin=[pscustomobject]@{};$packagePin | Add-Member ScriptMethod Dispose {}
 function Read-InstallerFence {throw 'evidence became unavailable'}
 Invoke-Expression ('try {exit 61} finally '+$node.Finally.Extent.Text)
 ''',encoding='utf-8')
-    result=subprocess.run(['powershell.exe','-NoProfile','-NonInteractive','-File',str(script),str(source)],capture_output=True,text=True,timeout=30)
+    result=subprocess.run([powershell,'-NoProfile','-NonInteractive','-File',str(script),str(source)],capture_output=True,text=True,timeout=30)
     assert result.returncode==61,result.stderr
     assert 'MANAGED_SERVICE_RESTORATION_DEFERRED' in result.stdout

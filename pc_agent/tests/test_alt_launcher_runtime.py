@@ -6,6 +6,7 @@ import hashlib
 import json
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -211,6 +212,8 @@ def test_privileged_alt_rollback_cli_consumes_only_the_fixed_request(
 ) -> None:
     """Removing the fixed worker call would strand a durable crash request."""
     install_root, data_root = tmp_path / "install", tmp_path / "data"
+    monkeypatch.setattr(launcher_main, "os", SimpleNamespace(
+        name="posix", geteuid=lambda: 0, environ=launcher_main.os.environ))
     calls: list[tuple[Path, Path]] = []
 
     def fake_apply(*, install_root: Path, data_root: Path) -> tuple[bool, str]:
@@ -274,3 +277,17 @@ def test_alt_worker_modes_are_mutually_exclusive(monkeypatch, capsys) -> None:
 
     assert exc_info.value.code == 2
     assert "mutually exclusive" in capsys.readouterr().out
+
+
+def test_unprivileged_alt_worker_cli_refuses_before_dispatch(monkeypatch, tmp_path):
+    monkeypatch.setenv("ENDPOINT_AGENT_ALT_UPDATE_MODE", "1")
+    monkeypatch.setattr(launcher_main, "os", SimpleNamespace(
+        name="posix", geteuid=lambda: 1000, environ=launcher_main.os.environ))
+    monkeypatch.setattr(launcher_main, "resolve_install_root", lambda **_: tmp_path / "install")
+    monkeypatch.setattr(launcher_main, "resolve_data_root", lambda **_: tmp_path / "data")
+    monkeypatch.setattr(launcher_main, "apply_pending_alt_rollback_as_worker",
+        lambda **_: pytest.fail("unprivileged worker dispatched"))
+    monkeypatch.setattr(sys, "argv", ["launcher.py", "--apply-alt-rollback"])
+    with pytest.raises(SystemExit) as caught:
+        launcher_main.main()
+    assert caught.value.code == 1

@@ -12,6 +12,7 @@ import pytest
 
 @pytest.fixture(autouse=True)
 def literal_msi_costing_boundary(monkeypatch, tmp_path):
+    (tmp_path / "agent-data").mkdir(exist_ok=True)
     from pc_agent.platform.windows import setup_entry, update_transaction
     from uuid import uuid4
 
@@ -85,7 +86,7 @@ def test_embedded_msi_install_uses_provenance_wrapper(
         assert kwargs["shell"] is False
         assert kwargs["stdin"] is setup_entry.subprocess.DEVNULL
         assert kwargs["env"]["PSModulePath"] == (
-            r"C:\Windows\System32\WindowsPowerShell\v1.0\Modules"
+            str(Path(r"C:\Windows") / "System32/WindowsPowerShell/v1.0/Modules")
         )
         return SimpleNamespace(returncode=0)
 

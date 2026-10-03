@@ -1,10 +1,12 @@
 """Execute the actual owner-thread policy with modeled process evidence."""
 from pathlib import Path
+import os
 import subprocess
 import pytest
 from pc_agent.tests.windows.test_installer_fence import native_protected_root
 
 
+@pytest.mark.skipif(os.name != "nt", reason="compiled bridge uses Windows ACL, named-pipe and MSI native APIs")
 @pytest.mark.parametrize('case', ['direct','msi-order','once','owner-loss','identity','read-only','quiescence','sessions','uninstall-finalization','reboot'])
 def test_installer_owner_policy(tmp_path,case):
     source=Path(__file__).resolve().parents[3]/'packaging/windows/Install-EndpointAgentCanary.ps1'
@@ -270,6 +272,7 @@ try {
                 process.terminate();process.wait(timeout=5)
 
 
+@pytest.mark.skipif(os.name != "nt", reason="native ProgramFiles ACL and process creation contract")
 def test_helper_launch_uses_protected_directory_and_explicit_process_configuration(tmp_path,native_protected_root):
     source=Path(__file__).resolve().parents[3]/'packaging/windows/Install-EndpointAgentCanary.ps1'
     script=tmp_path/'launch-configuration.ps1'

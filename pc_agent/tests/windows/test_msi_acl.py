@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -89,6 +90,8 @@ def test_provisioning_acl_uses_well_known_builtin_sids_on_localized_windows(
 ) -> None:
     """A localized Windows host may not resolve the English Administrators label."""
     from pc_agent.platform.windows.acl import PyWin32AclAdapter
+    from pc_agent.platform.windows import acl as acl_module
+    monkeypatch.setattr(acl_module, "os", SimpleNamespace(name="nt"))
 
     security = _Security()
     monkeypatch.setattr(
@@ -118,6 +121,8 @@ def test_machine_data_file_acl_allows_the_updater_to_replace_status(
 ) -> None:
     """Status files must be protected explicitly after os.replace()."""
     from pc_agent.platform.windows.acl import PyWin32AclAdapter
+    from pc_agent.platform.windows import acl as acl_module
+    monkeypatch.setattr(acl_module, "os", SimpleNamespace(name="nt"))
 
     security = _Security()
     monkeypatch.setattr(
@@ -145,6 +150,8 @@ def test_installer_diagnostics_are_readable_but_not_user_writable(
 ) -> None:
     """A public result must not inherit ProgramData's ordinary-user write ACEs."""
     from pc_agent.platform.windows.acl import PyWin32AclAdapter
+    from pc_agent.platform.windows import acl as acl_module
+    monkeypatch.setattr(acl_module, "os", SimpleNamespace(name="nt"))
 
     security = _Security()
     monkeypatch.setattr(
@@ -169,6 +176,8 @@ def test_tray_status_acl_uses_localservice_well_known_sid(
 ) -> None:
     """MSI must not resolve a service name while securing the public tray path."""
     from pc_agent.platform.windows.acl import PyWin32AclAdapter
+    from pc_agent.platform.windows import acl as acl_module
+    monkeypatch.setattr(acl_module, "os", SimpleNamespace(name="nt"))
 
     security = _Security()
     monkeypatch.setattr(
@@ -194,6 +203,7 @@ def test_msi_tray_status_action_uses_only_well_known_sids(
     """The elevated custom action must work on localized Windows installations."""
     import pc_agent.platform.windows.acl as acl_module
     from pc_agent.platform.windows.acl import PyWin32AclAdapter
+    monkeypatch.setattr(acl_module, "os", SimpleNamespace(name="nt"))
 
     security = _Security()
     target = tmp_path / "Tray"
@@ -255,3 +265,18 @@ def test_msi_acl_rejects_an_untrusted_existing_owner(tmp_path: Path) -> None:
         replace_machine_data_acl(target, win32security=security, ntsecuritycon=_Rights)
 
     assert security.applied is None
+
+
+def test_posix_adapter_does_not_apply_windows_acls(monkeypatch, tmp_path):
+    from pc_agent.platform.windows import acl
+    monkeypatch.setattr(acl, "os", SimpleNamespace(name="posix"))
+    monkeypatch.setattr(acl.PyWin32AclAdapter, "_modules",
+        staticmethod(lambda: pytest.fail("POSIX branch loaded native ACL modules")))
+    (tmp_path / "credential").write_text("test-only")
+    (tmp_path / "status").write_text("{}")
+    acl.PyWin32AclAdapter().protect_credential(tmp_path / "credential")
+    acl.PyWin32AclAdapter().protect_machine_data_file(tmp_path / "status")
+    acl.PyWin32AclAdapter().protect_operator_diagnostics(tmp_path / "Installer")
+    acl.PyWin32AclAdapter().protect_tray_status_directory(tmp_path / "Tray")
+    with pytest.raises(acl.WindowsAclError, match="requires Windows"):
+        acl.apply_tray_status_acl()
