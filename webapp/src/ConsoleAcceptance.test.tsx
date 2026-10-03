@@ -3,7 +3,7 @@ import { MemoryRouter, Route, Routes } from 'react-router'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { AuditPage } from './AuditPage'
 import { EnrollmentPage } from './EnrollmentPage'
-import { DeviceDetailPage } from './FleetPages'
+import { DeviceDetailPage, DevicesPage } from './FleetPages'
 import { DeviceModules, ModulesPage } from './ModulesPage'
 import { UpdatesPage } from './UpdatesPage'
 import { OperationsPage } from './OperationsPage'
@@ -32,6 +32,59 @@ const requestRows = [
 }))
 
 describe('Русский интерфейс Console', () => {
+  it('показывает Core Agent и Foundation отдельно и сохраняет независимые фильтры', async () => {
+    const fetchMock = vi.fn(async (_url: string) => jsonResponse({ data: [
+      { id: 'known', device_identifier: 'PC-KNOWN', display_name: 'Known', online: true,
+        agent_version: '3.2.83', launcher_version: '3.2.82', core_newer_than_foundation: true,
+        ram_bytes: null, context_fresh: false },
+      { id: 'unknown', device_identifier: 'PC-UNKNOWN', display_name: 'Unknown', online: true,
+        agent_version: '3.2.83', launcher_version: null, core_newer_than_foundation: false,
+        ram_bytes: null, context_fresh: false },
+    ], total: 2, limit: 50, offset: 0 }))
+    vi.stubGlobal('fetch', fetchMock)
+    render(<MemoryRouter initialEntries={['/admin/devices?search=PC&offset=50']}><DevicesPage /></MemoryRouter>)
+    await screen.findByRole('columnheader', { name: 'Core Agent' })
+    expect(screen.getByRole('columnheader', { name: 'Foundation / Launcher' })).toBeTruthy()
+    expect(screen.getByText('3.2.82')).toBeTruthy()
+    expect(screen.getAllByText('3.2.83')).toHaveLength(2)
+    expect(screen.getByText('Core новее Foundation · информационно')).toBeTruthy()
+    const unknown = screen.getByText('Unknown').closest('tr')!
+    expect(within(unknown).getByText('В сети')).toBeTruthy()
+    expect(within(unknown).getByText('Неизвестна')).toBeTruthy()
+    fireEvent.change(screen.getByLabelText('Core Agent ниже версии'), { target: { value: '3.2.82' } })
+    await vi.waitFor(() => expect(fetchMock.mock.calls.at(-1)?.[0]).toContain('core_outdated=3.2.82'))
+    fireEvent.change(screen.getByLabelText('Foundation ниже версии'), { target: { value: '3.2.83' } })
+    await vi.waitFor(() => expect(fetchMock.mock.calls.at(-1)?.[0]).toContain('foundation_outdated=3.2.83'))
+    const url = String(fetchMock.mock.calls.at(-1)?.[0])
+    expect(url).toContain('core_outdated=3.2.82')
+    expect(url).toContain('search=PC')
+    expect(url).not.toContain('offset=')
+  })
+
+  it('показывает этапы и безопасный последний отчёт без HTML и выдуманных дат', async () => {
+    const hostile = '<img src=x onerror=alert(1)>'
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (url.includes('/rollouts/rollout-1?')) return jsonResponse({
+        id: 'rollout-1', version: '3.2.83', mode: 'canary', status: 'completed', counts: {},
+        created_at: null, started_at: null, completed_at: null, reason: null, targets_total: 1,
+        targets: [{ device_id: 'device-1', device_name: 'PC-REPORT', status: 'failed',
+          assigned_at: '2026-10-03T08:00:00Z', requested_at: '', scheduled_at: null,
+          updated_at: '2026-10-03T08:02:00Z', terminal_at: '2026-10-03T08:02:00Z',
+          safe_reason: null, report_status: 'failed', reported_version: '3.2.83',
+          safe_code: hostile, report_created_at: '2026-10-03T08:03:00Z' }],
+      })
+      return jsonResponse({ data: [], total: 0 })
+    }))
+    render(<MemoryRouter initialEntries={['/admin/updates?open=rollout-1']}><UpdatesPage canWrite={false} /></MemoryRouter>)
+    const dialog = await screen.findByRole('dialog', { name: 'Развёртывание' })
+    expect(within(dialog).getByText('Запрошено')).toBeTruthy()
+    expect(within(dialog).getByText('Запланировано')).toBeTruthy()
+    expect(within(dialog).getByText('Последний отчёт')).toBeTruthy()
+    expect(within(dialog).getByText(hostile)).toBeTruthy()
+    expect(dialog.querySelector('img')).toBeNull()
+    expect(within(dialog).getAllByText('—').length).toBeGreaterThanOrEqual(2)
+    expect(dialog.textContent).not.toContain('Invalid Date')
+  })
   it('закрепляет доступный безопасный результат операции', async () => {
     let pinned = false
     vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {

@@ -12,6 +12,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict
 from endpoint_contracts.capabilities import MODULE_CAPABILITY_REGISTRY
+from endpoint_contracts.updates import SemanticVersionV1
 
 from endpoint_contracts.context import (
     BaselineSectionsV1, HealthSectionsV1, InventorySectionsV1,
@@ -38,7 +39,8 @@ from endpoint_server.db.models import Device, EnrollmentCampaign, EnrollmentRequ
 from endpoint_server.enrollment.admin_routes import CampaignCreateRequest, CampaignProjection, create_campaign, project_campaign
 from endpoint_server.enrollment.admin_request_routes import EnrollmentRequestQueueItem, project_enrollment_request
 from endpoint_server.operations.capabilities import compatible_module_capabilities
-from sqlalchemy import func, select
+from endpoint_server.updates.admin_routes import latest_reports, report_columns, target_observability
+from sqlalchemy import and_, func, select
 
 
 ASSET_ROOT = Path(__file__).resolve().parents[2] / "webapp" / "dist"
@@ -163,6 +165,8 @@ class ConsoleFleetDevice(BaseModel):
     online: bool
     last_seen_at: datetime | None
     agent_version: str | None
+    launcher_version: str | None
+    core_newer_than_foundation: bool
     hostname: str | None
     platform: str | None
     os_name: str | None
@@ -197,6 +201,8 @@ class ConsoleDeviceHeader(BaseModel):
     online: bool
     last_seen_at: datetime | None
     agent_version: str | None
+    launcher_version: str | None
+    core_newer_than_foundation: bool
 
 
 class ConsoleCurrentSnapshot(BaseModel):
@@ -286,8 +292,15 @@ class ConsoleDeviceUpdate(BaseModel):
     mode: str
     status: str
     assigned_at: datetime
+    requested_at: datetime | None
+    scheduled_at: datetime | None
+    updated_at: datetime | None
     terminal_at: datetime | None
     safe_reason: str | None
+    report_status: str | None
+    reported_version: str | None
+    safe_code: str | None
+    report_created_at: datetime | None
 
 
 class ConsoleDeviceUpdatesPageResponse(BaseModel):
@@ -469,6 +482,10 @@ async def console_devices(
     online: bool | None = None,
     platform: Annotated[str | None, Query(pattern="^(windows|linux)$")] = None,
     agent_version: Annotated[str | None, Query(max_length=128)] = None,
+    core_outdated: SemanticVersionV1 | None = None,
+    foundation_outdated: SemanticVersionV1 | None = None,
+    core_newer_than_foundation: bool | None = None,
+    foundation_unknown: bool | None = None,
     context: Annotated[str | None, Query(pattern="^(fresh|stale)$")] = None,
     update: Annotated[str | None, Query(pattern="^(none|active|failed)$")] = None,
 ) -> ConsoleFleetPageResponse:
@@ -476,6 +493,8 @@ async def console_devices(
         result = await list_fleet(
             session, limit=limit, offset=offset, search=search, online=online,
             platform=platform, agent_version=agent_version, context=context, update=update,
+            core_outdated=core_outdated, foundation_outdated=foundation_outdated,
+            core_newer_than_foundation=core_newer_than_foundation, foundation_unknown=foundation_unknown,
         )
     return ConsoleFleetPageResponse.model_validate(result)
 
@@ -697,20 +716,21 @@ async def console_device_updates(
         total = await session.scalar(
             select(func.count()).select_from(UpdateTarget).where(UpdateTarget.device_id == device_id)
         ) or 0
+        reports = latest_reports()
         rows = (await session.execute(
-            select(UpdateTarget, UpdateRollout, UpdateBuild)
+            select(UpdateTarget, UpdateRollout, UpdateBuild, *report_columns(reports))
             .join(UpdateRollout, UpdateRollout.id == UpdateTarget.rollout_id)
             .join(UpdateBuild, UpdateBuild.id == UpdateRollout.build_id)
+            .outerjoin(reports, and_(reports.c.update_target_id == UpdateTarget.id, reports.c.rank == 1))
             .where(UpdateTarget.device_id == device_id)
             .order_by(UpdateTarget.assigned_at.desc(), UpdateTarget.id.desc())
             .limit(limit).offset(offset)
         )).all()
     return ConsoleDeviceUpdatesPageResponse(data=[ConsoleDeviceUpdate(
-        rollout_id=rollout.id, version=build.version,
-        mode=rollout.mode, status=target.status,
-        assigned_at=target.assigned_at, terminal_at=target.terminal_at,
-        safe_reason=target.safe_reason,
-    ) for target, rollout, build in rows], total=total, limit=limit, offset=offset)
+        rollout_id=row.UpdateRollout.id, version=row.UpdateBuild.version,
+        mode=row.UpdateRollout.mode, status=row.UpdateTarget.status,
+        **target_observability(row.UpdateTarget, row),
+    ) for row in rows], total=total, limit=limit, offset=offset)
 
 
 def install_console_assets(app: FastAPI) -> None:

@@ -26,6 +26,7 @@ from endpoint_contracts.update_safety import (
     validate_public_update_prose,
 )
 from endpoint_contracts.updates import SemanticVersionV1
+from endpoint_server.db.instance_order import latest_instance_order
 from endpoint_server.audit.service import append_audit_event
 from endpoint_server.db.models import (
     Device,
@@ -767,10 +768,7 @@ async def recommendation_for_device(
         launcher_version = await session.scalar(
             select(DeviceInstance.launcher_version)
             .where(DeviceInstance.device_id == target.device_id)
-            .order_by(
-                DeviceInstance.last_seen_at.desc().nulls_last(),
-                DeviceInstance.id.desc(),
-            )
+            .order_by(*latest_instance_order())
             .limit(1)
         )
         try:

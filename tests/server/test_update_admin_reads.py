@@ -4,16 +4,19 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from uuid import uuid4
+from types import SimpleNamespace
+from uuid import UUID, uuid4
 
 import pytest
 from httpx import ASGITransport, AsyncClient
+from sqlalchemy import event
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from endpoint_server.auth.admin_sessions import AdminPrincipal, require_admin
 from endpoint_server.config import Settings
-from endpoint_server.db.models import AdminSession, AdminUser, Device, UpdateBuild, UpdateRollout, UpdateTarget
+from endpoint_server.db.models import AdminSession, AdminUser, Device, UpdateBuild, UpdateReport, UpdateRollout, UpdateTarget
 from endpoint_server.main import create_app
+from endpoint_server.updates.admin_routes import target_observability
 
 
 @pytest.mark.asyncio
@@ -21,7 +24,7 @@ async def test_rollout_read_has_exact_status_counts_and_bounded_targets() -> Non
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
     async with engine.begin() as connection:
         await connection.run_sync(lambda sync: [table.create(sync) for table in (
-            Device.__table__, UpdateBuild.__table__, UpdateRollout.__table__, UpdateTarget.__table__,
+            Device.__table__, UpdateBuild.__table__, UpdateRollout.__table__, UpdateTarget.__table__, UpdateReport.__table__,
         )])
         # SQLite cannot express the PostgreSQL-only active-target partial index.
         await connection.exec_driver_sql("DROP INDEX uq_update_targets_active_device")
@@ -57,8 +60,19 @@ async def test_rollout_read_has_exact_status_counts_and_bounded_targets() -> Non
         target_identifier="target-previous", operation_id="op-previous",
         status="applied", assigned_at=now - timedelta(days=1), terminal_at=now - timedelta(days=1),
     )
+    targets[1].requested_at = now - timedelta(minutes=3)
+    targets[1].scheduled_at = now - timedelta(minutes=2)
+    targets[1].updated_at = targets[1].terminal_at = now - timedelta(minutes=1)
     async with sessions() as session:
-        session.add_all([build, rollout, completed, cancelled, *devices, *targets, previous_target]); await session.commit()
+        session.add_all([build, rollout, completed, cancelled, *devices, *targets, previous_target])
+        await session.flush()
+        session.add_all([
+            UpdateReport(id=UUID(f"00000000-0000-4000-8000-{index:012d}"), update_target_id=targets[1].id,
+                device_id=devices[1].id, report_identifier=f"report-{index}", report_key=f"private-report-{index}", status=status,
+                reported_version="3.2.83", safe_code=code, created_at=now)
+            for index, status, code in [(1, "applied", "old"), (2, "failed", "installation.failed")]
+        ])
+        await session.commit()
     settings = Settings(
         database_url="postgresql+asyncpg://unused@localhost/unused",
         public_base_url="https://endpoint.sosnadmin.local",
@@ -75,15 +89,31 @@ async def test_rollout_read_has_exact_status_counts_and_bounded_targets() -> Non
         session=AdminSession(id=uuid4(), admin_user_id=user_id, session_digest="unused", expires_at=now + timedelta(hours=1), revoked_at=None),
     )
     app.dependency_overrides[require_admin] = lambda: principal
+    queries = 0
+    def count_query(*_: object) -> None:
+        nonlocal queries
+        queries += 1
+    event.listen(engine.sync_engine, "before_cursor_execute", count_query)
     async with AsyncClient(transport=ASGITransport(app=app), base_url="https://endpoint.sosnadmin.local") as client:
         listing = await client.get("/api/admin/updates/rollouts")
         history_first = await client.get("/api/admin/updates/rollouts?terminal=true&limit=1")
         history_second = await client.get("/api/admin/updates/rollouts?terminal=true&limit=1&offset=1")
         detail = await client.get(f"/api/admin/updates/rollouts/{rollout.id}?limit=1")
+        queries = 0
+        all_targets = await client.get(f"/api/admin/updates/rollouts/{rollout.id}?limit=100")
+        assert queries == 3
+        queries = 0
+        await client.get(f"/api/admin/updates/rollouts/{rollout.id}?limit=1")
+        assert queries == 3
         builds = await client.get("/api/admin/updates/builds")
         device_updates = await client.get(f"/api/admin/console/devices/{devices[1].id}/updates")
         device_updates_first = await client.get(f"/api/admin/console/devices/{devices[1].id}/updates?limit=1")
         device_updates_second = await client.get(f"/api/admin/console/devices/{devices[1].id}/updates?limit=1&offset=1")
+        assert (await client.get("/api/admin/updates/rollouts?limit=101")).status_code == 422
+    app.dependency_overrides.clear()
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="https://endpoint.sosnadmin.local") as client:
+        assert (await client.get(f"/api/admin/updates/rollouts/{rollout.id}")).status_code == 401
+    event.remove(engine.sync_engine, "before_cursor_execute", count_query)
     await engine.dispose()
     assert listing.status_code == 200
     assert listing.json()["total"] == 3
@@ -101,3 +131,24 @@ async def test_rollout_read_has_exact_status_counts_and_bounded_targets() -> Non
     assert device_updates_first.json()["total"] == device_updates_second.json()["total"] == 2
     assert device_updates_first.json()["data"][0]["rollout_id"] == str(rollout.id)
     assert device_updates_second.json()["data"][0]["rollout_id"] == str(completed.id)
+    target = next(row for row in all_targets.json()["targets"] if row["device_id"] == str(devices[1].id))
+    assert target["report_status"] == "failed"
+    assert target["reported_version"] == "3.2.83"
+    assert target["safe_code"] == "installation.failed"
+    assert target["report_created_at"]
+    assert target["requested_at"] and target["scheduled_at"] and target["updated_at"] and target["terminal_at"]
+    assert device_updates.json()["data"][0]["report_status"] == "failed"
+    assert device_updates.json()["data"][0]["requested_at"]
+    reportless = next(row for row in all_targets.json()["targets"] if row["device_id"] == str(devices[2].id))
+    assert all(reportless[key] is None for key in ("report_status", "reported_version", "safe_code", "report_created_at", "requested_at", "scheduled_at", "terminal_at"))
+    assert "report_key" not in all_targets.text and "private-report" not in all_targets.text
+
+
+def test_report_projection_rejects_unbounded_or_unsafe_legacy_fields() -> None:
+    target = UpdateTarget(status="failed")
+    row = SimpleNamespace(report_status="failed", reported_version="9" * 65,
+        safe_code="<img src=x onerror=alert(1)>", report_created_at=None)
+    projection = target_observability(target, row)
+    assert projection["reported_version"] is None
+    assert projection["safe_code"] is None
+    assert projection["report_created_at"] is None

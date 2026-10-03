@@ -4,6 +4,25 @@ export type AdminSession = {
   csrf_token: string
 }
 
+export type AgentVersions = {
+  agent_version: string | null
+  launcher_version: string | null
+  core_newer_than_foundation: boolean
+}
+
+export type UpdateObservability = {
+  assigned_at: string
+  requested_at: string | null
+  scheduled_at: string | null
+  updated_at: string | null
+  terminal_at: string | null
+  safe_reason: string | null
+  report_status: string | null
+  reported_version: string | null
+  safe_code: string | null
+  report_created_at: string | null
+}
+
 export class ApiError extends Error {
   constructor(public readonly status: number, message: string) {
     super(message)

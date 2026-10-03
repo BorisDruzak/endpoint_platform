@@ -7,18 +7,18 @@ from typing import Annotated, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
-from pydantic import BaseModel, ConfigDict
-from sqlalchemy import func, select
+from pydantic import BaseModel, ConfigDict, TypeAdapter, ValidationError
+from sqlalchemy import and_, func, select
 
 from endpoint_contracts import UpdateBuildManifestV1, UpdateRolloutCreateV1
-from endpoint_contracts.updates import SemanticVersionV1
+from endpoint_contracts.updates import SafeCodeV1, SemanticVersionV1
 from endpoint_server.audit.request_ids import audit_request_id
 from endpoint_server.auth.admin_sessions import (
     AdminPrincipal,
     require_admin,
     require_admin_update_scope,
 )
-from endpoint_server.db.models import Device, UpdateBuild, UpdateRollout, UpdateTarget
+from endpoint_server.db.models import Device, UpdateBuild, UpdateReport, UpdateRollout, UpdateTarget
 
 from .errors import (
     UpdateConflict,
@@ -38,6 +38,43 @@ from .service import (
 
 
 router = APIRouter(prefix="/api/admin/updates", tags=["admin-updates"])
+_REPORT_VERSION = TypeAdapter(SemanticVersionV1)
+_REPORT_CODE = TypeAdapter(SafeCodeV1)
+
+
+def latest_reports():
+    """Latest terminal report with deterministic ties and only public columns."""
+    return select(
+        UpdateReport.update_target_id,
+        UpdateReport.status.label("report_status"), UpdateReport.reported_version,
+        UpdateReport.safe_code, UpdateReport.created_at.label("report_created_at"),
+        func.row_number().over(partition_by=UpdateReport.update_target_id,
+            order_by=(UpdateReport.created_at.desc(), UpdateReport.id.desc())).label("rank"),
+    ).where(UpdateReport.status.in_(("applied", "failed", "rolled_back"))).subquery()
+
+
+def report_columns(reports):
+    return (reports.c.report_status, reports.c.reported_version, reports.c.safe_code, reports.c.report_created_at)
+
+
+def target_observability(target: UpdateTarget, row) -> dict[str, object]:
+    """Project named safe fields, including legacy-invalid values as unknown."""
+    def validated(value, adapter):
+        if value is None:
+            return None
+        try:
+            return adapter.validate_python(value)
+        except ValidationError:
+            return None
+    return {
+        "assigned_at": target.assigned_at, "requested_at": target.requested_at,
+        "scheduled_at": target.scheduled_at, "updated_at": target.updated_at,
+        "terminal_at": target.terminal_at, "safe_reason": target.safe_reason,
+        "report_status": row.report_status,
+        "reported_version": validated(row.reported_version, _REPORT_VERSION),
+        "safe_code": validated(row.safe_code, _REPORT_CODE),
+        "report_created_at": row.report_created_at,
+    }
 
 
 class UpdateBuildResponse(BaseModel):
@@ -206,9 +243,11 @@ async def read_update_rollout(
             raise HTTPException(status_code=404, detail="Развёртывание не найдено")
         rollout, build = row
         counts = (await _target_counts(session, [rollout_id])).get(rollout_id, {})
+        reports = latest_reports()
         targets = (await session.execute(
-            select(UpdateTarget, Device.display_name, Device.device_identifier)
+            select(UpdateTarget, Device.display_name, Device.device_identifier, *report_columns(reports))
             .join(Device, Device.id == UpdateTarget.device_id)
+            .outerjoin(reports, and_(reports.c.update_target_id == UpdateTarget.id, reports.c.rank == 1))
             .where(UpdateTarget.rollout_id == rollout_id)
             .order_by(UpdateTarget.assigned_at, UpdateTarget.id)
             .limit(limit).offset(offset)
@@ -217,11 +256,11 @@ async def read_update_rollout(
         **_safe_rollout(rollout, build, counts),
         "targets_total": sum(counts.values()), "target_limit": limit, "target_offset": offset,
         "targets": [{
-            "device_id": str(target.device_id),
-            "device_name": name or identifier,
-            "status": target.status, "assigned_at": target.assigned_at,
-            "terminal_at": target.terminal_at, "safe_reason": target.safe_reason,
-        } for target, name, identifier in targets],
+            "device_id": str(row.UpdateTarget.device_id),
+            "device_name": row.display_name or row.device_identifier,
+            "status": row.UpdateTarget.status,
+            **target_observability(row.UpdateTarget, row),
+        } for row in targets],
     }
 
 

@@ -2,6 +2,65 @@ import { expect, test } from '@playwright/test'
 
 test.use({ timezoneId: 'Asia/Yekaterinburg' })
 
+for (const viewport of [{ width: 1440, height: 1000 }, { width: 390, height: 844 }]) {
+  test(`foundation filters and rollout timing at ${viewport.width}px`, async ({ page }) => {
+    await page.setViewportSize(viewport)
+    await page.goto('/admin/login')
+    await page.getByLabel('Имя пользователя').fill('console-e2e')
+    await page.getByLabel('Пароль').fill('console-e2e-password')
+    await page.getByRole('button', { name: 'Войти' }).click()
+    await expect(page.getByRole('heading', { name: 'Состояние парка' })).toBeVisible()
+    await page.route('**/api/admin/console/session', route => route.fulfill({ json: { username: 'observer', scopes: [], csrf_token: 'test-only' } }))
+    await page.route('**/api/admin/console/devices?*', route => {
+      const query = new URL(route.request().url()).searchParams
+      const known = { id: 'known', device_identifier: 'PC-KNOWN', display_name: 'Известная версия',
+        online: true, agent_version: '3.2.83', launcher_version: '3.2.82',
+        core_newer_than_foundation: true, ram_bytes: null, context_fresh: false }
+      const unknown = { ...known, id: 'unknown', device_identifier: 'PC-UNKNOWN', display_name: 'Без Foundation',
+        launcher_version: null, core_newer_than_foundation: false }
+      const data = query.get('foundation_unknown') === 'true' ? [unknown]
+        : query.has('foundation_outdated') || query.get('core_newer_than_foundation') === 'true' ? [known] : [known, unknown]
+      return route.fulfill({ json: { data, total: data.length, limit: 50, offset: 0 } })
+    })
+    await page.route('**/api/admin/updates/builds?*', route => route.fulfill({ json: { data: [], total: 0 } }))
+    await page.route('**/api/admin/updates/rollouts?*', route => route.fulfill({ json: { data: [], total: 0 } }))
+    await page.route('**/api/admin/updates/rollouts/rollout-timing?*', route => route.fulfill({ json: {
+      id: 'rollout-timing', version: '3.2.83', mode: 'canary', status: 'completed', counts: {},
+      created_at: null, started_at: null, completed_at: null, reason: null, targets_total: 1,
+      targets: [{ device_id: 'known', device_name: 'PC-KNOWN', status: 'failed', assigned_at: '2026-10-03T08:00:00Z',
+        requested_at: '', scheduled_at: null, updated_at: '2026-10-03T08:02:00Z', terminal_at: '2026-10-03T08:02:00Z',
+        safe_reason: null, report_status: 'failed', reported_version: '3.2.83',
+        safe_code: '<img src=x onerror=alert(1)>', report_created_at: '2026-10-03T08:03:00Z' }],
+    } }))
+    await page.goto('/admin/devices?search=PC&offset=50')
+    await expect(page.getByRole('columnheader', { name: 'Core Agent' })).toBeVisible()
+    await expect(page.getByRole('columnheader', { name: 'Foundation / Launcher' })).toBeVisible()
+    await expect(page.getByText('Core новее Foundation · информационно')).toBeVisible()
+    const unknown = page.getByRole('row').filter({ hasText: 'Без Foundation' })
+    await expect(unknown.getByText('В сети', { exact: true })).toBeVisible()
+    await expect(unknown.getByText('Неизвестна')).toBeVisible()
+    await page.getByLabel('Core Agent ниже версии', { exact: true }).fill('3.2.82')
+    await page.getByLabel('Foundation ниже версии', { exact: true }).fill('3.2.83')
+    await expect(page).toHaveURL(/core_outdated=3.2.82/)
+    await expect(page).toHaveURL(/foundation_outdated=3.2.83/)
+    expect(new URL(page.url()).searchParams.get('search')).toBe('PC')
+    expect(new URL(page.url()).searchParams.has('offset')).toBe(false)
+    await expect(page.getByText('Без Foundation')).toHaveCount(0)
+    await page.getByLabel('Foundation ниже версии', { exact: true }).fill('')
+    await page.getByLabel('Данные Foundation').selectOption('true')
+    await expect(page.getByText('Без Foundation')).toBeVisible()
+    await page.goto('/admin/updates?open=rollout-timing')
+    const dialog = page.getByRole('dialog', { name: 'Развёртывание', exact: true })
+    await expect(dialog).toBeVisible()
+    await expect(dialog.getByText('Последний отчёт', { exact: true })).toBeVisible()
+    await expect(dialog.getByText('<img src=x onerror=alert(1)>', { exact: true })).toBeVisible()
+    await expect(dialog.locator('img')).toHaveCount(0)
+    await expect(dialog.getByText('3 окт. 2026 г., 13:03')).toBeVisible()
+    await expect(dialog.getByText('Invalid Date')).toHaveCount(0)
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
+  })
+}
+
 test('administrator can approve enrollment, roll back an update and run a module', async ({ page }) => {
   await page.goto('/admin/login')
   await expect(page.getByRole('heading', { name: 'Вход в консоль' })).toBeVisible()

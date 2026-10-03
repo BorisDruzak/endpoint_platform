@@ -5,11 +5,16 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from sqlalchemy import and_, func, or_, select
+from pydantic import TypeAdapter, ValidationError
+from sqlalchemy import String, and_, func, or_, select
+from sqlalchemy.ext.compiler import compiles
+from sqlalchemy.sql.functions import FunctionElement
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
 from endpoint_contracts import DeviceContextEnvelopeV1
+from endpoint_contracts.updates import SemanticVersionV1, _SEMVER_PATTERN
+from endpoint_server.db.instance_order import latest_instance_order
 from endpoint_server.context.models import ContextCurrent, ContextSnapshot
 from endpoint_server.db.models import (
     Device, DeviceInstance, DeviceSession, EndpointOperation, EnrollmentRequest, UpdateTarget,
@@ -18,6 +23,68 @@ from endpoint_server.db.models import (
 
 PRESENCE_TTL = timedelta(seconds=90)
 CONTEXT_TTL = timedelta(hours=24)
+_VERSION = TypeAdapter(SemanticVersionV1)
+
+
+def _version_or_unknown(value: str | None) -> str | None:
+    try:
+        return _VERSION.validate_python(value)
+    except ValidationError:
+        return None
+
+
+class _SemverKey(FunctionElement):
+    """Bounded SemVer text key: no numeric casts, database functions or locale ordering."""
+
+    type = String()
+    inherit_cache = True
+
+
+@compiles(_SemverKey, "sqlite")
+@compiles(_SemverKey, "postgresql")
+def _compile_semver_key(element, compiler, **kwargs):
+    value = compiler.process(list(element.clauses)[0], **kwargs)
+    postgres = compiler.dialect.name == "postgresql"
+
+    def position(text, delimiter):
+        return f"{'strpos' if postgres else 'instr'}({text}, '{delimiter}')"
+
+    def matches(text, pattern):
+        literal = compiler.render_literal_value(pattern, String())
+        return f"({text} {'~' if postgres else 'REGEXP'} {literal})"
+
+    def before(text, delimiter):
+        at = position(text, delimiter)
+        return f"CASE WHEN {at} > 0 THEN substr({text}, 1, {at}-1) ELSE {text} END"
+
+    def after(text, delimiter):
+        at = position(text, delimiter)
+        return f"CASE WHEN {at} > 0 THEN substr({text}, {at}+1) ELSE '' END"
+
+    def numeric_key(text):
+        # Two decimal length digits cover every component of the 64-character contract.
+        size = f"('00' || CAST(length({text}) AS TEXT))"
+        return f"substr({size}, length({size})-1, 2) || {text} || '!'"
+
+    pattern = _SEMVER_PATTERN.removesuffix(r"\z") + "$"
+    valid = f"length(v) BETWEEN 5 AND 64 AND {matches('v', pattern)} AND NOT {matches('v', '[^0-9A-Za-z.+-]')}"
+    token = before("rest", ".")
+    token_key = f"CASE WHEN {matches(token, '^[0-9]+$')} THEN '0' || {numeric_key(token)} ELSE '1' || {token} || '!' END"
+    collation = '"C"' if postgres else 'BINARY'
+    return f"""(WITH RECURSIVE
+        version_input(v) AS (SELECT CASE WHEN length({value}) <= 64 THEN {value} ELSE NULL END),
+        version_without_build(v, bare) AS (SELECT v, {before('v', '+')} FROM version_input),
+        version_parts(v, core, pre) AS (
+            SELECT v, {before('bare', '-')}, {after('bare', '-')} FROM version_without_build),
+        core_parts(v, a, tail, pre) AS (
+            SELECT v, {before('core', '.')}, {after('core', '.')}, pre FROM version_parts),
+        pre_parts(rest, key) AS (
+            SELECT pre, CAST('' AS TEXT) FROM version_parts
+            UNION ALL SELECT {after('rest', '.')}, key || ({token_key}) FROM pre_parts WHERE rest <> '')
+        SELECT CASE WHEN {valid} THEN
+            {numeric_key('a')} || {numeric_key(before('tail', '.'))} || {numeric_key(after('tail', '.'))} ||
+            CASE WHEN pre = '' THEN '1' ELSE '0' || (SELECT key FROM pre_parts WHERE rest = '') END
+            ELSE NULL END FROM core_parts) COLLATE {collation}"""
 
 
 def _latest_sessions():
@@ -37,9 +104,10 @@ def _latest_instances():
     return select(
         DeviceInstance.device_id.label("device_id"),
         DeviceInstance.agent_version.label("agent_version"),
+        DeviceInstance.launcher_version.label("launcher_version"),
         func.row_number().over(
             partition_by=DeviceInstance.device_id,
-            order_by=(DeviceInstance.last_seen_at.desc(), DeviceInstance.created_at.desc(), DeviceInstance.id.desc()),
+            order_by=latest_instance_order(),
         ).label("rank"),
     ).subquery()
 
@@ -82,6 +150,10 @@ async def list_fleet(
     online: bool | None = None,
     platform: str | None = None,
     agent_version: str | None = None,
+    core_outdated: str | None = None,
+    foundation_outdated: str | None = None,
+    core_newer_than_foundation: bool | None = None,
+    foundation_unknown: bool | None = None,
     context: str | None = None,
     update: str | None = None,
 ) -> dict[str, object]:
@@ -121,6 +193,17 @@ async def list_fleet(
         base = base.where(inventory.normalized_projection["sections"]["system"]["platform"].as_string() == platform)
     if agent_version:
         base = base.where(instances.c.agent_version == agent_version)
+    core_key = _SemverKey(instances.c.agent_version)
+    foundation_key = _SemverKey(instances.c.launcher_version)
+    newer = func.coalesce(core_key > foundation_key, False)
+    if core_outdated:
+        base = base.where(core_key < _SemverKey(core_outdated))
+    if foundation_outdated:
+        base = base.where(foundation_key < _SemverKey(foundation_outdated))
+    if core_newer_than_foundation is not None:
+        base = base.where(newer == core_newer_than_foundation)
+    if foundation_unknown is not None:
+        base = base.where(foundation_key.is_(None) if foundation_unknown else foundation_key.is_not(None))
     if context == "fresh":
         base = base.where(func.coalesce(inventory_current.last_observed_at, inventory_current.updated_at) >= now - CONTEXT_TTL)
     elif context == "stale":
@@ -136,13 +219,13 @@ async def list_fleet(
         base.with_only_columns(
             Device.id, Device.device_identifier, Device.display_name,
             sessions.c.last_seen_at, sessions.c.closed_at,
-            instances.c.agent_version, updates.c.status,
+            instances.c.agent_version, instances.c.launcher_version, newer, updates.c.status,
             func.coalesce(inventory_current.last_observed_at, inventory_current.updated_at), inventory.normalized_projection,
             session_snapshot.normalized_projection,
         ).order_by(Device.device_identifier, Device.id).limit(limit).offset(offset)
     )).all()
     data: list[dict[str, object]] = []
-    for device_id, identifier, display_name, seen, closed, version, update_status, collected, inventory_json, session_json in rows:
+    for device_id, identifier, display_name, seen, closed, version, launcher, core_newer, update_status, collected, inventory_json, session_json in rows:
         system = _safe_sections(inventory_json, "inventory_v1")
         current_session = _safe_sections(session_json, "session_v1")
         system_info = system.get("system") or {}
@@ -157,7 +240,9 @@ async def list_fleet(
             "display_name": display_name or identifier,
             "online": bool(observed and closed is None and now - PRESENCE_TTL <= observed <= now),
             "last_seen_at": observed,
-            "agent_version": version,
+            "agent_version": _version_or_unknown(version),
+            "launcher_version": _version_or_unknown(launcher),
+            "core_newer_than_foundation": bool(core_newer),
             "hostname": system_info.get("hostname"),
             "platform": system_info.get("platform"),
             "os_name": system_info.get("os_name"),
@@ -177,20 +262,23 @@ async def device_presence(session: AsyncSession, device_id: object) -> dict[str,
     sessions = _latest_sessions()
     instances = _latest_instances()
     row = (await session.execute(
-        select(sessions.c.last_seen_at, sessions.c.closed_at, instances.c.agent_version)
+        select(sessions.c.last_seen_at, sessions.c.closed_at, instances.c.agent_version, instances.c.launcher_version,
+            func.coalesce(_SemverKey(instances.c.agent_version) > _SemverKey(instances.c.launcher_version), False).label("core_newer_than_foundation"))
         .select_from(Device)
         .outerjoin(sessions, and_(sessions.c.device_id == Device.id, sessions.c.rank == 1))
         .outerjoin(instances, and_(instances.c.device_id == Device.id, instances.c.rank == 1))
         .where(Device.id == device_id)
     )).one_or_none()
     if row is None:
-        return {"online": False, "last_seen_at": None, "agent_version": None}
+        return {"online": False, "last_seen_at": None, "agent_version": None, "launcher_version": None, "core_newer_than_foundation": False}
     seen = _aware(row.last_seen_at)
     now = datetime.now(UTC)
     return {
         "online": bool(seen and row.closed_at is None and now - PRESENCE_TTL <= seen <= now),
         "last_seen_at": seen,
-        "agent_version": row.agent_version,
+        "agent_version": _version_or_unknown(row.agent_version),
+        "launcher_version": _version_or_unknown(row.launcher_version),
+        "core_newer_than_foundation": bool(row.core_newer_than_foundation),
     }
 
 

@@ -3,17 +3,23 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
+import os
 from pathlib import Path
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
+import pytest_asyncio
+import asyncpg
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy import event, func, select
+from sqlalchemy import event, func, literal, select, union_all
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlalchemy.engine import make_url
 
 from endpoint_server.context.models import ContextCollection, ContextCurrent, ContextSnapshot, DeviceEvent
 from endpoint_server.db.models import AuditEvent, Device, DeviceInstance, DeviceSession, EndpointOperation, EnrollmentRequest, UpdateTarget
-from endpoint_server.console.fleet import dashboard_fleet, list_fleet
+from endpoint_server.console.fleet import _SemverKey, dashboard_fleet, device_presence, list_fleet
+from endpoint_server.db.base import Base
+from endpoint_server.updates.service import _compare_semver
 from endpoint_server.auth.admin_sessions import AdminPrincipal, require_admin
 from endpoint_server.config import Settings
 from endpoint_server.db.models import AdminSession, AdminUser
@@ -101,6 +107,13 @@ async def test_fleet_is_paginated_and_does_not_expose_raw_context() -> None:
     async with AsyncClient(transport=ASGITransport(app=app), base_url="https://endpoint.sosnadmin.local") as client:
         dashboard_response = await client.get("/api/admin/console/dashboard")
         fleet_response = await client.get("/api/admin/console/devices?limit=1")
+        foundation_unknown_response = await client.get("/api/admin/console/devices?foundation_unknown=true&online=true")
+        core_filtered = await client.get("/api/admin/console/devices?core_outdated=3.2.82&limit=1&offset=1")
+        assert (await client.get("/api/admin/console/devices?core_outdated=invalid")).status_code == 422
+        assert (await client.get("/api/admin/console/devices?foundation_outdated=3.02.82")).status_code == 422
+    app.dependency_overrides.clear()
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="https://endpoint.sosnadmin.local") as client:
+        assert (await client.get("/api/admin/console/devices?foundation_unknown=true")).status_code == 401
     await engine.dispose()
     assert page["total"] == 2
     assert len(page["data"]) == 1
@@ -117,8 +130,11 @@ async def test_fleet_is_paginated_and_does_not_expose_raw_context() -> None:
     assert dashboard_response.status_code == fleet_response.status_code == 200
     assert dashboard_response.json()["total"] == fleet_response.json()["total"] == 2
     assert "must-not-leak" not in fleet_response.text
+    assert foundation_unknown_response.json()["data"][0]["online"] is True
+    assert foundation_unknown_response.json()["data"][0]["launcher_version"] is None
+    assert core_filtered.json()["total"] == 1 and core_filtered.json()["data"] == []
     assert list_queries <= 6
-    assert queries <= 20
+    assert queries <= 24
 
 
 @pytest.mark.asyncio
@@ -209,7 +225,7 @@ async def test_console_device_api_uses_session_and_safe_projection() -> None:
     ):
         schema = app.openapi()["paths"][path]["get"]["responses"]["200"]["content"]["application/json"]["schema"]
         assert schema["$ref"].endswith(f"/{model}")
-    changes_schema = app.openapi()["paths"][f"/api/admin/console/devices/{{device_id}}/changes"]["get"]["responses"]["200"]["content"]["application/json"]["schema"]
+    changes_schema = app.openapi()["paths"]["/api/admin/console/devices/{device_id}/changes"]["get"]["responses"]["200"]["content"]["application/json"]["schema"]
     assert changes_schema["$ref"].endswith("/ConsoleChangesPageResponse")
     user_id = uuid4()
     principal = AdminPrincipal(
@@ -279,3 +295,115 @@ async def test_console_device_api_uses_session_and_safe_projection() -> None:
     assert replay_refresh.status_code == 200
     assert first_refresh.json()["data"]["id"] == replay_refresh.json()["data"]["id"]
     assert collection_count == audit_count == 1
+
+
+@pytest_asyncio.fixture(params=["sqlite", "postgresql"])
+async def version_engine(request):
+    if request.param == "sqlite":
+        engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+        try:
+            yield engine
+        finally:
+            await engine.dispose()
+        return
+    admin_url = os.environ.get("ENDPOINT_TEST_POSTGRES_URL")
+    if not admin_url:
+        pytest.skip("set ENDPOINT_TEST_POSTGRES_URL to disposable loopback PostgreSQL")
+    parsed = make_url(admin_url)
+    assert parsed.host in {"127.0.0.1", "localhost", "::1"}
+    connection = await asyncpg.connect(admin_url)
+    database_name = f"endpoint_console_versions_{uuid4().hex}"
+    await connection.execute(f'CREATE DATABASE "{database_name}"')
+    engine = create_async_engine(parsed.set(drivername="postgresql+asyncpg", database=database_name))
+    try:
+        yield engine
+    finally:
+        await engine.dispose()
+        await connection.execute(f'DROP DATABASE "{database_name}"')
+        await connection.close()
+
+
+@pytest.mark.asyncio
+async def test_foundation_filters_are_independent_semantic_and_session_only(version_engine) -> None:
+    engine = version_engine
+    async with engine.begin() as connection:
+        await connection.run_sync(lambda sync: Base.metadata.create_all(sync) if engine.dialect.name == "postgresql" else [table.create(sync) for table in (
+            Device.__table__, DeviceInstance.__table__, DeviceSession.__table__,
+            ContextSnapshot.__table__, ContextCurrent.__table__, UpdateTarget.__table__,
+        )])
+    sessions = async_sessionmaker(engine, expire_on_commit=False)
+    now = datetime.now(UTC)
+    devices = [Device(id=uuid4(), device_identifier=f"VERSION-{index}") for index in range(7)]
+    pairs = [("3.2.83", "3.2.82"), ("3.2.81", "3.2.83"), ("3.2.83", "3.2.82"),
+             ("3.2.9", "3.2.10"), ("3.2.82-rc.1", "3.2.82+build.1"), ("invalid", "invalid"),
+             ("3.2.83", "3.2.82")]
+    async with sessions() as session:
+        session.add_all(devices)
+        await session.flush()
+        for index, (device, (core, foundation)) in enumerate(zip(devices, pairs)):
+            session.add(DeviceInstance(id=uuid4(), device_id=device.id, instance_identifier=f"current-{index}",
+                agent_version=core, launcher_version=foundation, last_seen_at=now, created_at=now))
+            if index < 6:
+                session.add(DeviceSession(device_id=device.id, session_identifier=f"wss-{index}",
+                    expires_at=now + timedelta(hours=1), last_seen_at=now, created_at=now))
+        # Latest tied UUID wins even if created_at is older; unknown never falls back.
+        session.add(DeviceInstance(id=UUID("ffffffff-ffff-4fff-8fff-ffffffffffff"), device_id=devices[2].id,
+            instance_identifier="latest-unknown", agent_version="3.2.83", launcher_version=None,
+            last_seen_at=now, created_at=now - timedelta(days=1)))
+        session.add(DeviceInstance(device_id=devices[2].id, instance_identifier="null-observation",
+            agent_version="99.0.0", launcher_version="99.0.0", last_seen_at=None, created_at=now))
+        await session.commit()
+    queries = 0
+    def count_query(*_: object) -> None:
+        nonlocal queries
+        queries += 1
+    event.listen(engine.sync_engine, "before_cursor_execute", count_query)
+    async with sessions() as session:
+        page = await list_fleet(session, limit=1)
+        assert queries == 2
+        assert page["total"] == 7
+        assert page["data"][0]["launcher_version"] == "3.2.82"
+        assert page["data"][0]["core_newer_than_foundation"] is True
+        full = await list_fleet(session, limit=100)
+        assert queries == 4  # row count does not grow the query count
+        assert all(row["online"] for row in full["data"][:6])
+        assert full["data"][6]["online"] is False
+        assert full["data"][2]["launcher_version"] is None
+        assert full["data"][2]["agent_version"] == "3.2.83"
+        assert full["data"][5]["agent_version"] is full["data"][5]["launcher_version"] is None
+        presence = await device_presence(session, devices[2].id)
+        assert presence["launcher_version"] is None and presence["online"] is True
+        core = await list_fleet(session, core_outdated="3.2.82")
+        foundation = await list_fleet(session, foundation_outdated="3.2.82")
+        newer = await list_fleet(session, core_newer_than_foundation=True)
+        missing = await list_fleet(session, foundation_unknown=True)
+        assert {row["device_identifier"] for row in core["data"]} == {"VERSION-1", "VERSION-3", "VERSION-4"}
+        assert {row["device_identifier"] for row in foundation["data"]} == {"VERSION-3"}
+        assert [row["device_identifier"] for row in newer["data"]] == ["VERSION-0", "VERSION-6"]
+        assert {row["device_identifier"] for row in missing["data"]} == {"VERSION-2", "VERSION-5"}
+        page = await list_fleet(session, core_outdated="3.2.82", limit=1, offset=1)
+        assert page["total"] == 3 and page["data"][0]["device_identifier"] == "VERSION-3"
+    event.remove(engine.sync_engine, "before_cursor_execute", count_query)
+
+
+@pytest.mark.asyncio
+async def test_semantic_sql_order_matches_recommendation_oracle(version_engine) -> None:
+    versions = ["0.0.0", "3.2.9", "3.2.10", "3.2.82-0", "3.2.82-1", "3.2.82-2",
+        "3.2.82-10", "3.2.82-Z", "3.2.82-alpha", "3.2.82-alpha-", "3.2.82-alpha.1",
+        "3.2.82-alpha.2", "3.2.82-alpha.10", "3.2.82-alpha.beta", "3.2.82-beta",
+        "3.2.82", "3.2.82+build.1", "3.2.83", "3.10.0", "10.0.0",
+        "1234567890123456789012345678901234567890123456789012345678901234"[:60] + ".0.0",
+        "1.0.0-1234567890123456789012345678901234567890123456789012345678"]
+    async with version_engine.connect() as connection:
+        keys = {value: await connection.scalar(select(_SemverKey(value))) for value in versions}
+        ordered = (await connection.execute(union_all(*[
+            select(literal(value).label("version"), _SemverKey(value).label("key")) for value in versions
+        ]).order_by("key"))).scalars().all()
+        assert set(ordered) == set(versions)
+        assert all(_compare_semver(left, right) <= 0 for left, right in zip(ordered, ordered[1:]))
+        for left in versions:
+            for right in versions:
+                actual = (keys[left] > keys[right]) - (keys[left] < keys[right])
+                assert actual == _compare_semver(left, right), (left, right)
+        for invalid in (None, "", "invalid", "03.2.82", "3.2.82-01", "3.2.82\n", "1" * 61 + ".0.0"):
+            assert await connection.scalar(select(_SemverKey(invalid))) is None
