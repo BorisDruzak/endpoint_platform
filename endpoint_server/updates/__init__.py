@@ -8,6 +8,8 @@ from .errors import (
     UpdateValidationError,
 )
 from .service import (
+    cancel_paused_singleton_rollout,
+    rollout_cancellation_context,
     activate_rollout,
     complete_rollout,
     create_rollback_rollout,
@@ -26,6 +28,8 @@ __all__ = [
     "UpdateStateError",
     "UpdateValidationError",
     "activate_rollout",
+    "cancel_paused_singleton_rollout",
+    "rollout_cancellation_context",
     "complete_rollout",
     "create_rollback_rollout",
     "create_rollout",

@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import re
 from pathlib import Path
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from datetime import UTC, datetime
-from uuid import UUID, uuid4
+from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
 
 from pydantic import TypeAdapter, ValidationError
 from sqlalchemy import and_, or_, select, text
@@ -30,6 +31,7 @@ from endpoint_server.db.instance_order import latest_instance_order
 from endpoint_server.audit.service import append_audit_event
 from endpoint_server.db.models import (
     Device,
+    AuditEvent,
     DeviceInstance,
     UpdateBuild,
     UpdateReport,
@@ -43,6 +45,12 @@ from .errors import (
     UpdateStateError,
     UpdateValidationError,
 )
+from .admin_contracts import (
+    UpdateRolloutCancellationContextV1,
+    UpdateRolloutCancellationRequestV1,
+    UpdateRolloutCancellationResponseV1,
+)
+from .admin_transaction import BudgetSession, OperationBudget
 
 
 _ACTIVE_TARGET_STATUSES = ("assigned", "requested", "scheduled")
@@ -50,6 +58,189 @@ _TERMINAL_TARGET_STATUSES = ("applied", "failed", "rolled_back", "cancelled")
 _PLATFORMS = ("linux_amd64", "windows_amd64")
 _SAFE_IDENTIFIER = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 _SEMANTIC_VERSION = TypeAdapter(SemanticVersionV1)
+
+
+def _cancellation_conflict() -> UpdateConflict:
+    return UpdateConflict("rollout cancellation context conflicts")
+
+
+def _operation_identity(operation_id: str) -> str:
+    try:
+        value = UUID(operation_id)
+        if value.int == 0 or operation_id != str(value):
+            raise ValueError()
+    except (ValueError, AttributeError, TypeError) as error:
+        raise _cancellation_conflict() from error
+    return hashlib.sha256(("endpoint-update-operation-identity-v1\0" + str(value)).encode("utf-8")).hexdigest()
+
+
+def _cancellation_context(build: UpdateBuild, rollout: UpdateRollout, target: UpdateTarget,
+        *, prior_status: str | None = None) -> UpdateRolloutCancellationContextV1:
+    try:
+        return UpdateRolloutCancellationContextV1(
+            rollout_id=rollout.id, rollout_identifier=rollout.rollout_identifier,
+            mode=rollout.mode, status="paused", paused_at=rollout.paused_at,
+            build_id=build.id, build_identifier=build.build_identifier,
+            artifact_name=build.artifact_name, artifact_sha256=build.sha256_digest,
+            target_id=target.id, target_identifier=target.target_identifier,
+            device_id=target.device_id, operation_identity=_operation_identity(target.operation_id),
+            target_status=prior_status or target.status,
+        )
+    except ValidationError as error:
+        raise _cancellation_conflict() from error
+
+
+def _require_cancellation_budget(session: AsyncSession, budget: OperationBudget) -> None:
+    # The service cannot quietly escape explicit SQL/flush checks via an ordinary session.
+    if not isinstance(session, BudgetSession) or session.budget is not budget:
+        raise UpdateValidationError("cancellation requires its owned bounded session")
+    budget.check()
+
+
+async def rollout_cancellation_context(session: AsyncSession, rollout_id: UUID,
+        *, operation_budget: OperationBudget) -> UpdateRolloutCancellationContextV1:
+    """One consistent read of the complete bounded singleton membership."""
+    _require_cancellation_budget(session, operation_budget)
+    rows = (await session.execute(select(UpdateRollout, UpdateBuild, UpdateTarget)
+        .join(UpdateBuild, UpdateBuild.id == UpdateRollout.build_id)
+        .outerjoin(UpdateTarget, UpdateTarget.rollout_id == UpdateRollout.id)
+        .where(UpdateRollout.id == rollout_id).limit(2))).all()
+    if not rows:
+        raise UpdateNotFound("rollout not found")
+    rollout, build, target = rows[0]
+    if (len(rows) != 1 or target is None or rollout.mode != "canary"
+            or rollout.status != "paused" or rollout.paused_at is None
+            or rollout.completed_at is not None or rollout.cancelled_at is not None
+            or target.status not in _ACTIVE_TARGET_STATUSES or target.terminal_at is not None):
+        raise _cancellation_conflict()
+    return _cancellation_context(build, rollout, target)
+
+
+async def cancel_paused_singleton_rollout(
+    session: AsyncSession, rollout_id: UUID,
+    cancellation: UpdateRolloutCancellationRequestV1 | Mapping[str, object], actor: object,
+    request_id: str, *, authorization_revalidator: Callable[[], Awaitable[None]],
+    operation_budget: OperationBudget, now: datetime | None = None,
+) -> UpdateRolloutCancellationResponseV1:
+    """Cancel one paused singleton and add its immutable receipt; never commit here."""
+    _require_cancellation_budget(session, operation_budget)
+    if not callable(authorization_revalidator):
+        raise UpdateValidationError("cancellation authority revalidation is required")
+    try:
+        body = UpdateRolloutCancellationRequestV1.model_validate(
+            cancellation.model_dump(mode="json")
+            if isinstance(cancellation, UpdateRolloutCancellationRequestV1) else cancellation)
+    except ValidationError as error:
+        raise UpdateValidationError("invalid cancellation request") from error
+    normalized = body.model_dump(mode="json")
+    actor_id, correlation_id = _actor_identifier(actor), _request_id(request_id)
+    if body.expected.rollout_id != rollout_id:
+        raise _cancellation_conflict()
+    build_id = await session.scalar(select(UpdateRollout.build_id).where(UpdateRollout.id == rollout_id))
+    if build_id is None:
+        raise UpdateNotFound("rollout not found")
+    build = await session.scalar(select(UpdateBuild).where(UpdateBuild.id == build_id)
+        .with_for_update().execution_options(populate_existing=True))
+    rollout = await session.scalar(select(UpdateRollout).where(UpdateRollout.id == rollout_id)
+        .with_for_update().execution_options(populate_existing=True))
+    if build is None or rollout is None or rollout.build_id != build.id:
+        raise _cancellation_conflict()
+    receipt_id = uuid5(NAMESPACE_URL, "endpoint-platform:update-rollout-cancellation:v1:" + str(rollout.id))
+    receipt = await session.scalar(select(AuditEvent).where(AuditEvent.id == receipt_id))
+    targets = (await session.scalars(select(UpdateTarget).where(UpdateTarget.rollout_id == rollout.id)
+        .limit(2).execution_options(populate_existing=True))).all()
+    if len(targets) != 1:
+        raise _cancellation_conflict()
+    target = targets[0]
+    if receipt is not None:
+        # Replay only reads retained old membership, avoiding any newer owner's Device lock.
+        await authorization_revalidator()
+        operation_budget.check()
+        try:
+            details = receipt.details
+            saved = UpdateRolloutCancellationRequestV1.model_validate(details["request"])
+            response = UpdateRolloutCancellationResponseV1.model_validate(details["response"])
+            if (set(details) != {"version", "request", "response", "prior_rollout_status", "prior_target_status", "target_count"}
+                    or details["version"] != 1 or details["target_count"] != 1
+                    or details["prior_rollout_status"] != "paused"
+                    or details["prior_target_status"] != saved.expected.target_status
+                    or saved.model_dump(mode="json") != normalized
+                    or details["request"] != saved.model_dump(mode="json")
+                    or details["response"] != response.model_dump(mode="json")
+                    or receipt.action != "updates.rollout_cancelled" or receipt.actor_kind != "admin"
+                    or receipt.actor_identifier != actor_id or receipt.object_kind != "update_rollout"
+                    or receipt.object_identifier != str(rollout.id)
+                    or rollout.status != "cancelled" or rollout.completed_at is not None
+                    or rollout.cancelled_at is None or target.status != "cancelled"
+                    or target.terminal_at != rollout.cancelled_at or target.updated_at != rollout.cancelled_at
+                    or receipt.created_at != rollout.cancelled_at
+                    or not saved.expected.paused_at <= saved.recovery.verified_at <= rollout.cancelled_at
+                    or (rollout.cancelled_at - saved.recovery.verified_at).total_seconds() > 1200
+                    or _cancellation_context(build, rollout, target,
+                        prior_status=saved.expected.target_status) != saved.expected):
+                raise _cancellation_conflict()
+            expected_response = _cancellation_response(saved, rollout.cancelled_at)
+            if response != expected_response:
+                raise _cancellation_conflict()
+            return response
+        except (KeyError, TypeError, ValidationError, AttributeError) as error:
+            raise _cancellation_conflict() from error
+    if (rollout.mode != "canary" or rollout.status != "paused" or rollout.paused_at is None
+            or rollout.completed_at is not None or rollout.cancelled_at is not None):
+        raise _cancellation_conflict()
+    device = await session.scalar(select(Device).where(Device.id == target.device_id)
+        .with_for_update().execution_options(populate_existing=True))
+    target = await session.scalar(select(UpdateTarget).where(UpdateTarget.id == target.id)
+        .with_for_update().execution_options(populate_existing=True))
+    membership = (await session.scalars(select(UpdateTarget.id).where(UpdateTarget.rollout_id == rollout.id)
+        .limit(2))).all()
+    owners = (await session.scalars(select(UpdateTarget.id).where(
+        UpdateTarget.device_id == body.expected.device_id,
+        UpdateTarget.status.in_(_ACTIVE_TARGET_STATUSES)).limit(2))).all()
+    terminal_report = await session.scalar(select(UpdateReport.id).where(
+        UpdateReport.update_target_id == body.expected.target_id,
+        UpdateReport.status.in_(("applied", "failed", "rolled_back"))).limit(1))
+    if (device is None or device.retired_at is not None or target is None
+            or membership != [target.id] or target.rollout_id != rollout.id
+            or owners != [target.id] or terminal_report is not None
+            or target.status not in _ACTIVE_TARGET_STATUSES or target.terminal_at is not None
+            or _cancellation_context(build, rollout, target) != body.expected):
+        raise _cancellation_conflict()
+    await authorization_revalidator()
+    operation_budget.check()
+    occurred_at = _timestamp(now)
+    verified = body.recovery.verified_at
+    if not body.expected.paused_at <= verified <= occurred_at or (occurred_at - verified).total_seconds() > 1200:
+        raise _cancellation_conflict()
+    response = _cancellation_response(body, occurred_at)
+    target.status = "cancelled"
+    target.terminal_at = target.updated_at = occurred_at
+    rollout.status = "cancelled"
+    rollout.cancelled_at = occurred_at
+    details = {"version": 1, "request": normalized, "response": response.model_dump(mode="json"),
+        "prior_rollout_status": "paused", "prior_target_status": body.expected.target_status, "target_count": 1}
+    event = await append_audit_event(session, actor_kind="admin", actor_identifier=actor_id,
+        action="updates.rollout_cancelled", object_kind="update_rollout", object_identifier=str(rollout.id),
+        request_id=correlation_id, details=details, occurred_at=occurred_at)
+    event.id = receipt_id  # new unflushed event only; never rewrite an existing audit
+    if event.details != details:
+        raise UpdateValidationError("cancellation receipt did not survive audit redaction")
+    await session.flush()
+    operation_budget.check()
+    return response
+
+
+def _cancellation_response(body: UpdateRolloutCancellationRequestV1,
+        occurred_at: datetime) -> UpdateRolloutCancellationResponseV1:
+    expected = body.expected
+    return UpdateRolloutCancellationResponseV1(
+        schema_version="update_rollout_cancellation_response_v1", cancellation_id=body.cancellation_id,
+        rollout_id=expected.rollout_id, rollout_identifier=expected.rollout_identifier,
+        build_id=expected.build_id, build_identifier=expected.build_identifier,
+        target_id=expected.target_id, target_identifier=expected.target_identifier, device_id=expected.device_id,
+        operation_identity=expected.operation_identity, artifact_sha256=expected.artifact_sha256,
+        reason=body.reason, status="cancelled", target_status="cancelled",
+        cancelled_at=occurred_at, terminal_at=occurred_at)
 
 
 def _timestamp(value: datetime | None) -> datetime:

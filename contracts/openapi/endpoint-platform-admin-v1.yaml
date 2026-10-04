@@ -1,0 +1,394 @@
+openapi: "3.1.0"
+info:
+  title: "Endpoint Platform Update Administration"
+  version: "v1"
+paths:
+  "/api/admin/updates/rollouts/{rollout_id}/cancellation-context":
+    get:
+      tags:
+        - "admin-updates"
+      summary: "Get Rollout Cancellation Context"
+      description: "Read a safe paused singleton context using persisted updates:write authority."
+      operationId: "get_rollout_cancellation_context_api_admin_updates_rollouts__rollout_id__cancellation_context_get"
+      security:
+        -
+          UpdateAdminCookie: []
+      parameters:
+        -
+          name: "rollout_id"
+          in: "path"
+          required: true
+          schema:
+            type: "string"
+            format: "uuid"
+            title: "Rollout Id"
+      responses:
+        "200":
+          description: "Successful Response"
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/UpdateRolloutCancellationContextV1"
+        "401":
+          description: "Invalid administrator session"
+        "403":
+          description: "CSRF or persisted updates:write denied"
+        "404":
+          description: "Absent rollout"
+        "409":
+          description: "Cancellation context conflicts"
+        "422":
+          description: "Invalid bounded input"
+        "503":
+          description: "Bounded failure; retry the identical request to resolve an unknown outcome"
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/UpdateCancellationUnavailableV1"
+  "/api/admin/updates/rollouts/{rollout_id}/cancel":
+    post:
+      tags:
+        - "admin-updates"
+      summary: "Cancel Rollout"
+      description: "Retire a paused singleton after separately verified recovery; requires updates:write."
+      operationId: "cancel_rollout_api_admin_updates_rollouts__rollout_id__cancel_post"
+      security:
+        -
+          UpdateAdminCookie: []
+      parameters:
+        -
+          name: "rollout_id"
+          in: "path"
+          required: true
+          schema:
+            type: "string"
+            format: "uuid"
+            title: "Rollout Id"
+        -
+          name: "x-csrf-token"
+          in: "header"
+          required: true
+          description: "Mandatory per-session CSRF token; enforced within bounded authentication"
+          schema:
+            type: "string"
+      requestBody:
+        required: true
+        content:
+          "application/json":
+            schema:
+              "$ref": "#/components/schemas/UpdateRolloutCancellationRequestV1"
+      responses:
+        "200":
+          description: "Successful Response"
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/UpdateRolloutCancellationResponseV1"
+        "401":
+          description: "Invalid administrator session"
+        "403":
+          description: "CSRF or persisted updates:write denied"
+        "404":
+          description: "Absent rollout"
+        "409":
+          description: "Cancellation context conflicts"
+        "422":
+          description: "Invalid bounded input"
+        "503":
+          description: "Bounded failure; retry the identical request to resolve an unknown outcome"
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/UpdateCancellationUnavailableV1"
+components:
+  schemas:
+    UpdateCancellationUnavailableV1:
+      properties:
+        code:
+          type: "string"
+          enum:
+            - "update_cancellation_attempt_not_applied"
+            - "update_cancellation_outcome_unknown"
+          title: "Code"
+        detail:
+          type: "string"
+          enum:
+            - "update_cancellation_attempt_not_applied"
+            - "update_cancellation_outcome_unknown"
+          title: "Detail"
+      additionalProperties: false
+      type: "object"
+      required:
+        - "code"
+        - "detail"
+      title: "UpdateCancellationUnavailableV1"
+    UpdateRolloutCancellationContextV1:
+      properties:
+        rollout_id:
+          not:
+            const: "00000000-0000-0000-0000-000000000000"
+          type: "string"
+          format: "uuid"
+          title: "Rollout Id"
+        rollout_identifier:
+          type: "string"
+          maxLength: 128
+          minLength: 1
+          pattern: "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}(?![\\s\\S])"
+          title: "Rollout Identifier"
+        mode:
+          type: "string"
+          const: "canary"
+          title: "Mode"
+        status:
+          type: "string"
+          const: "paused"
+          title: "Status"
+        paused_at:
+          type: "string"
+          format: "date-time"
+          title: "Paused At"
+        build_id:
+          not:
+            const: "00000000-0000-0000-0000-000000000000"
+          type: "string"
+          format: "uuid"
+          title: "Build Id"
+        build_identifier:
+          type: "string"
+          maxLength: 128
+          minLength: 1
+          pattern: "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}(?![\\s\\S])"
+          title: "Build Identifier"
+        artifact_name:
+          type: "string"
+          maxLength: 256
+          minLength: 1
+          pattern: "^[A-Za-z0-9][A-Za-z0-9._-]{0,255}(?![\\s\\S])"
+          title: "Artifact Name"
+        artifact_sha256:
+          type: "string"
+          maxLength: 64
+          minLength: 64
+          pattern: "^[0-9a-f]{64}(?![\\s\\S])"
+          title: "Artifact Sha256"
+        target_id:
+          not:
+            const: "00000000-0000-0000-0000-000000000000"
+          type: "string"
+          format: "uuid"
+          title: "Target Id"
+        target_identifier:
+          type: "string"
+          maxLength: 128
+          minLength: 1
+          pattern: "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}(?![\\s\\S])"
+          title: "Target Identifier"
+        device_id:
+          not:
+            const: "00000000-0000-0000-0000-000000000000"
+          type: "string"
+          format: "uuid"
+          title: "Device Id"
+        operation_identity:
+          type: "string"
+          maxLength: 64
+          minLength: 64
+          pattern: "^[0-9a-f]{64}(?![\\s\\S])"
+          title: "Operation Identity"
+        target_status:
+          type: "string"
+          enum:
+            - "assigned"
+            - "requested"
+            - "scheduled"
+          title: "Target Status"
+      additionalProperties: false
+      type: "object"
+      required:
+        - "rollout_id"
+        - "rollout_identifier"
+        - "mode"
+        - "status"
+        - "paused_at"
+        - "build_id"
+        - "build_identifier"
+        - "artifact_name"
+        - "artifact_sha256"
+        - "target_id"
+        - "target_identifier"
+        - "device_id"
+        - "operation_identity"
+        - "target_status"
+      title: "UpdateRolloutCancellationContextV1"
+    UpdateRolloutCancellationRequestV1:
+      properties:
+        schema_version:
+          type: "string"
+          const: "update_rollout_cancellation_request_v1"
+          title: "Schema Version"
+        cancellation_id:
+          not:
+            const: "00000000-0000-0000-0000-000000000000"
+          type: "string"
+          format: "uuid"
+          title: "Cancellation Id"
+        expected:
+          "$ref": "#/components/schemas/UpdateRolloutCancellationContextV1"
+        reason:
+          type: "string"
+          const: "trial_retired_after_verified_restoration"
+          title: "Reason"
+        recovery:
+          "$ref": "#/components/schemas/UpdateRolloutRecoveryAttestationV1"
+      additionalProperties: false
+      type: "object"
+      required:
+        - "schema_version"
+        - "cancellation_id"
+        - "expected"
+        - "reason"
+        - "recovery"
+      title: "UpdateRolloutCancellationRequestV1"
+    UpdateRolloutCancellationResponseV1:
+      properties:
+        schema_version:
+          type: "string"
+          const: "update_rollout_cancellation_response_v1"
+          title: "Schema Version"
+        cancellation_id:
+          not:
+            const: "00000000-0000-0000-0000-000000000000"
+          type: "string"
+          format: "uuid"
+          title: "Cancellation Id"
+        rollout_id:
+          not:
+            const: "00000000-0000-0000-0000-000000000000"
+          type: "string"
+          format: "uuid"
+          title: "Rollout Id"
+        rollout_identifier:
+          type: "string"
+          maxLength: 128
+          minLength: 1
+          pattern: "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}(?![\\s\\S])"
+          title: "Rollout Identifier"
+        build_id:
+          not:
+            const: "00000000-0000-0000-0000-000000000000"
+          type: "string"
+          format: "uuid"
+          title: "Build Id"
+        build_identifier:
+          type: "string"
+          maxLength: 128
+          minLength: 1
+          pattern: "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}(?![\\s\\S])"
+          title: "Build Identifier"
+        target_id:
+          not:
+            const: "00000000-0000-0000-0000-000000000000"
+          type: "string"
+          format: "uuid"
+          title: "Target Id"
+        target_identifier:
+          type: "string"
+          maxLength: 128
+          minLength: 1
+          pattern: "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}(?![\\s\\S])"
+          title: "Target Identifier"
+        device_id:
+          not:
+            const: "00000000-0000-0000-0000-000000000000"
+          type: "string"
+          format: "uuid"
+          title: "Device Id"
+        operation_identity:
+          type: "string"
+          maxLength: 64
+          minLength: 64
+          pattern: "^[0-9a-f]{64}(?![\\s\\S])"
+          title: "Operation Identity"
+        artifact_sha256:
+          type: "string"
+          maxLength: 64
+          minLength: 64
+          pattern: "^[0-9a-f]{64}(?![\\s\\S])"
+          title: "Artifact Sha256"
+        reason:
+          type: "string"
+          const: "trial_retired_after_verified_restoration"
+          title: "Reason"
+        status:
+          type: "string"
+          const: "cancelled"
+          title: "Status"
+        target_status:
+          type: "string"
+          const: "cancelled"
+          title: "Target Status"
+        cancelled_at:
+          type: "string"
+          format: "date-time"
+          title: "Cancelled At"
+        terminal_at:
+          type: "string"
+          format: "date-time"
+          title: "Terminal At"
+      additionalProperties: false
+      type: "object"
+      required:
+        - "schema_version"
+        - "cancellation_id"
+        - "rollout_id"
+        - "rollout_identifier"
+        - "build_id"
+        - "build_identifier"
+        - "target_id"
+        - "target_identifier"
+        - "device_id"
+        - "operation_identity"
+        - "artifact_sha256"
+        - "reason"
+        - "status"
+        - "target_status"
+        - "cancelled_at"
+        - "terminal_at"
+      title: "UpdateRolloutCancellationResponseV1"
+    UpdateRolloutRecoveryAttestationV1:
+      properties:
+        procedure:
+          type: "string"
+          const: "task13_verified_guest_restoration_v1"
+          title: "Procedure"
+        run_id:
+          not:
+            const: "00000000-0000-0000-0000-000000000000"
+          type: "string"
+          format: "uuid"
+          title: "Run Id"
+        evidence_sha256:
+          type: "string"
+          maxLength: 64
+          minLength: 64
+          pattern: "^[0-9a-f]{64}(?![\\s\\S])"
+          title: "Evidence Sha256"
+        verified_at:
+          type: "string"
+          format: "date-time"
+          title: "Verified At"
+      additionalProperties: false
+      type: "object"
+      required:
+        - "procedure"
+        - "run_id"
+        - "evidence_sha256"
+        - "verified_at"
+      title: "UpdateRolloutRecoveryAttestationV1"
+  securitySchemes:
+    UpdateAdminCookie:
+      type: "apiKey"
+      description: "Persisted interactive administrator with updates:write"
+      in: "cookie"
+      name: "endpoint_admin_session"

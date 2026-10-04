@@ -62,6 +62,7 @@ from endpoint_server.gateway.ws_routes import (
 )
 from endpoint_server.updates.admin_routes import router as updates_admin_router
 from endpoint_server.updates.agent_routes import router as updates_agent_router
+from endpoint_server.updates.admin_transaction import UpdateAdminTransactionProvider
 
 
 @asynccontextmanager
@@ -72,6 +73,8 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     finally:
         try:
             await app.state.gateway_connection_registry.shutdown_all()
+            if app.state.update_admin_provider is not None:
+                await app.state.update_admin_provider.close()
             close = getattr(app.state.session_provider, "close", None)
             if close is not None:
                 await close()
@@ -80,7 +83,8 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 
 def create_app(
-    settings: Settings, session_provider: SessionProvider | None = None
+    settings: Settings, session_provider: SessionProvider | None = None,
+    *, update_admin_provider: UpdateAdminTransactionProvider | None = None,
 ) -> FastAPI:
     """Create the server application with an injectable session provider."""
     assert_single_gateway_worker()
@@ -89,6 +93,9 @@ def create_app(
     app.state.session_provider = session_provider or create_session_provider(
         settings.database_url
     )
+    app.state.update_admin_provider = update_admin_provider
+    if session_provider is None and update_admin_provider is None:
+        app.state.update_admin_provider = UpdateAdminTransactionProvider(settings.database_url)
     app.state.gateway_connection_registry = ConnectionRegistry()
     app.state.gateway_worker_lease = GatewayWorkerLease(settings.artifact_root)
     app.add_exception_handler(

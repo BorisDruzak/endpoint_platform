@@ -6,7 +6,9 @@ from datetime import datetime
 from typing import Annotated, Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Security, status
+from fastapi.responses import JSONResponse
+from fastapi.security import APIKeyCookie
 from pydantic import BaseModel, ConfigDict, TypeAdapter, ValidationError
 from sqlalchemy import and_, func, select
 
@@ -17,6 +19,7 @@ from endpoint_server.auth.admin_sessions import (
     AdminPrincipal,
     require_admin,
     require_admin_update_scope,
+    revalidate_update_admin_in_transaction,
 )
 from endpoint_server.db.models import Device, UpdateBuild, UpdateReport, UpdateRollout, UpdateTarget
 
@@ -28,6 +31,8 @@ from .errors import (
     UpdateValidationError,
 )
 from .service import (
+    cancel_paused_singleton_rollout,
+    rollout_cancellation_context,
     activate_rollout,
     complete_rollout,
     create_rollback_rollout,
@@ -35,11 +40,71 @@ from .service import (
     pause_rollout,
     register_build,
 )
+from .admin_contracts import (
+    UpdateRolloutCancellationContextV1, UpdateRolloutCancellationRequestV1,
+    UpdateRolloutCancellationResponseV1, UpdateCancellationUnavailableV1,
+)
+from .admin_transaction import NOT_APPLIED
 
 
 router = APIRouter(prefix="/api/admin/updates", tags=["admin-updates"])
 _REPORT_VERSION = TypeAdapter(SemanticVersionV1)
 _REPORT_CODE = TypeAdapter(SafeCodeV1)
+_CANCELLATION_COOKIE = APIKeyCookie(name="endpoint_admin_session", auto_error=False,
+    scheme_name="UpdateAdminCookie", description="Persisted interactive administrator with updates:write")
+_CANCELLATION_RESPONSES = {code: {"description": description} for code, description in (
+    (401, "Invalid administrator session"), (403, "CSRF or persisted updates:write denied"),
+    (404, "Absent rollout"), (409, "Cancellation context conflicts"), (422, "Invalid bounded input"))}
+_CANCELLATION_RESPONSES[503] = {"model": UpdateCancellationUnavailableV1,
+    "description": "Bounded failure; retry the identical request to resolve an unknown outcome"}
+
+
+async def _bounded_cancellation_route(request: Request, *, readonly: bool, operation):
+    provider = request.app.state.update_admin_provider
+    try:
+        if provider is None:
+            raise HTTPException(503, NOT_APPLIED)
+        return await provider.run(request, readonly=readonly, operation=operation)
+    except HTTPException as error:
+        if error.status_code == 503:
+            return JSONResponse(status_code=503, content={"code": error.detail, "detail": error.detail})
+        raise
+
+
+@router.get("/rollouts/{rollout_id}/cancellation-context",
+    response_model=UpdateRolloutCancellationContextV1, responses=_CANCELLATION_RESPONSES)
+async def get_rollout_cancellation_context(
+    rollout_id: UUID, request: Request,
+    cookie: Annotated[str | None, Security(_CANCELLATION_COOKIE)] = None,
+):
+    """Read a safe paused singleton context using persisted updates:write authority."""
+    async def operation(session, budget, principal):
+        try:
+            return await rollout_cancellation_context(session, rollout_id, operation_budget=budget)
+        except UpdateError as error:
+            raise _admin_error(error) from error
+    return await _bounded_cancellation_route(request, readonly=True, operation=operation)
+
+
+@router.post("/rollouts/{rollout_id}/cancel",
+    response_model=UpdateRolloutCancellationResponseV1, responses=_CANCELLATION_RESPONSES,
+    openapi_extra={"parameters": [{"name": "x-csrf-token", "in": "header", "required": True,
+        "description": "Mandatory per-session CSRF token; enforced within bounded authentication",
+        "schema": {"type": "string"}}]})
+async def cancel_rollout(
+    rollout_id: UUID, cancellation: UpdateRolloutCancellationRequestV1, request: Request,
+    cookie: Annotated[str | None, Security(_CANCELLATION_COOKIE)] = None,
+):
+    """Retire a paused singleton after separately verified recovery; requires updates:write."""
+    async def operation(session, budget, principal):
+        async def revalidate():
+            await revalidate_update_admin_in_transaction(request, session, principal, budget)
+        try:
+            return await cancel_paused_singleton_rollout(session, rollout_id, cancellation, principal,
+                audit_request_id(request), authorization_revalidator=revalidate, operation_budget=budget)
+        except UpdateError as error:
+            raise _admin_error(error) from error
+    return await _bounded_cancellation_route(request, readonly=False, operation=operation)
 
 
 def latest_reports():

@@ -86,6 +86,7 @@ from endpoint_contracts.device_binding import (  # noqa: E402
 from endpoint_server.browser_sensor.public_routes import (  # noqa: E402
     router as browser_sensor_public_router,
 )
+from endpoint_server.updates.admin_routes import router as updates_admin_router  # noqa: E402
 
 
 _SERVICE_OPERATION_PATHS = (
@@ -736,6 +737,39 @@ def _service_operation_openapi() -> dict[str, object]:
     }
 
 
+def _admin_cancellation_openapi() -> dict[str, object]:
+    """Publish exactly two admin paths and their reachable runtime schema closure."""
+    application = FastAPI()
+    application.include_router(updates_admin_router)
+    generated = application.openapi()
+    paths = {path: generated["paths"][path] for path in (
+        "/api/admin/updates/rollouts/{rollout_id}/cancellation-context",
+        "/api/admin/updates/rollouts/{rollout_id}/cancel",
+    )}
+
+    def references(value):
+        if isinstance(value, dict):
+            if "$ref" in value:
+                yield value["$ref"].rsplit("/", 1)[1]
+            for child in value.values():
+                yield from references(child)
+        elif isinstance(value, list):
+            for child in value:
+                yield from references(child)
+
+    required = set(references(paths))
+    schemas = {}
+    while required:
+        name = min(required)
+        required.remove(name)
+        schemas[name] = generated["components"]["schemas"][name]
+        required.update(set(references(schemas[name])) - schemas.keys())
+    return {"openapi": generated["openapi"],
+        "info": {"title": "Endpoint Platform Update Administration", "version": "v1"},
+        "paths": paths, "components": {"schemas": schemas, "securitySchemes": {
+            "UpdateAdminCookie": generated["components"]["securitySchemes"]["UpdateAdminCookie"]}}}
+
+
 def _agent_http_paths() -> dict[str, object]:
     bearer_security = [{"AgentBearer": []}]
     return {
@@ -921,6 +955,9 @@ def render_artifacts(output_root: Path) -> dict[Path, str]:
     }
     rendered[Path("contracts/openapi/endpoint-platform-v1.yaml")] = _yaml_document(
         openapi
+    )
+    rendered[Path("contracts/openapi/endpoint-platform-admin-v1.yaml")] = _yaml_document(
+        _admin_cancellation_openapi()
     )
 
     for filename, fixture in FIXTURES.items():

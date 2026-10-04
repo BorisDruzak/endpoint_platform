@@ -324,3 +324,56 @@ sudo systemctl start endpoint-platform-worker.service
 Then repeat the strict TLS and HTTPS health commands above. Never downgrade a
 production migration automatically; investigate and approve a specific schema
 rollback separately.
+
+## 9. Paused singleton canary retirement
+
+The separately published `contracts/openapi/endpoint-platform-admin-v1.yaml`
+describes only the cancellation-context GET and whole-rollout cancellation POST
+under `/api/admin/updates/rollouts/{rollout_id}`. Both require a current opaque
+`endpoint_admin_session` cookie and the user's persisted `updates:write` grant;
+POST also requires that session's `x-csrf-token`. Service bearer tokens and scope
+headers do not authorize this operation. The provider requires migration0037;
+this endpoint adds no migration and does not change agent/public contracts.
+
+Cancellation is permitted only for an exactly matched paused singleton canary
+with an assigned/requested/scheduled target. It atomically sets the rollout and
+target to cancelled and retains the original pause witness, reasons, genuine
+reports and history. It never completes a canary or makes one qualify for bulk.
+An immutable reserved audit primary key stores the normalized request, actor
+and original response. Replay requires the same currently authorized user and
+complete semantic request; a new session or equivalent UTC offset is allowed.
+Replay neither locks nor changes a later device owner. Retain this receipt in
+any future audit archival/retention work; missing or inconsistent receipts fail
+closed. Raw agent operation UUIDs are absent from this API; its public operation
+digest binds the original owner without granting authority.
+
+Before any first cancellation, separately review and authorize the deployment
+and operational recovery procedure. Hold exclusive assignment control, prove
+guest quiescence/restoration, preserve trial evidence and undelivered reports,
+and bind a reviewed public sanitized recovery attestation to the fresh paused
+context. The attestation is an attributed claim, not proof of guest state.
+Its verification time must fall after the exact pause, no later than provider
+time and within1200 seconds of first validation after all locks. Recheck clocks
+and ownership within the exclusive controller window. A pause, process absence
+or HTTP200 cannot prove recovery, retract delivered work or stop an existing
+artifact stream. A genuine terminal result that wins remains authoritative.
+
+Only these two routes use a dedicated two-connection pool/admission limit:
+pool wait1s, driver connect2s/command3s, whole checkout3s; PostgreSQL lock1s,
+statement3s and idle transaction3s; whole operation12s and shared cleanup2s.
+Commit starts once with at least3s remaining. These bounds depend on a responsive
+event loop and do not prove remote rollback or interrupt an entered COMMIT.
+Unsettled owners retain admission slots until disposal; sustained503 requires
+investigation, not an unreviewed database repair or blind transaction retry.
+
+503 `update_cancellation_attempt_not_applied` describes only the current attempt
+after confirmed precommit rollback or exhausted admission/checkout. Transport,
+commit or cleanup uncertainty returns `update_cancellation_outcome_unknown`.
+A confirmed commit remains committed even if local cleanup fails. On an unknown
+or lost response, use the identical normalized request/cancellation_id under
+valid same-user authorization to reconcile the retained receipt. Do not rerun
+restore, change expectations, invent a report, mark one delivered or assign a
+new target to resolve uncertainty. Exact replay may succeed after the original
+attestation window expires. Source/contract/PostgreSQL test success establishes
+API behavior only; it is separate from provider deployment, native recovery,
+first targeting and fleet acceptance.

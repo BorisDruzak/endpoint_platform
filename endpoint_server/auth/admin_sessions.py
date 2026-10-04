@@ -163,6 +163,38 @@ async def require_admin_update_scope(
     return principal
 
 
+async def load_update_admin_in_transaction(request: Request, session: AsyncSession) -> AdminPrincipal:
+    """Load real cookie authority inside the cancellation supervisor's fresh session."""
+    token = request.cookies.get(ADMIN_SESSION_COOKIE, "")
+    principal = await _load_admin_principal(session, token, request.app.state.settings.session_secret)
+    if principal is None:
+        raise _unauthorized()
+    enforce_csrf(request, token, request.app.state.settings.session_secret)
+    return await require_admin_update_scope(request, principal=principal)
+
+
+async def revalidate_update_admin_in_transaction(
+    request: Request, session: AsyncSession, principal: AdminPrincipal, operation_budget,
+) -> None:
+    """Lock current user then session after domain waits, holding authority to commit."""
+    operation_budget.check()
+    user_id, session_id = principal.user.id, principal.session.id
+    user = await session.scalar(select(AdminUser).where(AdminUser.id == user_id)
+        .with_for_update().execution_options(populate_existing=True))
+    record = await session.scalar(select(AdminSession).where(AdminSession.id == session_id)
+        .with_for_update().execution_options(populate_existing=True))
+    token = request.cookies.get(ADMIN_SESSION_COOKIE, "")
+    secret = request.app.state.settings.session_secret
+    if (user is None or user.disabled_at is not None or record is None
+            or record.admin_user_id != user_id or not session_is_active(record)
+            or not _is_opaque_session_token(token)
+            or not hmac.compare_digest(record.session_digest, session_digest(token, secret))):
+        raise _unauthorized()
+    enforce_csrf(request, token, secret)
+    await require_admin_update_scope(request, principal=AdminPrincipal(user=user, session=record))
+    operation_budget.check()
+
+
 def session_digest(session_token: str, session_secret: bytes) -> str:
     """Return the HMAC-SHA256 value used for session lookup."""
     if not session_token or not session_secret:
