@@ -53,6 +53,83 @@ def test_case_specific_inputs_retain_a_and_direct_b_routes_without_seed():
             fixture.prepare(steps, adapter=None, machine_id="vm-test", device_id="device-test")
 
 
+@pytest.mark.parametrize("previous", [None, "3.2.81"])
+def test_b_preserves_permitted_initial_previous_through_verification(previous):
+    steps = fixture.plan("B", frozen_source=FROZEN_SOURCE, releases=releases("B"), initial_previous=previous)
+    assert steps[0].before == steps[0].after == steps[1].before == fixture.State(
+        "3.2.81", "3.2.81", previous, "msi", True)
+    assert steps[1].after == steps[2].before == fixture.State("3.2.81", "3.2.83", "3.2.81", "zip", True)
+    assert steps[2].after == fixture.State("3.2.82", "3.2.83", "3.2.81", "zip", True)
+    boundary = Boundary(steps)
+    fixture.prepare(steps, adapter=boundary, machine_id="vm-test", device_id="device-test")
+    assert boundary.calls == [("verify-immutable-foundation", None), ("targeted-ota", None),
+        ("upgrade-canonical-setup", None)]
+    assert boundary.readiness == [dict(step=step, machine_id="vm-test", device_id="device-test", phase=phase)
+        for step in steps for phase in ("before", "after")]
+
+
+@pytest.mark.parametrize("previous", ["3.2.79", "3.2.82", "3.2.83", "unknown", "", " 3.2.81",
+    "3.2.81\n", "03.2.81", 81, False, [], {}, ("3.2.81",)])
+def test_b_cannot_declare_arbitrary_or_malformed_initial_history(previous):
+    with pytest.raises(fixture.NotReady):
+        fixture.plan("B", frozen_source=FROZEN_SOURCE, releases=releases("B"), initial_previous=previous)
+
+
+def test_initial_previous_parameter_does_not_generalize_a_start():
+    original = fixture.plan("A", frozen_source=FROZEN_SOURCE, releases=releases("A"))
+    assert fixture.plan("A", frozen_source=FROZEN_SOURCE, releases=releases("A"), initial_previous=None) == original
+    with pytest.raises(fixture.NotReady):
+        fixture.plan("A", frozen_source=FROZEN_SOURCE, releases=releases("A"), initial_previous="3.2.81")
+
+
+@pytest.mark.parametrize("phase", ["before", "after"])
+@pytest.mark.parametrize("reason", ["source differs", "hash differs", "ownership unavailable", "presence differs"])
+def test_same81_model_cannot_override_native_previous_proof_failure(phase, reason):
+    steps = fixture.plan("B", frozen_source=FROZEN_SOURCE, releases=releases("B"), initial_previous="3.2.81")
+    boundary = Boundary(steps)
+    def require(**request):
+        if request["phase"] == phase:
+            raise fixture.NotReady(reason)
+    boundary.require_native_readiness = require
+    with pytest.raises(fixture.NotReady, match=reason):
+        fixture.prepare(steps, adapter=boundary, machine_id="vm-test", device_id="device-test")
+    assert len(boundary.calls) == (0 if phase == "before" else 1)
+
+
+@pytest.mark.parametrize("declared,actual", [(None, "3.2.81"), ("3.2.81", None), ("3.2.81", "3.2.79")])
+def test_initial_history_must_match_actual_inspected_predecessor(declared, actual):
+    steps = fixture.plan("B", frozen_source=FROZEN_SOURCE, releases=releases("B"), initial_previous=declared)
+    boundary = Boundary(steps)
+    boundary.inspect = lambda: replace(steps[0].before, previous=actual)
+    with pytest.raises(fixture.NotReady, match="predecessor"):
+        fixture.prepare(steps, adapter=boundary, machine_id="vm-test", device_id="device-test")
+    assert boundary.calls == []
+    assert len(boundary.readiness) == 1
+
+
+@pytest.mark.parametrize("field,value", [("previous", None), ("previous", "3.2.79"),
+    ("foundation", "3.2.82"), ("current", "3.2.83"), ("origin", "zip"), ("seed_installed", True)])
+def test_same81_sequence_reconstruction_rejects_changed_initial_state(field, value):
+    steps = fixture.plan("B", frozen_source=FROZEN_SOURCE, releases=releases("B"), initial_previous="3.2.81")
+    changed = (replace(steps[0], before=replace(steps[0].before, **{field: value})), *steps[1:])
+    boundary = Boundary(steps)
+    with pytest.raises(fixture.NotReady):
+        fixture.prepare(changed, adapter=boundary, machine_id="vm-test", device_id="device-test")
+    assert boundary.calls == boundary.readiness == []
+
+
+@pytest.mark.parametrize("alteration", ["action", "rollback", "discard_previous"])
+def test_same81_shape_does_not_authorize_a_changed_verification_step(alteration):
+    steps = fixture.plan("B", frozen_source=FROZEN_SOURCE, releases=releases("B"), initial_previous="3.2.81")
+    first = {"action": replace(steps[0], action="targeted-ota"),
+        "rollback": replace(steps[0], rollback_from="3.2.85"),
+        "discard_previous": replace(steps[0], after=replace(steps[0].after, previous=None))}[alteration]
+    boundary = Boundary(steps)
+    with pytest.raises(fixture.NotReady, match="sequence"):
+        fixture.prepare((first, *steps[1:]), adapter=boundary, machine_id="vm-test", device_id="device-test")
+    assert boundary.calls == boundary.readiness == []
+
+
 @pytest.mark.parametrize("case", ["A", "B"])
 @pytest.mark.parametrize("field,value", [
     ("payload_floor", None), ("registry_floor", None), ("registry_floor", "3.2.80"),

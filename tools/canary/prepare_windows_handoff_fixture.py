@@ -169,10 +169,15 @@ class Step:
     rollback_from: str | None = None
 
 
-def plan(case: str, *, frozen_source: str | None, releases: tuple[Release, ...]) -> tuple[Step, ...]:
-    """Require immutable inputs; do not build, register, change floors or deploy."""
+def plan(case: str, *, frozen_source: str | None, releases: tuple[Release, ...],
+         initial_previous: str | None = None) -> tuple[Step, ...]:
+    """Declare absent/same81 B history; actual selector trust remains native."""
     if case not in ("A", "B"):
         raise NotReady("unknown fixture case")
+    if initial_previous is not None and (
+        case != "B" or type(initial_previous) is not str or initial_previous != "3.2.81"
+    ):
+        raise NotReady("initial previous must be absent or the same genuine81 for B")
     if not isinstance(frozen_source, str) or frozen_source != CANONICAL_SOURCE:
         raise NotReady("canonical source differs from the exact frozen82 revision")
     if not isinstance(releases, tuple) or any(not isinstance(item, Release) or any(
@@ -210,7 +215,7 @@ def plan(case: str, *, frozen_source: str | None, releases: tuple[Release, ...])
             ("authenticated-rollback", "3.2.82"), ("same-canonical-setup", "3.2.82"))
         trigger = "3.2.85"
     elif case == "B":
-        baseline = State("3.2.81", "3.2.81", None, "msi", True)
+        baseline = State("3.2.81", "3.2.81", initial_previous, "msi", True)
         states = (baseline, baseline,
             State("3.2.81", "3.2.83", "3.2.81", "zip", True),
             State("3.2.82", "3.2.83", "3.2.81", "zip", True))
@@ -236,6 +241,12 @@ class NativePreparation(Protocol):
     Retirement uses canonical Task7 owner/fence and Windows Installer exclusively.
     B requires the genuine matching foundation/core81 baseline and a freshly
     authenticated latest81/81 hello/session for that same device before targeting83.
+    Its declared initial previous is only absent or the same genuine81. Native
+    readiness must independently establish actual presence/absence and, if present,
+    strict selector schema, source LEGACY_SOURCE, exact bytes/hash against retained
+    native evidence, payload provenance and ownership. Preserve that selector
+    unchanged through initial verification; never delete/normalize/reinstall to fit
+    the model. The version parameter alone establishes none of this trust.
     NULL, invalid or stale provider evidence rejects; model state is not a hello.
     Its unchanged81 worker must perform ordinary authenticated download, pending,
     ACK, SCM verification/selection, real83/81 WSS proof and delivered terminal
@@ -266,7 +277,8 @@ def prepare(steps: tuple[Step, ...], *, adapter: NativePreparation | None,
     case = {"install-canonical-setup": "A", "verify-immutable-foundation": "B"}.get(steps[0].action)
     if case is None:
         raise NotReady("fixture sequence was altered")
-    if steps != plan(case, frozen_source=steps[0].frozen_source, releases=steps[0].releases):
+    if steps != plan(case, frozen_source=steps[0].frozen_source, releases=steps[0].releases,
+                     initial_previous=steps[0].before.previous):
         raise NotReady("fixture sequence was altered")
     for step in steps:
         adapter.require_native_readiness(step=step, machine_id=machine_id, device_id=device_id, phase="before")
