@@ -250,8 +250,17 @@ class NativePreparation(Protocol):
     NULL, invalid or stale provider evidence rejects; model state is not a hello.
     Its unchanged81 worker must perform ordinary authenticated download, pending,
     ACK, SCM verification/selection, real83/81 WSS proof and delivered terminal
-    report. Actual LocalService helper access, ancestry, image ACL/MSI checks and
-    compiled fixture closure remain gates before native acceptance/registration.
+    report. Before inactive83 registration require source/security/controller
+    closure, frozen compiled/offline closure, fresh genuine81 baseline and bounded
+    API characterization with its actual account/context limits, and independently
+    demonstrated snapshot recovery. A separately authorized first-device trial
+    requires supported single-device target isolation/cancellation and an external
+    finite observation budget; old-worker rollback is not guaranteed. The unchanged
+    helper performs full G1 (actual LocalService access, ancestry, image ACL/MSI)
+    at genuine83 candidate startup before runtime/hello/proof. Healthy83 and Setup82
+    acceptance require actual G1 success plus authenticated proof/terminal delivery;
+    offline checks or a separate account-level probe cannot substitute for G1.
+    This timing split authorizes no trial and leaves A's full native checks intact.
     Setup82 must preserve selected ZIP83 and actual previous81 MSI-origin payload,
     selectors and receipts through the canonical owner's retention/rehydration
     contract, then establish real83/82 hello, READY and rerun/reboot evidence.
