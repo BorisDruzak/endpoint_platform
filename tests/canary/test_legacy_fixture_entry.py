@@ -74,7 +74,12 @@ def test_immutable81_offline_verifier_remains_network_free(monkeypatch):
     assert entry.main(arguments) == 0
 
 
-def test_fixture_spec_refuses_canonical82_before_analysis():
+def test_fixture_spec_refuses_canonical82_before_analysis(monkeypatch):
+    from pc_agent import version
+    from tools.canary.fixtures import fixture_binding
+    # Keep the guard test meaningful on subsequent independently frozen sources.
+    monkeypatch.setattr(version, "AGENT_VERSION", "3.2.82")
+    monkeypatch.setattr(fixture_binding, "FIXTURE_VERSION", None)
     root = Path(__file__).resolve().parents[2]
     path = root / "tools/canary/fixtures/legacy_core.spec"
     assert path.exists()
