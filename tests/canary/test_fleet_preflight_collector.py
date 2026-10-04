@@ -151,6 +151,7 @@ try { $result=Read-CanonicalSetupPreflight -Path 'C:\\exact\\Setup.exe' -TargetV
     assert source.read_bytes() == before
 
 
+@pytest.mark.skipif(os.name != "nt", reason="Win32 file and namespace pins require Windows")
 def test_own_setup_file_and_namespace_pins_hold_until_disposal(tmp_path):
     shell = shutil.which("powershell") or shutil.which("pwsh")
     if shell is None:
@@ -263,6 +264,8 @@ def test_partial_pin_acquisition_closes_all_acquired_ancestors(tmp_path):
     shell = shutil.which("powershell") or shutil.which("pwsh")
     if shell is None:
         pytest.skip("PowerShell unavailable")
+    setup = tmp_path / "own/nested/Setup.exe"
+    expected_ancestors = [str(parent) for parent in reversed(setup.parents)]
     script = tmp_path / "pin-failure-model.ps1"
     script.write_text(
         """
@@ -278,20 +281,22 @@ function Open-SetupPathHandle { param($Path,$Directory)
  if(-not $Directory){throw 'modeled image open failure'}
  $handle=[PinModel]::new($Path);$global:opened.Add($handle);return $handle
 }
-try { Open-SetupPreflightPin 'C:\\own\\nested\\Setup.exe';throw 'unexpected acquisition' } catch { }
-@{paths=@($global:opened|ForEach-Object {$_.Path});all_closed=@($global:opened|Where-Object {-not $_.Closed}).Count -eq 0}|ConvertTo-Json -Compress
+try { Open-SetupPreflightPin $args[1];throw 'unexpected acquisition' } catch { $errorText=$_.Exception.Message }
+@{paths=@($global:opened|ForEach-Object {$_.Path});error=$errorText;all_closed=@($global:opened|Where-Object {-not $_.Closed}).Count -eq 0}|ConvertTo-Json -Compress
 """,
         encoding="utf-8",
     )
     run = subprocess.run(
-        [shell, "-NoProfile", "-NonInteractive", "-File", str(script), str(COLLECTOR)],
+        [shell, "-NoProfile", "-NonInteractive", "-File", str(script), str(COLLECTOR), str(setup)],
         capture_output=True,
         text=True,
         timeout=30,
     )
     assert run.returncode == 0, run.stderr
+    assert expected_ancestors
     assert json.loads(run.stdout) == {
-        "paths": ["C:\\", "C:\\own", "C:\\own\\nested"],
+        "paths": expected_ancestors,
+        "error": "modeled image open failure",
         "all_closed": True,
     }
 
@@ -299,6 +304,7 @@ try { Open-SetupPreflightPin 'C:\\own\\nested\\Setup.exe';throw 'unexpected acqu
 @pytest.mark.parametrize(
     "destination", ["artifact", "existing", "install", "data", "state", "cache", "configured_installer"]
 )
+@pytest.mark.skipif(os.name != "nt", reason="Native Windows destination policy requires Windows")
 def test_report_writes_only_explicit_new_artifact(tmp_path, destination):
     shell = shutil.which("powershell") or shutil.which("pwsh")
     if shell is None:
@@ -363,10 +369,68 @@ try { Write-PreflightReport @{safe=$true};'accepted' } catch { 'rejected' }
         if p.is_file()
     }
     if destination == "artifact":
-        assert json.loads(after.pop("evidence\\new.json")) == {"safe": True}
+        assert json.loads(after.pop(str(Path("evidence") / "new.json"))) == {"safe": True}
     assert after == before
 
 
+@pytest.mark.parametrize("existing", [False, True], ids=["new", "existing"])
+def test_portable_report_writer_creates_only_new_artifact(tmp_path, existing):
+    """Exercise real writer safety; native destination policy has separate tests."""
+    shell = shutil.which("powershell") or shutil.which("pwsh")
+    if shell is None:
+        pytest.skip("PowerShell unavailable")
+    destination = tmp_path / "evidence/new.json"
+    if existing:
+        destination.parent.mkdir()
+        destination.write_bytes(b"preserve existing artifact")
+    script = tmp_path / "portable-report-test.ps1"
+    script.write_text(
+        """
+$ErrorActionPreference='Stop'
+$ast=[System.Management.Automation.Language.Parser]::ParseFile($args[0],[ref]$null,[ref]$null)
+foreach($name in @('Write-PreflightReport','Assert-NoReparsePointInPath')) {
+ $function=$ast.Find({param($node) $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name},$true)
+ if($null -eq $function){throw 'Missing production writer function'}
+ Invoke-Expression $function.Extent.Text
+}
+# Explicit native-policy boundary double. No Windows policy is modeled here.
+$global:destinations=[Collections.Generic.List[string]]::new()
+function Assert-SafeReportDestination { param($Destination) $global:destinations.Add($Destination) }
+$OutputPath=$args[1]
+try { Write-PreflightReport @{safe=$true};$outcome='accepted';$errorText='' } catch { $outcome='rejected';$errorText=$_.Exception.Message }
+@{outcome=$outcome;error=$errorText;destinations=@($global:destinations.ToArray())}|ConvertTo-Json -Compress
+""",
+        encoding="utf-8",
+    )
+    before = {
+        str(path.relative_to(tmp_path)): path.read_bytes()
+        for path in tmp_path.rglob("*")
+        if path.is_file()
+    }
+    run = subprocess.run(
+        [shell, "-NoProfile", "-NonInteractive", "-File", str(script),
+         str(COLLECTOR), str(destination)],
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert run.returncode == 0, (run.stdout, run.stderr)
+    assert json.loads(run.stdout) == {
+        "outcome": "rejected" if existing else "accepted",
+        "error": "Report destination must be a new artifact." if existing else "",
+        "destinations": [str(destination)],
+    }
+    after = {
+        str(path.relative_to(tmp_path)): path.read_bytes()
+        for path in tmp_path.rglob("*")
+        if path.is_file()
+    }
+    if not existing:
+        assert json.loads(after.pop(str(destination.relative_to(tmp_path)))) == {"safe": True}
+    assert after == before
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Native Windows known-folder exclusions require Windows")
 def test_native_installer_diagnostics_exclusion_rejects_absent_file_without_writing(tmp_path):
     shell = shutil.which("powershell") or shutil.which("pwsh")
     if shell is None:

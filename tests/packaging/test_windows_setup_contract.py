@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import shutil
 import subprocess
+import tempfile
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -33,12 +34,21 @@ if ($found.Count -ne $wanted.Count) {{ throw 'Expected builder function is missi
 foreach ($definition in $found) {{ . ([scriptblock]::Create($definition.Extent.Text)) }}
 {body}
 """
-    result = subprocess.run(
-        [pwsh, "-NoProfile", "-NonInteractive", "-Command", "-"],
-        input=script, text=True, capture_output=True, check=False,
-    )
-    assert result.returncode == 0, result.stderr
-    return json.loads(result.stdout.strip().splitlines()[-1])
+    with tempfile.TemporaryDirectory(prefix="setup-contract-") as directory:
+        script_path = Path(directory) / "functions.ps1"
+        script_path.write_text(script, encoding="utf-8")
+        result = subprocess.run(
+            [pwsh, "-NoProfile", "-NonInteractive", "-File", str(script_path)],
+            text=True, capture_output=True, check=False, timeout=30,
+        )
+    assert result.returncode == 0, (result.stdout, result.stderr)
+    try:
+        return json.loads(result.stdout)
+    except json.JSONDecodeError as error:
+        raise AssertionError(
+            f"Invalid Setup function JSON response: stdout={result.stdout!r}, "
+            f"stderr={result.stderr!r}"
+        ) from error
 
 
 @pytest.mark.parametrize("thumbprint,timestamp,expected_error", [
