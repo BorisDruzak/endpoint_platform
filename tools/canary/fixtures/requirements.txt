@@ -1,0 +1,3 @@
+# Separate immutable fixture build input. No production dependency change.
+-r ../../../requirements/build-windows.txt
+pywin32==311; sys_platform == "win32"
