@@ -388,7 +388,7 @@ def test_update_downgrade_preserves_history_and_neutralizes_active_state(
 
 
 @pytest.fixture(scope="module")
-def update_service_database_url() -> Iterator[str]:
+def update_service_database_url(preserve_migration_loggers) -> Iterator[str]:
     admin_url = os.environ.get("ENDPOINT_TEST_POSTGRES_URL")
     if not admin_url:
         pytest.skip("set ENDPOINT_TEST_POSTGRES_URL to a disposable PostgreSQL server")
