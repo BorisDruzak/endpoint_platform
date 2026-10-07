@@ -1,7 +1,9 @@
 """Reviewed source-only A/B preparation contract, NOT an installed fixture tool.
 
-Native adapters, immutable83-87 builds, fixed-image authority helper/entry/spec
-and supplemental86 MSI belong to a separate post-canonical-freeze source branch.
+Case A requires immutable82/84/85; direct case B requires immutable82/83 and
+fresh genuine81/81 authenticated hello. The historical seed86/87 preparation
+was superseded by that observed provider pre-state. No seed artifact is required.
+Native adapters and fixture builds belong to the isolated post-freeze branch.
 There is deliberately no CLI, shell execution, native resolver or production
 runtime import here. An absent backend always fails NOT READY. Adapter evidence
 is trusted only after independent native review; model tests cannot attest it.
@@ -19,6 +21,7 @@ LEGACY_PRODUCT = "{5E140EED-6A05-4D9B-98C6-BCC178C6EC71}"
 LEGACY_COMPONENT = "{A10A61A1-B511-4A07-9D37-C592515D217E}"
 LEGACY_IMAGE = r"C:\Program Files\Endpoint Platform\Agent\endpoint-agent-service.exe"
 SERVICE_SID = "S-1-5-80-1102781572-1373263041-1070489469-7526906-1468061691"
+CANONICAL_SOURCE = "54759e0287f35ab4c553d89c10f10d83816618ff"
 
 # Evidence requirements for the future native adapter. They are not runtime
 # switches or permission grants. Effective rights must account for inherit-only
@@ -102,6 +105,7 @@ def validate_legacy_authority(value: LegacyAuthority) -> None:
 
 @dataclass(frozen=True)
 class SeedOwnership:
+    """Historical optional seed contract, unused by either current A/B plan."""
     product_code: str
     upgrade_code: str
     component_guids: frozenset[str]
@@ -121,7 +125,7 @@ SEED_TRANSACTION_CHECKS = frozenset({"shared-protected-exclusion", "durable-rest
 
 
 def validate_seed_ownership(value: SeedOwnership) -> None:
-    """Validate compiled native MSI observations, not an MSI authoring shortcut."""
+    """Historical seed validator; grants no authority to prepare either case."""
     all_guids = (value.product_code, value.upgrade_code, *value.component_guids,
         *value.foundation_product_codes, *value.foundation_upgrade_codes, *value.foundation_component_guids)
     if any(not isinstance(item, str) or not re.fullmatch(
@@ -165,20 +169,32 @@ class Step:
     rollback_from: str | None = None
 
 
-def plan(case: str, *, frozen_source: str | None, releases: tuple[Release, ...]) -> tuple[Step, ...]:
-    """Require immutable inputs; do not build, register, change floors or deploy."""
-    if not isinstance(frozen_source, str) or not re.fullmatch(r"[0-9a-f]{40}", frozen_source):
-        raise NotReady("canonical source is not frozen")
-    expected = {f"3.2.{n}" for n in range(82, 88)}
-    if len(releases) != 6 or {release.version for release in releases} != expected:
-        raise NotReady("immutable82-87 inputs missing or duplicated")
+def plan(case: str, *, frozen_source: str | None, releases: tuple[Release, ...],
+         initial_previous: str | None = None) -> tuple[Step, ...]:
+    """Declare absent/same81 B history; actual selector trust remains native."""
+    if case not in ("A", "B"):
+        raise NotReady("unknown fixture case")
+    if initial_previous is not None and (
+        case != "B" or type(initial_previous) is not str or initial_previous != "3.2.81"
+    ):
+        raise NotReady("initial previous must be absent or the same genuine81 for B")
+    if not isinstance(frozen_source, str) or frozen_source != CANONICAL_SOURCE:
+        raise NotReady("canonical source differs from the exact frozen82 revision")
+    if not isinstance(releases, tuple) or any(not isinstance(item, Release) or any(
+        not isinstance(getattr(item, field), str) for field in (
+            "version", "source_revision", "artifact_sha256", "tree_sha256",
+            "payload_floor", "registry_floor", "kind")) for item in releases):
+        raise NotReady("invalid immutable release input")
+    expected = {"3.2.82", "3.2.84", "3.2.85"} if case == "A" else {"3.2.82", "3.2.83"}
+    if len(releases) != len(expected) or {release.version for release in releases} != expected:
+        raise NotReady("case-specific immutable inputs missing, extra or duplicated")
     for field in ("source_revision", "artifact_sha256"):
         if len({getattr(item, field) for item in releases}) != len(releases):
             raise NotReady("fixture identities must be independently frozen")
     for item in releases:
         floor = "3.2.82" if item.version in {"3.2.82", "3.2.84", "3.2.85"} else "3.2.81"
         if (item.payload_floor != floor or item.registry_floor != floor
-            or item.kind != ("msi-seed" if item.version == "3.2.86" else "zip")
+            or item.kind != "zip"
             or not re.fullmatch(r"[0-9a-f]{40}", item.source_revision)
             or any(not re.fullmatch(r"[0-9a-f]{64}", value) for value in (item.artifact_sha256, item.tree_sha256))):
             raise NotReady("fixture payload/source/floor identity differs")
@@ -199,19 +215,13 @@ def plan(case: str, *, frozen_source: str | None, releases: tuple[Release, ...])
             ("authenticated-rollback", "3.2.82"), ("same-canonical-setup", "3.2.82"))
         trigger = "3.2.85"
     elif case == "B":
-        baseline = State("3.2.81", "3.2.81", None, "msi", True)
+        baseline = State("3.2.81", "3.2.81", initial_previous, "msi", True)
         states = (baseline, baseline,
-            State("3.2.81", "3.2.86", "3.2.81", "msi", True, True),
-            State("3.2.81", "3.2.87", "3.2.86", "zip", True, True),
-            State("3.2.81", "3.2.83", "3.2.87", "zip", True, True),
-            State("3.2.81", "3.2.83", "3.2.87", "zip", True),
-            State("3.2.82", "3.2.83", "3.2.87", "zip", True))
-        actions = (("verify-immutable-foundation", "3.2.81"), ("install-supplemental-msi", "3.2.86"),
-            ("targeted-ota", "3.2.87"), ("authenticated-rollback", "3.2.83"),
-            ("uninstall-supplemental-msi", "3.2.86"), ("upgrade-canonical-setup", "3.2.82"))
-        trigger = "3.2.87"
-    else:
-        raise NotReady("unknown fixture case")
+            State("3.2.81", "3.2.83", "3.2.81", "zip", True),
+            State("3.2.82", "3.2.83", "3.2.81", "zip", True))
+        actions = (("verify-immutable-foundation", "3.2.81"),
+            ("targeted-ota", "3.2.83"), ("upgrade-canonical-setup", "3.2.82"))
+        trigger = None
     return tuple(Step(action, version, states[index], states[index+1], releases, frozen_source,
         trigger if action == "authenticated-rollback" else None)
         for index, (action, version) in enumerate(actions))
@@ -220,7 +230,7 @@ def plan(case: str, *, frozen_source: str | None, releases: tuple[Release, ...])
 class NativePreparation(Protocol):
     """Post-freeze backend contract; no implementation is shipped in canonical82.
 
-require_native_readiness must verify dedicated machine/device, frozen sources,
+    require_native_readiness must verify dedicated machine/device, frozen sources,
     signed canonical package identities, full payload/source/tree/floor identity,
     live product/component/feature and retained package identities, effective ACL,
     active-update exclusion, delivered terminal proofs, original enrollment/CA/
@@ -229,13 +239,36 @@ require_native_readiness must verify dedicated machine/device, frozen sources,
     It must revalidate the same immutable setup/cache/foundation bytes, all current
     and previous payload/receipt bytes, and preserve identity at every step.
     Retirement uses canonical Task7 owner/fence and Windows Installer exclusively.
-    Seed86 must have disjoint Product/Upgrade/component ownership, only its core
-    and fixture evidence, no services/foundation/cache/credentials/global cleanup;
-    selector publication belongs to its reviewed durable MSI transaction and SCM.
-    Authority81 is queried under the actual unchanged service token before hello.
-    Target/rollback actions use canonical authenticated APIs and terminal rollout
-    identities. All partial/ambiguous results stop, retain evidence, and require
-    native recovery review; never raw cleanup or hand-authored state.
+    B requires the genuine matching foundation/core81 baseline and a freshly
+    authenticated latest81/81 hello/session for that same device before targeting83.
+    Its declared initial previous is only absent or the same genuine81. Native
+    readiness must independently establish actual presence/absence and, if present,
+    strict selector schema, source LEGACY_SOURCE, exact bytes/hash against retained
+    native evidence, payload provenance and ownership. Preserve that selector
+    unchanged through initial verification; never delete/normalize/reinstall to fit
+    the model. The version parameter alone establishes none of this trust.
+    NULL, invalid or stale provider evidence rejects; model state is not a hello.
+    Its unchanged81 worker must perform ordinary authenticated download, pending,
+    ACK, SCM verification/selection, real83/81 WSS proof and delivered terminal
+    report. Before inactive83 registration require source/security/controller
+    closure, frozen compiled/offline closure, fresh genuine81 baseline and bounded
+    API characterization with its actual account/context limits, and independently
+    demonstrated snapshot recovery. A separately authorized first-device trial
+    requires supported single-device target isolation/cancellation and an external
+    finite observation budget; old-worker rollback is not guaranteed. The unchanged
+    helper performs full G1 (actual LocalService access, ancestry, image ACL/MSI)
+    at genuine83 candidate startup before runtime/hello/proof. Healthy83 and Setup82
+    acceptance require actual G1 success plus authenticated proof/terminal delivery;
+    offline checks or a separate account-level probe cannot substitute for G1.
+    This timing split authorizes no trial and leaves A's full native checks intact.
+    Setup82 must preserve selected ZIP83 and actual previous81 MSI-origin payload,
+    selectors and receipts through the canonical owner's retention/rehydration
+    contract, then establish real83/82 hello, READY and rerun/reboot evidence.
+    No supplemental product or seed transaction belongs to either current plan.
+    Target/rollback actions use canonical authenticated APIs; A's rollback still
+    requires its real terminal85 rollout identity. All partial/ambiguous results
+    stop, retain evidence, and require native recovery review; never raw cleanup
+    or hand-authored state. Source models cannot attest any of these observations.
     """
     def require_native_readiness(self, *, step: Step, machine_id: str, device_id: str, phase: str) -> None: ...
     def inspect(self) -> State: ...
@@ -250,8 +283,11 @@ def prepare(steps: tuple[Step, ...], *, adapter: NativePreparation | None,
         raise NotReady("reviewed post-freeze native adapter/artifacts are required")
     if not machine_id or not device_id or not steps:
         raise NotReady("dedicated fixture identity is required")
-    case = "A" if steps[0].action == "install-canonical-setup" else "B"
-    if steps != plan(case, frozen_source=steps[0].frozen_source, releases=steps[0].releases):
+    case = {"install-canonical-setup": "A", "verify-immutable-foundation": "B"}.get(steps[0].action)
+    if case is None:
+        raise NotReady("fixture sequence was altered")
+    if steps != plan(case, frozen_source=steps[0].frozen_source, releases=steps[0].releases,
+                     initial_previous=steps[0].before.previous):
         raise NotReady("fixture sequence was altered")
     for step in steps:
         adapter.require_native_readiness(step=step, machine_id=machine_id, device_id=device_id, phase="before")
