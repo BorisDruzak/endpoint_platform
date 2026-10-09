@@ -4,6 +4,12 @@ Date: 2026-10-09.
 Investigated product baseline: `5d36fd383328cba10d2d3f6b55fe2e8489b8fb31`.
 Resume decision: **BLOCKED**.
 
+This is the initial forensic checkpoint. The later
+[controlled comparison report](2026-10-09-task-13-controlled-compare.md)
+records the single diagnostic attempt, native exit and watchdog correction.
+Its later findings supersede the unexecuted Stage B status below; resume
+remains BLOCKED.
+
 This public report summarizes a private forensic dossier. Exact commands, raw
 logs, process identities, guest configuration and evidence byte anchors remain
 in protected local storage. This report does not publish that material.
