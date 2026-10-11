@@ -65,6 +65,8 @@ def build_execution_sources(prefix, continuation_id, guest_root):
     source = replace_once(source, "  {\n    Protected", "  if($Step -eq 'compare'){\n    Protected")
     source = replace_once(source, "    if($Step -eq 'restored' -and (Test-Path -LiteralPath $marker)){throw 'restore witness survived'}\n", "")
     source = replace_once(source, "status=($(if($Step -eq 'restored'){'RESTORED_GUEST_COMPARATOR_PASS'}else{'GUEST_COMPARATOR_PASS'}))", "status='GUEST_COMPARATOR_PASS'")
+    source = replace_once(source, "status='GUEST_COMPARATOR_PASS';run_id=$RunId.ToString();",
+                           "status='GUEST_COMPARATOR_PASS';run_id=$RunId.ToString();plan_sha256=$PlanSha256;")
     a = source.index("function NativeRows(")
     b = source.index("\nfunction ", a + 1)
     shim = "function NativeRows($msi,[string]$cache){return (Get-Task13MsiTables $msi $cache)}"
