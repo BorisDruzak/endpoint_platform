@@ -216,7 +216,7 @@ def run_seq04(config, trust):
             receipt = make_receipt(prefix,capsule,evidence)
             require(parse_json(claims.read('claim-'+digest({k:claim[k] for k in ('original_run_seal_sha256','original_tip','seq')})+'.json'))==claim,
                     'durable dispatch claim unchanged')
-            require(verify_historical_prefix(original_root).binding == prefix.binding,"history changed after workload")
+            require(verify_historical_prefix(prefix.root).binding == prefix.binding,"history changed after workload")
             store.create("execution-evidence.json",canonical(evidence))
             auth.check()
             store.publish("receipt-04-compare-after-start.json",canonical(receipt))

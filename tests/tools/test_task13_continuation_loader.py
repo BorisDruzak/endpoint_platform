@@ -9,8 +9,63 @@ from pathlib import Path
 import pytest
 from tools.canary.task13_continuation.loader import check_operations, run_seq04
 from tools.canary.task13_continuation.codec import digest
+from tests.tools.test_task13_continuation_receipt import evidence_case
 
 pytestmark = pytest.mark.no_db
+
+
+@pytest.mark.skipif(os.name!='nt',reason='owned protected publication orchestration')
+def test_synthetic_one_step_loader_rechecks_history_and_publishes_candidate(tmp_path,monkeypatch,evidence_case):
+    # Mock target observations and authority; this exercises orchestration only
+    # and cannot confer operational acceptance or contact a VM.
+    from contextlib import contextmanager
+    from tools.canary.task13_continuation import loader
+    from tools.canary.task13_continuation.storage import ProtectedStore
+    from tools.canary.task13_continuation.codec import parse_json,sha256
+    p,c,e=evidence_case
+    p.root=tmp_path/'historical'
+    store=ProtectedStore.create_root(tmp_path/'bundle')
+    entries={name:b'owned' for name in ('entry-prepare.ps1','entry-workload.ps1','entry-collect.ps1','Watch-Task13DiagnosticProcess.ps1')}
+    entries['wire.bin']=b'abc'
+    c['source_closure']['execution']['entries']['Watch-Task13DiagnosticProcess.ps1']['sha256']=sha256(b'owned')
+    e['watchdog_preparation']['observation']['watchdog_sha256']=sha256(b'owned')
+    # These envelopes are raw-bound; regenerate the changed synthetic preparation.
+    from tests.tools.test_task13_continuation_receipt import envelope
+    e['watchdog_preparation']=envelope(e['watchdog_preparation']['observation'],1,c['created_utc'])
+    closure=c['source_closure'];e['source_closure_sha256']=digest(closure)
+    detached={name:'a'*64 for name in ('bootstrap_sha256','request_sha256','review_sha256','source_closure_sha256')}
+    detached['reviewer_controller']=dict(c['controller'],pid=22)
+    operations={'guest_ssh':[],'guest_root':'C:\\Task13Continuation-'+c['continuation_id'].replace('-','')}
+    @contextmanager
+    def bundle(*args):
+        yield store,closure,{},detached,entries,p,{},operations,{'claim_home':str(tmp_path/'claims')}
+    monkeypatch.setattr(loader,'reviewed_bundle',bundle)
+    monkeypatch.setattr(loader.windows,'observe_controller',lambda:c['controller'])
+    monkeypatch.setattr(loader,'create_capsule',lambda *args:c)
+    monkeypatch.setattr(loader,'LiveAuthorization',lambda *args:SimpleNamespace(check=lambda:None,capsule=c))
+    monkeypatch.setattr(loader,'verify_permission',lambda *args:None)
+    reconciled=iter((e['preflight'],e['preflight'],e['postflight']))
+    monkeypatch.setattr(loader,'_reconcile',lambda *args:next(reconciled))
+    rechecked=[]
+    def history(root):
+        assert root==p.root
+        rechecked.append(root)
+        return p
+    monkeypatch.setattr(loader,'verify_historical_prefix',history)
+    dispatched=[]
+    class Transport:
+        def __init__(self,*args): pass
+        def powershell(self,prefix,script,tag,*args,**kwargs):
+            dispatched.append(tag)
+            return e[{'prepare':'watchdog_preparation','compare-after-start':'guest','settlement':'retained_collection'}[tag]]
+    monkeypatch.setattr(loader,'ContinuationTransport',Transport)
+    monkeypatch.setattr(sys,'argv',[str(store.root/'bootstrap.py'),'--execute-reviewed-seq04-child'])
+    result=loader.run_seq04({'bootstrap_root':str(store.root)},detached)
+    assert result['status']=='ROOT_PUBLICATION_READY' and result['resume_gate']=='STOP_BEFORE_SEQ05'
+    assert rechecked==[p.root] and dispatched==['prepare','compare-after-start','settlement']
+    assert parse_json(store.read('receipt-04-compare-after-start.json'))['seq']==4
+    assert parse_json(store.read('resume-gate.json'))['status']=='AWAITING_ROOT_EXIT'
+    assert not (store.root/'root-completion.json').exists()
 
 
 def test_cli_default_refuses_without_loading_targets():
