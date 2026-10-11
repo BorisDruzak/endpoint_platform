@@ -10,6 +10,7 @@ from .authority import create_capsule, LiveAuthorization, REVIEW_SCOPE
 from .codec import canonical, digest, parse_json, require, sha256, uuid
 from .history import verify_historical_prefix, MANIFEST_SHA, _relative
 from .permission import verify_permission
+from .recovery import hold_recovery,launch_owner
 from .receipt import make_receipt, verify_continuation_receipt, publication_ack, raw_bytes, observation
 from .reconciliation import validate_state,dispatch_freshness
 from .sources import seal_sources
@@ -133,6 +134,8 @@ def reviewed_bundle(root,trust=None):
         require(prefix.binding == control["original_binding"] == closure["original_binding"], "reviewed prefix changed")
         request = parse_json(entries["operator-request.json"])
         verify_permission(request)
+        hold_recovery(held,parse_json(entries['recovery.json']),prefix,launch_owner(prefix,closure),
+                      require_launch=sys.argv[1:]==['--execute-reviewed-seq04-child'])
         operations = parse_json(entries["operations.json"])
         check_operations(operations)
         require(operations["continuation_id"] == closure["continuation_id"], "reviewed execution identity")

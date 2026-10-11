@@ -107,3 +107,23 @@ Native design references: [CreateFile sharing](https://learn.microsoft.com/en-us
 [GetSecurityInfo](https://learn.microsoft.com/en-us/windows/win32/api/aclapi/nf-aclapi-getsecurityinfo),
 [non-replacing handle rename](https://learn.microsoft.com/en-us/windows/win32/api/winbase/ns-winbase-file_rename_info),
 and [FlushFileBuffers](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-flushfilebuffers).
+## Recovery after initial preflight UNKNOWN
+
+Use the separately reviewed procedure in
+`docs/superpowers/specs/2026-10-11-task-13-unknown-recovery-design.md`.
+Fresh bundles now require the fixed failed attempt's protected evidence and the
+actual recovery authorization. Offline preparation verifies that the actual
+capsule creator has terminated; a Windows venv launcher's exit alone is insufficient.
+
+The repeat uses a pinned direct base interpreter and a permanent recovery-launch
+claim shared across continuation IDs, consumed before root creation. It also retains
+the existing original seq04 dispatch claim. Neither claim may be removed to retry.
+Any later UNKNOWN requires another explicitly authorized recovery procedure.
+
+Source review PASS and recovery admission are separate from runtime reconciliation.
+The unchanged current guard requires all fourteen known PID numbers to be absent.
+An independently proven reused PID still fails that guard while occupied. Do not
+kill a service or change the predicate to make a repeat pass. Preserve the evidence
+and report BLOCKED without a seq04 receipt; STOP_BEFORE_SEQ05 acceptance has not
+been reached unless the real receipt and root completion both verify.
+

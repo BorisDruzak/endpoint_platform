@@ -12,6 +12,7 @@ from .operations import build_operations, management_sites
 from .sources import build_execution_sources, seal_sources, CANARY
 from .storage import ProtectedStore
 from .permission import capture_permission
+from .recovery import capture_recovery
 from . import windows
 
 
@@ -32,6 +33,7 @@ def runtime_sources(base, *, management=False, sites=None):
 
 def prepare_bundle(original_root, root):
     prefix = verify_historical_prefix(original_root)
+    recovery = capture_recovery(prefix)
     store = ProtectedStore.create_root(root)
     cid = str(uuid4())
     entries = build_execution_sources(prefix,cid,"C:\\Task13Continuation-"+cid.replace("-",""))
@@ -46,8 +48,10 @@ def prepare_bundle(original_root, root):
     entries["operations.json"] = canonical(operations)
     claims = prefix.root/"continuation-v1-claims"
     entries["control.json"] = canonical({"schema":"task13_bootstrap_control_v1","original_root":str(prefix.root.absolute()),
-                                         "claim_home":str(claims.absolute()),"original_binding":prefix.binding})
+                                         "claim_home":str(claims.absolute()),"original_binding":prefix.binding,
+                                         "root_interpreter":str(Path(sys._base_executable).absolute())})
     entries["operator-request.json"] = canonical(capture_permission())
+    entries["recovery.json"] = canonical(recovery)
     entries["original-source-closure.json"] = read_file(prefix.root/"source-closure-manifest.json")
     bootstrap = ("import sys\nfrom pathlib import Path\nROOT=Path("+repr(str(store.root))+ ")\n"
                  "if not (sys.flags.isolated and sys.flags.no_site and sys.flags.dont_write_bytecode): raise SystemExit('isolated no-site bytecode-free startup required')\n"
@@ -59,7 +63,7 @@ def prepare_bundle(original_root, root):
     discovery = "import json,sys;print(json.dumps({'base':sys.base_prefix,'executable':sys.executable}))"
     second = json.loads(subprocess.run([prefix.controller.HYPERVISOR_PYTHON,"-I","-S","-B","-c",discovery],
                                       capture_output=True,check=True,timeout=10).stdout)
-    runtime_paths = {Path(sys.executable).absolute(),Path(second["executable"]).absolute()}
+    runtime_paths = {Path(sys.executable).absolute(),Path(sys._base_executable).absolute(),Path(second["executable"]).absolute()}
     system_paths = windows.system_core_paths()
     require(Path(operations["guest_ssh"][0]).absolute() in system_paths
             and Path(operations["provider_argv"][0]).absolute() in system_paths,"canonical installed SSH binary")

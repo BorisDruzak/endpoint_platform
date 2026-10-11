@@ -4,7 +4,7 @@ from pathlib import Path
 
 from .codec import canonical, parse_json, require, sha256, uuid
 
-REQUEST = "Спецификацию подтверждаю. Делай план и реализацию без дополнительных согласований. Независимое ревью перед VM обязательно; после PASS выполнить только seq 04 и остановиться на resume gate."
+REQUEST = "Разработай процедуру повторного запуска после UNKNOWN и выясни причину present=true без ослабления guards. После независимого PASS разрешаю повтор: только seq 04, затем остановка на resume gate. Без дополнительных согласований."
 
 
 def capture_permission():

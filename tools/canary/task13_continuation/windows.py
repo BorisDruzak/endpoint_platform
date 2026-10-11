@@ -32,6 +32,7 @@ def api():
         (kernel, "SetFileInformationByHandle", ct.c_int, [HANDLE, ct.c_int, HANDLE, DWORD]),
         (kernel, "LocalFree", HANDLE, [HANDLE]),
         (kernel, "GetCurrentProcess", HANDLE, []),
+        (kernel, "OpenProcess", HANDLE, [DWORD,ct.c_int,DWORD]),
         (kernel, "GetWindowsDirectoryW", DWORD, [ct.c_wchar_p, DWORD]),
         (kernel, "GetProcessTimes", ct.c_int, [HANDLE, HANDLE, HANDLE, HANDLE, HANDLE]),
         (kernel, "WaitForSingleObject", DWORD, [HANDLE,DWORD]),
@@ -241,3 +242,23 @@ def retained_process_exit(handle):
     checked(api()[0].GetExitCodeProcess(handle,ct.byref(code)))
     require(signal==0 and code.value!=259,'retained root exit unconfirmed')
     return {'wait_result':signal,'exit_code':code.value,'birth':process_birth(handle)}
+
+
+def confirm_process_gone(pid,birth):
+    """Read-only native absence/reuse/exit check; denial and live identity refuse."""
+    require(type(pid) is int and 0<pid<2**32 and type(birth) is int and birth>0,'prior process identity')
+    kernel=api()[0]
+    handle=kernel.OpenProcess(0x1000|0x100000,False,pid)
+    if not handle:
+        error=ct.get_last_error()
+        require(error==87,'prior process termination UNKNOWN')
+        return 'ABSENT'
+    try:
+        actual=process_birth(handle)
+        if actual!=birth:
+            require(actual>birth,'prior PID birth chronology UNKNOWN')
+            return 'PID_REUSED'
+        retained_process_exit(handle)
+        return 'EXACT_PROCESS_EXITED'
+    finally:
+        kernel.CloseHandle(handle)

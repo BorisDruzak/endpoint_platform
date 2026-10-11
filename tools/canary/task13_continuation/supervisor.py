@@ -9,6 +9,7 @@ from .codec import canonical,digest,parse_json,require,sha256
 from .loader import reviewed_bundle
 from .receipt import verify_continuation_receipt
 from .transport import utc
+from .recovery import claim_recovery_launch
 from . import windows
 
 
@@ -28,10 +29,14 @@ def supervise(root):
             'fixed reviewed supervisor entry')
     with reviewed_bundle(root) as (store,closure,review,detached,entries,prefix,request,operations,control):
         observer=windows.observe_controller()
-        argv=[sys.executable,'-I','-S','-B','-X','pycache_prefix='+str(root/'no-pyc'),str(root/'bootstrap.py'),'--execute-reviewed-seq04-child']
+        executable=control['root_interpreter']
+        require(str(Path(executable).absolute())==executable and executable in closure['runtime'],
+                'direct reviewed root interpreter')
+        argv=[executable,'-I','-S','-B','-X','pycache_prefix='+str(root/'no-pyc'),str(root/'bootstrap.py'),'--execute-reviewed-seq04-child']
         store.create('root-launch-claim.json',canonical({'schema':'task13_root_launch_intent_v1',
                                                        'argv_sha256':digest(argv),'observer':observer}))
         try:
+            claim_recovery_launch(prefix,closure)
             process=subprocess.Popen(argv,stdin=subprocess.DEVNULL,stdout=subprocess.PIPE,stderr=subprocess.PIPE,
                                      cwd=root,creationflags=0x08000000)
             birth=windows.process_birth(process._handle)
