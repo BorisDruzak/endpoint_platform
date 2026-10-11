@@ -107,6 +107,7 @@ Native design references: [CreateFile sharing](https://learn.microsoft.com/en-us
 [GetSecurityInfo](https://learn.microsoft.com/en-us/windows/win32/api/aclapi/nf-aclapi-getsecurityinfo),
 [non-replacing handle rename](https://learn.microsoft.com/en-us/windows/win32/api/winbase/ns-winbase-file_rename_info),
 and [FlushFileBuffers](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-flushfilebuffers).
+
 ## Recovery after initial preflight UNKNOWN
 
 Use the separately reviewed procedure in
@@ -126,4 +127,3 @@ An independently proven reused PID still fails that guard while occupied. Do not
 kill a service or change the predicate to make a repeat pass. Preserve the evidence
 and report BLOCKED without a seq04 receipt; STOP_BEFORE_SEQ05 acceptance has not
 been reached unless the real receipt and root completion both verify.
-
