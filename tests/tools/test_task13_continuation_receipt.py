@@ -7,7 +7,7 @@ from uuid import uuid4
 import pytest
 from tools.canary.task13_continuation.codec import canonical, digest, sha256
 from tools.canary.task13_continuation.history import ORIGINAL_FILES, BASELINE_SHA, SNAPSHOT_SHA
-from tools.canary.task13_continuation.receipt import validate_execution_evidence, make_receipt, verify_continuation_receipt
+from tools.canary.task13_continuation.receipt import validate_execution_evidence, make_receipt, verify_continuation_receipt, publication_ack
 
 pytestmark = pytest.mark.no_db
 
@@ -60,11 +60,13 @@ def evidence_case(monkeypatch):
 def test_only_validated_seq04_receipt_can_link_to_original_tip(evidence_case):
     p,c,e = evidence_case
     receipt = make_receipt(p,c,e)
-    verify_continuation_receipt(p,c,receipt,e)
+    verify_continuation_receipt(p,c,receipt,e,publication_ack(c,receipt))
     assert receipt["seq"] == 4 and receipt["previous_sha256"] == p.binding["original_tip"]
     for field,value in [("seq",5),("step","marker"),("previous_sha256","0"*64)]:
         with pytest.raises(ValueError):
             verify_continuation_receipt(p,c,{**receipt,field:value},e)
+    with pytest.raises(ValueError,match="publication acknowledgement"):
+        verify_continuation_receipt(p,c,receipt,e)
 
 
 @pytest.mark.parametrize("fault", ["pass","run","plan","baseline","snapshot","ssh","timeout","stdin",

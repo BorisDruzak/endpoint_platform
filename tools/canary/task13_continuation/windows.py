@@ -3,6 +3,7 @@ import ctypes as ct
 import hashlib
 import os
 from contextlib import contextmanager
+from functools import lru_cache
 from pathlib import Path
 from uuid import UUID
 
@@ -12,6 +13,7 @@ DWORD = ct.c_ulong
 HANDLE = ct.c_void_p
 
 
+@lru_cache(maxsize=1)
 def api():
     require(os.name == "nt", "Windows native authority required")
     kernel = ct.WinDLL("kernel32", use_last_error=True)
@@ -30,6 +32,7 @@ def api():
         (kernel, "SetFileInformationByHandle", ct.c_int, [HANDLE, ct.c_int, HANDLE, DWORD]),
         (kernel, "LocalFree", HANDLE, [HANDLE]),
         (kernel, "GetCurrentProcess", HANDLE, []),
+        (kernel, "GetWindowsDirectoryW", DWORD, [ct.c_wchar_p, DWORD]),
         (kernel, "GetProcessTimes", ct.c_int, [HANDLE, HANDLE, HANDLE, HANDLE, HANDLE]),
         (adv, "OpenProcessToken", ct.c_int, [HANDLE, DWORD, ct.POINTER(HANDLE)]),
         (adv, "GetTokenInformation", ct.c_int, [HANDLE, ct.c_int, HANDLE, DWORD, ct.POINTER(DWORD)]),
@@ -134,7 +137,7 @@ def check_security(handle, protected):
         kernel.LocalFree(descriptor)
 
 
-def information(handle, path, directory):
+def information(handle, path, directory, expected_links=1):
     class Info(ct.Structure):
         _fields_ = [("attrs", DWORD), ("creation", ct.c_ulonglong), ("access", ct.c_ulonglong),
                     ("write", ct.c_ulonglong), ("volume", DWORD), ("high", DWORD), ("low", DWORD),
@@ -144,7 +147,7 @@ def information(handle, path, directory):
     info = Info()
     checked(kernel.GetFileInformationByHandle(handle, ct.byref(info)))
     require(not info.attrs & 0x400 and bool(info.attrs & 0x10) == directory, "reparse/type mismatch")
-    require(directory or info.links == 1, "hardlinked file refused")
+    require(directory or info.links == expected_links, "file hardlink identity changed/refused")
     target = ct.create_unicode_buffer(32768)
     size = kernel.GetFinalPathNameByHandleW(handle, target, len(target), 0)
     require(0 < size < len(target) and target.value.removeprefix("\\\\?\\").casefold()
@@ -153,7 +156,7 @@ def information(handle, path, directory):
 
 
 @contextmanager
-def retained(path, *, directory=False, writable=False, create=False, protected=False, security=True):
+def retained(path, *, directory=False, writable=False, create=False, protected=False, security=True, expected_links=1):
     path = Path(path).absolute()
     require(path.drive and not str(path).startswith("\\\\") and ":" not in str(path)[2:], "local path required")
     kernel, _ = api()
@@ -170,7 +173,7 @@ def retained(path, *, directory=False, writable=False, create=False, protected=F
             raise FileExistsError("exclusive file already exists")
         raise ct.WinError(error)
     try:
-        information(handle, path, directory)
+        information(handle, path, directory,expected_links)
         if security:
             check_security(handle, protected)
         yield handle
@@ -178,8 +181,8 @@ def retained(path, *, directory=False, writable=False, create=False, protected=F
         kernel.CloseHandle(handle)
 
 
-def read_handle(handle, path, limit=64 * 1024 * 1024):
-    size = information(handle, path, False)
+def read_handle(handle, path, limit=64 * 1024 * 1024, *, expected_links=1):
+    size = information(handle, path, False,expected_links)
     require(size <= limit, "file size limit")
     buffer, count = ct.create_string_buffer(size + 1), DWORD()
     checked(api()[0].ReadFile(handle, buffer, size + 1, ct.byref(count), None))
@@ -213,3 +216,11 @@ def rename_handle(handle, destination):
                     ("name", ct.c_wchar * (len(str(destination)) + 1))]
     data = Rename(0, None, len(str(destination).encode("utf-16-le")), str(destination))
     checked(api()[0].SetFileInformationByHandle(handle, 3, ct.byref(data), ct.sizeof(data)))
+
+
+def system_core_paths():
+    buffer = ct.create_unicode_buffer(32768)
+    length = api()[0].GetWindowsDirectoryW(buffer,len(buffer))
+    require(0 < length < len(buffer),"native Windows directory required")
+    base = Path(buffer.value)/"System32"
+    return {base/"OpenSSH/ssh.exe",base/"WindowsPowerShell/v1.0/powershell.exe"}

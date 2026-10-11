@@ -1,6 +1,7 @@
 import os
 import subprocess
 from pathlib import Path
+import re
 from uuid import uuid4
 
 import pytest
@@ -61,6 +62,30 @@ def test_owned_native_journal_writer(tmp_path):
     validate_journal(raw, {k: first[k] for k in ("run", "pid", "birth")})
 
 
+@pytest.mark.skipif(os.name != "nt",reason="owned native guest support types")
+def test_guest_support_types_compile_and_refuse_replacement(tmp_path):
+    from tools.canary.task13_continuation.storage import ProtectedStore
+    base = Path(__file__).resolve().parents[2]/"tools/canary"
+    csharp = []
+    for name in ("Prepare-Task13ContinuationWatchdog.ps1","Read-Task13ContinuationEvidence.ps1"):
+        source = (base/name).read_text()
+        block = re.search(r"Add-Type -TypeDefinition @'\n(.*?)\n'@",source,re.S)
+        assert block
+        csharp.append("Add-Type -TypeDefinition @'\n"+block[1]+"\n'@\n")
+    root = tmp_path/"owned-root"
+    code = "$ErrorActionPreference='Stop';"+"\n".join(csharp)
+    code += ("[Task13ExclusiveRoot]::Create('"+str(root)+"');"
+             "try{[Task13ExclusiveRoot]::Create('"+str(root)+"');throw 'replacement accepted'}catch [IO.IOException]{};"
+             "[IO.File]::WriteAllText('"+str(root/"owned.json")+"','owned');"
+             "[Task13RetainedEvidence]::Hold('"+str(root)+"');"
+             "[Text.Encoding]::UTF8.GetString([Task13RetainedEvidence]::Read('"+str(root/"owned.json")+"'))")
+    result = subprocess.run(["powershell.exe","-NoProfile","-NonInteractive","-Command",code],
+                            capture_output=True,timeout=20)
+    assert result.returncode == 0,result.stderr.decode(errors="replace")
+    assert result.stdout.strip() == b"owned"
+    ProtectedStore(root)  # Restrictive owner/DACL were atomically installed.
+
+
 @pytest.mark.skipif(not os.environ.get("TASK13_HISTORICAL_ROOT"), reason="private retained prefix input")
 def test_actual_compare_sources_keep_original_facts_and_parse():
     prefix = verify_historical_prefix(os.environ["TASK13_HISTORICAL_ROOT"])
@@ -73,3 +98,7 @@ def test_actual_compare_sources_keep_original_facts_and_parse():
     assert "run_id=$RunId.ToString();plan_sha256=$PlanSha256" in helper
     assert "POST_SNAPSHOT_MARKER_CREATED" not in helper
     verify_sources(seal_sources(entries), entries)
+    from tools.canary.task13_continuation.operations import build_operations
+    operations = build_operations(prefix,cid,entries,Path('C:/Task13OwnedOfflineBundle'))
+    assert operations['allowed_seq'] == 4
+    assert {'entry-guest.ps1','entry-prepare.ps1','entry-collect.ps1','provider-stdin.bin'} <= entries.keys()

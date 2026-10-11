@@ -1,6 +1,6 @@
 # Task 13 Continuation Protocol v1
 
-Date: 2026-10-11. Status: proposed written specification, awaiting user review.
+Date: 2026-10-11. Status: approved by the user; implementation authorized without further confirmations.
 Repository baseline: `9144a26472239e5a4c61a79aacdabbda4ec961bc`.
 
 ## Purpose and boundaries

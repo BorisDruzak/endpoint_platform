@@ -6,7 +6,7 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-from .codec import require, sha256, uuid
+from .codec import require, sha256, uuid, canonical
 from .history import read_file
 
 CANARY = Path(__file__).resolve().parent.parent
@@ -90,22 +90,25 @@ def build_execution_sources(prefix, continuation_id, guest_root):
               "PredecessorSha256": prefix.binding["original_tip"]}
     argv, wire = prefix.controller.guest_transport(entries["helper.ps1"], params, sha256(entries["helper.ps1"]),
                                                    recovery_exact_count=True, frame_metadata={})
+    entries["guest-ssh-prefix.json"] = canonical({"argv":argv[:-1]})
     wrapper = base64.b64decode(argv[-1].split(" ")[-1]).decode("utf-16-le")
     prelude = ("$global:Task13Root='" + guest_root + "';$global:Task13Run='" + continuation_id + "';"
                "$global:Task13Clock=[Diagnostics.Stopwatch]::StartNew();$global:Task13Seq=0;"
                "$global:Task13Birth=[Diagnostics.Process]::GetCurrentProcess().StartTime.ToUniversalTime().ToFileTimeUtc()\n"
-               + entries["Write-Task13ContinuationJournal.ps1"].decode() + "\n"
-               + entries["Task13AggregateProfile.ps1"].decode() + "\n"
-               "Task13Mark 'ENTER' 'WRAPPER'\n"
-               "$identity=@{root=$global:Task13Root;run=$global:Task13Run;pid=$PID;birth=$global:Task13Birth}|ConvertTo-Json -Compress\n"
-               "[Task13Watch]::Save" )
-    # Workload has no dependency on the watchdog's in-process type.
-    prelude = prelude.removesuffix("[Task13Watch]::Save") + (
+               "$identity=@{root=$global:Task13Root;run=$global:Task13Run;pid=$PID;birth=$global:Task13Birth}|ConvertTo-Json -Compress\n")
+    prelude += (
         "$ib=[Text.UTF8Encoding]::new($false).GetBytes($identity);"
         "$f=[IO.FileStream]::new((Join-Path $global:Task13Root 'identity.json'),[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::Read,4096,[IO.FileOptions]::WriteThrough);"
         "try{$f.Write($ib,0,$ib.Length);$f.Flush($true)}finally{$f.Dispose()}\n"
-        "$arm=[Diagnostics.Stopwatch]::StartNew();while(-not(Test-Path -LiteralPath (Join-Path $global:Task13Root 'watchdog-armed.json'))){if($arm.ElapsedMilliseconds -gt 10000){throw 'watchdog not armed'};Start-Sleep -Milliseconds 50};Task13Mark 'RETURN' 'WATCHDOG_ARMED'\n")
+        "$arm=[Diagnostics.Stopwatch]::StartNew();while(-not(Test-Path -LiteralPath (Join-Path $global:Task13Root 'watchdog-armed.json'))){if($arm.ElapsedMilliseconds -gt 10000){throw 'watchdog not armed'};Start-Sleep -Milliseconds 50}\n"
+        + entries["Write-Task13ContinuationJournal.ps1"].decode() + "\n"
+        + entries["Task13AggregateProfile.ps1"].decode() + "\n"
+        "Task13Mark 'ENTER' 'WRAPPER';Task13Mark 'RETURN' 'WATCHDOG_ARMED'\n")
     wrapper = replace_once(wrapper, "$m=$null;$g=$null;$bodyStream=$null", prelude + "$m=$null;$g=$null;$bodyStream=$null")
+    wrapper = replace_once(wrapper, "$read=[Console]::In.Read($buffer,$position,$requested);$calls++",
+        "Task13Mark 'ENTER' 'STDIN.READ' @{requested=$requested;position=$position;call=$calls};$read=[Console]::In.Read($buffer,$position,$requested);Task13Mark 'RETURN' 'STDIN.READ' @{requested=$requested;returned=$read;position=($position+$read);call=$calls};$calls++")
+    wrapper = replace_once(wrapper, "$read=$g.Read($chunk,0,$take)",
+                           "Task13Mark 'ENTER' 'PAYLOAD.GZIP_READ';$read=$g.Read($chunk,0,$take);Task13Mark 'RETURN' 'PAYLOAD.GZIP_READ'")
     wrapper = replace_once(wrapper, "& ([ScriptBlock]::Create($v.script)) @a",
                            "Task13Mark 'ENTER' 'SCRIPTBLOCK.INVOKE';& ([ScriptBlock]::Create($v.script)) @a;Task13ProfileFlush;Task13Mark 'RETURN' 'SCRIPTBLOCK.INVOKE';Task13Mark 'RETURN' 'WRAPPER'")
     wrapper = replace_once(wrapper, "}catch{exit 2}", "}catch{Task13ProfileFlush;Task13Mark 'FAIL' $_.Exception.GetType().Name;exit 2}")

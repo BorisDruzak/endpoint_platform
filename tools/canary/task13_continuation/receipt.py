@@ -80,5 +80,11 @@ def make_receipt(prefix, capsule, evidence):
             "evidence_sha256":digest(evidence), "resume_gate":"STOP_BEFORE_SEQ05"}
 
 
-def verify_continuation_receipt(prefix,capsule,receipt,evidence):
+def publication_ack(capsule,receipt):
+    return {"schema":"task13_receipt_publication_v1","status":"ACKNOWLEDGED",
+            "receipt_sha256":digest(receipt),"continuation_sha256":digest(capsule),"resume_gate":"STOP_BEFORE_SEQ05"}
+
+
+def verify_continuation_receipt(prefix,capsule,receipt,evidence,publication=None):
     require(receipt == make_receipt(prefix,capsule,evidence), "canonical seq04 receipt mismatch")
+    require(publication == publication_ack(capsule,receipt), "durable publication acknowledgement required")

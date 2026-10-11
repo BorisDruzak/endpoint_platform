@@ -2,12 +2,14 @@
 import ast
 import hashlib
 import re
+import types
+from types import SimpleNamespace
 from datetime import datetime, timedelta, timezone
 
 from .codec import digest, instant, require, sha256, parse_json
 from .history import read_file, MANIFEST_SHA
 
-CONSTITUENTS = {"management", "provider", "guest", "inventory", "clock_guest", "clock_management"}
+CONSTITUENTS = {"management", "provider", "guest", "inventory", "current", "clock_guest", "clock_management"}
 
 
 def guards(prefix):
@@ -34,6 +36,32 @@ def legacy(envelope, run_id, tag):
         "dispatch_confirmed":True,"persistence_confirmed":True}}
 
 
+def validate_current(prefix, envelope):
+    manifest_raw = read_file(prefix.root/"source-closure-manifest.json")
+    require(sha256(manifest_raw) == MANIFEST_SHA,"current validator closure")
+    specs = {v["name"]:v for v in parse_json(manifest_raw)["entries"]}
+    name = "task13_zero_owner_recovery_adapter.py"
+    raw = read_file(prefix.root/name)
+    require(sha256(raw) == specs[name]["sha256"],"current validator source")
+    tree = ast.parse(raw)
+    klass = next(n for n in tree.body if isinstance(n,ast.ClassDef) and n.name == "FixedAdapter")
+    method = next(n for n in klass.body if isinstance(n,ast.FunctionDef) and n.name == "current_quiescence")
+    index = next(i for i,n in enumerate(method.body) if isinstance(n,ast.Assign)
+                 and isinstance(n.targets[0],ast.Name) and n.targets[0].id == "result")
+    body = method.body[index+1:]
+    require(isinstance(body[-1],ast.Expr) and isinstance(body[-1].value,ast.Call)
+            and isinstance(body[-1].value.func,ast.Attribute) and body[-1].value.func.attr == "persist",
+            "fixed current predicate-only boundary")
+    function = ast.FunctionDef(name="validate_only",args=ast.arguments(posonlyargs=[],args=[ast.arg(arg=n) for n in ("self","result","plan")],
+                          kwonlyargs=[],kw_defaults=[],defaults=[]),body=body[:-1],decorator_list=[],returns=None,type_params=[])
+    selected = [n for n in tree.body if isinstance(n,ast.FunctionDef) and n.name in {"sealed","require"}]
+    namespace = {"ast":ast,"types":types,"timedelta":timedelta,"hashlib":hashlib}
+    module = ast.fix_missing_locations(ast.Module(body=[*selected,function],type_ignores=[]))
+    exec(compile(module,"sealed_current_predicates","exec"),namespace)
+    holder = SimpleNamespace(root=prefix.root,c=prefix.controller,pins={k:v["sha256"] for k,v in specs.items()})
+    namespace["validate_only"](holder,legacy(envelope,prefix.plan["run_id"],"current"),prefix.plan)
+
+
 def validate_state(prefix, capsule, state, at):
     from .receipt import observation
     require(state["schema"] == "task13_reconciled_state_v1" and state["original"] == prefix.binding
@@ -52,8 +80,11 @@ def validate_state(prefix, capsule, state, at):
     g["owners_guard"](c,provider,plan["run_id"],at)
     g["reachable_runtime_guard"](c,provider["observation"])
     g["inventory_guard"](rows["inventory"],plan,prefix.binding["baseline_sha256"])
+    validate_current(prefix,state["constituents"]["current"])
     guest = rows["guest"]
     require(guest["run_id"] == plan["run_id"] and guest["plan_sha256"] == prefix.binding["original_plan_sha256"]
+            and guest["vm_uuid"] == plan["vm_uuid"] and guest["device_id"] == plan["device_id"]
+            and type(guest["network_matches"]) is int and guest["network_matches"] == 1
             and guest["status"] == "QUIESCENT_NATIVE81_OBSERVED" and guest["service_state"] == "Running"
             and guest["current"] == "versions/3.2.81" and guest["update_owners"] == []
             and guest["msi_in_progress"] is False and guest["msiexec"] == []

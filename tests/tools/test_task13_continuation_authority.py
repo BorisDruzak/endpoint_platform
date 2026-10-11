@@ -1,6 +1,7 @@
 """Synthetic authority predicates and owned local Windows storage; no VM calls."""
 import copy
 import os
+from datetime import timedelta
 from concurrent.futures import ThreadPoolExecutor
 from types import SimpleNamespace
 from uuid import uuid4
@@ -21,7 +22,11 @@ def auth_inputs():
     identity = {"host_id": "a" * 64, "boot_id": str(uuid4()), "pid": 1234,
                 "birth": 123456789, "token_sid": "S-1-5-18", "elevated": True}
     original = {"original_files": ORIGINAL_FILES, "original_tip": ORIGINAL_FILES["receipt-03-start-after-snapshot.json"],
-                "baseline_sha256": BASELINE_SHA, "snapshot_identity_sha256": SNAPSHOT_SHA}
+                "baseline_sha256": BASELINE_SHA, "snapshot_identity_sha256": SNAPSHOT_SHA,
+                "original_run_id":str(uuid4()),"original_plan_sha256":ORIGINAL_FILES["plan.json"],
+                "original_run_seal_sha256":ORIGINAL_FILES["run-seal.json"],"verified_receipt_count":4,
+                "historical_guest_brackets":2,"source_entries":61,"source_prerequisites":305,
+                "raw_output_retained":False,"historical_evidence_sha256":"f"*64}
     prefix = SimpleNamespace(binding=original)
     closure = {"entries": {"synthetic.py": {"bytes": 1, "sha256": "c" * 64}}}
     review = {"schema": "task13_source_review_v1", "status": "PASS", "reviewer": "unit-test",
@@ -64,10 +69,15 @@ def test_unsealed_capsule_authority_attestation_or_review_refused(auth_inputs, w
 
 def test_expired_and_utc_rollback_refuse_without_time_adjustment(auth_inputs, monkeypatch):
     c, a, att, r, t, i = auth_inputs
-    with monkeypatch.context() as patch:
-        patch.setattr(authority.time, "monotonic_ns", lambda: c["deadline_mono_ns"])
-        with pytest.raises(ValueError):
-            authority.validate_authorization(c, a, att, r, t, i)
+    expired = copy.deepcopy(auth_inputs)
+    for key in ("created_utc","expires_utc"):
+        expired[0][key] = (authority.instant(c[key])-timedelta(seconds=1300)).isoformat()
+    for key in ("created_mono_ns","deadline_mono_ns"):
+        expired[0][key] -= 1300*10**9
+    expired[2]["capsule_sha256"] = digest(expired[0])
+    expired[4]["attestation_sha256"] = digest(expired[2])
+    with pytest.raises(ValueError, match="expired"):
+        authority.validate_authorization(*expired)
     live = authority.LiveAuthorization(*auth_inputs)
     monkeypatch.setattr("tools.canary.task13_continuation.windows.observe_controller", lambda: i)
     live.check()
@@ -138,3 +148,12 @@ def test_live_authorization_reobserves_kernel_identity(auth_inputs, monkeypatch)
     monkeypatch.setattr("tools.canary.task13_continuation.windows.observe_controller", lambda: {})
     with pytest.raises(ValueError, match="live controller"):
         authority.LiveAuthorization(*auth_inputs).check()
+
+
+def test_original_run_id_cannot_be_continuation_identity(auth_inputs):
+    c,a,att,r,t,i = copy.deepcopy(auth_inputs)
+    c["continuation_id"] = c["original"]["original_run_id"]
+    att["capsule_sha256"] = digest(c)
+    t["attestation_sha256"] = digest(att)
+    with pytest.raises(ValueError,match="distinct continuation"):
+        authority.validate_authorization(c,a,att,r,t,i)

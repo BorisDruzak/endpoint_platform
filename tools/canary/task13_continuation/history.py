@@ -25,7 +25,7 @@ BASELINE_SHA = "cdbdf079698747b2af32e7749291388099f04275e10c13995616c8d1206e1534
 SNAPSHOT_SHA = "923000023d7996498bd6ce51b822a171e626c04335c9403cd2e1f7d1e59074d5"
 
 
-def read_file(path: Path, limit=64 * 1024 * 1024) -> bytes:
+def read_file(path: Path, limit=64 * 1024 * 1024, *, allow_empty=False) -> bytes:
     """Nonoperational reader; native retained-handle storage strengthens live use."""
     path = Path(path)
     for ancestor in (path, *path.parents):
@@ -34,7 +34,7 @@ def read_file(path: Path, limit=64 * 1024 * 1024) -> bytes:
                 "historical reparse point")
     with path.open("rb") as stream:
         stat = os.fstat(stream.fileno())
-        require(stat.st_nlink == 1 and 0 < stat.st_size <= limit, "historical file bound")
+        require(stat.st_nlink == 1 and (0 if allow_empty else 1) <= stat.st_size <= limit, "historical file bound")
         raw = stream.read(limit + 1)
         require(len(raw) == stat.st_size, "historical read changed")
         return raw

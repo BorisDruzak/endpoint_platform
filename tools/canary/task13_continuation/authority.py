@@ -1,5 +1,6 @@
 """Distinct continuation identity, independently pinned local issuer and clocks."""
 import time
+import threading
 from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
@@ -62,6 +63,19 @@ def validate_authorization(capsule, authority, attestation, review, trust, ident
             "only seq04 is authorized")
     uuid(capsule["continuation_id"])
     original = capsule["original"]
+    require(type(original) is dict and set(original) == {"original_run_id","original_plan_sha256",
+            "original_run_seal_sha256","original_tip","baseline_sha256","snapshot_identity_sha256",
+            "verified_receipt_count","historical_guest_brackets","source_entries","source_prerequisites",
+            "original_files","raw_output_retained","historical_evidence_sha256"}, "historical binding schema")
+    uuid(original["original_run_id"])
+    hex256(original["historical_evidence_sha256"])
+    require(capsule["continuation_id"] != original["original_run_id"]
+            and original["original_plan_sha256"] == ORIGINAL_FILES["plan.json"]
+            and original["original_run_seal_sha256"] == ORIGINAL_FILES["run-seal.json"]
+            and original["raw_output_retained"] is False
+            and all(type(original[k]) is int and original[k] == v for k,v in {
+                "verified_receipt_count":4,"historical_guest_brackets":2,"source_entries":61,"source_prerequisites":305}.items()),
+            "distinct continuation and verified historical prefix required")
     require(original["original_files"] == ORIGINAL_FILES
             and original["original_tip"] == ORIGINAL_FILES["receipt-03-start-after-snapshot.json"]
             and original["baseline_sha256"] == BASELINE_SHA
@@ -104,17 +118,31 @@ def validate_authorization(capsule, authority, attestation, review, trust, ident
 class LiveAuthorization:
     def __init__(self, capsule, authority, attestation, review, trust, identity):
         self._inputs = tuple(canonical(v) for v in (capsule, authority, attestation, review, trust, identity))
+        validate_authorization(*(parse_json(v) for v in self._inputs))
+        self._start_utc, self._end_utc = instant(capsule["created_utc"]), instant(capsule["expires_utc"])
+        self._start_ns, self._end_ns = capsule["created_mono_ns"], capsule["deadline_mono_ns"]
         self.last_utc = instant(capsule["created_utc"])
         self.last_mono = capsule["created_mono_ns"]
+        self._lock = threading.RLock()
 
     @property
     def capsule(self):
         return parse_json(self._inputs[0])
 
     def check(self):
+        with self._lock:
+            self._check()
+
+    def _check(self):
         from .windows import observe_controller
         require(observe_controller() == parse_json(self._inputs[-1]), "live controller identity changed")
-        validate_authorization(*(parse_json(v) for v in self._inputs))
+        # Canonical immutable byte inputs were validated once. Frequent watchdog
+        # polling rechecks kernel identity and both clocks, not megabytes of sealed
+        # dependency hashes; source handles remain held by the bootstrap.
         now, mono = datetime.now(timezone.utc), time.monotonic_ns()
+        require(self._start_utc <= now < self._end_utc and self._start_ns <= mono < self._end_ns-2*10**9,
+                "continuation expired")
+        require(abs((now-self._start_utc).total_seconds()-(mono-self._start_ns)/10**9)<=5,
+                "UTC/monotonic divergence")
         require(now >= self.last_utc and mono >= self.last_mono, "continuation clock rollback")
         self.last_utc, self.last_mono = now, mono
