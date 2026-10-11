@@ -21,6 +21,12 @@ def sealed_module(root, name, manifest):
     return module
 
 
+def validate_checkpoint_config(policy,config,request):
+    # Current VM parent advanced at snapshot creation; the snapshot's saved
+    # configuration keeps its older parent and is validated by saved_guard.
+    return policy.validate_config(config,request['snapshot'],request['generation'])
+
+
 def main():
     import sys
     request = parse_json(sys.stdin.buffer.read(65537),limit=65536)
@@ -83,7 +89,7 @@ def main():
             require(__import__("re").fullmatch(r"pre82-real81-staged-[0-9a-f]{16}",request["snapshot"]),"fixed snapshot selector")
             status = command("status","qm status 100")
             config = policy.parse_config(command("config","qm config 100"))
-            policy.validate_config(config,"pre82-real81-clock",request["generation"])
+            validate_checkpoint_config(policy,config,request)
             snapshots = json.loads(command("snapshots","pvesh get /nodes/pve1/qemu/100/snapshot --output-format json"))
             metadata = next(row for row in snapshots if row["name"] == request["snapshot"])
             raw_lvs = json.loads(command("lvs","lvs --reportformat json -a -o lv_name,lv_uuid,origin,lv_attr,lv_size -S 'lv_name=~vm-100' pve"))

@@ -103,3 +103,18 @@ def test_dispatch_accepts_complete_fresh_synthetic_state(state_case):
     final(at)
     with pytest.raises(ValueError,match='stale dispatch clock'):
         final((datetime.fromisoformat(at)+timedelta(seconds=6)).isoformat())
+
+
+def test_current_vm_parent_is_checkpoint_snapshot_not_saved_snapshot_parent(prefix):
+    from tools.canary.task13_continuation.management import sealed_module,validate_checkpoint_config
+    manifest=parse_json((prefix.root/'source-closure-manifest.json').read_bytes())
+    policy=sealed_module(prefix.root,'task13_vm100_recovery.draft.py',manifest)
+    request={'snapshot':prefix.plan['snapshot'],'generation':prefix.receipts[0]['initial_vm_generation']}
+    config=dict(policy.EXPECTED,parent=request['snapshot'],vmgenid=request['generation'])
+    # Synthetic exact post-checkpoint configuration through the actual sealed
+    # original policy; no VM observation or execution authority is supplied.
+    assert validate_checkpoint_config(policy,config,request)==policy.EXPECTED
+    with pytest.raises(ValueError):
+        validate_checkpoint_config(policy,dict(config,parent='pre82-real81-clock'),request)
+    with pytest.raises(ValueError):
+        validate_checkpoint_config(policy,dict(config,boot='changed'),request)
