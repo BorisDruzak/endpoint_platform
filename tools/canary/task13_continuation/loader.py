@@ -15,7 +15,7 @@ from .receipt import make_receipt, verify_continuation_receipt, publication_ack,
 from .reconciliation import validate_state,dispatch_freshness
 from .sources import seal_sources
 from .storage import ProtectedStore
-from .transport import ContinuationTransport, TransportUnknown, envelope, utc
+from .transport import ContinuationTransport, TransportUnknown, envelope, utc, validate_command_plan
 from . import windows
 
 
@@ -62,7 +62,8 @@ def _hold_history(stack, root):
 def _reconcile(prefix, auth, transport, operations, entries):
     sent_utc,sent_ns = utc(),time.monotonic_ns()
     def ps(name,seconds=25):
-        return transport.powershell(operations["guest_ssh"],entries["entry-"+name+".ps1"].decode(),name,seconds)
+        return transport.powershell(operations["guest_ssh"],entries["delivery-"+name+".ps1"].decode(),name,seconds,
+                                    entries['packet-'+name+'.bin'])
     def management(action):
         return transport.call("management-"+action,operations["management_argv"],
                               canonical({**operations["management_request"],"action":action}),30 if action=="state" else 5)
@@ -170,6 +171,7 @@ def run_seq04(config, trust):
             'run only the supervised protected reviewed bootstrap')
     with reviewed_bundle(root,trust) as (store,closure,review,detached,entries,prefix,request,operations,control):
         require_seq04_permission(request)
+        validate_command_plan(operations,entries)
         identity = windows.observe_controller()
         require(detached["reviewer_controller"]["pid"] != identity["pid"]
                 or detached["reviewer_controller"]["birth"] != identity["birth"],"independent reviewer process required")
@@ -191,6 +193,7 @@ def run_seq04(config, trust):
         preflight = _reconcile(prefix,auth,transport,operations,entries)
         store.create("preflight.json",canonical(preflight))
         auth.check();verify_permission(request)
+        validate_command_plan(operations,entries)
         claims_root = Path(control["claim_home"])
         try:
             claims = ProtectedStore.create_root(claims_root)
@@ -200,25 +203,25 @@ def run_seq04(config, trust):
         store.create("dispatch-claim.json",canonical(claim))
         try:
             auth.check()
-            ready = transport.powershell(operations["guest_ssh"],entries["entry-prepare.ps1"].decode(),"prepare",25)
+            ready = transport.powershell(operations["guest_ssh"],entries["delivery-prepare.ps1"].decode(),"prepare",25,entries['packet-prepare.bin'])
             value = observation(ready,capsule,maximum=25)
             require(value["status"] == "INDEPENDENT_WATCHDOG_READY" and value["run"] == capsule["continuation_id"]
                     and value["watchdog_sha256"] == sha256(entries["Watch-Task13DiagnosticProcess.ps1"]),"independent watchdog preparation")
             preflight=_reconcile(prefix,auth,transport,operations,entries)
             store.create('dispatch-preflight.json',canonical(preflight))
             try:
-                guest = transport.powershell(operations["guest_ssh"],entries["entry-workload.ps1"].decode(),"compare-after-start",145,entries["wire.bin"],
+                guest = transport.powershell(operations["guest_ssh"],entries["delivery-workload.ps1"].decode(),"compare-after-start",145,entries["packet-workload.bin"],
                                             pre_dispatch=lambda:guard_dispatch(prefix,auth,preflight))
             except TransportUnknown:
                 # Settlement reads are part of this same dispatch, never a workload
                 # retry. Authority must still be live; otherwise leave guest artifacts.
                 try:
-                    failure_collection = transport.powershell(operations["guest_ssh"],entries["entry-collect.ps1"].decode(),"failure-settlement",15)
+                    failure_collection = transport.powershell(operations["guest_ssh"],entries["delivery-collect.ps1"].decode(),"failure-settlement",15,entries['packet-collect.bin'])
                     store.create("failure-retained-collection.json",canonical(failure_collection))
                 except Exception:
                     pass
                 raise
-            collected = transport.powershell(operations["guest_ssh"],entries["entry-collect.ps1"].decode(),"settlement",15)
+            collected = transport.powershell(operations["guest_ssh"],entries["delivery-collect.ps1"].decode(),"settlement",15,entries['packet-collect.bin'])
             result = observation(collected,capsule,maximum=15)
             require(result["status"] == "RETAINED_CONTINUATION_EVIDENCE" and result["run"] == capsule["continuation_id"]
                     and result["root"] == operations["guest_root"],"retained evidence root")

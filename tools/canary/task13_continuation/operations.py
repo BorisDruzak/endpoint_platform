@@ -9,12 +9,12 @@ from uuid import UUID
 from .codec import canonical, require, sha256, parse_json,digest
 from .process_identity import reference_registry
 from .history import read_file, MANIFEST_SHA
-from .sources import CANARY, replace_once
+from .sources import CANARY, replace_once, build_stdin_delivery
 from . import windows
 
 
 def thin_script(source):
-    raw = source.encode("utf-16-le")
+    raw = source.encode("utf-8")
     compressed = base64.b64encode(gzip.compress(raw,mtime=0)).decode()
     return ("$ErrorActionPreference='Stop';$ProgressPreference='SilentlyContinue';"
             "$m=[IO.MemoryStream]::new([Convert]::FromBase64String('"+compressed+"'));"
@@ -22,7 +22,7 @@ def thin_script(source):
             "$o=[IO.MemoryStream]::new();try{$g.CopyTo($o);$b=$o.ToArray();"
             "if($b.Length -ne "+str(len(raw))+" -or $b.Length -gt 65536){throw 'entry bound'};"
             "$h=[Security.Cryptography.SHA256]::Create();try{$s=([BitConverter]::ToString($h.ComputeHash($b))).Replace('-','').ToLowerInvariant()}finally{$h.Dispose()};"
-            "if($s -cne '"+sha256(raw)+"'){throw 'entry source'};& ([ScriptBlock]::Create([Text.UnicodeEncoding]::new($false,$false,$true).GetString($b)))"
+            "if($s -cne '"+sha256(raw)+"'){throw 'entry source'};& ([ScriptBlock]::Create([Text.UTF8Encoding]::new($false,$true).GetString($b)))"
             "}finally{$g.Dispose();$m.Dispose();$o.Dispose()}")
 
 
@@ -91,6 +91,13 @@ def build_operations(prefix, cid, entries, bundle):
                "clock_guest":"$ErrorActionPreference='Stop';@{status='CLOCK_OBSERVED';kind='guest';run_id='"+prefix.plan["run_id"]+"';utc=[DateTime]::UtcNow.ToString('o')}|ConvertTo-Json -Compress"}
     for name,source in scripts.items():
         entries["entry-"+name+".ps1"] = thin_script(source).encode("utf-8")
+    entries['Read-Task13SealedPacket.ps1'] = read_file(CANARY/'Read-Task13SealedPacket.ps1')
+    for name in scripts:
+        bootstrap,packet,binding = build_stdin_delivery(prefix,entries['entry-'+name+'.ps1'].decode(),
+                                                       entries['wire.bin'] if name == 'workload' else b'')
+        entries['delivery-'+name+'.ps1'] = bootstrap
+        entries['packet-'+name+'.bin'] = packet
+        entries['packet-'+name+'-binding.json'] = canonical(binding)
     entries["provider-stdin.bin"] = sql
     package = str(bundle)
     sites = management_sites(prefix.controller.HYPERVISOR_PYTHON)

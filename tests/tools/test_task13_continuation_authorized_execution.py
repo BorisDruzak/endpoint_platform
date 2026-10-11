@@ -78,9 +78,11 @@ def test_spawn_failure_consumes_once_before_popen_and_cannot_retry(owned,tmp_pat
     from tools.canary.task13_continuation import supervisor
     ex,p,r,a,b=owned;store=ProtectedStore.create_root(tmp_path/'owned-execution')
     current={'store':store,'closure':a};calls=[]
+    from tests.tools.test_task13_command_transport import short_plan
+    operations,entries=short_plan()
     @contextmanager
     def reviewed(*args):
-        yield current['store'],{**current['closure'],'runtime':{sys._base_executable:{}}},{},{},{},p,r,{},dict(root_interpreter=sys._base_executable)
+        yield current['store'],{**current['closure'],'runtime':{sys._base_executable:{}}},{},{},entries,p,r,operations,dict(root_interpreter=sys._base_executable)
     monkeypatch.setattr(supervisor,'reviewed_bundle',reviewed)
     monkeypatch.setattr(supervisor,'require_seq04_permission',lambda request:None)
     def failed_spawn(*args,**kwargs):

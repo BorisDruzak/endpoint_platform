@@ -26,6 +26,51 @@ def verify_sources(closure, entries):
     require(closure == seal_sources(entries), "execution source closure changed")
 
 
+def delivery_bootstrap(binding):
+    """Compact verifier for the existing RECOVERY_EXACT_COUNT packet format."""
+    from .codec import integer, hex256
+    from .operations import thin_script
+    n = integer(binding['wire_bytes'], 1, 4*1024*1024)
+    body = integer(binding['body_utf8_bytes'], 1, 8*1024*1024)
+    for name in ('wire_sha256', 'body_utf8_sha256', 'helper_sha256'):
+        hex256(binding[name])
+    pins = binding['parameter_hashes']
+    require(type(pins) is dict and set(pins) == {'Step','RunId','PlanSha256','PayloadManifestJson',
+            'PayloadManifestSha256','TrustedRootThumbprint'}, 'fixed delivery parameter pins')
+    for pin in pins.values(): hex256(pin)
+    # One projection pin binds the same sorted per-string SHA256 checks without
+    # carrying six high-entropy digests through the command line separately.
+    projection = sha256('|'.join(pin for name,pin in sorted(pins.items())).encode('ascii'))
+    constants = (f"$n={n};$bn={body};$wh='{binding['wire_sha256']}';"
+                 f"$bh='{binding['body_utf8_sha256']}';$sh='{binding['helper_sha256']}';$ph='{projection}';\n")
+    verifier = read_file(CANARY/'Read-Task13SealedPacket.ps1').decode('utf-8')
+    return thin_script(constants+verifier).encode('utf-8')
+
+
+def build_stdin_delivery(prefix, script, data=b''):
+    """Reuse the sealed controller factory, including its size and public pins."""
+    require(type(script) is str and type(data) is bytes, 'exact delivery inputs')
+    source = script
+    if data:
+        # The unchanged workload wrapper still reads the exact original wire.
+        # Its private reader becomes available only after the outer packet is verified.
+        text = data.decode('ascii')
+        require(all(ch in 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=' for ch in text),
+                'original inner wire must be exact base64 ASCII')
+        source = ("$task13OriginalIn=[Console]::In;$task13InnerIn=[IO.StringReader]::new('"+text+"');"
+                  "try{[Console]::SetIn($task13InnerIn);& {"+script+"\n}}"
+                  "finally{[Console]::SetIn($task13OriginalIn);$task13InnerIn.Dispose()}")
+    raw = source.encode('utf-8')
+    params = {'Step':'compare','RunId':prefix.plan['run_id'],'PlanSha256':prefix.seal['plan_sha256'],
+              'PayloadManifestJson':read_file(prefix.root/'canonical-msi81-payload-manifest.json').decode(),
+              'PayloadManifestSha256':prefix.plan['payload_manifest_sha256'],
+              'TrustedRootThumbprint':prefix.plan['trusted_root_thumbprint'],'ExecuteReviewedStep':True}
+    binding = {}
+    _, packet = prefix.controller.guest_transport(raw,params,sha256(raw),recovery_exact_count=True,frame_metadata=binding)
+    binding['parameter_hashes'] = {name:sha256(value.encode('utf-8')) for name,value in params.items() if type(value) is str}
+    return delivery_bootstrap(binding), packet, binding
+
+
 def replace_once(source, old, new):
     require(source.count(old) == 1, "exact source patch boundary")
     return source.replace(old, new, 1)

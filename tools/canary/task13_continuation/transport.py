@@ -9,6 +9,42 @@ from datetime import datetime, timezone
 from .codec import canonical, digest, parse_json, require, sha256
 
 
+def validate_command(argv, *, remote_command=None):
+    """Exact CreateProcess serialization with NUL; conservative shell-layer bound."""
+    require(type(argv) in (list,tuple) and argv and all(type(v) is str and '\0' not in v for v in argv),
+            'exact command arguments')
+    require(os.path.basename(argv[0]).lower() not in ('cmd','cmd.exe'), 'direct transport required')
+    text = subprocess.list2cmdline(argv)
+    units = len(text.encode('utf-16-le'))//2+1
+    if units >= 8192:
+        raise ValueError('COMMAND_LINE_TOO_LONG')
+    result = {'utf16_units_with_nul':units,'command_sha256':sha256(text.encode('utf-16-le'))}
+    if remote_command is not None:
+        require(type(remote_command) is str and '\0' not in remote_command, 'exact remote command')
+        remote_units = len(remote_command.encode('utf-16-le'))//2+1
+        if remote_units >= 8192:
+            raise ValueError('COMMAND_LINE_TOO_LONG')
+        result['remote_utf16_units_with_nul'] = remote_units
+    return result
+
+
+def powershell_argv(prefix, script):
+    require(type(script) is str, 'exact PowerShell source')
+    encoded = base64.b64encode(script.encode('utf-16-le')).decode()
+    argv = [*prefix,'powershell.exe -NoProfile -NonInteractive -EncodedCommand '+encoded]
+    validate_command(argv,remote_command=argv[-1])
+    return argv
+
+
+def validate_command_plan(operations, entries):
+    """Pre-claim check of all already-bound commands, without dispatch or authority."""
+    plan = {name:validate_command(operations[name+'_argv']) for name in ('management','provider')}
+    for name in ('guest','inventory','current','process_identity','clock_guest','prepare','workload','collect'):
+        argv = powershell_argv(operations['guest_ssh'],entries['delivery-'+name+'.ps1'].decode('utf-8'))
+        plan[name] = validate_command(argv,remote_command=argv[-1])
+    return plan
+
+
 def utc():
     return datetime.now(timezone.utc).isoformat()
 
@@ -42,12 +78,13 @@ class ContinuationTransport:
 
     def call(self, tag, argv, data=b"", seconds=25, *, pre_dispatch=None):
         require(type(seconds) is int and 1 <= seconds <= 145 and type(data) is bytes, "bounded transport request")
+        command = validate_command(argv)
         self.authorization.check()
         with self._lock:
             self.counter += 1
             name = f"transport-{self.counter:03d}-{tag}"
         self.store.create(name+"-intent.json",canonical({"argv_sha256":digest(argv),"stdin_sha256":sha256(data),
-                                                       "stdin_bytes":len(data),"seconds":seconds}))
+                                                       "stdin_bytes":len(data),"seconds":seconds,"command":command}))
         self.authorization.check()
         start_utc, start_ns = utc(), time.monotonic_ns()
         require(start_ns + seconds*10**9 < self.authorization.capsule["deadline_mono_ns"] - 2*10**9,
@@ -59,6 +96,7 @@ class ContinuationTransport:
         require(start_ns + seconds*10**9 < self.authorization.capsule["deadline_mono_ns"] - 2*10**9,
                 "insufficient continuation budget")
         if final_guard is not None: final_guard(start_utc)
+        require(validate_command(argv) == command, 'command binding changed')
         process = subprocess.Popen(argv,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,
                                    env=env,cwd=self.store.root,creationflags=0x08000000 if os.name == "nt" else 0)
         outputs = [bytearray(),bytearray()]
@@ -119,7 +157,5 @@ class ContinuationTransport:
         return result
 
     def powershell(self, prefix, script, tag, seconds=25, data=b"", *, pre_dispatch=None):
-        encoded = base64.b64encode(script.encode("utf-16-le")).decode()
-        argv = [*prefix,"powershell.exe -NoProfile -NonInteractive -EncodedCommand "+encoded]
-        require(len(subprocess.list2cmdline(argv))+1<=32767,"Windows command-line bound")
+        argv = powershell_argv(prefix,script)
         return self.call(tag,argv,data,seconds,pre_dispatch=pre_dispatch)

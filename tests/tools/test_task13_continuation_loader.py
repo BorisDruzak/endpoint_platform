@@ -25,7 +25,9 @@ def test_synthetic_one_step_loader_rechecks_history_and_publishes_candidate(tmp_
     p,c,e=evidence_case
     p.root=tmp_path/'historical'
     store=ProtectedStore.create_root(tmp_path/'bundle')
-    entries={name:b'owned' for name in ('entry-prepare.ps1','entry-workload.ps1','entry-collect.ps1','Watch-Task13DiagnosticProcess.ps1')}
+    from tests.tools.test_task13_command_transport import short_plan
+    operations,entries=short_plan()
+    entries.update({name:b'owned' for name in ('packet-prepare.bin','packet-workload.bin','packet-collect.bin','Watch-Task13DiagnosticProcess.ps1')})
     entries['wire.bin']=b'abc'
     c['source_closure']['execution']['entries']['Watch-Task13DiagnosticProcess.ps1']['sha256']=sha256(b'owned')
     e['watchdog_preparation']['observation']['watchdog_sha256']=sha256(b'owned')
@@ -35,7 +37,7 @@ def test_synthetic_one_step_loader_rechecks_history_and_publishes_candidate(tmp_
     closure=c['source_closure'];e['source_closure_sha256']=digest(closure)
     detached={name:'a'*64 for name in ('bootstrap_sha256','request_sha256','review_sha256','source_closure_sha256')}
     detached['reviewer_controller']=dict(c['controller'],pid=22)
-    operations={'guest_ssh':[],'guest_root':'C:\\Task13Continuation-'+c['continuation_id'].replace('-','')}
+    operations['guest_root']='C:\\Task13Continuation-'+c['continuation_id'].replace('-','')
     @contextmanager
     def bundle(*args):
         yield store,closure,{},detached,entries,p,{},operations,{'claim_home':str(tmp_path/'claims')}

@@ -9,7 +9,7 @@ from pathlib import Path
 from .codec import canonical,digest,parse_json,require,sha256
 from .loader import reviewed_bundle
 from .receipt import verify_continuation_receipt
-from .transport import utc
+from .transport import utc, validate_command, validate_command_plan
 from .recovery import claim_recovery_launch
 from .permission import require_seq04_permission
 from . import windows
@@ -31,11 +31,13 @@ def supervise(root):
             'fixed reviewed supervisor entry')
     with ExitStack() as launch_held,reviewed_bundle(root) as (store,closure,review,detached,entries,prefix,request,operations,control):
         require_seq04_permission(request)
+        validate_command_plan(operations,entries)
         observer=windows.observe_controller()
         executable=control['root_interpreter']
         require(str(Path(executable).absolute())==executable and executable in closure['runtime'],
                 'direct reviewed root interpreter')
         argv=[executable,'-I','-S','-B','-X','pycache_prefix='+str(root/'no-pyc'),str(root/'bootstrap.py'),'--execute-reviewed-seq04-child']
+        validate_command(argv)
         store.create('root-launch-claim.json',canonical({'schema':'task13_root_launch_intent_v1',
                                                        'argv_sha256':digest(argv),'observer':observer}))
         try:
@@ -44,6 +46,8 @@ def supervise(root):
                 claim_launch(prefix,request,closure)
                 hold_launch(launch_held,prefix,request,closure,child=True)
             else:claim_recovery_launch(prefix,closure)
+            validate_command_plan(operations,entries)
+            validate_command(argv)
             process=subprocess.Popen(argv,stdin=subprocess.DEVNULL,stdout=subprocess.PIPE,stderr=subprocess.PIPE,
                                      cwd=root,creationflags=0x08000000)
             birth=windows.process_birth(process._handle)

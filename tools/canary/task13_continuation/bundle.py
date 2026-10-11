@@ -59,6 +59,8 @@ def prepare_bundle(original_root, root, *, separate_seq04=False,readonly_recover
     operations = build_operations(prefix,cid,entries,store.root)
     operations["management_argv"][1:1] = ["-X","pycache_prefix="+str(store.root/"no-pyc")]
     entries["operations.json"] = canonical(operations)
+    from .transport import validate_command_plan
+    validate_command_plan(operations,entries)
     claims = prefix.root/"continuation-v1-claims"
     entries["control.json"] = canonical({"schema":"task13_bootstrap_control_v1","original_root":str(prefix.root.absolute()),
                                          "claim_home":str(claims.absolute()),"original_binding":prefix.binding,
