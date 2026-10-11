@@ -36,7 +36,9 @@ constituents and all historical/source/runtime/clock predicates.
 - [x] RED tests for read-only scope, consumed-claim preservation, changed evidence and execution refusal.
 - [x] Add read-only recovery capture/retention and actual new permission binding.
 - [x] GREEN regressions plus full relevant suite, complete diff/check and atomic commit.
-- [ ] Prepare a new offline protected package and obtain independent exact-source/runtime PASS.
-- [ ] Run one fixed reviewed read-only canonical preflight; retain all eight transports.
-- [ ] Independently validate current results, historical bytes and unchanged claims.
-- [ ] Report full preflight status, evidence hashes, historical RCA UNKNOWN and seq04 NO.
+- [x] Prepare a new offline protected package and obtain independent exact-source/runtime PASS.
+- [x] Run one fixed reviewed read-only canonical preflight; retain all eight transports.
+- [x] Independently validate current results, historical bytes and unchanged claims.
+- [x] Report full preflight status, evidence hashes, historical RCA UNKNOWN and seq04 NO.
+
+Completed: implementation `7b4bebc4b5af67770f5a0bcdd6de8bc81c1a7f71`,246 tests PASS, independent source and runtime review PASS, one fresh canonical preflight PASS. Historical RCA UNKNOWN; consumed claim unchanged; seq04 NO. See `docs/superpowers/reports/2026-10-11-task-13-readonly-recovery.md`.
