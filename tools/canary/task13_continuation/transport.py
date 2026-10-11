@@ -52,10 +52,13 @@ class ContinuationTransport:
         start_utc, start_ns = utc(), time.monotonic_ns()
         require(start_ns + seconds*10**9 < self.authorization.capsule["deadline_mono_ns"] - 2*10**9,
                 "insufficient continuation budget")
-        if pre_dispatch is not None: pre_dispatch()
+        final_guard=pre_dispatch() if pre_dispatch is not None else None
         self.authorization.check()
-        start_utc,start_ns=utc(),time.monotonic_ns()
         env = {k:v for k,v in os.environ.items() if k.upper() not in ("PYTHONPATH","PYTHONHOME")}
+        start_utc,start_ns=utc(),time.monotonic_ns()
+        require(start_ns + seconds*10**9 < self.authorization.capsule["deadline_mono_ns"] - 2*10**9,
+                "insufficient continuation budget")
+        if final_guard is not None: final_guard(start_utc)
         process = subprocess.Popen(argv,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,
                                    env=env,cwd=self.store.root,creationflags=0x08000000 if os.name == "nt" else 0)
         outputs = [bytearray(),bytearray()]

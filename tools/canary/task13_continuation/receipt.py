@@ -58,6 +58,7 @@ def validate_execution_evidence(prefix, capsule, evidence):
     armed_row=parse_json(files['watchdog-armed.json']);exit_row=parse_json(files['exit-confirmed.json'])
     pre = observation(evidence["preflight"], capsule, maximum=60)
     post = observation(evidence["postflight"], capsule, maximum=60)
+    validate_state(prefix,capsule,pre,evidence['guest']['dispatch_utc'])
     for state, envelope in ((pre,evidence["preflight"]),(post,evidence["postflight"])):
         validate_state(prefix,capsule,state,envelope["finished_utc"])
     guest = observation(evidence["guest"], capsule)

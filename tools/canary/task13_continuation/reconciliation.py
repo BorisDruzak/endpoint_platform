@@ -12,6 +12,19 @@ from .history import read_file, MANIFEST_SHA
 CONSTITUENTS = {"management", "provider", "guest", "inventory", "current", "clock_guest", "clock_management"}
 
 
+def dispatch_freshness(state):
+    """Preparse validated brackets; final check performs no I/O or source parsing."""
+    finished=tuple(instant(row['finished_utc']) for row in state['constituents'].values())
+    clocks=tuple(instant(state['constituents']['clock_'+kind]['finished_utc']) for kind in ('guest','management'))
+    provider=instant(state['constituents']['provider']['observation']['provider_utc'])
+    def check(at):
+        now=instant(at)
+        require(all(0<=(now-value).total_seconds()<=60 for value in finished),'stale dispatch constituent')
+        require(all(0<=(now-value).total_seconds()<=5 for value in clocks),'stale dispatch clock')
+        require(-5<=(now-provider).total_seconds()<=60,'stale dispatch owner observation')
+    return check
+
+
 def guards(prefix):
     manifest_raw = read_file(prefix.root / "source-closure-manifest.json")
     require(sha256(manifest_raw) == MANIFEST_SHA, "sealed guard manifest")

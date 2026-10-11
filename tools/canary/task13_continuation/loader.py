@@ -11,7 +11,7 @@ from .codec import canonical, digest, parse_json, require, sha256, uuid
 from .history import verify_historical_prefix, MANIFEST_SHA, _relative
 from .permission import verify_permission
 from .receipt import make_receipt, verify_continuation_receipt, publication_ack, raw_bytes, observation
-from .reconciliation import validate_state
+from .reconciliation import validate_state,dispatch_freshness
 from .sources import seal_sources
 from .storage import ProtectedStore
 from .transport import ContinuationTransport, TransportUnknown, envelope, utc
@@ -89,6 +89,7 @@ def guard_dispatch(prefix,auth,preflight):
     auth.check()
     state=observation(preflight,auth.capsule,maximum=60)
     validate_state(prefix,auth.capsule,state,utc())
+    return dispatch_freshness(state)
 
 
 @contextmanager

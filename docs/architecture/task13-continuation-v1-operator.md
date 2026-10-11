@@ -59,6 +59,9 @@ seconds, with two seconds reserved for persistence. Source-bounded compressed
 entries avoid the Windows command-line size ceiling.
 State is reconciled again after preparation; its clock/owner predicates run
 after durable intent persistence immediately before comparator process creation.
+After that validation, the loader rechecks the full operation plus persistence
+reserve and applies a pre-parsed, I/O-free freshness check at the actual dispatch
+timestamp. Receipt validation repeats preflight predicates at that timestamp.
 
 SSH stderr/nonzero, incomplete input, timeout, source drift, failed predicate,
 unconfirmed/terminated native exit or incomplete journal produce refusal or

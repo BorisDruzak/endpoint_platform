@@ -106,6 +106,22 @@ def test_final_predicate_runs_after_intent_flush_and_before_process(tmp_path,mon
     assert launched==[]
 
 
+@pytest.mark.skipif(os.name!='nt',reason='owned dispatch budget boundary')
+def test_callback_consumed_budget_refuses_before_process(tmp_path,monkeypatch):
+    from tools.canary.task13_continuation.transport import ContinuationTransport
+    from tools.canary.task13_continuation.storage import ProtectedStore
+    store=ProtectedStore.create_root(tmp_path/'budget')
+    launched=[]
+    def unexpected_process(*args,**kwargs):
+        launched.append(True)
+        raise AssertionError('process must not start with insufficient operation plus reserve')
+    monkeypatch.setattr(subprocess,'Popen',unexpected_process)
+    auth=SimpleNamespace(check=lambda:None,capsule={'deadline_mono_ns':time.monotonic_ns()+3500000000})
+    with pytest.raises(ValueError,match='insufficient continuation budget'):
+        ContinuationTransport(store,auth).call('owned',[sys.executable],seconds=1,pre_dispatch=lambda:time.sleep(1))
+    assert launched==[]
+
+
 @pytest.mark.skipif(os.name!='nt',reason='actual retained local root handle')
 def test_actual_root_handle_distinguishes_running_and_normal_exit():
     from tools.canary.task13_continuation import windows

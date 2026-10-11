@@ -99,4 +99,7 @@ def test_dispatch_accepts_complete_fresh_synthetic_state(state_case):
     p,c,s,at=state_case
     row=s['constituents']['clock_guest']
     preflight=envelope(canonical(s),b'',0,at,row['dispatch_mono_ns'],at,row['finished_mono_ns'],True)
-    guard_dispatch(p,SimpleNamespace(check=lambda:None,capsule=c),preflight)
+    final=guard_dispatch(p,SimpleNamespace(check=lambda:None,capsule=c),preflight)
+    final(at)
+    with pytest.raises(ValueError,match='stale dispatch clock'):
+        final((datetime.fromisoformat(at)+timedelta(seconds=6)).isoformat())
