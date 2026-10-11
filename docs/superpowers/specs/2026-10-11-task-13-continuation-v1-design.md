@@ -72,16 +72,31 @@ all predecessor and original UTC/monotonic chronology checks; original snapshot
 creation bracket/configuration/volume identities; capture and native evidence;
 and unchanged pre-rollback VM generation and current-volume identity.
 
+The original retained transport schema has accepted parsed observations and
+typed byte counts, candidate/dispatch records and caller-acceptance flags; it
+does not retain outer raw stdout/stderr or their hashes. Verify the actual
+retained schema and original receipt digests. Do not reconstruct missing raw
+bytes, fabricate historical transport evidence or claim that byte counts prove
+raw-output integrity. Raw output retention is mandatory for new execution.
+
 It also resolves every referenced transport, ownership, clock, inventory,
 source-dispatch and postcondition record from the protected retained closure.
-Every reference must resolve uniquely to exact bytes, satisfy its original
-schema and bind the appropriate original dispatch. Native capture, source pins,
+Every reference must resolve uniquely to its canonical typed object within an
+exact retained file, satisfy its original schema and bind the appropriate
+original dispatch. Native capture, source pins,
 payload manifest and original source closure are verified. Missing or ambiguous
-evidence fails closed. Dynamic relationships are checked against source; a
+evidence fails closed. Corroborating ownership/source-dispatch records that were
+not cryptographically referenced by the original receipt are checked as retained
+records, without claiming a nonexistent original hash link. A new continuation
+closure seals their current raw hashes separately; it cannot retroactively add
+links to original receipts. Dynamic relationships are checked against source; a
 negative GitNexus query cannot establish absence of a dependency.
 
 The historical gate has no current-clock override parameter. Freshness of
 historical observations is assessed at their original recorded event brackets.
+Preserve explicit HISTORICAL_GUEST_CLOCK_NOT_FRESH entries for snapshot/start
+while the guest was unreachable, including their last_validated_bracket. They
+are historical evidence only and cannot satisfy a new fresh-clock gate.
 Freshness for new execution is a separate live gate using actual current time.
 
 ## Capsule and creator authority
