@@ -37,12 +37,8 @@ def test_any_closure_byte_substitution_refuses():
 
 
 def journal(identity):
-    return b"".join(canonical(dict(identity, seq=n, ms=n, utc="2026-10-11T00:00:00Z",
-                                  phase=p, stage=s, counts=None)) + b"\n"
-                    for n, (p, s) in enumerate([("ENTER", "WRAPPER"), ("RETURN", "WATCHDOG_ARMED"),
-                                                ("ENTER", "SCRIPTBLOCK.INVOKE"),
-                                                ("RETURN", "SCRIPTBLOCK.INVOKE"),
-                                                ("RETURN", "WRAPPER")], 1))
+    from tests.tools.task13_journal_fixture import journal_bytes
+    return journal_bytes(identity)
 
 
 def test_journal_requires_complete_identity_bound_finish():
@@ -72,7 +68,8 @@ def test_owned_native_journal_writer(tmp_path):
     from tools.canary.task13_continuation.codec import parse_json
     raw = ProtectedStore(store.root, require_protected=False).read("stages.jsonl")
     first = parse_json(raw.splitlines()[0])
-    validate_journal(raw, {k: first[k] for k in ("run", "pid", "birth")})
+    assert len(raw.splitlines())==5
+    with pytest.raises(ValueError): validate_journal(raw, {k: first[k] for k in ("run", "pid", "birth")})
 
 
 @pytest.mark.skipif(os.name != "nt",reason="owned native guest support types")

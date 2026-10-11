@@ -34,6 +34,8 @@ def api():
         (kernel, "GetCurrentProcess", HANDLE, []),
         (kernel, "GetWindowsDirectoryW", DWORD, [ct.c_wchar_p, DWORD]),
         (kernel, "GetProcessTimes", ct.c_int, [HANDLE, HANDLE, HANDLE, HANDLE, HANDLE]),
+        (kernel, "WaitForSingleObject", DWORD, [HANDLE,DWORD]),
+        (kernel, "GetExitCodeProcess", ct.c_int, [HANDLE,ct.POINTER(DWORD)]),
         (adv, "OpenProcessToken", ct.c_int, [HANDLE, DWORD, ct.POINTER(HANDLE)]),
         (adv, "GetTokenInformation", ct.c_int, [HANDLE, ct.c_int, HANDLE, DWORD, ct.POINTER(DWORD)]),
         (adv, "ConvertSidToStringSidW", ct.c_int, [HANDLE, ct.POINTER(ct.c_wchar_p)]),
@@ -224,3 +226,18 @@ def system_core_paths():
     require(0 < length < len(buffer),"native Windows directory required")
     base = Path(buffer.value)/"System32"
     return {base/"OpenSSH/ssh.exe",base/"WindowsPowerShell/v1.0/powershell.exe"}
+
+
+def process_birth(handle):
+    times=[ct.c_ulonglong() for _ in range(4)]
+    checked(api()[0].GetProcessTimes(handle,*(ct.byref(t) for t in times)))
+    require(times[0].value>0,'kernel process birth')
+    return times[0].value
+
+
+def retained_process_exit(handle):
+    signal=api()[0].WaitForSingleObject(handle,0)
+    code=DWORD()
+    checked(api()[0].GetExitCodeProcess(handle,ct.byref(code)))
+    require(signal==0 and code.value!=259,'retained root exit unconfirmed')
+    return {'wait_result':signal,'exit_code':code.value,'birth':process_birth(handle)}

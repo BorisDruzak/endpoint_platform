@@ -3,7 +3,7 @@ import base64
 import sys
 import time
 from concurrent.futures import ThreadPoolExecutor
-from contextlib import ExitStack
+from contextlib import ExitStack,contextmanager
 from pathlib import Path
 
 from .authority import create_capsule, LiveAuthorization, REVIEW_SCOPE
@@ -85,11 +85,14 @@ def _reconcile(prefix, auth, transport, operations, entries):
     return result
 
 
-def run_seq04(config, trust):
-    require(type(config) is dict and set(config) == {"bootstrap_root"}, "fixed native bootstrap required")
-    root = Path(config["bootstrap_root"]).absolute()
-    require(Path(sys.argv[0]).absolute() == root/"bootstrap.py" and len(sys.argv) == 2
-            and sys.argv[1] == "--execute-reviewed-seq04", "run only the protected reviewed bootstrap")
+def guard_dispatch(prefix,auth,preflight):
+    auth.check()
+    state=observation(preflight,auth.capsule,maximum=60)
+    validate_state(prefix,auth.capsule,state,utc())
+
+
+@contextmanager
+def reviewed_bundle(root,trust=None):
     store = ProtectedStore(root)
     with ExitStack() as held:
         for path in reversed((root,*root.parents)):
@@ -97,7 +100,7 @@ def run_seq04(config, trust):
         closure = parse_json(store.read("closure.json"))
         review = parse_json(store.read("review.json"))
         detached = parse_json(store.read("trust.json"))
-        require(trust == detached and set(detached) == {"schema","source_closure_sha256","review_sha256","bootstrap_sha256","request_sha256","reviewer_controller"}
+        require((trust is None or trust == detached) and set(detached) == {"schema","source_closure_sha256","review_sha256","bootstrap_sha256","request_sha256","reviewer_controller"}
                 and detached["schema"] == "task13_independent_review_trust_v1"
                 and digest(closure) == detached["source_closure_sha256"] == review["source_closure_sha256"]
                 and digest(review) == detached["review_sha256"] and review["status"] == "PASS"
@@ -132,6 +135,15 @@ def run_seq04(config, trust):
         operations = parse_json(entries["operations.json"])
         check_operations(operations)
         require(operations["continuation_id"] == closure["continuation_id"], "reviewed execution identity")
+        yield store,closure,review,detached,entries,prefix,request,operations,control
+
+
+def run_seq04(config, trust):
+    require(type(config) is dict and set(config) == {"bootstrap_root"}, "fixed native bootstrap required")
+    root = Path(config["bootstrap_root"]).absolute()
+    require(Path(sys.argv[0]).absolute() == root/"bootstrap.py" and sys.argv[1:]==['--execute-reviewed-seq04-child'],
+            'run only the supervised protected reviewed bootstrap')
+    with reviewed_bundle(root,trust) as (store,closure,review,detached,entries,prefix,request,operations,control):
         identity = windows.observe_controller()
         require(detached["reviewer_controller"]["pid"] != identity["pid"]
                 or detached["reviewer_controller"]["birth"] != identity["birth"],"independent reviewer process required")
@@ -166,8 +178,11 @@ def run_seq04(config, trust):
             value = observation(ready,capsule,maximum=25)
             require(value["status"] == "INDEPENDENT_WATCHDOG_READY" and value["run"] == capsule["continuation_id"]
                     and value["watchdog_sha256"] == sha256(entries["Watch-Task13DiagnosticProcess.ps1"]),"independent watchdog preparation")
+            preflight=_reconcile(prefix,auth,transport,operations,entries)
+            store.create('dispatch-preflight.json',canonical(preflight))
             try:
-                guest = transport.powershell(operations["guest_ssh"],entries["entry-workload.ps1"].decode(),"compare-after-start",145,entries["wire.bin"])
+                guest = transport.powershell(operations["guest_ssh"],entries["entry-workload.ps1"].decode(),"compare-after-start",145,entries["wire.bin"],
+                                            pre_dispatch=lambda:guard_dispatch(prefix,auth,preflight))
             except TransportUnknown:
                 # Settlement reads are part of this same dispatch, never a workload
                 # retry. Authority must still be live; otherwise leave guest artifacts.
@@ -196,18 +211,22 @@ def run_seq04(config, trust):
                         "guest":guest,"watchdog":watchdog,"identity":process_identity,
                         "journal_b64":base64.b64encode(files["stages.jsonl"]).decode(),
                         "journal_sha256":sha256(files["stages.jsonl"]),"retained_collection":collected,"watchdog_preparation":ready}
+            evidence['dispatch_claim']=claim
             auth.check();verify_permission(request)
             receipt = make_receipt(prefix,capsule,evidence)
+            require(parse_json(claims.read('claim-'+digest({k:claim[k] for k in ('original_run_seal_sha256','original_tip','seq')})+'.json'))==claim,
+                    'durable dispatch claim unchanged')
             require(verify_historical_prefix(original_root).binding == prefix.binding,"history changed after workload")
             store.create("execution-evidence.json",canonical(evidence))
             auth.check()
             store.publish("receipt-04-compare-after-start.json",canonical(receipt))
             auth.check()
             store.create("resume-gate.json",canonical(publication_ack(capsule,receipt)))
-            verify_continuation_receipt(prefix,capsule,parse_json(store.read("receipt-04-compare-after-start.json")),evidence,
-                                        parse_json(store.read("resume-gate.json")))
+            from .receipt import verify_receipt_candidate
+            verify_receipt_candidate(prefix,capsule,parse_json(store.read("receipt-04-compare-after-start.json")),evidence,
+                                     parse_json(store.read("resume-gate.json")))
             auth.check()
-            return {"status":"PASS","continuation_id":capsule["continuation_id"],"continuation_sha256":digest(capsule),
+            return {"status":"ROOT_PUBLICATION_READY","continuation_id":capsule["continuation_id"],"continuation_sha256":digest(capsule),
                     "receipt_sha256":digest(receipt),"source_closure_sha256":digest(closure),"resume_gate":"STOP_BEFORE_SEQ05"}
         except Exception as error:
             store.create("unknown.json",canonical({"status":"UNKNOWN","error_type":type(error).__name__,
@@ -216,9 +235,13 @@ def run_seq04(config, trust):
 
 
 def bootstrap_entry(root):
-    if sys.argv[1:] != ["--execute-reviewed-seq04"]:
+    if sys.argv[1:] not in (["--execute-reviewed-seq04"],['--execute-reviewed-seq04-child']):
         print('{"status":"NONOPERATIONAL","reason":"explicit reviewed bootstrap required"}')
         raise SystemExit(2)
-    trust = parse_json(ProtectedStore(root).read("trust.json"))
-    result = run_seq04({"bootstrap_root":str(root)},trust)
+    if sys.argv[1:] == ['--execute-reviewed-seq04-child']:
+        trust = parse_json(ProtectedStore(root).read("trust.json"))
+        result = run_seq04({"bootstrap_root":str(root)},trust)
+    else:
+        from .supervisor import supervise
+        result=supervise(root)
     print(canonical(result).decode("ascii"))

@@ -40,7 +40,7 @@ class ContinuationTransport:
         self.store, self.authorization, self.counter = store, authorization, 0
         self._lock = threading.Lock()
 
-    def call(self, tag, argv, data=b"", seconds=25):
+    def call(self, tag, argv, data=b"", seconds=25, *, pre_dispatch=None):
         require(type(seconds) is int and 1 <= seconds <= 145 and type(data) is bytes, "bounded transport request")
         self.authorization.check()
         with self._lock:
@@ -52,9 +52,12 @@ class ContinuationTransport:
         start_utc, start_ns = utc(), time.monotonic_ns()
         require(start_ns + seconds*10**9 < self.authorization.capsule["deadline_mono_ns"] - 2*10**9,
                 "insufficient continuation budget")
+        if pre_dispatch is not None: pre_dispatch()
+        self.authorization.check()
+        start_utc,start_ns=utc(),time.monotonic_ns()
         env = {k:v for k,v in os.environ.items() if k.upper() not in ("PYTHONPATH","PYTHONHOME")}
         process = subprocess.Popen(argv,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,
-                                   env=env,creationflags=0x08000000 if os.name == "nt" else 0)
+                                   env=env,cwd=self.store.root,creationflags=0x08000000 if os.name == "nt" else 0)
         outputs = [bytearray(),bytearray()]
         failures, sent = [], []
 
@@ -112,8 +115,8 @@ class ContinuationTransport:
             raise TransportUnknown(result)
         return result
 
-    def powershell(self, prefix, script, tag, seconds=25, data=b""):
+    def powershell(self, prefix, script, tag, seconds=25, data=b"", *, pre_dispatch=None):
         encoded = base64.b64encode(script.encode("utf-16-le")).decode()
         argv = [*prefix,"powershell.exe -NoProfile -NonInteractive -EncodedCommand "+encoded]
         require(len(subprocess.list2cmdline(argv))+1<=32767,"Windows command-line bound")
-        return self.call(tag,argv,data,seconds)
+        return self.call(tag,argv,data,seconds,pre_dispatch=pre_dispatch)

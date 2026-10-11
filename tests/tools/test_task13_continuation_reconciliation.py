@@ -75,3 +75,28 @@ def test_live_state_tamper_refuses(state_case,target,field,value):
     s["constituent_sha256"] = digest(s["constituents"])
     with pytest.raises(ValueError):
         validate_state(p,c,s,at)
+
+
+def test_dispatch_refuses_clock_that_was_fresh_before_preparation(state_case):
+    from types import SimpleNamespace
+    from tools.canary.task13_continuation.loader import guard_dispatch
+    p,c,s,at=state_case
+    c['created_utc']=(datetime.now(timezone.utc)-timedelta(seconds=20)).isoformat()
+    c['created_mono_ns']-=20*10**9
+    row=s['constituents']['clock_guest']
+    old=(datetime.fromisoformat(at)-timedelta(seconds=6)).isoformat()
+    value=dict(row['observation'],utc=old)
+    s['constituents']['clock_guest']=envelope(canonical(value),b'',0,old,row['dispatch_mono_ns']-6*10**9,
+                                             old,row['finished_mono_ns']-6*10**9,True)
+    s['constituent_sha256']=digest(s['constituents'])
+    preflight=envelope(canonical(s),b'',0,at,row['dispatch_mono_ns'],at,row['finished_mono_ns'],True)
+    with pytest.raises(ValueError): guard_dispatch(p,SimpleNamespace(check=lambda:None,capsule=c),preflight)
+
+
+def test_dispatch_accepts_complete_fresh_synthetic_state(state_case):
+    from types import SimpleNamespace
+    from tools.canary.task13_continuation.loader import guard_dispatch
+    p,c,s,at=state_case
+    row=s['constituents']['clock_guest']
+    preflight=envelope(canonical(s),b'',0,at,row['dispatch_mono_ns'],at,row['finished_mono_ns'],True)
+    guard_dispatch(p,SimpleNamespace(check=lambda:None,capsule=c),preflight)

@@ -57,6 +57,8 @@ identity and waits for a retained-handle arm before native comparator work.
 Workload ceiling is 120 seconds, settlement 10 seconds, SSH observation 145
 seconds, with two seconds reserved for persistence. Source-bounded compressed
 entries avoid the Windows command-line size ceiling.
+State is reconciled again after preparation; its clock/owner predicates run
+after durable intent persistence immediately before comparator process creation.
 
 SSH stderr/nonzero, incomplete input, timeout, source drift, failed predicate,
 unconfirmed/terminated native exit or incomplete journal produce refusal or
@@ -73,8 +75,17 @@ not edited to insert the continuation. Publication uses a staged flushed file
 and native non-replacing handle rename. File-system metadata is flushed through
 the local NTFS volume handle; this can add local disk I/O latency. Uncertainty
 does not authorize another dispatch. A complete-looking receipt without the
-separate durable publication acknowledgement in `resume-gate.json` is not
-accepted by the continuation receipt verifier.
+separate durable publication candidate in `resume-gate.json` is not
+accepted by the continuation receipt verifier. Even those two records cannot
+open the gate by themselves: a reviewed local supervisor retains the actual
+root process kernel handle and records its normal exit 0, PID/birth, raw streams
+and observed completion clocks after the root's final authorization check.
+`root-completion.json` must bind that observation to the exact capsule, receipt,
+evidence and publication bytes within the root authority window. The supervisor
+performs no target operation; persistence of this local exit witness follows
+the already durable authorized root publication. `unknown.json` or
+`supervisor-unknown.json` takes precedence in the canonical persisted verifier.
+Crashes, expired finalization and missing witnesses leave the gate blocked.
 
 The receipt's resume gate is `STOP_BEFORE_SEQ05`. Marker, restore, seq 05–09,
 Agent/installer tests and mass rollout require separately authorized work.

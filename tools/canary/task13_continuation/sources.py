@@ -8,6 +8,7 @@ from pathlib import Path
 
 from .codec import require, sha256, uuid, canonical
 from .history import read_file
+from .journal import FACTS,NATIVE_ALLOWED
 
 CANARY = Path(__file__).resolve().parent.parent
 CORRECTED = {"Get-Task13MsiTables.ps1": "13c5a93944ee4b4386e3f81f2dcf0cdde020864949b7b480f3e15d55af73d3fc",
@@ -78,8 +79,11 @@ def build_execution_sources(prefix, continuation_id, guest_root):
         source = source[:a] + "$(Task13AggEnter 'NATIVE." + name + "'; " + source[a:b] + "; Task13AggReturn 'NATIVE." + name + "')" + source[b:]
     reader = entries["Get-Task13MsiTables.ps1"].decode("utf-8").replace("\r\n", "\n")
     source = replace_once(source, shim, reader + "\n" + shim)
-    source = replace_once(source, "function InspectEnter([string]$stage){", "function InspectEnter([string]$stage){\n  Task13ProfileFlush;Task13Mark 'ENTER' ('FACTS.'+$stage)")
+    source = replace_once(source, "function InspectEnter([string]$stage){", "function InspectEnter([string]$stage){\n  Task13ProfileFlush;if($null -ne $global:Task13FactsActive){Task13Mark 'RETURN' ('FACTS.'+$global:Task13FactsActive)};$global:Task13FactsActive=$stage;Task13Mark 'ENTER' ('FACTS.'+$stage)")
     entries["helper.ps1"] = source.encode("utf-8")
+    require(re.findall(r"InspectEnter '([^']+)'",source)==FACTS
+            and set(re.findall(r"Task13AggEnter 'NATIVE.([^']+)'",source))==NATIVE_ALLOWED,
+            'exact helper/journal stage contract')
     parse_sites(source)  # Verify final generated AST, including injected reader.
     params = {"Step": "compare", "RunId": prefix.plan["run_id"], "PlanSha256": prefix.seal["plan_sha256"],
               "PayloadManifestJson": read_file(prefix.root / "canonical-msi81-payload-manifest.json").decode(),
@@ -93,7 +97,7 @@ def build_execution_sources(prefix, continuation_id, guest_root):
     entries["guest-ssh-prefix.json"] = canonical({"argv":argv[:-1]})
     wrapper = base64.b64decode(argv[-1].split(" ")[-1]).decode("utf-16-le")
     prelude = ("$global:Task13Root='" + guest_root + "';$global:Task13Run='" + continuation_id + "';"
-               "$global:Task13Clock=[Diagnostics.Stopwatch]::StartNew();$global:Task13Seq=0;"
+               "$global:Task13Clock=[Diagnostics.Stopwatch]::StartNew();$global:Task13Seq=0;$global:Task13FactsActive=$null;"
                "$global:Task13Birth=[Diagnostics.Process]::GetCurrentProcess().StartTime.ToUniversalTime().ToFileTimeUtc()\n"
                "$identity=@{root=$global:Task13Root;run=$global:Task13Run;pid=$PID;birth=$global:Task13Birth}|ConvertTo-Json -Compress\n")
     prelude += (
@@ -110,7 +114,7 @@ def build_execution_sources(prefix, continuation_id, guest_root):
     wrapper = replace_once(wrapper, "$read=$g.Read($chunk,0,$take)",
                            "Task13Mark 'ENTER' 'PAYLOAD.GZIP_READ';$read=$g.Read($chunk,0,$take);Task13Mark 'RETURN' 'PAYLOAD.GZIP_READ'")
     wrapper = replace_once(wrapper, "& ([ScriptBlock]::Create($v.script)) @a",
-                           "Task13Mark 'ENTER' 'SCRIPTBLOCK.INVOKE';& ([ScriptBlock]::Create($v.script)) @a;Task13ProfileFlush;Task13Mark 'RETURN' 'SCRIPTBLOCK.INVOKE';Task13Mark 'RETURN' 'WRAPPER'")
+                           "Task13Mark 'ENTER' 'SCRIPTBLOCK.INVOKE';& ([ScriptBlock]::Create($v.script)) @a;Task13ProfileFlush;if($null -ne $global:Task13FactsActive){Task13Mark 'RETURN' ('FACTS.'+$global:Task13FactsActive);$global:Task13FactsActive=$null};Task13Mark 'RETURN' 'SCRIPTBLOCK.INVOKE';Task13Mark 'RETURN' 'WRAPPER'")
     wrapper = replace_once(wrapper, "}catch{exit 2}", "}catch{Task13ProfileFlush;Task13Mark 'FAIL' $_.Exception.GetType().Name;exit 2}")
     entries["wrapper.ps1"], entries["wire.bin"] = wrapper.encode("utf-16-le"), wire
     parse_sites(wrapper)

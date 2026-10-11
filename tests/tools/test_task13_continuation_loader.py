@@ -30,6 +30,53 @@ def test_operations_never_authorize_marker_or_restore():
         check_operations({"allowed_seq":5,"allowed_step":"marker"})
 
 
+@pytest.mark.skipif(os.name!='nt',reason='owned dispatch boundary')
+def test_final_predicate_runs_after_intent_flush_and_before_process(tmp_path,monkeypatch):
+    from tools.canary.task13_continuation.transport import ContinuationTransport
+    from tools.canary.task13_continuation.storage import ProtectedStore
+    store=ProtectedStore.create_root(tmp_path/'dispatch')
+    created=[]
+    real_create=store.create
+    def create(name,raw):
+        real_create(name,raw);created.append(name)
+    monkeypatch.setattr(store,'create',create)
+    launched=[]
+    monkeypatch.setattr(subprocess,'Popen',lambda *a,**k:launched.append(True))
+    auth=SimpleNamespace(check=lambda:None,capsule={'deadline_mono_ns':time.monotonic_ns()+150*10**9})
+    def stale_predicate():
+        assert len(created)==1 and created[0].endswith('-intent.json')
+        raise ValueError('remote clock became stale during persistence')
+    with pytest.raises(ValueError,match='remote clock became stale'):
+        ContinuationTransport(store,auth).call('owned',[sys.executable],seconds=5,pre_dispatch=stale_predicate)
+    assert launched==[]
+
+
+@pytest.mark.skipif(os.name!='nt',reason='actual retained local root handle')
+def test_actual_root_handle_distinguishes_running_and_normal_exit():
+    from tools.canary.task13_continuation import windows
+    process=subprocess.Popen([sys.executable,'-I','-S','-B','-c',"import sys;sys.stdin.buffer.read(1)"],stdin=subprocess.PIPE,
+                             stdout=subprocess.PIPE,stderr=subprocess.PIPE,creationflags=0x08000000)
+    birth=windows.process_birth(process._handle)
+    try:
+        with pytest.raises(ValueError,match='exit unconfirmed'): windows.retained_process_exit(process._handle)
+        stdout,stderr=process.communicate(b'x',timeout=5)
+        result=windows.retained_process_exit(process._handle)
+        assert result==dict(wait_result=0,exit_code=0,birth=birth) and stdout==stderr==b''
+    finally:
+        if process.poll() is None: process.kill();process.wait(timeout=5)
+
+
+@pytest.mark.skipif(os.name!='nt',reason='protected UNKNOWN precedence')
+@pytest.mark.parametrize('marker',['unknown.json','supervisor-unknown.json'])
+def test_unknown_terminal_state_overrides_complete_looking_artifacts(tmp_path,marker):
+    from tools.canary.task13_continuation.storage import ProtectedStore
+    from tools.canary.task13_continuation.supervisor import verify_published
+    store=ProtectedStore.create_root(tmp_path/'terminal')
+    store.create(marker,b'{"status":"UNKNOWN"}')
+    store.create('root-completion.json',b'{"status":"ROOT_NORMAL_EXIT_OBSERVED"}')
+    with pytest.raises(ValueError,match='UNKNOWN terminal'): verify_published(store,None,None,None)
+
+
 @pytest.mark.parametrize("code,seconds,success", [
     ("import sys,json; print(json.dumps({'received':len(sys.stdin.buffer.read())}))",5,True),
     ("print('not json')",5,False),
