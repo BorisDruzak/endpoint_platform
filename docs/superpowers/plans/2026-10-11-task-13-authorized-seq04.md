@@ -21,7 +21,11 @@ native root settlement. No marker/restore paths are added.
   different-CID concurrency, same-owner replay, crash after claim and oldclaim preservation.
 - [x] Implement additive admission and single-use execution launch path.
 - [x] GREEN full relevant suite and exact diff/check; commit only scoped changes.
-- [ ] Independent exact-source/runtime bundle PASS before VM contact.
-- [ ] One reviewed execution: new capsule, immediate canonical preflight, only seq04.
-- [ ] Canonical receipt/root completion independent offline audit; STOP_BEFORE_SEQ05.
-- [ ] Record outcome and evidence hashes; any UNKNOWN stops without retry.
+- [x] Independent exact-source/runtime bundle PASS before VM contact.
+- [x] One reviewed execution attempt with a fresh capsule and initial canonical preflight.
+  Outcome UNKNOWN/BLOCKED before prepare: generated command exceeds the retained
+  Windows command-line bound. Immediate dispatch preflight and comparator were not reached.
+- [ ] Canonical receipt/root completion: BLOCKED, comparator never dispatched;
+  receipt04 and root-completion are absent. No synthetic receipt is permitted.
+- [x] Independent offline failure audit and outcome report; STOP without retry,
+  marker or restore. Both new launch and original global dispatch claims remain consumed.
