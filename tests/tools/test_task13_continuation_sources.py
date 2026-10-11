@@ -8,6 +8,19 @@ import pytest
 
 from tools.canary.task13_continuation.codec import canonical
 from tools.canary.task13_continuation.sources import seal_sources, verify_sources, build_execution_sources
+
+
+def test_runtime_closure_contains_execution_dependencies_only(tmp_path):
+    from tools.canary.task13_continuation.bundle import runtime_sources
+    for name in ('Lib/json.py','Lib/site-packages/paramiko/client.py','Lib/site-packages/cryptography/hazmat/bindings/_rust.pyd','Lib/site-packages/unrelated/large.dll'):
+        path=tmp_path/name
+        path.parent.mkdir(parents=True,exist_ok=True)
+        path.write_bytes(b'owned')
+    paths=runtime_sources(tmp_path,management=True)
+    assert tmp_path/'Lib/json.py' in paths
+    assert tmp_path/'Lib/site-packages/paramiko/client.py' in paths
+    assert tmp_path/'Lib/site-packages/cryptography/hazmat/bindings/_rust.pyd' in paths
+    assert tmp_path/'Lib/site-packages/unrelated/large.dll' not in paths
 from tools.canary.task13_continuation.journal import validate_journal
 from tools.canary.task13_continuation.history import verify_historical_prefix
 
@@ -101,4 +114,7 @@ def test_actual_compare_sources_keep_original_facts_and_parse():
     from tools.canary.task13_continuation.operations import build_operations
     operations = build_operations(prefix,cid,entries,Path('C:/Task13OwnedOfflineBundle'))
     assert operations['allowed_seq'] == 4
+    from tools.canary.task13_continuation.windows import system_core_paths
+    assert Path(operations['guest_ssh'][0]).absolute() in system_core_paths()
+    assert Path(operations['provider_argv'][0]).absolute() in system_core_paths()
     assert {'entry-guest.ps1','entry-prepare.ps1','entry-collect.ps1','provider-stdin.bin'} <= entries.keys()

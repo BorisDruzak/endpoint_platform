@@ -8,11 +8,26 @@ from uuid import uuid4
 
 from .codec import canonical, digest, require, sha256
 from .history import verify_historical_prefix, read_file
-from .operations import build_operations
+from .operations import build_operations, management_sites
 from .sources import build_execution_sources, seal_sources, CANARY
 from .storage import ProtectedStore
 from .permission import capture_permission
 from . import windows
+
+
+def runtime_sources(base, *, management=False, sites=None):
+    base=Path(base)
+    paths=set(base.glob('*.dll'))
+    paths.update(p for p in (base/'Lib').rglob('*') if p.is_file()
+                 and 'site-packages' not in p.parts and p.suffix.lower() in ('.py','.pyd','.dll','.zip'))
+    paths.update((base/'DLLs').glob('*.pyd'));paths.update((base/'DLLs').glob('*.dll'))
+    if management:
+        for site in sites or [base/'Lib/site-packages']:
+            for name in ('paramiko','bcrypt','cryptography','nacl','cffi','pycparser','invoke','yaml'):
+                paths.update(p for p in (site/name).rglob('*') if p.is_file() and p.suffix.lower() in ('.py','.pyd','.dll','.zip'))
+            paths.update(site.glob('_cffi_backend*.pyd'))
+            paths.update(site.glob('argparse.py'))
+    return paths
 
 
 def prepare_bundle(original_root, root):
@@ -35,25 +50,33 @@ def prepare_bundle(original_root, root):
     entries["operator-request.json"] = canonical(capture_permission())
     entries["original-source-closure.json"] = read_file(prefix.root/"source-closure-manifest.json")
     bootstrap = ("import sys\nfrom pathlib import Path\nROOT=Path("+repr(str(store.root))+ ")\n"
+                 "if not (sys.flags.isolated and sys.flags.no_site and sys.flags.dont_write_bytecode): raise SystemExit('isolated no-site bytecode-free startup required')\n"
                  "sys.dont_write_bytecode=True\nsys.pycache_prefix=str(ROOT/'no-pyc')\nsys.path.insert(0,str(ROOT))\n"
                  "from tools.canary.task13_continuation.loader import bootstrap_entry\n"
                  "if __name__=='__main__': bootstrap_entry(ROOT)\n")
     entries["bootstrap.py"] = bootstrap.encode()
     # Pin both interpreters and their Python/native library implementations.
     discovery = "import json,sys;print(json.dumps({'base':sys.base_prefix,'executable':sys.executable}))"
-    second = json.loads(subprocess.run([prefix.controller.HYPERVISOR_PYTHON,"-I","-B","-c",discovery],
+    second = json.loads(subprocess.run([prefix.controller.HYPERVISOR_PYTHON,"-I","-S","-B","-c",discovery],
                                       capture_output=True,check=True,timeout=10).stdout)
     runtime_paths = {Path(sys.executable).absolute(),Path(second["executable"]).absolute()}
     system_paths = windows.system_core_paths()
     require(Path(operations["guest_ssh"][0]).absolute() in system_paths
             and Path(operations["provider_argv"][0]).absolute() in system_paths,"canonical installed SSH binary")
     runtime_paths.update(system_paths)
-    for base in {Path(sys.base_prefix),Path(second["base"])}:
-        runtime_paths.update(base.glob("*.dll"))
-        runtime_paths.update(path for path in (base/"Lib").rglob("*")
-                             if path.is_file() and path.suffix.lower() in (".py",".pyd",".dll",".zip"))
-        runtime_paths.update((base/"DLLs").glob("*.pyd"))
-        runtime_paths.update((base/"DLLs").glob("*.dll"))
+    runtime_paths.update(runtime_sources(sys.base_prefix))
+    sites=management_sites(second['executable'])
+    runtime_paths.update(runtime_sources(second['base'],management=True,sites=sites))
+    venv_config=Path(sys.executable).parent.parent/'pyvenv.cfg'
+    if venv_config.exists(): runtime_paths.add(venv_config)
+    # Confirm every loaded Paramiko dependency resolves inside the pinned set;
+    # -S avoids any unrelated .pth/sitecustomize execution before this check.
+    dependency_probe = ("import sys,json;sys.path[:0]="+repr([str(p) for p in sites])+";import paramiko;"
+                        "print(json.dumps({'version':paramiko.__version__,'files':[m.__file__ for m in sys.modules.values() if getattr(m,'__file__',None)]}))")
+    dependencies=json.loads(subprocess.run([second['executable'],'-I','-S','-B','-c',dependency_probe],capture_output=True,check=True,timeout=10).stdout)
+    require(dependencies['version']=='4.0.0','reviewed Paramiko version')
+    require(all(Path(name).absolute() in runtime_paths for name in dependencies['files'] if not name.startswith('<')),
+            'management import outside closed runtime')
     runtime_paths.add(Path.home()/".ssh/known_hosts")
     config = Path.home()/".ssh/config"
     pending,seen = [config],set()

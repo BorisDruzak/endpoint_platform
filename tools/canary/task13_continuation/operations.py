@@ -9,6 +9,7 @@ from uuid import UUID
 from .codec import canonical, require, sha256, parse_json
 from .history import read_file, MANIFEST_SHA
 from .sources import CANARY, replace_once
+from . import windows
 
 
 def thin_script(source):
@@ -56,6 +57,10 @@ def build_operations(prefix, cid, entries, bundle):
     ssh = parse_json(entries["guest-ssh-prefix.json"])["argv"]
     require("StrictHostKeyChecking=yes" in ssh and "BatchMode=yes" in ssh,"strict guest SSH")
     provider_argv,sql = provider_command(prefix)
+    native_ssh = next(path for path in windows.system_core_paths() if path.name == 'ssh.exe')
+    for argv in (ssh,provider_argv):
+        require(argv[0] in ('ssh','ssh.exe',str(native_ssh)), 'sealed SSH executable selector')
+        argv[0] = str(native_ssh)
     inventory = original_source(prefix,"Observe-RecoveryLeaves.ps1").decode()
     inventory = replace_once(inventory,"RUN_UUID_PLACEHOLDER",prefix.plan["run_id"])
     current = original_source(prefix,"Observe-NativeWrapperCurrent.ps1").decode()
@@ -81,9 +86,15 @@ def build_operations(prefix, cid, entries, bundle):
         entries["entry-"+name+".ps1"] = thin_script(source).encode("utf-8")
     entries["provider-stdin.bin"] = sql
     package = str(bundle)
-    child = "import sys;sys.path.insert(0,"+repr(package)+");from tools.canary.task13_continuation.management import main;main()"
+    sites = management_sites(prefix.controller.HYPERVISOR_PYTHON)
+    child = "import sys;sys.path[:0]="+repr([str(p) for p in sites])+";sys.path.insert(0,"+repr(package)+");from tools.canary.task13_continuation.management import main;main()"
     return {"schema":"task13_fixed_operations_v1","allowed_seq":4,"allowed_step":"compare-after-start",
             "continuation_id":cid,"guest_root":guest_root,"guest_ssh":ssh,"provider_argv":provider_argv,
-            "management_argv":[prefix.controller.HYPERVISOR_PYTHON,"-I","-B","-c",child],
+            "management_argv":[prefix.controller.HYPERVISOR_PYTHON,"-I","-S","-B","-c",child],
             "management_request":{"root":str(prefix.root),"action":"state","run_id":prefix.plan["run_id"],
                                   "snapshot":prefix.plan["snapshot"],"generation":prefix.receipts[0]["initial_vm_generation"]}}
+
+
+def management_sites(executable):
+    require(Path(executable).parent.name == 'Python314','fixed original management interpreter')
+    return [Path.home()/'AppData/Roaming/Python/Python314/site-packages',Path(executable).parent/'Lib/site-packages']

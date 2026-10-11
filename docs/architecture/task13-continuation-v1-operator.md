@@ -16,7 +16,9 @@ The bundle contains immutable execution bytes and a closure manifest covering
 Python modules, scripts, reader/profile/watchdog, compressed entries, wrapper,
 wire, original bindings, both interpreter/library implementations and strict
 SSH host-key input. Controller and management child disable bytecode writes
-and select an empty bundle cache prefix.
+and select an empty bundle cache prefix. Both execute with `-I -S -B`;
+the management child adds only its explicitly pinned Paramiko library roots.
+Unrelated installed packages and site startup hooks are not executed.
 
 An independent reviewer must inspect the exact closure and control inputs.
 The reviewer writes canonical `review.json` and detached `trust.json` into
