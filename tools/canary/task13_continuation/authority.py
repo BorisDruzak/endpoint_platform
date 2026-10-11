@@ -40,7 +40,8 @@ def create_capsule(prefix, closure, authority, review, identity):
     require(authority["source_closure_sha256"] == review["source_closure_sha256"] == digest(closure),
             "reviewed source closure required")
     utc, mono = datetime.now(timezone.utc), time.monotonic_ns()
-    return {"schema": "task13_continuation_v1", "version": 1, "continuation_id": str(uuid4()),
+    return {"schema": "task13_continuation_v1", "version": 1,
+            "continuation_id": closure.get("continuation_id", str(uuid4())),
             "allowed_seq": 4, "allowed_step": "compare-after-start", "original": prefix.binding,
             "controller": parse_json(canonical(identity)), "created_utc": utc.isoformat(),
             "expires_utc": (utc + timedelta(seconds=1200)).isoformat(), "created_mono_ns": mono,
