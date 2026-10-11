@@ -9,6 +9,7 @@ from tools.canary.task13_continuation.codec import canonical,digest,parse_json
 from tools.canary.task13_continuation.history import verify_historical_prefix
 from tools.canary.task13_continuation.reconciliation import validate_state
 from tools.canary.task13_continuation.transport import envelope
+from tools.canary.task13_continuation.process_identity import reference_registry,SAMPLE_KEYS
 
 pytestmark = [pytest.mark.no_db,pytest.mark.skipif(not os.environ.get("TASK13_HISTORICAL_ROOT"),reason="private retained fixture")]
 
@@ -43,6 +44,14 @@ def state_case(prefix):
              "plan_sha256":prefix.binding["original_plan_sha256"],"service_state":"Running","current":"versions/3.2.81",
              "update_owners":[],"msi_in_progress":False,"msiexec":[],"baseline_sha256":prefix.binding["baseline_sha256"],"marker_absent":True}
     values = {"management":management,"provider":provider,"current":current,"inventory":inventory,"guest":guest}
+    registry=reference_registry(prefix)
+    identity_rows=[]
+    for ref in registry['refs']:
+        sample={k:None for k in SAMPLE_KEYS}
+        sample.update(status='ABSENT',pid=ref['pid'],native_error=87,cim_count=0)
+        identity_rows.append(dict(pid=ref['pid'],first=sample,second=dict(sample),retained_first_not_exited=None,error_type=None))
+    values['process_identity']=dict(schema='task13_native_process_identity_v1',status='READ_ONLY_PROCESS_IDENTITY_OBSERVATION',
+        run_id=registry['run_id'],vm_uuid=registry['vm_uuid'],registry_sha256=digest(registry),utc=current['utc'],rows=identity_rows,parent_observations=[])
     for kind in ("guest","management"):
         values["clock_"+kind] = {"status":"CLOCK_OBSERVED","kind":kind,"run_id":prefix.plan["run_id"],"utc":utc}
     constituents = {name:envelope(canonical(value),b"",0,(now-timedelta(milliseconds=100)).isoformat(),mono-100000000,
@@ -56,6 +65,76 @@ def state_case(prefix):
 
 def test_retained_state_predicates_accept_complete_synthetic_projection(state_case):
     validate_state(*state_case)
+
+def rebind(state,target,value):
+    row=state['constituents'][target]
+    state['constituents'][target]=envelope(canonical(value),b'',0,row['dispatch_utc'],row['dispatch_mono_ns'],row['finished_utc'],row['finished_mono_ns'],True)
+    state['constituent_sha256']=digest(state['constituents'])
+
+@pytest.mark.parametrize('slot',[0,14,15])
+@pytest.mark.parametrize('mode',['reused','unknown','original','race'])
+def test_live_ssh_reuse_admits_only_proven_other_instance(state_case,slot,mode):
+    from tests.tools.test_task13_process_identity import sample
+    p,c,s,at=state_case
+    registry=reference_registry(p);ref=registry['refs'][slot]
+    identity=s['constituents']['process_identity']['observation']
+    birth=ref['absence_filetime']+100
+    if mode=='original':birth=ref['original_birth_filetime'] or ref['absence_filetime']-100
+    x=sample(birth);x.update(pid=ref['pid'],cim_birth_filetime=birth//10*10)
+    row=dict(pid=ref['pid'],first=x,second=dict(x),retained_first_not_exited=True,error_type=None)
+    if mode=='unknown':row['first']['native_error']=5
+    if mode=='race':row['second']['birth_filetime']+=1
+    identity['rows'][slot]=row
+    current=s['constituents']['current']['observation']
+    (current['known']+current['pair'])[slot]['present']=True
+    rebind(s,'current',current);rebind(s,'process_identity',identity)
+    if mode=='reused':validate_state(p,c,s,at)
+    else:
+        with pytest.raises(ValueError):validate_state(p,c,s,at)
+
+def test_original_leaf_absence_predicate_is_not_substituted(state_case):
+    p,c,s,at=state_case
+    current=s['constituents']['current']['observation']
+    # The first sealed leaf must remain absent irrespective of process identity.
+    for row in current['leaves']:
+        if row['present'] is False:
+            row['present']=True
+            break
+    else:raise AssertionError('fixture absent leaf required')
+    rebind(s,'current',current)
+    with pytest.raises(ValueError):validate_state(p,c,s,at)
+
+def test_missing_identity_constituent_cannot_use_legacy_numeric_fallback(state_case):
+    p,c,s,at=state_case
+    del s['constituents']['process_identity'];s['constituent_sha256']=digest(s['constituents'])
+    with pytest.raises(ValueError):validate_state(p,c,s,at)
+
+def test_raw_identity_tamper_cannot_be_replaced_by_computed_state_label(state_case):
+    p,c,s,at=state_case
+    s['constituents']['process_identity']['observation']['rows'][0]['state']='PID_REUSED'
+    s['constituent_sha256']=digest(s['constituents'])
+    with pytest.raises(ValueError):validate_state(p,c,s,at)
+
+@pytest.mark.parametrize('mutation',['marker','observer','pid_type','pair_error','presence_disagreement','registry','vm','missing_row','generation','snapshot'])
+def test_pid_correction_preserves_other_boundaries(state_case,mutation):
+    p,c,s,at=state_case
+    current=s['constituents']['current']['observation']
+    identity=s['constituents']['process_identity']['observation']
+    if mutation=='marker':current['preserved_capsule']['marker']['present']=True
+    elif mutation=='observer':current['observer_pid']=current['known'][0]['pid']
+    elif mutation=='pid_type':current['known'][0]['pid']=str(current['known'][0]['pid'])
+    elif mutation=='pair_error':current['pair'][0]['error_type']='AccessDenied'
+    elif mutation=='presence_disagreement':current['pair'][0]['present']=True
+    elif mutation=='registry':identity['registry_sha256']='0'*64
+    elif mutation=='vm':identity['vm_uuid']='wrong'
+    elif mutation=='missing_row':identity['rows'].pop()
+    else:
+        management=s['constituents']['management']['observation']
+        if mutation=='generation':management['state']['config']['vmgenid']='wrong'
+        else:management['metadata']={}
+        rebind(s,'management',management)
+    rebind(s,'current',current);rebind(s,'process_identity',identity)
+    with pytest.raises((ValueError,KeyError)):validate_state(p,c,s,at)
 
 
 @pytest.mark.parametrize("target,field,value", [

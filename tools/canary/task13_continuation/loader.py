@@ -9,7 +9,7 @@ from pathlib import Path
 from .authority import create_capsule, LiveAuthorization, REVIEW_SCOPE
 from .codec import canonical, digest, parse_json, require, sha256, uuid
 from .history import verify_historical_prefix, MANIFEST_SHA, _relative
-from .permission import verify_permission
+from .permission import verify_permission,require_seq04_permission
 from .recovery import hold_recovery,launch_owner
 from .receipt import make_receipt, verify_continuation_receipt, publication_ack, raw_bytes, observation
 from .reconciliation import validate_state,dispatch_freshness
@@ -67,8 +67,9 @@ def _reconcile(prefix, auth, transport, operations, entries):
         return transport.call("management-"+action,operations["management_argv"],
                               canonical({**operations["management_request"],"action":action}),30 if action=="state" else 5)
     work = {"management":lambda:management("state"),"provider":lambda:transport.call("provider",operations["provider_argv"],entries["provider-stdin.bin"],25),
-            "guest":lambda:ps("guest"),"inventory":lambda:ps("inventory"),"current":lambda:ps("current")}
-    with ThreadPoolExecutor(max_workers=5) as pool:
+            "guest":lambda:ps("guest"),"inventory":lambda:ps("inventory"),"current":lambda:ps("current"),
+            "process_identity":lambda:ps("process_identity",30)}
+    with ThreadPoolExecutor(max_workers=6) as pool:
         futures = {name:pool.submit(fn) for name,fn in work.items()}
         constituents = {name:future.result() for name,future in futures.items()}
     with ThreadPoolExecutor(max_workers=2) as pool:
@@ -148,6 +149,7 @@ def run_seq04(config, trust):
     require(Path(sys.argv[0]).absolute() == root/"bootstrap.py" and sys.argv[1:]==['--execute-reviewed-seq04-child'],
             'run only the supervised protected reviewed bootstrap')
     with reviewed_bundle(root,trust) as (store,closure,review,detached,entries,prefix,request,operations,control):
+        require_seq04_permission(request)
         identity = windows.observe_controller()
         require(detached["reviewer_controller"]["pid"] != identity["pid"]
                 or detached["reviewer_controller"]["birth"] != identity["birth"],"independent reviewer process required")
@@ -239,10 +241,13 @@ def run_seq04(config, trust):
 
 
 def bootstrap_entry(root):
-    if sys.argv[1:] not in (["--execute-reviewed-seq04"],['--execute-reviewed-seq04-child']):
+    if sys.argv[1:] not in (["--execute-reviewed-seq04"],['--execute-reviewed-seq04-child'],['--observe-reviewed-guard']):
         print('{"status":"NONOPERATIONAL","reason":"explicit reviewed bootstrap required"}')
         raise SystemExit(2)
-    if sys.argv[1:] == ['--execute-reviewed-seq04-child']:
+    if sys.argv[1:] == ['--observe-reviewed-guard']:
+        from .readonly_gate import observe_reviewed_guard
+        result=observe_reviewed_guard(root)
+    elif sys.argv[1:] == ['--execute-reviewed-seq04-child']:
         trust = parse_json(ProtectedStore(root).read("trust.json"))
         result = run_seq04({"bootstrap_root":str(root)},trust)
     else:

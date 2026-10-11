@@ -10,6 +10,7 @@ from .loader import reviewed_bundle
 from .receipt import verify_continuation_receipt
 from .transport import utc
 from .recovery import claim_recovery_launch
+from .permission import require_seq04_permission
 from . import windows
 
 
@@ -28,6 +29,7 @@ def supervise(root):
     require(Path(sys.argv[0]).absolute()==root/'bootstrap.py' and sys.argv[1:]==['--execute-reviewed-seq04'],
             'fixed reviewed supervisor entry')
     with reviewed_bundle(root) as (store,closure,review,detached,entries,prefix,request,operations,control):
+        require_seq04_permission(request)
         observer=windows.observe_controller()
         executable=control['root_interpreter']
         require(str(Path(executable).absolute())==executable and executable in closure['runtime'],

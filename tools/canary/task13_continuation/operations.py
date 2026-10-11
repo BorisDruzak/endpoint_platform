@@ -6,7 +6,8 @@ import re
 from pathlib import Path
 from uuid import UUID
 
-from .codec import canonical, require, sha256, parse_json
+from .codec import canonical, require, sha256, parse_json,digest
+from .process_identity import reference_registry
 from .history import read_file, MANIFEST_SHA
 from .sources import CANARY, replace_once
 from . import windows
@@ -65,6 +66,12 @@ def build_operations(prefix, cid, entries, bundle):
     inventory = replace_once(inventory,"RUN_UUID_PLACEHOLDER",prefix.plan["run_id"])
     current = original_source(prefix,"Observe-NativeWrapperCurrent.ps1").decode()
     current = replace_once(current,"a43598a5-59f9-4a01-8486-cea0d4924709",prefix.plan["run_id"])
+    registry=reference_registry(prefix)
+    entries['process-references.json']=canonical(registry)
+    entries['Observe-Task13ProcessIdentity.ps1']=read_file(CANARY/'Observe-Task13ProcessIdentity.ps1')
+    process_identity=("& {"+entries['Observe-Task13ProcessIdentity.ps1'].decode()+"} -RunId '"+registry['run_id']
+        +"' -ExpectedVmUuid '"+registry['vm_uuid']+"' -RegistrySha256 '"+digest(registry)
+        +"' -Ids @("+','.join(str(r['pid']) for r in registry['refs'])+")")
     for name in ("Observe-Task13ContinuationGuest.ps1","Prepare-Task13ContinuationWatchdog.ps1","Read-Task13ContinuationEvidence.ps1"):
         entries[name] = read_file(CANARY/name)
     original = original_source(prefix,"Invoke-Task13RecoveryGuest.draft.ps1").decode()
@@ -79,7 +86,7 @@ def build_operations(prefix, cid, entries, bundle):
                +"' -WatchdogBase64 '"+base64.b64encode(entries["Watch-Task13DiagnosticProcess.ps1"]).decode()
                +"' -ExpectedSha256 '"+sha256(entries["Watch-Task13DiagnosticProcess.ps1"])+"'")
     collect = "& {"+entries["Read-Task13ContinuationEvidence.ps1"].decode()+"} -Run '"+cid+"' -Root '"+guest_root+"'"
-    scripts = {"inventory":inventory,"current":current,"guest":guest,"prepare":prepare,"collect":collect,
+    scripts = {"inventory":inventory,"current":current,"guest":guest,"prepare":prepare,"collect":collect,"process_identity":process_identity,
                "workload":entries["wrapper.ps1"].decode("utf-16-le"),
                "clock_guest":"$ErrorActionPreference='Stop';@{status='CLOCK_OBSERVED';kind='guest';run_id='"+prefix.plan["run_id"]+"';utc=[DateTime]::UtcNow.ToString('o')}|ConvertTo-Json -Compress"}
     for name,source in scripts.items():

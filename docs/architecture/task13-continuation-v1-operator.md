@@ -98,7 +98,7 @@ A canonical receipt 04 is not Task 13 completion or fleet readiness.
 
 In PowerShell, run `python -B -m pytest (Get-ChildItem
 tests/tools/test_task13_continuation_*.py).FullName
-tests/tools/test_task13_msi_profile.py tests/tools/test_task13_watchdog.py -q`.
+tests/tools/test_task13_process_identity.py tests/tools/test_task13_msi_profile.py tests/tools/test_task13_watchdog.py -q`.
 For the retained historical evidence cases, supply the private
 `TASK13_HISTORICAL_ROOT` environment input. Test fixtures and owned local
 processes do not produce operational authority or actual VM acceptance.
@@ -122,8 +122,24 @@ the existing original seq04 dispatch claim. Neither claim may be removed to retr
 Any later UNKNOWN requires another explicitly authorized recovery procedure.
 
 Source review PASS and recovery admission are separate from runtime reconciliation.
-The unchanged current guard requires all fourteen known PID numbers to be absent.
-An independently proven reused PID still fails that guard while occupied. Do not
-kill a service or change the predicate to make a repeat pass. Preserve the evidence
-and report BLOCKED without a seq04 receipt; STOP_BEFORE_SEQ05 acceptance has not
-been reached unless the real receipt and root completion both verify.
+The PID Identity Guard Correction replaces only known/pair numeric absence with
+instance admission. A stable native instance created after the pinned historical
+absence witness is `PID_REUSED`; two consistent native/CIM absence samples are
+`PROCESS_ABSENT`. A saved original birth still alive is `ORIGINAL_PROCESS_ACTIVE`.
+Missing identity, access denial, unexplained chronology or an exit/restart race is
+`IDENTITY_UNKNOWN`. The latter two states block continuation. Native birth equality
+retains all 100 ns ticks; CIM comparison uses its exact microsecond projection.
+Original leaf/marker absence, wrapper scans and all other predicates remain sealed.
+
+Prepare and independently review a fresh exact bundle, then invoke its pinned base
+interpreter with `-I -S -B` and `bootstrap.py --observe-reviewed-guard`. This fixed
+entry records eight read-only constituents and a fresh bounded observation window
+under `read-only-guard/`. It creates no execution capsule, launch/workload claim,
+watchdog or receipt. Its permission scope rejects both seq04 execution flags before
+execution mutations. `READY_FOR_SEPARATE_SEQ04` is observation readiness only;
+seq04 remains a separate reviewed execution step. Do not interfere with `sshd.exe`.
+`STOP_BEFORE_SEQ05` acceptance requires the real receipt and root completion.
+
+Identity design references: [GetProcessTimes](https://learn.microsoft.com/en-us/windows/win32/api/processthreadsapi/nf-processthreadsapi-getprocesstimes),
+[CIM datetime precision](https://learn.microsoft.com/en-us/windows/win32/wmisdk/cim-datetime),
+and [Win32_Process parent identity](https://learn.microsoft.com/en-us/windows/win32/cimwin32prov/win32-process).

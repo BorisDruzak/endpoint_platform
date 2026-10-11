@@ -60,7 +60,9 @@ def test_changed_reviewed_recovery_evidence_refuses_before_launch(failed):
 
 def test_latest_recovery_human_scope_is_required():
     from tools.canary.task13_continuation.permission import REQUEST
-    assert REQUEST=='Разработай процедуру повторного запуска после UNKNOWN и выясни причину present=true без ослабления guards. После независимого PASS разрешаю повтор: только seq 04, затем остановка на resume gate. Без дополнительных согласований.'
+    assert REQUEST.startswith('Task 13 — PID Identity Guard Correction\n')
+    assert 'Seq 04 запускать отдельным шагом, только если весь continuation gate подтверждён.' in REQUEST
+    assert 'Для `sshd.exe` никакого вмешательства в службу не требуется.' in REQUEST
 
 @pytest.mark.skipif(os.name!='nt',reason='native shared exclusive recovery claim')
 def test_one_recovery_launch_across_different_continuation_ids(tmp_path,failed):

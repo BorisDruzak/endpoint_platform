@@ -44,6 +44,7 @@ def test_synthetic_one_step_loader_rechecks_history_and_publishes_candidate(tmp_
     monkeypatch.setattr(loader,'create_capsule',lambda *args:c)
     monkeypatch.setattr(loader,'LiveAuthorization',lambda *args:SimpleNamespace(check=lambda:None,capsule=c))
     monkeypatch.setattr(loader,'verify_permission',lambda *args:None)
+    monkeypatch.setattr(loader,'require_seq04_permission',lambda *args:None)
     reconciled=iter((e['preflight'],e['preflight'],e['postflight']))
     monkeypatch.setattr(loader,'_reconcile',lambda *args:next(reconciled))
     rechecked=[]

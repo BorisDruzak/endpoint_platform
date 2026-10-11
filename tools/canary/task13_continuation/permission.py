@@ -4,7 +4,16 @@ from pathlib import Path
 
 from .codec import canonical, parse_json, require, sha256, uuid
 
-REQUEST = "Разработай процедуру повторного запуска после UNKNOWN и выясни причину present=true без ослабления guards. После независимого PASS разрешаю повтор: только seq 04, затем остановка на resume gate. Без дополнительных согласований."
+REQUEST = """Task 13 — PID Identity Guard Correction
+
+1. Провести read-only проверку обоих текущих процессов: PID, native creation time, образ, родитель, SessionId и доступные сведения о дескрипторах. Не сохранять секретные аргументы командной строки.
+2. Сопоставить каждый экземпляр с исходной проверкой по сохранённым идентификаторам, а не только по числовому PID.
+3. Добавить в guard состояния `ORIGINAL_PROCESS_ACTIVE`, `PID_REUSED`, `PROCESS_ABSENT` и `IDENTITY_UNKNOWN`. При `IDENTITY_UNKNOWN` сохранять BLOCKED.
+4. Написать RED→GREEN тесты повторного использования PID, отказа в чтении identity, PID reuse при живом SSH-сервисе и гонки завершения/повторного запуска процесса.
+5. Независимо проверить, что исправление не ослабляет остальные условия continuation: старый plan/seal, receipts 00–03, baseline, snapshot, новый срок действия и source pins.
+6. После PASS провести свежую проверку guard на VM. Seq 04 запускать отдельным шагом, только если весь continuation gate подтверждён.
+
+Для `sshd.exe` никакого вмешательства в службу не требуется."""
 
 
 def capture_permission():
@@ -31,11 +40,16 @@ def capture_permission():
         if frame.get("type") == "response_item" and payload.get("type") == "message" and payload.get("role") == "user":
             text = "".join(row.get("text","") for row in payload.get("content",[]) if row.get("type") == "input_text")
             users.append((line,frame,text))
-    require(users and users[-1][2].strip() == REQUEST,"latest actual operator scope is not this seq04 request")
+    require(users and users[-1][2].strip() == REQUEST,"latest actual operator scope is not this PID identity request")
     line,frame,_ = users[-1]
-    return {"schema":"task13_actual_operator_request_v1","thread_id":thread,
+    return {"schema":"task13_actual_operator_request_v1","scope":"pid-identity-readonly-guard","thread_id":thread,
             "source":str(path),"record_sha256":sha256(line),"record":frame}
 
 
 def verify_permission(expected):
     require(capture_permission() == expected,"operator permission changed or caller-supplied quote")
+
+
+def require_seq04_permission(expected):
+    require(expected.get('scope')=='seq04-execution','PID identity correction scope requires separate seq04 step')
+    verify_permission(expected)

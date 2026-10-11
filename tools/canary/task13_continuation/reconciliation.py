@@ -8,8 +8,9 @@ from datetime import datetime, timedelta, timezone
 
 from .codec import digest, instant, require, sha256, parse_json
 from .history import read_file, MANIFEST_SHA
+from .process_identity import identity_states
 
-CONSTITUENTS = {"management", "provider", "guest", "inventory", "current", "clock_guest", "clock_management"}
+CONSTITUENTS = {"management", "provider", "guest", "inventory", "current", "clock_guest", "clock_management", "process_identity"}
 
 
 def dispatch_freshness(state):
@@ -49,7 +50,7 @@ def legacy(envelope, run_id, tag):
         "dispatch_confirmed":True,"persistence_confirmed":True}}
 
 
-def validate_current(prefix, envelope):
+def validate_current(prefix, envelope, identity=None):
     manifest_raw = read_file(prefix.root/"source-closure-manifest.json")
     require(sha256(manifest_raw) == MANIFEST_SHA,"current validator closure")
     specs = {v["name"]:v for v in parse_json(manifest_raw)["entries"]}
@@ -69,6 +70,36 @@ def validate_current(prefix, envelope):
                           kwonlyargs=[],kw_defaults=[],defaults=[]),body=body[:-1],decorator_list=[],returns=None,type_params=[])
     selected = [n for n in tree.body if isinstance(n,ast.FunctionDef) and n.name in {"sealed","require"}]
     namespace = {"ast":ast,"types":types,"timedelta":timedelta,"hashlib":hashlib}
+    if identity is not None:
+        states=identity_states(prefix,identity)
+        def identity_admit(row):
+            state=states.get(row['pid'],'IDENTITY_UNKNOWN')
+            return ((state=='PROCESS_ABSENT' and row['present'] is False)
+                    or (state=='PID_REUSED' and row['present'] is True))
+        namespace['identity_admit']=identity_admit
+        expected=ast.dump(ast.parse("row['present'] is False",mode='eval').body)
+        class PresenceCorrection(ast.NodeTransformer):
+            count=0
+            def visit_For(self,node):
+                iterator=node.iter
+                if (isinstance(iterator,ast.Call) and isinstance(iterator.func,ast.Name) and iterator.func.id=='zip'
+                    and len(iterator.args)==2 and isinstance(iterator.args[0],ast.Subscript)
+                    and isinstance(iterator.args[0].value,ast.Name) and iterator.args[0].value.id=='value'
+                    and isinstance(iterator.args[0].slice,ast.Constant) and iterator.args[0].slice.value in ('known','pair')):
+                    return self.generic_visit(node)
+                return node
+            def visit_Compare(self,node):
+                if ast.dump(node)==expected:
+                    self.count+=1
+                    return ast.copy_location(ast.Call(func=ast.Name(id='identity_admit',ctx=ast.Load()),args=[ast.Name(id='row',ctx=ast.Load())],keywords=[]),node)
+                return self.generic_visit(node)
+        correction=PresenceCorrection()
+        loops=[node for node in function.body if isinstance(node,ast.For)
+               and isinstance(node.iter,ast.Call) and isinstance(node.iter.func,ast.Name)
+               and node.iter.func.id=='zip']
+        require(len(loops)==2,'exact sealed known/pair loops')
+        for node in loops:correction.visit(node)
+        require(correction.count==2,'exact two sealed PID presence predicates: '+str(correction.count))
     module = ast.fix_missing_locations(ast.Module(body=[*selected,function],type_ignores=[]))
     exec(compile(module,"sealed_current_predicates","exec"),namespace)
     holder = SimpleNamespace(root=prefix.root,c=prefix.controller,pins={k:v["sha256"] for k,v in specs.items()})
@@ -82,6 +113,10 @@ def validate_state(prefix, capsule, state, at):
             and set(state["constituents"]) == CONSTITUENTS
             and state["constituent_sha256"] == digest(state["constituents"]), "complete live reconciliation")
     rows = {name:observation(envelope,capsule,maximum=60) for name,envelope in state["constituents"].items()}
+    identity_envelope=state['constituents']['process_identity']
+    identity_utc=instant(rows['process_identity']['utc'])
+    require(instant(identity_envelope['dispatch_utc'])-timedelta(seconds=5)<=identity_utc
+            <=instant(identity_envelope['finished_utc'])+timedelta(seconds=5),'identity observation clock bracket')
     c, g, plan = prefix.controller, guards(prefix), prefix.plan
     now = instant(at)
     for name,envelope in state["constituents"].items():
@@ -93,7 +128,7 @@ def validate_state(prefix, capsule, state, at):
     g["owners_guard"](c,provider,plan["run_id"],at)
     g["reachable_runtime_guard"](c,provider["observation"])
     g["inventory_guard"](rows["inventory"],plan,prefix.binding["baseline_sha256"])
-    validate_current(prefix,state["constituents"]["current"])
+    validate_current(prefix,state["constituents"]["current"],rows['process_identity'])
     guest = rows["guest"]
     require(guest["run_id"] == plan["run_id"] and guest["plan_sha256"] == prefix.binding["original_plan_sha256"]
             and guest["vm_uuid"] == plan["vm_uuid"] and guest["device_id"] == plan["device_id"]
