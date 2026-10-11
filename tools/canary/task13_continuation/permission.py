@@ -15,6 +15,8 @@ REQUEST = """Task 13 — PID Identity Guard Correction
 
 Для `sshd.exe` никакого вмешательства в службу не требуется."""
 
+READONLY_RECOVERY_REQUEST = 'Разрешаю новый recovery scope. Старую RCA оставь UNKNOWN, добавь диагностику без ослабления guards, проведи независимое ревью и свежий read-only canonical preflight. Seq 04 не запускать, consumed claim не переиспользовать. Без согласований.'
+
 
 def capture_permission():
     thread = uuid(os.environ.get("CODEX_THREAD_ID"))
@@ -40,9 +42,10 @@ def capture_permission():
         if frame.get("type") == "response_item" and payload.get("type") == "message" and payload.get("role") == "user":
             text = "".join(row.get("text","") for row in payload.get("content",[]) if row.get("type") == "input_text")
             users.append((line,frame,text))
-    require(users and users[-1][2].strip() == REQUEST,"latest actual operator scope is not this PID identity request")
+    require(users and users[-1][2].strip() in (REQUEST,READONLY_RECOVERY_REQUEST),"latest actual operator scope is not this PID identity request")
     line,frame,_ = users[-1]
-    return {"schema":"task13_actual_operator_request_v1","scope":"pid-identity-readonly-guard","thread_id":thread,
+    scope='readonly-unknown-recovery' if users[-1][2].strip()==READONLY_RECOVERY_REQUEST else 'pid-identity-readonly-guard'
+    return {"schema":"task13_actual_operator_request_v1","scope":scope,"thread_id":thread,
             "source":str(path),"record_sha256":sha256(line),"record":frame}
 
 
@@ -61,6 +64,7 @@ def capture_execution_permission(prefix=None):
     # a full gate. The original correction bundle retains its read-only scope.
     gate=capture_gate(prefix)
     value=capture_permission()
+    require(value['scope']=='pid-identity-readonly-guard','read-only recovery forbids seq04')
     value.update(scope='seq04-execution',gate_admission_sha256=digest(gate))
     return value
 

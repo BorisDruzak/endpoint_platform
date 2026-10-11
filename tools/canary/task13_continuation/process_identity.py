@@ -101,9 +101,12 @@ def classify_identity(reference,row):
 
 def identity_states(prefix,value):
     registry=reference_registry(prefix)
-    require(set(value)=={'schema','status','run_id','vm_uuid','registry_sha256','utc','rows','parent_observations'}
-            and value['schema']=='task13_native_process_identity_v1'
-            and value['status']=='READ_ONLY_PROCESS_IDENTITY_OBSERVATION'
+    keys={'schema','status','run_id','vm_uuid','registry_sha256','utc','rows','parent_observations'}
+    if value.get('schema')=='task13_native_process_identity_v2':
+        require(set(value)==keys|{'diagnostics','caller_context'},'complete identity diagnostics')
+        validate_diagnostics(value)
+    else:require(set(value)==keys and value.get('schema')=='task13_native_process_identity_v1','identity schema')
+    require(value['status']=='READ_ONLY_PROCESS_IDENTITY_OBSERVATION'
             and value['run_id']==registry['run_id'] and value['vm_uuid']==registry['vm_uuid']
             and value['registry_sha256']==digest(registry) and type(value['rows']) is list
             and len(value['rows'])==16,'original instance registry and observation binding')
@@ -116,3 +119,45 @@ def identity_states(prefix,value):
                 and (parent['error_type'] is None or type(parent['error_type']) is str and len(parent['error_type'])<=128),
                 'read-only parent metadata schema')
     return {ref['pid']:classify_identity(ref,row) for ref,row in zip(registry['refs'],value['rows'])}
+
+def validate_diagnostics(value):
+    """Bound metadata independently; no field participates in instance admission."""
+    rows=value['diagnostics'];context=value['caller_context']
+    require(type(rows) is list and len(rows)==len(value['rows'])==16
+            and len(canonical(rows))<=32768 and len(canonical(context))<=8192,'bounded identity diagnostics')
+    require(type(context) is dict and set(context)=={'pid','user_sid','authentication_type','impersonation_level',
+            'is_admin','ps_version','clr_version','is_64bit','requested_process_access','privileges'}
+            and type(context['pid']) is int and 0<context['pid']<2**32
+            and context['requested_process_access']==0x101000
+            and type(context['is_admin']) is bool and type(context['is_64bit']) is bool
+            and type(context['privileges']) is list and len(context['privileges'])<=128
+            and all(type(v) is str and len(v)<=512 for v in context['privileges'])
+            and all(type(context[k]) is str and len(context[k])<=256 for k in
+                ('user_sid','authentication_type','impersonation_level','ps_version','clr_version')),'bounded caller context')
+    for row,identity in zip(rows,value['rows']):
+        require(type(row) is dict and set(row)=={'pid','failure','elapsed_ms'} and row['pid']==identity['pid']
+                and type(row['elapsed_ms']) is int and 0<=row['elapsed_ms']<=30000,'diagnostic row binding')
+        failure=row['failure']
+        if failure is None:continue
+        require(type(failure) is dict and set(failure)=={'sample','stage','native_error','elapsed_ms','partial',
+                'first_wait','second_wait','error_record'} and failure['sample'] in ('first','second')
+                and type(failure['stage']) is str and len(failure['stage'])<=128
+                and type(failure['elapsed_ms']) is int and 0<=failure['elapsed_ms']<=30000
+                and (failure['native_error'] is None or type(failure['native_error']) is int and 0<=failure['native_error']<2**32)
+                and (failure['partial'] is None or type(failure['partial']) is dict and set(failure['partial'])==SAMPLE_KEYS)
+                and all(failure[k] is None or type(failure[k]) is int and 0<=failure[k]<2**32
+                    for k in ('first_wait','second_wait')),'bounded failure metadata')
+        error=failure['error_record']
+        require(type(error) is dict and set(error)=={'error_record_type','fully_qualified_error_id',
+                'fully_qualified_error_id_sha256','message_id','category','reason','line','exceptions'}
+                and type(error['exceptions']) is list and 1<=len(error['exceptions'])<=4
+                and type(error['line']) is int and error['line']>=0
+                and all(error[k] is None or type(error[k]) is str and len(error[k])<=256 for k in
+                    ('error_record_type','fully_qualified_error_id','fully_qualified_error_id_sha256','message_id','category','reason')),
+                'bounded ErrorRecord')
+        for exception in error['exceptions']:
+            require(type(exception) is dict and set(exception)=={'type','hresult','native_error_code'}
+                    and type(exception['type']) is str and len(exception['type'])<=256
+                    and type(exception['hresult']) is int and -2**31<=exception['hresult']<2**31
+                    and (exception['native_error_code'] is None or type(exception['native_error_code']) is int
+                        and -2**31<=exception['native_error_code']<2**32),'bounded exception chain')

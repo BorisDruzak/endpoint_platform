@@ -46,9 +46,13 @@ def test_changed_admission_is_rejected_under_native_retained_handles(prefix):
         hold_gate(held,proof,prefix)
 
 def test_separate_permission_binds_actual_message_and_prior_gate(prefix):
-    from tools.canary.task13_continuation.permission import capture_execution_permission,verify_permission
+    from tools.canary.task13_continuation.permission import capture_execution_permission,verify_permission,capture_permission
     from tools.canary.task13_continuation.gate_admission import capture_gate
     from tools.canary.task13_continuation.codec import digest
+    if capture_permission()['scope']=='readonly-unknown-recovery':
+        with pytest.raises(ValueError,match='read-only recovery forbids seq04'):
+            capture_execution_permission(prefix)
+        return
     permission=capture_execution_permission(prefix)
     assert permission['scope']=='seq04-execution' and permission['gate_admission_sha256']==digest(capture_gate(prefix))
     verify_permission(permission)

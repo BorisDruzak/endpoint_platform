@@ -58,7 +58,8 @@ def observe_reviewed_guard(root):
             result=_reconcile(prefix,auth,transport,operations,entries)
             store.create('preflight.json',canonical(result))
             auth.check();verify_permission(request)
-            verdict.update(status='READY_FOR_SEPARATE_SEQ04',preflight_sha256=digest(result))
+            status='READ_ONLY_CANONICAL_PREFLIGHT_PASS' if request.get('scope')=='readonly-unknown-recovery' else 'READY_FOR_SEPARATE_SEQ04'
+            verdict.update(status=status,preflight_sha256=digest(result))
         except ValueError as error:
             # Messages are fixed source predicates, never raw SSH exceptions/args.
             verdict.update(error_type=type(error).__name__,predicate=str(error)[:256])
@@ -68,5 +69,11 @@ def observe_reviewed_guard(root):
                 states=identity_states(prefix,raw['observation'])
                 verdict['identity_state_counts']={state:list(states.values()).count(state) for state in sorted(set(states.values()))}
         verdict['checked_utc']=utc()
+        if request.get('scope')=='readonly-unknown-recovery':
+            from .readonly_recovery import capture_readonly_recovery
+            record=parse_json(entries['recovery.json']);fresh=capture_readonly_recovery(prefix)
+            require({k:v for k,v in record.items() if k!='creator_termination_observation'}
+                    =={k:v for k,v in fresh.items() if k!='creator_termination_observation'},'read-only recovery evidence changed')
+            verdict.update(historical_rca='UNKNOWN',seq04_authorized=False,consumed_claim_unchanged=True)
         store.create('verdict.json',canonical(verdict))
         return verdict

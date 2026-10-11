@@ -49,10 +49,15 @@ def test_launcher_terminal_alone_does_not_prove_creator_exit(failed):
     from tools.canary.task13_continuation.recovery import validate_previous
     with pytest.raises(ValueError):validate_previous(*failed,False)
 
-def test_changed_reviewed_recovery_evidence_refuses_before_launch(failed):
+def test_changed_reviewed_recovery_evidence_refuses_before_launch(failed,tmp_path):
     from tools.canary.task13_continuation.recovery import capture_recovery,hold_recovery
     blobs,_,binding=failed
-    prefix=SimpleNamespace(root=Path(parse_json(blobs['control.json'])['original_root']),binding=binding)
+    original=SimpleNamespace(root=Path(parse_json(blobs['control.json'])['original_root']),binding=binding)
+    # The actual later launch consumed its permanent claim. Do not remove it or
+    # borrow its owner to make this pre-launch fixture admissible.
+    with pytest.raises(ValueError,match='single recovery launch already consumed'):
+        capture_recovery(original)
+    prefix=SimpleNamespace(root=ProtectedStore.create_root(tmp_path/'owned-prefix').root,binding=binding)
     record=capture_recovery(prefix)
     assert record['creator_termination_observation']['disposition'] in ('ABSENT','PID_REUSED','EXACT_PROCESS_EXITED')
     record['files']['root-transport.json']['sha256']='0'*64

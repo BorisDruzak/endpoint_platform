@@ -140,8 +140,13 @@ def reviewed_bundle(root,trust=None):
             admission=parse_json(entries['gate-admission.json'])
             require(digest(admission)==request['gate_admission_sha256'],'separate execution prior gate binding')
             hold_gate(held,admission,prefix)
-        hold_recovery(held,parse_json(entries['recovery.json']),prefix,launch_owner(prefix,closure),
-                      require_launch=sys.argv[1:]==['--execute-reviewed-seq04-child'])
+        if request.get('scope')=='readonly-unknown-recovery':
+            require(sys.argv[1:]==['--observe-reviewed-guard'],'read-only recovery forbids seq04')
+            from .readonly_recovery import hold_readonly_recovery
+            hold_readonly_recovery(held,parse_json(entries['recovery.json']),prefix)
+        else:
+            hold_recovery(held,parse_json(entries['recovery.json']),prefix,launch_owner(prefix,closure),
+                          require_launch=sys.argv[1:]==['--execute-reviewed-seq04-child'])
         operations = parse_json(entries["operations.json"])
         check_operations(operations)
         require(operations["continuation_id"] == closure["continuation_id"], "reviewed execution identity")

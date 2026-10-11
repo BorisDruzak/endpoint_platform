@@ -31,11 +31,16 @@ def runtime_sources(base, *, management=False, sites=None):
     return paths
 
 
-def prepare_bundle(original_root, root, *, separate_seq04=False):
+def prepare_bundle(original_root, root, *, separate_seq04=False,readonly_recovery=False):
+    require(type(separate_seq04) is bool and type(readonly_recovery) is bool,'explicit separate step selector')
+    require(not (readonly_recovery and separate_seq04),'read-only recovery forbids seq04')
     prefix = verify_historical_prefix(original_root)
-    recovery = capture_recovery(prefix)
-    require(type(separate_seq04) is bool,'explicit separate step selector')
     request=capture_execution_permission(prefix) if separate_seq04 else capture_permission()
+    require(readonly_recovery==(request['scope']=='readonly-unknown-recovery'),'explicit read-only recovery request required')
+    if readonly_recovery:
+        from .readonly_recovery import capture_readonly_recovery
+        recovery=capture_readonly_recovery(prefix)
+    else:recovery = capture_recovery(prefix)
     store = ProtectedStore.create_root(root)
     cid = str(uuid4())
     entries = build_execution_sources(prefix,cid,"C:\\Task13Continuation-"+cid.replace("-",""))

@@ -152,3 +152,31 @@ UNKNOWN must not be retried by removing claims or borrowing the prior READY reco
 Identity design references: [GetProcessTimes](https://learn.microsoft.com/en-us/windows/win32/api/processthreadsapi/nf-processthreadsapi-getprocesstimes),
 [CIM datetime precision](https://learn.microsoft.com/en-us/windows/win32/wmisdk/cim-datetime),
 and [Win32_Process parent identity](https://learn.microsoft.com/en-us/windows/win32/cimwin32prov/win32-process).
+
+## Read-only recovery with historical RCA UNKNOWN
+
+The subsequent actual human request authorizes a new observation scope while
+explicitly retaining the old RCA as UNKNOWN. Prepare with
+`prepare_bundle(..., readonly_recovery=True)`, obtain independent exact-package
+review PASS, then invoke the pinned base interpreter with `-I -S -B` and
+`bootstrap.py --observe-reviewed-guard` once. This scope rejects both execution
+entries and permission upgrades before execution mutations. It cannot be combined
+with `separate_seq04=True`.
+
+The recovery record pins and retains the failed attempt, its historical UNKNOWN,
+and its consumed launch claim. The claim is read as immutable evidence; it is
+neither removed nor reused. All original history, source/runtime pins, native
+identity requirements, eight canonical constituents and bounded deadlines remain
+mandatory. An UNKNOWN stops this observation; it supplies no repeat authority.
+
+Native identity v2 adds bounded stage, immediate Win32 error, partial sample,
+ErrorRecord/exception-chain and caller-context diagnostics. Original identity rows
+and classification remain unchanged. API failures and incomplete/racing instances
+remain UNKNOWN even when a partial birth is available. No command lines, invocation
+text, TargetObject or unrestricted exception messages are recorded. Raw identity
+and security-context evidence stays in protected local storage.
+
+Successful reconciliation is `READ_ONLY_CANONICAL_PREFLIGHT_PASS`, with
+`historical_rca=UNKNOWN`, `seq04_authorized=false` and the consumed-claim preservation
+result. It creates no execution capsule, launch/workload claim, watchdog or receipt.
+This result authorizes no seq04 dispatch. Do not interfere with `sshd.exe`.
