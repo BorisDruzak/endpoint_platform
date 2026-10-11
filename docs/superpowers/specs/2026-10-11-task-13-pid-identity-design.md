@@ -50,5 +50,10 @@ and all preserved conditions still reject tampering.
 A fixed protected read-only entry creates an explicit observation window, validates
 all eight constituents and reports READY_FOR_SEPARATE_SEQ04 or BLOCKED. It creates
 no seq04 authority capsule, root launch, recovery/workload claim, watchdog or receipt.
-The current actual human message is bound as guard-only permission; execution flags
-for seq04 must reject this scope before launching a root.
+The correction package binds the actual human message with guard-only scope;
+execution flags reject that scope before launching a root. The already authorized
+separate seq04 step uses a new independently reviewed package. Its execution scope
+binds the same actual message and the exact digest of the prior full guard admission.
+Admission pins the source review, original request, raw window/preflight/verdict and
+native controller completion. It is validated and held before any execution claim.
+Prior readiness never replaces the fresh canonical eight-constituent preflight.

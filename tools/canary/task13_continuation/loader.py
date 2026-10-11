@@ -135,6 +135,11 @@ def reviewed_bundle(root,trust=None):
         require(prefix.binding == control["original_binding"] == closure["original_binding"], "reviewed prefix changed")
         request = parse_json(entries["operator-request.json"])
         verify_permission(request)
+        if request.get('scope')=='seq04-execution':
+            from .gate_admission import hold_gate
+            admission=parse_json(entries['gate-admission.json'])
+            require(digest(admission)==request['gate_admission_sha256'],'separate execution prior gate binding')
+            hold_gate(held,admission,prefix)
         hold_recovery(held,parse_json(entries['recovery.json']),prefix,launch_owner(prefix,closure),
                       require_launch=sys.argv[1:]==['--execute-reviewed-seq04-child'])
         operations = parse_json(entries["operations.json"])

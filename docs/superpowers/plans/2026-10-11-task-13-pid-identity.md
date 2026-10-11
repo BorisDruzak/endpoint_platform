@@ -45,3 +45,17 @@ Files: modify `reconciliation.py`, `operations.py`, `loader.py`, `bundle.py`,
 - [ ] Run one fixed read-only reconciliation on VM after PASS; retain all raw results.
 - [ ] Independently validate raw results and actual gate verdict.
 - [ ] Report readiness/blockers and stop; seq04 remains a separate step.
+
+### Task 4: Already authorized separate seq04 step after complete guard PASS
+
+Ruling: the human already authorized one seq04 repeat and requires it as a separate
+step after the full guard. Preserve the correction package's guard-only permission;
+create a distinct execution package whose scope binds the same actual human message
+and pinned prior gate admission. No additional approval is required. An independent
+review of the new exact bytes and a fresh canonical preflight remain mandatory.
+
+- [ ] RED -> GREEN prior gate admission and changed-evidence/scope refusal tests.
+- [ ] Full suite, source/diff inspection and atomic execution-admission commit.
+- [ ] New protected execution package and independent exact-source PASS.
+- [ ] Execute only seq04 once with fresh canonical guard; preserve UNKNOWN if it fails.
+- [ ] Verify real publication/root exit and stop before seq05 at the resume gate.

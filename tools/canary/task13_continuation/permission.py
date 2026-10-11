@@ -47,7 +47,22 @@ def capture_permission():
 
 
 def verify_permission(expected):
-    require(capture_permission() == expected,"operator permission changed or caller-supplied quote")
+    if expected.get('scope')=='seq04-execution':
+        require('gate_admission_sha256' in expected,'separate execution requires proven prior gate')
+        actual=capture_execution_permission()
+    else:actual=capture_permission()
+    require(actual == expected,"operator permission changed or caller-supplied quote")
+
+
+def capture_execution_permission(prefix=None):
+    from .gate_admission import capture_gate
+    from .codec import digest
+    # Same actual human request explicitly conditions the separate seq04 step on
+    # a full gate. The original correction bundle retains its read-only scope.
+    gate=capture_gate(prefix)
+    value=capture_permission()
+    value.update(scope='seq04-execution',gate_admission_sha256=digest(gate))
+    return value
 
 
 def require_seq04_permission(expected):

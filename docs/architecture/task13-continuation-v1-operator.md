@@ -140,6 +140,15 @@ execution mutations. `READY_FOR_SEPARATE_SEQ04` is observation readiness only;
 seq04 remains a separate reviewed execution step. Do not interfere with `sshd.exe`.
 `STOP_BEFORE_SEQ05` acceptance requires the real receipt and root completion.
 
+For the already authorized separate step, `prepare_bundle(..., separate_seq04=True)`
+requires the fixed prior full-gate admission. The new request scope binds its digest
+and the actual human message. The reviewed loader retains all eight admission
+artifacts and revalidates the original binding before any root claim. The correction
+package remains immutable and cannot execute seq04. Independently review the new
+exact execution package before invoking its seq04 supervisor; its fresh canonical
+preflights, deadlines, watchdog and permanent claims still govern dispatch. A later
+UNKNOWN must not be retried by removing claims or borrowing the prior READY record.
+
 Identity design references: [GetProcessTimes](https://learn.microsoft.com/en-us/windows/win32/api/processthreadsapi/nf-processthreadsapi-getprocesstimes),
 [CIM datetime precision](https://learn.microsoft.com/en-us/windows/win32/wmisdk/cim-datetime),
 and [Win32_Process parent identity](https://learn.microsoft.com/en-us/windows/win32/cimwin32prov/win32-process).

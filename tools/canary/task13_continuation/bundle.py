@@ -11,7 +11,7 @@ from .history import verify_historical_prefix, read_file
 from .operations import build_operations, management_sites
 from .sources import build_execution_sources, seal_sources, CANARY
 from .storage import ProtectedStore
-from .permission import capture_permission
+from .permission import capture_permission,capture_execution_permission
 from .recovery import capture_recovery
 from . import windows
 
@@ -31,9 +31,11 @@ def runtime_sources(base, *, management=False, sites=None):
     return paths
 
 
-def prepare_bundle(original_root, root):
+def prepare_bundle(original_root, root, *, separate_seq04=False):
     prefix = verify_historical_prefix(original_root)
     recovery = capture_recovery(prefix)
+    require(type(separate_seq04) is bool,'explicit separate step selector')
+    request=capture_execution_permission(prefix) if separate_seq04 else capture_permission()
     store = ProtectedStore.create_root(root)
     cid = str(uuid4())
     entries = build_execution_sources(prefix,cid,"C:\\Task13Continuation-"+cid.replace("-",""))
@@ -50,7 +52,10 @@ def prepare_bundle(original_root, root):
     entries["control.json"] = canonical({"schema":"task13_bootstrap_control_v1","original_root":str(prefix.root.absolute()),
                                          "claim_home":str(claims.absolute()),"original_binding":prefix.binding,
                                          "root_interpreter":str(Path(sys._base_executable).absolute())})
-    entries["operator-request.json"] = canonical(capture_permission())
+    entries["operator-request.json"] = canonical(request)
+    if separate_seq04:
+        from .gate_admission import capture_gate
+        entries['gate-admission.json']=canonical(capture_gate(prefix))
     entries["recovery.json"] = canonical(recovery)
     entries["original-source-closure.json"] = read_file(prefix.root/"source-closure-manifest.json")
     bootstrap = ("import sys\nfrom pathlib import Path\nROOT=Path("+repr(str(store.root))+ ")\n"
