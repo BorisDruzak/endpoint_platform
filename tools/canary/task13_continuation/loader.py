@@ -140,7 +140,17 @@ def reviewed_bundle(root,trust=None):
             admission=parse_json(entries['gate-admission.json'])
             require(digest(admission)==request['gate_admission_sha256'],'separate execution prior gate binding')
             hold_gate(held,admission,prefix)
-        if request.get('scope')=='readonly-unknown-recovery':
+        if request.get('scope')=='seq04-after-readonly-recovery':
+            require(sys.argv[1:] in (['--execute-reviewed-seq04'],['--execute-reviewed-seq04-child']),
+                    'new execution scope requires separate seq04 entry')
+            from .authorized_execution import hold_admission,hold_launch
+            from .readonly_recovery import hold_readonly_recovery
+            admission=parse_json(entries['gate-admission.json'])
+            require(digest(admission)==request['gate_admission_sha256'],'new execution admission binding')
+            hold_admission(held,admission,prefix)
+            hold_readonly_recovery(held,parse_json(entries['recovery.json']),prefix)
+            hold_launch(held,prefix,request,closure,child=sys.argv[1:]==['--execute-reviewed-seq04-child'])
+        elif request.get('scope')=='readonly-unknown-recovery':
             require(sys.argv[1:]==['--observe-reviewed-guard'],'read-only recovery forbids seq04')
             from .readonly_recovery import hold_readonly_recovery
             hold_readonly_recovery(held,parse_json(entries['recovery.json']),prefix)

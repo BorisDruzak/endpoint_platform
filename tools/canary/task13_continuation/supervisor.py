@@ -3,6 +3,7 @@ import base64
 import subprocess
 import sys
 import time
+from contextlib import ExitStack
 from pathlib import Path
 
 from .codec import canonical,digest,parse_json,require,sha256
@@ -28,7 +29,7 @@ def supervise(root):
     root=Path(root).absolute()
     require(Path(sys.argv[0]).absolute()==root/'bootstrap.py' and sys.argv[1:]==['--execute-reviewed-seq04'],
             'fixed reviewed supervisor entry')
-    with reviewed_bundle(root) as (store,closure,review,detached,entries,prefix,request,operations,control):
+    with ExitStack() as launch_held,reviewed_bundle(root) as (store,closure,review,detached,entries,prefix,request,operations,control):
         require_seq04_permission(request)
         observer=windows.observe_controller()
         executable=control['root_interpreter']
@@ -38,7 +39,11 @@ def supervise(root):
         store.create('root-launch-claim.json',canonical({'schema':'task13_root_launch_intent_v1',
                                                        'argv_sha256':digest(argv),'observer':observer}))
         try:
-            claim_recovery_launch(prefix,closure)
+            if request.get('scope')=='seq04-after-readonly-recovery':
+                from .authorized_execution import claim_launch,hold_launch
+                claim_launch(prefix,request,closure)
+                hold_launch(launch_held,prefix,request,closure,child=True)
+            else:claim_recovery_launch(prefix,closure)
             process=subprocess.Popen(argv,stdin=subprocess.DEVNULL,stdout=subprocess.PIPE,stderr=subprocess.PIPE,
                                      cwd=root,creationflags=0x08000000)
             birth=windows.process_birth(process._handle)

@@ -16,6 +16,13 @@ REQUEST = """Task 13 — PID Identity Guard Correction
 Для `sshd.exe` никакого вмешательства в службу не требуется."""
 
 READONLY_RECOVERY_REQUEST = 'Разрешаю новый recovery scope. Старую RCA оставь UNKNOWN, добавь диагностику без ослабления guards, проведи независимое ревью и свежий read-only canonical preflight. Seq 04 не запускать, consumed claim не переиспользовать. Без согласований.'
+EXECUTION_REQUEST = """### Следующий шаг
+
+Теперь нужно перейти от диагностики к одному авторизованному выполнению `seq 04 — compare-after-start`.
+
+Для этого Codex должен проверить актуальность continuation capsule, получить новый одноразовый execution claim, подтвердить source pins и провести свежий preflight непосредственно перед запуском.
+
+Если comparator завершится успешно, необходимо создать и независимо проверить канонический receipt 04. После этого — STOP, без автоматического перехода к marker или restore."""
 
 
 def capture_permission():
@@ -42,15 +49,16 @@ def capture_permission():
         if frame.get("type") == "response_item" and payload.get("type") == "message" and payload.get("role") == "user":
             text = "".join(row.get("text","") for row in payload.get("content",[]) if row.get("type") == "input_text")
             users.append((line,frame,text))
-    require(users and users[-1][2].strip() in (REQUEST,READONLY_RECOVERY_REQUEST),"latest actual operator scope is not this PID identity request")
+    scopes={REQUEST:'pid-identity-readonly-guard',READONLY_RECOVERY_REQUEST:'readonly-unknown-recovery',EXECUTION_REQUEST:'seq04-after-readonly-recovery'}
+    require(users and users[-1][2].strip() in scopes,"latest actual operator scope is not this PID identity request")
     line,frame,_ = users[-1]
-    scope='readonly-unknown-recovery' if users[-1][2].strip()==READONLY_RECOVERY_REQUEST else 'pid-identity-readonly-guard'
+    scope=scopes[users[-1][2].strip()]
     return {"schema":"task13_actual_operator_request_v1","scope":scope,"thread_id":thread,
             "source":str(path),"record_sha256":sha256(line),"record":frame}
 
 
 def verify_permission(expected):
-    if expected.get('scope')=='seq04-execution':
+    if expected.get('scope') in ('seq04-execution','seq04-after-readonly-recovery'):
         require('gate_admission_sha256' in expected,'separate execution requires proven prior gate')
         actual=capture_execution_permission()
     else:actual=capture_permission()
@@ -62,13 +70,17 @@ def capture_execution_permission(prefix=None):
     from .codec import digest
     # Same actual human request explicitly conditions the separate seq04 step on
     # a full gate. The original correction bundle retains its read-only scope.
-    gate=capture_gate(prefix)
     value=capture_permission()
+    if value['scope']=='seq04-after-readonly-recovery':
+        from .authorized_execution import capture_admission
+        value.update(gate_admission_sha256=digest(capture_admission(prefix)))
+        return value
+    gate=capture_gate(prefix)
     require(value['scope']=='pid-identity-readonly-guard','read-only recovery forbids seq04')
     value.update(scope='seq04-execution',gate_admission_sha256=digest(gate))
     return value
 
 
 def require_seq04_permission(expected):
-    require(expected.get('scope')=='seq04-execution','PID identity correction scope requires separate seq04 step')
+    require(expected.get('scope') in ('seq04-execution','seq04-after-readonly-recovery'),'PID identity correction scope requires separate seq04 step')
     verify_permission(expected)

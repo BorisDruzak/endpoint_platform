@@ -180,3 +180,31 @@ Successful reconciliation is `READ_ONLY_CANONICAL_PREFLIGHT_PASS`, with
 `historical_rca=UNKNOWN`, `seq04_authorized=false` and the consumed-claim preservation
 result. It creates no execution capsule, launch/workload claim, watchdog or receipt.
 This result authorizes no seq04 dispatch. Do not interfere with `sshd.exe`.
+
+## One separately authorized execution after read-only recovery
+
+The subsequent actual human execution request creates a distinct
+`seq04-after-readonly-recovery` scope. Prepare with
+`prepare_bundle(..., separate_seq04=True)` and obtain independent exact-package
+review PASS before invocation. The fixed successful read-only recovery and its
+independent audit are admission evidence; they never replace a fresh preflight.
+The read-only package remains unable to execute under the new request.
+
+The original expired execution capsule is not extended or reused. The new actual
+child creates a new native-controller1200-second capsule. Its source/runtime pins,
+eight canonical constituents, clocks, watchdog, immediate dispatch freshness and
+receipt/root settlement predicates are unchanged. The unchanged original global
+seq04 claim is still required before workload dispatch.
+
+A new permanent execution launch claim is keyed by the original seal/tip, the
+full actual authorization record and fixed recovery admission. The key does not
+depend on CID. CREATE_NEW occurs before Popen; the child retains the claim and
+matches request, CID and exact closure owner. Repeated same-owner/new-CID launches,
+spawn failure and UNKNOWN cannot restore or reuse this claim. The old consumed
+recovery claim and historical UNKNOWN remain immutable evidence.
+
+Invoke only the reviewed pinned base interpreter with `-I -S -B` and
+`bootstrap.py --execute-reviewed-seq04`. Success requires genuine comparator PASS,
+canonical receipt04, root normal exit and independent offline receipt audit.
+Then STOP_BEFORE_SEQ05. Marker and restore are outside this scope. Any failure
+stops without another launch or synthesized receipt.

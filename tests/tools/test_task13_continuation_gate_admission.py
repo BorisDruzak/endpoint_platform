@@ -54,5 +54,8 @@ def test_separate_permission_binds_actual_message_and_prior_gate(prefix):
             capture_execution_permission(prefix)
         return
     permission=capture_execution_permission(prefix)
-    assert permission['scope']=='seq04-execution' and permission['gate_admission_sha256']==digest(capture_gate(prefix))
+    if permission['scope']=='seq04-after-readonly-recovery':
+        from tools.canary.task13_continuation.authorized_execution import capture_admission
+        assert permission['gate_admission_sha256']==digest(capture_admission(prefix))
+    else:assert permission['scope']=='seq04-execution' and permission['gate_admission_sha256']==digest(capture_gate(prefix))
     verify_permission(permission)

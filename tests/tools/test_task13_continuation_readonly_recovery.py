@@ -144,6 +144,7 @@ def test_new_readonly_orchestration_never_grants_execution(tmp_path,monkeypatch,
 @pytest.mark.parametrize('entry',['--execute-reviewed-seq04','--execute-reviewed-seq04-child'])
 def test_actual_new_request_scope_denies_execution(entry):
     from tools.canary.task13_continuation.permission import capture_permission,require_seq04_permission,verify_permission
-    permission=capture_permission();assert permission['scope']=='readonly-unknown-recovery'
-    verify_permission(permission)
-    with pytest.raises(ValueError,match='separate seq04 step'):require_seq04_permission(permission)
+    permission=capture_permission();assert permission['scope'] in ('readonly-unknown-recovery','seq04-after-readonly-recovery')
+    # Raw authorization alone is not the admitted execution permission; the
+    # actual new request still needs a verified immutable prior gate binding.
+    with pytest.raises(ValueError,match='separate (seq04|execution)'):require_seq04_permission(permission)

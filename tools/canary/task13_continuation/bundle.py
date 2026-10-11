@@ -37,8 +37,14 @@ def prepare_bundle(original_root, root, *, separate_seq04=False,readonly_recover
     prefix = verify_historical_prefix(original_root)
     request=capture_execution_permission(prefix) if separate_seq04 else capture_permission()
     require(readonly_recovery==(request['scope']=='readonly-unknown-recovery'),'explicit read-only recovery request required')
+    require(separate_seq04 or request['scope']!='seq04-after-readonly-recovery','explicit separate execution step required')
     if readonly_recovery:
         from .readonly_recovery import capture_readonly_recovery
+        recovery=capture_readonly_recovery(prefix)
+    elif request['scope']=='seq04-after-readonly-recovery':
+        from .readonly_recovery import capture_readonly_recovery
+        from .authorized_execution import check_launch
+        check_launch(prefix,request,None,child=False)
         recovery=capture_readonly_recovery(prefix)
     else:recovery = capture_recovery(prefix)
     store = ProtectedStore.create_root(root)
@@ -60,7 +66,10 @@ def prepare_bundle(original_root, root, *, separate_seq04=False,readonly_recover
     entries["operator-request.json"] = canonical(request)
     if separate_seq04:
         from .gate_admission import capture_gate
-        entries['gate-admission.json']=canonical(capture_gate(prefix))
+        if request['scope']=='seq04-after-readonly-recovery':
+            from .authorized_execution import capture_admission
+            entries['gate-admission.json']=canonical(capture_admission(prefix))
+        else:entries['gate-admission.json']=canonical(capture_gate(prefix))
     entries["recovery.json"] = canonical(recovery)
     entries["original-source-closure.json"] = read_file(prefix.root/"source-closure-manifest.json")
     bootstrap = ("import sys\nfrom pathlib import Path\nROOT=Path("+repr(str(store.root))+ ")\n"
