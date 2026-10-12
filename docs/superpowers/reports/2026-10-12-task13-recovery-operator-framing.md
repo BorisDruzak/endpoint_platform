@@ -32,6 +32,13 @@ Independent source review: PASS_SOURCE_REVIEW_ONLY, no Critical/Important
 findings; 21 tests, raw LF-to-CRLF replay rejection and ten invalid suffix
 checks independently passed. Full exact bundle review remains a separate gate.
 
+Broader applicable Task13 verification also passed: 352 passed, 11 deselected
+in 232.76 seconds (`pytest tests/tools -q --tb=short -k` with the explicit
+Task13 selection). The deselected unchanged historical session/state cases
+require a previous human permission literal or absence of already consumed
+claims. Their guards were preserved, not weakened to manufacture acceptance;
+this is not a claim that the unfiltered suite passes.
+
 | File | SHA-256 |
 | --- | --- |
 | recovery_permission.py | ebfaec075a7d521cf3d3cbb54de5374d8b07da9438df87e71134f6d11bd2b622 |
