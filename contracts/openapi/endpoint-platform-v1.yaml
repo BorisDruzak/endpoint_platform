@@ -150,6 +150,122 @@ paths:
       responses:
         "200":
           description: "Update report recorded"
+  "/api/v1/devices/{device_id}/modules":
+    get:
+      tags:
+        - "endpoint-modules"
+      summary: "Read Device Modules"
+      operationId: "read_device_modules_api_v1_devices__device_id__modules_get"
+      security:
+        -
+          ServiceBearer: []
+      parameters:
+        -
+          name: "device_id"
+          in: "path"
+          required: true
+          schema:
+            type: "string"
+            format: "uuid"
+            title: "Device Id"
+        -
+          name: "limit"
+          in: "query"
+          required: false
+          schema:
+            type: "integer"
+            maximum: 100
+            minimum: 1
+            default: 50
+            title: "Limit"
+        -
+          name: "cursor"
+          in: "query"
+          required: false
+          schema:
+            anyOf:
+              -
+                type: "string"
+                maxLength: 1024
+              -
+                type: "null"
+            title: "Cursor"
+        -
+          name: "X-Correlation-ID"
+          in: "header"
+          required: true
+          schema:
+            type: "string"
+            minLength: 1
+            maxLength: 128
+            pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+            title: "X-Correlation-Id"
+      responses:
+        "200":
+          description: "Successful Response"
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/EndpointDeviceModulesPageV1"
+          headers:
+            X-Correlation-ID:
+              description: "Exact echo of the request tracing header."
+              schema:
+                type: "string"
+                minLength: 1
+                maxLength: 128
+        "400":
+          description: "Invalid cursor"
+          headers:
+            X-Correlation-ID:
+              description: "Exact echo of the request tracing header."
+              schema:
+                type: "string"
+                minLength: 1
+                maxLength: 128
+        "404":
+          description: "Device not found"
+          headers:
+            X-Correlation-ID:
+              description: "Exact echo of the request tracing header."
+              schema:
+                type: "string"
+                minLength: 1
+                maxLength: 128
+        "401":
+          description: "Service authentication failed"
+          headers:
+            X-Correlation-ID:
+              description: "Exact echo of the request tracing header."
+              schema:
+                type: "string"
+                minLength: 1
+                maxLength: 128
+        "403":
+          description: "Service scope is insufficient"
+          headers:
+            X-Correlation-ID:
+              description: "Exact echo of the request tracing header."
+              schema:
+                type: "string"
+                minLength: 1
+                maxLength: 128
+        "422":
+          description: "Validation Error"
+          headers:
+            X-Correlation-ID:
+              description: "Exact echo of the request tracing header."
+              schema:
+                type: "string"
+                minLength: 1
+                maxLength: 128
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/HTTPValidationError"
+      x-required-scopes:
+        - "devices.read"
+        - "modules.read"
   "/api/v1/devices/{device_id}":
     get:
       tags:
@@ -1754,6 +1870,266 @@ paths:
         - "device-binding.redeem"
 components:
   schemas:
+    EndpointDeviceModulesPageV1:
+      additionalProperties: false
+      properties:
+        schema_version:
+          const: "endpoint_device_modules_v1"
+          default: "endpoint_device_modules_v1"
+          title: "Schema Version"
+          type: "string"
+        device_id:
+          format: "uuid"
+          title: "Device Id"
+          type: "string"
+        observed_at:
+          format: "date-time"
+          title: "Observed At"
+          type: "string"
+          "$comment": "model-only UTC normalization: timezone-aware values are normalized to UTC."
+        items:
+          items:
+            "$ref": "#/components/schemas/EndpointDeviceModulesPageV1__PublishedDeviceModuleV1"
+          maxItems: 100
+          title: "Items"
+          type: "array"
+        next_cursor:
+          anyOf:
+            -
+              maxLength: 1024
+              type: "string"
+            -
+              type: "null"
+          title: "Next Cursor"
+      required:
+        - "device_id"
+        - "observed_at"
+        - "items"
+        - "next_cursor"
+      title: "EndpointDeviceModulesPageV1"
+      type: "object"
+    EndpointDeviceModulesPageV1__EndpointRecipeModuleSpecV1:
+      additionalProperties: false
+      description: "A declarative, no-branching recipe expanded only by Endpoint Platform."
+      properties:
+        schema_version:
+          const: "endpoint_recipe_module_v1"
+          title: "Schema Version"
+          type: "string"
+        module_key:
+          maxLength: 128
+          minLength: 3
+          pattern: "^[a-z][a-z0-9]*(?:\\.[a-z][a-z0-9]*){1,7}$"
+          title: "Module Key"
+          type: "string"
+        supported_platforms:
+          items:
+            enum:
+              - "linux_amd64"
+              - "windows_amd64"
+            type: "string"
+          maxItems: 2
+          minItems: 1
+          title: "Supported Platforms"
+          type: "array"
+        inputs:
+          items:
+            "$ref": "#/components/schemas/EndpointDeviceModulesPageV1__ModuleRecipeInputV1"
+          maxItems: 8
+          title: "Inputs"
+          type: "array"
+        steps:
+          items:
+            "$ref": "#/components/schemas/EndpointDeviceModulesPageV1__EndpointRecipeStepV1"
+          maxItems: 8
+          minItems: 1
+          title: "Steps"
+          type: "array"
+      required:
+        - "schema_version"
+        - "module_key"
+        - "supported_platforms"
+        - "steps"
+      title: "EndpointRecipeModuleSpecV1"
+      type: "object"
+    EndpointDeviceModulesPageV1__EndpointRecipeStepV1:
+      additionalProperties: false
+      properties:
+        step_id:
+          maxLength: 64
+          minLength: 1
+          pattern: "^[a-z][a-z0-9_]{0,63}$"
+          title: "Step Id"
+          type: "string"
+        capability:
+          enum:
+            - "dns.resolve"
+            - "network.ping"
+            - "tcp.connect"
+            - "route.get"
+            - "adapter.list"
+            - "system.service_status"
+            - "system.resource_snapshot"
+            - "process.list"
+            - "process.find"
+            - "service.list"
+            - "service.status"
+            - "printer.list"
+            - "printer.status"
+            - "printer.queue.summary"
+            - "software.list"
+            - "software.find"
+            - "filesystem.free_space"
+            - "filesystem.path_exists"
+            - "filesystem.file_metadata"
+            - "eventlog.query"
+            - "eventlog.recent_errors"
+          title: "Capability"
+          type: "string"
+        parameters:
+          maxProperties: 4
+          patternProperties:
+            "^[a-z][a-z0-9_]{0,63}$":
+              discriminator:
+                mapping:
+                  input: "#/$defs/RecipeInputBindingV1"
+                  literal: "#/$defs/RecipeLiteralBindingV1"
+                propertyName: "kind"
+              oneOf:
+                -
+                  "$ref": "#/components/schemas/EndpointDeviceModulesPageV1__RecipeInputBindingV1"
+                -
+                  "$ref": "#/components/schemas/EndpointDeviceModulesPageV1__RecipeLiteralBindingV1"
+          propertyNames:
+            maxLength: 64
+            minLength: 1
+          title: "Parameters"
+          type: "object"
+      required:
+        - "step_id"
+        - "capability"
+        - "parameters"
+      title: "EndpointRecipeStepV1"
+      type: "object"
+    EndpointDeviceModulesPageV1__ModuleRecipeInputV1:
+      additionalProperties: false
+      properties:
+        name:
+          maxLength: 64
+          minLength: 1
+          pattern: "^[a-z][a-z0-9_]{0,63}$"
+          title: "Name"
+          type: "string"
+        value_type:
+          enum:
+            - "string"
+            - "integer"
+          title: "Value Type"
+          type: "string"
+      required:
+        - "name"
+        - "value_type"
+      title: "ModuleRecipeInputV1"
+      type: "object"
+    EndpointDeviceModulesPageV1__PublishedDeviceModuleV1:
+      additionalProperties: false
+      properties:
+        module_key:
+          maxLength: 128
+          minLength: 3
+          pattern: "^[a-z][a-z0-9]*(?:\\.[a-z][a-z0-9]*){1,7}$"
+          title: "Module Key"
+          type: "string"
+        display_name:
+          maxLength: 128
+          minLength: 1
+          title: "Display Name"
+          type: "string"
+        version:
+          maxLength: 64
+          minLength: 1
+          title: "Version"
+          type: "string"
+        state:
+          const: "published"
+          default: "published"
+          title: "State"
+          type: "string"
+        recipe:
+          anyOf:
+            -
+              "$ref": "#/components/schemas/EndpointDeviceModulesPageV1__EndpointRecipeModuleSpecV1"
+            -
+              type: "null"
+        availability:
+          enum:
+            - "available"
+            - "unavailable"
+            - "unknown"
+          title: "Availability"
+          type: "string"
+        reason_code:
+          anyOf:
+            -
+              enum:
+                - "device_offline"
+                - "agent_facts_missing"
+                - "platform_unsupported"
+                - "agent_version_unsupported"
+                - "capability_not_announced"
+                - "feature_disabled"
+                - "network_policy_missing"
+                - "invalid_recipe"
+              type: "string"
+            -
+              type: "null"
+          title: "Reason Code"
+      required:
+        - "module_key"
+        - "display_name"
+        - "version"
+        - "recipe"
+        - "availability"
+        - "reason_code"
+      title: "PublishedDeviceModuleV1"
+      type: "object"
+    EndpointDeviceModulesPageV1__RecipeInputBindingV1:
+      additionalProperties: false
+      properties:
+        kind:
+          const: "input"
+          title: "Kind"
+          type: "string"
+        name:
+          maxLength: 64
+          minLength: 1
+          pattern: "^[a-z][a-z0-9_]{0,63}$"
+          title: "Name"
+          type: "string"
+      required:
+        - "kind"
+        - "name"
+      title: "RecipeInputBindingV1"
+      type: "object"
+    EndpointDeviceModulesPageV1__RecipeLiteralBindingV1:
+      additionalProperties: false
+      properties:
+        kind:
+          const: "literal"
+          title: "Kind"
+          type: "string"
+        value:
+          anyOf:
+            -
+              type: "string"
+            -
+              type: "integer"
+          title: "Value"
+      required:
+        - "kind"
+        - "value"
+      title: "RecipeLiteralBindingV1"
+      type: "object"
     DeviceBindingErrorV1:
       additionalProperties: false
       description: "Binding routes return a bounded message, never reflected request details."
@@ -9994,6 +10370,68 @@ components:
         - "name"
         - "state"
       title: "ProcessSummaryV1"
+    PublishedDeviceModuleV1:
+      properties:
+        module_key:
+          type: "string"
+          maxLength: 128
+          minLength: 3
+          pattern: "^[a-z][a-z0-9]*(?:\\.[a-z][a-z0-9]*){1,7}$"
+          title: "Module Key"
+        display_name:
+          type: "string"
+          maxLength: 128
+          minLength: 1
+          title: "Display Name"
+        version:
+          type: "string"
+          maxLength: 64
+          minLength: 1
+          title: "Version"
+        state:
+          type: "string"
+          const: "published"
+          title: "State"
+          default: "published"
+        recipe:
+          anyOf:
+            -
+              "$ref": "#/components/schemas/EndpointRecipeModuleSpecV1-Output"
+            -
+              type: "null"
+        availability:
+          type: "string"
+          enum:
+            - "available"
+            - "unavailable"
+            - "unknown"
+          title: "Availability"
+        reason_code:
+          anyOf:
+            -
+              type: "string"
+              enum:
+                - "device_offline"
+                - "agent_facts_missing"
+                - "platform_unsupported"
+                - "agent_version_unsupported"
+                - "capability_not_announced"
+                - "feature_disabled"
+                - "network_policy_missing"
+                - "invalid_recipe"
+            -
+              type: "null"
+          title: "Reason Code"
+      additionalProperties: false
+      type: "object"
+      required:
+        - "module_key"
+        - "display_name"
+        - "version"
+        - "recipe"
+        - "availability"
+        - "reason_code"
+      title: "PublishedDeviceModuleV1"
     RecentErrorsResultV1:
       properties:
         schema_version:

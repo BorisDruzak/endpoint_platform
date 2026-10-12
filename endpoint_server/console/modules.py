@@ -25,6 +25,7 @@ from endpoint_server.db.models import (
 )
 from endpoint_server.modules.operation_service import ModuleOperationError, create_module_parent_operation
 from endpoint_server.modules.lifecycle import ModuleLifecycleError
+from endpoint_server.modules.device_catalog import published_module_query, project_published_module
 from endpoint_server.modules.service import (
     ModuleServiceError, accept_persisted_module_labs, persist_draft_version,
     publish_persisted_module_version, record_module_live_test,
@@ -608,7 +609,6 @@ async def console_device_modules(
 ) -> dict[str, object]:
     _require_platform(request)
     connection = await request.app.state.gateway_connection_registry.get(device_id)
-    available = set(compatible_module_capabilities(request.app.state.settings, connection))
     async with request.app.state.session_provider() as session:
         exists = await session.scalar(select(Device.id).where(Device.id == device_id, Device.retired_at.is_(None)))
         if exists is None:
@@ -619,29 +619,26 @@ async def console_device_modules(
             .where(ModuleVersion.state == "published")
         ) or 0
         rows = (await session.execute(
-            select(ModuleDefinition, ModuleVersion)
-            .join(ModuleVersion, ModuleVersion.module_definition_id == ModuleDefinition.id)
-            .where(ModuleVersion.state == "published")
-            .order_by(ModuleDefinition.module_key, ModuleVersion.version.desc(), ModuleVersion.id.desc())
-            .limit(limit).offset(offset)
+            published_module_query().limit(limit).offset(offset)
         )).all()
     data = []
     for definition, version in rows:
-        try:
-            recipe = EndpointRecipeModuleSpecV1.model_validate(version.recipe)
-        except ValidationError:
+        projected = project_published_module(request.app.state.settings, connection, definition, version)
+        recipe = projected.recipe
+        if recipe is None:
             continue
-        reason = "Устройство не в сети" if connection is None else None
-        if connection is not None and connection.platform not in recipe.supported_platforms:
-            reason = "Платформа Agent не поддерживается модулем"
-        if reason is None:
-            for step in recipe.steps:
-                if step.capability not in available:
-                    reason = module_capability_incompatibility_reason(
-                        request.app.state.settings, connection, MODULE_CAPABILITY_REGISTRY[step.capability],
-                    ) or "Возможность недоступна"
-                    break
-        compatible = reason is None
+        compatible = projected.availability == "available"
+        reason = None
+        if not compatible:
+            if connection is None:
+                reason = "Устройство не в сети"
+            elif projected.reason_code == "agent_facts_missing":
+                reason = "Нет подтверждённых данных Agent"
+            elif connection.platform not in recipe.supported_platforms:
+                reason = "Платформа Agent не поддерживается модулем"
+            else:
+                reason = next((message for step in recipe.steps if (message := module_capability_incompatibility_reason(
+                    request.app.state.settings, connection, MODULE_CAPABILITY_REGISTRY[step.capability]))), "Возможность недоступна")
         data.append({
             "module_key": definition.module_key, "display_name": definition.display_name,
             "version": version.version, "compatible": compatible,

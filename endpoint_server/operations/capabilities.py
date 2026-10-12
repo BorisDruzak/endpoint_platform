@@ -98,22 +98,34 @@ def module_capability_incompatibility_reason(
     descriptor: ModuleCapabilityDescriptor,
 ) -> str | None:
     """Explain the first closed compatibility gate to Console users."""
+    code = module_capability_incompatibility_code(settings, connection, descriptor)
+    return {
+        "device_offline": "Устройство не в сети",
+        "platform_unsupported": "Платформа Agent не поддерживает эту возможность",
+        "agent_version_unsupported": f"Требуется Agent ≥ {descriptor.metadata.minimum_agent_version}",
+        "capability_not_announced": f"Agent не объявил возможность {descriptor.metadata.capability}",
+        "feature_disabled": "Возможность отключена на сервере",
+        "network_policy_missing": "Политика сетевых целей не настроена",
+    }.get(code)
+
+
+def module_capability_incompatibility_code(settings, connection, descriptor):
+    """Stable service reason codes use the same gates as Console and execution."""
     if connection is None:
-        return "Устройство не в сети"
+        return "device_offline"
     metadata = descriptor.metadata
     if connection.platform not in metadata.platforms:
-        return "Платформа Agent не поддерживает эту возможность"
+        return "platform_unsupported"
     if not _has_minimum_agent_version(connection.agent_version, metadata.minimum_agent_version):
-        return f"Требуется Agent ≥ {metadata.minimum_agent_version}"
+        return "agent_version_unsupported"
     if metadata.capability not in connection.effective_capabilities:
-        return f"Agent не объявил возможность {metadata.capability}"
+        return "capability_not_announced"
     if not getattr(settings, metadata.feature_flag):
-        return "Возможность отключена на сервере"
+        return "feature_disabled"
     if metadata.policy == "network_target_policy" and not (
-        settings.endpoint_network_probe_allowed_cidrs
-        or settings.endpoint_network_probe_allowed_suffixes
+        settings.endpoint_network_probe_allowed_cidrs or settings.endpoint_network_probe_allowed_suffixes
     ):
-        return "Политика сетевых целей не настроена"
+        return "network_policy_missing"
     return None
 
 

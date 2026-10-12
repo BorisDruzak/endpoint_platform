@@ -31,6 +31,24 @@ remain unchanged.
 
 ## Catalog
 
+Service consumers discover published recipes through
+`GET /api/v1/devices/{device_id}/modules` with both `devices.read` and
+`modules.read`. The frozen `endpoint_device_modules_v1` page contains the exact
+device, observation time, validated recipes and tri-state availability with
+stable reason codes. Draft, validated, revoked and deprecated versions are
+excluded; a newer draft does not hide an older published version. An invalid
+published recipe remains visible as `unknown/invalid_recipe` with no raw recipe.
+Console and this service projection share the published query and capability
+gates. An absent connection is offline; a connection missing platform/version
+facts is unknown. Availability does not authorize execution by itself.
+
+`limit` is 1..100 (default 50). A signed opaque cursor is bound to the device;
+keyset order is module key, creation time, UUID, never lexical SemVer.
+Correlation headers use the existing bounded tracing contract and are echoed
+on errors as well as successes. No administrative sessions, credentials or
+authoring privileges are exposed. The JSON Schema and canonical OpenAPI are
+generated together by `tools/contracts/generate_contract_artifacts.py`.
+
 The following executable IDs are implemented. `W` and `ALT` denote runtime
 implementations covered by platform tests; ALT live acceptance remains a
 separate deployment gate. Feature flags for all new groups start disabled.

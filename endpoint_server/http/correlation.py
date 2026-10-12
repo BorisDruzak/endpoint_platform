@@ -34,7 +34,7 @@ def is_operation_api_request(method: str, path: str) -> bool:
         return bool(segments[4]) and segments[5] == "cancel"
     if len(segments) == 6 and segments[:4] == ["", "api", "v1", "devices"]:
         return bool(segments[4]) and (
-            (method == "GET" and segments[5] == "capabilities")
+            (method == "GET" and segments[5] in {"capabilities", "modules"})
             or (
                 method == "POST"
                 and segments[5] in {"operations", "module-operations"}
