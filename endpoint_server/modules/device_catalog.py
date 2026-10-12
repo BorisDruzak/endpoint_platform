@@ -44,6 +44,8 @@ def project_published_module(settings, connection, definition, version):
     if recipe is None:
         reason = "invalid_recipe"
         availability = "unknown"
+    elif not settings.endpoint_module_execution_enabled:
+        reason = "feature_disabled"
     elif connection is None:
         reason = "device_offline"
     elif not connection.platform or not connection.agent_version:

@@ -16,7 +16,7 @@ from endpoint_server.main import create_app
 
 
 @pytest_asyncio.fixture
-async def catalog_app(monkeypatch):
+async def catalog_app(monkeypatch,request):
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
     async with engine.begin() as connection:
         await connection.run_sync(lambda sync: [table.create(sync) for table in (
@@ -27,7 +27,7 @@ async def catalog_app(monkeypatch):
         public_base_url="https://endpoint.example.test", device_token_pepper=b"test-device",
         service_token_pepper=b"test-service", session_secret=b"test-session",
         allowed_agent_cidrs=(), allowed_admin_cidrs=(), artifact_root=Path("artifacts"),
-        endpoint_module_platform_enabled=True, endpoint_network_primitives_enabled=True,
+        endpoint_module_platform_enabled=True, endpoint_module_execution_enabled=getattr(request,"param",True),endpoint_network_primitives_enabled=True,
         endpoint_network_probe_allowed_suffixes=(".example.test",))
     app = create_app(settings, session_provider=sessions)
     credential = ServiceCredential(scopes=["devices.read", "modules.read"])
@@ -99,6 +99,16 @@ async def test_device_modules_page_auth_and_bounds(catalog_app):
         record.retired_at = datetime.now(UTC)
         await session.commit()
     assert (await client.get(path)).status_code == 404
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("catalog_app",[False],indirect=True)
+async def test_execution_disabled_never_advertises_runnable_modules(catalog_app):
+    app,client,device,_,_=catalog_app
+    await app.state.gateway_connection_registry.register(GatewayConnection(device.id,uuid4(),object(),
+        agent_version="3.2.82",platform="linux_amd64",effective_capabilities=frozenset({"dns.resolve"})))
+    page=(await client.get(f"/api/v1/devices/{device.id}/modules")).json()
+    assert all(item["availability"]=="unavailable" and item["reason_code"]=="feature_disabled" for item in page["items"])
 
 
 @pytest.mark.asyncio
