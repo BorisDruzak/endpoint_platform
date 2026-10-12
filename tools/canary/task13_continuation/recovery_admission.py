@@ -23,7 +23,8 @@ GLOBAL_NAME=next(n for n in OLD_CLAIMS if n.startswith('claim-'))
 ACCEPTED_SOURCE_ROOT='task13-command-transport-review-20261011-c'
 ACCEPTED_SOURCE_SHA='f219ff086d1cf1623107bb66a0638ed2ae8d3d45eaf7a57dce1c68e0ba8c5cac'
 MODULES=('recovery_admission.py','recovery_permission.py','recovery_bundle.py',
-         'recovery_loader.py','recovery_receipt.py','recovery_supervisor.py','recovery_gate.py','recovery_permission_v2.py')
+         'recovery_loader.py','recovery_receipt.py','recovery_supervisor.py','recovery_gate.py','recovery_permission_v2.py',
+         'recovery_dependencies_v2.py')
 LAUNCH_KEYS={'schema','original','history_sha256','consumed_global_claim_sha256','protocol_version',
  'protocol_source_sha256','implementation_sha','continuation_id','gate_sha256','request_sha256',
  'source_closure_sha256','capsule_sha256','preflight_sha256','expires_utc','controller'}

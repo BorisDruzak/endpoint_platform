@@ -15,13 +15,14 @@ from .loader import check_operations
 from .storage import ProtectedStore
 from .transport import validate_command_plan,validate_command
 from .recovery_admission import capture_history,protocol_sources,BASE_REVISION,require_unused_slot
-from .recovery_permission_v2 import capture_recovery_permission,capture_consent,MODE
+from .recovery_permission_v2 import capture_recovery_permission,capture_consent
 from . import windows
 
 ACCEPTED_ROOT='task13-command-transport-review-20261011-c'
 ACCEPTED_CLOSURE_SHA='f219ff086d1cf1623107bb66a0638ed2ae8d3d45eaf7a57dce1c68e0ba8c5cac'
 RECOVERY_SCOPE=['consumed-claim-identities','pre-prepare-refusal','single-native-slot','packet-feasibility',
-                'actual-recovery-permission','native-child-handoff','recovery-receipt','no-retry','actual-natural-consent-v2']
+                'actual-recovery-permission','native-child-handoff','recovery-receipt','no-retry','actual-natural-consent-v2',
+                'controller-dependency-v2']
 OPERATIONS=('guest','inventory','current','process_identity','clock_guest','prepare','workload','collect')
 
 def bind_closed_executables(operations,runtime):
@@ -63,6 +64,9 @@ def verify_feasibility(prefix,closure,entries,operations,root_argv):
     require(closure['execution']==seal_sources(entries),'preclaim exact execution source closure')
     require(entries['operations.json']==canonical(operations),'bound operation parameters changed')
     require(closure['protocol_source_sha256']==protocol_sources(entries),'preclaim recovery protocol source pins')
+    if 'control.json' in entries and parse_json(entries['control.json']).get('protocol_version')==2:
+        from .recovery_dependencies_v2 import verify_closed_revision
+        verify_closed_revision(entries,closure['runtime'])
     check_operations(operations)
     require(operations['continuation_id']==closure['continuation_id'],'preclaim continuation operation identity')
     plan=validate_command_plan(operations,entries);plan['root']=validate_command(root_argv)
@@ -111,7 +115,9 @@ def _prepare(original_root,root,implementation_sha,mode,gate=None):
     for folder in ('tools','tools/canary'):entries[folder+'/__init__.py']=b'"""Protected recovery bundle namespace."""\n'
     for path in sorted(Path(__file__).parent.glob('*.py')):entries['tools/canary/task13_continuation/'+path.name]=read_file(path)
     operations=build_operations(prefix,cid,entries,root)
-    runtime=_accepted_runtime();bind_closed_executables(operations,runtime)
+    from .recovery_dependencies_v2 import load_reviewed_runtime
+    runtime,revision_entries=load_reviewed_runtime();entries.update(revision_entries)
+    bind_closed_executables(operations,runtime)
     operations['management_argv'][1:1]=['-X','pycache_prefix='+str(root/'no-pyc')]
     entries['tools/canary/Read-Task13SealedPacket.ps1']=entries['Read-Task13SealedPacket.ps1']
     entries['operations.json']=canonical(operations);entries['recovery-history.json']=canonical(history)
