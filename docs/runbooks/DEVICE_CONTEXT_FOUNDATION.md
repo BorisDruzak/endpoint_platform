@@ -39,6 +39,31 @@ Service clients receive least-privilege scopes:
 Keep service tokens in their configured private secret storage. Do not copy a
 bearer into ticket text, agent data, panel configuration, logs or diagnostics.
 
+### Helpdesk diagnostic workspace credential
+
+The root-only `endpoint_server.auth.provision_helpdesk_diagnostic_credential`
+CLI authenticates the current integration token and issues a replacement for
+the same ServiceClient UUID. It preserves its expiry and existing approved
+device/context/operation reads, creates and optional cancellation/binding grant,
+adding only `modules.read`, `module_operations.create`, `module_operations.read`.
+Missing baseline grants, unknown scopes, and existing module write/validate/publish
+grants fail closed for independent review. The authoring workbench provisioner
+is unsuitable for the diagnostic workspace.
+
+Pass the current token through a non-interactive sealed stdin stream with
+`--current-token-stdin`, or a root-owned owner-only regular file with
+`--current-token-file`; pass a new absolute private destination with
+`--output-file`. Never pass token material in command arguments. Output creation
+is exclusive, mode0600, and rejects symlinks/overwrite; stdout contains only
+a generic outcome. Failures roll back the transaction and remove a newly written
+output. Issuance and identity-preserving rotation are audited without bearer material.
+
+The original credential remains active for rollback. Install the new private
+credential through the reviewed consumer configuration workflow, verify catalog
+and operation reads under the same principal, then separately retire the old
+credential under the reviewed lifecycle procedure. Creating a credential does
+not authorize deploying a consumer, publishing a module or updating an Agent.
+
 ## Snapshot lifecycle and retention
 
 Validated results create immutable snapshots. The server computes the baseline

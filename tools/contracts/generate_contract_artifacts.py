@@ -71,6 +71,8 @@ from endpoint_contracts import (  # noqa: E402
     SecurityEventAckV1,
 )
 from endpoint_contracts.base import ContractModelV1  # noqa: E402
+from endpoint_contracts.device_modules import EndpointDeviceModulesPageV1  # noqa: E402
+from endpoint_server.modules.device_catalog_routes import router as device_modules_router  # noqa: E402
 from endpoint_contracts.capabilities import module_capability_catalog  # noqa: E402
 from endpoint_server.modules.catalog_routes import (  # noqa: E402
     router as module_capability_catalog_router,
@@ -90,6 +92,7 @@ from endpoint_server.updates.admin_routes import router as updates_admin_router 
 
 
 _SERVICE_OPERATION_PATHS = (
+    "/api/v1/devices/{device_id}/modules",
     "/api/v1/devices/{device_id}",
     "/api/v1/devices/{device_id}/capabilities",
     "/api/v1/devices/{device_id}/operations",
@@ -129,6 +132,7 @@ _PUBLIC_BROWSER_RELEASE_PATHS = (
 
 
 PUBLIC_MODELS: dict[str, type[ContractModelV1]] = {
+    "endpoint-device-modules-v1.json": EndpointDeviceModulesPageV1,
     "device-binding-error-v1.json": DeviceBindingErrorV1,
     "device-binding-create-v1.json": DeviceBindingCreateV1,
     "device-binding-redeem-v1.json": DeviceBindingRedeemV1,
@@ -721,6 +725,7 @@ def _service_operation_openapi() -> dict[str, object]:
     application = FastAPI()
     application.include_router(operations_router)
     application.include_router(modules_router)
+    application.include_router(device_modules_router)
     application.include_router(module_capability_catalog_router)
     application.include_router(module_execution_router)
     application.include_router(context_router)
