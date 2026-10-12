@@ -69,7 +69,12 @@ def capture_consent():
     suffix = []
     continuation = True
     for next_index, next_line, next_frame, next_text in actual[selected+1:]:
-        continuation = _clarification(next_text)
+        followup = _direct_request(next_text)
+        # Exact continuation preserves the previously granted scope and clock.
+        # The app's null Page event is context only, never a permission source.
+        if followup not in ('продолжай', 'Продолжай',
+                '<external_codex_apps_open_page>{"page_id":null}</external_codex_apps_open_page>'):
+            continuation = _clarification(next_text)
         require(created <= instant(next_frame['timestamp']) <= now, 'scope clarification chronology')
         suffix.append(dict(frame_index=next_index, record_sha256=sha256(next_line), record=next_frame))
     return dict(schema='task13_actual_natural_consent_v2', scope='one-seq04-additive-recovery-v2',
