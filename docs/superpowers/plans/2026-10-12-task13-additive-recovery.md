@@ -39,9 +39,11 @@ historical verification, sealed stdin transport, reconciliation and watchdog.
 5. [x] Run focused and existing Task13 regressions on Python3.12/PowerShell5.1;
    record exact failures separately from state-dependent historical permission cases.
 6. [x] Independent security/source review; fix findings and repeat affected checks.
-7. [ ] Commit exact scoped changes, produce read-only gate with preservation and
+7. [x] Commit exact scoped changes, produce read-only gate with preservation and
    readiness hashes; STOP without execution authorization or claims.
 
 ## Verification ledger
 
-Tasks 1-6 complete: new recovery tests 73/73 PASS on Python 3.12; true native process contention and crash occupancy were exercised. Independent whole-source review closed canonical-root and child-cleanup P1 findings with RED-to-GREEN regressions. Ordinary tracked guards remain unchanged. Task 7 awaits committed closure and independently reviewed native read-only admission. Historical permission/state cases are reported separately; they are not weakened.
+Initial source commit: tasks 1-6 complete, new recovery tests 73/73 PASS on Python 3.12; true native process contention and crash occupancy were exercised. Independent whole-source review closed canonical-root and child-cleanup P1 findings with RED-to-GREEN regressions. Ordinary tracked guards remain unchanged. At that checkpoint, task 7 awaited the committed closure and independently reviewed native read-only admission. Historical permission/state cases are reported separately; they are not weakened.
+
+Task 7 complete: implementation ed29d24d7b43bae7e96eb5186227f4f3809e66dc; exact-source and native read-only B review PASS, gate 811bce54592e53c00232932cedc9deb9ce01986529023f14a5ebc67ddbe1641d READY_REQUIRES_SEPARATE_AUTHORIZATION. New tests74PASS, applicable Task13 regression343PASS11deselected. Failed readonly A remains UNKNOWN. Final preservation49b3707b unchanged, oldclaims3 andslotABSENT. No seq04/newexecutionclaims/runtime changes. See readiness report for hashes, limitations and separate authorization format.
