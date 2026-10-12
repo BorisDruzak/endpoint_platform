@@ -22,6 +22,7 @@ def test_actual_execution_permission_binds_independent_admission():
 
 @pytest.fixture
 def owned(tmp_path):
+    if os.name != 'nt':pytest.skip('native Windows protected execution claims')
     from tools.canary.task13_continuation import authorized_execution as execution
     root=ProtectedStore.create_root(tmp_path/'owned-prefix').root
     prefix=SimpleNamespace(root=root,binding=dict(original_run_seal_sha256='1'*64,original_tip='2'*64))

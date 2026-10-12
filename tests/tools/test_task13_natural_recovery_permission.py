@@ -1,5 +1,6 @@
 """Actual app-frame consent, without synthetic execution claims or user JSON."""
 import importlib.util
+import os
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from uuid import uuid4
@@ -140,6 +141,7 @@ def test_raw_history_edit_and_thread_replay_are_rejected(app, monkeypatch):
     with pytest.raises(ValueError): m.verify_bound_permission(grant, gate)
 
 
+@pytest.mark.skipif(os.name != 'nt',reason='native Windows protected bootstrap storage')
 def test_v2_entry_rejects_v1_control_before_supervisor(app, tmp_path, monkeypatch):
     m = module(); _, write, gate = app; write()
     from tools.canary.task13_continuation import recovery_loader
@@ -157,6 +159,7 @@ def test_v2_entry_rejects_v1_control_before_supervisor(app, tmp_path, monkeypatc
     assert not called
 
 
+@pytest.mark.skipif(os.name != 'nt',reason='native Windows protected bootstrap storage')
 def test_v2_observation_flag_cannot_select_v1_control(tmp_path, monkeypatch):
     from tools.canary.task13_continuation import recovery_loader
     from tools.canary.task13_continuation.storage import ProtectedStore

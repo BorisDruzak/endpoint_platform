@@ -24,6 +24,7 @@ def protocol():
 
 @pytest.fixture
 def owned(tmp_path,monkeypatch):
+    if os.name != 'nt':pytest.skip('native Windows protected recovery slots')
     root=ProtectedStore.create_root(tmp_path/'synthetic-history').root
     ProtectedStore.create_root(root/'continuation-v1-claims')
     retained=Path.home()/'.codex/task-evidence/task13-command-transport-review-20261011-c/control.json'
@@ -266,6 +267,7 @@ def test_recovery_receipt_refuses_fabricated_legacy_dispatch_authority():
     with pytest.raises(ValueError,match='recovery evidence'):
         m.validate_recovery_evidence(SimpleNamespace(binding={}),{},dict(schema='task13_execution_evidence_v1',dispatch_claim={}))
 
+@pytest.mark.skipif(os.name != 'nt',reason='native Windows controller identity')
 def test_live_same_pid_birth_cannot_be_admitted_as_gone():
     m=loader_module()
     from tools.canary.task13_continuation.windows import observe_controller
@@ -273,6 +275,7 @@ def test_live_same_pid_birth_cannot_be_admitted_as_gone():
     h=dict(prior_controller=current,prior_root={k:current[k] for k in ('pid','birth')},prior_supervisor={k:current[k] for k in ('pid','birth')})
     with pytest.raises(ValueError):m.fresh_previous(h)
 
+@pytest.mark.skipif(os.name != 'nt',reason='native Windows parent identity')
 def test_native_parent_liveness_checks_creation_time():
     m=loader_module()
     from tools.canary.task13_continuation.windows import observe_controller
