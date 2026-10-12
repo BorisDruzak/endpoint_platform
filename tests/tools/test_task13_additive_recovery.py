@@ -439,3 +439,26 @@ def test_historical_executable_spelling_binds_exact_closed_runtime_key(historica
         assert ops[name][0] in runtime and Path(ops[name][0])==Path(original[name][0])
         assert ops[name][1:]==original[name][1:]
     with pytest.raises(ValueError):m.bind_closed_executables(original,{})
+
+@pytest.mark.parametrize('ending',['\n','\r\n'])
+def test_one_ui_line_ending_keeps_actual_operator_record_unchanged(session_case,ending):
+    m=permission_module();gate,f,write,path=session_case
+    text=m.PREFIX+canonical(f).decode()+ending;write(text);before=path.read_bytes()
+    grant=m.capture_recovery_permission(gate)
+    assert grant['record']['payload']['content'][0]['text']==text
+    assert path.read_bytes()==before
+    m.verify_recovery_permission(grant,gate)
+    write(text[:-len(ending)])
+    with pytest.raises(ValueError,match='changed or replayed'):m.verify_recovery_permission(grant,gate)
+
+@pytest.mark.parametrize('ending',['\n\n','\r',' \n','\t\n','\r\n\r\n'])
+def test_noncanonical_suffix_is_not_a_ui_line_ending(session_case,ending):
+    m=permission_module();gate,f,write,path=session_case;write(m.PREFIX+canonical(f).decode()+ending)
+    with pytest.raises(ValueError):m.capture_recovery_permission(gate)
+
+@pytest.mark.parametrize('ending',['\n','\r\n'])
+def test_ui_line_ending_cannot_revive_expired_authorization(session_case,ending):
+    m=permission_module();gate,f,write,path=session_case
+    f['expires_utc']=(datetime.now(timezone.utc)-timedelta(seconds=1)).isoformat()
+    write(m.PREFIX+canonical(f).decode()+ending)
+    with pytest.raises(ValueError):m.capture_recovery_permission(gate)

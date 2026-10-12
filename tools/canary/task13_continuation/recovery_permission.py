@@ -37,7 +37,10 @@ def capture_recovery_permission(gate):
     thread,path,(text,line,frame)=_latest_actual_message()
     require(text.startswith(PREFIX),'separate actual recovery execution authorization required')
     fields=parse_json(text[len(PREFIX):].encode('utf-8'))
-    require(type(fields) is dict and set(fields)==FIELDS and text==PREFIX+canonical(fields).decode('ascii'),
+    # The app preserves a terminal line ending when a code block is pasted.
+    # Accept exactly that framing; keep the original frame and its raw hash.
+    directive=text[:-2] if text.endswith('\r\n') else text[:-1] if text.endswith('\n') else text
+    require(type(fields) is dict and set(fields)==FIELDS and directive==PREFIX+canonical(fields).decode('ascii'),
         'exact canonical recovery authorization; no caller quote')
     require(type(fields['allowed_seq']) is int and fields['allowed_seq']==4
         and fields['gate_sha256']==digest(gate)
