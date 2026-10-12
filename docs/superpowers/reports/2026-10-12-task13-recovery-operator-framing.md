@@ -17,6 +17,38 @@ message after capture fails replay verification even if the directive's fields
 are equivalent. All field, gate, source, sequence, latest-user and expiry checks
 remain active. A new reviewed gate and actual bound human message are required.
 
+## Fresh observation E: NO_GO
+
+E source closure: `4f0ad661bddedba4f6cbff01f16025016ae0f403e99b697e91211427ad949e8a`.
+Independent exact source/transport review passed for all 85 source entries,
+2,879 accepted runtime files and eight sealed packets, bindings and bootstraps.
+Maximum finalized command length was 7,796 UTF-16 units including NUL;
+the isolated root command was 325 units.
+
+All eight read-only transport pairs completed with exit0. The native root
+nevertheless exited1, wait0, with complete streams and no timeout. The unchanged
+sealed current predicate refused `safe fixed recovery adapter gate` at the
+known-PID identity loop. Historical reference index3 was present=True in
+current, then PROCESS_ABSENT in the independent identity observation. Both
+native identity samples were ABSENT with error87 and CIM count0; no row error
+or observer collision existed. All other known/pair rows were admissible.
+
+Current sample: 2026-10-12T09:06:34.8365887Z.
+Identity sample: 2026-10-12T09:06:35.2756266Z, 0.4390379 seconds later.
+Their dispatch brackets overlapped. D had present=False/PROCESS_ABSENT for
+the same historical reference. Cross-observation inconsistency is proven;
+the identity or activity of the briefly observed process is not established.
+The guard correctly failed closed. No predicate was relaxed or historical
+source changed to admit the observation.
+
+Native E exit evidence SHA-256:
+`cc4d43e07a5bb5430b73f2e109250f013f7af33dcfe02d6467680517824eb609`.
+Failure settlement SHA-256:
+`3e4e92c2e5009346254c82abff6c0eb4778f56d83ebfba514362ca62ef4ba70a`.
+No verified preflight, provisional/admission/final gate or receipt04 was
+published. No retry, authority capture, execution claim or seq04 launch followed.
+There is no current ready gate for a new execution authorization.
+
 ## Evidence and verification
 
 Raw D record SHA-256:
