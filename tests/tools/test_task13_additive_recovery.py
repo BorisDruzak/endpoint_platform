@@ -68,6 +68,17 @@ def test_parallel_native_consumers_have_exactly_one_winner(owned):
     with ThreadPoolExecutor(max_workers=8) as pool:results=list(pool.map(attempt,range(8)))
     assert results.count(True)==1
 
+def test_v1_and_v2_share_one_irreversible_slot(owned):
+    m=protocol();p,h,r=owned;path=m.slot_path(p,h,'launch')
+    def attempt(version):
+        record=dict(r,protocol_version=version)
+        m.validate_launch_record(p,h,record)
+        try:m._commit_native(path,canonical(record));return True
+        except OSError:return False
+    with ThreadPoolExecutor(max_workers=2) as pool:results=list(pool.map(attempt,(1,2)))
+    assert results.count(True)==1 and m.slot_state(p,h)=='LAUNCH_COMMITTED'
+    with pytest.raises(ValueError):m.require_unused_slot(p,h)
+
 @pytest.mark.parametrize('raw',[b'',b'{',b'{}',b'{"schema":"wrong"}'])
 def test_restart_after_partial_slot_is_permanently_fail_closed(owned,raw):
     m=protocol();p,h,r=owned;path=m.slot_path(p,h,'launch')
@@ -349,7 +360,7 @@ def supervisor_case(owned,tmp_path,monkeypatch):
     from tools.canary.task13_continuation.windows import observe_controller
     p,h,r=owned;s=ProtectedStore.create_root(tmp_path/'owned-execution');b=dict(root=s.root,store=s,prefix=p,history=h,
         closure=dict(continuation_id=r['continuation_id'],protocol_source_sha256=r['protocol_source_sha256'],implementation_sha=r['implementation_sha']),
-        request=dict(expires_utc=r['expires_utc']),gate={},control=dict(root_interpreter=sys._base_executable),operations={},entries={},held=None)
+        request=dict(expires_utc=r['expires_utc']),gate={},control=dict(root_interpreter=sys._base_executable,protocol_version=1),operations={},entries={},held=None)
     @contextmanager
     def reviewed(*args,**kwargs):
         from contextlib import ExitStack

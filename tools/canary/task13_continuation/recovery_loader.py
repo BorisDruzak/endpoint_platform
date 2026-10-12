@@ -19,7 +19,8 @@ from .readonly_gate import ReadOnlyWindow
 from .recovery_admission import (capture_history,hold_history,protocol_sources,require_unused_slot,slot_state,
     slot_path,validate_launch_record,validate_dispatch_record,_commit_native,hold_slot,BASE_REVISION,OLD_CLAIMS)
 from .recovery_bundle import verify_feasibility,RECOVERY_SCOPE
-from .recovery_permission import verify_recovery_permission,_latest_actual_message,PREFIX
+from .recovery_permission import _latest_actual_message,PREFIX
+from .recovery_permission_v2 import verify_recovery_permission,capture_consent,MODE
 from . import windows
 
 class RecoveryAuthorization:
@@ -38,6 +39,12 @@ def require_budget(auth,seconds):
 
 def root_argv(root,control,flag):
     return [control['root_interpreter'],'-I','-S','-B','-X','pycache_prefix='+str(root/'no-pyc'),str(root/'bootstrap.py'),flag]
+
+def entry_flag(control,stage):
+    require(stage in ('observe','execute','execute-child'),'fixed recovery stage')
+    suffix='-child' if stage=='execute-child' else ''
+    action='observe' if stage=='observe' else 'execute'
+    return '--'+action+'-recovery-v'+str(control['protocol_version'])+suffix
 
 @contextmanager
 def reviewed_recovery(root,mode,*,external_observer=False):
@@ -73,9 +80,13 @@ def reviewed_recovery(root,mode,*,external_observer=False):
         require(not (root/'no-pyc').exists(),'unreviewed bytecode cache forbidden')
         control=parse_json(entries['control.json']);original=Path(control['original_root'])
         require(control['schema']=='task13_recovery_control_v1' and control['mode']==mode
-            and type(control['protocol_version']) is int and control['protocol_version']==1
+            and type(control['protocol_version']) is int and control['protocol_version'] in (1,2)
             and control['baseline_revision']==BASE_REVISION and control['implementation_sha']==closure['implementation_sha']
             and Path(control['claim_home'])==original/'continuation-v1-claims','canonical additive recovery control')
+        if not external_observer:
+            allowed=(entry_flag(control,'observe'),) if mode=='observation' else (entry_flag(control,'execute'),entry_flag(control,'execute-child'))
+            require(len(sys.argv)==2 and Path(sys.argv[0]).absolute()==root/'bootstrap.py'
+                and sys.argv[1] in allowed,'actual recovery entry/control version mismatch')
         require(str(Path(sys._base_executable).absolute())==control['root_interpreter'],'actual closed recovery interpreter')
         prefix=verify_historical_prefix(original);history=parse_json(entries['recovery-history.json'])
         require(prefix.binding==control['original_binding']==closure['original_binding'],'immutable recovery prefix')
@@ -84,12 +95,17 @@ def reviewed_recovery(root,mode,*,external_observer=False):
         require((identity['pid'],identity['birth'])!=(trust['reviewer_controller']['pid'],trust['reviewer_controller']['birth']),
             'independent recovery reviewer process required')
         operations=parse_json(entries['operations.json'])
-        flag='--observe-recovery-v1' if mode=='observation' else '--execute-recovery-v1-child'
+        flag=entry_flag(control,'observe' if mode=='observation' else 'execute-child')
         verify_feasibility(prefix,closure,entries,operations,root_argv(root,control,flag))
+        if control['protocol_version']==2:
+            require(parse_json(entries['human-consent.json'])==capture_consent(),'held natural consent changed or replayed')
         request=gate=None
         if mode=='execution':
             from .recovery_gate import capture_verified_gate,hold_gate
             request=parse_json(entries['operator-request.json']);gate=parse_json(entries['admission-gate.json'])
+            require(gate.get('protocol_version',1)==control['protocol_version']
+                and request['schema']=='task13_actual_recovery_execution_request_v'+str(control['protocol_version']),
+                'exact recovery permission/control protocol version')
             verify_recovery_permission(request,gate)
             admission=capture_verified_gate(gate);hold_gate(held,gate,admission)
             require(admission==parse_json(entries['admission-evidence.json']),'exact independently settled read-only admission')
@@ -126,7 +142,7 @@ def create_live(b,label):
 def ready_guard(b,auth,preflight,seconds=420):
     auth.check();verify_recovery_permission(b['request'],b['gate']);require_budget(auth,seconds)
     require(capture_history(b['prefix'])==b['history'],'preclaim historical identities changed');fresh_previous(b['history'])
-    plan=verify_feasibility(b['prefix'],b['closure'],b['entries'],b['operations'],root_argv(b['root'],b['control'],'--execute-recovery-v1-child'))
+    plan=verify_feasibility(b['prefix'],b['closure'],b['entries'],b['operations'],root_argv(b['root'],b['control'],entry_flag(b['control'],'execute-child')))
     state=observation(preflight,auth.capsule,maximum=60);validate_state(b['prefix'],auth.capsule,state,utc())
     guard=guard_dispatch(b['prefix'],auth,preflight);guard(utc())
     return plan
@@ -136,12 +152,12 @@ def observe(root):
         identity=windows.observe_controller();auth=ReadOnlyWindow(identity);history=b['history']
         out=ProtectedStore.create_root(b['root']/'read-only-admission');out.create('window.json',canonical(auth.capsule))
         initial=slot_state(b['prefix'],history);fresh_previous(history)
-        plan=verify_feasibility(b['prefix'],b['closure'],b['entries'],b['operations'],root_argv(b['root'],b['control'],'--observe-recovery-v1'))
+        plan=verify_feasibility(b['prefix'],b['closure'],b['entries'],b['operations'],root_argv(b['root'],b['control'],entry_flag(b['control'],'observe')))
         require_budget(auth,420);result=_reconcile(b['prefix'],auth,ContinuationTransport(out,auth),b['operations'],b['entries'])
         out.create('preflight.json',canonical(result));auth.check()
         require(capture_history(b['prefix'])==history and slot_state(b['prefix'],history)==initial,'observation changed historical state/slot')
         gate=dict(schema='task13_additive_recovery_gate_v1',status='PREFLIGHT_VERIFIED_AWAITING_NATIVE_EXIT_REVIEW' if initial=='ABSENT' else 'BLOCKED_SLOT_OCCUPIED',
-            implementation_sha=b['closure']['implementation_sha'],protocol_version=1,protocol_source_sha256=b['closure']['protocol_source_sha256'],
+            implementation_sha=b['closure']['implementation_sha'],protocol_version=b['control']['protocol_version'],protocol_source_sha256=b['closure']['protocol_source_sha256'],
             source_closure_sha256=digest(b['closure']),review_sha256=digest(b['review']),recovery_review_sha256=b['trust']['recovery_review_sha256'],
             original_binding_sha256=digest(b['prefix'].binding),history_sha256=digest(history),consumed_claims_sha256=dict(OLD_CLAIMS),
             continuation_id=b['closure']['continuation_id'],allowed_seq=4,allowed_step='compare-after-start',
@@ -149,6 +165,8 @@ def observe(root):
             window_sha256=digest(auth.capsule),seq04_authorized=False,seq04_dispatched=False,claims_created=False,
             historical_rca='UNKNOWN',runtime_changed=False,resume_gate='STOP_BEFORE_SEQ04_AUTHORIZATION')
         gate['evidence_bundle']=b['root'].name
+        if b['control']['protocol_version']==2:
+            gate.update(authorization_mode=MODE,consent_sha256=digest(parse_json(b['entries']['human-consent.json'])))
         out.create('gate.json',canonical(gate));return gate
 
 def _parent_live(identity):
@@ -183,7 +201,7 @@ def run_child(root):
         preclaim=_reconcile(p,auth,transport,b['operations'],b['entries']);s.create('preclaim-preflight.json',canonical(preclaim))
         ready_guard(b,auth,preclaim)
         dispatch=dict(schema='task13_recovery_dispatch_slot_v1',launch_slot_sha256=digest(launch),continuation_id=b['closure']['continuation_id'],
-            original=p.binding,protocol_version=1,protocol_source_sha256=b['closure']['protocol_source_sha256'],
+            original=p.binding,protocol_version=b['control']['protocol_version'],protocol_source_sha256=b['closure']['protocol_source_sha256'],
             consumed_global_claim_sha256=h['global_claim_sha256'],capsule_sha256=digest(auth.capsule),preflight_sha256=digest(preclaim))
         validate_dispatch_record(p,h,launch,dispatch)
         _commit_native(slot_path(p,h,'dispatch'),canonical(dispatch));hold_slot(b['held'],p,h,'dispatch',dispatch)
@@ -239,9 +257,25 @@ def bootstrap_entry(root):
     root=Path(root).absolute()
     require(Path(sys.argv[0]).absolute()==root/'bootstrap.py' and len(sys.argv)==2,'fixed recovery bootstrap entry')
     flag=sys.argv[1]
-    if flag=='--observe-recovery-v1':result=observe(root)
+    if flag in ('--observe-recovery-v1','--observe-recovery-v2'):
+        control=parse_json(ProtectedStore(root).read('control.json'))
+        require(type(control.get('protocol_version')) is int and control['protocol_version'] in (1,2)
+            and control.get('mode')=='observation' and flag==entry_flag(control,'observe'),'explicit observation version/control required')
+        result=observe(root)
     elif flag in ('--execute-recovery-v1','--execute-recovery-v1-child'):
         _,_,(text,_,_)=_latest_actual_message();require(text.startswith(PREFIX),'separate recovery execution authorization required')
+        control=parse_json(ProtectedStore(root).read('control.json'))
+        require(type(control.get('protocol_version')) is int and control['protocol_version']==1
+            and control.get('mode')=='execution','explicit v1 execution control required')
         result=_execute_reviewed(root) if flag=='--execute-recovery-v1' else run_child(root)
+    elif flag in ('--execute-recovery-v2','--execute-recovery-v2-child'):
+        store=ProtectedStore(root);control=parse_json(store.read('control.json'))
+        require(type(control.get('protocol_version')) is int and control['protocol_version']==2
+            and control.get('mode')=='execution','explicit v2 execution control required')
+        gate=parse_json(store.read('admission-gate.json'))
+        request=parse_json(store.read('operator-request.json'))
+        require(request['schema']=='task13_actual_recovery_execution_request_v2','explicit natural recovery entry required')
+        verify_recovery_permission(request,gate)
+        result=_execute_reviewed(root) if flag=='--execute-recovery-v2' else run_child(root)
     else:raise ValueError('explicit versioned recovery entry required')
     print(canonical(result).decode('ascii'))

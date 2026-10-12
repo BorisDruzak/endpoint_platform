@@ -19,9 +19,9 @@ FILES=('closure.json','review.json','recovery-review.json','trust.json','control
        'read-only-native-exit.json','admission-review.json')
 
 def run_observation(root):
-    from .recovery_loader import reviewed_recovery,root_argv
+    from .recovery_loader import reviewed_recovery,root_argv,entry_flag
     with reviewed_recovery(root,'observation',external_observer=True) as b:
-        argv=root_argv(b['root'],b['control'],'--observe-recovery-v1');command=validate_command(argv)
+        argv=root_argv(b['root'],b['control'],entry_flag(b['control'],'observe'));command=validate_command(argv)
         identity=windows.observe_controller()
         require(validate_command(argv)==command,'exact read-only launch command changed')
         process=None
@@ -72,6 +72,11 @@ def _verify_records(root):
         value=_read(root,_relative(n).as_posix());require(len(value)==spec['bytes'] and sha256(value)==spec['sha256'],'read-only admission source pin changed')
         entries[n]=value
     require(protocol_sources(entries)==closure['protocol_source_sha256'],'read-only protocol source pin changed')
+    if data['control.json']['protocol_version']==2:
+        from .recovery_permission_v2 import capture_consent,MODE
+        consent=parse_json(entries['human-consent.json'])
+        require(consent==capture_consent() and data['read-only-admission/gate.json']['consent_sha256']==digest(consent)
+            and data['read-only-admission/gate.json']['authorization_mode']==MODE,'independently reviewed actual natural consent')
     for n,spec in closure['runtime'].items():
         path=Path(n)
         with windows.retained(path,security=False,expected_links=spec.get('hardlink_count',1)) as handle:

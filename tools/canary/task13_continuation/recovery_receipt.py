@@ -31,8 +31,9 @@ def validate_recovery_evidence(prefix,capsule,evidence):
     require(pins['operator-request.json']==dict(bytes=len(canonical(permission)),sha256=digest(permission))
         and pins['admission-gate.json']==dict(bytes=len(canonical(gate)),sha256=digest(gate)),
         'independently pinned actual grant/admission source required')
-    require(permission.get('schema')=='task13_actual_recovery_execution_request_v1'
-        and permission['scope']=='seq04-additive-recovery-v1' and digest(permission)==l['request_sha256']
+    version=l['protocol_version']
+    require(permission.get('schema')=='task13_actual_recovery_execution_request_v'+str(version)
+        and permission['scope']=='seq04-additive-recovery-v'+str(version) and digest(permission)==l['request_sha256']
         and permission['gate_sha256']==digest(gate)==l['gate_sha256']
         and permission['continuation_id']==l['continuation_id']
         and permission['protocol_source_sha256']==l['protocol_source_sha256']
@@ -114,7 +115,7 @@ def make_recovery_receipt(prefix,capsule,evidence):
         continuation_id=capsule['continuation_id'],continuation_sha256=digest(capsule),
         previous_sha256=prefix.binding['original_tip'],original=prefix.binding,
         source_closure_sha256=digest(capsule['source_closure']),evidence_sha256=digest(evidence),
-        protocol_version=1,history_sha256=digest(evidence['recovery_history']),
+        protocol_version=evidence['recovery_launch_slot']['protocol_version'],history_sha256=digest(evidence['recovery_history']),
         recovery_launch_slot_sha256=digest(evidence['recovery_launch_slot']),
         recovery_dispatch_slot_sha256=digest(evidence['recovery_dispatch_slot']),resume_gate='STOP_BEFORE_SEQ05')
 

@@ -7,9 +7,9 @@ from .codec import canonical,digest,parse_json,require,sha256
 from .storage import ProtectedStore
 from .transport import ContinuationTransport,utc,validate_command
 from .loader import _reconcile
-from .recovery_loader import reviewed_recovery,root_argv,create_live,ready_guard,require_budget
+from .recovery_loader import reviewed_recovery,root_argv,entry_flag,create_live,ready_guard,require_budget
 from .recovery_admission import require_unused_slot,slot_path,validate_launch_record,_commit_native,hold_slot
-from .recovery_permission import verify_recovery_permission
+from .recovery_permission_v2 import verify_recovery_permission
 from .recovery_receipt import verify_recovery_receipt
 from . import windows
 
@@ -36,10 +36,10 @@ def supervise(root):
         auth=create_live(b,'launch');observer=windows.observe_controller();require_budget(auth,480)
         transport=ContinuationTransport(s,auth)
         preflight=_reconcile(p,auth,transport,b['operations'],b['entries']);s.create('launch-preflight.json',canonical(preflight))
-        argv=root_argv(b['root'],b['control'],'--execute-recovery-v1-child')
+        argv=root_argv(b['root'],b['control'],entry_flag(b['control'],'execute-child'))
         command=validate_command(argv);ready_guard(b,auth,preflight)
         launch=dict(schema='task13_recovery_launch_slot_v1',original=p.binding,history_sha256=digest(h),
-            consumed_global_claim_sha256=h['global_claim_sha256'],protocol_version=1,
+            consumed_global_claim_sha256=h['global_claim_sha256'],protocol_version=b['control']['protocol_version'],
             protocol_source_sha256=b['closure']['protocol_source_sha256'],implementation_sha=b['closure']['implementation_sha'],
             continuation_id=b['closure']['continuation_id'],gate_sha256=digest(b['gate']),request_sha256=digest(b['request']),
             source_closure_sha256=digest(b['closure']),capsule_sha256=digest(auth.capsule),preflight_sha256=digest(preflight),

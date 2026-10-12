@@ -15,13 +15,13 @@ from .loader import check_operations
 from .storage import ProtectedStore
 from .transport import validate_command_plan,validate_command
 from .recovery_admission import capture_history,protocol_sources,BASE_REVISION,require_unused_slot
-from .recovery_permission import capture_recovery_permission
+from .recovery_permission_v2 import capture_recovery_permission,capture_consent,MODE
 from . import windows
 
 ACCEPTED_ROOT='task13-command-transport-review-20261011-c'
 ACCEPTED_CLOSURE_SHA='f219ff086d1cf1623107bb66a0638ed2ae8d3d45eaf7a57dce1c68e0ba8c5cac'
 RECOVERY_SCOPE=['consumed-claim-identities','pre-prepare-refusal','single-native-slot','packet-feasibility',
-                'actual-recovery-permission','native-child-handoff','recovery-receipt','no-retry']
+                'actual-recovery-permission','native-child-handoff','recovery-receipt','no-retry','actual-natural-consent-v2']
 OPERATIONS=('guest','inventory','current','process_identity','clock_guest','prepare','workload','collect')
 
 def bind_closed_executables(operations,runtime):
@@ -69,7 +69,8 @@ def verify_feasibility(prefix,closure,entries,operations,root_argv):
     require(root_argv[0] in closure['runtime'],'preclaim direct closed interpreter')
     require(root_argv[1:5]==['-I','-S','-B','-X'] and Path(root_argv[-2]).name=='bootstrap.py'
         and root_argv[5]=='pycache_prefix='+str(Path(root_argv[-2]).parent/'no-pyc')
-        and root_argv[-1] in ('--observe-recovery-v1','--execute-recovery-v1-child'), 'fixed isolated recovery command')
+        and root_argv[-1] in ('--observe-recovery-v1','--execute-recovery-v1-child',
+                             '--observe-recovery-v2','--execute-recovery-v2-child'), 'fixed isolated recovery command')
     require(all(argv[0] in closure['runtime'] for argv in (operations['guest_ssh'],operations['provider_argv'],operations['management_argv'])),
         'all selected transport dependencies must be closed')
     system=windows.system_core_paths()
@@ -117,8 +118,9 @@ def _prepare(original_root,root,implementation_sha,mode,gate=None):
     control=dict(schema='task13_recovery_control_v1',mode=mode,original_root=str(prefix.root.absolute()),
         original_binding=prefix.binding,claim_home=str((prefix.root/'continuation-v1-claims').absolute()),
         root_interpreter=str(Path(sys._base_executable).absolute()),implementation_sha=implementation_sha,
-        protocol_version=1,baseline_revision=BASE_REVISION)
+        protocol_version=2,baseline_revision=BASE_REVISION)
     entries['control.json']=canonical(control)
+    entries['human-consent.json']=canonical(request['consent'] if request else capture_consent())
     if mode=='execution':
         from .recovery_gate import capture_verified_gate
         entries['operator-request.json']=canonical(request);entries['admission-gate.json']=canonical(gate)
@@ -133,7 +135,7 @@ def _prepare(original_root,root,implementation_sha,mode,gate=None):
         original_binding=prefix.binding,implementation_sha=implementation_sha,protocol_source_sha256=protocol_sources(entries),
         execution=seal_sources(entries),runtime=runtime)
     root_argv=[control['root_interpreter'],'-I','-S','-B','-X','pycache_prefix='+str(root/'no-pyc'),str(root/'bootstrap.py'),
-        '--observe-recovery-v1' if mode=='observation' else '--execute-recovery-v1-child']
+        '--observe-recovery-v2' if mode=='observation' else '--execute-recovery-v2-child']
     verify_feasibility(prefix,closure,entries,operations,root_argv)
     store=ProtectedStore.create_root(root)
     directories={root/Path(n).parent for n in entries if Path(n).parent!=Path('.')}
