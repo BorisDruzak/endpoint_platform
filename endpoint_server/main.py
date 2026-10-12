@@ -7,7 +7,9 @@ from typing import AsyncIterator
 
 from fastapi import FastAPI, Request, Response, status
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse
+from fastapi.exception_handlers import http_exception_handler
+from fastapi.responses import JSONResponse, RedirectResponse
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.base import RequestResponseEndpoint
 
 from endpoint_server.auth.admin_sessions import router as admin_auth_router
@@ -103,6 +105,26 @@ def create_app(
         RequestValidationError,
         redacting_validation_exception_handler,
     )
+
+    @app.exception_handler(StarletteHTTPException)
+    async def console_authentication_error(
+        request: Request, error: StarletteHTTPException
+    ) -> Response:
+        """Send expired browser sessions to login while preserving API errors."""
+        path = request.url.path
+        if (
+            error.status_code == status.HTTP_401_UNAUTHORIZED
+            and request.method in {"GET", "HEAD"}
+            and (path == "/admin" or path.startswith("/admin/"))
+            and path != "/admin/login"
+            and not path.startswith("/admin/assets/")
+        ):
+            return RedirectResponse(
+                "/admin/login",
+                status_code=status.HTTP_303_SEE_OTHER,
+                headers={"Cache-Control": "no-store"},
+            )
+        return await http_exception_handler(request, error)
 
     @app.middleware("http")
     async def echo_operation_correlation(
