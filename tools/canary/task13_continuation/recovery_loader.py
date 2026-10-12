@@ -20,7 +20,7 @@ from .recovery_admission import (capture_history,hold_history,protocol_sources,r
     slot_path,validate_launch_record,validate_dispatch_record,_commit_native,hold_slot,BASE_REVISION,OLD_CLAIMS)
 from .recovery_bundle import verify_feasibility,RECOVERY_SCOPE
 from .recovery_permission import _latest_actual_message,PREFIX
-from .recovery_permission_v2 import verify_recovery_permission,capture_consent,MODE
+from .recovery_permission_v2 import verify_recovery_permission,capture_consent,MODE,ADMISSION_SECONDS,CONSENT_SECONDS
 from . import windows
 
 class RecoveryAuthorization:
@@ -166,7 +166,8 @@ def observe(root):
             historical_rca='UNKNOWN',runtime_changed=False,resume_gate='STOP_BEFORE_SEQ04_AUTHORIZATION')
         gate['evidence_bundle']=b['root'].name
         if b['control']['protocol_version']==2:
-            gate.update(authorization_mode=MODE,consent_sha256=digest(parse_json(b['entries']['human-consent.json'])))
+            gate.update(authorization_mode=MODE,consent_sha256=digest(parse_json(b['entries']['human-consent.json'])),
+                admission_validity_seconds=ADMISSION_SECONDS,consent_validity_seconds=CONSENT_SECONDS)
         out.create('gate.json',canonical(gate));return gate
 
 def _parent_live(identity):

@@ -377,12 +377,74 @@ def test_too_long_final_root_command_never_spawns_or_consumes_slot(supervisor_ca
     with pytest.raises(ValueError,match='COMMAND_LINE_TOO_LONG'):m.supervise(b['root'])
     assert not spawned and protocol().slot_state(b['prefix'],b['history'])=='ABSENT'
 
+
+def test_v2_parent_reserves_child_startup_before_any_slot(supervisor_case,monkeypatch):
+    m,b=supervisor_case
+    import time
+    b['control']['protocol_version']=2
+    class StartupBudget:
+        capsule=dict(deadline_mono_ns=time.monotonic_ns()+800*10**9,
+            expires_utc=(datetime.now(timezone.utc)+timedelta(seconds=800)).isoformat())
+        def check(self):pass
+    monkeypatch.setattr(m,'create_live',lambda *args:StartupBudget())
+    monkeypatch.setattr(m,'_reconcile',lambda *args:pytest.fail('must refuse before preflight'))
+    with pytest.raises(ValueError,match='budget'):m.supervise(b['root'])
+    from tools.canary.task13_continuation.recovery_admission import slot_state
+    assert slot_state(b['prefix'],b['history'])=='ABSENT'
+
+
+@pytest.mark.parametrize('clock',['utc','monotonic'])
+def test_v2_late_preflight_budget_refuses_before_launch_slot(supervisor_case,monkeypatch,clock):
+    m,b=supervisor_case
+    import time
+    from tools.canary.task13_continuation.recovery_loader import require_budget
+    b['control']['protocol_version']=2
+    class StartupBudget:
+        capsule=dict(deadline_mono_ns=time.monotonic_ns()+1200*10**9,
+            expires_utc=(datetime.now(timezone.utc)+timedelta(seconds=1200)).isoformat())
+        def check(self):pass
+    auth=StartupBudget();spawned=[]
+    monkeypatch.setattr(m,'create_live',lambda *args:auth)
+    def preflight(*args):
+        if clock=='utc':auth.capsule['expires_utc']=(datetime.now(timezone.utc)+timedelta(seconds=779)).isoformat()
+        else:auth.capsule['deadline_mono_ns']=time.monotonic_ns()+779*10**9
+        return {}
+    monkeypatch.setattr(m,'_reconcile',preflight)
+    monkeypatch.setattr(m,'ready_guard',lambda context,a,state,seconds:require_budget(a,seconds))
+    monkeypatch.setattr(m.subprocess,'Popen',lambda *args,**kwargs:spawned.append(True))
+    with pytest.raises(ValueError,match='budget'):m.supervise(b['root'])
+    assert not spawned and protocol().slot_state(b['prefix'],b['history'])=='ABSENT'
+
 def test_preclaim_refusal_preserves_unused_slot(supervisor_case,monkeypatch):
     m,b=supervisor_case
     def refuse(*args):raise ValueError('owned synthetic stale state refusal')
     monkeypatch.setattr(m,'ready_guard',refuse)
     with pytest.raises(ValueError,match='stale state'):m.supervise(b['root'])
     assert protocol().slot_state(b['prefix'],b['history'])=='ABSENT'
+
+
+@pytest.mark.parametrize('clock',['utc','monotonic'])
+@pytest.mark.parametrize('phase',['before-slot','after-slot'])
+def test_v2_budget_is_checked_after_expensive_guard_before_commit_and_spawn(supervisor_case,monkeypatch,clock,phase):
+    m,b=supervisor_case
+    import time
+    b['control']['protocol_version']=2
+    class StartupBudget:
+        capsule=dict(deadline_mono_ns=time.monotonic_ns()+1200*10**9,
+            expires_utc=(datetime.now(timezone.utc)+timedelta(seconds=1200)).isoformat())
+        def check(self):pass
+    auth=StartupBudget();calls=[];spawned=[]
+    monkeypatch.setattr(m,'create_live',lambda *args:auth)
+    def expensive_guard(*args):
+        calls.append(True)
+        if len(calls)==(1 if phase=='before-slot' else 2):
+            if clock=='utc':auth.capsule['expires_utc']=(datetime.now(timezone.utc)+timedelta(seconds=779)).isoformat()
+            else:auth.capsule['deadline_mono_ns']=time.monotonic_ns()+779*10**9
+    monkeypatch.setattr(m,'ready_guard',expensive_guard)
+    monkeypatch.setattr(m.subprocess,'Popen',lambda *args,**kwargs:spawned.append(True))
+    with pytest.raises(ValueError,match='budget'):m.supervise(b['root'])
+    assert not spawned
+    assert protocol().slot_state(b['prefix'],b['history'])==('ABSENT' if phase=='before-slot' else 'LAUNCH_COMMITTED')
 
 def test_spawn_failure_permanently_consumes_launch_without_retry(supervisor_case,monkeypatch):
     m,b=supervisor_case;calls=[]

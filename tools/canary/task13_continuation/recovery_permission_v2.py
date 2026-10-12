@@ -10,7 +10,9 @@ REQUEST = ('Доработай recovery protocol, чтобы он принима
 QUESTION = ('Под «дальше продолжай по плану» вы разрешаете выполнение шагов после seq 04? '
             'Ранее действовал STOP перед seq 05; пока уточняю это, продолжу доработку протокола '
             'и подготовку одной попытки seq 04.')
-MODE = 'actual-natural-consent-v2'
+MODE = 'actual-natural-consent-v2.1'
+ADMISSION_SECONDS = 1800
+CONSENT_SECONDS = 21600
 
 
 def _direct_request(text):
@@ -63,7 +65,7 @@ def capture_consent():
     index, line, frame, text = actual[selected]
     created = instant(frame['timestamp'])
     now = datetime.now(timezone.utc)
-    require(created <= now < created+timedelta(hours=2), 'actual natural consent expired or future dated')
+    require(created <= now < created+timedelta(seconds=CONSENT_SECONDS), 'actual natural consent expired or future dated')
     suffix = []
     continuation = True
     for next_index, next_line, next_frame, next_text in actual[selected+1:]:
@@ -81,10 +83,12 @@ def bind_permission(consent, gate):
             and gate.get('status') == 'READY_REQUIRES_SEPARATE_AUTHORIZATION'
             and type(gate.get('protocol_version')) is int and gate['protocol_version'] == 2
             and gate.get('authorization_mode') == MODE and gate.get('consent_sha256') == digest(consent)
+            and type(gate.get('admission_validity_seconds')) is int and gate['admission_validity_seconds']==ADMISSION_SECONDS
+            and type(gate.get('consent_validity_seconds')) is int and gate['consent_validity_seconds']==CONSENT_SECONDS
             and type(gate.get('allowed_seq')) is int and gate['allowed_seq'] == 4
             and gate.get('seq04_authorized') is False, 'reviewed natural recovery gate required')
     checked = instant(gate['checked_utc']); created = instant(consent['record']['timestamp'])
-    end = min(checked+timedelta(seconds=1200), created+timedelta(hours=2))
+    end = min(checked+timedelta(seconds=ADMISSION_SECONDS), created+timedelta(seconds=CONSENT_SECONDS))
     require(created <= checked <= datetime.now(timezone.utc) < end, 'natural recovery gate expired or unbounded')
     for key in ('protocol_source_sha256', 'original_binding_sha256', 'consent_sha256'): hex256(gate[key])
     uuid(gate['continuation_id'])

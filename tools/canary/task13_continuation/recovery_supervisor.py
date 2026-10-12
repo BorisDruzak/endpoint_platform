@@ -33,11 +33,13 @@ def settle_failed_child(process):
 def supervise(root):
     with reviewed_recovery(root,'execution') as b:
         p,h,s=b['prefix'],b['history'],b['store'];require_unused_slot(p,h)
-        auth=create_live(b,'launch');observer=windows.observe_controller();require_budget(auth,480)
+        auth=create_live(b,'launch');observer=windows.observe_controller()
+        initial_budget,launch_budget=(840,780) if b['control']['protocol_version']==2 else (480,420)
+        require_budget(auth,initial_budget)
         transport=ContinuationTransport(s,auth)
         preflight=_reconcile(p,auth,transport,b['operations'],b['entries']);s.create('launch-preflight.json',canonical(preflight))
         argv=root_argv(b['root'],b['control'],entry_flag(b['control'],'execute-child'))
-        command=validate_command(argv);ready_guard(b,auth,preflight)
+        command=validate_command(argv);ready_guard(b,auth,preflight,launch_budget)
         launch=dict(schema='task13_recovery_launch_slot_v1',original=p.binding,history_sha256=digest(h),
             consumed_global_claim_sha256=h['global_claim_sha256'],protocol_version=b['control']['protocol_version'],
             protocol_source_sha256=b['closure']['protocol_source_sha256'],implementation_sha=b['closure']['implementation_sha'],
@@ -45,13 +47,15 @@ def supervise(root):
             source_closure_sha256=digest(b['closure']),capsule_sha256=digest(auth.capsule),preflight_sha256=digest(preflight),
             expires_utc=b['request']['expires_utc'],controller=observer)
         validate_launch_record(p,h,launch)
+        if b['control']['protocol_version']==2:require_budget(auth,launch_budget)
         # First irreversible occupancy: all sources, packets, commands, actual
         # permission, fresh target predicates and full budget passed above.
         _commit_native(slot_path(p,h,'launch'),canonical(launch));hold_slot(b['held'],p,h,'launch',launch)
         s.create('recovery-launch.json',canonical(launch))
         process=None
         try:
-            ready_guard(b,auth,preflight);require(validate_command(argv)==command,'final recovery root command binding changed')
+            ready_guard(b,auth,preflight,launch_budget);require(validate_command(argv)==command,'final recovery root command binding changed')
+            if b['control']['protocol_version']==2:require_budget(auth,launch_budget)
             process=subprocess.Popen(argv,stdin=subprocess.DEVNULL,stdout=subprocess.PIPE,stderr=subprocess.PIPE,
                 cwd=b['root'],creationflags=0x08000000)
             birth=windows.process_birth(process._handle)

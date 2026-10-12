@@ -48,7 +48,8 @@ def app(tmp_path, monkeypatch):
                 protocol_version=2, continuation_id=str(uuid4()), implementation_sha='a'*40,
                 protocol_source_sha256='b'*64, checked_utc=datetime.now(timezone.utc).isoformat(),
                 allowed_seq=4, seq04_authorized=False, original_binding_sha256='c'*64,
-                authorization_mode='actual-natural-consent-v2')
+                authorization_mode='actual-natural-consent-v2.1',admission_validity_seconds=1800,
+                consent_validity_seconds=21600)
     return path, write, gate
 
 
@@ -124,7 +125,7 @@ def test_expired_gate_and_old_consent_fail_before_any_claim(app):
     consent = m.capture_consent(); gate['consent_sha256'] = digest(consent)
     old = dict(gate, checked_utc=(datetime.now(timezone.utc)-timedelta(seconds=1201)).isoformat())
     with pytest.raises(ValueError): m.bind_permission(consent, old)
-    consent['record']['timestamp'] = (datetime.now(timezone.utc)-timedelta(hours=3)).isoformat()
+    consent['record']['timestamp'] = (datetime.now(timezone.utc)-timedelta(hours=7)).isoformat()
     with pytest.raises(ValueError): m.bind_permission(consent, gate)
     assert not (path.parents[3] / 'task-evidence').exists()
 
@@ -167,3 +168,34 @@ def test_v2_observation_flag_cannot_select_v1_control(tmp_path, monkeypatch):
     monkeypatch.setattr(recovery_loader, 'observe', lambda root: called.append(root))
     with pytest.raises(ValueError): recovery_loader.bootstrap_entry(store.root)
     assert not called
+
+
+def test_new_readiness_interval_is_1800_seconds_without_changing_live_capsules(app):
+    m = module(); _,write,gate = app; write()
+    consent=m.capture_consent();gate['consent_sha256']=digest(consent)
+    grant=m.bind_permission(consent,gate)
+    assert (datetime.fromisoformat(grant['expires_utc'])-datetime.fromisoformat(gate['checked_utc'])).total_seconds()==1800
+
+
+@pytest.mark.parametrize('fault',['old_mode','missing_policy','wrong_interval','bool_interval','wrong_consent_cap'])
+def test_old_or_substituted_admission_policy_cannot_bind(app,fault):
+    m=module();_,write,gate=app;write();consent=m.capture_consent();gate['consent_sha256']=digest(consent)
+    if fault=='old_mode':gate['authorization_mode']='actual-natural-consent-v2'
+    elif fault=='missing_policy':del gate['admission_validity_seconds']
+    elif fault=='wrong_interval':gate['admission_validity_seconds']=1801
+    elif fault=='bool_interval':gate['admission_validity_seconds']=True
+    else:gate['consent_validity_seconds']=21601
+    with pytest.raises(ValueError):m.bind_permission(consent,gate)
+
+
+def test_current_task_intent_over_two_hours_is_bounded_and_clamped(app):
+    m=module();path,write,gate=app;frames=write()
+    created=datetime.now(timezone.utc)-timedelta(hours=5,minutes=50)
+    frames[1]['timestamp']=created.isoformat()
+    path.write_bytes(b'\n'.join(canonical(f) for f in frames)+b'\n')
+    consent=m.capture_consent();gate['consent_sha256']=digest(consent)
+    grant=m.bind_permission(consent,gate)
+    assert datetime.fromisoformat(grant['expires_utc'])==created+timedelta(hours=6)
+    frames[1]['timestamp']=(created-timedelta(minutes=11)).isoformat()
+    path.write_bytes(b'\n'.join(canonical(f) for f in frames)+b'\n')
+    with pytest.raises(ValueError):m.capture_consent()
