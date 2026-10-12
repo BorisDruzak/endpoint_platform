@@ -24,6 +24,14 @@ RECOVERY_SCOPE=['consumed-claim-identities','pre-prepare-refusal','single-native
                 'actual-recovery-permission','native-child-handoff','recovery-receipt','no-retry']
 OPERATIONS=('guest','inventory','current','process_identity','clock_guest','prepare','workload','collect')
 
+def bind_closed_executables(operations,runtime):
+    """Bind historical Windows spellings to the exact already-reviewed path."""
+    for name in ('guest_ssh','provider_argv','management_argv'):
+        argv=operations[name]
+        matches=[p for p in runtime if Path(p)==Path(argv[0])]
+        require(len(matches)==1,'selected executable is not uniquely closed')
+        argv[0]=matches[0]
+
 def verify_packets(prefix,entries):
     for name in OPERATIONS:
         pin=parse_json(entries['packet-'+name+'-binding.json']);wire=entries['packet-'+name+'.bin']
@@ -102,6 +110,7 @@ def _prepare(original_root,root,implementation_sha,mode,gate=None):
     for folder in ('tools','tools/canary'):entries[folder+'/__init__.py']=b'"""Protected recovery bundle namespace."""\n'
     for path in sorted(Path(__file__).parent.glob('*.py')):entries['tools/canary/task13_continuation/'+path.name]=read_file(path)
     operations=build_operations(prefix,cid,entries,root)
+    runtime=_accepted_runtime();bind_closed_executables(operations,runtime)
     operations['management_argv'][1:1]=['-X','pycache_prefix='+str(root/'no-pyc')]
     entries['tools/canary/Read-Task13SealedPacket.ps1']=entries['Read-Task13SealedPacket.ps1']
     entries['operations.json']=canonical(operations);entries['recovery-history.json']=canonical(history)
@@ -119,7 +128,7 @@ def _prepare(original_root,root,implementation_sha,mode,gate=None):
         "if sys.pycache_prefix!=str(ROOT/'no-pyc'):raise SystemExit('fixed empty bytecode prefix required')\n"
         "sys.path.insert(0,str(ROOT))\nfrom tools.canary.task13_continuation.recovery_loader import bootstrap_entry\n"
         "if __name__=='__main__':bootstrap_entry(ROOT)\n")
-    entries['bootstrap.py']=bootstrap.encode();runtime=_accepted_runtime()
+    entries['bootstrap.py']=bootstrap.encode()
     closure=dict(schema='task13_recovery_reviewed_closure_v1',mode=mode,continuation_id=cid,
         original_binding=prefix.binding,implementation_sha=implementation_sha,protocol_source_sha256=protocol_sources(entries),
         execution=seal_sources(entries),runtime=runtime)

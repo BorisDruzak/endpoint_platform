@@ -428,3 +428,14 @@ def test_readonly_communication_failure_always_kills_and_reaps(supervisor_case,m
     assert calls[-2:]==['kill','communicate']
     assert parse_json(b['store'].read('read-only-child-failure-settlement.json'))['wait_result']==0
     assert protocol().slot_state(b['prefix'],b['history'])=='ABSENT'
+
+
+def test_historical_executable_spelling_binds_exact_closed_runtime_key(historical):
+    m=bundle_module();accepted=Path.home()/'.codex/task-evidence/task13-command-transport-review-20261011-c'
+    ops=parse_json((accepted/'operations.json').read_bytes());runtime=parse_json((accepted/'closure.json').read_bytes())['runtime']
+    assert ops['management_argv'][0] not in runtime and str(Path(ops['management_argv'][0])) in runtime
+    original=copy.deepcopy(ops);m.bind_closed_executables(ops,runtime)
+    for name in ('guest_ssh','provider_argv','management_argv'):
+        assert ops[name][0] in runtime and Path(ops[name][0])==Path(original[name][0])
+        assert ops[name][1:]==original[name][1:]
+    with pytest.raises(ValueError):m.bind_closed_executables(original,{})
