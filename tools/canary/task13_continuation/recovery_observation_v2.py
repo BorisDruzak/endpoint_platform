@@ -101,10 +101,11 @@ def _component(value,source,channel):
         require(value['exit_requested'] is True and type(value['exit_code']) is int and value['exit_code']==0
             and value['exit_count']==1 and pipeline==[],'original current explicit normal exit required')
         raw=console
-    else:
+    elif channel=='identity_console':
         require(value['exit_requested'] is False and value['exit_code'] is None and value['exit_count']==0
-            and not console and len(pipeline)==1,'original identity output/exit semantics required')
-        raw=raw_bytes(pipeline[0]);require(len(raw)<=65536,'bounded captured identity output')
+            and pipeline==[],'original identity output/exit semantics required')
+        raw=console
+    else:raise ValueError('exact original capture channel required')
     parse_json(raw.strip())
     return raw
 
@@ -121,7 +122,7 @@ def project_joint(prefix,capsule,spec,joint,closure=None):
         and integer(actor['birth_filetime'],1)==actor['after_birth_filetime'],'retained same joint observer birth required')
     integer(actor['pid'],1,2**32-1)
     raw={'current':_component(value['current'],spec['current_source_sha256'],'console'),
-        'process_identity':_component(value['process_identity'],spec['identity_source_sha256'],'pipeline')}
+        'process_identity':_component(value['process_identity'],spec['identity_source_sha256'],'identity_console')}
     current,identity=(parse_json(raw[n].strip()) for n in ('current','process_identity'))
     require(type(current['observer_pid']) is int and type(identity['caller_context']['pid']) is int
         and current['observer_pid']==identity['caller_context']['pid']==actor['pid']

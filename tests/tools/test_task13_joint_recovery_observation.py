@@ -41,14 +41,14 @@ def captured():
     def component(raw,source,channel):
         return dict(source_sha256=sha256(source),pipeline_state='Completed',had_errors=False,exception_type=None,
             exit_requested=channel=='console',exit_code=0 if channel=='console' else None,exit_count=1 if channel=='console' else 0,
-            console_stdout_b64=base64.b64encode(raw if channel=='console' else b'').decode(),console_stderr_b64='',
-            pipeline_stdout_b64=[] if channel=='console' else [base64.b64encode(raw).decode()],
+            console_stdout_b64=base64.b64encode(raw).decode(),console_stderr_b64='',
+            pipeline_stdout_b64=[],
             stream_counts={n:0 for n in ('error','warning','verbose','debug','information','progress')})
     birth=134362368001234567
     joint=dict(schema='task13_joint_current_identity_capture_v2',status='JOINT_READONLY_CAPTURED',
         observer=dict(pid=123,birth_filetime=birth,after_birth_filetime=birth,retained_not_exited=True),
         current=component(canonical(current)+b'\r\n',b'current','console'),
-        process_identity=component(canonical(identity),b'identity','pipeline'))
+        process_identity=component(canonical(identity),b'identity','identity_console'))
     raw=envelope(canonical(joint),b'',0,now.isoformat(),mono,now.isoformat(),mono+1,True)
     prefix=SimpleNamespace(binding=original,plan=dict(run_id=run,vm_uuid=vm))
     return prefix,capsule,spec,raw
@@ -66,7 +66,8 @@ def test_joint_projections_retain_exact_raw_bytes_and_one_actual_transport(captu
 
 
 @pytest.mark.parametrize('fault',['native_birth','retained_exit','observer','source_pin','extra_stdout','console_error',
-    'error_stream','exit2','missing_exit','identity_exit','overflow','missing_capture','extra_capture','raw_wire'])
+    'error_stream','exit2','missing_exit','identity_exit','identity_pipeline','identity_extra_pipeline',
+    'overflow','missing_capture','extra_capture','raw_wire'])
 def test_invalid_joint_captures_never_become_transport_complete_projections(captured,fault):
     p,c,s,j=captured;m=module();v=copy.deepcopy(j['observation'])
     if fault=='native_birth':v['observer']['after_birth_filetime']+=1
@@ -79,6 +80,8 @@ def test_invalid_joint_captures_never_become_transport_complete_projections(capt
     elif fault=='exit2':v['current']['exit_code']=2
     elif fault=='missing_exit':v['current'].update(exit_requested=False,exit_code=None,exit_count=0)
     elif fault=='identity_exit':v['process_identity'].update(exit_requested=True,exit_code=0,exit_count=1)
+    elif fault=='identity_pipeline':v['process_identity'].update(console_stdout_b64='',pipeline_stdout_b64=[v['process_identity']['console_stdout_b64']])
+    elif fault=='identity_extra_pipeline':v['process_identity']['pipeline_stdout_b64']=['e30=']
     elif fault=='overflow':v['current']['console_stdout_b64']=base64.b64encode(b'a'*65537).decode()
     elif fault=='missing_capture':del v['current']
     elif fault=='extra_capture':v['synthetic']={}
@@ -193,7 +196,7 @@ def test_owned_powershell_host_preserves_exit_and_separate_streams(historical,ca
     elif case=='host_ui':current="Write-Host 'owned';"+current
     elif case=='extra_pipeline':current="'owned';"+current
     elif case=='missing_exit':current=current.replace('exit 0','')
-    identity="param($RunId,$ExpectedVmUuid,$RegistrySha256,$Ids);'{\"caller_context\":{\"pid\":'+$PID+'}}'"
+    identity="param($RunId,$ExpectedVmUuid,$RegistrySha256,$Ids);[Console]::Out.WriteLine(('{\"caller_context\":{\"pid\":'+$PID+'}}'));[Console]::Out.Flush()"
     params=dict(RunId=run,ExpectedVmUuid=vm,RegistrySha256='a'*64,Ids=[1])
     source=m.joint_script(current.encode(),identity.encode(),params)
     bootstrap,packet,_=build_stdin_delivery(historical,source)
@@ -206,6 +209,7 @@ def test_owned_powershell_host_preserves_exit_and_separate_streams(historical,ca
         value=parse_json(result.stdout.strip())
         assert value['current']['exit_requested'] is True and value['current']['exit_code']==0
         assert value['process_identity']['exit_requested'] is False
+        assert value['process_identity']['pipeline_stdout_b64']==[] and value['process_identity']['console_stdout_b64']
         assert value['observer']['birth_filetime']==value['observer']['after_birth_filetime']
         assert value['observer']['retained_not_exited'] is True
     else:
@@ -262,3 +266,26 @@ def test_real_joint_factory_closes_ninth_packet_without_changing_old_payloads(hi
     for name in ('joint-current-source.ps1','joint-identity-parameters.json','entry-joint_identity.ps1'):
         changed={**entries,name:entries[name]+b'changed'}
         with pytest.raises(ValueError):m.verify_operation(historical,changed,ops)
+
+
+def test_exact_original_identity_uses_console_without_exit_or_pipeline():
+    m=module();source=(Path(m.__file__).parents[1]/'Observe-Task13ProcessIdentity.ps1').read_bytes()
+    assert b'[Console]::Out.WriteLine($json);[Console]::Out.Flush()' in source
+    capture=dict(source_sha256=sha256(source),pipeline_state='Completed',had_errors=False,exception_type=None,
+        exit_requested=False,exit_code=None,exit_count=0,console_stdout_b64=base64.b64encode(b'{}\r\n').decode(),
+        console_stderr_b64='',pipeline_stdout_b64=[],stream_counts={n:0 for n in m.STREAMS})
+    assert m._component(capture,sha256(source),'identity_console')==b'{}\r\n'
+
+
+def test_actual_m_joint_capture_preserves_both_original_console_channels(historical):
+    from tools.canary.task13_continuation.codec import parse_json
+    root=Path.home()/'.codex/task-evidence/task13-additive-recovery-observe-20261012-m'
+    closure=parse_json((root/'closure.json').read_bytes());window=parse_json((root/'read-only-admission/window.json').read_bytes())
+    spec=parse_json((root/'joint-observer-spec.json').read_bytes())
+    joint=parse_json((root/'read-only-admission/transport-005-joint_identity-result.json').read_bytes())
+    rows=module().project_joint(historical,window,spec,joint,closure)
+    for name in ('current','process_identity'):
+        capture=joint['observation'][name]
+        assert capture['pipeline_stdout_b64']==[]
+        assert rows[name]['stdout_b64']==capture['console_stdout_b64']
+    assert rows['current']['observation']['observer_pid']==rows['process_identity']['observation']['caller_context']['pid']

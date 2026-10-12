@@ -33,6 +33,11 @@ at every recovery state/admission/receipt boundary. Never fabricate standalone
 current/identity intents or native-exit records. Record actual7/logical8 counts.
 Legacy v1 still uses its original eight independent transports.
 
+Both exact original collectors write Console.Out. Current requests exit0;
+identity flushes Console without requesting exit. Require these distinct exit
+semantics and empty pipeline output for both; never substitute a pipeline fixture
+for the actual source contract. Preserve failed M and prepare a new reviewed root.
+
 Verification: first RED tests for settle-before-joint ordering and provenance;
 owned Windows PowerShell5.1 tests for unmodified Console/exit scripts, nonzero
 exit, stream failures, output bounds and stable shared PID/birth; negative tests

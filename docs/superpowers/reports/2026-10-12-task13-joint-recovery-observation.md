@@ -55,3 +55,27 @@ package remain mandatory. Original plan/seal/deadlines/00–03/Facts/baseline/
 snapshot and historical claims are preserved; runtime agent/MSI/Setup and mass
 rollout remain unchanged. A permanent new slot still blocks every retry. Genuine
 native-settled receipt04 is required before the separately reviewed05–11 path.
+
+The sole M read-only root exited1 with complete retained streams, no timeout
+and native wait0. All five dispatched read-only transports completed, but
+the new adapter incorrectly expected identity pipeline output. Exact original
+identity source writes Console.Out.WriteLine($json) and Flush without an exit
+request. Its actual in-process capture was Completed, with zero error streams,
+no exit request, console JSON and empty pipeline. This was an adapter source
+contract error missed by the initial review, not evidence of target readiness.
+M is preserved and cannot be reentered; no new execution claims or receipt04.
+The recovery-only adapter now requires both original Console channels:
+current still requires exactly one exit0, identity requires no exit, and both
+reject any pipeline output. Two source/captured-M regression tests first failed
+on the precise error; channel-substitution and extra-pipeline tests remain closed.
+The PowerShell host and original current/identity source bytes are unchanged.
+The corrected five affected suites passed:196 tests in67.24 seconds, including
+native PowerShell5.1 Console/exit hosting and exact captured-M regression.
+Independent native-held M refusal audit passed with exact100 source/2879 runtime
+and all five complete actual transports, native root exit1/wait0/full streams,
+creator absence, original three claims/full preclaim preservation unchanged,
+both recovery slots absent, and no gate/authority/child/receipt promotion:
+`3b1af2b1a81c27a5dcfdcb0ba4165526a76767958a9c224b33cccefd5fc2514a`.
+Independent corrected-code review passed, with45 joint tests independently
+passing in25.15 seconds including native PowerShell5.1; original guard/PS/host
+diffs remain empty. Fresh N namespace-only preparation helpers were reviewed.
