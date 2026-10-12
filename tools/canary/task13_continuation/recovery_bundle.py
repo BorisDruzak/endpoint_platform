@@ -22,7 +22,7 @@ ACCEPTED_ROOT='task13-command-transport-review-20261011-c'
 ACCEPTED_CLOSURE_SHA='f219ff086d1cf1623107bb66a0638ed2ae8d3d45eaf7a57dce1c68e0ba8c5cac'
 RECOVERY_SCOPE=['consumed-claim-identities','pre-prepare-refusal','single-native-slot','packet-feasibility',
                 'actual-recovery-permission','native-child-handoff','recovery-receipt','no-retry','actual-natural-consent-v2',
-                'controller-dependency-v2','joint-readonly-provenance-v2']
+                'controller-dependency-v2','joint-readonly-provenance-v2','prepared-readiness-v2']
 OPERATIONS=('guest','inventory','current','process_identity','clock_guest','prepare','workload','collect')
 
 def bind_closed_executables(operations,runtime):

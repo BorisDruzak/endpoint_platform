@@ -53,6 +53,16 @@ def validate_recovery_evidence(prefix,capsule,evidence):
         return validate_state(prefix,c,state,at)
     for env,c in ((evidence['launch_preflight'],parent),(evidence['preclaim_preflight'],capsule)):
         state=observation(env,c,maximum=60);validate_recovery_state(c,state,env['finished_utc'])
+    if 'tools/canary/task13_continuation/recovery_readiness_v2.py' in pins:
+        from .recovery_readiness_v2 import validate_recorded_readiness
+        require(version==2,'prepared readiness requires explicit v2')
+        validate_recorded_readiness(parent,capsule,evidence)
+        final_launch=evidence['launch_postclaim_preflight']
+        state=observation(final_launch,parent,maximum=60)
+        validate_recovery_state(parent,state,final_launch['finished_utc'])
+        require(evidence['launch_preflight']['finished_mono_ns']<=final_launch['dispatch_mono_ns']
+            and instant(final_launch['finished_utc'])<=instant(capsule['created_utc']),
+            'separate preclaim/postclaim launch proof chronology')
     require(instant(evidence['launch_preflight']['finished_utc'])<=instant(evidence['preclaim_preflight']['dispatch_utc']),
             'recovery parent/child chronology')
     for env in (evidence['guest'],evidence['postflight'],evidence['retained_collection']):

@@ -13,7 +13,7 @@ from .loader import _hold_file,_reconcile,guard_dispatch
 from .receipt import observation,raw_bytes,publication_ack
 from .sources import seal_sources
 from .storage import ProtectedStore
-from .transport import ContinuationTransport,TransportUnknown,utc,envelope
+from .transport import ContinuationTransport,TransportUnknown,utc,envelope,powershell_argv
 from .reconciliation import validate_state
 from .readonly_gate import ReadOnlyWindow
 from .recovery_admission import (capture_history,hold_history,protocol_sources,require_unused_slot,slot_state,
@@ -114,8 +114,14 @@ def reviewed_recovery(root,mode,*,external_observer=False):
                 and gate['continuation_id']==closure['continuation_id'] and gate['slot_state']=='ABSENT'
                 and gate['claims_created'] is False and gate['seq04_dispatched'] is False
                 and gate['preflight_verified'] is True,'complete original read-only admission gate')
-        yield dict(root=root,store=store,closure=closure,review=review,trust=trust,entries=entries,prefix=prefix,
+        bundle=dict(root=root,store=store,closure=closure,review=review,trust=trust,entries=entries,prefix=prefix,
             history=history,operations=operations,control=control,request=request,gate=gate,held=held)
+        if mode=='execution' and control['protocol_version']==2:
+            from .recovery_readiness_v2 import open_context,close_context
+            open_context(bundle)
+            try:yield bundle
+            finally:close_context(bundle)
+        else:yield bundle
 
 def fresh_previous(history):
     identity=windows.observe_controller();old=history['prior_controller']
@@ -151,7 +157,20 @@ def validate_recovery_state(b,capsule,state,at):
         return validate_joint_state(b['prefix'],capsule,state,at,b['closure'])
     return validate_state(b['prefix'],capsule,state,at)
 
-def ready_guard(b,auth,preflight,seconds=420):
+def prepared_observation(b,auth,transport,phase,seconds=420):
+    from .recovery_readiness_v2 import prepare_readiness,reconcile_prepared,prepared_manifest,fresh_manifest,raw_reconciliation
+    prepared=prepare_readiness(b,auth,phase,seconds)
+    b['store'].create(phase+'-prepared-readiness.json',canonical(prepared_manifest(prepared,auth)))
+    fresh=reconcile_prepared(prepared,auth,transport)
+    b['store'].create(phase+'-fresh-readiness.json',canonical(fresh_manifest(fresh,auth)))
+    return prepared,fresh,raw_reconciliation(fresh,auth)
+
+
+def ready_guard(b,auth,preflight,seconds=420,*,prepared=None,fresh=None,argv=None):
+    if b['control']['protocol_version']==2:
+        from .recovery_readiness_v2 import require_ready,raw_reconciliation
+        require(raw_reconciliation(fresh,auth)==preflight,'exact observer-issued preflight required')
+        return require_ready(prepared,fresh,auth,argv,seconds)
     auth.check();verify_recovery_permission(b['request'],b['gate']);require_budget(auth,seconds)
     require(capture_history(b['prefix'])==b['history'],'preclaim historical identities changed');fresh_previous(b['history'])
     plan=verify_feasibility(b['prefix'],b['closure'],b['entries'],b['operations'],root_argv(b['root'],b['control'],entry_flag(b['control'],'execute-child')))
@@ -213,22 +232,36 @@ def run_child(root):
         require(launch['request_sha256']==digest(b['request']) and launch['source_closure_sha256']==digest(b['closure'])
             and launch['continuation_id']==b['closure']['continuation_id'],'launched recovery owner')
         child_registration(b,launch);auth=create_live(b,'execution');transport=ContinuationTransport(s,auth)
-        preclaim=reconcile_recovery(b,auth,transport);s.create('preclaim-preflight.json',canonical(preclaim))
-        ready_guard(b,auth,preclaim)
+        v2=b['control']['protocol_version']==2
+        argv=root_argv(b['root'],b['control'],entry_flag(b['control'],'execute-child'))
+        if v2:prepared,fresh,preclaim=prepared_observation(b,auth,transport,'child-preclaim')
+        else:preclaim=reconcile_recovery(b,auth,transport)
+        s.create('preclaim-preflight.json',canonical(preclaim))
+        if not v2:ready_guard(b,auth,preclaim)
         dispatch=dict(schema='task13_recovery_dispatch_slot_v1',launch_slot_sha256=digest(launch),continuation_id=b['closure']['continuation_id'],
             original=p.binding,protocol_version=b['control']['protocol_version'],protocol_source_sha256=b['closure']['protocol_source_sha256'],
             consumed_global_claim_sha256=h['global_claim_sha256'],capsule_sha256=digest(auth.capsule),preflight_sha256=digest(preclaim))
         validate_dispatch_record(p,h,launch,dispatch)
-        _commit_native(slot_path(p,h,'dispatch'),canonical(dispatch));hold_slot(b['held'],p,h,'dispatch',dispatch)
+        dispatch_path=slot_path(p,h,'dispatch')
+        if v2:claim_guard=ready_guard(b,auth,preclaim,prepared=prepared,fresh=fresh,argv=argv)
+        if v2:claim_guard(utc())
+        _commit_native(dispatch_path,canonical(dispatch));hold_slot(b['held'],p,h,'dispatch',dispatch)
         s.create('recovery-dispatch.json',canonical(dispatch))
         try:
-            ready_guard(b,auth,preclaim)
+            if not v2:ready_guard(b,auth,preclaim)
             ready=transport.powershell(b['operations']['guest_ssh'],b['entries']['delivery-prepare.ps1'].decode(),'prepare',25,b['entries']['packet-prepare.bin'])
             value=observation(ready,auth.capsule,maximum=25)
             require(value['status']=='INDEPENDENT_WATCHDOG_READY' and value['run']==auth.capsule['continuation_id']
                 and value['watchdog_sha256']==sha256(b['entries']['Watch-Task13DiagnosticProcess.ps1']),'independent watchdog preparation')
-            preflight=reconcile_recovery(b,auth,transport);s.create('dispatch-preflight.json',canonical(preflight))
+            if v2:dispatch_prepared,dispatch_fresh,preflight=prepared_observation(b,auth,transport,'child-dispatch',225)
+            else:preflight=reconcile_recovery(b,auth,transport)
+            s.create('dispatch-preflight.json',canonical(preflight))
+            workload_argv=powershell_argv(
+                b['operations']['guest_ssh'],b['entries']['delivery-workload.ps1'].decode()) if v2 else None
             def final_guard():
+                if v2:
+                    _parent_live(launch['controller'])
+                    return ready_guard(b,auth,preflight,225,prepared=dispatch_prepared,fresh=dispatch_fresh,argv=workload_argv)
                 ready_guard(b,auth,preflight,225);_parent_live(launch['controller'])
                 return guard_dispatch(p,auth,preflight)
             try:
@@ -253,6 +286,11 @@ def run_child(root):
                 historical_consumed_claims={n:base64.b64encode(ProtectedStore(p.root/'continuation-v1-claims').read(n)).decode() for n in OLD_CLAIMS},
                 recovery_authorization=b['request'],admission_gate=b['gate'],preclaim_preflight=preclaim,
                 launch_capsule=parse_json(s.read('launch-capsule.json')),launch_preflight=parse_json(s.read('launch-preflight.json')))
+            if v2:
+                evidence['prepared_readiness']={phase+'-'+kind:parse_json(s.read(phase+'-'+kind+'-readiness.json'))
+                    for phase in ('supervisor-preclaim','supervisor-postclaim','child-preclaim','child-dispatch')
+                    for kind in ('prepared','fresh')}
+                evidence['launch_postclaim_preflight']=parse_json(s.read('launch-postclaim-preflight.json'))
             auth.check();verify_recovery_permission(b['request'],b['gate']);require(capture_history(p)==h,'historical preservation after workload')
             receipt=make_recovery_receipt(p,auth.capsule,evidence);s.create('execution-evidence.json',canonical(evidence))
             auth.check();s.publish('receipt-04-compare-after-start.json',canonical(receipt));auth.check()

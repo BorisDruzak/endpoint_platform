@@ -6,7 +6,7 @@ import time
 from .codec import canonical,digest,parse_json,require,sha256
 from .storage import ProtectedStore
 from .transport import ContinuationTransport,utc,validate_command
-from .recovery_loader import reviewed_recovery,root_argv,entry_flag,create_live,ready_guard,require_budget,reconcile_recovery
+from .recovery_loader import reviewed_recovery,root_argv,entry_flag,create_live,ready_guard,require_budget,reconcile_recovery,prepared_observation
 from .recovery_admission import require_unused_slot,slot_path,validate_launch_record,_commit_native,hold_slot
 from .recovery_permission_v2 import verify_recovery_permission
 from .recovery_receipt import verify_recovery_receipt
@@ -35,10 +35,15 @@ def supervise(root):
         auth=create_live(b,'launch');observer=windows.observe_controller()
         initial_budget,launch_budget=(840,780) if b['control']['protocol_version']==2 else (480,420)
         require_budget(auth,initial_budget)
-        transport=ContinuationTransport(s,auth)
-        preflight=reconcile_recovery(b,auth,transport);s.create('launch-preflight.json',canonical(preflight))
+        v2=b['control']['protocol_version']==2
+        transport_store=ProtectedStore.create_root(b['root']/'supervisor-transports') if v2 else s
+        transport=ContinuationTransport(transport_store,auth)
+        if v2:prepared,fresh,preflight=prepared_observation(b,auth,transport,'supervisor-preclaim',launch_budget)
+        else:preflight=reconcile_recovery(b,auth,transport)
+        s.create('launch-preflight.json',canonical(preflight))
         argv=root_argv(b['root'],b['control'],entry_flag(b['control'],'execute-child'))
-        command=validate_command(argv);ready_guard(b,auth,preflight,launch_budget)
+        command=validate_command(argv)
+        if not v2:ready_guard(b,auth,preflight,launch_budget)
         launch=dict(schema='task13_recovery_launch_slot_v1',original=p.binding,history_sha256=digest(h),
             consumed_global_claim_sha256=h['global_claim_sha256'],protocol_version=b['control']['protocol_version'],
             protocol_source_sha256=b['closure']['protocol_source_sha256'],implementation_sha=b['closure']['implementation_sha'],
@@ -46,15 +51,24 @@ def supervise(root):
             source_closure_sha256=digest(b['closure']),capsule_sha256=digest(auth.capsule),preflight_sha256=digest(preflight),
             expires_utc=b['request']['expires_utc'],controller=observer)
         validate_launch_record(p,h,launch)
+        launch_path=slot_path(p,h,'launch')
+        if v2:claim_guard=ready_guard(b,auth,preflight,launch_budget,prepared=prepared,fresh=fresh,argv=argv)
         if b['control']['protocol_version']==2:require_budget(auth,launch_budget)
         # First irreversible occupancy: all sources, packets, commands, actual
         # permission, fresh target predicates and full budget passed above.
-        _commit_native(slot_path(p,h,'launch'),canonical(launch));hold_slot(b['held'],p,h,'launch',launch)
+        if v2:claim_guard(utc())
+        _commit_native(launch_path,canonical(launch));hold_slot(b['held'],p,h,'launch',launch)
         s.create('recovery-launch.json',canonical(launch))
         process=None
         try:
-            ready_guard(b,auth,preflight,launch_budget);require(validate_command(argv)==command,'final recovery root command binding changed')
+            if v2:
+                final_prepared,final_fresh,final_preflight=prepared_observation(b,auth,transport,'supervisor-postclaim',launch_budget)
+                s.create('launch-postclaim-preflight.json',canonical(final_preflight))
+                launch_guard=ready_guard(b,auth,final_preflight,launch_budget,prepared=final_prepared,fresh=final_fresh,argv=argv)
+            else:ready_guard(b,auth,preflight,launch_budget)
+            require(validate_command(argv)==command,'final recovery root command binding changed')
             if b['control']['protocol_version']==2:require_budget(auth,launch_budget)
+            if v2:launch_guard(utc())
             process=subprocess.Popen(argv,stdin=subprocess.DEVNULL,stdout=subprocess.PIPE,stderr=subprocess.PIPE,
                 cwd=b['root'],creationflags=0x08000000)
             birth=windows.process_birth(process._handle)

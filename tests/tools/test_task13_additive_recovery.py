@@ -368,7 +368,8 @@ def supervisor_case(owned,tmp_path,monkeypatch):
     monkeypatch.setattr(m,'reviewed_recovery',reviewed)
     monkeypatch.setattr(m,'create_live',lambda *args:ReadOnlyWindow(observe_controller()))
     monkeypatch.setattr(m,'reconcile_recovery',lambda *args:{})
-    monkeypatch.setattr(m,'ready_guard',lambda *args:{})
+    monkeypatch.setattr(m,'prepared_observation',lambda *args:(object(),object(),{}))
+    monkeypatch.setattr(m,'ready_guard',lambda *args,**kwargs:(lambda at:None))
     return m,b
 
 def test_too_long_final_root_command_never_spawns_or_consumes_slot(supervisor_case,monkeypatch):
@@ -409,8 +410,8 @@ def test_v2_late_preflight_budget_refuses_before_launch_slot(supervisor_case,mon
         if clock=='utc':auth.capsule['expires_utc']=(datetime.now(timezone.utc)+timedelta(seconds=779)).isoformat()
         else:auth.capsule['deadline_mono_ns']=time.monotonic_ns()+779*10**9
         return {}
-    monkeypatch.setattr(m,'reconcile_recovery',preflight)
-    monkeypatch.setattr(m,'ready_guard',lambda context,a,state,seconds:require_budget(a,seconds))
+    monkeypatch.setattr(m,'prepared_observation',lambda *args:(object(),object(),preflight()))
+    monkeypatch.setattr(m,'ready_guard',lambda context,a,state,seconds,**kwargs:require_budget(a,seconds))
     monkeypatch.setattr(m.subprocess,'Popen',lambda *args,**kwargs:spawned.append(True))
     with pytest.raises(ValueError,match='budget'):m.supervise(b['root'])
     assert not spawned and protocol().slot_state(b['prefix'],b['history'])=='ABSENT'
@@ -435,11 +436,12 @@ def test_v2_budget_is_checked_after_expensive_guard_before_commit_and_spawn(supe
         def check(self):pass
     auth=StartupBudget();calls=[];spawned=[]
     monkeypatch.setattr(m,'create_live',lambda *args:auth)
-    def expensive_guard(*args):
+    def expensive_guard(*args,**kwargs):
         calls.append(True)
         if len(calls)==(1 if phase=='before-slot' else 2):
             if clock=='utc':auth.capsule['expires_utc']=(datetime.now(timezone.utc)+timedelta(seconds=779)).isoformat()
             else:auth.capsule['deadline_mono_ns']=time.monotonic_ns()+779*10**9
+        return lambda at:None
     monkeypatch.setattr(m,'ready_guard',expensive_guard)
     monkeypatch.setattr(m.subprocess,'Popen',lambda *args,**kwargs:spawned.append(True))
     with pytest.raises(ValueError,match='budget'):m.supervise(b['root'])
@@ -456,6 +458,20 @@ def test_spawn_failure_permanently_consumes_launch_without_retry(supervisor_case
     assert parse_json(b['store'].read('recovery-supervisor-unknown.json'))['retry_allowed'] is False
     with pytest.raises(ValueError,match='already occupied'):m.supervise(b['root'])
     assert calls==[True]
+
+
+@pytest.mark.parametrize('phase',['before-slot','after-slot'])
+def test_v2_stale_final_clock_refuses_without_spawn_and_preserves_slot_transition(supervisor_case,monkeypatch,phase):
+    m,b=supervisor_case;b['control']['protocol_version']=2;calls=[]
+    def guarded(*args,**kwargs):
+        calls.append(True)
+        if len(calls)==(1 if phase=='before-slot' else 2):raise ValueError('owned stale dispatch clock')
+        return lambda at:None
+    monkeypatch.setattr(m,'ready_guard',guarded)
+    monkeypatch.setattr(m.subprocess,'Popen',lambda *a,**k:pytest.fail('stale clocks cannot spawn'))
+    with pytest.raises(ValueError,match='stale dispatch clock'):m.supervise(b['root'])
+    assert protocol().slot_state(b['prefix'],b['history'])==('ABSENT' if phase=='before-slot' else 'LAUNCH_COMMITTED')
+    assert (b['root']/'supervisor-transports').is_dir()
 
 @pytest.mark.parametrize('fault',['registration','communicate'])
 def test_postspawn_failure_kills_reaps_and_records_native_child_exit(supervisor_case,monkeypatch,fault):
