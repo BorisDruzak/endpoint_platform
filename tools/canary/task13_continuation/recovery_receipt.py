@@ -44,8 +44,15 @@ def validate_recovery_evidence(prefix,capsule,evidence):
     require(digest(parent)==l['capsule_sha256'] and parent['controller']==l['controller']
         and parent['continuation_id']==capsule['continuation_id'] and parent['source_closure']==capsule['source_closure']
         and digest(evidence['launch_preflight'])==l['preflight_sha256'],'recovery supervisor/preflight binding')
+    def validate_recovery_state(c,state,at):
+        if 'joint-observer-spec.json' in c['source_closure']['execution']['entries']:
+            from .recovery_observation_v2 import validate_joint_state
+            require(version==2 and gate.get('recovery_observation_mode')=='joint-current-identity-v2',
+                'joint source requires explicit recovery gate mode')
+            return validate_joint_state(prefix,c,state,at)
+        return validate_state(prefix,c,state,at)
     for env,c in ((evidence['launch_preflight'],parent),(evidence['preclaim_preflight'],capsule)):
-        state=observation(env,c,maximum=60);validate_state(prefix,c,state,env['finished_utc'])
+        state=observation(env,c,maximum=60);validate_recovery_state(c,state,env['finished_utc'])
     require(instant(evidence['launch_preflight']['finished_utc'])<=instant(evidence['preclaim_preflight']['dispatch_utc']),
             'recovery parent/child chronology')
     for env in (evidence['guest'],evidence['postflight'],evidence['retained_collection']):
@@ -66,8 +73,8 @@ def validate_recovery_evidence(prefix,capsule,evidence):
     identity_row=parse_json(files['identity.json']);ready_row=parse_json(files['watchdog-ready.json'])
     armed_row=parse_json(files['watchdog-armed.json']);exit_row=parse_json(files['exit-confirmed.json'])
     pre=observation(evidence['preflight'],capsule,maximum=60);post=observation(evidence['postflight'],capsule,maximum=60)
-    validate_state(prefix,capsule,pre,evidence['guest']['dispatch_utc'])
-    for state,env in ((pre,evidence['preflight']),(post,evidence['postflight'])):validate_state(prefix,capsule,state,env['finished_utc'])
+    validate_recovery_state(capsule,pre,evidence['guest']['dispatch_utc'])
+    for state,env in ((pre,evidence['preflight']),(post,evidence['postflight'])):validate_recovery_state(capsule,state,env['finished_utc'])
     guest=observation(evidence['guest'],capsule)
     require(guest['status']=='GUEST_COMPARATOR_PASS' and guest['run_id']==prefix.plan['run_id']
         and guest['plan_sha256']==prefix.binding['original_plan_sha256'] and guest['baselineSha256']==prefix.binding['baseline_sha256']

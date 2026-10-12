@@ -110,7 +110,15 @@ def _verify_records(root):
         'admission original binding changed')
     history=data['recovery-history.json'];require(capture_history(prefix)==history and digest(history)==provisional['history_sha256'],
         'admission old consumed history changed')
-    validate_state(prefix,window,observation(preflight,window,maximum=60),preflight['finished_utc'])
+    state=observation(preflight,window,maximum=60)
+    if control['protocol_version']==2:
+        from .recovery_observation_v2 import validate_joint_state,MODE
+        require(provisional.get('recovery_observation_mode')==MODE
+            and type(provisional.get('actual_transport_count')) is int and provisional['actual_transport_count']==7
+            and type(provisional.get('logical_constituent_count')) is int and provisional['logical_constituent_count']==8,
+            'actual joint admission provenance counts required')
+        validate_joint_state(prefix,window,state,preflight['finished_utc'],closure)
+    else:validate_state(prefix,window,state,preflight['finished_utc'])
     final=dict(provisional,status='READY_REQUIRES_SEPARATE_AUTHORIZATION',provisional_gate_sha256=digest(provisional),
         native_exit_sha256=digest(outer),admission_review_sha256=digest(audit))
     return final,dict(schema='task13_verified_recovery_gate_evidence_v1',files_sha256={n:sha256(v) for n,v in raw.items()},

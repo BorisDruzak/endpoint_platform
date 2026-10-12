@@ -22,7 +22,7 @@ ACCEPTED_ROOT='task13-command-transport-review-20261011-c'
 ACCEPTED_CLOSURE_SHA='f219ff086d1cf1623107bb66a0638ed2ae8d3d45eaf7a57dce1c68e0ba8c5cac'
 RECOVERY_SCOPE=['consumed-claim-identities','pre-prepare-refusal','single-native-slot','packet-feasibility',
                 'actual-recovery-permission','native-child-handoff','recovery-receipt','no-retry','actual-natural-consent-v2',
-                'controller-dependency-v2']
+                'controller-dependency-v2','joint-readonly-provenance-v2']
 OPERATIONS=('guest','inventory','current','process_identity','clock_guest','prepare','workload','collect')
 
 def bind_closed_executables(operations,runtime):
@@ -34,7 +34,8 @@ def bind_closed_executables(operations,runtime):
         argv[0]=matches[0]
 
 def verify_packets(prefix,entries):
-    for name in OPERATIONS:
+    names=OPERATIONS+(('joint_identity',) if 'entry-joint_identity.ps1' in entries else ())
+    for name in names:
         pin=parse_json(entries['packet-'+name+'-binding.json']);wire=entries['packet-'+name+'.bin']
         n=integer(pin['wire_bytes'],1,4*1024*1024);bn=integer(pin['body_utf8_bytes'],1,8*1024*1024)
         require(len(wire)==n and sha256(wire)==pin['wire_sha256'],'sealed wire length/SHA before claim')
@@ -58,7 +59,7 @@ def verify_packets(prefix,entries):
         require(set(params)==set(expected['parameter_hashes'])|{'ExecuteReviewedStep'}
             and {k:sha256(v.encode()) for k,v in params.items() if type(v) is str}==expected['parameter_hashes'],
             'sealed original parameter identity')
-    return dict(verified_packets=len(OPERATIONS))
+    return dict(verified_packets=len(names))
 
 def verify_feasibility(prefix,closure,entries,operations,root_argv):
     require(closure['execution']==seal_sources(entries),'preclaim exact execution source closure')
@@ -70,6 +71,9 @@ def verify_feasibility(prefix,closure,entries,operations,root_argv):
     check_operations(operations)
     require(operations['continuation_id']==closure['continuation_id'],'preclaim continuation operation identity')
     plan=validate_command_plan(operations,entries);plan['root']=validate_command(root_argv)
+    if 'control.json' in entries and parse_json(entries['control.json']).get('protocol_version')==2:
+        from .recovery_observation_v2 import verify_operation
+        plan['joint_identity']=verify_operation(prefix,entries,operations)
     require(root_argv[0] in closure['runtime'],'preclaim direct closed interpreter')
     require(root_argv[1:5]==['-I','-S','-B','-X'] and Path(root_argv[-2]).name=='bootstrap.py'
         and root_argv[5]=='pycache_prefix='+str(Path(root_argv[-2]).parent/'no-pyc')
@@ -115,6 +119,11 @@ def _prepare(original_root,root,implementation_sha,mode,gate=None):
     for folder in ('tools','tools/canary'):entries[folder+'/__init__.py']=b'"""Protected recovery bundle namespace."""\n'
     for path in sorted(Path(__file__).parent.glob('*.py')):entries['tools/canary/task13_continuation/'+path.name]=read_file(path)
     operations=build_operations(prefix,cid,entries,root)
+    from .recovery_observation_v2 import add_operation,SCRIPT
+    add_operation(prefix,entries,operations)
+    committed=subprocess.run(['git','-C',str(repository),'show',implementation_sha+':tools/canary/'+SCRIPT],
+        capture_output=True,timeout=10)
+    require(committed.returncode==0 and committed.stdout==entries[SCRIPT],'joint observer implementation source mismatch')
     from .recovery_dependencies_v2 import load_reviewed_runtime
     runtime,revision_entries=load_reviewed_runtime();entries.update(revision_entries)
     bind_closed_executables(operations,runtime)

@@ -139,11 +139,23 @@ def create_live(b,label):
         b['store'].create(label+'-'+n+'.json',canonical(v))
     return auth
 
+def reconcile_recovery(b,auth,transport):
+    if b['control']['protocol_version']==2:
+        from .recovery_observation_v2 import reconcile
+        return reconcile(b['prefix'],auth,transport,b['operations'],b['entries'],b['closure'])
+    return _reconcile(b['prefix'],auth,transport,b['operations'],b['entries'])
+
+def validate_recovery_state(b,capsule,state,at):
+    if b['control']['protocol_version']==2:
+        from .recovery_observation_v2 import validate_joint_state
+        return validate_joint_state(b['prefix'],capsule,state,at,b['closure'])
+    return validate_state(b['prefix'],capsule,state,at)
+
 def ready_guard(b,auth,preflight,seconds=420):
     auth.check();verify_recovery_permission(b['request'],b['gate']);require_budget(auth,seconds)
     require(capture_history(b['prefix'])==b['history'],'preclaim historical identities changed');fresh_previous(b['history'])
     plan=verify_feasibility(b['prefix'],b['closure'],b['entries'],b['operations'],root_argv(b['root'],b['control'],entry_flag(b['control'],'execute-child')))
-    state=observation(preflight,auth.capsule,maximum=60);validate_state(b['prefix'],auth.capsule,state,utc())
+    state=observation(preflight,auth.capsule,maximum=60);validate_recovery_state(b,auth.capsule,state,utc())
     guard=guard_dispatch(b['prefix'],auth,preflight);guard(utc())
     return plan
 
@@ -153,7 +165,7 @@ def observe(root):
         out=ProtectedStore.create_root(b['root']/'read-only-admission');out.create('window.json',canonical(auth.capsule))
         initial=slot_state(b['prefix'],history);fresh_previous(history)
         plan=verify_feasibility(b['prefix'],b['closure'],b['entries'],b['operations'],root_argv(b['root'],b['control'],entry_flag(b['control'],'observe')))
-        require_budget(auth,420);result=_reconcile(b['prefix'],auth,ContinuationTransport(out,auth),b['operations'],b['entries'])
+        require_budget(auth,420);result=reconcile_recovery(b,auth,ContinuationTransport(out,auth))
         out.create('preflight.json',canonical(result));auth.check()
         require(capture_history(b['prefix'])==history and slot_state(b['prefix'],history)==initial,'observation changed historical state/slot')
         gate=dict(schema='task13_additive_recovery_gate_v1',status='PREFLIGHT_VERIFIED_AWAITING_NATIVE_EXIT_REVIEW' if initial=='ABSENT' else 'BLOCKED_SLOT_OCCUPIED',
@@ -166,8 +178,10 @@ def observe(root):
             historical_rca='UNKNOWN',runtime_changed=False,resume_gate='STOP_BEFORE_SEQ04_AUTHORIZATION')
         gate['evidence_bundle']=b['root'].name
         if b['control']['protocol_version']==2:
+            from .recovery_observation_v2 import MODE as observation_mode
             gate.update(authorization_mode=MODE,consent_sha256=digest(parse_json(b['entries']['human-consent.json'])),
-                admission_validity_seconds=ADMISSION_SECONDS,consent_validity_seconds=CONSENT_SECONDS)
+                admission_validity_seconds=ADMISSION_SECONDS,consent_validity_seconds=CONSENT_SECONDS,
+                recovery_observation_mode=observation_mode,actual_transport_count=7,logical_constituent_count=8)
         out.create('gate.json',canonical(gate));return gate
 
 def _parent_live(identity):
@@ -199,7 +213,7 @@ def run_child(root):
         require(launch['request_sha256']==digest(b['request']) and launch['source_closure_sha256']==digest(b['closure'])
             and launch['continuation_id']==b['closure']['continuation_id'],'launched recovery owner')
         child_registration(b,launch);auth=create_live(b,'execution');transport=ContinuationTransport(s,auth)
-        preclaim=_reconcile(p,auth,transport,b['operations'],b['entries']);s.create('preclaim-preflight.json',canonical(preclaim))
+        preclaim=reconcile_recovery(b,auth,transport);s.create('preclaim-preflight.json',canonical(preclaim))
         ready_guard(b,auth,preclaim)
         dispatch=dict(schema='task13_recovery_dispatch_slot_v1',launch_slot_sha256=digest(launch),continuation_id=b['closure']['continuation_id'],
             original=p.binding,protocol_version=b['control']['protocol_version'],protocol_source_sha256=b['closure']['protocol_source_sha256'],
@@ -213,7 +227,7 @@ def run_child(root):
             value=observation(ready,auth.capsule,maximum=25)
             require(value['status']=='INDEPENDENT_WATCHDOG_READY' and value['run']==auth.capsule['continuation_id']
                 and value['watchdog_sha256']==sha256(b['entries']['Watch-Task13DiagnosticProcess.ps1']),'independent watchdog preparation')
-            preflight=_reconcile(p,auth,transport,b['operations'],b['entries']);s.create('dispatch-preflight.json',canonical(preflight))
+            preflight=reconcile_recovery(b,auth,transport);s.create('dispatch-preflight.json',canonical(preflight))
             def final_guard():
                 ready_guard(b,auth,preflight,225);_parent_live(launch['controller'])
                 return guard_dispatch(p,auth,preflight)
@@ -231,7 +245,7 @@ def run_child(root):
             row=parse_json(files['identity.json']);identity={k:row[k] for k in ('run','pid','birth')};exit_row=parse_json(files['exit-confirmed.json'])
             require(exit_row['pid']==identity['pid'] and exit_row['birth']==identity['birth'],'watchdog identity')
             watchdog=envelope(canonical(dict(exit_row,run=identity['run'])),b'',0,collected['dispatch_utc'],collected['dispatch_mono_ns'],collected['finished_utc'],collected['finished_mono_ns'],True)
-            watchdog['retained_transport_sha256']=digest(collected);postflight=_reconcile(p,auth,transport,b['operations'],b['entries'])
+            watchdog['retained_transport_sha256']=digest(collected);postflight=reconcile_recovery(b,auth,transport)
             evidence=dict(schema='task13_recovery_execution_evidence_v1',continuation_id=auth.capsule['continuation_id'],
                 source_closure_sha256=digest(b['closure']),preflight=preflight,postflight=postflight,guest=guest,watchdog=watchdog,identity=identity,
                 journal_b64=base64.b64encode(files['stages.jsonl']).decode(),journal_sha256=sha256(files['stages.jsonl']),retained_collection=collected,

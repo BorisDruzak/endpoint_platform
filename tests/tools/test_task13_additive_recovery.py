@@ -367,7 +367,7 @@ def supervisor_case(owned,tmp_path,monkeypatch):
         with ExitStack() as stack:b['held']=stack;yield b
     monkeypatch.setattr(m,'reviewed_recovery',reviewed)
     monkeypatch.setattr(m,'create_live',lambda *args:ReadOnlyWindow(observe_controller()))
-    monkeypatch.setattr(m,'_reconcile',lambda *args:{})
+    monkeypatch.setattr(m,'reconcile_recovery',lambda *args:{})
     monkeypatch.setattr(m,'ready_guard',lambda *args:{})
     return m,b
 
@@ -387,7 +387,7 @@ def test_v2_parent_reserves_child_startup_before_any_slot(supervisor_case,monkey
             expires_utc=(datetime.now(timezone.utc)+timedelta(seconds=800)).isoformat())
         def check(self):pass
     monkeypatch.setattr(m,'create_live',lambda *args:StartupBudget())
-    monkeypatch.setattr(m,'_reconcile',lambda *args:pytest.fail('must refuse before preflight'))
+    monkeypatch.setattr(m,'reconcile_recovery',lambda *args:pytest.fail('must refuse before preflight'))
     with pytest.raises(ValueError,match='budget'):m.supervise(b['root'])
     from tools.canary.task13_continuation.recovery_admission import slot_state
     assert slot_state(b['prefix'],b['history'])=='ABSENT'
@@ -409,7 +409,7 @@ def test_v2_late_preflight_budget_refuses_before_launch_slot(supervisor_case,mon
         if clock=='utc':auth.capsule['expires_utc']=(datetime.now(timezone.utc)+timedelta(seconds=779)).isoformat()
         else:auth.capsule['deadline_mono_ns']=time.monotonic_ns()+779*10**9
         return {}
-    monkeypatch.setattr(m,'_reconcile',preflight)
+    monkeypatch.setattr(m,'reconcile_recovery',preflight)
     monkeypatch.setattr(m,'ready_guard',lambda context,a,state,seconds:require_budget(a,seconds))
     monkeypatch.setattr(m.subprocess,'Popen',lambda *args,**kwargs:spawned.append(True))
     with pytest.raises(ValueError,match='budget'):m.supervise(b['root'])

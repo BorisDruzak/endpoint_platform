@@ -6,8 +6,7 @@ import time
 from .codec import canonical,digest,parse_json,require,sha256
 from .storage import ProtectedStore
 from .transport import ContinuationTransport,utc,validate_command
-from .loader import _reconcile
-from .recovery_loader import reviewed_recovery,root_argv,entry_flag,create_live,ready_guard,require_budget
+from .recovery_loader import reviewed_recovery,root_argv,entry_flag,create_live,ready_guard,require_budget,reconcile_recovery
 from .recovery_admission import require_unused_slot,slot_path,validate_launch_record,_commit_native,hold_slot
 from .recovery_permission_v2 import verify_recovery_permission
 from .recovery_receipt import verify_recovery_receipt
@@ -37,7 +36,7 @@ def supervise(root):
         initial_budget,launch_budget=(840,780) if b['control']['protocol_version']==2 else (480,420)
         require_budget(auth,initial_budget)
         transport=ContinuationTransport(s,auth)
-        preflight=_reconcile(p,auth,transport,b['operations'],b['entries']);s.create('launch-preflight.json',canonical(preflight))
+        preflight=reconcile_recovery(b,auth,transport);s.create('launch-preflight.json',canonical(preflight))
         argv=root_argv(b['root'],b['control'],entry_flag(b['control'],'execute-child'))
         command=validate_command(argv);ready_guard(b,auth,preflight,launch_budget)
         launch=dict(schema='task13_recovery_launch_slot_v1',original=p.binding,history_sha256=digest(h),
