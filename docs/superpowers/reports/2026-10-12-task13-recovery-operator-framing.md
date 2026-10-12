@@ -29,15 +29,17 @@ All eight read-only transport pairs completed with exit0. The native root
 nevertheless exited1, wait0, with complete streams and no timeout. The unchanged
 sealed current predicate refused `safe fixed recovery adapter gate` at the
 known-PID identity loop. Historical reference index3 was present=True in
-current, then PROCESS_ABSENT in the independent identity observation. Both
+current and PROCESS_ABSENT in the independent identity observation. Both
 native identity samples were ABSENT with error87 and CIM count0; no row error
 or observer collision existed. All other known/pair rows were admissible.
 
-Current sample: 2026-10-12T09:06:34.8365887Z.
-Identity sample: 2026-10-12T09:06:35.2756266Z, 0.4390379 seconds later.
-Their dispatch brackets overlapped. D had present=False/PROCESS_ABSENT for
-the same historical reference. Cross-observation inconsistency is proven;
-the identity or activity of the briefly observed process is not established.
+Current aggregate output UTC: 2026-10-12T09:06:34.8365887Z.
+Identity aggregate output UTC: 2026-10-12T09:06:35.2756266Z, 0.4390379 seconds later.
+These are not per-reference sample timestamps; dispatch brackets overlapped.
+The current row has neither birth identity nor its own timestamp. D had
+present=False/PROCESS_ABSENT for the same historical reference.
+Cross-observation inconsistency is proven; chronological disappearance,
+occupant identity and the underlying cause of the inconsistency are UNKNOWN.
 The guard correctly failed closed. No predicate was relaxed or historical
 source changed to admit the observation.
 
