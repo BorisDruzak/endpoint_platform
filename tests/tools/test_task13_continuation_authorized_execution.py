@@ -66,6 +66,7 @@ def test_fixed_independent_admission_and_oldclaim_preserved():
     assert admission['historical_rca']=='UNKNOWN'
     assert recovery_launch_path(prefix).read_bytes()==before
 
+@pytest.mark.skipif(not os.environ.get('TASK13_HISTORICAL_ROOT'),reason='private retained admission')
 def test_changed_admission_audit_refuses(monkeypatch):
     from tools.canary.task13_continuation.authorized_execution import capture_admission
     read=ProtectedStore.read
