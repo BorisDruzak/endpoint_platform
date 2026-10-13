@@ -510,6 +510,9 @@ def test_windows_api_order_and_errors(tmp_path, monkeypatch, failure):
     constants = SimpleNamespace(GENERIC_READ=1, GENERIC_WRITE=2, FILE_SHARE_READ=4, FILE_SHARE_WRITE=8,
                                FILE_SHARE_DELETE=16, OPEN_EXISTING=32, FILE_FLAG_BACKUP_SEMANTICS=64)
     monkeypatch.setitem(sys.modules, "win32con", constants)
+    # Native FILETIME conversion imports this dependency; the simulated API
+    # fixture must supply it on POSIX too, without requiring real pywin32.
+    monkeypatch.setitem(sys.modules, "win32timezone", SimpleNamespace())
     monkeypatch.setitem(sys.modules, "pywintypes", SimpleNamespace(error=type("NativeError", (Exception,), {})))
     monkeypatch.setitem(sys.modules, "win32file", SimpleNamespace(CreateFile=create, FlushFileBuffers=flush,
                                                                GetFileInformationByHandle=lambda handle: (0x400 if failure == "reparse" else 0,),
