@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import hashlib
+import runpy
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -16,6 +17,46 @@ from pc_agent.windows_setup import (
     SetupOutcome,
     SetupProvisionError,
 )
+
+
+@pytest.mark.parametrize(
+    "operation",
+    ["recovery", "native-cost", "disk-cost", "recovery-cost", "installed", "handoff"],
+)
+def test_setup_file_entry_executes_package_helpers(tmp_path, monkeypatch, operation):
+    """PyInstaller executes the selected source file without a parent package."""
+    from pc_agent.platform.windows import installation_provenance, msi_disk_costing, msi_inventory
+    from pc_agent.platform.windows.update_paths import WindowsUpdatePaths
+
+    _write_public_payload(tmp_path)
+    entry = runpy.run_path(setup_entry.__file__)
+    assert not entry["__package__"]
+    namespace = entry["_embedded_recovery_operation"].__globals__
+    namespace["_data_root"] = lambda: tmp_path / "data"
+    paths = WindowsUpdatePaths.production()
+    media = tmp_path / "EndpointAgent.msi"
+    costs = [(tmp_path, 4096)]
+    monkeypatch.setattr(msi_disk_costing, "msi_disk_allocations", lambda *a, **kw: costs.copy())
+    monkeypatch.setattr(installation_provenance, "preparation_allocations", lambda *a: ([], []))
+    monkeypatch.setattr(msi_inventory, "installed_feature_state", lambda _: "absent")
+
+    if operation == "recovery":
+        assert namespace["_embedded_recovery_operation"](media) is None
+    elif operation == "native-cost":
+        assert namespace["_msi_disk_costs"](media) == costs
+    elif operation in {"disk-cost", "recovery-cost"}:
+        if operation == "recovery-cost":
+            monkeypatch.setattr(
+                installation_provenance, "recovery_cost_authority",
+                lambda *a: SimpleNamespace(allocations=[]),
+            )
+        allocations = namespace["_setup_disk_allocations"](media, paths)
+        assert allocations[0] == costs[0]
+        assert (paths.install_root.parent / "installer-cache", media.stat().st_size) in allocations
+    elif operation == "installed":
+        assert namespace["_installed_msi_version"]() is None
+    else:
+        assert namespace["_msi_reconciliation_required"](media, paths=paths)
 
 
 @pytest.fixture(autouse=True)

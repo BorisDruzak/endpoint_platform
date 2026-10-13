@@ -166,7 +166,7 @@ def _verify_embedded_msi(msi_path: Path) -> tuple[Path, Path]:
 
 def _embedded_recovery_operation(msi_path: Path) -> str | None:
     manifest_path, _ = _verify_embedded_msi(msi_path)
-    from .installer_fence import read_fence
+    from pc_agent.platform.windows.installer_fence import read_fence
     fence = read_fence(WindowsUpdatePaths.production())
     if fence is not None:
         release = json.loads(manifest_path.read_text(encoding='utf-8'))
@@ -217,7 +217,7 @@ def _install_embedded_msi(msi_path: Path) -> int:
 
 
 def _msi_disk_costs(msi_path: Path, *, recovery_context=None) -> list[tuple[Path, int]]:
-    from .msi_disk_costing import MsiCostError, msi_disk_allocations
+    from pc_agent.platform.windows.msi_disk_costing import MsiCostError, msi_disk_allocations
     try:
         return msi_disk_allocations(msi_path) if recovery_context is None else msi_disk_allocations(msi_path,recovery_context=recovery_context)
     except MsiCostError as error:
@@ -230,7 +230,7 @@ def _setup_disk_allocations(
     msi_path: Path, paths: WindowsUpdatePaths
 ) -> list[tuple[Path, int]]:
     """One package-bound read-only plan for native, wrapper and retained copies."""
-    from . import installation_provenance as provenance, msi_inventory
+    from pc_agent.platform.windows import installation_provenance as provenance, msi_inventory
     from endpoint_contracts.runtime_payload import read_json
 
     manifest_path, _wrapper = _verify_embedded_msi(msi_path)
@@ -251,7 +251,7 @@ def _setup_disk_allocations(
             paths, inspected, expected, msi_path
         )
     else:
-        from .msi_disk_costing import RecoveryCostContext
+        from pc_agent.platform.windows.msi_disk_costing import RecoveryCostContext
 
         allocations = _msi_disk_costs(
             msi_path, recovery_context=RecoveryCostContext(paths, release)
@@ -438,9 +438,9 @@ def _installed_product_version(product_code: str) -> str | None:
 
 def _installed_msi_version() -> str | None:
     """Trust an installed MSI version only with matching protected cache and product."""
-    from .installer_fence import state_root,assert_state_security
-    from .installation_provenance import _read
-    from .msi_inventory import read_expected_package, verify_foundation
+    from pc_agent.platform.windows.installer_fence import state_root,assert_state_security
+    from pc_agent.platform.windows.installation_provenance import _read
+    from pc_agent.platform.windows.msi_inventory import read_expected_package, verify_foundation
     from endpoint_contracts.runtime_payload import read_json
     paths = WindowsUpdatePaths.production()
     foundation = state_root(paths) / 'foundation.json'
@@ -514,8 +514,8 @@ def _installed_msi_version() -> str | None:
 
 def _msi_reconciliation_required(msi_path: Path, *, paths=None) -> bool:
     """Version equality cannot prove the optional runtime feature or ownership."""
-    from . import installation_provenance as provenance, msi_inventory
-    from .installer_fence import state_root
+    from pc_agent.platform.windows import installation_provenance as provenance, msi_inventory
+    from pc_agent.platform.windows.installer_fence import state_root
     from endpoint_contracts.runtime_payload import read_json
     paths = WindowsUpdatePaths.production() if paths is None else paths
     try:
