@@ -1,7 +1,7 @@
 """Synthetic authority predicates and owned local Windows storage; no VM calls."""
 import copy
 import os
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 from concurrent.futures import ThreadPoolExecutor
 from types import SimpleNamespace
 from uuid import uuid4
@@ -18,7 +18,19 @@ pytestmark = pytest.mark.no_db
 
 
 @pytest.fixture
-def auth_inputs():
+def clocks(monkeypatch):
+    values = [datetime(2026, 1, 1, tzinfo=timezone.utc), 10 * 10**9]
+    class Clock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return values[0].astimezone(tz)
+    monkeypatch.setattr(authority, "datetime", Clock)
+    monkeypatch.setattr(authority.time, "monotonic_ns", lambda: values[1])
+    return values
+
+
+@pytest.fixture
+def auth_inputs(clocks):
     identity = {"host_id": "a" * 64, "boot_id": str(uuid4()), "pid": 1234,
                 "birth": 123456789, "token_sid": "S-1-5-18", "elevated": True}
     original = {"original_files": ORIGINAL_FILES, "original_tip": ORIGINAL_FILES["receipt-03-start-after-snapshot.json"],
@@ -67,22 +79,41 @@ def test_unsealed_capsule_authority_attestation_or_review_refused(auth_inputs, w
         authority.validate_authorization(*args)
 
 
-def test_expired_and_utc_rollback_refuse_without_time_adjustment(auth_inputs, monkeypatch):
-    c, a, att, r, t, i = auth_inputs
-    expired = copy.deepcopy(auth_inputs)
-    for key in ("created_utc","expires_utc"):
-        expired[0][key] = (authority.instant(c[key])-timedelta(seconds=1300)).isoformat()
-    for key in ("created_mono_ns","deadline_mono_ns"):
-        expired[0][key] -= 1300*10**9
-    expired[2]["capsule_sha256"] = digest(expired[0])
-    expired[4]["attestation_sha256"] = digest(expired[2])
+def test_expired_and_utc_rollback_refuse_without_time_adjustment(auth_inputs, clocks, monkeypatch):
+    clocks[0] += timedelta(seconds=1200)
     with pytest.raises(ValueError, match="expired"):
-        authority.validate_authorization(*expired)
+        authority.validate_authorization(*auth_inputs)
+    clocks[0] -= timedelta(seconds=1200)
     live = authority.LiveAuthorization(*auth_inputs)
-    monkeypatch.setattr("tools.canary.task13_continuation.windows.observe_controller", lambda: i)
+    monkeypatch.setattr("tools.canary.task13_continuation.windows.observe_controller", lambda: auth_inputs[-1])
+    clocks[0] += timedelta(seconds=2)
+    clocks[1] += 2 * 10**9
     live.check()
-    live.last_utc = authority.instant(c["expires_utc"])
-    with pytest.raises(ValueError):
+    clocks[0] -= timedelta(seconds=1)
+    with pytest.raises(ValueError, match="clock rollback"):
+        live.check()
+
+
+@pytest.mark.parametrize("elapsed", [1198, 1200, 1300])
+def test_monotonic_deadline_and_settlement_reserve_refuse(auth_inputs, clocks, monkeypatch, elapsed):
+    live = authority.LiveAuthorization(*auth_inputs)
+    monkeypatch.setattr("tools.canary.task13_continuation.windows.observe_controller", lambda: auth_inputs[-1])
+    clocks[1] += elapsed * 10**9
+    with pytest.raises(ValueError, match="expired"):
+        authority.validate_authorization(*auth_inputs)
+    with pytest.raises(ValueError, match="expired"):
+        live.check()
+
+
+def test_low_uptime_live_clock_boundaries(auth_inputs, clocks, monkeypatch):
+    live = authority.LiveAuthorization(*auth_inputs)
+    monkeypatch.setattr("tools.canary.task13_continuation.windows.observe_controller", lambda: auth_inputs[-1])
+    clocks[0] += timedelta(seconds=1197)
+    clocks[1] += 1197 * 10**9
+    authority.validate_authorization(*auth_inputs)
+    live.check()
+    clocks[0] += timedelta(seconds=3)
+    with pytest.raises(ValueError, match="expired"):
         live.check()
 
 
