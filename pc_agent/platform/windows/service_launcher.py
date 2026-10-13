@@ -79,7 +79,7 @@ def stop_tray_companions(paths: WindowsUpdatePaths | None = None) -> None:
 
 def _verify_selected_runtime(paths: WindowsUpdatePaths, selector: dict) -> None:
     """Affirm ownership at boot without adding MSI imports to the worker."""
-    from .installation_provenance import _selector, _inspect_core_value, ProvenanceConflict
+    from pc_agent.platform.windows.installation_provenance import _selector, _inspect_core_value, ProvenanceConflict
     selector_bytes, observed = _selector(paths.current_path)
     if observed != selector:
         raise ProvenanceConflict()
@@ -89,7 +89,7 @@ def _verify_selected_runtime(paths: WindowsUpdatePaths, selector: dict) -> None:
 def build_agent_child_command(paths: WindowsUpdatePaths | None = None) -> list[str]:
     """Resolve the immutable runtime selected by the strict current selector."""
     paths = paths or WindowsUpdatePaths.production()
-    from .installer_fence import assert_launch_allowed
+    from pc_agent.platform.windows.installer_fence import assert_launch_allowed
     assert_launch_allowed(paths)
     _reject_reparse_chain(paths.install_root, paths.current_path)
     try:

@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import runpy
 import subprocess
 import sys
 import threading
@@ -713,6 +714,32 @@ def test_boot_rejects_executable_without_any_ownership_evidence(tmp_path,monkeyp
     paths.current_path.write_text('{"version":"3.1.76"}')
     with pytest.raises(ValueError,match='PROVENANCE_CONFLICT'):
         service_launcher.build_agent_child_command(paths)
+
+
+@pytest.mark.parametrize("defect", [None, "changed_payload", "incompatible_floor"])
+def test_service_file_entry_checks_selected_runtime_ownership(tmp_path, monkeypatch, defect):
+    from pc_agent.platform.windows import service_launcher, installation_provenance
+    from pc_agent.tests.windows.test_installation_provenance import zip_core
+
+    paths = WindowsUpdatePaths(tmp_path / "Agent", tmp_path / "data/updates/pending_update.json")
+    root = zip_core(
+        paths, version="3.2.83",
+        minimum="3.2.83" if defect == "incompatible_floor" else "3.2.82",
+    )
+    monkeypatch.setattr(installation_provenance, "_assert_security", lambda _: None)
+    entry = runpy.run_path(service_launcher.__file__)
+    assert not entry["__package__"]
+    command_factory = entry["build_agent_child_command"]
+    command_factory.__globals__["AGENT_VERSION"] = "3.2.82"
+    if defect == "changed_payload":
+        (root / "pc_agent.exe").write_bytes(b"changed")
+    if defect:
+        with pytest.raises(ValueError, match="PROVENANCE_CONFLICT"):
+            command_factory(paths)
+    else:
+        command = command_factory(paths)
+        assert command[0] == str(root / "pc_agent.exe")
+        assert command[-2:] == ["--launcher-version", "3.2.82"]
 
 
 @pytest.mark.parametrize('defect',[None,'missing_receipt','missing_manifest','changed_payload','wrong_source','incompatible_floor','ambiguous_owner'])
