@@ -102,14 +102,15 @@ Export-MsiInspection $Msi $Output
     assert cleanup['condition']=='NOT ENDPOINT_UNINSTALL_FINALIZE'
 
 
-@pytest.mark.parametrize('defect',['none','unknown','condition','feature','guard_type','guard_order'])
+@pytest.mark.parametrize('defect',['none','unknown','condition','feature','guard_type','guard_order',
+    'capture_type','capture_source','capture_value','capture_condition','capture_order','capture_missing'])
 def test_compiled_finalization_sequence_rejects_unreviewed_reachable_actions(tmp_path,defect):
     import subprocess
     powershell = shutil.which("powershell.exe") or shutil.which("pwsh")
     if powershell is None:
         pytest.skip("PowerShell is required to execute the extracted finalization audit; static WXS checks still run")
     sequence=[{'action':name,'condition':'','sequence':number} for name,number in
-        [('CostFinalize',1000),('InstallerOwnerPreflight',1002),('InstallInitialize',1500),
+        [('CostFinalize',1000),('InstallerOwnerPreflight',1022),('InstallInitialize',1500),
          ('InstallerOwnerEnter',1501),('InstallerOwnerComplete',6599),('InstallFinalize',6600)]]
     for name,number in [('ProcessComponents',1600),('StopServices',1900),('RemoveFiles',3500),
                         ('RegisterUser',6000),('RegisterProduct',6100),('PublishFeatures',6300),('PublishProduct',6400),('RemoveExistingProducts',6501)]:
@@ -119,7 +120,23 @@ def test_compiled_finalization_sequence_rejects_unreviewed_reachable_actions(tmp
         'feature_conditions':[{'feature':name,'level':'0','condition':'ENDPOINT_UNINSTALL_FINALIZE = 1'} for name in ['EndpointAgentFeature','EndpointAgentInitialRuntimeFeature']],
         'custom_actions':[{'action':name,'type':kind,'source':'EndpointInstallerHost'} for name,kind in
             [('InstallerOwnerPreflight',8194),('InstallerOwnerEnter',11266),('InstallerOwnerComplete',11778)]]}
-    if defect=='unknown': sequence.append({'action':'UnreviewedMutation','condition':'','sequence':3000})
+    captures=[]
+    for stem,prop,expression in [('FoundationInstalled','EndpointFoundationInstalled','!EndpointAgentFeature'),
+            ('FoundationAction','EndpointFoundationAction','&EndpointAgentFeature'),
+            ('RuntimeInstalled','EndpointRuntimeInstalled','!EndpointAgentInitialRuntimeFeature'),
+            ('RuntimeAction','EndpointRuntimeAction','&EndpointAgentInitialRuntimeFeature')]:
+        for label,value in [('Reset','0'),('Unknown','-1'),('Advertised','1'),('Absent','2'),('Local','3')]:
+            name='Reset'+stem if label=='Reset' else 'Capture'+stem+label
+            action={'action':name,'type':51,'source':prop,'target':value}
+            row={'action':name,'condition':'' if label=='Reset' else expression+' = '+value,'sequence':1002+len(captures)}
+            captures.append((action,row));inspection['custom_actions'].append(action);sequence.append(row)
+    if defect=='capture_type': captures[0][0]['type']=50
+    elif defect=='capture_source': captures[0][0]['source']='ENDPOINT_INSTALLER_SESSION'
+    elif defect=='capture_value': captures[0][0]['target']='3'
+    elif defect=='capture_condition': captures[0][1]['condition']='1'
+    elif defect=='capture_order': captures[0][1]['sequence']=1023
+    elif defect=='capture_missing': sequence.remove(captures[0][1])
+    elif defect=='unknown': sequence.append({'action':'UnreviewedMutation','condition':'','sequence':3000})
     elif defect=='condition': sequence[6]['condition']='NOT ENDPOINT_UNINSTALL_FINALIZE OR 1'
     elif defect=='feature': inspection['feature_conditions'].pop()
     elif defect=='guard_type': inspection['custom_actions'][1]['type']=1154
@@ -630,7 +647,7 @@ def test_owner_guards_are_embedded_and_have_no_unowned_rollback_writer() -> None
         assert action.get("HideTarget")=="yes"
     sequence=_all_elements(_trees(),"Custom")
     preflight=next(item for item in sequence if item.get("Action")=="InstallerOwnerPreflight")
-    assert preflight.get("After")=="ClassifyRuntimeRetirement"
+    assert preflight.get("After")=="CaptureRuntimeActionLocal"
     classifier=next(item for item in sequence if item.get("Action")=="ClassifyRuntimeRetirement")
     assert classifier.get("After")=="CostFinalize"
     assert "&EndpointAgentInitialRuntimeFeature = 2" in classifier.get("Condition")

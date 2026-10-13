@@ -252,6 +252,27 @@ function Assert-UninstallFinalizationSequence {
         'CostInitialize', 'FileCost', 'CostFinalize', 'InstallValidate',
         'InstallInitialize', 'InstallExecute', 'InstallFinalize')
     $guardTypes = @{ InstallerOwnerPreflight = 8194; InstallerOwnerEnter = 11266; InstallerOwnerComplete = 11778 }
+    # Exact Type-51 capture actions are read-only MSI session property writes.
+    # Their native feature conditions and ordering must not be caller inputs.
+    $featureCaptures = @{}
+    $captureOrder = @()
+    foreach ($featureInput in @(
+        @{ Stem = 'FoundationInstalled'; Property = 'EndpointFoundationInstalled'; Expression = '!EndpointAgentFeature' },
+        @{ Stem = 'FoundationAction'; Property = 'EndpointFoundationAction'; Expression = '&EndpointAgentFeature' },
+        @{ Stem = 'RuntimeInstalled'; Property = 'EndpointRuntimeInstalled'; Expression = '!EndpointAgentInitialRuntimeFeature' },
+        @{ Stem = 'RuntimeAction'; Property = 'EndpointRuntimeAction'; Expression = '&EndpointAgentInitialRuntimeFeature' }
+    )) {
+        $name = 'Reset' + $featureInput.Stem
+        $featureCaptures[$name] = @{ Property = $featureInput.Property; Value = '0'; Condition = '' }
+        $captureOrder += $name
+        foreach ($state in @(@{ Label = 'Unknown'; Value = '-1' }, @{ Label = 'Advertised'; Value = '1' },
+                             @{ Label = 'Absent'; Value = '2' }, @{ Label = 'Local'; Value = '3' })) {
+            $name = 'Capture' + $featureInput.Stem + $state.Label
+            $featureCaptures[$name] = @{ Property = $featureInput.Property; Value = $state.Value;
+                Condition = $featureInput.Expression + ' = ' + $state.Value }
+            $captureOrder += $name
+        }
+    }
     $suppressedConditions = @('NOT ENDPOINT_UNINSTALL_FINALIZE',
         'NOT ENDPOINT_UNINSTALL_FINALIZE AND NOT ENDPOINT_RUNTIME_RETIRE',
         'NOT ENDPOINT_UNINSTALL_FINALIZE AND &EndpointAgentFeature = 3 AND NOT ENDPOINT_RUNTIME_RETIRE AND NOT REMOVE~="ALL"',
@@ -263,6 +284,12 @@ function Assert-UninstallFinalizationSequence {
         $rows[$name] = $row
         if ($guardTypes.ContainsKey($name)) {
             if (-not [string]::IsNullOrEmpty([string]$row.condition)) { throw "Conditional owner guard: $name" }
+        } elseif ($featureCaptures.ContainsKey($name)) {
+            $expected = $featureCaptures[$name]
+            $actions = @($Inspection.custom_actions | Where-Object action -eq $name)
+            if ($actions.Count -ne 1 -or [int]$actions[0].type -ne 51 -or
+                [string]$actions[0].source -cne $expected.Property -or [string]$actions[0].target -cne $expected.Value -or
+                [string]$row.condition -cne $expected.Condition) { throw "Invalid native feature capture: $name" }
         } elseif ($name -in $readOnly) {
             if (@($Inspection.custom_actions | Where-Object action -eq $name).Count) { throw "Custom action shadows a standard action: $name" }
         } elseif ([string]$row.condition -cnotin $suppressedConditions) {
@@ -282,7 +309,7 @@ function Assert-UninstallFinalizationSequence {
         }
     }
     $previous = -1
-    foreach ($name in @('CostFinalize', 'InstallerOwnerPreflight', 'InstallInitialize', 'InstallerOwnerEnter', 'ProcessComponents', 'InstallerOwnerComplete', 'InstallFinalize')) {
+    foreach ($name in @('CostFinalize') + $captureOrder + @('InstallerOwnerPreflight', 'InstallInitialize', 'InstallerOwnerEnter', 'ProcessComponents', 'InstallerOwnerComplete', 'InstallFinalize')) {
         if (-not $rows.ContainsKey($name) -or [int]$rows[$name].sequence -le $previous) { throw "Unsafe owner guard ordering: $name" }
         $previous = [int]$rows[$name].sequence
     }

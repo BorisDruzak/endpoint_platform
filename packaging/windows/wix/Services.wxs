@@ -80,7 +80,7 @@
     <CustomAction Id="ScheduleEndpointRootCleanup" BinaryRef="Wix4UtilCA_X64"
                   DllEntry="WixRemoveFoldersEx" Execute="immediate" Return="ignore" />
     <CustomAction Id="InstallerOwnerPreflight" BinaryRef="EndpointInstallerHost"
-                  ExeCommand="--installer-phase msi-preflight --installer-session &quot;[ENDPOINT_INSTALLER_SESSION]&quot; --foundation-state &quot;[!EndpointAgentFeature]&quot; --foundation-action &quot;[&amp;EndpointAgentFeature]&quot; --runtime-state &quot;[!EndpointAgentInitialRuntimeFeature]&quot; --runtime-action &quot;[&amp;EndpointAgentInitialRuntimeFeature]&quot; --rollback-disabled &quot;[RollbackDisabled]&quot; --uninstall-finalization &quot;[ENDPOINT_UNINSTALL_FINALIZE]&quot;"
+                  ExeCommand="--installer-phase msi-preflight --installer-session &quot;[ENDPOINT_INSTALLER_SESSION]&quot; --foundation-state &quot;[EndpointFoundationInstalled]&quot; --foundation-action &quot;[EndpointFoundationAction]&quot; --runtime-state &quot;[EndpointRuntimeInstalled]&quot; --runtime-action &quot;[EndpointRuntimeAction]&quot; --rollback-disabled &quot;[RollbackDisabled]&quot; --uninstall-finalization &quot;[ENDPOINT_UNINSTALL_FINALIZE]&quot;"
                   Execute="immediate" Return="check" HideTarget="yes" />
     <CustomAction Id="InstallerOwnerEnter" BinaryRef="EndpointInstallerHost"
                   ExeCommand="--installer-phase msi-enter --installer-session &quot;[ENDPOINT_INSTALLER_SESSION]&quot;"
@@ -88,10 +88,53 @@
     <CustomAction Id="InstallerOwnerComplete" BinaryRef="EndpointInstallerHost"
                   ExeCommand="--installer-phase msi-complete --installer-session &quot;[ENDPOINT_INSTALLER_SESSION]&quot;"
                   Execute="commit" Impersonate="no" Return="check" HideTarget="yes" />
+    <!-- Feature-state syntax is valid in conditions, not formatted EXE arguments.
+         Reset private properties first; capture only native costed states.
+         Unknown/unhandled values remain invalid to the owner preflight. -->
+    <CustomAction Id="ResetFoundationInstalled" Property="EndpointFoundationInstalled" Value="0" />
+    <CustomAction Id="CaptureFoundationInstalledUnknown" Property="EndpointFoundationInstalled" Value="-1" />
+    <CustomAction Id="CaptureFoundationInstalledAdvertised" Property="EndpointFoundationInstalled" Value="1" />
+    <CustomAction Id="CaptureFoundationInstalledAbsent" Property="EndpointFoundationInstalled" Value="2" />
+    <CustomAction Id="CaptureFoundationInstalledLocal" Property="EndpointFoundationInstalled" Value="3" />
+    <CustomAction Id="ResetFoundationAction" Property="EndpointFoundationAction" Value="0" />
+    <CustomAction Id="CaptureFoundationActionUnknown" Property="EndpointFoundationAction" Value="-1" />
+    <CustomAction Id="CaptureFoundationActionAdvertised" Property="EndpointFoundationAction" Value="1" />
+    <CustomAction Id="CaptureFoundationActionAbsent" Property="EndpointFoundationAction" Value="2" />
+    <CustomAction Id="CaptureFoundationActionLocal" Property="EndpointFoundationAction" Value="3" />
+    <CustomAction Id="ResetRuntimeInstalled" Property="EndpointRuntimeInstalled" Value="0" />
+    <CustomAction Id="CaptureRuntimeInstalledUnknown" Property="EndpointRuntimeInstalled" Value="-1" />
+    <CustomAction Id="CaptureRuntimeInstalledAdvertised" Property="EndpointRuntimeInstalled" Value="1" />
+    <CustomAction Id="CaptureRuntimeInstalledAbsent" Property="EndpointRuntimeInstalled" Value="2" />
+    <CustomAction Id="CaptureRuntimeInstalledLocal" Property="EndpointRuntimeInstalled" Value="3" />
+    <CustomAction Id="ResetRuntimeAction" Property="EndpointRuntimeAction" Value="0" />
+    <CustomAction Id="CaptureRuntimeActionUnknown" Property="EndpointRuntimeAction" Value="-1" />
+    <CustomAction Id="CaptureRuntimeActionAdvertised" Property="EndpointRuntimeAction" Value="1" />
+    <CustomAction Id="CaptureRuntimeActionAbsent" Property="EndpointRuntimeAction" Value="2" />
+    <CustomAction Id="CaptureRuntimeActionLocal" Property="EndpointRuntimeAction" Value="3" />
     <InstallExecuteSequence>
       <Custom Action="ClassifyRuntimeRetirement" After="CostFinalize"
               Condition="NOT ENDPOINT_UNINSTALL_FINALIZE AND (!EndpointAgentInitialRuntimeFeature = 3 OR !EndpointAgentInitialRuntimeFeature = 2) AND &amp;EndpointAgentInitialRuntimeFeature = 2 AND &amp;EndpointAgentFeature = 3" />
-      <Custom Action="InstallerOwnerPreflight" After="ClassifyRuntimeRetirement" />
+      <Custom Action="ResetFoundationInstalled" After="ClassifyRuntimeRetirement" />
+      <Custom Action="CaptureFoundationInstalledUnknown" After="ResetFoundationInstalled" Condition="!EndpointAgentFeature = -1" />
+      <Custom Action="CaptureFoundationInstalledAdvertised" After="CaptureFoundationInstalledUnknown" Condition="!EndpointAgentFeature = 1" />
+      <Custom Action="CaptureFoundationInstalledAbsent" After="CaptureFoundationInstalledAdvertised" Condition="!EndpointAgentFeature = 2" />
+      <Custom Action="CaptureFoundationInstalledLocal" After="CaptureFoundationInstalledAbsent" Condition="!EndpointAgentFeature = 3" />
+      <Custom Action="ResetFoundationAction" After="CaptureFoundationInstalledLocal" />
+      <Custom Action="CaptureFoundationActionUnknown" After="ResetFoundationAction" Condition="&amp;EndpointAgentFeature = -1" />
+      <Custom Action="CaptureFoundationActionAdvertised" After="CaptureFoundationActionUnknown" Condition="&amp;EndpointAgentFeature = 1" />
+      <Custom Action="CaptureFoundationActionAbsent" After="CaptureFoundationActionAdvertised" Condition="&amp;EndpointAgentFeature = 2" />
+      <Custom Action="CaptureFoundationActionLocal" After="CaptureFoundationActionAbsent" Condition="&amp;EndpointAgentFeature = 3" />
+      <Custom Action="ResetRuntimeInstalled" After="CaptureFoundationActionLocal" />
+      <Custom Action="CaptureRuntimeInstalledUnknown" After="ResetRuntimeInstalled" Condition="!EndpointAgentInitialRuntimeFeature = -1" />
+      <Custom Action="CaptureRuntimeInstalledAdvertised" After="CaptureRuntimeInstalledUnknown" Condition="!EndpointAgentInitialRuntimeFeature = 1" />
+      <Custom Action="CaptureRuntimeInstalledAbsent" After="CaptureRuntimeInstalledAdvertised" Condition="!EndpointAgentInitialRuntimeFeature = 2" />
+      <Custom Action="CaptureRuntimeInstalledLocal" After="CaptureRuntimeInstalledAbsent" Condition="!EndpointAgentInitialRuntimeFeature = 3" />
+      <Custom Action="ResetRuntimeAction" After="CaptureRuntimeInstalledLocal" />
+      <Custom Action="CaptureRuntimeActionUnknown" After="ResetRuntimeAction" Condition="&amp;EndpointAgentInitialRuntimeFeature = -1" />
+      <Custom Action="CaptureRuntimeActionAdvertised" After="CaptureRuntimeActionUnknown" Condition="&amp;EndpointAgentInitialRuntimeFeature = 1" />
+      <Custom Action="CaptureRuntimeActionAbsent" After="CaptureRuntimeActionAdvertised" Condition="&amp;EndpointAgentInitialRuntimeFeature = 2" />
+      <Custom Action="CaptureRuntimeActionLocal" After="CaptureRuntimeActionAbsent" Condition="&amp;EndpointAgentInitialRuntimeFeature = 3" />
+      <Custom Action="InstallerOwnerPreflight" After="CaptureRuntimeActionLocal" />
       <Custom Action="InstallerOwnerEnter" After="InstallInitialize" />
       <Custom Action="InstallerOwnerComplete" Before="InstallFinalize" />
       <StopServices Condition="NOT ENDPOINT_UNINSTALL_FINALIZE AND NOT ENDPOINT_RUNTIME_RETIRE" />
