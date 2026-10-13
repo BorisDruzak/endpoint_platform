@@ -162,6 +162,18 @@ class SystemProbe:
             fields = line.lstrip("> ").split()
             if not fields or fields[0].upper() in {"USERNAME", "USER"}:
                 continue
+            if command == WINDOWS_QUERY_USER_COMMAND:
+                # query user can omit SESSIONNAME, but a genuine user row
+                # always has a numeric session ID followed by state/time.
+                # Headers are localized; service session zero is not a user.
+                id_index = 1 if len(fields) >= 4 and fields[1].isascii() and fields[1].isdigit() else 2
+                if (
+                    len(fields) < id_index + 3
+                    or not fields[id_index].isascii()
+                    or not fields[id_index].isdigit()
+                    or int(fields[id_index]) == 0
+                ):
+                    continue
             return {"current_user_login": fields[0][:256], "interactive_session_present": True}
         return {"current_user_login": None, "interactive_session_present": False}
 
@@ -181,9 +193,18 @@ class SystemProbe:
         if not executable:
             raise FileNotFoundError(command[0])
         try:
-            output = _execute_bounded_command((executable, *command[1:]), timeout_seconds, limit)
+            if command == WINDOWS_QUERY_USER_COMMAND:
+                # Error text is not a session. Keep stderr and nonzero exit
+                # codes out of this observation instead of guessing a login.
+                output = _execute_bounded_command(
+                    (executable, *command[1:]), timeout_seconds, limit, check_exit=True,
+                )
+            else:
+                output = _execute_bounded_command((executable, *command[1:]), timeout_seconds, limit)
         except subprocess.TimeoutExpired as exc:
             raise TimeoutError("context probe command timed out") from exc
+        if command == WINDOWS_QUERY_USER_COMMAND and os.name == "nt":
+            return output.decode("oem", errors="strict")
         return output.decode("utf-8", errors="replace")
 
 
