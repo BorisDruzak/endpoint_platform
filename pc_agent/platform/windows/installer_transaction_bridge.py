@@ -211,6 +211,9 @@ class NativeIdentity:
         import win32api
         import win32file
         import win32security
+        # pywin32 imports this from native FILETIME conversion, invisible to
+        # PyInstaller's Python import analysis unless the dependency is explicit.
+        import win32timezone  # noqa: F401
         self.stack=ExitStack()
         try:
             process=win32api.OpenProcess(0x00101000,False,pid)

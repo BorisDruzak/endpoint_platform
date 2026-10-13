@@ -377,6 +377,8 @@ def flush_directory(path: Path) -> None:
             import win32con  # type: ignore[import-not-found]
             import win32file  # type: ignore[import-not-found]
             import pywintypes  # type: ignore[import-not-found]
+            # GetFileInformationByHandle constructs timezone-aware FILETIMEs.
+            import win32timezone  # noqa: F401
         except ImportError as error:
             raise OSError("pywin32 is required for Windows directory durability") from error
         try:
