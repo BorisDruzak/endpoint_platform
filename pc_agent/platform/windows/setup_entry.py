@@ -704,7 +704,11 @@ def _write_install_log(
         f"{datetime.now(UTC).isoformat()} step={step} status={status} "
         f"code={code} detail={safe_detail}\n"
     )
-    path.parent.mkdir(parents=True, exist_ok=True)
+    # MSI owns creation/protection of Agent data. Before it runs, the public
+    # Installer result is sufficient; a plain mkdir would inherit Users write
+    # grants and make the wrapper's update-state ACL gate reject a clean install.
+    if not path.parent.is_dir():
+        return
     with path.open("a", encoding="utf-8", newline="\n") as target:
         target.write(line)
 

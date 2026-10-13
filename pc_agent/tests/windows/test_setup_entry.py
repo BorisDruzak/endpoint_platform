@@ -806,6 +806,19 @@ def test_install_log_never_persists_secret_detail(tmp_path: Path) -> None:
     assert "device_token" not in contents
 
 
+def test_setup_status_before_msi_does_not_create_unowned_agent_data(tmp_path, monkeypatch):
+    data_root = tmp_path / "not-yet-installed" / "Agent"
+    results = []
+    monkeypatch.setattr(setup_entry, "_write_install_result", lambda **fields: results.append(fields))
+
+    assert setup_entry._finish(
+        data_root, status="STARTED", code=0, stage="MSI", detail="STARTED"
+    ) == 0
+
+    assert not data_root.exists()
+    assert results == [{"status": "STARTED", "code": 0, "stage": "MSI", "detail": "STARTED"}]
+
+
 def test_valid_rerun_stops_before_msi_or_enrollment(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
