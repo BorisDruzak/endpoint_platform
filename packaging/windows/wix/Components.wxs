@@ -36,6 +36,14 @@
       </Component>
       <Component Id="cmpInstallRootCleanup" Directory="INSTALLFOLDER"
                  Guid="85851925-4D51-48E6-8E1E-8D6ED47E9F74" Bitness="always64">
+        <!-- MSI establishes the same trusted-writer policy the runtime checks.
+             Keep native owner and selector state; protect parents before files. -->
+        <CreateFolder>
+          <PermissionEx Id="ProtectInstallDirectory" Sddl="D:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;FRFX;;;BU)(A;OICI;FRFX;;;S-1-5-80-1102781572-1373263041-1070489469-7526906-1468061691)(A;OICI;FRFX;;;S-1-5-80-327494974-20047353-929432329-1920152597-707704661)" />
+        </CreateFolder>
+        <CreateFolder Directory="VERSIONSFOLDER">
+          <PermissionEx Id="ProtectVersionsDirectory" Sddl="D:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;FRFX;;;BU)(A;OICI;FRFX;;;S-1-5-80-1102781572-1373263041-1070489469-7526906-1468061691)(A;OICI;FRFX;;;S-1-5-80-327494974-20047353-929432329-1920152597-707704661)" />
+        </CreateFolder>
         <RegistryValue Root="HKLM" Key="Software\Endpoint Platform\Endpoint Agent"
                        Name="InstallRoot" Type="string" Value="[INSTALLFOLDER]"
                        KeyPath="yes" />
@@ -59,6 +67,9 @@
     <ComponentGroup Id="EndpointAgentInitialRuntimeComponents">
       <Component Id="cmpInitialRuntimeAnchor" Directory="INITIALRUNTIMEDIR"
                  Guid="$(var.InitialRuntimeComponentGuid)" Bitness="always64">
+        <CreateFolder>
+          <PermissionEx Id="ProtectInitialRuntimeDirectory" Sddl="D:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;FRFX;;;BU)(A;OICI;FRFX;;;S-1-5-80-1102781572-1373263041-1070489469-7526906-1468061691)(A;OICI;FRFX;;;S-1-5-80-327494974-20047353-929432329-1920152597-707704661)" />
+        </CreateFolder>
         <File Id="filInitialCore" Source="$(var.StagingDir)\ProgramFiles\versions\$(var.InitialRuntimeVersion)\pc_agent.exe"
               Name="pc_agent.exe" KeyPath="yes" />
         <RemoveFolder Id="RemoveInitialRuntimeDirectory" Directory="INITIALRUNTIMEDIR" On="uninstall" />

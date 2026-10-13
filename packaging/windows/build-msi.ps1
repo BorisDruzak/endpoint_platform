@@ -354,6 +354,25 @@ function Export-MsiInspection {
         }
         $inspection.all_sequences = @{}
         $tables = @(Read-MsiTable $database 'SELECT `Name` FROM `_Tables`' @('name'))
+        $inspection.tables = @($tables | ForEach-Object name)
+        if ('LockPermissions' -in $inspection.tables -or 'MsiLockPermissionsEx' -notin $inspection.tables) {
+            throw 'Native binary-directory protection table is missing or ambiguous.'
+        }
+        $inspection.binary_directory_security = @(Read-MsiTable $database 'SELECT `MsiLockPermissionsEx`, `LockObject`, `Table`, `SDDLText`, `Condition` FROM `MsiLockPermissionsEx`' @('id','object','table','sddl','condition'))
+        $folderRows = @(Read-MsiTable $database 'SELECT `Directory_`, `Component_` FROM `CreateFolder`' @('directory','component'))
+        $expectedFolders = @{ INSTALLFOLDER = 'cmpInstallRootCleanup'; VERSIONSFOLDER = 'cmpInstallRootCleanup'; INITIALRUNTIMEDIR = 'cmpInitialRuntimeAnchor' }
+        $expectedSddl = 'D:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;FRFX;;;BU)(A;OICI;FRFX;;;S-1-5-80-1102781572-1373263041-1070489469-7526906-1468061691)(A;OICI;FRFX;;;S-1-5-80-327494974-20047353-929432329-1920152597-707704661)'
+        if ($inspection.binary_directory_security.Count -ne $expectedFolders.Count) { throw 'Unexpected binary-directory security topology.' }
+        foreach ($directory in $expectedFolders.Keys) {
+            $permissions = @($inspection.binary_directory_security | Where-Object object -ceq $directory)
+            $folders = @($folderRows | Where-Object directory -ceq $directory)
+            if ($permissions.Count -ne 1 -or $folders.Count -ne 1 -or
+                $permissions[0].table -cne 'CreateFolder' -or $permissions[0].sddl -cne $expectedSddl -or
+                -not [string]::IsNullOrEmpty([string]$permissions[0].condition) -or
+                $folders[0].component -cne $expectedFolders[$directory]) {
+                throw 'Binary-directory protection or MSI component ownership differs.'
+            }
+        }
         foreach ($name in @('InstallExecuteSequence','InstallUISequence','AdminExecuteSequence','AdminUISequence','AdvtExecuteSequence')) {
             if (@($tables | Where-Object name -eq $name).Count) {
                 $inspection.all_sequences[$name] = @(Read-MsiTable $database ("SELECT ``Action``, ``Condition``, ``Sequence`` FROM ``{0}``" -f $name) @('action','condition','sequence'))
