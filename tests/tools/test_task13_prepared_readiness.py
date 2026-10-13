@@ -2,6 +2,7 @@
 import importlib
 import copy
 import os
+import stat
 import time
 from pathlib import Path
 from types import SimpleNamespace
@@ -169,6 +170,80 @@ def test_inaccessible_historical_subtree_is_not_silently_omitted(tmp_path,monkey
         yield root,[],[]
     monkeypatch.setattr(m.os,'walk',inaccessible)
     with pytest.raises(ValueError,match='enumeration unavailable'):m._catalogue(root)
+
+
+def test_posix_catalogue_accepts_regular_files_without_windows_attributes(tmp_path,monkeypatch):
+    m=importlib.import_module('tools.canary.task13_continuation.recovery_readiness_v2')
+    (tmp_path/'nested').mkdir();(tmp_path/'nested'/'old.json').write_bytes(b'unchanged')
+    original=Path.stat
+    def posix(path,**kwargs):
+        native=original(path,**kwargs)
+        return SimpleNamespace(**{name:getattr(native,name) for name in ('st_mode','st_dev','st_ino','st_nlink')})
+    monkeypatch.setattr(Path,'stat',posix)
+    assert m._catalogue(tmp_path)==(('nested','directory'),('nested/old.json','file'))
+
+
+@pytest.mark.parametrize('kind',['root','directory','file'])
+@pytest.mark.parametrize('platform',['posix','windows'])
+def test_catalogue_refuses_link_and_reparse_types(tmp_path,monkeypatch,kind,platform):
+    m=importlib.import_module('tools.canary.task13_continuation.recovery_readiness_v2')
+    (tmp_path/'nested').mkdir();(tmp_path/'old.json').write_bytes(b'unchanged')
+    target={'root':tmp_path,'directory':tmp_path/'nested','file':tmp_path/'old.json'}[kind]
+    original=Path.stat
+    def linked(path,**kwargs):
+        native=original(path,**kwargs)
+        values={name:getattr(native,name) for name in ('st_mode','st_dev','st_ino','st_nlink')}
+        if platform=='windows':values['st_file_attributes']=1024 if path==target else 0
+        elif path==target:values['st_mode']=stat.S_IFLNK|0o777
+        return SimpleNamespace(**values)
+    monkeypatch.setattr(Path,'stat',linked)
+    with pytest.raises(ValueError,match='catalogue'):m._catalogue(tmp_path)
+
+
+def test_catalogue_refuses_regular_file_replacement_during_enumeration(tmp_path,monkeypatch):
+    m=importlib.import_module('tools.canary.task13_continuation.recovery_readiness_v2')
+    item=tmp_path/'old.json';item.write_bytes(b'old')
+    def replaced(*args,**kwargs):
+        yield str(tmp_path),[],['old.json']
+        replacement=tmp_path/'new.json';replacement.write_bytes(b'new')
+        os.replace(replacement,item)
+    monkeypatch.setattr(m.os,'walk',replaced)
+    with pytest.raises(ValueError,match='catalogue.*changed'):m._catalogue(tmp_path)
+
+
+def test_catalogue_refuses_addition_after_directory_enumeration(tmp_path,monkeypatch):
+    m=importlib.import_module('tools.canary.task13_continuation.recovery_readiness_v2')
+    def added(*args,**kwargs):
+        yield str(tmp_path),[],[]
+        (tmp_path/'late.json').write_bytes(b'addition')
+    monkeypatch.setattr(m.os,'walk',added)
+    with pytest.raises(ValueError,match='catalogue.*changed'):m._catalogue(tmp_path)
+
+
+@pytest.mark.parametrize('kind',['root','directory','file'])
+def test_native_catalogue_refuses_symbolic_links(tmp_path,kind):
+    m=importlib.import_module('tools.canary.task13_continuation.recovery_readiness_v2')
+    root=tmp_path/'history';root.mkdir()
+    outside=tmp_path/'outside';outside.mkdir();(outside/'private.json').write_bytes(b'outside')
+    link=root/'link'
+    target=outside/'private.json' if kind=='file' else outside
+    if kind=='root':link=tmp_path/'root-link'
+    link.symlink_to(target,target_is_directory=kind!='file')
+    with pytest.raises(ValueError,match='catalogue'):m._catalogue(link if kind=='root' else root)
+
+
+def test_native_catalogue_refuses_linked_ancestor(tmp_path):
+    m=importlib.import_module('tools.canary.task13_continuation.recovery_readiness_v2')
+    outside=tmp_path/'outside';outside.mkdir();(outside/'history').mkdir()
+    link=tmp_path/'alias';link.symlink_to(outside,target_is_directory=True)
+    with pytest.raises(ValueError,match='catalogue'):m._catalogue(link/'history')
+
+
+@pytest.mark.skipif(os.name=='nt',reason='POSIX special-file type')
+def test_native_posix_catalogue_refuses_fifo(tmp_path):
+    m=importlib.import_module('tools.canary.task13_continuation.recovery_readiness_v2')
+    os.mkfifo(tmp_path/'pipe')
+    with pytest.raises(ValueError,match='catalogue'):m._catalogue(tmp_path)
 
 
 def test_history_addition_between_full_hash_and_snapshot_cannot_be_absorbed(owned,tmp_path,monkeypatch):

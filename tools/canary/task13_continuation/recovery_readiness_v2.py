@@ -54,16 +54,27 @@ def _bindings(bundle,auth):
 
 
 def _catalogue(root):
-    require(root.is_dir() and not root.stat(follow_symlinks=False).st_file_attributes&1024,'held historical catalogue root')
-    rows=[]
+    def identity(path,kind):
+        info=path.stat(follow_symlinks=False)
+        attributes=getattr(info,'st_file_attributes',0)
+        require(not attributes&file_stat.FILE_ATTRIBUTE_REPARSE_POINT
+            and (file_stat.S_ISDIR(info.st_mode) if kind=='directory' else file_stat.S_ISREG(info.st_mode)),
+            'historical catalogue type/reparse point')
+        return (info.st_dev,info.st_ino,info.st_mode,info.st_nlink,attributes,
+            getattr(info,'st_size',None),getattr(info,'st_mtime_ns',None),getattr(info,'st_ctime_ns',None))
+    for ancestor in root.parents:identity(ancestor,'directory')
+    identities={root:('directory',identity(root,'directory'))};rows=[]
     def inaccessible(error):raise ValueError('historical catalogue enumeration unavailable') from error
     for base,dirs,files in os.walk(root,followlinks=False,onerror=inaccessible):
+        base=Path(base)
+        require(base in identities and identity(base,'directory')==identities[base][1],
+            'historical catalogue directory changed')
         for name,kind in [(n,'directory') for n in dirs]+[(n,'file') for n in files]:
-            path=Path(base)/name;stat=path.stat(follow_symlinks=False)
-            require(not stat.st_file_attributes&1024 and (file_stat.S_ISDIR(stat.st_mode) if kind=='directory'
-                else file_stat.S_ISREG(stat.st_mode)),'historical catalogue type/reparse point')
+            path=base/name;identities[path]=(kind,identity(path,kind))
             rows.append((path.relative_to(root).as_posix(),kind))
             require(len(rows)<=10000,'bounded historical catalogue')
+    for path,(kind,original) in identities.items():
+        require(identity(path,kind)==original,'historical catalogue entry changed')
     return tuple(sorted(rows))
 
 
