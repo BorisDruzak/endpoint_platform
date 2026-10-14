@@ -21,9 +21,11 @@ from endpoint_contracts.runtime_payload import read_json, reject_reparse_ancesto
 from .installer_fence import assert_state_security, state_root
 from .update_paths import WindowsUpdatePaths
 
-PHASES = frozenset({'inspect','prepare','msi-preflight','msi-enter','recover-enter',
+PHASES = frozenset({'inspect','inspect-compound','prepare','msi-preflight','msi-enter','recover-enter',
     'foundation-config','msi-complete','reconcile','finish','verify-settled',
-    'uninstall-finalize-preflight','uninstall-finalize-enter','uninstall-finalize-complete'})
+    'uninstall-finalize-preflight','uninstall-finalize-enter','uninstall-finalize-complete',
+    'compound-old-returned','compound-new-returned','compound-commit','compound-retire','compound-complete',
+    'compound-repair-returned','compound-repair-commit'})
 _HASH = re.compile(r'\A[0-9a-f]{64}\Z')
 _CAP_FIELDS = {'schema_version','transaction_id','session_id','package','operation','pipe_name','owner',
     'helper_sha256','secret','selected','previous','service_states','recovery','uninstall_finalization'}
@@ -39,18 +41,22 @@ class InstallerServices:
     No start/stop operation exists here. A running legacy worker always wins.
     The authenticated phase persists its original snapshot before calling quarantine.
     """
-    def __init__(self,paths,*,api=None,checkpoint=lambda:None,flush=None):
+    def __init__(self,paths,*,api=None,checkpoint=lambda:None,flush=None,include_browser=False):
         if api is None:
             import win32service as api
         self.api=api;self.paths=paths;self.checkpoint=checkpoint
         self.flush=flush or self._flush_service
+        self.specs={'EndpointAgent':('endpoint-agent-service.exe','--agent-service',r'NT AUTHORITY\LocalService'),
+            'EndpointAgentUpdater':('endpoint-agent-updater.exe','--updater-service','LocalSystem')}
+        if include_browser:
+            self.specs['EndpointBrowserPolicy']=('EndpointBrowserPolicy.exe','','LocalSystem')
         self.stack=ExitStack();self.handles={}
 
     def __enter__(self):
         try:
             scm=self.api.OpenSCManager(None,None,1)
             self.stack.callback(self.api.CloseServiceHandle,scm)
-            for name in ('EndpointAgent','EndpointAgentUpdater'):
+            for name in self.specs:
                 try: handle=self.api.OpenService(scm,name,1|2|4)
                 except Exception as error:
                     if getattr(error,'winerror',None)!=1060: raise
@@ -67,7 +73,7 @@ class InstallerServices:
     @staticmethod
     def _flush_service(name):
         import winreg
-        if name not in {'EndpointAgent','EndpointAgentUpdater'}: _failed()
+        if name not in {'EndpointAgent','EndpointAgentUpdater','EndpointBrowserPolicy'}: _failed()
         with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE,
             'SYSTEM\\CurrentControlSet\\Services\\'+name,0,winreg.KEY_QUERY_VALUE|winreg.KEY_WOW64_64KEY) as key:
             winreg.FlushKey(key)
@@ -78,11 +84,10 @@ class InstallerServices:
             if handle is None:
                 result[name]=None;continue
             config=self.api.QueryServiceConfig(handle)
-            filename,argument,account=(('endpoint-agent-service.exe','--agent-service',r'NT AUTHORITY\LocalService')
-                if name=='EndpointAgent' else ('endpoint-agent-updater.exe','--updater-service','LocalSystem'))
+            filename,argument,account=self.specs[name]
             path=str(self.paths.install_root/filename)
-            commands={f'"{path}" {argument}'.casefold()}
-            if not any(char.isspace() for char in path): commands.add(f'{path} {argument}'.casefold())
+            commands={f'"{path}"{(" "+argument) if argument else ""}'.casefold()}
+            if not any(char.isspace() for char in path): commands.add(f'{path}{(" "+argument) if argument else ""}'.casefold())
             if config[0]!=16 or config[1] not in {2,3,4} or config[3].casefold() not in commands or config[7].casefold()!=account.casefold():
                 raise ValueError('PROVENANCE_CONFLICT')
             delayed=self.api.QueryServiceConfig2(handle,3)
@@ -121,8 +126,11 @@ class InstallerServices:
             raise ValueError('RECOVERY_REQUIRED')
 
     def restore_final(self):
-        self._apply({'EndpointAgent':{'start_type':2,'delayed_auto':False},
-            'EndpointAgentUpdater':{'start_type':3,'delayed_auto':False}})
+        desired={'EndpointAgent':{'start_type':2,'delayed_auto':False},
+            'EndpointAgentUpdater':{'start_type':3,'delayed_auto':False}}
+        if 'EndpointBrowserPolicy' in self.specs:
+            desired['EndpointBrowserPolicy']={'start_type':2,'delayed_auto':False}
+        self._apply(desired)
 
     def restore_original(self,original):
         # Caller must already have established the approved native barrier and
@@ -182,7 +190,7 @@ def _read_capability(paths,session_id):
     after=path.lstat()
     if (before.st_dev,before.st_ino,before.st_size,before.st_mtime_ns)!=(after.st_dev,after.st_ino,after.st_size,after.st_mtime_ns):
         _failed()
-    if (set(payload)!=_CAP_FIELDS or type(payload['schema_version']) is not int or payload['schema_version']!=1
+    if (set(payload) not in (_CAP_FIELDS,_CAP_FIELDS|{'compound'},_CAP_FIELDS|{'recovery_parent'}) or type(payload['schema_version']) is not int or payload['schema_version']!=1
         or payload['session_id']!=session_id
         or payload['operation'] not in {'install','retire-initial-runtime','uninstall'}
         or type(payload['recovery']) is not bool
@@ -202,6 +210,12 @@ def _read_capability(paths,session_id):
     if (not isinstance(package,dict) or set(package)!={'schema_version','package_sha256','product_code','version','source_revision','initial_runtime_tree_sha256'}
         or not isinstance(package['package_sha256'],str) or not _HASH.fullmatch(package['package_sha256'])):
         _failed()
+    if 'compound' in payload:
+        from .compound_upgrade_plan import _capability_binding
+        _capability_binding(payload)
+    if 'recovery_parent' in payload:
+        _uuid(payload['recovery_parent'])
+        if payload['operation']!='install' or payload['recovery'] is not True or payload['uninstall_finalization']:_failed()
     return payload
 
 
@@ -397,6 +411,10 @@ def _digests(inspected):
 
 
 def _matching_inspection(paths,expected,capability,*,retirement=False):
+    if 'compound' in capability:
+        if retirement: _failed()
+        from .compound_installer import validate_native_intermediate
+        return validate_native_intermediate(paths,capability,expected)
     from .installation_provenance import inspect_installed_core,inspect_runtime_retirement
     inspected=(inspect_runtime_retirement(paths,expected,recovery=capability.get('recovery',False)) if retirement else
         inspect_installed_core(paths,resulting_foundation=expected.package.version))
@@ -438,12 +456,55 @@ def _settled(paths):
         raise ValueError('UPDATE_IN_PROGRESS')
 
 
+def completion_root(paths,capability,*,create=False):
+    """Recovery attempts retain earlier completed receipts byte-for-byte."""
+    from . import installation_provenance as provenance
+    root=state_root(paths)/'transactions'/capability['transaction_id']
+    names=['transactions',capability['transaction_id']]
+    if 'recovery' in capability.get('compound',{}):
+        from .compound_upgrade_plan import _capability_binding
+        _capability_binding(capability)
+        names+=['attempts',capability['compound']['upgrade_id']]
+    if create:
+        parent=state_root(paths)
+        for name in names:parent=provenance._archive_directory(parent,name)
+        return parent
+    return root.joinpath(*names[2:])
+
+
 def execute_authorized_phase(client,paths,*,feature_states=None,rollback_disabled='',uninstall_finalization=''):
+    if 'recovery_parent' in client.capability:
+        if client.phase!='inspect-compound':_failed()
+        from .compound_upgrade_plan import inspect_recovery_authority
+        cap=client.capability
+        _settled(paths)
+        result=inspect_recovery_authority(paths,cap['package'],helper_sha256=cap['helper_sha256'])
+        if (result is None or result['parent_upgrade_id']!=cap['recovery_parent']
+            or result['transaction_id']!=cap['transaction_id']):_failed()
+        from . import msi_inventory
+        native=msi_inventory.NativeMsi()
+        states=(native.product(result['old']['package']['product_code']),native.product(cap['package']['product_code']))
+        if states==(5,-1):mode='replace-foundation'
+        elif states==(-1,5):mode='repair-successor'
+        else:raise ValueError('PROVENANCE_CONFLICT')
+        result['mode']=mode
+        client.request('complete',result)
+        return result
+    if 'compound' in client.capability:
+        from .compound_installer import execute_compound_phase
+        return execute_compound_phase(client,paths,feature_states=feature_states,
+            rollback_disabled=rollback_disabled,uninstall_finalization=uninstall_finalization)
+    return _execute_authorized_phase(client,paths,feature_states=feature_states,
+        rollback_disabled=rollback_disabled,uninstall_finalization=uninstall_finalization)
+
+
+def _execute_authorized_phase(client,paths,*,feature_states=None,rollback_disabled='',uninstall_finalization='',complete=True):
     """One fixed phase after native peer authentication; no mutex reacquisition."""
-    from . import durable_state,installation_provenance as provenance,msi_inventory
+    from . import durable_state,installation_provenance as provenance,msi_inventory,installer_data_security
     from .installer_fence import read_fence,publish_fence,protect_state
     capability=client.capability
     request=_request_data(paths,capability)
+    data_request={**request,'session_id':capability.get('session_id'),'recovery':capability.get('recovery',False)}
     expected=msi_inventory.read_expected_package(request['package_path'],capability['package'])
     phase=client.phase
     result={}
@@ -464,13 +525,18 @@ def execute_authorized_phase(client,paths,*,feature_states=None,rollback_disable
                 msi_inventory.verify_uninstalled(expected.package,paths.install_root)
                 result['uninstall_finalization']=True
         else:
-            if read_fence(paths) is not None: raise ValueError('UPDATE_IN_PROGRESS')
+            from .compound_upgrade_plan import has_active_upgrade
+            if has_active_upgrade(paths) or read_fence(paths) is not None: raise ValueError('UPDATE_IN_PROGRESS')
             inspected=(provenance.inspect_runtime_retirement(paths,expected) if capability['operation']=='retire-initial-runtime' else
                 provenance.inspect_installed_core(paths,resulting_foundation=expected.package.version))
             result=_digests(inspected)
+            if capability['operation']=='install':
+                foundation=provenance.verified_foundation_release(paths)
+                if foundation is not None:result['foundation_release']=foundation
     elif phase=='verify-settled':
         _settled(paths)
-        if read_fence(paths) is not None: raise ValueError('UPDATE_IN_PROGRESS')
+        from .compound_upgrade_plan import has_active_upgrade
+        if has_active_upgrade(paths) or read_fence(paths) is not None: raise ValueError('UPDATE_IN_PROGRESS')
         inspected=provenance.inspect_installed_core(paths,resulting_foundation=expected.package.version)
         if inspected.current is None: raise ValueError('PROVENANCE_CONFLICT')
         result={'settled':True,**_digests(inspected)}
@@ -484,7 +550,9 @@ def execute_authorized_phase(client,paths,*,feature_states=None,rollback_disable
             ('transaction_id','package','operation','selected','previous')):
             raise ValueError('PROVENANCE_CONFLICT')
         if capability['recovery']:
-            if capability['operation']=='install': provenance.validate_interrupted_reconciliation(paths,request)
+            if capability['operation']=='install':
+                if 'compound' in capability:_matching_inspection(paths,expected,capability)
+                else:provenance.validate_interrupted_reconciliation(paths,request)
             else:
                 provenance.validate_maintenance_recovery(paths,request,capability['operation'])
                 if capability['operation']=='retire-initial-runtime': _matching_inspection(paths,expected,capability,retirement=True)
@@ -493,6 +561,8 @@ def execute_authorized_phase(client,paths,*,feature_states=None,rollback_disable
             _matching_inspection(paths,expected,capability,retirement=capability['operation']=='retire-initial-runtime')
         if capability['operation']!='retire-initial-runtime':
             with InstallerServices(paths) as services: services.assert_quarantined()
+        if capability['operation']=='install':
+            installer_data_security.before_native(paths,data_request)
     else:
         with durable_state.installer_mutation_checkpoints(client.checkpoint):
             if phase=='prepare':
@@ -509,6 +579,7 @@ def execute_authorized_phase(client,paths,*,feature_states=None,rollback_disable
                     if read_fence(paths) is not None: raise ValueError('UPDATE_IN_PROGRESS')
                     _matching_inspection(paths,expected,capability,retirement=capability['operation']=='retire-initial-runtime')
                 if not capability['recovery'] and capability['operation']=='install':
+                    installer_data_security.prepare(paths,data_request)
                     result={'result':provenance.prepare_installer_provenance(paths,request)}
                     # Archives are inert until the entire prepared plan and the
                     # still-selected identities have been revalidated.
@@ -544,12 +615,16 @@ def execute_authorized_phase(client,paths,*,feature_states=None,rollback_disable
                 _settled(paths)
                 if phase=='recover-enter':
                     if not capability['recovery']: _failed()
-                    if capability['operation']=='install': provenance.validate_interrupted_reconciliation(paths,request)
+                    if capability['operation']=='install':
+                        if 'compound' in capability:_matching_inspection(paths,expected,capability)
+                        else:provenance.validate_interrupted_reconciliation(paths,request)
                     else:
                         provenance.validate_maintenance_recovery(paths,request,capability['operation'])
                         if capability['operation']=='retire-initial-runtime': _matching_inspection(paths,expected,capability,retirement=True)
                 else:
                     _matching_inspection(paths,expected,capability,retirement=capability['operation']=='retire-initial-runtime')
+                if capability['operation']=='install':
+                    installer_data_security.enter_native(paths,data_request)
                 # recover-enter is granted only inside the genuine serialized
                 # deferred script. No external idle/PID predicate reaches here.
                 fence=read_fence(paths)
@@ -561,21 +636,24 @@ def execute_authorized_phase(client,paths,*,feature_states=None,rollback_disable
                     stop_tray_companions(paths)
             elif phase=='foundation-config':
                 if capability['operation']!='install': _failed()
-                from .acl import apply_machine_data_acl,apply_tray_status_acl
+                from .acl import apply_tray_status_acl
                 from .service_control import configure_service_sids,restrict_updater_start_permissions
                 fence=read_fence(paths)
                 _advance_fence(paths,client,expected,fence['phase'])
-                for action in (configure_service_sids,apply_machine_data_acl,apply_tray_status_acl,restrict_updater_start_permissions):
+                for action in (configure_service_sids,lambda: installer_data_security.configure(paths,data_request),apply_tray_status_acl,restrict_updater_start_permissions):
                     client.checkpoint()
                     action()
             elif phase in {'msi-complete','uninstall-finalize-complete'}:
                 fence=read_fence(paths)
                 _advance_fence(paths,client,expected,fence['phase'])
             elif phase=='reconcile':
+                if capability['operation']=='install':
+                    installer_data_security.verify_preserved(paths,data_request)
                 fence=read_fence(paths)
                 _advance_fence(paths,client,expected,'complete' if fence['phase']=='complete' else 'reconciling')
                 if capability['operation']=='install':
-                    result={'result':provenance.reconcile_installed_core(paths,request)}
+                    native_current=msi_inventory.read_native_selector(request['package_path'],expected)
+                    result={'result':provenance.reconcile_installed_core(paths,request,native_current=native_current)}
                 elif capability['operation']=='retire-initial-runtime':
                     if msi_inventory.verify_foundation(expected.package,paths.install_root,expected=expected)!='foundation_only': raise ValueError('PROVENANCE_CONFLICT')
                     _matching_inspection(paths,expected,capability)
@@ -594,10 +672,11 @@ def execute_authorized_phase(client,paths,*,feature_states=None,rollback_disable
                     result={'result':'uninstalled'}
             elif phase=='finish':
                 if capability['operation']=='install':
+                    installer_data_security.verify_preserved(paths,data_request)
                     msi_inventory.verify_installed(expected.package,paths.install_root)
                     provenance.inspect_installed_core(paths,resulting_foundation=expected.package.version)
                     with msi_inventory.verified_foundation_bytes(expected,paths.install_root):
-                        with InstallerServices(paths,checkpoint=client.checkpoint) as services: services.restore_final()
+                        with InstallerServices(paths,checkpoint=client.checkpoint,include_browser=True) as services: services.restore_final()
                 elif capability['operation']=='retire-initial-runtime':
                     if msi_inventory.verify_foundation(expected.package,paths.install_root,expected=expected)!='foundation_only': raise ValueError('PROVENANCE_CONFLICT')
                     _matching_inspection(paths,expected,capability)
@@ -606,12 +685,16 @@ def execute_authorized_phase(client,paths,*,feature_states=None,rollback_disable
                 fence=_advance_fence(paths,client,expected,'complete')
                 fence['startup_restored']=True
                 publish_fence(paths,fence)
-                archive=provenance._archive_directory(provenance._archive_directory(state_root(paths),'transactions'),capability['transaction_id'])
+                archive=completion_root(paths,capability,create=True)
                 durable_state.write_json_atomic(archive/'completed.json',fence,trusted_root=archive,max_bytes=16384,protect=protect_state)
+                from .compound_upgrade_plan import record_standalone_completion
+                record_standalone_completion(paths,capability,fence)
                 # Final mutation. The owner waits for this helper's explicit
                 # completion and actual process exit before starting Agent.
-                durable_state.durable_unlink(state_root(paths)/'transaction.json',trusted_root=state_root(paths))
+                from .installer_fence import fence_path
+                finished_fence = fence_path(paths)
+                durable_state.durable_unlink(finished_fence,trusted_root=finished_fence.parent)
             else:
                 _failed()
-    client.request('complete',result)
+    if complete: client.request('complete',result)
     return result

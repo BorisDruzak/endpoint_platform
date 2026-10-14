@@ -336,6 +336,9 @@ def collect_fleet_preflight(
         target_package_hash = target_release["package_sha256"]
     pending = {"active_or_degraded": False, "state": None, "installer_phase": None}
     try:
+        from .compound_upgrade_plan import has_active_upgrade
+        if has_active_upgrade(paths):
+            pending.update(active_or_degraded=True,state='installer-recovery-required',installer_phase='compound-upgrade')
         fence = installer_fence.read_fence(paths)
         if fence is not None:
             pending.update(

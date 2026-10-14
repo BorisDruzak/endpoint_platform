@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import runpy
 import sys
+import pytest
 from pathlib import Path
 
 from pc_agent.platform.windows.browser_policy import CHROME_POLICY_PATH
@@ -13,6 +14,13 @@ from pc_agent.platform.windows.browser_policy_service_entry import (
     make_policy_listener,
 )
 from pc_agent.tests.windows.test_browser_policy import EXTENSION_ID, MemoryRegistry
+
+
+@pytest.fixture(autouse=True)
+def isolated_machine_paths(tmp_path,monkeypatch):
+    from pc_agent.platform.windows.update_paths import WindowsUpdatePaths
+    paths=WindowsUpdatePaths(tmp_path/'package/Agent',tmp_path/'data/updates/pending_update.json')
+    monkeypatch.setattr(WindowsUpdatePaths,'production',classmethod(lambda cls:paths))
 
 
 def test_service_entry_imports_when_run_as_frozen_main_script() -> None:
@@ -68,3 +76,31 @@ def test_service_listener_authenticates_then_applies_only_packaged_id(
     assert EXTENSION_ID in json.loads(
         registry.read(CHROME_POLICY_PATH, "ExtensionSettings")
     )
+
+
+def test_pending_installer_blocks_policy_listener_before_registry_access(monkeypatch):
+    from pc_agent.platform.windows import installer_fence
+    constructed=[]
+    def blocked(_paths):raise ValueError('INSTALLER_RECOVERY_REQUIRED')
+    monkeypatch.setattr(installer_fence,'assert_launch_allowed',blocked)
+    monkeypatch.setattr('pc_agent.platform.windows.browser_policy_service_entry.WindowsPolicyRegistry',
+        lambda:constructed.append('registry'))
+    with pytest.raises(ValueError,match='INSTALLER_RECOVERY_REQUIRED'):make_policy_listener()
+    assert constructed==[]
+
+
+def test_new_installer_barrier_blocks_existing_policy_listener_frame(monkeypatch):
+    from pc_agent.platform.windows import installer_fence
+    registry=MemoryRegistry();blocked=[False]
+    def gate(_paths):
+        if blocked[0]:raise ValueError('INSTALLER_RECOVERY_REQUIRED')
+    monkeypatch.setattr(installer_fence,'assert_launch_allowed',gate)
+    monkeypatch.setattr('pc_agent.platform.windows.browser_policy_service_entry.WindowsPolicyRegistry',lambda:registry)
+    monkeypatch.setattr('pc_agent.platform.windows.browser_policy_service_entry.load_packaged_extension_id',lambda:EXTENSION_ID)
+    monkeypatch.setattr('pc_agent.platform.windows.browser_policy_service_entry.authorize_agent_pipe_client',lambda _:None)
+    listener=make_policy_listener();blocked[0]=True
+    # The listener's service boundary may report the denial; no registry write
+    # is permitted even though it started before the installer barrier appeared.
+    try:listener._on_frame(object(),b'{"schema_version":"endpoint_browser_policy_request_v1","operation":"apply","browser_family":"chrome"}')
+    except ValueError as error:assert str(error)=='INSTALLER_RECOVERY_REQUIRED'
+    assert registry.read(CHROME_POLICY_PATH,'ExtensionSettings') is None

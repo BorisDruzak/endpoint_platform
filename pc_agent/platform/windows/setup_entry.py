@@ -167,9 +167,16 @@ def _verify_embedded_msi(msi_path: Path) -> tuple[Path, Path]:
 def _embedded_recovery_operation(msi_path: Path) -> str | None:
     manifest_path, _ = _verify_embedded_msi(msi_path)
     from pc_agent.platform.windows.installer_fence import read_fence
-    fence = read_fence(WindowsUpdatePaths.production())
+    paths=WindowsUpdatePaths.production()
+    from pc_agent.platform.windows.compound_upgrade_plan import inspect_recovery_authority
+    release=json.loads(manifest_path.read_text(encoding='utf-8'))
+    try:
+        parent=inspect_recovery_authority(paths,release)
+    except (OSError,ValueError,KeyError,TypeError) as error:
+        raise SetupInstallError('PROVENANCE_CONFLICT') from error
+    if parent is not None:return 'install'
+    fence = read_fence(paths)
     if fence is not None:
-        release = json.loads(manifest_path.read_text(encoding='utf-8'))
         if any(fence['package'][name] != release[key] for name,key in (
             ('sha256','package_sha256'),('product_code','product_code'),('version','version'),('source_revision','source_revision'))):
             raise SetupInstallError('PROVENANCE_CONFLICT')

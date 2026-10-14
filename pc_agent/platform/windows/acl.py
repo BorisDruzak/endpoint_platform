@@ -415,11 +415,130 @@ def replace_machine_data_acl(
         raise WindowsAclError("could not replace machine data DACL") from error
 
 
+def _assert_machine_data_parent_authority(path: Path, win32security):
+    """Reject effective namespace/ACL writers above the protected data root."""
+    trusted = {"S-1-5-18", "S-1-5-32-544",
+               "S-1-5-80-956008885-3418522649-1831038044-1853292631-2271478464"}
+    for parent in path.parents:
+        try:
+            parent.lstat()
+        except FileNotFoundError:
+            continue
+        _assert_nonreparse_directory(parent)
+        descriptor = win32security.GetNamedSecurityInfo(str(parent), win32security.SE_FILE_OBJECT,
+            win32security.OWNER_SECURITY_INFORMATION | win32security.DACL_SECURITY_INFORMATION)
+        owner, dacl = descriptor.GetSecurityDescriptorOwner(), descriptor.GetSecurityDescriptorDacl()
+        if owner is None or win32security.ConvertSidToStringSid(owner) not in trusted or dacl is None:
+            raise WindowsAclError("machine data parent authority is not trusted")
+        for index in range(dacl.GetAceCount()):
+            ace = dacl.GetAce(index)
+            if len(ace) != 3 or ace[0][0] != win32security.ACCESS_ALLOWED_ACE_TYPE:
+                raise WindowsAclError("machine data parent ACE is not supported")
+            if ace[0][1] & win32security.INHERIT_ONLY_ACE:
+                continue
+            # Same effective DELETE_CHILD/DELETE/WRITE_DAC/WRITE_OWNER and
+            # generic writer boundary used by the existing installer fence.
+            if win32security.ConvertSidToStringSid(ace[2]) not in trusted and ace[1] & 0x500D0040:
+                raise WindowsAclError("machine data parent permits untrusted replacement")
+
+
+def _validate_machine_data_leaf_acl(name, descriptor, win32security, ntsecuritycon):
+    """Read-only policy check, including supported inherited data-file ACEs."""
+    dacl = descriptor.GetSecurityDescriptorDacl()
+    if dacl is None:
+        raise WindowsAclError("enrollment leaf has no DACL")
+    credential = name in {"device-credential", "endpoint-ca.crt"}
+    service, *_ = win32security.LookupAccountName(None, SERVICE_PRINCIPAL)
+    updater, *_ = win32security.LookupAccountName(None, UPDATER_PRINCIPAL)
+    service_sid = win32security.ConvertSidToStringSid(service)
+    updater_sid = win32security.ConvertSidToStringSid(updater)
+    modify = ntsecuritycon.FILE_GENERIC_READ | ntsecuritycon.FILE_GENERIC_WRITE | ntsecuritycon.DELETE
+    expected = {"S-1-5-18": ntsecuritycon.FILE_ALL_ACCESS,
+                "S-1-5-32-544": ntsecuritycon.FILE_ALL_ACCESS,
+                service_sid: ntsecuritycon.FILE_GENERIC_READ if credential else modify,
+                updater_sid: ntsecuritycon.FILE_GENERIC_WRITE if credential else modify}
+    observed = {}
+    for index in range(dacl.GetAceCount()):
+        ace = dacl.GetAce(index)
+        if (len(ace) != 3 or ace[0][0] != win32security.ACCESS_ALLOWED_ACE_TYPE
+            or ace[0][1] & ~(win32security.INHERITED_ACE | win32security.OBJECT_INHERIT_ACE | win32security.CONTAINER_INHERIT_ACE)):
+            raise WindowsAclError("enrollment leaf ACE is not supported")
+        sid = win32security.ConvertSidToStringSid(ace[2])
+        if sid in observed:
+            raise WindowsAclError("enrollment leaf ACE is duplicated")
+        observed[sid] = ace[1]
+    installer_policy = dict(expected)
+    if not credential:
+        installer_policy[updater_sid] = ntsecuritycon.FILE_GENERIC_WRITE | ntsecuritycon.DELETE
+    if observed != expected and observed != installer_policy:
+        raise WindowsAclError("enrollment leaf DACL is not an approved policy")
+
+
+def _validate_existing_machine_data_acl(path: Path, win32security, ntsecuritycon):
+    """Accept the exact installer or provisioning policy without propagating ACEs."""
+    for candidate in reversed((path, *path.parents)):
+        _assert_nonreparse_directory(candidate)
+    _assert_machine_data_parent_authority(path, win32security)
+    for candidate in (path.parent.parent, path.parent, path):
+        _assert_trusted_owner(candidate, win32security)
+    try:
+        descriptor = win32security.GetNamedSecurityInfo(
+            str(path), win32security.SE_FILE_OBJECT,
+            win32security.OWNER_SECURITY_INFORMATION | win32security.GROUP_SECURITY_INFORMATION | win32security.DACL_SECURITY_INFORMATION,
+        )
+        if win32security.ConvertSidToStringSid(descriptor.GetSecurityDescriptorOwner()) not in {"S-1-5-18", "S-1-5-32-544"}:
+            raise WindowsAclError("existing machine data owner is not trusted")
+        dacl = descriptor.GetSecurityDescriptorDacl()
+        if dacl is None or not descriptor.GetSecurityDescriptorControl()[0] & win32security.SE_DACL_PROTECTED:
+            raise WindowsAclError("existing machine data DACL is not protected")
+        expected = {"S-1-5-18": ntsecuritycon.FILE_ALL_ACCESS,
+                    "S-1-5-32-544": ntsecuritycon.FILE_ALL_ACCESS}
+        modify = ntsecuritycon.FILE_GENERIC_READ | ntsecuritycon.FILE_GENERIC_WRITE | ntsecuritycon.DELETE
+        write_delete = ntsecuritycon.FILE_GENERIC_WRITE | ntsecuritycon.DELETE
+        for principal in (SERVICE_PRINCIPAL, UPDATER_PRINCIPAL):
+            sid, _domain, _kind = win32security.LookupAccountName(None, principal)
+            expected[win32security.ConvertSidToStringSid(sid)] = modify
+        observed = {}
+        inheritance = win32security.OBJECT_INHERIT_ACE | win32security.CONTAINER_INHERIT_ACE
+        for index in range(dacl.GetAceCount()):
+            ace = dacl.GetAce(index)
+            if len(ace) != 3 or ace[0] != (win32security.ACCESS_ALLOWED_ACE_TYPE, inheritance):
+                raise WindowsAclError("existing machine data ACE is not canonical")
+            sid = win32security.ConvertSidToStringSid(ace[2])
+            if sid in observed:
+                raise WindowsAclError("existing machine data ACE is duplicated")
+            observed[sid] = ace[1]
+        updater, _domain, _kind = win32security.LookupAccountName(None, UPDATER_PRINCIPAL)
+        installer_policy = dict(expected)
+        installer_policy[win32security.ConvertSidToStringSid(updater)] = write_delete
+        if observed != expected and observed != installer_policy:
+            raise WindowsAclError("existing machine data DACL is not an approved policy")
+        return descriptor
+    except WindowsAclError:
+        raise
+    except Exception as error:
+        raise WindowsAclError("could not inspect existing machine data DACL") from error
+
+
 def apply_machine_data_acl() -> None:
-    """MSI custom-action boundary with a fixed, non-caller-controlled target."""
+    """Initialize an absent fixed data root; validate existing enrollment read-only."""
     if os.name != "nt":
         raise WindowsAclError("machine data DACL setup requires Windows")
     win32security, ntsecuritycon = PyWin32AclAdapter._modules()
+    try:
+        MACHINE_DATA_ROOT.lstat()
+    except FileNotFoundError:
+        pass
+    else:
+        _validate_existing_machine_data_acl(MACHINE_DATA_ROOT, win32security, ntsecuritycon)
+        return
+    _assert_nonreparse_directory(MACHINE_DATA_ROOT.parent)
+    _assert_trusted_owner(MACHINE_DATA_ROOT.parent, win32security)
+    _assert_machine_data_parent_authority(MACHINE_DATA_ROOT, win32security)
+    try:
+        MACHINE_DATA_ROOT.mkdir()
+    except FileExistsError as error:
+        raise WindowsAclError("machine data root appeared before exclusive initialization") from error
     replace_machine_data_acl(
         MACHINE_DATA_ROOT,
         win32security=win32security,

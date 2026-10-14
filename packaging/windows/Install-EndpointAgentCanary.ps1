@@ -16,7 +16,7 @@ Set-StrictMode -Version Latest
 $SystemSid = 'S-1-5-18'
 $AdministratorsSid = 'S-1-5-32-544'
 $CacheSids = @($SystemSid, $AdministratorsSid)
-$ManagedServiceNames = @('EndpointAgent', 'EndpointAgentUpdater')
+$ManagedServiceNames = @('EndpointAgent', 'EndpointAgentUpdater', 'EndpointBrowserPolicy')
 $WindowsInstallerServiceName = 'msiserver'
 $ManagedServiceTimeout = [TimeSpan]::FromSeconds(45)
 
@@ -36,6 +36,8 @@ using System.Security.Principal;
 using System.Security.AccessControl;
 using System.Text;
 using System.Text.RegularExpressions;
+using System.Threading;
+using System.Threading.Tasks;
 using Microsoft.Win32.SafeHandles;
 namespace EndpointInstallerBridge {
     public static class LaunchDirectory {
@@ -108,7 +110,24 @@ namespace EndpointInstallerBridge {
         [DllImport("msi.dll")] static extern uint MsiViewExecute(uint view,uint record);
         [DllImport("msi.dll")] static extern uint MsiViewFetch(uint view,out uint record);
         [DllImport("msi.dll")] static extern uint MsiRecordReadStream(uint record,uint field,byte[] data,ref uint size);
+        [DllImport("msi.dll",CharSet=CharSet.Unicode)] static extern uint MsiRecordGetString(uint record,uint field,StringBuilder value,ref uint size);
         [DllImport("msi.dll")] static extern uint MsiCloseHandle(uint handle);
+        public static string ProductCode(string package) {
+            uint database=0,view=0,record=0;
+            try {
+                if(MsiOpenDatabase(package,IntPtr.Zero,out database)!=0 ||
+                    MsiDatabaseOpenView(database,"SELECT `Value` FROM `Property` WHERE `Property`='ProductCode'",out view)!=0 ||
+                    MsiViewExecute(view,0)!=0 || MsiViewFetch(view,out record)!=0) throw new InvalidOperationException("PROVENANCE_CONFLICT");
+                var value=new StringBuilder(39);uint length=39;
+                if(MsiRecordGetString(record,1,value,ref length)!=0 || length!=38) throw new InvalidOperationException("PROVENANCE_CONFLICT");
+                Guid parsed;string text=value.ToString();
+                if(!Guid.TryParseExact(text,"B",out parsed) || "{"+parsed.ToString("D").ToUpperInvariant()+"}"!=text)
+                    throw new InvalidOperationException("PROVENANCE_CONFLICT");
+                return text;
+            } finally {
+                if(record!=0) MsiCloseHandle(record);if(view!=0) MsiCloseHandle(view);if(database!=0) MsiCloseHandle(database);
+            }
+        }
         public static FileSecurity SecretSecurity() {
             var security=new FileSecurity();security.SetAccessRuleProtection(true,false);
             security.SetOwner(new SecurityIdentifier("S-1-5-32-544"));
@@ -312,6 +331,9 @@ namespace EndpointInstallerBridge {
         private long sequence;
         private bool alive=true, quiescent, preparedComplete, msiAlive, preflightComplete, nativeEntered, foundationComplete, nativeComplete;
         private int? nativeResult;
+        private CompoundPolicy compound;
+        private SuccessorRepairPolicy repair;
+        private bool recoveryLocator;
         public bool Recovery, UninstallFinalization;
         public Policy(string transactionId,string sessionId,string packageHash,string operation,Identity owner,string helperHash,byte[] key) {
             Guid parsed;
@@ -325,31 +347,62 @@ namespace EndpointInstallerBridge {
             Owner=owner; HelperHash=helperHash; secret=(byte[])key.Clone();
         }
         private static void Fail() { throw new InvalidOperationException("OWNER_AUTH_FAILED"); }
+        internal bool Alive { get { return alive; } }
+        internal bool FoundationComplete { get { return foundationComplete; } }
+        internal void BindCompound(CompoundPolicy value) {
+            if(recoveryLocator || compound!=null || repair!=null || Recovery!=value.Recovering || UninstallFinalization || msiAlive || nativeResult.HasValue || !preparedComplete || !AllHelpersComplete) Fail();
+            compound=value;
+        }
+        internal void BindRepair(SuccessorRepairPolicy value) {
+            if(recoveryLocator || compound!=null || repair!=null || !Recovery || UninstallFinalization || msiAlive || nativeResult.HasValue || !preparedComplete || !AllHelpersComplete) Fail();
+            repair=value;
+        }
+        public void MarkRecoveryLocator() {
+            if(recoveryLocator || compound!=null || repair!=null || Operation!="install" || !Recovery || UninstallFinalization || helpers.Count!=0 || msiAlive || nativeResult.HasValue) Fail();
+            recoveryLocator=true;
+        }
         private void CheckPeer(Identity peer) {
-            if (!alive || peer==null || !peer.Elevated || peer.Hash!=HelperHash ||
+            if (!alive || (compound!=null && !compound.OwnerActive) || (repair!=null && !repair.OwnerActive) || peer==null || !peer.Elevated || peer.Hash!=HelperHash ||
                 (peer.Sid!=Owner.Sid && peer.Sid!="S-1-5-18")) Fail();
         }
         public void RegisterHelper(Identity peer,string phase) {
             CheckPeer(peer);
-            if (phase!="inspect" && phase!="prepare" && phase!="reconcile" && phase!="finish" && phase!="verify-settled") Fail();
-            if (phase!="inspect" && phase!="verify-settled" && !quiescent) Fail();
+            if(recoveryLocator && phase!="inspect-compound") Fail();
+            if(compound!=null && !compound.AllowsHelper(this,phase)) Fail();
+            if(repair!=null && !repair.AllowsHelper(phase)) Fail();
+            if (phase!="inspect" && phase!="inspect-compound" && phase!="prepare" && phase!="reconcile" && phase!="finish" && phase!="verify-settled" &&
+                !(compound!=null && (phase=="compound-old-returned" || phase=="compound-new-returned" ||
+                    phase=="compound-commit" || phase=="compound-retire" || phase=="compound-complete")) &&
+                !(repair!=null && (phase=="compound-repair-returned" || phase=="compound-repair-commit" || phase=="compound-retire" || phase=="compound-complete"))) Fail();
+            if (phase!="inspect" && phase!="inspect-compound" && phase!="verify-settled" && !quiescent) Fail();
             if ((phase=="reconcile" || phase=="finish") && (!nativeComplete || !nativeResult.HasValue ||
                 nativeResult.Value!=0)) Fail();
             if (helpers.Count>=64 || helpers.ContainsKey(peer.Key)) Fail();
             helpers.Add(peer.Key,new Registration { Peer=peer, Phase=phase });
         }
         public void RegisterMsi(Identity peer,string operation) {
+            if(recoveryLocator) Fail();
+            if(compound!=null && !compound.Registering) Fail();
+            if(repair!=null && !repair.Registering) Fail();
             if (!alive || !quiescent || !preparedComplete || !AllHelpersComplete || msiAlive || peer==null || !peer.Elevated || operation!=Operation || nativeResult.HasValue) Fail();
             msiAlive=true;
         }
         public void MarkQuiescent() { if(!alive || !AllHelpersComplete) Fail(); quiescent=true; }
-        public void MarkMsiExited(int code) { msiAlive=false; nativeResult=code; pending=null; }
+        public void MarkMsiExited(int code) {
+            if(compound!=null && !compound.Settling) Fail();
+            if(repair!=null && !repair.Settling) Fail();
+            msiAlive=false; nativeResult=code; pending=null;
+        }
         public void OwnerLost() { alive=false; pending=null; }
         public bool NativeEntered { get { return nativeEntered; } }
         public bool NativeComplete { get { return nativeComplete; } }
         public bool AllHelpersComplete { get { foreach(var item in helpers.Values) if(!item.Complete) return false; return true; } }
         public Challenge Issue(Identity peer,string phase,string action,string payloadHash,string sessionId) {
             CheckPeer(peer);
+            if(recoveryLocator && (phase!="inspect-compound" || action=="mutation")) Fail();
+            if(compound!=null && (phase.StartsWith("msi-",StringComparison.Ordinal) || phase=="recover-enter" || phase=="foundation-config") &&
+                !compound.AllowsNative(this,phase)) Fail();
+            if(repair!=null && (phase.StartsWith("msi-",StringComparison.Ordinal) || phase=="recover-enter" || phase=="foundation-config") && !repair.AllowsNative(phase)) Fail();
             if ((phase=="msi-enter" || phase=="recover-enter" || phase=="foundation-config" ||
                 phase=="msi-complete" || phase=="uninstall-finalize-enter" || phase=="uninstall-finalize-complete") &&
                 peer.Sid!="S-1-5-18") Fail();
@@ -390,6 +443,8 @@ namespace EndpointInstallerBridge {
             var item=helpers[peer.Key];
             if(value.Action=="begin") { item.Begun=true; if(value.Phase=="msi-enter" || value.Phase=="recover-enter" || value.Phase=="uninstall-finalize-enter") nativeEntered=true; }
             if(value.Action=="complete") { item.Complete=true; if(value.Phase=="prepare") preparedComplete=true; if(value.Phase.EndsWith("preflight",StringComparison.Ordinal)) preflightComplete=true; if(value.Phase=="foundation-config") foundationComplete=true; if(value.Phase=="msi-complete" || value.Phase=="uninstall-finalize-complete") nativeComplete=true; }
+            if(value.Action=="complete" && compound!=null) compound.HelperComplete(this,value.Phase);
+            if(value.Action=="complete" && repair!=null) repair.HelperComplete(value.Phase);
             return Sign("grant",value);
         }
         public static bool FixedEquals(string a,string b) {
@@ -397,6 +452,429 @@ namespace EndpointInstallerBridge {
             int difference=0; for(int i=0;i<a.Length;i++) difference|=a[i]^b[i]; return difference==0;
         }
         public static string Hex(byte[] bytes) { return BitConverter.ToString(bytes).Replace("-","").ToLowerInvariant(); }
+    }
+    // This owner-thread coordinator retains both independent package policies
+    // through MsiEndTransaction. A package API return never grants finalization.
+    public sealed class CompoundPolicy {
+        private readonly Policy oldPackage, newPackage;
+        private readonly bool recovering;
+        internal bool Recovering { get { return recovering; } }
+        private string state="prepared";
+        private bool registering, settling;
+        private bool oldRecorded,newRecorded;
+        private string postStage="unrecorded";
+        internal bool Registering { get { return registering; } }
+        internal bool Settling { get { return settling; } }
+        public bool OwnerActive { get { return oldPackage.Alive && newPackage.Alive &&
+            oldPackage.Recovery==recovering && newPackage.Recovery==recovering && !oldPackage.UninstallFinalization &&
+            !newPackage.UninstallFinalization && state!="owner-lost"; } }
+        public bool Committed { get { return state=="committed" && OwnerActive; } }
+        internal bool ReadyToPublish { get { return Committed && postStage=="complete" && oldPackage.AllHelpersComplete && newPackage.AllHelpersComplete; } }
+        public string State { get { return state; } }
+        internal Policy OldPackage { get { return oldPackage; } }
+        internal Policy NewPackage { get { return newPackage; } }
+        private static void Fail() { throw new InvalidOperationException("OWNER_AUTH_FAILED"); }
+        private void Require(string expected) { if(!OwnerActive || state!=expected) Fail(); }
+        public CompoundPolicy(Policy oldPolicy,Policy newPolicy) : this(oldPolicy,newPolicy,false) {}
+        public static CompoundPolicy CreateRecovery(Policy oldPolicy,Policy newPolicy) { return new CompoundPolicy(oldPolicy,newPolicy,true); }
+        private CompoundPolicy(Policy oldPolicy,Policy newPolicy,bool recovery) {
+            if(oldPolicy==null || newPolicy==null || Object.ReferenceEquals(oldPolicy,newPolicy) ||
+                oldPolicy.Recovery!=recovery || newPolicy.Recovery!=recovery || oldPolicy.UninstallFinalization || newPolicy.UninstallFinalization ||
+                !oldPolicy.Owner.Same(newPolicy.Owner) || oldPolicy.Operation!="uninstall" || newPolicy.Operation!="install" ||
+                oldPolicy.PackageHash==newPolicy.PackageHash || oldPolicy.HelperHash==newPolicy.HelperHash ||
+                oldPolicy.TransactionId==newPolicy.TransactionId || oldPolicy.SessionId==newPolicy.SessionId) Fail();
+            oldPackage=oldPolicy;newPackage=newPolicy;recovering=recovery;
+            oldPackage.BindCompound(this);newPackage.BindCompound(this);
+        }
+        public void BeginNative() {
+            Require("prepared");registering=true;
+            try { oldPackage.RegisterMsi(oldPackage.Owner,"uninstall");newPackage.RegisterMsi(newPackage.Owner,"install");state="begun"; }
+            catch { OwnerLost();throw; } finally { registering=false; }
+        }
+        public void BeginOldScript() { Require("begun");state="old-script"; }
+        public void OldScriptReturned(int code) {
+            Require("old-script");
+            if(code!=0) { state="failed";if(code==3010 || code==1641) Fail();return; }
+            if(!oldPackage.NativeEntered || !oldPackage.AllHelpersComplete || oldPackage.NativeComplete) Fail();
+            state="old-returned";
+        }
+        public void BeginNewScript() { Require("old-returned");if(!oldRecorded) Fail();state="new-script"; }
+        public void NewScriptReturned(int code) {
+            Require("new-script");
+            if(code!=0) { state="failed";if(code==3010 || code==1641) Fail();return; }
+            if(!newPackage.NativeEntered || !newPackage.FoundationComplete || !newPackage.AllHelpersComplete || newPackage.NativeComplete) Fail();
+            state="scripts-returned";
+        }
+        public void BeginEnd(bool commit) {
+            if(commit) { Require("scripts-returned");if(!newRecorded) Fail(); }
+            else if(!OwnerActive || (state!="failed" && state!="begun" && state!="old-script" && state!="old-returned" && state!="new-script" && state!="scripts-returned")) Fail();
+            state=commit ? "ending-commit" : "ending-rollback";
+        }
+        public void EndReturned(int code) {
+            if(!OwnerActive || (state!="ending-commit" && state!="ending-rollback")) Fail();
+            if(code!=0 || (state=="ending-commit" && (!oldPackage.NativeComplete || !newPackage.NativeComplete ||
+                !oldPackage.AllHelpersComplete || !newPackage.AllHelpersComplete))) { OwnerLost();Fail(); }
+            bool commit=state=="ending-commit";settling=true;
+            try { oldPackage.MarkMsiExited(commit ? 0 : 1603);newPackage.MarkMsiExited(commit ? 0 : 1603); }
+            finally { settling=false; }
+            state=commit ? "committed" : "rolled-back";
+        }
+        internal bool AllowsNative(Policy policy,string phase) {
+            if(!OwnerActive) return false;
+            if(phase=="msi-complete") return state=="ending-commit";
+            return Object.ReferenceEquals(policy,oldPackage) ? state=="old-script" : state=="new-script";
+        }
+        internal bool AllowsHelper(Policy policy,string phase) {
+            if(!OwnerActive || !Object.ReferenceEquals(policy,newPackage) || !oldPackage.AllHelpersComplete || !newPackage.AllHelpersComplete) return false;
+            if(phase=="compound-old-returned") return state=="old-returned" && !oldRecorded;
+            if(phase=="compound-new-returned") return state=="scripts-returned" && !newRecorded;
+            if(state!="committed") return false;
+            if(phase=="verify-settled") return postStage=="complete";
+            return (phase=="compound-commit" && postStage=="unrecorded") ||
+                (phase=="compound-retire" && postStage=="committed") ||
+                (phase=="reconcile" && postStage=="retired") ||
+                (phase=="finish" && postStage=="reconciled") ||
+                (phase=="compound-complete" && postStage=="finished");
+        }
+        internal void HelperComplete(Policy policy,string phase) {
+            if(!Object.ReferenceEquals(policy,newPackage)) return;
+            if(phase=="compound-old-returned") oldRecorded=true;
+            else if(phase=="compound-new-returned") newRecorded=true;
+            else if(phase=="compound-commit") postStage="committed";
+            else if(phase=="compound-retire") postStage="retired";
+            else if(phase=="reconcile") postStage="reconciled";
+            else if(phase=="finish") postStage="finished";
+            else if(phase=="compound-complete") postStage="complete";
+        }
+        public void OwnerLost() { state="owner-lost";oldPackage.OwnerLost();newPackage.OwnerLost(); }
+    }
+    // Native work runs on same-process workers while this original thread
+    // retains the product mutex and pumps both authenticated package channels.
+    public sealed class SuccessorRepairPolicy {
+        internal readonly Policy Package;
+        public readonly string OldPackageHash;
+        private string state="prepared",post="unrecorded";
+        private bool registering,settling,recorded;
+        internal bool Registering { get { return registering; } }
+        internal bool Settling { get { return settling; } }
+        public bool OwnerActive { get { return Package.Alive && Package.Recovery && !Package.UninstallFinalization && state!="owner-lost"; } }
+        public bool ReadyToPublish { get { return OwnerActive && state=="committed" && post=="complete" && Package.AllHelpersComplete; } }
+        public string State { get { return state; } }
+        private static void Fail() { throw new InvalidOperationException("OWNER_AUTH_FAILED"); }
+        private void Require(string expected) { if(!OwnerActive || state!=expected) Fail(); }
+        public SuccessorRepairPolicy(Policy package,string oldPackageHash) {
+            if(package==null || package.Operation!="install" || !package.Recovery || package.UninstallFinalization ||
+                !Regex.IsMatch(oldPackageHash ?? "","\\A[0-9a-f]{64}\\z") || oldPackageHash==package.PackageHash) Fail();
+            Package=package;OldPackageHash=oldPackageHash;package.BindRepair(this);
+        }
+        public void BeginNative() {
+            Require("prepared");registering=true;
+            try { Package.RegisterMsi(Package.Owner,"install");state="begun"; }
+            catch { OwnerLost();throw; } finally { registering=false; }
+        }
+        public void BeginScript() { Require("begun");state="script"; }
+        public void ScriptReturned(int code) {
+            Require("script");
+            if(code!=0) { state="failed";if(code==3010 || code==1641) Fail();return; }
+            if(!Package.NativeEntered || !Package.FoundationComplete || !Package.AllHelpersComplete || Package.NativeComplete) Fail();
+            state="script-returned";
+        }
+        public void BeginEnd(bool commit) {
+            if(commit) { Require("script-returned");if(!recorded) Fail(); }
+            else if(!OwnerActive || (state!="failed" && state!="begun" && state!="script" && state!="script-returned")) Fail();
+            state=commit ? "ending-commit" : "ending-rollback";
+        }
+        public void EndReturned(int code) {
+            if(!OwnerActive || (state!="ending-commit" && state!="ending-rollback")) Fail();
+            if(code!=0 || (state=="ending-commit" && (!Package.NativeComplete || !Package.AllHelpersComplete))) { OwnerLost();Fail(); }
+            bool commit=state=="ending-commit";settling=true;
+            try { Package.MarkMsiExited(commit ? 0 : 1603); } finally { settling=false; }
+            state=commit ? "committed" : "rolled-back";
+        }
+        internal bool AllowsNative(string phase) { return OwnerActive && (phase=="msi-complete" ? state=="ending-commit" : state=="script"); }
+        internal bool AllowsHelper(string phase) {
+            if(!OwnerActive || !Package.AllHelpersComplete) return false;
+            if(phase=="compound-repair-returned") return state=="script-returned" && !recorded;
+            if(state!="committed") return false;
+            return (phase=="compound-repair-commit" && post=="unrecorded") || (phase=="compound-retire" && post=="committed") ||
+                (phase=="reconcile" && post=="retired") || (phase=="finish" && post=="reconciled") ||
+                (phase=="compound-complete" && post=="finished") || (phase=="verify-settled" && post=="complete");
+        }
+        internal void HelperComplete(string phase) {
+            if(phase=="compound-repair-returned") recorded=true;
+            else if(phase=="compound-repair-commit") post="committed";
+            else if(phase=="compound-retire") post="retired";
+            else if(phase=="reconcile") post="reconciled";
+            else if(phase=="finish") post="finished";
+            else if(phase=="compound-complete") post="complete";
+        }
+        public void OwnerLost() { state="owner-lost";Package.OwnerLost(); }
+    }
+    public sealed class NativeTransaction : IDisposable {
+        [StructLayout(LayoutKind.Sequential)] struct FileInformation {
+            public uint Attributes;
+            public System.Runtime.InteropServices.ComTypes.FILETIME Created,Accessed,Written;
+            public uint Volume,SizeHigh,SizeLow,Links,IndexHigh,IndexLow;
+        }
+        [DllImport("kernel32.dll",SetLastError=true)] static extern bool GetFileInformationByHandle(SafeFileHandle file,out FileInformation information);
+        [DllImport("msi.dll",CharSet=CharSet.Unicode)] static extern uint MsiBeginTransactionW(string name,uint attributes,out uint handle,out IntPtr ownerEvent);
+        [DllImport("msi.dll",CharSet=CharSet.Unicode)] static extern uint MsiInstallProductW(string path,string properties);
+        [DllImport("msi.dll")] static extern uint MsiEndTransaction(uint state);
+        [DllImport("msi.dll")] static extern uint MsiCloseHandle(uint handle);
+        [DllImport("msi.dll")] static extern uint MsiSetInternalUI(uint level,IntPtr parent);
+        [DllImport("kernel32.dll",CharSet=CharSet.Unicode,SetLastError=true)] static extern IntPtr LoadLibraryExW(string path,IntPtr file,uint flags);
+        [DllImport("kernel32.dll",CharSet=CharSet.Unicode)] static extern IntPtr GetModuleHandleW(string name);
+        [DllImport("kernel32.dll",CharSet=CharSet.Unicode)] static extern uint GetModuleFileNameW(IntPtr module,StringBuilder path,uint size);
+        [DllImport("kernel32.dll")] static extern bool FreeLibrary(IntPtr module);
+        [DllImport("kernel32.dll")] static extern bool CloseHandle(IntPtr handle);
+        [DllImport("kernel32.dll")] static extern uint WaitForSingleObject(IntPtr handle,uint milliseconds);
+        private readonly CompoundPolicy policy;
+        private readonly SuccessorRepairPolicy repair;
+        private readonly NativeProcess owner;
+        private readonly FileStream oldMedia,newMedia;
+        private readonly string oldPath,newPath,successor;
+        private readonly int ownerThread;
+        private IntPtr module,ownerEvent;
+        private uint handle,previousUi;
+        private bool transactionOpen,disposed,uiChanged;
+        private Task<uint> task;
+        private string taskKind;
+        public bool HasNativeTransaction { get { return transactionOpen; } }
+        public Task<uint> PendingTask { get { return task; } }
+        private Policy NewPolicy { get { return policy!=null ? policy.NewPackage : repair.Package; } }
+        private Identity OwnerIdentity { get { return NewPolicy.Owner; } }
+        private bool AuthorityActive { get { return policy!=null ? policy.OwnerActive : repair.OwnerActive; } }
+        private string OldHash { get { return policy!=null ? policy.OldPackage.PackageHash : repair.OldPackageHash; } }
+        private void Revoke() { if(policy!=null)policy.OwnerLost();else repair.OwnerLost(); }
+        private static void Fail() { throw new InvalidOperationException("OWNER_AUTH_FAILED"); }
+        private static string MediaPath(FileStream stream,string expectedHash) {
+            if(stream==null || !stream.CanRead || stream.CanWrite || stream.Length<=0 || stream.Length>512L*1024*1024) Fail();
+            string path=Path.GetFullPath(stream.Name);
+            LaunchDirectory.ValidateAncestors(path);
+            FileInformation information;
+            if(!GetFileInformationByHandle(stream.SafeFileHandle,out information) || information.Links!=1 ||
+                (information.Attributes&((uint)FileAttributes.ReparsePoint|(uint)FileAttributes.Directory))!=0) Fail();
+            var security=File.GetAccessControl(path,AccessControlSections.Owner|AccessControlSections.Access);
+            string ownerSid=security.GetOwner(typeof(SecurityIdentifier)).Value;
+            if(ownerSid!="S-1-5-18" && ownerSid!="S-1-5-32-544") Fail();
+            var seen=new HashSet<string>();
+            foreach(FileSystemAccessRule rule in security.GetAccessRules(true,true,typeof(SecurityIdentifier))) {
+                string sid=rule.IdentityReference.Value;
+                if((sid!="S-1-5-18" && sid!="S-1-5-32-544") || rule.AccessControlType!=AccessControlType.Allow ||
+                    rule.FileSystemRights!=FileSystemRights.FullControl || !seen.Add(sid)) Fail();
+            }
+            if(seen.Count!=2 || (File.GetAttributes(path)&FileAttributes.ReparsePoint)!=0) Fail();
+            long position=stream.Position;
+            try {
+                stream.Position=0;
+                using(var sha=SHA256.Create()) if(Policy.Hex(sha.ComputeHash(stream))!=expectedHash) Fail();
+            } finally { stream.Position=position; }
+            return path;
+        }
+        private static bool SystemModule(IntPtr value,string expected) {
+            var path=new StringBuilder(32768);
+            uint length=GetModuleFileNameW(value,path,(uint)path.Capacity);
+            return value!=IntPtr.Zero && length>0 && length<path.Capacity &&
+                String.Equals(Path.GetFullPath(path.ToString()),expected,StringComparison.OrdinalIgnoreCase);
+        }
+        public NativeTransaction(CompoundPolicy compound,NativeProcess retainedOwner,FileStream oldPin,FileStream newPin,string successorProduct)
+            : this(compound,null,retainedOwner,oldPin,newPin,successorProduct) {}
+        public NativeTransaction(SuccessorRepairPolicy successorRepair,NativeProcess retainedOwner,FileStream oldPin,FileStream newPin,string successorProduct)
+            : this(null,successorRepair,retainedOwner,oldPin,newPin,successorProduct) {}
+        private NativeTransaction(CompoundPolicy compound,SuccessorRepairPolicy successorRepair,NativeProcess retainedOwner,FileStream oldPin,FileStream newPin,string successorProduct) {
+            if((compound==null)==(successorRepair==null)) Fail();
+            policy=compound;repair=successorRepair;
+            string state=compound!=null ? compound.State : successorRepair.State;
+            Guid parsed;
+            if(retainedOwner==null || !retainedOwner.Alive || !OwnerIdentity.Same(retainedOwner.Identity) ||
+                retainedOwner.Identity.Pid!=Process.GetCurrentProcess().Id || !AuthorityActive || state!="prepared" ||
+                !Guid.TryParseExact(successorProduct,"B",out parsed) ||
+                "{"+parsed.ToString("D").ToUpperInvariant()+"}"!=successorProduct) Fail();
+            oldPath=MediaPath(oldPin,OldHash);
+            newPath=MediaPath(newPin,NewPolicy.PackageHash);
+            if(String.Equals(oldPath,newPath,StringComparison.OrdinalIgnoreCase)) Fail();
+            owner=retainedOwner;successor=successorProduct;
+            ownerThread=Thread.CurrentThread.ManagedThreadId;
+            string system=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System),"msi.dll");
+            module=LoadLibraryExW(system,IntPtr.Zero,0x800); // LOAD_LIBRARY_SEARCH_SYSTEM32
+            try {
+                if(!SystemModule(module,system) || !SystemModule(GetModuleHandleW("msi.dll"),system)) Fail();
+                // Own the no-write/no-delete pins. A caller's FileShare choice
+                // cannot weaken the pathname consumed later by Windows Installer.
+                oldMedia=new FileStream(oldPath,FileMode.Open,FileAccess.Read,FileShare.Read);
+                newMedia=new FileStream(newPath,FileMode.Open,FileAccess.Read,FileShare.Read);
+                MediaPath(oldMedia,OldHash);MediaPath(newMedia,NewPolicy.PackageHash);
+                if(PackageHelper.ProductCode(newPath)!=successor) Fail();
+            } catch {
+                if(oldMedia!=null) oldMedia.Dispose();if(newMedia!=null) newMedia.Dispose();
+                if(module!=IntPtr.Zero) FreeLibrary(module);module=IntPtr.Zero;throw;
+            }
+        }
+        private void CheckOwner(bool authority) {
+            if(disposed || Thread.CurrentThread.ManagedThreadId!=ownerThread || !owner.Alive ||
+                !owner.Identity.Same(OwnerIdentity) || (authority && !AuthorityActive) ||
+                (ownerEvent!=IntPtr.Zero && WaitForSingleObject(ownerEvent,0)!=258)) Fail();
+        }
+        public void CheckOwnership() { CheckOwner(true); }
+        public void PublishCompletion(string upgradeId,string sourceRevision,string readyHash) {
+            CheckOwner(true);
+            if(transactionOpen || task!=null || !(policy!=null ? policy.ReadyToPublish : repair.ReadyToPublish)) Fail();
+            string root=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),"Endpoint Platform","installer-state");
+            TerminalPublication.PublishAt(root,upgradeId,NewPolicy.TransactionId,
+                OldHash,NewPolicy.PackageHash,successor,sourceRevision,readyHash,CheckOwnership);
+        }
+        public void BeginNative() {
+            CheckOwner(true);
+            if(transactionOpen || task!=null || (policy!=null ? policy.State : repair.State)!="prepared") Fail();
+            // Driver-owned pins remain open and unmodified until every native call,
+            // delayed custom action and both bridge conversations have settled.
+            MediaPath(oldMedia,OldHash);MediaPath(newMedia,NewPolicy.PackageHash);
+            previousUi=MsiSetInternalUI(2,IntPtr.Zero);uiChanged=true;
+            uint result=MsiBeginTransactionW("EndpointFoundation-"+NewPolicy.SessionId,0,out handle,out ownerEvent);
+            if(result!=0) throw new InvalidOperationException(result==1618 ? "UPDATE_IN_PROGRESS" : "RECOVERY_REQUIRED");
+            transactionOpen=true;
+            if(policy!=null)policy.BeginNative();else repair.BeginNative();
+        }
+        private void Ready() { CheckOwner(true);if(!transactionOpen || task!=null) Fail(); }
+        public void StartOldScript() {
+            Ready();if(policy==null) Fail();policy.BeginOldScript();taskKind="old";
+            string properties="REMOVE=ALL UPGRADINGPRODUCTCODE="+successor+" REBOOT=ReallySuppress ENDPOINT_INSTALLER_SESSION="+policy.OldPackage.SessionId;
+            task=Task.Run(()=>MsiInstallProductW(oldPath,properties));
+        }
+        public void StartNewScript() {
+            Ready();if(policy!=null)policy.BeginNewScript();else repair.BeginScript();taskKind="new";
+            string properties=(repair!=null ? "REINSTALL=ALL REINSTALLMODE=amus " : "")+
+                "ADDLOCAL=EndpointAgentFeature,EndpointAgentInitialRuntimeFeature REBOOT=ReallySuppress ENDPOINT_INSTALLER_SESSION="+NewPolicy.SessionId;
+            task=Task.Run(()=>MsiInstallProductW(newPath,properties));
+        }
+        private int Result(string expected,bool authority=true) {
+            CheckOwner(authority);
+            if(task==null || taskKind!=expected || !task.IsCompleted) Fail();
+            var completed=task;task=null;taskKind=null;
+            return checked((int)completed.GetAwaiter().GetResult());
+        }
+        public int CompleteOldScript() { int code=Result("old");policy.OldScriptReturned(code);return code; }
+        public int CompleteNewScript() { int code=Result("new");if(policy!=null)policy.NewScriptReturned(code);else repair.ScriptReturned(code);return code; }
+        public void StartEnd(bool commit) {
+            Ready();if(policy!=null)policy.BeginEnd(commit);else repair.BeginEnd(commit);taskKind="end";
+            task=Task.Run(()=>MsiEndTransaction(commit ? 1u : 0u));
+        }
+        public int CompleteEnd() {
+            int code=Result("end");if(code==0) transactionOpen=false;
+            if(policy!=null)policy.EndReturned(code);else repair.EndReturned(code);return code;
+        }
+        public int DiscardInterruptedCall() {
+            CheckOwner(false);
+            if(task==null || !task.IsCompleted || (taskKind!="old" && taskKind!="new" && taskKind!="end")) Fail();
+            Revoke();string interrupted=taskKind;
+            int code=Result(interrupted,false);
+            // End may already have committed before channel/owner authority
+            // was revoked. Record native closure, never application completion.
+            if(interrupted=="end" && code==0) transactionOpen=false;
+            return code;
+        }
+        public void StartAbort() {
+            // Revoking bridge authority never revokes the retained owner's
+            // ability to request native rollback. This cannot request commit.
+            CheckOwner(false);if(!transactionOpen || task!=null) Fail();
+            Revoke();taskKind="abort";task=Task.Run(()=>MsiEndTransaction(0));
+        }
+        public int CompleteAbort() {
+            int code=Result("abort",false);if(code==0) transactionOpen=false;
+            return code;
+        }
+        public void Dispose() {
+            if(disposed) return;
+            if(Thread.CurrentThread.ManagedThreadId!=ownerThread || transactionOpen || task!=null) throw new InvalidOperationException("RECOVERY_REQUIRED");
+            if(handle!=0) { MsiCloseHandle(handle);handle=0; }
+            if(ownerEvent!=IntPtr.Zero) { CloseHandle(ownerEvent);ownerEvent=IntPtr.Zero; }
+            if(uiChanged) { MsiSetInternalUI(previousUi,IntPtr.Zero);uiChanged=false; }
+            if(module!=IntPtr.Zero) { FreeLibrary(module);module=IntPtr.Zero; }
+            oldMedia.Dispose();newMedia.Dispose();
+            disposed=true;
+        }
+    }
+    // No helper/ACK or required directory flush follows the authoritative move.
+    // If the controller loses the return, disk evidence remains the authority;
+    // the controller reports uncertainty rather than removing/replacing it.
+    internal static class TerminalPublication {
+        [StructLayout(LayoutKind.Sequential)] struct Information {
+            public uint Attributes;
+            public System.Runtime.InteropServices.ComTypes.FILETIME Created,Accessed,Written;
+            public uint Volume,SizeHigh,SizeLow,Links,IndexHigh,IndexLow;
+        }
+        [DllImport("kernel32.dll",SetLastError=true)] static extern bool GetFileInformationByHandle(SafeFileHandle file,out Information value);
+        [DllImport("kernel32.dll",CharSet=CharSet.Unicode,SetLastError=true)] static extern bool MoveFileExW(string from,string to,uint flags);
+        private static readonly string[] readers={"S-1-5-80-1102781572-1373263041-1070489469-7526906-1468061691","S-1-5-80-327494974-20047353-929432329-1920152597-707704661"};
+        private static void Fail() { throw new InvalidOperationException("PROVENANCE_CONFLICT"); }
+        private static void Id(string value) { Guid parsed;if(!Guid.TryParseExact(value,"D",out parsed) || parsed.ToString("D")!=value) Fail(); }
+        private static void Hash(string value,int length) { if(value==null || !Regex.IsMatch(value,"\\A[0-9a-f]{"+length+"}\\z")) Fail(); }
+        private static FileSecurity Security() {
+            var value=PackageHelper.SecretSecurity();
+            foreach(string sid in readers) value.AddAccessRule(new FileSystemAccessRule(new SecurityIdentifier(sid),(FileSystemRights)0x1200a9,AccessControlType.Allow));
+            return value;
+        }
+        private static void Validate(string path,bool directory) {
+            LaunchDirectory.ValidateAncestors(path);
+            var attributes=File.GetAttributes(path);
+            if((attributes&FileAttributes.ReparsePoint)!=0 || ((attributes&FileAttributes.Directory)!=0)!=directory) Fail();
+            FileSystemSecurity security=directory ? (FileSystemSecurity)Directory.GetAccessControl(path,AccessControlSections.Owner|AccessControlSections.Access) : File.GetAccessControl(path,AccessControlSections.Owner|AccessControlSections.Access);
+            string owner=security.GetOwner(typeof(SecurityIdentifier)).Value;
+            if(!security.AreAccessRulesProtected || (owner!="S-1-5-18" && owner!="S-1-5-32-544")) Fail();
+            var seen=new HashSet<string>();
+            foreach(FileSystemAccessRule rule in security.GetAccessRules(true,true,typeof(SecurityIdentifier))) {
+                string sid=rule.IdentityReference.Value;
+                int rights=(sid=="S-1-5-18" || sid=="S-1-5-32-544") ? (int)FileSystemRights.FullControl : (Array.IndexOf(readers,sid)>=0 ? 0x1200a9 : -1);
+                if(rule.AccessControlType!=AccessControlType.Allow || (int)rule.FileSystemRights!=rights || !seen.Add(sid)) Fail();
+            }
+            if(seen.Count!=4) Fail();
+        }
+        private static FileStream Pin(string path,byte[] expected) {
+            Validate(path,false);
+            var file=new FileStream(path,FileMode.Open,FileAccess.Read,FileShare.Read);
+            try {
+                Information value;
+                if(!GetFileInformationByHandle(file.SafeFileHandle,out value) || value.Links!=1 || (value.Attributes&0x410)!=0 || file.Length!=expected.Length) Fail();
+                byte[] actual=new byte[expected.Length];int offset=0;
+                while(offset<actual.Length) { int count=file.Read(actual,offset,actual.Length-offset);if(count==0) Fail();offset+=count; }
+                for(int i=0;i<actual.Length;i++) if(actual[i]!=expected[i]) Fail();
+                return file;
+            } catch { file.Dispose();throw; }
+        }
+        internal static void PublishAt(string root,string upgrade,string transaction,string oldHash,string newHash,string product,string source,string readyHash,Action check) {
+            Id(upgrade);Id(transaction);Hash(oldHash,64);Hash(newHash,64);Hash(source,40);Hash(readyHash,64);
+            Guid code;if(oldHash==newHash || !Guid.TryParseExact(product,"B",out code) || "{"+code.ToString("D").ToUpperInvariant()+"}"!=product) Fail();
+            root=Path.GetFullPath(root);
+            var volume=new DriveInfo(Path.GetPathRoot(root));
+            if(volume.DriveType!=DriveType.Fixed || !String.Equals(volume.DriveFormat,"NTFS",StringComparison.OrdinalIgnoreCase)) Fail();
+            string history=Path.Combine(root,"upgrade-history",upgrade);
+            Validate(root,true);Validate(Path.Combine(root,"upgrade-history"),true);Validate(history,true);
+            string barrier="{\"schema_version\":1,\"upgrade_id\":\""+upgrade+"\",\"new_transaction_id\":\""+transaction+"\",\"old_package_sha256\":\""+oldHash+"\",\"new_package_sha256\":\""+newHash+"\"}";
+            string prefix=barrier.Substring(0,barrier.Length-1)+",\"successor_product_code\":\""+product+"\",\"source_revision\":\""+source+"\"";
+            byte[] ready=Encoding.ASCII.GetBytes(prefix+",\"phase\":\"ready\"}");
+            using(var sha=SHA256.Create()) if(Policy.Hex(sha.ComputeHash(ready))!=readyHash) Fail();
+            byte[] marker=Encoding.ASCII.GetBytes(prefix+",\"ready_sha256\":\""+readyHash+"\"}");
+            string destination=Path.Combine(history,"complete.json");
+            using(var active=Pin(Path.Combine(root,"upgrade.json"),Encoding.ASCII.GetBytes(barrier)))
+            using(var archived=Pin(Path.Combine(history,"barrier.json"),Encoding.ASCII.GetBytes(barrier)))
+            using(var receipt=Pin(Path.Combine(history,"ready.json"),ready)) {
+                // An existing marker is evidence to inspect, never overwrite.
+                if(File.Exists(destination)) Fail();
+                check();
+                string temporary=Path.Combine(history,"complete-"+Guid.NewGuid().ToString("N")+".tmp");
+                using(var file=new FileStream(temporary,FileMode.CreateNew,FileSystemRights.Write,FileShare.None,4096,FileOptions.WriteThrough,Security())) {
+                    file.Write(marker,0,marker.Length);file.Flush(true);
+                    Information value;
+                    if(!GetFileInformationByHandle(file.SafeFileHandle,out value) || value.Links!=1 || (value.Attributes&0x410)!=0 || file.Length!=marker.Length) Fail();
+                    Validate(temporary,false);
+                }
+                using(var prepared=Pin(temporary,marker)) { check(); }
+                // The fixed, protected same-volume directory prevents an
+                // unrelated writer replacing the prepared leaf at this edge.
+                check();
+                if(!MoveFileExW(temporary,destination,8)) throw new Win32Exception(Marshal.GetLastWin32Error(),"RECOVERY_REQUIRED");
+            }
+        }
     }
 }
 '@
@@ -424,6 +902,70 @@ function Send-InstallerBridgePacket {
     $Bridge.Channel.Send($bytes)
 }
 
+function New-InstallerConversation {
+    param($Bridge,$Launched,[string]$Phase,[bool]$Native)
+    return @{Bridge=$Bridge;Launched=$Launched;Phase=$Phase;Native=$Native;Peer=$null;
+        Challenge=$null;Payload=$null;Acknowledgement=$null;Completed=$false;Result=$null}
+}
+
+function Invoke-InstallerConversationStep {
+    param([Parameter(Mandatory)]$State)
+    $Bridge=$State.Bridge;$launched=$State.Launched;$Phase=$State.Phase;$Msi=$State.Native
+    $peer=$State.Peer;$challenge=$State.Challenge;$payload=$State.Payload
+    $acknowledgement=$State.Acknowledgement;$completed=$State.Completed;$result=$State.Result
+    try {
+        if (-not $Bridge.Owner.Alive) { throw 'OWNER_AUTH_FAILED' }
+    $packetBytes = $Bridge.Channel.Poll()
+    if ($null -ne $packetBytes) {
+        if ($null -eq $peer) {
+            $peer = [EndpointInstallerBridge.NativeProcess]::new($Bridge.Channel.PeerPid())
+            $Bridge.Peers.Add($peer)
+            if ($Msi) {
+                if (-not $launched.Alive) { throw 'OWNER_AUTH_FAILED' }
+            } else {
+                if (-not $peer.Identity.Same($launched.Identity) -and -not $peer.DirectChildOf($launched)) { throw 'OWNER_AUTH_FAILED' }
+                $Bridge.Policy.RegisterHelper($peer.Identity, $Phase)
+            }
+        }
+        if (($null -eq $acknowledgement -and -not $peer.Alive) -or $Bridge.Channel.PeerPid() -ne $peer.Identity.Pid) { throw 'OWNER_AUTH_FAILED' }
+        $packet = [Text.Encoding]::ASCII.GetString($packetBytes) | ConvertFrom-Json
+        $keys = @($packet.PSObject.Properties.Name | Sort-Object)
+        if ($null -ne $acknowledgement) {
+            if ([string]::Join('|', $keys) -ne 'received' -or $packet.received -ne $acknowledgement) { throw 'OWNER_AUTH_FAILED' }
+            $Bridge.Channel.Disconnect()
+            $acknowledgement = $null
+            $completed = $true
+            $peer = $null
+        } elseif ($null -ne $challenge) {
+            if ([string]::Join('|', $keys) -ne 'proof') { throw 'OWNER_AUTH_FAILED' }
+            if ($Bridge.ContainsKey('NativeDriver')) { $Bridge.NativeDriver.CheckOwnership() }
+            $signature = $Bridge.Policy.Accept($peer.Identity, $challenge, [string]$packet.proof)
+            if ($Bridge.ContainsKey('NativeDriver')) { $Bridge.NativeDriver.CheckOwnership() }
+            Send-InstallerBridgePacket $Bridge @{ sequence = $challenge.Sequence; proof = $signature }
+            if ($challenge.Action -eq 'complete') {
+                $result = $payload
+                $acknowledgement = $challenge.Sequence
+            }
+            $challenge = $null
+        } else {
+            if ([string]::Join('|', $keys) -ne 'action|payload|phase|session' -or $packet.session -cne $Bridge.SessionId -or $packet.phase -isnot [string] -or $packet.action -isnot [string] -or $packet.payload -isnot [string]) { throw 'OWNER_AUTH_FAILED' }
+            if (-not $Msi -and $packet.phase -cne $Phase) { throw 'OWNER_AUTH_FAILED' }
+            $raw = ConvertFrom-BridgeHex -Value $packet.payload -Maximum 8192
+            $sha = [Security.Cryptography.SHA256]::Create()
+            try { $payloadHash = [EndpointInstallerBridge.Policy]::Hex($sha.ComputeHash($raw)) } finally { $sha.Dispose() }
+            $payload = [Text.Encoding]::ASCII.GetString($raw) | ConvertFrom-Json
+            if ($Bridge.ContainsKey('NativeDriver')) { $Bridge.NativeDriver.CheckOwnership() }
+            $challenge = $Bridge.Policy.Issue($peer.Identity, $packet.phase, $packet.action, $payloadHash, $packet.session)
+            Send-InstallerBridgePacket $Bridge @{ sequence = $challenge.Sequence; nonce = $challenge.Nonce; proof = $Bridge.Policy.Sign('owner', $challenge) }
+        }
+    }
+        return $null -ne $packetBytes
+    } finally {
+        $State.Peer=$peer;$State.Challenge=$challenge;$State.Payload=$payload
+        $State.Acknowledgement=$acknowledgement;$State.Completed=$completed;$State.Result=$result
+    }
+}
+
 function Invoke-InstallerOwnerPump {
     param([Parameter(Mandatory)]$Bridge, [Parameter(Mandatory)]$Process,
         [Parameter(Mandatory)][string]$Phase, [switch]$Msi)
@@ -434,6 +976,7 @@ function Invoke-InstallerOwnerPump {
     $acknowledgement = $null
     $completed = $false
     $result = $null
+    $conversation = New-InstallerConversation $Bridge $launched $Phase ([bool]$Msi)
     $timer = [Diagnostics.Stopwatch]::StartNew()
     if ($Msi) {
         $canonicalMsi = Join-Path ([Environment]::GetFolderPath([Environment+SpecialFolder]::System)) 'msiexec.exe'
@@ -445,53 +988,13 @@ function Invoke-InstallerOwnerPump {
     try {
         do {
             if ($timer.Elapsed.TotalMinutes -gt 30) { throw 'RECOVERY_REQUIRED' }
-            $packetBytes = $Bridge.Channel.Poll()
-            if ($null -ne $packetBytes) {
-                if ($null -eq $peer) {
-                    $peer = [EndpointInstallerBridge.NativeProcess]::new($Bridge.Channel.PeerPid())
-                    if ($Msi) {
-                        if (-not $launched.Alive) { throw 'OWNER_AUTH_FAILED' }
-                    } else {
-                        if (-not $peer.Identity.Same($launched.Identity) -and -not $peer.DirectChildOf($launched)) { throw 'OWNER_AUTH_FAILED' }
-                        $Bridge.Policy.RegisterHelper($peer.Identity, $Phase)
-                    }
-                    $Bridge.Peers.Add($peer)
-                }
-                if (($null -eq $acknowledgement -and -not $peer.Alive) -or $Bridge.Channel.PeerPid() -ne $peer.Identity.Pid) { throw 'OWNER_AUTH_FAILED' }
-                $packet = [Text.Encoding]::ASCII.GetString($packetBytes) | ConvertFrom-Json
-                $keys = @($packet.PSObject.Properties.Name | Sort-Object)
-                if ($null -ne $acknowledgement) {
-                    if ([string]::Join('|', $keys) -ne 'received' -or $packet.received -ne $acknowledgement) { throw 'OWNER_AUTH_FAILED' }
-                    $Bridge.Channel.Disconnect()
-                    $acknowledgement = $null
-                    $completed = $true
-                    $peer = $null
-                } elseif ($null -ne $challenge) {
-                    if ([string]::Join('|', $keys) -ne 'proof') { throw 'OWNER_AUTH_FAILED' }
-                    $signature = $Bridge.Policy.Accept($peer.Identity, $challenge, [string]$packet.proof)
-                    Send-InstallerBridgePacket $Bridge @{ sequence = $challenge.Sequence; proof = $signature }
-                    if ($challenge.Action -eq 'complete') {
-                        $result = $payload
-                        $acknowledgement = $challenge.Sequence
-                    }
-                    $challenge = $null
-                } else {
-                    if ([string]::Join('|', $keys) -ne 'action|payload|phase|session' -or $packet.session -cne $Bridge.SessionId -or $packet.phase -isnot [string] -or $packet.action -isnot [string] -or $packet.payload -isnot [string]) { throw 'OWNER_AUTH_FAILED' }
-                    if (-not $Msi -and $packet.phase -cne $Phase) { throw 'OWNER_AUTH_FAILED' }
-                    $raw = ConvertFrom-BridgeHex -Value $packet.payload -Maximum 8192
-                    $sha = [Security.Cryptography.SHA256]::Create()
-                    try { $payloadHash = [EndpointInstallerBridge.Policy]::Hex($sha.ComputeHash($raw)) } finally { $sha.Dispose() }
-                    $payload = [Text.Encoding]::ASCII.GetString($raw) | ConvertFrom-Json
-                    $challenge = $Bridge.Policy.Issue($peer.Identity, $packet.phase, $packet.action, $payloadHash, $packet.session)
-                    Send-InstallerBridgePacket $Bridge @{ sequence = $challenge.Sequence; nonce = $challenge.Nonce; proof = $Bridge.Policy.Sign('owner', $challenge) }
-                }
-            }
+            $worked = Invoke-InstallerConversationStep -State $conversation
             $Process.Refresh()
             if ($Process.HasExited) {
                 $activePeers = @($Bridge.Peers | Where-Object { $_.Alive })
-                if ($activePeers.Count -eq 0 -and $null -eq $acknowledgement -and $null -eq $challenge) { break }
+                if ($activePeers.Count -eq 0 -and $null -eq $conversation.Acknowledgement -and $null -eq $conversation.Challenge) { break }
             }
-            if ($null -eq $packetBytes) { Start-Sleep -Milliseconds 1 }
+            if (-not $worked) { Start-Sleep -Milliseconds 1 }
         } while ($true)
         if ($Msi) {
             $Bridge.Policy.MarkMsiExited($Process.ExitCode)
@@ -503,10 +1006,10 @@ function Invoke-InstallerOwnerPump {
             throw 'UPDATE_STATE_INVALID'
         } elseif ($Process.ExitCode -eq 63) {
             throw 'PROVENANCE_CONFLICT'
-        } elseif ($Process.ExitCode -ne 0 -or -not $completed -or -not $Bridge.Policy.AllHelpersComplete) {
+        } elseif ($Process.ExitCode -ne 0 -or -not $conversation.Completed -or -not $Bridge.Policy.AllHelpersComplete) {
             throw 'RECOVERY_REQUIRED'
         }
-        return $result
+        return $conversation.Result
     } catch {
         $Bridge.Policy.OwnerLost()
         throw
@@ -517,7 +1020,7 @@ function Invoke-InstallerOwnerPump {
 
 function Invoke-InstallerHelper {
     param([Parameter(Mandatory)]$Bridge,[Parameter(Mandatory)][string]$Phase)
-    if ($Phase -notin @('inspect','prepare','reconcile','finish','verify-settled') -or $Bridge.SessionId -cnotmatch '^[0-9a-f-]{36}$') { throw 'OWNER_AUTH_FAILED' }
+    if ($Phase -notin @('inspect','inspect-compound','prepare','reconcile','finish','verify-settled','compound-old-returned','compound-new-returned','compound-commit','compound-retire','compound-complete','compound-repair-returned','compound-repair-commit') -or $Bridge.SessionId -cnotmatch '^[0-9a-f-]{36}$') { throw 'OWNER_AUTH_FAILED' }
     Assert-ExistingPathChain $Bridge.LaunchDirectory
     Assert-InstallerCacheProtection $Bridge.LaunchDirectory
     $info = [EndpointInstallerBridge.LaunchDirectory]::StartInfo($Bridge.HelperPath, ('--installer-phase ' + $Phase + ' --installer-session ' + $Bridge.SessionId), $Bridge.LaunchDirectory)
@@ -525,9 +1028,117 @@ function Invoke-InstallerHelper {
     return Invoke-InstallerOwnerPump -Bridge $Bridge -Process $process -Phase $Phase
 }
 
+function Invoke-CompoundNativePump {
+    param([Parameter(Mandatory)]$Driver,[Parameter(Mandatory)][array]$Conversations,[ValidateSet(1,2)][int]$Channels=2)
+    if ($Conversations.Count -ne $Channels -or $null -eq $Driver.PendingTask) { throw 'OWNER_AUTH_FAILED' }
+    $timer=[Diagnostics.Stopwatch]::StartNew()
+    do {
+        $Driver.CheckOwnership()
+        if ($timer.Elapsed.TotalMinutes -gt 30) { throw 'RECOVERY_REQUIRED' }
+        $worked=$false
+        foreach ($state in $Conversations) {
+            if (Invoke-InstallerConversationStep -State $state) { $worked=$true }
+        }
+        $pending=$false
+        foreach ($state in $Conversations) {
+            if ($null -ne $state.Challenge -or $null -ne $state.Acknowledgement -or
+                @($state.Bridge.Peers | Where-Object { $_.Alive }).Count -gt 0) { $pending=$true }
+        }
+        if ($Driver.PendingTask.IsCompleted -and -not $pending) { break }
+        if (-not $worked) { Start-Sleep -Milliseconds 1 }
+    } while ($true)
+}
+
 function Get-InstallerReaderSids {
     return @('S-1-5-80-1102781572-1373263041-1070489469-7526906-1468061691',
         'S-1-5-80-327494974-20047353-929432329-1920152597-707704661')
+}
+
+function New-CompoundNativeDriver {
+    param($Policy,$Owner,$OldMedia,$NewMedia,[string]$SuccessorProduct)
+    return [EndpointInstallerBridge.NativeTransaction]::new($Policy,$Owner,$OldMedia,$NewMedia,$SuccessorProduct)
+}
+
+function Invoke-CompoundFoundationUpgrade {
+    param($OldBridge,[Parameter(Mandatory)]$NewBridge,
+        $OldMedia,$NewMedia,[Parameter(Mandatory)][string]$SuccessorProduct,
+        [ValidateSet('fresh','replace-foundation','repair-successor')][string]$Mode='fresh')
+    $repair=$Mode -ceq 'repair-successor'
+    $bridges=@($NewBridge)
+    if ($Mode -cne 'fresh' -and ($NewBridge.Capability.recovery -ne $true -or $NewBridge.Capability.compound.recovery.mode -cne $Mode)) { throw 'OWNER_AUTH_FAILED' }
+    if ($repair) {
+        if ($null -ne $OldBridge) { throw 'OWNER_AUTH_FAILED' }
+        $oldHash=$NewBridge.Capability.compound.old.package.package_sha256
+        $compound=[EndpointInstallerBridge.SuccessorRepairPolicy]::new($NewBridge.Policy,$oldHash)
+    } else {
+        if ($null -eq $OldBridge) { throw 'OWNER_AUTH_FAILED' }
+        $bridges=@($OldBridge,$NewBridge);$oldHash=$OldBridge.Policy.PackageHash
+        if ($Mode -ceq 'replace-foundation') { $compound=[EndpointInstallerBridge.CompoundPolicy]::CreateRecovery($OldBridge.Policy,$NewBridge.Policy) }
+        else { $compound=[EndpointInstallerBridge.CompoundPolicy]::new($OldBridge.Policy,$NewBridge.Policy) }
+    }
+    $driver=$null
+    try {
+        $driver=New-CompoundNativeDriver $compound $NewBridge.Owner $OldMedia $NewMedia $SuccessorProduct
+        foreach ($bridge in $bridges) { $bridge.NativeDriver=$driver }
+        $conversations=@(foreach ($bridge in $bridges) { New-InstallerConversation $bridge $bridge.Owner 'native' $true })
+        $driver.BeginNative()
+        if (-not $repair) {
+            $driver.StartOldScript()
+            Invoke-CompoundNativePump $driver $conversations -Channels $bridges.Count
+            if ($driver.CompleteOldScript() -ne 0) { throw 'RECOVERY_REQUIRED' }
+            Invoke-InstallerHelper $NewBridge 'compound-old-returned' | Out-Null
+        }
+        $driver.StartNewScript()
+        Invoke-CompoundNativePump $driver $conversations -Channels $bridges.Count
+        if ($driver.CompleteNewScript() -ne 0) { throw 'RECOVERY_REQUIRED' }
+        Invoke-InstallerHelper $NewBridge $(if($repair){'compound-repair-returned'}else{'compound-new-returned'}) | Out-Null
+        $driver.StartEnd($true)
+        Invoke-CompoundNativePump $driver $conversations -Channels $bridges.Count
+        if ($driver.CompleteEnd() -ne 0) { throw 'RECOVERY_REQUIRED' }
+        foreach ($phase in @($(if($repair){'compound-repair-commit'}else{'compound-commit'}),'compound-retire','reconcile','finish')) {
+            Invoke-InstallerHelper $NewBridge $phase | Out-Null
+        }
+        $ready=Invoke-InstallerHelper $NewBridge 'compound-complete'
+        if ($ready.result -cne 'compound-ready' -or $ready.marker.upgrade_id -cne $NewBridge.Capability.compound.upgrade_id -or
+            $ready.marker.new_transaction_id -cne $NewBridge.TransactionId -or
+            $ready.marker.old_package_sha256 -cne $oldHash -or
+            $ready.marker.new_package_sha256 -cne $NewBridge.Policy.PackageHash -or
+            $ready.marker.successor_product_code -cne $SuccessorProduct -or
+            $ready.marker.source_revision -cne $NewBridge.Capability.package.source_revision -or
+            @($bridges | ForEach-Object { $_.Peers } | Where-Object { $_.Alive }).Count -ne 0) { throw 'RECOVERY_REQUIRED' }
+        $driver.PublishCompletion($ready.marker.upgrade_id,$ready.marker.source_revision,$ready.marker.ready_sha256)
+    } catch {
+        $compound.OwnerLost()
+        # Closing both channels forces every outstanding helper to lose its
+        # grants before a blocked native API can return to this owner thread.
+        foreach ($bridge in $bridges) { $bridge.Channel.Dispose() }
+        if ($null -ne $driver) {
+            try {
+                $timer=[Diagnostics.Stopwatch]::StartNew()
+                while ($null -ne $driver.PendingTask -and -not $driver.PendingTask.IsCompleted) {
+                    if ($timer.Elapsed.TotalMinutes -gt 30) { throw 'RECOVERY_REQUIRED' }
+                    Start-Sleep -Milliseconds 20
+                }
+                if ($null -ne $driver.PendingTask) { $driver.DiscardInterruptedCall() | Out-Null }
+                if ($driver.HasNativeTransaction) {
+                    $driver.StartAbort()
+                    while (-not $driver.PendingTask.IsCompleted) {
+                        if ($timer.Elapsed.TotalMinutes -gt 30) { throw 'RECOVERY_REQUIRED' }
+                        Start-Sleep -Milliseconds 20
+                    }
+                    if ($driver.CompleteAbort() -ne 0) { throw 'RECOVERY_REQUIRED' }
+                }
+            } catch { Write-Warning 'RECOVERY_REQUIRED: native settlement unavailable' }
+        }
+        throw
+    } finally {
+        foreach ($bridge in $bridges) { [void]$bridge.Remove('NativeDriver') }
+        if ($null -ne $driver) {
+            if ($driver.HasNativeTransaction -or $null -ne $driver.PendingTask) {
+                Write-Warning 'RECOVERY_REQUIRED: native ownership remains unsettled'
+            } else { $driver.Dispose() }
+        }
+    }
 }
 
 function Assert-InstallerPublicStateAcl {
@@ -592,7 +1203,7 @@ function Save-InstallerCapability {
 }
 
 function New-InstallerBridge {
-    param($Manifest,[string]$HelperPath,[string]$HelperHash,[string]$StateRoot,[hashtable]$ServiceStates,$Fence,[string]$Intent,[string]$TransactionId,$Selection)
+    param($Manifest,[string]$HelperPath,[string]$HelperHash,[string]$StateRoot,[hashtable]$ServiceStates,$Fence,[string]$Intent,[string]$TransactionId,$Selection,$Compound,[string]$RecoveryParent)
     Initialize-InstallerBridgeTypes
     New-InstallerPublicStateRoot $StateRoot
     $capabilities = Join-Path $StateRoot 'capabilities'
@@ -631,6 +1242,19 @@ function New-InstallerBridge {
         if ($Intent -cne 'uninstall' -or $null -eq $Fence) { throw 'OWNER_AUTH_FAILED' }
         $capability.uninstall_finalization=$true
         $policy.UninstallFinalization=$true
+    }
+    if ($null -ne $Compound) {
+        if ($Intent -cne 'install' -or $null -ne $Fence -or $null -eq $Selection -or $RecoveryParent) { throw 'OWNER_AUTH_FAILED' }
+        if ($Compound.ContainsKey('recovery')) {
+            $capability.recovery=$true;$policy.Recovery=$true
+            foreach ($name in @('EndpointAgent','EndpointAgentUpdater')) { $capability.service_states[$name]=$Selection.service_states.$name }
+        }
+        $capability.compound=$Compound
+    }
+    if ($RecoveryParent) {
+        if ($Intent -cne 'install' -or $null -ne $Fence -or $null -ne $Compound -or $RecoveryParent -cnotmatch '^[0-9a-f-]{36}$') { throw 'OWNER_AUTH_FAILED' }
+        $capability.recovery=$true;$policy.Recovery=$true;$capability.recovery_parent=$RecoveryParent
+        $policy.MarkRecoveryLocator()
     }
     $bridge = @{ Policy=$policy; Owner=$owner; Channel=$channel; Operation=$Intent; TransactionId=$transactionId; SessionId=$sessionId;
         HelperPath=$HelperPath;HelperHash=$HelperHash;Capability=$capability;LaunchDirectory=$launchDirectory;
@@ -789,7 +1413,7 @@ function Set-CacheArtifactProtection {
 
 function Get-ManagedAgentServiceStates {
     $previousStates = @{}
-    foreach ($serviceName in @('EndpointAgent', 'EndpointAgentUpdater')) {
+    foreach ($serviceName in @('EndpointAgent', 'EndpointAgentUpdater', 'EndpointBrowserPolicy')) {
         $service = Get-Service -Name $serviceName -ErrorAction SilentlyContinue
         $previousStates[$serviceName] = if ($null -eq $service) { 'Absent' } else { $service.Status.ToString() }
     }
@@ -799,7 +1423,7 @@ function Get-ManagedAgentServiceStates {
 function Stop-ManagedAgentServices {
     param([hashtable]$PreviousStates = (Get-ManagedAgentServiceStates),
         [Parameter(Mandatory)][hashtable]$StoppedBySetup, [scriptblock]$AfterAgentStopped = {})
-    foreach ($serviceName in @('EndpointAgent', 'EndpointAgentUpdater')) {
+    foreach ($serviceName in @('EndpointAgent', 'EndpointAgentUpdater', 'EndpointBrowserPolicy')) {
         if ($serviceName -eq 'EndpointAgentUpdater') { & $AfterAgentStopped }
         $service = Get-Service -Name $serviceName -ErrorAction SilentlyContinue
         if ($null -eq $service) { continue }
@@ -835,7 +1459,7 @@ function Restore-ManagedAgentServices {
         } while ($true)
     }
     $failures = @()
-    foreach ($serviceName in @('EndpointAgent', 'EndpointAgentUpdater')) {
+    foreach ($serviceName in @('EndpointAgent', 'EndpointAgentUpdater', 'EndpointBrowserPolicy')) {
         if ($PreviousStates[$serviceName] -ne 'Running' -or -not $StoppedBySetup.ContainsKey($serviceName)) { continue }
         try {
             $service = Get-Service -Name $serviceName -ErrorAction SilentlyContinue
@@ -865,6 +1489,43 @@ function Start-ManagedEndpointAgent {
     if ($service.Status -ne [ServiceProcess.ServiceControllerStatus]::Running) {
         throw 'EndpointAgent did not start after MSI installation.'
     }
+}
+
+function Start-VerifiedBrowserPolicy {
+    # Authenticated finish already verified native ownership/bytes and enabled
+    # this registration. Neither service is started while an installer fence lives.
+    $service=Get-Service -Name 'EndpointBrowserPolicy' -ErrorAction Stop
+    if ($service.Status -ne [ServiceProcess.ServiceControllerStatus]::Running) {
+        Start-Service -Name 'EndpointBrowserPolicy' -ErrorAction Stop
+        $service.WaitForStatus([ServiceProcess.ServiceControllerStatus]::Running,$ManagedServiceTimeout)
+        $service.Refresh()
+    }
+    if ($service.Status -ne [ServiceProcess.ServiceControllerStatus]::Running) { throw 'RECOVERY_REQUIRED' }
+}
+
+function Get-CompoundOldMedia {
+    param([Parameter(Mandatory)]$Manifest,[Parameter(Mandatory)][string]$StateRoot,
+        [Parameter(Mandatory)][string]$CacheRoot)
+    $digest=[string]$Manifest.package_sha256
+    if ($digest -cnotmatch '^[0-9a-f]{64}$') { throw 'PROVENANCE_CONFLICT' }
+    $original=Join-Path $StateRoot ('packages\'+$digest+'\EndpointAgent.msi')
+    Assert-InstallerPublicStateAcl $original
+    $sourcePin=[IO.File]::Open($original,[IO.FileMode]::Open,[IO.FileAccess]::Read,[IO.FileShare]::Read)
+    try {
+        $sha=[Security.Cryptography.SHA256]::Create()
+        try { if ([EndpointInstallerBridge.Policy]::Hex($sha.ComputeHash($sourcePin)) -cne $digest) { throw 'PROVENANCE_CONFLICT' } } finally { $sha.Dispose() }
+        $directory=Join-Path $CacheRoot ('msi-'+$digest)
+        if (-not (Test-Path -LiteralPath $directory)) { New-ProtectedDirectory $directory }
+        Assert-InstallerCacheProtection $directory
+        $path=Join-Path $directory 'EndpointAgent.msi'
+        if (-not (Test-Path -LiteralPath $path)) {
+            Copy-Item -LiteralPath $original -Destination $path
+            Set-CacheArtifactProtection $path
+        }
+        Assert-CacheArtifactProtection $path
+        if ((Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant() -cne $digest) { throw 'PROVENANCE_CONFLICT' }
+        return $path
+    } finally { $sourcePin.Dispose() }
 }
 
 function Start-WindowsInstaller {
@@ -906,6 +1567,25 @@ function Read-ReleaseManifest {
     ) {
         throw 'Release manifest values are invalid.'
     }
+    return $value
+}
+
+function Read-CompoundRecoveryLocator {
+    param([string]$Root,$Manifest)
+    $path=Join-Path $Root 'upgrade.json'
+    if (-not (Test-Path -LiteralPath $path)) { return $null }
+    Assert-InstallerPublicStateAcl $path
+    $state=Read-UpdateGateState -Path $path -Limit 4096
+    $value=$state.Value
+    if ($value -isnot [Collections.IDictionary] -or [string]::Join('|',@($value.Keys | Sort-Object)) -cne 'new_package_sha256|new_transaction_id|old_package_sha256|schema_version|upgrade_id' -or $value.schema_version -isnot [int] -or $value.schema_version -ne 1) { throw 'PROVENANCE_CONFLICT' }
+    foreach ($name in @('upgrade_id','new_transaction_id')) {
+        $parsed=[Guid]::Empty
+        if ($value[$name] -isnot [string] -or -not [Guid]::TryParseExact($value[$name],'D',[ref]$parsed) -or $parsed.ToString('D') -cne $value[$name]) { throw 'PROVENANCE_CONFLICT' }
+    }
+    foreach ($name in @('old_package_sha256','new_package_sha256')) {
+        if ($value[$name] -isnot [string] -or $value[$name] -cnotmatch '^[0-9a-f]{64}$') { throw 'PROVENANCE_CONFLICT' }
+    }
+    if ($value.new_package_sha256 -cne $Manifest.package_sha256 -or $value.old_package_sha256 -ceq $value.new_package_sha256) { throw 'PROVENANCE_CONFLICT' }
     return $value
 }
 
@@ -1090,9 +1770,11 @@ try {
         if (Test-ActiveUpdateState -InstallRoot $gateInstallRoot -DataRoot $gateDataRoot) { exit 61 }
         $installerStateRoot = Join-Path (Split-Path -Parent $gateInstallRoot) 'installer-state'
         $interruptedFence = Read-InstallerFence -Root $installerStateRoot
+        $recoveryLocator=$null
+        if ($Operation -eq 'RecoverInterruptedInstall') { $recoveryLocator=Read-CompoundRecoveryLocator $installerStateRoot $manifest }
         if ($null -ne $interruptedFence -and $Operation -ne 'RecoverInterruptedInstall') { exit 61 }
-        if ($Operation -eq 'RecoverInterruptedInstall' -and $null -eq $interruptedFence) { exit 61 }
-        if ($null -ne $interruptedFence -and ($interruptedFence.package.sha256 -cne $manifest.package_sha256 -or $interruptedFence.package.product_code -cne $manifest.product_code -or $interruptedFence.package.version -cne $manifest.version -or $interruptedFence.package.source_revision -cne $manifest.source_revision)) { throw 'PROVENANCE_CONFLICT' }
+        if ($Operation -eq 'RecoverInterruptedInstall' -and $null -eq $interruptedFence -and $null -eq $recoveryLocator) { exit 61 }
+        if ($null -eq $recoveryLocator -and $null -ne $interruptedFence -and ($interruptedFence.package.sha256 -cne $manifest.package_sha256 -or $interruptedFence.package.product_code -cne $manifest.product_code -or $interruptedFence.package.version -cne $manifest.version -or $interruptedFence.package.source_revision -cne $manifest.source_revision)) { throw 'PROVENANCE_CONFLICT' }
     } catch {
         if ($_.Exception.Message -eq 'PROVENANCE_CONFLICT') { exit 63 }
         Write-Error 'UPDATE_STATE_INVALID' -ErrorAction Continue; exit 62
@@ -1138,6 +1820,9 @@ Initialize-InstallerBridgeTypes
 $packagePin = [IO.File]::Open($executionCachePath,[IO.FileMode]::Open,[IO.FileAccess]::Read,[IO.FileShare]::Read)
 $helperPin = $null
 $bridge = $null
+$oldBridge = $null
+$oldPackagePin = $null
+$oldHelperPin = $null
 $previousServiceStates = Get-ManagedAgentServiceStates
 $stoppedBySetup = @{}
 $restorePolicy = @{ LateOperation = $false }
@@ -1153,18 +1838,23 @@ try {
     $intent = switch ($Operation) {
         'RetireInitialRuntime' { 'retire-initial-runtime' }
         'Uninstall' { 'uninstall' }
-        'RecoverInterruptedInstall' { $interruptedFence.operation }
+        'RecoverInterruptedInstall' { if ($null -ne $recoveryLocator) { 'install' } else { $interruptedFence.operation } }
         default { 'install' }
     }
-    $bridge = New-InstallerBridge -Manifest $manifest -HelperPath $helperPath -HelperHash $helperHash -StateRoot $installerStateRoot -ServiceStates $previousServiceStates -Fence $interruptedFence -Intent $intent
-    $initial = Invoke-InstallerHelper -Bridge $bridge -Phase 'inspect'
+    if ($null -ne $recoveryLocator) {
+        $bridge=New-InstallerBridge -Manifest $manifest -HelperPath $helperPath -HelperHash $helperHash -StateRoot $installerStateRoot -ServiceStates $previousServiceStates -Intent 'install' -TransactionId $recoveryLocator.new_transaction_id -RecoveryParent $recoveryLocator.upgrade_id
+        $initial=Invoke-InstallerHelper -Bridge $bridge -Phase 'inspect-compound'
+    } else {
+        $bridge = New-InstallerBridge -Manifest $manifest -HelperPath $helperPath -HelperHash $helperHash -StateRoot $installerStateRoot -ServiceStates $previousServiceStates -Fence $interruptedFence -Intent $intent
+        $initial = Invoke-InstallerHelper -Bridge $bridge -Phase 'inspect'
+    }
     if ($intent -ne 'retire-initial-runtime') {
         Stop-ManagedAgentServices -PreviousStates $previousServiceStates -StoppedBySetup $stoppedBySetup -AfterAgentStopped {
             $restorePolicy.LateOperation = $true
             try { $active = Test-ActiveUpdateState -InstallRoot $gateInstallRoot -DataRoot $gateDataRoot }
             catch { throw 'UPDATE_STATE_INVALID' }
             if ($active) { throw 'UPDATE_IN_PROGRESS' }
-            $settled = Invoke-InstallerHelper -Bridge $bridge -Phase 'inspect'
+            $settled = Invoke-InstallerHelper -Bridge $bridge -Phase $(if($null -ne $recoveryLocator){'inspect-compound'}else{'inspect'})
             if ($settled.selected -cne $initial.selected -or $settled.previous -cne $initial.previous) { throw 'PROVENANCE_CONFLICT' }
             $restorePolicy.LateOperation = $false
         }
@@ -1173,7 +1863,49 @@ try {
     catch { $restorePolicy.LateOperation = $true; throw 'UPDATE_STATE_INVALID' }
     if ($active) { $restorePolicy.LateOperation = $true; throw 'UPDATE_IN_PROGRESS' }
     $bootstrapBridge = $bridge
-    $bridge = New-InstallerBridge -Manifest $manifest -HelperPath $helperPath -HelperHash $helperHash -StateRoot $installerStateRoot -ServiceStates $previousServiceStates -Fence $interruptedFence -Intent $intent -TransactionId $bootstrapBridge.TransactionId -Selection $initial
+    $compoundDetails=$null
+    $compoundMode='fresh'
+    if ($null -ne $recoveryLocator) {
+        if ($initial.parent_upgrade_id -cne $recoveryLocator.upgrade_id -or $initial.transaction_id -cne $recoveryLocator.new_transaction_id -or $initial.mode -notin @('replace-foundation','repair-successor')) { throw 'PROVENANCE_CONFLICT' }
+        $compoundMode=$initial.mode;$oldManifest=$initial.old.package
+        $oldPath=Get-CompoundOldMedia $oldManifest $installerStateRoot $executionCacheRoot
+        $oldPackagePin=[IO.File]::Open($oldPath,[IO.FileMode]::Open,[IO.FileAccess]::Read,[IO.FileShare]::Read)
+        $oldHelperPath=Join-Path (Split-Path $oldPath -Parent) 'endpoint-installer-host.exe'
+        $oldHelperHash=[EndpointInstallerBridge.PackageHelper]::Extract($oldPath,$oldHelperPath)
+        Assert-CacheArtifactProtection $oldHelperPath
+        if ($oldHelperHash -cne $initial.old.helper_sha256) { throw 'PROVENANCE_CONFLICT' }
+        $oldHelperPin=[IO.File]::Open($oldHelperPath,[IO.FileMode]::Open,[IO.FileAccess]::Read,[IO.FileShare]::Read)
+        $oldBinding=@{transaction_id=$initial.old.transaction_id;session_id=$initial.old.session_id;package=$oldManifest;helper_sha256=$oldHelperHash}
+        if ($compoundMode -ceq 'replace-foundation') {
+            if ($null -eq $interruptedFence -or $interruptedFence.transaction_id -cne $initial.old.transaction_id) { throw 'PROVENANCE_CONFLICT' }
+            $oldBridge=New-InstallerBridge -Manifest $oldManifest -HelperPath $oldHelperPath -HelperHash $oldHelperHash -StateRoot $installerStateRoot -ServiceStates $previousServiceStates -Fence $interruptedFence -Intent 'uninstall'
+            $oldBridge.Policy.MarkQuiescent();Invoke-InstallerHelper $oldBridge 'prepare' | Out-Null
+            $oldBinding.session_id=$oldBridge.SessionId
+        }
+        $compoundDetails=@{upgrade_id=[Guid]::NewGuid().ToString('D');old=$oldBinding;recovery=@{
+            original_upgrade_id=$initial.original_upgrade_id;original_plan_sha256=$initial.original_plan_sha256;
+            predecessor_upgrade_id=$initial.parent_upgrade_id;predecessor_plan_sha256=$initial.predecessor_plan_sha256;mode=$compoundMode}}
+    } elseif ($intent -eq 'install' -and $null -eq $interruptedFence -and $null -ne $initial.PSObject.Properties['foundation_release']) {
+        $oldManifest=$initial.foundation_release
+        if ($oldManifest.package_sha256 -cne $manifest.package_sha256) {
+            if ([Version]$oldManifest.version -ge [Version]$manifest.version -or $oldManifest.product_code -ceq $manifest.product_code) { throw 'PROVENANCE_CONFLICT' }
+            $oldPath=Get-CompoundOldMedia $oldManifest $installerStateRoot $executionCacheRoot
+            $oldPackagePin=[IO.File]::Open($oldPath,[IO.FileMode]::Open,[IO.FileAccess]::Read,[IO.FileShare]::Read)
+            $oldHelperPath=Join-Path (Split-Path $oldPath -Parent) 'endpoint-installer-host.exe'
+            if (Test-Path -LiteralPath $oldHelperPath) { Assert-CacheArtifactProtection $oldHelperPath }
+            $oldHelperHash=[EndpointInstallerBridge.PackageHelper]::Extract($oldPath,$oldHelperPath)
+            Assert-CacheArtifactProtection $oldHelperPath
+            $oldHelperPin=[IO.File]::Open($oldHelperPath,[IO.FileMode]::Open,[IO.FileAccess]::Read,[IO.FileShare]::Read)
+            $oldBridge=New-InstallerBridge -Manifest $oldManifest -HelperPath $oldHelperPath -HelperHash $oldHelperHash -StateRoot $installerStateRoot -ServiceStates $previousServiceStates -Intent 'uninstall' -Selection $initial
+            $oldBridge.Policy.MarkQuiescent()
+            Invoke-InstallerHelper $oldBridge 'prepare' | Out-Null
+            $compoundDetails=@{upgrade_id=[Guid]::NewGuid().ToString('D');old=@{
+                transaction_id=$oldBridge.TransactionId;session_id=$oldBridge.SessionId;
+                package=$oldManifest;helper_sha256=$oldHelperHash}}
+        }
+    }
+    $newFence=$(if($null -ne $recoveryLocator){$null}else{$interruptedFence})
+    $bridge = New-InstallerBridge -Manifest $manifest -HelperPath $helperPath -HelperHash $helperHash -StateRoot $installerStateRoot -ServiceStates $previousServiceStates -Fence $newFence -Intent $intent -TransactionId $bootstrapBridge.TransactionId -Selection $initial -Compound $compoundDetails
     $bootstrapBridge.Policy.OwnerLost()
     $bootstrapBridge.Channel.Dispose()
     foreach ($peer in $bootstrapBridge.Peers) { $peer.Dispose() }
@@ -1181,9 +1913,16 @@ try {
     $bridge.Policy.MarkQuiescent()
     Invoke-InstallerHelper -Bridge $bridge -Phase 'prepare' | Out-Null
     # Re-read the protected durable fence before the first native invocation.
-    $prepared = Read-InstallerFence -Root $installerStateRoot
+    $preparedRoot=$installerStateRoot
+    if ($null -ne $compoundDetails) { $preparedRoot=Join-Path $installerStateRoot ('children\'+$bridge.TransactionId) }
+    if ($null -ne $recoveryLocator) { $preparedRoot=Join-Path $preparedRoot $compoundDetails.upgrade_id }
+    $prepared = Read-InstallerFence -Root $preparedRoot
     if ($null -eq $prepared -or $prepared.transaction_id -cne $bridge.TransactionId -or $prepared.package.sha256 -cne $inputHash) { throw 'RECOVERY_REQUIRED' }
     Start-WindowsInstaller
+    if ($null -ne $compoundDetails) {
+        $nativeStarted=$true
+        Invoke-CompoundFoundationUpgrade -OldBridge $oldBridge -NewBridge $bridge -OldMedia $oldPackagePin -NewMedia $packagePin -SuccessorProduct $manifest.product_code -Mode $compoundMode
+    } else {
     $msiArguments = @('/i', ('"{0}"' -f $executionCachePath), '/qn', '/norestart', ('ENDPOINT_INSTALLER_SESSION=' + $bridge.SessionId))
     if ($bridge.Capability.uninstall_finalization) {
         $msiArguments += 'ENDPOINT_UNINSTALL_FINALIZE=1'
@@ -1206,9 +1945,11 @@ try {
     if ($nativeExit -in @(3010,1641)) { exit $nativeExit }
     Invoke-InstallerHelper -Bridge $bridge -Phase 'reconcile' | Out-Null
     Invoke-InstallerHelper -Bridge $bridge -Phase 'finish' | Out-Null
+    }
     if ($null -ne (Read-InstallerFence -Root $installerStateRoot)) { throw 'RECOVERY_REQUIRED' }
+    if ($intent -eq 'install' -and $null -eq $compoundDetails) { Invoke-InstallerHelper -Bridge $bridge -Phase 'verify-settled' | Out-Null }
     $installationCompleted = $true
-    if ($intent -eq 'install' -and $nativeExit -eq 0) { Start-ManagedEndpointAgent }
+    if ($intent -eq 'install' -and $nativeExit -eq 0) { Start-VerifiedBrowserPolicy;Start-ManagedEndpointAgent }
     if ($nativeExit -in @(3010,1641)) { exit $nativeExit }
 }
 catch {
@@ -1242,6 +1983,13 @@ finally {
         foreach ($peer in $bridge.Peers) { $peer.Dispose() }
         $bridge.Owner.Dispose()
     }
+    if ($null -ne $oldBridge) {
+        $oldBridge.Channel.Dispose()
+        foreach ($peer in $oldBridge.Peers) { $peer.Dispose() }
+        $oldBridge.Owner.Dispose()
+    }
+    if ($null -ne $oldHelperPin) { $oldHelperPin.Dispose() }
+    if ($null -ne $oldPackagePin) { $oldPackagePin.Dispose() }
     if ($null -ne $helperPin) { $helperPin.Dispose() }
     $packagePin.Dispose()
 }

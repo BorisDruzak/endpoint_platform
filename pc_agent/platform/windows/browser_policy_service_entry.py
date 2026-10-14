@@ -40,6 +40,7 @@ def load_packaged_extension_id() -> str:
 
 
 def make_policy_listener() -> LocalSensorPipeListener:
+    _assert_installer_allows_policy()
     applicator = BrowserPolicyApplicator(
         WindowsPolicyRegistry(),
         extension_id=load_packaged_extension_id(),
@@ -50,11 +51,22 @@ def make_policy_listener() -> LocalSensorPipeListener:
             handle,
             payload,
             applicator,
-            authorize=authorize_agent_pipe_client,
+            authorize=_authorize_installer_safe_client,
         ),
         server_factory=create_helper_server_pipe,
         frame_timeout_seconds=5.0,
     )
+
+
+def _assert_installer_allows_policy() -> None:
+    from pc_agent.platform.windows.installer_fence import assert_launch_allowed
+    from pc_agent.platform.windows.update_paths import WindowsUpdatePaths
+    assert_launch_allowed(WindowsUpdatePaths.production())
+
+
+def _authorize_installer_safe_client(handle) -> None:
+    authorize_agent_pipe_client(handle)
+    _assert_installer_allows_policy()
 
 
 def run_browser_policy_service() -> int:
@@ -66,6 +78,7 @@ def run_browser_policy_service() -> int:
     except ImportError as error:
         raise RuntimeError("pywin32 is required for Browser Policy service") from error
 
+    _assert_installer_allows_policy()
     publish_helper_identity_acl()
 
     class BrowserPolicyWindowsService(win32serviceutil.ServiceFramework):

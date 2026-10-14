@@ -5,13 +5,16 @@ from pc_agent.platform.windows import installer_transaction_bridge as bridge
 
 
 class Services:
-    def __init__(self, root):
+    def __init__(self, root, *, browser=False):
         self.calls=[]; self.fail=None
         self.values={
             'EndpointAgent':[16,2,1,f'"{root / "endpoint-agent-service.exe"}" --agent-service','',0,[],r'NT AUTHORITY\LocalService','Agent'],
             'EndpointAgentUpdater':[16,3,1,f'"{root / "endpoint-agent-updater.exe"}" --updater-service','',0,[],'LocalSystem','Updater']}
         self.delayed={'EndpointAgent':True,'EndpointAgentUpdater':False}
         self.status={name:1 for name in self.values}
+        if browser:
+            self.values['EndpointBrowserPolicy']=[16,2,1,f'"{root / "EndpointBrowserPolicy.exe"}"','',0,[],'LocalSystem','Browser']
+            self.delayed['EndpointBrowserPolicy']=False;self.status['EndpointBrowserPolicy']=1
     def OpenSCManager(self,*args): return 'scm'
     def OpenService(self,scm,name,access):
         assert name in self.values
@@ -79,6 +82,19 @@ def test_absent_services_remain_absent_during_quarantine(tmp_path):
         original=services.snapshot();services.quarantine(original);services.restore_original(original)
         assert not api.calls
         with pytest.raises(ValueError): services.restore_final()
+
+
+def test_browser_service_is_quarantined_then_enabled_by_verified_finish(tmp_path):
+    api=Services(tmp_path,browser=True);events=[]
+    with bridge.InstallerServices(SimpleNamespace(install_root=tmp_path),api=api,
+        include_browser=True,checkpoint=lambda:events.append('owner'),flush=lambda name:events.append(name)) as services:
+        original=services.snapshot()
+        assert original['EndpointBrowserPolicy']=={'start_type':2,'delayed_auto':False}
+        services.quarantine(original)
+        assert all(value[1]==4 for value in api.values.values())
+        services.restore_final()
+        assert [api.values[name][1] for name in ('EndpointAgent','EndpointAgentUpdater','EndpointBrowserPolicy')]==[2,3,2]
+        assert 'EndpointBrowserPolicy' in events
 
 
 def test_flush_failure_stops_before_second_service(tmp_path):

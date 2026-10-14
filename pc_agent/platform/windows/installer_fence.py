@@ -11,6 +11,8 @@ from pathlib import Path
 import re
 import stat
 import uuid
+from contextlib import contextmanager
+from contextvars import ContextVar
 
 from endpoint_contracts.runtime_payload import read_json, reject_reparse_ancestors, version_tuple
 from .durable_state import write_json_atomic
@@ -23,6 +25,7 @@ _SOURCE = re.compile(r"^[0-9a-f]{40}$")
 _ADMINS = {"S-1-5-18", "S-1-5-32-544"}
 _FIELDS = {"schema_version", "transaction_id", "phase", "operation", "package",
     "selected", "previous", "service_states", "service_startup", "startup_restored", "sequence", "helpers"}
+_CHILD_FENCE = ContextVar('authenticated_installer_child_fence', default=None)
 
 
 class InstallerFenceActive(RuntimeError):
@@ -34,6 +37,30 @@ def state_root(paths: WindowsUpdatePaths) -> Path:
     # Sibling of Agent under protected Program Files, never inside the writable
     # ProgramData Agent tree whose parent could delete a protected child.
     return paths.install_root.parent / "installer-state"
+
+
+def fence_path(paths: WindowsUpdatePaths) -> Path:
+    child = _CHILD_FENCE.get()
+    root = state_root(paths)
+    if child is not None:
+        transaction,attempt=child
+        root=root/'children'/transaction
+        if attempt is not None:root=root/attempt
+    return root/'transaction.json'
+
+
+@contextmanager
+def child_fence(transaction_id,*,attempt_id=None):
+    """Internal scope entered only after authenticating the compound binding."""
+    if not isinstance(transaction_id, str) or str(uuid.UUID(transaction_id)) != transaction_id or _CHILD_FENCE.get() is not None:
+        raise ValueError('OWNER_AUTH_FAILED')
+    if attempt_id is not None and (not isinstance(attempt_id,str) or str(uuid.UUID(attempt_id))!=attempt_id):
+        raise ValueError('OWNER_AUTH_FAILED')
+    token = _CHILD_FENCE.set((transaction_id,attempt_id))
+    try:
+        yield
+    finally:
+        _CHILD_FENCE.reset(token)
 
 
 def _guid(value):
@@ -160,14 +187,14 @@ def protect_state(path: Path, *, secret: bool = False) -> None:
 
 
 def read_fence(paths: WindowsUpdatePaths):
-    root = state_root(paths)
+    path = fence_path(paths)
+    root = path.parent
     try:
         root.lstat()
     except FileNotFoundError:
         return None
     try:
         assert_state_security(root)
-        path = root / "transaction.json"
         try:
             details = path.lstat()
         except FileNotFoundError:
@@ -182,14 +209,16 @@ def read_fence(paths: WindowsUpdatePaths):
 
 
 def assert_launch_allowed(paths: WindowsUpdatePaths) -> None:
-    if read_fence(paths) is not None:
+    from .compound_upgrade_plan import has_active_upgrade
+    if has_active_upgrade(paths) or read_fence(paths) is not None:
         raise ValueError("INSTALLER_RECOVERY_REQUIRED")
 
 
 def publish_fence(paths: WindowsUpdatePaths, payload: dict) -> None:
     """Installer-owned phase only; caller proves its live bridge capability."""
     validate_fence(payload)
-    root = state_root(paths)
+    path = fence_path(paths)
+    root = path.parent
     assert_state_security(root)
     previous = read_fence(paths)
     if previous is not None:
@@ -202,5 +231,5 @@ def publish_fence(paths: WindowsUpdatePaths, payload: dict) -> None:
             or payload["sequence"] < previous["sequence"]
             or PHASES.index(payload["phase"]) < PHASES.index(previous["phase"])):
             raise ValueError("UPDATE_STATE_INVALID")
-    write_json_atomic(root / "transaction.json", payload, trusted_root=root,
+    write_json_atomic(path, payload, trusted_root=root,
         max_bytes=MAX_FENCE_BYTES, protect=protect_state)

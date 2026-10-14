@@ -293,7 +293,7 @@ def test_newer_zip_under_equal_foundation_needs_package_candidate_proof(machine)
     assert result["core"]["version"] == "3.2.83"
 
 
-@pytest.mark.parametrize("state", ["pending", "transition", "invalid_fence", "fence"])
+@pytest.mark.parametrize("state", ["pending", "transition", "invalid_fence", "fence", "parent"])
 def test_recovery_dominates_payload_and_disabled_service(machine, monkeypatch, state):
     module, paths, _, _, services = machine
     (paths.versions_root / "3.2.81" / "pc_agent.exe").write_bytes(b"tampered")
@@ -304,6 +304,11 @@ def test_recovery_dominates_payload_and_disabled_service(machine, monkeypatch, s
         paths.transition_path.write_text("null")
     elif state == "invalid_fence":
         (installer_fence.state_root(paths) / "transaction.json").write_text("null")
+    elif state=='parent':
+        (installer_fence.state_root(paths)/'upgrade.json').write_text(json.dumps({
+            'schema_version':1,'upgrade_id':'55555555-5555-4555-8555-555555555555',
+            'new_transaction_id':'33333333-3333-4333-8333-333333333333',
+            'old_package_sha256':'b'*64,'new_package_sha256':'d'*64}))
     else:
         monkeypatch.setattr(
             installer_fence, "read_fence", lambda _: {"phase": "msi-executing"}

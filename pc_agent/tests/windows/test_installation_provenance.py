@@ -264,7 +264,8 @@ def test_legacy_absence_requires_exact_reviewed_package_source_and_tree(tmp_path
     with pytest.raises(ValueError): runtime_identity.verify_legacy_msi_payload(tmp_path, package_sha256='b'*64)
 
 
-def test_reviewed_legacy_native_owner_survives_as_explicit_retained_archive(msi_archive_input, monkeypatch):
+@pytest.mark.parametrize('foundation',['3.2.82','3.2.94'])
+def test_reviewed_legacy_native_owner_survives_as_explicit_retained_archive(msi_archive_input, monkeypatch, foundation):
     from dataclasses import replace
     from types import SimpleNamespace
     from pc_agent.platform.windows import msi_inventory, runtime_identity
@@ -292,8 +293,10 @@ def test_reviewed_legacy_native_owner_survives_as_explicit_retained_archive(msi_
     captured = module.inspect_installed_core(paths, resulting_foundation='3.2.82').current
     assert captured.origin == 'msi'
     assert captured.compatibility_foundations == ('3.2.82',)
+    monkeypatch.setattr(runtime_identity,'_LEGACY_FOUNDATION_EXTENSIONS',{'3.2.94':frozenset({package.sha256})},raising=False)
+    assert module.inspect_installed_core(paths,resulting_foundation=foundation).current==captured
     from pc_agent.platform.windows import service_launcher
-    monkeypatch.setattr(service_launcher,'AGENT_VERSION','3.2.82')
+    monkeypatch.setattr(service_launcher,'AGENT_VERSION',foundation)
     assert service_launcher.build_agent_child_command(paths)[0]==str(core/'pc_agent.exe')
     with pytest.raises(module.ProvenanceConflict): module.inspect_installed_core(paths, resulting_foundation='3.2.83')
     archive = module.archive_retained_core(paths, captured, package_path=cached, package=package,
@@ -301,18 +304,24 @@ def test_reviewed_legacy_native_owner_survives_as_explicit_retained_archive(msi_
     monkeypatch.setattr(msi_inventory, 'NativeMsi', lambda: SimpleNamespace(product=lambda _code:-1))
     for path in core.iterdir(): path.unlink()
     module.restore_retained_core(paths, archive.name)
-    result = module.inspect_installed_core(paths, resulting_foundation='3.2.82').current
+    archive_before={str(p):p.read_bytes() for p in archive.rglob('*') if p.is_file()}
+    result = module.inspect_installed_core(paths, resulting_foundation=foundation).current
     assert result.origin == 'retained_msi'
     assert result.identity == captured.identity
+    assert result.compatibility_foundations==('3.2.82',)
+    assert archive_before=={str(p):p.read_bytes() for p in archive.rglob('*') if p.is_file()}
+    for denied in ('3.2.93','3.2.95'):
+        with pytest.raises(module.ProvenanceConflict):module.inspect_installed_core(paths,resulting_foundation=denied)
 
 
 @pytest.fixture
 def handoff_input(tmp_path, monkeypatch):
     from pc_agent.platform.windows import installation_provenance as module, installer_fence as fence, msi_inventory
     from pc_agent.platform.windows import installer_transaction_bridge as bridge
+    from pc_agent.platform.windows import installer_data_security
     from pc_agent.tests.windows.test_installer_service_quarantine import Services
     service_class=bridge.InstallerServices
-    monkeypatch.setattr(bridge,'InstallerServices',lambda paths,**kw:service_class(paths,api=Services(paths.install_root),flush=lambda _:None,**kw))
+    monkeypatch.setattr(bridge,'InstallerServices',lambda paths,**kw:service_class(paths,api=Services(paths.install_root,browser=kw.get('include_browser',False)),flush=lambda _:None,**kw))
     from pc_agent.platform.windows.update_paths import WindowsUpdatePaths
     from endpoint_contracts.runtime_payload import verify_payload
     paths = WindowsUpdatePaths(tmp_path / 'Agent', tmp_path / 'data/updates/pending_update.json')
@@ -322,6 +331,9 @@ def handoff_input(tmp_path, monkeypatch):
     monkeypatch.setattr(module, '_assert_security', lambda *_: None)
     monkeypatch.setattr(fence, 'assert_state_security', lambda *_a, **_kw: None)
     monkeypatch.setattr(fence, 'protect_state', lambda *_a, **_kw: None)
+    # This hermetic ownership model has no enrollment directory. Native data
+    # root/parent/leaf security is verified in separate Windows fixtures.
+    monkeypatch.setattr(installer_data_security, '_snapshot', lambda *_: {'root': None, 'leaves': {}})
     fence.state_root(paths).mkdir()
     package_path=tmp_path/'candidate.msi'; package_path.write_bytes(b'canonical package model')
     component=msi_inventory.Component('core','{33333333-3333-4333-8333-333333333333}', 'INITIALRUNTIMEDIR','corefile',('EndpointAgentInitialRuntimeFeature',))
@@ -497,6 +509,7 @@ def test_pre_fence_preparation_never_changes_live_ownership(handoff_input,monkey
     before={name:(root/name).read_bytes() for name in ('.endpoint-update.json','endpoint-update-manifest.json','pc_agent.exe')}
     selector=paths.current_path.read_bytes()
     capability={'package':request['release'],'transaction_id':request['transaction_id'],'selected':request['selected'],
+        'session_id':'405d7d76-a86b-45db-bcaa-57a6574f61b5',
         'previous':None,'recovery':False,'operation':'install','service_states':{'EndpointAgent':'running','EndpointAgentUpdater':'stopped'}}
     completions=[]
     client=SimpleNamespace(capability=capability,phase='prepare',checkpoint=lambda:None,
@@ -544,6 +557,7 @@ def test_partial_quarantine_preserves_original_snapshot_and_recovery_does_not_re
     package=paths.install_root.parent/'installer-cache'/f'msi-{expected.package.sha256}'/'EndpointAgent.msi'
     package.parent.mkdir(parents=True);package.write_bytes(request['package_path'].read_bytes())
     capability={'package':request['release'],'transaction_id':request['transaction_id'],'selected':request['selected'],
+        'session_id':'405d7d76-a86b-45db-bcaa-57a6574f61b5',
         'previous':None,'recovery':False,'operation':'install','service_states':{'EndpointAgent':'running','EndpointAgentUpdater':'stopped'}}
     completions=[]
     client=SimpleNamespace(capability=capability,phase='prepare',checkpoint=lambda:None,
@@ -575,6 +589,10 @@ def test_finish_checks_foundation_bytes_before_enable_and_records_restoration_be
     from pc_agent.platform.windows import installer_transaction_bridge as bridge,installer_fence,update_transaction,msi_inventory,durable_state
     from pc_agent.tests.windows.test_installer_service_quarantine import Services
     module,paths,root,request,expected=handoff_input
+    # This test isolates final binary verification and SCM ordering. The
+    # independent data-security tests exercise the native configuration barrier.
+    from pc_agent.platform.windows import installer_data_security
+    monkeypatch.setattr(installer_data_security, 'verify_preserved', lambda *_args: None)
     monkeypatch.setattr(update_transaction,'_assert_state_security',lambda _:None)
     package=paths.install_root.parent/'installer-cache'/f'msi-{expected.package.sha256}'/'EndpointAgent.msi'
     package.parent.mkdir(parents=True);package.write_bytes(request['package_path'].read_bytes())
@@ -584,14 +602,15 @@ def test_finish_checks_foundation_bytes_before_enable_and_records_restoration_be
         records.append({'path':path,'file':file_id,'component':component,'size':7,'sha256':hashlib.sha256(b'payload').hexdigest()})
     expected=replace(expected,foundation_files=tuple(records))
     monkeypatch.setattr(msi_inventory,'read_expected_package',lambda *_:expected)
-    api=Services(paths.install_root);service_class=bridge.InstallerServices(paths).__class__
+    api=Services(paths.install_root,browser=True);service_class=bridge.InstallerServices(paths).__class__
     monkeypatch.setattr(bridge,'InstallerServices',lambda paths,**kw:service_class(paths,api=api,flush=lambda _:None,**kw))
     capability={'package':request['release'],'transaction_id':request['transaction_id'],'selected':request['selected'],
+        'session_id':'405d7d76-a86b-45db-bcaa-57a6574f61b5',
         'previous':None,'recovery':False,'operation':'install','service_states':{'EndpointAgent':'running','EndpointAgentUpdater':'stopped'}}
     client=SimpleNamespace(capability=capability,phase='prepare',checkpoint=lambda:None,
         identity=SimpleNamespace(value={'pid':200,'created':2000,'hash':'a'*64}),request=lambda *_:None)
     bridge.execute_authorized_phase(client,paths)
-    client.phase='finish';api.calls.clear()
+    client.phase='finish';api.values['EndpointBrowserPolicy'][1]=4;api.calls.clear()
     executable=paths.install_root/'endpoint-agent-updater.exe';executable.write_bytes(b'changed')
     with pytest.raises(ValueError): bridge.execute_authorized_phase(client,paths)
     assert api.calls==[] and installer_fence.read_fence(paths)['startup_restored'] is False
@@ -600,6 +619,7 @@ def test_finish_checks_foundation_bytes_before_enable_and_records_restoration_be
     def retire(path,**kw):
         assert installer_fence.read_fence(paths)['startup_restored'] is True
         assert api.values['EndpointAgent'][1]==2 and api.values['EndpointAgentUpdater'][1]==3
+        assert api.values['EndpointBrowserPolicy'][1]==2
         unlink(path,**kw)
     monkeypatch.setattr(durable_state,'durable_unlink',retire)
     bridge.execute_authorized_phase(client,paths)

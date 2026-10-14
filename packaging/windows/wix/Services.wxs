@@ -35,10 +35,10 @@
         <ServiceInstall Id="svcEndpointBrowserPolicy" Name="EndpointBrowserPolicy"
                         DisplayName="Endpoint Browser Policy"
                         Description="Fixed Browser Sensor enterprise policy applicator"
-                        Type="ownProcess" Start="auto" ErrorControl="normal"
+                        Type="ownProcess" Start="disabled" ErrorControl="normal"
                         Account="LocalSystem" Vital="yes" />
         <ServiceControl Id="ctlEndpointBrowserPolicy" Name="EndpointBrowserPolicy"
-                        Start="install" Stop="both" Remove="uninstall" Wait="yes" />
+                        Stop="both" Remove="uninstall" Wait="yes" />
       </Component>
       <Component Id="cmpTrayCompanion" Directory="INSTALLFOLDER"
                  Guid="*" Bitness="always64">

@@ -183,6 +183,28 @@ def read_expected_package(path: Path, release: dict) -> ExpectedMsi:
     return ExpectedMsi(package, identity, value['manifest'], contract_bytes,foundation)
 
 
+def validate_native_selector(raw: bytes, expected: ExpectedMsi) -> None:
+    """Validate the successor identity, independently of JSON formatting."""
+    from endpoint_contracts.runtime_payload import read_json
+    if not isinstance(raw, bytes) or not 0 < len(raw) <= 4096:
+        raise ProvenanceConflict()
+    value = read_json(raw, 4096)
+    if value != {'schema_version': 1, 'version': expected.identity.version,
+                 'source_revision': expected.identity.source_revision} or type(value.get('schema_version')) is not int:
+        raise ProvenanceConflict()
+
+
+def read_native_selector(path: Path, expected: ExpectedMsi) -> bytes:
+    """Extract exact authored bytes from the pinned successor package only."""
+    raw = read_binary(path, 'EndpointNativeCurrentSelector', maximum=4096)
+    validate_native_selector(raw, expected)
+    files = [item for item in expected.package.files if item.path == 'current.json']
+    if (len(files) != 1 or files[0].name != 'filCurrentSelector'
+        or files[0].component != 'cmpCurrentSelector' or files[0].size != len(raw)):
+        raise ProvenanceConflict()
+    return raw
+
+
 def _rows(database, sql, kinds):
     view = database.OpenView(sql)
     view.Execute(None)
@@ -331,7 +353,7 @@ class NativeMsi:
 
 def read_binary(path: Path, name: str, *, maximum: int) -> bytes:
     """Read a fixed caller-selected stream from a previously pinned MSI database."""
-    if name not in {'EndpointInstallerHost', 'EndpointInitialRuntimeInventory'} or not 0 < maximum <= MAX_PACKAGE_BYTES:
+    if name not in {'EndpointInstallerHost', 'EndpointInitialRuntimeInventory', 'EndpointNativeCurrentSelector'} or not 0 < maximum <= MAX_PACKAGE_BYTES:
         raise ProvenanceConflict()
     api = NativeMsi()
     database, view, record = wintypes.UINT(), wintypes.UINT(), wintypes.UINT()
@@ -400,6 +422,21 @@ def verify_foundation(package: PackageInventory, install_root: Path, *, native=N
     if expected is not None:
         with verified_foundation_bytes(expected,install_root): pass
     return state
+
+
+def verify_replaced_product(old: PackageInventory, new: PackageInventory, install_root: Path, *, native=None) -> None:
+    """Old registration is absent; shared resources belong to the exact successor."""
+    native=native or NativeMsi()
+    if old.product_code==new.product_code or native.product(old.product_code)!=-1:
+        raise ProvenanceConflict()
+    for feature in old.features:
+        if native.feature(old.product_code,feature)!=-1:
+            raise ProvenanceConflict()
+    for component in old.components.values():
+        state,location=native.component(old.product_code,component.guid)
+        if state!=-1 or location:
+            raise ProvenanceConflict()
+    verify_installed(new,install_root,native=native)
 
 
 def verify_uninstalled(package: PackageInventory, install_root: Path, *, native=None) -> dict:

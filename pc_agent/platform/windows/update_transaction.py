@@ -111,7 +111,8 @@ def update_transaction(paths: WindowsUpdatePaths, *, timeout_ms: int = 30000):
     if os.name == 'nt':
         with _windows_transaction(timeout_ms):
             from .installer_fence import read_fence
-            if read_fence(paths) is not None:
+            from .compound_upgrade_plan import has_active_upgrade
+            if has_active_upgrade(paths) or read_fence(paths) is not None:
                 raise UpdateInProgress('INSTALLER_RECOVERY_REQUIRED')
             yield
         return

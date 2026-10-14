@@ -164,7 +164,8 @@ def test_wrapper_stops_only_fixed_agent_services_and_restores_core_agent() -> No
     """An in-use binary must not stall MSI, nor leave the prior agent stopped on failure."""
     source = WRAPPER.read_text(encoding="utf-8")
 
-    assert "$ManagedServiceNames = @('EndpointAgent', 'EndpointAgentUpdater')" in source
+    assert "$ManagedServiceNames = @('EndpointAgent', 'EndpointAgentUpdater', 'EndpointBrowserPolicy')" in source
+    assert 'Start-VerifiedBrowserPolicy' in source
     assert "function Stop-ManagedAgentServices" in source
     assert "function Start-ManagedEndpointAgent" in source
     assert "Stop-ManagedAgentServices" in source

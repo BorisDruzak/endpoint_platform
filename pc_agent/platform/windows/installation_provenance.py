@@ -178,6 +178,27 @@ def _inspect_modern_msi(paths: WindowsUpdatePaths, root: Path, selector_data: by
         json.dumps(asdict(expected.package), separators=(',', ':')).encode())
 
 
+def verified_foundation_release(paths: WindowsUpdatePaths):
+    """Read the installed foundation independently of the selected ZIP/core."""
+    from . import msi_inventory
+    from .installer_fence import state_root,assert_state_security
+    path=state_root(paths)/'foundation.json'
+    if not _present(path):return None
+    assert_state_security(path)
+    authority=read_json(_read(path,4096),4096)
+    if (not isinstance(authority,dict) or set(authority)!={'schema_version','release'}
+        or type(authority['schema_version']) is not int or authority['schema_version']!=1
+        or not isinstance(authority['release'],dict)):
+        raise ProvenanceConflict()
+    release=authority['release'];digest=release.get('package_sha256')
+    if not isinstance(digest,str) or not _HASH.fullmatch(digest):raise ProvenanceConflict()
+    package_path=state_root(paths)/'packages'/digest/'EndpointAgent.msi'
+    assert_state_security(package_path)
+    expected=msi_inventory.read_expected_package(package_path,release)
+    msi_inventory.verify_foundation(expected.package,paths.install_root,expected=expected)
+    return release
+
+
 def _inspect_core(paths: WindowsUpdatePaths, selector_path: Path, resulting_foundation: str) -> CoreEvidence:
     selector_data, selector = _selector(selector_path)
     return _inspect_core_value(paths, selector_data, selector, resulting_foundation)
@@ -208,10 +229,14 @@ def _inspect_core_value(paths: WindowsUpdatePaths, selector_data: bytes, selecto
     if (evidence.identity.version != selector['version']
         or (selector.get('source_revision') != evidence.identity.source_revision
             and not (set(selector) == {'version'} and evidence.compatibility_foundations))
-        or (evidence.compatibility_foundations and resulting_foundation not in evidence.compatibility_foundations)
         or (evidence.identity.minimum_launcher_version is not None
             and version_tuple(evidence.identity.minimum_launcher_version) > version_tuple(resulting_foundation))):
         raise ProvenanceConflict()
+    if evidence.compatibility_foundations:
+        from .runtime_identity import legacy_foundation_compatible
+        owner=read_json(evidence.owner_bytes,16*1024*1024)
+        package_sha256=owner['sha256'] if evidence.origin=='msi' else owner['package']['sha256']
+        if not legacy_foundation_compatible(package_sha256,resulting_foundation):raise ProvenanceConflict()
     return evidence
 
 
@@ -498,8 +523,10 @@ def recovery_cost_authority(paths, package_path, release):
     from .installer_fence import read_fence, state_root, assert_state_security
     from .runtime_identity import verify_retained_archive
 
+    from .compound_upgrade_plan import inspect_recovery_authority
+    parent=inspect_recovery_authority(paths,release)
     fence = read_fence(paths)
-    if fence is None:
+    if fence is None and parent is None:
         return None
     expected = msi_inventory.read_expected_package(package_path, release)
     identity = {
@@ -509,14 +536,14 @@ def recovery_cost_authority(paths, package_path, release):
         "version": expected.package.version,
         "source_revision": expected.identity.source_revision,
     }
-    if fence["package"] != identity:
+    if parent is None and fence["package"] != identity:
         raise ProvenanceConflict()
     request = {
         "package_path": package_path,
         "release": release,
-        "transaction_id": fence["transaction_id"],
-        "selected": fence["selected"],
-        "previous": fence["previous"],
+        "transaction_id": parent['transaction_id'] if parent is not None else fence["transaction_id"],
+        "selected": parent['selected'] if parent is not None else fence["selected"],
+        "previous": parent['previous'] if parent is not None else fence["previous"],
     }
     packages = [(package_path, expected.package)]
     allocations = [
@@ -525,8 +552,18 @@ def recovery_cost_authority(paths, package_path, release):
             2 * package_path.stat().st_size + MAX_MANIFEST_BYTES + 16384,
         )
     ]
-    if fence["operation"] == "install":
-        validate_interrupted_reconciliation(paths, request)
+    operation='install' if parent is not None else fence['operation']
+    if operation == "install":
+        options={}
+        if parent is not None:
+            options={'native_current':msi_inventory.read_native_selector(package_path,expected),'allow_native_absence':True}
+            old_release=parent['old']['package']
+            old_path=state_root(paths)/'packages'/old_release['package_sha256']/'EndpointAgent.msi'
+            assert_state_security(old_path)
+            old=msi_inventory.read_expected_package(old_path,old_release)
+            packages.append((old_path,old.package))
+            allocations.append((state_root(paths),2*old_path.stat().st_size+65536))
+        validate_interrupted_reconciliation(paths, request,**options)
         root = state_root(paths) / "provenance" / request["transaction_id"]
         assert_state_security(root)
         plan = _read_plan(root, request, expected)
@@ -540,7 +577,10 @@ def recovery_cost_authority(paths, package_path, release):
                 for key in ("sha256", "product_code", "package_code", "version")
             ):
                 raise ProvenanceConflict()
-            packages.append((source, actual))
+            duplicate=next((item for _source,item in packages if item.product_code==actual.product_code),None)
+            if duplicate is None:packages.append((source, actual))
+            elif any(getattr(duplicate,key)!=getattr(actual,key) for key in ('sha256','product_code','package_code','version')):
+                raise ProvenanceConflict()
             payload_size = sum(item.size for item in retained.identity.files)
             metadata = (
                 len(retained.record_bytes)
@@ -565,7 +605,7 @@ def recovery_cost_authority(paths, package_path, release):
     if len(products) != len(set(products)) or len(products) > 3:
         raise ProvenanceConflict()
     return RecoveryCostAuthority(
-        fence["operation"], tuple(packages), tuple(allocations)
+        operation, tuple(packages), tuple(allocations)
     )
 
 
@@ -757,6 +797,49 @@ def retire_maintenance_authority(paths,request,operation):
         durable_unlink(leaf,trusted_root=leaf.parent,missing_ok=True)
 
 
+def retire_replaced_maintenance_authority(paths,old_request,new_request):
+    """Retire exact old leaves after a serialized successor repair committed.
+
+    A previous attempt may already have reconciled the new foundation. Preserve
+    that exact new authority rather than deleting it or rebaselining old facts.
+    The authenticated owner separately gates this phase on its actual native End.
+    """
+    from . import msi_inventory
+    from .installer_fence import state_root,assert_state_security
+    from .durable_state import durable_unlink
+    old=_expected_request(old_request);new=_expected_request(new_request)
+    if old_request['release']['package_sha256']==new_request['release']['package_sha256']:raise ProvenanceConflict()
+    msi_inventory.verify_replaced_product(old.package,new.package,paths.install_root)
+    state=state_root(paths)
+    original=state/'transactions'/old_request['transaction_id']/'maintenance.json'
+    assert_state_security(original)
+    record=read_json(_read(original,16384),16384)
+    if (not isinstance(record,dict) or set(record)!={'schema_version','transaction_id','operation','release','core_owner','foundation'}
+        or type(record['schema_version']) is not int or record['schema_version']!=1 or record['operation']!='uninstall'
+        or record['transaction_id']!=old_request['transaction_id'] or record['release']!=old_request['release']):raise ProvenanceConflict()
+    remove=[]
+    with msi_inventory.verified_foundation_bytes(new,paths.install_root):
+        for name,path in {'core_owner':state/'core-owners'/f'{old.identity.version}.json','foundation':state/'foundation.json'}.items():
+            saved=record[name]
+            if saved is None:
+                if name=='foundation' or _present(path):raise ProvenanceConflict()
+                continue
+            if not isinstance(saved,str) or not 0<len(saved)<=8192:raise ProvenanceConflict()
+            raw=bytes.fromhex(saved)
+            if read_json(raw,4096)!={'schema_version':1,'release':old_request['release']}:raise ProvenanceConflict()
+            if not _present(path):continue
+            assert_state_security(path);actual=_read(path,4096)
+            if actual==raw:remove.append((path,actual))
+            elif name!='foundation' or read_json(actual,4096)!={'schema_version':1,'release':new_request['release']}:
+                raise ProvenanceConflict()
+        # Validate every leaf first. A foreign successor or old owner cannot
+        # cause a partial metadata cleanup before its conflict is discovered.
+        for path,expected in remove:
+            assert_state_security(path)
+            if _read(path,4096)!=expected:raise ProvenanceConflict()
+            durable_unlink(path,trusted_root=path.parent)
+
+
 def _partial_tree(root,identity,metadata):
     """Read-only recovery evidence; absence is repairable, unknown bytes are not."""
     if not _present(root):
@@ -781,11 +864,18 @@ def _partial_tree(root,identity,metadata):
                     raise ProvenanceConflict()
 
 
-def validate_interrupted_reconciliation(paths: WindowsUpdatePaths, expected_msi) -> None:
+def validate_interrupted_reconciliation(paths: WindowsUpdatePaths, expected_msi, *,
+                                      native_current=None, allow_native_absence=False) -> None:
     """Inspect immutable saved authority; caller has not yet gained mutation entry."""
     from .installer_fence import state_root
     from .runtime_identity import verify_retained_archive
     expected=_expected_request(expected_msi)
+    if native_current is not None:
+        from .msi_inventory import read_native_selector
+        if native_current != read_native_selector(Path(expected_msi['package_path']), expected):
+            raise ProvenanceConflict()
+    elif allow_native_absence:
+        raise ProvenanceConflict()
     root=state_root(paths)/'provenance'/expected_msi['transaction_id']
     plan=_read_plan(root,expected_msi,expected)
     core=next(item for item in expected.package.files if item.path==f'versions/{expected.identity.version}/pc_agent.exe')
@@ -823,7 +913,9 @@ def validate_interrupted_reconciliation(paths: WindowsUpdatePaths, expected_msi)
         path=paths.install_root/name
         actual=_read(path,4096).hex() if _present(path) else None
         if actual not in (before,after):
-            if before is not None or actual is None or after is None or read_json(bytes.fromhex(actual),4096)!=read_json(bytes.fromhex(after),4096):
+            native_transition = (name == 'current.json' and native_current is not None
+                and (actual == native_current.hex() or (allow_native_absence and actual is None)))
+            if not native_transition and (before is not None or actual is None or after is None or read_json(bytes.fromhex(actual),4096)!=read_json(bytes.fromhex(after),4096)):
                 raise ProvenanceConflict()
         if actual is not None:
             raw=bytes.fromhex(actual);selector=read_json(raw,4096)
@@ -859,11 +951,14 @@ def _read_plan(root,expected_msi,expected):
     return plan
 
 
-def reconcile_installed_core(paths: WindowsUpdatePaths, expected_msi) -> str:
+def reconcile_installed_core(paths: WindowsUpdatePaths, expected_msi, *, native_current=None) -> str:
     """Commit validated native ownership; retry the same durable data boundaries."""
     from . import durable_state, msi_inventory
     from .installer_fence import state_root, assert_state_security, protect_state
     expected = _expected_request(expected_msi)
+    if native_current is not None:
+        if native_current != msi_inventory.read_native_selector(Path(expected_msi['package_path']), expected):
+            raise ProvenanceConflict()
     root = state_root(paths) / 'provenance' / expected_msi['transaction_id']
     assert_state_security(root)
     plan_path = root / 'plan.json'
@@ -885,7 +980,8 @@ def reconcile_installed_core(paths: WindowsUpdatePaths, expected_msi) -> str:
         if actual not in (before, after):
             # A first install may create the same selector with MSI-authored
             # JSON formatting. Its complete semantic identity must still match.
-            if before is not None or actual is None or after is None or read_json(bytes.fromhex(actual),4096) != read_json(bytes.fromhex(after),4096):
+            native_transition = name == 'current.json' and native_current is not None and actual == native_current.hex()
+            if not native_transition and (before is not None or actual is None or after is None or read_json(bytes.fromhex(actual),4096) != read_json(bytes.fromhex(after),4096)):
                 raise ProvenanceConflict()
     if plan['handoff']:
         archived = _read(root / 'handoff-receipt.json', 4096)

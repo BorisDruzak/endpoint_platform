@@ -11,6 +11,7 @@
     <MediaTemplate EmbedCab="yes" />
     <Binary Id="EndpointInstallerHost" SourceFile="$(var.StagingDir)\ProgramFiles\endpoint-agent-service.exe" />
     <Binary Id="EndpointInitialRuntimeInventory" SourceFile="$(var.InitialRuntimeInventoryPath)" />
+    <Binary Id="EndpointNativeCurrentSelector" SourceFile="$(var.StagingDir)\ProgramFiles\current.json" />
     <Upgrade Id="D4F3045C-51CF-49D9-AF9C-3AEBF206ED1F">
       <UpgradeVersion Maximum="$(var.PackageVersion)" IncludeMaximum="no" IncludeMinimum="no"
                       Language="1033" MigrateFeatures="yes" IgnoreRemoveFailure="no"
