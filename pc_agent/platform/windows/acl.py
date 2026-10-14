@@ -442,16 +442,21 @@ def _assert_machine_data_parent_authority(path: Path, win32security):
                 raise WindowsAclError("machine data parent permits untrusted replacement")
 
 
+def _machine_data_service_sid(principal):
+    # These fixed virtual identities also protect the installer mutex/fences.
+    # Account-name lookup fails after the old SCM registrations are removed.
+    from .update_transaction import _SERVICE_SIDS
+    return {SERVICE_PRINCIPAL:_SERVICE_SIDS[0],UPDATER_PRINCIPAL:_SERVICE_SIDS[1]}[principal]
+
+
 def _validate_machine_data_leaf_acl(name, descriptor, win32security, ntsecuritycon):
     """Read-only policy check, including supported inherited data-file ACEs."""
     dacl = descriptor.GetSecurityDescriptorDacl()
     if dacl is None:
         raise WindowsAclError("enrollment leaf has no DACL")
     credential = name in {"device-credential", "endpoint-ca.crt"}
-    service, *_ = win32security.LookupAccountName(None, SERVICE_PRINCIPAL)
-    updater, *_ = win32security.LookupAccountName(None, UPDATER_PRINCIPAL)
-    service_sid = win32security.ConvertSidToStringSid(service)
-    updater_sid = win32security.ConvertSidToStringSid(updater)
+    service_sid = _machine_data_service_sid(SERVICE_PRINCIPAL)
+    updater_sid = _machine_data_service_sid(UPDATER_PRINCIPAL)
     modify = ntsecuritycon.FILE_GENERIC_READ | ntsecuritycon.FILE_GENERIC_WRITE | ntsecuritycon.DELETE
     expected = {"S-1-5-18": ntsecuritycon.FILE_ALL_ACCESS,
                 "S-1-5-32-544": ntsecuritycon.FILE_ALL_ACCESS,
@@ -496,8 +501,7 @@ def _validate_existing_machine_data_acl(path: Path, win32security, ntsecuritycon
         modify = ntsecuritycon.FILE_GENERIC_READ | ntsecuritycon.FILE_GENERIC_WRITE | ntsecuritycon.DELETE
         write_delete = ntsecuritycon.FILE_GENERIC_WRITE | ntsecuritycon.DELETE
         for principal in (SERVICE_PRINCIPAL, UPDATER_PRINCIPAL):
-            sid, _domain, _kind = win32security.LookupAccountName(None, principal)
-            expected[win32security.ConvertSidToStringSid(sid)] = modify
+            expected[_machine_data_service_sid(principal)] = modify
         observed = {}
         inheritance = win32security.OBJECT_INHERIT_ACE | win32security.CONTAINER_INHERIT_ACE
         for index in range(dacl.GetAceCount()):
@@ -508,9 +512,8 @@ def _validate_existing_machine_data_acl(path: Path, win32security, ntsecuritycon
             if sid in observed:
                 raise WindowsAclError("existing machine data ACE is duplicated")
             observed[sid] = ace[1]
-        updater, _domain, _kind = win32security.LookupAccountName(None, UPDATER_PRINCIPAL)
         installer_policy = dict(expected)
-        installer_policy[win32security.ConvertSidToStringSid(updater)] = write_delete
+        installer_policy[_machine_data_service_sid(UPDATER_PRINCIPAL)] = write_delete
         if observed != expected and observed != installer_policy:
             raise WindowsAclError("existing machine data DACL is not an approved policy")
         return descriptor

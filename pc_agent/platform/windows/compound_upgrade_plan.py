@@ -77,7 +77,9 @@ def _owner(value):
 def _capability_binding(capability):
     compound = capability.get('compound')
     recovery=isinstance(compound,dict) and 'recovery' in compound
-    if (not isinstance(compound, dict) or set(compound) != ({'upgrade_id','old','recovery'} if recovery else {'upgrade_id', 'old'})
+    prepared=isinstance(compound,dict) and 'prepared_old' in compound
+    fields={'upgrade_id','old'}|({'recovery'} if recovery else set())|({'prepared_old'} if prepared else set())
+    if (not isinstance(compound, dict) or set(compound) != fields
         or capability.get('operation') != 'install' or capability.get('recovery') is not recovery
         or capability.get('uninstall_finalization') is not False):
         _failed()
@@ -86,6 +88,13 @@ def _capability_binding(capability):
     new = {key: capability[key] for key in _BINDING}
     _child(new); _owner(capability['owner'])
     old = compound['old']
+    if prepared:
+        role=compound['prepared_old']
+        if not isinstance(role,dict) or set(role)!={'source','capability_sha256','fence_sha256','maintenance_sha256'}:_failed()
+        _child(role['source'])
+        for key in ('capability_sha256','fence_sha256','maintenance_sha256'):_hash(role[key])
+        if (any(role['source'][key]!=old[key] for key in _BINDING-{'session_id'})
+            or role['source']['session_id'] in {old['session_id'],new['session_id']}):_failed()
     if (old['transaction_id'] == new['transaction_id'] or old['session_id'] == new['session_id']
         or old['helper_sha256'] == new['helper_sha256']
         or old['package']['package_sha256'] == new['package']['package_sha256']
@@ -127,6 +136,7 @@ def make_recovery_plan(capability,original,original_bytes,original_capability):
     validate_bound_plan(original,original_capability)
     if original['schema_version']!=1:_failed()
     if (original['upgrade_id']!=link['original_upgrade_id'] or capability['owner']==original['owner']
+        or capability['compound'].get('prepared_old')!=original.get('prepared_old')
         or new['session_id']==original['new']['session_id']
         or any(new[key]!=original['new'][key] for key in ('transaction_id','package','helper_sha256'))
         or any(old[key]!=original['old'][key] for key in ('transaction_id','package','helper_sha256'))
@@ -140,10 +150,13 @@ def make_recovery_plan(capability,original,original_bytes,original_capability):
     return result
 
 
-def make_plan(capability, old_capability, old_fence, *, browser_startup=None):
+def make_plan(capability, old_capability, old_fence, *, browser_startup=None,prepared_source=None):
     old, new = _capability_binding(capability)
+    prepared='prepared_old' in capability['compound']
+    if prepared:
+        _validate_prepared_source(capability,prepared_source)
     if (old_capability.get('operation') != 'uninstall'
-        or old_capability.get('recovery') is not False
+        or old_capability.get('recovery') is not prepared
         or old_capability.get('uninstall_finalization') is not False
         or {key: old_capability.get(key) for key in _BINDING} != old
         or old_capability.get('owner') != capability['owner']
@@ -159,6 +172,7 @@ def make_plan(capability, old_capability, old_fence, *, browser_startup=None):
         'selected': capability['selected'], 'previous': capability['previous'],
         'service_startup': deepcopy(old_fence['service_startup']), 'browser_startup':deepcopy(browser_startup),
         'phase': 'prepared', 'sequence': 0}
+    if prepared:record['prepared_old']=deepcopy(capability['compound']['prepared_old'])
     validate_bound_plan(record, capability)
     return record
 
@@ -166,7 +180,8 @@ def make_plan(capability, old_capability, old_fence, *, browser_startup=None):
 def validate_bound_plan(record, capability):
     old, new = _capability_binding(capability)
     recovery='recovery' in capability['compound']
-    if (not isinstance(record, dict) or set(record) != (_FIELDS|{'recovery'} if recovery else _FIELDS)
+    fields=_FIELDS|({'recovery'} if recovery else set())|({'prepared_old'} if 'prepared_old' in capability['compound'] else set())
+    if (not isinstance(record, dict) or set(record) != fields
         or type(record['schema_version']) is not int or record['schema_version'] != (2 if recovery else 1)
         or record['upgrade_id'] != capability['compound']['upgrade_id']
         or record['old'] != old or record['new'] != new or record['owner'] != capability['owner']
@@ -175,6 +190,7 @@ def validate_bound_plan(record, capability):
         or record['sequence'] != _phases(record).index(record['phase'])
         or (recovery and record['recovery']!=capability['compound']['recovery'])):
         _failed()
+    if record.get('prepared_old')!=capability['compound'].get('prepared_old'):_failed()
     startup = record['service_startup']
     if not isinstance(startup, dict) or set(startup) != {'EndpointAgent', 'EndpointAgentUpdater'}:
         _failed()
@@ -224,11 +240,51 @@ def _read_bytes(path, *, secret=False, maximum=_MAX_PLAN):
         return stream.read(maximum + 1)
 
 
+def _validate_prepared_source(capability,source):
+    role=capability['compound']['prepared_old']
+    if (not isinstance(source,dict) or 'compound' in source or 'recovery_parent' in source
+        or source.get('operation')!='uninstall' or source.get('recovery') is not False
+        or source.get('uninstall_finalization') is not False or source.get('owner')!=capability['owner']
+        or {key:source.get(key) for key in _BINDING}!=role['source']
+        or any(source.get(key)!=capability[key] for key in ('selected','previous'))):_failed()
+
+
+def read_prepared_source(paths,capability):
+    """Read exact archived preparation, never infer a fresh role from absence."""
+    _capability_binding(capability)
+    role=capability['compound']['prepared_old']
+    authority=capability
+    if capability['recovery']:
+        _original,_raw,authority=read_recovery_original(paths,capability)
+    root=installer_fence.state_root(paths)
+    from .installer_transaction_bridge import _read_capability
+    source=_read_capability(paths,role['source']['session_id'])
+    _validate_prepared_source(authority,source)
+    source_bytes=_read_bytes(root/'capabilities'/f"{source['session_id']}.json",secret=True,maximum=16384)
+    if read_json(source_bytes,16384)!=source or sha256(source_bytes).hexdigest()!=role['capability_sha256']:_failed()
+    archive=root/'prepared-old'/source['session_id']
+    installer_fence.assert_state_security(archive,secret=True)
+    saved={}
+    for name in ('fence','maintenance'):
+        raw=_read_bytes(archive/f'{name}.json',secret=True,maximum=16384)
+        if sha256(raw).hexdigest()!=role[name+'_sha256']:_failed()
+        saved[name]=read_json(raw,16384)
+    before=saved['fence']
+    if (before.get('phase')!='msi-starting' or before.get('transaction_id')!=source['transaction_id']
+        or before.get('operation')!='uninstall' or before.get('startup_restored') is not False
+        or any(before.get(key)!=source[key] for key in ('selected','previous'))):_failed()
+    maintenance=saved['maintenance']
+    if (maintenance.get('transaction_id')!=source['transaction_id'] or maintenance.get('operation')!='uninstall'
+        or maintenance.get('release')!=source['package']):_failed()
+    return source,before,saved['maintenance']
+
+
 def read_plan(paths, capability):
     root = _root(paths, capability)
     installer_fence.assert_state_security(root, secret=True)
     record = _read(root/'plan.json', secret=True)
     validate_bound_plan(record, capability)
+    if 'prepared_old' in record:read_prepared_source(paths,capability)
     if 'recovery' in record:
         original,raw,original_cap=read_recovery_original(paths,capability)
         prepared=make_recovery_plan(capability,original,raw,original_cap)
@@ -266,6 +322,7 @@ def _read_recovery_predecessor(paths,capability,original):
     previous_cap=_read_capability(paths,previous['new']['session_id'])
     validate_bound_plan(previous,previous_cap)
     if (previous['upgrade_id']!=link['predecessor_upgrade_id'] or previous['owner']==capability['owner']
+        or previous.get('prepared_old')!=original.get('prepared_old')
         or previous['new']['session_id']==capability['session_id']
         or any(previous[key]!=original[key] for key in ('selected','previous','service_startup','browser_startup'))
         or (previous['schema_version']==2 and any(previous['recovery'][key]!=link[key]
@@ -315,10 +372,14 @@ def inspect_recovery_authority(paths,release,*,helper_sha256=None):
         expected=make_recovery_plan(current_cap,original,original_raw,original_cap)
         if any(record[key]!=expected[key] for key in _FIELDS-{'phase','sequence'}):_failed()
     else:original,original_raw,original_cap=record,raw,current_cap
-    return {'parent_upgrade_id':record['upgrade_id'],'transaction_id':original['new']['transaction_id'],
+    result={'parent_upgrade_id':record['upgrade_id'],'transaction_id':original['new']['transaction_id'],
         'selected':original['selected'],'previous':original['previous'],'service_states':original_cap['service_states'],
         'old':deepcopy(original['old']),'original_upgrade_id':original['upgrade_id'],
         'original_plan_sha256':sha256(original_raw).hexdigest(),'predecessor_plan_sha256':sha256(raw).hexdigest()}
+    if 'prepared_old' in original:
+        read_prepared_source(paths,current_cap)
+        result['prepared_old']=deepcopy(original['prepared_old'])
+    return result
 
 
 def publish_recovery_plan(paths,capability,record):

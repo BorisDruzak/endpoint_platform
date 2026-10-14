@@ -32,10 +32,12 @@ def _old_capability(paths,capability):
     recovering=capability['recovery']
     historical=recovering and capability['compound']['recovery']['mode']=='repair-successor'
     owner=capability['owner']
+    prepared='prepared_old' in capability['compound']
+    if prepared:plan.read_prepared_source(paths,capability)
     if historical:
         original,_raw,_cap=plan.read_recovery_original(paths,capability)
         owner=original['owner']
-    if ('compound' in old or old['recovery'] is not (recovering and not historical) or old['uninstall_finalization'] is not False
+    if ('compound' in old or old['recovery'] is not (prepared or (recovering and not historical)) or old['uninstall_finalization'] is not False
         or old['operation']!='uninstall' or old['owner']!=owner
         or {key:old[key] for key in plan._BINDING}!=capability['compound']['old']
         or any(old[key]!=capability[key] for key in ('selected','previous'))):
@@ -170,7 +172,13 @@ def execute_compound_phase(client,paths,*,feature_states=None,rollback_disabled=
             with bridge.InstallerServices(paths,include_browser=True) as services:
                 actual_startup=services.snapshot()
             if actual_startup['EndpointBrowserPolicy'] is None: _fail()
-            record=plan.make_plan(cap,old,original,browser_startup=actual_startup['EndpointBrowserPolicy'])
+            prepared_source=None
+            if 'prepared_old' in cap['compound']:
+                prepared_source,saved_fence,saved_maintenance=plan.read_prepared_source(paths,cap)
+                if saved_fence!=original:_fail()
+                actual_maintenance=provenance.validate_maintenance_recovery(paths,old_request,'uninstall')
+                if actual_maintenance!=saved_maintenance:_fail()
+            record=plan.make_plan(cap,old,original,browser_startup=actual_startup['EndpointBrowserPolicy'],prepared_source=prepared_source)
             # The successor has not begun native work. Its original before-state
             # is captured while genuine old ownership still verifies completely.
             from .installation_provenance import inspect_installed_core

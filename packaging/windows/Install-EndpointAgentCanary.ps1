@@ -318,7 +318,7 @@ namespace EndpointInstallerBridge {
     public sealed class Registration {
         public Identity Peer;
         public string Phase;
-        public bool Begun, Complete;
+        public bool Begun, Complete, Exited;
     }
     // Pure policy is called only on the mutex-owning PowerShell thread. The
     // transport supplies opened/retained native identities, never wire claims.
@@ -333,7 +333,7 @@ namespace EndpointInstallerBridge {
         private int? nativeResult;
         private CompoundPolicy compound;
         private SuccessorRepairPolicy repair;
-        private bool recoveryLocator;
+        private bool recoveryLocator, preparedRemovalSealed, preparedRemovalBound;
         public bool Recovery, UninstallFinalization;
         public Policy(string transactionId,string sessionId,string packageHash,string operation,Identity owner,string helperHash,byte[] key) {
             Guid parsed;
@@ -349,8 +349,29 @@ namespace EndpointInstallerBridge {
         private static void Fail() { throw new InvalidOperationException("OWNER_AUTH_FAILED"); }
         internal bool Alive { get { return alive; } }
         internal bool FoundationComplete { get { return foundationComplete; } }
+        internal bool PreparedRemovalActive { get { return alive && preparedRemovalSealed && !Recovery && !UninstallFinalization; } }
+        public void MarkHelperExited(Identity peer,int code) {
+            CheckPeer(peer);
+            Registration item=null;
+            if(code!=0 || pending!=null || !helpers.TryGetValue(peer.Key,out item) || !item.Peer.Same(peer) || !item.Complete || item.Exited) Fail();
+            item.Exited=true;
+        }
+        public void SealPreparedRemoval() {
+            if(!alive || preparedRemovalSealed || recoveryLocator || compound!=null || repair!=null ||
+                Operation!="uninstall" || Recovery || UninstallFinalization || !quiescent || !preparedComplete ||
+                !AllHelpersComplete || msiAlive || nativeEntered || nativeComplete || nativeResult.HasValue || pending!=null) Fail();
+            foreach(var item in helpers.Values) if(!item.Exited) Fail();
+            preparedRemovalSealed=true;
+        }
+        internal void ConsumePreparedRemoval(Policy replacement) {
+            if(!PreparedRemovalActive || preparedRemovalBound || replacement==null || !replacement.Recovery ||
+                replacement.UninstallFinalization || replacement.Operation!="uninstall" ||
+                !Owner.Same(replacement.Owner) || TransactionId!=replacement.TransactionId ||
+                PackageHash!=replacement.PackageHash || HelperHash!=replacement.HelperHash || SessionId==replacement.SessionId) Fail();
+            preparedRemovalBound=true;
+        }
         internal void BindCompound(CompoundPolicy value) {
-            if(recoveryLocator || compound!=null || repair!=null || Recovery!=value.Recovering || UninstallFinalization || msiAlive || nativeResult.HasValue || !preparedComplete || !AllHelpersComplete) Fail();
+            if(preparedRemovalSealed || recoveryLocator || compound!=null || repair!=null || Recovery!=value.ExpectedRecovery(this) || UninstallFinalization || msiAlive || nativeResult.HasValue || !preparedComplete || !AllHelpersComplete) Fail();
             compound=value;
         }
         internal void BindRepair(SuccessorRepairPolicy value) {
@@ -362,7 +383,7 @@ namespace EndpointInstallerBridge {
             recoveryLocator=true;
         }
         private void CheckPeer(Identity peer) {
-            if (!alive || (compound!=null && !compound.OwnerActive) || (repair!=null && !repair.OwnerActive) || peer==null || !peer.Elevated || peer.Hash!=HelperHash ||
+            if (!alive || preparedRemovalSealed || (compound!=null && !compound.OwnerActive) || (repair!=null && !repair.OwnerActive) || peer==null || !peer.Elevated || peer.Hash!=HelperHash ||
                 (peer.Sid!=Owner.Sid && peer.Sid!="S-1-5-18")) Fail();
         }
         public void RegisterHelper(Identity peer,string phase) {
@@ -381,7 +402,7 @@ namespace EndpointInstallerBridge {
             helpers.Add(peer.Key,new Registration { Peer=peer, Phase=phase });
         }
         public void RegisterMsi(Identity peer,string operation) {
-            if(recoveryLocator) Fail();
+            if(preparedRemovalSealed || recoveryLocator) Fail();
             if(compound!=null && !compound.Registering) Fail();
             if(repair!=null && !repair.Registering) Fail();
             if (!alive || !quiescent || !preparedComplete || !AllHelpersComplete || msiAlive || peer==null || !peer.Elevated || operation!=Operation || nativeResult.HasValue) Fail();
@@ -457,8 +478,10 @@ namespace EndpointInstallerBridge {
     // through MsiEndTransaction. A package API return never grants finalization.
     public sealed class CompoundPolicy {
         private readonly Policy oldPackage, newPackage;
+        private readonly Policy preparedOld;
         private readonly bool recovering;
         internal bool Recovering { get { return recovering; } }
+        internal bool ExpectedRecovery(Policy policy) { return recovering || (preparedOld!=null && Object.ReferenceEquals(policy,oldPackage)); }
         private string state="prepared";
         private bool registering, settling;
         private bool oldRecorded,newRecorded;
@@ -466,7 +489,8 @@ namespace EndpointInstallerBridge {
         internal bool Registering { get { return registering; } }
         internal bool Settling { get { return settling; } }
         public bool OwnerActive { get { return oldPackage.Alive && newPackage.Alive &&
-            oldPackage.Recovery==recovering && newPackage.Recovery==recovering && !oldPackage.UninstallFinalization &&
+            (preparedOld==null || preparedOld.PreparedRemovalActive) &&
+            oldPackage.Recovery==ExpectedRecovery(oldPackage) && newPackage.Recovery==recovering && !oldPackage.UninstallFinalization &&
             !newPackage.UninstallFinalization && state!="owner-lost"; } }
         public bool Committed { get { return state=="committed" && OwnerActive; } }
         internal bool ReadyToPublish { get { return Committed && postStage=="complete" && oldPackage.AllHelpersComplete && newPackage.AllHelpersComplete; } }
@@ -477,13 +501,18 @@ namespace EndpointInstallerBridge {
         private void Require(string expected) { if(!OwnerActive || state!=expected) Fail(); }
         public CompoundPolicy(Policy oldPolicy,Policy newPolicy) : this(oldPolicy,newPolicy,false) {}
         public static CompoundPolicy CreateRecovery(Policy oldPolicy,Policy newPolicy) { return new CompoundPolicy(oldPolicy,newPolicy,true); }
-        private CompoundPolicy(Policy oldPolicy,Policy newPolicy,bool recovery) {
+        public static CompoundPolicy CreatePreparedRemoval(Policy preparedPolicy,Policy oldPolicy,Policy newPolicy) {
+            if(preparedPolicy==null) Fail();
+            preparedPolicy.ConsumePreparedRemoval(oldPolicy);
+            return new CompoundPolicy(oldPolicy,newPolicy,false,preparedPolicy);
+        }
+        private CompoundPolicy(Policy oldPolicy,Policy newPolicy,bool recovery,Policy preparedPolicy=null) {
             if(oldPolicy==null || newPolicy==null || Object.ReferenceEquals(oldPolicy,newPolicy) ||
-                oldPolicy.Recovery!=recovery || newPolicy.Recovery!=recovery || oldPolicy.UninstallFinalization || newPolicy.UninstallFinalization ||
+                oldPolicy.Recovery!=(recovery || preparedPolicy!=null) || newPolicy.Recovery!=recovery || oldPolicy.UninstallFinalization || newPolicy.UninstallFinalization ||
                 !oldPolicy.Owner.Same(newPolicy.Owner) || oldPolicy.Operation!="uninstall" || newPolicy.Operation!="install" ||
                 oldPolicy.PackageHash==newPolicy.PackageHash || oldPolicy.HelperHash==newPolicy.HelperHash ||
                 oldPolicy.TransactionId==newPolicy.TransactionId || oldPolicy.SessionId==newPolicy.SessionId) Fail();
-            oldPackage=oldPolicy;newPackage=newPolicy;recovering=recovery;
+            oldPackage=oldPolicy;newPackage=newPolicy;recovering=recovery;preparedOld=preparedPolicy;
             oldPackage.BindCompound(this);newPackage.BindCompound(this);
         }
         public void BeginNative() {
@@ -546,7 +575,7 @@ namespace EndpointInstallerBridge {
             else if(phase=="finish") postStage="finished";
             else if(phase=="compound-complete") postStage="complete";
         }
-        public void OwnerLost() { state="owner-lost";oldPackage.OwnerLost();newPackage.OwnerLost(); }
+        public void OwnerLost() { state="owner-lost";oldPackage.OwnerLost();newPackage.OwnerLost();if(preparedOld!=null) preparedOld.OwnerLost(); }
     }
     // Native work runs on same-process workers while this original thread
     // retains the product mutex and pumps both authenticated package channels.
@@ -905,7 +934,7 @@ function Send-InstallerBridgePacket {
 function New-InstallerConversation {
     param($Bridge,$Launched,[string]$Phase,[bool]$Native)
     return @{Bridge=$Bridge;Launched=$Launched;Phase=$Phase;Native=$Native;Peer=$null;
-        Challenge=$null;Payload=$null;Acknowledgement=$null;Completed=$false;Result=$null}
+        Challenge=$null;Payload=$null;Acknowledgement=$null;Completed=$false;CompletedPeer=$null;Result=$null}
 }
 
 function Invoke-InstallerConversationStep {
@@ -935,6 +964,7 @@ function Invoke-InstallerConversationStep {
             $Bridge.Channel.Disconnect()
             $acknowledgement = $null
             $completed = $true
+            $State.CompletedPeer=$peer.Identity
             $peer = $null
         } elseif ($null -ne $challenge) {
             if ([string]::Join('|', $keys) -ne 'proof') { throw 'OWNER_AUTH_FAILED' }
@@ -1009,6 +1039,7 @@ function Invoke-InstallerOwnerPump {
         } elseif ($Process.ExitCode -ne 0 -or -not $conversation.Completed -or -not $Bridge.Policy.AllHelpersComplete) {
             throw 'RECOVERY_REQUIRED'
         }
+        if (-not $Msi) { $Bridge.Policy.MarkHelperExited($conversation.CompletedPeer,0) }
         return $conversation.Result
     } catch {
         $Bridge.Policy.OwnerLost()
@@ -1060,20 +1091,29 @@ function New-CompoundNativeDriver {
 }
 
 function Invoke-CompoundFoundationUpgrade {
-    param($OldBridge,[Parameter(Mandatory)]$NewBridge,
+    param($OldBridge,[Parameter(Mandatory)]$NewBridge,$PreparedOldBridge,
         $OldMedia,$NewMedia,[Parameter(Mandatory)][string]$SuccessorProduct,
         [ValidateSet('fresh','replace-foundation','repair-successor')][string]$Mode='fresh')
     $repair=$Mode -ceq 'repair-successor'
     $bridges=@($NewBridge)
     if ($Mode -cne 'fresh' -and ($NewBridge.Capability.recovery -ne $true -or $NewBridge.Capability.compound.recovery.mode -cne $Mode)) { throw 'OWNER_AUTH_FAILED' }
     if ($repair) {
-        if ($null -ne $OldBridge) { throw 'OWNER_AUTH_FAILED' }
+        if ($null -ne $OldBridge -or $null -ne $PreparedOldBridge) { throw 'OWNER_AUTH_FAILED' }
         $oldHash=$NewBridge.Capability.compound.old.package.package_sha256
         $compound=[EndpointInstallerBridge.SuccessorRepairPolicy]::new($NewBridge.Policy,$oldHash)
     } else {
         if ($null -eq $OldBridge) { throw 'OWNER_AUTH_FAILED' }
         $bridges=@($OldBridge,$NewBridge);$oldHash=$OldBridge.Policy.PackageHash
-        if ($Mode -ceq 'replace-foundation') { $compound=[EndpointInstallerBridge.CompoundPolicy]::CreateRecovery($OldBridge.Policy,$NewBridge.Policy) }
+        if ($Mode -ceq 'replace-foundation') {
+            if ($null -ne $PreparedOldBridge) { throw 'OWNER_AUTH_FAILED' }
+            $compound=[EndpointInstallerBridge.CompoundPolicy]::CreateRecovery($OldBridge.Policy,$NewBridge.Policy)
+        }
+        elseif ($null -ne $PreparedOldBridge) {
+            if ($null -eq $NewBridge.Capability.compound.prepared_old -or
+                $NewBridge.Capability.compound.prepared_old.source.session_id -cne $PreparedOldBridge.SessionId) { throw 'OWNER_AUTH_FAILED' }
+            $compound=[EndpointInstallerBridge.CompoundPolicy]::CreatePreparedRemoval($PreparedOldBridge.Policy,$OldBridge.Policy,$NewBridge.Policy)
+        }
+        elseif ($NewBridge.Capability.compound.ContainsKey('prepared_old')) { throw 'OWNER_AUTH_FAILED' }
         else { $compound=[EndpointInstallerBridge.CompoundPolicy]::new($OldBridge.Policy,$NewBridge.Policy) }
     }
     $driver=$null
@@ -1200,6 +1240,43 @@ function Save-InstallerCapability {
     $bytes = [Text.Encoding]::ASCII.GetBytes(($Bridge.Capability | ConvertTo-Json -Compress -Depth 10))
     [EndpointInstallerBridge.PackageHelper]::WriteCapability($Bridge.CapabilityPath,$bytes)
     Assert-CacheArtifactProtection $Bridge.CapabilityPath
+}
+
+function Save-PreparedOldRemoval {
+    param([Parameter(Mandatory)]$Bridge,[Parameter(Mandatory)][string]$StateRoot)
+    # Invoke-InstallerHelper has required the authenticated completion ACK,
+    # actual helper exit0 and closed conversations. Revoke this policy/channel
+    # before any grant is issued to the separate maintenance recovery session.
+    $Bridge.Policy.SealPreparedRemoval()
+    $Bridge.Channel.Dispose()
+    $root=Join-Path $StateRoot 'prepared-old'
+    if (-not (Test-Path -LiteralPath $root)) { New-ProtectedDirectory $root }
+    Assert-InstallerCacheProtection $root
+    $archive=Join-Path $root $Bridge.SessionId
+    if (Test-Path -LiteralPath $archive) { throw 'OWNER_AUTH_FAILED' }
+    New-ProtectedDirectory $archive
+    $role=@{source=@{transaction_id=$Bridge.TransactionId;session_id=$Bridge.SessionId;
+        package=$Bridge.Capability.package;helper_sha256=$Bridge.HelperHash};
+        capability_sha256=(Get-FileHash -LiteralPath $Bridge.CapabilityPath -Algorithm SHA256).Hash.ToLowerInvariant()}
+    $originals=@{fence=(Join-Path $StateRoot 'transaction.json');
+        maintenance=(Join-Path $StateRoot ('transactions\'+$Bridge.TransactionId+'\maintenance.json'))}
+    foreach ($name in @('fence','maintenance')) {
+        $original=$originals[$name];Assert-InstallerPublicStateAcl $original
+        $pin=[IO.File]::Open($original,[IO.FileMode]::Open,[IO.FileAccess]::Read,[IO.FileShare]::Read)
+        try {
+            if ($pin.Length -le 0 -or $pin.Length -gt 16384) { throw 'UPDATE_STATE_INVALID' }
+            $bytes=[byte[]]::new([int]$pin.Length)
+            $read=0;while ($read -lt $bytes.Length) {
+                $count=$pin.Read($bytes,$read,$bytes.Length-$read)
+                if ($count -le 0) { throw 'UPDATE_STATE_INVALID' };$read+=$count
+            }
+            $copy=Join-Path $archive ($name+'.json')
+            [EndpointInstallerBridge.PackageHelper]::WriteCapability($copy,$bytes)
+            Assert-CacheArtifactProtection $copy
+            $role[$name+'_sha256']=(Get-FileHash -LiteralPath $copy -Algorithm SHA256).Hash.ToLowerInvariant()
+        } finally { $pin.Dispose() }
+    }
+    return $role
 }
 
 function New-InstallerBridge {
@@ -1821,6 +1898,7 @@ $packagePin = [IO.File]::Open($executionCachePath,[IO.FileMode]::Open,[IO.FileAc
 $helperPin = $null
 $bridge = $null
 $oldBridge = $null
+$preparedOldBridge = $null
 $oldPackagePin = $null
 $oldHelperPin = $null
 $previousServiceStates = Get-ManagedAgentServiceStates
@@ -1885,6 +1963,7 @@ try {
         $compoundDetails=@{upgrade_id=[Guid]::NewGuid().ToString('D');old=$oldBinding;recovery=@{
             original_upgrade_id=$initial.original_upgrade_id;original_plan_sha256=$initial.original_plan_sha256;
             predecessor_upgrade_id=$initial.parent_upgrade_id;predecessor_plan_sha256=$initial.predecessor_plan_sha256;mode=$compoundMode}}
+        if ($null -ne $initial.PSObject.Properties['prepared_old']) { $compoundDetails.prepared_old=$initial.prepared_old }
     } elseif ($intent -eq 'install' -and $null -eq $interruptedFence -and $null -ne $initial.PSObject.Properties['foundation_release']) {
         $oldManifest=$initial.foundation_release
         if ($oldManifest.package_sha256 -cne $manifest.package_sha256) {
@@ -1899,9 +1978,17 @@ try {
             $oldBridge=New-InstallerBridge -Manifest $oldManifest -HelperPath $oldHelperPath -HelperHash $oldHelperHash -StateRoot $installerStateRoot -ServiceStates $previousServiceStates -Intent 'uninstall' -Selection $initial
             $oldBridge.Policy.MarkQuiescent()
             Invoke-InstallerHelper $oldBridge 'prepare' | Out-Null
+            $preparedOldBridge=$oldBridge
+            $preparedRole=Save-PreparedOldRemoval $preparedOldBridge $installerStateRoot
+            $oldPreparedFence=Read-InstallerFence $installerStateRoot
+            if ($null -eq $oldPreparedFence -or $oldPreparedFence.transaction_id -cne $preparedOldBridge.TransactionId -or
+                $oldPreparedFence.phase -cne 'msi-starting') { throw 'RECOVERY_REQUIRED' }
+            $oldBridge=New-InstallerBridge -Manifest $oldManifest -HelperPath $oldHelperPath -HelperHash $oldHelperHash -StateRoot $installerStateRoot -ServiceStates $previousServiceStates -Fence $oldPreparedFence -Intent 'uninstall'
+            $oldBridge.Policy.MarkQuiescent()
+            Invoke-InstallerHelper $oldBridge 'prepare' | Out-Null
             $compoundDetails=@{upgrade_id=[Guid]::NewGuid().ToString('D');old=@{
                 transaction_id=$oldBridge.TransactionId;session_id=$oldBridge.SessionId;
-                package=$oldManifest;helper_sha256=$oldHelperHash}}
+                package=$oldManifest;helper_sha256=$oldHelperHash};prepared_old=$preparedRole}
         }
     }
     $newFence=$(if($null -ne $recoveryLocator){$null}else{$interruptedFence})
@@ -1921,7 +2008,7 @@ try {
     Start-WindowsInstaller
     if ($null -ne $compoundDetails) {
         $nativeStarted=$true
-        Invoke-CompoundFoundationUpgrade -OldBridge $oldBridge -NewBridge $bridge -OldMedia $oldPackagePin -NewMedia $packagePin -SuccessorProduct $manifest.product_code -Mode $compoundMode
+        Invoke-CompoundFoundationUpgrade -OldBridge $oldBridge -NewBridge $bridge -PreparedOldBridge $preparedOldBridge -OldMedia $oldPackagePin -NewMedia $packagePin -SuccessorProduct $manifest.product_code -Mode $compoundMode
     } else {
     $msiArguments = @('/i', ('"{0}"' -f $executionCachePath), '/qn', '/norestart', ('ENDPOINT_INSTALLER_SESSION=' + $bridge.SessionId))
     if ($bridge.Capability.uninstall_finalization) {
@@ -1987,6 +2074,12 @@ finally {
         $oldBridge.Channel.Dispose()
         foreach ($peer in $oldBridge.Peers) { $peer.Dispose() }
         $oldBridge.Owner.Dispose()
+    }
+    if ($null -ne $preparedOldBridge) {
+        $preparedOldBridge.Policy.OwnerLost()
+        $preparedOldBridge.Channel.Dispose()
+        foreach ($peer in $preparedOldBridge.Peers) { $peer.Dispose() }
+        $preparedOldBridge.Owner.Dispose()
     }
     if ($null -ne $oldHelperPin) { $oldHelperPin.Dispose() }
     if ($null -ne $oldPackagePin) { $oldPackagePin.Dispose() }

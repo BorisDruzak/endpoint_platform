@@ -13,7 +13,9 @@ import pytest
     'bound-old-recovery', 'bound-new-recovery', 'bound-old-finalization', 'bound-new-finalization',
     'unrecorded-old', 'unrecorded-new', 'early-retire', 'boundary-replay',
     'recovery-commit','recovery-flag-loss','partial-recovery',
-    'successor-repair','repair-flag-loss','repair-reboot'])
+    'successor-repair','repair-flag-loss','repair-reboot',
+    'prepared-commit','prepared-unexited','prepared-unprepared','prepared-native-used',
+    'prepared-wrong-binding','prepared-owner-loss','prepared-flag-loss','prepared-seed-reuse','prepared-missing-callback'])
 def test_compound_owner_policy(tmp_path, case):
     source = Path(__file__).resolve().parents[3]/'packaging/windows/Install-EndpointAgentCanary.ps1'
     script = tmp_path/'compound-policy.ps1'
@@ -42,6 +44,59 @@ if($Case -in @('successor-repair','repair-flag-loss','repair-reboot')){$new.Reco
 foreach($policy in @($old,$new)){
  $policy.MarkQuiescent();$helper=Identity $(if($policy -eq $old){200}else{201}) $policy.HelperHash
  $policy.RegisterHelper($helper,'prepare');Admit $policy $helper 'prepare';Admit $policy $helper 'prepare' 'complete'
+}
+if($Case.StartsWith('prepared-')){
+ $seed=$old
+ if($Case -ne 'prepared-unexited'){$seed.MarkHelperExited((Identity 200 ('b'*64)),0)}
+ if($Case -eq 'prepared-unprepared'){
+  $seed=[EndpointInstallerBridge.Policy]::new($old.TransactionId,$old.SessionId,$old.PackageHash,'uninstall',$owner,$old.HelperHash,[byte[]](1..32))
+ }
+ if($Case -eq 'prepared-native-used'){$seed.RegisterMsi($owner,'uninstall')}
+ if($Case -in @('prepared-unexited','prepared-unprepared','prepared-native-used')){
+  Reject {$seed.SealPreparedRemoval()};Write-Output 'passed';exit
+ }
+ $seed.SealPreparedRemoval()
+ Reject {$seed.RegisterHelper((Identity 202 ('b'*64)),'prepare')}
+ Reject {$seed.RegisterMsi($owner,'uninstall')}
+ $old=[EndpointInstallerBridge.Policy]::new($seed.TransactionId,'66666666-6666-4666-8666-666666666666',$seed.PackageHash,'uninstall',$owner,$seed.HelperHash,[byte[]](1..32))
+ $old.Recovery=$true;$old.MarkQuiescent()
+ $peer=Identity 203 ('b'*64);$old.RegisterHelper($peer,'prepare');Admit $old $peer 'prepare';Admit $old $peer 'prepare' 'complete';$old.MarkHelperExited($peer,0)
+ if($Case -eq 'prepared-wrong-binding'){
+  $wrong=[EndpointInstallerBridge.Policy]::new($seed.TransactionId,$old.SessionId,('8'*64),'uninstall',$owner,$seed.HelperHash,[byte[]](1..32));$wrong.Recovery=$true
+  Reject {[EndpointInstallerBridge.CompoundPolicy]::CreatePreparedRemoval($seed,$wrong,$new)};Write-Output 'passed';exit
+ }
+ $compound=[EndpointInstallerBridge.CompoundPolicy]::CreatePreparedRemoval($seed,$old,$new)
+ if($seed.NativeEntered -or $old.NativeEntered -or $old.NativeComplete){throw 'prepare fabricated native entry'}
+ if($Case -eq 'prepared-seed-reuse'){
+  Reject {[EndpointInstallerBridge.CompoundPolicy]::CreatePreparedRemoval($seed,$old,$new)};Write-Output 'passed';exit
+ }
+ if($Case -eq 'prepared-owner-loss'){$seed.OwnerLost();Reject {$compound.BeginNative()};Write-Output 'passed';exit}
+ if($Case -eq 'prepared-flag-loss'){$seed.Recovery=$true;Reject {$compound.BeginNative()};Write-Output 'passed';exit}
+ $compound.BeginNative();$compound.BeginOldScript()
+ Reject {$compound.OldScriptReturned(0)}
+ foreach($phase in @('msi-preflight','recover-enter')){
+  $id=@{'msi-preflight'=210;'recover-enter'=211}[$phase];$peer=Identity $id ('b'*64)
+  Admit $old $peer $phase;Admit $old $peer $phase 'complete'
+ }
+ $compound.OldScriptReturned(0)
+ function PreparedRecord($phase,$id){$peer=Identity $id ('f'*64);$new.RegisterHelper($peer,$phase);Admit $new $peer $phase;Admit $new $peer $phase 'complete'}
+ PreparedRecord 'compound-old-returned' 230
+ $compound.BeginNewScript()
+ foreach($phase in @('msi-preflight','msi-enter','foundation-config')){
+  $id=@{'msi-preflight'=212;'msi-enter'=213;'foundation-config'=214}[$phase];$peer=Identity $id ('f'*64)
+  Admit $new $peer $phase;Admit $new $peer $phase 'complete'
+ }
+ $compound.NewScriptReturned(0);PreparedRecord 'compound-new-returned' 231
+ $compound.BeginEnd($true);$peer=Identity 215 ('b'*64);Admit $old $peer 'msi-complete';Admit $old $peer 'msi-complete' 'complete'
+ if($Case -eq 'prepared-missing-callback'){
+  Reject {$compound.EndReturned(0)}
+  if($compound.Committed){throw 'missing actual callback admitted'}
+ }else{
+  $peer=Identity 216 ('f'*64);Admit $new $peer 'msi-complete';Admit $new $peer 'msi-complete' 'complete';$compound.EndReturned(0)
+  if(!$compound.Committed){throw 'actual commit absent'}
+ }
+ if($seed.NativeEntered -or $seed.NativeComplete){throw 'seed native scope admitted'}
+ Write-Output 'passed';exit
 }
 if($Case -in @('old-recovery','new-recovery','old-finalization','new-finalization')){
  $policy=$(if($Case.StartsWith('old-')){$old}else{$new})

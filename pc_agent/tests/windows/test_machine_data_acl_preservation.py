@@ -17,6 +17,7 @@ class Security:
     OBJECT_INHERIT_ACE = 1
     CONTAINER_INHERIT_ACE = 2
     INHERIT_ONLY_ACE = 8
+    INHERITED_ACE = 16
 
     def __init__(self, *, updater_mask=14):
         self.owner = "S-1-5-32-544"
@@ -46,11 +47,29 @@ class Security:
         return principal, "", 0
 
     def ConvertSidToStringSid(self, value):
-        return value
+        from pc_agent.platform.windows.update_transaction import _SERVICE_SIDS
+        return {acl.SERVICE_PRINCIPAL:_SERVICE_SIDS[0],acl.UPDATER_PRINCIPAL:_SERVICE_SIDS[1]}.get(value,value)
 
 
 RIGHTS = SimpleNamespace(FILE_ALL_ACCESS=1, FILE_GENERIC_READ=2,
                          FILE_GENERIC_WRITE=4, DELETE=8)
+
+
+@pytest.mark.parametrize('target',['root','credential','identity'])
+def test_existing_data_validation_survives_removed_service_registration(installed_root,monkeypatch,target):
+    security=Security()
+    def absent(*_args):raise RuntimeError('LookupAccountName: service absent (1332)')
+    security.LookupAccountName=absent
+    monkeypatch.setattr(acl.PyWin32AclAdapter,'_modules',staticmethod(lambda:(security,RIGHTS)))
+    if target=='root':acl.apply_machine_data_acl()
+    else:
+        credential=target=='credential'
+        security.entries=[((0,16),1,'S-1-5-18'),((0,16),1,'S-1-5-32-544'),
+            ((0,16),2 if credential else 14,acl.SERVICE_PRINCIPAL),
+            ((0,16),4 if credential else 12,acl.UPDATER_PRINCIPAL)]
+        descriptor=security.GetNamedSecurityInfo()
+        acl._validate_machine_data_leaf_acl('device-credential' if credential else 'enrollment-identity.json',
+            descriptor,security,RIGHTS)
 
 
 @pytest.fixture

@@ -28,9 +28,13 @@ _LEGACY_MSI_CONTRACTS = {
 
 # Successor-specific compatibility does not change immutable historical
 # contracts or their captured compatibility_foundations/identity digest.
-# Only these two exact retained media may be selected by foundation94.
+# Only these two exact retained media may be selected by the listed foundations.
 _LEGACY_FOUNDATION_EXTENSIONS = {
     '3.2.94': frozenset({
+        '2f7d778799f1e32645af7936dfaf3f090d6ad4df5bb883827ea8a0a5d859f72a',
+        'ad4dc49703513d6dee6fd3e51ac94a09c5967112d58aed4e60a63cf6966251f5',
+    }),
+    '3.2.95': frozenset({
         '2f7d778799f1e32645af7936dfaf3f090d6ad4df5bb883827ea8a0a5d859f72a',
         'ad4dc49703513d6dee6fd3e51ac94a09c5967112d58aed4e60a63cf6966251f5',
     }),

@@ -8,7 +8,7 @@ import pytest
 
 @pytest.mark.skipif(os.name!='nt',reason='actual PowerShell orchestration')
 @pytest.mark.parametrize('case',['commit','old-failure','new-failure','old-reboot','new-reboot','pump-loss','end-failure','publication-loss',
-    'repair-commit','repair-failure','repair-publication-loss','replacement-recovery'])
+    'repair-commit','repair-failure','repair-publication-loss','replacement-recovery','prepared-commit'])
 def test_compound_wrapper_never_finalizes_failed_or_unsettled_native_work(tmp_path,case):
     source=Path(__file__).resolve().parents[2]/'packaging/windows/Install-EndpointAgentCanary.ps1'
     script=tmp_path/'compound.ps1'
@@ -35,6 +35,15 @@ function Bridge($id,$session,$package,$hash,$op){
 }
 $old=Bridge '11111111-1111-4111-8111-111111111111' '22222222-2222-4222-8222-222222222222' ('b'*64) ('c'*64) 'uninstall'
 $new=Bridge '33333333-3333-4333-8333-333333333333' '44444444-4444-4444-8444-444444444444' ('d'*64) ('e'*64) 'install'
+$seed=$null
+if($Case -eq 'prepared-commit'){
+ $seed=$old
+ $seed.Policy.MarkHelperExited(([EndpointInstallerBridge.Identity]::new(200,2000,('c'*64),'S-1-5-18',$true)),0)
+ $seed.Policy.SealPreparedRemoval()
+ $old=Bridge $seed.TransactionId '66666666-6666-4666-8666-666666666666' ('b'*64) ('c'*64) 'uninstall'
+ $old.Policy.Recovery=$true
+ $new.Capability.compound.prepared_old=@{source=@{session_id=$seed.SessionId}}
+}
 $mode='fresh'
 if($Case.StartsWith('repair-')){$mode='repair-successor'}elseif($Case -eq 'replacement-recovery'){$mode='replace-foundation'}
 if($mode -ne 'fresh'){$new.Capability.recovery=$true;$new.Capability.compound.recovery=@{mode=$mode};$new.Capability.compound.old=@{package=@{package_sha256=('b'*64)}}}
@@ -58,8 +67,8 @@ function Invoke-InstallerHelper {param($Bridge,$Phase)$global:events.Add($Phase)
  return @{result='compound-ready';marker=@{upgrade_id=$Bridge.Capability.compound.upgrade_id;new_transaction_id=$Bridge.TransactionId;
  old_package_sha256=('b'*64);new_package_sha256=('d'*64);successor_product_code='{22222222-2222-4222-8222-222222222222}';source_revision=('a'*40);ready_sha256=('f'*64)}}}}
 $failed=$false
-try{Invoke-CompoundFoundationUpgrade -OldBridge $(if($mode -eq 'repair-successor'){$null}else{$old}) -NewBridge $new -OldMedia $null -NewMedia $null -SuccessorProduct '{22222222-2222-4222-8222-222222222222}' -Mode $mode|Out-Null}catch{$failed=$true}
-if($Case -in @('commit','replacement-recovery')){
+try{Invoke-CompoundFoundationUpgrade -OldBridge $(if($mode -eq 'repair-successor'){$null}else{$old}) -NewBridge $new -PreparedOldBridge $seed -OldMedia $null -NewMedia $null -SuccessorProduct '{22222222-2222-4222-8222-222222222222}' -Mode $mode|Out-Null}catch{$failed=$true}
+if($Case -in @('commit','replacement-recovery','prepared-commit')){
  if($failed -or [string]::Join(',',@($events)) -cne 'begin,old,pump,compound-old-returned,new,pump,compound-new-returned,end,pump,compound-commit,compound-retire,reconcile,finish,compound-complete,published,disposed'){throw 'native/finalization order differs'}
 }elseif($Case -eq 'repair-commit'){
  if($failed -or [string]::Join(',',@($events)) -cne 'begin,new,pump,compound-repair-returned,end,pump,compound-repair-commit,compound-retire,reconcile,finish,compound-complete,published,disposed'){throw 'successor-only repair enlisted fictitious old work'}
