@@ -6,6 +6,43 @@ import pytest
 from pc_agent.tests.windows.test_installer_fence import native_protected_root
 
 
+@pytest.mark.parametrize('phase,native,minutes,allowed',[
+    ('prepare',False,31,True),('prepare',False,120,True),
+    ('prepare',False,121,False),('inspect',False,31,False),
+    ('reconcile',False,31,False),('prepare',True,31,False),
+    ('msi-executing',True,30,True),('msi-executing',True,31,False),
+])
+def test_retention_preparation_has_bounded_time_without_extending_native_msi(
+    tmp_path,phase,native,minutes,allowed,
+):
+    import shutil
+    powershell=shutil.which('powershell.exe') or shutil.which('pwsh')
+    if powershell is None:pytest.skip('PowerShell deadline policy')
+    source=Path(__file__).resolve().parents[3]/'packaging/windows/Install-EndpointAgentCanary.ps1'
+    script=tmp_path/'installer-phase-deadline.ps1'
+    script.write_text(r'''param($Source,$Phase,$Native,[double]$Minutes,$Allowed)
+$ErrorActionPreference='Stop'
+$tokens=$null;$errors=$null
+$ast=[Management.Automation.Language.Parser]::ParseFile($Source,[ref]$tokens,[ref]$errors)
+$node=$ast.Find({param($n) $n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'Assert-InstallerPumpDeadline'},$true)
+if(!$node){throw 'PHASE_DEADLINE_POLICY_MISSING'}
+Invoke-Expression $node.Extent.Text
+$accepted=$true
+try{Assert-InstallerPumpDeadline -Elapsed ([TimeSpan]::FromMinutes($Minutes)) -Phase $Phase -Msi ($Native -eq 'true')}
+catch{if($_.Exception.Message -ne 'RECOVERY_REQUIRED'){throw};$accepted=$false}
+if($accepted -ne ($Allowed -eq 'true')){throw 'PHASE_DEADLINE_BEHAVIOR'}
+# The actual owner loop must keep invoking the bound and live conversation.
+$pump=$ast.Find({param($n) $n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'Invoke-InstallerOwnerPump'},$true)
+if(!$pump.Extent.Text.Contains('Assert-InstallerPumpDeadline -Elapsed $timer.Elapsed -Phase $Phase -Msi ([bool]$Msi)') -or !$pump.Extent.Text.Contains('Invoke-InstallerConversationStep -State $conversation')){throw 'DEADLINE_OR_OWNER_CHECK_NOT_CONNECTED'}
+Write-Output 'passed'
+''',encoding='utf-8')
+    result=subprocess.run([powershell,'-NoProfile','-NonInteractive','-File',str(script),
+        str(source),phase,str(native).lower(),str(minutes),str(allowed).lower()],
+        capture_output=True,text=True,timeout=15)
+    assert result.returncode==0,result.stderr
+    assert result.stdout.strip()=='passed'
+
+
 @pytest.mark.skipif(os.name != "nt", reason="compiled bridge uses Windows ACL, named-pipe and MSI native APIs")
 @pytest.mark.parametrize('case', ['direct','msi-order','once','owner-loss','identity','read-only','quiescence','sessions','uninstall-finalization','reboot'])
 def test_installer_owner_policy(tmp_path,case):

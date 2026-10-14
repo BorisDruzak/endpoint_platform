@@ -1028,6 +1028,16 @@ function Invoke-InstallerConversationStep {
     }
 }
 
+function Assert-InstallerPumpDeadline {
+    param([Parameter(Mandatory)][TimeSpan]$Elapsed,
+        [Parameter(Mandatory)][string]$Phase, [Parameter(Mandatory)][bool]$Msi)
+    # Full retained catalogs require a fresh owner grant at every mutation.
+    # Give only this pre-MSI helper a larger fixed bound; native MSI and every
+    # other helper retain their existing deadline and live-owner conversation.
+    $minutes = if (-not $Msi -and $Phase -ceq 'prepare') { 120 } else { 30 }
+    if ($Elapsed -gt [TimeSpan]::FromMinutes($minutes)) { throw 'RECOVERY_REQUIRED' }
+}
+
 function Invoke-InstallerOwnerPump {
     param([Parameter(Mandatory)]$Bridge, [Parameter(Mandatory)]$Process,
         [Parameter(Mandatory)][string]$Phase, [switch]$Msi)
@@ -1049,7 +1059,7 @@ function Invoke-InstallerOwnerPump {
     }
     try {
         do {
-            if ($timer.Elapsed.TotalMinutes -gt 30) { throw 'RECOVERY_REQUIRED' }
+            Assert-InstallerPumpDeadline -Elapsed $timer.Elapsed -Phase $Phase -Msi ([bool]$Msi)
             $worked = Invoke-InstallerConversationStep -State $conversation
             $Process.Refresh()
             if ($Process.HasExited) {
