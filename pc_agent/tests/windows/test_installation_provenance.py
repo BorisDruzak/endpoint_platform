@@ -281,6 +281,14 @@ def test_reviewed_legacy_native_owner_survives_as_explicit_retained_archive(msi_
     contract = {'version':'3.2.81','source_revision':'a'*40,'file_count':1,'tree_sha256':tree,
         'component_guid':component,'approved_foundations':('3.2.82',)}
     monkeypatch.setattr(runtime_identity, '_LEGACY_MSI_CONTRACTS', {package.sha256:contract})
+    # This retention fixture models native ownership/security; separate native
+    # ACL tests exercise the historical servicing writer and namespace guards.
+    from pc_agent.platform.windows import legacy_foundation_upgrade as legacy
+    monkeypatch.setattr(legacy,'_LEGACY_MSI_CONTRACTS',{package.sha256:contract})
+    monkeypatch.setattr(legacy,'_PRODUCTS',{package.sha256:package.product_code})
+    monkeypatch.setattr(legacy,'verify_registration',lambda *_a,**_k:None)
+    monkeypatch.setattr(legacy,'assert_runtime_security',lambda *_a,**_k:None)
+    monkeypatch.setattr(msi_inventory,'_assert_registered_cache_security',lambda *_:None)
     monkeypatch.setattr(msi_inventory, 'read_package', lambda *_: package)
     cache = paths.updates_root.parent / 'installer-cache'; cache.mkdir(parents=True)
     cached = cache / f'msi-{package.sha256}' / 'EndpointAgent.msi'; cached.parent.mkdir()
@@ -383,6 +391,8 @@ def legacy_uninstall_lifecycle(handoff_input,monkeypatch):
     from pc_agent.platform.windows import legacy_foundation_upgrade as legacy,msi_inventory,runtime_identity,installer_fence,update_transaction
     module,paths,root,request,expected=handoff_input
     monkeypatch.setattr(update_transaction,'_assert_state_security',lambda *_:None)
+    monkeypatch.setattr(legacy,'assert_runtime_security',lambda *_a,**_k:None)
+    monkeypatch.setattr(msi_inventory,'_assert_registered_cache_security',lambda *_:None)
     old_code='{5E140EED-6A05-4D9B-98C6-BCC178C6EC71}'
     old_bytes=b'original legacy package model'
     old_hash=hashlib.sha256(old_bytes).hexdigest()

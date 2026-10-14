@@ -137,7 +137,8 @@ def _inspect_legacy_msi(paths: WindowsUpdatePaths, root: Path, selector_data: by
     if package.product_code != receipt['product_code'] or package.version != contract['version']:
         raise ProvenanceConflict()
     msi_inventory.verify_installed(package, paths.install_root)
-    marker = read_json(_read(root / MSI_MARKER, 4096), 4096)
+    from .legacy_foundation_upgrade import read_runtime_marker
+    marker = read_json(read_runtime_marker(paths,package), 4096)
     if marker != {'schema_version':1, 'version':contract['version'], 'component_guid':contract['component_guid']}:
         raise ProvenanceConflict()
     identity = verify_legacy_msi_payload(root, package_sha256=package.sha256, excluded=frozenset({MSI_MARKER}))
@@ -209,10 +210,11 @@ def _inspect_core(paths: WindowsUpdatePaths, selector_path: Path, resulting_foun
 def _inspect_core_value(paths: WindowsUpdatePaths, selector_data: bytes, selector: dict, resulting_foundation: str) -> CoreEvidence:
     root = paths.versions_root / selector['version']
     reject_reparse_ancestors(root)
-    _assert_security(root)
     if _present(root / ZIP_RECEIPT):
+        _assert_security(root)
         evidence = _inspect_zip(root, selector_data, selector)
     elif _present(root / RETAINED_RECEIPT):
+        _assert_security(root)
         from .runtime_identity import verify_retained_runtime
         retained = verify_retained_runtime(paths, selector['version'])
         evidence = CoreEvidence('retained_msi', retained.identity, selector_data,
@@ -221,6 +223,7 @@ def _inspect_core_value(paths: WindowsUpdatePaths, selector_data: bytes, selecto
     elif _present(root / MSI_MARKER):
         from .installer_fence import state_root
         if _present(state_root(paths) / 'core-owners' / f"{selector['version']}.json"):
+            _assert_security(root)
             evidence = _inspect_modern_msi(paths, root, selector_data, selector)
         else:
             evidence = _inspect_legacy_msi(paths, root, selector_data, selector)
@@ -366,7 +369,12 @@ def archive_retained_core(paths: WindowsUpdatePaths, evidence: CoreEvidence, *, 
         excluded=frozenset({MSI_MARKER, BUNDLE_FILENAME}))
     if observed != evidence.identity:
         raise ProvenanceConflict()
-    marker = _read(source / MSI_MARKER, 4096)
+    def read_source_marker():
+        if evidence.compatibility_foundations:
+            from .legacy_foundation_upgrade import read_runtime_marker
+            return read_runtime_marker(paths,package)
+        return _read(source / MSI_MARKER,4096)
+    marker = read_source_marker()
     package_size = package_path.stat().st_size
     require_allocation_space(retention_allocations(paths, evidence, package_size))
     parent = _archive_directory(state_root(paths), 'retained')
@@ -409,7 +417,7 @@ def archive_retained_core(paths: WindowsUpdatePaths, evidence: CoreEvidence, *, 
     if (_verify_retention_payload(payload_root, manifest, package.sha256, evidence.compatibility_foundations) != evidence.identity
         or _verify_retention_payload(source, manifest, package.sha256, evidence.compatibility_foundations,
             excluded=frozenset({MSI_MARKER, BUNDLE_FILENAME})) != evidence.identity
-        or _read(source / MSI_MARKER, 4096) != marker):
+        or read_source_marker() != marker):
         raise ProvenanceConflict()
     msi_inventory.verify_installed(package, paths.install_root)
     durable_state.write_json_atomic(record, expected, trusted_root=archive,
@@ -432,21 +440,31 @@ def restore_retained_core(paths: WindowsUpdatePaths, archive_id: str) -> None:
     if msi_inventory.NativeMsi().product(retained.record['package']['product_code']) != -1:
         raise ProvenanceConflict()
     root = paths.versions_root / retained.identity.version
+    legacy_package=None
+    if retained.record['compatibility_foundations']:
+        from types import SimpleNamespace
+        from .legacy_foundation_upgrade import assert_runtime_security, _read_runtime_marker_file
+        legacy_package=SimpleNamespace(sha256=retained.record['package']['sha256'],
+            product_code=retained.record['package']['product_code'],version=retained.identity.version)
     expected = {item.path: item for item in retained.identity.files}
     marker = bytes.fromhex(retained.record['original_marker_bytes'])
     link = {'schema_version': 1, 'version': retained.identity.version, 'archive_id': archive_id,
         'receipt_sha256': hashlib.sha256(retained.record_bytes).hexdigest()}
     if _present(root):
         reject_reparse_ancestors(root)
-        _assert_security(root)
+        if legacy_package is None:_assert_security(root)
+        else:assert_runtime_security(paths,legacy_package)
         for file in root.rglob('*'):
             reject_reparse_ancestors(file)
-            _assert_security(file)
+            if legacy_package is None:_assert_security(file)
+            else:msi_inventory._assert_registered_cache_security(file)
             if file.is_dir():
                 continue
             relative = file.relative_to(root).as_posix()
             if relative == MSI_MARKER:
-                if _read(file, 4096) != marker:
+                actual=(_read(file,4096) if legacy_package is None
+                    else _read_runtime_marker_file(paths,legacy_package))
+                if actual != marker:
                     raise ProvenanceConflict()
             elif relative == BUNDLE_FILENAME:
                 if _read(file, MAX_MANIFEST_BYTES) != bytes.fromhex(retained.record['original_manifest_bytes']):
@@ -461,6 +479,10 @@ def restore_retained_core(paths: WindowsUpdatePaths, archive_id: str) -> None:
                 with file.open('rb') as stream:
                     if hashlib.file_digest(stream, 'sha256').hexdigest() != item.sha256:
                         raise ProvenanceConflict()
+        if legacy_package is not None:
+            assert_runtime_security(paths,legacy_package)
+            if msi_inventory.NativeMsi().product(legacy_package.product_code)!=-1:
+                raise ProvenanceConflict()
     require_allocation_space(((root, sum(item.size for item in retained.identity.files
         if not _present(root / item.path)) + 16384),))
     journal = retained.archive / 'rehydration.json'

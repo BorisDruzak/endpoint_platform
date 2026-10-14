@@ -46,6 +46,82 @@ def verify_registration(package,release,*,native=None):
         raise ProvenanceConflict()
 
 
+def _runtime_release(package):
+    contract=_LEGACY_MSI_CONTRACTS.get(package.sha256)
+    if (contract is None or package.version!=contract['version']
+        or package.product_code!=_PRODUCTS[package.sha256]):
+        raise ProvenanceConflict()
+    return canonical_release({'schema_version':'endpoint_windows_release_v1',
+        'version':contract['version'],'source_revision':contract['source_revision'],
+        'package_sha256':package.sha256,'initial_runtime_tree_sha256':contract['tree_sha256'],
+        'product_code':package.product_code})
+
+
+def assert_runtime_security(paths,package):
+    """Servicing-only ACLs for exact historical runtime; no execution authority.
+
+    Callers separately prove either the live native owner or its authenticated
+    retained archive and native absence. Selectors/journals remain strict.
+    """
+    from endpoint_contracts.runtime_payload import reject_reparse_ancestors
+    from . import msi_inventory
+    from .installer_fence import assert_namespace_security
+    _runtime_release(package)
+    root=paths.versions_root/package.version
+    try:
+        reject_reparse_ancestors(root);assert_namespace_security(root)
+        msi_inventory._assert_registered_cache_security(root)
+        if not root.is_dir():raise ProvenanceConflict()
+        count=0
+        for path in root.rglob('*'):
+            count+=1
+            if count>10000:raise ProvenanceConflict()
+            reject_reparse_ancestors(path)
+            details=path.lstat()
+            if not stat.S_ISDIR(details.st_mode) and (not stat.S_ISREG(details.st_mode) or details.st_nlink!=1):
+                raise ProvenanceConflict()
+            msi_inventory._assert_registered_cache_security(path)
+        assert_namespace_security(root)
+    except (OSError,ValueError) as error:
+        raise ProvenanceConflict() from error
+
+
+def read_runtime_marker(paths,package):
+    """Bounded pinned read, only for an actually registered canonical79/81 MSI."""
+    release=_runtime_release(package)
+    verify_registration(package,release)
+    data=_read_runtime_marker_file(paths,package)
+    verify_registration(package,release)
+    return data
+
+
+def _read_runtime_marker_file(paths,package):
+    """Archive-restoration callers separately require verified archive/absence."""
+    from . import durable_state
+    from endpoint_contracts.runtime_payload import read_json
+    _runtime_release(package)
+    assert_runtime_security(paths,package)
+    marker=paths.versions_root/package.version/'.endpoint-msi-runtime.json'
+    try:
+        before=durable_state._copy_identity(marker.lstat())
+        if not 0<before[2]<=4096:raise ProvenanceConflict()
+        with durable_state._pinned_copy_source(marker) as descriptor:
+            opened=os.fstat(descriptor)
+            if durable_state._copy_identity(opened)!=before:raise ProvenanceConflict()
+            data=os.read(descriptor,4097)
+            after=os.fstat(descriptor)
+            if (len(data)!=before[2] or durable_state._copy_identity(after)!=before
+                or after.st_ctime_ns!=opened.st_ctime_ns
+                or durable_state._copy_identity(marker.lstat())!=before):raise ProvenanceConflict()
+        contract=_LEGACY_MSI_CONTRACTS[package.sha256]
+        if read_json(data,4096)!={'schema_version':1,'version':package.version,
+            'component_guid':contract['component_guid']}:raise ProvenanceConflict()
+        assert_runtime_security(paths,package)
+        return data
+    except (OSError,ValueError,TypeError,KeyError) as error:
+        raise ProvenanceConflict() from error
+
+
 def inspect_foundation(paths,*,native=None):
     """Read exact historical foundation independently of the selected ZIP.
 
