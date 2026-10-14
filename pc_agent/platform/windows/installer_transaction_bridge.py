@@ -140,14 +140,19 @@ class InstallerServices:
 
 def validate_feature_plan(operation,states,*,rollback_disabled,recovery=False,finalization=False):
     """Validate costing's actual feature states, independently of REMOVE text."""
-    if (len(states)!=4 or any(type(value) is not int or value not in {-1,1,2,3} for value in states)
+    if (len(states)!=4 or any(type(value) is not int or value not in {-1,1,2,3,5} for value in states)
+        or any(value==5 for value in states[::2])
         or rollback_disabled not in {'','0'}):
         _failed()
     foundation_before,foundation_after,runtime_before,runtime_after=states
     if finalization:
         valid=operation=='uninstall' and recovery is True and all(value in {-1,2} for value in states)
     elif operation=='install':
-        valid=foundation_after==runtime_after==3
+        # REINSTALL is evaluated after ADDLOCAL and can request DEFAULT5 for
+        # already-local features. Preserve that native value; only an owned
+        # recovery may reinstall each feature whose installed state is LOCAL3.
+        valid=all(after==3 or (after==5 and recovery is True and before==3)
+            for before,after in ((foundation_before,foundation_after),(runtime_before,runtime_after)))
     elif operation=='retire-initial-runtime':
         valid=foundation_before==foundation_after==3 and runtime_before in ((2,3) if recovery else (3,)) and runtime_after==2
     elif operation=='uninstall':

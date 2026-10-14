@@ -265,8 +265,10 @@ function Assert-UninstallFinalizationSequence {
         $name = 'Reset' + $featureInput.Stem
         $featureCaptures[$name] = @{ Property = $featureInput.Property; Value = '0'; Condition = '' }
         $captureOrder += $name
-        foreach ($state in @(@{ Label = 'Unknown'; Value = '-1' }, @{ Label = 'Advertised'; Value = '1' },
-                             @{ Label = 'Absent'; Value = '2' }, @{ Label = 'Local'; Value = '3' })) {
+        $states = @(@{ Label = 'Unknown'; Value = '-1' }, @{ Label = 'Advertised'; Value = '1' },
+                    @{ Label = 'Absent'; Value = '2' }, @{ Label = 'Local'; Value = '3' })
+        if ($featureInput.Stem.EndsWith('Action')) { $states += @{ Label = 'Default'; Value = '5' } }
+        foreach ($state in $states) {
             $name = 'Capture' + $featureInput.Stem + $state.Label
             $featureCaptures[$name] = @{ Property = $featureInput.Property; Value = $state.Value;
                 Condition = $featureInput.Expression + ' = ' + $state.Value }
@@ -275,7 +277,7 @@ function Assert-UninstallFinalizationSequence {
     }
     $suppressedConditions = @('NOT ENDPOINT_UNINSTALL_FINALIZE',
         'NOT ENDPOINT_UNINSTALL_FINALIZE AND NOT ENDPOINT_RUNTIME_RETIRE',
-        'NOT ENDPOINT_UNINSTALL_FINALIZE AND &EndpointAgentFeature = 3 AND NOT ENDPOINT_RUNTIME_RETIRE AND NOT REMOVE~="ALL"',
+        'NOT ENDPOINT_UNINSTALL_FINALIZE AND (&EndpointAgentFeature = 3 OR (!EndpointAgentFeature = 3 AND &EndpointAgentFeature = 5)) AND NOT ENDPOINT_RUNTIME_RETIRE AND NOT REMOVE~="ALL"',
         'NOT ENDPOINT_UNINSTALL_FINALIZE AND (!EndpointAgentInitialRuntimeFeature = 3 OR !EndpointAgentInitialRuntimeFeature = 2) AND &EndpointAgentInitialRuntimeFeature = 2 AND &EndpointAgentFeature = 3')
     $rows = @{}
     foreach ($row in $Inspection.execute_sequence) {

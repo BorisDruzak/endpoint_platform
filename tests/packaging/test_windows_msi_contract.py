@@ -127,14 +127,15 @@ def test_native_directory_permissions_follow_foundation_and_runtime_ownership():
 
 
 @pytest.mark.parametrize('defect',['none','unknown','condition','feature','guard_type','guard_order',
-    'capture_type','capture_source','capture_value','capture_condition','capture_order','capture_missing'])
+    'capture_type','capture_source','capture_value','capture_condition','capture_order','capture_missing',
+    'default_type','default_condition','default_installed'])
 def test_compiled_finalization_sequence_rejects_unreviewed_reachable_actions(tmp_path,defect):
     import subprocess
     powershell = shutil.which("powershell.exe") or shutil.which("pwsh")
     if powershell is None:
         pytest.skip("PowerShell is required to execute the extracted finalization audit; static WXS checks still run")
     sequence=[{'action':name,'condition':'','sequence':number} for name,number in
-        [('CostFinalize',1000),('InstallerOwnerPreflight',1022),('InstallInitialize',1500),
+        [('CostFinalize',1000),('InstallerOwnerPreflight',1024),('InstallInitialize',1500),
          ('InstallerOwnerEnter',1501),('InstallerOwnerComplete',6599),('InstallFinalize',6600)]]
     for name,number in [('ProcessComponents',1600),('StopServices',1900),('RemoveFiles',3500),
                         ('RegisterUser',6000),('RegisterProduct',6100),('PublishFeatures',6300),('PublishProduct',6400),('RemoveExistingProducts',6501)]:
@@ -149,7 +150,9 @@ def test_compiled_finalization_sequence_rejects_unreviewed_reachable_actions(tmp
             ('FoundationAction','EndpointFoundationAction','&EndpointAgentFeature'),
             ('RuntimeInstalled','EndpointRuntimeInstalled','!EndpointAgentInitialRuntimeFeature'),
             ('RuntimeAction','EndpointRuntimeAction','&EndpointAgentInitialRuntimeFeature')]:
-        for label,value in [('Reset','0'),('Unknown','-1'),('Advertised','1'),('Absent','2'),('Local','3')]:
+        states=[('Reset','0'),('Unknown','-1'),('Advertised','1'),('Absent','2'),('Local','3')]
+        if stem.endswith('Action'):states.append(('Default','5'))
+        for label,value in states:
             name='Reset'+stem if label=='Reset' else 'Capture'+stem+label
             action={'action':name,'type':51,'source':prop,'target':value}
             row={'action':name,'condition':'' if label=='Reset' else expression+' = '+value,'sequence':1002+len(captures)}
@@ -160,6 +163,11 @@ def test_compiled_finalization_sequence_rejects_unreviewed_reachable_actions(tmp
     elif defect=='capture_condition': captures[0][1]['condition']='1'
     elif defect=='capture_order': captures[0][1]['sequence']=1023
     elif defect=='capture_missing': sequence.remove(captures[0][1])
+    elif defect=='default_type': next(a for a,r in captures if a['action']=='CaptureFoundationActionDefault')['type']=50
+    elif defect=='default_condition': next(r for a,r in captures if a['action']=='CaptureRuntimeActionDefault')['condition']='1'
+    elif defect=='default_installed':
+        inspection['custom_actions'].append({'action':'CaptureFoundationInstalledDefault','type':51,'source':'EndpointFoundationInstalled','target':'5'})
+        sequence.append({'action':'CaptureFoundationInstalledDefault','condition':'!EndpointAgentFeature = 5','sequence':1006})
     elif defect=='unknown': sequence.append({'action':'UnreviewedMutation','condition':'','sequence':3000})
     elif defect=='condition': sequence[6]['condition']='NOT ENDPOINT_UNINSTALL_FINALIZE OR 1'
     elif defect=='feature': inspection['feature_conditions'].pop()
@@ -381,7 +389,7 @@ def test_service_components_remove_services_and_fail_the_transaction_on_error() 
     assert configure.get("Return") == "check"
     sequence = next(item for item in _all_elements(trees, "Custom") if item.get("Action") == "ConfigureFoundation")
     assert sequence.get("After") == "InstallServices"
-    assert sequence.get("Condition") == 'NOT ENDPOINT_UNINSTALL_FINALIZE AND &EndpointAgentFeature = 3 AND NOT ENDPOINT_RUNTIME_RETIRE AND NOT REMOVE~="ALL"'
+    assert sequence.get("Condition") == 'NOT ENDPOINT_UNINSTALL_FINALIZE AND (&EndpointAgentFeature = 3 OR (!EndpointAgentFeature = 3 AND &EndpointAgentFeature = 5)) AND NOT ENDPOINT_RUNTIME_RETIRE AND NOT REMOVE~="ALL"'
     assert not any(item.get("FileRef") == "filServiceHost" for item in actions)
 
 
@@ -671,7 +679,7 @@ def test_owner_guards_are_embedded_and_have_no_unowned_rollback_writer() -> None
         assert action.get("HideTarget")=="yes"
     sequence=_all_elements(_trees(),"Custom")
     preflight=next(item for item in sequence if item.get("Action")=="InstallerOwnerPreflight")
-    assert preflight.get("After")=="CaptureRuntimeActionLocal"
+    assert preflight.get("After")=="CaptureRuntimeActionDefault"
     classifier=next(item for item in sequence if item.get("Action")=="ClassifyRuntimeRetirement")
     assert classifier.get("After")=="CostFinalize"
     assert "&EndpointAgentInitialRuntimeFeature = 2" in classifier.get("Condition")

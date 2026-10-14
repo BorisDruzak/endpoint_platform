@@ -201,6 +201,21 @@ def test_rollback_disabled_policy_rejects_before_any_mutation():
 
 
 @pytest.mark.parametrize('operation,recovery,states,valid',[
+    ('install',True,(3,5,3,5),True),('install',True,(3,3,3,5),True),
+    ('install',False,(3,5,3,5),False),('install',True,(2,5,3,5),False),
+    ('install',True,(3,5,1,5),False),('install',True,(3,5,4,5),False),
+    ('install',True,(5,5,3,5),False),('install',True,(3,4,3,5),False),
+    ('uninstall',True,(3,5,3,5),False),('retire-initial-runtime',True,(3,5,3,2),False)])
+def test_reinstall_default_requires_recovery_of_each_local_feature(operation,recovery,states,valid):
+    from pc_agent.platform.windows.installer_transaction_bridge import validate_feature_plan
+    if valid:
+        validate_feature_plan(operation,states,rollback_disabled='',recovery=recovery)
+    else:
+        with pytest.raises(ValueError):
+            validate_feature_plan(operation,states,rollback_disabled='',recovery=recovery)
+
+
+@pytest.mark.parametrize('operation,recovery,states,valid',[
     ('uninstall',True,(-1,-1,-1,-1),True),('uninstall',True,(-1,2,-1,2),True),
     ('uninstall',False,(-1,2,-1,2),False),('install',True,(-1,2,-1,2),False),
     ('uninstall',True,(-1,3,-1,2),False),('uninstall',True,(3,2,-1,2),False)])

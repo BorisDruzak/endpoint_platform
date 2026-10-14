@@ -101,6 +101,7 @@
     <CustomAction Id="CaptureFoundationActionAdvertised" Property="EndpointFoundationAction" Value="1" />
     <CustomAction Id="CaptureFoundationActionAbsent" Property="EndpointFoundationAction" Value="2" />
     <CustomAction Id="CaptureFoundationActionLocal" Property="EndpointFoundationAction" Value="3" />
+    <CustomAction Id="CaptureFoundationActionDefault" Property="EndpointFoundationAction" Value="5" />
     <CustomAction Id="ResetRuntimeInstalled" Property="EndpointRuntimeInstalled" Value="0" />
     <CustomAction Id="CaptureRuntimeInstalledUnknown" Property="EndpointRuntimeInstalled" Value="-1" />
     <CustomAction Id="CaptureRuntimeInstalledAdvertised" Property="EndpointRuntimeInstalled" Value="1" />
@@ -111,6 +112,7 @@
     <CustomAction Id="CaptureRuntimeActionAdvertised" Property="EndpointRuntimeAction" Value="1" />
     <CustomAction Id="CaptureRuntimeActionAbsent" Property="EndpointRuntimeAction" Value="2" />
     <CustomAction Id="CaptureRuntimeActionLocal" Property="EndpointRuntimeAction" Value="3" />
+    <CustomAction Id="CaptureRuntimeActionDefault" Property="EndpointRuntimeAction" Value="5" />
     <InstallExecuteSequence>
       <Custom Action="ClassifyRuntimeRetirement" After="CostFinalize"
               Condition="NOT ENDPOINT_UNINSTALL_FINALIZE AND (!EndpointAgentInitialRuntimeFeature = 3 OR !EndpointAgentInitialRuntimeFeature = 2) AND &amp;EndpointAgentInitialRuntimeFeature = 2 AND &amp;EndpointAgentFeature = 3" />
@@ -124,7 +126,8 @@
       <Custom Action="CaptureFoundationActionAdvertised" After="CaptureFoundationActionUnknown" Condition="&amp;EndpointAgentFeature = 1" />
       <Custom Action="CaptureFoundationActionAbsent" After="CaptureFoundationActionAdvertised" Condition="&amp;EndpointAgentFeature = 2" />
       <Custom Action="CaptureFoundationActionLocal" After="CaptureFoundationActionAbsent" Condition="&amp;EndpointAgentFeature = 3" />
-      <Custom Action="ResetRuntimeInstalled" After="CaptureFoundationActionLocal" />
+      <Custom Action="CaptureFoundationActionDefault" After="CaptureFoundationActionLocal" Condition="&amp;EndpointAgentFeature = 5" />
+      <Custom Action="ResetRuntimeInstalled" After="CaptureFoundationActionDefault" />
       <Custom Action="CaptureRuntimeInstalledUnknown" After="ResetRuntimeInstalled" Condition="!EndpointAgentInitialRuntimeFeature = -1" />
       <Custom Action="CaptureRuntimeInstalledAdvertised" After="CaptureRuntimeInstalledUnknown" Condition="!EndpointAgentInitialRuntimeFeature = 1" />
       <Custom Action="CaptureRuntimeInstalledAbsent" After="CaptureRuntimeInstalledAdvertised" Condition="!EndpointAgentInitialRuntimeFeature = 2" />
@@ -134,7 +137,8 @@
       <Custom Action="CaptureRuntimeActionAdvertised" After="CaptureRuntimeActionUnknown" Condition="&amp;EndpointAgentInitialRuntimeFeature = 1" />
       <Custom Action="CaptureRuntimeActionAbsent" After="CaptureRuntimeActionAdvertised" Condition="&amp;EndpointAgentInitialRuntimeFeature = 2" />
       <Custom Action="CaptureRuntimeActionLocal" After="CaptureRuntimeActionAbsent" Condition="&amp;EndpointAgentInitialRuntimeFeature = 3" />
-      <Custom Action="InstallerOwnerPreflight" After="CaptureRuntimeActionLocal" />
+      <Custom Action="CaptureRuntimeActionDefault" After="CaptureRuntimeActionLocal" Condition="&amp;EndpointAgentInitialRuntimeFeature = 5" />
+      <Custom Action="InstallerOwnerPreflight" After="CaptureRuntimeActionDefault" />
       <Custom Action="InstallerOwnerEnter" After="InstallInitialize" />
       <Custom Action="InstallerOwnerComplete" Before="InstallFinalize" />
       <StopServices Condition="NOT ENDPOINT_UNINSTALL_FINALIZE AND NOT ENDPOINT_RUNTIME_RETIRE" />
@@ -157,7 +161,7 @@
       <RemoveExistingProducts After="InstallExecute" Condition="NOT ENDPOINT_UNINSTALL_FINALIZE" />
       <Custom Action="ScheduleEndpointRootCleanup" Before="CostInitialize" Condition="NOT ENDPOINT_UNINSTALL_FINALIZE" />
       <Custom Action="ConfigureFoundation" After="InstallServices"
-              Condition="NOT ENDPOINT_UNINSTALL_FINALIZE AND &amp;EndpointAgentFeature = 3 AND NOT ENDPOINT_RUNTIME_RETIRE AND NOT REMOVE~=&quot;ALL&quot;" />
+              Condition="NOT ENDPOINT_UNINSTALL_FINALIZE AND (&amp;EndpointAgentFeature = 3 OR (!EndpointAgentFeature = 3 AND &amp;EndpointAgentFeature = 5)) AND NOT ENDPOINT_RUNTIME_RETIRE AND NOT REMOVE~=&quot;ALL&quot;" />
     </InstallExecuteSequence>
   </Fragment>
 </Wix>

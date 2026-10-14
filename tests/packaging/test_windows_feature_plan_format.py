@@ -100,3 +100,21 @@ def test_preflight_receives_native_feature_states(tmp_path, remove):
             close(record)
     finally:
         close(session)
+
+
+@pytest.mark.parametrize('prefix,feature',[
+    ('Foundation','EndpointAgentFeature'),('Runtime','EndpointAgentInitialRuntimeFeature')])
+def test_reinstall_default_is_captured_without_promoting_it_to_local(prefix,feature):
+    authored=ET.parse(ROOT/'packaging/windows/wix/Services.wxs')
+    actions=authored.findall(f'.//{{{NS}}}CustomAction')
+    action=next((a for a in actions if a.get('Id')==f'Capture{prefix}ActionDefault'),None)
+    assert action is not None,'native reinstall action5 is currently reset to invalid0'
+    assert action.get('Property')==f'Endpoint{prefix}Action'
+    assert action.get('Value')=='5'
+    sequence=authored.findall(f'.//{{{NS}}}Custom')
+    scheduled=next(a for a in sequence if a.get('Action')==action.get('Id'))
+    assert scheduled.get('Condition')==f'&{feature} = 5'
+    assert scheduled.get('After')==f'Capture{prefix}ActionLocal'
+    following=next(a for a in sequence if a.get('Action')==(
+        'ResetRuntimeInstalled' if prefix=='Foundation' else 'InstallerOwnerPreflight'))
+    assert following.get('After')==action.get('Id')
