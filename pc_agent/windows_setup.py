@@ -191,8 +191,6 @@ class UniversalWindowsSetup:
         request_id = _request_id(response)
         state = _state(response)
         deadline = self.clock().astimezone(UTC) + _MAX_POLL_DURATION
-        if state == "review_required":
-            return SetupOutcome("review_required", request_id=request_id, reason=_reason(response))
         while state in _AWAITING_STATUSES:
             if self.clock().astimezone(UTC) >= deadline:
                 return SetupOutcome("timed_out", request_id=request_id)

@@ -108,3 +108,41 @@ def test_setup_preserves_safe_provisioner_failure_detail() -> None:
         setup.run()
 
     assert raised.value.detail == "PROVISIONER_WINDOWSACLERROR"
+
+
+@pytest.mark.parametrize('decision,want', [('approved','provisioned'), ('denied','denied'), ('expired','expired'), ('cancelled','denied'), ('review_required','timed_out')])
+def test_manual_identity_review_waits_for_decision_without_recreating_request(decision, want):
+    from datetime import timedelta
+    class ReviewTransport(_Transport):
+        def create_request(self, body):
+            response = super().create_request(body)
+            response['status'] = 'review_required'
+            return response
+        def request_status(self, request_id, capability):
+            assert not self.claim_proofs
+            super().request_status(request_id, capability)
+            return {'status': 'review_required' if len(self.status_proofs) == 1 else decision}
+    transport = ReviewTransport()
+    provisioned = []
+    now = [datetime(2026, 9, 19, 12, tzinfo=UTC)]
+    def sleep(_):
+        now[0] += timedelta(minutes=10)
+    setup = UniversalWindowsSetup(
+        SetupConfig(endpoint_origin='https://endpoint.sosnadmin.local', ca_file=Path('ca.crt'), installer_version='1.0.0', installer_release_id='1.0.0'),
+        transport=transport, provision_claim=provisioned.append,
+        fingerprint_probe=lambda: 'sha256:windows-fingerprint-v1',
+        inventory_probe=lambda: {'hostname':'review-pc','macs':[]},
+        capability_factory=lambda:'a'*43, installation_id_factory=lambda:'win-review',
+        clock=lambda:now[0], sleep=sleep,
+    )
+    outcome = setup.run()
+    assert outcome.status == want
+    assert len(transport.created) == 1
+    request_id = UUID('6bbc8a59-8429-42f5-9687-36153cd89844')
+    assert transport.status_proofs == [(request_id,'a'*43)] * (3 if want == 'timed_out' else 2)
+    if want == 'provisioned':
+        assert provisioned == ['ic_claim-marker']
+        assert transport.claim_proofs == [(request_id,{'request_capability':'a'*43,'installation_id':'win-review','hardware_fingerprint':'sha256:windows-fingerprint-v1'})]
+    else:
+        assert not provisioned and not transport.claim_proofs and not transport.verification_proofs
+    assert now[0] <= datetime(2026,9,19,12,30,tzinfo=UTC)
