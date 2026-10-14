@@ -4,7 +4,7 @@ Each later immutable83/86/87 or equivalent direct-B100 freeze sets this literal 
 pc_agent.version literal to the SAME reserved fixture version in its own commit.
 Neither an environment variable, build parameter nor runtime argv selects it.
 """
-FIXTURE_VERSION = "3.2.100"
+FIXTURE_VERSION = None
 
 
 def require_binding(compiled_version: str) -> str:
