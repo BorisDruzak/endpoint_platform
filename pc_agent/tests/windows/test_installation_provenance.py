@@ -366,11 +366,144 @@ def test_same_canonical_msi_handoff_archives_zip_evidence_automatically(handoff_
     (root/'.endpoint-msi-runtime.json').write_text(json.dumps({'schema_version':1,'version':'3.2.82',
         'component_guid':'33333333-3333-4333-8333-333333333333'}))
     assert module.reconcile_installed_core(paths,request)=='handoff'
+
     assert not (root/'.endpoint-update.json').exists()
     archived=list((paths.install_root.parent/'installer-state/provenance').glob('*/handoff-receipt.json'))
     assert len(archived)==1 and archived[0].read_bytes()==original_receipt
     assert module.inspect_installed_core(paths,resulting_foundation='3.2.82').current.origin=='msi'
     assert module.reconcile_installed_core(paths,request)=='handoff'
+
+
+@pytest.fixture
+def legacy_uninstall_lifecycle(handoff_input,monkeypatch):
+    """Model native outcomes, but perform actual retention/maintenance writes."""
+    from dataclasses import replace
+    from types import SimpleNamespace
+    import shutil
+    from pc_agent.platform.windows import legacy_foundation_upgrade as legacy,msi_inventory,runtime_identity,installer_fence,update_transaction
+    module,paths,root,request,expected=handoff_input
+    monkeypatch.setattr(update_transaction,'_assert_state_security',lambda *_:None)
+    old_code='{5E140EED-6A05-4D9B-98C6-BCC178C6EC71}'
+    old_bytes=b'original legacy package model'
+    old_hash=hashlib.sha256(old_bytes).hexdigest()
+    old=replace(expected.package,sha256=old_hash,version='3.2.81',product_code=old_code)
+    core=paths.versions_root/'3.2.81';core.mkdir()
+    data=b'immutable legacy core';(core/'pc_agent.exe').write_bytes(data)
+    tree=hashlib.sha256(f'endpoint_agent_core.exe\0{len(data)}\0{hashlib.sha256(data).hexdigest()}\n'.encode()).hexdigest()
+    component='D9917B58-851E-4230-B1AD-1B0F9D3719D7'
+    (core/'.endpoint-msi-runtime.json').write_text(json.dumps({'schema_version':1,'version':'3.2.81','component_guid':component}))
+    contract={'version':'3.2.81','source_revision':'a'*40,'file_count':1,'tree_sha256':tree,
+        'component_guid':component,'approved_foundations':('3.2.82',)}
+    monkeypatch.setattr(runtime_identity,'_LEGACY_MSI_CONTRACTS',{old_hash:contract})
+    monkeypatch.setattr(legacy,'_LEGACY_MSI_CONTRACTS',{old_hash:contract})
+    monkeypatch.setattr(legacy,'_PRODUCTS',{old_hash:old_code})
+    cache=paths.updates_root.parent/'installer-cache';cache.mkdir(parents=True)
+    media=cache/f'msi-{old_hash}'/'EndpointAgent.msi';media.parent.mkdir();media.write_bytes(old_bytes)
+    receipt=cache/'installer-provenance.json'
+    receipt.write_text(json.dumps({'schema_version':'endpoint_windows_installer_provenance_v1',
+        'release_manifest_schema_version':'endpoint_windows_release_v1','cache_file':f'msi-{old_hash}/EndpointAgent.msi',
+        'package_sha256':old_hash,'product_code':old_code,'version':'3.2.81','source_revision':'a'*40,
+        'initial_runtime_tree_sha256':tree}))
+    before=receipt.read_bytes()
+    paths.current_path.write_text(json.dumps({'version':'3.2.81'}))
+    state={old_code:5,expected.package.product_code:-1}
+    class Native:
+        residual=False
+        def product(self,code):return state.get(code,-1)
+        def related_products(self,*_):return tuple(code for code,value in state.items() if value==5)
+        def property(self,code,name):return {'AssignmentType':'1','PackageCode':old.package_code,'VersionString':'3.2.81'}[name]
+        def product_metadata(self,*_):return ''
+        def has_patches(self,*_):return False
+        def feature(self,*_):return -1
+        def component(self,*_):return -1,''
+        def resources_absent(self,*_):return not self.residual
+    native=Native();monkeypatch.setattr(legacy,'NativeMsi',lambda:native)
+    monkeypatch.setattr(msi_inventory,'NativeMsi',lambda:native)
+    monkeypatch.setattr(msi_inventory,'read_package',lambda path,digest:old if digest==old_hash else expected.package)
+    foundation=msi_inventory.verify_foundation
+    monkeypatch.setattr(msi_inventory,'verify_foundation',lambda package,*args,**kw:None if package==old else foundation(package,*args,**kw))
+    monkeypatch.setattr(msi_inventory,'verify_registered_cache',lambda *_args,**_kw:None)
+    assert module.verified_foundation_release(paths)['package_sha256']==old_hash
+    request={**request,'selected':module.inspect_installed_core(paths,resulting_foundation='3.2.82').current.digest}
+    assert module.prepare_installer_provenance(paths,request)=='migrated'
+    assert legacy.prepared_predecessor(paths,request).package==old
+    state[old_code]=-1;state[expected.package.product_code]=5
+    shutil.rmtree(core)
+    (root/'.endpoint-msi-runtime.json').write_text(json.dumps({'schema_version':1,'version':'3.2.82',
+        'component_guid':'33333333-3333-4333-8333-333333333333'}))
+    assert module.reconcile_installed_core(paths,request)=='migrated'
+    assert module.verified_foundation_release(paths)==request['release']
+    uninstall={**request,'transaction_id':'44444444-4444-4444-8444-444444444444'}
+    module.prepare_maintenance_provenance(paths,uninstall,'uninstall')
+    state[expected.package.product_code]=-1
+    shutil.rmtree(paths.install_root)
+    msi_inventory.verify_uninstalled(expected.package,paths.install_root,native=native)
+    module.retire_maintenance_authority(paths,uninstall,'uninstall')
+    tx=installer_fence.state_root(paths)/'transactions'/uninstall['transaction_id']
+    completed={'schema_version':1,'transaction_id':uninstall['transaction_id'],'phase':'complete','operation':'uninstall',
+        'package':{key:getattr(expected.package,key) for key in ('sha256','product_code','package_code','version')},
+        'selected':request['selected'],'previous':None,'service_states':{'EndpointAgent':'stopped','EndpointAgentUpdater':'stopped'},
+        'service_startup':{'EndpointAgent':None,'EndpointAgentUpdater':None},'startup_restored':True,'sequence':6,'helpers':[]}
+    completed['package']['source_revision']=uninstall['release']['source_revision']
+    installer_fence.validate_fence(completed)
+    (tx/'completed.json').write_text(json.dumps(completed))
+    assert receipt.read_bytes()==before
+    return SimpleNamespace(module=module,paths=paths,request=uninstall,expected=expected,native=native,
+        state=state,old=old,receipt=receipt,before=before,tx=tx,completed=completed)
+
+
+def test_legacy_upgrade_uninstall_clean_reinstall_keeps_historical_receipt(legacy_uninstall_lifecycle):
+    model=legacy_uninstall_lifecycle
+    assert model.module.verified_foundation_release(model.paths) is None
+    assert model.receipt.read_bytes()==model.before
+    fresh={**model.request,'transaction_id':'55555555-5555-4555-8555-555555555555','selected':None,'previous':None}
+    assert model.module.prepare_installer_provenance(model.paths,fresh)=='migrated'
+
+
+@pytest.mark.parametrize('defect',['missing-proof','package-code','incomplete','startup','maintenance-release',
+    'foreign-family','root','native-resource','active-fence','active-compound','transaction','malformed-proof',
+    'path-digest','too-many','proof-acl','revived-old','revived-family','linked-proof'])
+def test_stale_legacy_receipt_cannot_hide_uncertain_uninstall(legacy_uninstall_lifecycle,monkeypatch,defect):
+    from pc_agent.platform.windows import installer_fence,compound_upgrade_plan
+    model=legacy_uninstall_lifecycle
+    proof=model.tx/'completed.json'
+    if defect=='missing-proof':proof.unlink()
+    elif defect in {'package-code','incomplete','startup','transaction'}:
+        value=model.completed
+        if defect=='package-code':value['package']['package_code']=model.old.product_code
+        if defect=='incomplete':value['phase']='reconciling'
+        if defect=='startup':value['startup_restored']=False
+        if defect=='transaction':value['transaction_id']='77777777-7777-4777-8777-777777777777'
+        proof.write_text(json.dumps(value))
+    elif defect=='maintenance-release':
+        path=model.tx/'maintenance.json';value=json.loads(path.read_bytes());value['release']['source_revision']='b'*40
+        path.write_text(json.dumps(value))
+    elif defect=='foreign-family':model.state['{66666666-6666-4666-8666-666666666666}']=5
+    elif defect=='root':model.paths.install_root.mkdir()
+    elif defect=='native-resource':model.native.residual=True
+    elif defect=='active-fence':monkeypatch.setattr(installer_fence,'read_fence',lambda *_:model.completed)
+    elif defect=='active-compound':monkeypatch.setattr(compound_upgrade_plan,'has_active_upgrade',lambda *_:True)
+    elif defect=='malformed-proof':proof.write_bytes(b'not-json')
+    elif defect=='path-digest':
+        path=model.tx/'maintenance.json';value=json.loads(path.read_bytes());value['release']['package_sha256']='../untrusted'
+        path.write_text(json.dumps(value))
+    elif defect=='too-many':
+        import uuid
+        for number in range(128):(model.tx.parent/str(uuid.UUID(int=number))).mkdir()
+    elif defect=='proof-acl':
+        def security(path,**_):
+            if path==proof:raise ValueError('unrelated writer')
+        monkeypatch.setattr(installer_fence,'assert_state_security',security)
+    elif defect in {'revived-old','revived-family'}:
+        def changed(_):
+            model.state[model.old.product_code if defect=='revived-old' else '{66666666-6666-4666-8666-666666666666}']=5
+            return True
+        monkeypatch.setattr(model.native,'resources_absent',changed)
+    elif defect=='linked-proof':
+        import os
+        duplicate=model.tx/'duplicate.json';os.link(proof,duplicate)
+    with pytest.raises((ValueError,OSError)):model.module.verified_foundation_release(model.paths)
+    assert model.receipt.read_bytes()==model.before
 
 
 def test_same_version_changed_payload_conflicts_before_preparation(handoff_input):

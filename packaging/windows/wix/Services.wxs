@@ -80,7 +80,7 @@
     <CustomAction Id="ScheduleEndpointRootCleanup" BinaryRef="Wix4UtilCA_X64"
                   DllEntry="WixRemoveFoldersEx" Execute="immediate" Return="ignore" />
     <CustomAction Id="InstallerOwnerPreflight" BinaryRef="EndpointInstallerHost"
-                  ExeCommand="--installer-phase msi-preflight --installer-session &quot;[ENDPOINT_INSTALLER_SESSION]&quot; --foundation-state &quot;[EndpointFoundationInstalled]&quot; --foundation-action &quot;[EndpointFoundationAction]&quot; --runtime-state &quot;[EndpointRuntimeInstalled]&quot; --runtime-action &quot;[EndpointRuntimeAction]&quot; --rollback-disabled &quot;[RollbackDisabled]&quot; --uninstall-finalization &quot;[ENDPOINT_UNINSTALL_FINALIZE]&quot;"
+                  ExeCommand="--installer-phase msi-preflight --installer-session &quot;[ENDPOINT_INSTALLER_SESSION]&quot; --foundation-state &quot;[EndpointFoundationInstalled]&quot; --foundation-action &quot;[EndpointFoundationAction]&quot; --runtime-state &quot;[EndpointRuntimeInstalled]&quot; --runtime-action &quot;[EndpointRuntimeAction]&quot; --rollback-disabled &quot;[RollbackDisabled]&quot; --uninstall-finalization &quot;[ENDPOINT_UNINSTALL_FINALIZE]&quot; --upgrade-detected &quot;[WIX_UPGRADE_DETECTED]&quot;"
                   Execute="immediate" Return="check" HideTarget="yes" />
     <CustomAction Id="InstallerOwnerEnter" BinaryRef="EndpointInstallerHost"
                   ExeCommand="--installer-phase msi-enter --installer-session &quot;[ENDPOINT_INSTALLER_SESSION]&quot;"

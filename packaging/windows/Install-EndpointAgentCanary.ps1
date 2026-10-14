@@ -2012,6 +2012,7 @@ try {
         $oldManifest=$initial.foundation_release
         if ($oldManifest.package_sha256 -cne $manifest.package_sha256) {
             if ([Version]$oldManifest.version -ge [Version]$manifest.version -or $oldManifest.product_code -ceq $manifest.product_code) { throw 'PROVENANCE_CONFLICT' }
+            if ($null -eq $initial.PSObject.Properties['foundation_kind'] -or $initial.foundation_kind -cne 'canonical-legacy') {
             $oldPath=Get-CompoundOldMedia $oldManifest $installerStateRoot $executionCacheRoot
             $oldPackagePin=[IO.File]::Open($oldPath,[IO.FileMode]::Open,[IO.FileAccess]::Read,[IO.FileShare]::Read)
             $oldHelperPath=Join-Path (Split-Path $oldPath -Parent) 'endpoint-installer-host.exe'
@@ -2033,6 +2034,7 @@ try {
             $compoundDetails=@{upgrade_id=[Guid]::NewGuid().ToString('D');old=@{
                 transaction_id=$oldBridge.TransactionId;session_id=$oldBridge.SessionId;
                 package=$oldManifest;helper_sha256=$oldHelperHash};prepared_old=$preparedRole}
+            }
         }
     }
     $newFence=$(if($null -ne $recoveryLocator){$null}else{$interruptedFence})
@@ -2042,7 +2044,19 @@ try {
     foreach ($peer in $bootstrapBridge.Peers) { $peer.Dispose() }
     $bootstrapBridge.Owner.Dispose()
     $bridge.Policy.MarkQuiescent()
-    Invoke-InstallerHelper -Bridge $bridge -Phase 'prepare' | Out-Null
+    $preparation=Invoke-InstallerHelper -Bridge $bridge -Phase 'prepare'
+    if ($null -ne $preparation.PSObject.Properties['legacy_archive_id']) {
+        if ($null -ne $compoundDetails -or $null -ne $oldPackagePin -or
+            $preparation.legacy_archive_id -cnotmatch '^[0-9a-f]{64}$' -or
+            $preparation.legacy_release.package_sha256 -cnotmatch '^[0-9a-f]{64}$' -or
+            [Version]$preparation.legacy_release.version -ge [Version]$manifest.version) { throw 'PROVENANCE_CONFLICT' }
+        $oldPath=Join-Path $installerStateRoot ('retained\'+$preparation.legacy_archive_id+'\package.msi')
+        Assert-InstallerPublicStateAcl $oldPath
+        $oldPackagePin=[IO.File]::Open($oldPath,[IO.FileMode]::Open,[IO.FileAccess]::Read,[IO.FileShare]::Read)
+        $sha=[Security.Cryptography.SHA256]::Create()
+        try { if ([EndpointInstallerBridge.Policy]::Hex($sha.ComputeHash($oldPackagePin)) -cne $preparation.legacy_release.package_sha256) { throw 'PROVENANCE_CONFLICT' } }
+        finally { $sha.Dispose() }
+    }
     # Re-read the protected durable fence before the first native invocation.
     $preparedRoot=$installerStateRoot
     if ($null -ne $compoundDetails) { $preparedRoot=Join-Path $installerStateRoot ('children\'+$bridge.TransactionId) }
@@ -2063,7 +2077,10 @@ try {
         $msiArguments += 'REMOVE=ALL'
     } else {
         $msiArguments += 'ADDLOCAL=EndpointAgentFeature,EndpointAgentInitialRuntimeFeature'
-        if ($null -ne $interruptedFence) { $msiArguments += @('REINSTALL=ALL','REINSTALLMODE=amus') }
+        if ($null -ne $interruptedFence) {
+            if ($preparation.new_product_state -notin @(-1,5)) { throw 'PROVENANCE_CONFLICT' }
+            if ($preparation.new_product_state -eq 5) { $msiArguments += @('REINSTALL=ALL','REINSTALLMODE=amus') }
+        }
     }
     $nativeStarted = $true
     $msiPath = Join-Path ([Environment]::GetFolderPath([Environment+SpecialFolder]::System)) 'msiexec.exe'

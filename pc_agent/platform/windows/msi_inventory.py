@@ -7,6 +7,8 @@ from __future__ import annotations
 from contextlib import contextmanager, ExitStack
 import os
 import re
+import stat
+import json
 
 from dataclasses import dataclass
 import ctypes
@@ -23,6 +25,24 @@ FOUNDATION_FEATURE = "EndpointAgentFeature"
 RUNTIME_FEATURE = "EndpointAgentInitialRuntimeFeature"
 MAX_PACKAGE_BYTES = 512 * 1024 * 1024
 MAX_ROWS = 10000
+MAX_SEMANTIC_ROWS = 50000
+MAX_SEMANTIC_TEXT_BYTES = 32 * 1024 * 1024
+MAX_SEMANTIC_BINARY_BYTES = 128 * 1024 * 1024
+
+
+@dataclass
+class _SemanticBudget:
+    rows: int = 0
+    text: int = 0
+    binary: int = 0
+
+    def consume(self, kind, amount):
+        value = getattr(self, kind) + amount
+        limit = {'rows': MAX_SEMANTIC_ROWS, 'text': MAX_SEMANTIC_TEXT_BYTES,
+                 'binary': MAX_SEMANTIC_BINARY_BYTES}[kind]
+        if value > limit:
+            raise ProvenanceConflict()
+        setattr(self, kind, value)
 
 
 def guid(value):
@@ -307,13 +327,162 @@ class NativeMsi:
         return self._api('MsiQueryProductStateW', [wintypes.LPCWSTR])(code)
 
     def property(self, code, name):
+        value=self.product_metadata(code,name)
+        if not value:
+            raise ProvenanceConflict()
+        return value
+
+    def product_metadata(self, code, name):
+        """Empty metadata differs from an unavailable native query."""
         output = ctypes.create_unicode_buffer(32768)
         length = wintypes.DWORD(len(output))
         result = self._api('MsiGetProductInfoW', [wintypes.LPCWSTR, wintypes.LPCWSTR,
             wintypes.LPWSTR, ctypes.POINTER(wintypes.DWORD)])(code, name, output, ctypes.byref(length))
-        if result or not output.value:
+        if result:
             raise ProvenanceConflict()
         return output.value
+
+    def related_products(self, upgrade_code):
+        """Enumerate the actual current-user/machine upgrade family, bounded."""
+        upgrade_code=guid(upgrade_code)
+        query=self._api('MsiEnumRelatedProductsW',[wintypes.LPCWSTR,wintypes.DWORD,
+            wintypes.DWORD,wintypes.LPWSTR],wintypes.UINT)
+        products=set()
+        for index in range(1024):
+            output=ctypes.create_unicode_buffer(39)
+            result=query(upgrade_code,0,index,output)
+            if result==259:
+                return tuple(sorted(products))
+            if result:
+                raise ProvenanceConflict()
+            product=guid(output.value)
+            if product in products:
+                raise ProvenanceConflict()
+            products.add(product)
+        raise ProvenanceConflict()
+
+    def has_patches(self, product_code):
+        """Any applied patch blocks exact immutable-package admission."""
+        patch=ctypes.create_unicode_buffer(39)
+        transforms=ctypes.create_unicode_buffer(32768)
+        length=wintypes.DWORD(len(transforms))
+        result=self._api('MsiEnumPatchesW',[wintypes.LPCWSTR,wintypes.DWORD,
+            wintypes.LPWSTR,wintypes.LPWSTR,ctypes.POINTER(wintypes.DWORD)],wintypes.UINT)(
+                guid(product_code),0,patch,transforms,ctypes.byref(length))
+        if result==259:
+            return False
+        if result in {0,234}:
+            return True
+        raise ProvenanceConflict()
+
+    def _record_text(self,record,field,budget):
+        output=ctypes.create_unicode_buffer(32768);length=wintypes.DWORD(len(output))
+        if self._api('MsiRecordGetStringW',[wintypes.UINT,wintypes.UINT,wintypes.LPWSTR,
+            ctypes.POINTER(wintypes.DWORD)],wintypes.UINT)(record,field,output,ctypes.byref(length)):
+            raise ProvenanceConflict()
+        value=output.value
+        # Include an allocation allowance even for empty/null fields.
+        budget.consume('text',len(value.encode('utf-8'))+64)
+        return value
+
+    def _record_binary(self,record,field,budget):
+        digest=hashlib.sha256();total=0;buffer=ctypes.create_string_buffer(65536)
+        read=self._api('MsiRecordReadStream',[wintypes.UINT,wintypes.UINT,ctypes.c_void_p,
+            ctypes.POINTER(wintypes.DWORD)],wintypes.UINT)
+        while True:
+            length=wintypes.DWORD(len(buffer))
+            if read(record,field,buffer,ctypes.byref(length)) or length.value>len(buffer):raise ProvenanceConflict()
+            if not length.value:return total,digest.hexdigest()
+            total+=length.value
+            if total>64*1024*1024:raise ProvenanceConflict()
+            budget.consume('binary',length.value)
+            digest.update(buffer.raw[:length.value])
+
+    def _database_rows(self,database,table,budget,*,hash_rows=False):
+        if not re.fullmatch(r'[A-Za-z_][A-Za-z0-9_]{0,71}',table):raise ProvenanceConflict()
+        view=wintypes.UINT();close=self._api('MsiCloseHandle',[wintypes.UINT],wintypes.UINT)
+        if self._api('MsiDatabaseOpenViewW',[wintypes.UINT,wintypes.LPCWSTR,ctypes.POINTER(wintypes.UINT)],wintypes.UINT)(
+            database,f'SELECT * FROM `{table}`',ctypes.byref(view)):raise ProvenanceConflict()
+        try:
+            schema=[]
+            fields=self._api('MsiRecordGetFieldCount',[wintypes.UINT],wintypes.UINT)
+            for kind in (0,1):
+                info=wintypes.UINT()
+                if self._api('MsiViewGetColumnInfo',[wintypes.UINT,ctypes.c_int,ctypes.POINTER(wintypes.UINT)],wintypes.UINT)(
+                    view,kind,ctypes.byref(info)):raise ProvenanceConflict()
+                try:
+                    count=fields(info)
+                    if not 0<count<=64:raise ProvenanceConflict()
+                    schema.append(tuple(self._record_text(info,index,budget) for index in range(1,count+1)))
+                finally:close(info)
+            if len(schema[0])!=len(schema[1]):raise ProvenanceConflict()
+            keys=()
+            if table not in {'_Tables','_Columns'}:
+                info=wintypes.UINT()
+                if self._api('MsiDatabaseGetPrimaryKeysW',[wintypes.UINT,wintypes.LPCWSTR,
+                    ctypes.POINTER(wintypes.UINT)],wintypes.UINT)(database,table,ctypes.byref(info)):
+                    raise ProvenanceConflict()
+                try:
+                    count=fields(info)
+                    if not 0<count<=len(schema[0]):raise ProvenanceConflict()
+                    if self._record_text(info,0,budget)!=table:raise ProvenanceConflict()
+                    keys=tuple(self._record_text(info,index,budget) for index in range(1,count+1))
+                    if len(set(keys))!=len(keys) or any(key not in schema[0] for key in keys):raise ProvenanceConflict()
+                finally:close(info)
+            schema.append(keys)
+            if self._api('MsiViewExecute',[wintypes.UINT,wintypes.UINT],wintypes.UINT)(view,0):raise ProvenanceConflict()
+            rows=[]
+            for _ in range(100000):
+                record=wintypes.UINT()
+                result=self._api('MsiViewFetch',[wintypes.UINT,ctypes.POINTER(wintypes.UINT)],wintypes.UINT)(view,ctypes.byref(record))
+                if result==259:return schema,rows
+                if result:raise ProvenanceConflict()
+                try:
+                    budget.consume('rows',1)
+                    if fields(record)!=len(schema[1]):raise ProvenanceConflict()
+                    values=[]
+                    for index,column in enumerate(schema[1],1):
+                        if self._api('MsiRecordIsNull',[wintypes.UINT,wintypes.UINT],wintypes.BOOL)(record,index):
+                            budget.consume('text',64);values.append(('null',))
+                        elif column.lower().startswith('v'):
+                            budget.consume('text',64);values.append(('binary',self._record_binary(record,index,budget)))
+                        else:values.append(('text',self._record_text(record,index,budget)))
+                    row=tuple(values)
+                    # Retain fixed-size row digests, not rows plus their JSON copies.
+                    rows.append(hashlib.sha256(json.dumps(row,ensure_ascii=False,
+                        separators=(',',':')).encode()).digest() if hash_rows else row)
+                finally:close(record)
+            raise ProvenanceConflict()
+        finally:
+            self._api('MsiViewClose',[wintypes.UINT],wintypes.UINT)(view);close(view)
+
+    def database_semantics(self,path):
+        """Read all persistent MSI table/schema/binary semantics, never actions.
+
+        Media cabinet streams are not table values and may be omitted by native
+        caching. Applied transforms/patches and product context need their own
+        admission checks; this method supplies no replacement authority.
+        """
+        database=wintypes.UINT();path=Path(path);before=path.stat()
+        if not stat.S_ISREG(before.st_mode) or not 0<before.st_size<=512*1024*1024:raise ProvenanceConflict()
+        if self._api('MsiOpenDatabaseW',[wintypes.LPCWSTR,ctypes.c_void_p,ctypes.POINTER(wintypes.UINT)],wintypes.UINT)(
+            str(path),None,ctypes.byref(database)):raise ProvenanceConflict()
+        try:
+            budget=_SemanticBudget()
+            _,rows=self._database_rows(database,'_Tables',budget)
+            names=[row[0][1] for row in rows]
+            if not names or len(names)>1024 or len(set(names))!=len(names):raise ProvenanceConflict()
+            result={}
+            for table in names:
+                schema,rows=self._database_rows(database,table,budget,hash_rows=True)
+                digest=hashlib.sha256(json.dumps(schema,ensure_ascii=False,separators=(',',':')).encode())
+                digest.update(b'\x00')
+                for row in sorted(rows):digest.update(row)
+                result[table]=digest.hexdigest()
+        finally:self._api('MsiCloseHandle',[wintypes.UINT],wintypes.UINT)(database)
+        after=path.stat()
+        if (before.st_dev,before.st_ino,before.st_size,before.st_mtime_ns)!=(after.st_dev,after.st_ino,after.st_size,after.st_mtime_ns):raise ProvenanceConflict()
+        return result
 
     def feature(self, product, feature):
         return self._api('MsiQueryFeatureStateW', [wintypes.LPCWSTR, wintypes.LPCWSTR])(product, feature)
@@ -390,6 +559,72 @@ def read_binary(path: Path, name: str, *, maximum: int) -> bytes:
         for handle in (record, view, database):
             if handle.value:
                 close(handle.value)
+
+
+def _assert_registered_cache_security(path):
+    """Native MSI cache permits only privileged Windows servicing writers."""
+    import win32security as security
+    trusted={'S-1-5-18','S-1-5-32-544',
+        'S-1-5-80-956008885-3418522649-1831038044-1853292631-2271478464'}
+    sd=security.GetNamedSecurityInfo(str(path),security.SE_FILE_OBJECT,
+        security.OWNER_SECURITY_INFORMATION|security.DACL_SECURITY_INFORMATION)
+    owner=sd.GetSecurityDescriptorOwner();dacl=sd.GetSecurityDescriptorDacl()
+    if owner is None or security.ConvertSidToStringSid(owner) not in trusted or dacl is None:
+        raise ProvenanceConflict()
+    for index in range(dacl.GetAceCount()):
+        ace=dacl.GetAce(index)
+        if len(ace)!=3 or ace[0][0]!=security.ACCESS_ALLOWED_ACE_TYPE:
+            raise ProvenanceConflict()
+        if not ace[0][1]&security.INHERIT_ONLY_ACE and ace[1]&0x500D0156 and security.ConvertSidToStringSid(ace[2]) not in trusted:
+            raise ProvenanceConflict()
+
+
+def verify_registered_cache(original_path,package,*,native=None):
+    """Compare the protected native cache to exact original media, read only.
+
+    No cached path is returned or executed. Native target registration/context
+    and the later actual detected-target set remain separate required checks.
+    """
+    import win32api
+    from . import durable_state
+    from .installer_fence import assert_namespace_security
+    native=native or NativeMsi()
+    original_path=Path(original_path)
+    windows=Path(win32api.GetWindowsDirectory())
+    cache_root=windows/'Installer'
+    cached=Path(native.property(package.product_code,'LocalPackage'))
+    if not cached.is_absolute() or cached.parent!=cache_root or ':' in cached.name or cached.suffix.lower()!='.msi':
+        raise ProvenanceConflict()
+    try:assert_namespace_security(cached)
+    except ValueError as error:raise ProvenanceConflict() from error
+    for path in (windows,cache_root,cached):
+        reject_reparse_ancestors(path);_assert_registered_cache_security(path)
+    reject_reparse_ancestors(original_path)
+    with ExitStack() as stack:
+        identities=[];descriptors={}
+        for path in (original_path,cached):
+            before=durable_state._copy_identity(path.lstat())
+            if not 0<before[2]<=MAX_PACKAGE_BYTES:raise ProvenanceConflict()
+            descriptor=stack.enter_context(durable_state._pinned_copy_source(path))
+            opened=os.fstat(descriptor)
+            if durable_state._copy_identity(opened)!=before:raise ProvenanceConflict()
+            identities.append((path,descriptor,before,opened.st_ctime_ns));descriptors[path]=descriptor
+        try:durable_state._verify_copy_bytes(descriptors[original_path],original_path.stat().st_size,package.sha256)
+        except ValueError as error:raise ProvenanceConflict() from error
+        cache_digest=hashlib.sha256()
+        while block:=os.read(descriptors[cached],1024*1024):cache_digest.update(block)
+        registered=read_package(cached,cache_digest.hexdigest())
+        if any(getattr(registered,key)!=getattr(package,key) for key in ('product_code','package_code','version')):
+            raise ProvenanceConflict()
+        if native.database_semantics(original_path)!=native.database_semantics(cached):raise ProvenanceConflict()
+        for path,descriptor,before,changed in identities:
+            after=os.fstat(descriptor)
+            if (durable_state._copy_identity(path.lstat())!=before or durable_state._copy_identity(after)!=before
+                or after.st_ctime_ns!=changed):raise ProvenanceConflict()
+        for path in (windows,cache_root,cached):
+            reject_reparse_ancestors(path);_assert_registered_cache_security(path)
+        try:assert_namespace_security(cached)
+        except ValueError as error:raise ProvenanceConflict() from error
 
 
 def installed_feature_state(package: PackageInventory, *, native=None) -> str:

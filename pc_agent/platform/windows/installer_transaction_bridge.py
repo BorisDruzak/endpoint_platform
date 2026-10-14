@@ -477,7 +477,13 @@ def completion_root(paths,capability,*,create=False):
     return root.joinpath(*names[2:])
 
 
-def execute_authorized_phase(client,paths,*,feature_states=None,rollback_disabled='',uninstall_finalization=''):
+def _validate_install_recovery(paths,request):
+    from .installation_provenance import validate_interrupted_reconciliation
+    from .legacy_foundation_upgrade import recovery_selector_options
+    validate_interrupted_reconciliation(paths,request,**recovery_selector_options(paths,request))
+
+
+def execute_authorized_phase(client,paths,*,feature_states=None,rollback_disabled='',uninstall_finalization='',upgrade_detected=None):
     if 'recovery_parent' in client.capability:
         if client.phase!='inspect-compound':_failed()
         from .compound_upgrade_plan import inspect_recovery_authority
@@ -500,10 +506,10 @@ def execute_authorized_phase(client,paths,*,feature_states=None,rollback_disable
         return execute_compound_phase(client,paths,feature_states=feature_states,
             rollback_disabled=rollback_disabled,uninstall_finalization=uninstall_finalization)
     return _execute_authorized_phase(client,paths,feature_states=feature_states,
-        rollback_disabled=rollback_disabled,uninstall_finalization=uninstall_finalization)
+        rollback_disabled=rollback_disabled,uninstall_finalization=uninstall_finalization,upgrade_detected=upgrade_detected)
 
 
-def _execute_authorized_phase(client,paths,*,feature_states=None,rollback_disabled='',uninstall_finalization='',complete=True):
+def _execute_authorized_phase(client,paths,*,feature_states=None,rollback_disabled='',uninstall_finalization='',upgrade_detected=None,complete=True):
     """One fixed phase after native peer authentication; no mutex reacquisition."""
     from . import durable_state,installation_provenance as provenance,msi_inventory,installer_data_security
     from .installer_fence import read_fence,publish_fence,protect_state
@@ -520,7 +526,7 @@ def _execute_authorized_phase(client,paths,*,feature_states=None,rollback_disabl
             if fence is None or fence['package']!=_public_fence(expected,capability)['package']:
                 raise ValueError('PROVENANCE_CONFLICT')
             if capability['operation']=='install':
-                provenance.validate_interrupted_reconciliation(paths,request)
+                _validate_install_recovery(paths,request)
             else:
                 provenance.validate_maintenance_recovery(paths,request,capability['operation'])
                 if capability['operation']=='retire-initial-runtime': _matching_inspection(paths,expected,capability,retirement=True)
@@ -537,7 +543,10 @@ def _execute_authorized_phase(client,paths,*,feature_states=None,rollback_disabl
             result=_digests(inspected)
             if capability['operation']=='install':
                 foundation=provenance.verified_foundation_release(paths)
-                if foundation is not None:result['foundation_release']=foundation
+                if foundation is not None:
+                    result['foundation_release']=foundation
+                    from .legacy_foundation_upgrade import canonical_release
+                    if canonical_release(foundation) is not None:result['foundation_kind']='canonical-legacy'
     elif phase=='verify-settled':
         _settled(paths)
         from .compound_upgrade_plan import has_active_upgrade
@@ -554,10 +563,13 @@ def _execute_authorized_phase(client,paths,*,feature_states=None,rollback_disabl
         if fence is None or any(fence[key]!=_public_fence(expected,capability)[key] for key in
             ('transaction_id','package','operation','selected','previous')):
             raise ValueError('PROVENANCE_CONFLICT')
+        if capability['operation']=='install' and 'compound' not in capability:
+            from .legacy_foundation_upgrade import verify_native_preflight
+            verify_native_preflight(paths,request,upgrade_detected,recovery=capability['recovery'])
         if capability['recovery']:
             if capability['operation']=='install':
                 if 'compound' in capability:_matching_inspection(paths,expected,capability)
-                else:provenance.validate_interrupted_reconciliation(paths,request)
+                else:_validate_install_recovery(paths,request)
             else:
                 provenance.validate_maintenance_recovery(paths,request,capability['operation'])
                 if capability['operation']=='retire-initial-runtime': _matching_inspection(paths,expected,capability,retirement=True)
@@ -578,19 +590,30 @@ def _execute_authorized_phase(client,paths,*,feature_states=None,rollback_disabl
                         raise ValueError('PROVENANCE_CONFLICT')
                     # Recovery preparation only re-applies persistent quarantine.
                     # Core/receipt recovery still waits for serialized native entry.
-                    if capability['operation']=='install': provenance.validate_interrupted_reconciliation(paths,request)
+                    if capability['operation']=='install': _validate_install_recovery(paths,request)
                     else: provenance.validate_maintenance_recovery(paths,request,capability['operation'])
                 else:
                     if read_fence(paths) is not None: raise ValueError('UPDATE_IN_PROGRESS')
                     _matching_inspection(paths,expected,capability,retirement=capability['operation']=='retire-initial-runtime')
                 if not capability['recovery'] and capability['operation']=='install':
+                    foundation=(provenance.verified_foundation_release(paths) if 'compound' not in capability else None)
                     installer_data_security.prepare(paths,data_request)
                     result={'result':provenance.prepare_installer_provenance(paths,request)}
                     # Archives are inert until the entire prepared plan and the
                     # still-selected identities have been revalidated.
                     provenance.validate_interrupted_reconciliation(paths,request)
+                    if 'compound' not in capability:
+                        from .legacy_foundation_upgrade import verify_prepared_foundation
+                        verify_prepared_foundation(paths,request,foundation)
                 elif not capability['recovery']:
                     provenance.prepare_maintenance_provenance(paths,request,capability['operation'])
+                if capability['operation']=='install' and 'compound' not in capability:
+                    if capability['recovery']:
+                        result['new_product_state']=msi_inventory.NativeMsi().product(expected.package.product_code)
+                    from .legacy_foundation_upgrade import prepared_predecessor
+                    legacy=prepared_predecessor(paths,request)
+                    if legacy is not None:
+                        result.update(legacy_archive_id=legacy.media.parent.name,legacy_release=legacy.release)
                 _settled(paths)
                 if not capability['recovery']:
                     _matching_inspection(paths,expected,capability,retirement=capability['operation']=='retire-initial-runtime')
@@ -622,7 +645,7 @@ def _execute_authorized_phase(client,paths,*,feature_states=None,rollback_disabl
                     if not capability['recovery']: _failed()
                     if capability['operation']=='install':
                         if 'compound' in capability:_matching_inspection(paths,expected,capability)
-                        else:provenance.validate_interrupted_reconciliation(paths,request)
+                        else:_validate_install_recovery(paths,request)
                     else:
                         provenance.validate_maintenance_recovery(paths,request,capability['operation'])
                         if capability['operation']=='retire-initial-runtime': _matching_inspection(paths,expected,capability,retirement=True)
@@ -653,6 +676,9 @@ def _execute_authorized_phase(client,paths,*,feature_states=None,rollback_disabl
                 _advance_fence(paths,client,expected,fence['phase'])
             elif phase=='reconcile':
                 if capability['operation']=='install':
+                    if 'compound' not in capability:
+                        from .legacy_foundation_upgrade import verify_completed_replacement
+                        verify_completed_replacement(paths,request)
                     installer_data_security.verify_preserved(paths,data_request)
                 fence=read_fence(paths)
                 _advance_fence(paths,client,expected,'complete' if fence['phase']=='complete' else 'reconciling')
@@ -677,6 +703,9 @@ def _execute_authorized_phase(client,paths,*,feature_states=None,rollback_disabl
                     result={'result':'uninstalled'}
             elif phase=='finish':
                 if capability['operation']=='install':
+                    if 'compound' not in capability:
+                        from .legacy_foundation_upgrade import verify_completed_replacement
+                        verify_completed_replacement(paths,request)
                     installer_data_security.verify_preserved(paths,data_request)
                     msi_inventory.verify_installed(expected.package,paths.install_root)
                     provenance.inspect_installed_core(paths,resulting_foundation=expected.package.version)

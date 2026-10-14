@@ -42,6 +42,10 @@ _LEGACY_FOUNDATION_EXTENSIONS = {
         '2f7d778799f1e32645af7936dfaf3f090d6ad4df5bb883827ea8a0a5d859f72a',
         'ad4dc49703513d6dee6fd3e51ac94a09c5967112d58aed4e60a63cf6966251f5',
     }),
+    '3.2.97': frozenset({
+        '2f7d778799f1e32645af7936dfaf3f090d6ad4df5bb883827ea8a0a5d859f72a',
+        'ad4dc49703513d6dee6fd3e51ac94a09c5967112d58aed4e60a63cf6966251f5',
+    }),
 }
 
 

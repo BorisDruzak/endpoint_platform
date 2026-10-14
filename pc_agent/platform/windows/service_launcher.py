@@ -247,6 +247,7 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--runtime-action", type=int)
     parser.add_argument("--rollback-disabled", default="")
     parser.add_argument("--uninstall-finalization", default="")
+    parser.add_argument("--upgrade-detected")
     return parser
 
 
@@ -258,7 +259,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             with owner_authorized_phase(args.installer_session,args.installer_phase) as client:
                 execute_authorized_phase(client,WindowsUpdatePaths.production(),
                     feature_states=(args.foundation_state,args.foundation_action,args.runtime_state,args.runtime_action),
-                    rollback_disabled=args.rollback_disabled,uninstall_finalization=args.uninstall_finalization)
+                    rollback_disabled=args.rollback_disabled,uninstall_finalization=args.uninstall_finalization,
+                    upgrade_detected=args.upgrade_detected)
             return 0
         except (OSError,ValueError,TypeError,KeyError,RuntimeError) as error:
             if str(error)=="UPDATE_IN_PROGRESS": return 61

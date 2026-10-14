@@ -183,7 +183,9 @@ def verified_foundation_release(paths: WindowsUpdatePaths):
     from . import msi_inventory
     from .installer_fence import state_root,assert_state_security
     path=state_root(paths)/'foundation.json'
-    if not _present(path):return None
+    if not _present(path):
+        from .legacy_foundation_upgrade import inspect_foundation
+        return inspect_foundation(paths)
     assert_state_security(path)
     authority=read_json(_read(path,4096),4096)
     if (not isinstance(authority,dict) or set(authority)!={'schema_version','release'}
@@ -555,6 +557,9 @@ def recovery_cost_authority(paths, package_path, release):
     operation='install' if parent is not None else fence['operation']
     if operation == "install":
         options={}
+        if parent is None:
+            from .legacy_foundation_upgrade import recovery_selector_options
+            options=recovery_selector_options(paths,request)
         if parent is not None:
             options={'native_current':msi_inventory.read_native_selector(package_path,expected),'allow_native_absence':True}
             old_release=parent['old']['package']

@@ -146,6 +146,14 @@ def assert_state_security(path: Path, *, secret: bool = False) -> None:
                 raise ValueError("UPDATE_STATE_INVALID")
     if not _ADMINS <= seen or (not secret and not set(_SERVICE_SIDS) <= seen):
         raise ValueError("UPDATE_STATE_INVALID")
+    assert_namespace_security(path)
+
+
+def assert_namespace_security(path: Path) -> None:
+    """Validate effective containing-directory deletion and ACL authority."""
+    reject_reparse_ancestors(path)
+    if os.name != 'nt':return
+    import win32security
     # A protected leaf DACL does not prevent a parent DELETE_CHILD grant.
     # Validate the effective containing-directory deletion/ACL authority too.
     trusted_parents = _ADMINS | {'S-1-5-80-956008885-3418522649-1831038044-1853292631-2271478464'}

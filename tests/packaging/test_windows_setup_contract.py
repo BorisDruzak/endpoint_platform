@@ -345,7 +345,7 @@ def test_setup_wrapper_owns_transaction_through_service_stop_and_provenance():
     cache = source.index("$executionCacheRoot =")
     inspect = source.index("$initial = Invoke-InstallerHelper -Bridge $bridge -Phase 'inspect'")
     stop = source.index("Stop-ManagedAgentServices -PreviousStates $previousServiceStates")
-    prepare = source.index("Invoke-InstallerHelper -Bridge $bridge -Phase 'prepare' | Out-Null")
+    prepare = source.index("Invoke-InstallerHelper -Bridge $bridge -Phase 'prepare'")
     install = source.index("$installer = [Diagnostics.Process]::Start($nativeInfo)")
     reconcile = source.index("Invoke-InstallerHelper -Bridge $bridge -Phase 'reconcile' | Out-Null")
     publish = source.index("Invoke-InstallerHelper -Bridge $bridge -Phase 'finish' | Out-Null")

@@ -89,6 +89,9 @@ def test_preflight_receives_native_feature_states(tmp_path, remove):
             expected.extend((installed.value, target.value))
         record = api("MsiCreateRecord", [wintypes.UINT])(0)
         try:
+            detected='{11111111-1111-4111-8111-111111111111};'
+            assert api('MsiSetPropertyW',[wintypes.UINT,wintypes.LPCWSTR,wintypes.LPCWSTR])(
+                session,'WIX_UPGRADE_DETECTED',detected)==0
             assert api("MsiRecordSetStringW", [wintypes.UINT, wintypes.UINT, wintypes.LPCWSTR])(
                 record, 0, preflight.get("ExeCommand")) == 0
             buffer, length = ctypes.create_unicode_buffer(4096), wintypes.DWORD(4096)
@@ -96,6 +99,7 @@ def test_preflight_receives_native_feature_states(tmp_path, remove):
                 ctypes.POINTER(wintypes.DWORD)])(session, record, buffer, ctypes.byref(length)) == 0
             observed = re.findall(r'--(?:foundation|runtime)-(?:state|action) "([^"]*)"', buffer.value)
             assert observed == list(map(str, expected)), buffer.value
+            assert re.findall(r'--upgrade-detected "([^"]*)"',buffer.value)==[detected]
         finally:
             close(record)
     finally:
