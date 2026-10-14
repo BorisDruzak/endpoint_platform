@@ -13,7 +13,10 @@ from pc_agent.tests.windows.test_installer_fence import native_protected_root
 
 @pytest.mark.skipif(os.name != 'nt', reason='native Windows retained owner')
 @pytest.mark.parametrize('case',['valid','owner','media','writable','product','wrong-successor','replaceable-media',
-    'discard-old','discard-end','pending-discard','repair-valid','repair-owner','repair-flag-loss'])
+    'discard-old','discard-end','pending-discard','repair-valid','repair-owner','repair-flag-loss',
+    'closed-end-event','closed-abort-event','premature-event','missing-callback-event','revoked-end-event',
+    'pending-end-event','pending-failed-end-event','pending-missing-callback-event','closed-rollback-event',
+    'pending-pump-success-event','pending-pump-failure-event','pending-pump-race-event'])
 def test_native_driver_preconditions_without_beginning_msi(tmp_path,native_protected_root,case):
     source=Path(__file__).resolve().parents[3]/'packaging/windows/Install-EndpointAgentCanary.ps1'
     script=tmp_path/'driver.ps1'
@@ -67,7 +70,10 @@ $driver=$null
 try{
  $rejected=$false
  try{$driver=[EndpointInstallerBridge.NativeTransaction]::new($compound,$retained,$oldPin,$newPin,$product)}catch{$rejected=$true}
- if($Case -in @('valid','replaceable-media','discard-old','discard-end','pending-discard','repair-valid')){
+ if($Case -in @('valid','replaceable-media','discard-old','discard-end','pending-discard','repair-valid',
+     'closed-end-event','closed-abort-event','premature-event','missing-callback-event','revoked-end-event',
+     'pending-end-event','pending-failed-end-event','pending-missing-callback-event','closed-rollback-event',
+     'pending-pump-success-event','pending-pump-failure-event','pending-pump-race-event')){
   if($rejected -or $driver.HasNativeTransaction -or $compound.State -cne 'prepared'){throw 'construction performed native transaction'}
   $denied=$false;try{$driver.PublishCompletion('55555555-5555-4555-8555-555555555555',('a'*40),('b'*64))}catch{$denied=$true}
   if(!$denied){throw 'unsettled driver published terminal authority'}
@@ -76,6 +82,90 @@ try{
    if(!$blocked){throw 'native pathname is replaceable'}
    $blocked=$false;try{[IO.File]::Delete($path)}catch{$blocked=$true}
    if(!$blocked){throw 'native pathname is deletable'}
+  }
+  if($Case.EndsWith('-event')){
+   # Modeled native results, paired with a real signaled kernel event. No
+   # MSI API is executed. The dedicated native comparison proves this event
+   # is normally signaled by successful End, across different worker threads.
+   Add-Type 'using System;using System.Runtime.InteropServices;public static class EndEventFixture{[DllImport("kernel32.dll",CharSet=CharSet.Unicode)]public static extern IntPtr CreateEventW(IntPtr a,bool manual,bool initial,string n);}'
+   $flags=[Reflection.BindingFlags]::Instance -bor [Reflection.BindingFlags]::NonPublic
+   $type=$driver.GetType();$event=[EndEventFixture]::CreateEventW([IntPtr]::Zero,$true,$true,$null)
+   if($event -eq [IntPtr]::Zero){throw 'kernel event unavailable'}
+   $type.GetField('ownerEvent',$flags).SetValue($driver,$event)
+   $type.GetField('transactionOpen',$flags).SetValue($driver,$true)
+   if($Case -eq 'premature-event'){
+    $blocked=$false;try{$driver.CheckOwnership()}catch{$blocked=$true};if(!$blocked){throw 'owner transfer admitted before End'}
+   }else{
+    $type.GetField('taskKind',$flags).SetValue($driver,$(if($Case -eq 'closed-abort-event'){'abort'}else{'end'}))
+    $type.GetField('task',$flags).SetValue($driver,[Threading.Tasks.Task]::FromResult([uint32]0))
+    $compound.GetType().GetField('state',$flags).SetValue($compound,'ending-commit')
+    foreach($p in @($old,$new)){$p.GetType().GetField('nativeComplete',$flags).SetValue($p,$true)}
+    if($Case.StartsWith('pending-')){
+     $completion=[Threading.Tasks.TaskCompletionSource[uint32]]::new()
+     $type.GetField('task',$flags).SetValue($driver,$completion.Task)
+     if($Case -eq 'pending-missing-callback-event'){$new.GetType().GetField('nativeComplete',$flags).SetValue($new,$false)}
+     $blocked=$false;try{$driver.CheckOwnership()}catch{$blocked=$true};if(!$blocked){throw 'pending End granted authority'}
+     if($Case -eq 'pending-missing-callback-event'){
+      $blocked=$false;try{$null=$driver.IsNativeClosurePending()}catch{$blocked=$true};if(!$blocked){throw 'pending closure ignored missing callback'}
+     }elseif($Case.StartsWith('pending-pump-')){
+      $pump=$ast.Find({param($n) $n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'Invoke-CompoundNativePump'},$true)
+      Invoke-Expression $pump.Extent.Text
+      $global:steps=0;$global:waits=0
+      function Invoke-InstallerConversationStep {param($State)
+       if(!$completion.Task.IsCompleted -or $completion.Task.Result -ne 0){throw 'pump issued a grant before successful End'}
+       $global:steps++;return $false
+      }
+      function Start-Sleep {param($Milliseconds)
+       $global:waits++
+       $completion.SetResult([uint32]$(if($Case -eq 'pending-pump-failure-event'){1603}else{0}))
+      }
+      $conversation=@{Bridge=@{Peers=@()};Challenge=$null;Acknowledgement=$null}
+      $pumpDriver=$driver
+      if($Case -eq 'pending-pump-race-event'){
+       $pumpDriver=[pscustomobject]@{PendingTask=$completion.Task;Real=$driver;Completion=$completion}
+       $pumpDriver|Add-Member ScriptMethod CheckOwnership {$this.Real.CheckOwnership()}
+       $pumpDriver|Add-Member ScriptMethod IsNativeClosurePending {$this.Completion.SetResult([uint32]0);return $this.Real.IsNativeClosurePending()}
+      }
+      $failed=$false;try{Invoke-CompoundNativePump $pumpDriver @($conversation,$conversation)}catch{
+       if($_.Exception.Message -notlike '*OWNER_AUTH_FAILED*'){throw};$failed=$true
+      }
+      if($global:waits -ne $(if($Case -eq 'pending-pump-race-event'){0}else{1})){throw 'pump did not wait for private End'}
+      if($Case -eq 'pending-pump-failure-event'){
+       if(!$failed -or $global:steps -ne 0 -or $compound.Committed){throw 'failed End resumed grants'}
+      }else{
+       if($failed -or $global:steps -ne 2 -or $driver.CompleteEnd() -ne 0 -or !$compound.Committed){throw 'successful End did not settle'}
+      }
+     }else{
+      if(!$driver.IsNativeClosurePending()){throw 'normal pending closure was not recognized'}
+      $completion.SetResult([uint32]$(if($Case -eq 'pending-failed-end-event'){1603}else{0}))
+      if($driver.IsNativeClosurePending()){throw 'completed closure remained pending'}
+      if($Case -eq 'pending-failed-end-event'){
+       $blocked=$false;try{$driver.CheckOwnership()}catch{$blocked=$true};if(!$blocked){throw 'failed End granted authority'}
+      }else{
+       $driver.CheckOwnership()
+       if($driver.CompleteEnd() -ne 0 -or $driver.HasNativeTransaction -or !$compound.Committed){throw 'pending successful End rejected'}
+      }
+     }
+    }elseif($Case -eq 'closed-rollback-event'){
+     $compound.GetType().GetField('state',$flags).SetValue($compound,'ending-rollback')
+     $blocked=$false;try{$driver.CheckOwnership()}catch{$blocked=$true};if(!$blocked){throw 'rollback granted authority'}
+     if($driver.CompleteEnd() -ne 0 -or $driver.HasNativeTransaction -or $compound.OwnerActive -or $compound.Committed){throw 'rollback closure restored authority'}
+    }elseif($Case -eq 'missing-callback-event'){
+     $new.GetType().GetField('nativeComplete',$flags).SetValue($new,$false)
+     $blocked=$false;try{$driver.CheckOwnership()}catch{$blocked=$true};if(!$blocked){throw 'missing callback admitted after End'}
+     $code=$driver.DiscardInterruptedCall()
+     if($code -ne 0 -or $driver.HasNativeTransaction -or $compound.OwnerActive){throw 'discard fabricated completion'}
+    }elseif($Case -eq 'revoked-end-event'){
+     $compound.OwnerLost();$blocked=$false;try{$driver.CheckOwnership()}catch{$blocked=$true};if(!$blocked){throw 'revoked authority restored'}
+     if($driver.DiscardInterruptedCall() -ne 0 -or $driver.HasNativeTransaction){throw 'physical closure unavailable after revocation'}
+    }elseif($Case -eq 'closed-abort-event'){
+     $compound.OwnerLost();if($driver.CompleteAbort() -ne 0 -or $driver.HasNativeTransaction -or $compound.OwnerActive){throw 'abort closure fabricated authority'}
+    }else{
+     $driver.CheckOwnership()
+     if($driver.CompleteEnd() -ne 0 -or $driver.HasNativeTransaction -or !$compound.Committed){throw 'normal End event rejected'}
+     $driver.CheckOwnership()
+    }
+   }
   }
   if($Case -in @('discard-old','discard-end','pending-discard')){
    # Unit-only modeled completion: no MSI Begin/install/End API is invoked.
@@ -98,7 +188,7 @@ try{
  }elseif(!$rejected){throw 'untrusted precondition accepted'}
 }finally{
  if($null -ne $driver){
-  if($Case -in @('discard-old','discard-end','pending-discard')){
+  if($Case -in @('discard-old','discard-end','pending-discard') -or $Case.EndsWith('-event')){
    # Remove only reflected unit state so a missing/failed method stays visible.
    $flags=[Reflection.BindingFlags]::Instance -bor [Reflection.BindingFlags]::NonPublic
    $driver.GetType().GetField('task',$flags).SetValue($driver,$null)

@@ -739,10 +739,35 @@ namespace EndpointInstallerBridge {
                 if(module!=IntPtr.Zero) FreeLibrary(module);module=IntPtr.Zero;throw;
             }
         }
-        private void CheckOwner(bool authority) {
+        private bool SuccessfulNativeClosure { get { return task!=null &&
+            (taskKind=="end" || taskKind=="abort") && task.Status==TaskStatus.RanToCompletion && task.Result==0; } }
+        private bool AuthenticatedClosure { get {
+            if(taskKind!="end") return false;
+            return policy!=null ? policy.State=="ending-commit" && policy.OldPackage.NativeComplete &&
+                policy.NewPackage.NativeComplete && policy.OldPackage.AllHelpersComplete && policy.NewPackage.AllHelpersComplete :
+                repair.State=="ending-commit" && repair.Package.NativeComplete && repair.Package.AllHelpersComplete;
+        } }
+        private void CheckPhysicalOwner(bool authority) {
             if(disposed || Thread.CurrentThread.ManagedThreadId!=ownerThread || !owner.Alive ||
-                !owner.Identity.Same(OwnerIdentity) || (authority && !AuthorityActive) ||
-                (ownerEvent!=IntPtr.Zero && WaitForSingleObject(ownerEvent,0)!=258)) Fail();
+                !owner.Identity.Same(OwnerIdentity) || (authority && !AuthorityActive)) Fail();
+        }
+        private void CheckOwner(bool authority) {
+            CheckPhysicalOwner(authority);
+            if(transactionOpen && ownerEvent!=IntPtr.Zero) {
+                uint signal=WaitForSingleObject(ownerEvent,0);
+                if(signal!=258 && !(signal==0 && SuccessfulNativeClosure &&
+                    (!authority || AuthenticatedClosure))) Fail();
+            }
+        }
+        // This is permission to wait for the private End result only. It never
+        // authorizes a bridge operation, result consumption or publication.
+        public bool IsNativeClosurePending() {
+            CheckPhysicalOwner(true);
+            if(!transactionOpen || ownerEvent==IntPtr.Zero) return false;
+            uint signal=WaitForSingleObject(ownerEvent,0);
+            if(signal==258) return false;
+            if(signal!=0 || task==null || taskKind!="end" || !AuthenticatedClosure) Fail();
+            return !task.IsCompleted;
         }
         public void CheckOwnership() { CheckOwner(true); }
         public void PublishCompletion(string upgradeId,string sourceRevision,string readyHash) {
@@ -789,6 +814,13 @@ namespace EndpointInstallerBridge {
             task=Task.Run(()=>MsiEndTransaction(commit ? 1u : 0u));
         }
         public int CompleteEnd() {
+            if((policy!=null ? policy.State : repair.State)=="ending-rollback") {
+                CheckPhysicalOwner(true);
+                int rollback=Result("end",false);if(rollback==0) transactionOpen=false;
+                // Match the abort route: consuming native rollback cannot leave
+                // bridge authority active, even when the native result is zero.
+                Revoke();return rollback;
+            }
             int code=Result("end");if(code==0) transactionOpen=false;
             if(policy!=null)policy.EndReturned(code);else repair.EndReturned(code);return code;
         }
@@ -1064,8 +1096,20 @@ function Invoke-CompoundNativePump {
     if ($Conversations.Count -ne $Channels -or $null -eq $Driver.PendingTask) { throw 'OWNER_AUTH_FAILED' }
     $timer=[Diagnostics.Stopwatch]::StartNew()
     do {
-        $Driver.CheckOwnership()
         if ($timer.Elapsed.TotalMinutes -gt 30) { throw 'RECOVERY_REQUIRED' }
+        try { $Driver.CheckOwnership() }
+        catch {
+            # End may signal the event immediately before returning. All commit
+            # callbacks have already acknowledged; do not issue any new grants
+            # while awaiting the private native result within the existing bound.
+            if ($Driver.IsNativeClosurePending()) {
+                Start-Sleep -Milliseconds 1
+                continue
+            }
+            # The task may have completed between the failed check and the
+            # pending query. Require a fresh strict check before resuming.
+            $Driver.CheckOwnership()
+        }
         $worked=$false
         foreach ($state in $Conversations) {
             if (Invoke-InstallerConversationStep -State $state) { $worked=$true }

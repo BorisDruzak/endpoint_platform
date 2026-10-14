@@ -24,6 +24,7 @@ $pending=[pscustomobject]@{}
 $pending|Add-Member ScriptProperty IsCompleted { $global:observed.Count -ge $(if($Case -eq 'pending-ack'){0}else{4}) }
 $driver=[pscustomobject]@{PendingTask=$pending}
 $driver|Add-Member ScriptMethod CheckOwnership { $global:ownerChecks++;if($Case -eq 'owner-loss' -and $global:ownerChecks -ge 2){throw 'OWNER_AUTH_FAILED'} }
+$driver|Add-Member ScriptMethod IsNativeClosurePending {return $false}
 $old=@{Label='old';Bridge=@{Peers=@()};Acknowledgement=$(if($Case -eq 'pending-ack'){1}else{$null});Challenge=$null}
 $new=@{Label='new';Bridge=@{Peers=@()};Acknowledgement=$null;Challenge=$null}
 function Invoke-InstallerConversationStep {
