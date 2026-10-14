@@ -57,6 +57,97 @@ def test_modern_update_state_still_rejects_servicing_writer(monkeypatch):
  with pytest.raises(ValueError,match='unrelated writer'):update_transaction._assert_state_security('unused')
 
 
+@pytest.fixture
+def retained_reconciliation(original_runtime,monkeypatch):
+ import hashlib
+ import win32security as security
+ from endpoint_contracts.runtime_payload import PayloadFile,PayloadIdentity
+ from pc_agent.platform.windows import installation_provenance as provenance,runtime_identity
+ paths,package,root,marker=original_runtime
+ raw=(root/provenance.MSI_MARKER).read_bytes()
+ identity=PayloadIdentity(package.version,'a'*40,None,
+  (PayloadFile('core.exe',8,hashlib.sha256(b'original').hexdigest()),))
+ retained=SimpleNamespace(identity=identity,record_bytes=b'authenticated archive record',record={
+  'package':{'sha256':package.sha256,'product_code':package.product_code},
+  'compatibility_foundations':['3.2.82'],'original_marker_bytes':raw.hex(),'original_manifest_bytes':''})
+ # The archive/plan parser boundary is modeled; native ACL and surviving-byte
+ # checks below remain real. A servicing exception must not become native entry.
+ monkeypatch.setattr(runtime_identity,'verify_retained_archive',lambda *_:retained)
+ monkeypatch.setattr(legacy,'verify_registration',lambda *_a,**_k:pytest.fail('read-only evidence gained native authority'))
+ expected=SimpleNamespace(identity=SimpleNamespace(version='3.2.106'),manifest={},
+  package=SimpleNamespace(files=(SimpleNamespace(path='versions/3.2.106/pc_agent.exe',component='core'),),
+   components={'core':SimpleNamespace(guid='{33333333-3333-4333-8333-333333333333}')}))
+ monkeypatch.setattr(provenance,'_expected_request',lambda _:expected)
+ monkeypatch.setattr(provenance,'_read_plan',lambda *_:{'handoff':False,'archives':['a'*64],
+  'current_before':None,'current_after':None,'previous_before':None,'previous_after':None})
+ acl=security.ACL()
+ acl.AddAccessAllowedAceEx(security.ACL_REVISION,0,0x1f01ff,security.ConvertStringSidToSid(TI))
+ acl.AddAccessAllowedAceEx(security.ACL_REVISION,8,0x10000000,security.ConvertStringSidToSid('S-1-3-0'))
+ sd=security.SECURITY_DESCRIPTOR()
+ sd.SetSecurityDescriptorOwner(security.ConvertStringSidToSid('S-1-5-18'),False)
+ sd.SetSecurityDescriptorDacl(True,acl,False)
+ monkeypatch.setattr(security,'GetNamedSecurityInfo',lambda *_:sd)
+ return provenance,paths,package,root,retained,{'transaction_id':'11111111-1111-4111-8111-111111111111'}
+
+
+@pytest.mark.parametrize('tree_state',['complete','partial','absent'])
+@pytest.mark.parametrize('native_state',[5,-1])
+def test_interrupted_reconciliation_reads_verified_legacy_servicing_tree(retained_reconciliation,monkeypatch,tree_state,native_state):
+ """A retained tree is repair evidence before and after native old-MSI removal."""
+ import shutil
+ provenance,paths,package,root,retained,request=retained_reconciliation
+ monkeypatch.setattr(legacy,'NativeMsi',lambda:SimpleNamespace(product=lambda _:native_state))
+ if tree_state=='partial':(root/'core.exe').unlink()
+ elif tree_state=='absent':shutil.rmtree(root)
+ before={p:p.read_bytes() for p in paths.install_root.rglob('*') if p.is_file()}
+ provenance.validate_interrupted_reconciliation(paths,request)
+ assert before=={p:p.read_bytes() for p in paths.install_root.rglob('*') if p.is_file()}
+
+
+@pytest.mark.parametrize('defect',['root-writer','leaf-writer','ancestor-writer','hardlink','unknown-file',
+ 'wrong-bytes','wrong-marker','different-marker-bytes','unknown-package','wrong-product','wrong-version',
+ 'absent-unbound','modern-retained','candidate-servicing-acl','selector-servicing-acl','bundle-servicing-acl','junction'])
+def test_retained_servicing_exception_keeps_other_reconciliation_guards(retained_reconciliation,monkeypatch,defect):
+ import shutil
+ import win32security as security
+ provenance,paths,package,root,retained,request=retained_reconciliation
+ if defect in {'root-writer','leaf-writer'}:
+  trusted=security.GetNamedSecurityInfo
+  acl=security.ACL();acl.AddAccessAllowedAce(security.ACL_REVISION,0x1f01ff,security.ConvertStringSidToSid('S-1-5-32-545'))
+  sd=security.SECURITY_DESCRIPTOR();sd.SetSecurityDescriptorOwner(security.ConvertStringSidToSid('S-1-5-18'),False)
+  sd.SetSecurityDescriptorDacl(True,acl,False)
+  bad=root if defect=='root-writer' else root/'core.exe'
+  monkeypatch.setattr(security,'GetNamedSecurityInfo',lambda path,*args:sd if str(path)==str(bad) else trusted(path,*args))
+ elif defect=='ancestor-writer':monkeypatch.setattr(fence,'assert_namespace_security',lambda *_:(_ for _ in ()).throw(ValueError('parent writer')))
+ elif defect=='hardlink':os.link(root/'core.exe',root/'alias.exe')
+ elif defect=='unknown-file':(root/'unknown.dll').write_bytes(b'foreign')
+ elif defect=='wrong-bytes':(root/'core.exe').write_bytes(b'tampered')
+ elif defect=='wrong-marker':(root/provenance.MSI_MARKER).write_text('{}')
+ elif defect=='different-marker-bytes':(root/provenance.MSI_MARKER).write_bytes(bytes.fromhex(retained.record['original_marker_bytes'])+b'\n')
+ elif defect in {'unknown-package','absent-unbound'}:
+  retained.record['package']['sha256']='0'*64
+  if defect=='absent-unbound':shutil.rmtree(root)
+ elif defect=='wrong-product':retained.record['package']['product_code']='{11111111-1111-4111-8111-111111111111}'
+ elif defect=='wrong-version':
+  from dataclasses import replace
+  retained.identity=replace(retained.identity,version='3.2.81')
+ elif defect=='modern-retained':retained.record['compatibility_foundations']=[]
+ elif defect=='candidate-servicing-acl':(paths.versions_root/'3.2.106').mkdir()
+ elif defect=='selector-servicing-acl':paths.current_path.write_text(json.dumps({'version':package.version}))
+ elif defect=='bundle-servicing-acl':(root/provenance.BUNDLE_FILENAME).write_bytes(b'{}')
+ elif defect=='junction':
+  import subprocess
+  target=paths.install_root.parent/'outside';target.mkdir();(target/'library.dll').write_bytes(b'foreign')
+  link=root/'linked'
+  subprocess.run(['cmd.exe','/c','mklink','/J',str(link),str(target)],check=True,capture_output=True)
+  # Remove just the junction, including when an assertion fails; never its target.
+  try:
+   with pytest.raises(ValueError):provenance.validate_interrupted_reconciliation(paths,request)
+  finally:os.rmdir(link)
+  return
+ with pytest.raises(ValueError):provenance.validate_interrupted_reconciliation(paths,request)
+
+
 @pytest.mark.parametrize('defect',['nested-directory-writer','nested-file-writer','hardlink','marker-size','marker-mutation'])
 def test_legacy_reader_checks_every_source_leaf_and_pinned_marker(original_runtime,monkeypatch,defect):
  from contextlib import contextmanager

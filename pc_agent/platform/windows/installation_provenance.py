@@ -894,6 +894,40 @@ def _partial_tree(root,identity,metadata):
                     raise ProvenanceConflict()
 
 
+def _partial_retained_tree(paths,retained,metadata):
+    """Verified legacy archive permits servicing ACLs, never native entry."""
+    root=paths.versions_root/retained.identity.version
+    if not retained.record['compatibility_foundations']:
+        return _partial_tree(root,retained.identity,metadata)
+    from types import SimpleNamespace
+    from .legacy_foundation_upgrade import _runtime_release,assert_runtime_security,_read_runtime_marker_file
+    package=SimpleNamespace(sha256=retained.record['package']['sha256'],
+        product_code=retained.record['package']['product_code'],version=retained.identity.version)
+    _runtime_release(package)
+    if not _present(root):
+        return
+    assert_runtime_security(paths,package)
+    expected={item.path:item for item in retained.identity.files}
+    for path in root.rglob('*'):
+        reject_reparse_ancestors(path)
+        if path.is_dir():
+            continue
+        relative=path.relative_to(root).as_posix()
+        if relative in metadata:
+            actual=(_read_runtime_marker_file(paths,package) if relative==MSI_MARKER
+                else _read(path,MAX_MANIFEST_BYTES))
+            if actual not in metadata[relative]:
+                raise ProvenanceConflict()
+        else:
+            item=expected.get(relative)
+            if item is None or path.stat().st_nlink!=1 or path.stat().st_size!=item.size:
+                raise ProvenanceConflict()
+            with path.open('rb') as stream:
+                if hashlib.file_digest(stream,'sha256').hexdigest()!=item.sha256:
+                    raise ProvenanceConflict()
+    assert_runtime_security(paths,package)
+
+
 def validate_interrupted_reconciliation(paths: WindowsUpdatePaths, expected_msi, *,
                                       native_current=None, allow_native_absence=False) -> None:
     """Inspect immutable saved authority; caller has not yet gained mutation entry."""
@@ -934,7 +968,7 @@ def validate_interrupted_reconciliation(paths: WindowsUpdatePaths, expected_msi,
         if _present(retained_root/RETAINED_RECEIPT):
             link_bytes=_read(retained_root/RETAINED_RECEIPT,4096)
             if read_json(link_bytes,4096)!=link: raise ProvenanceConflict()
-        _partial_tree(retained_root,retained.identity,{
+        _partial_retained_tree(paths,retained,{
             MSI_MARKER:(bytes.fromhex(retained.record['original_marker_bytes']),),
             BUNDLE_FILENAME:(bytes.fromhex(retained.record['original_manifest_bytes']),),
             RETAINED_RECEIPT:(link_bytes,)})
