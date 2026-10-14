@@ -14,16 +14,18 @@ def test_legacy_foundation_extension_is_exact_and_keeps_historical_contracts():
         '2f7d778799f1e32645af7936dfaf3f090d6ad4df5bb883827ea8a0a5d859f72a',
         'ad4dc49703513d6dee6fd3e51ac94a09c5967112d58aed4e60a63cf6966251f5',
     }
-    assert identity._LEGACY_FOUNDATION_EXTENSIONS=={version:frozenset(canonical) for version in ('3.2.94','3.2.95')}
+    assert identity._LEGACY_FOUNDATION_EXTENSIONS=={version:frozenset(canonical) for version in ('3.2.94','3.2.95','3.2.96')}
     for package in canonical:
         assert identity._LEGACY_MSI_CONTRACTS[package]['approved_foundations']==('3.2.82',)
         assert identity.legacy_foundation_compatible(package,'3.2.82')
         assert identity.legacy_foundation_compatible(package,'3.2.94')
         assert identity.legacy_foundation_compatible(package,'3.2.95')
-        for version in ('3.2.81','3.2.93','3.2.96','4.0.0'):
+        assert identity.legacy_foundation_compatible(package,'3.2.96')
+        for version in ('3.2.81','3.2.93','3.2.97','4.0.0'):
             assert not identity.legacy_foundation_compatible(package,version)
     assert not identity.legacy_foundation_compatible('0'*64,'3.2.94')
     assert not identity.legacy_foundation_compatible('0'*64,'3.2.95')
+    assert not identity.legacy_foundation_compatible('0'*64,'3.2.96')
 
 
 @pytest.mark.parametrize('defect',['none','absent','fields','schema','native'])
