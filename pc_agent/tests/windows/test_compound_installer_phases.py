@@ -46,6 +46,13 @@ def staged(inputs,tmp_path,monkeypatch):
     native={old['package']['product_code']:5,cap['package']['product_code']:-1}
     monkeypatch.setattr(msi_inventory,'NativeMsi',lambda:SimpleNamespace(product=lambda product:native[product]))
     events=[]
+    # All native configuration boundaries must be isolated on every platform;
+    # a modeled SCM must never fall through to the operator's real services.
+    from pc_agent.platform.windows import service_control,acl,service_launcher
+    for module,names in ((service_control,('configure_service_sids','restrict_updater_start_permissions')),
+        (acl,('apply_tray_status_acl',)),(service_launcher,('stop_tray_companions',))):
+        for name in names:
+            monkeypatch.setattr(module,name,lambda *_a,name=name,**_k:events.append(name))
     monkeypatch.setattr(bridge,'_settled',lambda *_:None)
     monkeypatch.setattr(bridge,'_matching_inspection',lambda *_a,**_k:events.append('inspection'))
     monkeypatch.setattr(provenance,'inspect_installed_core',lambda *_a,**_k:SimpleNamespace(
@@ -285,6 +292,8 @@ def test_recovery_full_helper_sequence_keeps_original_and_previous_completion(st
         monkeypatch.setattr(installer_data_security,name,lambda *_a,name=name:events.append('data-'+name))
     for phase in ('msi-preflight','recover-enter','foundation-config','msi-complete'):
         client.phase=phase;bridge.execute_authorized_phase(client,paths,feature_states=(2,3,2,3))
+    configured=['configure_service_sids','data-configure','apply_tray_status_acl','restrict_updater_start_permissions']
+    assert [e for e in events if e in configured]==configured
     native[cap['package']['product_code']]=5
     monkeypatch.setattr(provenance,'retire_replaced_maintenance_authority',lambda *_a:events.append('retire-replaced'))
     phases=(('compound-new-returned','compound-commit') if mode=='replace-foundation' else
