@@ -1738,7 +1738,30 @@ function Assert-UpdateTransactionSecurity {
 }
 
 function Assert-UpdateGateAcl {
-    param([string]$Path)
+    param([string]$Path, [switch]$ServicingInstallRoot)
+    if ($ServicingInstallRoot) {
+        $item = Get-Item -LiteralPath $Path -Force
+        if (-not $item.PSIsContainer -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { throw 'Invalid install directory.' }
+        $created = $item.CreationTimeUtc
+        try { Assert-UpdateGateAcl -Path $Path; return } catch { }
+        # Only this fixed directory observer accepts privileged servicing ACLs.
+        # State files and all data directories retain the strict branch below.
+        Initialize-InstallerBridgeTypes
+        [EndpointInstallerBridge.LaunchDirectory]::ValidateAncestors($Path)
+        $trusted = @('S-1-5-18','S-1-5-32-544','S-1-5-80-956008885-3418522649-1831038044-1853292631-2271478464')
+        $acl = Get-Acl -LiteralPath $Path
+        $raw = [Security.AccessControl.RawSecurityDescriptor]::new($acl.GetSecurityDescriptorBinaryForm(),0)
+        if ($null -eq $raw.DiscretionaryAcl -or $acl.GetOwner([Security.Principal.SecurityIdentifier]).Value -notin $trusted) { throw 'Invalid install directory security.' }
+        foreach ($rule in $acl.GetAccessRules($true,$true,[Security.Principal.SecurityIdentifier])) {
+            if ($rule.AccessControlType -ne [Security.AccessControl.AccessControlType]::Allow) { throw 'Invalid install directory ACE.' }
+            if (($rule.PropagationFlags -band [Security.AccessControl.PropagationFlags]::InheritOnly) -ne 0) { continue }
+            if (([int64]$rule.FileSystemRights -band 0x500d0156) -ne 0 -and $rule.IdentityReference.Value -notin $trusted) { throw 'Invalid install directory writer.' }
+        }
+        [EndpointInstallerBridge.LaunchDirectory]::ValidateAncestors($Path)
+        $after = Get-Item -LiteralPath $Path -Force
+        if (-not $after.PSIsContainer -or ($after.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 -or $after.CreationTimeUtc -ne $created) { throw 'Install directory changed.' }
+        return
+    }
     $acl = Get-Acl -LiteralPath $Path
     $raw = [Security.AccessControl.RawSecurityDescriptor]::new($acl.GetSecurityDescriptorBinaryForm(),0)
     if ($null -eq $raw.DiscretionaryAcl) { throw 'Update state has a null DACL.' }
@@ -1799,7 +1822,7 @@ function Test-ActiveUpdateState {
     $updates = Join-Path $DataRoot 'updates'
     foreach ($root in @($InstallRoot,$DataRoot,$updates)) {
         Assert-ExistingPathChain -Path $root
-        if (Test-Path -LiteralPath $root) { Assert-UpdateGateAcl -Path $root }
+        if (Test-Path -LiteralPath $root) { Assert-UpdateGateAcl -Path $root -ServicingInstallRoot:($root -eq $InstallRoot) }
     }
     $active = $false
     $versionPattern = '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:[-+][0-9A-Za-z.-]+)?$'

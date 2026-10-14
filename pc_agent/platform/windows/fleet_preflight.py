@@ -104,7 +104,7 @@ def _foundation(paths: WindowsUpdatePaths) -> dict:
     }
 
 
-def _services(paths: WindowsUpdatePaths) -> dict:
+def _services(paths: WindowsUpdatePaths, foundation: dict | None = None) -> dict:
     if os.name != "nt":
         return {
             name: {
@@ -118,6 +118,17 @@ def _services(paths: WindowsUpdatePaths) -> dict:
     import win32service
     import pywintypes
 
+    # Only _foundation's exact native inventory permits the original79 layout.
+    # Original81 and modern foundations already own a separate updater host.
+    from .runtime_identity import _LEGACY_MSI_CONTRACTS
+    from .legacy_foundation_upgrade import _PRODUCTS
+    digest = '2f7d778799f1e32645af7936dfaf3f090d6ad4df5bb883827ea8a0a5d859f72a'
+    contract = _LEGACY_MSI_CONTRACTS[digest]
+    shared_host = foundation == {
+        'version': contract['version'], 'source_revision': contract['source_revision'],
+        'package_sha256': digest, 'product_code': _PRODUCTS[digest],
+        'native_verified': True, 'feature_state': 'complete',
+    }
     manager = win32service.OpenSCManager(None, None, win32service.SC_MANAGER_CONNECT)
     result = {}
     try:
@@ -130,7 +141,7 @@ def _services(paths: WindowsUpdatePaths) -> dict:
             ),
             (
                 "EndpointAgentUpdater",
-                "endpoint-agent-updater.exe",
+                "endpoint-agent-service.exe" if shared_host else "endpoint-agent-updater.exe",
                 "LocalSystem",
                 "--updater-service",
             ),
@@ -422,7 +433,7 @@ def collect_fleet_preflight(
     ):
         conflict = True
     try:
-        services = _services(paths)
+        services = _services(paths, foundation)
     except Exception:
         services = {
             name: {

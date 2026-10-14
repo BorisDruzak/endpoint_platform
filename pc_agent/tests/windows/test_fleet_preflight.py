@@ -628,7 +628,7 @@ def test_real_task7_core_authority_projects_live_and_retained_origin(
     monkeypatch.setattr(
         module,
         "_services",
-        lambda _: {
+        lambda *_: {
             name: {
                 "present": True,
                 "state": "stopped",
@@ -910,7 +910,7 @@ def test_equal_foundation_checks_actual_target_candidate_while_preserving_newer_
     monkeypatch.setattr(
         module,
         "_services",
-        lambda _: {
+        lambda *_: {
             name: {
                 "present": True,
                 "state": "running",
@@ -1004,8 +1004,9 @@ def test_maintenance_recovery_budget_has_no_install_archive_jobs(
         )
 
 
+@pytest.mark.parametrize('layout', ['modern', 'original79', 'original81', 'unverified79', 'unknown79', 'wrong-product79'])
 def test_canonical_service_query_accepts_only_fixed_command_arguments(
-    machine, monkeypatch
+    machine, monkeypatch, layout
 ):
     win32service = pytest.importorskip("win32service", reason="native Windows API contract")
 
@@ -1014,6 +1015,18 @@ def test_canonical_service_query_accepts_only_fixed_command_arguments(
     from importlib import reload
 
     query = reload(module)._services
+    foundation = None
+    if layout != 'modern':
+        from pc_agent.platform.windows.runtime_identity import _LEGACY_MSI_CONTRACTS
+        from pc_agent.platform.windows.legacy_foundation_upgrade import _PRODUCTS
+        digest = next(d for d, c in _LEGACY_MSI_CONTRACTS.items() if c['version'] == ('3.2.81' if layout == 'original81' else '3.2.79'))
+        contract = _LEGACY_MSI_CONTRACTS[digest]
+        foundation = {'version': contract['version'], 'source_revision': contract['source_revision'],
+                      'package_sha256': digest, 'product_code': _PRODUCTS[digest],
+                      'native_verified': True, 'feature_state': 'complete'}
+        if layout == 'unverified79': foundation['native_verified'] = False
+        if layout == 'unknown79': foundation['package_sha256'] = '0'*64
+        if layout == 'wrong-product79': foundation['product_code'] = '{11111111-1111-4111-8111-111111111111}'
     for file in ("endpoint-agent-service.exe", "endpoint-agent-updater.exe"):
         (paths.install_root / file).write_bytes(b"protected host")
     calls = []
@@ -1035,7 +1048,7 @@ def test_canonical_service_query_accepts_only_fixed_command_arguments(
 
     def config(name):
         agent = name == "EndpointAgent"
-        file = "endpoint-agent-service.exe" if agent else "endpoint-agent-updater.exe"
+        file = "endpoint-agent-service.exe" if agent or layout not in ('modern', 'original81') else "endpoint-agent-updater.exe"
         argument = "--agent-service" if agent else "--updater-service"
         return (
             16,
@@ -1053,7 +1066,9 @@ def test_canonical_service_query_accepts_only_fixed_command_arguments(
     monkeypatch.setattr(
         win32service, "QueryServiceStatus", lambda _: (16, 4, 0, 0, 0, 0, 0)
     )
-    assert all(value["identity_valid"] for value in query(paths).values())
+    result = query(paths, foundation)
+    assert result['EndpointAgent']['identity_valid'] is True
+    assert result['EndpointAgentUpdater']['identity_valid'] is (layout in ('modern', 'original79', 'original81'))
     monkeypatch.setattr(
         win32service,
         "QueryServiceConfig",
@@ -1063,12 +1078,16 @@ def test_canonical_service_query_accepts_only_fixed_command_arguments(
             *config(name)[4:],
         ),
     )
-    assert all(value["identity_valid"] is False for value in query(paths).values())
+    assert all(value["identity_valid"] is False for value in query(paths, foundation).values())
     assert all(
         access == win32service.SERVICE_QUERY_CONFIG | win32service.SERVICE_QUERY_STATUS
         for kind, access in calls
         if kind == "service"
     )
+    if layout == 'original79':
+        monkeypatch.setattr(win32service, 'QueryServiceConfig', config)
+        monkeypatch.setattr(installation_provenance, '_read', lambda *_: (_ for _ in ()).throw(ValueError('leaf writer')))
+        assert all(value['identity_valid'] is None for value in query(paths, foundation).values())
 
 
 def test_recovery_archive_budget_reuses_verified_payload_and_rejects_conflicts(

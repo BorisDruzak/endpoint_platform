@@ -239,11 +239,37 @@ def _read_state(path, limit, *, return_bytes=False):
     return raw if return_bytes else payload
 
 
+def _assert_install_directory_security(path):
+    """Observe the fixed install directory; never relax a state/file reader."""
+    details = path.lstat()
+    if (not stat.S_ISDIR(details.st_mode) or stat.S_ISLNK(details.st_mode)
+        or getattr(details, 'st_file_attributes', 0) & 0x400):
+        raise ValueError('install directory is unsafe')
+    try:
+        _assert_state_security(path)
+    except ValueError:
+        if os.name != 'nt':
+            raise
+        from .installer_fence import assert_namespace_security
+        from .msi_inventory import _assert_registered_cache_security
+        assert_namespace_security(path)
+        _assert_registered_cache_security(path)
+        assert_namespace_security(path)
+        after = path.lstat()
+        if (not stat.S_ISDIR(after.st_mode) or stat.S_ISLNK(after.st_mode)
+            or getattr(after, 'st_file_attributes', 0) & 0x400
+            or (details.st_dev, details.st_ino) != (after.st_dev, after.st_ino)):
+            raise ValueError('install directory changed')
+
+
 def active_update_state(paths: WindowsUpdatePaths) -> str | None:
     """Read-only Setup gate. Caller holds the transaction; malformed state raises."""
     for root in (paths.install_root, paths.updates_root.parent, paths.updates_root):
         if root.exists():
-            _assert_state_security(root)
+            if root == paths.install_root:
+                _assert_install_directory_security(root)
+            else:
+                _assert_state_security(root)
     result = None
     for path, limit, required, state in (
         (paths.pending_path, 16384, {'operation_id', 'version'}, 'pending'),
