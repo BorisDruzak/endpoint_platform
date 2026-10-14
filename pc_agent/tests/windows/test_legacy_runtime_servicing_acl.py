@@ -74,7 +74,7 @@ def retained_reconciliation(original_runtime,monkeypatch):
  # checks below remain real. A servicing exception must not become native entry.
  monkeypatch.setattr(runtime_identity,'verify_retained_archive',lambda *_:retained)
  monkeypatch.setattr(legacy,'verify_registration',lambda *_a,**_k:pytest.fail('read-only evidence gained native authority'))
- expected=SimpleNamespace(identity=SimpleNamespace(version='3.2.106'),manifest={},
+ expected=SimpleNamespace(identity=SimpleNamespace(version='3.2.106',files=()),manifest={},
   package=SimpleNamespace(files=(SimpleNamespace(path='versions/3.2.106/pc_agent.exe',component='core'),),
    components={'core':SimpleNamespace(guid='{33333333-3333-4333-8333-333333333333}')}))
  monkeypatch.setattr(provenance,'_expected_request',lambda _:expected)
@@ -119,7 +119,7 @@ def test_retained_servicing_exception_keeps_other_reconciliation_guards(retained
   bad=root if defect=='root-writer' else root/'core.exe'
   monkeypatch.setattr(security,'GetNamedSecurityInfo',lambda path,*args:sd if str(path)==str(bad) else trusted(path,*args))
  elif defect=='ancestor-writer':monkeypatch.setattr(fence,'assert_namespace_security',lambda *_:(_ for _ in ()).throw(ValueError('parent writer')))
- elif defect=='hardlink':os.link(root/'core.exe',root/'alias.exe')
+ elif defect=='hardlink':os.link(root/'core.exe',root.parent/'outside-alias.exe')
  elif defect=='unknown-file':(root/'unknown.dll').write_bytes(b'foreign')
  elif defect=='wrong-bytes':(root/'core.exe').write_bytes(b'tampered')
  elif defect=='wrong-marker':(root/provenance.MSI_MARKER).write_text('{}')
@@ -133,8 +133,14 @@ def test_retained_servicing_exception_keeps_other_reconciliation_guards(retained
   retained.identity=replace(retained.identity,version='3.2.81')
  elif defect=='modern-retained':retained.record['compatibility_foundations']=[]
  elif defect=='candidate-servicing-acl':(paths.versions_root/'3.2.106').mkdir()
- elif defect=='selector-servicing-acl':paths.current_path.write_text(json.dumps({'version':package.version}))
- elif defect=='bundle-servicing-acl':(root/provenance.BUNDLE_FILENAME).write_bytes(b'{}')
+ elif defect=='selector-servicing-acl':
+  raw=json.dumps({'version':package.version}).encode();paths.current_path.write_bytes(raw)
+  plan=provenance._read_plan(None,None,None)
+  plan.update(current_before=raw.hex(),current_after=raw.hex())
+  monkeypatch.setattr(provenance,'_read_plan',lambda *_:plan)
+ elif defect=='bundle-servicing-acl':
+  (root/provenance.BUNDLE_FILENAME).write_bytes(b'{}')
+  retained.record['original_manifest_bytes']=b'{}'.hex()
  elif defect=='junction':
   import subprocess
   target=paths.install_root.parent/'outside';target.mkdir();(target/'library.dll').write_bytes(b'foreign')
