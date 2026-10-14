@@ -54,6 +54,10 @@ _LEGACY_FOUNDATION_EXTENSIONS = {
         '2f7d778799f1e32645af7936dfaf3f090d6ad4df5bb883827ea8a0a5d859f72a',
         'ad4dc49703513d6dee6fd3e51ac94a09c5967112d58aed4e60a63cf6966251f5',
     }),
+    '3.2.103': frozenset({
+        '2f7d778799f1e32645af7936dfaf3f090d6ad4df5bb883827ea8a0a5d859f72a',
+        'ad4dc49703513d6dee6fd3e51ac94a09c5967112d58aed4e60a63cf6966251f5',
+    }),
 }
 
 
@@ -145,6 +149,22 @@ class RetainedCore:
     link_bytes: bytes
 
 
+def _retained_payload_root(archive: Path) -> Path:
+    """Use the native long-path namespace only for protected archive payload I/O.
+
+    Records, package paths and relative inventory names keep their ordinary
+    representation. Validate before prefixing: this namespace skips Win32
+    normalization, so aliases must never acquire authority through it.
+    """
+    if os.name != 'nt':
+        return archive / 'payload'
+    from endpoint_contracts.runtime_payload import safe_path
+    if not archive.is_absolute() or not re.fullmatch('[A-Za-z]:', archive.drive):
+        raise ValueError('PROVENANCE_CONFLICT')
+    safe_path('/'.join(archive.parts[1:]))
+    return Path('\\\\?\\' + str(archive / 'payload'))
+
+
 def _retained_bytes(path: Path, maximum: int) -> bytes:
     from .installer_fence import assert_state_security
     assert_state_security(path)
@@ -201,7 +221,7 @@ def verify_retained_archive(paths: WindowsUpdatePaths, archive_id: str) -> Retai
     after = package_path.lstat()
     if (before.st_dev, before.st_ino, before.st_size, before.st_mtime_ns) != (after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns):
         raise ValueError('PROVENANCE_CONFLICT')
-    payload_root = archive / 'payload'
+    payload_root = _retained_payload_root(archive)
     assert_state_security(payload_root)
     compatibility = record['compatibility_foundations']
     if not isinstance(compatibility, list):

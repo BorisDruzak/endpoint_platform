@@ -165,6 +165,79 @@ def test_retained_archive_publishes_receipt_only_after_complete_exact_copy(msi_a
         package=package, transaction_id='11111111-1111-4111-8111-111111111111') == archive
 
 
+@pytest.mark.skipif(__import__('os').name != 'nt', reason='native Windows path namespace')
+def test_retained_long_payload_copy_verify_retry_and_restore(msi_archive_input, monkeypatch):
+    """Model the verified LongPathsEnabled=0 boundary, retaining real file I/O."""
+    import os
+    import shutil
+    from dataclasses import replace
+    from types import SimpleNamespace
+    from endpoint_contracts.runtime_payload import verify_payload
+    from pc_agent.platform.windows import durable_state, msi_inventory, runtime_identity
+    module, paths, root, evidence, package_path, package = msi_archive_input
+    # Source and restoration temporary paths fit MAX_PATH; the digest-named
+    # archive adds enough characters to exceed it (the native 3.2.79 failure).
+    relative = Path('nested') / ('p' * max(1, 200 - len(str(root)))) / 'public.pyi'
+    leaf = root / relative
+    leaf.parent.mkdir(parents=True)
+    leaf.write_bytes(b'unchanged public runtime stub')
+    manifest = json.loads(evidence.manifest_bytes)
+    manifest['files'].append({'path': relative.as_posix(), 'size': leaf.stat().st_size,
+        'sha256': hashlib.sha256(leaf.read_bytes()).hexdigest()})
+    (root / 'endpoint-update-manifest.json').write_text(json.dumps(manifest))
+    evidence = replace(evidence, manifest_bytes=json.dumps(manifest).encode(),
+        identity=verify_payload(root, manifest,
+            excluded=frozenset({'.endpoint-msi-runtime.json','endpoint-update-manifest.json'})))
+    assert len(str(leaf)) + 38 < 260
+    assert len(str(paths.install_root.parent / 'installer-state/retained' / evidence.digest / 'payload' / relative)) + 38 >= 260
+    before = {p.relative_to(root).as_posix(): p.read_bytes() for p in root.rglob('*') if p.is_file()}
+    native_open = os.open
+    long_opens = []
+    def bounded_open(path, flags, *args, **kwargs):
+        text = str(path)
+        if len(text) >= 260:
+            if not text.startswith('\\\\?\\'):
+                raise FileNotFoundError(2, 'native MAX_PATH boundary', text)
+            long_opens.append(text)
+        return native_open(path, flags, *args, **kwargs)
+    monkeypatch.setattr(os, 'open', bounded_open)
+    original_copy = durable_state.durable_copy_file
+    interrupted = False
+    def interrupt_after_long_copy(source, target, **kwargs):
+        nonlocal interrupted
+        original_copy(source, target, **kwargs)
+        if target.name == 'public.pyi' and not interrupted:
+            interrupted = True
+            raise OSError('retention interrupted after long leaf')
+    monkeypatch.setattr(durable_state, 'durable_copy_file', interrupt_after_long_copy)
+    with pytest.raises(OSError, match='retention interrupted after long leaf'):
+        module.archive_retained_core(paths, evidence, package_path=package_path,
+            package=package, transaction_id='11111111-1111-4111-8111-111111111111')
+    assert before == {p.relative_to(root).as_posix():p.read_bytes() for p in root.rglob('*') if p.is_file()}
+    assert not list(paths.install_root.parent.glob('installer-state/retained/*/receipt.json'))
+    monkeypatch.setattr(durable_state, 'durable_copy_file', original_copy)
+    archive = module.archive_retained_core(paths, evidence, package_path=package_path,
+        package=package, transaction_id='11111111-1111-4111-8111-111111111111')
+    assert runtime_identity.verify_retained_archive(paths, archive.name).identity == evidence.identity
+    assert not str(archive).startswith('\\\\?\\')
+    assert long_opens
+    monkeypatch.setattr(msi_inventory, 'NativeMsi', lambda: SimpleNamespace(product=lambda _code:-1))
+    shutil.rmtree(root)
+    module.restore_retained_core(paths, archive.name)
+    assert runtime_identity.verify_retained_runtime(paths, evidence.identity.version).identity == evidence.identity
+    assert (root / relative).read_bytes() == before[relative.as_posix()]
+
+
+@pytest.mark.skipif(__import__('os').name != 'nt', reason='native Windows path namespace')
+@pytest.mark.parametrize('unsafe', [r'relative\archive', r'\\server\share\archive',
+    r'\\?\C:\archive', r'\\.\C:\archive', r'C:\archive\..\outside',
+    r'C:\archive:stream', 'C:\\archive.\\child', 'C:\\archive \\child', r'C:\NUL\child'])
+def test_retained_payload_namespace_rejects_aliases_before_prefix(unsafe):
+    from pc_agent.platform.windows.runtime_identity import _retained_payload_root
+    with pytest.raises(ValueError, match='PROVENANCE_CONFLICT'):
+        _retained_payload_root(Path(unsafe))
+
+
 def test_retained_copy_interruption_keeps_live_core_and_has_no_completed_receipt(msi_archive_input, monkeypatch):
     from pc_agent.platform.windows import durable_state
     module, paths, root, evidence, package_path, package = msi_archive_input
@@ -264,7 +337,7 @@ def test_legacy_absence_requires_exact_reviewed_package_source_and_tree(tmp_path
     with pytest.raises(ValueError): runtime_identity.verify_legacy_msi_payload(tmp_path, package_sha256='b'*64)
 
 
-@pytest.mark.parametrize('foundation',['3.2.82','3.2.94'])
+@pytest.mark.parametrize('foundation',['3.2.82','3.2.94','3.2.103'])
 def test_reviewed_legacy_native_owner_survives_as_explicit_retained_archive(msi_archive_input, monkeypatch, foundation):
     from dataclasses import replace
     from types import SimpleNamespace
@@ -301,7 +374,8 @@ def test_reviewed_legacy_native_owner_survives_as_explicit_retained_archive(msi_
     captured = module.inspect_installed_core(paths, resulting_foundation='3.2.82').current
     assert captured.origin == 'msi'
     assert captured.compatibility_foundations == ('3.2.82',)
-    monkeypatch.setattr(runtime_identity,'_LEGACY_FOUNDATION_EXTENSIONS',{'3.2.94':frozenset({package.sha256})},raising=False)
+    monkeypatch.setattr(runtime_identity,'_LEGACY_FOUNDATION_EXTENSIONS',
+        {version:frozenset({package.sha256}) for version in ('3.2.94','3.2.103')},raising=False)
     assert module.inspect_installed_core(paths,resulting_foundation=foundation).current==captured
     from pc_agent.platform.windows import service_launcher
     monkeypatch.setattr(service_launcher,'AGENT_VERSION',foundation)

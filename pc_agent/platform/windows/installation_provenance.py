@@ -379,7 +379,9 @@ def archive_retained_core(paths: WindowsUpdatePaths, evidence: CoreEvidence, *, 
     require_allocation_space(retention_allocations(paths, evidence, package_size))
     parent = _archive_directory(state_root(paths), 'retained')
     archive = _archive_directory(parent, evidence.digest)
-    payload_root = _archive_directory(archive, 'payload')
+    from .runtime_identity import _retained_payload_root
+    _archive_directory(archive, 'payload')
+    payload_root = _retained_payload_root(archive)
     expected = {
         'schema_version': 1, 'origin': 'retained_msi', 'phase': 'prepared',
         'transaction_id': transaction_id, 'identity_digest': evidence.digest,
@@ -434,9 +436,10 @@ def restore_retained_core(paths: WindowsUpdatePaths, archive_id: str) -> None:
     """
     from . import durable_state, msi_inventory
     from .installer_fence import protect_state, assert_state_security
-    from .runtime_identity import verify_retained_archive, verify_retained_runtime
+    from .runtime_identity import verify_retained_archive, verify_retained_runtime, _retained_payload_root
     from .disk_readiness import require_allocation_space
     retained = verify_retained_archive(paths, archive_id)
+    payload_root = _retained_payload_root(retained.archive)
     if msi_inventory.NativeMsi().product(retained.record['package']['product_code']) != -1:
         raise ProvenanceConflict()
     root = paths.versions_root / retained.identity.version
@@ -507,8 +510,8 @@ def restore_retained_core(paths: WindowsUpdatePaths, archive_id: str) -> None:
         directory = root
         for name in Path(item.path).parts[:-1]:
             directory = _archive_directory(directory, name)
-        durable_state.durable_copy_file(retained.archive / 'payload' / item.path, root / item.path,
-            source_root=retained.archive / 'payload', trusted_root=root,
+        durable_state.durable_copy_file(payload_root / item.path, root / item.path,
+            source_root=payload_root, trusted_root=root,
             max_bytes=2 * 1024 * 1024 * 1024, expected_size=item.size, expected_sha256=item.sha256,
             protect=protect_state, validate=assert_state_security)
     if _verify_retention_payload(root, retained.record['manifest'], retained.record['package']['sha256'],
