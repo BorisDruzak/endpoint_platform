@@ -1,4 +1,4 @@
-# Nonproduction core83/86/87 ONLY. Canonical core spec remains unchanged.
+# Nonproduction core83/86/87 or equivalent direct-B100 only.
 import sys
 from pathlib import Path
 

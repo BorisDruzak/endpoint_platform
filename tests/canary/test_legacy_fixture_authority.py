@@ -63,6 +63,23 @@ def test_exact81_not_fixture_core_is_authority(authority):
         assert adapter.closed
 
 
+@pytest.mark.parametrize('version,allowed', [('3.2.100',True), ('3.2.99',False), ('3.2.101',False), ('3.2.102',False)])
+def test_equivalent_b_path_keeps_exact81_host_and_native_product_boundary(authority, version, allowed):
+    a = authority
+    original = observed(a)
+    child = replace(original.processes[0], image=rf'C:\Program Files\Endpoint Platform\Agent\versions\{version}\pc_agent.exe')
+    candidate = replace(original, processes=(child, *original.processes[1:]))
+    if allowed:
+        assert a.resolve(None, Adapter(candidate)).version == '3.2.81'
+        with pytest.raises(a.Rejected):
+            a.resolve(None, Adapter(candidate, product=False))
+        with pytest.raises(a.Rejected):
+            a.resolve(None, Adapter(replace(candidate, image=replace(candidate.image, sha256='a'*64))))
+    else:
+        with pytest.raises(a.Rejected):
+            a.resolve(None, Adapter(candidate))
+
+
 @pytest.mark.parametrize("explicit", ["", "3.2", "03.2.81", " 3.2.81", "0.0.0", "3.2.82"])
 def test_exact81_cannot_be_overridden_by_argument(authority, explicit):
     with pytest.raises(authority.Rejected):
