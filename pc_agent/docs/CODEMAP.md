@@ -12,6 +12,12 @@ finish a mixed strict/legacy tree while original81 remains installed. Inspection
 costing, recovery and compound paths do not gain this mutation authority. Private
 enrollment data and generic state ACL policy are unchanged.
 
+The installer owner pump permits four hours for authenticated prepare, including
+full retained-copy and repeated legacy-owner/ZIP closure. Reconcile retains two
+hours; native MSI and other helpers retain thirty minutes. The deadline does not
+renew on progress. All phases retain fresh mutation grants and immediate
+owner-loss handling through the same live conversation.
+
 Recovery-critical Windows update state uses `platform/windows/durable_state.py`:
 pending handoffs, adapter journal arrays, selectors, startup attempt/proof,
 terminal outcome and MSI selector rollback snapshots are file-flushed,

@@ -8,7 +8,9 @@ from pc_agent.tests.windows.test_installer_fence import native_protected_root
 
 @pytest.mark.parametrize('phase,native,minutes,allowed',[
     ('prepare',False,31,True),('prepare',False,120,True),
-    ('prepare',False,121,False),('inspect',False,31,False),
+    ('prepare',False,121,True),('prepare',False,239,True),
+    ('prepare',False,240,True),('prepare',False,241,False),
+    ('inspect',False,31,False),
     ('reconcile',False,31,True),('reconcile',False,120,True),
     ('reconcile',False,121,False),('finish',False,31,False),
     ('prepare',True,31,False),('reconcile',True,31,False),

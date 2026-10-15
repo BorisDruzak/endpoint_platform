@@ -1032,10 +1032,11 @@ function Assert-InstallerPumpDeadline {
     param([Parameter(Mandatory)][TimeSpan]$Elapsed,
         [Parameter(Mandatory)][string]$Phase, [Parameter(Mandatory)][bool]$Msi)
     # Full retained catalogs require a fresh owner grant at every mutation.
-    # Preparation captures the archive; reconciliation rehydrates the same full
-    # catalog after native owner removal. Both copies need the bounded window.
-    # Native MSI and other helpers retain their deadline and owner conversation.
-    $minutes = if (-not $Msi -and $Phase -cin @('prepare','reconcile')) { 120 } else { 30 }
+    # Preparation captures the full archive and repeatedly proves the live legacy
+    # owner before and after ZIP ACL hardening; it needs a four-hour window.
+    # Rehydration retains two hours. Native MSI and other helpers retain thirty
+    # minutes; every phase still pumps the same live owner conversation.
+    $minutes = if (-not $Msi -and $Phase -ceq 'prepare') { 240 } elseif (-not $Msi -and $Phase -ceq 'reconcile') { 120 } else { 30 }
     if ($Elapsed -gt [TimeSpan]::FromMinutes($minutes)) { throw 'RECOVERY_REQUIRED' }
 }
 
