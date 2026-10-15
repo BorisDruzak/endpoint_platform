@@ -80,6 +80,45 @@ def test_resolved81_is_supplied_before_runtime_startup(monkeypatch):
     assert entry.main(["--windows-service-child"]) == 42
 
 
+@pytest.mark.parametrize("mode", ["closed", "invalid_handle", "missing"])
+def test_service_without_usable_stderr_still_starts_resolved_runtime(monkeypatch, mode):
+    entry = configured(monkeypatch)
+    from io import StringIO
+    from tools.canary.fixtures.legacy_authority import Authority
+    stream = StringIO()
+    if mode == "closed":
+        stream.close()
+    elif mode == "invalid_handle":
+        class InvalidServiceHandle:
+            def write(self, value):
+                raise OSError(22, "Invalid argument")
+        stream = InvalidServiceHandle()
+    else:
+        stream = None
+    monkeypatch.setattr(sys, "stderr", stream)
+    monkeypatch.setattr(entry, "resolve", lambda explicit: Authority("3.2.81", "verified_legacy_fixed_image"))
+    calls = []
+    monkeypatch.setattr(entry, "runtime_main", lambda args: calls.append(args) or 42)
+    assert entry.main(["--windows-service-child"]) == 42
+    assert calls == [["--windows-service-child", "--launcher-version", "3.2.81"]]
+
+
+def test_closed_stderr_preserves_native_refusal_and_reports_console_failure(monkeypatch):
+    from io import StringIO
+    entry = configured(monkeypatch)
+    stream = StringIO()
+    stream.close()
+    monkeypatch.setattr(sys, "stderr", stream)
+    events = []
+    monkeypatch.setattr(entry, "report_diagnostic", lambda stage, **kw: events.append(stage))
+    def refuse(explicit):
+        raise entry.Rejected("not_service_child")
+    monkeypatch.setattr(entry, "resolve", refuse)
+    monkeypatch.setattr(entry, "runtime_main", lambda args: pytest.fail("refused runtime started"))
+    assert entry.main(["--windows-service-child"]) == 75
+    assert events == ["authority_start", "authority_refused", "console_unavailable"]
+
+
 def test_immutable81_offline_verifier_remains_network_free(monkeypatch):
     entry = configured(monkeypatch)
     arguments = ["--verify", "--data-dir", "state", "--install-root", "root", "--ca-file", "ca"]

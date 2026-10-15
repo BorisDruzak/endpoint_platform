@@ -12,6 +12,17 @@ def _invalid_arguments(_message):
     raise Rejected("fixture_arguments")
 
 
+def _console_notice(message):
+    # An SCM child can inherit an absent or invalid console handle. Diagnostic
+    # output must not turn a resolved authority into a runtime launch failure.
+    if sys.stderr is None:
+        return
+    try:
+        print(message, file=sys.stderr)
+    except (OSError, ValueError) as error:
+        report_diagnostic("console_unavailable", error=error)
+
+
 def main(argv=None):
     args = list(sys.argv[1:] if argv is None else argv)
     with diagnostic_scope(getattr(sys, "frozen", False)
@@ -51,10 +62,10 @@ def _run(args):
     except (Rejected, ValueError, SystemExit) as error:
         report_diagnostic("authority_refused", error=error)
         # Never print argv, native exception messages, config or token data.
-        print("endpoint fixture refused: authority_unavailable", file=sys.stderr)
+        _console_notice("endpoint fixture refused: authority_unavailable")
         return 75
-    print(f"endpoint fixture authority: {authority.kind} {authority.version}", file=sys.stderr)
     report_diagnostic("authority_resolved")
+    _console_notice(f"endpoint fixture authority: {authority.kind} {authority.version}")
     with runtime_trace():
         try:
             result = runtime_main(args)

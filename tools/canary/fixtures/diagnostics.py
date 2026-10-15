@@ -6,7 +6,7 @@ import traceback
 
 _remaining = 32
 _enabled = False
-_STAGES = frozenset({"authority_start", "authority_resolved", "authority_refused",
+_STAGES = frozenset({"authority_start", "authority_resolved", "authority_refused", "console_unavailable",
     "native_exception", "runtime_exception", "runtime_exit", *(
         "runtime_" + name for name in ("created", "starting", "connecting", "running",
             "reconnecting", "stopping", "stopped", "update_pending", "credential_rejected", "failed"))})
@@ -23,7 +23,7 @@ _CONDITIONS = frozenset({"service_identity", "service_ancestry", "service_token"
 
 def _write_event(value):
     import win32evtlog
-    # The original installed service already owns this Application event source.
+    # Reuse the original service's Application provider name.
     # Do not install a source, registry value, service, task or audit policy.
     handle = win32evtlog.RegisterEventSource(None, "EndpointAgent")
     try:
