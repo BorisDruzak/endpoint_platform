@@ -63,7 +63,8 @@ def test_exact81_not_fixture_core_is_authority(authority):
         assert adapter.closed
 
 
-@pytest.mark.parametrize('version,allowed', [('3.2.100',True), ('3.2.99',False), ('3.2.101',False), ('3.2.102',False)])
+@pytest.mark.parametrize('version,allowed', [('3.2.100',True), ('3.2.99',False), ('3.2.101',False), ('3.2.102',False),
+    ('3.2.60000',True), ('3.2.59999',False), ('3.2.60001',False)])
 def test_equivalent_b_path_keeps_exact81_host_and_native_product_boundary(authority, version, allowed):
     a = authority
     original = observed(a)
@@ -93,6 +94,20 @@ def test_new_host_requires_explicit_ordinary_authority(authority):
     for explicit in (None, "3.2.81"):
         with pytest.raises(a.Rejected):
             a.resolve(explicit, Adapter(value))
+
+
+def test_newer_equivalent_b_uses_actual81_then_explicit_successor_authority(authority):
+    a=authority;original=observed(a)
+    child=replace(original.processes[0],image=r'C:\Program Files\Endpoint Platform\Agent\versions\3.2.60000\pc_agent.exe')
+    legacy=replace(original,processes=(child,*original.processes[1:]))
+    assert a.resolve(None,Adapter(legacy)).version=='3.2.81'
+    with pytest.raises(a.Rejected):a.resolve('3.2.112',Adapter(legacy))
+    modern=replace(legacy,image=a.Image(a.IMAGE,'a'*64,123))
+    assert a.resolve('3.2.112',Adapter(modern)).version=='3.2.112'
+    for explicit in (None,'3.2.81'):
+        with pytest.raises(a.Rejected):a.resolve(explicit,Adapter(modern))
+    wrong_parent=replace(modern,processes=(replace(child,parent=10),*modern.processes[1:]))
+    with pytest.raises(a.Rejected):a.resolve('3.2.112',Adapter(wrong_parent))
 
 
 @pytest.mark.parametrize("field,value", [("pid", 0), ("service_type", 0x110), ("start_type", 3),

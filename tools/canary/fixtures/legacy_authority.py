@@ -112,7 +112,7 @@ def _validate(value: Observation) -> None:
         or not 0 < outer.created < inner.created < runtime.created
         or runtime.image not in {
             rf"C:\Program Files\Endpoint Platform\Agent\versions\3.2.{n}\pc_agent.exe"
-            for n in (83, 86, 87, 100)
+            for n in (83, 86, 87, 100, 60000)
         }
         or any(p.image != IMAGE for p in (inner, outer))):
         raise Rejected("service_ancestry")

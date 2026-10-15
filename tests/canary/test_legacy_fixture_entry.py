@@ -11,7 +11,7 @@ def entry_module():
     return importlib.import_module("tools.canary.fixtures.legacy_entry")
 
 
-@pytest.mark.parametrize("version", [None, "3.2.82", "3.2.84", "3.2.85", "3.2.88", "3.2.100"])
+@pytest.mark.parametrize("version", [None, "3.2.82", "3.2.84", "3.2.85", "3.2.88", "3.2.100", "3.2.60000"])
 def test_unfrozen_or_wrong_fixture_never_starts(monkeypatch, version):
     entry = entry_module()
     monkeypatch.setattr(entry.binding, "FIXTURE_VERSION", version)
@@ -87,10 +87,11 @@ def test_fixture_spec_refuses_canonical82_before_analysis(monkeypatch):
         exec(compile(path.read_text(encoding="utf-8"), str(path), "exec"), {"SPECPATH": str(path.parent)})
 
 
-def test_equivalent_b100_requires_matching_literal_before_offline_verification(monkeypatch):
+@pytest.mark.parametrize('version',['3.2.100','3.2.60000'])
+def test_equivalent_b_requires_matching_literal_before_offline_verification(monkeypatch,version):
     entry = configured(monkeypatch)
-    monkeypatch.setattr(entry.binding, 'FIXTURE_VERSION', '3.2.100')
-    monkeypatch.setattr(entry, 'AGENT_VERSION', '3.2.100')
+    monkeypatch.setattr(entry.binding, 'FIXTURE_VERSION', version)
+    monkeypatch.setattr(entry, 'AGENT_VERSION', version)
     monkeypatch.setattr(entry, 'resolve', lambda _: pytest.fail('offline verification acquired authority'))
     calls = []
     monkeypatch.setattr(entry, 'runtime_main', lambda argv: calls.append(argv) or 0)

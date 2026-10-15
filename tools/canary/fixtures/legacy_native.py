@@ -1,4 +1,4 @@
-"""Read-only Windows adapter for immutable nonproduction core83/86/87/100.
+"""Read-only Windows adapter for immutable nonproduction core83/86/87/100/60000.
 
 Uses existing pywin32 APIs plus typed ctypes calls for exact creation times,
 held-handle parent identity and machine-scoped MSI queries. No mutation,
