@@ -621,6 +621,7 @@ async def read_device_context(
                 safe = snapshot_projection(snapshot)
                 if safe is not None:
                     snapshots.append(safe)
+        device_projection = await _single_device_projection(session, device)
     snapshots.sort(
         key=lambda item: (
             str(item["profile"]),
@@ -650,7 +651,7 @@ async def read_device_context(
         })
     return {
         "data": {
-            "device": await _single_device_projection(session, device),
+            "device": device_projection,
             "profiles": [availability[profile] for profile in sorted(availability)],
             "snapshots": snapshots,
         }

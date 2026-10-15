@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 import ipaddress
 from pathlib import Path
@@ -27,6 +28,63 @@ from endpoint_server.db.models import (
 )
 from endpoint_server.main import create_app
 from endpoint_server.auth.scopes import ServicePrincipal
+
+
+@pytest.mark.asyncio
+async def test_context_reads_return_connection_before_next_request(tmp_path, monkeypatch):
+    engine = create_async_engine(
+        f"sqlite+aiosqlite:///{(tmp_path / 'context-pool.db').as_posix()}",
+        pool_size=1, max_overflow=0, pool_timeout=0.1,
+    )
+    tables = (
+        Device.__table__, DeviceSession.__table__, AuditEvent.__table__,
+        ContextCollection.__table__, ContextSnapshot.__table__, ContextCurrent.__table__,
+    )
+    maker = async_sessionmaker(engine, expire_on_commit=False)
+    # Keep sessions alive so garbage collection cannot hide an unclosed
+    # transaction reopened after the provider's context manager exits.
+    sessions = []
+
+    @asynccontextmanager
+    async def provider():
+        async with maker() as session:
+            sessions.append(session)
+            yield session
+
+    try:
+        async with engine.begin() as connection:
+            await connection.run_sync(lambda sync: Device.metadata.create_all(sync, tables=tables))
+        device_id = uuid4()
+        now = datetime.now(UTC)
+        async with provider() as session:
+            session.add(Device(id=device_id, device_identifier="pool-lifetime", display_name="Pool"))
+            await session.flush()
+            session.add(DeviceSession(
+                id=uuid4(), device_id=device_id, session_identifier="pool-online",
+                created_at=now, last_seen_at=now, expires_at=now,
+            ))
+            await session.commit()
+        _install_principals(monkeypatch, {"reader": _principal(["context.read"])})
+        app = create_app(_settings(), provider)
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="https://endpoint.sosnadmin.local",
+        ) as client:
+            for _ in range(18):
+                response = await client.get(
+                    f"/api/v1/devices/{device_id}/context",
+                    headers={"Authorization": "Bearer reader"},
+                )
+                assert response.status_code == 200
+                assert response.json()["data"]["device"]["online"] is True
+                assert engine.pool.checkedout() == 0, "Context response leaked a database connection"
+            assert (await client.get(
+                f"/api/v1/devices/{uuid4()}/context", headers={"Authorization": "Bearer reader"},
+            )).status_code == 404
+            assert engine.pool.checkedout() == 0
+    finally:
+        for session in sessions:
+            await session.close()
+        await engine.dispose()
 
 
 @pytest.mark.asyncio
