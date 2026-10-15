@@ -50,7 +50,7 @@ class InstallerServices:
             'EndpointAgentUpdater':('endpoint-agent-updater.exe','--updater-service','LocalSystem')}
         if include_browser:
             self.specs['EndpointBrowserPolicy']=('EndpointBrowserPolicy.exe','','LocalSystem')
-        self.stack=ExitStack();self.handles={}
+        self.stack=ExitStack();self.handles={};self._shared_host=None
 
     def __enter__(self):
         try:
@@ -88,7 +88,16 @@ class InstallerServices:
             path=str(self.paths.install_root/filename)
             commands={f'"{path}"{(" "+argument) if argument else ""}'.casefold()}
             if not any(char.isspace() for char in path): commands.add(f'{path}{(" "+argument) if argument else ""}'.casefold())
-            if config[0]!=16 or config[1] not in {2,3,4} or config[3].casefold() not in commands or config[7].casefold()!=account.casefold():
+            if config[0]!=16 or config[1] not in {2,3,4} or config[7].casefold()!=account.casefold():
+                raise ValueError('PROVENANCE_CONFLICT')
+            command=config[3].casefold()
+            if name=='EndpointAgentUpdater' and command==f'"{self.paths.install_root / "endpoint-agent-service.exe"}" --updater-service'.casefold():
+                if self.handles['EndpointAgent'] is None:raise ValueError('PROVENANCE_CONFLICT')
+                if self._shared_host is None:
+                    from .legacy_foundation_upgrade import _verified_shared_service_host
+                    self._shared_host=self.stack.enter_context(_verified_shared_service_host(self.paths))
+                self._shared_host.check()
+            elif command not in commands or (name=='EndpointAgentUpdater' and self._shared_host is not None):
                 raise ValueError('PROVENANCE_CONFLICT')
             delayed=self.api.QueryServiceConfig2(handle,3)
             if type(delayed) is not bool: raise ValueError('UPDATE_STATE_INVALID')

@@ -1,7 +1,9 @@
 """Own installer lifecycle models; these tests never open real SCM services."""
 from types import SimpleNamespace
+from contextlib import contextmanager
 import pytest
 from pc_agent.platform.windows import installer_transaction_bridge as bridge
+from pc_agent.platform.windows import legacy_foundation_upgrade as legacy
 
 
 class Services:
@@ -122,3 +124,81 @@ def test_flush_opens_only_fixed_service_key_with_query_access(monkeypatch):
     bridge.InstallerServices._flush_service('EndpointAgent')
     assert events==[r'SYSTEM\CurrentControlSet\Services\EndpointAgent','flush','close']
     with pytest.raises(ValueError): bridge.InstallerServices._flush_service('Other')
+
+
+@pytest.fixture
+def shared79(tmp_path, monkeypatch):
+    api=Services(tmp_path)
+    api.values['EndpointAgentUpdater'][3]=f'"{tmp_path / "endpoint-agent-service.exe"}" --updater-service'
+    events=[]
+    class Proof:
+        def check(self): events.append('check')
+    @contextmanager
+    def pinned(paths):
+        assert paths.install_root==tmp_path
+        events.append('prove-and-pin')
+        try: yield Proof()
+        finally: events.append('release')
+    monkeypatch.setattr(legacy,'_verified_shared_service_host',pinned,raising=False)
+    return SimpleNamespace(install_root=tmp_path),api,events
+
+
+def test_original79_shared_host_is_proven_once_and_rechecked_across_quarantine(shared79):
+    paths,api,events=shared79
+    with bridge.InstallerServices(paths,api=api,flush=lambda _:None) as services:
+        original=services.snapshot()
+        services.quarantine(original)
+        services.restore_original(original)
+        assert services.snapshot()==original
+        assert events.count('prove-and-pin')==1
+        assert events.count('check')>=7
+        assert 'release' not in events
+    assert events[-1]=='release'
+    assert [value[1] for value in api.values.values()]==[2,3]
+
+
+def test_shared_host_pin_released_on_snapshot_failure_and_fresh_context_reproves(shared79):
+    paths,api,events=shared79
+    with pytest.raises(ValueError,match='UPDATE_IN_PROGRESS'):
+        with bridge.InstallerServices(paths,api=api) as services:
+            services.snapshot()
+            api.status['EndpointAgentUpdater']=4
+            services.snapshot()
+    assert events[-1]=='release' and api.calls==[]
+    api.status['EndpointAgentUpdater']=1
+    with bridge.InstallerServices(paths,api=api) as services: services.snapshot()
+    assert events.count('prove-and-pin')==2 and events.count('release')==2
+
+
+@pytest.mark.parametrize('defect',['agent_absent','argument','account','type','agent_command'])
+def test_shared_host_scm_mismatch_refuses_before_proof_or_write(shared79,defect):
+    paths,api,events=shared79
+    if defect=='agent_absent':api.values['EndpointAgent']=None
+    if defect=='argument':api.values['EndpointAgentUpdater'][3]+=' --extra'
+    if defect=='account':api.values['EndpointAgentUpdater'][7]='Other'
+    if defect=='type':api.values['EndpointAgentUpdater'][0]=32
+    if defect=='agent_command':api.values['EndpointAgent'][3]='other.exe'
+    with pytest.raises(ValueError,match='PROVENANCE_CONFLICT'):
+        with bridge.InstallerServices(paths,api=api) as services: services.quarantine({})
+    assert events==[] and api.calls==[]
+
+
+def test_shared_host_lost_proof_blocks_first_write(shared79,monkeypatch):
+    paths,api,events=shared79
+    @contextmanager
+    def refused(_paths):
+        raise ValueError('PROVENANCE_CONFLICT')
+        yield
+    monkeypatch.setattr(legacy,'_verified_shared_service_host',refused)
+    with pytest.raises(ValueError,match='PROVENANCE_CONFLICT'):
+        with bridge.InstallerServices(paths,api=api) as services: services.quarantine({})
+    assert api.calls==[]
+
+
+def test_shared_host_context_cannot_silently_switch_to_modern_command(shared79):
+    paths,api,events=shared79
+    with bridge.InstallerServices(paths,api=api) as services:
+        services.snapshot()
+        api.values['EndpointAgentUpdater'][3]=f'"{paths.install_root / "endpoint-agent-updater.exe"}" --updater-service'
+        with pytest.raises(ValueError,match='PROVENANCE_CONFLICT'):services.quarantine({})
+    assert events[-1]=='release' and api.calls==[]

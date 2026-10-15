@@ -5,6 +5,7 @@ Native/cache admission, prepared retention and replaced-product verification are
 separate required boundaries; a matching release alone does not close them.
 """
 from dataclasses import dataclass
+from contextlib import contextmanager,ExitStack
 import os
 import re
 import stat
@@ -18,6 +19,11 @@ _PRODUCTS={
  '2f7d778799f1e32645af7936dfaf3f090d6ad4df5bb883827ea8a0a5d859f72a':'{0FFBDA26-8617-4F9E-A378-833F01048360}',
  'ad4dc49703513d6dee6fd3e51ac94a09c5967112d58aed4e60a63cf6966251f5':'{5E140EED-6A05-4D9B-98C6-BCC178C6EC71}',
 }
+# Read from filServiceHost in cab1.cab of the exact original79 MSI above.
+# This identifies its shared Agent/Updater host, not a reconstructed release.
+_SHARED79_PACKAGE='2f7d778799f1e32645af7936dfaf3f090d6ad4df5bb883827ea8a0a5d859f72a'
+_SHARED79_HOST_SIZE=34094212
+_SHARED79_HOST_SHA256='6100c2351bd65827b4c16b1f7fb77a0007ca9ca192bc512f1642797e62182b11'
 
 
 def canonical_release(value):
@@ -128,6 +134,12 @@ def inspect_foundation(paths,*,native=None):
     This is read-only admission evidence, not retention or native completion.
     No modern foundation marker or legacy callback receipt is manufactured.
     """
+    role=_registered_foundation(paths,native=native)
+    return role.release if role is not None else None
+
+
+def _registered_foundation(paths,*,native=None):
+    """Internal exact receipt/media/native/cache proof, never caller authority."""
     from endpoint_contracts.runtime_payload import read_json
     from . import installation_provenance as provenance,msi_inventory
     cache=paths.updates_root.parent/'installer-cache'
@@ -153,7 +165,58 @@ def inspect_foundation(paths,*,native=None):
     msi_inventory.verify_foundation(package,paths.install_root,native=native)
     msi_inventory.verify_registered_cache(original,package,native=native)
     verify_registration(package,release,native=native)
-    return release
+    return LegacyPredecessor(release,package,original)
+
+
+@dataclass(frozen=True)
+class _PinnedSharedServiceHost:
+    path: Path
+    role: object
+    native: object
+    descriptor: int
+    identity: tuple
+    change_time: int
+
+    def check(self):
+        from . import durable_state,msi_inventory
+        from .installer_fence import assert_namespace_security
+        try:
+            verify_registration(self.role.package,self.role.release,native=self.native)
+            assert_namespace_security(self.path)
+            msi_inventory._assert_registered_cache_security(self.path)
+            opened=os.fstat(self.descriptor)
+            if (durable_state._copy_identity(self.path.lstat())!=self.identity
+                or durable_state._copy_identity(opened)!=self.identity
+                or opened.st_ctime_ns!=self.change_time):raise ProvenanceConflict()
+        except (OSError,ValueError) as error:
+            raise ProvenanceConflict() from error
+
+
+@contextmanager
+def _verified_shared_service_host(paths):
+    """Original79-only proof and deny-write/delete pin for one SCM context.
+
+    Native MSI must start after this context exits. No proof is accepted from
+    a caller, fleet snapshot, receipt boolean or service filename alone.
+    """
+    from . import durable_state
+    native=NativeMsi()
+    role=_registered_foundation(paths,native=native)
+    if role is None or role.package.sha256!=_SHARED79_PACKAGE:
+        raise ProvenanceConflict()
+    path=paths.install_root/'endpoint-agent-service.exe'
+    with ExitStack() as stack:
+        try:
+            before=durable_state._copy_identity(path.lstat())
+            if before[2]!=_SHARED79_HOST_SIZE:raise ProvenanceConflict()
+            descriptor=stack.enter_context(durable_state._pinned_copy_source(path))
+            proof=_PinnedSharedServiceHost(path,role,native,descriptor,before,os.fstat(descriptor).st_ctime_ns)
+            proof.check()
+            durable_state._verify_copy_bytes(descriptor,_SHARED79_HOST_SIZE,_SHARED79_HOST_SHA256)
+            proof.check()
+        except (OSError,ValueError) as error:
+            raise ProvenanceConflict() from error
+        yield proof
 
 
 def _verify_inert_receipt(paths,release,native):
