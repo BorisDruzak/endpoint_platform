@@ -112,7 +112,7 @@ def _validate(value: Observation) -> None:
         or not 0 < outer.created < inner.created < runtime.created
         or runtime.image not in {
             rf"C:\Program Files\Endpoint Platform\Agent\versions\3.2.{n}\pc_agent.exe"
-            for n in (83, 86, 87, 100, 60000)
+            for n in (83, 86, 87, 100, 60000, 60003)
         }
         or any(p.image != IMAGE for p in (inner, outer))):
         raise Rejected("service_ancestry")
@@ -155,5 +155,7 @@ def resolve(explicit: str | None, adapter=None) -> Authority:
             return result
     except Rejected:
         raise
-    except Exception:
+    except Exception as error:
+        from tools.canary.fixtures.diagnostics import report_diagnostic
+        report_diagnostic("native_exception", error=error)
         raise Rejected("native_observation_unavailable") from None

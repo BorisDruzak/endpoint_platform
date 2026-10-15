@@ -8,6 +8,6 @@ FIXTURE_VERSION = None
 
 
 def require_binding(compiled_version: str) -> str:
-    if FIXTURE_VERSION not in {"3.2.83", "3.2.86", "3.2.87", "3.2.100", "3.2.60000"} or compiled_version != FIXTURE_VERSION:
+    if FIXTURE_VERSION not in {"3.2.83", "3.2.86", "3.2.87", "3.2.100", "3.2.60000", "3.2.60003"} or compiled_version != FIXTURE_VERSION:
         raise ValueError("fixture version must be independently frozen")
     return FIXTURE_VERSION

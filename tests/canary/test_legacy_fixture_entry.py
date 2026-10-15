@@ -6,6 +6,12 @@ import sys
 import pytest
 
 
+@pytest.fixture(autouse=True)
+def no_operator_event_log_writes(monkeypatch):
+    entry = entry_module()
+    monkeypatch.setattr(entry, "report_diagnostic", lambda *args, **kwargs: None, raising=False)
+
+
 def entry_module():
     assert importlib.util.find_spec("tools.canary.fixtures.legacy_entry") is not None
     return importlib.import_module("tools.canary.fixtures.legacy_entry")
@@ -51,6 +57,18 @@ def test_failed_native_resolution_prevents_startup(monkeypatch):
     assert entry.main(["--windows-service-child"]) == 75
 
 
+def test_native_refusal_emits_stage_without_starting_runtime(monkeypatch):
+    entry = configured(monkeypatch)
+    events = []
+    monkeypatch.setattr(entry, "report_diagnostic", lambda stage, **kw: events.append((stage, kw)), raising=False)
+    error = entry.Rejected("native_observation_unavailable")
+    monkeypatch.setattr(entry, "resolve", lambda explicit: (_ for _ in ()).throw(error))
+    monkeypatch.setattr(entry, "runtime_main", lambda argv: pytest.fail("runtime started"))
+    assert entry.main(["--windows-service-child"]) == 75
+    assert [stage for stage, _ in events] == ["authority_start", "authority_refused"]
+    assert events[-1][1]["error"] is error
+
+
 def test_resolved81_is_supplied_before_runtime_startup(monkeypatch):
     entry = configured(monkeypatch)
     from tools.canary.fixtures.legacy_authority import Authority
@@ -87,7 +105,7 @@ def test_fixture_spec_refuses_canonical82_before_analysis(monkeypatch):
         exec(compile(path.read_text(encoding="utf-8"), str(path), "exec"), {"SPECPATH": str(path.parent)})
 
 
-@pytest.mark.parametrize('version',['3.2.100','3.2.60000'])
+@pytest.mark.parametrize('version',['3.2.100','3.2.60000','3.2.60003'])
 def test_equivalent_b_requires_matching_literal_before_offline_verification(monkeypatch,version):
     entry = configured(monkeypatch)
     monkeypatch.setattr(entry.binding, 'FIXTURE_VERSION', version)
