@@ -64,7 +64,7 @@ def test_exact81_not_fixture_core_is_authority(authority):
 
 
 @pytest.mark.parametrize('version,allowed', [('3.2.100',True), ('3.2.99',False), ('3.2.101',False), ('3.2.102',False),
-    ('3.2.60000',True), ('3.2.60003',True), ('3.2.59999',False), ('3.2.60001',False), ('3.2.60004',False)])
+    ('3.2.60000',True), ('3.2.60003',True), ('3.2.60004',True), ('3.2.59999',False), ('3.2.60001',False), ('3.2.60005',False)])
 def test_equivalent_b_path_keeps_exact81_host_and_native_product_boundary(authority, version, allowed):
     a = authority
     original = observed(a)

@@ -144,7 +144,7 @@ def test_fixture_spec_refuses_canonical82_before_analysis(monkeypatch):
         exec(compile(path.read_text(encoding="utf-8"), str(path), "exec"), {"SPECPATH": str(path.parent)})
 
 
-@pytest.mark.parametrize('version',['3.2.100','3.2.60000','3.2.60003'])
+@pytest.mark.parametrize('version',['3.2.100','3.2.60000','3.2.60003','3.2.60004'])
 def test_equivalent_b_requires_matching_literal_before_offline_verification(monkeypatch,version):
     entry = configured(monkeypatch)
     monkeypatch.setattr(entry.binding, 'FIXTURE_VERSION', version)
