@@ -39,8 +39,10 @@ def installer_mutation_checkpoints(checkpoint: Callable[[], None]):
         _INSTALLER_CHECKPOINT.reset(token)
 
 
-def installer_mutation_checkpoint() -> None:
+def installer_mutation_checkpoint(*, required: bool = False) -> None:
     checkpoint = _INSTALLER_CHECKPOINT.get()
+    if checkpoint is None and required:
+        raise ValueError('installer mutation scope is absent')
     if checkpoint is not None:
         checkpoint()
 

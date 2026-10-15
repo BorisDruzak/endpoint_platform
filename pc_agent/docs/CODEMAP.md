@@ -2,6 +2,16 @@
 
 ## Runtime boundary
 
+Authenticated fresh standalone MSI preparation normalizes only fully admitted
+native81 ZIP current/previous trees before native replacement. The existing MSI
+payload DACL (SYSTEM/Administrators Full; Users and Agent/Updater service SIDs RX)
+replaces historical servicing inheritance. Every object is pinned without delete
+sharing and changed by its verified handle; payload bytes, identities, selectors
+and complete native/cache proof are checked again. Interrupted preparation can
+finish a mixed strict/legacy tree while original81 remains installed. Inspection,
+costing, recovery and compound paths do not gain this mutation authority. Private
+enrollment data and generic state ACL policy are unchanged.
+
 Recovery-critical Windows update state uses `platform/windows/durable_state.py`:
 pending handoffs, adapter journal arrays, selectors, startup attempt/proof,
 terminal outcome and MSI selector rollback snapshots are file-flushed,

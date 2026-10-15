@@ -397,6 +397,173 @@ def verify_prepared_foundation(paths,request,foundation):
     return role
 
 
+def _prepare_zip_payload_security(paths, request, predecessor):
+    """Installer prepare only: retire native81 ZIP directory inheritance.
+
+    The authenticated bridge calls this after complete plan/archive admission,
+    before its fence or native removal. Inspection remains read-only. Only the
+    selected/previous ZIP trees receive the existing MSI payload policy; private
+    data, selectors and generic state policy are never rewritten here. A partial
+    failure leaves stricter objects which a fresh native81 preparation can retry.
+    """
+    digest = 'ad4dc49703513d6dee6fd3e51ac94a09c5967112d58aed4e60a63cf6966251f5'
+    if predecessor is None or predecessor.package.sha256 != digest:
+        return
+    import win32file
+    import win32security as security
+    import win32timezone  # noqa: F401 - native FILETIME conversion
+    from endpoint_contracts.runtime_payload import reject_reparse_ancestors, read_json
+    from . import durable_state, installation_provenance as provenance
+    from .installer_fence import assert_namespace_security
+    from .update_transaction import _SERVICE_SIDS, _OWNERS
+    import msvcrt
+
+    durable_state.installer_mutation_checkpoint(required=True)
+
+    def native_owner():
+        role = _registered_foundation(paths)
+        if (role is None or role.release != canonical_release(predecessor.release)
+            or role.package != predecessor.package or role.package.sha256 != digest):
+            raise ProvenanceConflict()
+        verify_registration(role.package, role.release)
+        return role
+
+    def inspect():
+        result = provenance.inspect_installed_core(paths, resulting_foundation=request['release']['version'])
+        if ((result.current.digest if result.current else None) != request['selected']
+            or (result.previous.digest if result.previous else None) != request['previous']):
+            raise ProvenanceConflict()
+        return result
+
+    def identity(info):
+        directory = stat.S_ISDIR(info.st_mode)
+        if not directory and (not stat.S_ISREG(info.st_mode) or info.st_nlink != 1):
+            raise ProvenanceConflict()
+        # ACL changes can alter DOS read-only mode. Directory metadata is not
+        # payload; file identity, size and content timestamps remain fixed.
+        return (info.st_dev, info.st_ino, stat.S_IFMT(info.st_mode),
+            info.st_nlink, None if directory else (info.st_size, info.st_mtime_ns))
+
+    def identities(root):
+        result = {}
+        assert_namespace_security(root)
+        for index, path in enumerate(chain((root,), root.rglob('*'))):
+            if index >= 10000:
+                raise ProvenanceConflict()
+            reject_reparse_ancestors(path)
+            result[path] = identity(path.lstat())
+        return result
+
+    def read_descriptor(handle):
+        return security.GetSecurityInfo(handle, security.SE_FILE_OBJECT,
+            security.OWNER_SECURITY_INFORMATION | security.DACL_SECURITY_INFORMATION)
+
+    def admit_acl(sd, directory):
+        # Same native-servicing-directory / strict-leaf predicates as the
+        # read-only admission, applied to the pinned object AFTER checkpoint.
+        servicing = {'S-1-5-18','S-1-5-32-544',
+            'S-1-5-80-956008885-3418522649-1831038044-1853292631-2271478464'}
+        owner, acl = sd.GetSecurityDescriptorOwner(), sd.GetSecurityDescriptorDacl()
+        writers = servicing if directory else {'S-1-5-18','S-1-5-32-544',*_SERVICE_SIDS}
+        if owner is None or security.ConvertSidToStringSid(owner) not in (servicing if directory else _OWNERS) or acl is None:
+            raise ProvenanceConflict()
+        for index in range(acl.GetAceCount()):
+            ace = acl.GetAce(index)
+            if len(ace) != 3 or ace[0][0] != security.ACCESS_ALLOWED_ACE_TYPE:
+                raise ProvenanceConflict()
+            if directory and ace[0][1] & security.INHERIT_ONLY_ACE:
+                continue
+            if ace[1] & 0x500D0156 and security.ConvertSidToStringSid(ace[2]) not in writers:
+                raise ProvenanceConflict()
+
+    policies = {}
+    for directory in (False, True):
+        flags = 'OICI' if directory else ''
+        sddl = ('O:BAG:BAD:P' + ''.join(f'(A;{flags};FA;;;{sid})' for sid in ('SY','BA'))
+            + ''.join(f'(A;{flags};FRFX;;;{sid})' for sid in ('BU', *_SERVICE_SIDS)))
+        policies[directory] = security.ConvertStringSecurityDescriptorToSecurityDescriptor(sddl, 1)
+
+    def canonical(sd, directory):
+        wanted = policies[directory]
+        acl, expected_acl = sd.GetSecurityDescriptorDacl(), wanted.GetSecurityDescriptorDacl()
+        if (sd.GetSecurityDescriptorOwner() != wanted.GetSecurityDescriptorOwner()
+            or not sd.GetSecurityDescriptorControl()[0] & security.SE_DACL_PROTECTED
+            or acl is None or acl.GetAceCount() != expected_acl.GetAceCount()
+            or any(acl.GetAce(i) != expected_acl.GetAce(i) for i in range(expected_acl.GetAceCount()))):
+            raise ProvenanceConflict()
+
+    native_owner()
+    inspected = inspect()
+    trees, pins = {}, {}
+    # Keep BOTH current and previous trees pinned through the final global
+    # security closure. A later tree cannot invalidate an earlier readback.
+    with ExitStack() as held:
+        for evidence in (inspected.current, inspected.previous):
+            if evidence is None or evidence.origin != 'zip':
+                continue
+            root = paths.versions_root / evidence.identity.version
+            if root in trees:
+                continue
+            handle = win32file.CreateFile(str(root), 0x80020080, 3, None, 3, 0x02200000, None)
+            held.callback(handle.Close)
+            before = identities(root)
+            # Always traverse legacy policy, including after a partially
+            # completed retry whose root already has a strict DACL.
+            with verified_legacy_zip_tree_security(paths, root):
+                observed = provenance._inspect_zip(root, evidence.selector_bytes,
+                    read_json(evidence.selector_bytes, 4096))
+                if observed != evidence or identities(root) != before:
+                    raise ProvenanceConflict()
+            native_owner()
+            # Pin every object before the first inheritable ACL can propagate.
+            # Handles exclude SHARE_DELETE and bind setters to the admitted
+            # object; no path-based nested replacement can redirect a write.
+            for path, original in before.items():
+                reject_reparse_ancestors(path)
+                opened = win32file.CreateFile(str(path), 0x800e0080, 3, None, 3, 0x02200000, None)
+                try:
+                    descriptor = msvcrt.open_osfhandle(opened.Detach(), os.O_RDONLY | os.O_BINARY)
+                except BaseException:
+                    opened.Close()
+                    raise
+                pins[path] = (descriptor, original)
+                held.callback(os.close, descriptor)
+                if (win32file.GetFileInformationByHandle(msvcrt.get_osfhandle(descriptor))[0] & 0x400
+                    or identity(os.fstat(descriptor)) != original):
+                    raise ProvenanceConflict()
+            if identities(root) != before:
+                raise ProvenanceConflict()
+            trees[root] = before
+        native_owner()
+        # Children first: every existing descendant is protected before an
+        # ancestor's inheritable policy is set, so propagation cannot silently
+        # erase a newly unsafe child ACL before its own admission check.
+        for path in sorted(pins, key=lambda item:len(item.parts), reverse=True):
+            file_descriptor, original = pins[path]
+            durable_state.installer_mutation_checkpoint(required=True)
+            reject_reparse_ancestors(path)
+            info = path.lstat()
+            directory = stat.S_ISDIR(info.st_mode)
+            if identity(info) != original or identity(os.fstat(file_descriptor)) != original:
+                raise ProvenanceConflict()
+            native_handle = msvcrt.get_osfhandle(file_descriptor)
+            admit_acl(read_descriptor(native_handle), directory)
+            wanted = policies[directory]
+            security.SetSecurityInfo(native_handle, security.SE_FILE_OBJECT,
+                security.OWNER_SECURITY_INFORMATION | security.DACL_SECURITY_INFORMATION
+                | security.PROTECTED_DACL_SECURITY_INFORMATION,
+                wanted.GetSecurityDescriptorOwner(), None, wanted.GetSecurityDescriptorDacl(), None)
+            canonical(read_descriptor(native_handle), directory)
+        if any(identities(root) != before for root, before in trees.items()) or inspect() != inspected:
+            raise ProvenanceConflict()
+        native_owner()
+        for path, (file_descriptor, original) in pins.items():
+            reject_reparse_ancestors(path)
+            if identity(path.lstat()) != original or identity(os.fstat(file_descriptor)) != original:
+                raise ProvenanceConflict()
+            canonical(read_descriptor(msvcrt.get_osfhandle(file_descriptor)), stat.S_ISDIR(path.lstat().st_mode))
+
+
 def recovery_selector_options(paths,request):
     from . import installation_provenance as provenance,msi_inventory
     if prepared_predecessor(paths,request) is None:return {}

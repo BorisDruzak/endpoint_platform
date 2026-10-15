@@ -612,8 +612,9 @@ def _execute_authorized_phase(client,paths,*,feature_states=None,rollback_disabl
                     # still-selected identities have been revalidated.
                     provenance.validate_interrupted_reconciliation(paths,request)
                     if 'compound' not in capability:
-                        from .legacy_foundation_upgrade import verify_prepared_foundation
-                        verify_prepared_foundation(paths,request,foundation)
+                        from .legacy_foundation_upgrade import verify_prepared_foundation, _prepare_zip_payload_security
+                        predecessor=verify_prepared_foundation(paths,request,foundation)
+                        _prepare_zip_payload_security(paths,request,predecessor)
                 elif not capability['recovery']:
                     provenance.prepare_maintenance_provenance(paths,request,capability['operation'])
                 if capability['operation']=='install' and 'compound' not in capability:

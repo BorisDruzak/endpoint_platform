@@ -715,7 +715,7 @@ def test_retirement_requires_independent_current_and_previous_zip_cores(handoff_
     with pytest.raises(module.ProvenanceConflict): module.inspect_runtime_retirement(paths,expected)
 
 
-@pytest.mark.parametrize('copy_failure',[True,False])
+@pytest.mark.parametrize('copy_failure',[True,False,'payload-security'])
 def test_pre_fence_preparation_never_changes_live_ownership(handoff_input,monkeypatch,copy_failure):
     from types import SimpleNamespace
     from pc_agent.platform.windows import installer_transaction_bridge as bridge,durable_state,installer_fence,update_transaction
@@ -731,7 +731,15 @@ def test_pre_fence_preparation_never_changes_live_ownership(handoff_input,monkey
     completions=[]
     client=SimpleNamespace(capability=capability,phase='prepare',checkpoint=lambda:None,
         identity=SimpleNamespace(value={'pid':200,'created':2000,'hash':'a'*64}),request=lambda *args:completions.append(args))
-    if copy_failure:
+    if copy_failure == 'payload-security':
+        from pc_agent.platform.windows import legacy_foundation_upgrade as legacy
+        def refused(*_args):raise ValueError('payload security preparation refused')
+        monkeypatch.setattr(legacy,'_prepare_zip_payload_security',refused)
+        with pytest.raises(ValueError,match='payload security preparation refused'):
+            bridge.execute_authorized_phase(client,paths)
+        assert installer_fence.read_fence(paths) is None
+        assert completions==[]
+    elif copy_failure:
         def failed(*_args,**_kwargs): raise OSError('allocation/copy failed')
         monkeypatch.setattr(durable_state,'durable_copy_file',failed)
         with pytest.raises(OSError,match='allocation/copy failed'): bridge.execute_authorized_phase(client,paths)
