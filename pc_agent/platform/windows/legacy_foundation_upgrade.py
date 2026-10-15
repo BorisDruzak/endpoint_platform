@@ -11,6 +11,7 @@ import re
 import stat
 import uuid
 from pathlib import Path
+from itertools import chain
 from .msi_inventory import NativeMsi,PackageInventory,ProvenanceConflict,guid
 from .runtime_identity import _LEGACY_MSI_CONTRACTS
 
@@ -136,6 +137,69 @@ def inspect_foundation(paths,*,native=None):
     """
     role=_registered_foundation(paths,native=native)
     return role.release if role is not None else None
+
+
+@contextmanager
+def verified_legacy_zip_tree_security(paths, root):
+    """Read a native81-published ZIP without granting generic servicing writers.
+
+    Original81 inherits ProgramFiles servicing ACEs on directories. Leaves,
+    selectors and receipts retain strict state policy. The caller must perform
+    its complete ZIP verification inside this scope, before native recheck.
+    This scope neither hardens ACLs nor grants execution or mutation authority.
+    """
+    import win32file
+    import win32timezone  # noqa: F401 - native FILETIME conversion
+    from endpoint_contracts.runtime_payload import reject_reparse_ancestors
+    from . import installation_provenance as provenance, msi_inventory
+    from .installer_fence import assert_namespace_security
+
+    digest = 'ad4dc49703513d6dee6fd3e51ac94a09c5967112d58aed4e60a63cf6966251f5'
+    role = _registered_foundation(paths)
+    if (role is None or canonical_release(role.release) != role.release
+        or role.release['package_sha256'] != digest
+        or role.package.sha256 != digest or role.package.version != '3.2.81'
+        or role.package.product_code != _PRODUCTS[digest]
+        or root.parent != paths.versions_root):
+        raise ProvenanceConflict()
+
+    def inspect_tree():
+        assert_namespace_security(root)
+        identities = []
+        for index, path in enumerate(chain((root,), root.rglob('*'))):
+            if index >= 10000:
+                raise ProvenanceConflict()
+            reject_reparse_ancestors(path)
+            info = path.lstat()
+            if stat.S_ISDIR(info.st_mode):
+                msi_inventory._assert_registered_cache_security(path)
+            elif stat.S_ISREG(info.st_mode) and info.st_nlink == 1 and path != root:
+                provenance._assert_security(path)
+            else:
+                raise ProvenanceConflict()
+            identities.append((str(path), info.st_dev, info.st_ino, info.st_mode,
+                info.st_size, info.st_mtime_ns, info.st_nlink))
+        return tuple(sorted(identities))
+
+    before = inspect_tree()
+    # READ_ATTRIBUTES/READ_CONTROL only. Excluding SHARE_DELETE pins this root
+    # while complete receipt/manifest/tree verification executes in the caller.
+    handle = win32file.CreateFile(str(root), 0x20080, 3, None, 3, 0x02200000, None)
+    try:
+        native = win32file.GetFileInformationByHandle(handle)
+        if native[0] & 0x400 or not native[0] & 0x10 or inspect_tree() != before:
+            raise ProvenanceConflict()
+        yield
+        # Product properties alone do not cover component ownership or the
+        # registered cache. Renew the complete admission proof after payload I/O.
+        if _registered_foundation(paths) != role:
+            raise ProvenanceConflict()
+        verify_registration(role.package, role.release)
+        if win32file.GetFileInformationByHandle(handle)[4:] != native[4:] or inspect_tree() != before:
+            raise ProvenanceConflict()
+        assert_namespace_security(root)
+    finally:
+        handle.Close()
 
 
 def _registered_foundation(paths,*,native=None):

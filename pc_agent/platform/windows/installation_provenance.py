@@ -211,8 +211,14 @@ def _inspect_core_value(paths: WindowsUpdatePaths, selector_data: bytes, selecto
     root = paths.versions_root / selector['version']
     reject_reparse_ancestors(root)
     if _present(root / ZIP_RECEIPT):
-        _assert_security(root)
-        evidence = _inspect_zip(root, selector_data, selector)
+        try:
+            _assert_security(root)
+        except ValueError:
+            from .legacy_foundation_upgrade import verified_legacy_zip_tree_security
+            with verified_legacy_zip_tree_security(paths, root):
+                evidence = _inspect_zip(root, selector_data, selector)
+        else:
+            evidence = _inspect_zip(root, selector_data, selector)
     elif _present(root / RETAINED_RECEIPT):
         _assert_security(root)
         from .runtime_identity import verify_retained_runtime
