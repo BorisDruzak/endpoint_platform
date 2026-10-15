@@ -14,7 +14,7 @@ def test_legacy_foundation_extension_is_exact_and_keeps_historical_contracts():
         '2f7d778799f1e32645af7936dfaf3f090d6ad4df5bb883827ea8a0a5d859f72a',
         'ad4dc49703513d6dee6fd3e51ac94a09c5967112d58aed4e60a63cf6966251f5',
     }
-    assert identity._LEGACY_FOUNDATION_EXTENSIONS=={version:frozenset(canonical) for version in ('3.2.94','3.2.95','3.2.96','3.2.97','3.2.98','3.2.99','3.2.103','3.2.106','3.2.109','3.2.112','3.2.113')}
+    assert identity._LEGACY_FOUNDATION_EXTENSIONS=={version:frozenset(canonical) for version in ('3.2.94','3.2.95','3.2.96','3.2.97','3.2.98','3.2.99','3.2.103','3.2.106','3.2.109','3.2.112','3.2.113','3.2.114')}
     for package in canonical:
         assert identity._LEGACY_MSI_CONTRACTS[package]['approved_foundations']==('3.2.82',)
         assert identity.legacy_foundation_compatible(package,'3.2.82')
@@ -28,7 +28,8 @@ def test_legacy_foundation_extension_is_exact_and_keeps_historical_contracts():
         assert identity.legacy_foundation_compatible(package,'3.2.109')
         assert identity.legacy_foundation_compatible(package,'3.2.112')
         assert identity.legacy_foundation_compatible(package,'3.2.113')
-        for version in ('3.2.81','3.2.93','3.2.100','3.2.114','4.0.0'):
+        assert identity.legacy_foundation_compatible(package,'3.2.114')
+        for version in ('3.2.81','3.2.93','3.2.100','3.2.115','4.0.0'):
             assert not identity.legacy_foundation_compatible(package,version)
     assert not identity.legacy_foundation_compatible('0'*64,'3.2.94')
     assert not identity.legacy_foundation_compatible('0'*64,'3.2.95')
@@ -40,6 +41,7 @@ def test_legacy_foundation_extension_is_exact_and_keeps_historical_contracts():
     assert not identity.legacy_foundation_compatible('0'*64,'3.2.109')
     assert not identity.legacy_foundation_compatible('0'*64,'3.2.112')
     assert not identity.legacy_foundation_compatible('0'*64,'3.2.113')
+    assert not identity.legacy_foundation_compatible('0'*64,'3.2.114')
 
 
 @pytest.mark.parametrize('defect',['none','absent','fields','schema','native'])
