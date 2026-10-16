@@ -769,7 +769,9 @@ class WindowsUpdater:
                 expanded = _validate_archive_limits(archive.infolist())
         require_disk_space(staging_parent, apply_required_bytes(pending.size, expanded))
         staging = staging_parent / uuid.uuid4().hex
-        staging.mkdir(parents=True, exist_ok=False)
+        staging_parent.mkdir(parents=True, exist_ok=True)
+        _reject_reparse_chain(self._paths.install_root, staging_parent)
+        _create_payload_staging(staging)
         artifact_copy: Path | None = None
         try:
             artifact_copy = _pin_artifact(pending, staging_parent)
@@ -1036,6 +1038,34 @@ def _hash_file(path: Path) -> str:
         for block in iter(lambda: source.read(1024 * 1024), b""):
             digest.update(block)
     return digest.hexdigest()
+
+
+def _create_payload_staging(path: Path) -> None:
+    """Create a new payload with its own inheritable policy before any ZIP bytes.
+
+    A legacy MSI staging parent may legitimately grant TrustedInstaller write
+    access to directories. New ZIP payloads use the strict runtime policy;
+    neither that parent nor any existing payload is repaired here.
+    """
+    if os.name != "nt":
+        path.mkdir(exist_ok=False)
+        return
+    import pywintypes
+    import win32file
+    import win32security
+    from .update_transaction import _SERVICE_SIDS
+
+    attributes = pywintypes.SECURITY_ATTRIBUTES()
+    attributes.SECURITY_DESCRIPTOR = win32security.ConvertStringSecurityDescriptorToSecurityDescriptor(
+        "O:BAG:BAD:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)"
+        + "".join(f"(A;OICI;FRFX;;;{sid})" for sid in ("BU", *_SERVICE_SIDS)), 1)
+    try:
+        # Atomic creation refuses an existing name without changing its ACL.
+        win32file.CreateDirectory(str(path), attributes)
+    except pywintypes.error as exc:
+        if exc.winerror in (80, 183):
+            raise FileExistsError(exc.winerror, "staging directory already exists", str(path)) from exc
+        raise
 
 
 def _extract_zip_member(archive: zipfile.ZipFile, member: zipfile.ZipInfo, staging: Path) -> None:

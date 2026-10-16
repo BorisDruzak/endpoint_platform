@@ -2,6 +2,11 @@
 
 ## Runtime boundary
 
+The offline updater creates each new ZIP staging root atomically with the strict
+protected payload DACL before extraction. Descendants inherit SYSTEM/Admin full
+control and Users/Agent/Updater read/execute. A preserved legacy servicing parent
+is not normalized; an existing staging name is refused without changing it.
+
 Authenticated fresh standalone MSI preparation normalizes only fully admitted
 native81 ZIP current/previous trees before native replacement. The existing MSI
 payload DACL (SYSTEM/Administrators Full; Users and Agent/Updater service SIDs RX)
