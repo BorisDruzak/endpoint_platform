@@ -345,6 +345,8 @@ finally {
 }
 $setupExe = Join-Path $distRoot 'EndpointAgentSetup.exe'
 if (-not (Test-Path -LiteralPath $setupExe -PathType Leaf)) { throw "Windows Setup executable is missing." }
+& $python (Join-Path $repositoryRoot 'tools\canary\privileged_bootstrap_contract.py') $setupExe --output (Join-Path $releaseRoot 'setup-bootstrap-inspection.json')
+if ($LASTEXITCODE -ne 0) { throw "Windows Setup bootstrap inspection failed." }
 $releaseSetup = Join-Path $releaseRoot "EndpointAgentSetup-$Version-x64.exe"
 Copy-Item -LiteralPath $setupExe -Destination $releaseSetup -Force
 Assert-SecretFreeSetupArtifact -Path $releaseSetup

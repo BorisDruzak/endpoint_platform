@@ -591,8 +591,6 @@ if (-not (Test-Path -LiteralPath $builtServiceHost -PathType Leaf)) {
 if (-not (Test-Path -LiteralPath $builtUpdater -PathType Leaf)) {
     throw "Offline updater build missing $builtUpdater"
 }
-Invoke-Checked $python @('-m', 'tools.canary.offline_updater_contract', $builtUpdater, '--output', (Join-Path $outputRoot 'offline-updater-inspection.json')) $repositoryRoot
-Invoke-Checked $builtUpdater @('--verify-offline') $repositoryRoot
 if (-not (Test-Path -LiteralPath $builtProvisioner -PathType Leaf)) {
     throw "Provisioning helper build missing $builtProvisioner"
 }
@@ -608,6 +606,11 @@ if (-not (Test-Path -LiteralPath $builtBrowserBridge -PathType Leaf)) {
 if (-not (Test-Path -LiteralPath $builtBrowserPolicy -PathType Leaf)) {
     throw "Browser Policy service build missing $builtBrowserPolicy"
 }
+Invoke-Checked $python @('-m', 'tools.canary.privileged_bootstrap_contract',
+    $builtLauncher, $builtServiceHost, $builtUpdater, $builtProvisioner, $builtBrowserPolicy,
+    '--output', (Join-Path $outputRoot 'privileged-bootstrap-inspection.json')) $repositoryRoot
+Invoke-Checked $python @('-m', 'tools.canary.offline_updater_contract', $builtUpdater, '--output', (Join-Path $outputRoot 'offline-updater-inspection.json')) $repositoryRoot
+Invoke-Checked $builtUpdater @('--verify-offline') $repositoryRoot
 $runtimePayload = $builtCore
 if ([int]$manifestPreview.schema_version -ge 5) {
     $runtimePayload = [IO.Path]::GetFullPath($InitialRuntimeStageRoot)
