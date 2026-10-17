@@ -26,12 +26,17 @@ def main(argv: Sequence[str] | None = None) -> int:
         from tempfile import TemporaryDirectory
         from pc_agent.platform.windows.selector_migration import _is_msi_owned_runtime
         from pc_agent.platform.windows.update_paths import WindowsUpdatePaths
+        from pc_agent.platform.windows.installer_fence import read_fence
         # Cover the conditional MSI-owned rollback path as it executes inside
         # the actual archive. These temporary bytes are never an executable
         # release and never enter the production pending or selector paths.
         with TemporaryDirectory(prefix='endpoint-offline-check-') as temporary:
             root = Path(temporary)
             paths = WindowsUpdatePaths(root / 'install', root / 'updates' / 'pending.json')
+            # run_once lazily reaches this import via update_transaction before
+            # touching pending state. Exercise it in the actual frozen worker.
+            if read_fence(paths) is not None:
+                raise ValueError('Offline temporary installer fence must be absent')
             runtime = paths.versions_root / '0.0.1'
             runtime.mkdir(parents=True)
             (runtime / 'pc_agent.exe').write_bytes(b'offline path validation fixture')
@@ -40,7 +45,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 'component_guid': 'E43B1790-43B8-4B08-A8F9-79B535026121'}), encoding='utf-8')
             if not _is_msi_owned_runtime(paths, '0.0.1'):
                 raise ValueError('Offline MSI-owned runtime validation failed')
-        print(json.dumps({'offline_worker_imports': 'verified', 'msi_owned_validation': 'verified'}))
+        print(json.dumps({'offline_worker_imports': 'verified', 'msi_owned_validation': 'verified',
+                          'installer_fence_read': 'verified'}))
         return 0
     raise ValueError('Offline updater accepts only fixed SCM or verification modes')
 

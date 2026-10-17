@@ -24,6 +24,24 @@ def test_harmless_packaged_self_check_never_runs_worker(monkeypatch):
     assert updater_entry.main(['--verify-offline']) == 0
 
 
+def test_packaged_self_check_exercises_installer_fence_without_product_state(monkeypatch):
+    from pc_agent.platform.windows import installer_fence, updater_entry
+
+    observed = []
+    original = installer_fence.read_fence
+
+    def read_temporary_fence(paths):
+        assert 'endpoint-offline-check-' in str(paths.install_root)
+        result = original(paths)
+        assert result is None
+        observed.append(paths)
+        return result
+
+    monkeypatch.setattr(installer_fence, 'read_fence', read_temporary_fence)
+    assert updater_entry.main(['--verify-offline']) == 0
+    assert len(observed) == 1
+
+
 def test_msi_owned_runtime_validation_does_not_import_excluded_agent_launcher(tmp_path, monkeypatch):
     import json
     import sys

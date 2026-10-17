@@ -1,116 +1,128 @@
-from .commands import (
-    AgentCommandAckV1,
-    AgentCommandV1,
-    AgentResultV1,
-    CommandCorrelationV1,
-)
-from .activity import ActivityObservationV1, ActivitySectionsV1, BrowserActivityV1, ForegroundApplicationV1
-from .context import (
-    BaselineSectionsV1,
-    ContextProfileV1,
-    ContextWarningCodeV1,
-    DeviceContextBaselineV1,
-    DeviceContextActivityV1,
-    DeviceContextDiagnosticV1,
-    DeviceContextDiffV1,
-    DeviceContextEnvelopeV1,
-    DeviceContextHealthV1,
-    DeviceContextInventoryV1,
-    DeviceContextNetworkV1,
-    DeviceContextSessionV1,
-    InventorySectionsV1,
-    SessionSectionsV1,
-    validate_context_result_item,
-)
-from .enrollment import (
-    AgentEnrollmentDeliveryV1,
-    AgentEnrollmentRequestV1,
-    DeviceCredentialRotationV1,
-    EnrollmentDeliveryProofV1,
-    EnrollmentRequestV1,
-    EnrollmentResponseV1,
-    PreEnrollmentRequestCreateV1,
-    PreEnrollmentRequestStatusV1,
-    WindowsEnrollmentPolicyV1,
-)
-from .gateway_ws import (
-    ActivityObservationEnvelopeV1,
-    AgentHelloV1,
-    CommandCancelV1,
-    GatewayErrorV1,
-    GatewayHelloV1,
-    GatewayInboundV1,
-    GatewayWsEnvelopeV1,
-    EndpointPolicyAckV1,
-    EndpointPolicyDeliveryV1,
-    PolicyUpdateV1,
-    PolicySensorHealthReportEnvelopeV1,
-    ResultAckV1,
-    SecurityEventAckEnvelopeV1,
-    SecurityEventBatchEnvelopeV1,
-    ServerShutdownNoticeV1,
-)
-from .security_events import AgentSecurityEventBatchV1, SecurityEventAckV1
-from .sensor_health import PolicySensorHealthReportV1
-from .endpoint_policy import EndpointPolicyV1
-from .identity import AgentSessionV1, DeviceIdentityV1
-from .network_primitives import (
-    DnsResolveParametersV1,
-    DnsResolveResultV1,
-    NetworkAddressV1,
-    NetworkPingParametersV1,
-    NetworkPingResultV1,
-    TcpConnectParametersV1,
-    TcpConnectResultV1,
-)
-from .read_only_primitives import (
-    AdapterListParametersV1,
-    AdapterListResultV1,
-    AdapterSummaryItemV1,
-    RouteGetParametersV1,
-    RouteGetResultV1,
-    ServiceStatusParametersV1,
-    ServiceStatusResultV1,
-)
-from .capabilities import (
-    EndpointCapabilityParameterDescriptorV1,
-    ModuleCapabilityAuthoringV1,
-    ModuleCapabilityCatalogV1,
-    ModuleCapabilityNameV1,
-)
-from .modules import (
-    EndpointRecipeModuleSpecV1,
-    ModuleLabOperationCreateV1,
-    ModuleLiveTestRecordV1,
-    ModuleLiveTestRecordedV1,
-    ModuleOperationCreateV1,
-    ModuleOperationDetailV1,
-    ModuleOperationStepV1,
-    ModuleOperationV1,
-    ModuleSummaryV1,
-    ModuleValidationRunV1,
-    ModuleVersionViewV1,
-    ModuleVersionStateV1,
-    ModuleVersionCreateV1,
-)
-from .operations import (
-    DiagnosticCollectionParametersV1,
-    EndpointCapabilityAvailabilityV1,
-    EndpointDeviceCapabilitiesV1,
-    EndpointDeviceSummaryV1,
-    EndpointDiagnosticResultV1,
-    EndpointOperationCreateV1,
-    EndpointOperationStatusV1,
-    EndpointOperationV1,
-)
-from .telemetry import AgentBuildRecommendationV1, AgentHeartbeatV1
-from .updates import (
-    AgentUpdateAcknowledgementV1,
-    AgentUpdateRecommendationV1,
-    AgentUpdateReportV1,
-    UpdateBuildManifestV1,
-    UpdateRolloutCreateV1,
-)
+"""Contract model exports load on demand, independently of offline payload checks.
+
+Importing a pure leaf such as runtime_payload must not initialize the model
+stack in the networkless privileged updater. Public model objects and the
+existing import order remain unchanged when any model export is requested.
+"""
+
+
+def _load_models():
+    from .commands import (
+        AgentCommandAckV1,
+        AgentCommandV1,
+        AgentResultV1,
+        CommandCorrelationV1,
+    )
+    from .activity import ActivityObservationV1, ActivitySectionsV1, BrowserActivityV1, ForegroundApplicationV1
+    from .context import (
+        BaselineSectionsV1,
+        ContextProfileV1,
+        ContextWarningCodeV1,
+        DeviceContextBaselineV1,
+        DeviceContextActivityV1,
+        DeviceContextDiagnosticV1,
+        DeviceContextDiffV1,
+        DeviceContextEnvelopeV1,
+        DeviceContextHealthV1,
+        DeviceContextInventoryV1,
+        DeviceContextNetworkV1,
+        DeviceContextSessionV1,
+        InventorySectionsV1,
+        SessionSectionsV1,
+        validate_context_result_item,
+    )
+    from .enrollment import (
+        AgentEnrollmentDeliveryV1,
+        AgentEnrollmentRequestV1,
+        DeviceCredentialRotationV1,
+        EnrollmentDeliveryProofV1,
+        EnrollmentRequestV1,
+        EnrollmentResponseV1,
+        PreEnrollmentRequestCreateV1,
+        PreEnrollmentRequestStatusV1,
+        WindowsEnrollmentPolicyV1,
+    )
+    from .gateway_ws import (
+        ActivityObservationEnvelopeV1,
+        AgentHelloV1,
+        CommandCancelV1,
+        GatewayErrorV1,
+        GatewayHelloV1,
+        GatewayInboundV1,
+        GatewayWsEnvelopeV1,
+        EndpointPolicyAckV1,
+        EndpointPolicyDeliveryV1,
+        PolicyUpdateV1,
+        PolicySensorHealthReportEnvelopeV1,
+        ResultAckV1,
+        SecurityEventAckEnvelopeV1,
+        SecurityEventBatchEnvelopeV1,
+        ServerShutdownNoticeV1,
+    )
+    from .security_events import AgentSecurityEventBatchV1, SecurityEventAckV1
+    from .sensor_health import PolicySensorHealthReportV1
+    from .endpoint_policy import EndpointPolicyV1
+    from .identity import AgentSessionV1, DeviceIdentityV1
+    from .network_primitives import (
+        DnsResolveParametersV1,
+        DnsResolveResultV1,
+        NetworkAddressV1,
+        NetworkPingParametersV1,
+        NetworkPingResultV1,
+        TcpConnectParametersV1,
+        TcpConnectResultV1,
+    )
+    from .read_only_primitives import (
+        AdapterListParametersV1,
+        AdapterListResultV1,
+        AdapterSummaryItemV1,
+        RouteGetParametersV1,
+        RouteGetResultV1,
+        ServiceStatusParametersV1,
+        ServiceStatusResultV1,
+    )
+    from .capabilities import (
+        EndpointCapabilityParameterDescriptorV1,
+        ModuleCapabilityAuthoringV1,
+        ModuleCapabilityCatalogV1,
+        ModuleCapabilityNameV1,
+    )
+    from .modules import (
+        EndpointRecipeModuleSpecV1,
+        ModuleLabOperationCreateV1,
+        ModuleLiveTestRecordV1,
+        ModuleLiveTestRecordedV1,
+        ModuleOperationCreateV1,
+        ModuleOperationDetailV1,
+        ModuleOperationStepV1,
+        ModuleOperationV1,
+        ModuleSummaryV1,
+        ModuleValidationRunV1,
+        ModuleVersionViewV1,
+        ModuleVersionStateV1,
+        ModuleVersionCreateV1,
+    )
+    from .operations import (
+        DiagnosticCollectionParametersV1,
+        EndpointCapabilityAvailabilityV1,
+        EndpointDeviceCapabilitiesV1,
+        EndpointDeviceSummaryV1,
+        EndpointDiagnosticResultV1,
+        EndpointOperationCreateV1,
+        EndpointOperationStatusV1,
+        EndpointOperationV1,
+    )
+    from .telemetry import AgentBuildRecommendationV1, AgentHeartbeatV1
+    from .updates import (
+        AgentUpdateAcknowledgementV1,
+        AgentUpdateRecommendationV1,
+        AgentUpdateReportV1,
+        UpdateBuildManifestV1,
+        UpdateRolloutCreateV1,
+    )
+
+    return locals()
+
 
 __all__ = [
     "AgentSecurityEventBatchV1",
@@ -213,3 +225,14 @@ __all__ = [
     "validate_context_result_item",
     "WindowsEnrollmentPolicyV1",
 ]
+
+
+def __getattr__(name):
+    if name not in __all__:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    globals().update(_load_models())
+    return globals()[name]
+
+
+def __dir__():
+    return sorted(set(globals()) | set(__all__))

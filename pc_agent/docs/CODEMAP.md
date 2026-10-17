@@ -2,6 +2,12 @@
 
 ## Runtime boundary
 
+`endpoint_contracts` defers its model exports until requested. The pure
+`runtime_payload` leaf therefore loads without initializing Pydantic or its
+indirect network imports in the offline worker. The packaged updater's
+`--verify-offline` mode exercises the installer-fence read under a temporary
+fixture, as well as MSI-owned runtime validation, without reading product state.
+
 The offline updater creates each new ZIP staging root atomically with the strict
 protected payload DACL before extraction. Descendants inherit SYSTEM/Admin full
 control and Users/Agent/Updater read/execute. A preserved legacy servicing parent

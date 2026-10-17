@@ -144,10 +144,17 @@ def offline_import(name, *args, **kwargs):
 builtins.__import__ = offline_import
 from pc_agent.platform.windows import durable_state
 from pc_agent.platform.windows import updater_service, selector_migration, acl
+from pc_agent.platform.windows.installer_fence import read_fence
+from pc_agent.platform.windows.update_paths import WindowsUpdatePaths
+assert 'pydantic' not in sys.modules
 import tempfile
 from pathlib import Path
 with tempfile.TemporaryDirectory() as directory:
     root = Path(directory)
+    # The real worker enters the transaction through this lazy import before
+    # reading pending state. Absence must work in the networkless bundle too.
+    paths = WindowsUpdatePaths(root / 'install', root / 'updates' / 'pending.json')
+    assert read_fence(paths) is None
     durable_state.write_json_atomic(root / 'state', [{'offline': True}], trusted_root=root, max_bytes=100)
     durable_state.durable_unlink(root / 'state', trusted_root=root)
     selector = root / 'current.json'
@@ -155,5 +162,6 @@ with tempfile.TemporaryDirectory() as directory:
     selector_migration._write_selector_atomic(selector, '0.0.2')
 '''
     result = subprocess.run([sys.executable, '-I', '-c', script, str(ROOT)],
-                            check=True, capture_output=True, text=True)
+                            check=False, capture_output=True, text=True, timeout=30)
+    assert result.returncode == 0, result.stderr
     assert result.stdout == result.stderr == ''
