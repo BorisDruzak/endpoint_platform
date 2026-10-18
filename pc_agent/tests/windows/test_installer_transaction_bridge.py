@@ -227,6 +227,7 @@ def test_client_stops_before_sending_when_owner_has_exited():
     ('install',(2,3,2,3),True),('install',(3,3,2,3),True),
     ('install',(3,3,3,2),False),('retire-initial-runtime',(3,3,3,2),True),
     ('retire-initial-runtime',(3,2,3,2),False),('retire-initial-runtime',(3,3,2,2),False),
+    ('retire-initial-runtime',(3,-1,3,2),False),
     ('uninstall',(3,2,3,2),True),('uninstall',(3,3,3,2),False),
 ])
 def test_native_feature_plan_matches_owner_operation(operation,states,valid):

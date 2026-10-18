@@ -2107,7 +2107,10 @@ try {
     if ($bridge.Capability.uninstall_finalization) {
         $msiArguments += 'ENDPOINT_UNINSTALL_FINALIZE=1'
     } elseif ($intent -eq 'retire-initial-runtime') {
-        $msiArguments += 'REMOVE=EndpointAgentInitialRuntimeFeature'
+        # REMOVE alone leaves the unchanged foundation action UNKNOWN (-1).
+        # Cost it explicitly as LOCAL; the existing owner guard still requires
+        # foundation LOCAL -> LOCAL and only the initial runtime ABSENT.
+        $msiArguments += @('ADDLOCAL=EndpointAgentFeature','REMOVE=EndpointAgentInitialRuntimeFeature')
     } elseif ($intent -eq 'uninstall') {
         $msiArguments += 'REMOVE=ALL'
     } else {

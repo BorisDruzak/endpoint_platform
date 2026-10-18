@@ -688,6 +688,78 @@ def test_owner_guards_are_embedded_and_have_no_unowned_rollback_writer() -> None
     assert complete.get("Before")=="InstallFinalize"
 
 
+@pytest.mark.skipif(os.name != "nt", reason="Windows PowerShell evaluates the actual native argument branch")
+def test_retirement_requests_local_foundation_without_reinstall_or_uninstall():
+    """REMOVE alone costs (3,-1,3,2), which the strict owner correctly refuses."""
+    import base64
+    import subprocess
+
+    source = str(WINDOWS_PACKAGING / "Install-EndpointAgentCanary.ps1").replace("'", "''")
+    code = r'''
+$ErrorActionPreference='Stop'
+$tokens=$null;$errors=$null
+$ast=[Management.Automation.Language.Parser]::ParseFile('__SOURCE__',[ref]$tokens,[ref]$errors)
+if($errors.Count){throw 'WRAPPER_PARSE_FAILED'}
+$assignments=@($ast.FindAll({param($n)
+ $n -is [Management.Automation.Language.AssignmentStatementAst] -and
+ $n.Left -is [Management.Automation.Language.VariableExpressionAst] -and
+ $n.Left.VariablePath.UserPath -ceq 'msiArguments' -and $n.Operator.ToString() -ceq 'Equals'
+},$true))
+if($assignments.Count -ne 1){throw 'ONE_NATIVE_ARGUMENT_BUILDER_REQUIRED'}
+$assignment=$assignments[0];$statements=@($assignment.Parent.Statements)
+$index=[Array]::IndexOf($statements,$assignment)
+if($index -lt 0 -or $statements[$index+1] -isnot [Management.Automation.Language.IfStatementAst]){throw 'ARGUMENT_BRANCH_REQUIRED'}
+$fragment=$assignment.Extent.Text+"`n"+$statements[$index+1].Extent.Text
+$fragmentAst=[Management.Automation.Language.Parser]::ParseInput($fragment,[ref]$tokens,[ref]$errors)
+if($errors.Count -or @($fragmentAst.FindAll({param($n)
+ $n -is [Management.Automation.Language.CommandAst] -or
+ $n -is [Management.Automation.Language.InvokeMemberExpressionAst] -or
+ $n -is [Management.Automation.Language.RedirectionAst]
+},$true)).Count){throw 'ARGUMENT_CONSTRUCTION_MUST_NOT_EXECUTE_COMMANDS'}
+$builder=[scriptblock]::Create($fragment+"`n,`$msiArguments")
+$cases=@(
+ @{id='install';intent='install';recovery=$false;finalize=$false},
+ @{id='retire';intent='retire-initial-runtime';recovery=$false;finalize=$false},
+ @{id='recover-retire';intent='retire-initial-runtime';recovery=$true;finalize=$false},
+ @{id='uninstall';intent='uninstall';recovery=$false;finalize=$false},
+ @{id='finalize-uninstall';intent='uninstall';recovery=$true;finalize=$true}
+)
+$rows=@();$executionCachePath='C:\fixture\signed-package.msi'
+foreach($case in $cases){
+ $intent=$case.intent;$interruptedFence=if($case.recovery){@{phase='msi-starting'}}else{$null}
+ $preparation=@{new_product_state=5}
+ $bridge=[pscustomobject]@{SessionId='fixture-session';Capability=@{uninstall_finalization=$case.finalize}}
+ $arguments=& $builder
+ $rows+=@{id=$case.id;arguments=$arguments}
+}
+$rows|ConvertTo-Json -Depth 5 -Compress
+'''.replace("__SOURCE__", source)
+    done = subprocess.run(
+        ["powershell.exe", "-NoProfile", "-NonInteractive", "-EncodedCommand",
+         base64.b64encode(code.encode("utf-16-le")).decode("ascii")],
+        capture_output=True, text=True, timeout=30,
+    )
+    assert done.returncode == 0, done.stderr
+    rows = {row["id"]: row["arguments"] for row in json.loads(done.stdout)}
+    assert all(all(isinstance(value, str) for value in arguments) and arguments[0] == "/i"
+               and "/norestart" in arguments for arguments in rows.values())
+
+    def properties(name):
+        return dict(value.split("=", 1) for value in rows[name] if "=" in value)
+
+    for name in ("retire", "recover-retire"):
+        values = properties(name)
+        assert values.get("ADDLOCAL") == "EndpointAgentFeature", "retirement must explicitly cost the foundation as LOCAL"
+        assert values["REMOVE"] == "EndpointAgentInitialRuntimeFeature"
+        assert "REINSTALL" not in values and "ENDPOINT_UNINSTALL_FINALIZE" not in values
+    assert properties("install")["ADDLOCAL"] == "EndpointAgentFeature,EndpointAgentInitialRuntimeFeature"
+    assert "REMOVE" not in properties("install")
+    assert properties("uninstall")["REMOVE"] == "ALL"
+    assert "ADDLOCAL" not in properties("uninstall")
+    assert properties("finalize-uninstall")["ENDPOINT_UNINSTALL_FINALIZE"] == "1"
+    assert "ADDLOCAL" not in properties("finalize-uninstall")
+
+
 def test_initial_runtime_marker_is_staged_for_msi_ownership_provenance() -> None:
     """A valid executable alone cannot distinguish an old MSI core from an updater release."""
     script = (WINDOWS_PACKAGING / "build-msi.ps1").read_text(encoding="utf-8")
