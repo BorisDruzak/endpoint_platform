@@ -26,7 +26,9 @@ PROCESS_COMMAND = ("ps", "-eo", "comm=,stat=")
 JOURNAL_COMMAND = ("journalctl", "-n", "100", "--no-pager", "-o", "cat")
 WINDOWS_TASKLIST_COMMAND = ("tasklist", "/FO", "CSV", "/NH")
 WHO_COMMAND = ("who",)
-WINDOWS_QUERY_USER_COMMAND = ("query", "user")
+# Invoke the native session tool directly: query.exe can return its own nonzero
+# dispatcher status even when quser.exe successfully returns interactive rows.
+WINDOWS_QUERY_USER_COMMAND = ("quser",)
 WINDOWS_NETWORK_COMMAND = (
     "powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command",
     "$n=@(Get-CimInstance Win32_NetworkAdapterConfiguration -Filter 'IPEnabled=True'|ForEach-Object{[pscustomobject]@{name=$_.Description;mac=$_.MACAddress;ipv4=@($_.IPAddress|Where-Object{$_ -match '^\\d+\\.'});ipv6=@($_.IPAddress|Where-Object{$_ -match ':'});index=[int]$_.InterfaceIndex;link_type='ethernet';operational_state='unknown'}});$r=Get-CimInstance Win32_IP4RouteTable -Filter \"Destination='0.0.0.0' AND Mask='0.0.0.0'\"|Sort-Object Metric1|Select-Object -First 1;[pscustomobject]@{interfaces=$n;default_interface_index=if($r){[int]$r.InterfaceIndex}else{$null};default_gateway=if($r){$r.NextHop}else{$null}}|ConvertTo-Json -Depth 5 -Compress",

@@ -10,6 +10,37 @@ from pc_agent.context_profiles import probe as probe_module
 from pc_agent.context_profiles.probe import SystemProbe, WINDOWS_QUERY_USER_COMMAND
 
 
+def test_windows_session_observes_native_quser_success_without_query_dispatcher(monkeypatch) -> None:
+    # On the acceptance guest query.exe user returns 1 despite forwarding a
+    # successful quser.exe result. Keep strict exit checking on the actual tool.
+    monkeypatch.setattr(probe_module, "os", SimpleNamespace(name="nt"))
+    monkeypatch.setattr(probe_module.shutil, "which", lambda name: name + ".exe")
+    commands = []
+
+    def native_command(command, timeout_seconds, limit, *, check_exit=False):
+        commands.append(command)
+        assert check_exit is True
+        assert timeout_seconds == 2.0 and limit == 8192
+        if command == ("query.exe", "user"):
+            raise ValueError("native dispatcher exit 1")
+        assert command == ("quser.exe",)
+        return b"USERNAME SESSIONNAME ID STATE IDLE TIME LOGON TIME\noperator console 1 Active none 10/19/2026 09:12\n"
+
+    class NativeBytes(bytes):
+        def decode(self, encoding, errors="strict"):
+            assert encoding == "oem" and errors == "strict"
+            return super().decode("ascii", errors)
+
+    def native_bytes(*args, **kwargs):
+        return NativeBytes(native_command(*args, **kwargs))
+
+    monkeypatch.setattr(probe_module, "_execute_bounded_command", native_bytes)
+    assert SystemProbe().session_info() == {
+        "current_user_login": "operator", "interactive_session_present": True,
+    }
+    assert commands == [("quser.exe",)]
+
+
 @pytest.mark.parametrize(
     ("header", "row", "login"),
     [
