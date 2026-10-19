@@ -86,6 +86,13 @@ Endpoint Gateway WSS transport. The runtime owns enrollment identity, device
 credentials, local SQLite state, Device Context collection, module lifecycle,
 and update verification.
 
+Windows Session Context invokes `quser` directly. The `query user` relay can
+return a nonzero status despite valid session output; the direct command keeps
+the existing zero-exit requirement, bounded capture, timeout and OEM decoding.
+Runtime-only update ZIPs carry their own source/version and explicit minimum
+launcher contract; the 3.2.121 session correction requires foundation 3.2.120.
+This does not replace or relabel the separately signed 3.2.120 MSI foundation.
+
 Endpoint Policy delivery and ACK run in `policy/runtime.py` through the same
 Gateway connection. The Windows local sensor boundary has a service-owned,
 cancellable named-pipe listener in `platform/windows/sensor_pipe_listener.py`.
