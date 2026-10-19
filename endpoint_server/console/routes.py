@@ -512,7 +512,12 @@ async def console_device_detail(
         rows = (await session.execute(
             select(ContextSnapshot, ContextCurrent)
             .join(ContextCurrent, ContextCurrent.snapshot_id == ContextSnapshot.id)
-            .where(ContextCurrent.device_id == device_id)
+            .where(
+                ContextCurrent.device_id == device_id,
+                ContextCurrent.profile.in_((
+                    "baseline_v1", "health_v1", "network_v1", "inventory_v1", "session_v1",
+                )),
+            )
             .order_by(ContextSnapshot.profile)
         )).all()
         snapshots = []

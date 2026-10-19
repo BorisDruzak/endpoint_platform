@@ -83,7 +83,10 @@ async def test_activity_route_uses_current_validated_observation_and_admin_sessi
     )
     app = create_app(settings, session_provider=sessions)
     path = f"/api/admin/console/devices/{device_id}/activity"
-    async with AsyncClient(transport=ASGITransport(app=app), base_url=settings.public_base_url) as client:
+    async with AsyncClient(
+        transport=ASGITransport(app=app, raise_app_exceptions=False),
+        base_url=settings.public_base_url,
+    ) as client:
         assert (await client.get(path)).status_code == 401
         admin_id = uuid4()
         app.dependency_overrides[require_admin] = lambda: AdminPrincipal(
@@ -97,6 +100,7 @@ async def test_activity_route_uses_current_validated_observation_and_admin_sessi
             ),
         )
         response = await client.get(path)
+        detail = await client.get(f"/api/admin/console/devices/{device_id}")
         missing = await client.get(f"/api/admin/console/devices/{uuid4()}/activity")
         async with sessions() as session:
             current = await session.scalar(select(ContextCurrent).where(
@@ -117,6 +121,10 @@ async def test_activity_route_uses_current_validated_observation_and_admin_sessi
     await engine.dispose()
 
     assert response.status_code == 200, response.text
+    assert detail.status_code == 200, detail.text
+    assert detail.json()["snapshots"] == []
+    assert "chrome.exe" not in detail.text
+    assert "MUST_NOT_LEAK" not in detail.text
     assert missing.status_code == 404
     data = response.json()["data"]
     assert data["sections"]["idle_seconds"] == 23
