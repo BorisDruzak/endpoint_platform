@@ -775,9 +775,17 @@ def test_foundation_configuration_requires_fresh_owner_before_each_action(handof
 
 def test_partial_quarantine_preserves_original_snapshot_and_recovery_does_not_replace_it(handoff_input,monkeypatch):
     from types import SimpleNamespace
-    from pc_agent.platform.windows import installer_transaction_bridge as bridge,installer_fence,update_transaction
+    from pc_agent.platform.windows import installer_transaction_bridge as bridge,installer_fence,update_transaction,msi_inventory
     from pc_agent.tests.windows.test_installer_service_quarantine import Services
     module,paths,root,request,expected=handoff_input
+    native_lookups=[]
+    def product_state(code):
+        assert code==expected.package.product_code
+        native_lookups.append(code)
+        return -1
+    # Recovery reads the incoming product state; this SCM model must not query
+    # the operator's native MSI inventory or require Windows on Linux CI.
+    monkeypatch.setattr(msi_inventory,'NativeMsi',lambda:SimpleNamespace(product=product_state))
     monkeypatch.setattr(update_transaction,'_assert_state_security',lambda _:None)
     package=paths.install_root.parent/'installer-cache'/f'msi-{expected.package.sha256}'/'EndpointAgent.msi'
     package.parent.mkdir(parents=True);package.write_bytes(request['package_path'].read_bytes())
@@ -806,6 +814,7 @@ def test_partial_quarantine_preserves_original_snapshot_and_recovery_does_not_re
     assert installer_fence.read_fence(paths)['service_startup']==original
     assert api.values['EndpointAgentUpdater'][1]==4
     assert paths.current_path.read_bytes()==before
+    assert native_lookups==[expected.package.product_code]
 
 
 def test_finish_checks_foundation_bytes_before_enable_and_records_restoration_before_retirement(handoff_input,monkeypatch):
