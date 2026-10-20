@@ -35,6 +35,10 @@ def _text(path: Path) -> str:
     return path.read_text(encoding="utf-8")
 
 
+def test_rpm_spec_disables_debuginfo_rewriting_of_manifest_covered_payload() -> None:
+    assert "%global __find_debuginfo_files %{nil}" in _text(SPEC)
+
+
 def test_git_archive_emits_the_alt_spec_with_lf_line_endings() -> None:
     """CRLF in the archived spec makes rpmbuild append CR to %{SOURCE0}."""
     archive = subprocess.run(

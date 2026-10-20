@@ -1,3 +1,5 @@
+# The prebuilt payload is already covered by the release manifest.
+%global __find_debuginfo_files %{nil}
 %define debug_package %{nil}
 
 Name: endpoint-agent
