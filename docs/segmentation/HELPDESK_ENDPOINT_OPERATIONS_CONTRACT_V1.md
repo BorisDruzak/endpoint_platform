@@ -25,6 +25,7 @@ The provider exposes exactly these consumer routes under `/api/v1`:
 | `GET` | `/devices/{device_id}/capabilities` | `200` versioned capabilities envelope |
 | `POST` | `/devices/{device_id}/operations` | `201` create / `200` idempotent replay operation envelope |
 | `GET` | `/operations/{operation_id}` | `200` operation envelope |
+| `POST` | `/operations/{operation_id}/cancel` | `200` canceled or idempotent-replay operation envelope |
 
 All successful payloads use `{"data": ...}` only.  An operation payload is
 always nested as `data.operation` plus `data.result`.  `data.result` is null
@@ -83,6 +84,17 @@ mapping to the internal safe projection.  Any extra field, schema drift,
 missing/mismatched header, mismatched ID, or succeeded response without a safe
 result fails closed as `invalid_projection`.
 
+Cancellation requires the separate `operations.cancel` service scope and is
+scoped to the operation's owning service client. It is allowed only while the
+operation remains `queued` with no command and its private collection remains
+`requested` with no command. The operation becomes terminal `canceled`; its
+collection becomes `expired` with the non-sensitive `operation_canceled`
+reason, and a redacted cancellation audit event is appended. Repeating an
+already canceled operation is idempotent and does not append another event.
+Delivered, acknowledged, running, or other terminal operations return
+`409 operation_cancel_not_supported`. A missing or inconsistent undelivered
+collection fails validation rather than creating or delivering a command.
+
 Before endpoint-mode readiness, Helpdesk calls
 `EndpointDeviceReferenceService` to read and persist an exact verified Endpoint
 device reference/safe snapshot.  Mapping is admin-created/managed through an
@@ -111,7 +123,7 @@ WebSocket, or DeviceOutbox path is permitted.
 The cross-repository test runs the real `endpoint_server.main.create_app()`
 and the real Helpdesk `ExternalEndpointHttpAdapter` against a temporary
 database and test credentials.  It must not use a fake JSON HTTP server or
-mock provider routes.  It proves all four reads/writes, `201` create/`200`
+mock provider routes.  Its original four-route slice proves `201` create/`200`
 replay, operation read, correlation equality, strict projection rejection,
 and negative responses.  Its vertical case continues through Gateway WSS and
 a headless agent to one safe result and exactly one Helpdesk
@@ -123,11 +135,12 @@ agent rollout is part of this contract work.
 
 ## Provider release-gate evidence
 
-The provider correlation middleware applies only to the four routes in the
-required route table, matched by HTTP method and exact path shape. It does not
-apply the Operations API correlation policy to other device routes, including
+The provider correlation middleware covers the required routes, including
+cancellation, matched by HTTP method and exact path shape. It also covers the
+separately published typed module routes. It does not apply this policy to
 network-identity, context, or update surfaces. Router UUID validation remains
-the route-layer responsibility.
+the route-layer responsibility. Provider cancellation tests independently cover
+scope, ownership, idempotent replay, and refusal after dispatch.
 
 `endpoint-operations-provider.yml` verifies this provider surface on pull
 requests to `main`, pushes to `main`, and manual dispatches. For a relevant
