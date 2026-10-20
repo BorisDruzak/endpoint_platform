@@ -39,6 +39,7 @@ from .service_control import PyWin32ServiceControl, ServiceControl
 CLAIM_FILENAME = "enrollment-claim"
 CREDENTIAL_FILENAME = "device-credential"
 ENDPOINT_CA_FILENAME = "endpoint-ca.crt"
+ENDPOINT_ORIGIN_FILENAME = "endpoint-origin"
 MAX_CLAIM_BYTES = 4096
 
 
@@ -182,6 +183,7 @@ class WindowsProvisioner:
         credential_path = data_root / CREDENTIAL_FILENAME
         identity_path = data_root / ENROLLMENT_IDENTITY_FILENAME
         installed_ca_path = data_root / ENDPOINT_CA_FILENAME
+        endpoint_origin_path = data_root / ENDPOINT_ORIGIN_FILENAME
         self._acl.protect_directory(data_root)
         _atomic_write(claim_path, claim.encode("ascii"))
         self._acl.protect_claim(claim_path)
@@ -194,6 +196,10 @@ class WindowsProvisioner:
         token = _credential_bytes(delivery.device_token)
         _atomic_write(installed_ca_path, self._request.ca_file.read_bytes())
         self._acl.protect_credential(installed_ca_path)
+        _atomic_write(
+            endpoint_origin_path, (self._request.endpoint_origin + "\n").encode("ascii")
+        )
+        self._acl.protect_credential(endpoint_origin_path)
         _atomic_write(credential_path, token)
         self._acl.protect_credential(credential_path)
         _atomic_write(identity_path, serialize_enrollment_identity(device_id))

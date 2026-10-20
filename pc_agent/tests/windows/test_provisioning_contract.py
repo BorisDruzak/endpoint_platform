@@ -156,9 +156,77 @@ def test_provisioner_persists_protected_material_proves_credential_then_starts_s
         "acl.claim:enrollment-claim",
         "gateway.enroll",
         "acl.credential:endpoint-ca.crt",
+        "acl.credential:endpoint-origin",
         "acl.credential:device-credential",
         "service.start",
     ]
+
+
+def test_provisioner_persists_protected_staging_origin_before_service_start(
+    tmp_path: Path,
+) -> None:
+    """A staging enrollment must still use its origin after the service starts."""
+    from pc_agent.platform.windows.provision import (
+        EnrollmentDelivery,
+        ProvisioningRequest,
+        WindowsProvisioner,
+    )
+
+    events: list[str] = []
+    original = _request(tmp_path)
+    request = ProvisioningRequest(
+        "https://endpoint-staging.example.invalid", original.ca_file, original.data_root
+    )
+    origin_path = request.data_root / "endpoint-origin"
+
+    class _StagingEnrollment:
+        def enroll(self, *, claim: str, endpoint_origin: str, ca_file: Path):
+            assert claim == _CLAIM
+            assert endpoint_origin == "https://endpoint-staging.example.invalid"
+            assert ca_file == original.ca_file
+            return EnrollmentDelivery(_DEVICE_ID, _TOKEN)
+
+    class _StartWithOrigin(_Service):
+        def start(self) -> None:
+            assert origin_path.read_bytes() == b"https://endpoint-staging.example.invalid\n"
+            assert "acl.credential:endpoint-origin" in events
+            super().start()
+
+    WindowsProvisioner(
+        request,
+        enrollment=_StagingEnrollment(),
+        service=_StartWithOrigin(events),
+        acl=_Acl(events),
+    ).provision_from_stdin(io.StringIO(_CLAIM))
+
+    assert origin_path.read_bytes() == b"https://endpoint-staging.example.invalid\n"
+
+
+def test_origin_protection_failure_preserves_claim_without_starting_service(
+    tmp_path: Path,
+) -> None:
+    """The service must not start when its persisted enrollment origin is unprotected."""
+    from pc_agent.platform.windows.provision import WindowsProvisioner
+
+    request = _request(tmp_path)
+    events: list[str] = []
+
+    class _RejectOriginAcl(_Acl):
+        def protect_credential(self, path: Path) -> None:
+            if path.name == "endpoint-origin":
+                raise OSError("origin protection failed")
+            super().protect_credential(path)
+
+    with pytest.raises(OSError, match="origin protection failed"):
+        WindowsProvisioner(
+            request,
+            enrollment=_Enrollment(events),
+            service=_Service(events),
+            acl=_RejectOriginAcl(events),
+        ).provision_from_stdin(io.StringIO(_CLAIM))
+
+    assert (request.data_root / "enrollment-claim").read_text(encoding="ascii") == _CLAIM
+    assert "service.start" not in events
 
 
 def test_provisioner_reads_material_from_a_protected_file_without_echoing_token(
@@ -235,6 +303,7 @@ def test_provisioner_uses_atomic_replace_for_claim_and_permanent_records(
     assert [target.name for _source, target in replacements] == [
         "enrollment-claim",
         "endpoint-ca.crt",
+        "endpoint-origin",
         "device-credential",
         "enrollment-identity.json",
     ]
