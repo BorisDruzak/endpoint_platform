@@ -37,10 +37,32 @@ sudo bash /root/input/endpoint-agent-installer/install-endpoint-agent.sh \
   --installation-id <installation-id> \
   --ca-file /root/input/sosnadmin-local-ca.crt \
   --handoff-file /etc/endpoint-agent/provisioning-claim \
-  --agent-bundle /root/input/endpoint-agent-test-pilot-bundle \
+  --agent-bundle /opt/endpoint-agent-test-pilot-bundle \
   --dry-run
 ```
 
 The controller stages the immutable release bundle and the reviewed installer
-package separately. After a successful install, use the fixed finalizer in
+package separately. The public bundle is root-owned and service-readable under
+`/opt/endpoint-agent-test-pilot-bundle` so fingerprint collection can run as
+the service user. CA and installer inputs remain under root-only `/root/input`.
+Staging stops on the first failed filesystem operation.
+The offline install commands above apply only to the legacy `pc_agent/pc_agent`
+bundle layout. After a successful install, use the fixed finalizer in
 `ALT_AGENT_INSTALL.md`; do not manually remove the handoff file.
+
+## Native headless RPM claim delivery
+
+For a reviewed `endpoint-agent/endpoint-agent` bundle, the same controller
+validates its manifest, selects that exact fingerprint entrypoint, and delivers
+the claim to `/etc/credstore/endpoint-enrollment-claim`. It creates the root-only
+credential directory and sends the claim through stdin with mode `0600`.
+The legacy bundle continues to use `/etc/endpoint-agent/provisioning-claim`.
+Mixed layouts, payload digest mismatches, and unexpected files are rejected
+locally before SSH. A headless manifest may exclude the separately reviewed
+stable launcher supplied with the local bundle.
+
+This headless path only stages inputs and delivers a claim. The native RPM
+must already be installed and its configuration, CA and installation ID must
+match the reviewed inputs. Follow `packaging/alt/README.md` for its service
+credential/start procedure; do not run the legacy offline installer against
+the headless bundle. The controller does not install an RPM or start an agent.

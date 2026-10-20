@@ -23,10 +23,14 @@ from endpoint_contracts.identity import normalize_install_session_id
 TEST_HOST = "test-agent-lin"
 ENDPOINT_ORIGIN = "https://endpoint.sosnadmin.local"
 _REMOTE_INPUT_ROOT = "/root/input"
-_REMOTE_BUNDLE = f"{_REMOTE_INPUT_ROOT}/endpoint-agent-test-pilot-bundle"
+_REMOTE_BUNDLE = "/opt/endpoint-agent-test-pilot-bundle"
 _REMOTE_INSTALLER = f"{_REMOTE_INPUT_ROOT}/endpoint-agent-installer"
 _REMOTE_CA = f"{_REMOTE_INPUT_ROOT}/sosnadmin-local-ca.crt"
 _REMOTE_CLAIM = "/etc/endpoint-agent/provisioning-claim"
+_REMOTE_RPM_CLAIM = "/etc/credstore/endpoint-enrollment-claim"
+_LEGACY_AGENT_ENTRYPOINT = "pc_agent/pc_agent"
+_HEADLESS_AGENT_ENTRYPOINT = "endpoint-agent/endpoint-agent"
+_AGENT_ENTRYPOINTS = (_LEGACY_AGENT_ENTRYPOINT, _HEADLESS_AGENT_ENTRYPOINT)
 _FINGERPRINT_PATTERN = re.compile(r"sha256:[0-9a-f]{64}\Z")
 _ALLOWED_AGENT_CIDR = "192.168.101.162/32"
 _INSTALLATION_ID_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}\Z")
@@ -93,7 +97,8 @@ def _validate_bundle(bundle: Path) -> None:
         raise ValueError("bundle must not contain symbolic links")
     manifest_path = bundle / "manifest.json"
     launcher = bundle / "launcher"
-    agent = bundle / "pc_agent" / "pc_agent"
+    agent_entrypoint = _bundle_agent_entrypoint(bundle)
+    agent = bundle / agent_entrypoint
     if any(path.is_symlink() or not path.is_file() for path in (manifest_path, launcher, agent)):
         raise ValueError("bundle must contain regular manifest, launcher and agent files")
     try:
@@ -129,10 +134,31 @@ def _validate_bundle(bundle: Path) -> None:
         for path in bundle.rglob("*")
         if path.is_file() and not path.is_symlink() and path != manifest_path
     }
-    if manifest_paths != actual_paths:
+    # Native release manifests cover the headless onedir; their separately
+    # reviewed stable launcher is a packaging input, not an onedir payload.
+    expected_paths = actual_paths
+    if agent_entrypoint == _HEADLESS_AGENT_ENTRYPOINT and "launcher" not in manifest_paths:
+        expected_paths = actual_paths - {"launcher"}
+    if manifest_paths != expected_paths:
         raise ValueError("bundle manifest does not match local payload")
-    if not {"launcher", "pc_agent/pc_agent"} <= manifest_paths:
+    required_paths = {agent_entrypoint}
+    if agent_entrypoint == _LEGACY_AGENT_ENTRYPOINT:
+        required_paths.add("launcher")
+    if not required_paths <= manifest_paths:
         raise ValueError("bundle manifest is missing required payload entries")
+
+
+def _bundle_agent_entrypoint(bundle: Path) -> str:
+    candidates = [name for name in _AGENT_ENTRYPOINTS if (bundle / name).is_file()]
+    if len(candidates) != 1:
+        raise ValueError("bundle must contain one supported agent entrypoint")
+    return candidates[0]
+
+
+def _validate_agent_entrypoint(value: str) -> str:
+    if value not in _AGENT_ENTRYPOINTS:
+        raise ValueError("unsupported agent entrypoint")
+    return value
 
 
 def _validate_ca(ca_file: Path) -> ssl.SSLContext:
@@ -144,17 +170,25 @@ def _validate_ca(ca_file: Path) -> ssl.SSLContext:
         raise ValueError("CA file is not a usable trust anchor") from error
 
 
-def deliver_claim(ssh: CommandRunner, *, claim: str) -> None:
+def deliver_claim(
+    ssh: CommandRunner, *, claim: str, agent_entrypoint: str = _LEGACY_AGENT_ENTRYPOINT
+) -> None:
     """Write the claim only through root-owned stdin; never render it in a command."""
+    entrypoint = _validate_agent_entrypoint(agent_entrypoint)
+    claim_path = _REMOTE_RPM_CLAIM if entrypoint == _HEADLESS_AGENT_ENTRYPOINT else _REMOTE_CLAIM
+    prepare = (
+        "sudo install -d -o root -g root -m 0700 /etc/credstore && "
+        if entrypoint == _HEADLESS_AGENT_ENTRYPOINT else ""
+    )
     ssh.run_stdin(
-        "sudo install -o root -g root -m 0600 /dev/stdin "
-        "/etc/endpoint-agent/provisioning-claim",
+        prepare + "sudo install -o root -g root -m 0600 /dev/stdin " + claim_path,
         claim.encode("ascii"),
     )
 
 
 def _stage_remote_inputs(bundle: Path, ca_file: Path, ssh: SshRunner) -> None:
     """Copy reviewed non-secret release inputs to the fixed test host paths."""
+    agent_entrypoint = _bundle_agent_entrypoint(bundle)
     ssh.run_output(f"sudo install -d -o root -g root -m 0700 {_REMOTE_INPUT_ROOT}")
     installer = Path(__file__).resolve().parents[1] / "deploy" / "agent" / "alt"
     if installer.is_symlink() or not (installer / "install-endpoint-agent.sh").is_file():
@@ -180,18 +214,25 @@ def _stage_remote_inputs(bundle: Path, ca_file: Path, ssh: SshRunner) -> None:
     )
     ssh.run_output(
         "sudo rm -rf -- "
-        f"{_REMOTE_BUNDLE} {_REMOTE_INSTALLER}; "
-        f"sudo mv -- /tmp/endpoint-agent-test-pilot-bundle {_REMOTE_BUNDLE}; "
-        f"sudo mv -- /tmp/endpoint-agent-installer {_REMOTE_INSTALLER}; "
-        f"sudo install -o root -g root -m 0600 /tmp/sosnadmin-local-ca.crt {_REMOTE_CA}; "
+        f"{_REMOTE_BUNDLE} {_REMOTE_INSTALLER} && "
+        f"sudo mv -- /tmp/endpoint-agent-test-pilot-bundle {_REMOTE_BUNDLE} && "
+        f"sudo chown -R root:root {_REMOTE_BUNDLE} && "
+        f"sudo chmod -R u=rwX,go=rX {_REMOTE_BUNDLE} && "
+        f"sudo chmod 0755 {_REMOTE_BUNDLE} {_REMOTE_BUNDLE}/launcher "
+        f"{_REMOTE_BUNDLE}/{agent_entrypoint} && "
+        f"sudo mv -- /tmp/endpoint-agent-installer {_REMOTE_INSTALLER} && "
+        f"sudo install -o root -g root -m 0600 /tmp/sosnadmin-local-ca.crt {_REMOTE_CA} && "
         "rm -f -- /tmp/sosnadmin-local-ca.crt"
     )
 
 
-def _remote_fingerprint(ssh: CommandRunner) -> str:
+def _remote_fingerprint(
+    ssh: CommandRunner, *, agent_entrypoint: str = _LEGACY_AGENT_ENTRYPOINT
+) -> str:
+    agent_entrypoint = _validate_agent_entrypoint(agent_entrypoint)
     return parse_hardware_fingerprint(
         ssh.run_output(
-            f"sudo -u endpoint-agent {_REMOTE_BUNDLE}/pc_agent/pc_agent "
+            f"sudo -u endpoint-agent {_REMOTE_BUNDLE}/{agent_entrypoint} "
             "--print-hardware-fingerprint"
         )
     )
@@ -259,8 +300,10 @@ def issue_and_deliver_claim(
     admin_username: str,
     ssh: CommandRunner,
     admin_password: str | None = None,
+    agent_entrypoint: str = _LEGACY_AGENT_ENTRYPOINT,
 ) -> PilotResult:
     """Create, use, and revoke the short service bearer without exposing secrets."""
+    agent_entrypoint = _validate_agent_entrypoint(agent_entrypoint)
     normalized_installation_id = _normalize_pilot_installation_id(installation_id)
     context = _validate_ca(ca_file)
     password = admin_password if admin_password is not None else getpass.getpass(
@@ -353,7 +396,7 @@ def issue_and_deliver_claim(
             if expires_at.tzinfo is None:
                 raise RuntimeError("test-pilot claim issuance failed")
             expires_at = expires_at.astimezone(UTC)
-            deliver_claim(ssh, claim=claim)
+            deliver_claim(ssh, claim=claim, agent_entrypoint=agent_entrypoint)
             del claim
             succeeded = True
             assert campaign_uuid is not None
@@ -390,16 +433,18 @@ def main(argv: list[str] | None = None) -> int:
     _validate_ca(args.ca_file)
     _normalize_pilot_installation_id(args.installation_id)
     validate_pilot_target(TEST_HOST)
+    agent_entrypoint = _bundle_agent_entrypoint(args.bundle)
     ssh = SshRunner()
     _stage_remote_inputs(args.bundle, args.ca_file, ssh)
     _prepare_remote_service_account(ssh)
-    fingerprint = _remote_fingerprint(ssh)
+    fingerprint = _remote_fingerprint(ssh, agent_entrypoint=agent_entrypoint)
     result = issue_and_deliver_claim(
         ca_file=args.ca_file,
         installation_id=args.installation_id,
         fingerprint=fingerprint,
         admin_username=args.admin_username,
         ssh=ssh,
+        agent_entrypoint=agent_entrypoint,
     )
     print(
         json.dumps(
