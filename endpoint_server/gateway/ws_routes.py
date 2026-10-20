@@ -32,7 +32,7 @@ from endpoint_contracts.capabilities import MODULE_CAPABILITY_REGISTRY
 from endpoint_server.operations.capabilities import module_capability_is_compatible
 from endpoint_server.updates.agent_routes import DevicePrincipal, _authenticate_device
 from endpoint_server.context.connect_refresh import queue_connect_refreshes
-from endpoint_server.activity.ingestion import ingest_gateway_activity
+from endpoint_server.activity.ingestion import ActivityPolicyRejected, ingest_gateway_activity
 from endpoint_server.policy.browser_status import BrowserStatusRejected, ingest_browser_status
 from endpoint_server.policy.sensor_health import SensorHealthRejected, ingest_sensor_health
 from endpoint_server.security.ingestion import (
@@ -325,12 +325,18 @@ async def connect_agent(websocket: WebSocket) -> None:
                     or first.payload.platform != "windows_amd64"
                 ):
                     raise GatewayProtocolError(1008, "activity_disabled")
-                async with websocket.app.state.session_provider() as session:
-                    await ingest_gateway_activity(
-                        session, device_id, envelope.payload,
-                        analytics_policy=websocket.app.state.settings.activity_analytics,
-                    )
-                    await session.commit()
+                try:
+                    async with websocket.app.state.session_provider() as session:
+                        await ingest_gateway_activity(
+                            session, device_id, envelope.payload,
+                            analytics_policy=websocket.app.state.settings.activity_analytics,
+                        )
+                        await session.commit()
+                except ActivityPolicyRejected as error:
+                    # Old observations can arrive before a changed policy is
+                    # delivered/acknowledged. Keep WSS available for that ACK;
+                    # the rejected sample must never reach Context or analytics.
+                    logger.debug("Gateway Activity discarded: %s", error)
             elif isinstance(envelope, BrowserStatusReportEnvelopeV1):
                 if (
                     not websocket.app.state.settings.endpoint_policy_enabled

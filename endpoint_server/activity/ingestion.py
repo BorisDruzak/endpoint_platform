@@ -23,6 +23,10 @@ from .analytics_policy import AnalyticsPolicy
 from .analytics_store import record_observation
 
 
+class ActivityPolicyRejected(ContextValidationError):
+    """Discard policy-ineligible telemetry without ending policy negotiation."""
+
+
 def _utc(value: datetime) -> datetime:
     if value.tzinfo is None:
         raise ContextValidationError("activity timestamp must be timezone-aware")
@@ -150,14 +154,14 @@ async def ingest_gateway_activity(
         version is None or state is None or state.status != "APPLIED"
         or state.policy_version_id != version.id or state.policy_digest != version.digest
     ):
-        raise ContextValidationError("activity policy is not applied")
+        raise ActivityPolicyRejected("activity policy is not applied")
     policy = EndpointPolicyV1.model_validate(version.document)
     if not policy.activity.enabled:
-        raise ContextValidationError("activity collection is disabled")
+        raise ActivityPolicyRejected("activity collection is disabled")
     if observation.foreground is not None and not policy.activity.foreground_application:
-        raise ContextValidationError("foreground collection is disabled")
+        raise ActivityPolicyRejected("foreground collection is disabled")
     if observation.browser is not None and not policy.activity.browser_context:
-        raise ContextValidationError("browser context collection is disabled")
+        raise ActivityPolicyRejected("browser context collection is disabled")
     return await ingest_activity_observation(
         session, device_id, observation,
         idle_threshold_seconds=policy.activity.idle_threshold_seconds,
@@ -165,4 +169,4 @@ async def ingest_gateway_activity(
     )
 
 
-__all__ = ["ingest_activity_observation", "ingest_gateway_activity"]
+__all__ = ["ActivityPolicyRejected", "ingest_activity_observation", "ingest_gateway_activity"]

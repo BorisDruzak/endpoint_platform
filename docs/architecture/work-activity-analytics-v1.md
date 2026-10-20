@@ -106,3 +106,10 @@ timeline outside detail retention returns 410 while daily totals remain usable.
 Unsupported agents, missing OS identity and sensors with no accepted observations
 show UNKNOWN with unavailable measurements, not zero working time. Enabling a
 sensor or changing production policy remains an operator action.
+
+Policy changes can race with already queued Activity frames. The Gateway drops
+samples that do not satisfy the current applied policy without closing WSS, so
+the same connection can deliver and acknowledge the new version. Disabled or
+unacknowledged collection never writes Context or analytics. Malformed frames,
+invalid observation timestamps and protocol/authentication failures retain their
+existing rejection behavior.
