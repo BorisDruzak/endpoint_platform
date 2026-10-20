@@ -8,6 +8,7 @@ import { OperationsPage } from './OperationsPage'
 import { ModulesPage } from './ModulesPage'
 import { AuditPage } from './AuditPage'
 import { SecurityPage } from './SecurityPage'
+import { ActivityAnalyticsPage } from './ActivityAnalyticsPage'
 
 const navigation = [
   { to: '/admin', label: 'Главная', end: true },
@@ -17,6 +18,7 @@ const navigation = [
   { to: '/admin/operations', label: 'Операции' },
   { to: '/admin/modules', label: 'Модули' },
   { to: '/admin/security', label: 'Политики и DLP' },
+  { to: '/admin/activity-analytics', label: 'Аналитика активности' },
   { to: '/admin/audit', label: 'Аудит' },
 ]
 
@@ -114,6 +116,7 @@ function Console() {
             <Route path="/admin/operations/*" element={<OperationsPage />} />
             <Route path="/admin/modules/*" element={<ModulesPage />} />
             <Route path="/admin/security/*" element={<SecurityPage />} />
+            <Route path="/admin/activity-analytics" element={<ActivityAnalyticsPage />} />
             <Route path="/admin/audit/*" element={<AuditPage />} />
             <Route path="*" element={<PendingPage title="Страница не найдена" />} />
           </Routes>

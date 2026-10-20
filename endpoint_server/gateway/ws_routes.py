@@ -326,7 +326,10 @@ async def connect_agent(websocket: WebSocket) -> None:
                 ):
                     raise GatewayProtocolError(1008, "activity_disabled")
                 async with websocket.app.state.session_provider() as session:
-                    await ingest_gateway_activity(session, device_id, envelope.payload)
+                    await ingest_gateway_activity(
+                        session, device_id, envelope.payload,
+                        analytics_policy=websocket.app.state.settings.activity_analytics,
+                    )
                     await session.commit()
             elif isinstance(envelope, BrowserStatusReportEnvelopeV1):
                 if (

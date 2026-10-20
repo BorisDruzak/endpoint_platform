@@ -19,6 +19,8 @@ from endpoint_server.context.service import ContextNotFound, ContextValidationEr
 from endpoint_server.db.models import Device
 from endpoint_server.policy.models import PolicyDeviceState
 from endpoint_server.policy.service import resolve_effective_policy
+from .analytics_policy import AnalyticsPolicy
+from .analytics_store import record_observation
 
 
 def _utc(value: datetime) -> datetime:
@@ -39,6 +41,8 @@ async def ingest_activity_observation(
     *,
     idle_threshold_seconds: int,
     received_at: datetime | None = None,
+    analytics_policy: AnalyticsPolicy | None = None,
+    policy_version_id: UUID | None = None,
 ) -> ContextSnapshot | None:
     """Return a new snapshot only for a material change; always refresh current."""
     if isinstance(idle_threshold_seconds, bool) or not 60 <= idle_threshold_seconds <= 3600:
@@ -92,20 +96,23 @@ async def ingest_activity_observation(
     )
     projection = envelope.model_dump(mode="json")
     digest = semantic_hash(canonicalize_activity(projection))
+    existing = await session.scalar(select(ContextCollection.id).where(
+        ContextCollection.device_id == device_id,
+        ContextCollection.profile == "activity_v1",
+        ContextCollection.requested_by == "activity-sensor",
+        ContextCollection.idempotency_key == str(observation.observation_id),
+    ))
+    if existing is not None:
+        return None
+    await record_observation(
+        session, device_id, observation, state=state,
+        policy_version_id=policy_version_id, policy=analytics_policy or AnalyticsPolicy(),
+    )
     if current_snapshot is not None and current_snapshot.semantic_hash == digest:
         current.last_projection = projection
         if when > _stored_utc(current.last_observed_at or current.updated_at):
             current.last_observed_at = when
         await session.flush()
-        return None
-    existing = await session.scalar(select(ContextCollection).where(
-        ContextCollection.device_id == device_id,
-        ContextCollection.profile == "activity_v1",
-        ContextCollection.requested_by == "activity-sensor",
-        ContextCollection.idempotency_key == str(observation.observation_id),
-    ).with_for_update())
-    if existing is not None:
-        # One observation identifier cannot create two immutable snapshots.
         return None
     collection = ContextCollection(
         id=uuid4(), device_id=device_id, profile="activity_v1",
@@ -134,6 +141,7 @@ async def ingest_gateway_activity(
     session: AsyncSession,
     device_id: UUID,
     observation: ActivityObservationV1,
+    *, analytics_policy: AnalyticsPolicy | None = None,
 ) -> ContextSnapshot | None:
     """Accept continuous telemetry only for the effective applied Activity policy."""
     version = await resolve_effective_policy(session, device_id)
@@ -153,6 +161,7 @@ async def ingest_gateway_activity(
     return await ingest_activity_observation(
         session, device_id, observation,
         idle_threshold_seconds=policy.activity.idle_threshold_seconds,
+        analytics_policy=analytics_policy, policy_version_id=version.id,
     )
 
 

@@ -16,7 +16,8 @@ from endpoint_server.activity.ingestion import ingest_activity_observation
 from endpoint_server.context.models import ContextCollection, ContextCurrent, ContextSnapshot
 from endpoint_server.context.projection import activity_current_projection, snapshot_projection
 from endpoint_server.context.retention import retain_context_snapshots
-from endpoint_server.db.models import Command, CommandResult, Device
+from endpoint_server.db.models import Command, CommandResult, Device, ActivityCursor, ActivityDaily, ActivityInterval
+from endpoint_server.activity.analytics_math import summarize
 
 
 NOW = datetime(2026, 9, 25, 12, tzinfo=UTC)
@@ -26,7 +27,8 @@ NOW = datetime(2026, 9, 25, 12, tzinfo=UTC)
 async def session() -> AsyncIterator[AsyncSession]:
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
     tables = (Device.__table__, Command.__table__, CommandResult.__table__,
-              ContextCollection.__table__, ContextSnapshot.__table__, ContextCurrent.__table__)
+              ContextCollection.__table__, ContextSnapshot.__table__, ContextCurrent.__table__,
+              ActivityInterval.__table__, ActivityCursor.__table__, ActivityDaily.__table__)
     async with engine.begin() as connection:
         await connection.execute(text("PRAGMA foreign_keys=ON"))
         await connection.run_sync(lambda sync: Device.metadata.create_all(sync, tables=tables))
@@ -109,3 +111,27 @@ async def test_activity_hot_history_expires_but_current_survives(session: AsyncS
     assert [row.normalized_projection["sections"]["session_state"] for row in remaining] == ["LOCKED", "DISCONNECTED"]
     assert await retain_context_snapshots(session, now=NOW + timedelta(hours=25)) == 1
     assert (await _snapshots(session))[0].normalized_projection["sections"]["session_state"] == "DISCONNECTED"
+
+
+@pytest.mark.asyncio
+async def test_semantic_dedup_still_extends_measured_history(session: AsyncSession) -> None:
+    device_id = await _device_id(session)
+    for second in (0, 15, 30):
+        when = NOW + timedelta(seconds=second)
+        await ingest_activity_observation(session, device_id, _observation(when=when),
+                                          idle_threshold_seconds=600, received_at=when)
+    assert len(await _snapshots(session)) == 1
+    intervals = list((await session.scalars(select(ActivityInterval))).all())
+    assert len(intervals) == 1
+    assert summarize(intervals, NOW, NOW + timedelta(minutes=1))['seconds']['ACTIVE'] == 30
+
+
+@pytest.mark.asyncio
+async def test_context_and_analytics_rollback_together(session: AsyncSession) -> None:
+    device_id = await _device_id(session)
+    await session.commit()
+    await ingest_activity_observation(session, device_id, _observation(),
+                                      idle_threshold_seconds=600, received_at=NOW)
+    await session.rollback()
+    for model in (ContextSnapshot, ActivityInterval, ActivityCursor, ActivityDaily):
+        assert await session.scalar(select(func.count()).select_from(model)) == 0

@@ -15,18 +15,20 @@ from endpoint_server.enrollment.delivery import cleanup_expired_retry_envelopes
 from endpoint_server.operations.service import expire_operations
 from endpoint_server.operations.evidence import cleanup_module_step_results, cleanup_operation_results
 from endpoint_server.security.retention import retain_security_events
+from endpoint_server.activity.analytics_store import rebuild_daily, retain_analytics
 
 
 async def _run_transactional_job(
     provider: SessionProvider,
     job: Callable[[Any], Awaitable[object]],
-) -> None:
+) -> object | None:
     """Commit one maintenance job or roll it back without stopping siblings."""
     try:
         async with provider() as session:
             try:
-                await job(session)
+                result = await job(session)
                 await session.commit()
+                return result
             except Exception:
                 await session.rollback()
     except Exception:
@@ -66,6 +68,14 @@ async def run_worker(
             )
             await _run_transactional_job(provider, expire_operations)
             elapsed = loop.time()
+            # Small independent transactions bound row-lock waits for Gateway.
+            # 256 user-days/minute covers 120 accounts in organization time + UTC.
+            for _batch in range(16):
+                completed = await _run_transactional_job(provider, lambda session: rebuild_daily(
+                    session, policy=settings.activity_analytics,
+                ))
+                if not isinstance(completed, int) or completed < 16:
+                    break
             if elapsed - last_payload_cleanup >= cleanup_interval_seconds:
                 # At 100 rows per minute this can drain 144,000 rows per day,
                 # above the expected collection volume for 120 devices.
@@ -74,6 +84,9 @@ async def run_worker(
                 await _run_transactional_job(provider, cleanup_operation_results)
                 await _run_transactional_job(provider, cleanup_module_step_results)
                 await _run_transactional_job(provider, retain_security_events)
+                await _run_transactional_job(provider, lambda session: retain_analytics(
+                    session, policy=settings.activity_analytics,
+                ))
                 last_payload_cleanup = elapsed
             if elapsed - last_schedule >= context_schedule_interval_seconds:
                 await _run_transactional_job(provider, schedule_due_collections)

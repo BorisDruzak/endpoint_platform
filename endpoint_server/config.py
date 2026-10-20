@@ -13,6 +13,7 @@ from types import MappingProxyType
 from typing import Mapping, TypeAlias
 from urllib.parse import urlsplit
 from uuid import UUID
+from endpoint_server.activity.analytics_policy import AnalyticsPolicy
 
 
 Network: TypeAlias = ipaddress.IPv4Network | ipaddress.IPv6Network
@@ -191,6 +192,7 @@ class Settings:
     endpoint_browser_sensor_enabled: bool = False
     endpoint_dlp_audit_enabled: bool = False
     gateway_minimum_agent_versions: tuple[tuple[str, str], ...] = ()
+    activity_analytics: AnalyticsPolicy = AnalyticsPolicy()
 
     @classmethod
     def from_environment(cls, environment: Mapping[str, str] | None = None) -> Settings:
@@ -329,4 +331,5 @@ class Settings:
             gateway_minimum_agent_versions=_parse_gateway_minimum_agent_versions(
                 values.get("GATEWAY_MINIMUM_AGENT_VERSIONS", "")
             ),
+            activity_analytics=AnalyticsPolicy.from_environment(values),
         )

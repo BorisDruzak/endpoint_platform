@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 from uuid import uuid4
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from endpoint_contracts.activity import ActivityObservationV1
@@ -12,7 +12,7 @@ from endpoint_contracts.endpoint_policy import EndpointPolicyV1, policy_digest
 from endpoint_server.activity.ingestion import ingest_gateway_activity
 from endpoint_server.context.models import ContextCollection, ContextCurrent, ContextSnapshot
 from endpoint_server.context.service import ContextValidationError
-from endpoint_server.db.models import Device
+from endpoint_server.db.models import Device, ActivityCursor, ActivityDaily, ActivityInterval
 from endpoint_server.policy.models import PolicyAssignment, PolicyDefinition, PolicyDeviceState, PolicyVersion
 from tests.contracts.test_endpoint_policy_v1 import _policy
 
@@ -22,7 +22,8 @@ async def test_activity_requires_current_applied_enabled_policy() -> None:
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
     tables = (Device.__table__, ContextCollection.__table__, ContextSnapshot.__table__,
               ContextCurrent.__table__, PolicyDefinition.__table__, PolicyVersion.__table__,
-              PolicyAssignment.__table__, PolicyDeviceState.__table__)
+              PolicyAssignment.__table__, PolicyDeviceState.__table__,
+              ActivityInterval.__table__, ActivityCursor.__table__, ActivityDaily.__table__)
     async with engine.begin() as connection:
         await connection.run_sync(lambda sync: Device.metadata.create_all(sync, tables=tables))
     sessions = async_sessionmaker(engine, expire_on_commit=False)
@@ -55,9 +56,11 @@ async def test_activity_requires_current_applied_enabled_policy() -> None:
             await session.flush()
             with pytest.raises(ContextValidationError):
                 await ingest_gateway_activity(session, device_id, observation)
+            assert await session.scalar(select(func.count()).select_from(ActivityInterval)) == 0
             state = await session.scalar(select(PolicyDeviceState).where(PolicyDeviceState.device_id == device_id))
             state.status = "APPLIED"
             assert await ingest_gateway_activity(session, device_id, observation) is not None
+            assert await session.scalar(select(func.count()).select_from(ActivityInterval)) == 1
             state.policy_digest = "0" * 64
             with pytest.raises(ContextValidationError):
                 await ingest_gateway_activity(session, device_id, observation)

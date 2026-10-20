@@ -46,8 +46,10 @@ from endpoint_server.policy.models import (
     PolicyVersion,
 )
 from endpoint_server.security.models import SecurityEvent
+from endpoint_server.activity.analytics_models import ActivityCursor, ActivityDaily, ActivityInterval
 
 __all__ = [
+    "ActivityCursor", "ActivityDaily", "ActivityInterval",
     "DeviceBindingChallenge",
     "DeviceBindingThrottle",
     "BrowserStatusCurrent",

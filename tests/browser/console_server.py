@@ -33,6 +33,7 @@ from endpoint_server.enrollment.campaigns import issue_campaign
 from endpoint_server.enrollment.requests import CampaignSelection, build_enrollment_request
 from endpoint_server.gateway.connection_registry import GatewayConnection
 from endpoint_server.main import create_app
+from tests.browser.activity_analytics_seed import seed_activity_analytics
 
 
 @compiles(ARRAY, "sqlite")
@@ -104,6 +105,7 @@ async def _serve(root: Path) -> None:
         )
         session.add_all([device, lab_device, owner, build, previous_build, setup_release])
         await session.flush()
+        await seed_activity_analytics(session, device.id, now)
         snapshot = ContextSnapshot(
             id=uuid4(), collection_id=uuid4(), device_id=device.id,
             profile="inventory_v1", collected_at=now, raw_payload={},
