@@ -15,6 +15,7 @@ from httpx import ASGITransport, AsyncClient
 from endpoint_server.config import Settings
 from endpoint_server.main import create_app
 from endpoint_server.worker import run_worker
+from endpoint_server.activity.analytics_models import ActivityDaily
 
 
 class SuccessfulSession:
@@ -62,12 +63,15 @@ class _WorkerResult:
 
 
 class WorkerSession:
-    def __init__(self, *, fail_cleanup: bool = False) -> None:
+    def __init__(self, *, fail_cleanup: bool = False, fail_analytics: bool = False) -> None:
         self.fail_cleanup = fail_cleanup
+        self.fail_analytics = fail_analytics
         self.commit_calls = 0
         self.rollback_calls = 0
         self.finished = asyncio.Event()
         self.operation_expiry_finished = asyncio.Event()
+        self.analytics_finished = asyncio.Event()
+        self.completed_jobs: list[str] = []
         self._job: str | None = None
 
     async def execute(self, statement: object) -> _WorkerResult:
@@ -78,8 +82,9 @@ class WorkerSession:
         return _WorkerResult()
 
     async def scalars(self, statement: object) -> _WorkerResult._Scalars:
-        del statement
-        self._job = "operation_expiry"
+        self._job = "analytics" if statement.column_descriptions[0].get("entity") is ActivityDaily else "operation_expiry"
+        if self._job == "analytics" and self.fail_analytics:
+            raise RuntimeError("analytics database failure")
         return _WorkerResult._Scalars()
 
     async def flush(self) -> None:
@@ -87,20 +92,26 @@ class WorkerSession:
 
     async def commit(self) -> None:
         self.commit_calls += 1
+        self.completed_jobs.append(self._job)
         self.finished.set()
         if self._job == "operation_expiry":
             self.operation_expiry_finished.set()
+        if self._job == "analytics":
+            self.analytics_finished.set()
 
     async def rollback(self) -> None:
         self.rollback_calls += 1
+        self.completed_jobs.append(self._job)
         self.finished.set()
         if self._job == "operation_expiry":
             self.operation_expiry_finished.set()
+        if self._job == "analytics":
+            self.analytics_finished.set()
 
 
 class WorkerSessionProvider:
-    def __init__(self, *, fail_cleanup: bool = False) -> None:
-        self.session = WorkerSession(fail_cleanup=fail_cleanup)
+    def __init__(self, *, fail_cleanup: bool = False, fail_analytics: bool = False) -> None:
+        self.session = WorkerSession(fail_cleanup=fail_cleanup, fail_analytics=fail_analytics)
         self.close_calls = 0
 
     @asynccontextmanager
@@ -318,7 +329,7 @@ async def test_worker_commits_cleanup_and_does_not_close_injected_provider() -> 
         )
     )
     await asyncio.wait_for(
-        provider.session.operation_expiry_finished.wait(),
+        provider.session.analytics_finished.wait(),
         timeout=1,
     )
 
@@ -326,8 +337,9 @@ async def test_worker_commits_cleanup_and_does_not_close_injected_provider() -> 
     with pytest.raises(asyncio.CancelledError):
         await task
 
-    assert provider.session.commit_calls == 2
+    assert provider.session.commit_calls == 3
     assert provider.session.rollback_calls == 0
+    assert provider.session.completed_jobs == ["cleanup", "operation_expiry", "analytics"]
     assert provider.close_calls == 0
 
 
@@ -343,7 +355,7 @@ async def test_worker_rolls_back_failed_cleanup_and_remains_cancellable() -> Non
         )
     )
     await asyncio.wait_for(
-        provider.session.operation_expiry_finished.wait(),
+        provider.session.analytics_finished.wait(),
         timeout=1,
     )
 
@@ -351,8 +363,23 @@ async def test_worker_rolls_back_failed_cleanup_and_remains_cancellable() -> Non
     with pytest.raises(asyncio.CancelledError):
         await task
 
-    assert provider.session.commit_calls == 1
+    assert provider.session.commit_calls == 2
     assert provider.session.rollback_calls == 1
+    assert provider.session.completed_jobs == ["cleanup", "operation_expiry", "analytics"]
+    assert provider.close_calls == 0
+
+
+@pytest.mark.asyncio
+async def test_worker_rolls_back_failed_analytics_without_rolling_back_sibling_jobs() -> None:
+    provider = WorkerSessionProvider(fail_analytics=True)
+    task = asyncio.create_task(run_worker(_settings(), provider, cleanup_interval_seconds=60))
+    await asyncio.wait_for(provider.session.analytics_finished.wait(), timeout=1)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert provider.session.commit_calls == 2
+    assert provider.session.rollback_calls == 1
+    assert provider.session.completed_jobs == ["cleanup", "operation_expiry", "analytics"]
     assert provider.close_calls == 0
 
 
