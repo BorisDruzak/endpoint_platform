@@ -170,8 +170,8 @@ export function ActivityAnalyticsPage() {
         ['Актуальное состояние', 'fresh'], ['Активны', 'active'], ['IDLE', 'idle'], ['LOCKED / DISCONNECTED', 'locked_disconnected'], ['Нет данных / устарели', 'unknown'],
       ].map(([label, key]) => <div className="metric-card" key={key}><span>{label}</span><strong>{overview.summary[key]}</strong></div>)}</div>
       <section className="panel table-panel"><div className="table-top"><h2>Сотрудники и устройства</h2><span>{overview.total} записей</span></div>
-        <p className="analytics-note">Учётные записи Windows/AD. Подключение устройства ONLINE показано независимо от активности сотрудника.
-          {' '}Для ALT Linux и старых агентов без Activity измерения недоступны.</p>
+        <p className="analytics-note">Учётные записи ОС, включая подтверждённые доменные учётные записи. Подключение устройства ONLINE показано независимо от активности сотрудника.
+          {' '}Измерения доступны при поддержке Activity Sensor агентом, применённой политике и актуальных наблюдениях пользовательского сеанса.</p>
         <div className="table-scroll"><table><thead><tr>{['Сотрудник', 'Устройство', 'Текущее состояние', 'Последняя активность', 'Активное время', 'Бездействие', 'Основное приложение', 'Полнота данных'].map(text => <th key={text}>{text}</th>)}</tr></thead>
           <tbody>{overview.data.map(row => <tr key={row.user_key ?? row.devices[0].id} className={row.user_key ? 'analytics-employee-row' : ''}
             onClick={event => { if (row.user_key && !(event.target as HTMLElement).closest('button')) change({ user_key: row.user_key }, false) }}>
