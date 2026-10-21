@@ -5,6 +5,31 @@ preserve.  The executable characterization lives in
 `pc_agent/tests/runtime/test_current_gateway_characterization.py` and
 `pc_agent/tests/runtime/test_current_update_characterization.py`.
 
+## ALT 11 diagnostics candidate (2026-10-21)
+
+The Linux adapters now use logind for local graphical session context,
+metadata-only bounded journald profiles for `eventlog.query` and
+`eventlog.recent_errors`, and local CUPS IPP over its Unix socket for printer
+inventory/status and queue summary. Journal queries never request MESSAGE,
+command lines or raw XML. Numeric `event_id=0` means no native Windows Event
+ID; `message_code=journal_priority_N` preserves journal severity explicitly.
+The service needs the supplementary `systemd-journal` group for system logs.
+Diagnostic Context requests only selected journal metadata, never message text.
+
+On an ALT Workstation K 11.4 / systemd 258 / KDE 6.7.4 reference workstation,
+the candidate source observed a real X11/logind session, nonempty CUPS printer
+inventory, an empty active queue, and bounded journal metadata. The empty queue
+is not print-job or DLP acceptance. A 3569-package workstation reproduced a
+false absence after the old 2048-package RPM cutoff; Linux enumeration now
+admits at most 8192 records and rejects overflow rather than returning partial
+success. Windows registry enumeration limits are unchanged.
+
+The initial main 3.2.121 Core/launcher were built and installed as a native RPM
+for lifecycle validation. New adapter code has not yet been released or accepted
+as an installed candidate. User Sensor, Browser, DLP, Wayland, update/rollback,
+reboot and full WSS command acceptance remain separate open gates in the
+2026-10-21 parity plan. Historical checks below are not current release proof.
+
 ## Gateway transport
 
 - The only runtime controller origin is `https://endpoint.sosnadmin.local`.

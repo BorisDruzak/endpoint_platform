@@ -9,6 +9,7 @@ ConditionPathExists=/opt/endpoint-agent/launcher
 Type=simple
 User=endpoint-agent
 Group=endpoint-agent
+SupplementaryGroups=systemd-journal
 Environment=PC_AGENT_DATA_DIR=/var/lib/endpoint-agent
 Environment=PC_AGENT_INSTALL_ROOT=/opt/endpoint-agent
 Environment=ENDPOINT_AGENT_ALT_UPDATE_MODE=1

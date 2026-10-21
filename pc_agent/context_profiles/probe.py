@@ -23,7 +23,11 @@ IP_ADDRESS_COMMAND = ("ip", "-json", "address", "show")
 SSHD_STATUS_COMMAND = ("systemctl", "is-active", "sshd")
 NETWORK_MANAGER_STATUS_COMMAND = ("systemctl", "is-active", "NetworkManager")
 PROCESS_COMMAND = ("ps", "-eo", "comm=,stat=")
-JOURNAL_COMMAND = ("journalctl", "-n", "100", "--no-pager", "-o", "cat")
+JOURNAL_COMMAND = (
+    "journalctl", "--system", "--lines=32", "--no-pager", "--output=json",
+    "--output-fields=__REALTIME_TIMESTAMP,PRIORITY,_SYSTEMD_UNIT,_TRANSPORT",
+    "--since=-60min", "--priority=0..4",
+)
 WINDOWS_TASKLIST_COMMAND = ("tasklist", "/FO", "CSV", "/NH")
 WHO_COMMAND = ("who",)
 # Invoke the native session tool directly: query.exe can return its own nonzero
@@ -155,7 +159,18 @@ class SystemProbe:
 
     def session_info(self) -> dict[str, object]:
         """Read a bounded OS-reported interactive session, never credentials."""
-        command = WINDOWS_QUERY_USER_COMMAND if os.name == "nt" else WHO_COMMAND
+        if os.name != "nt":
+            from pc_agent.platform.linux.sessions import list_sessions
+            try:
+                sessions = list_sessions()
+            except (OSError, ValueError, TimeoutError, subprocess.TimeoutExpired):
+                return {}
+            selected = next((session for session in sessions if session.active), None)
+            return {
+                "current_user_login": selected.user_login if selected else None,
+                "interactive_session_present": selected is not None,
+            }
+        command = WINDOWS_QUERY_USER_COMMAND
         try:
             output = self.run(command, 2.0, 8192)
         except (OSError, ValueError, TimeoutError):
@@ -195,9 +210,9 @@ class SystemProbe:
         if not executable:
             raise FileNotFoundError(command[0])
         try:
-            if command == WINDOWS_QUERY_USER_COMMAND:
-                # Error text is not a session. Keep stderr and nonzero exit
-                # codes out of this observation instead of guessing a login.
+            if command in {WINDOWS_QUERY_USER_COMMAND, JOURNAL_COMMAND}:
+                # Keep stderr and nonzero exits out of session and journal
+                # observations instead of treating error text as data.
                 output = _execute_bounded_command(
                     (executable, *command[1:]), timeout_seconds, limit, check_exit=True,
                 )

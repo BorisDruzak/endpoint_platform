@@ -164,29 +164,8 @@ def _windows_printers() -> list[dict[str, object]]:
 
 
 def _linux_printers() -> list[dict[str, object]]:
-    raw = _execute_bounded_command(("/usr/bin/lpstat", "-p"), 10.0, 16384)
-    if len(raw) >= 16384:
-        raise ValueError("CUPS printer inventory exceeds bound")
-    output = raw.decode("utf-8", errors="replace")
-    if "no destinations added" in output.casefold() or "назначения не добавлены" in output.casefold():
-        return []
-    if not output.strip() or not any(line.startswith("printer ") for line in output.splitlines()):
-        raise OSError("CUPS printer inventory is unavailable")
-    default_output = _execute_bounded_command(("/usr/bin/lpstat", "-d"), 10.0, 16384).decode("utf-8", errors="replace")
-    default = default_output.strip().split(":", 1)[-1].strip() if ":" in default_output else ""
-    printers: list[dict[str, object]] = []
-    for line in output.splitlines():
-        match = re.match(r"^printer\s+(\S+)\s+is\s+(.+)$", line)
-        if match is None:
-            continue
-        name, state = match.groups()
-        printers.append({
-            "name": name, "driver_name": None, "port_name": "",
-            "default": name == default, "state": "paused" if "disabled" in state else "ready" if "idle" in state else "unknown",
-        })
-        if len(printers) == 16:
-            break
-    return printers
+    from pc_agent.platform.linux.cups import printers
+    return printers()
 
 
 def _printer_fact(raw: dict[str, object]) -> PrinterFactV1 | None:
@@ -249,13 +228,14 @@ def _windows_queue_summary() -> dict[str, object]:
 
 def printer_queue_summary(
     parameters: PrinterQueueSummaryParametersV1,
-    *, query_summary: Callable[[], dict[str, object]] = _windows_queue_summary,
+    *, query_summary: Callable[[], dict[str, object]] | None = None,
 ) -> PrinterQueueSummaryResultV1:
     del parameters
     now = datetime.now(UTC)
     try:
-        if _platform() != "windows" and query_summary is _windows_queue_summary:
-            raise OSError("queue summary is unsupported on this platform")
+        if query_summary is None:
+            from pc_agent.platform.linux.cups import queue_summary
+            query_summary = _windows_queue_summary if _platform() == "windows" else queue_summary
         raw = query_summary()
         counts = {key: max(0, min(10000, int(raw[key]))) for key in (
             "job_count", "printing_count", "queued_count", "paused_count", "error_count",

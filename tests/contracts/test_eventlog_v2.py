@@ -34,4 +34,4 @@ def test_eventlog_descriptors_advertise_only_implemented_platform() -> None:
     for capability in ("eventlog.query", "eventlog.recent_errors"):
         descriptor = MODULE_CAPABILITY_REGISTRY[capability].metadata
         assert descriptor.policy == "event_profile"
-        assert descriptor.platforms == ["windows_amd64"]
+        assert descriptor.platforms == ["linux_amd64", "windows_amd64"]

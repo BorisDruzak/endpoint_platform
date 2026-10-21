@@ -22,6 +22,7 @@ from pc_agent.context_profiles.probe import _execute_bounded_command
 
 
 _MAX_SCAN_RECORDS = 2048
+_MAX_LINUX_SCAN_RECORDS = 8192
 _SCAN_SECONDS = 10.0
 _RPM_OUTPUT_LIMIT = 262144
 _RPM_COMMAND = (
@@ -79,8 +80,8 @@ def _alt_inventory() -> list[dict[str, object]]:
             "name": name, "version": version, "publisher": vendor,
             "source": "alt_rpm", "architecture": architecture,
         })
-        if len(rows) >= _MAX_SCAN_RECORDS:
-            break
+        if len(rows) > _MAX_LINUX_SCAN_RECORDS:
+            raise ValueError("RPM inventory record limit exceeded")
     return rows
 
 
@@ -97,7 +98,7 @@ def _text(value: object, maximum: int) -> str | None:
 
 def _facts(rows: list[dict[str, object]]) -> list[SoftwareFactV1]:
     facts: dict[tuple[str, str, str], SoftwareFactV1] = {}
-    for row in rows[:_MAX_SCAN_RECORDS]:
+    for row in rows[:_MAX_LINUX_SCAN_RECORDS]:
         name = _text(row.get("name"), 128)
         if name is None:
             continue

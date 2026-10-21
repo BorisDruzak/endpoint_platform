@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pc_agent.context_profiles.probe import JOURNAL_COMMAND
+
 from pc_agent.context_profiles.diagnostic import DIAGNOSTIC_LOG_BYTES, collect_diagnostic
 
 from .conftest import FIXED_TIME
@@ -17,7 +19,7 @@ def test_diagnostic_redacts_sensitive_values_before_truncation(fake_probe) -> No
 def test_diagnostic_redacts_bearer_credentials_before_truncation(fake_probe) -> None:
     """Bearer credentials are fully removed even when the excerpt ends in the header."""
     secret = "secret-token-value"
-    fake_probe.outputs[("journalctl", "-n", "100", "--no-pager", "-o", "cat")] = (
+    fake_probe.outputs[JOURNAL_COMMAND] = (
         "x" * (DIAGNOSTIC_LOG_BYTES - 51) + f"\nAuthorization: Bearer {secret}\n"
     )
 
@@ -30,7 +32,7 @@ def test_diagnostic_redacts_bearer_credentials_before_truncation(fake_probe) -> 
 def test_diagnostic_redacts_equals_style_bearer_credentials_before_truncation(fake_probe) -> None:
     """Bearer secrets are removed when logs render the header with an equals separator."""
     secret = "secret-equals"
-    fake_probe.outputs[("journalctl", "-n", "100", "--no-pager", "-o", "cat")] = (
+    fake_probe.outputs[JOURNAL_COMMAND] = (
         f"Authorization =   Bearer {secret}\n"
     )
 

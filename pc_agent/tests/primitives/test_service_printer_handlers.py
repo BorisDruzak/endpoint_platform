@@ -55,8 +55,9 @@ def test_no_printers_is_safe_empty_result_and_unknown_name_is_absent() -> None:
 
 def test_cups_no_destinations_is_an_empty_inventory(monkeypatch) -> None:
     from pc_agent.primitives.service_printer import handlers
+    from pc_agent.platform.linux import cups
 
-    monkeypatch.setattr(handlers, "_execute_bounded_command", lambda command, timeout, limit: b"lpstat: No destinations added.")
+    monkeypatch.setattr(cups, "query", lambda *a, **k: [])
     assert handlers._linux_printers() == []
 
 

@@ -170,6 +170,16 @@ effective-browser-policy and browser download/heartbeat proof remain open.
 
 ## Main packages
 
+Linux diagnostics share `platform/linux/sessions.py` (bounded logind local
+graphical sessions), `journal.py` (fixed severity/profile queries that exclude
+message content), and `cups.py` (bounded metadata-only IPP through the local
+CUPS Unix socket). `context_profiles/probe.py` uses logind and restricts manual
+journal diagnostics to metadata. Existing eventlog and service/printer handlers
+project these adapters into the same Windows/Linux DTOs. The RPM grants only
+the supplementary journal-read group; code still runs as `endpoint-agent`.
+ALT software inventory scans up to 8192 records, fails on overflow, and no longer
+silently discards installed packages after record 2048.
+
 | Surface | Location | Responsibility |
 | --- | --- | --- |
 | Runtime | `pc_agent/runtime/` | headless lifecycle, local state, verification |
