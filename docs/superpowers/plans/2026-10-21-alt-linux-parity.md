@@ -429,3 +429,21 @@ Execution is explicitly authorized without intermediate approval stops.
   Activity/Policy/session requirements; all 44 Console tests passed. Existing
   authenticated first browser tab was production, so it is now explicitly
   navigated to staging for the requested UI acceptance; it shows the login form.
+- Final whole-branch review of c2202449..77c70828 found four Important issues
+  (no Critical): permanent USB stop on transient persistence failure, diagnostic
+  Browser Status suppressed after ERROR ACK, stale KDE display environment after
+  quick session change, and no recovery when CUPS is absent at startup. All four
+  were accepted into one fix pass; no second review is dispatched.
+- Live X11 AD session acceptance confirmed ACTIVE/IDLE/LOCKED and a qualified
+  identity after restarting the stale sensor. Before that restart, /proc showed
+  old Wayland display variables while the new autostart file held X11 settings.
+  Autostart now restarts its own unit after publishing its validated environment.
+  Its regression failed before the fix; native recovery/package subset passed
+  39, Windows-compatible recovery subset passed 35 with four native skips.
+- Full Linux/PostgreSQL gate on immutable 77c70828 ran: 4325 passed, 807 skipped,
+  37 failed. The private gate shell's umask 077 caused strict release-fixture
+  mode failures; rerun with CI's normal 022 inside the private gate directory.
+  Other failures were old raw-journal expectations, old Linux capability
+  exclusions, and the static Windows golden version. These expectations are
+  being aligned with the verified metadata contract/capabilities/version;
+  production filesystem validation is not weakened to accommodate the harness.

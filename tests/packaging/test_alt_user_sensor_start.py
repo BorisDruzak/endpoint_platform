@@ -36,7 +36,7 @@ def test_sensor_autostart_does_not_import_global_manager_environment(monkeypatch
     monkeypatch.setattr(module, 'write_session_environment', lambda: calls.append('own-environment'))
     monkeypatch.setattr(module.subprocess, 'run', lambda args, **kwargs: calls.append(args))
     assert module.main() == 0
-    assert calls == ['own-environment', ['systemctl', '--user', 'start', 'endpoint-user-sensor.service']]
+    assert calls == ['own-environment', ['systemctl', '--user', 'restart', 'endpoint-user-sensor.service']]
 
 def test_sensor_wrapper_refuses_root_and_unexpected_arguments(monkeypatch):
     module = _module()

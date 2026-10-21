@@ -41,7 +41,7 @@ def main() -> int:
     try:
         if sys.argv[1:] == ['--autostart']:
             write_session_environment()
-            subprocess.run(['systemctl', '--user', 'start', 'endpoint-user-sensor.service'], check=True, timeout=10)
+            subprocess.run(['systemctl', '--user', 'restart', 'endpoint-user-sensor.service'], check=True, timeout=20)
             return 0
         if sys.argv[1:]:
             return 1
