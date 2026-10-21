@@ -19,6 +19,56 @@ from pc_agent.windows_setup import (
 )
 
 
+@pytest.mark.parametrize('defect', [None, 'not-frozen', 'foreign-executable', 'owner-alive', 'changed-wrapper'])
+def test_frozen_staged_watchdog_uses_package_imports_and_preserves_admission(tmp_path, monkeypatch, defect):
+    """Exercise the real file entry, not its package-imported function."""
+    from pc_agent.platform.windows import staged_recovery, update_paths
+
+    entry = runpy.run_path(setup_entry.__file__)
+    assert not entry['__package__']
+    scope = entry['_run_staged_recovery'].__globals__
+    paths = update_paths.WindowsUpdatePaths(tmp_path/'Agent', tmp_path/'data/updates/pending.json')
+    digest = 'a'*64
+    cache = tmp_path/'installer-cache'/('msi-'+digest)
+    cache.mkdir(parents=True)
+    resource = tmp_path/'resource';resource.mkdir()
+    for name in ('EndpointAgent.release.json', 'Install-EndpointAgentCanary.ps1'):
+        (resource/name).write_bytes(b'reviewed embedded input')
+        (cache/name).write_bytes(b'changed' if defect == 'changed-wrapper' and name.endswith('.ps1') else b'reviewed embedded input')
+    operation = '11111111-1111-4111-8111-111111111111'
+    record = SimpleNamespace(binding=SimpleNamespace(operation_id=operation), owner={'pid':42})
+    events = []
+    monkeypatch.setattr(setup_entry.sys, 'frozen', defect != 'not-frozen', raising=False)
+    monkeypatch.setattr(setup_entry.sys, 'executable', str(tmp_path/'foreign.exe' if defect == 'foreign-executable' else cache/'EndpointAgentSetup.exe'))
+    scope['WindowsUpdatePaths'] = SimpleNamespace(production=lambda: paths)
+    scope['_resource_root'] = lambda: resource
+    scope['_verify_embedded_msi'] = lambda _: (resource/'EndpointAgent.release.json', resource/'Install-EndpointAgentCanary.ps1')
+    monkeypatch.setattr(staged_recovery.state, 'read_staged_update', lambda _: record)
+    monkeypatch.setattr(staged_recovery, '_validate_recovery_inputs', lambda *_: {'package_sha256':digest})
+    monkeypatch.setattr(staged_recovery, 'wait_for_original_owner', lambda *a, **k: events.append('wait'))
+    def dead(_):
+        events.append('dead')
+        if defect == 'owner-alive':
+            raise ValueError('OWNER_AUTH_FAILED')
+    monkeypatch.setattr(staged_recovery, '_assert_owner_dead', dead)
+    monkeypatch.setattr(update_paths, '_native_folder', lambda _: tmp_path/'system32')
+    def invoke(command, **kwargs):
+        events.append('launch')
+        assert command[0] == str(tmp_path/'system32/WindowsPowerShell/v1.0/powershell.exe')
+        assert command[command.index('-Operation')+1] == 'RecoverStagedUpdate'
+        assert command[command.index('-StagedOperationId')+1] == operation
+        assert kwargs['shell'] is False
+        return SimpleNamespace(returncode=0)
+    monkeypatch.setattr(setup_entry.subprocess, 'run', invoke)
+    result = entry['_run_staged_recovery'](operation)
+    if defect is None:
+        assert result == 0
+        assert events == ['wait','dead','launch']
+    else:
+        assert result == setup_entry.EXIT_REPAIR_REQUIRED
+        assert 'launch' not in events
+
+
 @pytest.mark.parametrize(
     "operation",
     ["recovery", "native-cost", "disk-cost", "recovery-cost", "installed", "handoff"],

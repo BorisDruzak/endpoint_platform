@@ -234,10 +234,10 @@ def _install_embedded_msi(msi_path: Path) -> int:
 
 
 def _run_staged_recovery(operation_id):
-    from . import staged_recovery as recovery
     try:
         if not getattr(sys, 'frozen', False):
             raise SetupInstallError('RECOVERY_REQUIRED')
+        from pc_agent.platform.windows import staged_recovery as recovery
         paths = WindowsUpdatePaths.production()
         record = recovery.state.read_staged_update(paths)
         deadline = time.monotonic() + 60
@@ -257,7 +257,7 @@ def _run_staged_recovery(operation_id):
         for embedded, cached in ((manifest, cache / manifest.name), (wrapper, cache / wrapper.name)):
             if embedded.read_bytes() != cached.read_bytes():
                 raise SetupInstallError('RECOVERY_REQUIRED')
-        from .update_paths import _native_folder
+        from pc_agent.platform.windows.update_paths import _native_folder
         powershell = str(_native_folder(0x25) / "WindowsPowerShell/v1.0/powershell.exe")
         result = subprocess.run([powershell, '-NoProfile', '-NonInteractive', '-WindowStyle', 'Hidden',
             '-ExecutionPolicy', 'Bypass', '-File', str(cache / wrapper.name),
