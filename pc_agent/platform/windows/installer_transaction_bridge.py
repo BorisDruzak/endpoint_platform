@@ -321,8 +321,11 @@ class PipeTransport:
             else:
                 _,buffer=win32file.ReadFile(self.handle,data,operation)
             if win32event.WaitForSingleObject(operation.hEvent,30000)!=win32event.WAIT_OBJECT_0:
-                win32file.CancelIoEx(self.handle,operation)
-                try: win32file.GetOverlappedResult(self.handle,operation,True)
+                # pywin32 311 exposes CancelIo, not CancelIoEx. This transport
+                # issues one request at a time on this same calling thread.
+                try:
+                    win32file.CancelIo(self.handle)
+                    win32file.GetOverlappedResult(self.handle,operation,True)
                 except pywintypes.error: pass
                 _failed()
             size=win32file.GetOverlappedResult(self.handle,operation,False)

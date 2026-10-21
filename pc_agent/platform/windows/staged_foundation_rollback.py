@@ -466,10 +466,21 @@ def execute_candidate_removal_phase(client, paths, **kwargs):
     if (cap['staged_rollback']['role'] != 'remove' or roles['removal']['session_id'] != cap['session_id']
             or client.phase not in {'prepare', 'msi-preflight', 'msi-enter', 'msi-complete'}):
         _fail()
-    with durable_state.installer_mutation_checkpoints(client.checkpoint):
+    if client.phase == 'prepare':
+        with durable_state.installer_mutation_checkpoints(client.checkpoint):
+            root = fence.state_root(paths)
+            for name in ('children', cap['transaction_id'], plan['rollback_id']):
+                root = provenance._archive_directory(root, name)
+    else:
+        # Native preflight grants only observation. Its protected child scope
+        # already exists from prepare; even an otherwise harmless directory
+        # flush would request a forbidden mutation and abandon the native call.
         root = fence.state_root(paths)
         for name in ('children', cap['transaction_id'], plan['rollback_id']):
-            root = provenance._archive_directory(root, name)
+            root = root / name
+            fence.assert_state_security(root)
+            if not root.is_dir():
+                _fail()
     with fence.child_fence(cap['transaction_id'], attempt_id=plan['rollback_id']):
         result = bridge._execute_authorized_phase(client, paths, complete=False, **kwargs)
         if client.phase == 'msi-complete':

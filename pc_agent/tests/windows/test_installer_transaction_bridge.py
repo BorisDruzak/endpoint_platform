@@ -358,3 +358,29 @@ Write-Output 'passed'
         '-File',str(script),str(source),str(directory)],capture_output=True,text=True,timeout=30)
     assert result.returncode==0,result.stderr
     assert result.stdout.strip()=='passed'
+
+
+@pytest.mark.skipif(os.name != 'nt', reason='actual overlapped Windows named pipe cancellation')
+def test_real_pipe_read_timeout_cancels_pending_io_without_missing_api(monkeypatch):
+    import pywintypes, win32event, win32file, win32pipe
+    from uuid import uuid4
+    from pc_agent.platform.windows.installer_transaction_bridge import PipeTransport
+    name = 'EndpointInstaller-TestTimeout-' + uuid4().hex
+    server = win32pipe.CreateNamedPipe('\\\\.\\pipe\\' + name,
+        win32pipe.PIPE_ACCESS_DUPLEX | win32file.FILE_FLAG_OVERLAPPED,
+        win32pipe.PIPE_TYPE_BYTE | win32pipe.PIPE_READMODE_BYTE | win32pipe.PIPE_WAIT,
+        1, 32768, 32768, 5000, None)
+    connection = pywintypes.OVERLAPPED(); connection.hEvent = win32event.CreateEvent(None, True, False, None)
+    client = None
+    try:
+        win32pipe.ConnectNamedPipe(server, connection)
+        client = PipeTransport(name)
+        assert win32event.WaitForSingleObject(connection.hEvent, 5000) == win32event.WAIT_OBJECT_0
+        original = win32event.WaitForSingleObject
+        monkeypatch.setattr(win32event, 'WaitForSingleObject',
+            lambda event, ms: win32event.WAIT_TIMEOUT if ms == 30000 else original(event, ms))
+        with pytest.raises(ValueError, match='OWNER_AUTH_FAILED'):
+            client._io(1, writing=False)
+    finally:
+        if client is not None: client.close()
+        server.Close(); connection.hEvent.Close()

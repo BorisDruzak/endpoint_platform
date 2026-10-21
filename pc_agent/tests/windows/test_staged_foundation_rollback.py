@@ -358,3 +358,24 @@ def test_forward_archives_adapts_data_capture_to_provenance_request(staged, monk
                 'previous_before': binding.previous_before.hex() if binding.previous_before else None, 'archives': ['d' * 64]}
     monkeypatch.setattr(provenance, '_read_plan', read_plan)
     assert rollback._forward_archives(paths, record) == ('d' * 64,)
+
+
+@pytest.mark.parametrize('phase', ['msi-preflight', 'msi-enter'])
+def test_candidate_native_callback_reuses_protected_scope_without_mutation(reverse, monkeypatch, phase):
+    from pc_agent.platform.windows import installer_transaction_bridge as bridge
+    rollback, paths, binding, *_ = reverse
+    transaction, session, attempt = str(uuid4()), str(uuid4()), str(uuid4())
+    root = installer_fence.state_root(paths)
+    for name in ('children', transaction, attempt):
+        root = root / name; root.mkdir(); installer_fence.protect_state(root)
+    monkeypatch.setattr(rollback, 'read_bound_rollback_roles', lambda *_: {'removal': {'session_id': session}})
+    monkeypatch.setattr(rollback, 'read_foundation_rollback', lambda *_: {'rollback_id': attempt})
+    sent = []
+    def forbidden(): raise ValueError('native preflight cannot mutate')
+    client = SimpleNamespace(phase=phase, checkpoint=forbidden,
+        capability={'session_id': session, 'transaction_id': transaction,
+                    'staged_rollback': {'role': 'remove', 'operation_id': binding.operation_id}},
+        request=lambda action, value: sent.append((action, value)))
+    monkeypatch.setattr(bridge, '_execute_authorized_phase', lambda *_a, **_k: {'native': 'inspected'})
+    assert rollback.execute_candidate_removal_phase(client, paths) == {'native': 'inspected'}
+    assert sent == [('complete', {'native': 'inspected'})]

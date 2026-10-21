@@ -761,3 +761,19 @@ def test_boot_requires_complete_zip_ownership(tmp_path,monkeypatch,defect):
     else:
         command=service_launcher.build_agent_child_command(paths)
         assert command[0]==str(root/'pc_agent.exe') and command[-2:]==['--launcher-version','3.2.82']
+
+
+@pytest.mark.parametrize('where', ['connect', 'phase'])
+def test_installer_helper_unexpected_error_exits_instead_of_windowed_dialog(monkeypatch, where):
+    from contextlib import contextmanager
+    from pc_agent.platform.windows import service_launcher, installer_transaction_bridge as bridge
+    class UnexpectedHelperFailure(Exception): pass
+    @contextmanager
+    def owner(*_):
+        if where == 'connect': raise UnexpectedHelperFailure('unexpected native error')
+        yield object()
+    def execute(*_a, **_k): raise UnexpectedHelperFailure('unexpected native error')
+    monkeypatch.setattr(bridge, 'owner_authorized_phase', owner)
+    monkeypatch.setattr(bridge, 'execute_authorized_phase', execute)
+    assert service_launcher.main(['--installer-phase', 'inspect', '--installer-session',
+        '11111111-1111-4111-8111-111111111111']) == 1

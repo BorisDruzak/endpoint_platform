@@ -259,15 +259,17 @@ def _parser() -> argparse.ArgumentParser:
 def main(argv: Sequence[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     if args.installer_phase:
-        from pc_agent.platform.windows.installer_transaction_bridge import owner_authorized_phase, execute_authorized_phase
         try:
+            from pc_agent.platform.windows.installer_transaction_bridge import owner_authorized_phase, execute_authorized_phase
             with owner_authorized_phase(args.installer_session,args.installer_phase) as client:
                 execute_authorized_phase(client,WindowsUpdatePaths.production(),
                     feature_states=(args.foundation_state,args.foundation_action,args.runtime_state,args.runtime_action),
                     rollback_disabled=args.rollback_disabled,uninstall_finalization=args.uninstall_finalization,
                     upgrade_detected=args.upgrade_detected)
             return 0
-        except (OSError,ValueError,TypeError,KeyError,RuntimeError) as error:
+        except Exception as error:
+            # pywin32 errors need not inherit OSError. A windowed MSI helper
+            # must return failure, never wait on an invisible exception dialog.
             if str(error)=="UPDATE_IN_PROGRESS": return 61
             if str(error)=="UPDATE_STATE_INVALID": return 62
             if str(error)=="PROVENANCE_CONFLICT": return 63
