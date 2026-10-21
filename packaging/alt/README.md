@@ -9,7 +9,9 @@ credential, and enrollment identity are supplied or created separately.
 
 ## Build on a disposable ALT worker
 
-Install the locked Linux build requirements and `rpm-build`, then run:
+Install the locked Linux build requirements and `rpm-build rpm-build-python3`,
+then run. ALT's Python dependency scanner requires `rpm-build-python3` even
+though the Agent payload is frozen: the RPM also installs two Python helpers.
 
 ```bash
 bash packaging/alt/build-rpm.sh

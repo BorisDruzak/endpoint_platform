@@ -21,6 +21,7 @@ Source15: start-endpoint-agent.py
 Source20: endpoint-agent.tmpfiles
 Source21: endpoint-agent.logrotate
 BuildArch: x86_64
+BuildRequires: rpm-build-python3
 Requires(pre): shadow-utils
 Requires: python3
 Requires: systemd
