@@ -11,6 +11,43 @@ from pc_agent.tests.windows.test_staged_update_state import staged, begin, move,
 from pc_agent.tests.windows.test_retained_storage import retained, promote
 
 
+@pytest.mark.parametrize('role,missing_capture', [('remove', False), ('remove', True), (None, False), ('control', False)])
+def test_removal_native_entry_uses_prepared_authority_after_product_unpublication(tmp_path, monkeypatch, role, missing_capture):
+    from pc_agent.platform.windows import installer_transaction_bridge as bridge
+    from pc_agent.platform.windows import installation_provenance as provenance, msi_inventory, service_launcher
+    paths = SimpleNamespace()
+    package = {'package_sha256': 'a' * 64}
+    cap = {'package': package, 'operation': 'uninstall', 'recovery': False}
+    if role is not None:
+        cap['staged_rollback'] = {'role': role}
+    request = {'package_path': tmp_path / 'signed.msi', 'release': package}
+    calls = []
+    monkeypatch.setattr(bridge, '_request_data', lambda *_: request)
+    monkeypatch.setattr(msi_inventory, 'read_expected_package', lambda *_: SimpleNamespace(package=SimpleNamespace(version='3.2.127')))
+    monkeypatch.setattr(bridge, '_settled', lambda *_: None)
+    def installed_inspection(*args, **kwargs):
+        raise ValueError('native product registration is no longer installed')
+    monkeypatch.setattr(provenance, 'inspect_installed_core', installed_inspection)
+    def prepared(*args):
+        assert args == (paths, request, 'uninstall')
+        calls.append('prepared-authority')
+        if missing_capture:
+            raise ValueError('PROVENANCE_CONFLICT')
+    monkeypatch.setattr(provenance, 'validate_maintenance_recovery', prepared)
+    monkeypatch.setattr(installer_fence, 'read_fence', lambda *_: {'phase': 'msi-starting'})
+    monkeypatch.setattr(bridge, '_advance_fence', lambda *_: calls.append('native-entered'))
+    monkeypatch.setattr(service_launcher, 'stop_tray_companions', lambda *_: None)
+    client = SimpleNamespace(capability=cap, phase='msi-enter', checkpoint=lambda: None,
+                             request=lambda *args: calls.append(args[0]))
+    if role == 'remove' and not missing_capture:
+        assert bridge._execute_authorized_phase(client, paths) == {}
+        assert calls == ['prepared-authority', 'native-entered', 'complete']
+    else:
+        with pytest.raises(ValueError):
+            bridge._execute_authorized_phase(client, paths)
+        assert 'native-entered' not in calls
+
+
 @pytest.fixture
 def reverse(staged, monkeypatch):
     from pc_agent.platform.windows import staged_foundation_rollback as rollback
