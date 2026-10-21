@@ -83,7 +83,11 @@ def _capture_request(paths, record):
 
 def _verify_original_data(paths, record):
     from . import installer_data_security as data
-    data.verify_preserved(paths, _capture_request(paths, record))
+    request = _capture_request(paths, record)
+    if record.phase in {"preparing", "prepared"}:
+        data.before_native(paths, request)
+    else:
+        data.verify_preserved(paths, request)
 
 
 def _forward_archives(paths, record):
@@ -581,7 +585,7 @@ def original_foundation_runtime_allowed(paths, raw, identity, package_sha256, fo
     """Inspect the exact captured legacy pair without broadening its old ABI."""
     from .legacy_foundation_upgrade import canonical_release
     record = state.read_staged_update(paths)
-    if record is None or record.phase not in {'switching', 'native-settled', 'trial', 'rolling-back'}:
+    if record is None or record.phase not in {'preparing', 'prepared', 'switching', 'native-settled', 'trial', 'rolling-back'}:
         return False
     binding = record.binding
     release = canonical_release(binding.old_release)

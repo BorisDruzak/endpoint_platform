@@ -159,7 +159,8 @@ def test_legacy79_catalog_requires_genuine_package_table(monkeypatch, tmp_path):
     with pytest.raises(ValueError): legacy.rollback_foundation_inventory(tmp_path / 'unexecuted.msi', release)
 
 
-def test_original_legacy_floor_is_scoped_to_captured_pair(staged):
+@pytest.mark.parametrize('phase',['preparing','prepared','native-settled'])
+def test_original_legacy_floor_is_scoped_to_captured_pair(staged, phase):
     from dataclasses import replace
     from pc_agent.platform.windows import staged_foundation_rollback as rollback, legacy_foundation_upgrade as legacy
     from pc_agent.platform.windows.runtime_identity import _LEGACY_MSI_CONTRACTS
@@ -177,9 +178,9 @@ def test_original_legacy_floor_is_scoped_to_captured_pair(staged):
                                tree_sha256=contract['tree_sha256'])
     with durable_state.installer_mutation_checkpoints(lambda: None):
         state.begin_staged_update(paths, binding, owner)
-        state.advance_staged_update(paths, binding.operation_id, 'preparing', 'prepared')
-        state.advance_staged_update(paths, binding.operation_id, 'prepared', 'switching')
-        state.advance_staged_update(paths, binding.operation_id, 'switching', 'native-settled')
+        for before, after in (('preparing','prepared'),('prepared','switching'),('switching','native-settled')):
+            if state.read_staged_update(paths).phase == phase: break
+            state.advance_staged_update(paths,binding.operation_id,before,after)
     assert rollback.original_foundation_runtime_allowed(paths, raw, identity, digest, '3.2.79')
     assert not rollback.original_foundation_runtime_allowed(paths, raw, identity, digest, '3.2.81')
     assert not rollback.original_foundation_runtime_allowed(paths, raw, identity, '0' * 64, '3.2.79')
@@ -318,3 +319,20 @@ def test_staged122_retention_admits_genuine79_without_rewriting_history():
     assert not runtime_identity.legacy_foundation_compatible('0'*64,'3.2.122')
     assert not runtime_identity.legacy_foundation_compatible(digest,'3.2.123')
     assert runtime_identity._LEGACY_MSI_CONTRACTS[digest]['approved_foundations'] == ('3.2.82',)
+
+
+from pc_agent.tests.windows.test_installer_data_security import operation
+
+
+def test_pre_switch_recovery_rechecks_prepared_capture_without_rebaselining(operation, monkeypatch):
+    from pc_agent.platform.windows import staged_foundation_rollback as rollback, installer_data_security as data
+    paths, request = operation
+    data.prepare(paths,request)
+    capture = data._transaction_root(paths,request) / 'data-root-before.json'
+    before = capture.read_bytes()
+    monkeypatch.setattr(rollback,'_capture_request',lambda *_:request)
+    rollback._verify_original_data(paths,SimpleNamespace(phase='preparing'))
+    rollback._verify_original_data(paths,SimpleNamespace(phase='prepared'))
+    assert capture.read_bytes() == before
+    monkeypatch.setattr(data,'_snapshot',lambda *_:{'root':None,'leaves':{'different':None}})
+    with pytest.raises(ValueError): rollback._verify_original_data(paths,SimpleNamespace(phase='prepared'))
