@@ -581,7 +581,7 @@ def original_foundation_runtime_allowed(paths, raw, identity, package_sha256, fo
     """Inspect the exact captured legacy pair without broadening its old ABI."""
     from .legacy_foundation_upgrade import canonical_release
     record = state.read_staged_update(paths)
-    if record is None or record.phase not in {'native-settled', 'trial', 'rolling-back'}:
+    if record is None or record.phase not in {'switching', 'native-settled', 'trial', 'rolling-back'}:
         return False
     binding = record.binding
     release = canonical_release(binding.old_release)

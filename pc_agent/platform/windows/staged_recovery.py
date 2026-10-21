@@ -132,10 +132,11 @@ def _validate_task_definition(xml, operation_id, executable, logon_type):
 
 def _validate_recovery_inputs(paths, record):
     value = _read(_root(paths, record.binding.operation_id) / 'inputs.json')
-    fields = {'schema_version','operation_id','owner','package_sha256','files','service_states','task_sha256'}
+    fields = {'schema_version','operation_id','owner','package_sha256','files','service_states','task_sha256','boot'}
     if (not isinstance(value, dict) or set(value) != fields or type(value['schema_version']) is not int
             or value['schema_version'] != 1 or value['operation_id'] != record.binding.operation_id
             or value['owner'] != record.owner or value['package_sha256'] != record.binding.new_release['package_sha256']
+            or not isinstance(value['boot'], str) or not 0 < len(value['boot']) <= 128
             or not isinstance(value['files'], dict) or set(value['files']) != {
                 'EndpointAgentSetup.exe','EndpointAgent.msi','EndpointAgent.release.json','Install-EndpointAgentCanary.ps1'}
             or not isinstance(value['service_states'], dict) or set(value['service_states']) != {
@@ -222,7 +223,7 @@ def recover_staged_update(paths, operation_id, *, capability=None):
             or capability['transaction_id'] != operation_id or capability['package'] != record.binding.new_release
             or capability['operation'] != 'install' or capability['recovery'] or capability['uninstall_finalization']):
         _fail()
-    _validate_recovery_inputs(paths, record)
+    inputs = _validate_recovery_inputs(paths, record)
     _assert_owner_dead(record.owner)
     if not _native_settled(paths):
         _fail()
@@ -256,8 +257,11 @@ def recover_staged_update(paths, operation_id, *, capability=None):
         return 'preparation-cancelled'
     if reboot_pending(paths, record):
         return 'reboot-required'
+    post_boot = bool(inputs.get('boot')) and inputs['boot'] != _boot_identity()
+    if record.phase in {'switching','native-settled','trial'} and not post_boot:
+        return 'rollback-required'
     if record.phase == 'trial':
-        # Every new owner/boot gets a new request/attempt and a fresh handshake.
+        # A confirmed new boot gets a new request/attempt and a fresh handshake.
         record = state._write(paths, replace(record, phase='native-settled', sequence=record.sequence + 1, attempt_id=None))
     if record.phase in {'switching','native-settled'}:
         return 'trial-required'

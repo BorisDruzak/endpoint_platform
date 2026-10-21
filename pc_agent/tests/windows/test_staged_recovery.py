@@ -53,7 +53,7 @@ def test_original_capture_owner_survives_fresh_recovery_handoff(recovery, staged
     move(staged, 'preparing', 'prepared');move(staged, 'prepared', 'switching');move(staged, 'switching', 'native-settled')
     original = state.read_staged_update(paths).owner
     with durable_state.installer_mutation_checkpoints(lambda: None):
-        assert module.recover_staged_update(paths, binding.operation_id, capability=cap) == 'trial-required'
+        assert module.recover_staged_update(paths, binding.operation_id, capability=cap) == 'rollback-required'
     assert state.read_staged_update(paths).owner == original
     assert module.owner_authorized(paths, state.read_staged_update(paths), cap['owner'])
     assert not module.owner_authorized(paths, state.read_staged_update(paths), {**cap['owner'], 'created': 999})
@@ -86,10 +86,12 @@ def test_setup_recovery_dispatch_does_not_enter_enrollment(monkeypatch):
     assert calls == [operation]
 
 
-def test_recovered_trial_discards_prior_attempt(recovery, staged):
+def test_recovered_trial_discards_prior_attempt(recovery, staged, monkeypatch):
     module, paths, binding, cap = recovery
     move(staged, 'preparing','prepared'); move(staged,'prepared','switching'); move(staged,'switching','native-settled')
     move(staged,'native-settled','trial',attempt_id=str(uuid4()))
+    monkeypatch.setattr(module,'_validate_recovery_inputs',lambda *_: {'boot':'previous'})
+    monkeypatch.setattr(module,'_boot_identity',lambda:'current')
     with durable_state.installer_mutation_checkpoints(lambda: None):
         assert module.recover_staged_update(paths,binding.operation_id,capability=cap) == 'trial-required'
     assert state.read_staged_update(paths).phase == 'native-settled'
@@ -222,7 +224,7 @@ def test_actual_private_cache_acl_and_hash_are_verified(staged, monkeypatch):
             files[name] = hashlib.sha256(leaf.read_bytes()).hexdigest()
         inputs = {'schema_version':1,'operation_id':binding.operation_id,'owner':owner,
                   'package_sha256':package_hash,'files':files,'service_states':dict.fromkeys(
-                  ('EndpointAgent','EndpointAgentUpdater','EndpointBrowserPolicy'),'Running'),'task_sha256':'f'*64}
+                  ('EndpointAgent','EndpointAgentUpdater','EndpointBrowserPolicy'),'Running'),'task_sha256':'f'*64,'boot':'fixture-boot'}
         module._write(module._root(paths,binding.operation_id,create=True),'inputs.json',inputs)
     seen = []; monkeypatch.setattr(module,'_validate_task',lambda *_:seen.append('task'))
     assert module._validate_recovery_inputs(paths,record) == inputs
@@ -271,3 +273,13 @@ def test_reboot_marker_blocks_trial_until_actual_boot_changes(trial, monkeypatch
         assert state.read_staged_update(paths).phase == 'native-settled'
         boot[0] = 'after'
         assert proof.begin_staged_trial(paths,binding.operation_id)
+
+
+def test_owner_loss_during_trial_requests_compensation(recovery, staged):
+    module, paths, binding, cap = recovery
+    move(staged,'preparing','prepared');move(staged,'prepared','switching');move(staged,'switching','native-settled')
+    attempt = str(uuid4());move(staged,'native-settled','trial',attempt_id=attempt)
+    with durable_state.installer_mutation_checkpoints(lambda:None):
+        assert module.recover_staged_update(paths,binding.operation_id,capability=cap) == 'rollback-required'
+    assert state.read_staged_update(paths).attempt_id == attempt
+    assert state.read_staged_update(paths).phase == 'trial'

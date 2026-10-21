@@ -91,3 +91,63 @@ if($result -cne 'accepted' -or [string]::Join(',',$script:phases) -cne 'inspect-
                             capture_output=True, text=True, timeout=30)
     assert result.returncode == 0, result.stderr
     assert result.stdout.strip() == 'passed'
+
+
+@pytest.mark.skipif(os.name != 'nt', reason='actual PowerShell reverse orchestration')
+def test_legacy_native_autostart_is_quiesced_before_restoration_proof(tmp_path):
+    source = Path(__file__).resolve().parents[3] / 'packaging/windows/Install-EndpointAgentCanary.ps1'
+    media = tmp_path / 'old.msi';media.write_bytes(b'fixture-only')
+    script = tmp_path / 'legacy-autostart.ps1'
+    script.write_text(r'''param($Source,$Media)
+$ErrorActionPreference='Stop';Set-StrictMode -Version Latest
+$tokens=$null;$errors=$null;$ast=[Management.Automation.Language.Parser]::ParseFile($Source,[ref]$tokens,[ref]$errors)
+foreach($name in @('Invoke-StagedFoundationRollback','Assert-StagedRollbackPostconditions')){
+ $node=$ast.Find({param($n)$n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq $name},$true);Invoke-Expression $node.Extent.Text
+}
+$script:operation='11111111-1111-4111-8111-111111111111'
+$script:oldHash='2f7d778799f1e32645af7936dfaf3f090d6ad4df5bb883827ea8a0a5d859f72a'
+$script:media=$Media;$script:oldRunning=$false;$script:committed=$false;$script:stops=0
+function Resource {$r=[pscustomobject]@{};$r|Add-Member ScriptMethod Dispose {};return $r}
+function New-InstallerBridge {param($Manifest,$HelperPath,$HelperHash,$StateRoot,$ServiceStates,$Intent,$TransactionId,$StagedRollback,$Selection,$BoundSessionId)
+ $p=Resource
+ $p|Add-Member ScriptMethod MarkQuiescent {}
+ $p|Add-Member ScriptMethod OwnerLost {}
+ $p|Add-Member ScriptMethod AuthorizeStagedReversePlan {}
+ return @{TransactionId=$script:operation;SessionId=[Guid]::NewGuid().ToString('D');Policy=$p;Owner=(Resource);Channel=(Resource);Peers=@()}
+}
+function Get-ManagedAgentServiceStates {return @{EndpointAgent='Running';EndpointAgentUpdater='Stopped';EndpointBrowserPolicy='Running'}}
+function Stop-ManagedAgentServices {param($PreviousStates,$StoppedBySetup);$script:stops++;$script:oldRunning=$false}
+function Get-StagedRollbackMedia {return $script:media}
+function Start-WindowsInstaller {}
+function New-InstallerConversation {return [pscustomobject]@{}}
+function Invoke-CompoundNativePump {}
+function New-StagedRollbackNativeDriver {
+ $d=[pscustomobject]@{HasNativeTransaction=$false;PendingTask=$null}
+ $d|Add-Member ScriptMethod BeginNative {$this.HasNativeTransaction=$true}
+ foreach($name in @('StartOldScript','StartNewScript','StartEnd','Dispose','CheckOwnership')){$d|Add-Member ScriptMethod $name {}}
+ foreach($name in @('CompleteOldScript','CompleteNewScript')){$d|Add-Member ScriptMethod $name {return 0}}
+ $d|Add-Member ScriptMethod CompleteEnd {$this.HasNativeTransaction=$false;$script:oldRunning=$true;return 0}
+ return $d
+}
+function Invoke-InstallerHelper {param($Bridge,$Phase)
+ switch($Phase){
+ 'inspect-staged-state' {return [pscustomobject]@{operation_id=$script:operation;phase='trial';selected=('a'*64);previous=$null}}
+ 'prepare-foundation-rollback' {return [pscustomobject]@{operation_id=$script:operation;result='rollback-prepared';plan_sha256=('e'*64);restoration_selection=@{};plan=@{operation_id=$script:operation;old=@{helper_sha256=$null;release=@{package_sha256=$script:oldHash;product_code='{0FFBDA26-8617-4F9E-A378-833F01048360}'}};new=@{release=@{package_sha256=('c'*64)}}}}}
+ 'bind-foundation-rollback-roles' {return [pscustomobject]@{operation_id=$script:operation;result='rollback-roles-bound';plan_sha256=('e'*64)}}
+ 'rollback-candidate-removed' {return [pscustomobject]@{operation_id=$script:operation;result='rollback-candidate-removed'}}
+ 'rollback-native-committed' {if($script:oldRunning){throw 'old MSI autostart escaped quiescence'};$script:committed=$true;return [pscustomobject]@{operation_id=$script:operation;result='rollback-native-committed'}}
+ 'verify-foundation-rollback' {if(!$script:committed -or $script:oldRunning){throw 'premature proof'};return [pscustomobject]@{operation_id=$script:operation;result='rolled-back'}}
+ 'prepare' {return @{}}
+ default {throw ('unexpected phase '+$Phase)}
+ }
+}
+function Start-VerifiedBrowserPolicy {}
+function Start-ManagedEndpointAgent {if(!$script:committed){throw 'unverified old start'};$script:oldRunning=$true}
+$result=Invoke-StagedFoundationRollback -Manifest @{package_sha256=('c'*64)} -HelperPath 'helper' -HelperHash ('b'*64) -StateRoot 'state' -CacheRoot 'cache' -ServiceStates (Get-ManagedAgentServiceStates) -Selection ([pscustomobject]@{foundation_release=@{package_sha256=$script:oldHash}}) -CandidateMedia $null -OperationId $script:operation -InstallRoot 'install'
+if($result -cne 'rolled-back' -or !$script:oldRunning -or $script:stops -ne 2){throw 'legacy restore not verified'}
+'passed'
+''',encoding='utf-8')
+    result = subprocess.run(['powershell.exe','-NoProfile','-NonInteractive','-File',str(script),str(source),str(media)],
+                            capture_output=True,text=True,timeout=35)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == 'passed'

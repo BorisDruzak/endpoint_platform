@@ -1491,6 +1491,13 @@ function Invoke-StagedFoundationRollback {
         $driver.StartEnd($true)
         Invoke-CompoundNativePump $driver $conversations -Channels $nativeBridges.Count
         if($driver.CompleteEnd() -ne 0){throw 'RECOVERY_REQUIRED'}
+        if($legacy){
+            # Genuine79 has native ServiceControl install-start events and no
+            # modern helper callback. Stop those original services after actual
+            # End(Commit), before restoring selectors and publishing proof.
+            $legacyStopped=@{}
+            Stop-ManagedAgentServices -PreviousStates (Get-ManagedAgentServiceStates) -StoppedBySetup $legacyStopped
+        }
         if($null -ne $restoration){
             Invoke-InstallerHelper -Bridge $restoration -Phase 'reconcile' | Out-Null
             Invoke-InstallerHelper -Bridge $restoration -Phase 'finish' | Out-Null
@@ -1566,7 +1573,7 @@ function Register-StagedRecoveryTask {
     $root=Join-Path $root $Bridge.TransactionId
     New-InstallerPublicStateRoot $root
     $inputs=@{schema_version=1;operation_id=$Bridge.TransactionId;owner=$Bridge.Capability.owner;
-        package_sha256=$Bridge.Capability.package.package_sha256;files=$files;service_states=$ServiceStates;task_sha256=$null}
+        package_sha256=$Bridge.Capability.package.package_sha256;files=$files;service_states=$ServiceStates;task_sha256=$null;boot=[string](Get-WmiObject Win32_OperatingSystem).LastBootUpTime}
     $leaf=Join-Path $root 'inputs.json'
     if(Test-Path -LiteralPath $leaf){throw 'PROVENANCE_CONFLICT'}
     $executable=Join-Path $directory 'EndpointAgentSetup.exe'
@@ -1618,11 +1625,11 @@ function Invoke-StagedRecovery {
         return $(if($adopted.action -ceq 'accepted'){0}else{67})
     }
     if($adopted.action -ceq 'reboot-required'){return 3010}
-    if($adopted.action -cne 'trial-required'){throw 'RECOVERY_REQUIRED'}
+    if($adopted.action -cnotin @('trial-required','rollback-required')){throw 'RECOVERY_REQUIRED'}
     $stopped=@{}
     Stop-ManagedAgentServices -PreviousStates (Get-ManagedAgentServiceStates) -StoppedBySetup $stopped
     $Bridge.Policy.MarkQuiescent()
-    if((Invoke-StagedHealthTrial -Bridge $Bridge -InstallRoot $InstallRoot) -cne 'accepted'){
+    if($adopted.action -ceq 'rollback-required' -or (Invoke-StagedHealthTrial -Bridge $Bridge -InstallRoot $InstallRoot) -cne 'accepted'){
         $result=Invoke-StagedFoundationRollback -Manifest $Manifest -HelperPath $HelperPath -HelperHash $HelperHash -StateRoot $StateRoot -CacheRoot $CacheRoot -ServiceStates $observed.service_states -Selection ([pscustomobject]@{foundation_release=$observed.old_release}) -CandidateMedia $CandidateMedia -OperationId $OperationId -InstallRoot $InstallRoot
         if($result -cne 'rolled-back' -and $result -cne 'accepted'){throw 'RECOVERY_REQUIRED'}
         Complete-StagedTerminalCleanup $Bridge $observed.service_states $StateRoot
@@ -2571,6 +2578,7 @@ $installationCompleted = $false
 $nativeStarted = $false
 $nativeExit = 0
 $stagedOnline = $false
+$recoveredMustRollback = $false
 try {
     $helperPath = Join-Path $executionCacheDirectory 'endpoint-installer-host.exe'
     if (Test-Path -LiteralPath $helperPath) { Assert-CacheArtifactProtection $helperPath }
@@ -2755,8 +2763,9 @@ try {
         $proof=[EndpointInstallerBridge.NativeTransaction]::EstablishSettlement($stagedRecoveryBridge.Owner)
         $stagedRecoveryBridge.Policy.AuthorizeStagedRecovery($proof)
         $adopted=Invoke-InstallerHelper -Bridge $stagedRecoveryBridge -Phase 'recover-staged-owner'
-        if($adopted.action -cne 'trial-required' -or $adopted.operation_id -cne $StagedOperationId){throw 'RECOVERY_REQUIRED'}
+        if($adopted.action -cnotin @('trial-required','rollback-required') -or $adopted.operation_id -cne $StagedOperationId){throw 'RECOVERY_REQUIRED'}
         $stagedOnline=$true
+        $recoveredMustRollback=$adopted.action -ceq 'rollback-required'
         $previousServiceStates=$stagedRecoveryObserved.service_states
         $initial=[pscustomobject]@{foundation_release=$stagedRecoveryObserved.old_release}
     }
@@ -2764,7 +2773,7 @@ try {
         if($null -ne $stagedRecoveryBridge){$trialBridge=$stagedRecoveryBridge;$stagedRecoveryBridge=$null}
         else{$trialBridge=New-InstallerBridge -Manifest $manifest -HelperPath $helperPath -HelperHash $helperHash -StateRoot $installerStateRoot -ServiceStates $previousServiceStates -Intent 'install' -TransactionId $bridge.TransactionId -Selection $initial}
         $trialBridge.Policy.MarkQuiescent()
-        if ((Invoke-StagedHealthTrial -Bridge $trialBridge -InstallRoot $gateInstallRoot) -cne 'accepted') {
+        if ($recoveredMustRollback -or (Invoke-StagedHealthTrial -Bridge $trialBridge -InstallRoot $gateInstallRoot) -cne 'accepted') {
             $rollback=Invoke-StagedFoundationRollback -Manifest $manifest -HelperPath $helperPath -HelperHash $helperHash -StateRoot $installerStateRoot -CacheRoot $executionCacheRoot -ServiceStates $previousServiceStates -Selection $initial -CandidateMedia $packagePin -OperationId $trialBridge.TransactionId -InstallRoot $gateInstallRoot
             if ($rollback -ceq 'rolled-back') { $nativeExit=67 }
             elseif ($rollback -cne 'accepted') { throw 'RECOVERY_REQUIRED' }

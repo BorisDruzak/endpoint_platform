@@ -146,14 +146,17 @@ def _read(paths, request):
         raise ValueError("PROVENANCE_CONFLICT")
     _validate_snapshot(record["snapshot"])
     if original['session_id'] != binding['session_id'] and request.get('recovery') is not True:
-        handoff = _handoff_path(paths, request)
-        assert_state_security(handoff, secret=True)
-        details = handoff.lstat()
-        if not stat.S_ISREG(details.st_mode) or details.st_nlink != 1 or details.st_size > _MAX_BYTES:
-            raise ValueError('PROVENANCE_CONFLICT')
-        receipt = read_json(handoff.read_bytes(), _MAX_BYTES)
-        if receipt != {'source': original, 'target': binding, 'capture_sha256': _capture_hash(record)}:
-            raise ValueError('PROVENANCE_CONFLICT')
+        try:
+            handoff = _handoff_path(paths, request)
+            assert_state_security(handoff, secret=True)
+            details = handoff.lstat()
+            if not stat.S_ISREG(details.st_mode) or details.st_nlink != 1 or details.st_size > _MAX_BYTES:
+                raise ValueError('PROVENANCE_CONFLICT')
+            receipt = read_json(handoff.read_bytes(), _MAX_BYTES)
+            if receipt != {'source': original, 'target': binding, 'capture_sha256': _capture_hash(record)}:
+                raise ValueError('PROVENANCE_CONFLICT')
+        except OSError as error:
+            raise ValueError('PROVENANCE_CONFLICT') from error
     return record
 
 

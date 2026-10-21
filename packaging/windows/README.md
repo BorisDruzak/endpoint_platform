@@ -308,7 +308,8 @@ One operation-bound SYSTEM startup task runs that cached Setup with
 Recovery validates hashes, task definition/principal/DACL and actual old-owner
 process identity, takes the product mutex and establishes native settlement.
 It never reuses an old session's grants. Known forward interruptions use the
-existing native recovery path; uncertain reverse settlement retains its evidence
+existing native recovery path before compensation; only a confirmed new boot
+requests a fresh health attempt. Uncertain reverse settlement retains its evidence
 for explicit recovery. A reboot-required native result cannot enter a health
 trial before the OS boot identity changes. User companions are requested only
 for previously observed roles in the same active SID/session; missing sessions

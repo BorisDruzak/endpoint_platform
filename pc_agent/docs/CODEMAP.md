@@ -60,10 +60,11 @@ A hidden cached Setup watchdog retains the original process handle; a fresh
 owner must prove its death and establish a real empty MSI transaction barrier.
 Original capabilities/data captures remain immutable, with a separate protected
 fresh-owner receipt. Known interrupted forward work uses the existing genuine
-compound/standalone recovery route before a fresh trial. Ambiguous reverse/native
+compound/standalone recovery route before compensation. Only a confirmed new
+boot restarts a fresh trial; live owner loss requests rollback. Ambiguous reverse/native
 settlement retains the barrier and reports recovery required. A recorded native
 reboot result withholds trial until the actual WMI boot identity changes; a new
-owner/boot resets the trial attempt. Terminal cleanup never reverses acceptance.
+boot resets the trial attempt. Terminal cleanup never reverses acceptance.
 Companion capture records only already-running fixed roles; restoration requests
 use the same still-active user SID/session and an interactive Scheduler token,
 never Session 0. Service results and requested user launches are distinct.
