@@ -805,3 +805,23 @@ def test_native_failure_diagnostics_preserve_existing_exit_codes(monkeypatch, de
     monkeypatch.setattr(diagnostics, 'report_installer_phase_failure', lambda *_: None)
     assert service_launcher.main(['--installer-phase', 'msi-enter', '--installer-session',
         '11111111-1111-4111-8111-111111111111']) == expected
+
+
+def test_installer_diagnostics_work_from_frozen_script_entry(monkeypatch):
+    from contextlib import contextmanager
+    from pc_agent.platform.windows import installer_transaction_bridge as bridge
+    from pc_agent.platform.windows import installer_phase_diagnostics as diagnostics
+    from pc_agent.platform.windows import service_launcher
+    @contextmanager
+    def owner(*_):
+        raise ValueError('PROVENANCE_CONFLICT')
+        yield
+    reported = []
+    monkeypatch.setattr(bridge, 'owner_authorized_phase', owner)
+    monkeypatch.setattr(diagnostics, 'report_installer_phase_failure', lambda phase, error: reported.append(phase))
+    monkeypatch.setattr(service_launcher, '__name__', '__main__')
+    monkeypatch.setattr(service_launcher, '__package__', None)
+    monkeypatch.setattr(service_launcher, '__spec__', None)
+    assert service_launcher.main(['--installer-phase', 'msi-enter', '--installer-session',
+        '11111111-1111-4111-8111-111111111111']) == 63
+    assert reported == ['msi-enter']

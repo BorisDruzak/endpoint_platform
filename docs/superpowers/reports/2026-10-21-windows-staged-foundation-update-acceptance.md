@@ -176,13 +176,40 @@ The dedicated guest was manually reset to its own healthy 3.2.79 baseline;
 fresh original WSS and policy application were subsequently verified. This
 fixture reset is not automatic rollback evidence.
 
-The next source correction adds bounded Application event diagnostics for
+The subsequent source correction adds bounded Application event diagnostics for
 native-helper failures: phase, known error code, error type, native error
 number and locations in project code. It excludes exception messages,
 arguments, locals, absolute paths and session identifiers. Event delivery
 cannot change installer completion authority or failure exit codes. Its
 signed installed validation and the underlying native failure correction
 remain pending.
+
+## Actual 3.2.127 diagnostic attempt
+
+Runtime source was `58f70d3b8bf8fd7199382e0e9ae1882457929a2a`, clean build
+checkout `76497e875a2725658cd0cfa1f4dc2610407af73d`. Windows passed 2220 tests
+with 3 skips; exact CI 39635683080 passed 4457 tests with 739 skips. Signatures,
+timestamps, all 172 source files and fixed-entrypoint/Setup closures were checked.
+
+On genuine Foundation 3.2.120 with Core 3.2.121, preparation ran online from
+16:50:36 to 16:50:50 UTC; all 111 retained file IDs/hashes were captured. The old
+Agent stopped at 16:50:57. Trial began at 16:54:23 and the candidate was running
+at 16:54:33. The exact candidate was deliberately terminated after hash
+verification, before a fresh candidate WSS/proof was established. The owner
+entered `rolling-back` at 16:55:00. Windows Installer event 11722 again identified
+`InstallerOwnerEnter`, at 16:55:50. Native removal aborted, candidate registration
+returned, and Setup exited 21. The four private leaves still matched. Snapshot
+`staged127-rollback-20261021` and immutable artifacts/case evidence were preserved.
+Automatic rollback and the two-minute interruption target did not pass.
+
+No new diagnostic event was emitted. Inspection of the actual frozen service
+archive confirmed that the diagnostic module was included, but its script entry
+used a level-1 relative import. PyInstaller starts this entry as `__main__` without
+a package. A regression reproduced the missing report with that exact module
+context. The correction uses an absolute import; 58 selected tests passed. Before
+another native update, a controlled denied invocation of the actual newly built
+helper must prove event delivery. This corrects diagnostic visibility; the
+underlying native action failure is still unresolved.
 
 ## Remaining admission
 

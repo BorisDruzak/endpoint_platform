@@ -275,7 +275,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             except Exception:
                 detail = None
             try:
-                from .installer_phase_diagnostics import report_installer_phase_failure
+                from pc_agent.platform.windows.installer_phase_diagnostics import report_installer_phase_failure
                 report_installer_phase_failure(args.installer_phase, error)
             except Exception:
                 pass
