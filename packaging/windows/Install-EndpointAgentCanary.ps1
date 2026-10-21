@@ -1611,17 +1611,43 @@ function Complete-StagedTerminalCleanup {
     } catch { Write-Warning 'STAGED_TERMINAL_CLEANUP_DEFERRED' }
 }
 
+function ConvertTo-StagedServiceStates {
+    param([Parameter(Mandatory)]$Value)
+    $names=@('EndpointAgent','EndpointAgentUpdater','EndpointBrowserPolicy')
+    $actual=if($Value -is [Collections.IDictionary]){@($Value.Keys)}else{@($Value.PSObject.Properties.Name)}
+    if([string]::Join('|',@($actual|Sort-Object)) -cne [string]::Join('|',@($names|Sort-Object))){throw 'RECOVERY_REQUIRED'}
+    $states=@{}
+    foreach($name in $names){
+        $item=if($Value -is [Collections.IDictionary]){$Value[$name]}else{$Value.$name}
+        if($item -isnot [string] -or $item -cnotin @('Running','Stopped','Absent')){throw 'RECOVERY_REQUIRED'}
+        $states[$name]=$item
+    }
+    return $states
+}
+
+function Get-StagedForwardRecoveryLocator {
+    param([string]$Phase,$Fence,[string]$Root,$Manifest)
+    if($Phase -cnotin @('preparing','prepared','switching','native-settled','trial','accepted','rolling-back','rolled-back','recovery-required')){throw 'RECOVERY_REQUIRED'}
+    if($null -ne $Fence -and $Phase -cne 'switching'){throw 'RECOVERY_REQUIRED'}
+    # Completed compound history deliberately remains on disk. After the
+    # switching phase only the authenticated recovery helper may classify its
+    # settlement; its exact marker and native barrier are still mandatory.
+    if($Phase -ceq 'switching'){return Read-CompoundRecoveryLocator $Root $Manifest}
+    return $null
+}
+
 function Invoke-StagedRecovery {
     param($Bridge,$Manifest,[string]$HelperPath,[string]$HelperHash,[string]$StateRoot,[string]$CacheRoot,
         [string]$OperationId,[string]$InstallRoot,$CandidateMedia)
     $observed=Invoke-InstallerHelper -Bridge $Bridge -Phase 'inspect-staged-recovery'
     if($observed.operation_id -cne $OperationId){throw 'OWNER_AUTH_FAILED'}
+    $serviceStates=ConvertTo-StagedServiceStates $observed.service_states
     $proof=[EndpointInstallerBridge.NativeTransaction]::EstablishSettlement($Bridge.Owner)
     $Bridge.Policy.AuthorizeStagedRecovery($proof)
     $adopted=Invoke-InstallerHelper -Bridge $Bridge -Phase 'recover-staged-owner'
     if($adopted.operation_id -cne $OperationId){throw 'OWNER_AUTH_FAILED'}
     if($adopted.action -cin @('accepted','rolled-back','preparation-cancelled')){
-        Complete-StagedTerminalCleanup $Bridge $observed.service_states $StateRoot
+        Complete-StagedTerminalCleanup $Bridge $serviceStates $StateRoot
         return $(if($adopted.action -ceq 'accepted'){0}else{67})
     }
     if($adopted.action -ceq 'reboot-required'){return 3010}
@@ -1630,12 +1656,12 @@ function Invoke-StagedRecovery {
     Stop-ManagedAgentServices -PreviousStates (Get-ManagedAgentServiceStates) -StoppedBySetup $stopped
     $Bridge.Policy.MarkQuiescent()
     if($adopted.action -ceq 'rollback-required' -or (Invoke-StagedHealthTrial -Bridge $Bridge -InstallRoot $InstallRoot) -cne 'accepted'){
-        $result=Invoke-StagedFoundationRollback -Manifest $Manifest -HelperPath $HelperPath -HelperHash $HelperHash -StateRoot $StateRoot -CacheRoot $CacheRoot -ServiceStates $observed.service_states -Selection ([pscustomobject]@{foundation_release=$observed.old_release}) -CandidateMedia $CandidateMedia -OperationId $OperationId -InstallRoot $InstallRoot
+        $result=Invoke-StagedFoundationRollback -Manifest $Manifest -HelperPath $HelperPath -HelperHash $HelperHash -StateRoot $StateRoot -CacheRoot $CacheRoot -ServiceStates $serviceStates -Selection ([pscustomobject]@{foundation_release=$observed.old_release}) -CandidateMedia $CandidateMedia -OperationId $OperationId -InstallRoot $InstallRoot
         if($result -cne 'rolled-back' -and $result -cne 'accepted'){throw 'RECOVERY_REQUIRED'}
-        Complete-StagedTerminalCleanup $Bridge $observed.service_states $StateRoot
+        Complete-StagedTerminalCleanup $Bridge $serviceStates $StateRoot
         return $(if($result -ceq 'rolled-back'){67}else{0})
     }
-    Complete-StagedTerminalCleanup $Bridge $observed.service_states $StateRoot
+    Complete-StagedTerminalCleanup $Bridge $serviceStates $StateRoot
     return 0
 }
 
@@ -2511,7 +2537,7 @@ try {
             if($StagedOperationId -cnotmatch '^[0-9a-f-]{36}$'){throw 'RECOVERY_REQUIRED'}
             $stage=Read-UpdateGateState -Path (Join-Path $installerStateRoot 'staged-update.json') -Limit 65536
             if($null -eq $stage -or $stage.Value.binding.operation_id -cne $StagedOperationId -or $stage.Value.binding.new_release.package_sha256 -cne $manifest.package_sha256){throw 'RECOVERY_REQUIRED'}
-            $recoveryLocator=Read-CompoundRecoveryLocator $installerStateRoot $manifest
+            $recoveryLocator=Get-StagedForwardRecoveryLocator -Phase $stage.Value.phase -Fence $interruptedFence -Root $installerStateRoot -Manifest $manifest
             if($null -ne $interruptedFence -or $null -ne $recoveryLocator){
                 if($stage.Value.phase -cne 'switching'){throw 'RECOVERY_REQUIRED'}
                 $Operation='RecoverInterruptedInstall'
@@ -2766,7 +2792,7 @@ try {
         if($adopted.action -cnotin @('trial-required','rollback-required') -or $adopted.operation_id -cne $StagedOperationId){throw 'RECOVERY_REQUIRED'}
         $stagedOnline=$true
         $recoveredMustRollback=$adopted.action -ceq 'rollback-required'
-        $previousServiceStates=$stagedRecoveryObserved.service_states
+        $previousServiceStates=ConvertTo-StagedServiceStates $stagedRecoveryObserved.service_states
         $initial=[pscustomobject]@{foundation_release=$stagedRecoveryObserved.old_release}
     }
     if ($stagedOnline -and $nativeExit -eq 0) {

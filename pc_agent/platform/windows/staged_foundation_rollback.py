@@ -91,7 +91,11 @@ def _verify_original_data(paths, record):
 
 
 def _forward_archives(paths, record):
-    request = _capture_request(paths, record)
+    capture = _capture_request(paths, record)
+    # Data capture also carries its immutable source session and recovery bit.
+    # The provenance plan consumes its original, narrower request contract.
+    request = {key: capture[key] for key in
+               ('package_path', 'release', 'transaction_id', 'selected', 'previous')}
     expected = provenance._expected_request(request)
     root = fence.state_root(paths) / 'provenance' / record.binding.operation_id
     plan = provenance._read_plan(root, request, expected)

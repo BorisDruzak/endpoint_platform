@@ -337,3 +337,22 @@ def test_pre_switch_recovery_rechecks_prepared_capture_without_rebaselining(oper
     assert capture.read_bytes() == before
     monkeypatch.setattr(data,'_snapshot',lambda *_:{'root':None,'leaves':{'different':None}})
     with pytest.raises(ValueError): rollback._verify_original_data(paths,SimpleNamespace(phase='prepared'))
+
+
+def test_forward_archives_adapts_data_capture_to_provenance_request(staged, monkeypatch):
+    from pc_agent.platform.windows import staged_foundation_rollback as rollback
+    from pc_agent.platform.windows import installation_provenance as provenance, msi_inventory
+    _, paths, binding, _ = staged
+    begin(staged)
+    record = state.read_staged_update(paths)
+    request = {'package_path': paths.install_root / 'fixture.msi', 'release': binding.new_release,
+               'transaction_id': binding.operation_id, 'selected': 'a' * 64, 'previous': 'b' * 64,
+               'session_id': str(uuid4()), 'recovery': False}
+    monkeypatch.setattr(rollback, '_capture_request', lambda *_: request)
+    monkeypatch.setattr(msi_inventory, 'read_expected_package', lambda *_: object())
+    def read_plan(_root, actual, _expected):
+        assert set(actual) == {'package_path', 'release', 'transaction_id', 'selected', 'previous'}
+        return {'current_before': binding.selected_before.hex(),
+                'previous_before': binding.previous_before.hex() if binding.previous_before else None, 'archives': ['d' * 64]}
+    monkeypatch.setattr(provenance, '_read_plan', read_plan)
+    assert rollback._forward_archives(paths, record) == ('d' * 64,)
