@@ -322,6 +322,50 @@ Both imports were corrected to absolute imports inside the bounded handler;
 acceptance. The next frozen candidate must prove bounded Setup recovery entry
 and actual owner-loss/reboot behavior before admission.
 
+## Actual 3.2.129 recovery entry and owner loss
+
+Runtime source is `09aff5164decb42542b443cdaa7f7ddbc0eb2376`, build checkout
+`5df252134b1b272b1f7feb204252fb4ed19a78c9`. The full supported Windows selection
+passed 2240 tests with 3 skips; exact
+[CI 39658935741](https://github.com/BorisDruzak/endpoint_platform/actions/runs/39658935741)
+passed 4479 tests with 739 skips. Frozen source records, project-module closures,
+MSI/Setup signatures and timestamps were checked.
+
+| Artifact | SHA-256 |
+| --- | --- |
+| Signed MSI | `ad88341a622da22d1c780ec89784019c542300cd587de067d61b9e222fbaa207` |
+| Signed Setup | `d3641a3600740e96881cdfd4aca7a3392948675dd22042382d9203f15075fd29` |
+| Core ZIP | `2435d277a381a65f4a0eb03543847899c4300ae5daf33c331b9ccdec0494ca1d` |
+
+Inspection of the actual Setup CArchive proved both recovery imports at level 0
+and both dependency modules present. On a genuine plain 3.2.120 baseline, its
+recovery CLI without an operation journal returned the expected denial 60,
+created no journal and left no processes. The full invocation took 111.03
+seconds, including the intentional 60-second missing-journal wait and startup.
+The actual MSI helper also rejected a missing capability and emitted the bounded
+diagnostic event. All four private leaves remained equal across these probes.
+
+For the live owner-loss case, the controller verified the operation, prepared
+phase, owner PID, creation time and canonical PowerShell image hash before
+terminating only that owner. The parent Setup exited 21 at 19:25:24 UTC as a
+result of this injected failure. The scheduled cached recovery Setup then
+completed cancellation automatically: `rolled-back` was observed at 19:26:14,
+with original native/Core 3.2.120, running services, fresh WSS and matching
+`APPLIED` policy. All four private leaves matched. At 19:27:23 the recovery
+task was absent and no Setup/recovery processes remained. A separate snapshot
+preserves this state.
+
+This proves recovery after prepared-owner termination, before native product
+replacement. It does not prove recovery after interruption of a native
+transaction or guest restart during promotion.
+
+The first retry's private harness incorrectly treated any `msiexec` process as
+an active owner. Fresh inspection showed no fence or Setup process and ample
+capacity. The exact hash-verified owner program's real empty native Begin/End
+barrier then succeeded without product scripts. Only this harness classification
+was corrected; the signed installer still performs its full ownership admission.
+The separate no-proof timeout/retry case remains in progress.
+
 ## Remaining admission
 
 Ordinary success on plain 3.2.120, all no-proof rollback cases,
