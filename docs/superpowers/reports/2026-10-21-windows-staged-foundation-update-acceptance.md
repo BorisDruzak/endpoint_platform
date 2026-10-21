@@ -289,10 +289,43 @@ no installed state. These isolated measurements do not explain the full
 interruption or justify removing validation; native phase timing investigation
 remains open.
 
+## Actual 3.2.79 to 3.2.128 update
+
+The genuine 3.2.79 baseline passed a separate ordinary update using the same
+signed 3.2.128 artifacts. Observed preparation ran from 18:37:03.142 to
+18:40:31.392 UTC while the original Agent and Browser Policy services ran.
+The complete retained inventory contained 2543 files, 48,313,190 bytes. At trial,
+every NTFS file ID, size and hash matched after publication. This proves zero
+second-copy promotion bytes for the full legacy payload, rather than a sample.
+
+The old Agent stopped at 18:40:45.411 and the candidate ran at 18:46:06.993,
+an observed interruption of approximately 321.58 seconds. New Core 3.2.128
+connected and acknowledged its matching policy at 18:46:12.239. The journal
+reached `accepted` at 18:47:19.774. Setup exited 0 at 18:47:25.066, approximately
+757.53 seconds after launch; native product and selected Core were 3.2.128,
+services ran and all four private enrollment leaves matched. Both performance
+bounds fail on this predecessor despite the completed functional update.
+
+Native logging policy was saved before the diagnostic run and restored in its
+controller's `finally` block. Private logs contained only the bootstrap costing
+sessions: their `CostFinalize` actions took four and two seconds. They did not
+capture the subsequent native transaction's actions. They therefore do not
+establish the remaining delay's cause or justify changing validation/rollback.
+
+The live cached recovery Setup processes remained after terminal acceptance,
+with the original owner gone, the scheduled task retired and no child recovery
+PowerShell. The actual frozen Setup entry contains two level-1 imports in
+`_run_staged_recovery`; the first precedes its exception handler. Five real
+file-entry regressions reproduced `ImportError` without a parent package.
+Both imports were corrected to absolute imports inside the bounded handler;
+101 related tests passed. This is a source correction, not installed recovery
+acceptance. The next frozen candidate must prove bounded Setup recovery entry
+and actual owner-loss/reboot behavior before admission.
+
 ## Remaining admission
 
-Ordinary success on genuine 3.2.79 and plain 3.2.120, all no-proof rollback cases,
-early-crash rollback on those two predecessors, identical-baseline cold/warm measurements,
+Ordinary success on plain 3.2.120, all no-proof rollback cases,
+early-crash rollback on genuine 3.2.79 and plain 3.2.120, identical-baseline cold/warm measurements,
 the interruption performance bound, reboot and remaining fault matrix are
 pending. The report verifier
 withholds a complete pass when a scenario, native Foundation/Core proof,
