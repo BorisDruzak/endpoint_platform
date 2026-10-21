@@ -312,12 +312,13 @@ def test_candidate_fence_retirement_requires_actual_delayed_callback(reverse, mo
             assert leaf.read_bytes() == before
 
 
-def test_staged122_retention_admits_genuine79_without_rewriting_history():
+def test_staged_successors_admit_genuine79_without_rewriting_history():
     from pc_agent.platform.windows import runtime_identity
     digest = '2f7d778799f1e32645af7936dfaf3f090d6ad4df5bb883827ea8a0a5d859f72a'
     assert runtime_identity.legacy_foundation_compatible(digest,'3.2.122')
     assert not runtime_identity.legacy_foundation_compatible('0'*64,'3.2.122')
-    assert not runtime_identity.legacy_foundation_compatible(digest,'3.2.123')
+    assert runtime_identity.legacy_foundation_compatible(digest,'3.2.123')
+    assert not runtime_identity.legacy_foundation_compatible(digest,'3.2.124')
     assert runtime_identity._LEGACY_MSI_CONTRACTS[digest]['approved_foundations'] == ('3.2.82',)
 
 
