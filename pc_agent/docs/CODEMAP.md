@@ -229,7 +229,10 @@ optional source does not prevent the other sources starting; requested audit
 still requires actual source readiness. `_security_persistence_callback` owns
 the common bounded thread-to-loop durable handoff. Gateway Browser/DLP receive
 paths require both negotiated features and the Linux audit runtime version.
-Installed Browser Sensor acceptance remains open.
+Private 3.2.123 ALT/KDE Wayland acceptance confirmed Chromium forced installation,
+ADMIN heartbeat and upload/paste delivery in both management modes, plus CUPS
+job delivery through the same WSS spool. Physical USB acceptance is postponed;
+absent Chrome/Yandex browsers are not claimed as tested.
 ALT deterministic setup refusals use exit 78 through Core and launcher, matching
 the systemd no-restart contract; they do not trigger version rollback. Transient
 enrollment failures retain their existing retry status.

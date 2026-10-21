@@ -324,3 +324,44 @@ Execution is explicitly authorized without intermediate approval stops.
   were empty. Previously installed 3.2.122 runtime bytes are preserved. The new
   candidate will be built from one exact committed full source archive and is
   not authorized for production rollout or stable-channel publication yet.
+- D installed acceptance, immutable source e3fb18512af7: full exact source
+  archive passed 142 native ALT checks. Core and launcher froze successfully.
+  ALT RPM site policy rejected building as root; the already verified staged
+  artifacts were packaged by the existing unprivileged build user without
+  rebuilding runtime bytes or bypassing RPM policy. Both RPM digest checks and
+  the test transaction passed; Core has no Qt/KDE dependencies. Upgrade to
+  3.2.123-alt4 preserved credential, identity, config and CA bytes. Temporary
+  namespace override was removed; the packaged user unit works with zero
+  restarts, as do Core and the restricted root helper.
+- Staging server e3fb18512af7 prepared/activated with a fresh verified database
+  dump and config backup, no schema change beyond existing 0038. Strict HTTPS
+  health returned 200 and cohosted Helpdesk PID/start time stayed identical.
+  The old C agent reconnected; the installed D agent negotiated successfully.
+- A single-device staging policy enabled audit only. Real KDE/Chromium forced
+  installation fetched the existing signed public extension (same JS bytes),
+  connected through the RPM native host and produced 0.1.0 ADMIN heartbeats.
+  Server saw Chrome-family RUNNING, ENDPOINT-owned policy, native host READY.
+  Browser tests used Playwright CLI/CDP over a loopback SSH tunnel, an isolated
+  profile and a local fixture with no submission. A page opened before extension
+  installation required reload for content-script injection. Buffer-based file
+  input emits an untrusted change and was correctly ignored; native CDP file
+  selection of the actual synthetic ALT file emitted isTrusted=true.
+  Installed WSS persisted BROWSER_UPLOAD, BROWSER_PASTE and a newly held CUPS
+  PRINT_JOB through the common spool; browser events carried the OS-qualified
+  domain identity, without file names or clipboard/document contents. Print
+  pages were unavailable and remain unknown; no user was guessed for the job.
+- external_managed live handoff removed only the hash-verified Endpoint policy
+  and marker, preserved the separate operator test policy, and installed the
+  extension into a second fresh Chromium profile. Staging received EXTERNAL,
+  APPLIED, native-host READY and a fresh 0.1.0 ADMIN heartbeat for policy 3.
+  Reloading that fresh profile's fixture also delivered real upload and paste
+  events under policy 3, confirming the external mode's complete path.
+  All three pre-existing corporate policy files retain their contents/ownership/
+  modes. Two mtimes changed at the exact start/exit of the normal hourly
+  gpupdate service; this external refresh was not reverted or disabled.
+- USB kernel source and the shared spool report READY; physical USB plug/unplug
+  acceptance is explicitly postponed by the user. Do not repeat that request
+  or claim physical USB acceptance. Chrome/Yandex live acceptance remains
+  conditional on installing those absent browsers; Yandex paths stay UNKNOWN.
+  The own held CUPS queue, external-policy fixture, browser profiles/tunnel and
+  transient graphical session remain for phase E and require final cleanup.
