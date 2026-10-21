@@ -308,3 +308,14 @@ Execution is explicitly authorized without intermediate approval stops.
   deleting data. A failed durable ACK retains the batch for replay. Policy
   readiness reads actual spool health rather than a stale startup flag.
   Security/runtime/Windows/health checks: 72 passed, 1 native skip.
+- E configuration-loop RCA: the observed invalid_service_origin returned 75;
+  launcher treated it as a startup crash and could request rollback. ALT setup
+  refusals now return the unit's non-restarting 78, which launcher propagates
+  immediately without retry/rollback. Terminal enrollment denied/invalid
+  credentials also use 78; transient transport/persistence failures retain 75.
+  The new configuration tests failed before the fix. Native ALT launcher,
+  updater, enrollment and runtime checks: 112 passed, 3 Windows skips. Local
+  runtime/new launcher checks after terminal-status coverage: 64 passed.
+  A broad Windows invocation of Linux filesystem update tests failed on absent
+  os.fchmod (34 failures, 76 passes, 5 skips); those native filesystem checks
+  were rerun on ALT and passed rather than emulating Linux ownership on Windows.

@@ -230,6 +230,9 @@ still requires actual source readiness. `_security_persistence_callback` owns
 the common bounded thread-to-loop durable handoff. Gateway Browser/DLP receive
 paths require both negotiated features and the Linux audit runtime version.
 Installed Browser Sensor acceptance remains open.
+ALT deterministic setup refusals use exit 78 through Core and launcher, matching
+the systemd no-restart contract; they do not trigger version rollback. Transient
+enrollment failures retain their existing retry status.
 
 Linux diagnostics share `platform/linux/sessions.py` (bounded logind local
 graphical sessions), `journal.py` (fixed severity/profile queries that exclude

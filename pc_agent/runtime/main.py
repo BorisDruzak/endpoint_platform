@@ -33,6 +33,11 @@ def _log_enrollment_refusal(reason: str) -> None:
     print(f"endpoint-agent enrollment refused: reason={reason}", file=sys.stderr)
 
 
+def _configuration_exit_code() -> int:
+    # The ALT systemd unit reserves EX_CONFIG to stop deterministic setup loops.
+    return 78 if os.name == 'posix' and os.environ.get('ENDPOINT_AGENT_ALT_UPDATE_MODE') == '1' else 75
+
+
 async def _run_runtime_after_first_boot_enrollment(settings: RuntimeSettings) -> int:
     """Exchange the fixed systemd claim before starting the Gateway runtime."""
     if os.environ.get("ENDPOINT_AGENT_ENROLLMENT_REQUIRED", "") != "1":
@@ -41,10 +46,10 @@ async def _run_runtime_after_first_boot_enrollment(settings: RuntimeSettings) ->
         paths = systemd_runtime_paths()
     except ValueError:
         _log_enrollment_refusal("invalid_runtime_paths")
-        return 75
+        return _configuration_exit_code()
     if paths is None:
         _log_enrollment_refusal("credentials_missing")
-        return 75
+        return _configuration_exit_code()
     config_path, ca_file, claim_file = paths
     try:
         outcome = await run_linux_enrollment_gate(
@@ -52,12 +57,15 @@ async def _run_runtime_after_first_boot_enrollment(settings: RuntimeSettings) ->
             ca_file=ca_file,
             claim_file=claim_file,
         )
-    except (OSError, ValueError):
+    except ValueError:
+        _log_enrollment_refusal("runtime_input_error")
+        return _configuration_exit_code()
+    except OSError:
         _log_enrollment_refusal("runtime_input_error")
         return 75
     if outcome.status not in {"enrolled", "already_enrolled", "handoff_pending"}:
         _log_enrollment_refusal(outcome.status)
-        return 75
+        return _configuration_exit_code() if outcome.status in {'credential_invalid','denied'} else 75
     return await run_runtime(settings)
 
 
@@ -237,7 +245,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         args.print_safe_status
         or args.windows_updater_service
     ):
-        return 75
+        return _configuration_exit_code()
     if args.windows_updater_service:
         from pc_agent.platform.windows.updater_service import run_windows_updater_service
 
@@ -246,7 +254,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         endpoint_origin = _service_endpoint_origin(args.endpoint_origin)
     except ValueError:
         _log_enrollment_refusal("invalid_service_origin")
-        return 75
+        return _configuration_exit_code()
     settings = RuntimeSettings(
         data_root=runtime_paths.resolve_data_root(cli_value=args.data_dir),
         install_root=runtime_paths.resolve_install_root(cli_value=args.install_root),
