@@ -666,6 +666,17 @@ def prepare_installer_provenance(paths: WindowsUpdatePaths, expected_msi) -> str
     if ((inspected.current.digest if inspected.current else None) != expected_msi['selected']
         or (inspected.previous.digest if inspected.previous else None) != expected_msi['previous']):
         raise ProvenanceConflict()
+    from .staged_update_state import read_staged_update
+    staged = read_staged_update(paths)
+    saved_root = state_root(paths) / 'provenance' / expected_msi['transaction_id']
+    if (staged is not None and staged.phase in {'prepared', 'switching'}
+            and staged.binding.operation_id == expected_msi['transaction_id']
+            and _present(saved_root / 'plan.json')):
+        saved = _read_plan(saved_root, expected_msi, expected)
+        if saved['phase'] != 'prepared':
+            raise ProvenanceConflict()
+        validate_interrupted_reconciliation(paths, expected_msi)
+        return saved['result']
     candidate = None
     candidate_root = paths.versions_root / expected.identity.version
     if _present(candidate_root):

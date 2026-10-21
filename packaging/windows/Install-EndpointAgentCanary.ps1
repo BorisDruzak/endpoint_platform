@@ -270,18 +270,31 @@ namespace EndpointInstallerBridge {
         public byte[] Poll() {
             if(!Connected) { if(!connect.IsCompleted) return null;stream.EndWaitForConnection(connect);Connected=true; }
             if(write!=null) { if(!write.IsCompleted) return null;stream.EndWrite(write);write=null;output=null; }
-            if(read==null) read=stream.BeginRead(input,offset,target-offset,null,null);
-            if(!read.IsCompleted) return null;
-            int count=stream.EndRead(read);read=null;
-            if(count<=0) throw new IOException("OWNER_AUTH_FAILED");
-            offset+=count;
-            if(offset!=target) return null;
-            if(header) {
-                int length=BitConverter.ToInt32(input,0);
-                if(length<=0 || length>32768) throw new IOException("OWNER_AUTH_FAILED");
-                input=new byte[length];target=length;offset=0;header=false;return null;
+            // Drain a buffered header/body without an artificial owner-loop
+            // sleep between them. Bound the work even for fragmented input.
+            for(int budget=0;budget<64;budget++) {
+                if(read==null) read=stream.BeginRead(input,offset,target-offset,null,null);
+                if(!read.IsCompleted) return null;
+                int count=stream.EndRead(read);read=null;
+                if(count<=0) throw new IOException("OWNER_AUTH_FAILED");
+                offset+=count;
+                if(offset!=target) continue;
+                if(header) {
+                    int length=BitConverter.ToInt32(input,0);
+                    if(length<=0 || length>32768) throw new IOException("OWNER_AUTH_FAILED");
+                    input=new byte[length];target=length;offset=0;header=false;continue;
+                }
+                var result=input;input=new byte[4];target=4;offset=0;header=true;return result;
             }
-            var result=input;input=new byte[4];target=4;offset=0;header=true;return result;
+            return null;
+        }
+        public void WaitForActivity(int milliseconds) {
+            if(milliseconds<0 || milliseconds>10) throw new ArgumentOutOfRangeException("milliseconds");
+            var pending=!Connected ? connect : (write ?? read);
+            if(pending!=null) pending.AsyncWaitHandle.WaitOne(milliseconds);
+            else if(milliseconds>0) Thread.Sleep(1);
+            // EndRead/EndWrite/EndWaitForConnection own the async handle's
+            // lifetime. Never close its event while the I/O can still complete.
         }
         public void Send(byte[] data) {
             if(!Connected || write!=null || data==null || data.Length==0 || data.Length>32768) throw new IOException("OWNER_AUTH_FAILED");
@@ -330,6 +343,7 @@ namespace EndpointInstallerBridge {
         private Challenge pending;
         private long sequence;
         private bool alive=true, quiescent, preparedComplete, msiAlive, preflightComplete, nativeEntered, foundationComplete, nativeComplete;
+        private bool onlineRegistered, onlineComplete, sealRegistered;
         private int? nativeResult;
         private CompoundPolicy compound;
         private SuccessorRepairPolicy repair;
@@ -388,18 +402,26 @@ namespace EndpointInstallerBridge {
         }
         public void RegisterHelper(Identity peer,string phase) {
             CheckPeer(peer);
+            if(phase=="stage-online" && (Operation!="install" || Recovery || UninstallFinalization ||
+                compound!=null || repair!=null || quiescent || onlineRegistered || msiAlive || nativeResult.HasValue)) Fail();
+            if(phase=="seal-staged-switch" && (!onlineComplete || sealRegistered || Operation!="install" ||
+                Recovery || UninstallFinalization || compound!=null || repair!=null || msiAlive || nativeResult.HasValue)) Fail();
+            if(phase=="adopt-staged-switch" && (Operation!="install" || Recovery || UninstallFinalization ||
+                preparedComplete || msiAlive || nativeResult.HasValue || helpers.Count!=0)) Fail();
             if(recoveryLocator && phase!="inspect-compound") Fail();
             if(compound!=null && !compound.AllowsHelper(this,phase)) Fail();
             if(repair!=null && !repair.AllowsHelper(phase)) Fail();
-            if (phase!="inspect" && phase!="inspect-compound" && phase!="prepare" && phase!="reconcile" && phase!="finish" && phase!="verify-settled" &&
+            if (phase!="inspect" && phase!="inspect-compound" && phase!="prepare" && phase!="stage-online" && phase!="seal-staged-switch" && phase!="adopt-staged-switch" && phase!="reconcile" && phase!="finish" && phase!="verify-settled" &&
                 !(compound!=null && (phase=="compound-old-returned" || phase=="compound-new-returned" ||
                     phase=="compound-commit" || phase=="compound-retire" || phase=="compound-complete")) &&
                 !(repair!=null && (phase=="compound-repair-returned" || phase=="compound-repair-commit" || phase=="compound-retire" || phase=="compound-complete"))) Fail();
-            if (phase!="inspect" && phase!="inspect-compound" && phase!="verify-settled" && !quiescent) Fail();
+            if (phase!="inspect" && phase!="inspect-compound" && phase!="verify-settled" && phase!="stage-online" && !quiescent) Fail();
             if ((phase=="reconcile" || phase=="finish") && (!nativeComplete || !nativeResult.HasValue ||
                 nativeResult.Value!=0)) Fail();
             if (helpers.Count>=64 || helpers.ContainsKey(peer.Key)) Fail();
             helpers.Add(peer.Key,new Registration { Peer=peer, Phase=phase });
+            if(phase=="stage-online") onlineRegistered=true;
+            if(phase=="seal-staged-switch") sealRegistered=true;
         }
         public void RegisterMsi(Identity peer,string operation) {
             if(preparedRemovalSealed || recoveryLocator) Fail();
@@ -464,6 +486,7 @@ namespace EndpointInstallerBridge {
             var item=helpers[peer.Key];
             if(value.Action=="begin") { item.Begun=true; if(value.Phase=="msi-enter" || value.Phase=="recover-enter" || value.Phase=="uninstall-finalize-enter") nativeEntered=true; }
             if(value.Action=="complete") { item.Complete=true; if(value.Phase=="prepare") preparedComplete=true; if(value.Phase.EndsWith("preflight",StringComparison.Ordinal)) preflightComplete=true; if(value.Phase=="foundation-config") foundationComplete=true; if(value.Phase=="msi-complete" || value.Phase=="uninstall-finalize-complete") nativeComplete=true; }
+            if(value.Action=="complete" && value.Phase=="stage-online") onlineComplete=true;
             if(value.Action=="complete" && compound!=null) compound.HelperComplete(this,value.Phase);
             if(value.Action=="complete" && repair!=null) repair.HelperComplete(value.Phase);
             return Sign("grant",value);
@@ -1068,7 +1091,7 @@ function Invoke-InstallerOwnerPump {
                 $activePeers = @($Bridge.Peers | Where-Object { $_.Alive })
                 if ($activePeers.Count -eq 0 -and $null -eq $conversation.Acknowledgement -and $null -eq $conversation.Challenge) { break }
             }
-            if (-not $worked) { Start-Sleep -Milliseconds 1 }
+            if (-not $worked) { $Bridge.Channel.WaitForActivity(10) }
         } while ($true)
         if ($Msi) {
             $Bridge.Policy.MarkMsiExited($Process.ExitCode)
@@ -1095,12 +1118,46 @@ function Invoke-InstallerOwnerPump {
 
 function Invoke-InstallerHelper {
     param([Parameter(Mandatory)]$Bridge,[Parameter(Mandatory)][string]$Phase)
-    if ($Phase -notin @('inspect','inspect-compound','prepare','reconcile','finish','verify-settled','compound-old-returned','compound-new-returned','compound-commit','compound-retire','compound-complete','compound-repair-returned','compound-repair-commit') -or $Bridge.SessionId -cnotmatch '^[0-9a-f-]{36}$') { throw 'OWNER_AUTH_FAILED' }
+    if ($Phase -notin @('inspect','inspect-compound','prepare','stage-online','seal-staged-switch','adopt-staged-switch','reconcile','finish','verify-settled','compound-old-returned','compound-new-returned','compound-commit','compound-retire','compound-complete','compound-repair-returned','compound-repair-commit') -or $Bridge.SessionId -cnotmatch '^[0-9a-f-]{36}$') { throw 'OWNER_AUTH_FAILED' }
     Assert-ExistingPathChain $Bridge.LaunchDirectory
     Assert-InstallerCacheProtection $Bridge.LaunchDirectory
     $info = [EndpointInstallerBridge.LaunchDirectory]::StartInfo($Bridge.HelperPath, ('--installer-phase ' + $Phase + ' --installer-session ' + $Bridge.SessionId), $Bridge.LaunchDirectory)
     $process = [Diagnostics.Process]::Start($info)
     return Invoke-InstallerOwnerPump -Bridge $Bridge -Process $process -Phase $Phase
+}
+
+function Get-StagedAgentObservation {
+    $service=Get-CimInstance -ClassName Win32_Service -Filter "Name='EndpointAgent'" -ErrorAction Stop
+    if ($null -eq $service -or $service.State -cne 'Running' -or $service.ProcessId -le 0) { throw 'UPDATE_IN_PROGRESS' }
+    $process=Get-Process -Id $service.ProcessId -ErrorAction Stop
+    try { return ([string]$service.ProcessId+':'+[string]$process.StartTime.ToUniversalTime().Ticks) }
+    finally { $process.Dispose() }
+}
+
+function Invoke-StagedOnlinePreparation {
+    param([Parameter(Mandatory)]$Bridge,[Parameter(Mandatory)]$Manifest,
+        [Parameter(Mandatory)][string]$HelperPath,[Parameter(Mandatory)][string]$HelperHash,
+        [Parameter(Mandatory)][string]$StateRoot,[Parameter(Mandatory)]$ServiceStates,
+        [Parameter(Mandatory)]$Selection)
+    $observation=Get-StagedAgentObservation
+    $next=New-InstallerBridge -Manifest $Manifest -HelperPath $HelperPath -HelperHash $HelperHash `
+        -StateRoot $StateRoot -ServiceStates $ServiceStates -Intent 'install' `
+        -TransactionId $Bridge.TransactionId -Selection $Selection
+    try {
+        $prepared=Invoke-InstallerHelper -Bridge $next -Phase 'stage-online'
+        if ($prepared.result -cne 'staged-prepared' -or $prepared.phase -cne 'prepared' -or
+            $prepared.operation_id -cne $next.TransactionId) { throw 'PROVENANCE_CONFLICT' }
+        if ((Get-StagedAgentObservation) -cne $observation) { throw 'UPDATE_IN_PROGRESS' }
+    } catch {
+        $next.Policy.OwnerLost();$next.Channel.Dispose()
+        foreach($peer in $next.Peers){$peer.Dispose()}
+        $next.Owner.Dispose()
+        throw
+    }
+    $Bridge.Policy.OwnerLost();$Bridge.Channel.Dispose()
+    foreach($peer in $Bridge.Peers){$peer.Dispose()}
+    $Bridge.Owner.Dispose()
+    return $next
 }
 
 function Invoke-CompoundNativePump {
@@ -1986,6 +2043,7 @@ $restorePolicy = @{ LateOperation = $false }
 $installationCompleted = $false
 $nativeStarted = $false
 $nativeExit = 0
+$stagedOnline = $false
 try {
     $helperPath = Join-Path $executionCacheDirectory 'endpoint-installer-host.exe'
     if (Test-Path -LiteralPath $helperPath) { Assert-CacheArtifactProtection $helperPath }
@@ -2005,6 +2063,14 @@ try {
         $bridge = New-InstallerBridge -Manifest $manifest -HelperPath $helperPath -HelperHash $helperHash -StateRoot $installerStateRoot -ServiceStates $previousServiceStates -Fence $interruptedFence -Intent $intent
         $initial = Invoke-InstallerHelper -Bridge $bridge -Phase 'inspect'
     }
+    if ($intent -ceq 'install' -and $null -eq $recoveryLocator -and $null -eq $interruptedFence -and
+        $null -ne $initial.PSObject.Properties['foundation_release'] -and
+        $initial.selected -is [string] -and $initial.selected -cmatch '^[0-9a-f]{64}$' -and
+        [Version]$initial.foundation_release.version -lt [Version]$manifest.version) {
+        $bridge=Invoke-StagedOnlinePreparation -Bridge $bridge -Manifest $manifest -HelperPath $helperPath `
+            -HelperHash $helperHash -StateRoot $installerStateRoot -ServiceStates $previousServiceStates -Selection $initial
+        $stagedOnline=$true
+    }
     if ($intent -ne 'retire-initial-runtime') {
         Stop-ManagedAgentServices -PreviousStates $previousServiceStates -StoppedBySetup $stoppedBySetup -AfterAgentStopped {
             $restorePolicy.LateOperation = $true
@@ -2019,6 +2085,12 @@ try {
     try { $active = Test-ActiveUpdateState -InstallRoot $gateInstallRoot -DataRoot $gateDataRoot }
     catch { $restorePolicy.LateOperation = $true; throw 'UPDATE_STATE_INVALID' }
     if ($active) { $restorePolicy.LateOperation = $true; throw 'UPDATE_IN_PROGRESS' }
+    if ($stagedOnline) {
+        $bridge.Policy.MarkQuiescent()
+        $sealed=Invoke-InstallerHelper -Bridge $bridge -Phase 'seal-staged-switch'
+        if ($sealed.result -cne 'staged-switch-sealed' -or $sealed.phase -cne 'switching' -or
+            $sealed.operation_id -cne $bridge.TransactionId) { throw 'PROVENANCE_CONFLICT' }
+    }
     $bootstrapBridge = $bridge
     $compoundDetails=$null
     $compoundMode='fresh'
@@ -2079,6 +2151,11 @@ try {
     foreach ($peer in $bootstrapBridge.Peers) { $peer.Dispose() }
     $bootstrapBridge.Owner.Dispose()
     $bridge.Policy.MarkQuiescent()
+    if ($stagedOnline) {
+        $adopted=Invoke-InstallerHelper -Bridge $bridge -Phase 'adopt-staged-switch'
+        if ($adopted.result -cne 'staged-session-adopted' -or $adopted.phase -cne 'switching' -or
+            $adopted.operation_id -cne $bridge.TransactionId) { throw 'OWNER_AUTH_FAILED' }
+    }
     $preparation=Invoke-InstallerHelper -Bridge $bridge -Phase 'prepare'
     if ($null -ne $preparation.PSObject.Properties['legacy_archive_id']) {
         if ($null -ne $compoundDetails -or $null -ne $oldPackagePin -or

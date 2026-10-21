@@ -4,6 +4,8 @@ Only the authenticated installer helper calls these operations. No credential
 contents or credential digests are read, written or returned by this module.
 """
 import os
+import hashlib
+import json
 import re
 import stat
 import uuid
@@ -138,11 +140,20 @@ def _read(paths, request):
     original = record["binding"]
     if (not isinstance(original, dict) or set(original) != set(binding)
         or any(original[key] != binding[key] for key in ("transaction_id", "package_sha256"))
-        or (original["session_id"] != binding["session_id"] and request.get("recovery") is not True)):
+        ):
         raise ValueError("PROVENANCE_CONFLICT")
     if not isinstance(original["session_id"], str) or str(uuid.UUID(original["session_id"])) != original["session_id"]:
         raise ValueError("PROVENANCE_CONFLICT")
     _validate_snapshot(record["snapshot"])
+    if original['session_id'] != binding['session_id'] and request.get('recovery') is not True:
+        handoff = _handoff_path(paths, request)
+        assert_state_security(handoff, secret=True)
+        details = handoff.lstat()
+        if not stat.S_ISREG(details.st_mode) or details.st_nlink != 1 or details.st_size > _MAX_BYTES:
+            raise ValueError('PROVENANCE_CONFLICT')
+        receipt = read_json(handoff.read_bytes(), _MAX_BYTES)
+        if receipt != {'source': original, 'target': binding, 'capture_sha256': _capture_hash(record)}:
+            raise ValueError('PROVENANCE_CONFLICT')
     return record
 
 
@@ -158,10 +169,50 @@ def prepare(paths, request):
     _prepare_transaction_root(paths, request)
     path = _transaction_root(paths, request) / "data-root-before.json"
     if path.exists():
-        if _read(paths, request) != record:
+        existing = _read(paths, request)
+        if existing['phase'] != 'prepared' or existing['snapshot'] != record['snapshot']:
             raise ValueError("PROVENANCE_CONFLICT")
         return
     _write(paths, request, record)
+
+
+def _capture_hash(record):
+    return hashlib.sha256(json.dumps({'binding': record['binding'], 'snapshot': record['snapshot']},
+        sort_keys=True, separators=(',', ':')).encode('utf-8')).hexdigest()
+
+
+def _handoff_path(paths, request):
+    binding = _binding(request)
+    return _transaction_root(paths, request) / ('session-handoff-' + binding['session_id'] + '.json')
+
+
+def prepared_source_session(paths, request):
+    # Recovery reads validate the original proof, but grant no mutation authority.
+    record = _read(paths, {**request, 'recovery': True})
+    if record['phase'] != 'prepared':
+        raise ValueError('PROVENANCE_CONFLICT')
+    return record['binding']['session_id']
+
+
+def adopt_prepared_session(paths, source_request, target_request):
+    from .staged_update_state import read_staged_update
+    durable_state.installer_mutation_checkpoint(required=True)
+    staged = read_staged_update(paths)
+    source, target = _binding(source_request), _binding(target_request)
+    if (staged is None or staged.phase != 'switching' or staged.binding.operation_id != target['transaction_id']
+            or source['session_id'] == target['session_id']
+            or any(source[key] != target[key] for key in ('transaction_id', 'package_sha256'))):
+        raise ValueError('PROVENANCE_CONFLICT')
+    record = _read(paths, source_request)
+    if record['phase'] != 'prepared' or record['snapshot'] != _snapshot(paths):
+        raise ValueError('PROVENANCE_CONFLICT')
+    receipt = {'source': source, 'target': target, 'capture_sha256': _capture_hash(record)}
+    path = _handoff_path(paths, target_request)
+    if path.exists():
+        _read(paths, target_request)
+        return
+    durable_state.write_json_atomic(path, receipt, trusted_root=path.parent,
+        max_bytes=_MAX_BYTES, protect=lambda leaf: protect_state(leaf, secret=True))
 
 
 def before_native(paths, request):

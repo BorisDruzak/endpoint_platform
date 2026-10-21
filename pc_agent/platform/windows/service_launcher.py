@@ -237,7 +237,7 @@ def _parser() -> argparse.ArgumentParser:
     modes = parser.add_mutually_exclusive_group(required=True)
     modes.add_argument("--agent-service", action="store_true")
     modes.add_argument("--updater-service", action="store_true")
-    modes.add_argument("--installer-phase", choices=("inspect","inspect-compound","prepare","msi-preflight","msi-enter","foundation-config","msi-complete","reconcile","finish","verify-settled",
+    modes.add_argument("--installer-phase", choices=("inspect","inspect-compound","prepare","stage-online","seal-staged-switch","adopt-staged-switch","msi-preflight","msi-enter","foundation-config","msi-complete","reconcile","finish","verify-settled",
         "compound-old-returned","compound-new-returned","compound-commit","compound-retire","compound-complete",
         "compound-repair-returned","compound-repair-commit"))
     parser.add_argument("--installer-session")

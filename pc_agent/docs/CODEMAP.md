@@ -22,6 +22,16 @@ aside without overwriting unrelated files. Only an actual rollback may recreate
 the v1 duplicate layout required by an immutable predecessor helper. Ordinary
 non-staged receipts keep their existing archive/rehydration behavior.
 
+`installer_transaction_bridge.stage_online_update` captures retention and
+enrollment descriptor evidence before SCM stops. The owner checks the original
+Agent process before and after capture, then seals the exact selectors/media
+after stopping services. A fresh native session adopts the original protected
+capture through a separate operation-bound receipt; capability files and the
+original capture binding remain immutable. Native prepare reuses the validated
+capture. Numeric phase timing/grant counters contain no paths or identities.
+The owner pipe drains ready frames and waits on pending I/O completion while
+retaining its bounded owner-thread pump and per-mutation authentication.
+
 `endpoint_contracts` defers its model exports until requested. The pure
 `runtime_payload` leaf therefore loads without initializing Pydantic or its
 indirect network imports in the offline worker. The packaged updater's

@@ -16,12 +16,13 @@ from pathlib import Path
 import re
 import struct
 import uuid
+import time
 
 from endpoint_contracts.runtime_payload import read_json, reject_reparse_ancestors
 from .installer_fence import assert_state_security, state_root
 from .update_paths import WindowsUpdatePaths
 
-PHASES = frozenset({'inspect','inspect-compound','prepare','msi-preflight','msi-enter','recover-enter',
+PHASES = frozenset({'inspect','inspect-compound','prepare','stage-online','seal-staged-switch','adopt-staged-switch','msi-preflight','msi-enter','recover-enter',
     'foundation-config','msi-complete','reconcile','finish','verify-settled',
     'uninstall-finalize-preflight','uninstall-finalize-enter','uninstall-finalize-complete',
     'compound-old-returned','compound-new-returned','compound-commit','compound-retire','compound-complete',
@@ -493,6 +494,17 @@ def _validate_install_recovery(paths,request):
 
 
 def execute_authorized_phase(client,paths,*,feature_states=None,rollback_disabled='',uninstall_finalization='',upgrade_detected=None):
+    if client.phase in {'stage-online', 'seal-staged-switch', 'adopt-staged-switch'}:
+        record = (stage_online_update(client, paths) if client.phase == 'stage-online' else
+                  adopt_staged_switch(client, paths) if client.phase == 'adopt-staged-switch' else
+                  seal_staged_switch(client, paths, client.capability['transaction_id']))
+        result = {'result': {'stage-online': 'staged-prepared', 'seal-staged-switch': 'staged-switch-sealed',
+                            'adopt-staged-switch': 'staged-session-adopted'}[client.phase],
+                  'operation_id': record.binding.operation_id, 'phase': record.phase}
+        if hasattr(client, 'phase_metrics'):
+            result['metrics'] = client.phase_metrics
+        client.request('complete', result)
+        return result
     if 'recovery_parent' in client.capability:
         if client.phase!='inspect-compound':_failed()
         from .compound_upgrade_plan import inspect_recovery_authority
@@ -516,6 +528,107 @@ def execute_authorized_phase(client,paths,*,feature_states=None,rollback_disable
             rollback_disabled=rollback_disabled,uninstall_finalization=uninstall_finalization)
     return _execute_authorized_phase(client,paths,feature_states=feature_states,
         rollback_disabled=rollback_disabled,uninstall_finalization=uninstall_finalization,upgrade_detected=upgrade_detected)
+
+
+def _online_inputs(client, paths):
+    from . import installation_provenance as provenance, msi_inventory
+    from .installer_fence import read_fence
+    from .compound_upgrade_plan import has_active_upgrade
+    cap = client.capability
+    if (cap['operation'] != 'install' or cap['recovery'] or cap['uninstall_finalization']
+            or 'compound' in cap or 'recovery_parent' in cap):
+        _failed()
+    _settled(paths)
+    if read_fence(paths) is not None or has_active_upgrade(paths):
+        raise ValueError('UPDATE_IN_PROGRESS')
+    request = _request_data(paths, cap)
+    expected = msi_inventory.read_expected_package(request['package_path'], cap['package'])
+    inspected = _matching_inspection(paths, expected, cap)
+    foundation = provenance.verified_foundation_release(paths)
+    if foundation is None or inspected.current is None:
+        raise ValueError('PROVENANCE_CONFLICT')
+    return request, expected, inspected, foundation
+
+
+def stage_online_update(client, paths):
+    """Prepare capture under the live owner without touching SCM or launch fences."""
+    from . import durable_state, installation_provenance as provenance, installer_data_security
+    from .staged_update_state import StagedUpdateBinding, begin_staged_update, advance_staged_update
+    if client.phase != 'stage-online':
+        _failed()
+    started = time.perf_counter()
+    metrics = client.phase_metrics = {'grant_count': 0, 'grant_seconds': 0.0,
+                                      'total_seconds': 0.0, 'preparation_seconds': 0.0}
+    def checkpoint():
+        before = time.perf_counter()
+        client.checkpoint()
+        metrics['grant_count'] += 1
+        metrics['grant_seconds'] += time.perf_counter() - before
+    request, expected, inspected, foundation = _online_inputs(client, paths)
+    current, previous = inspected.current, inspected.previous
+    binding = StagedUpdateBinding(client.capability['transaction_id'], foundation, client.capability['package'],
+        current.selector_bytes, previous.selector_bytes if previous else None,
+        current.identity.tree_sha256, previous.identity.tree_sha256 if previous else None,
+        expected.identity.version, expected.identity.source_revision, expected.identity.tree_sha256)
+    data_request = {**request, 'session_id': client.capability['session_id'], 'recovery': False}
+    with durable_state.installer_mutation_checkpoints(checkpoint):
+        begin_staged_update(paths, binding, client.capability['owner'])
+        installer_data_security.prepare(paths, data_request)
+        before = time.perf_counter()
+        provenance.prepare_installer_provenance(paths, request)
+        metrics['preparation_seconds'] = time.perf_counter() - before
+        provenance.validate_interrupted_reconciliation(paths, request)
+        _online_inputs(client, paths)
+        record = advance_staged_update(paths, binding.operation_id, 'preparing', 'prepared')
+    metrics['total_seconds'] = time.perf_counter() - started
+    return record
+
+
+def seal_staged_switch(client, paths, operation_id):
+    """Revalidate prepared identity after managed stop; native prepare follows."""
+    from . import durable_state, installation_provenance as provenance, installer_data_security
+    from .staged_update_state import read_staged_update, advance_staged_update
+    if client.phase != 'seal-staged-switch' or client.capability['transaction_id'] != operation_id:
+        _failed()
+    record = read_staged_update(paths)
+    if record is None or record.phase != 'prepared' or record.binding.operation_id != operation_id:
+        _failed()
+    request, _expected, inspected, foundation = _online_inputs(client, paths)
+    if (foundation != record.binding.old_release or inspected.current.selector_bytes != record.binding.selected_before
+            or inspected.current.identity.tree_sha256 != record.binding.selected_tree_sha256_before):
+        raise ValueError('PROVENANCE_CONFLICT')
+    provenance.validate_interrupted_reconciliation(paths, request)
+    installer_data_security.before_native(paths, {**request,
+        'session_id': client.capability['session_id'], 'recovery': False})
+    with InstallerServices(paths, include_browser=True) as services:
+        services.snapshot()  # Checks exact registrations and actual stopped state.
+    with durable_state.installer_mutation_checkpoints(client.checkpoint):
+        return advance_staged_update(paths, operation_id, 'prepared', 'switching')
+
+
+def adopt_staged_switch(client, paths):
+    """Bind the immutable online capture to a fresh native capability session."""
+    from . import durable_state, installer_data_security as security
+    from .staged_update_state import read_staged_update
+    cap = client.capability
+    staged = read_staged_update(paths)
+    if (client.phase != 'adopt-staged-switch' or cap['operation'] != 'install' or cap['recovery']
+            or cap['uninstall_finalization'] or 'recovery_parent' in cap or staged is None
+            or staged.phase != 'switching' or staged.binding.operation_id != cap['transaction_id']
+            or staged.binding.new_release != cap['package'] or staged.owner != cap['owner']):
+        _failed()
+    target = {**_request_data(paths, cap), 'session_id': cap['session_id'], 'recovery': False}
+    original_session = security.prepared_source_session(paths, target)
+    source_cap = _read_capability(paths, original_session)
+    if (source_cap['operation'] != 'install' or source_cap['recovery'] or source_cap['uninstall_finalization']
+            or 'compound' in source_cap or 'recovery_parent' in source_cap
+            or any(source_cap[key] != cap[key] for key in
+                   ('owner', 'transaction_id', 'package', 'selected', 'previous'))):
+        _failed()
+    source = {**target, 'session_id': original_session}
+    with durable_state.installer_mutation_checkpoints(client.checkpoint):
+        security.adopt_prepared_session(paths, source, target)
+    return staged
 
 
 def _execute_authorized_phase(client,paths,*,feature_states=None,rollback_disabled='',uninstall_finalization='',upgrade_detected=None,complete=True):

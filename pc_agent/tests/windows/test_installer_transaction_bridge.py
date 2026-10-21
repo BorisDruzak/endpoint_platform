@@ -268,7 +268,8 @@ def test_absent_uninstall_feature_plan_is_only_a_disabled_recovery_branch(operat
         with pytest.raises(ValueError): validate_feature_plan(operation,states,rollback_disabled='',recovery=recovery,finalization=True)
 
 
-def test_local_transport_completes_bounded_request_on_owner_thread(tmp_path):
+@pytest.mark.parametrize('wait_mode', ['sleep', 'event'])
+def test_local_transport_completes_bounded_request_on_owner_thread(tmp_path, wait_mode):
     import os
     import time
     import uuid
@@ -278,7 +279,7 @@ def test_local_transport_completes_bounded_request_on_owner_thread(tmp_path):
     script=tmp_path/'pipe-owner.ps1'
     ready=tmp_path/'ready'
     pipe='EndpointInstaller-'+str(uuid.uuid4())+'-'+uuid.uuid4().hex
-    script.write_text(r'''param($Source,$Pipe,$Ready)
+    script.write_text(r'''param($Source,$Pipe,$Ready,$WaitMode)
 $ErrorActionPreference='Stop'
 $tokens=$null;$errors=$null
 $ast=[Management.Automation.Language.Parser]::ParseFile($Source,[ref]$tokens,[ref]$errors)
@@ -293,7 +294,7 @@ try {
  do {
   if($timer.Elapsed.TotalSeconds -gt 10){throw 'bounded receive timeout'}
   $packet=$channel.Poll()
-  if($null -eq $packet){Start-Sleep -Milliseconds 1}
+  if($null -eq $packet){if($WaitMode -eq 'event'){$channel.WaitForActivity(10)}else{Start-Sleep -Milliseconds 1}}
  } while($null -eq $packet)
  if([Threading.Thread]::CurrentThread.ManagedThreadId -ne $ownerThread){throw 'owner thread changed'}
  $value=[Text.Encoding]::ASCII.GetString($packet) | ConvertFrom-Json
@@ -302,7 +303,7 @@ try {
  do {
   if($timer.Elapsed.TotalSeconds -gt 10){throw 'bounded acknowledgement timeout'}
   $ack=$channel.Poll()
-  if($null -eq $ack){Start-Sleep -Milliseconds 1}
+  if($null -eq $ack){if($WaitMode -eq 'event'){$channel.WaitForActivity(10)}else{Start-Sleep -Milliseconds 1}}
  } while($null -eq $ack)
  if([Text.Encoding]::ASCII.GetString($ack) -ne '{"received":true}'){throw 'acknowledgement mismatch'}
  $channel.Disconnect()
@@ -311,7 +312,7 @@ try {
     log=tmp_path/'pipe-owner.log'
     with log.open('w') as output:
         process=subprocess.Popen(['powershell.exe','-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass',
-            '-File',str(script),str(source),pipe,str(ready)],stdout=output,stderr=subprocess.STDOUT,
+            '-File',str(script),str(source),pipe,str(ready),wait_mode],stdout=output,stderr=subprocess.STDOUT,
             creationflags=subprocess.CREATE_NO_WINDOW)
         try:
             deadline=time.monotonic()+10
