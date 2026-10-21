@@ -1603,12 +1603,21 @@ function Remove-StagedRecoveryTask {
 }
 
 function Complete-StagedTerminalCleanup {
-    param($Bridge,$ServiceStates,[string]$StateRoot)
+    param($Bridge,$ServiceStates,[string]$StateRoot,[switch]$RequireServices)
     try {
         if($ServiceStates['EndpointBrowserPolicy'] -ceq 'Running'){Start-VerifiedBrowserPolicy}
-        Invoke-InstallerHelper -Bridge $Bridge -Phase 'restore-staged-companions' | Out-Null
+        if($ServiceStates['EndpointAgent'] -ceq 'Running'){Start-ManagedEndpointAgent}
+        $restored=Invoke-InstallerHelper -Bridge $Bridge -Phase 'restore-staged-companions'
+        foreach($name in @('EndpointAgent','EndpointAgentUpdater','EndpointBrowserPolicy')){
+            if($ServiceStates[$name] -ceq 'Running' -and $restored.services.$name -cne 'running'){throw 'RECOVERY_REQUIRED'}
+        }
         Remove-StagedRecoveryTask $Bridge.TransactionId $StateRoot
-    } catch { Write-Warning 'STAGED_TERMINAL_CLEANUP_DEFERRED' }
+    } catch {
+        Write-Warning 'STAGED_TERMINAL_CLEANUP_DEFERRED'
+        # Accepted health is durable; ordinary cleanup cannot undo it. A
+        # recovery caller must retain its task and report unavailable services.
+        if($RequireServices){throw 'RECOVERY_REQUIRED'}
+    }
 }
 
 function ConvertTo-StagedServiceStates {
@@ -1647,7 +1656,7 @@ function Invoke-StagedRecovery {
     $adopted=Invoke-InstallerHelper -Bridge $Bridge -Phase 'recover-staged-owner'
     if($adopted.operation_id -cne $OperationId){throw 'OWNER_AUTH_FAILED'}
     if($adopted.action -cin @('accepted','rolled-back','preparation-cancelled')){
-        Complete-StagedTerminalCleanup $Bridge $serviceStates $StateRoot
+        Complete-StagedTerminalCleanup $Bridge $serviceStates $StateRoot -RequireServices
         return $(if($adopted.action -ceq 'accepted'){0}else{67})
     }
     if($adopted.action -ceq 'reboot-required'){return 3010}
@@ -1658,10 +1667,10 @@ function Invoke-StagedRecovery {
     if($adopted.action -ceq 'rollback-required' -or (Invoke-StagedHealthTrial -Bridge $Bridge -InstallRoot $InstallRoot) -cne 'accepted'){
         $result=Invoke-StagedFoundationRollback -Manifest $Manifest -HelperPath $HelperPath -HelperHash $HelperHash -StateRoot $StateRoot -CacheRoot $CacheRoot -ServiceStates $serviceStates -Selection ([pscustomobject]@{foundation_release=$observed.old_release}) -CandidateMedia $CandidateMedia -OperationId $OperationId -InstallRoot $InstallRoot
         if($result -cne 'rolled-back' -and $result -cne 'accepted'){throw 'RECOVERY_REQUIRED'}
-        Complete-StagedTerminalCleanup $Bridge $serviceStates $StateRoot
+        Complete-StagedTerminalCleanup $Bridge $serviceStates $StateRoot -RequireServices
         return $(if($result -ceq 'rolled-back'){67}else{0})
     }
-    Complete-StagedTerminalCleanup $Bridge $serviceStates $StateRoot
+    Complete-StagedTerminalCleanup $Bridge $serviceStates $StateRoot -RequireServices
     return 0
 }
 
@@ -2531,7 +2540,7 @@ try {
         $interruptedFence = Read-InstallerFence -Root $installerStateRoot
         $recoveryLocator=$null
         if ($Operation -eq 'RecoverInterruptedInstall') { $recoveryLocator=Read-CompoundRecoveryLocator $installerStateRoot $manifest }
-        if ($null -ne $interruptedFence -and $Operation -ne 'RecoverInterruptedInstall') { exit 61 }
+        if ($null -ne $interruptedFence -and $Operation -notin @('RecoverInterruptedInstall','RecoverStagedUpdate')) { exit 61 }
         if ($Operation -eq 'RecoverInterruptedInstall' -and $null -eq $interruptedFence -and $null -eq $recoveryLocator) { exit 61 }
         if($Operation -eq 'RecoverStagedUpdate'){
             if($StagedOperationId -cnotmatch '^[0-9a-f-]{36}$'){throw 'RECOVERY_REQUIRED'}

@@ -76,6 +76,16 @@ def begin_staged_trial(paths, operation_id: str) -> str:
     request = {'operation_id': operation_id, 'attempt_id': attempt,
                'binding_sha256': _digest(state._binding_value(binding)), 'created_ns': time.monotonic_ns()}
     root = installer_fence.state_root(paths)
+    # The previous attempt may legitimately have left this shared publication.
+    # Retire it while the candidate is quiescent, before exposing a new request.
+    # A replay written after this boundary is still rejected by the reader.
+    try:
+        paths.updates_root.lstat()
+    except FileNotFoundError:
+        pass  # A first installation may have no update publications yet.
+    else:
+        durable_state.durable_unlink(paths.updates_root / _PROOF,
+                                     trusted_root=paths.updates_root, missing_ok=True)
     durable_state.write_json_atomic(root / _REQUEST, request, trusted_root=root, max_bytes=_LIMIT,
                                     protect=installer_fence.protect_state)
     state.advance_staged_update(paths, operation_id, 'native-settled', 'trial', attempt_id=attempt)

@@ -4,6 +4,7 @@ import json
 from uuid import uuid4
 
 import pytest
+from dataclasses import replace
 
 from pc_agent.platform.windows import durable_state, installer_fence
 from pc_agent.tests.windows.test_staged_update_state import staged, begin, move, native_protected_root
@@ -35,6 +36,33 @@ def decide(trial, elapsed, stable):
     clock[0] = int((100 + elapsed) * 1e9)
     return proof.staged_trial_decision(paths, binding.operation_id, attempt,
         elapsed_seconds=elapsed, stable_seconds=stable)
+
+
+def test_fresh_trial_retires_previous_proof_before_waiting_for_handshake(trial):
+    from pc_agent.platform.windows import staged_update_state as state
+    proof, paths, binding, first, writer, _clock = trial
+    assert writer.record_handshake()
+    old_proof = (paths.updates_root / 'staged-trial-proof.json').read_bytes()
+    record = state.read_staged_update(paths)
+    with durable_state.installer_mutation_checkpoints(lambda: None):
+        state._write(paths, replace(record, phase='native-settled', attempt_id=None))
+        second = proof.begin_staged_trial(paths, binding.operation_id)
+    assert first != second
+    assert proof.staged_trial_decision(paths, binding.operation_id, second, elapsed_seconds=0, stable_seconds=0) == 'waiting'
+    # Replay introduced after the fresh attempt still causes rejection.
+    (paths.updates_root / 'staged-trial-proof.json').write_bytes(old_proof)
+    assert proof.staged_trial_decision(paths, binding.operation_id, second, elapsed_seconds=1, stable_seconds=0) == 'rollback'
+
+
+def test_first_trial_does_not_require_an_existing_update_directory(trial):
+    from pc_agent.platform.windows import staged_update_state as state
+    proof, paths, binding, _attempt, _writer, _clock = trial
+    paths.updates_root.rmdir()
+    record = state.read_staged_update(paths)
+    with durable_state.installer_mutation_checkpoints(lambda: None):
+        state._write(paths, replace(record, phase='native-settled', attempt_id=None))
+        attempt = proof.begin_staged_trial(paths, binding.operation_id)
+    assert proof.staged_trial_decision(paths, binding.operation_id, attempt, elapsed_seconds=0, stable_seconds=0) == 'waiting'
 
 
 def test_no_acceptance_before_60_seconds_and_fresh_heartbeat(trial):

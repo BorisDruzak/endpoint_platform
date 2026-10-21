@@ -135,7 +135,8 @@ def test_trial_policy_does_not_rehash_runtime_for_each_pipe_request(monkeypatch,
     assert len(checks) == 3
     # The cache never bypasses a later phase or selection change.
     record.phase = 'switching'
-    with pytest.raises(ValueError, match='STAGED_UPDATE_IN_PROGRESS'):
+    from pc_agent.platform.windows.update_transaction import UpdateInProgress
+    with pytest.raises(UpdateInProgress, match='STAGED_UPDATE_IN_PROGRESS'):
         listener._on_frame(object(), frame)
     record.phase = 'trial'
     selector['source_revision'] = 'd' * 40

@@ -68,7 +68,8 @@ def _assert_installer_allows_policy(verified=None) -> None:
     record = read_staged_update(paths)
     if record is not None and record.phase not in {'accepted', 'rolled-back'}:
         if record.phase not in {'preparing', 'prepared', 'trial'}:
-            raise ValueError('STAGED_UPDATE_IN_PROGRESS')
+            from pc_agent.platform.windows.update_transaction import UpdateInProgress
+            raise UpdateInProgress('STAGED_UPDATE_IN_PROGRESS')
         from pc_agent.platform.windows.service_launcher import _verify_selected_runtime
         from pc_agent.platform.windows.staged_update_state import assert_staged_update_allowed
         from pc_agent.platform.windows.installer_fence import assert_state_security

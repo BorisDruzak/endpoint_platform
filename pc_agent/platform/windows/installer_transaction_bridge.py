@@ -587,6 +587,8 @@ def stage_online_update(client, paths):
         metrics['grant_count'] += 1
         metrics['grant_seconds'] += time.perf_counter() - before
     request, expected, inspected, foundation = _online_inputs(client, paths)
+    durable_state.require_same_volume_rename(
+        state_root(paths), paths.versions_root / '.staged-volume-admission')
     current, previous = inspected.current, inspected.previous
     binding = StagedUpdateBinding(client.capability['transaction_id'], foundation, client.capability['package'],
         current.selector_bytes, previous.selector_bytes if previous else None,
@@ -618,6 +620,8 @@ def seal_staged_switch(client, paths, operation_id):
     if record is None or record.phase != 'prepared' or record.binding.operation_id != operation_id:
         _failed()
     request, _expected, inspected, foundation = _online_inputs(client, paths)
+    durable_state.require_same_volume_rename(
+        state_root(paths), paths.versions_root / '.staged-volume-admission')
     if (foundation != record.binding.old_release or inspected.current.selector_bytes != record.binding.selected_before
             or inspected.current.identity.tree_sha256 != record.binding.selected_tree_sha256_before):
         raise ValueError('PROVENANCE_CONFLICT')

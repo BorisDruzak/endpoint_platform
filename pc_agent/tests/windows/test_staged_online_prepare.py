@@ -241,3 +241,31 @@ def test_session_adoption_rejects_different_owner_or_capture(online, monkeypatch
         monkeypatch.setattr(installer_data_security, '_snapshot', lambda _: {'root': None, 'leaves': {'changed': None}})
     client.phase = 'adopt-staged-switch'
     with pytest.raises(ValueError): bridge.adopt_staged_switch(client, paths)
+
+
+def test_non_ntfs_admission_fails_before_online_capture_or_service_stop(online, monkeypatch):
+    client, paths, _, _, _, _ = online
+    def reject(source, destination):
+        assert source == installer_fence.state_root(paths)
+        assert destination.parent == paths.versions_root
+        raise ValueError('runtime promotion requires NTFS')
+    monkeypatch.setattr(durable_state, 'require_same_volume_rename', reject)
+    monkeypatch.setattr(installation_provenance, 'prepare_installer_provenance', lambda *_: pytest.fail('copied before volume admission'))
+    monkeypatch.setattr(bridge, 'InstallerServices', lambda *_a, **_k: pytest.fail('stopped before volume admission'))
+    with pytest.raises(ValueError, match='requires NTFS'):
+        bridge.stage_online_update(client, paths)
+    assert staged_update_state.read_staged_update(paths) is None
+    assert installer_fence.read_fence(paths) is None
+
+
+def test_switch_sealing_revalidates_prepared_promotion_volume(online, monkeypatch):
+    client, paths, _, _, _, _ = online
+    prepared = bridge.stage_online_update(client, paths)
+    client.phase = 'seal-staged-switch'
+    def reject(*_):
+        raise ValueError('runtime promotion requires one volume')
+    monkeypatch.setattr(durable_state, 'require_same_volume_rename', reject)
+    with pytest.raises(ValueError, match='requires one volume'):
+        bridge.seal_staged_switch(client, paths, prepared.binding.operation_id)
+    assert staged_update_state.read_staged_update(paths).phase == 'prepared'
+    assert installer_fence.read_fence(paths) is None
