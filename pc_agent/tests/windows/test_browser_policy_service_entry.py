@@ -104,3 +104,41 @@ def test_new_installer_barrier_blocks_existing_policy_listener_frame(monkeypatch
     try:listener._on_frame(object(),b'{"schema_version":"endpoint_browser_policy_request_v1","operation":"apply","browser_family":"chrome"}')
     except ValueError as error:assert str(error)=='INSTALLER_RECOVERY_REQUIRED'
     assert registry.read(CHROME_POLICY_PATH,'ExtensionSettings') is None
+
+
+def test_trial_policy_does_not_rehash_runtime_for_each_pipe_request(monkeypatch, tmp_path):
+    from types import SimpleNamespace
+    from pc_agent.platform.windows import browser_policy_service_entry as entry
+    from pc_agent.platform.windows import installer_fence, staged_update_state, service_launcher
+    from pc_agent.platform.windows.update_paths import WindowsUpdatePaths
+    paths = WindowsUpdatePaths.production()
+    paths.install_root.mkdir(parents=True)
+    selector = {'schema_version': 1, 'version': '3.2.123', 'source_revision': 'a' * 40}
+    paths.current_path.write_text(json.dumps(selector))
+    binding = SimpleNamespace(candidate_tree_sha256='b' * 64, selected_tree_sha256_before='c' * 64)
+    record = SimpleNamespace(phase='trial', binding=binding)
+    monkeypatch.setattr(staged_update_state, 'read_staged_update', lambda _: record)
+    monkeypatch.setattr(installer_fence, 'assert_launch_allowed', lambda _: None)
+    monkeypatch.setattr(installer_fence, 'assert_state_security', lambda _: None)
+    checks = []
+    monkeypatch.setattr(staged_update_state, 'assert_staged_update_allowed', lambda *a, **k: checks.append('phase'))
+    verified = []
+    monkeypatch.setattr(service_launcher, '_verify_selected_runtime', lambda *a: verified.append(a[1]))
+    monkeypatch.setattr(entry, 'WindowsPolicyRegistry', MemoryRegistry)
+    monkeypatch.setattr(entry, 'load_packaged_extension_id', lambda: EXTENSION_ID)
+    monkeypatch.setattr(entry, 'authorize_agent_pipe_client', lambda _: None)
+    listener = make_policy_listener()
+    frame = b'{"schema_version":"endpoint_browser_policy_request_v1","operation":"apply","browser_family":"chrome"}'
+    for _ in range(2):
+        assert json.loads(listener._on_frame(object(), frame))['status'] == 'APPLIED'
+    assert verified == [selector]
+    assert len(checks) == 3
+    # The cache never bypasses a later phase or selection change.
+    record.phase = 'switching'
+    with pytest.raises(ValueError, match='STAGED_UPDATE_IN_PROGRESS'):
+        listener._on_frame(object(), frame)
+    record.phase = 'trial'
+    selector['source_revision'] = 'd' * 40
+    paths.current_path.write_text(json.dumps(selector))
+    listener._on_frame(object(), frame)
+    assert len(verified) == 2
