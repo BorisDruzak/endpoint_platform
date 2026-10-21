@@ -181,5 +181,14 @@ Execution is explicitly authorized without intermediate approval stops.
 - Native ALT spec query confirms the optional build produces exactly the Core
   and user-sensor package definitions. Final focused native composition,
   cancellation, sample and wrapper/spec tests: 15 passed; shell syntax passed.
-  The actual domain-user KDE lock reports locked=true. Standard root logind
-  unlock was requested and its desktop result is being checked.
+  The actual domain-user KDE lock reports locked=true; standard root logind
+  unlock was then confirmed by the desktop helper reporting locked=false.
+- C installed-candidate acceptance uses private Agent 3.2.122. Neither the
+  production build registry nor GitHub reserves that Linux version. This is
+  a staging candidate, not a stable release or production rollout. Subsequent
+  functional runtime changes require another immutable artifact version.
+- Existing Endpoint staging uses its own application services and database.
+  Strict CA/hostname HTTPS health passed. Preparing the same committed
+  Endpoint application there; Helpdesk services/configuration are out of scope.
+  Staging migration is 0037; the only pending main migration is existing 0038
+  Activity Analytics. Preserve a private database backup before applying it.
