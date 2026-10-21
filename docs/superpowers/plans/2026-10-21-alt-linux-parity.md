@@ -381,3 +381,19 @@ Execution is explicitly authorized without intermediate approval stops.
 - E OTA candidate uses a new immutable version 3.2.124, preserving the verified
   3.2.123 runtime as the rollback baseline. Only this private staging device is
   eligible; no production rollout or stable-channel publication is performed.
+- E server confirmed the offline print event exactly once. First real OTA
+  delivery of 3.2.124 failed safely because the RPM had installed its external
+  artifact.manifest.json inside the strictly immutable release tree. Core
+  remained online on 3.2.123 and the server recorded failed. The native test now
+  executes the real RPM payload install block and verifies the installed tree
+  through the real updater; it reproduced that same rejection. Move the external
+  sidecar to the package documentation directory; no updater validation weakened.
+  Native RPM checks: 22 passed, one artifact skip, two Git-dependent exclusions;
+  Windows checkout: 22 passed, three native skips. RPM revision becomes alt5;
+  frozen 3.2.124 runtime bytes remain unchanged from e84fdf0cf5a7.
+- E controlled migration of the old private 3.2.123 RPM compared the extra
+  root-owned sidecar byte-for-byte with its original build input, moved only
+  that sidecar to the root backup, and verified the entire selected release.
+  A fresh single-device rollout delivered the identical immutable 3.2.124
+  artifact through strict HTTPS, the real root worker and startup outcome.
+  Staging now records applied and Agent 3.2.124; Core is active, zero restarts.

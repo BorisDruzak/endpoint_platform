@@ -8,6 +8,7 @@ import json
 import os
 from pathlib import Path
 import re
+import shlex
 import subprocess
 import sys
 import tarfile
@@ -448,6 +449,30 @@ def test_package_configuration_activates_an_inactive_update_watcher(tmp_path: Pa
              "WATCHER_ACTIVE": str(active)},
     )
     assert active.exists(), "pending Gateway updates would wait until the next boot"
+
+
+@pytest.mark.skipif(os.name == "nt", reason="native RPM installation layout")
+def test_rpm_installed_release_is_accepted_as_an_ota_rollback_baseline(tmp_path: Path) -> None:
+    """Execute the RPM payload installation and validate it with the real updater."""
+    from pc_agent.alt_update_installer import _verify_selected_release
+
+    archive, sidecar, launcher = _write_release_fixture(tmp_path)
+    source = tmp_path / "unpacked"
+    source.mkdir()
+    with tarfile.open(archive) as bundle:
+        bundle.extractall(source, filter="data")
+    buildroot = tmp_path / "buildroot"
+    install = _text(SPEC).split("%install\n", 1)[1].split(
+        "install -m 0644 %{SOURCE10}", 1
+    )[0]
+    install = (install.replace("%buildroot", shlex.quote(str(buildroot)))
+               .replace("%{version}", "3.1.76")
+               .replace("%{SOURCE1}", shlex.quote(str(sidecar)))
+               .replace("%{SOURCE2}", shlex.quote(str(launcher))))
+    subprocess.run(["/bin/sh", "-ec", install], cwd=source, check=True)
+    _verify_selected_release(buildroot / "opt/endpoint-agent", {
+        "schema_version": 1, "version": "3.1.76", "source_revision": "967fa56",
+    })
 
 
 def test_uninstall_preserves_identity_credentials_configuration_and_ca() -> None:

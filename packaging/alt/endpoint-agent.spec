@@ -5,7 +5,7 @@
 
 Name: endpoint-agent
 Version: %{agent_version}
-Release: alt4
+Release: alt5
 Summary: Endpoint Platform headless management agent for ALT Linux
 License: Proprietary
 Group: System/Servers
@@ -80,7 +80,7 @@ cp -a endpoint-agent %buildroot/opt/endpoint-agent/versions/%{version}/endpoint-
 install -m 0644 manifest.json \
     %buildroot/opt/endpoint-agent/versions/%{version}/manifest.json
 install -m 0644 %{SOURCE1} \
-    %buildroot/opt/endpoint-agent/versions/%{version}/artifact.manifest.json
+    %buildroot/usr/share/doc/endpoint-agent/artifact.manifest.json
 install -m 0755 %{SOURCE2} %buildroot/opt/endpoint-agent/launcher
 install -m 0644 %{SOURCE10} %buildroot/usr/lib/systemd/system/endpoint-agent.service
 install -m 0644 %{SOURCE11} %buildroot/usr/lib/systemd/system/endpoint-agent-update.service
@@ -206,7 +206,7 @@ systemctl daemon-reload || :
 /opt/endpoint-agent/versions/%{version}/endpoint-agent/endpoint-agent
 /opt/endpoint-agent/versions/%{version}/endpoint-agent/_internal
 /opt/endpoint-agent/versions/%{version}/manifest.json
-/opt/endpoint-agent/versions/%{version}/artifact.manifest.json
+/usr/share/doc/endpoint-agent/artifact.manifest.json
 %dir /usr/lib/endpoint-agent
 %dir /usr/lib/endpoint-agent/package-releases
 /usr/lib/endpoint-agent/package-releases/%{version}
@@ -240,8 +240,9 @@ systemctl daemon-reload || :
 %endif
 
 %changelog
-* Wed Oct 21 2026 Endpoint Platform Maintainers <endpoint@example.invalid> 3.2.124-alt4
+* Wed Oct 21 2026 Endpoint Platform Maintainers <endpoint@example.invalid> 3.2.124-alt5
 - Activate the pending update watcher without requiring a machine reboot.
+- Keep the external artifact manifest outside the immutable OTA release tree.
 
 * Wed Oct 21 2026 Endpoint Platform Maintainers <endpoint@example.invalid> 3.2.123-alt4
 - Add optional KDE/Chromium user sensors and restricted browser policy helper.
