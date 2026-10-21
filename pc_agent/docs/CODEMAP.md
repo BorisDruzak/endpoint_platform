@@ -2,6 +2,16 @@
 
 ## Runtime boundary
 
+`platform/windows/staged_update_state.py` separates an installer-owned
+application journal from the native MSI fence. Its immutable binding includes
+the genuine old/new package identities, original selector bytes and full core
+tree identities. Ordinary OTA mutation fails closed while preparation or trial
+is active, including after an abandoned owner mutex. Preparation itself creates
+no native launch fence; later trial integration admits only the exact selected
+candidate. Journal mutations require fresh installer checkpoint scope, strict
+protected state ACLs and durable publication. The journal API alone neither
+starts MSI nor establishes installed update/rollback acceptance.
+
 `endpoint_contracts` defers its model exports until requested. The pure
 `runtime_payload` leaf therefore loads without initializing Pydantic or its
 indirect network imports in the offline worker. The packaged updater's

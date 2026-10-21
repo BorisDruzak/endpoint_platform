@@ -108,12 +108,15 @@ def _windows_transaction(timeout_ms):
 @contextmanager
 def update_transaction(paths: WindowsUpdatePaths, *, timeout_ms: int = 30000):
     """Serialize a synchronous mutation; never change the Windows object by path."""
+    from .staged_update_state import assert_staged_update_allowed
+    assert_staged_update_allowed(paths, purpose='ota')
     if os.name == 'nt':
         with _windows_transaction(timeout_ms):
             from .installer_fence import read_fence
             from .compound_upgrade_plan import has_active_upgrade
             if has_active_upgrade(paths) or read_fence(paths) is not None:
                 raise UpdateInProgress('INSTALLER_RECOVERY_REQUIRED')
+            assert_staged_update_allowed(paths, purpose='ota')
             yield
         return
     import fcntl
@@ -147,6 +150,7 @@ def update_transaction(paths: WindowsUpdatePaths, *, timeout_ms: int = 30000):
                 time.sleep(min(.01, max(0, deadline-time.monotonic())))
         _POSIX_LOCAL.held = {**held, root: descriptor}
         try:
+            assert_staged_update_allowed(paths, purpose='ota')
             yield
         finally:
             _POSIX_LOCAL.held = held
