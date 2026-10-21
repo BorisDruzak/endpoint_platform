@@ -16,7 +16,7 @@ Execution is explicitly authorized without intermediate approval stops.
 - Preserve AD configuration, device identity, user state and unrelated local work.
 - Content-free observations only; no titles, file contents, document names or keys.
 - Report unavailable sources honestly; unit tests do not establish live acceptance.
-- Current main: `c22024492dbb6b12fe5760c54868d18987b668f2`, Agent 3.2.121.
+- Starting main: `c22024492dbb6b12fe5760c54868d18987b668f2`, Agent 3.2.121.
 - Original checkout is dirty; use `codex/alt-linux-parity` in its managed worktree.
 
 ## A — Core and RPM
@@ -73,7 +73,7 @@ Execution is explicitly authorized without intermediate approval stops.
 - [x] Verify shared Console device/Context/Policy/Activity/DLP views in Playwright.
 - [x] Update current ALT baseline, install runbook and pc_agent CODEMAP in place.
 - [x] Run one complete relevant release gate plus targeted Windows regressions.
-- [ ] Inspect complete diff, clean checks and task-only commits; safely publish
+- [x] Inspect complete diff, clean checks and task-only commits; safely publish
   verified changes to main through the repository process; no production rollout.
 
 ## Initial findings / execution ledger
@@ -488,3 +488,6 @@ Execution is explicitly authorized without intermediate approval stops.
 - Authenticated Playwright acceptance completed on server a4ce1648dca5d846a05dc7ab75fc01d32f2ed0b2: device identity/versions, 17 enabled primitive descriptions, current Context, stale Activity after logout, analytics account/search/history/foreground intervals, Policy facts and shared DLP filtering/details. A live CUPS outage showed the specific source UNAVAILABLE and the readiness reason; restoration returned APPLIED/READY on the same Core PID. Desktop 1440px and mobile 390px were visually inspected; document width equalled the mobile viewport. After the final reload there were zero console errors/warnings and no framework overlay. During the controlled server restart an earlier request returned 502; the absent staging Browser release returned its expected handled 404. Neither is concealed as zero-error evidence for that earlier phase.
 - Analytics minute-scale segments can overlap at day-view pointer resolution; keyboard selection of the existing accessible segment control opened the correct one-minute Chromium interval. This inherited narrow-hit-area limitation is outside ALT runtime parity and is not claimed fixed. The task does not establish a new analytics architecture or fleet readiness.
 - Browser evidence is kept as local screenshots outside tracked source. The existing ALT baseline was corrected to describe all six Context profiles, platform-gated registry primitives and the explicit staging-origin guard. Main publication is authorized by the original task and remains the final action after these checks.
+
+- Publication completed as a fast-forward of origin/main to 6363c56179aa691db829e2377bc5df157ffd5f51; fetch confirmed the exact remote SHA and zero left/right divergence. The working tree was clean. GitHub provider-release-gate run [39622621018](https://github.com/BorisDruzak/endpoint_platform/actions/runs/39622621018) was queued at handoff; this is not a CI success claim. The full native gate and affected final server/UI checks above remain the completed verification evidence. This publication record is a documentation-only follow-up, without runtime changes or another full local gate.
+- Final installed-state check: Core 3.2.126 active, PID 4791, NRestarts=0; browser policy helper, update watcher and LightDM active; private policy v4 APPLIED and all four source states READY. The authenticated first browser tab is left on the pilot's Policy view. After normal logout, stale Activity and unconfirmed closed-browser observations are deliberately visible. Physical USB plug/unplug remains postponed by the user; Chrome/Yandex live acceptance remains unavailable. No stable-channel publication, production deployment or fleet-readiness claim is made.
