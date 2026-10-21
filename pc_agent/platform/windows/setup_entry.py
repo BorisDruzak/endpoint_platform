@@ -77,10 +77,18 @@ class SetupInstallError(RuntimeError):
         self.detail = detail
 
 
+def _canonical_operation(value):
+    from uuid import UUID
+    if str(UUID(value)) != value:
+        raise argparse.ArgumentTypeError('canonical operation UUID required')
+    return value
+
+
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="EndpointAgentSetup.exe")
     parser.add_argument("--quiet", action="store_true")
     parser.add_argument("--preflight", action="store_true")
+    parser.add_argument("--recover-staged-update", type=_canonical_operation)
     return parser
 
 
@@ -187,6 +195,8 @@ def _embedded_recovery_operation(msi_path: Path) -> str | None:
 def _install_embedded_msi(msi_path: Path) -> int:
     manifest_path, wrapper_path = _verify_embedded_msi(msi_path)
     operation = ['-Operation','RecoverInterruptedInstall'] if _embedded_recovery_operation(msi_path) else []
+    if getattr(sys, "frozen", False):
+        operation += ["-SetupImagePath", str(Path(sys.executable).absolute())]
     windows_powershell = (
         Path(os.environ.get("SystemRoot", r"C:\Windows"))
         / "System32" / "WindowsPowerShell" / "v1.0"
@@ -218,9 +228,47 @@ def _install_embedded_msi(msi_path: Path) -> int:
         raise SetupInstallError("UPDATE_STATE_INVALID")
     if completed.returncode == 63:
         raise SetupInstallError("PROVENANCE_CONFLICT")
-    if completed.returncode not in (0,3010,1641):
+    if completed.returncode not in (0,67,3010,1641):
         raise SetupInstallError("MSI_EVIDENCE_FAILED")
     return completed.returncode
+
+
+def _run_staged_recovery(operation_id):
+    from . import staged_recovery as recovery
+    try:
+        if not getattr(sys, 'frozen', False):
+            raise SetupInstallError('RECOVERY_REQUIRED')
+        paths = WindowsUpdatePaths.production()
+        record = recovery.state.read_staged_update(paths)
+        deadline = time.monotonic() + 60
+        while record is None and time.monotonic() < deadline:
+            time.sleep(0.5)
+            record = recovery.state.read_staged_update(paths)
+        if record is None or record.binding.operation_id != operation_id:
+            raise SetupInstallError('RECOVERY_REQUIRED')
+        inputs = recovery._validate_recovery_inputs(paths, record)
+        cache = paths.install_root.parent / 'installer-cache' / ('msi-' + inputs['package_sha256'])
+        if Path(sys.executable).resolve() != (cache / 'EndpointAgentSetup.exe').resolve():
+            raise SetupInstallError('RECOVERY_REQUIRED')
+        recovery.wait_for_original_owner(record.owner, timeout_seconds=4 * 60 * 60)
+        recovery._assert_owner_dead(record.owner)
+        manifest, wrapper = _verify_embedded_msi(_resource_root() / 'EndpointAgent.msi')
+        # The exact signed Setup contains the authoritative owner program.
+        for embedded, cached in ((manifest, cache / manifest.name), (wrapper, cache / wrapper.name)):
+            if embedded.read_bytes() != cached.read_bytes():
+                raise SetupInstallError('RECOVERY_REQUIRED')
+        from .update_paths import _native_folder
+        powershell = str(_native_folder(0x25) / "WindowsPowerShell/v1.0/powershell.exe")
+        result = subprocess.run([powershell, '-NoProfile', '-NonInteractive', '-WindowStyle', 'Hidden',
+            '-ExecutionPolicy', 'Bypass', '-File', str(cache / wrapper.name),
+            '-MsiPath', str(cache / 'EndpointAgent.msi'), '-ReleaseManifest', str(cache / manifest.name),
+            '-Operation', 'RecoverStagedUpdate', '-StagedOperationId', operation_id,
+            '-SetupImagePath', str(cache / 'EndpointAgentSetup.exe')],
+            check=False, shell=False, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL, creationflags=_windowless_creation_flags())
+        return result.returncode if result.returncode in (0,67,3010,1641) else EXIT_REPAIR_REQUIRED
+    except Exception:
+        return EXIT_REPAIR_REQUIRED
 
 
 def _msi_disk_costs(msi_path: Path, *, recovery_context=None) -> list[tuple[Path, int]]:
@@ -953,6 +1001,8 @@ def _emit_preflight(value: dict[str, object]) -> None:
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = _parser().parse_args(argv)
+    if args.recover_staged_update:
+        return _run_staged_recovery(args.recover_staged_update)
     if args.preflight:
         from pc_agent.platform.windows.fleet_preflight import collect_fleet_preflight
 
@@ -1061,6 +1111,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
             try:
                 native_result = _install_embedded_msi(resources / "EndpointAgent.msi")
+                if native_result == 67:
+                    return _complete(args,data_root,status='ROLLED_BACK',code=67,stage='MSI',detail='CANDIDATE_ROLLED_BACK')
                 if native_result in (3010,1641):
                     return _complete(args,data_root,status='REBOOT_REQUIRED',code=native_result,stage='MSI',detail='REBOOT_REQUIRED')
                 if recovery_operation == 'uninstall':
@@ -1123,6 +1175,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     try:
         native_result = _install_embedded_msi(resources / "EndpointAgent.msi")
+        if native_result == 67:
+            return _complete(args,data_root,status="ROLLED_BACK",code=67,stage="MSI",detail="CANDIDATE_ROLLED_BACK")
         if native_result in (3010,1641):
             return _complete(args,data_root,status='REBOOT_REQUIRED',code=native_result,stage='MSI',detail='REBOOT_REQUIRED')
         if recovery_operation == 'uninstall':

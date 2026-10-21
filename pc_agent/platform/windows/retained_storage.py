@@ -103,7 +103,30 @@ def _authorize(paths, archive_id, operation_id, phases):
         _fail()
     value = _read_storage(archive, record, receipt_hash)
     if value is not None and value['operation_id'] != operation_id:
-        _fail()
+        from .staged_update_state import read_archived_staged_update
+        from .installation_provenance import _archive_directory
+        prior = read_archived_staged_update(paths, value['operation_id'])
+        prior_options = [(prior.binding.selected_before, prior.binding.selected_tree_sha256_before),
+                         (prior.binding.previous_before, prior.binding.previous_tree_sha256_before)]
+        if (value['phase'] != 'published' or not any(raw is not None and raw.hex() == record['selector_bytes']
+                and digest == record['tree_sha256'] for raw, digest in prior_options)):
+            _fail()
+        from .runtime_identity import verify_retained_archive
+        verify_retained_archive(paths, archive_id)
+        history = _archive_directory(archive, 'storage-history')
+        leaf = history / (value['operation_id'] + '.json')
+        raw = (archive / 'storage.json').read_bytes()
+        if leaf.exists():
+            installer_fence.assert_state_security(leaf)
+            if leaf.read_bytes() != raw:
+                _fail()
+        else:
+            durable_state.write_bytes_atomic(leaf, raw, trusted_root=history, max_bytes=4096,
+                                            protect=installer_fence.protect_state)
+        value = {**value, 'operation_id': operation_id,
+                 'phase': 'staged' if value['legacy_materialization'] == 'complete' else value['phase'],
+                 'legacy_materialization': 'none'}
+        _write(archive, value)
     return archive, record, receipt_hash, value
 
 

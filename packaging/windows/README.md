@@ -288,3 +288,33 @@ if ([IO.Path]::GetFullPath($endpointAgentData) -eq 'C:\ProgramData\Endpoint Plat
 
 This purge is irreversible and removes enrollment identity, credentials,
 update state, and logs. It is intentionally not part of default uninstall.
+
+
+## Staged Foundation updates
+
+A newer Setup prepares retained Core trees while the old service runs, then
+seals selectors and stops services for native replacement. Successful forward
+reconciliation promotes retained payloads by same-volume NTFS rename. Only an
+actual compensating rollback recreates the immutable predecessor's v1 layout.
+Candidate acceptance requires a new WSS handshake, heartbeat, applied policy ACK
+and a stable 60-second connection within a 180-second trial. A durable accepted
+journal survives cleanup failure. Exit 67 means the candidate was rolled back;
+Setup reports `ROLLED_BACK`, rather than `UPDATED`.
+
+Before preparation, Setup caches its signed image and exact MSI/manifest/owner
+program under the fixed protected `installer-cache/msi-<package SHA256>` path.
+One operation-bound SYSTEM startup task runs that cached Setup with
+`--recover-staged-update <canonical UUID>` and starts a bounded live watchdog.
+Recovery validates hashes, task definition/principal/DACL and actual old-owner
+process identity, takes the product mutex and establishes native settlement.
+It never reuses an old session's grants. Known forward interruptions use the
+existing native recovery path; uncertain reverse settlement retains its evidence
+for explicit recovery. A reboot-required native result cannot enter a health
+trial before the OS boot identity changes. User companions are requested only
+for previously observed roles in the same active SID/session; missing sessions
+are reported separately. The startup task is removed only after terminal
+journal evidence; cached inputs and prior operation receipts remain protected.
+
+These source contracts are not a fleet-readiness or installed-acceptance claim.
+Genuine predecessor upgrade/rollback and performance results belong in the
+release's dedicated Windows acceptance report.

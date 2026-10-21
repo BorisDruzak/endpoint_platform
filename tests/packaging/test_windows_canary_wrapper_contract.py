@@ -56,6 +56,8 @@ def test_wrapper_accepts_only_detached_release_inputs_and_fixed_cache_paths() ->
         "MsiPath",
         "ReleaseManifest",
         "Operation",
+        "StagedOperationId",
+        "SetupImagePath",
     }
     assert not re.search(
         r"\$(?:claim|password|deviceCredential|enrollmentToken)\b", source, re.I
@@ -144,7 +146,7 @@ def test_wrapper_protects_a_hash_addressed_cache_before_privileged_execution() -
     assert "msi-$($manifest.package_sha256)" in source
     assert source.index(
         "Assert-InstallerCacheProtection -Path $executionCacheRoot"
-    ) < source.index("Copy-Item -LiteralPath $MsiPath")
+    ) < source.index("[EndpointInstallerBridge.PackageHelper]::CopyCacheArtifact($MsiPath,$executionCachePath)")
     install = source.index("$installer = [Diagnostics.Process]::Start($nativeInfo)")
     assert (
         source[:install].rindex(

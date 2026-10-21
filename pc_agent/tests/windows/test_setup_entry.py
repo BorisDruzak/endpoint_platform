@@ -1104,3 +1104,9 @@ Invoke-Expression ('try {'+$classification.Extent.Text+'} '+$outer.Extent.Text)
     result=json.loads((tmp_path/'diagnostics/install-result.json').read_text())
     assert result['detail']=='PROVENANCE_CONFLICT'
     assert helper_code==63
+
+
+def test_wrapper_rollback_is_reported_separately(tmp_path, monkeypatch):
+    _write_public_payload(tmp_path)
+    monkeypatch.setattr(setup_entry.subprocess, 'run', lambda *_a, **_k: SimpleNamespace(returncode=67))
+    assert setup_entry._install_embedded_msi(tmp_path / 'EndpointAgent.msi') == 67

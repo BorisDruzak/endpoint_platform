@@ -54,6 +54,22 @@ normal whole-product uninstall completed. Unknown native settlement retains the
 barrier. Genuine signed 3.2.79 uses an explicit extracted Foundation catalog and
 its original callback-free ABI.
 
+`platform/windows/staged_recovery.py` validates fixed cached Setup/MSI/owner
+inputs, their hashes and the exact protected SYSTEM startup task before recovery.
+A hidden cached Setup watchdog retains the original process handle; a fresh
+owner must prove its death and establish a real empty MSI transaction barrier.
+Original capabilities/data captures remain immutable, with a separate protected
+fresh-owner receipt. Known interrupted forward work uses the existing genuine
+compound/standalone recovery route before a fresh trial. Ambiguous reverse/native
+settlement retains the barrier and reports recovery required. A recorded native
+reboot result withholds trial until the actual WMI boot identity changes; a new
+owner/boot resets the trial attempt. Terminal cleanup never reverses acceptance.
+Companion capture records only already-running fixed roles; restoration requests
+use the same still-active user SID/session and an interactive Scheduler token,
+never Session 0. Service results and requested user launches are distinct.
+Terminal journals and reused v2 storage positions are archived before the next
+operation; immutable v1 capture receipts remain byte-identical.
+
 `endpoint_contracts` defers its model exports until requested. The pure
 `runtime_payload` leaf therefore loads without initializing Pydantic or its
 indirect network imports in the offline worker. The packaged updater's

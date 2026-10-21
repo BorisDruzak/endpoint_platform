@@ -24,6 +24,7 @@ from .update_paths import WindowsUpdatePaths
 
 PHASES = frozenset({'inspect','inspect-compound','prepare','stage-online','seal-staged-switch','adopt-staged-switch',
     'begin-staged-trial','observe-staged-trial','accept-staged-trial','msi-preflight','msi-enter','recover-enter',
+    'restore-staged-companions','inspect-staged-recovery','recover-staged-owner','record-staged-reboot-3010','record-staged-reboot-1641',
     'inspect-staged-state','prepare-foundation-rollback','bind-foundation-rollback-roles',
     'rollback-candidate-removed','rollback-native-committed','verify-foundation-rollback',
     'foundation-config','msi-complete','reconcile','finish','verify-settled',
@@ -500,6 +501,9 @@ def _validate_install_recovery(paths,request):
 
 
 def execute_authorized_phase(client,paths,*,feature_states=None,rollback_disabled='',uninstall_finalization='',upgrade_detected=None):
+    if client.phase in {'restore-staged-companions','inspect-staged-recovery','recover-staged-owner','record-staged-reboot-3010','record-staged-reboot-1641'}:
+        from .staged_recovery import execute_staged_recovery_phase
+        return execute_staged_recovery_phase(client, paths)
     if 'staged_rollback' in client.capability:
         from .staged_foundation_rollback import execute_rollback_control_phase, execute_candidate_removal_phase
         if client.capability['staged_rollback']['role'] == 'control':
@@ -591,6 +595,8 @@ def stage_online_update(client, paths):
     data_request = {**request, 'session_id': client.capability['session_id'], 'recovery': False}
     with durable_state.installer_mutation_checkpoints(checkpoint):
         begin_staged_update(paths, binding, client.capability['owner'])
+        from .staged_recovery import capture_staged_companions
+        capture_staged_companions(paths, binding.operation_id)
         installer_data_security.prepare(paths, data_request)
         before = time.perf_counter()
         provenance.prepare_installer_provenance(paths, request)
@@ -655,7 +661,10 @@ def execute_staged_trial_phase(client, paths):
     record = state.read_staged_update(paths)
     if (record is None or cap['operation'] != 'install' or cap['recovery'] or cap['uninstall_finalization']
             or 'compound' in cap or 'recovery_parent' in cap or cap['transaction_id'] != record.binding.operation_id
-            or cap['package'] != record.binding.new_release or cap['owner'] != record.owner):
+            or cap['package'] != record.binding.new_release):
+        _failed()
+    from .staged_recovery import owner_authorized
+    if not owner_authorized(paths, record, cap['owner']):
         _failed()
     with durable_state.installer_mutation_checkpoints(client.checkpoint):
         if client.phase == 'begin-staged-trial':

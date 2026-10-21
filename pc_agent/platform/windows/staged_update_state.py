@@ -153,6 +153,23 @@ def _path(paths):
     return installer_fence.state_root(paths) / "staged-update.json"
 
 
+def _decode_record(value):
+    if not isinstance(value, dict) or set(value) != {
+            "schema_version", "binding", "binding_sha256", "phase", "sequence",
+            "attempt_id", "owner", "switched_at", "safe_code"} or value["schema_version"] != _SCHEMA:
+        _invalid()
+    binding = dict(value["binding"])
+    binding["selected_before"] = bytes.fromhex(binding["selected_before"])
+    binding["previous_before"] = bytes.fromhex(binding["previous_before"]) if binding["previous_before"] is not None else None
+    record = StagedUpdateRecord(StagedUpdateBinding(**binding), value["phase"], value["sequence"],
+                                value["attempt_id"], value["owner"],
+                                datetime.fromisoformat(value["switched_at"]) if value["switched_at"] is not None else None,
+                                value["safe_code"])
+    if _record_value(record) != value:
+        _invalid()
+    return record
+
+
 def read_staged_update(paths: WindowsUpdatePaths) -> StagedUpdateRecord | None:
     path = _path(paths)
     try:
@@ -177,20 +194,7 @@ def read_staged_update(paths: WindowsUpdatePaths) -> StagedUpdateRecord | None:
         if (before.st_dev, before.st_ino, before.st_size, before.st_mtime_ns) != (
                 after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns):
             _invalid()
-        if not isinstance(value, dict) or set(value) != {
-                "schema_version", "binding", "binding_sha256", "phase", "sequence",
-                "attempt_id", "owner", "switched_at", "safe_code"} or value["schema_version"] != _SCHEMA:
-            _invalid()
-        binding = dict(value["binding"])
-        binding["selected_before"] = bytes.fromhex(binding["selected_before"])
-        binding["previous_before"] = bytes.fromhex(binding["previous_before"]) if binding["previous_before"] is not None else None
-        record = StagedUpdateRecord(StagedUpdateBinding(**binding), value["phase"], value["sequence"],
-                                    value["attempt_id"], value["owner"],
-                                    datetime.fromisoformat(value["switched_at"]) if value["switched_at"] is not None else None,
-                                    value["safe_code"])
-        if _record_value(record) != value:
-            _invalid()
-        return record
+        return _decode_record(value)
     except (OSError, ValueError, TypeError, KeyError, AttributeError) as error:
         raise ValueError("UPDATE_STATE_INVALID") from error
 
@@ -211,7 +215,7 @@ def begin_staged_update(paths: WindowsUpdatePaths, binding: StagedUpdateBinding,
     _record_value(record)
     durable_state.installer_mutation_checkpoint(required=True)
     existing = read_staged_update(paths)
-    if existing is not None:
+    if existing is not None and existing.phase not in _TERMINAL:
         if existing.binding != binding or existing.owner != owner or existing.phase != "preparing":
             _invalid()
         return existing
@@ -220,6 +224,17 @@ def begin_staged_update(paths: WindowsUpdatePaths, binding: StagedUpdateBinding,
     previous = paths.previous_path.read_bytes() if paths.previous_path.exists() else None
     if previous != binding.previous_before:
         _invalid()
+    if existing is not None:
+        from .installation_provenance import _archive_directory
+        history = _archive_directory(_path(paths).parent, 'staged-history')
+        leaf = history / (existing.binding.operation_id + '.json')
+        raw = _path(paths).read_bytes()
+        if leaf.exists():
+            if read_archived_staged_update(paths, existing.binding.operation_id) != existing or leaf.read_bytes() != raw:
+                _invalid()
+        else:
+            durable_state.write_bytes_atomic(leaf, raw, trusted_root=history, max_bytes=_MAX_BYTES,
+                                            protect=installer_fence.protect_state)
     return _write(paths, record)
 
 
@@ -256,3 +271,14 @@ def assert_staged_update_allowed(paths, *, purpose: str, runtime_tree_sha256: st
                         "source_revision": binding.candidate_source_revision}):
                 return
     raise UpdateInProgress("STAGED_UPDATE_IN_PROGRESS")
+
+
+def read_archived_staged_update(paths, operation_id):
+    _uuid(operation_id)
+    path = _path(paths).parent / 'staged-history' / (operation_id + '.json')
+    installer_fence.assert_state_security(path)
+    from .installation_provenance import _read
+    record = _decode_record(read_json(_read(path, _MAX_BYTES), _MAX_BYTES))
+    if record.binding.operation_id != operation_id or record.phase not in _TERMINAL:
+        _invalid()
+    return record

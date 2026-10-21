@@ -369,6 +369,24 @@ def durable_unlink(path: Path, *, trusted_root: Path, missing_ok: bool = False) 
     flush_directory(destination.parent)
 
 
+def require_same_volume_rename(source: Path, destination: Path) -> None:
+    """Leaf filesystem check: metadata-only rename needs one NTFS volume."""
+    if source.stat().st_dev != destination.parent.stat().st_dev:
+        raise ValueError('runtime promotion requires one volume')
+    if _WINDOWS:
+        import ctypes
+        from ctypes import wintypes
+        import win32api
+        function = ctypes.WinDLL('kernel32', use_last_error=True).GetVolumePathNameW
+        function.argtypes = [wintypes.LPCWSTR, wintypes.LPWSTR, wintypes.DWORD]
+        function.restype = wintypes.BOOL
+        volume = ctypes.create_unicode_buffer(32768)
+        if not function(str(source.absolute()), volume, len(volume)):
+            raise ctypes.WinError(ctypes.get_last_error())
+        if win32api.GetVolumeInformation(volume.value)[4].upper() != 'NTFS':
+            raise ValueError('runtime promotion requires NTFS')
+
+
 def durable_rename_directory(source: Path, destination: Path, *, trusted_root: Path) -> None:
     """Rename only inside a protected namespace; never replace or copy a tree.
 
@@ -376,12 +394,14 @@ def durable_rename_directory(source: Path, destination: Path, *, trusted_root: P
     owns exclusion. A visible rename followed by a failed barrier is retried
     through the caller's durable journal, never by manufacturing another tree.
     """
-    from endpoint_contracts.runtime_payload import safe_path
-    from .disk_readiness import require_same_volume_rename
     installer_mutation_checkpoint(required=True)
     root, source, destination = trusted_root.absolute(), source.absolute(), destination.absolute()
     for path in (source, destination):
-        safe_path(path.relative_to(root).as_posix())
+        relative = path.relative_to(root)
+        if (not relative.parts or '..' in relative.parts or '..' in root.parts
+                or any(any(char in part for char in ':<>"|?*') for part in relative.parts)
+                or (_WINDOWS and any(part.endswith(('.', ' ')) or Path(part).is_reserved() for part in relative.parts))):
+            raise ValueError('directory path escapes trusted namespace')
     _check_directories(root)
     _check_directories(source)
     _check_directories(destination.parent)

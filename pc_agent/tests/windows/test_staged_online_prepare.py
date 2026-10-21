@@ -26,6 +26,8 @@ def tmp_path(request, tmp_path_factory):
 @pytest.fixture
 def online(handoff_input, monkeypatch):
     provenance, paths, root, request, expected = handoff_input
+    from pc_agent.platform.windows import staged_recovery
+    monkeypatch.setattr(staged_recovery, "_probe_companions", lambda *_: [])
     owner = {'pid': os.getpid(), 'created': 1, 'hash': 'd' * 64, 'sid': 'S-1-5-18', 'elevated': True}
     cap = {'operation': 'install', 'recovery': False, 'uninstall_finalization': False,
            'package': request['release'], 'transaction_id': request['transaction_id'],

@@ -6,8 +6,10 @@ param(
     [Parameter(Mandatory = $true)]
     [ValidateNotNullOrEmpty()]
     [string]$ReleaseManifest,
-    [ValidateSet('Install','RetireInitialRuntime','RecoverInterruptedInstall','Uninstall')]
-    [string]$Operation = 'Install'
+    [ValidateSet('Install','RetireInitialRuntime','RecoverInterruptedInstall','RecoverStagedUpdate','Uninstall')]
+    [string]$Operation = 'Install',
+    [string]$StagedOperationId,
+    [string]$SetupImagePath
 )
 
 $ErrorActionPreference = 'Stop'
@@ -134,6 +136,19 @@ namespace EndpointInstallerBridge {
             foreach(var sid in new string[]{"S-1-5-18","S-1-5-32-544"})
                 security.AddAccessRule(new FileSystemAccessRule(new SecurityIdentifier(sid),FileSystemRights.FullControl,AccessControlType.Allow));
             return security;
+        }
+        [DllImport("kernel32.dll",CharSet=CharSet.Unicode,SetLastError=true)] static extern bool MoveFileExW(string from,string to,uint flags);
+        public static void CopyCacheArtifact(string source,string destination) {
+            LaunchDirectory.ValidateAncestors(destination);
+            if(File.Exists(destination) || (File.GetAttributes(source)&FileAttributes.ReparsePoint)!=0) throw new InvalidOperationException("PROVENANCE_CONFLICT");
+            string temporary=destination+"."+Guid.NewGuid().ToString("N")+".tmp";
+            using(var input=new FileStream(source,FileMode.Open,FileAccess.Read,FileShare.Read))
+            using(var output=new FileStream(temporary,FileMode.CreateNew,FileSystemRights.Write,FileShare.None,1024*1024,FileOptions.WriteThrough,SecretSecurity())) {
+                input.CopyTo(output,1024*1024);output.Flush(true);
+            }
+            // No REPLACE_EXISTING; write-through publication keeps a crash from
+            // making the operation-bound recovery path point at an empty file.
+            if(!MoveFileExW(temporary,destination,8)) throw new Win32Exception();
         }
         public static void WriteCapability(string path,byte[] bytes) {
             if(bytes.Length>16384) throw new InvalidOperationException("OWNER_AUTH_FAILED");
@@ -348,7 +363,12 @@ namespace EndpointInstallerBridge {
         private CompoundPolicy compound;
         private SuccessorRepairPolicy repair;
         private StagedRollbackPolicy reverse;
-        private bool reversePrepared;
+        private bool reversePrepared,stagedRecoverySettled;
+        public void AuthorizeStagedRecovery(StagedSettlementProof proof) {
+            if(!alive || proof==null || !proof.ValidFor(Owner) || msiAlive || nativeResult.HasValue ||
+                compound!=null || repair!=null || reverse!=null || Recovery || UninstallFinalization) Fail();
+            stagedRecoverySettled=true;
+        }
         internal string ReversePlanHash,ReverseOldHash,ReverseHelperHash;
         internal bool ReverseLegacy { get { return ReverseHelperHash==null; } }
         internal bool Prepared { get { return preparedComplete; } }
@@ -421,6 +441,8 @@ namespace EndpointInstallerBridge {
         }
         public void RegisterHelper(Identity peer,string phase) {
             CheckPeer(peer);
+            bool recoveryHelper=phase=="restore-staged-companions" || phase=="inspect-staged-recovery" || phase=="recover-staged-owner" || phase=="record-staged-reboot-3010" || phase=="record-staged-reboot-1641";
+            if(phase=="recover-staged-owner" && !stagedRecoverySettled) Fail();
             bool reverseControl=phase=="inspect-staged-state" || phase=="prepare-foundation-rollback" || phase=="bind-foundation-rollback-roles" ||
                 phase=="rollback-candidate-removed" || phase=="rollback-native-committed" || phase=="verify-foundation-rollback";
             if(reverseControl && (Operation!="install" || Recovery || UninstallFinalization || compound!=null || repair!=null ||
@@ -438,11 +460,11 @@ namespace EndpointInstallerBridge {
             if(compound!=null && !compound.AllowsHelper(this,phase)) Fail();
             if(repair!=null && !repair.AllowsHelper(phase)) Fail();
             if(reverse!=null && !reverse.AllowsHelper(this,phase)) Fail();
-            if (!trial && !reverseControl && phase!="inspect" && phase!="inspect-compound" && phase!="prepare" && phase!="stage-online" && phase!="seal-staged-switch" && phase!="adopt-staged-switch" && phase!="reconcile" && phase!="finish" && phase!="verify-settled" &&
+            if (!trial && !reverseControl && !recoveryHelper && phase!="inspect" && phase!="inspect-compound" && phase!="prepare" && phase!="stage-online" && phase!="seal-staged-switch" && phase!="adopt-staged-switch" && phase!="reconcile" && phase!="finish" && phase!="verify-settled" &&
                 !(compound!=null && (phase=="compound-old-returned" || phase=="compound-new-returned" ||
                     phase=="compound-commit" || phase=="compound-retire" || phase=="compound-complete")) &&
                 !(repair!=null && (phase=="compound-repair-returned" || phase=="compound-repair-commit" || phase=="compound-retire" || phase=="compound-complete"))) Fail();
-            if (phase!="inspect" && phase!="inspect-compound" && phase!="verify-settled" && phase!="stage-online" && phase!="inspect-staged-state" && !quiescent) Fail();
+            if (phase!="inspect" && phase!="inspect-compound" && phase!="verify-settled" && phase!="stage-online" && phase!="inspect-staged-state" && phase!="inspect-staged-recovery" && phase!="recover-staged-owner" && phase!="restore-staged-companions" && !quiescent) Fail();
             if ((phase=="reconcile" || phase=="finish") && (!nativeComplete || !nativeResult.HasValue ||
                 nativeResult.Value!=0)) Fail();
             if (helpers.Count>=64 || helpers.ContainsKey(peer.Key)) Fail();
@@ -496,7 +518,7 @@ namespace EndpointInstallerBridge {
                 (phase=="recover-enter" && !msiAlive) ||
                 (phase=="foundation-config" && !msiAlive) ||
                 (phase.StartsWith("uninstall-finalize-",StringComparison.Ordinal) && (!msiAlive || !Recovery || Operation!="uninstall")) ||
-                (action=="mutation" && (phase=="inspect" || phase.EndsWith("preflight",StringComparison.Ordinal) || phase=="verify-settled" || phase=="observe-staged-trial" || phase=="inspect-staged-state"))) Fail();
+                (action=="mutation" && (phase=="inspect" || phase.EndsWith("preflight",StringComparison.Ordinal) || phase=="verify-settled" || phase=="observe-staged-trial" || phase=="inspect-staged-state" || phase=="inspect-staged-recovery"))) Fail();
             byte[] nonce=new byte[32]; using(var rng=RandomNumberGenerator.Create()) rng.GetBytes(nonce);
             var value=new Challenge { Peer=peer,Phase=phase,Action=action,PayloadHash=payloadHash,
                 Sequence=++sequence,Nonce=Hex(nonce) };
@@ -799,6 +821,11 @@ namespace EndpointInstallerBridge {
             state="owner-lost";Control.OwnerLost();Removal.OwnerLost();if(!Legacy)Restoration.OwnerLost();
         }
     }
+    public sealed class StagedSettlementProof {
+        private readonly NativeProcess retained;
+        internal StagedSettlementProof(NativeProcess owner) { retained=owner; }
+        internal bool ValidFor(Identity owner) { return retained!=null && retained.Alive && retained.Identity.Same(owner); }
+    }
     public sealed class NativeTransaction : IDisposable {
         [StructLayout(LayoutKind.Sequential)] struct FileInformation {
             public uint Attributes;
@@ -901,6 +928,28 @@ namespace EndpointInstallerBridge {
             } catch {
                 if(oldMedia!=null) oldMedia.Dispose();if(newMedia!=null) newMedia.Dispose();
                 if(module!=IntPtr.Zero) FreeLibrary(module);module=IntPtr.Zero;throw;
+            }
+        }
+        public static StagedSettlementProof EstablishSettlement(NativeProcess retainedOwner) {
+            if(retainedOwner==null || !retainedOwner.Alive || retainedOwner.Identity.Pid!=Process.GetCurrentProcess().Id) Fail();
+            string system=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System),"msi.dll");
+            IntPtr pin=LoadLibraryExW(system,IntPtr.Zero,0x800),eventHandle=IntPtr.Zero;
+            uint transaction=0;bool open=false;
+            try {
+                if(!SystemModule(pin,system) || !SystemModule(GetModuleHandleW("msi.dll"),system)) Fail();
+                uint code=MsiBeginTransactionW("EndpointStagedSettlement-"+Guid.NewGuid().ToString("D"),0,out transaction,out eventHandle);
+                if(code!=0 || transaction==0 || eventHandle==IntPtr.Zero) Fail();
+                open=true;
+                code=MsiEndTransaction(0); // no scripts and no product mutation
+                if(code!=0) Fail();
+                open=false;
+                if(WaitForSingleObject(eventHandle,0)!=0 || !retainedOwner.Alive) Fail();
+                return new StagedSettlementProof(retainedOwner);
+            } finally {
+                if(open)MsiEndTransaction(0);
+                if(transaction!=0)MsiCloseHandle(transaction);
+                if(eventHandle!=IntPtr.Zero)CloseHandle(eventHandle);
+                if(pin!=IntPtr.Zero)FreeLibrary(pin);
             }
         }
         private bool SuccessfulNativeClosure { get { return task!=null &&
@@ -1264,7 +1313,7 @@ function Invoke-InstallerOwnerPump {
 
 function Invoke-InstallerHelper {
     param([Parameter(Mandatory)]$Bridge,[Parameter(Mandatory)][string]$Phase)
-    if ($Phase -notin @('inspect','inspect-compound','prepare','stage-online','seal-staged-switch','adopt-staged-switch','begin-staged-trial','observe-staged-trial','accept-staged-trial','inspect-staged-state','prepare-foundation-rollback','bind-foundation-rollback-roles','rollback-candidate-removed','rollback-native-committed','verify-foundation-rollback','reconcile','finish','verify-settled','compound-old-returned','compound-new-returned','compound-commit','compound-retire','compound-complete','compound-repair-returned','compound-repair-commit') -or $Bridge.SessionId -cnotmatch '^[0-9a-f-]{36}$') { throw 'OWNER_AUTH_FAILED' }
+    if ($Phase -notin @('inspect','inspect-compound','prepare','stage-online','seal-staged-switch','adopt-staged-switch','begin-staged-trial','observe-staged-trial','accept-staged-trial','inspect-staged-state','prepare-foundation-rollback','bind-foundation-rollback-roles','rollback-candidate-removed','rollback-native-committed','verify-foundation-rollback','restore-staged-companions','inspect-staged-recovery','recover-staged-owner','record-staged-reboot-3010','record-staged-reboot-1641','reconcile','finish','verify-settled','compound-old-returned','compound-new-returned','compound-commit','compound-retire','compound-complete','compound-repair-returned','compound-repair-commit') -or $Bridge.SessionId -cnotmatch '^[0-9a-f-]{36}$') { throw 'OWNER_AUTH_FAILED' }
     Assert-ExistingPathChain $Bridge.LaunchDirectory
     Assert-InstallerCacheProtection $Bridge.LaunchDirectory
     $info = [EndpointInstallerBridge.LaunchDirectory]::StartInfo($Bridge.HelperPath, ('--installer-phase ' + $Phase + ' --installer-session ' + $Bridge.SessionId), $Bridge.LaunchDirectory)
@@ -1356,7 +1405,7 @@ function Get-StagedRollbackMedia {
         Assert-InstallerCacheProtection $directory
         $path=Join-Path $directory 'EndpointAgent.msi'
         if (-not (Test-Path -LiteralPath $path)) {
-            Copy-Item -LiteralPath $original -Destination $path
+            [EndpointInstallerBridge.PackageHelper]::CopyCacheArtifact($original,$path)
             Set-CacheArtifactProtection $path
         }
         Assert-CacheArtifactProtection $path
@@ -1489,16 +1538,111 @@ function Invoke-StagedFoundationRollback {
     }
 }
 
+function Register-StagedRecoveryTask {
+    param($Bridge,[string]$SetupImage,[string]$WrapperPath,[string]$ManifestPath,[string]$CacheRoot,[string]$StateRoot,$ServiceStates)
+    if([string]::IsNullOrWhiteSpace($SetupImage)){throw 'RECOVERY_REQUIRED'}
+    Assert-RegularNonReparseFile -Path $SetupImage -Label 'Setup'
+    Assert-ExistingPathChain $SetupImage
+    if((Get-AuthenticodeSignature -LiteralPath $SetupImage).Status -ne 'Valid'){throw 'RECOVERY_REQUIRED'}
+    $directory=Join-Path $CacheRoot ('msi-'+$Bridge.Capability.package.package_sha256)
+    Assert-InstallerCacheProtection $directory
+    $sources=@{'EndpointAgentSetup.exe'=$SetupImage;'EndpointAgent.release.json'=$ManifestPath;'Install-EndpointAgentCanary.ps1'=$WrapperPath}
+    foreach($name in $sources.Keys){
+        $source=$sources[$name];$destination=Join-Path $directory $name
+        Assert-RegularNonReparseFile -Path $source -Label 'Recovery input'
+        $digest=(Get-FileHash -LiteralPath $source -Algorithm SHA256).Hash
+        if(Test-Path -LiteralPath $destination){
+            Assert-CacheArtifactProtection $destination
+            if((Get-FileHash -LiteralPath $destination -Algorithm SHA256).Hash -cne $digest){throw 'PROVENANCE_CONFLICT'}
+        }else{[EndpointInstallerBridge.PackageHelper]::CopyCacheArtifact($source,$destination);Set-CacheArtifactProtection $destination}
+        if((Get-FileHash -LiteralPath $destination -Algorithm SHA256).Hash -cne $digest){throw 'PROVENANCE_CONFLICT'}
+    }
+    $files=@{}
+    foreach($name in @('EndpointAgentSetup.exe','EndpointAgent.msi','EndpointAgent.release.json','Install-EndpointAgentCanary.ps1')){
+        $files[$name]=(Get-FileHash -LiteralPath (Join-Path $directory $name) -Algorithm SHA256).Hash.ToLowerInvariant()
+    }
+    $root=Join-Path $StateRoot 'staged-recovery'
+    New-InstallerPublicStateRoot $root
+    $root=Join-Path $root $Bridge.TransactionId
+    New-InstallerPublicStateRoot $root
+    $inputs=@{schema_version=1;operation_id=$Bridge.TransactionId;owner=$Bridge.Capability.owner;
+        package_sha256=$Bridge.Capability.package.package_sha256;files=$files;service_states=$ServiceStates;task_sha256=$null}
+    $leaf=Join-Path $root 'inputs.json'
+    if(Test-Path -LiteralPath $leaf){throw 'PROVENANCE_CONFLICT'}
+    $executable=Join-Path $directory 'EndpointAgentSetup.exe'
+    $name='EndpointStagedRecovery-'+$Bridge.TransactionId
+    if(Get-ScheduledTask -TaskName $name -ErrorAction SilentlyContinue){throw 'PROVENANCE_CONFLICT'}
+    $action=New-ScheduledTaskAction -Execute $executable -Argument ('--recover-staged-update '+$Bridge.TransactionId)
+    $trigger=New-ScheduledTaskTrigger -AtStartup
+    $principal=New-ScheduledTaskPrincipal -UserId 'S-1-5-18' -LogonType ServiceAccount -RunLevel Highest
+    $settings=New-ScheduledTaskSettingsSet -MultipleInstances IgnoreNew -ExecutionTimeLimit ([TimeSpan]::FromMinutes(250)) -StartWhenAvailable -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
+    Register-ScheduledTask -TaskName $name -Action $action -Trigger $trigger -Principal $principal -Settings $settings | Out-Null
+    $scheduler=New-Object -ComObject Schedule.Service;$scheduler.Connect()
+    $task=$scheduler.GetFolder('\').GetTask($name)
+    $task.SetSecurityDescriptor('O:BAG:BAD:P(A;;FA;;;SY)(A;;FA;;;BA)',0)
+    $sha=[Security.Cryptography.SHA256]::Create()
+    try{$inputs.task_sha256=[EndpointInstallerBridge.Policy]::Hex($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes([string]$task.Xml)))}finally{$sha.Dispose()}
+    [EndpointInstallerBridge.PackageHelper]::WriteCapability($leaf,[Text.Encoding]::UTF8.GetBytes(($inputs|ConvertTo-Json -Depth 12 -Compress)))
+    Start-ScheduledTask -TaskName $name
+}
+
+function Remove-StagedRecoveryTask {
+    param([string]$OperationId,[string]$StateRoot)
+    if($OperationId -cnotmatch '^[0-9a-f-]{36}$'){throw 'OWNER_AUTH_FAILED'}
+    $record=Read-UpdateGateState -Path (Join-Path $StateRoot 'staged-update.json') -Limit 65536
+    if($null -eq $record -or $record.Value.binding.operation_id -cne $OperationId -or $record.Value.phase -cnotin @('accepted','rolled-back')){throw 'RECOVERY_REQUIRED'}
+    $name='EndpointStagedRecovery-'+$OperationId
+    if(Get-ScheduledTask -TaskName $name -ErrorAction SilentlyContinue){Unregister-ScheduledTask -TaskName $name -Confirm:$false}
+}
+
+function Complete-StagedTerminalCleanup {
+    param($Bridge,$ServiceStates,[string]$StateRoot)
+    try {
+        if($ServiceStates['EndpointBrowserPolicy'] -ceq 'Running'){Start-VerifiedBrowserPolicy}
+        Invoke-InstallerHelper -Bridge $Bridge -Phase 'restore-staged-companions' | Out-Null
+        Remove-StagedRecoveryTask $Bridge.TransactionId $StateRoot
+    } catch { Write-Warning 'STAGED_TERMINAL_CLEANUP_DEFERRED' }
+}
+
+function Invoke-StagedRecovery {
+    param($Bridge,$Manifest,[string]$HelperPath,[string]$HelperHash,[string]$StateRoot,[string]$CacheRoot,
+        [string]$OperationId,[string]$InstallRoot,$CandidateMedia)
+    $observed=Invoke-InstallerHelper -Bridge $Bridge -Phase 'inspect-staged-recovery'
+    if($observed.operation_id -cne $OperationId){throw 'OWNER_AUTH_FAILED'}
+    $proof=[EndpointInstallerBridge.NativeTransaction]::EstablishSettlement($Bridge.Owner)
+    $Bridge.Policy.AuthorizeStagedRecovery($proof)
+    $adopted=Invoke-InstallerHelper -Bridge $Bridge -Phase 'recover-staged-owner'
+    if($adopted.operation_id -cne $OperationId){throw 'OWNER_AUTH_FAILED'}
+    if($adopted.action -cin @('accepted','rolled-back','preparation-cancelled')){
+        Complete-StagedTerminalCleanup $Bridge $observed.service_states $StateRoot
+        return $(if($adopted.action -ceq 'accepted'){0}else{67})
+    }
+    if($adopted.action -ceq 'reboot-required'){return 3010}
+    if($adopted.action -cne 'trial-required'){throw 'RECOVERY_REQUIRED'}
+    $stopped=@{}
+    Stop-ManagedAgentServices -PreviousStates (Get-ManagedAgentServiceStates) -StoppedBySetup $stopped
+    $Bridge.Policy.MarkQuiescent()
+    if((Invoke-StagedHealthTrial -Bridge $Bridge -InstallRoot $InstallRoot) -cne 'accepted'){
+        $result=Invoke-StagedFoundationRollback -Manifest $Manifest -HelperPath $HelperPath -HelperHash $HelperHash -StateRoot $StateRoot -CacheRoot $CacheRoot -ServiceStates $observed.service_states -Selection ([pscustomobject]@{foundation_release=$observed.old_release}) -CandidateMedia $CandidateMedia -OperationId $OperationId -InstallRoot $InstallRoot
+        if($result -cne 'rolled-back' -and $result -cne 'accepted'){throw 'RECOVERY_REQUIRED'}
+        Complete-StagedTerminalCleanup $Bridge $observed.service_states $StateRoot
+        return $(if($result -ceq 'rolled-back'){67}else{0})
+    }
+    Complete-StagedTerminalCleanup $Bridge $observed.service_states $StateRoot
+    return 0
+}
+
 function Invoke-StagedOnlinePreparation {
     param([Parameter(Mandatory)]$Bridge,[Parameter(Mandatory)]$Manifest,
         [Parameter(Mandatory)][string]$HelperPath,[Parameter(Mandatory)][string]$HelperHash,
         [Parameter(Mandatory)][string]$StateRoot,[Parameter(Mandatory)]$ServiceStates,
-        [Parameter(Mandatory)]$Selection,[Parameter(Mandatory)][string]$CacheRoot)
+        [Parameter(Mandatory)]$Selection,[Parameter(Mandatory)][string]$CacheRoot,[scriptblock]$PrepareRecovery)
     $observation=Get-StagedAgentObservation
     $next=New-InstallerBridge -Manifest $Manifest -HelperPath $HelperPath -HelperHash $HelperHash `
         -StateRoot $StateRoot -ServiceStates $ServiceStates -Intent 'install' `
         -TransactionId $Bridge.TransactionId -Selection $Selection
     try {
+        if($null -ne $PrepareRecovery){& $PrepareRecovery $next}
         $prepared=Invoke-InstallerHelper -Bridge $next -Phase 'stage-online'
         if ($prepared.result -cne 'staged-prepared' -or $prepared.phase -cne 'prepared' -or
             $prepared.operation_id -cne $next.TransactionId) { throw 'PROVENANCE_CONFLICT' }
@@ -2078,7 +2222,7 @@ function Get-CompoundOldMedia {
         Assert-InstallerCacheProtection $directory
         $path=Join-Path $directory 'EndpointAgent.msi'
         if (-not (Test-Path -LiteralPath $path)) {
-            Copy-Item -LiteralPath $original -Destination $path
+            [EndpointInstallerBridge.PackageHelper]::CopyCacheArtifact($original,$path)
             Set-CacheArtifactProtection $path
         }
         Assert-CacheArtifactProtection $path
@@ -2356,6 +2500,16 @@ try {
         if ($Operation -eq 'RecoverInterruptedInstall') { $recoveryLocator=Read-CompoundRecoveryLocator $installerStateRoot $manifest }
         if ($null -ne $interruptedFence -and $Operation -ne 'RecoverInterruptedInstall') { exit 61 }
         if ($Operation -eq 'RecoverInterruptedInstall' -and $null -eq $interruptedFence -and $null -eq $recoveryLocator) { exit 61 }
+        if($Operation -eq 'RecoverStagedUpdate'){
+            if($StagedOperationId -cnotmatch '^[0-9a-f-]{36}$'){throw 'RECOVERY_REQUIRED'}
+            $stage=Read-UpdateGateState -Path (Join-Path $installerStateRoot 'staged-update.json') -Limit 65536
+            if($null -eq $stage -or $stage.Value.binding.operation_id -cne $StagedOperationId -or $stage.Value.binding.new_release.package_sha256 -cne $manifest.package_sha256){throw 'RECOVERY_REQUIRED'}
+            $recoveryLocator=Read-CompoundRecoveryLocator $installerStateRoot $manifest
+            if($null -ne $interruptedFence -or $null -ne $recoveryLocator){
+                if($stage.Value.phase -cne 'switching'){throw 'RECOVERY_REQUIRED'}
+                $Operation='RecoverInterruptedInstall'
+            }
+        }
         if ($null -eq $recoveryLocator -and $null -ne $interruptedFence -and ($interruptedFence.package.sha256 -cne $manifest.package_sha256 -or $interruptedFence.package.product_code -cne $manifest.product_code -or $interruptedFence.package.version -cne $manifest.version -or $interruptedFence.package.source_revision -cne $manifest.source_revision)) { throw 'PROVENANCE_CONFLICT' }
     } catch {
         if ($_.Exception.Message -eq 'PROVENANCE_CONFLICT') { exit 63 }
@@ -2381,6 +2535,7 @@ if (-not (Test-Path -LiteralPath $executionCacheDirectory)) {
 }
 Assert-InstallerCacheProtection -Path $executionCacheDirectory
 
+Initialize-InstallerBridgeTypes
 if (Test-Path -LiteralPath $executionCachePath) {
     Assert-CacheArtifactProtection -Path $executionCachePath
     if ((Get-FileHash -LiteralPath $executionCachePath -Algorithm SHA256).Hash.ToLowerInvariant() -ne $inputHash) {
@@ -2388,7 +2543,7 @@ if (Test-Path -LiteralPath $executionCachePath) {
     }
 }
 else {
-    Copy-Item -LiteralPath $MsiPath -Destination $executionCachePath
+    [EndpointInstallerBridge.PackageHelper]::CopyCacheArtifact($MsiPath,$executionCachePath)
     Set-CacheArtifactProtection -Path $executionCachePath
 }
 if ((Get-FileHash -LiteralPath $executionCachePath -Algorithm SHA256).Hash.ToLowerInvariant() -ne $inputHash) {
@@ -2403,6 +2558,8 @@ $packagePin = [IO.File]::Open($executionCachePath,[IO.FileMode]::Open,[IO.FileAc
 $helperPin = $null
 $bridge = $null
 $trialBridge = $null
+$stagedRecoveryBridge = $null
+$stagedRecoveryObserved = $null
 $oldBridge = $null
 $preparedOldBridge = $null
 $oldPackagePin = $null
@@ -2420,6 +2577,16 @@ try {
     $helperHash = [EndpointInstallerBridge.PackageHelper]::Extract($executionCachePath,$helperPath)
     Assert-CacheArtifactProtection $helperPath
     $helperPin = [IO.File]::Open($helperPath,[IO.FileMode]::Open,[IO.FileAccess]::Read,[IO.FileShare]::Read)
+    if($StagedOperationId -cmatch '^[0-9a-f-]{36}$'){
+        $stagedRecoveryBridge=New-InstallerBridge -Manifest $manifest -HelperPath $helperPath -HelperHash $helperHash -StateRoot $installerStateRoot -ServiceStates $previousServiceStates -Intent 'install' -TransactionId $StagedOperationId
+        $stagedRecoveryObserved=Invoke-InstallerHelper -Bridge $stagedRecoveryBridge -Phase 'inspect-staged-recovery'
+    }
+    if($Operation -eq 'RecoverStagedUpdate'){
+        $bridge=$stagedRecoveryBridge;$stagedRecoveryBridge=$null
+        # The exact fresh bridge is retained for trial/terminal evidence.
+        $nativeExit=Invoke-StagedRecovery -Bridge $bridge -Manifest $manifest -HelperPath $helperPath -HelperHash $helperHash -StateRoot $installerStateRoot -CacheRoot $executionCacheRoot -OperationId $StagedOperationId -InstallRoot $gateInstallRoot -CandidateMedia $packagePin
+        $installationCompleted=$true;exit $nativeExit
+    }
     $intent = switch ($Operation) {
         'RetireInitialRuntime' { 'retire-initial-runtime' }
         'Uninstall' { 'uninstall' }
@@ -2438,7 +2605,7 @@ try {
         $initial.selected -is [string] -and $initial.selected -cmatch '^[0-9a-f]{64}$' -and
         [Version]$initial.foundation_release.version -lt [Version]$manifest.version) {
         $bridge=Invoke-StagedOnlinePreparation -Bridge $bridge -Manifest $manifest -HelperPath $helperPath `
-            -HelperHash $helperHash -StateRoot $installerStateRoot -ServiceStates $previousServiceStates -Selection $initial -CacheRoot $executionCacheRoot
+            -HelperHash $helperHash -StateRoot $installerStateRoot -ServiceStates $previousServiceStates -Selection $initial -CacheRoot $executionCacheRoot -PrepareRecovery {param($stagedBridge) Register-StagedRecoveryTask -Bridge $stagedBridge -SetupImage $SetupImagePath -WrapperPath $PSCommandPath -ManifestPath $ReleaseManifest -CacheRoot $executionCacheRoot -StateRoot $installerStateRoot -ServiceStates $previousServiceStates}
         $stagedOnline=$true
     }
     if ($intent -ne 'retire-initial-runtime') {
@@ -2575,21 +2742,35 @@ try {
     $installer = [Diagnostics.Process]::Start($nativeInfo)
     Invoke-InstallerOwnerPump -Bridge $bridge -Process $installer -Phase 'native' -Msi | Out-Null
     $nativeExit = $installer.ExitCode
-    if ($nativeExit -in @(3010,1641)) { exit $nativeExit }
+    if ($nativeExit -in @(3010,1641)) {
+        if($stagedOnline){Invoke-InstallerHelper -Bridge $bridge -Phase ('record-staged-reboot-'+$nativeExit) | Out-Null}
+        exit $nativeExit
+    }
     Invoke-InstallerHelper -Bridge $bridge -Phase 'reconcile' | Out-Null
     Invoke-InstallerHelper -Bridge $bridge -Phase 'finish' | Out-Null
     }
     if ($null -ne (Read-InstallerFence -Root $installerStateRoot)) { throw 'RECOVERY_REQUIRED' }
     if ($intent -eq 'install' -and $null -eq $compoundDetails) { Invoke-InstallerHelper -Bridge $bridge -Phase 'verify-settled' | Out-Null }
+    if($null -ne $stagedRecoveryBridge -and $nativeExit -eq 0){
+        $proof=[EndpointInstallerBridge.NativeTransaction]::EstablishSettlement($stagedRecoveryBridge.Owner)
+        $stagedRecoveryBridge.Policy.AuthorizeStagedRecovery($proof)
+        $adopted=Invoke-InstallerHelper -Bridge $stagedRecoveryBridge -Phase 'recover-staged-owner'
+        if($adopted.action -cne 'trial-required' -or $adopted.operation_id -cne $StagedOperationId){throw 'RECOVERY_REQUIRED'}
+        $stagedOnline=$true
+        $previousServiceStates=$stagedRecoveryObserved.service_states
+        $initial=[pscustomobject]@{foundation_release=$stagedRecoveryObserved.old_release}
+    }
     if ($stagedOnline -and $nativeExit -eq 0) {
-        $trialBridge=New-InstallerBridge -Manifest $manifest -HelperPath $helperPath -HelperHash $helperHash -StateRoot $installerStateRoot -ServiceStates $previousServiceStates -Intent 'install' -TransactionId $bridge.TransactionId -Selection $initial
+        if($null -ne $stagedRecoveryBridge){$trialBridge=$stagedRecoveryBridge;$stagedRecoveryBridge=$null}
+        else{$trialBridge=New-InstallerBridge -Manifest $manifest -HelperPath $helperPath -HelperHash $helperHash -StateRoot $installerStateRoot -ServiceStates $previousServiceStates -Intent 'install' -TransactionId $bridge.TransactionId -Selection $initial}
         $trialBridge.Policy.MarkQuiescent()
         if ((Invoke-StagedHealthTrial -Bridge $trialBridge -InstallRoot $gateInstallRoot) -cne 'accepted') {
-            $rollback=Invoke-StagedFoundationRollback -Manifest $manifest -HelperPath $helperPath -HelperHash $helperHash -StateRoot $installerStateRoot -CacheRoot $executionCacheRoot -ServiceStates $previousServiceStates -Selection $initial -CandidateMedia $packagePin -OperationId $bridge.TransactionId -InstallRoot $gateInstallRoot
+            $rollback=Invoke-StagedFoundationRollback -Manifest $manifest -HelperPath $helperPath -HelperHash $helperHash -StateRoot $installerStateRoot -CacheRoot $executionCacheRoot -ServiceStates $previousServiceStates -Selection $initial -CandidateMedia $packagePin -OperationId $trialBridge.TransactionId -InstallRoot $gateInstallRoot
             if ($rollback -ceq 'rolled-back') { $nativeExit=67 }
             elseif ($rollback -cne 'accepted') { throw 'RECOVERY_REQUIRED' }
         }
     } elseif ($intent -eq 'install' -and $nativeExit -eq 0) { Start-VerifiedBrowserPolicy;Start-ManagedEndpointAgent }
+    if($stagedOnline -and $nativeExit -in @(0,67)){Complete-StagedTerminalCleanup $trialBridge $previousServiceStates $installerStateRoot}
     $installationCompleted = $true
     if ($nativeExit -in @(67,3010,1641)) { exit $nativeExit }
 }
@@ -2618,6 +2799,11 @@ finally {
         # Restoration is best effort after an already classified failure.
         # Unavailable evidence must not erase UPDATE_IN_PROGRESS/invalid-state.
         Write-Warning 'MANAGED_SERVICE_RESTORATION_DEFERRED: EVIDENCE_OR_SERVICE_UNAVAILABLE'
+    }
+    if($null -ne $stagedRecoveryBridge){
+        $stagedRecoveryBridge.Policy.OwnerLost();$stagedRecoveryBridge.Channel.Dispose()
+        foreach($peer in $stagedRecoveryBridge.Peers){$peer.Dispose()}
+        $stagedRecoveryBridge.Owner.Dispose()
     }
     if ($null -ne $trialBridge) {
         $trialBridge.Policy.OwnerLost()

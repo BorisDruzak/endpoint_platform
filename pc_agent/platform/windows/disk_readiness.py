@@ -104,10 +104,6 @@ def require_allocation_space(allocations: Iterable[tuple[Path, int]]) -> None:
 
 
 def require_same_volume_rename(source: Path, destination: Path) -> None:
-    """Refuse a copy fallback before moving a protected runtime directory."""
-    if source.stat().st_dev != destination.parent.stat().st_dev:
-        raise ValueError('runtime promotion requires one volume')
-    if os.name == 'nt':
-        import win32api
-        if win32api.GetVolumeInformation(str(allocation_volume(source)))[4].upper() != 'NTFS':
-            raise ValueError('runtime promotion requires NTFS')
+    """Use the offline leaf check without reversing its dependency boundary."""
+    from .durable_state import require_same_volume_rename as check
+    check(source, destination)

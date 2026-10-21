@@ -221,6 +221,7 @@ def _role_projection(cap):
 
 
 def _role_receipt(paths, control):
+    from .staged_recovery import owner_authorized
     from .installer_transaction_bridge import _read_capability
     validate_rollback_capability_shape(control)
     extra = control['staged_rollback']
@@ -228,7 +229,7 @@ def _role_receipt(paths, control):
         _fail()
     record = _operation(paths, extra['operation_id'])
     plan = read_foundation_rollback(paths, record.binding.operation_id)
-    if (record.phase != 'rolling-back' or control['owner'] != record.owner
+    if (record.phase != 'rolling-back' or not owner_authorized(paths, record, control['owner'])
             or control['package'] != record.binding.new_release
             or control['helper_sha256'] != plan['new']['helper_sha256']):
         _fail()
@@ -471,11 +472,12 @@ def execute_candidate_removal_phase(client, paths, **kwargs):
 
 
 def execute_rollback_control_phase(client, paths):
+    from .staged_recovery import owner_authorized
     cap = client.capability
     validate_rollback_capability_shape(cap)
     extra = cap['staged_rollback']
     record = state.read_staged_update(paths)
-    if (extra['role'] != 'control' or record is None or cap['owner'] != record.owner
+    if (extra['role'] != 'control' or record is None or not owner_authorized(paths, record, cap['owner'])
             or cap['transaction_id'] != record.binding.operation_id or cap['package'] != record.binding.new_release):
         _fail()
     operation = record.binding.operation_id

@@ -50,6 +50,9 @@ def begin_staged_trial(paths, operation_id: str) -> str:
             or record.phase not in {'switching', 'native-settled'}
             or installer_fence.read_fence(paths) is not None or has_active_upgrade(paths)):
         raise ValueError('UPDATE_STATE_INVALID')
+    from .staged_recovery import reboot_pending
+    if reboot_pending(paths, record):
+        raise ValueError('UPDATE_STATE_INVALID')
     binding = record.binding
     if provenance.verified_foundation_release(paths) != binding.new_release:
         raise ValueError('PROVENANCE_CONFLICT')
