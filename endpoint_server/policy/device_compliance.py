@@ -19,7 +19,7 @@ SensorState = Literal[
 ]
 PolicyStatus = Literal["PENDING", "APPLIED", "STALE", "UNSUPPORTED", "ERROR"]
 _FRESHNESS = timedelta(minutes=2)
-_HEALTH_FRESHNESS = timedelta(minutes=3)
+SENSOR_HEALTH_FRESHNESS = timedelta(minutes=3)
 
 
 @dataclass(frozen=True, slots=True)
@@ -98,7 +98,7 @@ def derive_device_compliance(
         if (
             health.policy_id != policy.policy_id
             or health.policy_version != policy.policy_version
-            or not _fresh(health.observed_at, now=now, window=_HEALTH_FRESHNESS)
+            or not _fresh(health.observed_at, now=now, window=SENSOR_HEALTH_FRESHNESS)
         ):
             health_state = "STALE"
         else:

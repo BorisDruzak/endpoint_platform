@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
-from typing import Annotated, Literal
+from datetime import UTC, datetime, timedelta
+from typing import Annotated, Literal, get_args
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -14,6 +14,7 @@ from sqlalchemy.exc import IntegrityError
 from endpoint_contracts.activity import ActivitySectionsV1
 from endpoint_contracts.endpoint_policy import EndpointPolicyV1
 from endpoint_contracts.browser_status import BrowserFamilyStatusV1
+from endpoint_contracts.sensor_health import SensorSourceStateV1
 from endpoint_server.audit.request_ids import audit_request_id
 from endpoint_server.audit.service import append_audit_event
 from endpoint_server.auth.admin_sessions import AdminPrincipal, require_admin
@@ -23,7 +24,10 @@ from endpoint_server.db.models import Device
 
 from .browser_status import load_browser_status
 from .compliance import derive_browser_compliance
-from .device_compliance import ActivityEvidence, PolicyStatus, SensorState, derive_device_compliance
+from .device_compliance import (
+    ActivityEvidence, PolicyStatus, SensorState, SENSOR_HEALTH_FRESHNESS,
+    derive_device_compliance,
+)
 from .fleet import ComplianceFilter, list_policy_fleet
 from .models import PolicyAssignment, PolicyDefinition, PolicyDeviceState, PolicyVersion
 from .sensor_health import load_sensor_health
@@ -170,6 +174,24 @@ class ConsoleBrowserStatus(BaseModel):
     reason: str | None
 
 
+PolicyFailureCode = Literal[
+    "SENSOR_NOT_READY", "BROWSER_POLICY_HELPER_UNAVAILABLE", "POLICY_CONFLICT",
+    "BROWSER_POLICY_HELPER_FAILED", "CACHE_WRITE_FAILED", "SENSOR_APPLY_FAILED", "UNKNOWN",
+]
+_POLICY_FAILURE_CODES = frozenset(get_args(PolicyFailureCode))
+
+
+class ConsoleSensorHealth(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    observed_at: datetime
+    fresh: bool
+    activity_listener_state: SensorSourceStateV1
+    security_spool_state: SensorSourceStateV1
+    usb_source_state: SensorSourceStateV1
+    print_source_state: SensorSourceStateV1
+
+
 class ConsolePolicyDeviceStatus(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -179,6 +201,8 @@ class ConsolePolicyDeviceStatus(BaseModel):
     browser_required: bool
     deployment_mode: Literal["agent_managed", "external_managed"]
     delivery_status: Literal["PENDING", "APPLIED", "STALE", "UNSUPPORTED", "ERROR"]
+    error_code: PolicyFailureCode | None = None
+    sensor_health: ConsoleSensorHealth | None = None
     acknowledged_at: datetime | None
     compliance: Literal["COMPLIANT", "PARTIAL", "NON_COMPLIANT", "STALE", "UNSUPPORTED"]
     activity_sensor: SensorState
@@ -440,6 +464,19 @@ async def device_policy_status(
     elif connection is not None and "endpoint.browser-status.v1" not in connection.protocol_features:
         browser_status = "UNSUPPORTED"
     now = datetime.now(UTC)
+    error_code = None
+    if state is not None and delivery_status == "ERROR":
+        error_code = state.error_code if state.error_code in _POLICY_FAILURE_CODES else "UNKNOWN"
+    source_health = None
+    if health is not None and health.policy_id == policy.policy_id and health.policy_version == policy.policy_version:
+        source_health = ConsoleSensorHealth(
+            observed_at=health.observed_at,
+            fresh=connection is not None and timedelta(0) <= now - health.observed_at <= SENSOR_HEALTH_FRESHNESS,
+            activity_listener_state=health.activity_listener_state,
+            security_spool_state=health.security_spool_state,
+            usb_source_state=health.usb_source_state,
+            print_source_state=health.print_source_state,
+        )
     compliance = derive_browser_compliance(policy, browser_status, report, now=now)
     activity_evidence = None
     if activity_projection is not None:
@@ -485,6 +522,8 @@ async def device_policy_status(
         browser_required=policy.browser_sensor.required,
         deployment_mode=policy.browser_sensor.deployment_mode,
         delivery_status=delivery_status,
+        error_code=error_code,
+        sensor_health=source_health,
         acknowledged_at=acknowledged_at,
         compliance=device_compliance.overall,
         activity_sensor=device_compliance.activity,
