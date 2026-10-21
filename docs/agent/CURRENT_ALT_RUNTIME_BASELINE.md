@@ -65,11 +65,18 @@ and completed six fresh Context collections plus a diagnostic operation. Normal
 KDE logout exited the graphical session and user manager. The full Linux/PostgreSQL
 gate passed 4372 tests (807 platform/resource skips); native privileged fixtures
 and update characterization passed separately. Authenticated staging Console
-acceptance is still pending login, so source/runtime evidence is not UI acceptance.
+acceptance confirmed device/Context/Activity/analytics/Policy/DLP views through
+Playwright at desktop and mobile widths. The admin-only Policy projection exposes
+whitelisted failures and individual source states with current-policy/freshness
+checks. Controlled CUPS loss/recovery was visible in that UI. Native CUPS can
+transiently exceed the bounded request timeout; its external cause remains unknown.
+The sampler reports UNAVAILABLE and recovers, without inventing READY.
 
 ## Gateway transport
 
-- The only runtime controller origin is `https://endpoint.sosnadmin.local`.
+- The default runtime controller origin is `https://endpoint.sosnadmin.local`.
+  The exact canonical staging origin additionally requires the fixed approved
+  staging markers; arbitrary controller origins remain rejected.
 - The Gateway creates its TLS context from the configured CA file and uses that
   context for the connector and Gateway request.
 - A 401 or 403 device-credential rejection exits the Gateway loop; it is not
@@ -78,11 +85,13 @@ acceptance is still pending login, so source/runtime evidence is not UI acceptan
   delay.  TLS connector/certificate verification failures, HTTP response
   failures, credential/configuration failures, malformed controller payloads,
   and update-integrity failures are terminal for the process.
-- Gateway command execution is restricted to `context.baseline.collect`,
-  `context.health.collect`, `context.network.collect`, and
-  `context.diagnostic.collect`.  Each command is parsed, acknowledged, run by
-  the fixed context executor, and reported through the Endpoint origin; other
-  contract capabilities receive a rejected result rather than dynamic execution.
+- Gateway command execution uses the fixed executor: six Context profiles and
+  platform-supported registry primitives. Linux currently implements 27 handlers
+  in total. Server feature flags and the fixed network-target policy still gate
+  public availability; advertising a handler alone does not authorize its use.
+  The private staging Console was verified with 17 read-only primitives enabled;
+  optional network probes remain disabled there.
+
 
 ## ALT update lifecycle
 
