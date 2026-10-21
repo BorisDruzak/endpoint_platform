@@ -301,6 +301,13 @@ and a stable 60-second connection within a 180-second trial. A durable accepted
 journal survives cleanup failure. Exit 67 means the candidate was rolled back;
 Setup reports `ROLLED_BACK`, rather than `UPDATED`.
 
+Compensating candidate removal passes `ENDPOINT_STAGED_REMOVE=1` to preserve
+the original retained and OTA Core trees from recursive root cleanup. The MSI
+preflight accepts this flag only for its authenticated staged removal role;
+ordinary uninstall retains its normal cleanup behavior. Native removal entry
+validates the previously captured maintenance authority, since Windows Installer
+may already have unpublished the candidate product by that deferred action.
+
 Before preparation, Setup caches its signed image and exact MSI/manifest/owner
 program under the fixed protected `installer-cache/msi-<package SHA256>` path.
 One operation-bound SYSTEM startup task runs that cached Setup with

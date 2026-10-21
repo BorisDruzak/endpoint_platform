@@ -503,7 +503,13 @@ def _validate_install_recovery(paths,request):
     validate_interrupted_reconciliation(paths,request,**recovery_selector_options(paths,request))
 
 
-def execute_authorized_phase(client,paths,*,feature_states=None,rollback_disabled='',uninstall_finalization='',upgrade_detected=None):
+def execute_authorized_phase(client,paths,*,feature_states=None,rollback_disabled='',uninstall_finalization='',upgrade_detected=None,staged_removal=''):
+    if client.phase in {'msi-preflight','uninstall-finalize-preflight'}:
+        extra = client.capability.get('staged_rollback')
+        removal = (client.capability['operation']=='uninstall'
+                   and isinstance(extra,dict) and extra.get('role')=='remove')
+        if staged_removal != ('1' if removal else ''):
+            _failed()
     if client.phase in {'restore-staged-companions','inspect-staged-recovery','recover-staged-owner','record-staged-reboot-3010','record-staged-reboot-1641'}:
         from .staged_recovery import execute_staged_recovery_phase
         return execute_staged_recovery_phase(client, paths)

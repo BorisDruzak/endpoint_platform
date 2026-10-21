@@ -252,6 +252,7 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--runtime-action", type=int)
     parser.add_argument("--rollback-disabled", default="")
     parser.add_argument("--uninstall-finalization", default="")
+    parser.add_argument("--staged-removal", default="")
     parser.add_argument("--upgrade-detected")
     return parser
 
@@ -265,7 +266,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 execute_authorized_phase(client,WindowsUpdatePaths.production(),
                     feature_states=(args.foundation_state,args.foundation_action,args.runtime_state,args.runtime_action),
                     rollback_disabled=args.rollback_disabled,uninstall_finalization=args.uninstall_finalization,
-                    upgrade_detected=args.upgrade_detected)
+                    upgrade_detected=args.upgrade_detected,staged_removal=args.staged_removal)
             return 0
         except Exception as error:
             # pywin32 errors need not inherit OSError. A windowed MSI helper

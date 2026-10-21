@@ -82,7 +82,7 @@
         <Data Column="Component_" Value="cmpInstallRootCleanup" />
         <Data Column="Property" Value="ENDPOINT_AGENT_REMEMBERED_INSTALLROOT" />
         <Data Column="InstallMode" Value="2" />
-        <Data Column="Condition" Value="REMOVE~=&quot;ALL&quot; AND NOT UPGRADINGPRODUCTCODE" />
+        <Data Column="Condition" Value="REMOVE~=&quot;ALL&quot; AND NOT UPGRADINGPRODUCTCODE AND NOT ENDPOINT_STAGED_REMOVE" />
       </Row>
     </CustomTable>
     <Property Id="ENDPOINT_AGENT_REMEMBERED_INSTALLROOT" Value="C:\Program Files\Endpoint Platform\Agent\" />

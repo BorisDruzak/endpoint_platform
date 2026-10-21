@@ -1007,7 +1007,7 @@ namespace EndpointInstallerBridge {
         public void StartOldScript() {
             Ready();if(policy==null && reverse==null) Fail();
             if(reverse!=null)reverse.BeginRemovalScript();else policy.BeginOldScript();taskKind="old";
-            string properties=reverse!=null ? "REMOVE=ALL REBOOT=ReallySuppress ENDPOINT_INSTALLER_SESSION="+reverse.Removal.SessionId :
+            string properties=reverse!=null ? "REMOVE=ALL ENDPOINT_STAGED_REMOVE=1 REBOOT=ReallySuppress ENDPOINT_INSTALLER_SESSION="+reverse.Removal.SessionId :
                 "REMOVE=ALL UPGRADINGPRODUCTCODE="+successor+" REBOOT=ReallySuppress ENDPOINT_INSTALLER_SESSION="+policy.OldPackage.SessionId;
             task=Task.Run(()=>MsiInstallProductW(oldPath,properties));
         }

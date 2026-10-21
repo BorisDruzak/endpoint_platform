@@ -414,7 +414,11 @@ function Assert-RootCleanupComposition {
     $scheduled = @($Inspection.execute_sequence | Where-Object action -eq 'ScheduleEndpointRootCleanup')
     if ($scheduled.Count -ne 1 -or $scheduled[0].condition -cne 'NOT ENDPOINT_UNINSTALL_FINALIZE') { throw 'Unconditional cleanup scheduler.' }
     $rows = @($Inspection.cleanup_rows)
-    if ($rows.Count -ne 1 -or $rows[0].id -cne 'RemoveEndpointAgentBinaries' -or $rows[0].component -cne 'cmpInstallRootCleanup' -or $rows[0].property -cne 'ENDPOINT_AGENT_REMEMBERED_INSTALLROOT' -or [int]$rows[0].mode -ne 2 -or $rows[0].condition -cne 'REMOVE~="ALL" AND NOT UPGRADINGPRODUCTCODE') { throw 'Unexpected cleanup row.' }
+    if ($rows.Count -ne 1 -or $rows[0].id -cne 'RemoveEndpointAgentBinaries' -or $rows[0].component -cne 'cmpInstallRootCleanup' -or $rows[0].property -cne 'ENDPOINT_AGENT_REMEMBERED_INSTALLROOT' -or [int]$rows[0].mode -ne 2 -or $rows[0].condition -cne 'REMOVE~="ALL" AND NOT UPGRADINGPRODUCTCODE AND NOT ENDPOINT_STAGED_REMOVE') { throw 'Unexpected cleanup row.' }
+    foreach ($name in @('SecureCustomProperties','MsiHiddenProperties')) {
+        $property = @($Inspection.properties | Where-Object property -eq $name)
+        if ($property.Count -ne 1 -or 'ENDPOINT_STAGED_REMOVE' -cnotin ([string]$property[0].value).Split(';')) { throw 'Unprotected staged removal property.' }
+    }
     $columns = @($Inspection.cleanup_columns | Sort-Object { [int]$_.number })
     $expectedNames = @('RemoveFolderEx','Component_','Property','InstallMode','Condition')
     $expectedTypes = @(11592,3400,3400,1282,7424)

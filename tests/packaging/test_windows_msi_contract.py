@@ -101,6 +101,15 @@ Export-MsiInspection $Msi $Output
     cleanup=next(row for row in rows if row['action']=='ScheduleEndpointRootCleanup')
     assert cleanup['condition']=='NOT ENDPOINT_UNINSTALL_FINALIZE'
     compiled=json.loads(inspection.read_text())
+    cleanup_rows = compiled['cleanup_rows']
+    if isinstance(cleanup_rows, dict):
+        cleanup_rows = [cleanup_rows]  # PowerShell serializes a singleton as an object.
+    assert len(cleanup_rows) == 1
+    assert cleanup_rows[0]['condition'] == (
+        'REMOVE~="ALL" AND NOT UPGRADINGPRODUCTCODE AND NOT ENDPOINT_STAGED_REMOVE')
+    properties = {row['property']: row['value'] for row in compiled['properties']}
+    for name in ('SecureCustomProperties', 'MsiHiddenProperties'):
+        assert 'ENDPOINT_STAGED_REMOVE' in properties[name].split(';')
     assert 'LockPermissions' not in compiled['tables']
     security=compiled['binary_directory_security']
     assert {(row['object'],row['table']) for row in security} == {
@@ -228,7 +237,17 @@ def test_initial_runtime_has_separate_default_feature_and_owner_started_agent():
     control = trees['Services.wxs'].find(".//w:ServiceControl[@Name='EndpointAgent']", NS)
     assert 'Start' not in control.attrib
     cleanup = trees['Components.wxs'].find('.//w:CustomTable/w:Row/w:Data[@Column="Condition"]', NS)
-    assert cleanup.attrib['Value'] == 'REMOVE~="ALL" AND NOT UPGRADINGPRODUCTCODE'
+    assert cleanup.attrib['Value'] == 'REMOVE~="ALL" AND NOT UPGRADINGPRODUCTCODE AND NOT ENDPOINT_STAGED_REMOVE'
+
+
+def test_staged_removal_mode_preserves_unowned_original_runtime():
+    trees = _trees()
+    prop = _by_id(_all_elements(trees, 'Property'), 'ENDPOINT_STAGED_REMOVE')
+    assert prop.get('Secure') == prop.get('Hidden') == 'yes'
+    action = _by_id(_all_elements(trees, 'CustomAction'), 'InstallerOwnerPreflight')
+    assert '--staged-removal "[ENDPOINT_STAGED_REMOVE]"' in action.get('ExeCommand')
+    source = (WINDOWS_PACKAGING / 'Install-EndpointAgentCanary.ps1').read_text(encoding='utf-8')
+    assert 'reverse!=null ? "REMOVE=ALL ENDPOINT_STAGED_REMOVE=1 REBOOT=ReallySuppress' in source
 
 
 def _trees() -> dict[str, ET.Element]:
