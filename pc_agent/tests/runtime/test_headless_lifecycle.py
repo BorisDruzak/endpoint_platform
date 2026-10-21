@@ -43,6 +43,44 @@ from pc_agent.transport.protocol import compatibility_agent_hello
 from pc_agent.version import AGENT_VERSION, EXIT_UPDATE_PENDING
 
 
+@pytest.mark.asyncio
+async def test_staged_heartbeat_hook_runs_only_after_successful_send():
+    from pc_agent.runtime.lifecycle import _heartbeat_loop
+    events = []
+    async def sleep(_): pass
+    async def after():
+        events.append('proof')
+        raise asyncio.CancelledError()
+    class Transport:
+        async def send_heartbeat(self, _): events.append('sent')
+    with pytest.raises(asyncio.CancelledError):
+        await _heartbeat_loop(Transport(), compatibility_agent_hello(), 1, sleep, after_heartbeat_sent=after)
+    assert events == ['sent', 'proof']
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('failed', [False, True])
+async def test_staged_policy_hook_follows_actual_ack_send(failed):
+    events = []
+    ack = SimpleNamespace(status='APPLIED')
+    async def policy(_): return ack
+    async def after(actual):
+        assert actual is ack
+        events.append('proof')
+    class Transport:
+        async def send_policy_ack(self, actual):
+            assert actual is ack
+            events.append('send')
+            if failed: raise OSError('disconnected')
+    inbound = SimpleNamespace(root=SimpleNamespace(kind='endpoint_policy_delivery', payload=object()))
+    if failed:
+        with pytest.raises(OSError):
+            await _handle_inbound(Transport(), None, inbound, policy_handler=policy, after_policy_ack_sent=after)
+    else:
+        await _handle_inbound(Transport(), None, inbound, policy_handler=policy, after_policy_ack_sent=after)
+    assert events == (['send'] if failed else ['send', 'proof'])
+
+
 def _settings(tmp_path: Path) -> RuntimeSettings:
     return RuntimeSettings(
         data_root=tmp_path / "data",

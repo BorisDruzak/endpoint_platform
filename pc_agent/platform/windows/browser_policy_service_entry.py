@@ -61,7 +61,14 @@ def make_policy_listener() -> LocalSensorPipeListener:
 def _assert_installer_allows_policy() -> None:
     from pc_agent.platform.windows.installer_fence import assert_launch_allowed
     from pc_agent.platform.windows.update_paths import WindowsUpdatePaths
-    assert_launch_allowed(WindowsUpdatePaths.production())
+    paths = WindowsUpdatePaths.production()
+    assert_launch_allowed(paths)
+    from pc_agent.platform.windows.staged_update_state import read_staged_update
+    record = read_staged_update(paths)
+    if record is not None and record.phase not in {'accepted', 'rolled-back'}:
+        from pc_agent.platform.windows.service_launcher import _verify_selected_runtime
+        import json
+        _verify_selected_runtime(paths, json.loads(paths.current_path.read_bytes()))
 
 
 def _authorize_installer_safe_client(handle) -> None:

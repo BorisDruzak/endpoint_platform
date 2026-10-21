@@ -32,6 +32,17 @@ capture. Numeric phase timing/grant counters contain no paths or identities.
 The owner pipe drains ready frames and waits on pending I/O completion while
 retaining its bounded owner-thread pump and per-mutation authentication.
 
+`platform/windows/staged_trial_proof.py` uses a separate protected trial request
+and Agent-writable proof. Native registration/shared bytes and the exact Core
+inventory are checked before selecting the candidate. Runtime composition keeps
+one writer across reconnects, observing actual successful WSS handshake,
+heartbeat send and policy ACK send; disconnects invalidate the connection and a
+new handshake clears prior observations. The owner also checks the running
+candidate process, resets its monotonic 60-second window on nonce changes, and
+enforces a 180-second total deadline. Acceptance is durably journaled before
+cleanup can unblock OTA. Existing OTA startup proof remains separate. A missing
+fresh policy ACK withholds acceptance; silence is never a no-assignment proof.
+
 `endpoint_contracts` defers its model exports until requested. The pure
 `runtime_payload` leaf therefore loads without initializing Pydantic or its
 indirect network imports in the offline worker. The packaged updater's

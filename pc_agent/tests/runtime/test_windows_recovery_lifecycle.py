@@ -23,6 +23,31 @@ def enrolled_data_root(tmp_path):
 DEVICE_ID = "00000000-0000-4000-8000-000000000001"
 
 
+@pytest.mark.asyncio
+async def test_composed_staged_writer_is_retained_across_connections(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+    from pc_agent.platform.windows import staged_trial_proof
+    events = []
+    class Writer:
+        def __init__(self, _): events.append('create')
+        def record_handshake(self): events.append('handshake')
+        def record_heartbeat(self): events.append('heartbeat')
+        def record_policy_ack(self, _): events.append('policy')
+        def record_disconnected(self): events.append('disconnected')
+    async def ota(_): events.append('ota')
+    monkeypatch.setattr(staged_trial_proof, 'StagedTrialProofWriter', Writer)
+    monkeypatch.setattr(application, '_startup_proof_hook', ota)
+    monkeypatch.setattr(application, 'os', SimpleNamespace(name='nt'))
+    settings = replace(_settings(tmp_path), transport_mode='gateway_wss')
+    deps = application._default_dependencies(settings)
+    await deps.after_server_handshake(settings)
+    await deps.after_heartbeat_sent()
+    await deps.after_policy_ack_sent(object())
+    await deps.after_server_disconnected()
+    await deps.after_server_handshake(settings)
+    assert events == ['create', 'ota', 'handshake', 'heartbeat', 'policy', 'disconnected', 'ota', 'handshake']
+
+
 def _skip_initial_sleep(sleep):
     first = True
     async def scheduled_sleep(delay):

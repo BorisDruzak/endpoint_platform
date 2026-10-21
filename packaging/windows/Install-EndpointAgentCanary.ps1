@@ -402,6 +402,9 @@ namespace EndpointInstallerBridge {
         }
         public void RegisterHelper(Identity peer,string phase) {
             CheckPeer(peer);
+            bool trial=phase=="begin-staged-trial" || phase=="observe-staged-trial" || phase=="accept-staged-trial";
+            if(trial && (Operation!="install" || Recovery || UninstallFinalization || compound!=null || repair!=null ||
+                preparedComplete || msiAlive || nativeResult.HasValue)) Fail();
             if(phase=="stage-online" && (Operation!="install" || Recovery || UninstallFinalization ||
                 compound!=null || repair!=null || quiescent || onlineRegistered || msiAlive || nativeResult.HasValue)) Fail();
             if(phase=="seal-staged-switch" && (!onlineComplete || sealRegistered || Operation!="install" ||
@@ -411,7 +414,7 @@ namespace EndpointInstallerBridge {
             if(recoveryLocator && phase!="inspect-compound") Fail();
             if(compound!=null && !compound.AllowsHelper(this,phase)) Fail();
             if(repair!=null && !repair.AllowsHelper(phase)) Fail();
-            if (phase!="inspect" && phase!="inspect-compound" && phase!="prepare" && phase!="stage-online" && phase!="seal-staged-switch" && phase!="adopt-staged-switch" && phase!="reconcile" && phase!="finish" && phase!="verify-settled" &&
+            if (!trial && phase!="inspect" && phase!="inspect-compound" && phase!="prepare" && phase!="stage-online" && phase!="seal-staged-switch" && phase!="adopt-staged-switch" && phase!="reconcile" && phase!="finish" && phase!="verify-settled" &&
                 !(compound!=null && (phase=="compound-old-returned" || phase=="compound-new-returned" ||
                     phase=="compound-commit" || phase=="compound-retire" || phase=="compound-complete")) &&
                 !(repair!=null && (phase=="compound-repair-returned" || phase=="compound-repair-commit" || phase=="compound-retire" || phase=="compound-complete"))) Fail();
@@ -466,7 +469,7 @@ namespace EndpointInstallerBridge {
                 (phase=="recover-enter" && !msiAlive) ||
                 (phase=="foundation-config" && !msiAlive) ||
                 (phase.StartsWith("uninstall-finalize-",StringComparison.Ordinal) && (!msiAlive || !Recovery || Operation!="uninstall")) ||
-                (action=="mutation" && (phase=="inspect" || phase.EndsWith("preflight",StringComparison.Ordinal) || phase=="verify-settled"))) Fail();
+                (action=="mutation" && (phase=="inspect" || phase.EndsWith("preflight",StringComparison.Ordinal) || phase=="verify-settled" || phase=="observe-staged-trial"))) Fail();
             byte[] nonce=new byte[32]; using(var rng=RandomNumberGenerator.Create()) rng.GetBytes(nonce);
             var value=new Challenge { Peer=peer,Phase=phase,Action=action,PayloadHash=payloadHash,
                 Sequence=++sequence,Nonce=Hex(nonce) };
@@ -1085,6 +1088,7 @@ function Invoke-InstallerOwnerPump {
     try {
         do {
             Assert-InstallerPumpDeadline -Elapsed $timer.Elapsed -Phase $Phase -Msi ([bool]$Msi)
+            if ($Bridge.ContainsKey('StagedDeadline') -and (Get-StagedMonotonicSeconds) -ge $Bridge.StagedDeadline) { throw 'STAGED_TRIAL_FAILED' }
             $worked = Invoke-InstallerConversationStep -State $conversation
             $Process.Refresh()
             if ($Process.HasExited) {
@@ -1118,7 +1122,7 @@ function Invoke-InstallerOwnerPump {
 
 function Invoke-InstallerHelper {
     param([Parameter(Mandatory)]$Bridge,[Parameter(Mandatory)][string]$Phase)
-    if ($Phase -notin @('inspect','inspect-compound','prepare','stage-online','seal-staged-switch','adopt-staged-switch','reconcile','finish','verify-settled','compound-old-returned','compound-new-returned','compound-commit','compound-retire','compound-complete','compound-repair-returned','compound-repair-commit') -or $Bridge.SessionId -cnotmatch '^[0-9a-f-]{36}$') { throw 'OWNER_AUTH_FAILED' }
+    if ($Phase -notin @('inspect','inspect-compound','prepare','stage-online','seal-staged-switch','adopt-staged-switch','begin-staged-trial','observe-staged-trial','accept-staged-trial','reconcile','finish','verify-settled','compound-old-returned','compound-new-returned','compound-commit','compound-retire','compound-complete','compound-repair-returned','compound-repair-commit') -or $Bridge.SessionId -cnotmatch '^[0-9a-f-]{36}$') { throw 'OWNER_AUTH_FAILED' }
     Assert-ExistingPathChain $Bridge.LaunchDirectory
     Assert-InstallerCacheProtection $Bridge.LaunchDirectory
     $info = [EndpointInstallerBridge.LaunchDirectory]::StartInfo($Bridge.HelperPath, ('--installer-phase ' + $Phase + ' --installer-session ' + $Bridge.SessionId), $Bridge.LaunchDirectory)
@@ -1132,6 +1136,61 @@ function Get-StagedAgentObservation {
     $process=Get-Process -Id $service.ProcessId -ErrorAction Stop
     try { return ([string]$service.ProcessId+':'+[string]$process.StartTime.ToUniversalTime().Ticks) }
     finally { $process.Dispose() }
+}
+
+function Get-StagedMonotonicSeconds {
+    return [double][Diagnostics.Stopwatch]::GetTimestamp()/[Diagnostics.Stopwatch]::Frequency
+}
+
+function Assert-StagedCandidateRunning {
+    param([Parameter(Mandatory)]$Observation,[Parameter(Mandatory)][string]$InstallRoot)
+    $service=Get-Service -Name 'EndpointAgent' -ErrorAction Stop
+    if ($service.Status -ne [ServiceProcess.ServiceControllerStatus]::Running) { throw 'STAGED_TRIAL_FAILED' }
+    if ($null -ne $Observation.pid) {
+        if ($Observation.pid -le 0 -or $Observation.pid -gt [int]::MaxValue -or
+            $Observation.candidate_version -cnotmatch '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$') { throw 'OWNER_AUTH_FAILED' }
+        $process=[EndpointInstallerBridge.NativeProcess]::new([int]$Observation.pid)
+        try {
+            $expected=Join-Path $InstallRoot ('versions\'+$Observation.candidate_version+'\pc_agent.exe')
+            if (-not $process.Alive -or $process.ImagePath -ine $expected) { throw 'STAGED_TRIAL_FAILED' }
+        } finally { $process.Dispose() }
+    }
+}
+
+function Invoke-StagedHealthTrial {
+    param([Parameter(Mandatory)]$Bridge,[Parameter(Mandatory)][string]$InstallRoot)
+    $started=Get-StagedMonotonicSeconds
+    $Bridge.StagedDeadline=$started+180
+    try {
+        $begun=Invoke-InstallerHelper -Bridge $Bridge -Phase 'begin-staged-trial'
+        if ($begun.result -cne 'staged-trial' -or $begun.operation_id -cne $Bridge.TransactionId -or
+            $begun.attempt_id -cnotmatch '^[0-9a-f-]{36}$') { throw 'OWNER_AUTH_FAILED' }
+        Start-VerifiedBrowserPolicy
+        Start-ManagedEndpointAgent
+        $nonce=$null;$stableSince=0
+        do {
+            $now=Get-StagedMonotonicSeconds
+            if ($now-$started -ge 180) { return 'rollback' }
+            $observed=Invoke-InstallerHelper -Bridge $Bridge -Phase 'observe-staged-trial'
+            if ($observed.operation_id -cne $Bridge.TransactionId -or $observed.attempt_id -cne $begun.attempt_id -or
+                $observed.decision -notin @('waiting','accept','rollback')) { throw 'OWNER_AUTH_FAILED' }
+            if ($observed.decision -ceq 'rollback') { return 'rollback' }
+            Assert-StagedCandidateRunning -Observation $observed -InstallRoot $InstallRoot
+            $now=Get-StagedMonotonicSeconds
+            if ($now-$started -ge 180) { return 'rollback' }
+            if ($null -ne $observed.connection_nonce) {
+                if ($observed.connection_nonce -cnotmatch '^[0-9a-f-]{36}$') { throw 'OWNER_AUTH_FAILED' }
+                if ($nonce -cne $observed.connection_nonce) { $nonce=$observed.connection_nonce;$stableSince=$now }
+                if ($observed.decision -ceq 'accept' -and $now-$stableSince -ge 60) {
+                    $accepted=Invoke-InstallerHelper -Bridge $Bridge -Phase 'accept-staged-trial'
+                    if ($accepted.result -cne 'staged-accepted' -or $accepted.operation_id -cne $Bridge.TransactionId -or
+                        $accepted.attempt_id -cne $begun.attempt_id) { throw 'OWNER_AUTH_FAILED' }
+                    return 'accepted'
+                }
+            } else { $nonce=$null;$stableSince=0 }
+            Start-Sleep -Seconds 3
+        } while ($true)
+    } catch { return 'rollback' }
 }
 
 function Invoke-StagedOnlinePreparation {
@@ -2033,6 +2092,7 @@ Initialize-InstallerBridgeTypes
 $packagePin = [IO.File]::Open($executionCachePath,[IO.FileMode]::Open,[IO.FileAccess]::Read,[IO.FileShare]::Read)
 $helperPin = $null
 $bridge = $null
+$trialBridge = $null
 $oldBridge = $null
 $preparedOldBridge = $null
 $oldPackagePin = $null
@@ -2211,8 +2271,12 @@ try {
     }
     if ($null -ne (Read-InstallerFence -Root $installerStateRoot)) { throw 'RECOVERY_REQUIRED' }
     if ($intent -eq 'install' -and $null -eq $compoundDetails) { Invoke-InstallerHelper -Bridge $bridge -Phase 'verify-settled' | Out-Null }
+    if ($stagedOnline -and $nativeExit -eq 0) {
+        $trialBridge=New-InstallerBridge -Manifest $manifest -HelperPath $helperPath -HelperHash $helperHash -StateRoot $installerStateRoot -ServiceStates $previousServiceStates -Intent 'install' -TransactionId $bridge.TransactionId -Selection $initial
+        $trialBridge.Policy.MarkQuiescent()
+        if ((Invoke-StagedHealthTrial -Bridge $trialBridge -InstallRoot $gateInstallRoot) -cne 'accepted') { throw 'STAGED_TRIAL_FAILED' }
+    } elseif ($intent -eq 'install' -and $nativeExit -eq 0) { Start-VerifiedBrowserPolicy;Start-ManagedEndpointAgent }
     $installationCompleted = $true
-    if ($intent -eq 'install' -and $nativeExit -eq 0) { Start-VerifiedBrowserPolicy;Start-ManagedEndpointAgent }
     if ($nativeExit -in @(3010,1641)) { exit $nativeExit }
 }
 catch {
@@ -2240,6 +2304,12 @@ finally {
         # Restoration is best effort after an already classified failure.
         # Unavailable evidence must not erase UPDATE_IN_PROGRESS/invalid-state.
         Write-Warning 'MANAGED_SERVICE_RESTORATION_DEFERRED: EVIDENCE_OR_SERVICE_UNAVAILABLE'
+    }
+    if ($null -ne $trialBridge) {
+        $trialBridge.Policy.OwnerLost()
+        $trialBridge.Channel.Dispose()
+        foreach ($peer in $trialBridge.Peers) { $peer.Dispose() }
+        $trialBridge.Owner.Dispose()
     }
     if ($null -ne $bridge) {
         $bridge.Channel.Dispose()

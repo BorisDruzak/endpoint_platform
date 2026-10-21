@@ -96,6 +96,14 @@ async def _noop_after_handshake(_settings: object) -> None:
     return None
 
 
+async def _noop_after_event() -> None:
+    return None
+
+
+async def _noop_after_policy(_ack: EndpointPolicyAckV1) -> None:
+    return None
+
+
 async def _noop_restore_policy(_settings: object) -> None:
     return None
 
@@ -135,6 +143,9 @@ class RuntimeDependencies:
     sleep: Callable[[float], Awaitable[None]] = asyncio.sleep
     heartbeat_sleep: Callable[[float], Awaitable[None]] = asyncio.sleep
     after_server_handshake: Callable[[object], Awaitable[None]] = _noop_after_handshake
+    after_heartbeat_sent: Callable[[], Awaitable[None]] = _noop_after_event
+    after_policy_ack_sent: Callable[[EndpointPolicyAckV1], Awaitable[None]] = _noop_after_policy
+    after_server_disconnected: Callable[[], Awaitable[None]] = _noop_after_event
     restore_policy: Callable[[object], Awaitable[object]] = _noop_restore_policy
     start_local_sensor: Callable[[object], LocalSensorService | None] = _no_local_sensor
     policy_handler: Callable[[EndpointPolicyDeliveryV1], Awaitable[EndpointPolicyAckV1]] | None = None
@@ -274,6 +285,8 @@ class RuntimeLifecycle:
                         security_ack_handler=self._dependencies.security_ack_handler,
                         security_policy_ack_sent=self._dependencies.security_policy_ack_sent,
                         activity_policy_ack_sent=self._dependencies.activity_policy_ack_sent,
+                        after_heartbeat_sent=self._dependencies.after_heartbeat_sent,
+                        after_policy_ack_sent=self._dependencies.after_policy_ack_sent,
                     ), service_tasks)
                     raise GatewayTerminalError(
                         "Gateway connected loops stopped unexpectedly"
@@ -360,6 +373,7 @@ class RuntimeLifecycle:
                     self._status.transition(RuntimePhase.RUNNING)
                     next_delay = idle.delay
                 finally:
+                    await _cleanup(self._dependencies.after_server_disconnected)
                     await _cleanup(transport.close)
 
                 if next_delay:
@@ -485,6 +499,8 @@ async def _run_connected(
     security_ack_handler: Callable[[SecurityEventAckV1], Awaitable[bool]] | None = None,
     security_policy_ack_sent: Callable[[], None] | None = None,
     activity_policy_ack_sent: Callable[[], None] | None = None,
+    after_heartbeat_sent: Callable[[], Awaitable[None]] = _noop_after_event,
+    after_policy_ack_sent: Callable[[EndpointPolicyAckV1], Awaitable[None]] = _noop_after_policy,
 ) -> None:
     """Run receive and heartbeat loops for the lifetime of one connection."""
     tasks = {
@@ -492,6 +508,7 @@ async def _run_connected(
             transport, executor, completion_sink, policy_handler,
             security_ack_handler, security_policy_ack_sent,
             activity_policy_ack_sent,
+            after_policy_ack_sent,
         )),
         asyncio.create_task(
             _heartbeat_loop(
@@ -499,6 +516,7 @@ async def _run_connected(
                 hello,
                 gateway_hello.heartbeat_interval_seconds,
                 sleep,
+                after_heartbeat_sent=after_heartbeat_sent,
             )
         ),
     }
@@ -533,6 +551,7 @@ async def _receive_loop(
     security_ack_handler: Callable[[SecurityEventAckV1], Awaitable[bool]] | None,
     security_policy_ack_sent: Callable[[], None] | None,
     activity_policy_ack_sent: Callable[[], None] | None,
+    after_policy_ack_sent: Callable[[EndpointPolicyAckV1], Awaitable[None]] = _noop_after_policy,
 ) -> None:
     while True:
         inbound = await transport.receive()
@@ -542,6 +561,7 @@ async def _receive_loop(
             security_ack_handler=security_ack_handler,
             security_policy_ack_sent=security_policy_ack_sent,
             activity_policy_ack_sent=activity_policy_ack_sent,
+            after_policy_ack_sent=after_policy_ack_sent,
         )
 
 
@@ -550,6 +570,7 @@ async def _heartbeat_loop(
     hello: AgentHelloV1,
     interval: float,
     sleep: Callable[[float], Awaitable[None]],
+    *, after_heartbeat_sent: Callable[[], Awaitable[None]] = _noop_after_event,
 ) -> None:
     platform = "linux" if hello.platform == "linux_amd64" else "windows"
     while True:
@@ -563,6 +584,7 @@ async def _heartbeat_loop(
                 reported_at=datetime.now(UTC),
             )
         )
+        await after_heartbeat_sent()
 
 
 async def _handle_inbound(
@@ -575,6 +597,7 @@ async def _handle_inbound(
     security_ack_handler: Callable[[SecurityEventAckV1], Awaitable[bool]] | None = None,
     security_policy_ack_sent: Callable[[], None] | None = None,
     activity_policy_ack_sent: Callable[[], None] | None = None,
+    after_policy_ack_sent: Callable[[EndpointPolicyAckV1], Awaitable[None]] = _noop_after_policy,
 ) -> None:
     """Handle the bounded server-to-agent messages owned by the common runtime."""
     if inbound.root.kind == "result_ack":
@@ -587,6 +610,7 @@ async def _handle_inbound(
             raise GatewayTerminalError("Endpoint Policy runtime is unavailable")
         ack = await policy_handler(inbound.root.payload)
         await send_ack(ack)
+        await after_policy_ack_sent(ack)
         if security_policy_ack_sent is not None:
             security_policy_ack_sent()
         if activity_policy_ack_sent is not None and ack.status == "APPLIED":

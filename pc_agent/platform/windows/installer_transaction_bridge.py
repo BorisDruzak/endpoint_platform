@@ -22,7 +22,8 @@ from endpoint_contracts.runtime_payload import read_json, reject_reparse_ancesto
 from .installer_fence import assert_state_security, state_root
 from .update_paths import WindowsUpdatePaths
 
-PHASES = frozenset({'inspect','inspect-compound','prepare','stage-online','seal-staged-switch','adopt-staged-switch','msi-preflight','msi-enter','recover-enter',
+PHASES = frozenset({'inspect','inspect-compound','prepare','stage-online','seal-staged-switch','adopt-staged-switch',
+    'begin-staged-trial','observe-staged-trial','accept-staged-trial','msi-preflight','msi-enter','recover-enter',
     'foundation-config','msi-complete','reconcile','finish','verify-settled',
     'uninstall-finalize-preflight','uninstall-finalize-enter','uninstall-finalize-complete',
     'compound-old-returned','compound-new-returned','compound-commit','compound-retire','compound-complete',
@@ -494,6 +495,8 @@ def _validate_install_recovery(paths,request):
 
 
 def execute_authorized_phase(client,paths,*,feature_states=None,rollback_disabled='',uninstall_finalization='',upgrade_detected=None):
+    if client.phase in {'begin-staged-trial', 'observe-staged-trial', 'accept-staged-trial'}:
+        return execute_staged_trial_phase(client, paths)
     if client.phase in {'stage-online', 'seal-staged-switch', 'adopt-staged-switch'}:
         record = (stage_online_update(client, paths) if client.phase == 'stage-online' else
                   adopt_staged_switch(client, paths) if client.phase == 'adopt-staged-switch' else
@@ -629,6 +632,40 @@ def adopt_staged_switch(client, paths):
     with durable_state.installer_mutation_checkpoints(client.checkpoint):
         security.adopt_prepared_session(paths, source, target)
     return staged
+
+
+def execute_staged_trial_phase(client, paths):
+    from . import staged_trial_proof as proof, staged_update_state as state, durable_state
+    cap = client.capability
+    record = state.read_staged_update(paths)
+    if (record is None or cap['operation'] != 'install' or cap['recovery'] or cap['uninstall_finalization']
+            or 'compound' in cap or 'recovery_parent' in cap or cap['transaction_id'] != record.binding.operation_id
+            or cap['package'] != record.binding.new_release or cap['owner'] != record.owner):
+        _failed()
+    with durable_state.installer_mutation_checkpoints(client.checkpoint):
+        if client.phase == 'begin-staged-trial':
+            attempt = proof.begin_staged_trial(paths, record.binding.operation_id)
+            result = {'result': 'staged-trial', 'operation_id': record.binding.operation_id, 'attempt_id': attempt}
+        elif client.phase in {'observe-staged-trial', 'accept-staged-trial'}:
+            request, _ = proof._request(paths)
+            observed = proof.read_staged_trial_proof(paths)
+            now = proof.time.monotonic_ns()
+            elapsed = (now - request['created_ns']) / 1e9
+            stable = (now - observed['handshake_ns']) / 1e9 if observed and observed['connected'] else 0
+            decision = proof.staged_trial_decision(paths, record.binding.operation_id, record.attempt_id,
+                elapsed_seconds=elapsed, stable_seconds=stable)
+            if client.phase == 'accept-staged-trial':
+                proof.accept_staged_trial(paths, record.binding.operation_id, record.attempt_id,
+                    elapsed_seconds=elapsed, stable_seconds=stable)
+            result = {'result': 'staged-accepted' if client.phase == 'accept-staged-trial' else 'staged-observation',
+                'operation_id': record.binding.operation_id, 'attempt_id': record.attempt_id, 'decision': decision,
+                'connection_nonce': observed['connection_nonce'] if observed and observed['connected'] else None,
+                'pid': observed['pid'] if observed and observed['connected'] else None,
+                'candidate_version': record.binding.candidate_version}
+        else:
+            _failed()
+    client.request('complete', result)
+    return result
 
 
 def _execute_authorized_phase(client,paths,*,feature_states=None,rollback_disabled='',uninstall_finalization='',upgrade_detected=None,complete=True):

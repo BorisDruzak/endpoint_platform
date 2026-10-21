@@ -144,6 +144,30 @@ async def run_runtime(settings: RuntimeSettings) -> int:
 def _default_dependencies(
     settings: RuntimeSettings | None = None,
 ) -> RuntimeDependencies:
+    staged_writer = None
+    if os.name == 'nt' and settings is not None and settings.transport_mode == 'gateway_wss':
+        from pc_agent.platform.windows.staged_trial_proof import StagedTrialProofWriter
+        from pc_agent.platform.windows.update_paths import WindowsUpdatePaths
+        staged_writer = StagedTrialProofWriter(WindowsUpdatePaths(
+            settings.install_root, settings.data_root / 'updates' / 'pending_update.json'))
+
+    async def after_handshake(actual_settings):
+        await _startup_proof_hook(actual_settings)
+        if staged_writer is not None:
+            staged_writer.record_handshake()
+
+    async def after_heartbeat():
+        if staged_writer is not None:
+            staged_writer.record_heartbeat()
+
+    async def after_policy_ack(ack):
+        if staged_writer is not None:
+            staged_writer.record_policy_ack(ack)
+
+    async def after_disconnected():
+        if staged_writer is not None:
+            staged_writer.record_disconnected()
+
     transport_state = _EndpointHttpPullState()
     policy_runtime = None
     usb_notifications = None
@@ -447,7 +471,10 @@ def _default_dependencies(
         create_executor=create_executor,
         create_transport=create_transport,
         load_hello=_load_hello,
-        after_server_handshake=_startup_proof_hook,
+        after_server_handshake=after_handshake,
+        after_heartbeat_sent=after_heartbeat,
+        after_policy_ack_sent=after_policy_ack,
+        after_server_disconnected=after_disconnected,
         restore_policy=restore_policy,
         start_local_sensor=start_local_sensor,
         policy_handler=apply_policy_delivery if policy_runtime is not None else None,

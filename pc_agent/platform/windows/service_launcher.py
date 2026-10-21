@@ -83,7 +83,9 @@ def _verify_selected_runtime(paths: WindowsUpdatePaths, selector: dict) -> None:
     selector_bytes, observed = _selector(paths.current_path)
     if observed != selector:
         raise ProvenanceConflict()
-    _inspect_core_value(paths, selector_bytes, observed, AGENT_VERSION)
+    evidence = _inspect_core_value(paths, selector_bytes, observed, AGENT_VERSION)
+    from pc_agent.platform.windows.staged_update_state import assert_staged_update_allowed
+    assert_staged_update_allowed(paths, purpose='launch', runtime_tree_sha256=evidence.identity.tree_sha256)
 
 
 def build_agent_child_command(paths: WindowsUpdatePaths | None = None) -> list[str]:
@@ -237,7 +239,8 @@ def _parser() -> argparse.ArgumentParser:
     modes = parser.add_mutually_exclusive_group(required=True)
     modes.add_argument("--agent-service", action="store_true")
     modes.add_argument("--updater-service", action="store_true")
-    modes.add_argument("--installer-phase", choices=("inspect","inspect-compound","prepare","stage-online","seal-staged-switch","adopt-staged-switch","msi-preflight","msi-enter","foundation-config","msi-complete","reconcile","finish","verify-settled",
+    modes.add_argument("--installer-phase", choices=("inspect","inspect-compound","prepare","stage-online","seal-staged-switch","adopt-staged-switch",
+        "begin-staged-trial","observe-staged-trial","accept-staged-trial","msi-preflight","msi-enter","foundation-config","msi-complete","reconcile","finish","verify-settled",
         "compound-old-returned","compound-new-returned","compound-commit","compound-retire","compound-complete",
         "compound-repair-returned","compound-repair-commit"))
     parser.add_argument("--installer-session")
