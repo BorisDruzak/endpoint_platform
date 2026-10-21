@@ -7,37 +7,18 @@ The probe reads OS session state, last-input ticks and the foreground process
 from __future__ import annotations
 
 import ctypes
-from typing import Annotated, Literal, Protocol
+from typing import Protocol
 import ntpath
 
-from pydantic import Field, model_validator
-
 from endpoint_contracts.activity import ForegroundApplicationV1
-from endpoint_contracts.base import ContractModelV1
+from pc_agent.local_sensor_protocol import DesktopState, UserSessionSampleV1
 
 
-DesktopState = Literal["UNLOCKED", "LOCKED", "DISCONNECTED", "UNKNOWN"]
 _MAX_IDLE_SECONDS = 86400
 _BROWSERS = frozenset({"chrome.exe", "browser.exe", "yandex.exe", "msedge.exe", "firefox.exe", "opera.exe"})
 _OFFICE = frozenset({"winword.exe", "excel.exe", "powerpnt.exe", "outlook.exe", "soffice.bin"})
 _REMOTE_ACCESS = frozenset({"mstsc.exe", "msra.exe", "anydesk.exe", "teamviewer.exe"})
 _SYSTEM = frozenset({"explorer.exe", "taskmgr.exe", "powershell.exe", "pwsh.exe", "cmd.exe", "dwm.exe"})
-
-
-class UserSessionSampleV1(ContractModelV1):
-    schema_version: Literal["user_session_sample_v1"]
-    desktop_state: DesktopState
-    idle_seconds: Annotated[int | None, Field(strict=True, ge=0, le=_MAX_IDLE_SECONDS)] = None
-    foreground: ForegroundApplicationV1 | None = None
-
-    @model_validator(mode="after")
-    def validate_state(self) -> "UserSessionSampleV1":
-        if self.desktop_state == "UNLOCKED":
-            if self.idle_seconds is None:
-                raise ValueError("unlocked session needs idle time")
-        elif self.idle_seconds is not None or self.foreground is not None:
-            raise ValueError("noninteractive session cannot expose idle or foreground")
-        return self
 
 
 class SessionProbe(Protocol):

@@ -96,6 +96,9 @@ This does not replace or relabel the separately signed 3.2.120 MSI foundation.
 Endpoint Policy delivery and ACK run in `policy/runtime.py` through the same
 Gateway connection. The Windows local sensor boundary has a service-owned,
 cancellable named-pipe listener in `platform/windows/sensor_pipe_listener.py`.
+`activity_ingress.py` and `local_sensor_protocol.py` own the shared content-free
+envelope and policy projection. Windows compatibility imports retain the existing
+models; only the adapter supplies the OS-authenticated session key.
 `platform/windows/activity_api.py` validates the pipe writer's OS identity and
 projects typed user/browser observations; `activity_dispatch.py` holds a
 bounded handoff for WSS reconnects. `RuntimeLifecycle` starts the listener on
