@@ -163,6 +163,14 @@ while that source is registered and the protected SecurityEvent spool exists.
 Native callback delivery has been exercised synthetically on Windows; actual
 plug/unplug, queue-loss health and server compliance remain open.
 
+`platform/linux/usb_sensor.py` subscribes to kernel USB device events with
+unprivileged netlink group 1. Both sender port and SCM credentials must identify
+the kernel; bounded records exclude raw paths/serials, interfaces and synthetic
+events. Boot ID plus kernel sequence gives stable event IDs. Windows and Linux
+use `security/usb_projection.py` for the Policy gate and shared event DTOs.
+Source failure withholds readiness; runtime composition and physical hotplug
+acceptance remain pending.
+
 `platform/windows/print_sensor.py` subscribes to local spooler ADD_JOB changes
 with only printer name, user name, total pages and total bytes requested. It
 does not request the document-title field, read spool files or persist the

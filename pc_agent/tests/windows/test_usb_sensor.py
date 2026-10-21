@@ -154,11 +154,13 @@ async def test_agent_accepts_usb_audit_only_with_live_source_and_spools_change(
     monkeypatch.setattr(windows_sensors, "send_policy_request", lambda *_: "EXTERNALLY_MANAGED")
 
     class Listener:
+        available = False
+
         def start(self):
-            pass
+            self.available = True
 
         def stop(self):
-            pass
+            self.available = False
 
     monkeypatch.setattr(
         activity_api, "create_activity_pipe_listener", lambda **_: Listener(),

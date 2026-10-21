@@ -237,3 +237,11 @@ Execution is explicitly authorized without intermediate approval stops.
   that public ID asset. Focused entry/bridge/Windows protocol tests: 34 passed;
   entry/dependency split/browser subset: 33 passed including artifact checks.
   No Linux Browser/DLP capability is advertised by the installed C candidate.
+- D USB adapter uses unprivileged kernel netlink group 1, checked sender and
+  SCM credentials, bounded content-free fields, boot/sequence event UUIDs and
+  the shared Windows/Linux Policy/event projector. Foreign senders, duplicate,
+  truncated, oversized and malformed fields reject; synthetic events are ignored.
+  Reference service-user subscription succeeded. A real kernel input event
+  from the disposable pointer confirmed the sender/credential assumptions;
+  this is not claimed as USB hotplug evidence. Native tests: 13 passed; local
+  USB/Windows subset: 19 passed, 2 native skips. Physical USB acceptance pending.
