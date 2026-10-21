@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
 from sqlalchemy import select
@@ -24,6 +24,7 @@ from .service import resolve_effective_policy
 _MINIMUM_AGENT_VERSION = (3, 2, 68)
 _MINIMUM_LINUX_AGENT_VERSION = (3, 2, 122)
 _MINIMUM_LINUX_AUDIT_VERSION = (3, 2, 123)
+_SENSOR_READINESS_RETRY = timedelta(seconds=30)
 _VERSION = re.compile(r"^([0-9]+)\.([0-9]+)\.([0-9]+)$")
 
 
@@ -78,11 +79,21 @@ async def prepare_policy_delivery(
     if version is None:
         return None
     state = await _state_for_update(session, hello.device_id)
+    acknowledged_at = state.acknowledged_at
+    if acknowledged_at is not None:
+        acknowledged_at = (acknowledged_at.replace(tzinfo=UTC) if acknowledged_at.tzinfo is None
+                           else acknowledged_at.astimezone(UTC))
+    retry_readiness = (
+        state.status == 'ERROR' and state.error_code == 'SENSOR_NOT_READY'
+        and acknowledged_at is not None
+        and datetime.now(UTC) - acknowledged_at >= _SENSOR_READINESS_RETRY
+    )
     if (
         only_if_changed
         and state.policy_version_id == version.id
         and state.policy_digest == version.digest
         and state.status in {"APPLIED", "ERROR", "UNSUPPORTED"}
+        and not retry_readiness
     ):
         return None
     state.policy_version_id = version.id

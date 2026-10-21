@@ -2,6 +2,7 @@
 from datetime import UTC, datetime
 from uuid import uuid4
 import struct
+from threading import Event
 
 import pytest
 
@@ -9,6 +10,31 @@ from endpoint_contracts.endpoint_policy import EndpointPolicyV1
 from pc_agent.platform.linux import cups
 from pc_agent.platform.linux.print_sensor import PrintNotifications, job_facts, project_print_job, initial_job_cursor
 from tests.contracts.test_endpoint_policy_v1 import _policy
+
+
+def test_initial_cups_failure_recovers_without_restarting_core(monkeypatch):
+    from pc_agent.platform.linux import print_sensor
+    attempts=[]
+    received=Event()
+    emitted=[]
+    def baseline():
+        attempts.append(True)
+        if len(attempts)==1:
+            raise OSError('CUPS not ready during boot')
+        return 5
+    def publish(facts):
+        emitted.append(facts.job_id)
+        received.set()
+        source._stop.set()
+    monkeypatch.setattr(print_sensor,'initial_job_cursor',baseline)
+    monkeypatch.setattr(cups,'query',lambda *_args,**_kwargs:[row(6)])
+    source=PrintNotifications(publish,interval_seconds=0.01)
+    source.start()
+    try:
+        assert received.wait(2), 'CUPS recovery must not need a Core restart'
+    finally:
+        source.stop()
+    assert len(attempts)==2 and emitted==[6] and source.failed==1
 
 
 def row(identifier=1, **changes):

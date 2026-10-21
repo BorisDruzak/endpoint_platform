@@ -158,7 +158,6 @@ def _default_dependencies(
     activity_listener_ready = False
     browser_bridge_ready = False
     browser_probe = None
-    browser_policy_applied = False
     if settings is not None:
         cache = AppliedPolicyCache(settings.data_root)
         applicator = _policy_applicator_for(os.name)
@@ -256,18 +255,14 @@ def _default_dependencies(
             await policy_runtime.restore_offline()
 
     async def apply_policy_delivery(delivery: EndpointPolicyDeliveryV1) -> EndpointPolicyAckV1:
-        nonlocal browser_policy_applied
         # A replacement policy must also stop Activity while its ACK is pending.
         activity_dispatch.begin_connection()
-        browser_policy_applied = False
         for gated_runtime in (security_runtime, browser_status_runtime, sensor_health_runtime):
             if gated_runtime is not None:
                 gated_runtime.begin_connection()
         if policy_runtime is None:
             raise GatewayTerminalError("Endpoint Policy runtime is unavailable")
-        acknowledgement = await policy_runtime.apply_delivery(delivery)
-        browser_policy_applied = acknowledgement.status == 'APPLIED'
-        return acknowledgement
+        return await policy_runtime.apply_delivery(delivery)
 
     def start_local_sensor(current_settings: object):
         nonlocal usb_notifications, print_notifications, browser_status_runtime
@@ -322,15 +317,35 @@ def _default_dependencies(
                     policy_provider=lambda: policy_runtime.report_policy, ingress=ingress, probe=browser_probe,
                 )
             if on_security_event is not None:
+                pending_usb_delivery = None
                 def handle_usb(change):
-                    event = project_usb_change(change, policy_runtime.current_policy, occurred_at=datetime.now(UTC))
+                    nonlocal pending_usb_delivery
+                    if pending_usb_delivery is None:
+                        event = project_usb_change(change, policy_runtime.current_policy, occurred_at=datetime.now(UTC))
+                        if event is None:
+                            return
+                        pending_usb_delivery = (change.event_identifier, event)
+                    identifier, event = pending_usb_delivery
+                    if identifier != change.event_identifier:
+                        raise RuntimeError('USB delivery must finish before another event')
                     if event is not None and not on_security_event(event):
                         raise RuntimeError('USB SecurityEvent persistence unavailable')
+                    pending_usb_delivery = None
 
+                pending_print_delivery = None
                 def handle_print(facts):
-                    event = project_print_job(facts, policy_runtime.current_policy)
-                    if event is not None and not on_security_event(event):
+                    nonlocal pending_print_delivery
+                    if pending_print_delivery is None:
+                        event = project_print_job(facts, policy_runtime.current_policy)
+                        if event is None:
+                            return
+                        pending_print_delivery = (facts, event)
+                    pending_facts, event = pending_print_delivery
+                    if facts != pending_facts:
+                        raise RuntimeError('print delivery must finish before another job')
+                    if not on_security_event(event):
                         raise RuntimeError('print SecurityEvent persistence unavailable')
+                    pending_print_delivery = None
 
                 usb_source = UsbNotifications(handle_usb)
                 try:
@@ -528,7 +543,7 @@ def _default_dependencies(
     def on_policy_ack_sent() -> None:
         if security_runtime is not None:
             security_runtime.policy_ack_sent()
-        if browser_status_runtime is not None and browser_policy_applied:
+        if browser_status_runtime is not None:
             browser_status_runtime.policy_ack_sent()
         if sensor_health_runtime is not None:
             sensor_health_runtime.policy_ack_sent()

@@ -5,6 +5,8 @@ zero. Validate both address and SCM_CREDENTIALS before parsing a bounded frame.
 """
 from __future__ import annotations
 
+import errno
+
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -125,6 +127,13 @@ class UsbNotifications:
                     data, ancillary, flags, sender = self._socket.recvmsg(MAX_MESSAGE_BYTES, socket.CMSG_SPACE(_UCRED.size))
                 except socket.timeout:
                     continue
+                except OSError as exc:
+                    if exc.errno != errno.ENOBUFS:
+                        raise
+                    self.failed += 1
+                    self._healthy = False
+                    _LOG.warning('Linux USB kernel receive buffer overflow')
+                    continue
                 credentials = [_UCRED.unpack(raw) for level, kind, raw in ancillary
                     if level == socket.SOL_SOCKET and kind == socket.SCM_CREDENTIALS and len(raw) == _UCRED.size]
                 try:
@@ -134,7 +143,22 @@ class UsbNotifications:
                     self.rejected += 1
                     continue
                 if change is not None:
-                    self._on_change(change)
+                    # One frozen pending record bounds user-space memory. The
+                    # kernel receive buffer remains bounded while persistence
+                    # is unavailable; ENOBUFS above exposes any overflow.
+                    while not self._stop.is_set():
+                        try:
+                            self._on_change(change)
+                        except Exception:
+                            if self._healthy:
+                                _LOG.warning('Linux USB persistence is unavailable')
+                            self._healthy = False
+                            self.failed += 1
+                            if self._stop.wait(1):
+                                break
+                        else:
+                            self._healthy = True
+                            break
         except Exception:
             if not self._stop.is_set():
                 self.failed += 1

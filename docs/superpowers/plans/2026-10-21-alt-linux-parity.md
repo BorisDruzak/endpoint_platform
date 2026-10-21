@@ -447,3 +447,24 @@ Execution is explicitly authorized without intermediate approval stops.
   exclusions, and the static Windows golden version. These expectations are
   being aligned with the verified metadata contract/capabilities/version;
   production filesystem validation is not weakened to accommodate the harness.
+- Final recovery fixes retain one pending USB record and retry persistence with
+  unavailable health during the fault. Frozen USB and Print deliveries preserve
+  their original timestamp, policy and identifier across retry; regressions
+  reproduced both a later timestamp and a changed policy before the fixes.
+  Kernel buffering remains bounded and overflow increments source failures.
+  CUPS establishes its no-history baseline inside its supervised polling loop,
+  recovering from an unavailable daemon without restarting Core.
+- Ruling: recovering a source is insufficient if its startup SENSOR_NOT_READY
+  ACK is terminal. The common server now retries only that transient error after
+  a 30-second backoff; deterministic conflicts remain quiet. This applies to
+  Windows and Linux through the existing Policy delivery/ACK contract. The
+  two-platform regression failed before the change and passed afterward.
+- Browser Status resumes after the delivered policy's ACK, including ERROR,
+  preserving failure diagnostics while Activity remains APPLIED-gated. The
+  earlier APPLIED-only ruling was incorrect: actual two-platform ASGI tests
+  prove the server accepts current-assignment ERROR diagnostics. Runtime
+  regression first failed; actual WSS persistence is now explicitly parameterized
+  for both ACK statuses and platforms. Recovery/Windows/Gateway subset: 58
+  passed, one native skip. No Critical/Important review finding is deferred;
+  the complete suite after this single fix pass is still required.
+- Final native recovery subset: 52 passed, 12 native permission-fixture skips; final CUPS shutdown-bound recheck: 21 passed. Updated diagnostic/platform release expectations: 199 passed on the operator checkout.

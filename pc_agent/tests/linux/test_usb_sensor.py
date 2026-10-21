@@ -83,13 +83,21 @@ def test_kernel_subscription_is_ready_and_cancellable_without_privileges():
 
 
 @pytest.mark.skipif(sys.platform != 'linux', reason='native SCM_CREDENTIALS constants')
-def test_usb_persistence_failure_stops_source_without_claiming_readiness():
+def test_usb_persistence_failure_retries_the_same_change_without_stopping():
+    reads=[]
     class Connection:
         def recvmsg(self, *_args):
+            reads.append(True)
             return packet(), [(socket.SOL_SOCKET, socket.SCM_CREDENTIALS, struct.pack('iII', 0, 0, 0))], 0, (0, 1)
-    def refuse(_change):
-        raise OSError('spool unavailable')
-    source = UsbNotifications(refuse)
+    changes=[]
+    def persist(change):
+        changes.append(change)
+        if len(changes)==1:
+            raise OSError('spool unavailable')
+        assert not source._healthy
+        source._stop.set()
+    source = UsbNotifications(persist)
     source._socket, source._boot_id, source._healthy = Connection(), BOOT, True
     source._run()
-    assert source.failed == 1 and not source._healthy and not source.available
+    assert len(changes)==2 and changes[0] is changes[1] and len(reads)==1
+    assert source.failed == 1 and not source.available

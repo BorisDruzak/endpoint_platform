@@ -76,8 +76,9 @@ def test_route_rejects_browser_status_when_policy_feature_is_disabled(
 
 
 @pytest.mark.parametrize('platform,version', [('windows_amd64','3.2.70'), ('linux_amd64','3.2.123')])
+@pytest.mark.parametrize('ack_status',['APPLIED','ERROR'])
 def test_route_persists_two_browser_facts_after_policy_ack(
-    gateway_route_harness: GatewayRouteHarness, platform, version,
+    gateway_route_harness: GatewayRouteHarness, platform, version, ack_status,
 ) -> None:
     provider = gateway_route_harness.provider
     device = asyncio.run(seed_device(provider))
@@ -136,7 +137,9 @@ def test_route_persists_two_browser_facts_after_policy_ack(
                     "schema_version": "endpoint_policy_ack_v1",
                     "policy_id": str(POLICY_ID), "policy_version": 1,
                     "policy_digest": delivery["payload"]["policy_digest"],
-                    "received_at": now, "applied_at": now, "status": "APPLIED",
+                    "received_at": now, "applied_at": now if ack_status=='APPLIED' else None,
+                    "status": ack_status,
+                    "error_code": None if ack_status=='APPLIED' else 'POLICY_CONFLICT',
                 },
             })
             websocket.send_json({

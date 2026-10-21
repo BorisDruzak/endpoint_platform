@@ -107,9 +107,9 @@ class PrintNotifications:
     def start(self):
         if self._thread is not None:
             raise RuntimeError('print source already started')
-        self._cursor = initial_job_cursor()
+        self._cursor = None
         self._stop.clear()
-        self._healthy = True
+        self._healthy = False
         self._thread = Thread(target=self._run, name='EndpointLinuxPrint', daemon=True)
         try:
             self._thread.start()
@@ -119,6 +119,9 @@ class PrintNotifications:
             raise
 
     def poll_once(self):
+        if self._cursor is None:
+            self._cursor = initial_job_cursor()
+            return
         if not self._pending:
             rows = cups.query(0x000A, cups.AUDIT_JOB_ATTRIBUTES, which_jobs='all',
                               first_job_id=self._cursor + 1, allow_page=True)
@@ -133,7 +136,7 @@ class PrintNotifications:
 
     def _run(self):
         try:
-            while not self._stop.wait(self._interval):
+            while not self._stop.is_set():
                 try:
                     self.poll_once()
                 except Exception:
@@ -143,13 +146,17 @@ class PrintNotifications:
                     self.failed += 1
                 else:
                     self._healthy = True
+                if self._stop.wait(self._interval):
+                    break
         finally:
             self._healthy = False
 
     def stop(self):
         self._stop.set()
         if self._thread is not None:
-            self._thread.join(timeout=6)
+            # Baseline acquisition has a five-second deadline and may finish
+            # one final three-second CUPS request before observing it.
+            self._thread.join(timeout=9)
             if self._thread.is_alive():
                 raise TimeoutError('CUPS source did not stop')
             self._thread = None

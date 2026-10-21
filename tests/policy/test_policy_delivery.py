@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
 
 import pytest
@@ -164,3 +164,25 @@ async def test_assignment_change_before_ack_keeps_connection_and_marks_old_ack_s
         await session.commit()
     assert second_delivery is not None
     assert second_delivery.payload.policy.policy_version == 2
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('error,elapsed,retry', [
+    ('SENSOR_NOT_READY',0,False),('SENSOR_NOT_READY',31,True),
+    ('POLICY_CONFLICT',31,False),
+])
+@pytest.mark.parametrize('platform,version',[('windows_amd64','3.2.125'),('linux_amd64','3.2.125')])
+async def test_transient_sensor_readiness_is_retried_with_backoff(policy_sessions,error,elapsed,retry,platform,version):
+    device_id=uuid4()
+    hello=_hello(device_id,version=version,features=['endpoint.policy.v1']).model_copy(update={'platform':platform})
+    async with policy_sessions() as session:
+        delivery=await prepare_policy_delivery(session,hello)
+        now=datetime.now(UTC)
+        state=await record_policy_ack(session,device_id,EndpointPolicyAckV1(
+            schema_version='endpoint_policy_ack_v1',policy_id=POLICY_ID,policy_version=1,
+            policy_digest=delivery.payload.policy_digest,received_at=now,applied_at=None,
+            status='ERROR',error_code=error))
+        state.acknowledged_at=now-timedelta(seconds=elapsed)
+        await session.flush()
+        repeated=await prepare_policy_delivery(session,hello,only_if_changed=True)
+        assert (repeated is not None)==retry
