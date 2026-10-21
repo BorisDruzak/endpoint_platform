@@ -196,6 +196,7 @@ def _parser() -> argparse.ArgumentParser:
     modes.add_argument("--windows-service", action="store_true")
     modes.add_argument("--windows-service-child", action="store_true")
     modes.add_argument("--windows-updater-service", action="store_true")
+    modes.add_argument("--linux-user-sensor", action="store_true")
     modes.add_argument("--verify", action="store_true")
     modes.add_argument("--print-safe-status", action="store_true")
     modes.add_argument("--print-version", action="store_true")
@@ -206,6 +207,12 @@ def _parser() -> argparse.ArgumentParser:
 def main(argv: Sequence[str] | None = None) -> int:
     parser = _parser()
     args = parser.parse_args(argv)
+    if args.linux_user_sensor:
+        if sys.platform != 'linux':
+            return 1
+        from pc_agent.platform.linux.user_sensor_runtime import main as run_user_sensor
+
+        return run_user_sensor()
     if args.windows_service_child and args.launcher_version is None:
         parser.error("--windows-service-child requires --launcher-version from the fixed host")
     if args.print_version:

@@ -1,0 +1,24 @@
+[Unit]
+Description=Endpoint Platform KDE session sensor
+PartOf=graphical-session.target
+After=graphical-session.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+EnvironmentFile=-%t/endpoint-user-sensor.env
+ExecStart=/usr/lib/endpoint-agent/start-user-sensor
+Restart=always
+RestartSec=5s
+RestartPreventExitStatus=78
+TimeoutStopSec=15s
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=read-only
+RestrictAddressFamilies=AF_UNIX
+RestrictSUIDSGID=yes
+LockPersonality=yes
+UMask=0077
+
+[Install]
+WantedBy=graphical-session.target

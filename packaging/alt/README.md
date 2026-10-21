@@ -19,6 +19,25 @@ rpm -qpi output/endpoint-agent-*.rpm
 rpm -qpl output/endpoint-agent-*.rpm
 ```
 
+For KDE Plasma 6 workstations, also install the native compiler, `cmake`,
+`qt6-base-devel` and `kf6-kidletime-devel`, then build with
+`bash packaging/alt/build-rpm.sh --with-user-sensor`. This emits the Core RPM
+and an optional `endpoint-agent-user-sensor` RPM. Qt/KF6 runtime dependencies
+belong to that optional package; the Core remains headless. Install both RPMs
+together on a workstation. The sensor starts through KDE autostart at login.
+For an existing session, run `systemctl --user daemon-reload` followed by
+`/usr/lib/endpoint-agent/start-user-sensor --autostart` from that user's
+graphical session. The wrapper writes only its own private graphical environment
+file; it does not alter the global user-manager environment.
+
+The per-user wrapper selects the same root-protected Core version in
+`--linux-user-sensor` mode, before enrollment or server configuration is read.
+The native KDE helper reads idle/lock state and only KWin's active PID; it
+never reads captions, URLs or contents. On Wayland, elapsed idle remains
+unknown until the backend observes a resume, because KIdleTime cannot poll
+elapsed idle there. The System Agent authenticates every local frame with
+kernel credentials and logind; user processes never receive its credential.
+
 For a separately built Task 8 artifact and stable launcher:
 
 ```bash

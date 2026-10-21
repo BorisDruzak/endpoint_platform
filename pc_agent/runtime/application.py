@@ -32,6 +32,7 @@ from pc_agent.primitives.network.policy import AgentNetworkProbePolicy
 from pc_agent.policy.cache import AppliedPolicyCache
 from pc_agent.policy.runtime import PolicyApplicator, PolicyRuntime
 from pc_agent.policy.windows_sensors import apply_windows_policy_sensors
+from pc_agent.policy.linux_sensors import apply_linux_policy_sensors
 from pc_agent.activity_dispatch import ActivityDispatch
 from pc_agent.security.runtime import SecurityEventRuntime
 from pc_agent.security.spool import SecurityEventSpool
@@ -62,6 +63,7 @@ _SOURCE_REVISION = re.compile(r"^[0-9a-f]{40}$")
 _AGENT_SEMVER = re.compile(r"^([0-9]+)\.([0-9]+)\.([0-9]+)$")
 _MIN_POLICY_AGENT_VERSION = (3, 2, 68)
 _MIN_SECURITY_EVENTS_AGENT_VERSION = (3, 2, 70)
+_MIN_LINUX_POLICY_AGENT_VERSION = (3, 2, 122)
 logger = logging.getLogger(__name__)
 
 
@@ -159,14 +161,18 @@ def _default_dependencies(
         cache = AppliedPolicyCache(settings.data_root)
         applicator = _policy_applicator_for(os.name)
         if applicator is not None:
-            windows_applicator = applicator
+            platform_applicator = applicator
 
             async def apply_available_sensors(policy):
-                await windows_applicator(
+                listener_available = (
+                    activity_listener_ready and activity_listener is not None
+                    and activity_listener.available
+                )
+                await platform_applicator(
                     policy,
-                    activity_available=activity_listener_ready,
+                    activity_available=listener_available,
                     browser_audit_available=(
-                        activity_listener_ready and security_spool_ready
+                        listener_available and security_spool_ready
                         and browser_bridge_ready
                     ),
                     usb_available=(
@@ -257,11 +263,32 @@ def _default_dependencies(
         nonlocal activity_ingress, activity_listener
         nonlocal activity_listener_ready, browser_bridge_ready
         if not (
-            os.name == "nt"
-            and isinstance(current_settings, RuntimeSettings)
+            isinstance(current_settings, RuntimeSettings)
             and current_settings.transport_mode == "gateway_wss"
             and policy_runtime is not None
         ):
+            return None
+        if os.name == 'posix':
+            if 'endpoint.policy.v1' not in policy_features:
+                return None
+            from pc_agent.activity_ingress import ActivityIngress
+            from pc_agent.platform.linux.sensor_listener import create_activity_listener
+
+            ingress = ActivityIngress(expected_extension_id=None)
+            listener = create_activity_listener(
+                ingress=ingress, policy_provider=lambda: policy_runtime.current_policy,
+                on_observation=activity_dispatch.enqueue,
+            )
+            try:
+                listener.start()
+            except Exception:
+                logger.warning('Linux local sensor listener is unavailable')
+                return None
+            activity_ingress = ingress
+            activity_listener = listener
+            activity_listener_ready = True
+            return listener
+        if os.name != 'nt':
             return None
         from pc_agent.platform.windows.activity_api import (
             ActivityIngress, create_activity_pipe_listener,
@@ -400,10 +427,12 @@ def _default_dependencies(
             and settings.transport_mode == "gateway_wss"
             and isinstance(transport, WebSocketGatewayTransport)
         ):
-            if os.name == "nt":
+            if os.name == "nt" or 'endpoint.policy.v1' in policy_features:
                 activity_dispatch.begin_connection()
                 tasks = [
-                    _serve_windows_device_binding(settings, credential),
+                    (_serve_windows_device_binding(settings, credential)
+                     if os.name == 'nt' else _periodic_https_update_checks(
+                         settings, credential, _EndpointHttpPullState())),
                     activity_dispatch.send_forever(transport),
                 ]
                 if security_runtime is not None:
@@ -472,7 +501,9 @@ def _default_dependencies(
 
 
 def _policy_applicator_for(platform_name: str) -> PolicyApplicator | None:
-    return apply_windows_policy_sensors if platform_name == "nt" else None
+    if platform_name == 'nt':
+        return apply_windows_policy_sensors
+    return apply_linux_policy_sensors if platform_name == 'posix' else None
 
 
 def _create_canary_status_writer(settings: object):
@@ -602,13 +633,17 @@ def _policy_protocol_features(
 ) -> list[str]:
     match = _AGENT_SEMVER.fullmatch(agent_version)
     if (
-        platform != "windows_amd64"
+        platform not in {"windows_amd64", "linux_amd64"}
         or transport_mode != "gateway_wss"
         or migration_http_pull_fallback
         or match is None
         or tuple(int(part) for part in match.groups()) < _MIN_POLICY_AGENT_VERSION
     ):
         return []
+    if platform == 'linux_amd64':
+        if tuple(int(part) for part in match.groups()) < _MIN_LINUX_POLICY_AGENT_VERSION:
+            return []
+        return ['endpoint.policy.v1', 'endpoint.activity.v1', 'endpoint.sensor-health.v1']
     features = ["endpoint.policy.v1"]
     if tuple(int(part) for part in match.groups()) >= _MIN_SECURITY_EVENTS_AGENT_VERSION:
         features.append("endpoint.activity.v1")

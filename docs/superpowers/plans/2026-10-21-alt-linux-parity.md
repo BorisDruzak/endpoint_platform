@@ -149,3 +149,37 @@ Execution is explicitly authorized without intermediate approval stops.
   -Wall -Wextra -Werror; actual domain-user X11 produced idle/lock/PID facts and
   removed its own KWin script on shutdown. User explicitly authorized ending
   the test graphical session and rebooting for later Wayland/recovery acceptance.
+- C source composition uses the existing PolicyRuntime/cache, ActivityDispatch,
+  WSS policy ACK gate and SensorHealthRuntime. Linux feature negotiation starts
+  at 3.2.122; 3.2.121 remains unsupported. Browser/DLP are not yet advertised on
+  Linux. Requests for missing sources fail SENSOR_NOT_READY. A live Linux
+  composition regression showed stale listener readiness could ACK after stop;
+  application now checks the listener's current availability.
+- C targeted Windows/common/architecture/packaging gate: 279 passed, 1 skipped;
+  dedicated Linux composition and silent-helper cancellation checks passed.
+  User mode branches before enrollment/settings, and receives no credential.
+  Optional user-sensor RPM/build integration is in progress, not yet built or
+  installed. Agent version remains 3.2.121; no release has been published.
+- A concurrent Wayland session initially had no outputs. After ending the
+  authorized test X11 session and temporarily
+  stopping LightDM, a fresh real Wayland session has one connected, enabled
+  output. Native helper produced idle/lock/foreground facts, zero stderr and
+  cleaned its own KWin script. A disposable pointer moved by +1/-1 establishes
+  a real resume; no keys or contents are captured. Helper now suppresses idle
+  and PID when Qt has only a placeholder screen. Domain-user Wayland check
+  is starting. Restore LightDM before leaving the reference host unattended.
+- Actual domain-user Wayland then passed the same native probe with one
+  connected/enabled output, known idle after input, known lock fact,
+  foreground PID, zero stderr and script cleanup. Separate identity lookup
+  executed as the real endpoint-agent account returned a qualified identity.
+  Autostart uses only its own mode-0600 environment file in the user's runtime
+  directory, rather than changing global user-manager environment.
+- Native KWin sender spoof probe returned AccessDenied/KWIN_REQUIRED and did
+  not replace the foreground PID. ALT RPM has def_without/if_with macros but
+  lacks upstream bcond_with; corrected the optional package conditional after
+  checking the installed RPM macro table. Final two-RPM build remains pending.
+- Native ALT spec query confirms the optional build produces exactly the Core
+  and user-sensor package definitions. Final focused native composition,
+  cancellation, sample and wrapper/spec tests: 15 passed; shell syntax passed.
+  The actual domain-user KDE lock reports locked=true. Standard root logind
+  unlock was requested and its desktop result is being checked.

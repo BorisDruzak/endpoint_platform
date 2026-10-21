@@ -22,6 +22,7 @@ from .service import resolve_effective_policy
 
 
 _MINIMUM_AGENT_VERSION = (3, 2, 68)
+_MINIMUM_LINUX_AGENT_VERSION = (3, 2, 122)
 _VERSION = re.compile(r"^([0-9]+)\.([0-9]+)\.([0-9]+)$")
 
 
@@ -30,13 +31,16 @@ class PolicyAcknowledgementRejected(ValueError):
 
 
 def supports_endpoint_policy(hello: AgentHelloV1) -> bool:
-    """Do not send new frames to older or non-Windows Agents."""
+    """Negotiate only with a platform/version that implements the Policy runtime."""
     match = _VERSION.fullmatch(hello.agent_version)
     return (
-        hello.platform == "windows_amd64"
+        hello.platform in {"windows_amd64", "linux_amd64"}
         and "endpoint.policy.v1" in hello.protocol_features
         and match is not None
-        and tuple(int(part) for part in match.groups()) >= _MINIMUM_AGENT_VERSION
+        and tuple(int(part) for part in match.groups()) >= (
+            _MINIMUM_LINUX_AGENT_VERSION if hello.platform == 'linux_amd64'
+            else _MINIMUM_AGENT_VERSION
+        )
     )
 
 

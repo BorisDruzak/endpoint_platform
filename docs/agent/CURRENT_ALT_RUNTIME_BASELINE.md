@@ -30,6 +30,28 @@ as an installed candidate. User Sensor, Browser, DLP, Wayland, update/rollback,
 reboot and full WSS command acceptance remain separate open gates in the
 2026-10-21 parity plan. Historical checks below are not current release proof.
 
+## KDE session sensor candidate (2026-10-21)
+
+The candidate adds a credential-free per-user mode and an optional native
+Qt6/KF6 helper, kept outside System Core. Linux IPC verifies kernel peer and
+per-record credentials, graphical logind session and SSSD-backed UPN identity.
+Only the platform adapter changes; local envelopes, Activity projection,
+PolicyRuntime/cache, WSS ACK gates and Sensor Health remain shared.
+
+The helper has been compiled and exercised in real X11 and Wayland sessions;
+the Wayland check has a connected, enabled graphical output and includes a
+domain-user session. Idle, lock availability and foreground PID were observed;
+only a same-UID process name is projected. Placeholder-screen sessions do not
+produce interactive observations. Wayland elapsed idle is unknown until a
+resume establishes its clock, rather than treating unsupported polling as zero.
+Shutdown removes only the helper's own ephemeral KWin script.
+
+Linux Policy negotiation is reserved for Agent 3.2.122 or later. Browser and
+DLP are still unavailable in this candidate stage and requested unavailable
+sources fail with SENSOR_NOT_READY. The optional RPM integration, installed
+User Sensor, offline/WSS acceptance and release gates
+remain open in the parity plan. No new release or production rollout occurred.
+
 ## Gateway transport
 
 - The only runtime controller origin is `https://endpoint.sosnadmin.local`.

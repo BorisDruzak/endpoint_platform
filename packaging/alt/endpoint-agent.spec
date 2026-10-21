@@ -1,10 +1,11 @@
 # The prebuilt payload is already covered by the release manifest.
 %global __find_debuginfo_files %{nil}
 %define debug_package %{nil}
+%def_without user_sensor
 
 Name: endpoint-agent
 Version: %{agent_version}
-Release: alt3
+Release: alt4
 Summary: Endpoint Platform headless management agent for ALT Linux
 License: Proprietary
 Group: System/Servers
@@ -20,11 +21,30 @@ Source14: check-start-prerequisites.py
 Source15: start-endpoint-agent.py
 Source20: endpoint-agent.tmpfiles
 Source21: endpoint-agent.logrotate
+%if_with user_sensor
+Source30: endpoint-kde-probe
+Source31: foreground.js
+Source32: start-user-sensor.py
+Source33: endpoint-user-sensor.service
+Source34: endpoint-user-sensor.desktop
+%endif
 BuildArch: x86_64
 BuildRequires: rpm-build-python3
 Requires(pre): shadow-utils
 Requires: python3
 Requires: systemd
+
+%if_with user_sensor
+%package user-sensor
+Summary: Unprivileged KDE session sensor for Endpoint Platform
+Group: System/Monitoring
+Requires: endpoint-agent = %{version}-%{release}
+
+%description user-sensor
+Optional per-user KDE Plasma 6 idle/foreground adapter. Uses the existing local
+sensor contract and never receives a device credential or opens a server
+connection. Qt and KDE dependencies belong only to this optional package.
+%endif
 
 %description
 The native ALT Linux package for the headless Endpoint Platform agent. Device
@@ -61,6 +81,15 @@ install -m 0755 %{SOURCE15} %buildroot/usr/lib/endpoint-agent/start-endpoint-age
 install -m 0644 %{SOURCE20} %buildroot/usr/lib/tmpfiles.d/endpoint-agent.conf
 install -m 0644 %{SOURCE21} %buildroot/etc/logrotate.d/endpoint-agent
 install -m 0644 %{_sourcedir}/README.md %buildroot/usr/share/doc/endpoint-agent/README.md
+%if_with user_sensor
+install -d -m 0755 %buildroot/usr/share/endpoint-agent \
+    %buildroot/usr/lib/systemd/user %buildroot/etc/xdg/autostart
+install -m 0755 %{SOURCE30} %buildroot/usr/lib/endpoint-agent/endpoint-kde-probe
+install -m 0644 %{SOURCE31} %buildroot/usr/share/endpoint-agent/foreground.js
+install -m 0755 %{SOURCE32} %buildroot/usr/lib/endpoint-agent/start-user-sensor
+install -m 0644 %{SOURCE33} %buildroot/usr/lib/systemd/user/endpoint-user-sensor.service
+install -m 0644 %{SOURCE34} %buildroot/etc/xdg/autostart/endpoint-user-sensor.desktop
+%endif
 install -m 0644 /dev/null \
     %buildroot/usr/lib/endpoint-agent/package-releases/%{version}
 printf '{"schema_version":1,"source_revision":"%%s","version":"%%s"}\n' \
@@ -145,6 +174,16 @@ systemctl daemon-reload || :
 /usr/lib/systemd/system/endpoint-agent-update.path
 /usr/lib/tmpfiles.d/endpoint-agent.conf
 %config /etc/logrotate.d/endpoint-agent
+
+%if_with user_sensor
+%files user-sensor
+/usr/lib/endpoint-agent/endpoint-kde-probe
+/usr/lib/endpoint-agent/start-user-sensor
+%dir /usr/share/endpoint-agent
+/usr/share/endpoint-agent/foreground.js
+/usr/lib/systemd/user/endpoint-user-sensor.service
+/etc/xdg/autostart/endpoint-user-sensor.desktop
+%endif
 
 %changelog
 * Fri Sep 04 2026 Endpoint Platform Maintainers <endpoint@example.invalid> 3.2.37-alt3

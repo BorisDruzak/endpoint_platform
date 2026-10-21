@@ -1,4 +1,4 @@
-"""Only negotiating Windows Agents receive effective Endpoint Policy frames."""
+"""Only compatible negotiating Agents receive effective Endpoint Policy frames."""
 
 from __future__ import annotations
 
@@ -15,6 +15,7 @@ from endpoint_server.db.base import Base
 import endpoint_server.db.models  # noqa: F401 - register FK targets
 from endpoint_server.policy.delivery import (
     PolicyAcknowledgementRejected,
+    supports_endpoint_policy,
     prepare_policy_delivery,
     record_policy_ack,
 )
@@ -54,6 +55,16 @@ def _hello(device_id: UUID, *, version: str = "3.2.68", features: list[str] | No
         "last_result_sequence": 0, "last_policy_revision": 0,
         "protocol_features": features or [],
     })
+
+
+@pytest.mark.parametrize('version,features,expected', [
+    ('3.2.121', ['endpoint.policy.v1'], False),
+    ('3.2.122', [], False),
+    ('3.2.122', ['endpoint.policy.v1'], True),
+])
+def test_linux_policy_requires_negotiation_and_new_runtime(version, features, expected):
+    hello = _hello(uuid4(), version=version, features=features).model_copy(update={'platform': 'linux_amd64'})
+    assert supports_endpoint_policy(hello) is expected
 
 
 @pytest.mark.asyncio

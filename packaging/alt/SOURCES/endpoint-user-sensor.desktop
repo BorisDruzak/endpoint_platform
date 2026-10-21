@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Endpoint Session Sensor
+Comment=Start the per-user Endpoint activity sensor
+Exec=/usr/lib/endpoint-agent/start-user-sensor --autostart
+OnlyShowIn=KDE;
+NoDisplay=true
+X-KDE-autostart-phase=2

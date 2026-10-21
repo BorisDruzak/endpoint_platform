@@ -103,6 +103,11 @@ models; only the adapter supplies the OS-authenticated session key.
 boundary: UID/PID kernel credentials, logind graphical session, verified SSSD
 UPN, mutually authenticated bounded Unix records and OS lock/inactive override.
 The listener remains an optional adapter around the shared Activity projection.
+`platform/linux/user_sensor{,_runtime}.py` parses bounded records from the
+unprivileged native `platform/linux/kde_probe` helper and forwards only the
+common local envelope. The optional ALT user-sensor RPM stages that helper,
+its PID-only KWin script, a user unit and KDE autostart wrapper. Its private
+environment file affects only that unit; System Core never imports Qt.
 `platform/windows/activity_api.py` validates the pipe writer's OS identity and
 projects typed user/browser observations; `activity_dispatch.py` holds a
 bounded handoff for WSS reconnects. `RuntimeLifecycle` starts the listener on

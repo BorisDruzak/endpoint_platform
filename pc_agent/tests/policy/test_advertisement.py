@@ -1,4 +1,4 @@
-"""Policy feature negotiation is tied to a compatible WSS Windows runtime."""
+"""Policy feature negotiation is tied to each platform's compatible WSS runtime."""
 
 from pc_agent.runtime.application import _policy_protocol_features
 from pc_agent.version import AGENT_VERSION
@@ -24,3 +24,11 @@ def test_current_release_candidate_advertises_all_policy_sensor_features() -> No
         "endpoint.policy.v1", "endpoint.activity.v1", "endpoint.security-events.v1",
         "endpoint.browser-status.v1", "endpoint.sensor-health.v1",
     ]
+
+
+def test_linux_policy_starts_only_with_the_new_wss_sensor_runtime():
+    assert _policy_protocol_features('3.2.121', 'linux_amd64', 'gateway_wss', False) == []
+    expected = ['endpoint.policy.v1', 'endpoint.activity.v1', 'endpoint.sensor-health.v1']
+    assert _policy_protocol_features('3.2.122', 'linux_amd64', 'gateway_wss', False) == expected
+    assert _policy_protocol_features('3.2.122', 'linux_amd64', 'gateway_http_pull', False) == []
+    assert _policy_protocol_features('3.2.122', 'linux_amd64', 'gateway_wss', True) == []
