@@ -211,10 +211,59 @@ another native update, a controlled denied invocation of the actual newly built
 helper must prove event delivery. This corrects diagnostic visibility; the
 underlying native action failure is still unresolved.
 
+## Actual 3.2.128 automatic rollback
+
+Runtime source is `e987bbd27ac7e10b3dce3392b6b21e3d38dac591`; build checkout
+is `9be8d675cb332a228db64395c700d6be5640770c`. The complete supported Windows
+selection passed 2235 tests with 3 skips. Exact-source
+[CI 39645604507](https://github.com/BorisDruzak/endpoint_platform/actions/runs/39645604507)
+passed 4473 tests with 739 skips. All 172 frozen source records, project-module
+closures, MSI/Setup signatures and timestamps were checked.
+
+| Artifact | SHA-256 |
+| --- | --- |
+| Signed MSI | `60ab22e0030db5d019b531e8acbae1f87317823bf1a67114c06f1f269fa2b556` |
+| Signed Setup | `1c61fc89697d84268e356d9438761483777a83866a7fa6515dd56b28ee849259` |
+| Core ZIP | `66936f226d86e9dcd1476a414fd6bbf617b56292cb34e1e51e8a873ea471c1c1` |
+
+The actual frozen helper contains the diagnostic module and its absolute
+level-0 entrypoint import. A controlled invocation without installer authority
+exited 1 and emitted the expected bounded Application event 1001. The helper
+hash matched `Binary.EndpointInstallerHost` extracted read-only from the signed
+MSI. The private smoke harness initially required a separate helper signature
+and stopped before execution; this was corrected to the project's signed
+container binding without changing frozen artifacts or admission checks.
+
+On genuine Foundation 3.2.120 with Core 3.2.121, observed online preparation
+ran from 17:52:35.576 to 17:52:53.740 UTC while the old service ran. All 111
+retained MSI Core files (39,686,091 bytes) kept identical NTFS IDs, sizes and
+hashes after publication, proving zero second-copy payload bytes for this tree.
+The old Agent stopped at 17:52:57.217; the candidate was running at
+17:56:45.049. This approximately 228-second service interruption already fails
+the 120-second bound, independently of the subsequent injected fault.
+
+The controller deliberately terminated the exact candidate process after
+verifying its executable hash. The owner entered `rolling-back` at 17:57:07.130.
+Candidate registration disappeared at 17:57:49.981, the original MSI returned
+at 17:58:48.226, and strict native/Core/data verification completed before
+`rolled-back` at 17:59:33.990. Setup exited 67 at 17:59:37.650, approximately
+502 seconds after launch; both Agent and Browser Policy services were running.
+The original Core 3.2.121 selector and source revision were restored. At
+18:00:43, the server confirmed its open WSS session with a fresh heartbeat and
+matching `APPLIED` policy ACK. All four private enrollment leaves matched.
+
+This is a completed automatic rollback on the observed modern baseline. No VM
+reset produced this result. A separate snapshot and immutable case evidence
+preserve it. The native entry correction validates the removal role's captured
+maintenance authority after product unpublication; the authenticated staged
+removal flag preserves original Core trees from recursive candidate cleanup.
+Normal uninstall cleanup and all other roles retain their existing checks.
+
 ## Remaining admission
 
-The success, early-crash and no-proof rollback cases on genuine 3.2.79 and
-3.2.120 (including Core 3.2.121), identical-baseline cold/warm measurements,
-interruption/reboot and remaining fault matrix are pending. The report verifier
+The ordinary success and no-proof rollback cases, early-crash rollback on
+genuine 3.2.79 and plain 3.2.120, identical-baseline cold/warm measurements,
+the interruption performance bound, reboot and remaining fault matrix are
+pending. The report verifier
 withholds a complete pass when a scenario, native Foundation/Core proof,
 private preservation check or measured performance target is missing.
