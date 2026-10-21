@@ -168,22 +168,6 @@ def _startup_outcome(
     current_version: str,
     failed_marker: dict[str, object] | None,
 ) -> tuple[str, str, str, str] | None:
-    if failed_marker and failed_marker.get("reason") == "startup_crash_rollback":
-        crashed_version = failed_marker.get("crashed_version")
-        rollback_version = failed_marker.get("rollback_version")
-        if (
-            isinstance(crashed_version, str)
-            and isinstance(rollback_version, str)
-            and rollback_version == current_version
-        ):
-            record = _latest_operation(history, version=crashed_version, success=True)
-            if record is not None:
-                return (
-                    record,
-                    "rolled_back",
-                    rollback_version,
-                    "launcher_rolled_back",
-                )
     for entry in reversed(history):
         operation_id = entry.get("operation_id")
         version = entry.get("version")
@@ -196,22 +180,14 @@ def _startup_outcome(
             continue
         if entry.get("success") is False:
             return operation_id, "failed", version, "launcher_apply_failed"
+        if (
+            entry.get("success") is True
+            and failed_marker
+            and failed_marker.get("reason") == "startup_crash_rollback"
+            and failed_marker.get("crashed_version") == version
+            and failed_marker.get("rollback_version") == current_version
+        ):
+            return operation_id, "rolled_back", current_version, "launcher_rolled_back"
         if entry.get("success") is True and version == current_version:
             return operation_id, "applied", current_version, "post_restart_handshake_confirmed"
     return None
-
-
-def _latest_operation(
-    history: list[dict[str, object]], *, version: str, success: bool
-) -> str | None:
-    for entry in reversed(history):
-        operation_id = entry.get("operation_id")
-        if (
-            entry.get("version") == version
-            and entry.get("success") is success
-            and isinstance(operation_id, str)
-            and _OPERATION_ID.fullmatch(operation_id)
-        ):
-            return operation_id
-    return None
-

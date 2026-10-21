@@ -406,3 +406,20 @@ Execution is explicitly authorized without intermediate approval stops.
   closed. Local Context/eventlog checks: 62 passed, three native skips. All 27
   advertised Linux capability handlers then ran successfully as endpoint-agent
   against the actual reference OS (source smoke; installed fixed build pending).
+- E crash fixture 3.2.125-acceptance.1 failed three startup attempts and the real
+  root worker restored 3.2.124; staging recorded rolled_back. The intentionally
+  invalid inner-digest fixture 3.2.126-acceptance.1 was rejected without changing
+  the selected runtime. It exposed a later outcome bug: an old rollback marker
+  masked the newer failed operation and kept the canary eligible. Regression
+  reproduced that ordering. Startup reporting now interprets the latest durable
+  operation before applying its matching rollback marker. Private Core/watcher
+  were stopped while the corrected source ran once as the actual service UID,
+  with systemd-protected CA and existing device credential, through the normal
+  GatewayUpdateRuntime/EndpointUpdateAdapter. It reported the actual retained
+  failure; no DB outcome or history was fabricated. Staging records failed for
+  that fixture and Core/watcher were restarted. Revalidate this sequence with
+  the next frozen candidate, then repeat final reboot/session checks.
+- Outcome-ordering verification: 22 native ALT update/runtime characterization
+  checks passed; the focused Windows-compatible Gateway subset passed 9. A
+  broad Windows invocation had one expected native os.fchmod failure; the
+  complete same update characterization ran successfully on ALT instead.
