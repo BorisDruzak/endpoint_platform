@@ -24,6 +24,8 @@ from .update_paths import WindowsUpdatePaths
 
 PHASES = frozenset({'inspect','inspect-compound','prepare','stage-online','seal-staged-switch','adopt-staged-switch',
     'begin-staged-trial','observe-staged-trial','accept-staged-trial','msi-preflight','msi-enter','recover-enter',
+    'inspect-staged-state','prepare-foundation-rollback','bind-foundation-rollback-roles',
+    'rollback-candidate-removed','rollback-native-committed','verify-foundation-rollback',
     'foundation-config','msi-complete','reconcile','finish','verify-settled',
     'uninstall-finalize-preflight','uninstall-finalize-enter','uninstall-finalize-complete',
     'compound-old-returned','compound-new-returned','compound-commit','compound-retire','compound-complete',
@@ -206,7 +208,7 @@ def _read_capability(paths,session_id):
     after=path.lstat()
     if (before.st_dev,before.st_ino,before.st_size,before.st_mtime_ns)!=(after.st_dev,after.st_ino,after.st_size,after.st_mtime_ns):
         _failed()
-    if (set(payload) not in (_CAP_FIELDS,_CAP_FIELDS|{'compound'},_CAP_FIELDS|{'recovery_parent'}) or type(payload['schema_version']) is not int or payload['schema_version']!=1
+    if (set(payload) not in (_CAP_FIELDS,_CAP_FIELDS|{'compound'},_CAP_FIELDS|{'recovery_parent'},_CAP_FIELDS|{'staged_rollback'}) or type(payload['schema_version']) is not int or payload['schema_version']!=1
         or payload['session_id']!=session_id
         or payload['operation'] not in {'install','retire-initial-runtime','uninstall'}
         or type(payload['recovery']) is not bool
@@ -232,6 +234,9 @@ def _read_capability(paths,session_id):
     if 'recovery_parent' in payload:
         _uuid(payload['recovery_parent'])
         if payload['operation']!='install' or payload['recovery'] is not True or payload['uninstall_finalization']:_failed()
+    if 'staged_rollback' in payload:
+        from .staged_foundation_rollback import validate_rollback_capability_shape
+        validate_rollback_capability_shape(payload)
     return payload
 
 
@@ -495,6 +500,13 @@ def _validate_install_recovery(paths,request):
 
 
 def execute_authorized_phase(client,paths,*,feature_states=None,rollback_disabled='',uninstall_finalization='',upgrade_detected=None):
+    if 'staged_rollback' in client.capability:
+        from .staged_foundation_rollback import execute_rollback_control_phase, execute_candidate_removal_phase
+        if client.capability['staged_rollback']['role'] == 'control':
+            return execute_rollback_control_phase(client, paths)
+        return execute_candidate_removal_phase(client, paths, feature_states=feature_states,
+            rollback_disabled=rollback_disabled, uninstall_finalization=uninstall_finalization,
+            upgrade_detected=upgrade_detected)
     if client.phase in {'begin-staged-trial', 'observe-staged-trial', 'accept-staged-trial'}:
         return execute_staged_trial_phase(client, paths)
     if client.phase in {'stage-online', 'seal-staged-switch', 'adopt-staged-switch'}:
@@ -506,6 +518,9 @@ def execute_authorized_phase(client,paths,*,feature_states=None,rollback_disable
                   'operation_id': record.binding.operation_id, 'phase': record.phase}
         if hasattr(client, 'phase_metrics'):
             result['metrics'] = client.phase_metrics
+        if client.phase == 'stage-online':
+            from .staged_foundation_rollback import _resolve_media
+            result['rollback_media'] = _resolve_media(paths, record)
         client.request('complete', result)
         return result
     if 'recovery_parent' in client.capability:

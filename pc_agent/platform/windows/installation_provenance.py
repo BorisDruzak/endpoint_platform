@@ -247,7 +247,11 @@ def _inspect_core_value(paths: WindowsUpdatePaths, selector_data: bytes, selecto
         from .runtime_identity import legacy_foundation_compatible
         owner=read_json(evidence.owner_bytes,16*1024*1024)
         package_sha256=owner['sha256'] if evidence.origin=='msi' else owner['package']['sha256']
-        if not legacy_foundation_compatible(package_sha256,resulting_foundation):raise ProvenanceConflict()
+        if not legacy_foundation_compatible(package_sha256,resulting_foundation):
+            from .staged_foundation_rollback import original_foundation_runtime_allowed
+            if not original_foundation_runtime_allowed(paths, selector_data, evidence.identity,
+                                                       package_sha256, resulting_foundation):
+                raise ProvenanceConflict()
     return evidence
 
 

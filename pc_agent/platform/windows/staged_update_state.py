@@ -105,6 +105,7 @@ def _binding_value(binding):
     _release(binding.new_release)
     _selector(binding.selected_before)
     _hash(binding.selected_tree_sha256_before)
+    _hash(binding.candidate_tree_sha256)
     if binding.previous_before is not None:
         _selector(binding.previous_before)
         _hash(binding.previous_tree_sha256_before)
@@ -112,7 +113,6 @@ def _binding_value(binding):
         _invalid()
     if (binding.candidate_version != binding.new_release["version"]
             or binding.candidate_source_revision != binding.new_release["source_revision"]
-            or binding.candidate_tree_sha256 != binding.new_release["initial_runtime_tree_sha256"]
             or version_tuple(binding.new_release["version"]) <= version_tuple(binding.old_release["version"])):
         _invalid()
     value = asdict(binding)

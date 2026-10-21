@@ -26,7 +26,6 @@ def tmp_path(request, tmp_path_factory):
 @pytest.fixture
 def online(handoff_input, monkeypatch):
     provenance, paths, root, request, expected = handoff_input
-    request['release']['initial_runtime_tree_sha256'] = expected.identity.tree_sha256
     owner = {'pid': os.getpid(), 'created': 1, 'hash': 'd' * 64, 'sid': 'S-1-5-18', 'elevated': True}
     cap = {'operation': 'install', 'recovery': False, 'uninstall_finalization': False,
            'package': request['release'], 'transaction_id': request['transaction_id'],
@@ -53,6 +52,14 @@ def test_stage_completes_before_service_stop(online, monkeypatch):
     assert paths.current_path.read_bytes() == before
     assert installer_fence.read_fence(paths) is None
     assert (installer_fence.state_root(paths) / 'provenance' / prepared.binding.operation_id / 'plan.json').is_file()
+
+
+def test_installed_tree_is_distinct_from_authored_msi_tree(online):
+    client, paths, _, request, expected, _ = online
+    assert request['release']['initial_runtime_tree_sha256'] != expected.identity.tree_sha256
+    record = bridge.stage_online_update(client, paths)
+    assert record.binding.candidate_tree_sha256 == expected.identity.tree_sha256
+    assert record.binding.new_release == request['release']
 
 
 def test_online_metrics_do_not_leak_paths_or_identities(online):
@@ -157,7 +164,7 @@ function New-TestBridge {
  $policy|Add-Member ScriptMethod OwnerLost { $script:events.Add('revoke') }
  $resource=[pscustomobject]@{}
  $resource|Add-Member ScriptMethod Dispose { }
- return [pscustomobject]@{TransactionId='11111111-1111-4111-8111-111111111111';SessionId='22222222-2222-4222-8222-222222222222';Policy=$policy;Channel=$resource;Owner=$resource;Peers=@();Capability=@{operation='install';recovery=$false;transaction_id='11111111-1111-4111-8111-111111111111';session_id='22222222-2222-4222-8222-222222222222'}}
+ return [pscustomobject]@{RollbackMediaPath=$null;TransactionId='11111111-1111-4111-8111-111111111111';SessionId='22222222-2222-4222-8222-222222222222';Policy=$policy;Channel=$resource;Owner=$resource;Peers=@();Capability=@{operation='install';recovery=$false;transaction_id='11111111-1111-4111-8111-111111111111';session_id='22222222-2222-4222-8222-222222222222'}}
 }
 function New-InstallerBridge {param($Manifest,$HelperPath,$HelperHash,$StateRoot,$ServiceStates,$Intent,$TransactionId,$Selection);return New-TestBridge}
 function Get-StagedAgentObservation {
@@ -166,16 +173,20 @@ function Get-StagedAgentObservation {
  return 'same-process'
 }
 function Stop-ManagedAgentServices {throw 'old services stopped during capture'}
+function Get-StagedRollbackMedia {param($Item,$StateRoot,$CacheRoot)
+ $script:events.Add('media');return 'verified-old-media'
+}
 function Invoke-InstallerHelper {param($Bridge,$Phase)
  if($Phase -cne 'stage-online'){throw 'unexpected helper phase'}
  $script:events.Add('prepared')
- return [pscustomobject]@{result='staged-prepared';phase='prepared';operation_id=$Bridge.TransactionId}
+ return [pscustomobject]@{result='staged-prepared';phase='prepared';operation_id=$Bridge.TransactionId;
+  rollback_media=@{old=@{};new=@{release=@{package_sha256=('c'*64)};helper_sha256=('a'*64)}}}
 }
 $old=New-TestBridge
 $denied=$false
-try{$new=Invoke-StagedOnlinePreparation -Bridge $old -Manifest @{} -HelperPath 'helper' -HelperHash ('a'*64) -StateRoot 'state' -ServiceStates @{} -Selection ([pscustomobject]@{selected=('b'*64);previous=$null})}catch{$denied=$true}
+try{$new=Invoke-StagedOnlinePreparation -Bridge $old -Manifest @{package_sha256=('c'*64)} -HelperPath 'helper' -HelperHash ('a'*64) -StateRoot 'state' -CacheRoot 'cache' -ServiceStates @{} -Selection ([pscustomobject]@{selected=('b'*64);previous=$null})}catch{$denied=$true}
 if($Service -eq 'running'){
- if($denied -or $new -eq $old -or [string]::Join(',', $script:events) -cne 'prepared,revoke'){throw 'unsafe staging handoff'}
+ if($denied -or $new -eq $old -or [string]::Join(',', $script:events) -cne 'prepared,media,revoke'){throw 'unsafe staging handoff'}
 }elseif(!$denied){throw 'unsafe service observation accepted'}
 'passed'
 ''', encoding='utf-8')

@@ -43,6 +43,17 @@ enforces a 180-second total deadline. Acceptance is durably journaled before
 cleanup can unblock OTA. Existing OTA startup proof remains separate. A missing
 fresh policy ACK withholds acceptance; silence is never a no-assignment proof.
 
+`platform/windows/staged_foundation_rollback.py` binds compensation to the
+original unaccepted operation, preserved data capture and exact old/new media.
+The owner uses fresh control/removal sessions and the immutable predecessor's
+genuine helper ABI in one reverse native transaction. Old shared bytes, MSI
+registration and complete original Core identities must agree before original
+selectors return. The removal child's delayed commit callback has its own
+protected receipt; its original native fence is archived without pretending a
+normal whole-product uninstall completed. Unknown native settlement retains the
+barrier. Genuine signed 3.2.79 uses an explicit extracted Foundation catalog and
+its original callback-free ABI.
+
 `endpoint_contracts` defers its model exports until requested. The pure
 `runtime_payload` leaf therefore loads without initializing Pydantic or its
 indirect network imports in the offline worker. The packaged updater's

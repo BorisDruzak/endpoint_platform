@@ -27,6 +27,57 @@ _SHARED79_HOST_SIZE=34094212
 _SHARED79_HOST_SHA256='6100c2351bd65827b4c16b1f7fb77a0007ca9ca192bc512f1642797e62182b11'
 
 
+def rollback_foundation_catalog(release):
+    release = canonical_release(release)
+    if release is None or release['package_sha256'] != _SHARED79_PACKAGE:
+        raise ProvenanceConflict()
+    return tuple(dict(row) for row in _ROLLBACK_FOUNDATION_FILES79)
+
+
+def rollback_foundation_inventory(media, release):
+    from types import SimpleNamespace
+    from . import msi_inventory
+    rows = rollback_foundation_catalog(release)
+    package = msi_inventory.read_package(media, release['package_sha256'])
+    if package.product_code != release['product_code'] or package.version != release['version']:
+        raise ProvenanceConflict()
+    actual = {item.path: item for item in package.files if '/' not in item.path and item.path != 'current.json'}
+    if set(actual) != {row['path'] for row in rows}:
+        raise ProvenanceConflict()
+    for row in rows:
+        item = actual[row['path']]
+        if (item.name, item.component, item.size) != (row['file'], row['component'], row['size']):
+            raise ProvenanceConflict()
+    return SimpleNamespace(package=package, foundation_files=rows)
+
+
+@contextmanager
+def verified_rollback_foundation_bytes(paths, expected):
+    from . import durable_state, msi_inventory
+    if expected.package.sha256 != _SHARED79_PACKAGE or tuple(expected.foundation_files) != _ROLLBACK_FOUNDATION_FILES79:
+        raise ProvenanceConflict()
+    with _verified_shared_service_host(paths) as host, ExitStack() as stack:
+        pins = []
+        for row in expected.foundation_files:
+            path = paths.install_root / row['path']
+            msi_inventory._assert_registered_cache_security(path)
+            before = durable_state._copy_identity(path.lstat())
+            descriptor = stack.enter_context(durable_state._pinned_copy_source(path))
+            opened = os.fstat(descriptor)
+            if durable_state._copy_identity(opened) != before:
+                raise ProvenanceConflict()
+            durable_state._verify_copy_bytes(descriptor, row['size'], row['sha256'])
+            pins.append((path, descriptor, before, opened.st_ctime_ns))
+        yield
+        host.check()
+        for path, descriptor, before, changed in pins:
+            after = os.fstat(descriptor)
+            if (durable_state._copy_identity(path.lstat()) != before
+                    or durable_state._copy_identity(after) != before or after.st_ctime_ns != changed):
+                raise ProvenanceConflict()
+            msi_inventory._assert_registered_cache_security(path)
+
+
 def canonical_release(value):
     if not isinstance(value,dict):raise ProvenanceConflict()
     digest=value.get('package_sha256')
@@ -622,3 +673,47 @@ def verify_completed_replacement(paths,request):
     if role is not None:
         expected=provenance._expected_request(request)
         msi_inventory.verify_replaced_product(role.package,expected.package,paths.install_root)
+
+
+# Exact shared files extracted read-only from cab1.cab in the genuine signed79
+# MSI above. This is a rollback inventory, not a reconstructed old release.
+_ROLLBACK_FOUNDATION_FILES79 = ({'path': 'launcher.exe',
+  'file': 'filLauncher',
+  'component': 'cmpLauncher',
+  'size': 28945026,
+  'sha256': '2ee003ef461985d35bee22f248939b6f988f1e8cc024031782af74c609d4fe95'},
+ {'path': 'endpoint-agent-provision.exe',
+  'file': 'filProvisioner',
+  'component': 'cmpProvisioner',
+  'size': 34077678,
+  'sha256': '88199a77905fe2deae4d90623c99136d36dcdbb8a59df3505a6d09f11bd01825'},
+ {'path': 'endpoint-agent-service.exe',
+  'file': 'filServiceHost',
+  'component': 'cmpServiceEntrypoints',
+  'size': 34094212,
+  'sha256': '6100c2351bd65827b4c16b1f7fb77a0007ca9ca192bc512f1642797e62182b11'},
+ {'path': 'EndpointBrowserPolicy.exe',
+  'file': 'filEndpointBrowserPolicy',
+  'component': 'cmpBrowserPolicyService',
+  'size': 10044444,
+  'sha256': '2c99e9541d03edd15030faa45f18c0d0fe4244ee7c90b33edeb9ec146893d0f0'},
+ {'path': 'EndpointAgentTray.exe',
+  'file': 'filEndpointAgentTray',
+  'component': 'cmpTrayCompanion',
+  'size': 35535745,
+  'sha256': '829235a770ec80caef27aefc289a54cbe7212309d01f1cacac5eb227673e0684'},
+ {'path': 'EndpointUserSensor.exe',
+  'file': 'filEndpointUserSensor',
+  'component': 'cmpUserSensor',
+  'size': 32664163,
+  'sha256': '302666493a430daf9d5cb3ddbddf88661d3873f1344691eeb95282dfa2363fce'},
+ {'path': 'EndpointBrowserBridge.exe',
+  'file': 'filEndpointBrowserBridge',
+  'component': 'cmpBrowserBridge',
+  'size': 32667952,
+  'sha256': '2470863298ab96c35625aca057cabace8b32fd9ec18f36cd66832bad34149d3f'},
+ {'path': 'ru.sosnadmin.endpoint.browser.json',
+  'file': 'filEndpointBrowserManifest',
+  'component': 'cmpBrowserBridge',
+  'size': 234,
+  'sha256': '037eae68f718d15b10d115aba8933a67fd054e6617f600c9516cd35802777d12'})
