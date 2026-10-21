@@ -240,6 +240,10 @@ systemctl daemon-reload || :
 %endif
 
 %changelog
+* Wed Oct 21 2026 Endpoint Platform Maintainers <endpoint@example.invalid> 3.2.123-alt4
+- Add optional KDE/Chromium user sensors and restricted browser policy helper.
+- Preserve headless Core credentials and existing corporate browser policy.
+
 * Fri Sep 04 2026 Endpoint Platform Maintainers <endpoint@example.invalid> 3.2.37-alt3
 - Publish the legacy-cutover headless agent as an upgrade over the canary baseline.
 

@@ -286,12 +286,12 @@ stage_file 0644 "$script_dir/SOURCES/endpoint-agent.tmpfiles" "$build_root/SOURC
 stage_file 0644 "$script_dir/SOURCES/endpoint-agent.logrotate" "$build_root/SOURCES/endpoint-agent.logrotate"
 if [[ "$with_user_sensor" == true ]]; then
     [[ "$(uname -s)" == Linux ]] || die 'KDE sensor builds require Linux'
-    "$python_command" - "$version" <<'PY' || die 'KDE sensor requires Agent 3.2.122 or newer'
+    "$python_command" - "$version" <<'PY' || die 'KDE/browser sensor package requires Agent 3.2.123 or newer'
 import re, sys
 version = sys.argv[1]
 if re.fullmatch(r'(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)', version) is None:
     raise SystemExit(1)
-raise SystemExit(0 if tuple(map(int, version.split('.'))) >= (3, 2, 122) else 1)
+raise SystemExit(0 if tuple(map(int, version.split('.'))) >= (3, 2, 123) else 1)
 PY
     command -v cmake >/dev/null 2>&1 || die 'cmake and Qt6/KF6 development packages are required'
     cmake -S "$project_root/pc_agent/platform/linux/kde_probe" \

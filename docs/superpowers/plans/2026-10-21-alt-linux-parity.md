@@ -319,3 +319,8 @@ Execution is explicitly authorized without intermediate approval stops.
   A broad Windows invocation of Linux filesystem update tests failed on absent
   os.fchmod (34 failures, 76 passes, 5 skips); those native filesystem checks
   were rerun on ALT and passed rather than emulating Linux ownership on Windows.
+- Next private D candidate is 3.2.123-alt4. Read-only production UpdateBuild
+  lookup found no reserved 3.2.122/123/124 on any platform/channel; GitHub releases
+  were empty. Previously installed 3.2.122 runtime bytes are preserved. The new
+  candidate will be built from one exact committed full source archive and is
+  not authorized for production rollout or stable-channel publication yet.
