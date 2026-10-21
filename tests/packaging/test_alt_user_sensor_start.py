@@ -7,6 +7,20 @@ import subprocess
 
 SOURCE = Path(__file__).resolve().parents[2] / 'packaging/alt/SOURCES/start-user-sensor.py'
 
+
+def test_user_unit_preserves_host_uid_namespace_for_mutual_ipc():
+    from configparser import ConfigParser
+    unit = ConfigParser(interpolation=None)
+    unit.read(SOURCE.with_name('endpoint-user-sensor.service'), encoding='utf-8')
+    service = unit['Service']
+    assert service.get('PrivateUsers') == 'no'
+    # User-unit mount sandboxing implies a user namespace: unmapped root becomes
+    # UID 65534, breaking root-owned selector and service socket authentication.
+    assert service.get('ProtectSystem', 'no') == 'no'
+    assert service.get('ProtectHome', 'no') == 'no'
+    assert service.get('NoNewPrivileges') == 'yes'
+    assert service.get('RestrictAddressFamilies') == 'AF_UNIX'
+
 def _module():
     spec = importlib.util.spec_from_file_location('alt_sensor_start', SOURCE)
     module = importlib.util.module_from_spec(spec)

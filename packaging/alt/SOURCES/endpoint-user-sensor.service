@@ -13,8 +13,9 @@ RestartSec=5s
 RestartPreventExitStatus=78
 TimeoutStopSec=15s
 NoNewPrivileges=yes
-ProtectSystem=strict
-ProtectHome=read-only
+# Preserve host UID values for root-owned release and service-peer checks.
+# User-manager filesystem sandboxing implicitly remaps host root to nobody.
+PrivateUsers=no
 RestrictAddressFamilies=AF_UNIX
 RestrictSUIDSGID=yes
 LockPersonality=yes

@@ -215,3 +215,15 @@ Execution is explicitly authorized without intermediate approval stops.
   before stdin is read; typed ACK validation and private-error suppression are
   covered. Targeted Linux/common/Windows browser tests: 28 passed. Installation,
   browser policy ownership and live extension handshake remain pending.
+- Installed C uncovered a user-unit namespace incompatibility: its mount
+  sandbox implicitly maps host root to UID 65534. A native user-unit probe
+  reproduced the selector ownership rejection while direct user execution
+  succeeded. Preserve the host UID namespace; retain NoNewPrivileges, AF_UNIX,
+  SUID/personality restrictions and strict root/service ownership checks.
+  Regression failed before the unit fix and passed after it. Focused session,
+  listener and packaging tests: 17 passed, 3 platform skips.
+- The installed 3.2.122 RPM is unchanged. A root-owned temporary user-unit
+  override exercises the corrected namespace until the next RPM packages it;
+  remove that acceptance override after upgrading the fixed RPM. The user
+  service then ran with zero restarts; real WSS Activity arrived on staging
+  with the verified qualified AD identity and honest UNKNOWN before input.
