@@ -15,6 +15,7 @@ MAX_RECORDS = 128
 _SOCKET = "/run/cups/cups.sock"
 _PRINTER_ATTRIBUTES = ("printer-name", "printer-state", "printer-make-and-model", "printer-type")
 _JOB_ATTRIBUTES = ("job-id", "job-state", "time-at-creation")
+AUDIT_JOB_ATTRIBUTES = (*_JOB_ATTRIBUTES, 'job-uuid', 'job-printer-uri', 'job-impressions', 'copies')
 
 
 class _LocalCupsConnection(http.client.HTTPConnection):
@@ -34,10 +35,15 @@ def _attribute(tag: int, name: str, value: str | int) -> bytes:
     return bytes([tag]) + struct.pack(">H", len(key)) + key + struct.pack(">H", len(data)) + data
 
 
-def query(operation: int, attributes: tuple[str, ...], *, which_jobs: str = "not-completed") -> list[dict[str, object]]:
+def query(operation: int, attributes: tuple[str, ...], *, which_jobs: str = "not-completed",
+          first_job_id: int | None = None, allow_page: bool = False) -> list[dict[str, object]]:
     if operation not in {0x000A, 0x4002} or which_jobs not in {"not-completed", "all"}:
         raise ValueError("CUPS_QUERY_INVALID")
-    allowed = set(_PRINTER_ATTRIBUTES if operation == 0x4002 else _JOB_ATTRIBUTES)
+    if type(allow_page) is not bool or (allow_page and (operation != 0x000A or which_jobs != 'all')):
+        raise ValueError('CUPS_PAGE_INVALID')
+    if first_job_id is not None and (not allow_page or type(first_job_id) is not int or not 1 <= first_job_id < 2**31):
+        raise ValueError('CUPS_PAGE_INVALID')
+    allowed = set(_PRINTER_ATTRIBUTES if operation == 0x4002 else AUDIT_JOB_ATTRIBUTES)
     if not attributes or not set(attributes) <= allowed:
         raise ValueError("CUPS_ATTRIBUTES_INVALID")
     request = struct.pack(">BBHI", 1, 1, operation, 1) + b"\x01"
@@ -46,6 +52,8 @@ def query(operation: int, attributes: tuple[str, ...], *, which_jobs: str = "not
     if operation == 0x000A:
         request += _attribute(0x45, "printer-uri", "ipp://localhost/")
         request += _attribute(0x44, "which-jobs", which_jobs)
+        if first_job_id is not None:
+            request += _attribute(0x21, 'first-job-id', first_job_id)
     request += _attribute(0x21, "limit", MAX_RECORDS)
     for index, name in enumerate(attributes):
         request += _attribute(0x44, "requested-attributes" if index == 0 else "", name)
@@ -60,7 +68,7 @@ def query(operation: int, attributes: tuple[str, ...], *, which_jobs: str = "not
         rows = parse_response(raw)
         # A response at the requested limit might omit more jobs/printers.
         # Never report an incomplete enumeration as an accurate summary.
-        if len(rows) >= MAX_RECORDS:
+        if len(rows) >= MAX_RECORDS and not allow_page:
             raise ValueError("CUPS_RECORD_LIMIT")
         return rows
     finally:
@@ -116,11 +124,11 @@ def parse_response(raw: bytes) -> list[dict[str, object]]:
             continue
         if name in row:
             raise ValueError("CUPS_DUPLICATE_ATTRIBUTE")
-        if name not in {*_PRINTER_ATTRIBUTES, *_JOB_ATTRIBUTES}:
+        if name not in {*_PRINTER_ATTRIBUTES, *AUDIT_JOB_ATTRIBUTES}:
             continue
         if tag in {0x21, 0x23} and size == 4:
             row[name] = int.from_bytes(data, "big", signed=True)
-        elif tag in {0x41, 0x42, 0x44} and size <= 256:
+        elif tag in {0x41, 0x42, 0x44, 0x45} and size <= (512 if tag == 0x45 else 256):
             row[name] = data.decode("utf-8", errors="strict")
         else:
             raise ValueError("CUPS_ATTRIBUTE_TYPE_INVALID")

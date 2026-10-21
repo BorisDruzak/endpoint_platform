@@ -180,6 +180,16 @@ while the notification worker and protected SecurityEvent spool are available.
 Native subscription start/stop has passed on Windows; a real disposable print
 job and durable server/Console projection are still acceptance gates.
 
+`security/print_projection.py` owns the Windows/Linux safe print DTO projection.
+Linux `platform/linux/print_sensor.py` queries explicit CUPS IPP job metadata
+over the local Unix socket. It pages job IDs past retained history, skips the
+startup baseline and polls only newer IDs. CUPS job UUIDs give stable event
+identifiers and creation timestamps; failed persistence retries the same frozen
+metadata before advancing the cursor. Titles, spool files and raw printer URIs
+never enter events; user identity and rounded byte counts remain unknown.
+The native source and shared durable spool passed a disposable held-job probe;
+installed WSS/Console print acceptance remains pending.
+
 The interactive `user_sensor_runtime.py` samples each logon session and sends
 bounded frames through the same authenticated pipe. MSI stages its fixed
 `EndpointUserSensor.exe` and HKLM Run entry; signed release and live acceptance

@@ -245,3 +245,16 @@ Execution is explicitly authorized without intermediate approval stops.
   from the disposable pointer confirmed the sender/credential assumptions;
   this is not claimed as USB hotplug evidence. Native tests: 13 passed; local
   USB/Windows subset: 19 passed, 2 native skips. Physical USB acceptance pending.
+- D CUPS source uses explicit safe IPP fields, bounded ID pagination and a
+  startup baseline; old history is skipped without requesting document names.
+  Stable CUPS UUID/time facts and frozen pending records preserve identity on
+  spool retries. Shared print projection retains Windows notification behavior.
+  Local print/Windows/CUPS tests: 27 passed. Service-user live CUPS query returned
+  the held fixture's ID/UUID/printer URI/state/time/copies; pages were absent and
+  remain unknown. A separate native source probe observed a newly submitted
+  held fixture and persisted one PRINT_JOB through the existing SQLite spool
+  with no source failures, titles or contents. This is source/spool evidence,
+  not installed Gateway delivery. Disposable queue and its two jobs are removed;
+  no pre-existing printer definition was changed. The earlier inventory of 16
+  was a bounded projection, not a verified total; lpstat currently lists 47
+  destinations. Installed staging DLP acceptance is still pending.
