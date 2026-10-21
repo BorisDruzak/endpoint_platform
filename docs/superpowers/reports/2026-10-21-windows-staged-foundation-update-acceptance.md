@@ -63,6 +63,81 @@ Regressions were observed failing before the fixes. The corrective selection
 passed 68 tests. Actual repeat acceptance requires a newly frozen version;
 3.2.123 media and its manifest will not be replaced.
 
+## Rejected candidates 3.2.124 and 3.2.125
+
+Candidate 3.2.124 used runtime source
+`53833960231f7b09590f08268e710ecd6fa00ad4` and build checkout
+`7205b2f1754272ffcf45f7183a6e5038855dc20a`.
+[CI 39605557200](https://github.com/BorisDruzak/endpoint_platform/actions/runs/39605557200)
+passed 4433 tests with 738 skips; Windows passed 2195 tests with 3 skips.
+Its genuine 3.2.79 run was stopped for performance investigation before
+switching. The original Agent remained running. A saved failure snapshot and
+the explicit test-VM reset do not establish automatic rollback.
+
+On that VM, 20 native feature-state queries took 1.725 seconds. The genuine
+predecessor has 2557 components sharing one feature. Commit
+`441d6135e7a34612a57a50ab559e8d9ee105aa47` checks each unique feature before
+and after the complete component walk, retaining every live component/keypath
+check and rejecting feature drift. The targeted selection passed 130 tests.
+
+Candidate 3.2.125 used runtime source
+`e4f49949c5c67658a0826d653c742611b3eb9794` and build checkout
+`3beb016abd33b3a17cdd1bb862de64b30efedb26`.
+[CI 39612016714](https://github.com/BorisDruzak/endpoint_platform/actions/runs/39612016714)
+passed 4437 tests with 738 skips. A complete Windows repeat passed 2198 tests
+with 3 skips. The first Windows attempt had one failure in the unchanged
+system/process capability test; its isolated repeat and the complete repeat
+passed, without suppressing or modifying that test. Both MSI and Setup had
+valid signatures and timestamp certificates.
+
+| Artifact | SHA-256 |
+| --- | --- |
+| 3.2.124 signed MSI | `b1ff4d778d2327bf801c13c1c6599b78c8049ed7eee38139f7f15cc927652945` |
+| 3.2.124 signed Setup | `38892e8ee677c8b940cd36096dc86513d99a15a6a4d53cf70cca1ace8676eca0` |
+| 3.2.125 signed MSI | `7e18cb2278d3fb6662c50c86ce33fef9413f118afba5c35441fcfde9892fd64c` |
+| 3.2.125 signed Setup | `d3e1bc46906750a8d8b1150917e69b31e5404bf2262d166998e762b6f5d13862` |
+
+In the genuine 3.2.79 run, all 2543 retained files (48,313,190 bytes) were
+captured. The old Agent remained running through `prepared` at 14:08:47 UTC.
+Its connection closed at 14:09:02; the new native registration appeared at
+14:12:18 and the new Agent was running at 14:14:17. The server observed
+3.2.125 and a fresh APPLIED policy ACK at approximately 14:14:26. These
+observations fail the two-minute outage target and do not establish acceptance
+within ten minutes. The large before-file-ID response exceeded the private
+transport's output bound, so full legacy zero-copy file-ID acceptance remains
+incomplete; the transport guard was preserved.
+
+The genuine predecessor had no `updates` directory. Consequently the candidate
+could not publish its trial proof, despite successful WSS/policy operation.
+Timeout automatically entered `rolling-back`, but candidate-removal preflight
+requested a directory-flush mutation forbidden by the owner's read-only
+preflight policy. A separate timeout path called `win32file.CancelIoEx`, which
+is absent in the pinned pywin32 311. Uncaught helper exceptions left hidden
+windowed error dialogs and stalled the native transaction. This is a failed
+automatic-rollback attempt, not successful rollback evidence.
+
+The failed RAM state was preserved. Before the controlled reset, all four
+private enrollment leaf states still matched their controller-held baseline.
+The VM was restored to the original healthy 3.2.79 snapshot and reconnected.
+
+Corrective commits:
+
+- `cf2f7f2c66511c79376b88d9cf39fa0f675aca92` creates the missing proof directory
+  under the authenticated quiescent owner, with canonical update ACLs and
+  trusted-parent validation.
+- `83756082995c361c76970319e96dbd3f4af030ff` creates rollback child directories
+  only in `prepare`, validates them without mutation in native callbacks,
+  cancels the caller thread's pending pipe I/O using the available API, and
+  returns failure for unexpected installer-helper exceptions instead of
+  entering a windowed dialog.
+
+The corresponding regressions failed before the fixes. The combined targeted
+selection passed 172 tests, including a real pending Windows pipe cancellation.
+Candidate 3.2.126 is frozen from
+`217ff3569a28900f7723197c2057738751d3e5ad`; its gates, signed installer and
+actual installed acceptance are still pending. No performance or automatic
+rollback pass is claimed for this candidate.
+
 ## Remaining admission
 
 The success, early-crash and no-proof rollback cases on genuine 3.2.79 and
