@@ -23,6 +23,7 @@ from .service import resolve_effective_policy
 
 _MINIMUM_AGENT_VERSION = (3, 2, 68)
 _MINIMUM_LINUX_AGENT_VERSION = (3, 2, 122)
+_MINIMUM_LINUX_AUDIT_VERSION = (3, 2, 123)
 _VERSION = re.compile(r"^([0-9]+)\.([0-9]+)\.([0-9]+)$")
 
 
@@ -41,6 +42,16 @@ def supports_endpoint_policy(hello: AgentHelloV1) -> bool:
             _MINIMUM_LINUX_AGENT_VERSION if hello.platform == 'linux_amd64'
             else _MINIMUM_AGENT_VERSION
         )
+    )
+
+
+def supports_endpoint_audit(hello: AgentHelloV1) -> bool:
+    """Linux Activity-only candidates cannot opt into Browser/DLP receive paths."""
+    if not supports_endpoint_policy(hello):
+        return False
+    match = _VERSION.fullmatch(hello.agent_version)
+    return hello.platform == 'windows_amd64' or (
+        match is not None and tuple(int(part) for part in match.groups()) >= _MINIMUM_LINUX_AUDIT_VERSION
     )
 
 

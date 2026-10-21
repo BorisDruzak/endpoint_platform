@@ -64,6 +64,7 @@ _AGENT_SEMVER = re.compile(r"^([0-9]+)\.([0-9]+)\.([0-9]+)$")
 _MIN_POLICY_AGENT_VERSION = (3, 2, 68)
 _MIN_SECURITY_EVENTS_AGENT_VERSION = (3, 2, 70)
 _MIN_LINUX_POLICY_AGENT_VERSION = (3, 2, 122)
+_MIN_LINUX_SECURITY_AGENT_VERSION = (3, 2, 123)
 logger = logging.getLogger(__name__)
 
 
@@ -157,6 +158,7 @@ def _default_dependencies(
     activity_listener_ready = False
     security_spool_ready = False
     browser_bridge_ready = False
+    browser_probe = None
     if settings is not None:
         cache = AppliedPolicyCache(settings.data_root)
         applicator = _policy_applicator_for(os.name)
@@ -173,7 +175,8 @@ def _default_dependencies(
                     activity_available=listener_available,
                     browser_audit_available=(
                         listener_available and security_spool_ready
-                        and browser_bridge_ready
+                        and (await asyncio.to_thread(browser_probe.bridge_available)
+                             if browser_probe is not None else browser_bridge_ready)
                     ),
                     usb_available=(
                         security_spool_ready
@@ -204,7 +207,7 @@ def _default_dependencies(
     sensor_health_enabled = "endpoint.sensor-health.v1" in policy_features
     if (
         settings is not None
-        and os.name == "nt"
+        and os.name in {"nt", "posix"}
         and "endpoint.security-events.v1" in policy_features
     ):
         security_runtime = SecurityEventRuntime(SecurityEventSpool(settings.data_root))
@@ -262,6 +265,7 @@ def _default_dependencies(
         nonlocal usb_notifications, print_notifications, browser_status_runtime
         nonlocal activity_ingress, activity_listener
         nonlocal activity_listener_ready, browser_bridge_ready
+        nonlocal browser_probe
         if not (
             isinstance(current_settings, RuntimeSettings)
             and current_settings.transport_mode == "gateway_wss"
@@ -273,21 +277,87 @@ def _default_dependencies(
                 return None
             from pc_agent.activity_ingress import ActivityIngress
             from pc_agent.platform.linux.sensor_listener import create_activity_listener
+            from pc_agent.browser_identity import load_packaged_extension_id
+            from pc_agent.browser_status import BrowserStatusRuntime
+            from pc_agent.platform.linux.browser_status import LinuxBrowserProbe
+            from pc_agent.platform.linux.usb_sensor import UsbNotifications, project_usb_change
+            from pc_agent.platform.linux.print_sensor import PrintNotifications, project_print_job
 
-            ingress = ActivityIngress(expected_extension_id=None)
+            sources = []
+            extension_id = None
+            on_security_event = None
+            if security_runtime is not None:
+                try:
+                    extension_id = load_packaged_extension_id()
+                    browser_probe = LinuxBrowserProbe(extension_id=extension_id)
+                    browser_bridge_ready = browser_probe.bridge_available()
+                except Exception:
+                    logger.warning('Linux browser bridge is unavailable')
+                on_security_event = _security_persistence_callback(security_runtime)
+            ingress = ActivityIngress(expected_extension_id=extension_id)
             listener = create_activity_listener(
                 ingress=ingress, policy_provider=lambda: policy_runtime.current_policy,
                 on_observation=activity_dispatch.enqueue,
+                on_security_event=on_security_event,
             )
             try:
                 listener.start()
             except Exception:
                 logger.warning('Linux local sensor listener is unavailable')
-                return None
-            activity_ingress = ingress
-            activity_listener = listener
-            activity_listener_ready = True
-            return listener
+            else:
+                activity_ingress = ingress
+                activity_listener = listener
+                activity_listener_ready = True
+                sources.append(listener)
+            if extension_id is not None and browser_status_enabled and browser_probe is not None:
+                browser_status_runtime = BrowserStatusRuntime(
+                    policy_provider=lambda: policy_runtime.report_policy, ingress=ingress, probe=browser_probe,
+                )
+            if on_security_event is not None:
+                def handle_usb(change):
+                    event = project_usb_change(change, policy_runtime.current_policy, occurred_at=datetime.now(UTC))
+                    if event is not None and not on_security_event(event):
+                        raise RuntimeError('USB SecurityEvent persistence unavailable')
+
+                def handle_print(facts):
+                    event = project_print_job(facts, policy_runtime.current_policy)
+                    if event is not None and not on_security_event(event):
+                        raise RuntimeError('print SecurityEvent persistence unavailable')
+
+                usb_source = UsbNotifications(handle_usb)
+                try:
+                    usb_source.start()
+                except Exception:
+                    logger.warning('Linux USB source is unavailable')
+                else:
+                    usb_notifications = usb_source
+                    sources.append(usb_source)
+                print_source = PrintNotifications(handle_print)
+                try:
+                    print_source.start()
+                except Exception:
+                    logger.warning('Linux print source is unavailable')
+                else:
+                    print_notifications = print_source
+                    sources.append(print_source)
+
+            class LinuxSensors:
+                @property
+                def available(self):
+                    return activity_listener_ready and listener.available
+
+                def stop(self):
+                    nonlocal usb_notifications, print_notifications, activity_ingress, activity_listener
+                    nonlocal activity_listener_ready, browser_bridge_ready, browser_probe
+                    for source in reversed(sources):
+                        try:
+                            source.stop()
+                        except Exception:
+                            logger.warning('Linux local sensor failed to stop')
+                    usb_notifications = print_notifications = activity_ingress = activity_listener = browser_probe = None
+                    activity_listener_ready = browser_bridge_ready = False
+
+            return LinuxSensors()
         if os.name != 'nt':
             return None
         from pc_agent.platform.windows.activity_api import (
@@ -309,23 +379,7 @@ def _default_dependencies(
         extension_id = None
         if security_runtime is not None:
             extension_id = _extension_id()
-            loop = asyncio.get_running_loop()
-            loop_thread = threading.get_ident()
-
-            def persist_security_event(event):
-                if threading.get_ident() == loop_thread:
-                    return False
-                future = asyncio.run_coroutine_threadsafe(
-                    security_runtime.record(event), loop,
-                )
-                try:
-                    # Keep this below the pipe listener's three-second stop bound.
-                    return future.result(timeout=2)
-                except Exception:
-                    future.cancel()
-                    return False
-
-            on_security_event = persist_security_event
+            on_security_event = _security_persistence_callback(security_runtime)
 
         ingress = ActivityIngress(expected_extension_id=extension_id)
         listener = create_activity_pipe_listener(
@@ -500,6 +554,24 @@ def _default_dependencies(
     )
 
 
+def _security_persistence_callback(security_runtime):
+    """One durable handoff for OS callbacks and local browser IPC on either OS."""
+    loop = asyncio.get_running_loop()
+    loop_thread = threading.get_ident()
+
+    def persist(event):
+        if threading.get_ident() == loop_thread:
+            return False
+        future = asyncio.run_coroutine_threadsafe(security_runtime.record(event), loop)
+        try:
+            return future.result(timeout=2)
+        except Exception:
+            future.cancel()
+            return False
+
+    return persist
+
+
 def _policy_applicator_for(platform_name: str) -> PolicyApplicator | None:
     if platform_name == 'nt':
         return apply_windows_policy_sensors
@@ -643,7 +715,10 @@ def _policy_protocol_features(
     if platform == 'linux_amd64':
         if tuple(int(part) for part in match.groups()) < _MIN_LINUX_POLICY_AGENT_VERSION:
             return []
-        return ['endpoint.policy.v1', 'endpoint.activity.v1', 'endpoint.sensor-health.v1']
+        features = ['endpoint.policy.v1', 'endpoint.activity.v1', 'endpoint.sensor-health.v1']
+        if tuple(int(part) for part in match.groups()) >= _MIN_LINUX_SECURITY_AGENT_VERSION:
+            features.extend(['endpoint.security-events.v1', 'endpoint.browser-status.v1'])
+        return features
     features = ["endpoint.policy.v1"]
     if tuple(int(part) for part in match.groups()) >= _MIN_SECURITY_EVENTS_AGENT_VERSION:
         features.append("endpoint.activity.v1")

@@ -223,7 +223,13 @@ Chromium and Chrome manifests pin the existing extension origin and are
 config(noreplace); no Yandex installation path is guessed. `browser_status.py`
 shares the existing Windows projection and ACK gating; Linux supplies only
 read-only host facts. Policy and manifest presence never fabricate a heartbeat.
-Installed Browser Sensor acceptance and runtime capability wiring remain open.
+Linux Core >=3.2.123 wires the same SecurityEventRuntime/spool and Browser
+Status runtime to Unix sensor IPC, kernel USB and local CUPS adapters. A failed
+optional source does not prevent the other sources starting; requested audit
+still requires actual source readiness. `_security_persistence_callback` owns
+the common bounded thread-to-loop durable handoff. Gateway Browser/DLP receive
+paths require both negotiated features and the Linux audit runtime version.
+Installed Browser Sensor acceptance remains open.
 
 Linux diagnostics share `platform/linux/sessions.py` (bounded logind local
 graphical sessions), `journal.py` (fixed severity/profile queries that exclude

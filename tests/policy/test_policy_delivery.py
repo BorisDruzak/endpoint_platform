@@ -16,6 +16,7 @@ import endpoint_server.db.models  # noqa: F401 - register FK targets
 from endpoint_server.policy.delivery import (
     PolicyAcknowledgementRejected,
     supports_endpoint_policy,
+    supports_endpoint_audit,
     prepare_policy_delivery,
     record_policy_ack,
 )
@@ -65,6 +66,17 @@ def _hello(device_id: UUID, *, version: str = "3.2.68", features: list[str] | No
 def test_linux_policy_requires_negotiation_and_new_runtime(version, features, expected):
     hello = _hello(uuid4(), version=version, features=features).model_copy(update={'platform': 'linux_amd64'})
     assert supports_endpoint_policy(hello) is expected
+
+
+@pytest.mark.parametrize('platform,version,features,expected', [
+    ('linux_amd64','3.2.122',['endpoint.policy.v1'],False),
+    ('linux_amd64','3.2.123',[],False),
+    ('linux_amd64','3.2.123',['endpoint.policy.v1'],True),
+    ('windows_amd64','3.2.68',['endpoint.policy.v1'],True),
+])
+def test_audit_negotiation_keeps_activity_only_linux_candidates_closed(platform, version, features, expected):
+    hello=_hello(uuid4(),version=version,features=features).model_copy(update={'platform':platform})
+    assert supports_endpoint_audit(hello) is expected
 
 
 @pytest.mark.asyncio

@@ -184,6 +184,7 @@ systemctl daemon-reload || :
 systemctl daemon-reload || exit 1
 systemctl enable --now endpoint-agent-browser-policy.service || exit 1
 systemctl try-restart endpoint-agent-browser-policy.service || exit 1
+systemctl try-restart endpoint-agent.service || exit 1
 
 %preun user-sensor
 if [ "$1" -eq 0 ]; then

@@ -281,3 +281,16 @@ Execution is explicitly authorized without intermediate approval stops.
   native packaging assertion used a stale selectively copied user unit; copying
   the committed fixed unit resolved it. Next candidate must use a full exact
   source archive; installed browser/WSS tests are still pending.
+- D runtime composition now routes Linux USB, CUPS and browser IPC through the
+  existing SecurityEventRuntime and protected SQLite spool. Windows/Linux share
+  the bounded durable callback. A failed optional USB source does not prevent
+  Print from persisting; requesting failed USB audit returns SENSOR_NOT_READY.
+  Browser availability is rechecked from trusted installed native-host files at
+  policy application. Core >=3.2.123 negotiates Browser/DLP separately from the
+  3.2.122 Activity-only candidate. Gateway receive guards use that same boundary.
+  Real ASGI tests first reproduced the Windows-only Browser/DLP rejection, then
+  passed persistence, ACK and idempotent replay for both platforms. Targeted
+  runtime/Windows/Gateway/policy checks: 77 passed, 1 native skip. GitNexus route
+  lookup/symbol lookup did not resolve this dynamic handler; file impact found
+  the direct main.py import (LOW). Source and route tests verify the actual
+  dynamic boundary. Installed candidate/version bump and D live tests pending.
