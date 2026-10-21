@@ -270,10 +270,17 @@ def main(argv: Sequence[str] | None = None) -> int:
         except Exception as error:
             # pywin32 errors need not inherit OSError. A windowed MSI helper
             # must return failure, never wait on an invisible exception dialog.
-            if str(error)=="UPDATE_IN_PROGRESS": return 61
-            if str(error)=="UPDATE_STATE_INVALID": return 62
-            if str(error)=="PROVENANCE_CONFLICT": return 63
-            return 1
+            try:
+                detail = str(error)
+            except Exception:
+                detail = None
+            try:
+                from .installer_phase_diagnostics import report_installer_phase_failure
+                report_installer_phase_failure(args.installer_phase, error)
+            except Exception:
+                pass
+            return {"UPDATE_IN_PROGRESS": 61, "UPDATE_STATE_INVALID": 62,
+                    "PROVENANCE_CONFLICT": 63}.get(detail, 1)
     if args.agent_service:
         return run_agent_service()
     if args.updater_service:

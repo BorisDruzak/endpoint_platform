@@ -134,9 +134,55 @@ Corrective commits:
 The corresponding regressions failed before the fixes. The combined targeted
 selection passed 172 tests, including a real pending Windows pipe cancellation.
 Candidate 3.2.126 is frozen from
-`217ff3569a28900f7723197c2057738751d3e5ad`; its gates, signed installer and
-actual installed acceptance are still pending. No performance or automatic
-rollback pass is claimed for this candidate.
+`217ff3569a28900f7723197c2057738751d3e5ad`. Its subsequent actual test is
+reported below; no performance or automatic rollback pass is claimed.
+
+## Actual 3.2.126 early-crash attempt
+
+The clean build checkout was
+`e00b16d6b722f248c5b38ae45d10375103a6e0e3`. The Windows gate passed
+2209 tests with 3 skips; exact CI run 39626585773 passed 4445 tests with
+739 skips. MSI and Setup signatures and timestamps were valid. All 171
+frozen product sources matched; fixed-entrypoint and Setup source closures
+contained only this checkout's project modules.
+
+The genuine 3.2.79 attempt prepared online from 15:42:04 to 15:45:26 UTC.
+The original Agent stayed running during preparation. A complete receipt
+captured NTFS IDs, sizes and hashes for 2543 retained files (48,313,190 bytes).
+This before-only receipt does not prove an ordinary-success promotion or
+zero restore bytes.
+
+The old Agent stopped at 15:45:41. Candidate registration appeared at
+15:48:59, and the trial began at 15:50:53. Candidate WSS and a fresh APPLIED
+policy ACK were observed at 15:51:13. The previously missing proof directory
+was created successfully; the local proof recorded connection and policy
+application. The exact candidate process was then deliberately terminated
+after its executable hash was checked. No trial heartbeat or acceptance
+was established before termination.
+
+The owner automatically entered `rolling-back` at 15:51:55. Native candidate
+removal reached preflight, then Windows Installer event 11722 identified
+`InstallerOwnerEnter` failure at 15:56:02. The removal transaction aborted and
+candidate registration returned. Setup reported `INSTALL_FAILED`, exit 21,
+`MSI_EVIDENCE_FAILED`; the child fence remained `msi-starting`. This localizes
+the failing action but does not establish its underlying exception or cause.
+Neither restored original Foundation/Core nor completed automatic rollback
+was proved. Both performance targets had already been exceeded before the
+injected fault.
+
+The four private enrollment leaves still matched. Snapshot
+`staged126-rollback-20261021`, signed artifacts and case evidence were preserved.
+The dedicated guest was manually reset to its own healthy 3.2.79 baseline;
+fresh original WSS and policy application were subsequently verified. This
+fixture reset is not automatic rollback evidence.
+
+The next source correction adds bounded Application event diagnostics for
+native-helper failures: phase, known error code, error type, native error
+number and locations in project code. It excludes exception messages,
+arguments, locals, absolute paths and session identifiers. Event delivery
+cannot change installer completion authority or failure exit codes. Its
+signed installed validation and the underlying native failure correction
+remain pending.
 
 ## Remaining admission
 

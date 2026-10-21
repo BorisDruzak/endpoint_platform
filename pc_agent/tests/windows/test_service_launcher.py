@@ -763,11 +763,20 @@ def test_boot_requires_complete_zip_ownership(tmp_path,monkeypatch,defect):
         assert command[0]==str(root/'pc_agent.exe') and command[-2:]==['--launcher-version','3.2.82']
 
 
-@pytest.mark.parametrize('where', ['connect', 'phase'])
+@pytest.mark.parametrize('where', ['connect', 'phase', 'bad-str', 'event-write'])
 def test_installer_helper_unexpected_error_exits_instead_of_windowed_dialog(monkeypatch, where):
     from contextlib import contextmanager
     from pc_agent.platform.windows import service_launcher, installer_transaction_bridge as bridge
-    class UnexpectedHelperFailure(Exception): pass
+    from pc_agent.platform.windows import installer_phase_diagnostics as diagnostics
+    reported = []
+    def report(phase, error):
+        reported.append(phase)
+        if where == 'event-write': raise OSError('event delivery failed')
+    monkeypatch.setattr(diagnostics, 'report_installer_phase_failure', report)
+    class UnexpectedHelperFailure(Exception):
+        def __str__(self):
+            if where == 'bad-str': raise RuntimeError('message conversion failed')
+            return super().__str__()
     @contextmanager
     def owner(*_):
         if where == 'connect': raise UnexpectedHelperFailure('unexpected native error')
@@ -777,3 +786,22 @@ def test_installer_helper_unexpected_error_exits_instead_of_windowed_dialog(monk
     monkeypatch.setattr(bridge, 'execute_authorized_phase', execute)
     assert service_launcher.main(['--installer-phase', 'inspect', '--installer-session',
         '11111111-1111-4111-8111-111111111111']) == 1
+    assert reported == ['inspect']
+
+
+@pytest.mark.parametrize('detail, expected', [
+    ('UPDATE_IN_PROGRESS', 61), ('UPDATE_STATE_INVALID', 62), ('PROVENANCE_CONFLICT', 63),
+])
+def test_native_failure_diagnostics_preserve_existing_exit_codes(monkeypatch, detail, expected):
+    from contextlib import contextmanager
+    from pc_agent.platform.windows import installer_transaction_bridge as bridge
+    from pc_agent.platform.windows import installer_phase_diagnostics as diagnostics
+    from pc_agent.platform.windows import service_launcher
+    @contextmanager
+    def owner(*_):
+        raise ValueError(detail)
+        yield
+    monkeypatch.setattr(bridge, 'owner_authorized_phase', owner)
+    monkeypatch.setattr(diagnostics, 'report_installer_phase_failure', lambda *_: None)
+    assert service_launcher.main(['--installer-phase', 'msi-enter', '--installer-session',
+        '11111111-1111-4111-8111-111111111111']) == expected
