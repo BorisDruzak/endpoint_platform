@@ -149,7 +149,7 @@ def assert_state_security(path: Path, *, secret: bool = False) -> None:
     assert_namespace_security(path)
 
 
-def assert_namespace_security(path: Path) -> None:
+def assert_namespace_security(path: Path, *, include_self: bool = False) -> None:
     """Validate effective containing-directory deletion and ACL authority."""
     reject_reparse_ancestors(path)
     if os.name != 'nt':return
@@ -157,7 +157,7 @@ def assert_namespace_security(path: Path) -> None:
     # A protected leaf DACL does not prevent a parent DELETE_CHILD grant.
     # Validate the effective containing-directory deletion/ACL authority too.
     trusted_parents = _ADMINS | {'S-1-5-80-956008885-3418522649-1831038044-1853292631-2271478464'}
-    for parent in path.parents:
+    for parent in ((path, *path.parents) if include_self else path.parents):
         security = win32security.GetNamedSecurityInfo(str(parent), win32security.SE_FILE_OBJECT,
             win32security.OWNER_SECURITY_INFORMATION | win32security.DACL_SECURITY_INFORMATION)
         owner = security.GetSecurityDescriptorOwner()

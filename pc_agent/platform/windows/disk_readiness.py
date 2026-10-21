@@ -101,3 +101,13 @@ def require_allocation_space(allocations: Iterable[tuple[Path, int]]) -> None:
         volumes[volume] = volumes.get(volume, 0) + _validated_size(size, 4 * MAX_EXPANDED_BYTES)
     for volume, payload in volumes.items():
         require_disk_space(volume, allocation_required_bytes(payload))
+
+
+def require_same_volume_rename(source: Path, destination: Path) -> None:
+    """Refuse a copy fallback before moving a protected runtime directory."""
+    if source.stat().st_dev != destination.parent.stat().st_dev:
+        raise ValueError('runtime promotion requires one volume')
+    if os.name == 'nt':
+        import win32api
+        if win32api.GetVolumeInformation(str(allocation_volume(source)))[4].upper() != 'NTFS':
+            raise ValueError('runtime promotion requires NTFS')

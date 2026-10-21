@@ -369,6 +369,41 @@ def durable_unlink(path: Path, *, trusted_root: Path, missing_ok: bool = False) 
     flush_directory(destination.parent)
 
 
+def durable_rename_directory(source: Path, destination: Path, *, trusted_root: Path) -> None:
+    """Rename only inside a protected namespace; never replace or copy a tree.
+
+    The caller validates the containing namespace's writer/deletion ACLs and
+    owns exclusion. A visible rename followed by a failed barrier is retried
+    through the caller's durable journal, never by manufacturing another tree.
+    """
+    from endpoint_contracts.runtime_payload import safe_path
+    from .disk_readiness import require_same_volume_rename
+    installer_mutation_checkpoint(required=True)
+    root, source, destination = trusted_root.absolute(), source.absolute(), destination.absolute()
+    for path in (source, destination):
+        safe_path(path.relative_to(root).as_posix())
+    _check_directories(root)
+    _check_directories(source)
+    _check_directories(destination.parent)
+    try:
+        destination.lstat()
+    except FileNotFoundError:
+        pass
+    else:
+        raise ValueError('directory destination already exists')
+    require_same_volume_rename(source, destination)
+    before = source.stat()
+    installer_mutation_checkpoint(required=True)
+    os.rename(source, destination)
+    after = destination.lstat()
+    _reject_reparse(after)
+    if (before.st_dev, before.st_ino) != (after.st_dev, after.st_ino):
+        raise ValueError('directory identity changed during rename')
+    flush_directory(source.parent)
+    if destination.parent != source.parent:
+        flush_directory(destination.parent)
+
+
 def flush_directory(path: Path) -> None:
     """Persist metadata; surface native Windows failures as chained OSError."""
     path = path.absolute()

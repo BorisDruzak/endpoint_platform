@@ -440,6 +440,12 @@ def restore_retained_core(paths: WindowsUpdatePaths, archive_id: str) -> None:
     resumable; the retained-origin link is written only after full verification.
     Neither a ZIP receipt nor an active MSI marker is manufactured.
     """
+    from .staged_update_state import read_staged_update
+    staged = read_staged_update(paths)
+    if staged is not None and staged.phase in {'switching', 'native-settled'}:
+        from .retained_storage import promote_retained_payload
+        promote_retained_payload(paths, archive_id, staged.binding.operation_id)
+        return
     from . import durable_state, msi_inventory
     from .installer_fence import protect_state, assert_state_security
     from .runtime_identity import verify_retained_archive, verify_retained_runtime, _retained_payload_root

@@ -12,6 +12,16 @@ candidate. Journal mutations require fresh installer checkpoint scope, strict
 protected state ACLs and durable publication. The journal API alone neither
 starts MSI nor establishes installed update/rollback acceptance.
 
+`platform/windows/retained_storage.py` keeps the v1 capture receipt immutable
+and records a separate v2 payload location. A staged native reconciliation
+renames the verified archive payload into `versions` on one NTFS volume;
+published runtime and archive validation read that single tree. Journal replay
+finishes both directory barriers after a visible rename. Destination-parent
+deletion authority is checked before movement, and known MSI residue is moved
+aside without overwriting unrelated files. Only an actual rollback may recreate
+the v1 duplicate layout required by an immutable predecessor helper. Ordinary
+non-staged receipts keep their existing archive/rehydration behavior.
+
 `endpoint_contracts` defers its model exports until requested. The pure
 `runtime_payload` leaf therefore loads without initializing Pydantic or its
 indirect network imports in the offline worker. The packaged updater's

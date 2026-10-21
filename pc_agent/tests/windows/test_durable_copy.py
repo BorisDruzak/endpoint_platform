@@ -6,6 +6,30 @@ import pytest
 from pc_agent.platform.windows import durable_state as durable
 
 
+def test_directory_rename_never_replaces_an_existing_destination(tmp_path):
+    source, target = tmp_path / 'source-tree', tmp_path / 'target-tree'
+    source.mkdir(); target.mkdir()
+    (source / 'old').write_bytes(b'old')
+    (target / 'unrelated').write_bytes(b'evidence')
+    with durable.installer_mutation_checkpoints(lambda: None), pytest.raises((OSError, ValueError)):
+        durable.durable_rename_directory(source, target, trusted_root=tmp_path)
+    assert (source / 'old').read_bytes() == b'old'
+    assert (target / 'unrelated').read_bytes() == b'evidence'
+
+
+def test_directory_rename_requires_live_grant_and_preserves_file_identity(tmp_path):
+    source, target = tmp_path / 'source-tree', tmp_path / 'target-tree'
+    source.mkdir()
+    (source / 'old').write_bytes(b'old')
+    before = (source / 'old').stat().st_ino
+    with pytest.raises(ValueError):
+        durable.durable_rename_directory(source, target, trusted_root=tmp_path)
+    with durable.installer_mutation_checkpoints(lambda: None):
+        durable.durable_rename_directory(source, target, trusted_root=tmp_path)
+    assert not source.exists()
+    assert (target / 'old').stat().st_ino == before
+
+
 def test_windows_path_and_descriptor_creation_time_have_same_identity(monkeypatch):
     from types import SimpleNamespace
     import stat

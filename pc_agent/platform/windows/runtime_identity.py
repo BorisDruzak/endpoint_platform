@@ -265,7 +265,8 @@ def verify_retained_archive(paths: WindowsUpdatePaths, archive_id: str) -> Retai
     after = package_path.lstat()
     if (before.st_dev, before.st_ino, before.st_size, before.st_mtime_ns) != (after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns):
         raise ValueError('PROVENANCE_CONFLICT')
-    payload_root = _retained_payload_root(archive)
+    from .retained_storage import retained_payload_location
+    payload_root = retained_payload_location(paths, archive_id)
     assert_state_security(payload_root)
     compatibility = record['compatibility_foundations']
     if not isinstance(compatibility, list):
@@ -274,11 +275,13 @@ def verify_retained_archive(paths: WindowsUpdatePaths, archive_id: str) -> Retai
         contract = _LEGACY_MSI_CONTRACTS.get(package['sha256'])
         if contract is None or tuple(compatibility) != contract['approved_foundations']:
             raise ValueError('PROVENANCE_CONFLICT')
-        identity = verify_legacy_msi_payload(payload_root, package_sha256=package['sha256'])
+        identity = verify_legacy_msi_payload(payload_root, package_sha256=package['sha256'],
+            excluded=frozenset({'.endpoint-retained-msi.json'}) if payload_root != _retained_payload_root(archive) else frozenset())
         if identity.files != manifest_files(record['manifest']):
             raise ValueError('PROVENANCE_CONFLICT')
     else:
-        identity = verify_payload(payload_root, record['manifest'])
+        identity = verify_payload(payload_root, record['manifest'],
+            excluded=frozenset({'.endpoint-retained-msi.json'}) if payload_root != _retained_payload_root(archive) else frozenset())
     if (identity.version != record['version'] or identity.source_revision != record['source_revision']
         or identity.minimum_launcher_version != record['minimum_launcher_version']
         or identity.tree_sha256 != record['tree_sha256'] or type(record['file_count']) is not int

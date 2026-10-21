@@ -68,3 +68,19 @@ def test_separate_volumes_do_not_charge_each_others_allocations(tmp_path, monkey
     monkeypatch.setattr(disk, "allocation_volume", lambda path: path, raising=False)
     monkeypatch.setattr(disk.shutil, "disk_usage", lambda path: SimpleNamespace(free=67108964 if Path(path) == first else 67109064))
     disk.require_allocation_space([(first, 100), (second, 200)])
+
+
+def test_directory_promotion_rejects_a_different_device(tmp_path, monkeypatch):
+    from pc_agent.platform.windows.disk_readiness import require_same_volume_rename
+    source = tmp_path / 'source'
+    destination_parent = tmp_path / 'destination'
+    source.mkdir(); destination_parent.mkdir()
+    original_stat = Path.stat
+    def device(path, *args, **kwargs):
+        result = original_stat(path, *args, **kwargs)
+        return SimpleNamespace(st_dev=result.st_dev + 1) if path == destination_parent else result
+    monkeypatch.setattr(Path, 'stat', device)
+    with pytest.raises(ValueError, match='one volume'):
+        require_same_volume_rename(source, destination_parent / 'runtime')
+    assert source.exists()
+    assert not (destination_parent / 'runtime').exists()
