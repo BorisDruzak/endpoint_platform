@@ -209,6 +209,16 @@ effective-browser-policy and browser download/heartbeat proof remain open.
 
 ## Main packages
 
+`browser_policy_protocol.py` is the closed, stdlib-only privileged helper
+request/reply contract shared by Windows and Linux. Linux `seqpacket.py` owns
+bounded per-record kernel credentials; `local_ipc.py` adds graphical-session
+authorization. `platform/linux/browser_policy.py` owns one conservative
+Chromium policy file and a root marker, preserves foreign GPO files, and uses
+no-replace atomic publication. `browser_policy_helper.py` authenticates only
+the dedicated Core UID before reading requests. Its fixed root service and
+RPM/native-host wiring are the next integration step; this source change alone
+does not advertise Browser Sensor support.
+
 Linux diagnostics share `platform/linux/sessions.py` (bounded logind local
 graphical sessions), `journal.py` (fixed severity/profile queries that exclude
 message content), and `cups.py` (bounded metadata-only IPP through the local

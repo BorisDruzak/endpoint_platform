@@ -258,3 +258,12 @@ Execution is explicitly authorized without intermediate approval stops.
   no pre-existing printer definition was changed. The earlier inventory of 16
   was a bounded projection, not a verified total; lpstat currently lists 47
   destinations. Installed staging DLP acceptance is still pending.
+- D root-policy boundary: the existing Windows request/reply protocol is now
+  shared without changing service-SID authentication. Linux accepts only apply
+  and relinquish for fixed browser families from the actual Core UID, checking
+  both connection and record credentials. Policy files use trusted root paths,
+  durable ownership intent and rename-no-replace publication. Existing GPO,
+  unknown files, modified owned files and late corporate conflicts are preserved.
+  Native ALT root fixture/protocol/IPC checks: 27 passed. Local Windows/helper
+  regressions: 32 passed, 4 native skips. RPM service/client wiring and installed
+  Browser Sensor acceptance remain pending; no new capability is advertised.
