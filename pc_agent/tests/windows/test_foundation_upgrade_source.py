@@ -15,7 +15,7 @@ def test_legacy_foundation_extension_is_exact_and_keeps_historical_contracts():
         'ad4dc49703513d6dee6fd3e51ac94a09c5967112d58aed4e60a63cf6966251f5',
     }
     expected={version:frozenset(canonical) for version in ('3.2.94','3.2.95','3.2.96','3.2.97','3.2.98','3.2.99','3.2.103','3.2.106','3.2.109','3.2.112','3.2.113','3.2.114','3.2.115','3.2.116','3.2.117','3.2.118','3.2.119','3.2.120')}
-    expected.update({version:frozenset({'2f7d778799f1e32645af7936dfaf3f090d6ad4df5bb883827ea8a0a5d859f72a'}) for version in ('3.2.122','3.2.123','3.2.124','3.2.125','3.2.126','3.2.127','3.2.128')})
+    expected.update({version:frozenset({'2f7d778799f1e32645af7936dfaf3f090d6ad4df5bb883827ea8a0a5d859f72a'}) for version in ('3.2.122','3.2.123','3.2.124','3.2.125','3.2.126','3.2.127','3.2.128','3.2.129')})
     assert identity._LEGACY_FOUNDATION_EXTENSIONS == expected
     for package in canonical:
         assert identity._LEGACY_MSI_CONTRACTS[package]['approved_foundations']==('3.2.82',)
