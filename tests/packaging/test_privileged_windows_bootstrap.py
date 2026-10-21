@@ -36,6 +36,7 @@ def _analyze_spec(name, tmp_path, monkeypatch, *, bad_module=None, bad_script=No
     class Analysis:
         def __init__(self, *args, **kwargs):
             observed["excludes"] = set(kwargs["excludes"])
+            observed["hiddenimports"] = set(kwargs["hiddenimports"])
             self.pure = [(module, "public-fixture.py", "PYMODULE") for module in
                          ("os", "win32service", "pc_agent.platform.windows.installer_fence")]
             self.binaries = []
@@ -142,3 +143,20 @@ def test_finished_archive_cli_binds_success_to_exact_public_bytes(tmp_path, monk
 def test_finished_archive_cli_refuses_artifact_changed_during_inspection(tmp_path, monkeypatch):
     with pytest.raises(ValueError, match="changed during bootstrap inspection"):
         _archive_cli(tmp_path, monkeypatch, modules=("os",), mutate=True)
+
+
+@pytest.mark.parametrize('entrypoint,modules', [
+    ('windows_service_launcher', {'staged_update_state','staged_trial_proof','staged_foundation_rollback','staged_recovery','retained_storage'}),
+    ('windows_setup', {'staged_update_state','staged_recovery'}),
+    ('windows_updater', {'staged_update_state'}),
+])
+def test_staged_fixed_entrypoint_closure_is_explicit(entrypoint, modules, tmp_path, monkeypatch):
+    observed = _analyze_spec(entrypoint,tmp_path,monkeypatch)
+    assert {'pc_agent.platform.windows.'+name for name in modules} <= observed['hiddenimports']
+
+
+def test_staged_trial_writer_is_explicit_in_windows_core():
+    import ast
+    tree = ast.parse((ROOT / 'pc_agent/pyinstaller_endpoint_core_windows.spec').read_text(encoding='utf-8'))
+    imports = next(node.value for node in ast.walk(tree) if isinstance(node,ast.keyword) and node.arg == 'hiddenimports')
+    assert {'pc_agent.platform.windows.staged_trial_proof','pc_agent.platform.windows.staged_update_state'} <= set(ast.literal_eval(imports))

@@ -96,8 +96,29 @@ def _selector(raw):
     return value
 
 
+def _release(value):
+    if (not isinstance(value, dict) or set(value) != {'schema_version','version','source_revision',
+            'package_sha256','product_code','initial_runtime_tree_sha256'}
+            or value['schema_version'] != 'endpoint_windows_release_v1'
+            or not isinstance(value['source_revision'], str) or not _SOURCE.fullmatch(value['source_revision'])
+            or not isinstance(value['product_code'], str)
+            or value['product_code'] != '{' + str(UUID(value['product_code'])).upper() + '}'):
+        _invalid()
+    version_tuple(value['version'])
+    _hash(value['package_sha256']); _hash(value['initial_runtime_tree_sha256'])
+
+
+def _owner(value):
+    if (not isinstance(value, dict) or set(value) != {'pid','created','hash','sid','elevated'}
+            or type(value['pid']) is not int or value['pid'] <= 0
+            or type(value['created']) is not int or value['created'] <= 0
+            or value['elevated'] is not True or not isinstance(value['sid'], str)
+            or not re.fullmatch(r'S-1-[0-9-]+', value['sid'])):
+        _invalid()
+    _hash(value['hash'])
+
+
 def _binding_value(binding):
-    from .compound_upgrade_plan import _release
     if not isinstance(binding, StagedUpdateBinding):
         _invalid()
     _uuid(binding.operation_id)
@@ -126,7 +147,6 @@ def _canonical(value):
 
 
 def _record_value(record):
-    from .compound_upgrade_plan import _owner
     binding = _binding_value(record.binding)
     _owner(record.owner)
     if (record.phase not in _NEXT or type(record.sequence) is not int or not 0 <= record.sequence <= 1024
@@ -171,7 +191,10 @@ def _decode_record(value):
 
 
 def read_staged_update(paths: WindowsUpdatePaths) -> StagedUpdateRecord | None:
-    path = _path(paths)
+    return _read_record_path(_path(paths))
+
+
+def _read_record_path(path):
     try:
         path.parent.lstat()
     except FileNotFoundError:
@@ -225,8 +248,12 @@ def begin_staged_update(paths: WindowsUpdatePaths, binding: StagedUpdateBinding,
     if previous != binding.previous_before:
         _invalid()
     if existing is not None:
-        from .installation_provenance import _archive_directory
-        history = _archive_directory(_path(paths).parent, 'staged-history')
+        history = _path(paths).parent / 'staged-history'
+        if not history.exists():
+            history.mkdir()
+            installer_fence.protect_state(history)
+            durable_state.flush_directory(history.parent)
+        installer_fence.assert_state_security(history)
         leaf = history / (existing.binding.operation_id + '.json')
         raw = _path(paths).read_bytes()
         if leaf.exists():
@@ -277,8 +304,7 @@ def read_archived_staged_update(paths, operation_id):
     _uuid(operation_id)
     path = _path(paths).parent / 'staged-history' / (operation_id + '.json')
     installer_fence.assert_state_security(path)
-    from .installation_provenance import _read
-    record = _decode_record(read_json(_read(path, _MAX_BYTES), _MAX_BYTES))
-    if record.binding.operation_id != operation_id or record.phase not in _TERMINAL:
+    record = _read_record_path(path)
+    if record is None or record.binding.operation_id != operation_id or record.phase not in _TERMINAL:
         _invalid()
     return record

@@ -11,7 +11,8 @@ from tools.canary.privileged_bootstrap_contract import assert_no_build_modules
 a = Analysis(
     [str(pc_agent_root / 'platform' / 'windows' / 'updater_entry.py')],
     pathex=[str(project_root), str(pc_agent_root)],
-    hiddenimports=['servicemanager', 'win32service', 'win32serviceutil',
+    hiddenimports=['pc_agent.platform.windows.staged_update_state',
+        'servicemanager', 'win32service', 'win32serviceutil',
                    'win32security', 'win32file', 'ntsecuritycon'],
     datas=[], hookspath=[], hooksconfig={}, runtime_hooks=[],
     excludes=[*FORBIDDEN_MODULES, 'PySide6', 'qasync', 'pc_agent.ui_gui',

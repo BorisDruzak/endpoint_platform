@@ -165,3 +165,12 @@ with tempfile.TemporaryDirectory() as directory:
                             check=False, capture_output=True, text=True, timeout=30)
     assert result.returncode == 0, result.stderr
     assert result.stdout == result.stderr == ''
+
+
+def test_staged_journal_does_not_pull_installer_or_online_recovery_into_updater():
+    import ast
+    tree = ast.parse((ROOT / 'pc_agent/platform/windows/staged_update_state.py').read_text(encoding='utf-8'))
+    allowed = {'durable_state','installer_fence','update_paths','update_transaction'}
+    for node in ast.walk(tree):
+        if isinstance(node,ast.ImportFrom) and node.level:
+            assert (node.module in allowed if node.module else {item.name for item in node.names} <= allowed)

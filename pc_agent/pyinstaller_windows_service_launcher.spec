@@ -11,6 +11,11 @@ a = Analysis(
     [str(pc_agent_root / "platform" / "windows" / "service_launcher.py")],
     pathex=[str(project_root), str(pc_agent_root)],
     hiddenimports=[
+        "pc_agent.platform.windows.staged_update_state",
+        "pc_agent.platform.windows.staged_trial_proof",
+        "pc_agent.platform.windows.staged_foundation_rollback",
+        "pc_agent.platform.windows.staged_recovery",
+        "pc_agent.platform.windows.retained_storage",
         "servicemanager",
         "win32service",
         "win32serviceutil",

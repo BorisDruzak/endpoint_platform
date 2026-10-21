@@ -35,6 +35,8 @@ a = Analysis(
     [str(pc_agent_root / "runtime" / "main.py")],
     pathex=[str(project_root), str(pc_agent_root)],
     hiddenimports=[
+        "pc_agent.platform.windows.staged_trial_proof",
+        "pc_agent.platform.windows.staged_update_state",
         "pc_agent.version",
         "pc_agent.core.runtime_paths",
         "pc_agent.endpoint_gateway",
