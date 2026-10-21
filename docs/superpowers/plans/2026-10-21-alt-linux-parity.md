@@ -378,3 +378,6 @@ Execution is explicitly authorized without intermediate approval stops.
   Git-dependent cases excluded from the source snapshot); Windows checkout
   checks passed 22 with two native skips. The test-session install script had
   explicitly stopped the watcher, exposing the same inactive-state lifecycle.
+- E OTA candidate uses a new immutable version 3.2.124, preserving the verified
+  3.2.123 runtime as the rollback baseline. Only this private staging device is
+  eligible; no production rollout or stable-channel publication is performed.
