@@ -4,6 +4,34 @@ This is an offline, operator-run package for the dedicated ALT test pilot. It
 does not download software, CA certificates, credentials, or configuration.
 Do not use it on a production host until the Wave 1 production gate is open.
 
+## Current native RPM workstation path
+
+For the current headless Core layout, follow `packaging/alt/README.md` and build
+on ALT with `bash packaging/alt/build-rpm.sh --with-user-sensor`. Install the Core
+and optional user-sensor RPM together. The legacy offline layout documented below
+remains a separate path; do not run it against the current RPM release tree.
+
+The optional package supplies KDE autostart and the restricted browser helper.
+For a session already running during installation, execute
+`systemctl --user daemon-reload` then
+`/usr/lib/endpoint-agent/start-user-sensor --autostart` inside that graphical
+session. Subsequent KDE logins publish the private session environment and restart
+only this sensor unit. Do not import its variables into the whole user manager.
+
+Preserve existing AD/SSSD and corporate browser policy. Agent-managed deployment
+owns only its marked Endpoint extension file; conflicting foreign policy is an
+explicit failure. External-managed deployment observes policy and heartbeat
+without taking ownership. Missing browsers and unknown Yandex paths remain unknown.
+CUPS/USB audit requires actual sources; temporary CUPS unavailability recovers
+without restarting Core. Physical USB acceptance is a separate operator test.
+
+RPM upgrades preserve device state. The artifact sidecar is package documentation,
+never an extra file inside an immutable runtime. Verify current.json and selected
+release hashes/modes after installation; runtime OTA must never replace RPM-owned
+units or privileged helpers. Require server terminal outcomes and a subsequent
+successful WSS command; scheduled alone is insufficient. Use the parity ledger
+and current baseline for the private 3.2.126 acceptance limits.
+
 ## Inputs
 
 Prepare four local inputs on the ALT machine as `root`:

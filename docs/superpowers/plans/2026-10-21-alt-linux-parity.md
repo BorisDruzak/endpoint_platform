@@ -23,10 +23,10 @@ Execution is explicitly authorized without intermediate approval stops.
 
 - [x] Inspect GitNexus baseline, source, dependencies and available hosts.
 - [x] Build current immutable Core/launcher and RPM on ALT/Python 3.12.
-- [ ] Reproduce/fix runtime and package failures with focused regression tests.
+- [x] Reproduce/fix runtime and package failures with focused regression tests.
 - [x] Install/register the reference pilot; verify strict HTTPS, WSS, scheduled
   baseline/health/network and inventory reflected in Console.
-- [ ] Verify installation/upgrade preserves protected identity and registration.
+- [x] Verify installation/upgrade preserves protected identity and registration.
 
 ## B — Context and diagnostics
 
@@ -37,42 +37,42 @@ Execution is explicitly authorized without intermediate approval stops.
   Test multiple sessions, domain-qualified names, lock, remote and manager rows.
 - [x] Use verified CUPS IPP for printers and queue summary; test missing daemon,
   private fields, queued/printing/error states and bounded output.
-- [ ] Run all advertised Linux diagnostic handlers on the real host; only then
+- [x] Run all advertised Linux diagnostic handlers on the real host; only then
   adjust catalog platform support and generated contract artifacts.
 
 ## C — Activity and Policy
 
-- [ ] Implement Linux session sensor, X11 and KWin Wayland adapters; validate
+- [x] Implement Linux session sensor, X11 and KWin Wayland adapters; validate
   installed KDE APIs before choosing idle/foreground integration.
-- [ ] Authenticate Unix IPC using peer PID/UID and OS session; reject forged
+- [x] Authenticate Unix IPC using peer PID/UID and OS session; reject forged
   identities, cross-session samples, oversized frames and unexpected messages.
-- [ ] Add Linux Policy applicator, state restoration and truthful Sensor Health;
+- [x] Add Linux Policy applicator, state restoration and truthful Sensor Health;
   wire existing ActivityDispatch and WSS ACK gates in runtime/application.py.
-- [ ] Package automatic session startup without adding Qt UI to System Core.
-- [ ] Verify real domain user, lock/unlock, logout, Wayland and X11.
+- [x] Package automatic session startup without adding Qt UI to System Core.
+- [x] Verify real domain user, lock/unlock, logout, Wayland and X11.
 
 ## D — Browser and audit DLP
 
-- [ ] Share existing browser protocol/extension and content-free projections.
-- [ ] Implement Native Messaging forwarding over authenticated local IPC;
+- [x] Share existing browser protocol/extension and content-free projections.
+- [x] Implement Native Messaging forwarding over authenticated local IPC;
   verify installed browser paths, ID/origin validation and frame bounds.
-- [ ] Support owned and external browser deployment without modifying GPO files.
-- [ ] Implement USB sysfs/udev and CUPS metadata-only audit sources with stable
+- [x] Support owned and external browser deployment without modifying GPO files.
+- [x] Implement USB sysfs/udev and CUPS metadata-only audit sources with stable
   event identities; reuse bounded SecurityEventRuntime/SQLite spool and ACKs.
-- [ ] Verify browser installation, heartbeat, upload/paste, USB/print source and
+- [x] Verify browser installation, heartbeat, upload/paste, USB/print source and
   actual receipt; document absent physical resources as unverified.
 
 ## E — Reliability
 
-- [ ] Test reconnect, restart, reboot, sensor isolation and cancellation.
-- [ ] Test applied update, integrity rejection and crash rollback on the pilot.
-- [ ] Exercise bounded queues, disk errors and recovery without identity loss.
+- [x] Test reconnect, restart, reboot, sensor isolation and cancellation.
+- [x] Test applied update, integrity rejection and crash rollback on the pilot.
+- [x] Exercise bounded queues, disk errors and recovery without identity loss.
 
 ## F — Console and publication
 
 - [ ] Verify shared Console device/Context/Policy/Activity/DLP views in Playwright.
-- [ ] Update current ALT baseline, install runbook and pc_agent CODEMAP in place.
-- [ ] Run one complete relevant release gate plus targeted Windows regressions.
+- [x] Update current ALT baseline, install runbook and pc_agent CODEMAP in place.
+- [x] Run one complete relevant release gate plus targeted Windows regressions.
 - [ ] Inspect complete diff, clean checks and task-only commits; safely publish
   verified changes to main through the repository process; no production rollout.
 
@@ -470,3 +470,13 @@ Execution is explicitly authorized without intermediate approval stops.
 - Final native recovery subset: 52 passed, 12 native permission-fixture skips; final CUPS shutdown-bound recheck: 21 passed. Updated diagnostic/platform release expectations: 199 passed on the operator checkout.
 
 - Final review corrections require a new immutable candidate 3.2.126-alt5; the production registry was checked read-only and has no reserved 3.2.126. Version 3.2.125 artifacts remain unchanged.
+
+- Final exact-source full Linux/PostgreSQL gate on fd9b918de6e976a085c96e38930515c61d2ee123: 4372 passed, 807 skipped, 17 warnings in 922.99 seconds. Contract artifact check and compileall completed; overall exit 0. Disposable PostgreSQL stopped by the gate trap; shared staging/Helpdesk databases were not used by tests.
+- Native root-owned Linux/IPC/browser policy/package fixture: 64 passed using a private root-owned basetemp. The first invocation used ALT's writable /tmp ancestor and correctly failed the helper's directory authority check; use the private root fixture rather than weakening that boundary. Final native updater/launcher characterization: 51 passed. Final common Windows-compatible Policy/Browser/Gateway regression: 38 passed. Console: 44 passed; production bundle build passed. npm audit retains two pre-existing high dev/build dependency findings; no forced dependency upgrade was performed.
+- Exact 3.2.126 OTA completed with server applied. A new private startup-crash fixture rolled back to 3.2.126; the following malformed-inner-digest fixture produced failed while remaining on 3.2.126. Both terminal results arrived automatically from installed code, without the earlier one-shot reporting workaround.
+- Final Core/user-sensor RPM 3.2.126-alt5 upgrade passed strict selected-release verification and preserved credential/identity bytes. The installed KDE autostart automatically rebound the user unit from X11 to Wayland, confirmed in the actual process environment. Wayland on a connected output then delivered qualified-domain ACTIVE, IDLE at the policy threshold, foreground chromium and LOCKED with null idle/foreground.
+- CUPS startup fault had no unrelated pending jobs and an independent restoration timer. Installed Core stayed on the same PID while reporting SENSOR_NOT_READY and Print UNAVAILABLE; restoring CUPS produced APPLIED and Print READY without a Core restart. A new held synthetic job was received exactly once by staging. The root-only fault proof records only hashes, UUIDs and booleans.
+- All six installed 3.2.126 Context profiles completed and its diagnostic operation succeeded. After an actual machine reboot the boot ID changed, current selector and registration bytes were identical, and Core/browser helper/update watcher/LightDM were active with zero crash restarts. Six fresh post-reboot collections and the diagnostic operation also completed successfully.
+- Normal KDE logout was separately invoked through the installed org.kde.Shutdown.logout method. The graphical session and user manager exited; LightDM was restored. This is distinct from the earlier forced test-session termination. No test graphical session is left running.
+- Cleanup removed only the own held printer/queue, browser page/profiles, synthetic external policy, public diagnostic probes and transient acceptance source/venv mount targets. The SSH CDP tunnel was closed. Three original corporate policy files retained exact contents, ownership and modes; normal external gpupdate mtimes were not restored. The sole staging pilot now uses its private agent_managed policy version 4; production identity backup remains root-only and unchanged.
+- Console acceptance remains open: both accessible in-app tabs currently display the staging login form. The user was asked to attach the authenticated tab or sign in to this staging origin; no credentials were guessed, recovered from browser storage or reset. Shared UI tests/build are green, but that does not establish a live authenticated Console result. Physical USB plug/unplug remains expressly postponed; absent Chrome/Yandex live tests are not claimed.

@@ -5,52 +5,67 @@ preserve.  The executable characterization lives in
 `pc_agent/tests/runtime/test_current_gateway_characterization.py` and
 `pc_agent/tests/runtime/test_current_update_characterization.py`.
 
-## ALT 11 diagnostics candidate (2026-10-21)
+## ALT 11 private parity pilot (2026-10-21)
 
-The Linux adapters now use logind for local graphical session context,
-metadata-only bounded journald profiles for `eventlog.query` and
-`eventlog.recent_errors`, and local CUPS IPP over its Unix socket for printer
-inventory/status and queue summary. Journal queries never request MESSAGE,
-command lines or raw XML. Numeric `event_id=0` means no native Windows Event
-ID; `message_code=journal_priority_N` preserves journal severity explicitly.
-The service needs the supplementary `systemd-journal` group for system logs.
-Diagnostic Context requests only selected journal metadata, never message text.
+Agent 3.2.126-alt5 was compiled from
+`fd9b918de6e976a085c96e38930515c61d2ee123` on ALT Workstation K 11.4,
+Python 3.12.13, systemd 258.9 and KDE/KWin 6.7.4. This is a single-device
+staging acceptance, without production rollout or stable-channel publication.
+The current acceptance ledger is
+`docs/superpowers/plans/2026-10-21-alt-linux-parity.md`; unresolved gates there
+remain unresolved here. Historical checks below do not establish fleet readiness.
 
-On an ALT Workstation K 11.4 / systemd 258 / KDE 6.7.4 reference workstation,
-the candidate source observed a real X11/logind session, nonempty CUPS printer
-inventory, an empty active queue, and bounded journal metadata. The empty queue
-is not print-job or DLP acceptance. A 3569-package workstation reproduced a
-false absence after the old 2048-package RPM cutoff; Linux enumeration now
-admits at most 8192 records and rejects overflow rather than returning partial
-success. Windows registry enumeration limits are unchanged.
+All 27 advertised Linux handlers ran against the real OS under the Core service
+identity. Installed 3.2.126 completed baseline, health, network, session, inventory
+and diagnostic Context over WSS, including a successful diagnostic operation.
+Linux uses bounded logind/SSSD identity, metadata-only journald queries and local
+CUPS IPP. No journal MESSAGE, window title, command line, document name or content
+is collected. Diagnostic text obeys the Gateway's narrower 4096-character bound.
+RPM inventory admits up to 8192 records and rejects overflow explicitly.
 
-The initial main 3.2.121 Core/launcher were built and installed as a native RPM
-for lifecycle validation. New adapter code has not yet been released or accepted
-as an installed candidate. User Sensor, Browser, DLP, Wayland, update/rollback,
-reboot and full WSS command acceptance remain separate open gates in the
-2026-10-21 parity plan. Historical checks below are not current release proof.
+The optional user-sensor RPM supplies the credential-free per-user process,
+Qt6/KF6 helper, KDE autostart, native messaging bridge and restricted root browser
+policy helper. Core remains headless under endpoint-agent. Unix peer and message
+credentials plus graphical logind sessions establish identity; ambiguous sessions
+and unavailable identity fail closed. User processes never receive Core credentials.
 
-## KDE session sensor candidate (2026-10-21)
+Real domain-user Wayland and X11 sessions delivered ACTIVE/IDLE/LOCKED through the
+shared Activity contract. Foreground carries only a same-UID process name and
+category. On Wayland, idle remains UNKNOWN until an observed input resume establishes
+its clock. KDE autostart atomically writes only the sensor's private environment
+and restarts its unit, including quick X11/Wayland transitions. Placeholder displays
+and unavailable idle/lock APIs do not manufacture ACTIVE observations.
 
-The candidate adds a credential-free per-user mode and an optional native
-Qt6/KF6 helper, kept outside System Core. Linux IPC verifies kernel peer and
-per-record credentials, graphical logind session and SSSD-backed UPN identity.
-Only the platform adapter changes; local envelopes, Activity projection,
-PolicyRuntime/cache, WSS ACK gates and Sensor Health remain shared.
+The existing signed Browser Sensor 0.1.0 was installed by Chromium policy. Both
+owned and external deployment modes produced ADMIN heartbeats and real upload/paste
+SecurityEvents; installed 3.2.126 confirmed a fresh heartbeat and native-host READY.
+Corporate policy files were preserved. Absent Chrome/Yandex browsers are not live
+acceptance; unknown Yandex integration paths stay UNKNOWN. Physical USB plug/unplug
+is explicitly postponed by the user. Kernel USB authentication/readiness and its
+bounded persistence retry are verified separately from physical acceptance.
 
-The helper has been compiled and exercised in real X11 and Wayland sessions;
-the Wayland check has a connected, enabled graphical output and includes a
-domain-user session. Idle, lock availability and foreground PID were observed;
-only a same-UID process name is projected. Placeholder-screen sessions do not
-produce interactive observations. Wayland elapsed idle is unknown until a
-resume establishes its clock, rather than treating unsupported polling as zero.
-Shutdown removes only the helper's own ephemeral KWin script.
+CUPS jobs reach the shared SecurityEvent spool. A real queued event survived a
+service-scoped network fault and Core restart, then reached staging exactly once.
+A CUPS startup outage produced SENSOR_NOT_READY/UNAVAILABLE; restoring the daemon
+recovered Policy APPLIED and Print READY without a Core restart, and a new job was
+received exactly once. USB/Print persistence retries retain the original event,
+policy, timestamp and identifier. Browser Status still reports current policy errors;
+Activity remains gated by successful application. Common Policy delivery retries
+only transient SENSOR_NOT_READY after a 30-second backoff.
 
-Linux Policy negotiation is reserved for Agent 3.2.122 or later. Browser and
-DLP are still unavailable in this candidate stage and requested unavailable
-sources fail with SENSOR_NOT_READY. The optional RPM integration, installed
-User Sensor, offline/WSS acceptance and release gates
-remain open in the parity plan. No new release or production rollout occurred.
+Real OTA delivered 3.2.124, 3.2.125 and 3.2.126 with server-confirmed applied.
+A crashing fixture rolled back to 3.2.126; a following inner-digest-invalid fixture
+was rejected and reported failed without a retry loop or a selector change.
+Reporting uses the latest durable operation before its matching rollback marker.
+The RPM external artifact sidecar lives outside the immutable release tree.
+Registration and credential bytes survived OTA and RPM upgrades. No updater path,
+manifest, permission, digest or TLS validation was weakened.
+An actual machine reboot preserved selector and identity, restored headless WSS,
+and completed six fresh Context collections plus a diagnostic operation. Normal
+KDE logout exited the graphical session and user manager. The full Linux/PostgreSQL
+gate passed 4372 tests (807 platform/resource skips); native privileged fixtures
+and update characterization passed separately. Authenticated staging Console
+acceptance is still pending login, so source/runtime evidence is not UI acceptance.
 
 ## Gateway transport
 

@@ -268,3 +268,12 @@ The Endpoint core intentionally contains no desktop GUI, requester/ticket
 client, local Helpdesk account session, Helpdesk WebSocket agent, Protocol V3
 database/outbox, or Remote Assist runtime activation. Packaging specs and
 runtime verification enforce this boundary.
+
+Final ALT recovery boundaries: USB keeps one pending kernel change and Print
+keeps one bounded page; projection freezes each pending SecurityEvent until durable
+handoff succeeds. CUPS acquires its no-history baseline in the supervised polling
+loop. Common server Policy delivery retries SENSOR_NOT_READY after 30 seconds for
+both platforms; Browser Status resumes after the current ACK even on ERROR, while
+Activity still requires APPLIED. KDE autostart replaces its private environment
+before restarting its own unit. See the current ALT baseline and parity ledger
+for installed acceptance and remaining external gates.
