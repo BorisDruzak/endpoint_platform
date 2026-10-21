@@ -364,11 +364,37 @@ an active owner. Fresh inspection showed no fence or Setup process and ample
 capacity. The exact hash-verified owner program's real empty native Begin/End
 barrier then succeeded without product scripts. Only this harness classification
 was corrected; the signed installer still performs its full ownership admission.
-The separate no-proof timeout/retry case remains in progress.
+The separate no-proof timeout/retry case completed as recorded below.
+
+## Actual 3.2.129 no-proof timeout rollback
+
+A retry on the recovered plain 3.2.120 host used the same signed 3.2.129
+artifacts. A scoped firewall rule blocked only the candidate Core executable's
+outbound traffic. The original service remained connected during preparation;
+the new native product was installed and trial began at 19:38:16 UTC. The
+candidate service ran at 19:38:37, but no fresh candidate WSS/proof was obtained.
+It was not accepted. After the bounded trial, the owner stopped its services and
+entered `rolling-back` at 19:41:28 without any further controller action.
+
+Candidate registration disappeared at 19:42:12, the original MSI returned at
+19:43:07, and strict rollback verification completed before `rolled-back` at
+19:44:00. Setup exited 67 at 19:44:04; the original native/Core 3.2.120 and source
+revision were restored and both services ran. All four private leaves matched.
+At 19:44:44 the server confirmed original Core 3.2.120, an open WSS session,
+fresh heartbeat and matching `APPLIED` ACK. The fault firewall rule was removed.
+At 19:46:20 the recovery task and all Setup/recovery processes were absent.
+
+This is a completed automatic Foundation/Core rollback after actual candidate
+installation and missing health proof. It is distinct from prepared cancellation
+and the earlier 3.2.128 early-crash rollback on Core 3.2.121. The timeout case's
+629.70-second total includes its deliberate 180-second failed trial; it is not
+an ordinary-success performance measurement. Its observed service-start pause
+already exceeded the 120-second goal. No full matrix or performance pass follows
+from these successful individual recovery cases.
 
 ## Remaining admission
 
-Ordinary success on plain 3.2.120, all no-proof rollback cases,
+Ordinary success on plain 3.2.120, no-proof rollback on genuine 3.2.79 and Core 3.2.121,
 early-crash rollback on genuine 3.2.79 and plain 3.2.120, identical-baseline cold/warm measurements,
 the interruption performance bound, reboot and remaining fault matrix are
 pending. The report verifier
