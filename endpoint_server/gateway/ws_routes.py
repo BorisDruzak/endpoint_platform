@@ -44,6 +44,7 @@ from endpoint_server.policy.delivery import (
     PolicyAcknowledgementRejected,
     prepare_policy_delivery,
     record_policy_ack,
+    supports_endpoint_policy,
 )
 
 from .command_service import CommandService, CommandStateRejected
@@ -322,7 +323,7 @@ async def connect_agent(websocket: WebSocket) -> None:
                 if (
                     not websocket.app.state.settings.endpoint_policy_enabled
                     or "endpoint.activity.v1" not in connection.protocol_features
-                    or first.payload.platform != "windows_amd64"
+                    or not supports_endpoint_policy(first.payload)
                 ):
                     raise GatewayProtocolError(1008, "activity_disabled")
                 try:
@@ -351,7 +352,7 @@ async def connect_agent(websocket: WebSocket) -> None:
                 if (
                     not websocket.app.state.settings.endpoint_policy_enabled
                     or "endpoint.sensor-health.v1" not in connection.protocol_features
-                    or first.payload.platform != "windows_amd64"
+                    or not supports_endpoint_policy(first.payload)
                 ):
                     raise GatewayProtocolError(1008, "sensor_health_disabled")
                 async with websocket.app.state.session_provider() as session:

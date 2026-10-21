@@ -51,8 +51,9 @@ def test_activity_cannot_enter_context_without_policy_gate(gateway_route_harness
 @pytest.mark.parametrize("phase", [
     "before_delivery", "pending", "disabled", "foreground_disabled", "browser_disabled",
 ])
+@pytest.mark.parametrize('platform,version', [('windows_amd64', '3.2.121'), ('linux_amd64', '3.2.122')])
 def test_policy_transition_discards_ineligible_activity_without_closing_wss(
-    gateway_route_harness: GatewayRouteHarness, phase: str,
+    gateway_route_harness: GatewayRouteHarness, phase: str, platform: str, version: str,
 ) -> None:
     from dataclasses import replace
     from endpoint_server.db.base import Base
@@ -96,7 +97,7 @@ def test_policy_transition_discards_ineligible_activity_without_closing_wss(
     asyncio.run(seed_policy())
     app = create_app(replace(harness.settings, endpoint_policy_enabled=True), provider)
     hello = agent_hello(device.id)
-    hello.update(platform="windows_amd64", agent_version="3.2.121", capabilities=[],
+    hello.update(platform=platform, agent_version=version, capabilities=[],
                  protocol_features=["endpoint.policy.v1", "endpoint.activity.v1"])
     hello_frame = {"schema_version": "gateway_ws_envelope_v1", "kind": "agent_hello",
                    "sequence": 0, "payload": hello}
@@ -121,7 +122,7 @@ def test_policy_transition_discards_ineligible_activity_without_closing_wss(
     def heartbeat():
         return frame("heartbeat", {
             "schema_version": "agent_heartbeat_v1", "device_id": str(device.id),
-            "platform": "windows", "agent_version": "3.2.121",
+            "platform": platform.split('_')[0], "agent_version": version,
             "reported_at": datetime.now(UTC).isoformat(),
         })
 

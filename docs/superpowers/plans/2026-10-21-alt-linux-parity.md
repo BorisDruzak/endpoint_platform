@@ -192,3 +192,18 @@ Execution is explicitly authorized without intermediate approval stops.
   Endpoint application there; Helpdesk services/configuration are out of scope.
   Staging migration is 0037; the only pending main migration is existing 0038
   Activity Analytics. Preserve a private database backup before applying it.
+- Existing staging upgraded to dfe14d5ed851 after a verified private database
+  dump and configuration backup. Migration 0038 passed; strict HTTPS health
+  returned 200; Helpdesk PID/start time were identical before and after.
+- Native private 3.2.122-alt4 Core (28,319,959 bytes) and optional user-sensor
+  (23,041 bytes) RPMs built and installed. RPM upgrade preserved the original
+  pilot credential/identity bytes. Production pilot state/config are preserved
+  under root-only storage; staging has a separate enrollment and credential.
+  One-time staging claim finalized only after canonical identity/hash proof.
+  User autostart and hardened user service started successfully as the AD user.
+- C live WSS found remaining Windows-only receive guards for Activity and
+  Sensor Health despite negotiated Linux Policy. Reproduced with real route
+  tests (Linux policy transition cases failed activity_disabled). Receive guards
+  now use the same version/platform Policy negotiation as delivery; Browser
+  and SecurityEvents remain closed on Linux until phase D implements them.
+  Staging pilot temporarily stopped while this server fix is verified/deployed.

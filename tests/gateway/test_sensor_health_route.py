@@ -1,4 +1,4 @@
-"""The Gateway accepts health only from negotiated Windows policy Agents."""
+"""The Gateway accepts health only from negotiated supported policy Agents."""
 
 from __future__ import annotations
 
@@ -8,6 +8,7 @@ from dataclasses import replace
 from datetime import UTC, datetime
 from uuid import uuid4
 
+import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import func, select
 
@@ -63,8 +64,9 @@ def test_sensor_health_requires_negotiated_feature(
             assert websocket.receive_json()["payload"]["code"] == "sensor_health_disabled"
 
 
+@pytest.mark.parametrize('platform,version', [('windows_amd64', '3.2.70'), ('linux_amd64', '3.2.122')])
 def test_sensor_health_persists_after_current_policy_ack(
-    gateway_route_harness: GatewayRouteHarness,
+    gateway_route_harness: GatewayRouteHarness, platform: str, version: str,
 ) -> None:
     provider = gateway_route_harness.provider
     device = asyncio.run(seed_device(provider))
@@ -90,8 +92,8 @@ def test_sensor_health_persists_after_current_policy_ack(
     app = create_app(settings, provider)
     hello = agent_hello(device.id)
     hello.update(
-        platform="windows_amd64", capabilities=[],
-        agent_version="3.2.70", launcher_version="3.2.70",
+        platform=platform, capabilities=[],
+        agent_version=version, launcher_version=version,
         protocol_features=["endpoint.policy.v1", "endpoint.sensor-health.v1"],
     )
     now = datetime.now(UTC).isoformat()
