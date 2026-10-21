@@ -240,6 +240,10 @@ systemctl daemon-reload || :
 %endif
 
 %changelog
+* Wed Oct 21 2026 Endpoint Platform Maintainers <endpoint@example.invalid> 3.2.126-alt5
+- Recover audit sources after boot and rebind KDE sensor session environments.
+- Retain frozen audit deliveries and current policy failure diagnostics.
+
 * Wed Oct 21 2026 Endpoint Platform Maintainers <endpoint@example.invalid> 3.2.125-alt5
 - Bound journal diagnostics and preserve update outcome ordering after rollback.
 

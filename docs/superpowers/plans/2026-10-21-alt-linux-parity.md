@@ -468,3 +468,5 @@ Execution is explicitly authorized without intermediate approval stops.
   passed, one native skip. No Critical/Important review finding is deferred;
   the complete suite after this single fix pass is still required.
 - Final native recovery subset: 52 passed, 12 native permission-fixture skips; final CUPS shutdown-bound recheck: 21 passed. Updated diagnostic/platform release expectations: 199 passed on the operator checkout.
+
+- Final review corrections require a new immutable candidate 3.2.126-alt5; the production registry was checked read-only and has no reserved 3.2.126. Version 3.2.125 artifacts remain unchanged.
