@@ -99,6 +99,10 @@ cancellable named-pipe listener in `platform/windows/sensor_pipe_listener.py`.
 `activity_ingress.py` and `local_sensor_protocol.py` own the shared content-free
 envelope and policy projection. Windows compatibility imports retain the existing
 models; only the adapter supplies the OS-authenticated session key.
+`platform/linux/{identity,local_ipc,sensor_listener}.py` provides the Linux
+boundary: UID/PID kernel credentials, logind graphical session, verified SSSD
+UPN, mutually authenticated bounded Unix records and OS lock/inactive override.
+The listener remains an optional adapter around the shared Activity projection.
 `platform/windows/activity_api.py` validates the pipe writer's OS identity and
 projects typed user/browser observations; `activity_dispatch.py` holds a
 bounded handoff for WSS reconnects. `RuntimeLifecycle` starts the listener on

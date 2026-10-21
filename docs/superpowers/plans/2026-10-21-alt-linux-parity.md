@@ -125,3 +125,27 @@ Execution is explicitly authorized without intermediate approval stops.
   checks passed separately in the real Windows Git checkout. Latest local
   Context/primitives/contracts subset: 115 passed, 3 skipped; generator check
   passed. No full final release gate has yet run.
+- C foundation: common local envelope and Activity policy projection extracted
+  in 03d98c6ae889f3ee7e13cd74a8d218263b658760; Windows compatibility imports and
+  native pipe authorization retained. Targeted Windows/common tests: 34 passed.
+- SSSD original UPN is accepted only when its original SID agrees with a
+  separate UID-to-SID lookup. Live AD resolution returned a qualified identity;
+  neither the principal nor the SID is copied into tracked evidence.
+- Linux IPC uses bounded SOCK_SEQPACKET records, SO_PEERCRED, per-record
+  SCM_CREDENTIALS and logind session binding. Descriptor passing is rejected
+  and received descriptors closed. Inactive/locked OS state overrides a user's
+  unlocked sample; finite listener backlog/deadlines and exclusive socket lock.
+  Native Linux IPC/identity/sample tests: 29 passed. Runtime integration pending.
+- KDE upstream/live API investigation: X11 ScreenSaver idle is milliseconds;
+  Wayland KIdleTime polling is unsupported and returns zero. The optional
+  user-only Qt/KF6 helper uses idle/resume events on Wayland and reports unknown
+  until a real resume establishes its clock. KWin integration reads PID only.
+  Native compilation and graphical acceptance are still pending. Build-only
+  compiler/Qt development packages are being installed on the reference host;
+  apt simulation showed 45 additions, no upgrades/removals.
+- IPC foundation final focused Linux run: 20 passed, including mutual client/server
+  kernel-credential verification and descriptor-leak rejection. Local Windows
+  run: 15 passed, 5 Linux-only skips. KDE helper native build passed with
+  -Wall -Wextra -Werror; actual domain-user X11 produced idle/lock/PID facts and
+  removed its own KWin script on shutdown. User explicitly authorized ending
+  the test graphical session and rebooting for later Wayland/recovery acceptance.
