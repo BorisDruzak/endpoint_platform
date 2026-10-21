@@ -240,6 +240,9 @@ systemctl daemon-reload || :
 %endif
 
 %changelog
+* Wed Oct 21 2026 Endpoint Platform Maintainers <endpoint@example.invalid> 3.2.125-alt5
+- Bound journal diagnostics and preserve update outcome ordering after rollback.
+
 * Wed Oct 21 2026 Endpoint Platform Maintainers <endpoint@example.invalid> 3.2.124-alt5
 - Activate the pending update watcher without requiring a machine reboot.
 - Keep the external artifact manifest outside the immutable OTA release tree.

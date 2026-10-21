@@ -423,3 +423,9 @@ Execution is explicitly authorized without intermediate approval stops.
   checks passed; the focused Windows-compatible Gateway subset passed 9. A
   broad Windows invocation had one expected native os.fchmod failure; the
   complete same update characterization ran successfully on ALT instead.
+- Final corrected private candidate advances to 3.2.125-alt5; production registry
+  has no reserved 3.2.125. Keep 3.2.124 immutable as its working rollback baseline.
+  Console's old Windows-only support note is replaced with actual negotiated
+  Activity/Policy/session requirements; all 44 Console tests passed. Existing
+  authenticated first browser tab was production, so it is now explicitly
+  navigated to staging for the requested UI acceptance; it shows the login form.
