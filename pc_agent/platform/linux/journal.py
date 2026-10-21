@@ -27,6 +27,11 @@ def query_profile(profile: str, *, severity: str = "error") -> list[dict[str, ob
         "--since=-60min", f"--priority={priorities[severity]}", "--lines=64", "--reverse",
         *_PROFILES[profile],
     ), 8.0, _LIMIT, check_exit=True)
+    return parse_metadata(raw)
+
+
+def parse_metadata(raw: bytes) -> list[dict[str, object]]:
+    """Project the same safe fields for primitive and Context diagnostics."""
     if len(raw) >= _LIMIT:
         raise ValueError("JOURNAL_OUTPUT_LIMIT")
     rows: list[dict[str, object]] = []
@@ -49,4 +54,6 @@ def query_profile(profile: str, *, severity: str = "error") -> list[dict[str, ob
             "severity": severity, "event_id": 0, "provider": provider,
             "message_code": f"journal_priority_{priority}",
         })
+        if len(rows) > 64:
+            raise ValueError("JOURNAL_ROW_LIMIT")
     return rows

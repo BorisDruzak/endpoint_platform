@@ -397,3 +397,12 @@ Execution is explicitly authorized without intermediate approval stops.
   A fresh single-device rollout delivered the identical immutable 3.2.124
   artifact through strict HTTPS, the real root worker and startup outcome.
   Staging now records applied and Agent 3.2.124; Core is active, zero restarts.
+- B full service-user source smoke exposed Diagnostic Context exceeding the
+  Gateway's 4096-character JSON string bound when journald returned its mandatory
+  cursor fields. The regression reproduced a real AgentResultV1 validation
+  failure. Context now reuses the primitive's safe journal metadata projector,
+  discards extra fields and private service-instance names, and bounds its
+  compact text to the narrower Gateway limit. Malformed/unstructured rows fail
+  closed. Local Context/eventlog checks: 62 passed, three native skips. All 27
+  advertised Linux capability handlers then ran successfully as endpoint-agent
+  against the actual reference OS (source smoke; installed fixed build pending).
