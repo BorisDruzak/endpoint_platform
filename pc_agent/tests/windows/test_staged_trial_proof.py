@@ -63,6 +63,10 @@ def test_first_trial_does_not_require_an_existing_update_directory(trial):
         state._write(paths, replace(record, phase='native-settled', attempt_id=None))
         attempt = proof.begin_staged_trial(paths, binding.operation_id)
     assert proof.staged_trial_decision(paths, binding.operation_id, attempt, elapsed_seconds=0, stable_seconds=0) == 'waiting'
+    writer = proof.StagedTrialProofWriter(paths)
+    assert writer.record_handshake()
+    assert writer.record_heartbeat()
+    assert writer.record_policy_ack(SimpleNamespace(status='APPLIED'))
 
 
 def test_no_acceptance_before_60_seconds_and_fresh_heartbeat(trial):
@@ -192,3 +196,19 @@ def test_live_trial_bridge_cannot_accept_without_current_proof(trial):
     writer.record_heartbeat(); writer.record_policy_ack(SimpleNamespace(status='APPLIED'))
     assert bridge.execute_staged_trial_phase(client, paths)['result'] == 'staged-accepted'
     assert state.read_staged_update(paths).phase == 'accepted'
+
+
+def test_missing_trial_directory_rejects_untrusted_parent_before_creation(trial, monkeypatch):
+    from pc_agent.platform.windows import staged_update_state as state, update_transaction
+    proof, paths, binding, _attempt, _writer, _clock = trial
+    paths.updates_root.rmdir()
+    with durable_state.installer_mutation_checkpoints(lambda: None):
+        state._write(paths, replace(state.read_staged_update(paths), phase='native-settled', attempt_id=None))
+        def reject(path):
+            assert path == paths.updates_root.parent
+            raise ValueError('untrusted parent')
+        monkeypatch.setattr(update_transaction, '_assert_state_security', reject)
+        with pytest.raises(ValueError, match='untrusted parent'):
+            proof.begin_staged_trial(paths, binding.operation_id)
+    assert not paths.updates_root.exists()
+    assert state.read_staged_update(paths).phase == 'native-settled'

@@ -82,7 +82,22 @@ def begin_staged_trial(paths, operation_id: str) -> str:
     try:
         paths.updates_root.lstat()
     except FileNotFoundError:
-        pass  # A first installation may have no update publications yet.
+        # Genuine legacy installations may never have performed a Core OTA.
+        # The authenticated, quiescent owner creates this fixed publication
+        # directory; the LocalService candidate cannot adopt an admin owner.
+        from endpoint_contracts.runtime_payload import reject_reparse_ancestors
+        from .update_transaction import _assert_state_security
+        parent = paths.updates_root.parent
+        reject_reparse_ancestors(parent)
+        installer_fence.assert_namespace_security(parent)
+        _assert_state_security(parent)
+        if not parent.is_dir():
+            raise ValueError('UPDATE_STATE_INVALID')
+        durable_state.installer_mutation_checkpoint(required=True)
+        paths.updates_root.mkdir()
+        PyWin32AclAdapter().protect_update_path(paths.updates_root)
+        _assert_state_security(paths.updates_root)
+        durable_state.flush_directory(parent)
     else:
         durable_state.durable_unlink(paths.updates_root / _PROOF,
                                      trusted_root=paths.updates_root, missing_ok=True)
