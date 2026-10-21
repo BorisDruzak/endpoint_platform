@@ -259,10 +259,40 @@ maintenance authority after product unpublication; the authenticated staged
 removal flag preserves original Core trees from recursive candidate cleanup.
 Normal uninstall cleanup and all other roles retain their existing checks.
 
+## Actual 3.2.128 ordinary update
+
+A separate ordinary run started from the original Foundation 3.2.120 / Core
+3.2.121 guest snapshot, after the completed rollback evidence was preserved.
+The same signed 3.2.128 artifacts passed a fresh baseline/private-data/WSS check.
+Setup ran from 18:08:41.729 to 18:15:23.009 UTC and exited 0: approximately
+401.28 seconds. The journal reached `accepted`; the selected Core and native
+product were 3.2.128. The server confirmed the new version, matching `APPLIED`
+ACK at 18:13:59.839 and fresh heartbeat at 18:14:59.819. Both services ran and
+all four private enrollment leaves matched. A separate snapshot preserves this
+successful installed state. These facts establish the observed ordinary update,
+not the remaining predecessor/fault matrix.
+
+The observed service interruption was 212.08 seconds, from 18:10:23.030 to
+18:13:55.106; the new WSS/ACK followed service startup. The total run meets the
+600-second bound, while the 120-second reconnection bound fails. No identical
+cold/warm pair is claimed. Cached watchdog processes were still observed after
+acceptance, although the journal's original owner had exited; their termination
+and the owner-loss/reboot scenarios remain to be verified.
+
+A private read-only tool subsequently measured the same project's installed
+MSI inspection routines on the guest. Three reads of the exact expected package
+took 0.725, 0.657 and 0.665 seconds. Native registration verification took
+0.190 seconds, pinned Foundation byte verification 0.671 seconds, and complete
+installed Core inspection 2.651 seconds. The tool's 55 project modules were
+checked against this checkout. It granted no installer authority and modified
+no installed state. These isolated measurements do not explain the full
+interruption or justify removing validation; native phase timing investigation
+remains open.
+
 ## Remaining admission
 
-The ordinary success and no-proof rollback cases, early-crash rollback on
-genuine 3.2.79 and plain 3.2.120, identical-baseline cold/warm measurements,
+Ordinary success on genuine 3.2.79 and plain 3.2.120, all no-proof rollback cases,
+early-crash rollback on those two predecessors, identical-baseline cold/warm measurements,
 the interruption performance bound, reboot and remaining fault matrix are
 pending. The report verifier
 withholds a complete pass when a scenario, native Foundation/Core proof,
