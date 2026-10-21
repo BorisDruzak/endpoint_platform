@@ -321,7 +321,10 @@ def test_staged_successors_admit_genuine79_without_rewriting_history():
     assert runtime_identity.legacy_foundation_compatible(digest,'3.2.124')
     assert runtime_identity.legacy_foundation_compatible(digest,'3.2.125')
     assert runtime_identity.legacy_foundation_compatible(digest,'3.2.126')
-    assert not runtime_identity.legacy_foundation_compatible(digest,'3.2.127')
+    assert runtime_identity.legacy_foundation_compatible(digest,'3.2.127')
+    assert not runtime_identity.legacy_foundation_compatible('0'*64,'3.2.127')
+    assert not runtime_identity.legacy_foundation_compatible('ad4dc49703513d6dee6fd3e51ac94a09c5967112d58aed4e60a63cf6966251f5','3.2.127')
+    assert not runtime_identity.legacy_foundation_compatible(digest,'3.2.128')
     assert runtime_identity._LEGACY_MSI_CONTRACTS[digest]['approved_foundations'] == ('3.2.82',)
 
 
