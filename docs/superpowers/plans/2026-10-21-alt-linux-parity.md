@@ -294,3 +294,10 @@ Execution is explicitly authorized without intermediate approval stops.
   lookup/symbol lookup did not resolve this dynamic handler; file impact found
   the direct main.py import (LOW). Source and route tests verify the actual
   dynamic boundary. Installed candidate/version bump and D live tests pending.
+- D failure-path regression found Browser Status reopening after a rejected
+  Policy ACK. The server correctly rejects such reports, which would otherwise
+  interrupt WSS precisely when an optional source fails. Replacement delivery
+  now pauses all policy-gated streams; Browser Status resumes only after an
+  APPLIED ACK, while Sensor Health can report the rejected policy. Regression
+  reproduced the missing pause before the fix. Runtime/common/Windows/security
+  checks: 65 passed, 1 native skip.

@@ -22,11 +22,17 @@ def test_linux_dlp_features_are_separate_from_the_activity_candidate():
 
 @pytest.mark.asyncio
 async def test_linux_print_reaches_the_shared_spool_when_optional_usb_fails(tmp_path, monkeypatch):
-    from pc_agent import browser_identity
+    from pc_agent import browser_identity, browser_status as shared_browser_status
     from pc_agent.platform.linux import sensor_listener, usb_sensor, print_sensor, browser_status
     from pc_agent.security.spool import SecurityEventSpool
 
     captured = {}
+    browser_gates=[]
+    class BrowserRuntime:
+        def __init__(self, **_kwargs): pass
+        def begin_connection(self): browser_gates.append('pause')
+        def policy_ack_sent(self): browser_gates.append('resume')
+    monkeypatch.setattr(shared_browser_status,'BrowserStatusRuntime',BrowserRuntime)
     class Listener:
         available=True
         def start(self): pass
@@ -68,6 +74,8 @@ async def test_linux_print_reaches_the_shared_spool_when_optional_usb_fails(tmp_
         delivery=EndpointPolicyDeliveryV1(**(disabled.model_dump()|{'policy':policy,'policy_digest':policy_digest(policy)}))
         ack=await dependencies.policy_handler(delivery)
         assert ack.status == 'APPLIED',ack.error_code
+        dependencies.security_policy_ack_sent()
+        assert browser_gates == ['pause','resume']
         assert captured['ingress']._extension_id == 'a'*32
         facts=print_sensor.PrintFacts(987,uuid4(),datetime.now(UTC),'acceptance-printer',None,1)
         await asyncio.to_thread(captured['print_callback'],facts)
@@ -81,6 +89,8 @@ async def test_linux_print_reaches_the_shared_spool_when_optional_usb_fails(tmp_
         rejected=await dependencies.policy_handler(EndpointPolicyDeliveryV1(**(delivery.model_dump()|{
             'policy':failed,'policy_digest':policy_digest(failed)})))
         assert rejected.status == 'ERROR' and rejected.error_code == 'SENSOR_NOT_READY'
+        dependencies.security_policy_ack_sent()
+        assert browser_gates == ['pause','resume','pause']
     finally:
         sensors.stop()
 

@@ -159,6 +159,7 @@ def _default_dependencies(
     security_spool_ready = False
     browser_bridge_ready = False
     browser_probe = None
+    browser_policy_applied = False
     if settings is not None:
         cache = AppliedPolicyCache(settings.data_root)
         applicator = _policy_applicator_for(os.name)
@@ -255,11 +256,18 @@ def _default_dependencies(
             await policy_runtime.restore_offline()
 
     async def apply_policy_delivery(delivery: EndpointPolicyDeliveryV1) -> EndpointPolicyAckV1:
+        nonlocal browser_policy_applied
         # A replacement policy must also stop Activity while its ACK is pending.
         activity_dispatch.begin_connection()
+        browser_policy_applied = False
+        for gated_runtime in (security_runtime, browser_status_runtime, sensor_health_runtime):
+            if gated_runtime is not None:
+                gated_runtime.begin_connection()
         if policy_runtime is None:
             raise GatewayTerminalError("Endpoint Policy runtime is unavailable")
-        return await policy_runtime.apply_delivery(delivery)
+        acknowledgement = await policy_runtime.apply_delivery(delivery)
+        browser_policy_applied = acknowledgement.status == 'APPLIED'
+        return acknowledgement
 
     def start_local_sensor(current_settings: object):
         nonlocal usb_notifications, print_notifications, browser_status_runtime
@@ -520,7 +528,7 @@ def _default_dependencies(
     def on_policy_ack_sent() -> None:
         if security_runtime is not None:
             security_runtime.policy_ack_sent()
-        if browser_status_runtime is not None:
+        if browser_status_runtime is not None and browser_policy_applied:
             browser_status_runtime.policy_ack_sent()
         if sensor_health_runtime is not None:
             sensor_health_runtime.policy_ack_sent()
