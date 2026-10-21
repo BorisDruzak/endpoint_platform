@@ -128,6 +128,10 @@ class LinuxBrowserPolicy:
         self._payload = _json_bytes({'ExtensionSettings': {extension_id: {
             'installation_mode': 'force_installed', 'update_url': self.update_url}}})
 
+    @property
+    def installed_products(self):
+        return frozenset(self._installed)
+
     def _marker_path(self, kind):
         return self.state_root / f'{kind}.json'
 

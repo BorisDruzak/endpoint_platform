@@ -302,6 +302,27 @@ PY
     stage_file 0755 "$script_dir/SOURCES/start-user-sensor.py" "$build_root/SOURCES/start-user-sensor.py"
     stage_file 0644 "$script_dir/SOURCES/endpoint-user-sensor.service" "$build_root/SOURCES/endpoint-user-sensor.service"
     stage_file 0644 "$script_dir/SOURCES/endpoint-user-sensor.desktop" "$build_root/SOURCES/endpoint-user-sensor.desktop"
+    stage_file 0644 "$project_root/browser_sensor/extension-id.txt" "$build_root/SOURCES/extension-id.txt"
+    stage_file 0755 "$script_dir/SOURCES/start-browser-bridge.py" "$build_root/SOURCES/start-browser-bridge.py"
+    stage_file 0755 "$script_dir/SOURCES/browser-policy-helper.py" "$build_root/SOURCES/browser-policy-helper.py"
+    stage_file 0644 "$script_dir/SOURCES/endpoint-agent-browser-policy.service" "$build_root/SOURCES/endpoint-agent-browser-policy.service"
+    stage_file 0644 "$project_root/pc_agent/browser_policy_protocol.py" "$build_root/SOURCES/browser_policy_protocol.py"
+    for module in browser_policy seqpacket browser_policy_helper; do
+        stage_file 0644 "$project_root/pc_agent/platform/linux/$module.py" "$build_root/SOURCES/$module.py"
+    done
+    "$python_command" - "$build_root/SOURCES" <<'PY'
+import json, re, sys
+from pathlib import Path
+root = Path(sys.argv[1])
+extension = (root / 'extension-id.txt').read_text(encoding='ascii').strip()
+if re.fullmatch(r'[a-p]{32}', extension) is None:
+    raise SystemExit('invalid public extension identity')
+(root / 'browser-native-host.json').write_text(json.dumps({
+    'name':'ru.sosnadmin.endpoint.browser', 'description':'Endpoint Browser Sensor',
+    'type':'stdio', 'path':'/usr/lib/endpoint-agent/browser-bridge',
+    'allowed_origins':[f'chrome-extension://{extension}/'],
+}, sort_keys=True) + '\n', encoding='ascii')
+PY
 fi
 
 if [[ "$prepare_only" == true ]]; then

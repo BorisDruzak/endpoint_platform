@@ -216,8 +216,14 @@ authorization. `platform/linux/browser_policy.py` owns one conservative
 Chromium policy file and a root marker, preserves foreign GPO files, and uses
 no-replace atomic publication. `browser_policy_helper.py` authenticates only
 the dedicated Core UID before reading requests. Its fixed root service and
-RPM/native-host wiring are the next integration step; this source change alone
-does not advertise Browser Sensor support.
+RPM/native-host wiring lives in the optional user-sensor package. Its isolated
+Python root helper loads only the fixed stdlib package, while browser-bridge
+selects the protected immutable Core in credential-free native-host mode.
+Chromium and Chrome manifests pin the existing extension origin and are
+config(noreplace); no Yandex installation path is guessed. `browser_status.py`
+shares the existing Windows projection and ACK gating; Linux supplies only
+read-only host facts. Policy and manifest presence never fabricate a heartbeat.
+Installed Browser Sensor acceptance and runtime capability wiring remain open.
 
 Linux diagnostics share `platform/linux/sessions.py` (bounded logind local
 graphical sessions), `journal.py` (fixed severity/profile queries that exclude

@@ -48,6 +48,30 @@ def test_sensor_wrapper_refuses_root_and_unexpected_arguments(monkeypatch):
     assert module.main() == 1
 
 
+def test_native_host_wrapper_uses_the_protected_selector_and_no_device_credential(monkeypatch):
+    source = SOURCE.with_name('start-browser-bridge.py')
+    spec = importlib.util.spec_from_file_location('alt_bridge_start', source)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    monkeypatch.setattr(module.os, 'getuid', lambda: 0, raising=False)
+    assert module.main() == 78
+    monkeypatch.setattr(module.os, 'getuid', lambda: 1000, raising=False)
+    monkeypatch.setattr(module.os, 'geteuid', lambda: 1000, raising=False)
+    origin='chrome-extension://'+'a'*32+'/'
+    monkeypatch.setattr(module.sys, 'argv', ['browser-bridge',origin])
+    def selected(arguments, **kwargs):
+        assert arguments == ['/usr/lib/endpoint-agent/check-start-prerequisites','--print-selected-version']
+        return subprocess.CompletedProcess(arguments, 0, stdout=b'3.2.123\n')
+    monkeypatch.setattr(module.subprocess, 'run', selected)
+    def execute(path, arguments):
+        assert Path(path).as_posix() == '/opt/endpoint-agent/versions/3.2.123/endpoint-agent/endpoint-agent'
+        assert arguments[1:] == ['--linux-browser-bridge',origin]
+        raise RuntimeError('exec reached')
+    monkeypatch.setattr(module.os, 'execv', execute)
+    with pytest.raises(RuntimeError, match='exec reached'):
+        module.main()
+
+
 def test_optional_sensor_spec_parses_with_the_native_alt_macroset():
     if not shutil.which('rpmspec') or not shutil.which('rpm'):
         pytest.skip('native ALT RPM tools unavailable')

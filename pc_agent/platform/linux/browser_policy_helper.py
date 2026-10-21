@@ -13,7 +13,7 @@ import threading
 from pc_agent.browser_policy_protocol import (
     BrowserPolicyRequestError, decode_policy_request, encode_policy_reply,
 )
-from .browser_policy import BrowserPolicyConflict, LinuxBrowserPolicy, _directory, _read
+from .browser_policy import BrowserPolicyConflict, LinuxBrowserPolicy, POLICY_ROOTS, STATE_ROOT, _directory, _read
 from .seqpacket import LocalIpcRejected, read_frame, write_frame
 
 SOCKET_PATH = Path('/run/endpoint-agent-browser-policy/policy.sock')
@@ -47,6 +47,21 @@ def _extension_identity() -> str:
     if re.fullmatch(r'[a-p]{32}', value) is None:
         raise ValueError('invalid root-owned extension identity')
     return value
+
+
+def _prepare_directories() -> None:
+    previous = os.umask(0o022)
+    try:
+        for target in (*POLICY_ROOTS.values(), STATE_ROOT):
+            for directory in reversed((target, *target.parents)):
+                if not directory.exists():
+                    try:
+                        directory.mkdir(mode=0o755)
+                    except FileExistsError:
+                        pass
+                _directory(directory)
+    finally:
+        os.umask(previous)
 
 
 def serve(stop: threading.Event) -> None:
@@ -109,10 +124,12 @@ def main(argv=None) -> int:
     import sys
 
     arguments = list(sys.argv[1:] if argv is None else argv)
-    if os.geteuid() != 0 or arguments not in ([], ['--relinquish']):
+    if os.geteuid() != 0 or arguments not in ([], ['--relinquish'], ['--prepare-directories']):
         return 78
     try:
-        if arguments:
+        if arguments == ['--prepare-directories']:
+            _prepare_directories()
+        elif arguments:
             applicator = LinuxBrowserPolicy(extension_id=_extension_identity())
             for family in ('chrome', 'yandex'):
                 applicator.relinquish(family)

@@ -27,9 +27,19 @@ Source31: foreground.js
 Source32: start-user-sensor.py
 Source33: endpoint-user-sensor.service
 Source34: endpoint-user-sensor.desktop
+Source40: extension-id.txt
+Source41: start-browser-bridge.py
+Source42: browser-native-host.json
+Source43: browser-policy-helper.py
+Source44: endpoint-agent-browser-policy.service
+Source45: browser_policy_protocol.py
+Source46: browser_policy.py
+Source47: seqpacket.py
+Source48: browser_policy_helper.py
 %endif
 BuildArch: x86_64
 BuildRequires: rpm-build-python3
+%add_python3_path /usr/lib/endpoint-agent/policy-helper
 Requires(pre): shadow-utils
 Requires: python3
 Requires: systemd
@@ -89,6 +99,23 @@ install -m 0644 %{SOURCE31} %buildroot/usr/share/endpoint-agent/foreground.js
 install -m 0755 %{SOURCE32} %buildroot/usr/lib/endpoint-agent/start-user-sensor
 install -m 0644 %{SOURCE33} %buildroot/usr/lib/systemd/user/endpoint-user-sensor.service
 install -m 0644 %{SOURCE34} %buildroot/etc/xdg/autostart/endpoint-user-sensor.desktop
+install -m 0644 %{SOURCE40} %buildroot/usr/share/endpoint-agent/extension-id.txt
+install -m 0755 %{SOURCE41} %buildroot/usr/lib/endpoint-agent/browser-bridge
+install -m 0755 %{SOURCE43} %buildroot/usr/lib/endpoint-agent/browser-policy-helper
+install -m 0644 %{SOURCE44} %buildroot/usr/lib/systemd/system/endpoint-agent-browser-policy.service
+install -d -m 0755 %buildroot/etc/chromium/native-messaging-hosts \
+    %buildroot/etc/opt/chrome/native-messaging-hosts \
+    %buildroot/usr/lib/endpoint-agent/policy-helper/pc_agent/platform/linux
+for product in chromium opt/chrome; do
+    install -m 0644 %{SOURCE42} %buildroot/etc/$product/native-messaging-hosts/ru.sosnadmin.endpoint.browser.json
+done
+for package in pc_agent pc_agent/platform pc_agent/platform/linux; do
+    install -m 0644 /dev/null %buildroot/usr/lib/endpoint-agent/policy-helper/$package/__init__.py
+done
+install -m 0644 %{SOURCE45} %buildroot/usr/lib/endpoint-agent/policy-helper/pc_agent/browser_policy_protocol.py
+install -m 0644 %{SOURCE46} %buildroot/usr/lib/endpoint-agent/policy-helper/pc_agent/platform/linux/browser_policy.py
+install -m 0644 %{SOURCE47} %buildroot/usr/lib/endpoint-agent/policy-helper/pc_agent/platform/linux/seqpacket.py
+install -m 0644 %{SOURCE48} %buildroot/usr/lib/endpoint-agent/policy-helper/pc_agent/platform/linux/browser_policy_helper.py
 %endif
 install -m 0644 /dev/null \
     %buildroot/usr/lib/endpoint-agent/package-releases/%{version}
@@ -151,6 +178,23 @@ fi
 %postun
 systemctl daemon-reload || :
 
+%if_with user_sensor
+%post user-sensor
+/usr/lib/endpoint-agent/browser-policy-helper --prepare-directories || exit 1
+systemctl daemon-reload || exit 1
+systemctl enable --now endpoint-agent-browser-policy.service || exit 1
+systemctl try-restart endpoint-agent-browser-policy.service || exit 1
+
+%preun user-sensor
+if [ "$1" -eq 0 ]; then
+    systemctl disable --now endpoint-agent-browser-policy.service || :
+    /usr/lib/endpoint-agent/browser-policy-helper --relinquish || :
+fi
+
+%postun user-sensor
+systemctl daemon-reload || :
+%endif
+
 %files
 %doc /usr/share/doc/endpoint-agent/README.md
 %dir /opt/endpoint-agent
@@ -183,6 +227,15 @@ systemctl daemon-reload || :
 /usr/share/endpoint-agent/foreground.js
 /usr/lib/systemd/user/endpoint-user-sensor.service
 /etc/xdg/autostart/endpoint-user-sensor.desktop
+/usr/share/endpoint-agent/extension-id.txt
+/usr/lib/endpoint-agent/browser-bridge
+/usr/lib/endpoint-agent/browser-policy-helper
+/usr/lib/endpoint-agent/policy-helper
+/usr/lib/systemd/system/endpoint-agent-browser-policy.service
+%dir /etc/chromium/native-messaging-hosts
+%dir /etc/opt/chrome/native-messaging-hosts
+%config(noreplace) /etc/chromium/native-messaging-hosts/ru.sosnadmin.endpoint.browser.json
+%config(noreplace) /etc/opt/chrome/native-messaging-hosts/ru.sosnadmin.endpoint.browser.json
 %endif
 
 %changelog

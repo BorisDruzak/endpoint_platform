@@ -267,3 +267,17 @@ Execution is explicitly authorized without intermediate approval stops.
   Native ALT root fixture/protocol/IPC checks: 27 passed. Local Windows/helper
   regressions: 32 passed, 4 native skips. RPM service/client wiring and installed
   Browser Sensor acceptance remain pending; no new capability is advertised.
+- D optional RPM now stages the credential-free native wrapper, pinned
+  Chromium/Chrome manifests and an isolated stdlib root Policy helper. The
+  helper has fixed write paths, a service-group-only socket and no command/path
+  inputs. Preparation preserves existing directories and creates only missing
+  root paths with public metadata permissions even under a private umask.
+  Linux Policy uses fixed operations and reports conflicts/helper failures;
+  Activity-only installations without browser ownership do not need the helper.
+  Browser status projection/ACK gating is shared with Windows. Native paths for
+  Yandex remain unverified because the browser is absent. Native ALT root IPC,
+  ownership, browser facts, wrapper and RPM macro checks: 31 passed. Local
+  targeted/common/Windows/packaging checks: 52 passed, 3 native skips. An initial
+  native packaging assertion used a stale selectively copied user unit; copying
+  the committed fixed unit resolved it. Next candidate must use a full exact
+  source archive; installed browser/WSS tests are still pending.

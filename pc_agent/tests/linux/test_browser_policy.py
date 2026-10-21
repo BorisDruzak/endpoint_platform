@@ -120,3 +120,20 @@ def test_later_foreign_gpo_conflict_is_visible_without_another_apply(store):
     path = store.roots['chromium'] / 'gpo.json'
     path.write_text('{"ExtensionInstallForcelist":["external-extension"]}')
     assert store.inspect('chromium') == ('CONFLICT', 'CONFLICT')
+
+
+def test_package_preparation_preserves_existing_directories_and_ignores_private_umask(tmp_path, monkeypatch):
+    from pc_agent.platform.linux import browser_policy_helper as helper
+    target = tmp_path / 'new' / 'managed'
+    state = tmp_path / 'state'
+    monkeypatch.setattr(helper, 'POLICY_ROOTS', {'chromium':target})
+    monkeypatch.setattr(helper, 'STATE_ROOT', state)
+    before = tmp_path.stat().st_mode
+    previous = os.umask(0o077)
+    try:
+        helper._prepare_directories()
+    finally:
+        os.umask(previous)
+    assert target.stat().st_mode & 0o777 == 0o755
+    assert state.stat().st_mode & 0o777 == 0o755
+    assert tmp_path.stat().st_mode == before
