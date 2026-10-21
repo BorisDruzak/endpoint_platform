@@ -411,7 +411,7 @@ class _DiagnosticProbe:
     def run(self, command: tuple[str, ...], _timeout: float, _limit: int) -> str:
         if command[0] == "ps":
             return "101 R\n"
-        return "Authorization: Bearer release-guard-secret"
+        return '{"__REALTIME_TIMESTAMP":"1785326400000000","PRIORITY":"3","_SYSTEMD_UNIT":"endpoint-agent.service","MESSAGE":"Authorization: Bearer release-guard-secret"}'
 
 
 def _diagnostic_command() -> AgentCommandV1:
@@ -445,7 +445,8 @@ def test_released_command_executor_runs_a_bounded_typed_diagnostic() -> None:
     assert result.status == "succeeded"
     assert result.result_items[0]["profile"] == "diagnostic_v1"
     assert result.result_items[0]["sections"]["reason"] == "release guard"
-    assert result.result_items[0]["sections"]["log_excerpt"] == "Authorization: Bearer <redacted>"
+    excerpt=result.result_items[0]["sections"]["log_excerpt"]
+    assert 'endpoint-agent.service' in excerpt and 'release-guard-secret' not in excerpt
 
 
 def test_linux_and_windows_core_specs_include_typed_diagnostics_without_gui() -> None:
