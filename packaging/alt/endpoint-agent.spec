@@ -167,7 +167,7 @@ fi
 systemctl daemon-reload || exit 1
 systemctl enable endpoint-agent.service endpoint-agent-update.path || exit 1
 systemctl try-restart endpoint-agent.service || exit 1
-systemctl try-restart endpoint-agent-update.path || exit 1
+systemctl restart endpoint-agent-update.path || exit 1
 
 %preun
 if [ "$1" -eq 0 ]; then

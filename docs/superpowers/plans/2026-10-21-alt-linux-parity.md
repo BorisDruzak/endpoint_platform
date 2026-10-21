@@ -365,3 +365,16 @@ Execution is explicitly authorized without intermediate approval stops.
   conditional on installing those absent browsers; Yandex paths stay UNKNOWN.
   The own held CUPS queue, external-policy fixture, browser profiles/tunnel and
   transient graphical session remain for phase E and require final cleanup.
+- E controlled network fault matched only the Core service UID and staging
+  HTTPS destination, with an independent 90-second cleanup timer. A real held
+  CUPS job remained queued across a Core restart; restoring connectivity drained
+  the queue. Credential and device identity bytes stayed identical. The own nft
+  table was removed and Core remains active with zero crash restarts. Server
+  deduplication confirmation is still pending.
+- E native RPM lifecycle regression reproduced an inactive update watcher after
+  package configuration: try-restart never starts a stopped path unit. Use restart
+  for the update watcher, retaining Core's configured-start guard. Regression
+  failed before the fix; native RPM checks passed 21/21 (one artifact skip, two
+  Git-dependent cases excluded from the source snapshot); Windows checkout
+  checks passed 22 with two native skips. The test-session install script had
+  explicitly stopped the watcher, exposing the same inactive-state lifecycle.

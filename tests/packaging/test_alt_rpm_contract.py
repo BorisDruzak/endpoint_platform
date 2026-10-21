@@ -424,6 +424,32 @@ def test_upgrade_advances_only_an_rpm_owned_selection_before_validated_restart()
     assert "LoadCredential=endpoint-enrollment-claim:/" not in _text(SERVICE)
 
 
+@pytest.mark.skipif(os.name == "nt", reason="native RPM systemd lifecycle")
+def test_package_configuration_activates_an_inactive_update_watcher(tmp_path: Path) -> None:
+    """An installed/configured agent must consume an OTA without a host reboot."""
+    executable = tmp_path / "systemctl"
+    active = tmp_path / "watcher-active"
+    executable.write_text(
+        '#!/bin/sh\n'
+        'if [ "$2" = endpoint-agent-update.path ]; then\n'
+        '  case "$1" in start|restart) touch "$WATCHER_ACTIVE" ;; esac\n'
+        'fi\n',
+        encoding="utf-8",
+    )
+    executable.chmod(0o755)
+    post_install = _text(SPEC).split("%post\n", 1)[1].split("%preun\n", 1)[0]
+    commands = "\n".join(
+        line for line in post_install.splitlines() if line.startswith("systemctl ")
+    )
+    subprocess.run(
+        ["/bin/sh", "-ec", commands],
+        check=True,
+        env={**os.environ, "PATH": f"{tmp_path}:{os.environ['PATH']}",
+             "WATCHER_ACTIVE": str(active)},
+    )
+    assert active.exists(), "pending Gateway updates would wait until the next boot"
+
+
 def test_uninstall_preserves_identity_credentials_configuration_and_ca() -> None:
     """Ordinary RPM removal must never silently purge endpoint identity or trust."""
     spec = _text(SPEC)
