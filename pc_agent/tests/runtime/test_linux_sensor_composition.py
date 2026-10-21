@@ -21,6 +21,21 @@ def test_linux_dlp_features_are_separate_from_the_activity_candidate():
 
 
 @pytest.mark.asyncio
+async def test_initial_spool_failure_does_not_abort_core_startup(tmp_path, monkeypatch):
+    async def unavailable(_self): raise OSError('spool unavailable')
+    monkeypatch.setattr(application,'os',SimpleNamespace(name='posix'))
+    monkeypatch.setattr(application,'AGENT_VERSION','3.2.123')
+    monkeypatch.setattr(application.SecurityEventRuntime,'open',unavailable)
+    settings=application.RuntimeSettings(data_root=tmp_path/'data',install_root=tmp_path/'install',
+        ca_file=tmp_path/'ca.crt',endpoint_origin='https://endpoint.example',transport_mode='gateway_wss')
+    settings.data_root.mkdir(mode=0o700)
+    dependencies=application._default_dependencies(settings)
+    await dependencies.restore_policy(settings)
+    acknowledgement=await dependencies.policy_handler(_delivery(active=False))
+    assert acknowledgement.status == 'APPLIED'
+
+
+@pytest.mark.asyncio
 async def test_linux_print_reaches_the_shared_spool_when_optional_usb_fails(tmp_path, monkeypatch):
     from pc_agent import browser_identity, browser_status as shared_browser_status
     from pc_agent.platform.linux import sensor_listener, usb_sensor, print_sensor, browser_status

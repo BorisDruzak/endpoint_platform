@@ -156,7 +156,6 @@ def _default_dependencies(
     activity_ingress = None
     activity_listener = None
     activity_listener_ready = False
-    security_spool_ready = False
     browser_bridge_ready = False
     browser_probe = None
     browser_policy_applied = False
@@ -167,6 +166,7 @@ def _default_dependencies(
             platform_applicator = applicator
 
             async def apply_available_sensors(policy):
+                spool_ready = security_runtime is not None and await security_runtime.available()
                 listener_available = (
                     activity_listener_ready and activity_listener is not None
                     and activity_listener.available
@@ -175,17 +175,17 @@ def _default_dependencies(
                     policy,
                     activity_available=listener_available,
                     browser_audit_available=(
-                        listener_available and security_spool_ready
+                        listener_available and spool_ready
                         and (await asyncio.to_thread(browser_probe.bridge_available)
                              if browser_probe is not None else browser_bridge_ready)
                     ),
                     usb_available=(
-                        security_spool_ready
+                        spool_ready
                         and usb_notifications is not None
                         and usb_notifications.available
                     ),
                     print_available=(
-                        security_spool_ready
+                        spool_ready
                         and print_notifications is not None
                         and print_notifications.available
                     ),
@@ -221,8 +221,7 @@ def _default_dependencies(
                 and activity_listener.available
             )
             spool_ready = (
-                security_spool_ready
-                and security_runtime is not None
+                security_runtime is not None
                 and await security_runtime.available()
             )
             return SensorHealthFacts(
@@ -248,10 +247,11 @@ def _default_dependencies(
         )
 
     async def restore_policy(_settings: object) -> None:
-        nonlocal security_spool_ready
         if security_runtime is not None:
-            await security_runtime.open()
-            security_spool_ready = True
+            try:
+                await security_runtime.open()
+            except Exception:
+                logger.warning('SecurityEvent spool is unavailable; Core remains available')
         if policy_runtime is not None:
             await policy_runtime.restore_offline()
 

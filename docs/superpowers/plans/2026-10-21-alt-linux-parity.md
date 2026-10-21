@@ -301,3 +301,10 @@ Execution is explicitly authorized without intermediate approval stops.
   APPLIED ACK, while Sensor Health can report the rejected policy. Regression
   reproduced the missing pause before the fix. Runtime/common/Windows/security
   checks: 65 passed, 1 native skip.
+- D/E spool fault injection reproduced two Core-sensitive paths: initial spool
+  open failure aborted startup, and a transient read failure stopped its WSS
+  sender. Startup now continues with honest unavailable health/source gating;
+  the common sender retries bounded reads/initial opening without resetting or
+  deleting data. A failed durable ACK retains the batch for replay. Policy
+  readiness reads actual spool health rather than a stale startup flag.
+  Security/runtime/Windows/health checks: 72 passed, 1 native skip.

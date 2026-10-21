@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Protocol
@@ -14,6 +15,8 @@ from endpoint_contracts.security_events import (
 )
 
 from .spool import SecurityEventSpool
+
+_LOG = logging.getLogger(__name__)
 
 
 class SecurityEventTransport(Protocol):
@@ -41,12 +44,17 @@ class SecurityEventRuntime:
         self._lock = asyncio.Lock()
         self._inflight: AgentSecurityEventBatchV1 | None = None
         self.acknowledged = asyncio.Event()
+        self._opened = False
+        self._spool_unavailable = False
 
     async def open(self) -> None:
         await self._spool.open()
+        self._opened = True
 
     async def available(self) -> bool:
         """Check the actual spool read path before reporting it ready."""
+        if self._spool_unavailable:
+            return False
         try:
             await self._spool.stats()
         except Exception:
@@ -69,8 +77,17 @@ class SecurityEventRuntime:
     async def receive_ack(self, ack: SecurityEventAckV1) -> bool:
         async with self._lock:
             batch = self._inflight
-            if batch is None or not await self._spool.acknowledge(batch, ack):
+            if batch is None:
                 return False
+            try:
+                accepted = await self._spool.acknowledge(batch, ack)
+            except Exception:
+                self._spool_unavailable = True
+                _LOG.warning('SecurityEvent spool acknowledgement unavailable')
+                return False
+            if not accepted:
+                return False
+            self._spool_unavailable = False
             self._acked.set()
             self.acknowledged.set()
             return True
@@ -84,7 +101,17 @@ class SecurityEventRuntime:
         try:
             while True:
                 await self._policy_ready.wait()
-                batch = await self._spool.next_batch(now=now())
+                try:
+                    if not self._opened:
+                        await self.open()
+                    batch = await self._spool.next_batch(now=now())
+                except Exception:
+                    if not self._spool_unavailable:
+                        _LOG.warning('SecurityEvent spool delivery unavailable')
+                    self._spool_unavailable = True
+                    await asyncio.sleep(5)
+                    continue
+                self._spool_unavailable = False
                 if batch is None:
                     self._wake.clear()
                     try:
