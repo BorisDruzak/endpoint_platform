@@ -227,3 +227,13 @@ Execution is explicitly authorized without intermediate approval stops.
   remove that acceptance override after upgrading the fixed RPM. The user
   service then ran with zero restarts; real WSS Activity arrived on staging
   with the verified qualified AD identity and honest UNKNOWN before input.
+- Full installed Wayland flow now confirmed through staging WSS: Policy
+  APPLIED, Sensor Health READY with fresh User Sensor receipt, qualified AD
+  identity, ACTIVE after real pointer input (idle=9), LOCKED with no foreground,
+  then IDLE after policy threshold 60 seconds (idle=94). Core and user service
+  both report zero restarts after correcting the receive/namespace defects.
+- D credential-free native entry branches before enrollment/settings, refuses
+  root and pins the public packaged extension ID. Core packaging includes only
+  that public ID asset. Focused entry/bridge/Windows protocol tests: 34 passed;
+  entry/dependency split/browser subset: 33 passed including artifact checks.
+  No Linux Browser/DLP capability is advertised by the installed C candidate.

@@ -197,6 +197,7 @@ def _parser() -> argparse.ArgumentParser:
     modes.add_argument("--windows-service-child", action="store_true")
     modes.add_argument("--windows-updater-service", action="store_true")
     modes.add_argument("--linux-user-sensor", action="store_true")
+    modes.add_argument("--linux-browser-bridge", action="store_true")
     modes.add_argument("--verify", action="store_true")
     modes.add_argument("--print-safe-status", action="store_true")
     modes.add_argument("--print-version", action="store_true")
@@ -205,8 +206,18 @@ def _parser() -> argparse.ArgumentParser:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
+    arguments = list(sys.argv[1:] if argv is None else argv)
+    if arguments and arguments[0] == '--linux-browser-bridge':
+        if sys.platform != 'linux':
+            return 1
+        from pc_agent.platform.linux.browser_bridge_entry import main as run_browser_bridge
+
+        return run_browser_bridge(arguments[1:])
     parser = _parser()
-    args = parser.parse_args(argv)
+    args = parser.parse_args(arguments)
+    if args.linux_browser_bridge:
+        # Native host mode must be first; never mix it with service settings.
+        return 2
     if args.linux_user_sensor:
         if sys.platform != 'linux':
             return 1

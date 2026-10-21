@@ -102,6 +102,10 @@ Chromium port framing, pinned origin/extension handshake and typed ACK stream;
 `platform/{windows,linux}/browser_bridge.py` supplies only the authenticated
 local pipe or Unix socket transport. The Linux bridge is not advertised until
 its installed native-host and policy lifecycle have been accepted.
+Linux `--linux-browser-bridge` dispatches before service configuration or
+enrollment and runs as the caller's unprivileged UID. It reads only the public
+`browser_sensor/extension-id.txt` shipped in the frozen artifact and binary
+browser stdin; the existing system credential is never opened by that mode.
 Windows compatibility imports retain the existing models; only the adapter
 supplies the OS-authenticated session key.
 `platform/linux/{identity,local_ipc,sensor_listener}.py` provides the Linux
