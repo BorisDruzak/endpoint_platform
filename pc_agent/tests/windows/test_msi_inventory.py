@@ -136,3 +136,35 @@ def test_installed_foundation_executable_inventory_is_complete_and_exact(tmp_pat
     else:
         with pytest.raises((ValueError,OSError)):
             with module.verified_foundation_bytes(expected,tmp_path): pytest.fail('invalid foundation enabled')
+
+
+@pytest.mark.parametrize('drift', [False, True])
+def test_component_verification_bounds_feature_queries_and_rechecks_after_walk(tmp_path, drift):
+    from dataclasses import replace
+    from pc_agent.platform.windows import msi_inventory as module
+    p = package(module)
+    components = tuple(replace(next(iter(p.components.values())), name=f'core{i}') for i in range(40))
+    native = Native(); native.root = tmp_path
+    events = []
+    def feature(_product, name):
+        events.append(('feature', name))
+        return 2 if drift and any(kind == 'component' for kind, _ in events) else 3
+    def component(_product, name):
+        events.append(('component', name))
+        return 3, str(tmp_path / 'versions/3.2.82/pc_agent.exe')
+    native.feature = feature; native.component = component
+    if drift:
+        with pytest.raises(module.ProvenanceConflict):
+            module._verify_components(p, tmp_path, native, iter(components))
+    else:
+        module._verify_components(p, tmp_path, native, iter(components))
+    assert [kind for kind, _ in events] == ['feature'] + ['component'] * 40 + ['feature']
+
+
+def test_component_verification_rejects_feature_before_component_access(tmp_path):
+    from pc_agent.platform.windows import msi_inventory as module
+    native = Native(); native.root = tmp_path
+    native.feature = lambda *_: 2
+    native.component = lambda *_: pytest.fail('unavailable feature reached component query')
+    with pytest.raises(module.ProvenanceConflict):
+        module._verify_components(package(module), tmp_path, native, package(module).components.values())

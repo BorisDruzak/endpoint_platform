@@ -699,10 +699,16 @@ def verify_uninstalled(package: PackageInventory, install_root: Path, *, native=
 
 
 def _verify_components(package,install_root,native,components):
+    components = tuple(components)
+    features = sorted({feature for component in components for feature in component.features})
+    # MsiQueryFeatureState opens the product's feature configuration. Repeat it
+    # at the verification boundaries, rather than once per component sharing
+    # that feature. Component state/keypath checks remain individual and live.
+    for feature in features:
+        if native.feature(package.product_code, feature) != 3:
+            raise ProvenanceConflict()
     files = {item.name: item for item in package.files}
     for component in components:
-        if any(native.feature(package.product_code, feature) != 3 for feature in component.features):
-            raise ProvenanceConflict()
         state, location = native.component(package.product_code, component.guid)
         if state != 3:
             raise ProvenanceConflict()
@@ -710,3 +716,6 @@ def _verify_components(package,install_root,native,components):
             expected = install_root / files[component.keypath].path
             if Path(location) != expected:
                 raise ProvenanceConflict()
+    for feature in features:
+        if native.feature(package.product_code, feature) != 3:
+            raise ProvenanceConflict()
