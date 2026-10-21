@@ -97,8 +97,13 @@ Endpoint Policy delivery and ACK run in `policy/runtime.py` through the same
 Gateway connection. The Windows local sensor boundary has a service-owned,
 cancellable named-pipe listener in `platform/windows/sensor_pipe_listener.py`.
 `activity_ingress.py` and `local_sensor_protocol.py` own the shared content-free
-envelope and policy projection. Windows compatibility imports retain the existing
-models; only the adapter supplies the OS-authenticated session key.
+sensor projection and local envelopes. `browser_bridge.py` owns the common
+Chromium port framing, pinned origin/extension handshake and typed ACK stream;
+`platform/{windows,linux}/browser_bridge.py` supplies only the authenticated
+local pipe or Unix socket transport. The Linux bridge is not advertised until
+its installed native-host and policy lifecycle have been accepted.
+Windows compatibility imports retain the existing models; only the adapter
+supplies the OS-authenticated session key.
 `platform/linux/{identity,local_ipc,sensor_listener}.py` provides the Linux
 boundary: UID/PID kernel credentials, logind graphical session, verified SSSD
 UPN, mutually authenticated bounded Unix records and OS lock/inactive override.

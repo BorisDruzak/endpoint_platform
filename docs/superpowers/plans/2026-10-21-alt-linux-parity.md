@@ -207,3 +207,11 @@ Execution is explicitly authorized without intermediate approval stops.
   now use the same version/platform Policy negotiation as delivery; Browser
   and SecurityEvents remain closed on Linux until phase D implements them.
   Staging pilot temporarily stopped while this server fix is verified/deployed.
+- C Gateway fix passed 22 route/delivery tests, including real ASGI WebSocket
+  Activity transitions and Sensor Health persistence for Windows and Linux.
+- D foundation: extracted the existing Native Messaging stream into shared
+  browser_bridge.py and supplied a Linux Unix IPC transport. Windows pipe
+  authorization remains platform-owned. Wrong origin/extra arguments reject
+  before stdin is read; typed ACK validation and private-error suppression are
+  covered. Targeted Linux/common/Windows browser tests: 28 passed. Installation,
+  browser policy ownership and live extension handshake remain pending.
