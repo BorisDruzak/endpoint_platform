@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -439,6 +440,7 @@ def test_alt_root_worker_uses_the_durable_pending_path(
     )
 
 
+@pytest.mark.skipif(os.name != "posix", reason="ALT rollback requires POSIX descriptor mode contracts")
 def test_alt_rollback_can_select_an_existing_immutable_release(
     tmp_path: Path,
 ) -> None:
