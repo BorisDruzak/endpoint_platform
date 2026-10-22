@@ -195,3 +195,6 @@ mutations only under fixed owner-derived execution/cache roots. Deny writes and
 deletion for the whole scope and validate namespace and file identity at every
 checkpoint/reuse. Native callback phases exclude the managed Installer cache.
 Installed registration, ACL, Foundation/Core bytes, SCM and health remain fresh.
+Retained original MSI media in the fixed package-digest archive directories may
+use that same immutable-input rule outside native callbacks; it does not apply
+to any mutable archive metadata or installed payload.

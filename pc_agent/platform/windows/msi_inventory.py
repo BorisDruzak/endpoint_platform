@@ -167,6 +167,11 @@ def immutable_installer_media_roots(paths, capability, phase):
                      'uninstall-finalize-enter', 'uninstall-finalize-complete'}
     if phase not in native_phases:
         import win32api
+        # Retained original media is written once before native entry. These
+        # fixed digest directories are not installed payload or mutable state.
+        # Native callbacks still drop them at every mutation boundary.
+        roots.extend(paths.install_root.parent/'installer-state'/'packages'/release['package_sha256']
+                     for release in releases)
         roots.append(Path(win32api.GetWindowsDirectory())/'Installer')
     return tuple(roots)
 

@@ -39,7 +39,9 @@ every reuse checks namespace/file identity and returns an independent object.
 Mutation checkpoints validate every pin after the live owner check. Only MSI
 media under fixed package-digest execution directories and, outside native
 callbacks, the native Windows Installer cache retain their deny-write/delete
-handles across unrelated metadata writes. Other handles and values are dropped.
+handles across unrelated metadata writes. Outside native callbacks, the same
+rule covers retained original MSI media in the exact package-digest archive
+directories. Other handles and values are dropped.
 Installed native state, ACL, payload, SCM and health are not
 cached. Complete MSI database semantics may be reused only under those same
 native pins; every registered-cache lookup, ACL, namespace, byte size and

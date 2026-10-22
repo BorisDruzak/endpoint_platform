@@ -316,6 +316,9 @@ def test_immutable_media_roots_are_fixed_package_inputs_and_owned_native_cache(t
     assert roots[:2] == (tmp_path/'Endpoint/installer-cache'/('msi-'+'a'*64),
                          tmp_path/'Endpoint/installer-cache'/('msi-'+'b'*64))
     assert (tmp_path/'Windows/Installer' in roots) is include_cache
+    archived = (tmp_path/'Endpoint/installer-state/packages'/('a'*64),
+                tmp_path/'Endpoint/installer-state/packages'/('b'*64))
+    assert all((root in roots) is include_cache for root in archived)
     cap['package']['package_sha256'] = '../foreign'
     with pytest.raises(ValueError):
         msi.immutable_installer_media_roots(paths, cap, phase)
