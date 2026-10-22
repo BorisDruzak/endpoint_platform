@@ -468,6 +468,72 @@ extraction root. The agent remained running. This establishes a supported
 initialization optimization to investigate; it grants no installer authority
 and does not establish packaged update, rollback or interruption acceptance.
 
+## Candidate 3.2.131: preinitialized phase workers, performance still FAIL
+
+`b341ccade9caebb646c51a3875f92ba90dad992d` adds the launch-only broker,
+fixed-helper entrypoint and PowerShell routing, with source/PowerShell tests and
+README/CODEMAP updates. Each phase keeps its independent process and original
+HMAC/mutation authorization. Before reuse, the private bootstrap extraction is
+hardened to SYSTEM/Administrators and pinned against writes/deletion/rename;
+every launch checks its namespace, identities and current security descriptors.
+The launch channel grants no native authority. Server and Gateway contracts are
+unchanged. The MSI phase-read budget fallback is included from
+`42d7eaeba2aee15b94da44bad3cd7a3fc70a085f`.
+
+Frozen runtime source: `f520fa0ee67993c1b40770e7c5c98504459f7879`; approved
+manifest commit: `3984a41e7a933646be2870d9338471d69dac7fcf`; build/source-gate
+checkout: `c19692b45e2cb8c7cf003be5d88fe895f10ca743`. The latter changes only
+an extracted-wrapper fixture to load the real null-launcher cleanup function;
+the original failure was observed in both Windows and CI. After correction,
+Windows passed 2293 tests with 3 skips (291.74 seconds), and exact-head
+[CI 39718280882](https://github.com/BorisDruzak/endpoint_platform/actions/runs/39718280882)
+passed 4499 with 774 skips (351.45 seconds). Contracts, compileall and whitespace
+checks passed. All 173 normalized runtime sources and fixed-entrypoint project
+closures were checked against this checkout. Existing artifacts remain immutable.
+
+| Artifact | SHA-256 |
+| --- | --- |
+| Signed/timestamped MSI | `3998c53f675fdb325912319eef5cad797efba2c0b0ce304a9e83b049f04729d7` |
+| Signed/timestamped Setup | `47f042685ce06fe7946436741883bdd10579cbd7bfd1d09bfc7573084a4c0e70` |
+| Core ZIP | `d43d01c998382e54a1f868258f067dbaa4faa1fcf38e324642d0bd5f0f480a89` |
+
+The fixed helper (`3033321d9a9b9daca5613f686ccd7e89aacbcfd2c90af9c366e54e565b6dffc3`)
+was matched to `Binary.EndpointInstallerHost` read from the signed MSI. Actual
+frozen inspect and launcher invocations without a capability both exited 1 with
+bounded diagnostics and no dialog. Frozen recovery imports were verified; this
+is not yet an installed 3.2.131 owner-loss or reboot result.
+
+On the same original Foundation 3.2.120 / OTA Core 3.2.121 fixture, ordinary
+Setup ran from 03:53:12.390 to 03:59:37.579 UTC on 2026-10-22, exit 0
+(385.19 seconds). Preparation was observed at 03:54:33.002 and prepared at
+03:54:51.758 with the original Agent running. Old Agent stopped was first
+observed at 03:55:06.984; new service Running at 03:57:57.691: **170.71 seconds**.
+Fresh new server WSS was established at 03:58:17.967: **190.98 seconds** after
+the observed stop, still above 120 seconds. Matching APPLIED policy was confirmed
+at 03:58:18.074, followed by the unchanged stable-health acceptance. Accepted was
+observed at 03:59:24.331. All four private leaves matched. All 111 retained
+Foundation payload files (39,686,091 bytes) kept identical NTFS IDs, hashes and
+sizes through promotion. At 04:01:48, the recovery task and all Setup/helper
+processes were absent. The success fixture was preserved separately.
+
+The service pause improved from the preceding observed 202.04 seconds, while
+stop-to-WSS improved from 207.36 to 190.98 seconds. These are separate candidate
+observations, not a completed cold/warm pair. A protected read-only frozen probe
+measured complete hardened-runtime checking plus same-executable startup at
+0.58–0.61 seconds versus 3.03–3.58 seconds cold; initial hardening took 3.61
+seconds before old-agent stop. This supports the implemented mechanism, without
+establishing the remaining performance or fault matrix.
+
+Remaining delay is still under investigation. In this run, Core creation followed
+observed SCM Running by 15.8 seconds; a later read-only full launch-validation
+probe took 2.60 / 1.97 / 2.01 seconds, so it does not establish the cause of that
+critical-path interval. Full SHA-256 on the same pinned 173 MB MSI took about
+0.92–1.16 seconds with the default framework implementation and 0.94–0.96 with
+CNG; no algorithm change was justified. Native action-level timing and the
+3.2.131 rollback/fault acceptance remain outstanding. No checks, native barriers,
+health windows or rollback criteria were reduced, and nothing was published to
+production or the fleet.
+
 ## Remaining admission
 
 Ordinary success on plain 3.2.120, no-proof rollback on genuine 3.2.79 and Core 3.2.121,
