@@ -8,7 +8,7 @@ import pytest
 
 @pytest.mark.skipif(os.name!='nt',reason='actual PowerShell orchestration')
 @pytest.mark.parametrize('case',['commit','old-failure','new-failure','old-reboot','new-reboot','pump-loss','end-failure','publication-loss',
-    'repair-commit','repair-failure','repair-publication-loss','replacement-recovery','prepared-commit'])
+    'repair-commit','repair-failure','repair-publication-loss','replacement-recovery','prepared-commit','finalize-failure'])
 def test_compound_wrapper_never_finalizes_failed_or_unsettled_native_work(tmp_path,case):
     source=Path(__file__).resolve().parents[2]/'packaging/windows/Install-EndpointAgentCanary.ps1'
     script=tmp_path/'compound.ps1'
@@ -63,19 +63,23 @@ $driver|Add-Member ScriptMethod PublishCompletion {param($id,$source,$hash)$glob
 function New-CompoundNativeDriver {return $global:driver}
 function New-InstallerConversation {param($Bridge,$Launched,$Phase,$Native)return @{Bridge=$Bridge}}
 function Invoke-CompoundNativePump {if($Case -eq 'pump-loss'){throw 'OWNER_AUTH_FAILED'};$global:events.Add('pump')}
-function Invoke-InstallerHelper {param($Bridge,$Phase)$global:events.Add($Phase);if($Phase -eq 'compound-complete'){
+function Invoke-InstallerHelper {param($Bridge,$Phase)$global:events.Add($Phase);if($Phase -eq 'compound-finalize' -and $Case -eq 'finalize-failure'){throw 'PROVENANCE_CONFLICT'};if($Phase -in @('compound-complete','compound-finalize')){
  return @{result='compound-ready';marker=@{upgrade_id=$Bridge.Capability.compound.upgrade_id;new_transaction_id=$Bridge.TransactionId;
  old_package_sha256=('b'*64);new_package_sha256=('d'*64);successor_product_code='{22222222-2222-4222-8222-222222222222}';source_revision=('a'*40);ready_sha256=('f'*64)}}}}
 $failed=$false
 try{Invoke-CompoundFoundationUpgrade -OldBridge $(if($mode -eq 'repair-successor'){$null}else{$old}) -NewBridge $new -PreparedOldBridge $seed -OldMedia $null -NewMedia $null -SuccessorProduct '{22222222-2222-4222-8222-222222222222}' -Mode $mode|Out-Null}catch{$failed=$true}
-if($Case -in @('commit','replacement-recovery','prepared-commit')){
+if($Case -in @('commit','prepared-commit')){
+ if($failed -or [string]::Join(',',@($events)) -cne 'begin,old,pump,compound-old-returned,new,pump,compound-new-returned,end,pump,compound-finalize,published,disposed'){throw 'combined finalization order differs'}
+}elseif($Case -eq 'replacement-recovery'){
  if($failed -or [string]::Join(',',@($events)) -cne 'begin,old,pump,compound-old-returned,new,pump,compound-new-returned,end,pump,compound-commit,compound-retire,reconcile,finish,compound-complete,published,disposed'){throw 'native/finalization order differs'}
 }elseif($Case -eq 'repair-commit'){
  if($failed -or [string]::Join(',',@($events)) -cne 'begin,new,pump,compound-repair-returned,end,pump,compound-repair-commit,compound-retire,reconcile,finish,compound-complete,published,disposed'){throw 'successor-only repair enlisted fictitious old work'}
 }elseif($Case -in @('publication-loss','repair-publication-loss')){
  if(!$failed -or !$events.Contains('published') -or $events.Contains('abort') -or !$events.Contains('disposed')){throw 'uncertain publication was rolled back or reported successful'}
+}elseif($Case -eq 'finalize-failure'){
+ if(!$failed -or !$events.Contains('compound-finalize') -or $events.Contains('published') -or $events.Contains('abort') -or !$events.Contains('disposed')){throw 'failed verification published or fabricated native rollback'}
 }else{
- if(!$failed -or $events.Contains('compound-retire') -or $events.Contains('reconcile') -or $events.Contains('finish') -or $events.Contains('compound-complete')){throw 'failed native work reached finalization'}
+ if(!$failed -or $events.Contains('compound-retire') -or $events.Contains('reconcile') -or $events.Contains('finish') -or $events.Contains('compound-complete') -or $events.Contains('compound-finalize')){throw 'failed native work reached finalization'}
  if(!$events.Contains('abort') -or !$events.Contains('disposed')){throw 'native rollback cleanup omitted'}
  if($Case -in @('old-failure','old-reboot','pump-loss') -and $events.Contains('new')){throw 'successor ran after failed predecessor'}
 }
