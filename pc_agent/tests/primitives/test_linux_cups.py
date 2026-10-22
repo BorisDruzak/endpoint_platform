@@ -40,6 +40,20 @@ def test_ipp_parser_rejects_invalid_response(packet):
         parse_response(packet)
 
 
+def test_cups_no_printers_status_is_empty_only_for_printer_enumeration():
+    from pc_agent.platform.linux.cups import parse_response
+    packet = struct.pack('>BBHI',1,1,0x0406,1)+b'\x03'
+    assert parse_response(packet, operation=0x4002) == []
+    with pytest.raises(OSError):
+        parse_response(packet, operation=0x000A)
+    with pytest.raises(OSError):
+        parse_response(packet)
+    with pytest.raises(ValueError):
+        parse_response(packet[:-1], operation=0x4002)
+    with pytest.raises(ValueError):
+        parse_response(packet[:-1]+b'\x04'+_attr(0x42,'printer-name','untrusted')+b'\x03', operation=0x4002)
+
+
 def test_cups_printers_project_state_without_device_uri_or_description(monkeypatch):
     from pc_agent.platform.linux import cups
 

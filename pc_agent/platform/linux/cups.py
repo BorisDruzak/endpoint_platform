@@ -65,7 +65,7 @@ def query(operation: int, attributes: tuple[str, ...], *, which_jobs: str = "not
         if response.status != 200 or response.getheader("Content-Type", "").split(";", 1)[0] != "application/ipp":
             raise OSError("CUPS_RESPONSE_UNAVAILABLE")
         raw = response.read(MAX_RESPONSE_BYTES + 1)
-        rows = parse_response(raw)
+        rows = parse_response(raw, operation=operation)
         # A response at the requested limit might omit more jobs/printers.
         # Never report an incomplete enumeration as an accurate summary.
         if len(rows) >= MAX_RECORDS and not allow_page:
@@ -75,13 +75,16 @@ def query(operation: int, attributes: tuple[str, ...], *, which_jobs: str = "not
         connection.close()
 
 
-def parse_response(raw: bytes) -> list[dict[str, object]]:
+def parse_response(raw: bytes, *, operation: int | None = None) -> list[dict[str, object]]:
     if not 9 <= len(raw) <= MAX_RESPONSE_BYTES:
         raise ValueError("CUPS_RESPONSE_SIZE")
     major, minor, status, request_id = struct.unpack_from(">BBHI", raw)
     if (major, minor) != (1, 1) or request_id != 1:
         raise ValueError("CUPS_RESPONSE_HEADER")
-    if status > 0x00FF:
+    # CUPS-Get-Printers returns client-error-not-found when no queues exist.
+    # Get-Jobs and every other failure retain their failure semantics.
+    empty_printers = status == 0x0406 and operation == 0x4002
+    if status > 0x00FF and not empty_printers:
         raise OSError("CUPS_QUERY_FAILED")
     offset, group, name = 8, 0, ""
     rows: list[dict[str, object]] = []
@@ -92,6 +95,8 @@ def parse_response(raw: bytes) -> list[dict[str, object]]:
         if tag == 3:
             if offset != len(raw):
                 raise ValueError("CUPS_UNEXPECTED_BODY")
+            if empty_printers and rows:
+                raise ValueError('CUPS_UNEXPECTED_PRINTERS')
             return rows
         if tag < 0x10:
             if tag not in {1, 2, 4, 5}:
