@@ -1,7 +1,7 @@
 # Signed ALT distribution
 
 Publish immutable version directories under
-`/var/lib/endpoint-platform/distribution/alt/` using
+`/srv/endpoint-platform-distribution/alt/` using
 `endpoint-alt-distribution.nginx.conf` inside the existing HTTPS server. Keep the
 existing network ACL, certificates, API and WebSocket locations. Test Nginx
 before reload; retain the prior site config and release pointer for rollback.
@@ -12,6 +12,10 @@ checksums, public RPM key and operator guide. All directories must be root-owned
 0755, files root-owned 0644 and regular (no symlinks). Never copy the signer home,
 environment CA, claims, device state, credentials or private acceptance evidence.
 Do not replace files in an existing version directory with different bytes.
+Keep every public-path ancestor root-owned and searchable by the Nginx worker.
+The application data directory stays private (0750); do not widen its permissions
+or put public downloads below an application-writable parent. Before activation,
+check traversal and a public-file read as the configured Nginx worker account.
 
 Revision `3.2.127-2` is the signed counterpart of the qualified 3.2.127 runtime.
 Verify the full publisher fingerprint independently:
