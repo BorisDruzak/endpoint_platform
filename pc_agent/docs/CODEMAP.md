@@ -178,6 +178,12 @@ unmodified stdlib source/resource bytes, rejects missing or ambiguous inputs,
 and adds nothing to networkless graphs. Frozen Core version and actual TLS
 context tests catch missing runtime data before Native admission.
 
+The MSI build also runs `tools/canary/verify_msi_payload.py` against its actual
+compiled package and release manifest before signing. This uses the same full
+inventory/table reader as runtime admission. Empty shared metadata remains a
+required regular file with exact zero size and empty SHA256; empty EXE/DLL/PYD
+images and missing data remain invalid.
+
 `endpoint_contracts` defers its model exports until requested. The pure
 `runtime_payload` leaf therefore loads without initializing Pydantic or its
 indirect network imports in the offline worker. The packaged updater's

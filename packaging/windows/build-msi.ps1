@@ -814,4 +814,6 @@ Write-Utf8NoBom $releaseManifestPath (@{
     source_revision = $initialRuntimeSourceRevision
     version = $Version
 } | ConvertTo-Json -Compress)
+Invoke-Checked $python @('-m', 'tools.canary.verify_msi_payload', '--msi', $msiPath,
+    '--release-manifest', $releaseManifestPath) $repositoryRoot
 Write-Host "MSI: $msiPath"

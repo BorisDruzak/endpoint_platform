@@ -317,11 +317,13 @@ def _foundation_records(value, *, schema=1):
     for row in value:
         if (not isinstance(row,dict) or set(row)!={'path','file','component','size','sha256'}
             or not isinstance(row['path'],str) or row['path'].casefold() in found
-            or type(row['size']) is not int or not 0<row['size']<=1024*1024*1024
+            or type(row['size']) is not int or not 0<=row['size']<=1024*1024*1024
             or not isinstance(row['sha256'],str) or not re.fullmatch('[0-9a-f]{64}',row['sha256'])):
             raise ProvenanceConflict()
         try:
             binding = FOUNDATION_EXECUTABLES.get(row['path'])
+            if row['size'] == 0 and (binding is not None or Path(row['path']).suffix.casefold() in {'.exe', '.dll', '.pyd'}):
+                raise ProvenanceConflict()
             if binding is None and schema == 2:
                 binding = shared_binding(row['path'])
             if binding is None or (row['file'], row['component']) != binding:

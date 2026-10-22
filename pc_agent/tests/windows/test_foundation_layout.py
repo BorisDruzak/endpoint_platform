@@ -72,6 +72,43 @@ def test_shared_namespace_extra_file_is_rejected_before_byte_read(tmp_path, monk
             pytest.fail('extra shared dependency admitted')
 
 
+def test_empty_shared_metadata_is_verified_as_an_existing_regular_file(tmp_path, monkeypatch):
+    from pc_agent.platform.windows import msi_inventory as module, update_transaction
+    from pc_agent.platform.windows.foundation_layout import shared_binding
+    rows = records(module)
+    path = '_foundation-runtime/pydantic.dist-info/REQUESTED'
+    file, component = shared_binding(path)
+    rows.append(dict(path=path, file=file, component=component, size=0,
+                     sha256=hashlib.sha256(b'').hexdigest()))
+    for row in rows:
+        leaf = tmp_path / row['path']
+        leaf.parent.mkdir(parents=True, exist_ok=True)
+        leaf.write_bytes(b'' if row['size'] == 0 else b'exe')
+    monkeypatch.setattr(update_transaction, '_assert_state_security', lambda *_: None)
+    expected = SimpleNamespace(foundation_files=tuple(rows), foundation_schema=2)
+    with module.verified_foundation_bytes(expected, tmp_path):
+        pass
+    (tmp_path / path).unlink()
+    with pytest.raises((OSError, module.ProvenanceConflict)):
+        with module.verified_foundation_bytes(expected, tmp_path):
+            pytest.fail('missing empty resource admitted')
+    rows[0]['size'] = 0
+    with pytest.raises(module.ProvenanceConflict):
+        module._foundation_records(rows, schema=2)
+
+
+@pytest.mark.parametrize('name', ['python312.dll', 'module.pyd', 'worker.exe'])
+def test_empty_shared_binaries_remain_invalid(name):
+    from pc_agent.platform.windows import msi_inventory as module
+    from pc_agent.platform.windows.foundation_layout import shared_binding
+    path = '_foundation-runtime/' + name
+    file, component = shared_binding(path)
+    rows = records(module) + [dict(path=path, file=file, component=component, size=0,
+                                    sha256=hashlib.sha256(b'').hexdigest())]
+    with pytest.raises(module.ProvenanceConflict):
+        module._foundation_records(rows, schema=2)
+
+
 @pytest.mark.skipif(os.name != 'nt', reason='native deny-write/delete pins')
 def test_all_explicit_shared_byte_proofs_remain_pinned_across_metadata_checkpoints(tmp_path, monkeypatch):
     from pc_agent.platform.windows import msi_inventory as module, durable_state, update_transaction

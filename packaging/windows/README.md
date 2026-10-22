@@ -425,3 +425,8 @@ Missing, reparsed or hardlinked inputs fail the build. The stdlib TLS code
 and policy bytes remain unchanged; certificate and hostname verification
 remain enabled. Networkless updater graphs do not gain SSL or policy data.
 Frozen Core execution and an actual TLS context are tested before release.
+
+Before signing, the build verifies the compiled MSI through the full runtime
+inventory reader, including every File/Component/Feature/keypath binding.
+Zero-byte shared metadata files retain complete presence, ACL, hash and Native
+ownership checks; zero-byte executable images remain rejected.
