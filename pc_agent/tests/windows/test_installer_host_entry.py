@@ -25,13 +25,15 @@ def test_installer_host_rejects_service_modes(option):
     assert error.value.code == 2
 
 
-def test_installer_keeps_owner_scope_and_all_native_inputs(monkeypatch):
+def test_installer_keeps_owner_scope_and_all_native_inputs(monkeypatch, tmp_path):
     from pc_agent.platform.windows import installer_host_entry as entry
     from pc_agent.platform.windows import installer_transaction_bridge as bridge
     from pc_agent.platform.windows import installer_phase_diagnostics as diagnostics
     from pc_agent.platform.windows import msi_inventory
     calls = []
     client = type('Client', (), {'capability': {'exact': 'fixture'}})()
+    paths = entry.WindowsUpdatePaths(tmp_path / 'Agent', tmp_path / 'updates/pending.json')
+    monkeypatch.setattr(entry.WindowsUpdatePaths, 'production', classmethod(lambda _: paths))
 
     @contextlib.contextmanager
     def owner(session, phase):

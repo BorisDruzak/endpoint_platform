@@ -1,5 +1,6 @@
 """Schema two authenticates every shared dependency without changing v1."""
 import hashlib
+import os
 from types import SimpleNamespace
 
 import pytest
@@ -71,6 +72,7 @@ def test_shared_namespace_extra_file_is_rejected_before_byte_read(tmp_path, monk
             pytest.fail('extra shared dependency admitted')
 
 
+@pytest.mark.skipif(os.name != 'nt', reason='native deny-write/delete pins')
 def test_all_explicit_shared_byte_proofs_remain_pinned_across_metadata_checkpoints(tmp_path, monkeypatch):
     from pc_agent.platform.windows import msi_inventory as module, durable_state, update_transaction
     from pc_agent.platform.windows.foundation_layout import shared_binding
