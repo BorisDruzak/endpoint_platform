@@ -606,3 +606,40 @@ executed no native installer scripts: it validates archive/NTFS preparation,
 not installed MSI adoption, complete update timing or automatic native rollback.
 The immutable 3.2.132 artifacts were retained without rebuilding. Installed
 acceptance, the 120-second goal and the complete 42-case matrix remain open.
+
+### 3.2.133 ordinary modern-with-OTA measurement and native pump RCA
+
+The immutable candidate uses runtime source
+`19e57ef107a4173f519dbed8c7d2216e34410103`, build checkout
+`c59c6f80663116eaeb16b66bc27763f65a09aaa9` and successful CI run
+`39738254239`. The complete Windows gate passed 2328 tests with three skips.
+Actual signed MSI/Setup/Core archive binding and denied frozen helper/launcher
+invocations were checked before installation.
+
+Case `modern121-success-cold133-01` is an ordinary measurement; its filename
+does not establish a controlled cold benchmark. Setup exited zero after
+418.32 seconds. Online preparation kept the old Agent running. The candidate
+reached `accepted`, created a fresh server WSS session at 07:26:04.122 UTC and
+acknowledged the assigned policy at 07:26:04.241 UTC. All four private leaves
+remained byte-identical. All 111 retained predecessor payload files, totalling
+39,686,091 bytes, preserved their NTFS IDs, sizes and hashes through promotion.
+
+Performance remains failed: the first observed old stopped state was
+07:23:08.420 UTC, about 175.70 seconds before the fresh WSS session. The guest
+did not expose SCM event 7036, so this is an observation-based bound, not an
+exact SCM timestamp. Incoming Core adoption is unproven in this case: the
+private observer rejected a legitimate signed filename containing a space.
+The failed receipt is preserved and the observer was corrected for later runs.
+Companion restoration initially failed its unchanged Foundation post-use
+identity check. The recovery task later disappeared without manual invocation;
+that alone is not full user-companion acceptance.
+
+The captured phase metrics located the remaining polling path in the compound
+native pump. Its ordinary helper phases already used pipe events, while native
+callbacks still used `Start-Sleep 1`. A separate real two-channel transport
+probe on the same guest measured 400 roundtrips twice: 11.759/12.038 seconds
+with the original sleep and 0.093/0.097 seconds with event waits. The Agent PID
+remained unchanged and no native product scripts ran. This demonstrates the
+transport overhead, not an installed 120-second result. The event-wait change
+retains every ownership, framing, authentication, grant and native-result check.
+Its installed performance, automatic rollback and full matrix remain open.

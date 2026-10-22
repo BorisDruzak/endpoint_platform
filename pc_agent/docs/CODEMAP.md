@@ -66,6 +66,11 @@ checks remain mandatory. Browser Policy is stopped before Agent while its
 applied registry policy persists; the late OTA gate still precedes Updater stop.
 For a modern staged predecessor, exact old MSI/helper preparation also runs
 online and retains native deny-write/delete handles through native admission.
+The compound native pump waits on either channel's pending I/O event and the
+pending native result, with a ten-millisecond bound. It issues no grants from
+callbacks: both conversations, ownership checks and End* calls still execute
+on the original owner thread. Waiting neither consumes packets nor closes the
+async operations' event handles.
 `platform/windows/staged_trial_proof.py` uses a separate protected trial request
 and Agent-writable proof. Native registration/shared bytes and the exact Core
 inventory are checked before selecting the candidate. Runtime composition keeps

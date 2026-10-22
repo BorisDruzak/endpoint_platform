@@ -392,6 +392,11 @@ Managed switching stops the independent Browser Policy service before Agent;
 its applied policy values persist. The late OTA gate remains after Agent stop
 and before Updater stop. Following authenticated finish/trial admission, both
 Agent and Browser Policy starts are dispatched before waiting for either.
+The two-channel native pump waits for pending pipe I/O or native completion
+instead of polling with one-millisecond PowerShell sleeps. The wait is bounded
+to ten milliseconds and grants no authority: physical ownership, authenticated
+conversation steps, native results and settlement still run on the owner thread.
+The asynchronous operations retain ownership of their wait handles.
 Both must still reach Running, and acceptance retains its fresh WSS, matching
 APPLIED policy, exact candidate and stable-health requirements. SCM startup
 failures still enter the ordinary staged rollback path.

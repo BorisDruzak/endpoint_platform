@@ -314,6 +314,23 @@ namespace EndpointInstallerBridge {
             // EndRead/EndWrite/EndWaitForConnection own the async handle's
             // lifetime. Never close its event while the I/O can still complete.
         }
+        public static void WaitForAnyActivity(Channel[] channels,IAsyncResult native,int milliseconds) {
+            if(milliseconds<0 || milliseconds>10) throw new ArgumentOutOfRangeException("milliseconds");
+            if(channels==null || channels.Length<1 || channels.Length>2) throw new ArgumentException("channels");
+            var handles=new List<WaitHandle>();
+            for(int i=0;i<channels.Length;i++) {
+                var channel=channels[i];
+                if(channel==null || (i>0 && Object.ReferenceEquals(channel,channels[0]))) throw new ArgumentException("channels");
+                var pending=!channel.Connected ? channel.connect : (channel.write ?? channel.read);
+                if(pending!=null) handles.Add(pending.AsyncWaitHandle);
+            }
+            if(native!=null && !native.IsCompleted) handles.Add(native.AsyncWaitHandle);
+            // Observe readiness only. Poll/End* still run on the retained owner
+            // thread and retain the original framing, authentication and grants.
+            // The async operations own these handles; this wait never closes them.
+            if(handles.Count>0) WaitHandle.WaitAny(handles.ToArray(),milliseconds);
+            else if(milliseconds>0) Thread.Sleep(1);
+        }
         public void Send(byte[] data) {
             if(!Connected || write!=null || data==null || data.Length==0 || data.Length>32768) throw new IOException("OWNER_AUTH_FAILED");
             output=new byte[data.Length+4];Buffer.BlockCopy(BitConverter.GetBytes(data.Length),0,output,0,4);Buffer.BlockCopy(data,0,output,4,data.Length);
@@ -1898,7 +1915,11 @@ function Invoke-CompoundNativePump {
                 @($state.Bridge.Peers | Where-Object { $_.Alive }).Count -gt 0) { $pending=$true }
         }
         if ($Driver.PendingTask.IsCompleted -and -not $pending) { break }
-        if (-not $worked) { Start-Sleep -Milliseconds 1 }
+        if (-not $worked) {
+            [EndpointInstallerBridge.Channel]::WaitForAnyActivity(
+                [EndpointInstallerBridge.Channel[]]@($Conversations | ForEach-Object {$_.Bridge.Channel}),
+                $Driver.PendingTask,10)
+        }
     } while ($true)
 }
 
