@@ -144,3 +144,14 @@
 - Spec lifecycle/reservation → Tasks 1/3; one-copy/v1 compatibility/disk → Task 2; 60/180 health and exact trial → Task 4; real Foundation rollback → Task 5; owner loss/reboot/companions/cleanup → Task 6; exact source/signing → Task 7; installed matrix/10-minute and 2-minute goals → Task 8.
 - Five Review Focus cases each have a named owning test. New shared interfaces are defined above their consumers; no new external HTTP schema or second credential-bearing network owner is planned.
 - The user approved the plan and selected Native inline execution. Task 8 remains open; this plan does not replace the dedicated report's source, CI, installed and performance evidence.
+
+### Task 8 performance refinement: timezone resources
+
+Within the approved packaging/performance scope, replace the 605 loose timezone
+data files with one deterministic ZIP in Windows artifacts. First test exact
+member preservation, version refusal, conflicts and all-zone resource loading;
+then implement a common build helper/runtime hook and apply it to Windows specs.
+Pin the observed tzdata version, prove the actual frozen artifact and retain all
+existing payload/native/security checks. Reserve a fresh candidate only after
+those gates pass; measure ordinary cold/warm and finish the installed failure
+matrix. This refinement does not mark Task 8 complete or permit publication.

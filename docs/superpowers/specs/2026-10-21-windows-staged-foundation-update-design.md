@@ -198,3 +198,20 @@ Installed registration, ACL, Foundation/Core bytes, SCM and health remain fresh.
 Retained original MSI media in the fixed package-digest archive directories may
 use that same immutable-input rule outside native callbacks; it does not apply
 to any mutable archive metadata or installed payload.
+
+### Windows timezone resource packaging
+
+The 3.2.137 inventory contains 605 individual timezone data files. Package the
+same pinned `tzdata` distribution as one deterministic resource ZIP in Windows
+Core and fixed entrypoints. Preserve every package source/data byte and license;
+do not drop zones or rely on host-installed timezone data. A runtime hook loads
+only that bundled ZIP through Python's standard zip importer and refuses missing,
+reparsed or wrong-version input. Existing complete payload SHA-256, MSI native
+ownership, extraction namespace and launch checks cover the ZIP as one file.
+
+The build must reject unknown dependency versions and conflicting generated
+archives. Test byte-for-byte member coverage, deterministic output, all available
+zones and offsets/folds through the archive, and a genuine frozen artifact before
+Native acceptance. This changes file layout, not timezone semantics or the
+native/security/health/rollback gates. The next candidate gets new source, tree,
+package identities and repeated installed acceptance.

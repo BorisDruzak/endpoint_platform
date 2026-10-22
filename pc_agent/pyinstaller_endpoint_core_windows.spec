@@ -7,6 +7,7 @@ from pathlib import Path
 pc_agent_root = Path(SPECPATH)
 project_root = pc_agent_root.parent
 sys.path.insert(0, str(project_root))
+from tools.canary.tzdata_payload import configure_tzdata_archive
 
 _excluded_optional_runtime = [
     "PySide6",
@@ -49,11 +50,12 @@ a = Analysis(
     datas=[(str(project_root / "browser_sensor" / "extension-id.txt"), "browser_sensor")],
     hookspath=[],
     hooksconfig={},
-    runtime_hooks=[],
+    runtime_hooks=[str(pc_agent_root / "runtime_hook_tzdata_zip.py")],
     excludes=_excluded_optional_runtime,
     noarchive=False,
     optimize=0,
 )
+configure_tzdata_archive(a, Path(workpath))
 pyz = PYZ(a.pure)
 exe = EXE(
     pyz,

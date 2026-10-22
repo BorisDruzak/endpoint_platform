@@ -23,6 +23,7 @@ CORE_LOCK = {
     "psutil": "7.2.2",
     "pydantic": "2.12.5",
     "pyyaml": "6.0.2",
+    "tzdata": "2026.3",
 }
 FORBIDDEN_CORE_DISTRIBUTIONS = {
     "pyside6",
@@ -118,7 +119,7 @@ def _locked_requirements(path: Path) -> dict[str, str]:
     return requirements
 
 
-def _capture_analysis(spec_path: Path) -> dict[str, object]:
+def _capture_analysis(spec_path: Path, workpath: Path) -> dict[str, object]:
     captured: dict[str, object] = {}
 
     def analysis(scripts: list[str], **kwargs: object) -> object:
@@ -132,6 +133,7 @@ def _capture_analysis(spec_path: Path) -> dict[str, object]:
         str(spec_path),
         init_globals={
             "SPECPATH": str(spec_path.parent),
+            "workpath": str(workpath),
             "Analysis": analysis,
             "PYZ": lambda pure: pure,
             "EXE": lambda *args, **kwargs: (args, kwargs),
@@ -222,10 +224,10 @@ def test_windows_core_artifact_excludes_all_optional_runtime_packages(
 
 
 @pytest.mark.parametrize("platform", ("linux", "windows"))
-def test_core_specs_build_only_the_headless_runtime(platform: str) -> None:
+def test_core_specs_build_only_the_headless_runtime(platform: str, tmp_path: Path) -> None:
     """Changing a core package back to a GUI or legacy entrypoint is a bug."""
     captured = _capture_analysis(
-        PROJECT_ROOT / "pc_agent" / f"pyinstaller_endpoint_core_{platform}.spec"
+        PROJECT_ROOT / "pc_agent" / f"pyinstaller_endpoint_core_{platform}.spec", tmp_path/'work'
     )
 
     assert captured["scripts"] == [

@@ -19,7 +19,7 @@ ENTRYPOINTS = (
 BUILD_MODULES = {"setuptools", "pkg_resources", "_distutils_hack"}
 
 
-def _analyze_spec(name, tmp_path, monkeypatch, *, bad_module=None, bad_script=None):
+def _analyze_spec(name, tmp_path, monkeypatch, *, bad_module=None, bad_script=None, timezone_rows=False):
     monkeypatch.syspath_prepend(str(ROOT))
     for variable, filename in {
         "ENDPOINT_SETUP_MSI": "EndpointAgent.msi",
@@ -38,9 +38,12 @@ def _analyze_spec(name, tmp_path, monkeypatch, *, bad_module=None, bad_script=No
         def __init__(self, *args, **kwargs):
             observed["excludes"] = set(kwargs["excludes"])
             observed["hiddenimports"] = set(kwargs["hiddenimports"])
+            observed["runtime_hooks"] = kwargs["runtime_hooks"]
+            observed["analysis"] = self
             self.pure = [(module, "public-fixture.py", "PYMODULE") for module in
                          ("os", "win32service", "pc_agent.platform.windows.installer_fence")]
             self.binaries = []
+            self.zipfiles = []
             self.scripts = [("entry", "public-fixture.py", "PYSOURCE")]
             # Simulate a builder regression despite requested exclusions. The
             # spec must refuse its actual analysis before producing an EXE.
@@ -49,16 +52,31 @@ def _analyze_spec(name, tmp_path, monkeypatch, *, bad_module=None, bad_script=No
             if bad_script:
                 self.scripts.append((bad_script, "public-fixture.py", "PYSOURCE"))
             self.datas = []
+            if timezone_rows:
+                self.pure.append(('tzdata.zoneinfo','timezone.py','PYMODULE'))
+                self.datas.append(('tzdata/zoneinfo/UTC','old-resource','DATA'))
 
     def executable(*args, **kwargs):
         observed["exe_created"] = True
         return object()
 
     runpy.run_path(str(ROOT / "pc_agent" / f"pyinstaller_{name}.spec"), init_globals={
-        "SPECPATH": str(ROOT / "pc_agent"), "Analysis": Analysis,
+        "SPECPATH": str(ROOT / "pc_agent"), "workpath": str(tmp_path/'work'), "Analysis": Analysis,
         "PYZ": lambda *args, **kwargs: object(), "EXE": executable,
+        "COLLECT": lambda *args, **kwargs: object(),
     })
     return observed
+
+
+@pytest.mark.parametrize('entrypoint',[*ENTRYPOINTS,'windows_tray','windows_user_sensor',
+                                    'windows_browser_bridge','endpoint_core_windows'])
+def test_every_windows_artifact_replaces_loose_timezone_resources(entrypoint,tmp_path,monkeypatch):
+    result=_analyze_spec(entrypoint,tmp_path,monkeypatch,timezone_rows=True)
+    analysis=result['analysis']
+    assert not any(row[0]=='tzdata' or row[0].startswith('tzdata.') for row in analysis.pure)
+    assert not any(row[0].replace('\\','/').startswith('tzdata/') for row in analysis.datas)
+    assert sum(row[0]=='tzdata-runtime.zip' for row in analysis.datas)==1
+    assert str(ROOT/'pc_agent/runtime_hook_tzdata_zip.py') in result['runtime_hooks']
 
 
 @pytest.mark.parametrize("entrypoint", ENTRYPOINTS)

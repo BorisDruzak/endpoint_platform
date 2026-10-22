@@ -57,6 +57,15 @@ acknowledge the outer phase. The active physical peer is journaled before the
 first verification; partial failure retains the original recovery boundaries.
 Recovery and repair retain their granular post-native helper sequence.
 
+Windows specs use `tools/canary/tzdata_payload.py` to replace loose timezone
+resources with one deterministic `tzdata-runtime.zip`. The pinned distribution's
+package bytes, wheel hashes and license are preserved; package Python may contain
+only version constants/empty initializers. `runtime_hook_tzdata_zip.py` validates
+the bounded archive and resolves its standard zip importer without executing the
+package before ordinary bootstrap checks. Invalid resources exit 63 without a
+windowed exception dialog. Existing full payload hashes/native ownership cover
+the archive file. Linux specs retain their existing resource layout.
+
 `platform/windows/installer_launch_broker.py` initializes the new fixed helper
 while the original Agent still runs. Its separate launch-only pipe authenticates
 both peers through retained native identities and accepts only fixed owner-phase

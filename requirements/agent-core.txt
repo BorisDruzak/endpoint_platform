@@ -6,3 +6,4 @@ loguru==0.7.3
 psutil==7.2.2
 pydantic==2.12.5
 PyYAML==6.0.2
+tzdata==2026.3
