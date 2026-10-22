@@ -239,3 +239,83 @@ def test_foundation_keeps_full_descriptor_checks_even_in_media_read_scope(tmp_pa
         with pytest.raises(ValueError):
             with msi.verified_foundation_bytes(expected, tmp_path):
                 pytest.fail('changed foundation admitted')
+
+
+def test_explicit_immutable_msi_keeps_pins_across_unrelated_metadata_writes(media, tmp_path):
+    from pc_agent.platform.windows import durable_state
+    path, digest, calls = media
+    grants = []
+    with msi.package_read_scope(immutable_media_roots=(path.parent,)):
+        with durable_state.installer_mutation_checkpoints(lambda: grants.append('owner')):
+            msi.read_package(path, digest)
+            durable_state.write_bytes_atomic(tmp_path / 'metadata.json', b'{}', trusted_root=tmp_path, max_bytes=10)
+            assert msi.read_package(path, digest)['digest'] == digest
+            with pytest.raises(OSError):
+                path.write_bytes(b'cannot write pinned immutable media')
+            with pytest.raises(OSError):
+                path.unlink()
+            assert len(calls) == 1 and grants
+    path.write_bytes(b'handle released only after the phase')
+    with pytest.raises(msi.ProvenanceConflict):
+        with msi.package_read_scope(immutable_media_roots=(path.parent,)):
+            msi.read_package(path, digest)
+
+
+def test_immutable_media_scope_still_drops_other_paths_and_non_msi_files(media, tmp_path):
+    from pc_agent.platform.windows import durable_state
+    path, digest, calls = media
+    root = tmp_path / 'immutable'
+    root.mkdir()
+    stable = root / 'input.msi'
+    stable.write_bytes(path.read_bytes())
+    metadata = root / 'mutable.json'
+    metadata.write_bytes(b'initial')
+    with msi.package_read_scope(immutable_media_roots=(root,)):
+        with durable_state.installer_mutation_checkpoints(lambda: None):
+            msi.read_package(stable, digest)
+            msi.read_package(path, digest)
+            old = msi._file_sha256(metadata)
+            durable_state.installer_mutation_checkpoint(required=True)
+            path.write_bytes(b'changed mutable media outside the fixed roots')
+            metadata.write_bytes(b'changed metadata even inside the fixed roots')
+            with pytest.raises(msi.ProvenanceConflict):
+                msi.read_package(path, digest)
+            assert msi._file_sha256(metadata) != old
+            assert msi.read_package(stable, digest)['digest'] == digest
+    assert sum(actual == stable for actual, _ in calls) == 1
+
+
+def test_immutable_pin_validation_failure_releases_every_handle(media, monkeypatch):
+    from pc_agent.platform.windows import durable_state
+    path, digest, _ = media
+    other = path.with_name('second.msi')
+    other.write_bytes(path.read_bytes())
+    with msi.package_read_scope(immutable_media_roots=(path.parent,)):
+        msi.read_package(path, digest)
+        msi.read_package(other, digest)
+        scope = msi._PHASE_READS.get()
+        def reject(_):
+            raise msi.ProvenanceConflict()
+        monkeypatch.setattr(scope, 'validate', reject)
+        with durable_state.installer_mutation_checkpoints(lambda: None):
+            with pytest.raises(msi.ProvenanceConflict):
+                durable_state.installer_mutation_checkpoint(required=True)
+        assert not scope.pins and not scope.pin_scopes and not scope.values
+        path.write_bytes(b'all handles closed')
+        other.unlink()
+
+
+@pytest.mark.parametrize('phase,include_cache', [('prepare', True), ('compound-finalize', True), ('msi-enter', False)])
+def test_immutable_media_roots_are_fixed_package_inputs_and_owned_native_cache(tmp_path, monkeypatch, phase, include_cache):
+    import win32api
+    from types import SimpleNamespace
+    paths = SimpleNamespace(install_root=tmp_path/'Endpoint/Agent')
+    monkeypatch.setattr(win32api, 'GetWindowsDirectory', lambda: str(tmp_path/'Windows'))
+    cap = {'package': {'package_sha256': 'a'*64}, 'compound': {'old': {'package': {'package_sha256': 'b'*64}}}}
+    roots = msi.immutable_installer_media_roots(paths, cap, phase)
+    assert roots[:2] == (tmp_path/'Endpoint/installer-cache'/('msi-'+'a'*64),
+                         tmp_path/'Endpoint/installer-cache'/('msi-'+'b'*64))
+    assert (tmp_path/'Windows/Installer' in roots) is include_cache
+    cap['package']['package_sha256'] = '../foreign'
+    with pytest.raises(ValueError):
+        msi.immutable_installer_media_roots(paths, cap, phase)

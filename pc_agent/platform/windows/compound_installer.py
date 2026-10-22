@@ -5,6 +5,7 @@ never runs MSI, acquires the mutex or treats native product absence as entry.
 The live owner separately grants each API-return and delayed-commit boundary.
 """
 from pathlib import Path
+import time
 
 from endpoint_contracts.runtime_payload import read_json
 
@@ -119,6 +120,57 @@ def _prepare_recovery(client,paths,expected):
     return {'result':'compound-recovery-prepared','mode':mode}
 
 
+class _FinalizationStep:
+    """Fixed logical steps share one authenticated post-commit peer.
+
+    Mutation grants still go to the original outer phase. Intermediate logical
+    completions are not sent to the owner; only the final verified ready marker
+    can acknowledge the combined phase.
+    """
+    def __init__(self, client, phase):
+        self.outer = client
+        self.phase = phase
+        self.completed = False
+
+    def __getattr__(self, name):
+        return getattr(self.outer, name)
+
+    def request(self, action, payload=None):
+        if action == 'complete':
+            if self.completed:
+                _fail()
+            self.completed = True
+            return None
+        return self.outer.request(action, payload)
+
+
+def _finalize_compound(client, paths):
+    cap = client.capability
+    if cap['recovery'] or plan.read_plan(paths, cap)['phase'] != 'new-script-returned':
+        _fail()
+    _native_products(cap, new_state=5)
+    from . import installer_transaction_bridge as bridge
+    request = bridge._request_data(paths, cap)
+    expected = msi_inventory.read_expected_package(request['package_path'], cap['package'])
+    # Preserve the active physical peer for owner-loss recovery before the long
+    # read-only verification. Native End(Commit) admission belongs to the owner.
+    with durable_state.installer_mutation_checkpoints(client.checkpoint), _child(cap):
+        bridge._advance_fence(paths, client, expected, 'msi-returned')
+    stages = []
+    for phase in ('compound-commit', 'compound-retire', 'reconcile', 'finish', 'compound-complete'):
+        step = _FinalizationStep(client, phase)
+        started = time.perf_counter()
+        result = execute_compound_phase(step, paths)
+        if not step.completed:
+            _fail()
+        stages.append({'phase': phase, 'seconds': round(time.perf_counter()-started, 6)})
+    if result.get('result') != 'compound-ready':
+        _fail()
+    result = {**result, 'stages': stages}
+    client.request('complete', result)
+    return result
+
+
 def execute_compound_phase(client,paths,*,feature_states=None,rollback_disabled='',uninstall_finalization=''):
     from . import installer_transaction_bridge as bridge
     cap=client.capability
@@ -126,6 +178,8 @@ def execute_compound_phase(client,paths,*,feature_states=None,rollback_disabled=
     if uninstall_finalization or cap['operation']!='install':
         _fail()
     phase=client.phase
+    if phase == 'compound-finalize':
+        return _finalize_compound(client, paths)
     request=bridge._request_data(paths,cap)
     data_request=_data_request(paths,cap)
     expected=msi_inventory.read_expected_package(request['package_path'],cap['package'])

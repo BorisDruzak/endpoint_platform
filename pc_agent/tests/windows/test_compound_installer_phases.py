@@ -181,6 +181,46 @@ def test_commit_retirement_reconcile_and_finish_keep_barrier_until_final_checks(
     assert not (fence.state_root(paths)/'transactions'/old['transaction_id']/'completed.json').exists()
 
 
+def test_combined_finalization_runs_every_existing_step_before_one_completion(staged):
+    paths,client,old,native,events,done=old_returned(staged)
+    native[client.capability['package']['product_code']]=5
+    client.phase='compound-new-returned';bridge.execute_authorized_phase(client,paths)
+    done.clear()
+    client.phase='compound-finalize'
+    result=bridge.execute_authorized_phase(client,paths)
+    assert plan.read_plan(paths,client.capability)['phase']=='ready'
+    assert result['result']=='compound-ready'
+    assert done==[('complete',result)]
+    assert events.index('old-owner-absent')<events.index('retire-old-authority')
+    assert events.index('retire-old-authority')<events.index('reconcile-core')<events.index('restore-services')
+    assert fence.read_fence(paths) is None
+    with fence.child_fence(client.capability['transaction_id']):assert fence.read_fence(paths) is None
+    assert len(result['stages'])==5
+    assert [row['phase'] for row in result['stages']]==[
+        'compound-commit','compound-retire','reconcile','finish','compound-complete']
+
+
+@pytest.mark.parametrize('failure', ['retire_maintenance_authority','reconcile_installed_core'])
+def test_combined_finalization_failure_never_acknowledges_ready(staged,monkeypatch,failure):
+    paths,client,old,native,events,done=old_returned(staged)
+    native[client.capability['package']['product_code']]=5
+    client.phase='compound-new-returned';bridge.execute_authorized_phase(client,paths)
+    done.clear()
+    def fail(*_a,**_k):raise ValueError('PROVENANCE_CONFLICT')
+    monkeypatch.setattr(provenance,failure,fail)
+    client.phase='compound-finalize'
+    with pytest.raises(ValueError,match='PROVENANCE_CONFLICT'):bridge.execute_authorized_phase(client,paths)
+    assert done==[] and plan.read_plan(paths,client.capability)['phase']!='ready'
+
+
+def test_combined_finalization_is_not_an_early_native_or_recovery_entry(staged):
+    paths,client,old,original,native,events,done=staged
+    bridge.execute_authorized_phase(client,paths)
+    done.clear();client.phase='compound-finalize'
+    with pytest.raises(ValueError):bridge.execute_authorized_phase(client,paths)
+    assert done==[] and 'retire-old-authority' not in events
+
+
 @pytest.mark.parametrize('phase',['compound-commit','compound-retire','reconcile','finish','compound-complete'])
 def test_early_post_native_phase_cannot_retire_or_enable(staged,phase):
     paths,client,old,native,events,done=old_returned(staged)

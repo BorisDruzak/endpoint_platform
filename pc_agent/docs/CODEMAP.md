@@ -36,13 +36,24 @@ retaining its bounded owner-thread pump and per-mutation authentication.
 and MSI file digests within one authenticated helper phase. Native file handles
 deny write/delete;
 every reuse checks namespace/file identity and returns an independent object.
-Mutation checkpoints release the handles and invalidate cached values after the
-live owner check. Installed native state, ACL, payload, SCM and health are not
+Mutation checkpoints validate every pin after the live owner check. Only MSI
+media under fixed package-digest execution directories and, outside native
+callbacks, the native Windows Installer cache retain their deny-write/delete
+handles across unrelated metadata writes. Other handles and values are dropped.
+Installed native state, ACL, payload, SCM and health are not
 cached. Complete MSI database semantics may be reused only under those same
 native pins; every registered-cache lookup, ACL, namespace, byte size and
 before/after identity check still runs. Foundation executable bytes retain
 their separate complete descriptor verification on every call. Reuse-budget
 exhaustion falls back to the original fresh reader.
+
+The fresh compound upgrade uses one `compound-finalize` helper only after real
+native End(Commit)=0 and all required callbacks. It executes the same ordered
+commit, retire, reconcile, finish and complete functions, including every native,
+byte, ACL, owner-grant and durability check. Only the final ready marker may
+acknowledge the outer phase. The active physical peer is journaled before the
+first verification; partial failure retains the original recovery boundaries.
+Recovery and repair retain their granular post-native helper sequence.
 
 `platform/windows/installer_launch_broker.py` initializes the new fixed helper
 while the original Agent still runs. Its separate launch-only pipe authenticates

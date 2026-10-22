@@ -482,7 +482,7 @@ namespace EndpointInstallerBridge {
             if(reverse!=null && !reverse.AllowsHelper(this,phase)) Fail();
             if (!trial && !reverseControl && !recoveryHelper && phase!="inspect" && phase!="inspect-compound" && phase!="prepare" && phase!="stage-online" && phase!="seal-staged-switch" && phase!="adopt-staged-switch" && phase!="reconcile" && phase!="finish" && phase!="verify-settled" &&
                 !(compound!=null && (phase=="compound-old-returned" || phase=="compound-new-returned" ||
-                    phase=="compound-commit" || phase=="compound-retire" || phase=="compound-complete")) &&
+                    phase=="compound-commit" || phase=="compound-retire" || phase=="compound-complete" || phase=="compound-finalize")) &&
                 !(repair!=null && (phase=="compound-repair-returned" || phase=="compound-repair-commit" || phase=="compound-retire" || phase=="compound-complete"))) Fail();
             if (phase!="inspect" && phase!="inspect-compound" && phase!="verify-settled" && phase!="stage-online" && phase!="inspect-staged-state" && phase!="inspect-staged-recovery" && phase!="recover-staged-owner" && phase!="restore-staged-companions" && !quiescent) Fail();
             if ((phase=="reconcile" || phase=="finish") && (!nativeComplete || !nativeResult.HasValue ||
@@ -656,6 +656,7 @@ namespace EndpointInstallerBridge {
             if(phase=="compound-new-returned") return state=="scripts-returned" && !newRecorded;
             if(state!="committed") return false;
             if(phase=="verify-settled") return postStage=="complete";
+            if(phase=="compound-finalize") return !recovering && postStage=="unrecorded";
             return (phase=="compound-commit" && postStage=="unrecorded") ||
                 (phase=="compound-retire" && postStage=="committed") ||
                 (phase=="reconcile" && postStage=="retired") ||
@@ -671,6 +672,7 @@ namespace EndpointInstallerBridge {
             else if(phase=="reconcile") postStage="reconciled";
             else if(phase=="finish") postStage="finished";
             else if(phase=="compound-complete") postStage="complete";
+            else if(phase=="compound-finalize") postStage="complete";
         }
         public void OwnerLost() { state="owner-lost";oldPackage.OwnerLost();newPackage.OwnerLost();if(preparedOld!=null) preparedOld.OwnerLost(); }
     }
@@ -1463,7 +1465,7 @@ function Stop-InstallerLaunchBroker {
 
 function Invoke-InstallerHelper {
     param([Parameter(Mandatory)]$Bridge,[Parameter(Mandatory)][string]$Phase)
-    if ($Phase -notin @('inspect','inspect-compound','prepare','stage-online','seal-staged-switch','adopt-staged-switch','begin-staged-trial','observe-staged-trial','accept-staged-trial','inspect-staged-state','prepare-foundation-rollback','bind-foundation-rollback-roles','rollback-candidate-removed','rollback-native-committed','verify-foundation-rollback','restore-staged-companions','inspect-staged-recovery','recover-staged-owner','record-staged-reboot-3010','record-staged-reboot-1641','reconcile','finish','verify-settled','compound-old-returned','compound-new-returned','compound-commit','compound-retire','compound-complete','compound-repair-returned','compound-repair-commit') -or $Bridge.SessionId -cnotmatch '^[0-9a-f-]{36}$') { throw 'OWNER_AUTH_FAILED' }
+    if ($Phase -notin @('inspect','inspect-compound','prepare','stage-online','seal-staged-switch','adopt-staged-switch','begin-staged-trial','observe-staged-trial','accept-staged-trial','inspect-staged-state','prepare-foundation-rollback','bind-foundation-rollback-roles','rollback-candidate-removed','rollback-native-committed','verify-foundation-rollback','restore-staged-companions','inspect-staged-recovery','recover-staged-owner','record-staged-reboot-3010','record-staged-reboot-1641','reconcile','finish','verify-settled','compound-old-returned','compound-new-returned','compound-commit','compound-retire','compound-complete','compound-finalize','compound-repair-returned','compound-repair-commit') -or $Bridge.SessionId -cnotmatch '^[0-9a-f-]{36}$') { throw 'OWNER_AUTH_FAILED' }
     $phaseTimer=[Diagnostics.Stopwatch]::StartNew()
     $phaseStarted=[DateTime]::UtcNow.ToString('o')
     $launchSeconds=$null;$warmLaunch=$false;$phaseSucceeded=$false
@@ -2002,10 +2004,14 @@ function Invoke-CompoundFoundationUpgrade {
         $driver.StartEnd($true)
         Invoke-CompoundNativePump $driver $conversations -Channels $bridges.Count
         if ($driver.CompleteEnd() -ne 0) { throw 'RECOVERY_REQUIRED' }
-        foreach ($phase in @($(if($repair){'compound-repair-commit'}else{'compound-commit'}),'compound-retire','reconcile','finish')) {
-            Invoke-InstallerHelper $NewBridge $phase | Out-Null
+        if($Mode -ceq 'fresh') {
+            $ready=Invoke-InstallerHelper $NewBridge 'compound-finalize'
+        } else {
+            foreach ($phase in @($(if($repair){'compound-repair-commit'}else{'compound-commit'}),'compound-retire','reconcile','finish')) {
+                Invoke-InstallerHelper $NewBridge $phase | Out-Null
+            }
+            $ready=Invoke-InstallerHelper $NewBridge 'compound-complete'
         }
-        $ready=Invoke-InstallerHelper $NewBridge 'compound-complete'
         if ($ready.result -cne 'compound-ready' -or $ready.marker.upgrade_id -cne $NewBridge.Capability.compound.upgrade_id -or
             $ready.marker.new_transaction_id -cne $NewBridge.TransactionId -or
             $ready.marker.old_package_sha256 -cne $oldHash -or

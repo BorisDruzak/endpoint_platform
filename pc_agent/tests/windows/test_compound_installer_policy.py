@@ -15,7 +15,8 @@ import pytest
     'recovery-commit','recovery-flag-loss','partial-recovery',
     'successor-repair','repair-flag-loss','repair-reboot',
     'prepared-commit','prepared-unexited','prepared-unprepared','prepared-native-used',
-    'prepared-wrong-binding','prepared-owner-loss','prepared-flag-loss','prepared-seed-reuse','prepared-missing-callback'])
+    'prepared-wrong-binding','prepared-owner-loss','prepared-flag-loss','prepared-seed-reuse','prepared-missing-callback',
+    'finalize','finalize-owner-loss','finalize-missing-callback','recovery-finalize'])
 def test_compound_owner_policy(tmp_path, case):
     source = Path(__file__).resolve().parents[3]/'packaging/windows/Install-EndpointAgentCanary.ps1'
     script = tmp_path/'compound-policy.ps1'
@@ -173,6 +174,30 @@ function Complete-Native{
  $compound.EndReturned(0)
 }
 switch($Case){
+ 'finalize'{
+  $compound.BeginNative();Old-Script;New-Script
+  Reject {$new.RegisterHelper((Identity 240 ('f'*64)),'compound-finalize')}
+  Complete-Native;Record 'compound-finalize' 241
+  $ready=$compound.GetType().GetProperty('ReadyToPublish',[Reflection.BindingFlags]'Instance,NonPublic').GetValue($compound)
+  if(!$ready){throw 'combined phase did not complete postconditions'}
+  Reject {$new.RegisterHelper((Identity 242 ('f'*64)),'compound-finalize')}
+  Reject {$new.RegisterHelper((Identity 243 ('f'*64)),'compound-retire')}
+ }
+ 'finalize-owner-loss'{
+  $compound.BeginNative();Old-Script;New-Script;Complete-Native;$compound.OwnerLost()
+  Reject {$new.RegisterHelper((Identity 240 ('f'*64)),'compound-finalize')}
+ }
+ 'finalize-missing-callback'{
+  $compound.BeginNative();Old-Script;New-Script;$compound.BeginEnd($true)
+  $peer=Identity 215 ('b'*64);Admit $old $peer 'msi-complete';Admit $old $peer 'msi-complete' 'complete'
+  Reject {$compound.EndReturned(0)}
+  Reject {$new.RegisterHelper((Identity 240 ('f'*64)),'compound-finalize')}
+ }
+ 'recovery-finalize'{
+  $compound.BeginNative();Old-Script;New-Script;Complete-Native
+  Reject {$new.RegisterHelper((Identity 240 ('f'*64)),'compound-finalize')}
+  Record 'compound-commit' 241
+ }
  'recovery-commit'{$compound.BeginNative();Old-Script;New-Script;Complete-Native;if(!$compound.Committed){throw 'recovery commit absent'};Record 'compound-commit' 232;Record 'compound-retire' 233}
  'recovery-flag-loss'{$compound.BeginNative();$compound.BeginOldScript();$new.Recovery=$false;Reject {$old.Issue((Identity 210 ('b'*64)),'msi-preflight','begin',('9'*64),$old.SessionId)};Reject {$compound.BeginEnd($false)}}
  'unrecorded-old'{$compound.BeginNative();Old-Script;Reject {$compound.BeginNewScript()}}

@@ -28,10 +28,29 @@ _PHASE_READS = ContextVar('pinned_installer_phase_msi_reads', default=None)
 
 class _PackageReadScope:
     """Reuse pinned immutable file evidence, never native product observations."""
-    def __init__(self):
+    def __init__(self, immutable_media_roots=()):
         self.stack = ExitStack()
         self.pins = {}
         self.values = {}
+        self.pin_scopes = {}
+        self.immutable_media_roots = tuple(Path(root).absolute() for root in immutable_media_roots)
+        if any('..' in root.parts for root in self.immutable_media_roots):
+            raise ValueError('immutable media root must be canonical')
+        self.stack.callback(self.close)
+
+    def close(self):
+        try:
+            with ExitStack() as closing:
+                for scope in self.pin_scopes.values():
+                    closing.callback(scope.close)
+        finally:
+            self.pin_scopes.clear()
+            self.pins.clear()
+            self.values.clear()
+
+    def _immutable_media(self, path):
+        return (path.suffix.lower() == '.msi' and '..' not in path.parts
+                and any(path.is_relative_to(root) for root in self.immutable_media_roots))
 
     def validate(self, path):
         from .durable_state import _copy_identity
@@ -46,10 +65,14 @@ class _PackageReadScope:
         try:
             for path in self.pins:
                 self.validate(path)
-        finally:
-            self.stack.close()
-            self.pins.clear()
-            self.values.clear()
+        except BaseException:
+            self.close()
+            raise
+        for path in list(self.pins):
+            if not self._immutable_media(path):
+                self.pin_scopes.pop(path).close()
+                del self.pins[path]
+        self.values = {key: value for key, value in self.values.items() if key[1] in self.pins}
 
     def read(self, kind, path, identity, reader):
         from .durable_state import _copy_identity, _pinned_copy_source
@@ -59,10 +82,16 @@ class _PackageReadScope:
                 return reader()
             reject_reparse_ancestors(path)
             before = _copy_identity(path.lstat())
-            descriptor = self.stack.enter_context(_pinned_copy_source(path))
-            opened = os.fstat(descriptor)
-            if _copy_identity(opened) != before:
-                raise ProvenanceConflict()
+            pin_scope = ExitStack()
+            try:
+                descriptor = pin_scope.enter_context(_pinned_copy_source(path))
+                opened = os.fstat(descriptor)
+                if _copy_identity(opened) != before:
+                    raise ProvenanceConflict()
+            except BaseException:
+                pin_scope.close()
+                raise
+            self.pin_scopes[path] = pin_scope
             self.pins[path] = descriptor, before, opened.st_ctime_ns
         self.validate(path)
         key = kind, path, identity
@@ -79,7 +108,7 @@ class _PackageReadScope:
 
 
 @contextmanager
-def package_read_scope():
+def package_read_scope(*, immutable_media_roots=()):
     """One authenticated helper phase; retain deny-write/delete native handles.
 
     Each first inventory read still hashes and validates the complete MSI.
@@ -90,7 +119,7 @@ def package_read_scope():
     if os.name != 'nt':
         yield
         return
-    scope = _PackageReadScope()
+    scope = _PackageReadScope(immutable_media_roots)
     from .durable_state import installer_read_invalidation
     token = _PHASE_READS.set(scope)
     try:
@@ -115,6 +144,31 @@ def _file_sha256(path):
     if scope is not None:
         return scope.read('sha256', path, None, lambda: _hash_file(path))
     return _hash_file(path)
+
+
+def immutable_installer_media_roots(paths, capability, phase):
+    """Only owner-pinned execution media and non-writing native cache reads.
+
+    Installer helpers never modify these input MSIs. The native engine may
+    maintain its own cache during a script, so native callback phases retain
+    only the execution media already pinned by the live PowerShell owner.
+    """
+    releases = [capability['package']]
+    if 'compound' in capability:
+        releases.append(capability['compound']['old']['package'])
+    roots = []
+    for release in releases:
+        digest = release.get('package_sha256')
+        if not isinstance(digest, str) or not re.fullmatch('[0-9a-f]{64}', digest):
+            raise ProvenanceConflict()
+        roots.append(paths.install_root.parent/'installer-cache'/('msi-'+digest))
+    native_phases = {'msi-preflight', 'msi-enter', 'msi-complete', 'recover-enter',
+                     'foundation-config', 'uninstall-finalize-preflight',
+                     'uninstall-finalize-enter', 'uninstall-finalize-complete'}
+    if phase not in native_phases:
+        import win32api
+        roots.append(Path(win32api.GetWindowsDirectory())/'Installer')
+    return tuple(roots)
 
 
 UPGRADE_CODE = "{D4F3045C-51CF-49D9-AF9C-3AEBF206ED1F}"

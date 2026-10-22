@@ -29,7 +29,7 @@ PHASES = frozenset({'inspect','inspect-compound','prepare','stage-online','seal-
     'rollback-candidate-removed','rollback-native-committed','verify-foundation-rollback',
     'foundation-config','msi-complete','reconcile','finish','verify-settled',
     'uninstall-finalize-preflight','uninstall-finalize-enter','uninstall-finalize-complete',
-    'compound-old-returned','compound-new-returned','compound-commit','compound-retire','compound-complete',
+    'compound-old-returned','compound-new-returned','compound-commit','compound-retire','compound-complete','compound-finalize',
     'compound-repair-returned','compound-repair-commit'})
 _HASH = re.compile(r'\A[0-9a-f]{64}\Z')
 _CAP_FIELDS = {'schema_version','transaction_id','session_id','package','operation','pipe_name','owner',

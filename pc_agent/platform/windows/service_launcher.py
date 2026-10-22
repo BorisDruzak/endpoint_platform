@@ -245,7 +245,7 @@ def _parser() -> argparse.ArgumentParser:
         "begin-staged-trial","observe-staged-trial","accept-staged-trial",
         "restore-staged-companions","inspect-staged-recovery","recover-staged-owner","record-staged-reboot-3010","record-staged-reboot-1641",
         "inspect-staged-state","prepare-foundation-rollback","bind-foundation-rollback-roles","rollback-candidate-removed","rollback-native-committed","verify-foundation-rollback","msi-preflight","msi-enter","foundation-config","msi-complete","reconcile","finish","verify-settled",
-        "compound-old-returned","compound-new-returned","compound-commit","compound-retire","compound-complete",
+        "compound-old-returned","compound-new-returned","compound-commit","compound-retire","compound-complete","compound-finalize",
         "compound-repair-returned","compound-repair-commit"))
     parser.add_argument("--installer-session")
     parser.add_argument("--foundation-state", type=int)
@@ -275,13 +275,16 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.installer_phase:
         try:
             from pc_agent.platform.windows.installer_transaction_bridge import owner_authorized_phase, execute_authorized_phase
-            from pc_agent.platform.windows.msi_inventory import package_read_scope
+            from pc_agent.platform.windows.msi_inventory import package_read_scope, immutable_installer_media_roots
             from pc_agent.platform.windows.installer_phase_diagnostics import profile_installer_phase
-            with owner_authorized_phase(args.installer_session,args.installer_phase) as client, package_read_scope(), profile_installer_phase(args.installer_phase, WindowsUpdatePaths.production()):
-                execute_authorized_phase(client,WindowsUpdatePaths.production(),
-                    feature_states=(args.foundation_state,args.foundation_action,args.runtime_state,args.runtime_action),
-                    rollback_disabled=args.rollback_disabled,uninstall_finalization=args.uninstall_finalization,
-                    upgrade_detected=args.upgrade_detected,staged_removal=args.staged_removal)
+            with owner_authorized_phase(args.installer_session,args.installer_phase) as client:
+                paths = WindowsUpdatePaths.production()
+                media_roots = immutable_installer_media_roots(paths, client.capability, args.installer_phase)
+                with package_read_scope(immutable_media_roots=media_roots), profile_installer_phase(args.installer_phase, paths):
+                    execute_authorized_phase(client,paths,
+                        feature_states=(args.foundation_state,args.foundation_action,args.runtime_state,args.runtime_action),
+                        rollback_disabled=args.rollback_disabled,uninstall_finalization=args.uninstall_finalization,
+                        upgrade_detected=args.upgrade_detected,staged_removal=args.staged_removal)
             return 0
         except Exception as error:
             # pywin32 errors need not inherit OSError. A windowed MSI helper

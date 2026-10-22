@@ -179,3 +179,19 @@ storage. Interrupted private preparation stays as evidence without selecting a
 future version. Every write and rename retains live-owner mutation checkpoints.
 Add the compressed cache allocation to the existing native full-payload costing.
 No signature, hash, ACL, native, health or rollback gate is omitted.
+
+### Post-native helper consolidation
+
+After genuine successful native End(Commit), fresh forward upgrades may run the
+five existing ordered post-native functions in one authenticated fixed helper.
+Every check, mutation grant and durable journal boundary remains. Intermediate
+logical completion never acknowledges the owner; only the final verified ready
+marker does. Journal the physical peer before verification so owner-loss recovery
+can exclude a live helper. Recovery and repair keep their existing granular path.
+The service remains stopped until all existing launch requirements pass.
+
+Within one helper, immutable MSI input handles may survive unrelated metadata
+mutations only under fixed owner-derived execution/cache roots. Deny writes and
+deletion for the whole scope and validate namespace and file identity at every
+checkpoint/reuse. Native callback phases exclude the managed Installer cache.
+Installed registration, ACL, Foundation/Core bytes, SCM and health remain fresh.
