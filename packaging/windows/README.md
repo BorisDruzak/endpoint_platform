@@ -328,6 +328,13 @@ Older immutable helpers and MSI-launched custom actions retain their existing
 path. Owner-loss recovery, native barriers and health acceptance are unchanged;
 installed performance and fault acceptance still require real guest evidence.
 
+Recovery tasks retry a failed attempt at most three times, one minute apart,
+without overlapping instances. Every retry establishes fresh native settlement
+and owner authorization. Deferred companion launch retains the authenticated
+task; retry never converts missing evidence into terminal success. Historical
+captured tasks without restart settings remain valid. All new restart settings
+are included in the captured task XML digest.
+
 Compensating candidate removal passes `ENDPOINT_STAGED_REMOVE=1` to preserve
 the original retained and OTA Core trees from recursive root cleanup. The MSI
 preflight accepts this flag only for its authenticated staged removal role;

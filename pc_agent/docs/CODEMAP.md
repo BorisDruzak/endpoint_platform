@@ -54,6 +54,12 @@ MSI authority or completion. Its idle read also waits on the exact owner handle;
 owner loss closes the connection and retires its retained child. Older helpers,
 other operations and MSI custom actions keep their original cold launch path.
 
+Staged recovery tasks use at most three one-minute failure restarts, with
+`IgnoreNew` retaining a single active recovery. Their protected XML digest binds
+the retry limits; historical tasks without a retry block remain readable. Each
+attempt repeats physical-owner/native settlement and companion integrity checks.
+Deferred or unknown companion-launch outcomes preserve the recovery task.
+
 `platform/windows/staged_trial_proof.py` uses a separate protected trial request
 and Agent-writable proof. Native registration/shared bytes and the exact Core
 inventory are checked before selecting the candidate. Runtime composition keeps

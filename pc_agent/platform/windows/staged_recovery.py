@@ -118,6 +118,15 @@ def _validate_task_definition(xml, operation_id, executable, logon_type):
     ns = {'t': 'http://schemas.microsoft.com/windows/2004/02/mit/task'}
     actions = root.findall('t:Actions/t:Exec', ns)
     principals = root.findall('t:Principals/t:Principal', ns)
+    restarts = root.findall('t:Settings/t:RestartOnFailure', ns)
+    if len(root.findall('t:Settings', ns)) > 1 or len(restarts) > 1:
+        _fail()
+    # Historical captured tasks have no retry block. New tasks bind exactly
+    # three one-minute retries in their protected XML digest; never widen it.
+    if restarts and (len(restarts[0]) != 2
+            or restarts[0].findtext('t:Interval', namespaces=ns) != 'PT1M'
+            or restarts[0].findtext('t:Count', namespaces=ns) != '3'):
+        _fail()
     if (len(actions) != 1 or len(root.findall('t:Actions/*', ns)) != 1
             or len(root.findall('t:Triggers/*', ns)) != 1 or len(principals) != 1
             or actions[0].findtext('t:Command', namespaces=ns) != str(executable)

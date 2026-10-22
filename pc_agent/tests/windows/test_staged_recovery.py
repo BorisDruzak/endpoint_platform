@@ -155,6 +155,21 @@ def test_system_task_canonical_xml_omits_logon_type():
         with pytest.raises(ValueError): _validate_task_definition(forged, operation, executable, logon)
 
 
+@pytest.mark.parametrize('defect', [None, 'count', 'interval', 'duplicate'])
+def test_task_restart_settings_are_bounded_and_historical_tasks_remain_valid(defect):
+    from pc_agent.platform.windows.staged_recovery import _validate_task_definition
+    operation = str(uuid4());executable = Path('C:/Program Files/Endpoint Platform/installer-cache/recovery/EndpointAgentSetup.exe')
+    restart = '<RestartOnFailure><Interval>PT1M</Interval><Count>3</Count></RestartOnFailure>'
+    if defect == 'count': restart = restart.replace('<Count>3', '<Count>4')
+    if defect == 'interval': restart = restart.replace('PT1M', 'PT1S')
+    if defect == 'duplicate': restart += restart
+    xml = f'''<Task xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task"><Principals><Principal><UserId>S-1-5-18</UserId><RunLevel>HighestAvailable</RunLevel></Principal></Principals><Triggers><BootTrigger/></Triggers><Actions><Exec><Command>{executable}</Command><Arguments>--recover-staged-update {operation}</Arguments></Exec></Actions><Settings>{restart}</Settings></Task>'''
+    if defect:
+        with pytest.raises(ValueError): _validate_task_definition(xml, operation, executable, 5)
+    else:
+        _validate_task_definition(xml, operation, executable, 5)
+
+
 from pc_agent.tests.windows.test_retained_storage import retained, promote
 
 

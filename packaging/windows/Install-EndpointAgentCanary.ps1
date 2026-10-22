@@ -1681,6 +1681,13 @@ function Invoke-StagedFoundationRollback {
     }
 }
 
+function New-StagedRecoverySettings {
+    # A verified terminal operation can outlive transient service/session or
+    # metadata observation failures. Each restart repeats native admission and
+    # fresh owner authentication; the captured task XML binds these limits.
+    return New-ScheduledTaskSettingsSet -MultipleInstances IgnoreNew -ExecutionTimeLimit ([TimeSpan]::FromMinutes(250)) -StartWhenAvailable -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -RestartCount 3 -RestartInterval ([TimeSpan]::FromMinutes(1))
+}
+
 function Register-StagedRecoveryTask {
     param($Bridge,[string]$SetupImage,[string]$WrapperPath,[string]$ManifestPath,[string]$CacheRoot,[string]$StateRoot,$ServiceStates)
     if([string]::IsNullOrWhiteSpace($SetupImage)){throw 'RECOVERY_REQUIRED'}
@@ -1718,7 +1725,7 @@ function Register-StagedRecoveryTask {
     $action=New-ScheduledTaskAction -Execute $executable -Argument ('--recover-staged-update '+$Bridge.TransactionId)
     $trigger=New-ScheduledTaskTrigger -AtStartup
     $principal=New-ScheduledTaskPrincipal -UserId 'S-1-5-18' -LogonType ServiceAccount -RunLevel Highest
-    $settings=New-ScheduledTaskSettingsSet -MultipleInstances IgnoreNew -ExecutionTimeLimit ([TimeSpan]::FromMinutes(250)) -StartWhenAvailable -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
+    $settings=New-StagedRecoverySettings
     Register-ScheduledTask -TaskName $name -Action $action -Trigger $trigger -Principal $principal -Settings $settings | Out-Null
     $scheduler=New-Object -ComObject Schedule.Service;$scheduler.Connect()
     $task=$scheduler.GetFolder('\').GetTask($name)
@@ -1747,6 +1754,7 @@ function Complete-StagedTerminalCleanup {
         foreach($name in @('EndpointAgent','EndpointAgentUpdater','EndpointBrowserPolicy')){
             if($ServiceStates[$name] -ceq 'Running' -and $restored.services.$name -cne 'running'){throw 'RECOVERY_REQUIRED'}
         }
+        if($restored.users -isnot [string] -or $restored.users -cnotin @('not-required','launch-requested','session-unavailable')){throw 'RECOVERY_REQUIRED'}
         Remove-StagedRecoveryTask $Bridge.TransactionId $StateRoot
     } catch {
         Write-Warning 'STAGED_TERMINAL_CLEANUP_DEFERRED'
