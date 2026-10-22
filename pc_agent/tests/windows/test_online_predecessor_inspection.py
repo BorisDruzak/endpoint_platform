@@ -30,7 +30,7 @@ function Get-StagedAgentObservation {
 }
 function New-InstallerBridge {
  param($Manifest,$HelperPath,$HelperHash,$StateRoot,$ServiceStates,$Intent,$Selection)
- if($Intent -cne 'uninstall' -or $Manifest.package_sha256 -cne ('a'*64)){throw 'wrong package admission'}
+ if($Intent -cne 'install' -or $Manifest.package_sha256 -cne ('a'*64)){throw 'wrong package admission'}
  return @{Policy=$policy;Channel=$resource;Owner=$resource;Peers=@($resource)}
 }
 function Invoke-InstallerHelper {

@@ -1861,7 +1861,7 @@ function Inspect-StagedPredecessorOnline {
     # This bridge is never quiescent and never enters a Native transaction.
     $observation=Get-StagedAgentObservation
     $inspectionBridge=New-InstallerBridge -Manifest $Manifest -HelperPath $HelperPath -HelperHash $HelperHash `
-        -StateRoot $StateRoot -ServiceStates $ServiceStates -Intent 'uninstall' -Selection $Selection
+        -StateRoot $StateRoot -ServiceStates $ServiceStates -Intent 'install' -Selection $Selection
     try {
         $observed=Invoke-InstallerHelper -Bridge $inspectionBridge -Phase 'inspect'
         if($observed.selected -cne $Selection.selected -or $observed.previous -cne $Selection.previous){throw 'PROVENANCE_CONFLICT'}
