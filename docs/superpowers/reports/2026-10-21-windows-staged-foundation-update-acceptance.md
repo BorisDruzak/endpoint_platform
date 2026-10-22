@@ -643,3 +643,79 @@ remained unchanged and no native product scripts ran. This demonstrates the
 transport overhead, not an installed 120-second result. The event-wait change
 retains every ownership, framing, authentication, grant and native-result check.
 Its installed performance, automatic rollback and full matrix remain open.
+
+### 3.2.134 controlled post-boot update: no duplicate Core copy, pause still failed
+
+Candidate runtime source is `73b95a9477bf7134dafb55e6979c2fc3152373d3`;
+build checkout is `13c6de7d3ed1a7b3da37d06c961f3d2a360a01b7`.
+CI `39743640623` passed 4522 tests with 796 skips. The complete local Windows,
+runtime, packaging and staged-harness selection passed 2330 tests with three
+skips. Signed, timestamped artifacts were verified without changing historical
+releases:
+
+| Artifact | SHA-256 |
+| --- | --- |
+| MSI | `9baa58e0ea18d2b744108b3df3bdc80c1ea9e91f7ee208c6ea4b9bd9d2c2dcf4` |
+| Setup | `fb762c38becfef1f39cd012c84cd4a597dabf11dcf277dc32253b5d66ce77f58` |
+| Core ZIP | `dab0a5e3b9033adf2dec82db1753ba409ea7a94b123a7cdf698d27b0f5c94ba8` |
+
+The actual signed Setup owner contains the event wait. Its embedded Core ZIP
+matches the standalone archive, and its helper matches the MSI Binary stream.
+Missing-capability helper/launcher invocations denied access. A recovery CLI
+invocation with a missing operation exited 60 without creating a journal.
+
+The supported frozen preflight verified Foundation 3.2.120 and selected Core
+3.2.121. A new dedicated-guest boot was recorded before case
+`modern121-success-cold134-01`; no cache-flushing or security exclusions were
+used. Setup ran 08:14:43.469–08:20:59.124 UTC, exiting zero after 375.66 seconds.
+Old-agent heartbeats continued during preparation. The candidate reached
+`accepted`, with new WSS at 08:19:50.193 and matching APPLIED ACK at
+08:19:50.306 UTC. All four private leaves were preserved.
+
+Both complete identity comparisons passed: 111 retained predecessor files
+(39,686,091 bytes) kept their NTFS IDs/hashes/sizes through promotion; all 722
+incoming Core files (48,106,144 bytes), captured while the old Agent was running,
+kept their IDs/hashes/sizes after native MSI adoption. Zero incoming files were
+replaced. This directly confirms removal of the duplicate Core copy.
+
+The pause requirement remains failed. The first coarse stopped observation was
+08:16:57.592 UTC, at least 172.60 seconds before the new WSS. Exact SCM 7036
+events were unavailable. The initial separate high-frequency observer failed
+to load the ServiceController assembly, so it supplies no finer cold timing.
+The event-wait transport microbenchmark therefore did not establish a material
+installed improvement; no 120-second success is claimed.
+
+### 3.2.134 real early crash: automatic native/Core rollback, cleanup incomplete
+
+In `modern121-early-crash134-01`, the exact candidate executable was terminated
+during trial. Setup ran 08:30:30.253–08:38:43.560 UTC and returned 67. Automatic
+compensation restored registered Foundation 3.2.120 and Core 3.2.121, with fresh
+old-version WSS at 08:38:43.919 and APPLIED ACK at 08:38:43.975 UTC. All four
+private leaves remained equal. No manual native recovery was invoked.
+
+The correctly rooted companion check found both original roles under
+`Program Files/Endpoint Platform/Agent`, matching their original SID/session;
+no Session 0 role was counted. The first private checker used the wrong fixed
+directory; that failed diagnostic is retained alongside the corrected receipt.
+One recovery task nevertheless remained Ready with result 60 after a
+post-use Foundation identity-check failure. Thus automatic native/Core rollback
+passed, while complete terminal cleanup did not. The pending state was saved
+as `staged134-crash-cleanup-pending-22`.
+
+The original MSI logging policy was restored. Eleven private native logs were
+collected without rerunning Setup. The forward new-package log measured a
+13.509-second SAFER signature verification, INSTALL 34 seconds, owner preflight
+10 seconds and InstallExecute 20 seconds; InstallFiles took one second. These
+figures do not support disabling signatures or any integrity check.
+
+Separate source self timing on the restored 120/121 pair measured full
+inspection 1.47 seconds, Foundation verification 1.02 seconds, native components
+0.04 seconds and shared bytes 0.47 seconds. It attached to no other process and
+recorded no values/arguments. An idle registry-barrier probe was also fast;
+neither probe establishes the costs inside the actual authorized phases.
+
+The next candidate adds default-disabled, protected opt-in function timings
+inside those real phases, and one complete post-launch verification retry
+without replaying launches. Diagnostic-enabled timings are excluded from
+performance acceptance. The 120-second goal, remaining faults and complete
+42-case matrix remain open; production/fleet publication remains out of scope.
