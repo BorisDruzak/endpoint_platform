@@ -167,3 +167,15 @@ revalidated. Keep state changes, Native APIs and mutation grants on the phase
 thread. Skip quick trial polling and never enumerate the Windows Installer
 cache. Repeat source, signed packaging and installed gates before claiming an
 update improvement; the 120-second bound and full matrix remain open.
+
+### Task 8 performance refinement: post-commit Foundation byte pins
+
+Only the fresh combined finalization phase may retain byte proofs for the
+eight exact Foundation executables from the authenticated MSI inventory.
+Native End(Commit), callback completion and product-state admission remain
+prerequisites. Hash each file fully on first use and keep its native
+deny-write/delete pin until finalization ends. Repeat Native, SCM, namespace,
+ACL and descriptor checks at every existing verification boundary; preserve
+all grants and durable writes. Recovery and ordinary reads retain their
+previous behavior. Test blocked writes, fresh ACL rejection and pin release,
+then measure a real signed candidate before making a performance claim.

@@ -301,6 +301,61 @@ def test_foundation_keeps_full_descriptor_checks_even_in_media_read_scope(tmp_pa
                 pytest.fail('changed foundation admitted')
 
 
+def test_postcommit_foundation_reads_keep_pins_and_fresh_security_checks(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+    from pc_agent.platform.windows import update_transaction, durable_state
+    checks = []
+    monkeypatch.setattr(update_transaction, '_assert_state_security', lambda p: checks.append(p))
+    rows = []
+    for name, (file, component) in msi.FOUNDATION_EXECUTABLES.items():
+        (tmp_path / name).write_bytes(b'exact foundation')
+        rows.append({'path': name, 'file': file, 'component': component, 'size': 16,
+                     'sha256': hashlib.sha256(b'exact foundation').hexdigest()})
+    expected = SimpleNamespace(foundation_files=rows)
+    calls = []
+    original = durable_state._verify_copy_bytes
+    def read(*args):
+        calls.append(args)
+        return original(*args)
+    monkeypatch.setattr(durable_state, '_verify_copy_bytes', read)
+    with msi.package_read_scope(), durable_state.installer_mutation_checkpoints(lambda: None):
+        with msi.immutable_foundation_reads(expected, tmp_path):
+            for _ in range(2):
+                with msi.verified_foundation_bytes(expected, tmp_path):
+                    pass
+                durable_state.installer_mutation_checkpoint(required=True)
+            assert len(calls) == 8 and len(checks) == 18
+            for row in rows:
+                with pytest.raises(OSError):
+                    (tmp_path / row['path']).write_bytes(b'cannot change a verified file')
+        (tmp_path / rows[0]['path']).write_bytes(b'cache must end with its context')
+        with pytest.raises(ValueError):
+            with msi.verified_foundation_bytes(expected, tmp_path):
+                pytest.fail('post-context changed bytes admitted')
+
+
+def test_postcommit_foundation_cache_rejects_security_changes(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+    from pc_agent.platform.windows import update_transaction
+    rows = []
+    for name, (file, component) in msi.FOUNDATION_EXECUTABLES.items():
+        (tmp_path / name).write_bytes(b'exact foundation')
+        rows.append({'path': name, 'file': file, 'component': component, 'size': 16,
+                     'sha256': hashlib.sha256(b'exact foundation').hexdigest()})
+    expected = SimpleNamespace(foundation_files=rows)
+    monkeypatch.setattr(update_transaction, '_assert_state_security', lambda *_: None)
+    with msi.package_read_scope():
+        with msi.immutable_foundation_reads(expected, tmp_path):
+            with msi.verified_foundation_bytes(expected, tmp_path):
+                pass
+            def reject(_):
+                raise ValueError('untrusted ACL')
+            monkeypatch.setattr(update_transaction, '_assert_state_security', reject)
+            with pytest.raises(ValueError, match='untrusted ACL'):
+                with msi.verified_foundation_bytes(expected, tmp_path):
+                    pytest.fail('cached bytes bypassed fresh ACL checks')
+
+
 def test_explicit_immutable_msi_keeps_pins_across_unrelated_metadata_writes(media, tmp_path):
     from pc_agent.platform.windows import durable_state
     path, digest, calls = media

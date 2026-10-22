@@ -226,3 +226,14 @@ Native product observation, state change or mutation grant runs on a worker.
 Failure closes all pins and rejects the phase. No digest survives its helper
 phase, and the native Windows Installer cache is never scanned or prefetched.
 Installed cold/warm timing and the failure matrix still determine acceptance.
+
+## Post-commit Foundation byte proofs
+
+Fresh combined finalization may retain only the eight exact executable byte
+proofs named by its authenticated MSI inventory, after the existing Native
+End(Commit)/callback/product admission. The first SHA256 remains complete;
+native deny-write/delete handles protect subsequent byte-proof reuse. Keep
+all existing Native, SCM, ACL, namespace, descriptor, grant and durability
+checks fresh. Release the executable pins at the context boundary. This
+scope supplies no launch or mutation authority and does not cache Core data,
+metadata, Native state, recovery results or evidence across helper phases.

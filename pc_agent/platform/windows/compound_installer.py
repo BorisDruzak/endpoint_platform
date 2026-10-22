@@ -156,18 +156,19 @@ def _finalize_compound(client, paths):
     # read-only verification. Native End(Commit) admission belongs to the owner.
     with durable_state.installer_mutation_checkpoints(client.checkpoint), _child(cap):
         bridge._advance_fence(paths, client, expected, 'msi-returned')
-    stages = []
-    for phase in ('compound-commit', 'compound-retire', 'reconcile', 'finish', 'compound-complete'):
-        step = _FinalizationStep(client, phase)
-        started = time.perf_counter()
-        result = execute_compound_phase(step, paths)
-        if not step.completed:
+    with msi_inventory.immutable_foundation_reads(expected, paths.install_root):
+        stages = []
+        for phase in ('compound-commit', 'compound-retire', 'reconcile', 'finish', 'compound-complete'):
+            step = _FinalizationStep(client, phase)
+            started = time.perf_counter()
+            result = execute_compound_phase(step, paths)
+            if not step.completed:
+                _fail()
+            stages.append({'phase': phase, 'seconds': round(time.perf_counter()-started, 6)})
+        if result.get('result') != 'compound-ready':
             _fail()
-        stages.append({'phase': phase, 'seconds': round(time.perf_counter()-started, 6)})
-    if result.get('result') != 'compound-ready':
-        _fail()
-    result = {**result, 'stages': stages}
-    client.request('complete', result)
+        result = {**result, 'stages': stages}
+        client.request('complete', result)
     return result
 
 

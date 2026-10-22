@@ -33,6 +33,7 @@ class _PackageReadScope:
         self.pins = {}
         self.values = {}
         self.pin_scopes = {}
+        self.foundation_inputs = {}
         self.immutable_media_roots = tuple(Path(root).absolute() for root in immutable_media_roots)
         if any('..' in root.parts for root in self.immutable_media_roots):
             raise ValueError('immutable media root must be canonical')
@@ -82,8 +83,9 @@ class _PackageReadScope:
             self.values.clear()
 
     def _immutable_media(self, path):
-        return (path.suffix.lower() == '.msi' and '..' not in path.parts
-                and any(path.is_relative_to(root) for root in self.immutable_media_roots))
+        return (path in self.foundation_inputs or
+                (path.suffix.lower() == '.msi' and '..' not in path.parts
+                 and any(path.is_relative_to(root) for root in self.immutable_media_roots)))
 
     def validate(self, path):
         from .durable_state import _copy_identity
@@ -320,6 +322,30 @@ def _foundation_records(value):
 
 
 @contextmanager
+def immutable_foundation_reads(expected, install_root):
+    """Retain only the eight exact executable proofs during post-commit reads.
+
+    The fresh finalization caller has already established Native End(Commit).
+    Native/SCM/ACL/namespace checks still execute on every verification; this
+    scope keeps only complete byte proofs protected by deny-write/delete pins.
+    """
+    scope = _PHASE_READS.get()
+    if scope is None:
+        yield
+        return
+    root = Path(install_root).absolute()
+    if scope.foundation_inputs or '..' in root.parts:
+        raise ProvenanceConflict()
+    rows = _foundation_records(expected.foundation_files)
+    scope.foundation_inputs = {root / row['path']: (row['size'], row['sha256']) for row in rows}
+    try:
+        yield
+    finally:
+        scope.foundation_inputs = {}
+        scope.invalidate()  # Release these executable pins before leaving the scope.
+
+
+@contextmanager
 def verified_foundation_bytes(expected,install_root):
     """Hold each exact immutable foundation executable against substitution."""
     from . import durable_state
@@ -337,7 +363,13 @@ def verified_foundation_bytes(expected,install_root):
             descriptor=stack.enter_context(durable_state._pinned_copy_source(path))
             opened=os.fstat(descriptor)
             if durable_state._copy_identity(opened)!=before: raise ProvenanceConflict()
-            durable_state._verify_copy_bytes(descriptor,row['size'],row['sha256'])
+            scope = _PHASE_READS.get()
+            identity = row['size'], row['sha256']
+            if scope is not None and scope.foundation_inputs.get(path) == identity:
+                scope.read('foundation-bytes', path, identity,
+                           lambda: durable_state._verify_copy_bytes(descriptor, *identity))
+            else:
+                durable_state._verify_copy_bytes(descriptor, *identity)
             identities.append((path,descriptor,before,opened.st_ctime_ns))
         yield
         for path,descriptor,before,changed in identities:
