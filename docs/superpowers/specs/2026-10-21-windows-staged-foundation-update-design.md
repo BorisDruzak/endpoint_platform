@@ -154,3 +154,28 @@ Device identity, credential bytes, CA/origin, outbox и исходные защ�
 ## Документальные основания
 
 Проверена документация Microsoft Windows Installer через Context7 (`/websites/learn_microsoft_en-us_windows_win32_msi`): [transaction functions](https://learn.microsoft.com/en-us/windows/win32/msi/installer-function-reference), [MsiEndTransaction](https://learn.microsoft.com/en-us/windows/win32/api/msi/nf-msi-msiendtransaction), [multiple-package installations](https://learn.microsoft.com/en-us/windows/win32/msi/multiple-package-installations). Она подтверждает native transaction boundaries; автоматический откат после проверки приложения является ответственностью нашего lifecycle, а не обещанием MSI.
+
+## Incoming Core preparation supplement (2026-10-22)
+
+The online window includes preparing the incoming Core, in addition to retaining
+the genuine previous Core. An internal archive inside signed Setup is only a
+transport: its exact manifest, compatibility contract and all member bytes must
+equal the inventory read from the authenticated MSI. It conveys no new origin,
+native feature exclusion, ownership or launch authority.
+
+Write each member once to protected operation storage while the old Agent runs.
+Publish by same-volume NTFS rename while the old Agent still runs. The staged
+launch gate permits only the exact old selected tree. Managed stop and sealing
+retain their existing revalidation. Keep native MSI feature/component/file checks
+unchanged; the MSI adopts matching files under its normal file-version/hash
+rules. Installed acceptance must prove all candidate payload file identities
+across this native installation. A two-file native file-rule probe only proves
+the operating-system mechanism.
+
+Bind storage phases to the immutable operation. Unknown/foreign state fails
+closed. Before-switch cancellation needs fresh native settlement and complete
+original-state proof, then moves only an owned complete candidate back to private
+storage. Interrupted private preparation stays as evidence without selecting a
+future version. Every write and rename retains live-owner mutation checkpoints.
+Add the compressed cache allocation to the existing native full-payload costing.
+No signature, hash, ACL, native, health or rollback gate is omitted.

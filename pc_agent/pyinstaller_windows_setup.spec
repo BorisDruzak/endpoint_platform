@@ -21,6 +21,7 @@ def _public_payload(name: str, expected_filename: str) -> Path:
 
 
 setup_msi = _public_payload("ENDPOINT_SETUP_MSI", "EndpointAgent.msi")
+setup_core_archive = _public_payload("ENDPOINT_SETUP_CORE_ARCHIVE", "EndpointCore.zip")
 setup_ca = _public_payload("ENDPOINT_SETUP_CA_FILE", "endpoint-ca.crt")
 setup_config = _public_payload("ENDPOINT_SETUP_CONFIG", "setup-config.json")
 setup_msi_release_manifest = _public_payload(
@@ -39,6 +40,7 @@ a = Analysis(
     hiddenimports=['pc_agent.platform.windows.staged_update_state', 'pc_agent.platform.windows.staged_recovery'],
     datas=[
         (str(setup_msi), "payload"),
+        (str(setup_core_archive), "payload"),
         (str(setup_ca), "payload"),
         (str(setup_config), "payload"),
         (str(setup_msi_release_manifest), "payload"),

@@ -307,6 +307,15 @@ $distRoot = Join-Path $setupRoot 'dist'
 $workRoot = Join-Path $setupRoot 'work'
 New-Item -ItemType Directory -Path $payloadRoot, $distRoot, $workRoot, $releaseRoot -Force | Out-Null
 $setupMsi = Join-Path $payloadRoot 'EndpointAgent.msi'
+$setupCoreArchive = Join-Path $payloadRoot 'EndpointCore.zip'
+$setupRuntimeRoot = Join-Path $effectiveWixBuildRoot "staging/ProgramFiles/versions/$Version"
+if (-not (Test-Path -LiteralPath $setupRuntimeRoot -PathType Container)) {
+    if (-not $InitialRuntimeStageRoot) { throw 'Setup requires the exact MSI Core payload for online preparation.' }
+    $setupRuntimeRoot = $InitialRuntimeStageRoot
+}
+& (Join-Path $PSScriptRoot 'build-update-zip.ps1') -RuntimeRoot $setupRuntimeRoot `
+    -Version $Version -SourceRevision $msiSourceCommit -MinimumLauncherVersion $Version -OutputPath $setupCoreArchive
+if ($LASTEXITCODE -ne 0) { throw 'Setup Core archive build failed.' }
 $setupCa = Join-Path $payloadRoot 'endpoint-ca.crt'
 $setupConfig = Join-Path $payloadRoot 'setup-config.json'
 $setupMsiReleaseManifest = Join-Path $payloadRoot 'EndpointAgent.release.json'
@@ -323,12 +332,14 @@ Write-Utf8NoBom $setupConfig (@{
 } | ConvertTo-Json -Compress)
 
 $previousMsi = $env:ENDPOINT_SETUP_MSI
+$previousCoreArchive = $env:ENDPOINT_SETUP_CORE_ARCHIVE
 $previousCa = $env:ENDPOINT_SETUP_CA_FILE
 $previousConfig = $env:ENDPOINT_SETUP_CONFIG
 $previousMsiReleaseManifest = $env:ENDPOINT_SETUP_MSI_RELEASE_MANIFEST
 $previousVersionFile = $env:ENDPOINT_SETUP_VERSION_FILE
 try {
     $env:ENDPOINT_SETUP_MSI = $setupMsi
+    $env:ENDPOINT_SETUP_CORE_ARCHIVE = $setupCoreArchive
     $env:ENDPOINT_SETUP_CA_FILE = $setupCa
     $env:ENDPOINT_SETUP_CONFIG = $setupConfig
     $env:ENDPOINT_SETUP_MSI_RELEASE_MANIFEST = $setupMsiReleaseManifest
@@ -338,6 +349,7 @@ try {
 }
 finally {
     $env:ENDPOINT_SETUP_MSI = $previousMsi
+    $env:ENDPOINT_SETUP_CORE_ARCHIVE = $previousCoreArchive
     $env:ENDPOINT_SETUP_CA_FILE = $previousCa
     $env:ENDPOINT_SETUP_CONFIG = $previousConfig
     $env:ENDPOINT_SETUP_MSI_RELEASE_MANIFEST = $previousMsiReleaseManifest

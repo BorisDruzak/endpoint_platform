@@ -360,3 +360,30 @@ journal evidence; cached inputs and prior operation receipts remain protected.
 These source contracts are not a fleet-readiness or installed-acceptance claim.
 Genuine predecessor upgrade/rollback and performance results belong in the
 release's dedicated Windows acceptance report.
+
+Setup also embeds `EndpointCore.zip`, generated from the exact authored MSI
+Core. The owner caches and pins it at the package-hash path. The authenticated
+online phase verifies its complete inventory, compatibility contract and every
+member against the signed MSI inventory, then writes each member once into a
+protected operation directory while the old Agent runs, then publishes it into
+`Agent/versions` by same-volume NTFS rename. The existing staged launch gate
+still allows only the exact old selected tree. Managed stop and sealing retain
+their existing revalidation. Publication grants no ownership authority. Native MSI
+still registers and verifies all original features/components and supplies its
+ownership metadata. Matching-file retention must be measured on the real MSI;
+the separate two-file native probe is not full-package acceptance.
+
+The small candidate storage journal binds every rename to the immutable staged
+operation. Recovery after an interrupted rename uses the existing exact tree;
+before-switch cancellation moves a complete published tree back only after
+native-settlement and original-state proof. Partial private staging remains
+protected evidence. Foreign destination, unknown state, extra members, reparse
+points and mismatched payloads fail closed. No selected Core is changed during
+online preparation. Historical wrappers without the optional internal archive
+retain their existing path. New Setup builds require the archive; reusing an
+existing MSI requires its matching `InitialRuntimeStageRoot` if native staging
+is unavailable. Setup budgets the archive cache in addition to native costing.
+
+Owner timing diagnostics separate process launch from whole-phase duration and
+record warm/cold selection in memory. One protected diagnostic document is
+written after the operation; these measurements grant no installer authority.

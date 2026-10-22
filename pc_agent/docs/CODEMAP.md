@@ -282,6 +282,12 @@ effective-browser-policy and browser download/heartbeat proof remain open.
 | Updates | `pc_agent/gateway_update_runtime.py`, `pc_agent/update_adapter.py` | immutable update selection and application |
 | Packaging | `packaging/alt/`, `packaging/windows/` | ALT RPM and Windows MSI artifacts |
 
+`platform/windows/staged_candidate_payload.py` prepares incoming Core bytes
+from Setup's internal archive against the authenticated MSI inventory. Its
+operation-bound private storage journal supports an online same-volume
+publication and before-switch cancellation without copying or selecting the payload. Native MSI
+ownership, final installed checks and health/rollback gates remain authoritative.
+
 ## Excluded legacy surfaces
 
 The Endpoint core intentionally contains no desktop GUI, requester/ticket

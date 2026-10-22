@@ -262,6 +262,8 @@ def recover_staged_update(paths, operation_id, *, capability=None):
         return record.phase
     if record.phase in {'preparing', 'prepared'}:
         _verify_original_state(paths, record)
+        from .staged_candidate_payload import cancel_prepared_candidate
+        cancel_prepared_candidate(paths, record)
         state.advance_staged_update(paths, operation_id, record.phase, 'rolled-back', safe_code='preparation_cancelled')
         return 'preparation-cancelled'
     if reboot_pending(paths, record):

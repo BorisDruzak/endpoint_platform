@@ -195,6 +195,9 @@ def _embedded_recovery_operation(msi_path: Path) -> str | None:
 def _install_embedded_msi(msi_path: Path) -> int:
     manifest_path, wrapper_path = _verify_embedded_msi(msi_path)
     operation = ['-Operation','RecoverInterruptedInstall'] if _embedded_recovery_operation(msi_path) else []
+    core_archive = msi_path.with_name('EndpointCore.zip')
+    if core_archive.is_file():
+        operation += ['-CoreArchivePath', str(core_archive)]
     if getattr(sys, "frozen", False):
         operation += ["-SetupImagePath", str(Path(sys.executable).absolute())]
     windows_powershell = (
@@ -321,6 +324,14 @@ def _setup_disk_allocations(
         ]
     )
     allocations.extend(preparation)
+    core_archive = msi_path.with_name('EndpointCore.zip')
+    if core_archive.exists():
+        archive_size = core_archive.stat().st_size
+        if not 0 < archive_size <= MAX_ARTIFACT_BYTES:
+            raise SetupInstallError('MSI_COST_INVALID')
+        allocations.append((paths.install_root.parent / 'installer-cache', archive_size))
+        # Native costing still includes the complete incoming Core allocation.
+        # Its online staging and native destination are the same renamed tree.
     return allocations
 
 

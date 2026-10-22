@@ -58,6 +58,7 @@ def test_wrapper_accepts_only_detached_release_inputs_and_fixed_cache_paths() ->
         "Operation",
         "StagedOperationId",
         "SetupImagePath",
+        "CoreArchivePath",
     }
     assert not re.search(
         r"\$(?:claim|password|deviceCredential|enrollmentToken)\b", source, re.I

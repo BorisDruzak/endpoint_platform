@@ -23,6 +23,7 @@ def _analyze_spec(name, tmp_path, monkeypatch, *, bad_module=None, bad_script=No
     monkeypatch.syspath_prepend(str(ROOT))
     for variable, filename in {
         "ENDPOINT_SETUP_MSI": "EndpointAgent.msi",
+        "ENDPOINT_SETUP_CORE_ARCHIVE": "EndpointCore.zip",
         "ENDPOINT_SETUP_CA_FILE": "endpoint-ca.crt",
         "ENDPOINT_SETUP_CONFIG": "setup-config.json",
         "ENDPOINT_SETUP_MSI_RELEASE_MANIFEST": "EndpointAgent.release.json",

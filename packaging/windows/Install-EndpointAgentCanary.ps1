@@ -9,7 +9,8 @@ param(
     [ValidateSet('Install','RetireInitialRuntime','RecoverInterruptedInstall','RecoverStagedUpdate','Uninstall')]
     [string]$Operation = 'Install',
     [string]$StagedOperationId,
-    [string]$SetupImagePath
+    [string]$SetupImagePath,
+    [string]$CoreArchivePath
 )
 
 $ErrorActionPreference = 'Stop'
@@ -22,6 +23,7 @@ $ManagedServiceNames = @('EndpointAgent', 'EndpointAgentUpdater', 'EndpointBrows
 $WindowsInstallerServiceName = 'msiserver'
 $ManagedServiceTimeout = [TimeSpan]::FromSeconds(45)
 $script:InstallerLaunchBroker = $null
+$script:InstallerPhaseMetrics = [Collections.Generic.List[object]]::new()
 
 function Initialize-InstallerBridgeTypes {
     if ('EndpointInstallerBridge.Policy' -as [type]) { return }
@@ -1445,16 +1447,32 @@ function Stop-InstallerLaunchBroker {
 function Invoke-InstallerHelper {
     param([Parameter(Mandatory)]$Bridge,[Parameter(Mandatory)][string]$Phase)
     if ($Phase -notin @('inspect','inspect-compound','prepare','stage-online','seal-staged-switch','adopt-staged-switch','begin-staged-trial','observe-staged-trial','accept-staged-trial','inspect-staged-state','prepare-foundation-rollback','bind-foundation-rollback-roles','rollback-candidate-removed','rollback-native-committed','verify-foundation-rollback','restore-staged-companions','inspect-staged-recovery','recover-staged-owner','record-staged-reboot-3010','record-staged-reboot-1641','reconcile','finish','verify-settled','compound-old-returned','compound-new-returned','compound-commit','compound-retire','compound-complete','compound-repair-returned','compound-repair-commit') -or $Bridge.SessionId -cnotmatch '^[0-9a-f-]{36}$') { throw 'OWNER_AUTH_FAILED' }
+    $phaseTimer=[Diagnostics.Stopwatch]::StartNew()
+    $phaseStarted=[DateTime]::UtcNow.ToString('o')
+    $launchSeconds=$null;$warmLaunch=$false;$phaseSucceeded=$false
+    try {
     Assert-ExistingPathChain $Bridge.LaunchDirectory
     Assert-InstallerCacheProtection $Bridge.LaunchDirectory
     if ($null -ne $script:InstallerLaunchBroker -and $Bridge.HelperHash -ceq $script:InstallerLaunchBroker.HelperHash -and
         $Bridge.HelperPath -ieq $script:InstallerLaunchBroker.HelperPath -and $Bridge.TransactionId -ceq $script:InstallerLaunchBroker.TransactionId) {
+        $warmLaunch=$true
         $process=Start-InstallerWarmPhase $script:InstallerLaunchBroker $Bridge $Phase
     } else {
         $info = [EndpointInstallerBridge.LaunchDirectory]::StartInfo($Bridge.HelperPath, ('--installer-phase ' + $Phase + ' --installer-session ' + $Bridge.SessionId), $Bridge.LaunchDirectory)
         $process = [Diagnostics.Process]::Start($info)
     }
-    return Invoke-InstallerOwnerPump -Bridge $Bridge -Process $process -Phase $Phase
+    $launchSeconds=$phaseTimer.Elapsed.TotalSeconds
+    $phaseResult=Invoke-InstallerOwnerPump -Bridge $Bridge -Process $process -Phase $Phase
+    $phaseSucceeded=$true
+    return $phaseResult
+    } finally {
+        # Diagnostics carry no authority or private paths. In-memory collection
+        # adds no file writes or grants to a measured phase.
+        if (Get-Variable -Name InstallerPhaseMetrics -Scope Script -ErrorAction SilentlyContinue) {
+            $script:InstallerPhaseMetrics.Add(@{phase=$Phase;warm=$warmLaunch;started_utc=$phaseStarted;
+                launch_seconds=$launchSeconds;total_seconds=$phaseTimer.Elapsed.TotalSeconds;success=$phaseSucceeded})
+        }
+    }
 }
 
 function Get-StagedAgentObservation {
@@ -2741,6 +2759,7 @@ Assert-CacheArtifactProtection -Path $executionCachePath
 
 Initialize-InstallerBridgeTypes
 $packagePin = [IO.File]::Open($executionCachePath,[IO.FileMode]::Open,[IO.FileAccess]::Read,[IO.FileShare]::Read)
+$coreArchivePin = $null
 $helperPin = $null
 $bridge = $null
 $trialBridge = $null
@@ -2759,6 +2778,26 @@ $nativeExit = 0
 $stagedOnline = $false
 $recoveredMustRollback = $false
 try {
+    if ($CoreArchivePath) {
+        Assert-RegularNonReparseFile -Path $CoreArchivePath -Label 'Core archive'
+        Assert-ExistingPathChain -Path $CoreArchivePath
+        $archiveInputPin=[IO.File]::Open($CoreArchivePath,[IO.FileMode]::Open,[IO.FileAccess]::Read,[IO.FileShare]::Read)
+        try {
+            if ($archiveInputPin.Length -le 0 -or $archiveInputPin.Length -gt 536870912) { throw 'PROVENANCE_CONFLICT' }
+            $archiveHash=(Get-FileHash -LiteralPath $CoreArchivePath -Algorithm SHA256).Hash
+            $archiveCachePath=Join-Path $executionCacheDirectory 'EndpointCore.zip'
+            if (Test-Path -LiteralPath $archiveCachePath) {
+                Assert-CacheArtifactProtection $archiveCachePath
+                if ((Get-FileHash -LiteralPath $archiveCachePath -Algorithm SHA256).Hash -cne $archiveHash) { throw 'PROVENANCE_CONFLICT' }
+            } else {
+                [EndpointInstallerBridge.PackageHelper]::CopyCacheArtifact($CoreArchivePath,$archiveCachePath)
+                Set-CacheArtifactProtection $archiveCachePath
+            }
+            Assert-CacheArtifactProtection $archiveCachePath
+            $coreArchivePin=[IO.File]::Open($archiveCachePath,[IO.FileMode]::Open,[IO.FileAccess]::Read,[IO.FileShare]::Read)
+            if ((Get-FileHash -LiteralPath $archiveCachePath -Algorithm SHA256).Hash -cne $archiveHash) { throw 'PROVENANCE_CONFLICT' }
+        } finally { $archiveInputPin.Dispose() }
+    }
     $helperPath = Join-Path $executionCacheDirectory 'endpoint-installer-host.exe'
     if (Test-Path -LiteralPath $helperPath) { Assert-CacheArtifactProtection $helperPath }
     $helperHash = [EndpointInstallerBridge.PackageHelper]::Extract($executionCachePath,$helperPath)
@@ -3022,6 +3061,14 @@ finally {
     if ($null -ne $oldPackagePin) { $oldPackagePin.Dispose() }
     if ($null -ne $helperPin) { $helperPin.Dispose() }
     $packagePin.Dispose()
+    if ($null -ne $coreArchivePin) { $coreArchivePin.Dispose() }
+    try {
+        if ($script:InstallerPhaseMetrics.Count -gt 0) {
+            $metricsPath=Join-Path $installerStateRoot ('owner-phase-metrics-'+[Guid]::NewGuid().ToString('D')+'.json')
+            [EndpointInstallerBridge.PackageHelper]::WriteCapability($metricsPath,
+                [Text.Encoding]::UTF8.GetBytes((@($script:InstallerPhaseMetrics.ToArray())|ConvertTo-Json -Depth 4 -Compress)))
+        }
+    } catch { Write-Warning 'Installer timing diagnostics unavailable.' }
 }
 
 } finally {

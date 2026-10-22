@@ -255,6 +255,7 @@ def test_setup_spec_places_release_evidence_and_wrapper_in_payload(
 ) -> None:
     names = {
         "ENDPOINT_SETUP_MSI": "EndpointAgent.msi",
+        "ENDPOINT_SETUP_CORE_ARCHIVE": "EndpointCore.zip",
         "ENDPOINT_SETUP_CA_FILE": "endpoint-ca.crt",
         "ENDPOINT_SETUP_CONFIG": "setup-config.json",
         "ENDPOINT_SETUP_MSI_RELEASE_MANIFEST": "EndpointAgent.release.json",
@@ -283,7 +284,7 @@ def test_setup_spec_places_release_evidence_and_wrapper_in_payload(
 
     datas = collected["datas"]
     assert {Path(source).name for source, target in datas if target == "payload"} == {
-        "EndpointAgent.msi", "endpoint-ca.crt", "setup-config.json",
+        "EndpointAgent.msi", "EndpointCore.zip", "endpoint-ca.crt", "setup-config.json",
         "EndpointAgent.release.json", "Install-EndpointAgentCanary.ps1",
     }
     assert collected["exe"]["version"] == str(tmp_path / "setup-version-info.txt")
