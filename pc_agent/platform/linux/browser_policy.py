@@ -21,10 +21,12 @@ APPROVED_UPDATE_URL = 'https://endpoint.sosnadmin.local/api/v1/browser-sensor/up
 NATIVE_HOST = 'ru.sosnadmin.endpoint.browser'
 OWNED_POLICY_NAME = '99-endpoint-browser-sensor.json'
 POLICY_ROOTS = {'chromium': Path('/etc/chromium/policies/managed'),
-                'chrome': Path('/etc/opt/chrome/policies/managed')}
+                'chrome': Path('/etc/opt/chrome/policies/managed'),
+                'yandex': Path('/etc/opt/yandex/browser/policies/managed')}
 STATE_ROOT = Path('/var/lib/endpoint-agent-browser-policy')
 _BINARIES = {'chromium': ('/usr/bin/chromium', '/usr/bin/chromium-browser'),
-             'chrome': ('/usr/bin/google-chrome', '/usr/bin/google-chrome-stable')}
+             'chrome': ('/usr/bin/google-chrome', '/usr/bin/google-chrome-stable'),
+             'yandex': ('/usr/lib64/yandex/browser/yandex_browser',)}
 _FOREIGN_EXTENSION_KEYS = ('ExtensionSettings', 'ExtensionInstallForcelist',
                            'ExtensionInstallBlocklist', 'ExtensionInstallAllowlist')
 
@@ -100,11 +102,21 @@ def _json_bytes(document):
     return (json.dumps(document, sort_keys=True, separators=(',', ':')) + '\n').encode('ascii')
 
 
-def _check_foreign(document):
+def _check_foreign(document, extension_id):
     for name in _FOREIGN_EXTENSION_KEYS:
         if name in document:
             expected_type = dict if name == 'ExtensionSettings' else list
-            if not isinstance(document[name], expected_type) or document[name]:
+            value = document[name]
+            if not isinstance(value, expected_type):
+                raise BrowserPolicyConflict('POLICY_EXTERNAL_EXTENSION_SETTINGS')
+            if name == 'ExtensionInstallForcelist':
+                # This is a different policy from our individual ExtensionSettings
+                # entry. Preserve unrelated forced extensions; never adopt an
+                # externally managed entry for our own extension.
+                if any(not isinstance(entry, str) or re.fullmatch(r'[a-p]{32}', entry.split(';',1)[0]) is None
+                       or entry.split(';',1)[0] == extension_id for entry in value):
+                    raise BrowserPolicyConflict('POLICY_EXTERNAL_EXTENSION_SETTINGS')
+            elif value:
                 raise BrowserPolicyConflict('POLICY_EXTERNAL_EXTENSION_SETTINGS')
     blocked, allowed = document.get('NativeMessagingBlocklist', []), document.get('NativeMessagingAllowlist', [])
     if not isinstance(blocked, list) or not isinstance(allowed, list):
@@ -167,20 +179,15 @@ class LinuxBrowserPolicy:
         return result
 
     def apply(self, family):
-        if family == 'yandex':
-            # No Yandex paths are guessed. Absent Yandex needs no mutation.
-            if Path('/usr/bin/yandex-browser').exists() or Path('/usr/bin/yandex_browser').exists():
-                raise BrowserPolicyConflict('BROWSER_PATH_UNVERIFIED')
-            return 'APPLIED'
-        if family != 'chrome':
+        if family not in {'chrome','yandex'}:
             raise ValueError('unsupported browser family')
-        products = [kind for kind in self.roots if kind in self._installed]
+        products = self._family_products(family)
         for kind in products:
             marker, payload = self._owned(kind)
             if marker is None and payload is not None:
                 raise BrowserPolicyConflict('POLICY_EXTERNAL_OWNER')
             for document in self._foreign(kind):
-                _check_foreign(document)
+                _check_foreign(document, self.extension_id)
         for kind in products:
             marker, payload = self._owned(kind)
             if marker is None:
@@ -190,11 +197,11 @@ class LinuxBrowserPolicy:
         return 'APPLIED'
 
     def relinquish(self, family):
-        if family == 'yandex':
-            return 'EXTERNALLY_MANAGED'
-        if family != 'chrome':
+        if family not in {'chrome','yandex'}:
             raise ValueError('unsupported browser family')
-        for kind, directory in self.roots.items():
+        # Relinquish owned entries even after the product has been uninstalled.
+        for kind in self._family_products(family, installed_only=False):
+            directory = self.roots[kind]
             if not directory.exists():
                 continue
             marker, payload = self._owned(kind)
@@ -207,13 +214,18 @@ class LinuxBrowserPolicy:
             _flush_directory(self.state_root)
         return 'EXTERNALLY_MANAGED'
 
+    def _family_products(self, family, *, installed_only=True):
+        family_kinds = {'chromium','chrome'} if family == 'chrome' else {'yandex'}
+        return [kind for kind in self.roots if kind in family_kinds
+                and (not installed_only or kind in self._installed)]
+
     def inspect(self, kind):
         try:
             marker, payload = self._owned(kind)
             documents = self._foreign(kind)
             if marker is not None:
                 for document in documents:
-                    _check_foreign(document)
+                    _check_foreign(document, self.extension_id)
                 return ('ENDPOINT', 'APPLIED') if payload == self._payload else ('ENDPOINT', 'NOT_APPLIED')
             if payload is not None:
                 if payload != self._payload:

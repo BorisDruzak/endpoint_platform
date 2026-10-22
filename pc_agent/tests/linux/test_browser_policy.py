@@ -35,15 +35,15 @@ def test_apply_and_relinquish_touch_only_owned_file(store):
     assert store.relinquish('chrome') == 'EXTERNALLY_MANAGED'
 
 
-def test_foreign_extension_policy_causes_conflict_without_mutation(store):
+def test_unrelated_force_list_is_preserved_when_adding_individual_extension_settings(store):
     path = store.roots['chromium'] / 'gpo.json'
     original = b'{"ExtensionInstallForcelist":["bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb;https://example.test/update.xml"]}'
     path.write_bytes(original)
-    with pytest.raises(BrowserPolicyConflict):
-        store.apply('chrome')
+    assert store.apply('chrome') == 'APPLIED'
     assert path.read_bytes() == original
-    assert not (path.parent / OWNED_POLICY_NAME).exists()
-    assert not list(store.state_root.iterdir())
+    assert store.inspect('chromium') == ('ENDPOINT','APPLIED')
+    store.relinquish('chrome')
+    assert path.read_bytes() == original
 
 
 def test_external_endpoint_entry_is_observed_without_taking_ownership(store):
@@ -120,6 +120,33 @@ def test_later_foreign_gpo_conflict_is_visible_without_another_apply(store):
     path = store.roots['chromium'] / 'gpo.json'
     path.write_text('{"ExtensionInstallForcelist":["external-extension"]}')
     assert store.inspect('chromium') == ('CONFLICT', 'CONFLICT')
+
+
+def test_yandex_policy_uses_its_own_root_and_relinquish_preserves_other_product(tmp_path):
+    roots = {kind:tmp_path/kind for kind in ('chromium','yandex')}
+    for path in roots.values(): path.mkdir()
+    state = tmp_path/'state'; state.mkdir()
+    policy = LinuxBrowserPolicy(extension_id=EXTENSION, roots=roots, state_root=state,
+                                installed={'chromium','yandex'})
+    policy.apply('chrome')
+    policy.apply('yandex')
+    assert policy.inspect('yandex') == ('ENDPOINT','APPLIED')
+    policy.relinquish('chrome')
+    assert (roots['yandex']/OWNED_POLICY_NAME).exists()
+    assert not (roots['chromium']/OWNED_POLICY_NAME).exists()
+    policy.relinquish('yandex')
+    assert not list(state.iterdir())
+
+
+@pytest.mark.parametrize('entries', [['a'*32+';https://example.test/update.xml'], [None], ['malformed']])
+def test_external_target_or_malformed_force_list_still_fails_closed(store, entries):
+    path = store.roots['chromium']/'external.json'
+    original = json.dumps({'ExtensionInstallForcelist':entries}).encode()
+    path.write_bytes(original)
+    with pytest.raises(BrowserPolicyConflict):
+        store.apply('chrome')
+    assert path.read_bytes() == original
+    assert not (path.parent/OWNED_POLICY_NAME).exists()
 
 
 def test_package_preparation_preserves_existing_directories_and_ignores_private_umask(tmp_path, monkeypatch):

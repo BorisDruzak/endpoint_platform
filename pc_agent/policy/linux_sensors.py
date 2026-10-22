@@ -28,7 +28,7 @@ async def apply_linux_policy_sensors(
     # An Activity-only Core without the optional RPM does not need a helper.
     # A previous ownership marker always requires verified relinquish.
     owned = any(path.exists() or path.is_symlink() for path in
-                (STATE_ROOT / 'chromium.json', STATE_ROOT / 'chrome.json'))
+                (STATE_ROOT / 'chromium.json', STATE_ROOT / 'chrome.json', STATE_ROOT / 'yandex.json'))
     if not browser_audit_available and not owned:
         return
     operation = 'apply' if policy.browser_sensor.deployment_mode == 'agent_managed' else 'relinquish'

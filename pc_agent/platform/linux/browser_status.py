@@ -13,9 +13,11 @@ from .browser_policy import LinuxBrowserPolicy, BrowserPolicyConflict, NATIVE_HO
 
 _WRAPPER = Path('/usr/lib/endpoint-agent/browser-bridge')
 _NATIVE_ROOTS = {'chromium':Path('/etc/chromium/native-messaging-hosts'),
-                 'chrome':Path('/etc/opt/chrome/native-messaging-hosts')}
+                 'chrome':Path('/etc/opt/chrome/native-messaging-hosts'),
+                 'yandex':Path('/etc/chromium/native-messaging-hosts')}
 _EXECUTABLES = {'chromium':{'/usr/lib64/chromium/chromium', '/usr/lib/chromium/chromium'},
-                'chrome':{'/opt/google/chrome/chrome'}}
+                'chrome':{'/opt/google/chrome/chrome'},
+                'yandex':{'/usr/lib64/yandex/browser/yandex_browser'}}
 _NAMES = {'chrome', 'chromium', 'chromium-browser', 'yandex_browser', 'yandex-browser'}
 
 
@@ -75,8 +77,12 @@ class LinuxBrowserProbe:
                     uncertain.add('yandex' if name.startswith('yandex') else 'chrome')
         except (OSError, psutil.Error):
             failed = True
-        installed = self._products
-        products = installed & {'chromium','chrome'}
+        return {family:self._family_facts(family, running, uncertain, failed, observed_at)
+                for family in ('chrome','yandex')}
+
+    def _family_facts(self, family, running, uncertain, failed, observed_at):
+        kinds = {'chromium','chrome'} if family == 'chrome' else {'yandex'}
+        products = self._products & kinds
         owners = [self._policy.inspect(kind) for kind in sorted(products)]
         if any(owner[0] == 'CONFLICT' for owner in owners):
             owner, installation = 'CONFLICT','CONFLICT'
@@ -84,18 +90,12 @@ class LinuxBrowserProbe:
             owner, installation = owners[0]
         else:
             owner, installation = 'UNKNOWN','UNKNOWN'
-        state = ('RUNNING' if running & {'chromium','chrome'} else
-                 'UNKNOWN' if failed or 'chrome' in uncertain or not products else 'CLOSED')
+        state = ('RUNNING' if running & kinds else
+                 'UNKNOWN' if failed or family in uncertain or not products else 'CLOSED')
         native = [self._native_host_state(kind) for kind in products]
-        return {
-            'chrome':BrowserHostFacts(
-                browser_state='DETECTED' if products or running & {'chromium','chrome'} else 'UNKNOWN',
+        return BrowserHostFacts(
+                browser_state='DETECTED' if products or running & kinds else 'UNKNOWN',
                 running_state=state, policy_owner=owner, installation_policy_state=installation,
                 native_host_state='READY' if native and all(item == 'READY' for item in native) else
                                   'MISSING' if 'MISSING' in native else 'UNKNOWN',
-                last_running_at=observed_at if state == 'RUNNING' else None),
-            # No unverified Yandex policy/native-host paths are inferred.
-            'yandex':BrowserHostFacts(browser_state='UNKNOWN', running_state='UNKNOWN',
-                policy_owner='UNKNOWN', installation_policy_state='UNKNOWN', native_host_state='UNKNOWN',
-                last_running_at=None),
-        }
+                last_running_at=observed_at if state == 'RUNNING' else None)

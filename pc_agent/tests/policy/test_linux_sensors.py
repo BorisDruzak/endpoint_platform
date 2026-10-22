@@ -6,7 +6,8 @@ from pc_agent.tests.policy.test_runtime import _delivery
 
 
 @pytest.mark.asyncio
-async def test_linux_activity_requires_listener_but_disabled_policy_does_not():
+async def test_linux_activity_requires_listener_but_disabled_policy_does_not(monkeypatch, tmp_path):
+    monkeypatch.setattr('pc_agent.policy.linux_sensors.STATE_ROOT', tmp_path)
     from pc_agent.policy.linux_sensors import apply_linux_policy_sensors
 
     await apply_linux_policy_sensors(_delivery(active=False).policy)
