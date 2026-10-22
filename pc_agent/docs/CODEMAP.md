@@ -51,7 +51,7 @@ Installed native state, ACL, Core payload, SCM and health remain fresh.
 Complete MSI database semantics may be reused under the same native pins;
 every registered-cache lookup, ACL, namespace, byte size and before/after
 identity check still runs. Fresh post-commit `compound-finalize` may retain
-byte proofs for the eight exact Foundation executables from its authenticated
+byte proofs for the exact Foundation files from its authenticated
 MSI. ACL, namespace and descriptor checks still run on every access. Native
 deny-write/delete handles survive metadata-only checkpoints and are released
 on context exit or failure. Other phases, recovery and the default Foundation
@@ -159,6 +159,18 @@ After a completed companion-launch body, a failing post-use identity guard
 permits one complete fresh native/shared-byte/pin verification. Entry failures
 and launch failures propagate immediately; persistent post-use failure also
 propagates. Launch requests are never replayed by this verification retry.
+
+Foundation packaging uses six independent onedir/PYZ entrypoints with identical
+DLL/data merged by `tools/canary/foundation_payload.py`. Offline updater and Tray
+remain self-contained. `installer_host_entry.py` is the separate self-contained
+MSI Binary entrypoint; `service_launcher.py` retains its installer CLI ABI.
+`companion_processes.py` supplies fixed-path companion stopping without service
+imports. `foundation_layout.py` defines shared File/Component bindings. MSI
+inventory schema 2 authenticates every shared dependency and its Native keypath,
+while schema 1 retains its exact eight executable contract. Full namespace,
+directory/file ACL, hash and descriptor checks surround shared use; post-commit
+pins grow only with that explicit bounded inventory. Installed performance and
+matrix acceptance are recorded separately in the Task 8 report.
 
 `endpoint_contracts` defers its model exports until requested. The pure
 `runtime_payload` leaf therefore loads without initializing Pydantic or its

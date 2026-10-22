@@ -14,7 +14,7 @@ import pytest
 ROOT = Path(__file__).resolve().parents[2]
 ENTRYPOINTS = (
     "windows_service_launcher", "windows_updater", "windows_setup",
-    "windows_provision", "windows_browser_policy_service", "launcher_win",
+    "windows_provision", "windows_browser_policy_service", "launcher_win", "windows_installer_host",
 )
 BUILD_MODULES = {"setuptools", "pkg_resources", "_distutils_hack"}
 

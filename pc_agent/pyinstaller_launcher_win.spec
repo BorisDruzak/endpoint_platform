@@ -28,14 +28,14 @@ pyz = PYZ(a.pure)
 exe = EXE(
     pyz,
     a.scripts,
-    a.binaries,
-    a.datas,
     [('pyi-enable-onefile-parent-verification', None, 'OPTION')],
+    exclude_binaries=True,
+    contents_directory="_foundation-runtime",
     name="launcher",
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
-    upx=True,
+    upx=False,
     console=True,
     disable_windowed_traceback=False,
     argv_emulation=False,
@@ -43,3 +43,5 @@ exe = EXE(
     codesign_identity=None,
     entitlements_file=None,
 )
+
+coll = COLLECT(exe, a.binaries, a.datas, strip=False, upx=False, name="launcher")

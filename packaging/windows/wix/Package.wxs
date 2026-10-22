@@ -9,7 +9,7 @@
            Compressed="yes"
            InstallerVersion="500">
     <MediaTemplate EmbedCab="yes" />
-    <Binary Id="EndpointInstallerHost" SourceFile="$(var.StagingDir)\ProgramFiles\endpoint-agent-service.exe" />
+    <Binary Id="EndpointInstallerHost" SourceFile="$(var.InstallerHostPath)" />
     <Binary Id="EndpointInitialRuntimeInventory" SourceFile="$(var.InitialRuntimeInventoryPath)" />
     <Binary Id="EndpointNativeCurrentSelector" SourceFile="$(var.StagingDir)\ProgramFiles\current.json" />
     <Upgrade Id="D4F3045C-51CF-49D9-AF9C-3AEBF206ED1F">
@@ -30,6 +30,7 @@
       <Level Value="0" Condition="ENDPOINT_UNINSTALL_FINALIZE = 1" />
       <ComponentGroupRef Id="EndpointAgentComponents" />
       <ComponentGroupRef Id="EndpointAgentServiceComponents" />
+      <ComponentGroupRef Id="EndpointAgentSharedFoundation" />
     </Feature>
     <Feature Id="EndpointAgentInitialRuntimeFeature" Title="Initial Endpoint runtime" Level="1">
       <Level Value="0" Condition="ENDPOINT_UNINSTALL_FINALIZE = 1" />

@@ -866,7 +866,7 @@ def _execute_authorized_phase(client,paths,*,feature_states=None,rollback_disabl
                 next_phase='msi-executing' if fence['phase'] in {'prepared','msi-starting','msi-executing'} else fence['phase']
                 _advance_fence(paths,client,expected,next_phase)
                 if capability['operation']!='retire-initial-runtime':
-                    from .service_launcher import stop_tray_companions
+                    from .companion_processes import stop_tray_companions
                     client.checkpoint()
                     stop_tray_companions(paths)
             elif phase=='foundation-config':

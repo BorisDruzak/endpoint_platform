@@ -113,7 +113,7 @@ class _PackageReadScope:
         from .durable_state import _copy_identity, _pinned_copy_source
         path = Path(path).absolute()
         if path not in self.pins:
-            if len(self.pins) >= 16:
+            if len(self.pins) >= 16 + len(self.foundation_inputs):
                 return reader()
             reject_reparse_ancestors(path)
             before = _copy_identity(path.lstat())
@@ -131,7 +131,7 @@ class _PackageReadScope:
         self.validate(path)
         key = kind, path, identity
         if key not in self.values:
-            if len(self.values) >= 64:
+            if len(self.values) >= 64 + len(self.foundation_inputs):
                 value = reader()
                 self.validate(path)
                 return value
@@ -292,6 +292,7 @@ class ExpectedMsi:
     manifest: dict
     contract_bytes: bytes
     foundation_files: tuple[dict, ...] = ()
+    foundation_schema: int = 1
 
 
 FOUNDATION_EXECUTABLES = {
@@ -306,24 +307,59 @@ FOUNDATION_EXECUTABLES = {
 }
 
 
-def _foundation_records(value):
-    if not isinstance(value,(list,tuple)) or len(value)!=len(FOUNDATION_EXECUTABLES): raise ProvenanceConflict()
+def _foundation_records(value, *, schema=1):
+    from .foundation_layout import shared_binding
+    if (type(schema) is not int or schema not in (1, 2)
+        or not isinstance(value,(list,tuple)) or not 8 <= len(value) <= 4096
+        or (schema == 1 and len(value) != 8) or (schema == 2 and len(value) == 8)):
+        raise ProvenanceConflict()
     found=set()
     for row in value:
         if (not isinstance(row,dict) or set(row)!={'path','file','component','size','sha256'}
-            or not isinstance(row['path'],str) or row['path'] in found
-            or row['path'] not in FOUNDATION_EXECUTABLES
-            or (row['file'],row['component'])!=FOUNDATION_EXECUTABLES[row['path']]
+            or not isinstance(row['path'],str) or row['path'].casefold() in found
             or type(row['size']) is not int or not 0<row['size']<=1024*1024*1024
             or not isinstance(row['sha256'],str) or not re.fullmatch('[0-9a-f]{64}',row['sha256'])):
             raise ProvenanceConflict()
-        found.add(row['path'])
+        try:
+            binding = FOUNDATION_EXECUTABLES.get(row['path'])
+            if binding is None and schema == 2:
+                binding = shared_binding(row['path'])
+            if binding is None or (row['file'], row['component']) != binding:
+                raise ProvenanceConflict()
+        except ValueError as error:
+            raise ProvenanceConflict() from error
+        found.add(row['path'].casefold())
+    if not {name.casefold() for name in FOUNDATION_EXECUTABLES} <= found:
+        raise ProvenanceConflict()
     return tuple(value)
+
+
+def _verify_shared_namespace(rows, install_root):
+    from .foundation_layout import SHARED_DIRECTORY
+    from .update_transaction import _assert_state_security
+    expected = {row['path'] for row in rows if row['path'].startswith(SHARED_DIRECTORY + '/')}
+    if not expected:
+        raise ProvenanceConflict()
+    directories = {str(parent).replace('\\', '/') for name in expected
+                   for parent in Path(name).parents if str(parent) != '.'}
+    found_files, found_dirs = set(), set()
+    root = install_root / SHARED_DIRECTORY
+    reject_reparse_ancestors(root)
+    for folder, children, files in os.walk(root, followlinks=False):
+        folder = Path(folder)
+        reject_reparse_ancestors(folder)
+        _assert_state_security(folder)
+        found_dirs.add(folder.relative_to(install_root).as_posix())
+        for child in children:
+            reject_reparse_ancestors(folder / child)
+        found_files.update((folder / leaf).relative_to(install_root).as_posix() for leaf in files)
+    if found_files != expected or found_dirs != directories:
+        raise ProvenanceConflict()
 
 
 @contextmanager
 def immutable_foundation_reads(expected, install_root):
-    """Retain only the eight exact executable proofs during post-commit reads.
+    """Retain the authenticated Foundation byte proofs during post-commit reads.
 
     The fresh finalization caller has already established Native End(Commit).
     Native/SCM/ACL/namespace checks still execute on every verification; this
@@ -336,24 +372,27 @@ def immutable_foundation_reads(expected, install_root):
     root = Path(install_root).absolute()
     if scope.foundation_inputs or '..' in root.parts:
         raise ProvenanceConflict()
-    rows = _foundation_records(expected.foundation_files)
+    rows = _foundation_records(expected.foundation_files, schema=getattr(expected, 'foundation_schema', 1))
     scope.foundation_inputs = {root / row['path']: (row['size'], row['sha256']) for row in rows}
     try:
         yield
     finally:
         scope.foundation_inputs = {}
-        scope.invalidate()  # Release these executable pins before leaving the scope.
+        scope.invalidate()  # Release all Foundation pins before leaving the scope.
 
 
 @contextmanager
 def verified_foundation_bytes(expected,install_root):
-    """Hold each exact immutable foundation executable against substitution."""
+    """Hold each exact Foundation file against substitution."""
     from . import durable_state
     from .update_transaction import _assert_state_security
     from endpoint_contracts.runtime_payload import reject_reparse_ancestors
-    rows=_foundation_records(expected.foundation_files)
+    schema = getattr(expected, 'foundation_schema', 1)
+    rows=_foundation_records(expected.foundation_files, schema=schema)
     reject_reparse_ancestors(install_root)
     _assert_state_security(install_root)
+    if schema == 2:
+        _verify_shared_namespace(rows, install_root)
     with ExitStack() as stack:
         identities=[]
         for row in rows:
@@ -372,6 +411,8 @@ def verified_foundation_bytes(expected,install_root):
                 durable_state._verify_copy_bytes(descriptor, *identity)
             identities.append((path,descriptor,before,opened.st_ctime_ns))
         yield
+        if schema == 2:
+            _verify_shared_namespace(rows, install_root)
         for path,descriptor,before,changed in identities:
             after=os.fstat(descriptor)
             if (durable_state._copy_identity(path.lstat())!=before or durable_state._copy_identity(after)!=before
@@ -396,7 +437,7 @@ def _read_expected_package(path: Path, release: dict) -> ExpectedMsi:
     if package.product_code != release['product_code'] or package.version != release['version']:
         raise ProvenanceConflict()
     value = read_json(read_binary(path, 'EndpointInitialRuntimeInventory', maximum=8*1024*1024), 8*1024*1024)
-    if set(value) != {'schema_version','manifest','contract_bytes','foundation_files'} or type(value['schema_version']) is not int or value['schema_version'] != 1:
+    if set(value) != {'schema_version','manifest','contract_bytes','foundation_files'} or type(value['schema_version']) is not int or value['schema_version'] not in (1, 2):
         raise ProvenanceConflict()
     try:
         contract_bytes = bytes.fromhex(value['contract_bytes'])
@@ -424,15 +465,19 @@ def _read_expected_package(path: Path, release: dict) -> ExpectedMsi:
     for item in files:
         if runtime_files[item.path].size != item.size:
             raise ProvenanceConflict()
-    foundation=_foundation_records(value['foundation_files'])
-    actual={item.path:item for item in package.files if not item.path.startswith('versions/') and item.path.lower().endswith('.exe')}
-    if set(actual)!=set(FOUNDATION_EXECUTABLES): raise ProvenanceConflict()
+    schema=value['schema_version']
+    foundation=_foundation_records(value['foundation_files'], schema=schema)
+    actual={item.path:item for item in package.files if not item.path.startswith('versions/')
+            and (item.path.lower().endswith('.exe') or item.path.casefold().startswith('_foundation-runtime/'))}
+    if set(actual)!={row['path'] for row in foundation}: raise ProvenanceConflict()
     for row in foundation:
         item=actual[row['path']]
         if (item.name!=row['file'] or item.component!=row['component'] or item.size!=row['size']
-            or package.components[item.component].features!=(FOUNDATION_FEATURE,)):
+            or package.components[item.component].features!=(FOUNDATION_FEATURE,)
+            or (schema == 2 and item.path.startswith('_foundation-runtime/')
+                and package.components[item.component].keypath != item.name)):
             raise ProvenanceConflict()
-    return ExpectedMsi(package, identity, value['manifest'], contract_bytes,foundation)
+    return ExpectedMsi(package, identity, value['manifest'], contract_bytes,foundation,schema)
 
 
 def validate_native_selector(raw: bytes, expected: ExpectedMsi) -> None:

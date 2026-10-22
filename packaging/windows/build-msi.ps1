@@ -554,6 +554,7 @@ New-Item -ItemType Directory -Path $runtimeStage, $outputRoot, $releaseRoot -For
 $coreSpec = Join-Path $repositoryRoot 'pc_agent\pyinstaller_endpoint_core_windows.spec'
 $launcherSpec = Join-Path $repositoryRoot 'pc_agent\pyinstaller_launcher_win.spec'
 $serviceHostSpec = Join-Path $repositoryRoot 'pc_agent\pyinstaller_windows_service_launcher.spec'
+$installerHostSpec = Join-Path $repositoryRoot 'pc_agent\pyinstaller_windows_installer_host.spec'
 $updaterSpec = Join-Path $repositoryRoot 'pc_agent\pyinstaller_windows_updater.spec'
 $provisionerSpec = Join-Path $repositoryRoot 'pc_agent\pyinstaller_windows_provision.spec'
 $traySpec = Join-Path $repositoryRoot 'pc_agent\pyinstaller_windows_tray.spec'
@@ -565,6 +566,7 @@ if (-not $ReusePythonBuild) {
     Invoke-Checked $python (@('-m', 'PyInstaller') + $commonPyInstaller + @($coreSpec)) $repositoryRoot
     Invoke-Checked $python (@('-m', 'PyInstaller') + $commonPyInstaller + @($launcherSpec)) $repositoryRoot
     Invoke-Checked $python (@('-m', 'PyInstaller') + $commonPyInstaller + @($serviceHostSpec)) $repositoryRoot
+    Invoke-Checked $python (@('-m', 'PyInstaller') + $commonPyInstaller + @($installerHostSpec)) $repositoryRoot
     Invoke-Checked $python (@('-m', 'PyInstaller') + $commonPyInstaller + @($updaterSpec)) $repositoryRoot
     Invoke-Checked $python (@('-m', 'PyInstaller') + $commonPyInstaller + @($provisionerSpec)) $repositoryRoot
     Invoke-Checked $python (@('-m', 'PyInstaller') + $commonPyInstaller + @($traySpec)) $repositoryRoot
@@ -575,14 +577,18 @@ if (-not $ReusePythonBuild) {
 
 $builtCore = Join-Path $distRoot 'endpoint_agent_core'
 $builtCoreExe = Join-Path $builtCore 'endpoint_agent_core.exe'
-$builtLauncher = Join-Path $distRoot 'launcher.exe'
-$builtServiceHost = Join-Path $distRoot 'endpoint-agent-service.exe'
+$builtLauncher = Join-Path $distRoot 'launcher\launcher.exe'
+$builtServiceHost = Join-Path $distRoot 'endpoint-agent-service\endpoint-agent-service.exe'
+$builtInstallerHost = Join-Path $distRoot 'endpoint-installer-host.exe'
 $builtUpdater = Join-Path $distRoot 'endpoint-agent-updater.exe'
-$builtProvisioner = Join-Path $distRoot 'endpoint-agent-provision.exe'
+$builtProvisioner = Join-Path $distRoot 'endpoint-agent-provision\endpoint-agent-provision.exe'
 $builtTray = Join-Path $distRoot 'EndpointAgentTray.exe'
-$builtUserSensor = Join-Path $distRoot 'EndpointUserSensor.exe'
-$builtBrowserBridge = Join-Path $distRoot 'EndpointBrowserBridge.exe'
-$builtBrowserPolicy = Join-Path $distRoot 'EndpointBrowserPolicy.exe'
+$builtUserSensor = Join-Path $distRoot 'EndpointUserSensor\EndpointUserSensor.exe'
+$builtBrowserBridge = Join-Path $distRoot 'EndpointBrowserBridge\EndpointBrowserBridge.exe'
+$builtBrowserPolicy = Join-Path $distRoot 'EndpointBrowserPolicy\EndpointBrowserPolicy.exe'
+if (-not (Test-Path -LiteralPath $builtInstallerHost -PathType Leaf)) {
+    throw "Self-contained installer host build missing $builtInstallerHost"
+}
 if (-not (Test-Path -LiteralPath $builtCoreExe -PathType Leaf)) {
     throw "Headless core build missing $builtCoreExe"
 }
@@ -611,7 +617,7 @@ if (-not (Test-Path -LiteralPath $builtBrowserPolicy -PathType Leaf)) {
     throw "Browser Policy service build missing $builtBrowserPolicy"
 }
 Invoke-Checked $python @('-m', 'tools.canary.privileged_bootstrap_contract',
-    $builtLauncher, $builtServiceHost, $builtUpdater, $builtProvisioner, $builtBrowserPolicy,
+    $builtLauncher, $builtServiceHost, $builtInstallerHost, $builtUpdater, $builtProvisioner, $builtBrowserPolicy,
     '--output', (Join-Path $outputRoot 'privileged-bootstrap-inspection.json')) $repositoryRoot
 Invoke-Checked $python @('-m', 'tools.canary.offline_updater_contract', $builtUpdater, '--output', (Join-Path $outputRoot 'offline-updater-inspection.json')) $repositoryRoot
 Invoke-Checked $builtUpdater @('--verify-offline') $repositoryRoot
@@ -671,8 +677,25 @@ $foundationInventory = foreach ($name in $foundationBindings.Keys) {
     @{path=$name;file=$foundationBindings[$name][0];component=$foundationBindings[$name][1];
       size=(Get-Item -LiteralPath $path).Length;sha256=(Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant()}
 }
+$sharedFoundationRoot = Join-Path $wixBuildRoot 'shared-foundation'
+$sharedInventoryPath = Join-Path $outputRoot 'shared-foundation-inventory.json'
+$sharedWix = Join-Path $wixBuildRoot 'FoundationComponents.generated.wxs'
+if (Test-Path -LiteralPath $sharedFoundationRoot) {
+    # wixBuildRoot was resolved and checked by Assert-SafeWixBuildRoot.
+    Remove-Item -LiteralPath $sharedFoundationRoot -Recurse -Force
+}
+$sharedArguments = @('-m', 'tools.canary.foundation_payload', '--output', $sharedFoundationRoot,
+    '--inventory', $sharedInventoryPath, '--wix', $sharedWix)
+foreach ($executable in @($builtLauncher, $builtServiceHost, $builtProvisioner,
+    $builtUserSensor, $builtBrowserBridge, $builtBrowserPolicy)) {
+    $sharedArguments += @('--distribution', (Split-Path -Parent $executable))
+}
+Invoke-Checked $python $sharedArguments $repositoryRoot
+Copy-Item -LiteralPath (Join-Path $sharedFoundationRoot '_foundation-runtime') -Destination $programFilesStage -Recurse
+$sharedFoundationInventory = @(Get-Content -LiteralPath $sharedInventoryPath -Raw | ConvertFrom-Json)
+$foundationInventory = @($foundationInventory) + $sharedFoundationInventory
 Write-Utf8NoBom $runtimeInventoryPath (@{
-    schema_version = 1
+    schema_version = 2
     manifest = (Get-Content -LiteralPath (Join-Path $runtimeStage 'endpoint-update-manifest.json') -Raw | ConvertFrom-Json)
     contract_bytes = ([BitConverter]::ToString($contractBytes)).Replace('-', '').ToLowerInvariant()
     foundation_files = @($foundationInventory)
@@ -702,7 +725,7 @@ $componentManifest = @(
     'cmpProgramDataRoot', 'cmpInstallRootCleanup', 'cmpInitialRuntimeTransitionState',
     'cmpServiceEntrypoints', 'cmpOfflineUpdater', 'cmpBrowserPolicyService', 'cmpProvisioner',
     'cmpTrayCompanion', 'cmpUserSensor', 'cmpBrowserBridge'
-) + @($generatedItems | ForEach-Object {
+) + @($sharedFoundationInventory | ForEach-Object { $_.component }) + @($generatedItems | ForEach-Object {
     Get-StableId -Prefix 'cmpPayload' -Value (Get-RelativePath $runtimeStage $_.FullName)
 })
 $binding = [ordered]@{
@@ -753,7 +776,8 @@ $wixSources = @(
     (Join-Path $packagingRoot 'wix\Components.wxs'),
     (Join-Path $packagingRoot 'wix\Services.wxs'),
     (Join-Path $packagingRoot 'wix\Upgrade.wxs'),
-    $generatedWix
+    $generatedWix,
+    $sharedWix
 )
 $msiPath = Join-Path $outputRoot "EndpointAgent-$Version-x64.msi"
 $wixArguments = @(
@@ -764,6 +788,7 @@ $wixArguments = @(
     "-d", "BaselineInitialRuntimeVersion=$BaselineInitialRuntimeVersion",
     "-d", "SourceRevision=$initialRuntimeSourceRevision",
     "-d", "InitialRuntimeInventoryPath=$runtimeInventoryPath",
+    "-d", "InstallerHostPath=$builtInstallerHost",
     "-d", "PackageVersion=$Version", '-out', $msiPath
 ) + $wixSources
 Invoke-Checked $wixCommand.Source $wixArguments $repositoryRoot

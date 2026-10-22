@@ -45,7 +45,7 @@ def test_frozen_bridge_has_pinned_binary_host_without_agent_credentials(
         check=False,
     )
     assert build.returncode == 0, build.stderr.decode("utf-8", errors="replace")[-3000:]
-    executable = tmp_path / "dist" / "EndpointBrowserBridge.exe"
+    executable = tmp_path / "dist" / "EndpointBrowserBridge" / "EndpointBrowserBridge.exe"
     assert executable.is_file()
 
     refused = subprocess.run(

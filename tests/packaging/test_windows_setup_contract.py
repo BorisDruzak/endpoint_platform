@@ -306,6 +306,7 @@ def test_installer_helper_executables_are_windowless() -> None:
     for name in (
         "pyinstaller_windows_provision.spec",
         "pyinstaller_windows_service_launcher.spec",
+        "pyinstaller_windows_installer_host.spec",
     ):
         source = (PROJECT_ROOT / "pc_agent" / name).read_text(encoding="utf-8")
         assert "console=False" in source

@@ -60,7 +60,8 @@ def test_synthetic_wix4_package_links_with_finalization_audit(tmp_path):
     variables={'StagingDir':str(stage),'PackageVersion':'0.0.1','InitialRuntimeVersion':'0.0.1',
         'InitialRuntimeComponentGuid':str(uuid.uuid4()),'InitialRuntimeTransitionApproved':'0',
         'BaselineInitialRuntimeVersion':'0.0.0','SourceRevision':'a'*40,
-        'InitialRuntimeInventoryPath':str(stage/'dummy-inventory.json')}
+        'InitialRuntimeInventoryPath':str(stage/'dummy-inventory.json'),
+        'InstallerHostPath':str(stage/'dummy-installer-host.exe')}
     sources=[]
     fixture_upgrade=str(uuid.uuid4()).upper()
     for name in WIX_FILES:
@@ -80,10 +81,20 @@ def test_synthetic_wix4_package_links_with_finalization_audit(tmp_path):
         target=tmp_path/name;ET.ElementTree(root).write(target,encoding='utf-8',xml_declaration=True);sources.append(target)
     generated=tmp_path/'empty-payload.wxs'
     generated.write_text('<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"><Fragment><ComponentGroup Id="EndpointAgentGeneratedPayload" /></Fragment></Wix>')
+    from tools.canary.foundation_payload import wix_fragment
+    from pc_agent.platform.windows.foundation_layout import shared_binding
+    shared_name = '_foundation-runtime/nested/dummy.dll'
+    file_id, component_id = shared_binding(shared_name)
+    shared = tmp_path/'shared.wxs'
+    shared.write_text(wix_fragment([dict(path=shared_name, file=file_id, component=component_id)]).replace(
+        '$(var.StagingDir)', str(stage)), encoding='utf-8')
+    dummy_dependency=stage/'ProgramFiles'/shared_name
+    dummy_dependency.parent.mkdir(parents=True)
+    dummy_dependency.write_bytes(b'NONEXECUTABLE SYNTHETIC SHARED FIXTURE')
     output=tmp_path/'synthetic-authoring-only.msi'
     # wix.exe build only links; ICE execution is the separate msi validate verb.
     result=subprocess.run([wix,'build','-arch','x64','-ext','WixToolset.Util.wixext/4.0.6',
-        '-out',str(output),*map(str,sources),str(generated)],capture_output=True,text=True,timeout=60)
+        '-out',str(output),*map(str,sources),str(generated),str(shared)],capture_output=True,text=True,timeout=60)
     assert result.returncode==0,result.stdout+result.stderr
     script=tmp_path/'inspect.ps1';inspection=tmp_path/'inspection.json'
     script.write_text(r'''param($Source,$Msi,$Output)

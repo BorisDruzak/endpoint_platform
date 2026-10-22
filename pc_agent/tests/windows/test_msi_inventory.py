@@ -80,7 +80,8 @@ def test_uninstall_postconditions_require_full_absence(tmp_path,remaining):
 
 
 @pytest.mark.parametrize('minimum',[None,'3.2.82','3.2.83'])
-def test_embedded_runtime_inventory_must_match_feature_file_ownership(tmp_path, monkeypatch,minimum):
+@pytest.mark.parametrize('schema', [1, 2])
+def test_embedded_runtime_inventory_must_match_feature_file_ownership(tmp_path, monkeypatch,minimum,schema):
     import hashlib, json
     from dataclasses import replace
     from pc_agent.platform.windows import msi_inventory as module
@@ -96,9 +97,17 @@ def test_embedded_runtime_inventory_must_match_feature_file_ownership(tmp_path, 
         components[component]=module.Component(component,'{33333333-3333-4333-8333-333333333333}','INSTALLFOLDER',path,('EndpointAgentFeature',))
         files+=(module.InstalledFile(file_id,component,path,7),)
         foundation.append({'path':path,'file':file_id,'component':component,'size':7,'sha256':hashlib.sha256(b'payload').hexdigest()})
+    if schema == 2:
+        from pc_agent.platform.windows.foundation_layout import shared_binding
+        path = '_foundation-runtime/python312.dll'
+        file_id, component = shared_binding(path)
+        components[component] = module.Component(component,
+            '{44444444-4444-4444-8444-444444444444}', 'SHAREDDIR', file_id, ('EndpointAgentFeature',))
+        files += (module.InstalledFile(file_id, component, path, 3),)
+        foundation.append(dict(path=path, file=file_id, component=component, size=3, sha256='b'*64))
     p = replace(p, files=files,components=components)
     monkeypatch.setattr(module, 'read_package', lambda *_:p)
-    monkeypatch.setattr(module, 'read_binary', lambda *_a, **_kw:json.dumps({'schema_version':1,'manifest':manifest,'contract_bytes':contract_bytes.hex(),'foundation_files':foundation}).encode())
+    monkeypatch.setattr(module, 'read_binary', lambda *_a, **_kw:json.dumps({'schema_version':schema,'manifest':manifest,'contract_bytes':contract_bytes.hex(),'foundation_files':foundation}).encode())
     tree = hashlib.sha256()
     for row in sorted(manifest['files'], key=lambda row:'endpoint_agent_core.exe' if row['path']=='pc_agent.exe' else row['path']):
         name='endpoint_agent_core.exe' if row['path']=='pc_agent.exe' else row['path']
@@ -110,6 +119,20 @@ def test_embedded_runtime_inventory_must_match_feature_file_ownership(tmp_path, 
         return
     expected = module.read_expected_package(tmp_path / 'test.msi', release)
     assert expected.identity.source_revision == 'a'*40
+    assert expected.foundation_schema == schema
+    if schema == 2:
+        original = p
+        p = replace(p, components={**p.components, component: replace(p.components[component], keypath='wrong')})
+        with pytest.raises(module.ProvenanceConflict):
+            module.read_expected_package(tmp_path/'test.msi', release)
+        p = replace(p, components={**p.components, component: replace(p.components[component], features=(module.RUNTIME_FEATURE,))})
+        with pytest.raises(module.ProvenanceConflict):
+            module.read_expected_package(tmp_path/'test.msi', release)
+        p = replace(original, files=(*original.files,
+            module.InstalledFile('foreign', component, '_foundation-runtime/foreign.dll', 7)))
+        with pytest.raises(module.ProvenanceConflict):
+            module.read_expected_package(tmp_path/'test.msi', release)
+        p = original
     p = replace(p, components={'core':replace(p.components['core'], features=('EndpointAgentFeature',))})
     with pytest.raises(module.ProvenanceConflict): module.read_expected_package(tmp_path / 'test.msi', release)
 

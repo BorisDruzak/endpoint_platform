@@ -14,7 +14,7 @@ from pc_agent.tests.windows.test_retained_storage import retained, promote
 @pytest.mark.parametrize('role,missing_capture', [('remove', False), ('remove', True), (None, False), ('control', False)])
 def test_removal_native_entry_uses_prepared_authority_after_product_unpublication(tmp_path, monkeypatch, role, missing_capture):
     from pc_agent.platform.windows import installer_transaction_bridge as bridge
-    from pc_agent.platform.windows import installation_provenance as provenance, msi_inventory, service_launcher
+    from pc_agent.platform.windows import installation_provenance as provenance, msi_inventory, companion_processes
     paths = SimpleNamespace()
     package = {'package_sha256': 'a' * 64}
     cap = {'package': package, 'operation': 'uninstall', 'recovery': False}
@@ -36,7 +36,7 @@ def test_removal_native_entry_uses_prepared_authority_after_product_unpublicatio
     monkeypatch.setattr(provenance, 'validate_maintenance_recovery', prepared)
     monkeypatch.setattr(installer_fence, 'read_fence', lambda *_: {'phase': 'msi-starting'})
     monkeypatch.setattr(bridge, '_advance_fence', lambda *_: calls.append('native-entered'))
-    monkeypatch.setattr(service_launcher, 'stop_tray_companions', lambda *_: None)
+    monkeypatch.setattr(companion_processes, 'stop_tray_companions', lambda *_: None)
     client = SimpleNamespace(capability=cap, phase='msi-enter', checkpoint=lambda: None,
                              request=lambda *args: calls.append(args[0]))
     if role == 'remove' and not missing_capture:

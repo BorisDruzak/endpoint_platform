@@ -349,7 +349,7 @@ def _stop_tray_before_msi_update() -> None:
     if os.name != "nt":
         return
     try:
-        from pc_agent.platform.windows.service_launcher import stop_tray_companions
+        from pc_agent.platform.windows.companion_processes import stop_tray_companions
 
         stop_tray_companions()
     except Exception as error:

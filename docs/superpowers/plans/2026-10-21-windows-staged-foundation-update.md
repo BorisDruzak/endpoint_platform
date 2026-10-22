@@ -179,3 +179,16 @@ ACL and descriptor checks at every existing verification boundary; preserve
 all grants and durable writes. Recovery and ordinary reads retain their
 previous behavior. Test blocked writes, fresh ACL rejection and pin release,
 then measure a real signed candidate before making a performance claim.
+
+### Task 8 performance refinement: shared Foundation dependencies
+
+Keep separate original PYZ graphs but share byte-identical DLL/data for the
+launcher, service, provisioner, UserSensor, BrowserBridge and BrowserPolicy.
+Keep the offline updater and Tray self-contained. Extract installer CLI and
+companion stopping into leaf modules so the MSI Binary remains self-contained;
+preserve the service CLI ABI. Schema 2 binds every shared file to exact
+File/Component IDs, size/SHA and Foundation feature ownership; schema 1 remains
+exact-eight. Check the complete shared namespace and directory ACLs, pin each
+byte proof and repeat Native/SCM/ACL checks. Bounded pin capacity grows only
+with this explicit authenticated inventory. Test conflicts, Native keypaths,
+injected files and write denial before fresh signed Native measurements.

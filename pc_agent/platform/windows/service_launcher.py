@@ -13,7 +13,7 @@ from typing import Sequence
 from urllib.parse import urlsplit
 
 from pc_agent.version import AGENT_VERSION, EXIT_UPDATE_PENDING
-
+from pc_agent.platform.windows.companion_processes import stop_tray_companions
 from pc_agent.platform.windows.service_control import SERVICE_NAME, trigger_pending_updater
 from pc_agent.platform.windows.update_paths import UPDATE_EXECUTABLE_NAME, WindowsUpdatePaths
 from pc_agent.platform.windows.runtime_identity import _reject_reparse_chain, validate_runtime_executable
@@ -23,58 +23,7 @@ _SEMVER_TRIPLET = re.compile(r"^(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9]
 _SOURCE_REVISION = re.compile(r"^[0-9a-f]{40}$")
 _MIN_LAUNCHER_VERSION_PROTOCOL = (3, 2, 82)
 _DEFAULT_ENDPOINT_ORIGIN = "https://endpoint.sosnadmin.local"
-_TRAY_EXECUTABLE_NAME = "EndpointAgentTray.exe"
-_USER_SENSOR_EXECUTABLE_NAME = "EndpointUserSensor.exe"
 
-
-def stop_tray_companions(paths: WindowsUpdatePaths | None = None) -> None:
-    """Stop only fixed installed user companions before MSI replaces their files."""
-    if os.name != "nt":
-        return
-    try:
-        import win32api  # type: ignore[import-not-found]
-        import win32con  # type: ignore[import-not-found]
-        import win32event  # type: ignore[import-not-found]
-        import win32process  # type: ignore[import-not-found]
-    except ImportError as error:
-        raise RuntimeError("pywin32 is required to stop Endpoint Agent tray") from error
-
-    install_root = (paths or WindowsUpdatePaths.production()).install_root
-    expected = {
-        os.path.normcase(os.path.normpath(str(install_root / name)))
-        for name in (_TRAY_EXECUTABLE_NAME, _USER_SENSOR_EXECUTABLE_NAME)
-    }
-    access = (
-        win32con.PROCESS_QUERY_LIMITED_INFORMATION
-        | win32con.PROCESS_TERMINATE
-        | win32con.SYNCHRONIZE
-    )
-    tray_handles = []
-    for process_id in win32process.EnumProcesses():
-        try:
-            handle = win32api.OpenProcess(access, False, process_id)
-        except win32api.error:
-            continue
-        try:
-            image = os.path.normcase(
-                os.path.normpath(win32process.GetModuleFileNameEx(handle, 0))
-            )
-        except win32api.error:
-            handle.Close()
-            continue
-        if image in expected:
-            tray_handles.append(handle)
-        else:
-            handle.Close()
-    try:
-        for handle in tray_handles:
-            win32process.TerminateProcess(handle, 0)
-        for handle in tray_handles:
-            if win32event.WaitForSingleObject(handle, 15_000) != win32event.WAIT_OBJECT_0:
-                raise RuntimeError("Endpoint Agent user companion did not stop before update")
-    finally:
-        for handle in tray_handles:
-            handle.Close()
 
 
 def _verify_selected_runtime(paths: WindowsUpdatePaths, selector: dict) -> None:
@@ -235,77 +184,22 @@ def run_agent_service() -> int:
 
 
 def _parser() -> argparse.ArgumentParser:
+    from pc_agent.platform.windows.installer_host_entry import add_installer_arguments
     parser = argparse.ArgumentParser()
     modes = parser.add_mutually_exclusive_group(required=True)
     modes.add_argument("--agent-service", action="store_true")
     modes.add_argument("--updater-service", action="store_true")
-    modes.add_argument("--installer-launcher")
-    parser.add_argument("--installer-launch-nonce")
-    modes.add_argument("--installer-phase", choices=("inspect","inspect-compound","prepare","stage-online","seal-staged-switch","adopt-staged-switch",
-        "begin-staged-trial","observe-staged-trial","accept-staged-trial",
-        "restore-staged-companions","inspect-staged-recovery","recover-staged-owner","record-staged-reboot-3010","record-staged-reboot-1641",
-        "inspect-staged-state","prepare-foundation-rollback","bind-foundation-rollback-roles","rollback-candidate-removed","rollback-native-committed","verify-foundation-rollback","msi-preflight","msi-enter","foundation-config","msi-complete","reconcile","finish","verify-settled",
-        "compound-old-returned","compound-new-returned","compound-commit","compound-retire","compound-complete","compound-finalize",
-        "compound-repair-returned","compound-repair-commit"))
-    parser.add_argument("--installer-session")
-    parser.add_argument("--foundation-state", type=int)
-    parser.add_argument("--foundation-action", type=int)
-    parser.add_argument("--runtime-state", type=int)
-    parser.add_argument("--runtime-action", type=int)
-    parser.add_argument("--rollback-disabled", default="")
-    parser.add_argument("--uninstall-finalization", default="")
-    parser.add_argument("--staged-removal", default="")
-    parser.add_argument("--upgrade-detected")
+    add_installer_arguments(parser, modes)
     return parser
 
 
 def main(argv: Sequence[str] | None = None) -> int:
+    from pc_agent.platform.windows.installer_host_entry import run_installer_args
     args = _parser().parse_args(argv)
-    if args.installer_launcher:
-        try:
-            from pc_agent.platform.windows.installer_launch_broker import run_launch_broker
-            return run_launch_broker(args.installer_launcher, args.installer_launch_nonce)
-        except Exception as error:
-            try:
-                from pc_agent.platform.windows.installer_phase_diagnostics import report_installer_phase_failure
-                report_installer_phase_failure('launcher', error)
-            except Exception:
-                pass
-            return 1
-    if args.installer_phase:
-        try:
-            from pc_agent.platform.windows.installer_transaction_bridge import owner_authorized_phase, execute_authorized_phase
-            from pc_agent.platform.windows.msi_inventory import package_read_scope, immutable_installer_media_roots
-            from pc_agent.platform.windows.installer_phase_diagnostics import profile_installer_phase
-            with owner_authorized_phase(args.installer_session,args.installer_phase) as client:
-                paths = WindowsUpdatePaths.production()
-                media_roots = immutable_installer_media_roots(paths, client.capability, args.installer_phase)
-                prefetch = args.installer_phase in {
-                    'inspect', 'prepare', 'seal-staged-switch', 'compound-finalize',
-                    'compound-old-returned', 'compound-new-returned',
-                    'msi-preflight', 'msi-enter', 'msi-complete', 'foundation-config',
-                }
-                with profile_installer_phase(args.installer_phase, paths), package_read_scope(
-                        immutable_media_roots=media_roots, prefetch_media=prefetch):
-                    execute_authorized_phase(client,paths,
-                        feature_states=(args.foundation_state,args.foundation_action,args.runtime_state,args.runtime_action),
-                        rollback_disabled=args.rollback_disabled,uninstall_finalization=args.uninstall_finalization,
-                        upgrade_detected=args.upgrade_detected,staged_removal=args.staged_removal)
-            return 0
-        except Exception as error:
-            # pywin32 errors need not inherit OSError. A windowed MSI helper
-            # must return failure, never wait on an invisible exception dialog.
-            try:
-                detail = str(error)
-            except Exception:
-                detail = None
-            try:
-                from pc_agent.platform.windows.installer_phase_diagnostics import report_installer_phase_failure
-                report_installer_phase_failure(args.installer_phase, error)
-            except Exception:
-                pass
-            return {"UPDATE_IN_PROGRESS": 61, "UPDATE_STATE_INVALID": 62,
-                    "PROVENANCE_CONFLICT": 63}.get(detail, 1)
+    result = run_installer_args(args)
+    if result is not None:
+        return result
+
     if args.agent_service:
         return run_agent_service()
     if args.updater_service:

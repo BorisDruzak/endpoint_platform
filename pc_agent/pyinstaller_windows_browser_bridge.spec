@@ -42,16 +42,16 @@ pyz = PYZ(a.pure)
 exe = EXE(
     pyz,
     a.scripts,
-    a.binaries,
-    a.zipfiles,
-    a.datas,
-    exclude_binaries=False,
+    exclude_binaries=True,
+    contents_directory="_foundation-runtime",
     name="EndpointBrowserBridge",
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
-    upx=True,
+    upx=False,
     console=True,
     disable_windowed_traceback=False,
     target_arch=None,
 )
+
+coll = COLLECT(exe, a.binaries, a.datas, strip=False, upx=False, name="EndpointBrowserBridge")

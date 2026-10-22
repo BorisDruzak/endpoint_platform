@@ -408,3 +408,13 @@ media bytes and the immutable old helpers repeat their normal admission after
 stop. Canonical legacy and interrupted/recovery paths retain their existing
 behavior. This moves existing preparation outside the Agent connectivity gap;
 it removes no native, hash, identity or ACL verification.
+
+The launcher, service, provisioner, UserSensor, BrowserBridge and BrowserPolicy
+specs now produce independent onedir executables. The MSI build merges only
+identical DLL/data into `_foundation-runtime`; differing collisions or aliases
+fail before publication. Original PYZ code remains separate. Offline updater
+and Tray remain onefile. A separate onefile `endpoint-installer-host.exe` is
+embedded as the MSI Binary. Schema 2 records every shared file and its exact
+Native File/Component binding; old schema 1 packages remain supported. This
+packaging change requires fresh signed Native performance and rollback
+acceptance; it does not itself establish the 120-second target.

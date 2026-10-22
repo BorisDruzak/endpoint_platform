@@ -229,7 +229,7 @@ Installed cold/warm timing and the failure matrix still determine acceptance.
 
 ## Post-commit Foundation byte proofs
 
-Fresh combined finalization may retain only the eight exact executable byte
+For schema 1, fresh combined finalization retains only the eight executable byte
 proofs named by its authenticated MSI inventory, after the existing Native
 End(Commit)/callback/product admission. The first SHA256 remains complete;
 native deny-write/delete handles protect subsequent byte-proof reuse. Keep
@@ -237,3 +237,24 @@ all existing Native, SCM, ACL, namespace, descriptor, grant and durability
 checks fresh. Release the executable pins at the context boundary. This
 scope supplies no launch or mutation authority and does not cache Core data,
 metadata, Native state, recovery results or evidence across helper phases.
+
+## Shared Foundation packaging
+
+Six Foundation entrypoints may use one authenticated `_foundation-runtime`
+directory containing byte-identical DLL/data and a deterministic union of
+identical standard-library ZIP members. Their individual PYZ graphs, original
+exclusions and executable paths remain independent. Offline updater and Tray
+remain onefile. The MSI Binary uses a separate self-contained installer host
+with the same owner authentication and native phase dispatcher; the service
+entrypoint retains its old installer CLI ABI.
+
+Inventory schema 2 includes the eight original executables plus every shared
+dependency, exact stable File/Component IDs, size and full SHA256. The signed
+MSI tables must match the inventory and each shared File must be its Native
+component keypath in the Foundation feature. Reject missing, extra, aliased,
+reparsed or writable namespace entries. Post-commit reuse may retain only
+these explicitly authenticated byte proofs under native deny-write/delete
+pins, with fresh Native/SCM/ACL/namespace checks. Schema 1 remains exact-eight.
+This changes packaging, not launch authority, credentials, health thresholds,
+rollback requirements or external HTTP contracts. New signed installed
+measurements and the complete failure matrix remain mandatory.
