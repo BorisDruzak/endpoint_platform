@@ -1852,6 +1852,30 @@ function Invoke-StagedRecovery {
     return 0
 }
 
+function Inspect-StagedPredecessorOnline {
+    param([Parameter(Mandatory)]$Manifest,[Parameter(Mandatory)][string]$HelperPath,
+        [Parameter(Mandatory)][string]$HelperHash,[Parameter(Mandatory)][string]$StateRoot,
+        [Parameter(Mandatory)]$ServiceStates,[Parameter(Mandatory)]$Selection)
+    # The first immutable-helper process admission can be expensive. Run its
+    # ordinary authenticated read-only inspection while the old Agent is live.
+    # This bridge is never quiescent and never enters a Native transaction.
+    $observation=Get-StagedAgentObservation
+    $inspectionBridge=New-InstallerBridge -Manifest $Manifest -HelperPath $HelperPath -HelperHash $HelperHash `
+        -StateRoot $StateRoot -ServiceStates $ServiceStates -Intent 'uninstall' -Selection $Selection
+    try {
+        $observed=Invoke-InstallerHelper -Bridge $inspectionBridge -Phase 'inspect'
+        if($observed.selected -cne $Selection.selected -or $observed.previous -cne $Selection.previous){throw 'PROVENANCE_CONFLICT'}
+        foreach($name in @('schema_version','version','source_revision','package_sha256','product_code','initial_runtime_tree_sha256')){
+            if($observed.foundation_release.$name -cne $Manifest.$name){throw 'PROVENANCE_CONFLICT'}
+        }
+        if((Get-StagedAgentObservation) -cne $observation){throw 'UPDATE_IN_PROGRESS'}
+    } finally {
+        $inspectionBridge.Policy.OwnerLost();$inspectionBridge.Channel.Dispose()
+        foreach($peer in $inspectionBridge.Peers){$peer.Dispose()}
+        $inspectionBridge.Owner.Dispose()
+    }
+}
+
 function Invoke-StagedOnlinePreparation {
     param([Parameter(Mandatory)]$Bridge,[Parameter(Mandatory)]$Manifest,
         [Parameter(Mandatory)][string]$HelperPath,[Parameter(Mandatory)][string]$HelperHash,
@@ -2905,6 +2929,8 @@ try {
             $oldPath=$oldMedia.PackagePath;$oldPackagePin=$oldMedia.PackagePin
             $oldHelperPath=$oldMedia.HelperPath;$oldHelperHash=$oldMedia.HelperHash;$oldHelperPin=$oldMedia.HelperPin
             $preloadedOldHash=$oldMedia.PackageHash
+            Inspect-StagedPredecessorOnline -Manifest $initial.foundation_release -HelperPath $oldHelperPath `
+                -HelperHash $oldHelperHash -StateRoot $installerStateRoot -ServiceStates $previousServiceStates -Selection $initial
         }
     }
     if ($intent -ne 'retire-initial-runtime') {

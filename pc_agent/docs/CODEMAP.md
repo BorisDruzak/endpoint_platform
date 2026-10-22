@@ -66,6 +66,9 @@ checks remain mandatory. Browser Policy is stopped before Agent while its
 applied registry policy persists; the late OTA gate still precedes Updater stop.
 For a modern staged predecessor, exact old MSI/helper preparation also runs
 online and retains native deny-write/delete handles through native admission.
+The predecessor additionally performs its authenticated read-only inspection
+online. That temporary bridge never becomes quiescent; all ordinary late
+preparation and Native admission checks repeat after service quarantine.
 The compound native pump waits on either channel's pending I/O event and the
 pending native result, with a ten-millisecond bound. It issues no grants from
 callbacks: both conversations, ownership checks and End* calls still execute
