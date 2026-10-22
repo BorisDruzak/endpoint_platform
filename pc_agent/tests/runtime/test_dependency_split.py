@@ -215,6 +215,11 @@ def test_windows_core_artifact_excludes_all_optional_runtime_packages(
     assert result.returncode == 0, result.stderr
     artifact_root = dist_path / "endpoint_agent_core"
     assert artifact_root.is_dir()
+    from pc_agent.version import AGENT_VERSION
+    version = subprocess.run([str(artifact_root/'endpoint_agent_core.exe'), '--print-version'],
+        capture_output=True, text=True, timeout=30)
+    assert version.returncode == 0, version.stderr
+    assert version.stdout.strip() == AGENT_VERSION
     filesystem_modules = _artifact_module_names(artifact_root)
     embedded_modules = _embedded_pyz_module_names(
         artifact_root / "endpoint_agent_core.exe"

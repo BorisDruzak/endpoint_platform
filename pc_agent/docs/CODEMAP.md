@@ -172,6 +172,12 @@ directory/file ACL, hash and descriptor checks surround shared use; post-commit
 pins grow only with that explicit bounded inventory. Installed performance and
 matrix acceptance are recorded separately in the Task 8 report.
 
+`tools/canary/ssl_payload.py` preserves an interpreter's required adjacent TLS
+policy resource in every Windows analysis containing `ssl`. It binds the
+unmodified stdlib source/resource bytes, rejects missing or ambiguous inputs,
+and adds nothing to networkless graphs. Frozen Core version and actual TLS
+context tests catch missing runtime data before Native admission.
+
 `endpoint_contracts` defers its model exports until requested. The pure
 `runtime_payload` leaf therefore loads without initializing Pydantic or its
 indirect network imports in the offline worker. The packaged updater's

@@ -418,3 +418,10 @@ embedded as the MSI Binary. Schema 2 records every shared file and its exact
 Native File/Component binding; old schema 1 packages remain supported. This
 packaging change requires fresh signed Native performance and rollback
 acceptance; it does not itself establish the 120-second target.
+
+Windows specs also collect the build interpreter's required adjacent public
+TLS policy resource when its actual `ssl` module references that resource.
+Missing, reparsed or hardlinked inputs fail the build. The stdlib TLS code
+and policy bytes remain unchanged; certificate and hostname verification
+remain enabled. Networkless updater graphs do not gain SSL or policy data.
+Frozen Core execution and an actual TLS context are tested before release.
