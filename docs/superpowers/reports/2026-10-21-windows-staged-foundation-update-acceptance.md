@@ -392,6 +392,82 @@ an ordinary-success performance measurement. Its observed service-start pause
 already exceeded the 120-second goal. No full matrix or performance pass follows
 from these successful individual recovery cases.
 
+## 3.2.130: pinned MSI reads and measured modern success
+
+Runtime source is `88304d9b9975f1e370bd5d33d939a817db2abefc`; the clean build
+checkout is `cf3c88113594f1beceddf1775393e7b863b62c9a`. Source change
+`06bde90e1ac380558654a8aeeddcc8235c2b6754` reuses fully verified MSI inventories
+only within an authenticated helper phase and while native handles deny writes
+and deletion. Every mutation first checks the live owner, then releases the
+handles and invalidates reuse. Installed native state, SCM, ACL, payload and
+health checks retain fresh observations. Independent returned objects prevent
+manifest mutation from affecting subsequent checks. Nine Windows pin tests
+cover replacement, deletion, writers, identity/phase separation and mutation
+invalidation. The related suite passed 430 tests. A separate test-fixture import
+order defect was reproduced and fixed in
+`318379dc396e77a618c1df4959e2432e08f552d4`; its two suites passed 124 tests.
+
+The complete Windows gate passed **2249 tests, 3 skipped** in 286.34 seconds.
+[CI 39709199721](https://github.com/BorisDruzak/endpoint_platform/actions/runs/39709199721)
+on the exact build checkout passed **4480 tests, 748 skipped** in 245.38 seconds.
+Contracts, compilation and whitespace checks passed. All 172 pinned source
+hashes and fixed entrypoint closures match this worktree. The 722-file raw Core
+tree is `845890a477220ac5ae1b4abb2ad2bd38f5710f8a61aaf854a8330982d99e3b16`.
+
+| Artifact | SHA256 | Bytes |
+| --- | --- | ---: |
+| MSI | `e66401d5a600b130867dec1414c1869a698f78844fae01af45607c30eb5a4c8c` | 173043712 |
+| Setup | `19f6368d39a7964a00ccc1e904802d3aab9a126e708134557ca806471af21dfa` | 191818704 |
+| Core ZIP | `9c3da0a2ff62d715ab764bcc9f9fe3d856b3348e26dd36a16df459406ea1b51d` | 22892978 |
+
+MSI and Setup signatures and timestamps are valid with the existing approved
+signer. The helper is exactly `Binary.EndpointInstallerHost` from that signed
+MSI, SHA256 `474936360433bc70a03ab6db9f910e65b4d97a2c7cc621db79c4ff3293346a4b`.
+Actual frozen inspection confirms qualified imports and recovery modules.
+The real helper denied a missing capability with exit 1 and its bounded event;
+all four private leaves matched before and after this smoke check.
+
+Read-only measurements on the dedicated Windows guest found a denied frozen
+helper takes 2.98–4.12 seconds to start and exit. Inspecting the installed
+legacy tree took 10.08 seconds, versus 2.65 seconds for the modern tree.
+An instrumented read-only validation repeated every original check: the legacy
+inspection took 9.40 seconds, including two full legacy payload walks totaling
+3.77 seconds and 2554 protected-state ACL validations totaling 2.20 seconds.
+Eight reads of the exact signed MSI took 5.69 seconds without reuse and 0.94
+seconds with pinned reuse. These measurements establish individual costs;
+they are not installed-update performance acceptance.
+
+Case `modern121-success-cold130-01` restored the same original Foundation
+3.2.120 / OTA Core 3.2.121 guest snapshot used for the earlier modern test.
+The clock and baseline WSS/APPLIED state were refreshed before staging. On
+2026-10-22 UTC, Setup ran **02:15:24.213–02:21:55.179**, exited 0 and accepted
+the candidate after actual new WSS, heartbeat and matching policy proof.
+Online preparation completed while the original agent ran. The observed stop
+at **02:17:02.964** and new running service at **02:20:24.999** give a
+**202.04-second service pause**. First observed new WSS was **207.36 seconds**
+after the stop. Total **390.97 seconds** passes the 600-second ordinary-success
+bound; the **120-second interruption bound still fails**. The earlier modern
+3.2.128 test measured 212.08 seconds to service startup; this comparison is not
+an identical-baseline cold/warm pair or a completed performance acceptance.
+
+All 111 retained files, 39,686,091 bytes, kept their NTFS IDs, sizes and hashes
+through publication. The native product, current Core and source revision are
+3.2.130 / the runtime source above. Four private leaves remain byte-identical.
+At 02:25:34 UTC the server confirmed fresh 3.2.130 WSS and matching APPLIED
+policy. At 02:26:54 the recovery task and all Setup/helper processes were absent.
+Snapshot `staged130-modern-success-ok-22` preserves this result. No production
+or fleet publication occurred. Further optimization and the full fault matrix
+remain required.
+
+A separate throwaway, read-only frozen self-launch diagnostic on this guest
+used PyInstaller 6.22.3 with forced onefile-parent verification and the helper's
+project import graph. Four fresh executable launches took 5.35 / 3.07 / 2.93 /
+2.75 seconds. Four separate worker processes launched by the already initialized
+same executable took 0.193 / 0.173 / 0.176 / 0.169 seconds and reused the same
+extraction root. The agent remained running. This establishes a supported
+initialization optimization to investigate; it grants no installer authority
+and does not establish packaged update, rollback or interruption acceptance.
+
 ## Remaining admission
 
 Ordinary success on plain 3.2.120, no-proof rollback on genuine 3.2.79 and Core 3.2.121,
