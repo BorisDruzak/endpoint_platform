@@ -213,14 +213,19 @@ effective-browser-policy and browser download/heartbeat proof remain open.
 request/reply contract shared by Windows and Linux. Linux `seqpacket.py` owns
 bounded per-record kernel credentials; `local_ipc.py` adds graphical-session
 authorization. `platform/linux/browser_policy.py` owns one conservative
-Chromium policy file and a root marker, preserves foreign GPO files, and uses
+policy file per installed Chromium/Chrome/Yandex product and a root marker, preserves foreign GPO files, and uses
 no-replace atomic publication. `browser_policy_helper.py` authenticates only
 the dedicated Core UID before reading requests. Its fixed root service and
 RPM/native-host wiring lives in the optional user-sensor package. Its isolated
 Python root helper loads only the fixed stdlib package, while browser-bridge
 selects the protected immutable Core in credential-free native-host mode.
 Chromium and Chrome manifests pin the existing extension origin and are
-config(noreplace); no Yandex installation path is guessed. `browser_status.py`
+config(noreplace). ALT Yandex 26.4 uses the verified root-owned binary at
+`/usr/lib64/yandex/browser/yandex_browser`, its own managed policy directory at
+`/etc/opt/yandex/browser/policies/managed`, and Chromium's system native-host
+directory. Unrelated valid ExtensionInstallForcelist entries are preserved;
+conflicting ExtensionSettings, blocklists and externally owned Endpoint entries
+still fail closed. Relinquish is scoped to each browser family. `browser_status.py`
 shares the existing Windows projection and ACK gating; Linux supplies only
 read-only host facts. Policy and manifest presence never fabricate a heartbeat.
 Linux Core >=3.2.123 wires the same SecurityEventRuntime/spool and Browser
@@ -232,7 +237,8 @@ paths require both negotiated features and the Linux audit runtime version.
 Private 3.2.123 ALT/KDE Wayland acceptance confirmed Chromium forced installation,
 ADMIN heartbeat and upload/paste delivery in both management modes, plus CUPS
 job delivery through the same WSS spool. Physical USB acceptance is postponed;
-absent Chrome/Yandex browsers are not claimed as tested.
+Chrome remains absent. The 2026-10-22 follow-up confirmed installed Yandex 26.4,
+signed ADMIN installation and a real accepted Native Messaging Hello in Wayland.
 ALT deterministic setup refusals use exit 78 through Core and launcher, matching
 the systemd no-restart contract; they do not trigger version rollback. Transient
 enrollment failures retain their existing retry status.
@@ -244,6 +250,10 @@ CUPS Unix socket). `context_profiles/probe.py` uses logind and restricts manual
 journal diagnostics to metadata. Existing eventlog and service/printer handlers
 project these adapters into the same Windows/Linux DTOs. The RPM grants only
 the supplementary journal-read group; code still runs as `endpoint-agent`.
+CUPS-Get-Printers alone treats a well-formed no-queues response as an empty list;
+Get-Jobs errors remain failures. Large cups-browsed discovery can saturate the
+scheduler's default 100-client limit; that host capacity setting is separate
+from the Agent's unchanged bounded request timeout and recovery supervision.
 ALT software inventory scans up to 8192 records, fails on overflow, and no longer
 silently discards installed packages after record 2048.
 

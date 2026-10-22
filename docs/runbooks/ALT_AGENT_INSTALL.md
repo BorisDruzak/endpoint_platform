@@ -21,7 +21,11 @@ only this sensor unit. Do not import its variables into the whole user manager.
 Preserve existing AD/SSSD and corporate browser policy. Agent-managed deployment
 owns only its marked Endpoint extension file; conflicting foreign policy is an
 explicit failure. External-managed deployment observes policy and heartbeat
-without taking ownership. Missing browsers and unknown Yandex paths remain unknown.
+without taking ownership. ALT Yandex 26.4 is detected by its verified installed
+binary under /usr/lib64/yandex/browser. Its managed policies live under
+/etc/opt/yandex/browser/policies/managed and it uses Chromium's system native-host
+manifest. Unrelated valid forced extensions are preserved; conflicting policies
+remain an explicit failure. Unrecognized installations remain unknown.
 CUPS/USB audit requires actual sources; temporary CUPS unavailability recovers
 without restarting Core. Physical USB acceptance is a separate operator test.
 
@@ -30,7 +34,16 @@ never an extra file inside an immutable runtime. Verify current.json and selecte
 release hashes/modes after installation; runtime OTA must never replace RPM-owned
 units or privileged helpers. Require server terminal outcomes and a subsequent
 successful WSS command; scheduled alone is insufficient. Use the parity ledger
-and current baseline for the private 3.2.126 acceptance limits.
+and current baseline for the private 3.2.127 follow-up acceptance limits.
+
+If CUPS reports "Max clients reached" during cups-browsed discovery, inspect
+the number and owners of local socket connections before changing Agent
+timeouts. On the reference host, the default 100-client scheduler capacity was
+exhausted; a backed-up MaxClients 256 configuration passed cupsd -t and removed
+the reproduced timeouts. This is a host-specific capacity adjustment, not an
+automatic RPM setting. Restore previously active dependent services after an
+outage test: starting cups alone does not start cups-browsed again. Keep print
+ACLs, discovery scope and AD configuration unchanged.
 
 ## Inputs
 

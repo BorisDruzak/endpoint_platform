@@ -39,8 +39,14 @@ and unavailable idle/lock APIs do not manufacture ACTIVE observations.
 The existing signed Browser Sensor 0.1.0 was installed by Chromium policy. Both
 owned and external deployment modes produced ADMIN heartbeats and real upload/paste
 SecurityEvents; installed 3.2.126 confirmed a fresh heartbeat and native-host READY.
-Corporate policy files were preserved. Absent Chrome/Yandex browsers are not live
-acceptance; unknown Yandex integration paths stay UNKNOWN. Physical USB plug/unplug
+Corporate policy files were preserved. Chrome was absent. The earlier Yandex
+absence statement was incorrect: the 2026-10-22 follow-up found its 26.4.4.968
+RPM installed before the original acceptance. Its verified ALT binary, managed
+policy directory and shared Chromium native-host directory are now supported.
+A fresh isolated Wayland profile installed the signed 0.1.0 extension as ADMIN
+and returned an accepted native Hello, preserving the existing signature-extension
+GPO. The corrected 3.2.127 frozen runtime acceptance is recorded in the ledger.
+Physical USB plug/unplug
 is explicitly postponed by the user. Kernel USB authentication/readiness and its
 bounded persistence retry are verified separately from physical acceptance.
 
@@ -68,9 +74,15 @@ and update characterization passed separately. Authenticated staging Console
 acceptance confirmed device/Context/Activity/analytics/Policy/DLP views through
 Playwright at desktop and mobile widths. The admin-only Policy projection exposes
 whitelisted failures and individual source states with current-policy/freshness
-checks. Controlled CUPS loss/recovery was visible in that UI. Native CUPS can
-transiently exceed the bounded request timeout; its external cause remains unknown.
-The sampler reports UNAVAILABLE and recovers, without inventing READY.
+checks. Controlled CUPS loss/recovery was visible in that UI. The follow-up
+reproduced scheduler saturation during cups-browsed network queue discovery:
+the default 100 simultaneous clients caused local metadata queries to time out
+before response headers, with matching Max clients reached log entries. The
+reference host's backed-up, syntax-checked MaxClients 256 setting restored
+180 successful requests with a 4.14ms maximum during discovery. Agent timeouts,
+TLS, print ACLs and AD settings were unchanged. The previously enabled
+cups-browsed service was also restored after the earlier outage test had left
+it stopped. The Agent separately handles the normal no-printers IPP response.
 
 ## Gateway transport
 
