@@ -135,3 +135,17 @@ def test_mutation_boundary_releases_reads_and_demands_fresh_validation(media):
         with pytest.raises(msi.ProvenanceConflict):
             msi.read_package(path, digest)
     assert grants == ['live-owner'] and len(calls) == 2
+
+
+def test_optional_cache_limits_fall_back_to_fresh_validation(media):
+    path, digest, calls = media
+    files = [path]
+    for number in range(17):
+        other = path.with_name(f'package-{number}.msi')
+        other.write_bytes(path.read_bytes())
+        files.append(other)
+    with msi.package_read_scope():
+        for file in files:
+            assert msi.read_package(file, digest)['digest'] == digest
+        assert msi.read_package(files[-1], digest)['digest'] == digest
+    assert len(calls) == len(files) + 1

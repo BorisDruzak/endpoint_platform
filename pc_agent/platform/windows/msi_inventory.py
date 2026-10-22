@@ -56,7 +56,7 @@ class _PackageReadScope:
         path = Path(path).absolute()
         if path not in self.pins:
             if len(self.pins) >= 16:
-                raise ProvenanceConflict()
+                return reader()
             reject_reparse_ancestors(path)
             before = _copy_identity(path.lstat())
             descriptor = self.stack.enter_context(_pinned_copy_source(path))
@@ -68,7 +68,9 @@ class _PackageReadScope:
         key = kind, path, identity
         if key not in self.values:
             if len(self.values) >= 64:
-                raise ProvenanceConflict()
+                value = reader()
+                self.validate(path)
+                return value
             value = reader()
             self.validate(path)
             self.values[key] = deepcopy(value)
