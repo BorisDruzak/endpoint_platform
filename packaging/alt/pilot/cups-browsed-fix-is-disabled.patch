@@ -1,0 +1,10 @@
+--- a/daemon/cups-browsed.c
++++ b/daemon/cups-browsed.c
+@@ -4381,6 +4381,7 @@
+ 	       NULL, cupsUser());
+   if ((response = cupsDoRequest(http, request, "/")) != NULL)
+   {
++    httpClose(http);
+     for (attr = ippFirstAttribute(response); attr != NULL;
+ 	 attr = ippNextAttribute(response))
+     {

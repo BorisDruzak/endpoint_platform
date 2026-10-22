@@ -7,6 +7,25 @@ immutable initial-release files, systemd units, tmpfiles policy, and logrotate
 policy only. Endpoint configuration, CA trust, enrollment claim, permanent
 credential, and enrollment identity are supplied or created separately.
 
+## Qualified staging pilot kit
+
+`python3 tools/build_alt_pilot_kit.py build --inputs /safe/qualified-inputs --output /safe/pilot-output`
+assembles the fixed Agent 3.2.127 Core/User Sensor RPMs, its frozen runtime/sidecar,
+the reviewed cups-browsed repair, vendor rollback/source RPMs, repair patches,
+and a staging-only operator guide/config template. Input names, RPM identities,
+and qualification SHA-256 values are pinned; same-version repacks are rejected.
+Build it on ALT with native RPM tooling. Repeated builds produce identical archives.
+
+The generated archive has separate archive and inner-manifest checksum files.
+After comparing the archive digest through a trusted channel before extraction,
+use its `verify-kit.py check` with the independently reviewed manifest digest.
+`--test-hostname` additionally performs a read-only clean-machine/RPM dependency
+preflight. Existing Endpoint state and unreviewed CUPS versions are refused;
+the helper never installs, enrolls, changes configuration or contacts a controller.
+Native installation and the CUPS replacement remain explicit operator actions.
+See `pilot/README.ru.md`. These unsigned qualification candidates require external
+publisher signing before ordinary distribution; no private key belongs here.
+
 ## Build on a disposable ALT worker
 
 Install the locked Linux build requirements and `rpm-build rpm-build-python3`,

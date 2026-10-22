@@ -1,0 +1,225 @@
+#!/usr/bin/env python3
+"""Build/verify the fixed ALT 11 staging pilot kit; never enroll or deploy."""
+from __future__ import annotations
+
+import argparse
+import gzip
+import hashlib
+from io import BytesIO
+import json
+from pathlib import Path
+import platform
+import re
+import shlex
+import stat
+import subprocess
+import tarfile
+
+VERSION = '3.2.127'
+AGENT_REVISION = 'f307bcc88d836bee0383e408d550f6501a02d094'
+KIT_NAME = 'endpoint-alt-pilot-3.2.127-1'
+ORIGIN = 'https://endpoint-staging.sosnadmin.local'
+SCHEMA = 'endpoint_alt_pilot_kit_v1'
+RUNTIME = f'endpoint-agent-linux_amd64-{VERSION}.tar.gz'
+RUNTIME_MANIFEST = f'endpoint-agent-linux_amd64-{VERSION}.manifest.json'
+PACKAGES = {
+    f'endpoint-agent-{VERSION}-alt5.x86_64.rpm': ('endpoint-agent', VERSION, 'alt5', 'x86_64', '(none)'),
+    f'endpoint-agent-user-sensor-{VERSION}-alt5.x86_64.rpm': ('endpoint-agent-user-sensor', VERSION, 'alt5', 'x86_64', '(none)'),
+    'cups-browsed-2.1.1-alt1.endpoint2.x86_64.rpm': ('cups-browsed', '2.1.1', 'alt1.endpoint2', 'x86_64', '(none)'),
+    'cups-browsed-2.1.1-alt1.x86_64.rpm': ('cups-browsed', '2.1.1', 'alt1', 'x86_64', '(none)'),
+    'cups-browsed-2.1.1-alt1.src.rpm': ('cups-browsed', '2.1.1', 'alt1', 'x86_64', '1'),
+    'cups-browsed-2.1.1-alt1.endpoint2.src.rpm': ('cups-browsed', '2.1.1', 'alt1.endpoint2', 'x86_64', '1'),
+}
+ASSETS = ('README.ru.md', 'rebuild-cups.sh', 'cups-browsed-fix-67.patch', 'cups-browsed-fix-is-disabled.patch',
+          'staging-config.example.yaml', 'staging.conf')
+FILES = {*PACKAGES, RUNTIME, RUNTIME_MANIFEST, *ASSETS, 'verify-kit.py'}
+INSTALL = tuple(list(PACKAGES)[:3])
+MAX_FILE = 256 * 1024 * 1024
+SYSTEM_ROOT = Path('/')
+QUALIFIED_INPUTS = {
+    'endpoint-agent-3.2.127-alt5.x86_64.rpm': 'e05d7797b22223f1a9503c65810ad4d87e5e0583cf313ad6001315c63755ab04',
+    'endpoint-agent-user-sensor-3.2.127-alt5.x86_64.rpm': '08ee19b8dd5e180b0c4eede06ca17402695a290e809af79fda264bffb6580b66',
+    RUNTIME: '032055853b3b3828d33c87424c1ae82be68ed3e074709c52f2631677de56890f',
+    RUNTIME_MANIFEST: '9cba3ce6cf3b207c2f2b9036de73bb8d7521cb8959ac024fce0c5fe4e7e5c8bc',
+    'cups-browsed-2.1.1-alt1.endpoint2.x86_64.rpm': '9cf9036442f7e12ef450e6f3b9cf7cbd0e06cbb6772c6e1372e802ecd49bc62e',
+    'cups-browsed-2.1.1-alt1.x86_64.rpm': 'a21146530c236ceae04155c879b468923808c64238ee550c942dabc985974018',
+    'cups-browsed-2.1.1-alt1.src.rpm': '4276876f261f2719ff3d453551af3c462f54a2ad963f4394d9b24509309ff624',
+    'cups-browsed-2.1.1-alt1.endpoint2.src.rpm': '95d620dc714a2818c352932314f0a51f68e1f06d1018dbacd887b414a4785db3',
+}
+
+
+def read_regular(path: Path) -> bytes:
+    info = path.lstat()
+    if not stat.S_ISREG(info.st_mode) or not 0 < info.st_size <= MAX_FILE:
+        raise ValueError('REGULAR_FILE_REQUIRED')
+    with path.open('rb') as stream:
+        result = stream.read(MAX_FILE + 1)
+    if len(result) > MAX_FILE:
+        raise ValueError('FILE_SIZE')
+    return result
+
+
+def sha(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
+
+
+def query_rpm(path: Path) -> tuple[str, ...]:
+    result = subprocess.run(['rpm', '-qp', '--qf', '%{NAME}\t%{VERSION}\t%{RELEASE}\t%{ARCH}\t%{SOURCEPACKAGE}', str(path)],
+        check=True, capture_output=True, text=True, timeout=30)
+    return tuple(result.stdout.strip().split('\t'))
+
+
+def build(inputs: Path, output: Path) -> tuple[Path, Path]:
+    if inputs.is_symlink() or not inputs.is_dir() or {p.name for p in inputs.iterdir()} != {*PACKAGES, RUNTIME, RUNTIME_MANIFEST}:
+        raise ValueError('INPUT_SET')
+    payload = {name: read_regular(inputs / name) for name in (*PACKAGES, RUNTIME, RUNTIME_MANIFEST)}
+    if output.resolve().is_relative_to(inputs.resolve()):
+        raise ValueError('OUTPUT_INSIDE_INPUTS')
+    for name, expected in PACKAGES.items():
+        if query_rpm(inputs / name) != expected:
+            raise ValueError('RPM_IDENTITY')
+    artifact = json.loads(payload[RUNTIME_MANIFEST])
+    if (artifact.get('schema_version') != 'endpoint_linux_agent_artifact_v1'
+        or artifact.get('version') != VERSION or artifact.get('platform') != 'linux_amd64'
+        or artifact.get('artifact_name') != RUNTIME
+        or artifact.get('source_revision') != AGENT_REVISION):
+        raise ValueError('RUNTIME_IDENTITY')
+    if artifact.get('sha256') != sha(payload[RUNTIME]) or artifact.get('size') != len(payload[RUNTIME]):
+        raise ValueError('RUNTIME_DIGEST')
+    if any(sha(payload[name]) != expected for name, expected in QUALIFIED_INPUTS.items()):
+        raise ValueError('QUALIFIED_DIGEST')
+    asset_root = Path(__file__).resolve().parents[1] / 'packaging' / 'alt' / 'pilot'
+    payload.update({name: read_regular(asset_root / name) for name in ASSETS})
+    payload['verify-kit.py'] = read_regular(Path(__file__).resolve())
+    manifest = {'schema_version': SCHEMA, 'kit_name': KIT_NAME, 'agent_version': VERSION,
+        'agent_source_revision': artifact['source_revision'], 'endpoint_origin': ORIGIN,
+        'purpose': 'operator-reviewed-staging-pilot', 'install_packages': list(INSTALL),
+        'signature_status': 'unsigned-local-candidates; not a production release',
+        'files': {name: {'sha256': sha(data), 'size': len(data), 'mode': '0755' if name.endswith('.sh') else '0644'}
+            for name, data in sorted(payload.items())}}
+    payload['pilot-manifest.json'] = (json.dumps(manifest, sort_keys=True, indent=2) + '\n').encode()
+    data = BytesIO()
+    with gzip.GzipFile(fileobj=data, mode='wb', filename='', mtime=0) as compressed:
+        with tarfile.open(fileobj=compressed, mode='w', format=tarfile.USTAR_FORMAT) as archive:
+            for name, value in sorted(payload.items()):
+                info = tarfile.TarInfo(KIT_NAME + '/' + name)
+                info.mode = 0o755 if name.endswith('.sh') else 0o644
+                info.size = len(value)
+                archive.addfile(info, BytesIO(value))
+    output.mkdir(parents=True, exist_ok=True)
+    archive = output / (KIT_NAME + '.tar.gz')
+    digest = output / (archive.name + '.sha256')
+    hashes = output / (KIT_NAME + '.manifest.sha256')
+    outputs = {archive: data.getvalue(), digest: (sha(data.getvalue()) + '  ' + archive.name + '\n').encode(),
+        hashes: (sha(payload['pilot-manifest.json']) + '  pilot-manifest.json\n').encode()}
+    for path, value in outputs.items():
+        if path.exists() or path.is_symlink():
+            if read_regular(path) != value:
+                raise ValueError('IMMUTABLE_OUTPUT')
+    for path, value in outputs.items():
+        if not path.exists():
+            with path.open('xb') as stream:
+                stream.write(value)
+    return archive, digest
+
+
+def verify(root: Path, expected: str) -> dict:
+    if re.fullmatch('[0-9a-f]{64}', expected) is None:
+        raise ValueError('MANIFEST_DIGEST')
+    raw = read_regular(root / 'pilot-manifest.json')
+    if sha(raw) != expected:
+        raise ValueError('MANIFEST_DIGEST')
+    manifest = json.loads(raw)
+    if (manifest.get('schema_version') != SCHEMA or manifest.get('kit_name') != KIT_NAME
+        or manifest.get('agent_version') != VERSION or manifest.get('endpoint_origin') != ORIGIN
+        or manifest.get('agent_source_revision') != AGENT_REVISION
+        or manifest.get('install_packages') != list(INSTALL)):
+        raise ValueError('MANIFEST_IDENTITY')
+    if set(manifest.get('files', {})) != FILES or {p.name for p in root.iterdir()} != FILES | {'pilot-manifest.json'}:
+        raise ValueError('FILE_SET')
+    for name, meta in manifest['files'].items():
+        value = read_regular(root / name)
+        if meta.get('sha256') != sha(value) or meta.get('size') != len(value):
+            raise ValueError('FILE_DIGEST')
+        if name in QUALIFIED_INPUTS and sha(value) != QUALIFIED_INPUTS[name]:
+            raise ValueError('QUALIFIED_DIGEST')
+    return manifest
+
+
+def machine_install_packages(facts: dict, expected_hostname: str) -> list[str]:
+    if expected_hostname != facts['hostname'] or not expected_hostname:
+        raise ValueError('HOSTNAME_MISMATCH')
+    if (facts['os_id'] not in {'altlinux', 'altlinux-workstation', 'altlinux-server'}
+        or re.fullmatch(r'11(?:\.\d+)*', facts['os_version']) is None or facts['arch'] != 'x86_64'):
+        raise ValueError('ALT11_X86_64_REQUIRED')
+    if facts['state_exists'] or facts['agent_query_status'] != 1:
+        raise ValueError('EXISTING_AGENT_STATE_PRESERVED')
+    if facts['cups'] not in {None, '2.1.1-alt1.x86_64', '2.1.1-alt1.endpoint2.x86_64'}:
+        raise ValueError('CUPS_VERSION_NOT_REVIEWED')
+    return list(INSTALL[:2] if facts['cups'] == '2.1.1-alt1.endpoint2.x86_64' else INSTALL)
+
+
+def machine_preflight(root: Path, expected_hostname: str) -> dict:
+    release = {}
+    for line in (SYSTEM_ROOT / 'etc/os-release').read_text().splitlines():
+        if '=' in line:
+            key, value = line.split('=', 1)
+            release[key] = shlex.split(value)[0] if value else ''
+    state_paths = [SYSTEM_ROOT / path for path in (
+        'opt/endpoint-agent', 'var/lib/endpoint-agent', 'var/log/endpoint-agent',
+        'etc/endpoint-agent', 'etc/credstore/endpoint-enrollment-claim', 'usr/lib/endpoint-agent')]
+    for directory in ('etc/systemd/system', 'run/systemd/system', 'usr/lib/systemd/system',
+                      'etc/systemd/user', 'usr/lib/systemd/user', 'etc/xdg/autostart'):
+        for pattern in ('endpoint-agent*', 'endpoint-user-sensor*'):
+            state_paths.extend((SYSTEM_ROOT / directory).glob(pattern))
+    state = any(path.exists() or path.is_symlink() for path in state_paths)
+    existing = subprocess.run(['rpm', '-q', 'endpoint-agent'], capture_output=True, timeout=15)
+    cups = subprocess.run(['rpm', '-q', '--qf', '%{VERSION}-%{RELEASE}.%{ARCH}', 'cups-browsed'],
+        capture_output=True, text=True, timeout=15)
+    if cups.returncode not in (0, 1):
+        raise ValueError('CUPS_RPM_QUERY_FAILURE')
+    packages = machine_install_packages({'hostname': platform.node(), 'os_id': release.get('ID', ''),
+        'os_version': release.get('VERSION_ID', ''), 'arch': platform.machine(), 'state_exists': state,
+        'agent_query_status': existing.returncode, 'cups': cups.stdout.strip() if cups.returncode == 0 else None}, expected_hostname)
+    for name, expected in PACKAGES.items():
+        if query_rpm(root / name) != expected:
+            raise ValueError('RPM_IDENTITY')
+    # --test executes no install scriptlets and changes no installed package.
+    result = subprocess.run(['rpm', '-Uvh', '--test', *(str(root / name) for name in packages)],
+        capture_output=True, timeout=60)
+    if result.returncode:
+        raise ValueError('RPM_TRANSACTION_PREFLIGHT_FAILED; run rpm -Uvh --test on the three documented packages for dependency details')
+    return {'platform': 'ALT11_x86_64', 'clean_endpoint_state': True, 'rpm_transaction_test': 'passed',
+        'changes_performed': False, 'endpoint_origin': ORIGIN, 'install_packages': packages}
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    commands = parser.add_subparsers(dest='command', required=True)
+    creator = commands.add_parser('build')
+    creator.add_argument('--inputs', type=Path, required=True)
+    creator.add_argument('--output', type=Path, required=True)
+    checker = commands.add_parser('check')
+    checker.add_argument('--root', type=Path, default=Path(__file__).resolve().parent)
+    checker.add_argument('--expected-manifest-sha256', required=True)
+    checker.add_argument('--test-hostname')
+    args = parser.parse_args()
+    try:
+        if args.command == 'build':
+            archive, digest = build(args.inputs, args.output)
+            print(json.dumps({'archive': str(archive), 'sha256_file': str(digest)}))
+        else:
+            verify(args.root, args.expected_manifest_sha256)
+            result = {'kit_integrity': 'passed', 'endpoint_origin': ORIGIN}
+            if args.test_hostname is not None:
+                result.update(machine_preflight(args.root, args.test_hostname))
+            print(json.dumps(result))
+        return 0
+    except (OSError, ValueError, subprocess.SubprocessError) as error:
+        # Report bounded operator errors, never arbitrary RPM/remote bodies.
+        print(str(error)[:240], file=__import__('sys').stderr)
+        return 1
+
+
+if __name__ == '__main__':
+    raise SystemExit(main())

@@ -6,6 +6,13 @@ Do not use it on a production host until the Wave 1 production gate is open.
 
 ## Current native RPM workstation path
 
+For the fixed 3.2.127 staging qualification kit, use
+`packaging/alt/pilot/README.ru.md` and `tools/build_alt_pilot_kit.py`.
+It includes the separately installed CUPS repair and rollback/source RPMs,
+trusted-channel checksums and read-only preflight. It does not embed enrollment
+or trust material and does not authorize production deployment. A fresh install
+in a container is supplemental evidence, not acceptance on a separate test PC.
+
 For the current headless Core layout, follow `packaging/alt/README.md` and build
 on ALT with `bash packaging/alt/build-rpm.sh --with-user-sensor`. Install the Core
 and optional user-sensor RPM together. The legacy offline layout documented below
