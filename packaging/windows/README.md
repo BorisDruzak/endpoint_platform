@@ -301,6 +301,15 @@ and a stable 60-second connection within a 180-second trial. A durable accepted
 journal survives cleanup failure. Exit 67 means the candidate was rolled back;
 Setup reports `ROLLED_BACK`, rather than `UPDATED`.
 
+Within one authenticated helper phase, repeated reads of the exact same MSI
+reuse its fully verified inventory while a native read handle denies writes and
+deletion. Reuse checks the file/namespace identity and returns independent
+manifest/component objects. Every mutation checkpoint first checks the live
+owner, then drops these read handles and cached results. The next read and every
+new phase perform full verification again. Native product/feature/component,
+SCM, ACL, payload and health observations are never cached by this mechanism;
+ordinary readers and POSIX validation keep their existing fresh-read behavior.
+
 Compensating candidate removal passes `ENDPOINT_STAGED_REMOVE=1` to preserve
 the original retained and OTA Core trees from recursive root cleanup. The MSI
 preflight accepts this flag only for its authenticated staged removal role;

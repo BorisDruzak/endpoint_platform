@@ -21,6 +21,17 @@ import uuid
 _WINDOWS = os.name == "nt"
 _REPARSE_POINT = 0x400
 _INSTALLER_CHECKPOINT: ContextVar[Callable[[], None] | None] = ContextVar('installer_checkpoint', default=None)
+_READ_INVALIDATOR: ContextVar[Callable[[], None] | None] = ContextVar('installer_read_invalidator', default=None)
+
+
+@contextmanager
+def installer_read_invalidation(invalidate: Callable[[], None]):
+    """Drop optional pinned read reuse at every mutation; grants remain separate."""
+    token = _READ_INVALIDATOR.set(invalidate)
+    try:
+        yield
+    finally:
+        _READ_INVALIDATOR.reset(token)
 
 
 @contextmanager
@@ -45,6 +56,9 @@ def installer_mutation_checkpoint(*, required: bool = False) -> None:
         raise ValueError('installer mutation scope is absent')
     if checkpoint is not None:
         checkpoint()
+    invalidate = _READ_INVALIDATOR.get()
+    if invalidate is not None:
+        invalidate()
 
 
 def _reject_reparse(details: os.stat_result) -> None:

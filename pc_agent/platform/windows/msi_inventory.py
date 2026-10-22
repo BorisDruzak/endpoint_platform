@@ -5,6 +5,8 @@ The offline worker must not import this module.
 """
 from __future__ import annotations
 from contextlib import contextmanager, ExitStack
+from contextvars import ContextVar
+from copy import deepcopy
 import os
 import re
 import stat
@@ -20,6 +22,84 @@ import uuid
 from endpoint_contracts.runtime_payload import PayloadConflict, PayloadIdentity, reject_reparse_ancestors, safe_path, version_tuple
 
 ProvenanceConflict = PayloadConflict
+
+_PHASE_READS = ContextVar('pinned_installer_phase_msi_reads', default=None)
+
+
+class _PackageReadScope:
+    """Reuse parsed immutable media, never native product/feature observations."""
+    def __init__(self):
+        self.stack = ExitStack()
+        self.pins = {}
+        self.values = {}
+
+    def validate(self, path):
+        from .durable_state import _copy_identity
+        descriptor, before, changed = self.pins[path]
+        reject_reparse_ancestors(path)
+        after = os.fstat(descriptor)
+        if (_copy_identity(path.lstat()) != before or _copy_identity(after) != before
+                or after.st_ctime_ns != changed):
+            raise ProvenanceConflict()
+
+    def invalidate(self):
+        try:
+            for path in self.pins:
+                self.validate(path)
+        finally:
+            self.stack.close()
+            self.pins.clear()
+            self.values.clear()
+
+    def read(self, kind, path, identity, reader):
+        from .durable_state import _copy_identity, _pinned_copy_source
+        path = Path(path).absolute()
+        if path not in self.pins:
+            if len(self.pins) >= 16:
+                raise ProvenanceConflict()
+            reject_reparse_ancestors(path)
+            before = _copy_identity(path.lstat())
+            descriptor = self.stack.enter_context(_pinned_copy_source(path))
+            opened = os.fstat(descriptor)
+            if _copy_identity(opened) != before:
+                raise ProvenanceConflict()
+            self.pins[path] = descriptor, before, opened.st_ctime_ns
+        self.validate(path)
+        key = kind, path, identity
+        if key not in self.values:
+            if len(self.values) >= 64:
+                raise ProvenanceConflict()
+            value = reader()
+            self.validate(path)
+            self.values[key] = deepcopy(value)
+        # Frozen dataclasses still contain mutable manifests/component maps.
+        return deepcopy(self.values[key])
+
+
+@contextmanager
+def package_read_scope():
+    """One authenticated helper phase; retain deny-write/delete native handles.
+
+    Every first read still hashes and validates the complete MSI. Each reuse
+    checks the retained native identity and namespace. No cache survives a phase
+    or applies to mutable installed product/feature/component/SCM evidence.
+    POSIX lacks this Windows sharing guarantee and always performs fresh reads.
+    """
+    if os.name != 'nt':
+        yield
+        return
+    scope = _PackageReadScope()
+    from .durable_state import installer_read_invalidation
+    token = _PHASE_READS.set(scope)
+    try:
+        with scope.stack, installer_read_invalidation(scope.invalidate):
+            try:
+                yield
+            finally:
+                for path in scope.pins:
+                    scope.validate(path)
+    finally:
+        _PHASE_READS.reset(token)
 UPGRADE_CODE = "{D4F3045C-51CF-49D9-AF9C-3AEBF206ED1F}"
 FOUNDATION_FEATURE = "EndpointAgentFeature"
 RUNTIME_FEATURE = "EndpointAgentInitialRuntimeFeature"
@@ -156,6 +236,15 @@ def verified_foundation_bytes(expected,install_root):
 
 
 def read_expected_package(path: Path, release: dict) -> ExpectedMsi:
+    scope = _PHASE_READS.get()
+    if scope is not None and isinstance(release, dict) and all(
+            isinstance(key, str) and isinstance(value, str) for key, value in release.items()):
+        return scope.read('expected', path, tuple(sorted(release.items())),
+                          lambda: _read_expected_package(path, release))
+    return _read_expected_package(path, release)
+
+
+def _read_expected_package(path: Path, release: dict) -> ExpectedMsi:
     from endpoint_contracts.runtime_payload import read_json, bind_contract, manifest_files
     fields = {'schema_version','version','source_revision','package_sha256','product_code','initial_runtime_tree_sha256'}
     if set(release) != fields or release['schema_version'] != 'endpoint_windows_release_v1':
@@ -244,6 +333,14 @@ def _rows(database, sql, kinds):
 
 
 def read_package(path: Path, expected_sha256: str) -> PackageInventory:
+    scope = _PHASE_READS.get()
+    if scope is not None and isinstance(expected_sha256, str):
+        return scope.read('package', path, expected_sha256,
+                          lambda: _read_package(path, expected_sha256))
+    return _read_package(path, expected_sha256)
+
+
+def _read_package(path: Path, expected_sha256: str) -> PackageInventory:
     import msilib
     try:
         reject_reparse_ancestors(path)
