@@ -341,7 +341,9 @@ def test_legacy_absence_requires_exact_reviewed_package_source_and_tree(tmp_path
 def test_reviewed_legacy_native_owner_survives_as_explicit_retained_archive(msi_archive_input, monkeypatch, foundation):
     from dataclasses import replace
     from types import SimpleNamespace
-    from pc_agent.platform.windows import msi_inventory, runtime_identity
+    # Load both catalogue consumers before substituting this test's catalogue;
+    # otherwise a first import retains the temporary dict after monkeypatch undo.
+    from pc_agent.platform.windows import msi_inventory, runtime_identity, legacy_foundation_upgrade as legacy
     module, paths, _root, _evidence, original_package, package = msi_archive_input
     package = replace(package, version='3.2.81')
     core = paths.versions_root / '3.2.81'; core.mkdir()
@@ -356,7 +358,6 @@ def test_reviewed_legacy_native_owner_survives_as_explicit_retained_archive(msi_
     monkeypatch.setattr(runtime_identity, '_LEGACY_MSI_CONTRACTS', {package.sha256:contract})
     # This retention fixture models native ownership/security; separate native
     # ACL tests exercise the historical servicing writer and namespace guards.
-    from pc_agent.platform.windows import legacy_foundation_upgrade as legacy
     monkeypatch.setattr(legacy,'_LEGACY_MSI_CONTRACTS',{package.sha256:contract})
     monkeypatch.setattr(legacy,'_PRODUCTS',{package.sha256:package.product_code})
     monkeypatch.setattr(legacy,'verify_registration',lambda *_a,**_k:None)
