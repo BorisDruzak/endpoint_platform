@@ -1107,21 +1107,27 @@ def test_other_package_recovery_rejects_before_native_costing(tmp_path,monkeypat
 
 def test_provenance_conflict_survives_helper_wrapper_and_setup_evidence(tmp_path,monkeypatch):
     import shutil
+    import sys
     powershell = shutil.which("powershell.exe") or shutil.which("pwsh")
     if powershell is None:
         pytest.skip("PowerShell required for extracted exception classification contract")
     from contextlib import contextmanager
     import subprocess
-    from pc_agent.platform.windows import service_launcher,installer_transaction_bridge as bridge
+    from pc_agent.platform.windows import service_launcher,installer_transaction_bridge as bridge,msi_inventory
     from endpoint_contracts.runtime_payload import PayloadConflict
     @contextmanager
     def owned(*_):
         yield SimpleNamespace(capability={'package': {'package_sha256': 'b'*64}})
     monkeypatch.setattr(bridge,'owner_authorized_phase',owned)
+    # This test covers exception transport, including Linux CI with pwsh. MSI
+    # media-root admission has its own actual Windows API tests.
+    monkeypatch.setattr(msi_inventory,'immutable_installer_media_roots',lambda *_:())
+    monkeypatch.setitem(sys.modules,'win32api',None)
     monkeypatch.setattr(service_launcher.WindowsUpdatePaths,'production',classmethod(lambda cls:cls(tmp_path/'Agent',tmp_path/'data/updates/pending_update.json')))
     def conflict(*_a,**_kw): raise PayloadConflict()
     monkeypatch.setattr(bridge,'execute_authorized_phase',conflict)
     helper_code=service_launcher.main(['--installer-phase','inspect','--installer-session','11111111-1111-4111-8111-111111111111'])
+    assert helper_code==63
     script=tmp_path/'classified-failure.ps1'
     script.write_text(r'''param($Source,[int]$Code)
 $ErrorActionPreference='Stop'
