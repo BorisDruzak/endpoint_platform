@@ -215,3 +215,14 @@ zones and offsets/folds through the archive, and a genuine frozen artifact befor
 Native acceptance. This changes file layout, not timezone semantics or the
 native/security/health/rollback gates. The next candidate gets new source, tree,
 package identities and repeated installed acceptance.
+
+## Parallel immutable MSI input reads
+
+Within the approved performance scope, independent raw SHA256 reads may run
+concurrently after the authenticated phase thread has pinned every exact
+execution/archive MSI slot against write/delete. This changes scheduling only:
+all complete byte hashes, namespace and retained identity checks remain; no
+Native product observation, state change or mutation grant runs on a worker.
+Failure closes all pins and rejects the phase. No digest survives its helper
+phase, and the native Windows Installer cache is never scanned or prefetched.
+Installed cold/warm timing and the failure matrix still determine acceptance.

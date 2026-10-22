@@ -155,3 +155,15 @@ Pin the observed tzdata version, prove the actual frozen artifact and retain all
 existing payload/native/security checks. Reserve a fresh candidate only after
 those gates pass; measure ordinary cold/warm and finish the installed failure
 matrix. This refinement does not mark Task 8 complete or permit publication.
+
+### Task 8 performance refinement: parallel immutable MSI reads
+
+An installed read-only ABBA probe preserved every full MSI digest and Native
+query while reducing four-input scope time from 4.14–4.75 s to 2.99–3.09 s.
+Pin the exact execution/archive MSI slots on the authenticated phase thread,
+then hash their complete bytes with at most two read-only workers. Publish
+cached digests only after all workers succeed and every retained identity is
+revalidated. Keep state changes, Native APIs and mutation grants on the phase
+thread. Skip quick trial polling and never enumerate the Windows Installer
+cache. Repeat source, signed packaging and installed gates before claiming an
+update improvement; the 120-second bound and full matrix remain open.

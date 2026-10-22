@@ -280,7 +280,13 @@ def main(argv: Sequence[str] | None = None) -> int:
             with owner_authorized_phase(args.installer_session,args.installer_phase) as client:
                 paths = WindowsUpdatePaths.production()
                 media_roots = immutable_installer_media_roots(paths, client.capability, args.installer_phase)
-                with package_read_scope(immutable_media_roots=media_roots), profile_installer_phase(args.installer_phase, paths):
+                prefetch = args.installer_phase in {
+                    'inspect', 'prepare', 'seal-staged-switch', 'compound-finalize',
+                    'compound-old-returned', 'compound-new-returned',
+                    'msi-preflight', 'msi-enter', 'msi-complete', 'foundation-config',
+                }
+                with profile_installer_phase(args.installer_phase, paths), package_read_scope(
+                        immutable_media_roots=media_roots, prefetch_media=prefetch):
                     execute_authorized_phase(client,paths,
                         feature_states=(args.foundation_state,args.foundation_action,args.runtime_state,args.runtime_action),
                         rollback_disabled=args.rollback_disabled,uninstall_finalization=args.uninstall_finalization,

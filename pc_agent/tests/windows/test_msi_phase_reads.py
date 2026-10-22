@@ -2,6 +2,7 @@
 from copy import deepcopy
 import hashlib
 import os
+import threading
 
 import pytest
 
@@ -9,6 +10,65 @@ from pc_agent.platform.windows import msi_inventory as msi
 
 
 pytestmark = pytest.mark.skipif(os.name != 'nt', reason='native deny-write/delete pins')
+
+
+def test_parallel_prefetch_hashes_all_exact_inputs_under_retained_native_pins(tmp_path, monkeypatch):
+    from pc_agent.platform.windows import durable_state
+    paths = []
+    for digit in ('a', 'b'):
+        root = tmp_path / ('msi-' + digit * 64)
+        root.mkdir()
+        path = root / 'EndpointAgent.msi'
+        path.write_bytes((digit * 1000).encode())
+        paths.append(path)
+    original = msi._hash_file
+    barrier = threading.Barrier(2)
+    readers = []
+    def read(path):
+        readers.append(threading.get_ident())
+        with pytest.raises(OSError):
+            path.write_bytes(b'pin must precede worker dispatch')
+        barrier.wait(timeout=5)
+        return original(path)
+    monkeypatch.setattr(msi, '_hash_file', read)
+    with msi.package_read_scope(immutable_media_roots=[p.parent for p in paths], prefetch_media=True):
+        with durable_state.installer_mutation_checkpoints(lambda: None):
+            durable_state.installer_mutation_checkpoint(required=True)
+            for path in paths:
+                assert msi._file_sha256(path) == hashlib.sha256(path.read_bytes()).hexdigest()
+                with pytest.raises(OSError):
+                    path.unlink()
+    assert len(readers) == 2 and len(set(readers)) == 2
+    for path in paths:
+        path.write_bytes(b'all prefetch pins released')
+
+
+def test_parallel_prefetch_failure_releases_every_pin_and_context(tmp_path, monkeypatch):
+    roots = [tmp_path / ('msi-' + digit * 64) for digit in ('a', 'b')]
+    for root in roots:
+        root.mkdir()
+        (root / 'EndpointAgent.msi').write_bytes(b'input')
+    def reject(_path):
+        raise msi.ProvenanceConflict()
+    monkeypatch.setattr(msi, '_hash_file', reject)
+    with pytest.raises(msi.ProvenanceConflict):
+        with msi.package_read_scope(immutable_media_roots=roots, prefetch_media=True):
+            pytest.fail('failed prefetch admitted a phase')
+    assert msi._PHASE_READS.get() is None
+    for root in roots:
+        (root / 'EndpointAgent.msi').write_bytes(b'released after failure')
+
+
+def test_parallel_prefetch_never_scans_native_cache_or_non_msi_files(tmp_path, monkeypatch):
+    native = tmp_path / 'Windows' / 'Installer'
+    native.mkdir(parents=True)
+    (native / 'EndpointAgent.msi').write_bytes(b'not an explicit package slot')
+    root = tmp_path / ('a' * 64)
+    root.mkdir()
+    (root / 'metadata.json').write_bytes(b'not package bytes')
+    monkeypatch.setattr(msi, '_hash_file', lambda *_: pytest.fail('unrequested input read'))
+    with msi.package_read_scope(immutable_media_roots=(native, root), prefetch_media=True):
+        assert not msi._PHASE_READS.get().pins
 
 
 @pytest.fixture

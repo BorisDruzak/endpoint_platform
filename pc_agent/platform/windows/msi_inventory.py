@@ -38,6 +38,39 @@ class _PackageReadScope:
             raise ValueError('immutable media root must be canonical')
         self.stack.callback(self.close)
 
+    def prefetch_media(self):
+        """Hash fixed package slots concurrently after pinning all inputs."""
+        paths = []
+        for root in self.immutable_media_roots:
+            if not re.fullmatch(r'(?:msi-)?[0-9a-f]{64}', root.name):
+                continue
+            path = root / 'EndpointAgent.msi'
+            try:
+                details = path.lstat()
+            except FileNotFoundError:
+                continue
+            if (not stat.S_ISREG(details.st_mode) or details.st_nlink != 1
+                    or getattr(details, 'st_file_attributes', 0) & 0x400
+                    or not 0 < details.st_size <= MAX_PACKAGE_BYTES):
+                raise ProvenanceConflict()
+            if path not in paths:
+                paths.append(path)
+        if len(paths) > 4:
+            raise ProvenanceConflict()
+        for path in paths:
+            self.read('prefetch-pin', path, None, lambda: None)
+        if not paths:
+            return
+        from concurrent.futures import ThreadPoolExecutor
+        # Workers only read bytes. Native queries, state and grants stay on the
+        # authenticated phase thread; publish nothing until every read succeeds.
+        with ThreadPoolExecutor(max_workers=min(2, len(paths))) as pool:
+            digests = list(pool.map(_hash_file, paths))
+        for path in paths:
+            self.validate(path)
+        for path, digest in zip(paths, digests):
+            self.values['sha256', path, None] = digest
+
     def close(self):
         try:
             with ExitStack() as closing:
@@ -108,7 +141,7 @@ class _PackageReadScope:
 
 
 @contextmanager
-def package_read_scope(*, immutable_media_roots=()):
+def package_read_scope(*, immutable_media_roots=(), prefetch_media=False):
     """One authenticated helper phase; retain deny-write/delete native handles.
 
     Each first inventory read still hashes and validates the complete MSI.
@@ -125,6 +158,8 @@ def package_read_scope(*, immutable_media_roots=()):
     try:
         with scope.stack, installer_read_invalidation(scope.invalidate):
             try:
+                if prefetch_media:
+                    scope.prefetch_media()
                 yield
             finally:
                 for path in scope.pins:
