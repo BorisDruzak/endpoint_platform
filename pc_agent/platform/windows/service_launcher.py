@@ -239,6 +239,8 @@ def _parser() -> argparse.ArgumentParser:
     modes = parser.add_mutually_exclusive_group(required=True)
     modes.add_argument("--agent-service", action="store_true")
     modes.add_argument("--updater-service", action="store_true")
+    modes.add_argument("--installer-launcher")
+    parser.add_argument("--installer-launch-nonce")
     modes.add_argument("--installer-phase", choices=("inspect","inspect-compound","prepare","stage-online","seal-staged-switch","adopt-staged-switch",
         "begin-staged-trial","observe-staged-trial","accept-staged-trial",
         "restore-staged-companions","inspect-staged-recovery","recover-staged-owner","record-staged-reboot-3010","record-staged-reboot-1641",
@@ -259,6 +261,17 @@ def _parser() -> argparse.ArgumentParser:
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = _parser().parse_args(argv)
+    if args.installer_launcher:
+        try:
+            from pc_agent.platform.windows.installer_launch_broker import run_launch_broker
+            return run_launch_broker(args.installer_launcher, args.installer_launch_nonce)
+        except Exception as error:
+            try:
+                from pc_agent.platform.windows.installer_phase_diagnostics import report_installer_phase_failure
+                report_installer_phase_failure('launcher', error)
+            except Exception:
+                pass
+            return 1
     if args.installer_phase:
         try:
             from pc_agent.platform.windows.installer_transaction_bridge import owner_authorized_phase, execute_authorized_phase

@@ -32,6 +32,28 @@ capture. Numeric phase timing/grant counters contain no paths or identities.
 The owner pipe drains ready frames and waits on pending I/O completion while
 retaining its bounded owner-thread pump and per-mutation authentication.
 
+`msi_inventory.package_read_scope` reuses only verified immutable MSI inventory
+within one authenticated helper phase. Native file handles deny write/delete;
+every reuse checks namespace/file identity and returns an independent object.
+Mutation checkpoints release the handles and invalidate cached values after the
+live owner check. Installed native state, ACL, payload, SCM and health are not
+cached. Reuse-budget exhaustion falls back to the original fresh reader.
+
+`platform/windows/installer_launch_broker.py` initializes the new fixed helper
+while the original Agent still runs. Its separate launch-only pipe authenticates
+both peers through retained native identities and accepts only fixed owner-phase
+and capability-session pairs from the same operation/owner/helper. Each phase
+runs in a new same-executable PyInstaller worker; forced onefile-parent validation
+is retained without forging bootloader environment variables.
+Every extracted bootstrap resource is hardened to SYSTEM/Administrators and
+pinned against writes/deletion/rename before reuse. Each launch revalidates the
+whole extraction namespace, pinned identities and current DACLs. The owner checks
+the child's PID, creation time, image/hash, SID/elevation and direct parent, then
+uses the original HMAC conversation and mutation grants. The launcher grants no
+MSI authority or completion. Its idle read also waits on the exact owner handle;
+owner loss closes the connection and retires its retained child. Older helpers,
+other operations and MSI custom actions keep their original cold launch path.
+
 `platform/windows/staged_trial_proof.py` uses a separate protected trial request
 and Agent-writable proof. Native registration/shared bytes and the exact Core
 inventory are checked before selecting the candidate. Runtime composition keeps

@@ -309,6 +309,24 @@ owner, then drops these read handles and cached results. The next read and every
 new phase perform full verification again. Native product/feature/component,
 SCM, ACL, payload and health observations are never cached by this mechanism;
 ordinary readers and POSIX validation keep their existing fresh-read behavior.
+Optional reuse-budget exhaustion falls back to fresh full verification.
+
+Online preparation also initializes a launch-only instance of the new fixed
+helper before stopping the old Agent. It may launch only another copy of itself
+for a fixed owner phase and a protected capability of the same owner/operation.
+Each phase remains a separate process with fresh native identity and original
+HMAC/mutation grants. Same-executable PyInstaller workers reuse the verified
+parent's extraction; the forced parent check remains enabled. No private
+bootloader environment is forged. Before reuse, the launcher hardens its own
+private extraction to SYSTEM/Administrators and pins every file and directory
+against writes, deletion and rename. Every child launch revalidates the complete
+namespace, file identities and current security descriptors against those pins.
+The launch pipe independently pins both
+physical peers and conveys no native completion or mutation authority. The
+owner verifies each new child's creation time, hash, SID and direct parent.
+Older immutable helpers and MSI-launched custom actions retain their existing
+path. Owner-loss recovery, native barriers and health acceptance are unchanged;
+installed performance and fault acceptance still require real guest evidence.
 
 Compensating candidate removal passes `ENDPOINT_STAGED_REMOVE=1` to preserve
 the original retained and OTA Core trees from recursive root cleanup. The MSI

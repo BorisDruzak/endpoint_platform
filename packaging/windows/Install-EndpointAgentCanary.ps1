@@ -21,6 +21,7 @@ $CacheSids = @($SystemSid, $AdministratorsSid)
 $ManagedServiceNames = @('EndpointAgent', 'EndpointAgentUpdater', 'EndpointBrowserPolicy')
 $WindowsInstallerServiceName = 'msiserver'
 $ManagedServiceTimeout = [TimeSpan]::FromSeconds(45)
+$script:InstallerLaunchBroker = $null
 
 function Initialize-InstallerBridgeTypes {
     if ('EndpointInstallerBridge.Policy' -as [type]) { return }
@@ -1311,13 +1312,148 @@ function Invoke-InstallerOwnerPump {
     }
 }
 
+function Assert-InstallerWarmLaunchReply {
+    param($Broker,$Bridge,$Packet,$Candidate)
+    if (-not $Broker.Owner.Alive -or -not $Broker.Peer.Alive -or -not $Bridge.Owner.Alive -or
+        [string]::Join('|',@($Packet.PSObject.Properties.Name|Sort-Object)) -cne 'created|pid|sequence' -or
+        ($Packet.pid -isnot [int] -and $Packet.pid -isnot [long]) -or
+        ($Packet.created -isnot [long] -and $Packet.created -isnot [int]) -or
+        ($Packet.sequence -isnot [int] -and $Packet.sequence -isnot [long]) -or
+        $Packet.sequence -ne $Broker.Sequence -or $Packet.pid -le 0 -or $Packet.pid -gt [int]::MaxValue -or
+        $Packet.created -le 0 -or -not $Candidate.Alive -or
+        $Candidate.Identity.Pid -ne $Packet.pid -or $Candidate.Identity.Created -ne $Packet.created -or
+        $Candidate.Identity.Hash -cne $Broker.HelperHash -or $Candidate.ImagePath -ine $Broker.HelperPath -or
+        $Candidate.Identity.Sid -cne $Bridge.Owner.Identity.Sid -or -not $Candidate.Identity.Elevated -or
+        -not $Candidate.DirectChildOf($Broker.Peer)) { throw 'OWNER_AUTH_FAILED' }
+}
+
+function Receive-InstallerLaunchPacket {
+    param($Broker)
+    $timer=[Diagnostics.Stopwatch]::StartNew()
+    do {
+        if ($timer.Elapsed.TotalSeconds -gt 30 -or -not $Broker.Owner.Alive -or -not $Broker.Launched.Alive) { throw 'OWNER_AUTH_FAILED' }
+        $raw=$Broker.Channel.Poll()
+        if ($null -ne $raw) {
+            if ($null -eq $Broker.Peer) {
+                $Broker.Peer=[EndpointInstallerBridge.NativeProcess]::new($Broker.Channel.PeerPid())
+                if (($Broker.Peer.Identity.Same($Broker.Launched.Identity) -eq $false -and
+                     -not $Broker.Peer.DirectChildOf($Broker.Launched)) -or
+                    $Broker.Peer.Identity.Hash -cne $Broker.HelperHash -or
+                    $Broker.Peer.ImagePath -ine $Broker.HelperPath -or
+                    $Broker.Peer.Identity.Sid -cne $Broker.Owner.Identity.Sid -or
+                    -not $Broker.Peer.Identity.Elevated) { throw 'OWNER_AUTH_FAILED' }
+            }
+            if (-not $Broker.Peer.Alive -or $Broker.Channel.PeerPid() -ne $Broker.Peer.Identity.Pid) { throw 'OWNER_AUTH_FAILED' }
+            return ([Text.Encoding]::ASCII.GetString($raw)|ConvertFrom-Json)
+        }
+        $Broker.Channel.WaitForActivity(10)
+    } while ($true)
+}
+
+function Start-InstallerLaunchBroker {
+    param($Bridge)
+    Assert-ExistingPathChain $Bridge.LaunchDirectory
+    Assert-InstallerCacheProtection $Bridge.LaunchDirectory
+    $nonce=[Guid]::NewGuid().ToString('N')
+    $channel=[EndpointInstallerBridge.Channel]::new('EndpointInstaller-'+$Bridge.SessionId+'-'+$nonce)
+    $broker=@{Channel=$channel;Peer=$null;Process=$null;Launched=$null;Owner=$null;
+        HelperPath=$Bridge.HelperPath;HelperHash=$Bridge.HelperHash;LaunchDirectory=$Bridge.LaunchDirectory;
+        TransactionId=$Bridge.TransactionId;Sequence=0}
+    try {
+        $broker.Owner=[EndpointInstallerBridge.NativeProcess]::new($PID)
+        if (-not $broker.Owner.Identity.Same($Bridge.Owner.Identity)) { throw 'OWNER_AUTH_FAILED' }
+        $info=[EndpointInstallerBridge.LaunchDirectory]::StartInfo($Bridge.HelperPath,
+            ('--installer-launcher '+$Bridge.SessionId+' --installer-launch-nonce '+$nonce),$Bridge.LaunchDirectory)
+        $broker.Process=[Diagnostics.Process]::Start($info)
+        $retainedHandle=$broker.Process.Handle
+        $broker.Launched=[EndpointInstallerBridge.NativeProcess]::new($broker.Process.Id)
+        if ($broker.Launched.Identity.Hash -cne $broker.HelperHash -or
+            $broker.Launched.ImagePath -ine $broker.HelperPath) { throw 'OWNER_AUTH_FAILED' }
+        $ready=Receive-InstallerLaunchPacket $broker
+        if ([string]::Join('|',@($ready.PSObject.Properties.Name)) -cne 'ready' -or
+            $ready.ready -isnot [bool] -or -not $ready.ready) { throw 'OWNER_AUTH_FAILED' }
+        return $broker
+    } catch {
+        Stop-InstallerLaunchBroker $broker
+        throw
+    }
+}
+
+function Start-InstallerWarmPhase {
+    param($Broker,$Bridge,[string]$Phase)
+    if ($Broker.Sequence -ge 511 -or -not $Broker.Owner.Identity.Same($Bridge.Owner.Identity) -or
+        $Bridge.TransactionId -cne $Broker.TransactionId -or $Bridge.HelperHash -cne $Broker.HelperHash -or
+        $Bridge.HelperPath -ine $Broker.HelperPath) { throw 'OWNER_AUTH_FAILED' }
+    Assert-ExistingPathChain $Broker.LaunchDirectory
+    Assert-InstallerCacheProtection $Broker.LaunchDirectory
+    if ($Bridge.ContainsKey('NativeDriver')) { $Bridge.NativeDriver.CheckOwnership() }
+    $Broker.Sequence++
+    Send-InstallerBridgePacket $Broker @{sequence=$Broker.Sequence;action='launch';phase=$Phase;session=$Bridge.SessionId}
+    $packet=Receive-InstallerLaunchPacket $Broker
+    if ($packet.pid -isnot [int] -or $packet.pid -le 0) { throw 'OWNER_AUTH_FAILED' }
+    $candidate=[EndpointInstallerBridge.NativeProcess]::new([int]$packet.pid)
+    try {
+        Assert-InstallerWarmLaunchReply $Broker $Bridge $packet $candidate
+        if ($Bridge.ContainsKey('NativeDriver')) { $Bridge.NativeDriver.CheckOwnership() }
+        $process=[Diagnostics.Process]::GetProcessById([int]$packet.pid)
+        $retainedHandle=$process.Handle
+        if ($process.HasExited -or -not $candidate.Alive -or
+            $process.StartTime.ToUniversalTime().ToFileTimeUtc() -ne $packet.created) { $process.Dispose();throw 'OWNER_AUTH_FAILED' }
+        return $process
+    } finally { $candidate.Dispose() }
+}
+
+function Stop-InstallerLaunchPeer {
+    param($Broker)
+    if ($null -eq $Broker.Peer -or -not $Broker.Peer.Alive -or
+        $Broker.Peer.Identity.Hash -cne $Broker.HelperHash -or $Broker.Peer.ImagePath -ine $Broker.HelperPath) { return }
+    $inner=[Diagnostics.Process]::GetProcessById($Broker.Peer.Identity.Pid)
+    try {
+        $retainedInnerHandle=$inner.Handle
+        if ($Broker.Peer.Alive -and $inner.StartTime.ToUniversalTime().ToFileTimeUtc() -eq $Broker.Peer.Identity.Created) {
+            $inner.Kill();$inner.WaitForExit(5000)|Out-Null
+        }
+    } finally { $inner.Dispose() }
+}
+
+function Stop-InstallerLaunchBroker {
+    param($Broker)
+    if ($null -eq $Broker) { return }
+    try {
+        if ($null -ne $Broker.Peer -and $Broker.Peer.Alive -and $Broker.Owner.Alive -and $Broker.Launched.Alive) {
+            $Broker.Sequence++
+            Send-InstallerBridgePacket $Broker @{sequence=$Broker.Sequence;action='close'}
+            $closed=Receive-InstallerLaunchPacket $Broker
+            if ($closed.sequence -ne $Broker.Sequence -or $closed.closed -ne $true) { throw 'OWNER_AUTH_FAILED' }
+        }
+    } catch { } finally {
+        $Broker.Channel.Dispose()
+        if ($null -ne $Broker.Process) {
+            if (-not $Broker.Process.WaitForExit(5000)) {
+                Stop-InstallerLaunchPeer $Broker
+                if (-not $Broker.Process.WaitForExit(5000) -and $null -ne $Broker.Launched -and $Broker.Launched.Alive -and
+                    $Broker.Launched.Identity.Hash -ceq $Broker.HelperHash) {
+                    $Broker.Process.Kill();$Broker.Process.WaitForExit(5000)|Out-Null
+                }
+            }
+            $Broker.Process.Dispose()
+        }
+        foreach ($item in @($Broker.Peer,$Broker.Launched,$Broker.Owner)) { if ($null -ne $item) { $item.Dispose() } }
+    }
+}
+
 function Invoke-InstallerHelper {
     param([Parameter(Mandatory)]$Bridge,[Parameter(Mandatory)][string]$Phase)
     if ($Phase -notin @('inspect','inspect-compound','prepare','stage-online','seal-staged-switch','adopt-staged-switch','begin-staged-trial','observe-staged-trial','accept-staged-trial','inspect-staged-state','prepare-foundation-rollback','bind-foundation-rollback-roles','rollback-candidate-removed','rollback-native-committed','verify-foundation-rollback','restore-staged-companions','inspect-staged-recovery','recover-staged-owner','record-staged-reboot-3010','record-staged-reboot-1641','reconcile','finish','verify-settled','compound-old-returned','compound-new-returned','compound-commit','compound-retire','compound-complete','compound-repair-returned','compound-repair-commit') -or $Bridge.SessionId -cnotmatch '^[0-9a-f-]{36}$') { throw 'OWNER_AUTH_FAILED' }
     Assert-ExistingPathChain $Bridge.LaunchDirectory
     Assert-InstallerCacheProtection $Bridge.LaunchDirectory
-    $info = [EndpointInstallerBridge.LaunchDirectory]::StartInfo($Bridge.HelperPath, ('--installer-phase ' + $Phase + ' --installer-session ' + $Bridge.SessionId), $Bridge.LaunchDirectory)
-    $process = [Diagnostics.Process]::Start($info)
+    if ($null -ne $script:InstallerLaunchBroker -and $Bridge.HelperHash -ceq $script:InstallerLaunchBroker.HelperHash -and
+        $Bridge.HelperPath -ieq $script:InstallerLaunchBroker.HelperPath -and $Bridge.TransactionId -ceq $script:InstallerLaunchBroker.TransactionId) {
+        $process=Start-InstallerWarmPhase $script:InstallerLaunchBroker $Bridge $Phase
+    } else {
+        $info = [EndpointInstallerBridge.LaunchDirectory]::StartInfo($Bridge.HelperPath, ('--installer-phase ' + $Phase + ' --installer-session ' + $Bridge.SessionId), $Bridge.LaunchDirectory)
+        $process = [Diagnostics.Process]::Start($info)
+    }
     return Invoke-InstallerOwnerPump -Bridge $Bridge -Process $process -Phase $Phase
 }
 
@@ -2650,6 +2786,7 @@ try {
         $bridge=Invoke-StagedOnlinePreparation -Bridge $bridge -Manifest $manifest -HelperPath $helperPath `
             -HelperHash $helperHash -StateRoot $installerStateRoot -ServiceStates $previousServiceStates -Selection $initial -CacheRoot $executionCacheRoot -PrepareRecovery {param($stagedBridge) Register-StagedRecoveryTask -Bridge $stagedBridge -SetupImage $SetupImagePath -WrapperPath $PSCommandPath -ManifestPath $ReleaseManifest -CacheRoot $executionCacheRoot -StateRoot $installerStateRoot -ServiceStates $previousServiceStates}
         $stagedOnline=$true
+        $script:InstallerLaunchBroker=Start-InstallerLaunchBroker $bridge
     }
     if ($intent -ne 'retire-initial-runtime') {
         Stop-ManagedAgentServices -PreviousStates $previousServiceStates -StoppedBySetup $stoppedBySetup -AfterAgentStopped {
@@ -2871,6 +3008,8 @@ finally {
         foreach ($peer in $preparedOldBridge.Peers) { $peer.Dispose() }
         $preparedOldBridge.Owner.Dispose()
     }
+    Stop-InstallerLaunchBroker $script:InstallerLaunchBroker
+    $script:InstallerLaunchBroker=$null
     if ($null -ne $oldHelperPin) { $oldHelperPin.Dispose() }
     if ($null -ne $oldPackagePin) { $oldPackagePin.Dispose() }
     if ($null -ne $helperPin) { $helperPin.Dispose() }
