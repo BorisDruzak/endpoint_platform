@@ -760,3 +760,68 @@ quarantine and reuses only pinned immutable MSI digests/database semantics in
 one phase. Native registration, ACL/namespace, every mutation boundary and full
 Foundation/Core byte verification remain fresh. Installed timing for that
 follow-up, the 120-second requirement and the full 42-case matrix remain open.
+
+### Installed performance follow-ups: 3.2.136 and 3.2.137
+
+Both candidates passed ordinary installed upgrade checks on Foundation 3.2.120 /
+Core 3.2.121. Performance acceptance remains **incomplete**:
+
+| Candidate/case | Setup seconds | Stopped to fresh WSS seconds | Conservative upper bound | Result |
+| --- | ---: | ---: | ---: | --- |
+| 3.2.136 cold | 369.0342 | 158.9054 | Not calculated | Accepted, exceeds 120 s |
+| 3.2.136 warm | 388.6180 | 172.0707 | Not calculated | Accepted, exceeds 120 s |
+| 3.2.137 cold | 354.6977 | 147.5657 | 148.3421 | Accepted, exceeds 120 s |
+| 3.2.137 warm, case 02 | 382.7940 | 161.6202 | 162.2885 | Accepted, exceeds 120 s |
+
+The 3.2.137 conservative bound starts at the last observed Running sample;
+maximum service sampling gaps were 0.204/0.206 seconds. Every successful case
+retained all 111 old payload file IDs and all 722 candidate file IDs, sizes and
+hashes. Private leaves matched. Full Native/Foundation and complete Core
+postflight passed without changing the running Agent PID. Fresh server-visible
+version and matching APPLIED policy passed. Cold boot had zero original user
+roles; the warm case restored both original tray/sensor roles with matching
+user/session and no operation recovery task. This context difference must not
+be hidden when comparing cold and warm results.
+
+3.2.137 runtime source is `b8a56b3a2c18a3f90de978ea956257dc8722bd9e`;
+actual fixed-entrypoint build checkout is
+`1a3a51f33add8b3ca5d8feb12f16843a6a64e475`. Verification checkout
+`78ea73f1f5834d1399e76469f0442ed27e513b50` differs only in a test fixture:
+2372 Windows tests passed, 3 skipped (305.83 s); exact CI run
+[39779147702](https://github.com/BorisDruzak/endpoint_platform/actions/runs/39779147702)
+passed 4540 tests, 823 skipped (273.20 s). Actual MSI/Setup signatures and
+timestamps passed; embedded PowerShell matched the reviewed source, MSI Binary
+matched the fixed helper and embedded Core ZIP matched the bound artifact.
+
+Warm case 01 stopped before any candidate installation because the restored
+historical Core 3.2.121 child exited 1. The underlying historical exit cause is
+unknown. One explicit baseline service start then remained stable for 30 seconds;
+case 02 began only after supported preflight and fresh old WSS/APPLIED passed.
+This baseline fixture action is not evidence of automatic product recovery.
+The failed case and both accepted guest snapshots remain preserved.
+
+The fresh forward path now consolidates the existing five post-End(Commit)=0
+functions into one authenticated helper. All five checks, ordered mutations,
+durable boundaries, live grants and the final ready marker remain. Its cold
+installed duration was 22.189 seconds; this alone did not achieve the target.
+Recovery and repair retain the granular sequence. No new installed rollback
+acceptance for 3.2.137 or full 42-case completion is claimed here.
+
+An additional archived-MSI read-scope optimization is committed as source only.
+The own-process read-only ABBA experiment on accepted 3.2.137 measured about
+0.8 seconds saved per repeated full inspection. Pure MSI parsing/hashing fell
+from three to one while fresh native product/property/feature/component counts
+were identical (3/6/18/2214). Full inspection digests matched and the live Agent
+PID did not change. It performed no product actions or attachment to another
+process. These timings are diagnostic evidence, not installed acceptance of
+the follow-up source.
+
+| Follow-up commit | Change/files | Verification |
+| --- | --- | --- |
+| `f4b6b5f5d19efba1bfb27e283bf67a85f8e11604` | `perf(agent): consolidate verified native finalization`; compound installer, bridge, service launcher, MSI scope, owner PowerShell, three Windows test files, CODEMAP and spec | 169 related and 143 expanded passed; contract check, compile, diff check |
+| `b8a56b3a2c18a3f90de978ea956257dc8722bd9e` | `build(agent): reserve native finalization candidate 3.2.137`; version, runtime identity, source/rollback tests and context golden fixture | 2 RED then 41 GREEN; unused production version read-only check |
+| `46482fbd437223eb7a9ff3b2f18d919d8b739ba9` | `build(agent): pin native finalization runtime 3.2.137`; initial-runtime manifest | Independent frozen source/stage evidence, 14 metadata tests |
+| `d742ed8a4b42f86425e53edf8d6b6d1c3d28a6e8` | `test(agent): bind setup conflict fixture to package capability`; setup-entry test | Targeted test passed after observed failure |
+| `1a3a51f33add8b3ca5d8feb12f16843a6a64e475` | `test(agent): cover combined finalization orchestration`; wrapper test | 14 actual PowerShell orchestration tests passed, including failed finalization/publication |
+| `78ea73f1f5834d1399e76469f0442ed27e513b50` | `test(agent): isolate platform API in conflict transport fixture`; setup-entry test | Portable no-win32api conflict test, complete Windows suite and exact CI passed |
+| `59ab1c9d345e117dd118cb2a47990436a64ae319` | `perf(agent): retain pinned archived MSI inputs across metadata writes`; MSI scope, phase-read test, CODEMAP and spec | 2 RED then 134 related GREEN; own-process read-only ABBA, contracts/compile/diff check; not yet installed |
