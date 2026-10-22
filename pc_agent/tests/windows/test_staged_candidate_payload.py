@@ -35,6 +35,8 @@ def candidate(staged, tmp_path):
         output.writestr('endpoint-update-manifest.json', json.dumps(manifest))
     for path in [paths.install_root, cache.parent, cache, archive]:
         installer_fence.protect_state(path)
+    # The real PowerShell execution cache deliberately has no service readers.
+    installer_fence.protect_state(archive, secret=True)
     expected = SimpleNamespace(identity=identity, manifest=manifest)
     return module, paths, state.read_staged_update(paths), expected, archive
 

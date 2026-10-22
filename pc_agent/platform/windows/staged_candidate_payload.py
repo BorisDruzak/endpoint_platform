@@ -88,7 +88,7 @@ def prepare_candidate_payload(paths, record, expected):
     root, source, target, archive = _authorize(paths, record, expected)
     if not _present(archive): return None  # Historical standalone wrapper.
     if _present(target) or _present(root): _fail()  # Never take over another tree.
-    fence.assert_state_security(archive)
+    fence.assert_state_security(archive, secret=True)
     # Keep one native deny-write/delete handle throughout validation/extraction.
     with durable_state._pinned_copy_source(archive) as descriptor:
         before = os.fstat(descriptor)
