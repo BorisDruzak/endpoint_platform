@@ -277,6 +277,7 @@ def test_setup_spec_places_release_evidence_and_wrapper_in_payload(
     spec = PROJECT_ROOT / "pc_agent" / "pyinstaller_windows_setup.spec"
     exec(compile(spec.read_text(encoding="utf-8"), str(spec), "exec"), {
         "SPECPATH": str(spec.parent),
+        "workpath": str(tmp_path / "work"),
         "Analysis": analysis,
         "PYZ": lambda *_a, **_k: None,
         "EXE": exe,
