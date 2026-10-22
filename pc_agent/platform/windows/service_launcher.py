@@ -276,7 +276,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         try:
             from pc_agent.platform.windows.installer_transaction_bridge import owner_authorized_phase, execute_authorized_phase
             from pc_agent.platform.windows.msi_inventory import package_read_scope
-            with owner_authorized_phase(args.installer_session,args.installer_phase) as client, package_read_scope():
+            from pc_agent.platform.windows.installer_phase_diagnostics import profile_installer_phase
+            with owner_authorized_phase(args.installer_session,args.installer_phase) as client, package_read_scope(), profile_installer_phase(args.installer_phase, WindowsUpdatePaths.production()):
                 execute_authorized_phase(client,WindowsUpdatePaths.production(),
                     feature_states=(args.foundation_state,args.foundation_action,args.runtime_state,args.runtime_action),
                     rollback_disabled=args.rollback_disabled,uninstall_finalization=args.uninstall_finalization,

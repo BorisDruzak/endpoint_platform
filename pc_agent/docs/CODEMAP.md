@@ -71,6 +71,13 @@ pending native result, with a ten-millisecond bound. It issues no grants from
 callbacks: both conversations, ownership checks and End* calls still execute
 on the original owner thread. Waiting neither consumes packets nor closes the
 async operations' event handles.
+`installer_phase_diagnostics.profile_installer_phase` is disabled by default.
+Only the exact SYSTEM/Administrators-protected installer-state flag
+`diagnostic-phase-timing.enabled` containing `profile-v1\n` enables self timing
+inside an already authenticated helper phase. Event 1002 contains bounded code
+locations, call counts and timings; no arguments, values, locals or paths.
+It attaches to no other process, grants no authority and cannot replace phase
+errors. Diagnostic runs with it enabled are not performance acceptance.
 `platform/windows/staged_trial_proof.py` uses a separate protected trial request
 and Agent-writable proof. Native registration/shared bytes and the exact Core
 inventory are checked before selecting the candidate. Runtime composition keeps
