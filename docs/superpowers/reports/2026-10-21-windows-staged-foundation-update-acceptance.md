@@ -6,6 +6,78 @@ The source plan is `docs/superpowers/plans/2026-10-21-windows-staged-foundation-
 Only the dedicated disposable Windows guest is in scope. Historical artifacts,
 snapshots and acceptance sequences remain unchanged.
 
+## Latest controlled results: 3.2.139
+
+Task 8 remains open: the 120-second pause goal and complete 42-case installed
+matrix have not passed. Runtime source is
+`be8056826327ee64a7d8fea2580823573d5e5a15`; build and verification checkout is
+`550acd355f89aca13d3023d19b46544b64644805`.
+[Exact-source CI 39811085445](https://github.com/BorisDruzak/endpoint_platform/actions/runs/39811085445)
+succeeded: 4561 passed, 828 skipped, 17 warnings in 274.24 seconds. The complete
+Windows gate passed: 2396 tests, 3 skips in 313.91 seconds. Contract generation,
+compilation and whitespace checks passed.
+
+All 176 runtime source hashes and frozen project-module paths were verified.
+The runtime has 118 files and tree digest
+`b67c6a5a864f92398f82a99d36fa3e4ec8aa97f4c321f466c66caeaa9f09702c`.
+The MSI and Setup had valid timestamped signatures. Embedded Core ZIP, MSI
+helper and reviewed owner bindings passed; all ten actual Windows entrypoints
+retained the exact 630-member timezone archive.
+
+| Artifact | SHA-256 |
+| --- | --- |
+| MSI | `1cb4884de70d470cefb2a6dc0d612e08f4bba1aacc23da212f851830971b745c` |
+| Setup | `6327dc1a673b7d0d623d6fda73d550df9396fb846916d2c126450ff632a1d61d` |
+| Core ZIP | `a67143a75b204f704b52450e73190b111503898cbd1a5a1c324d2ee6283d3aff` |
+
+Both versions below used genuine Foundation 3.2.120 with separate Core 3.2.121.
+Cold means an actual guest reboot and fresh old-Core WSS/APPLIED policy before
+Setup. The conservative pause uses the last 100-ms SCM sample still Running
+and the exact new server connection timestamp. Every row fails 120 seconds.
+
+| Candidate / case | Setup seconds | Conservative stop-to-WSS seconds |
+| --- | ---: | ---: |
+| 3.2.138 cold | 298.482125 | 123.208255 |
+| 3.2.138 warm | 312.221925 | 138.578245 |
+| 3.2.139 cold | 276.711356 | 121.827274 |
+| 3.2.139 warm | 316.511989 | 143.714299 |
+
+Both 3.2.139 runs passed full Native/Core verification for the exact source and
+MSI above, fresh WSS/APPLIED policy, all four private-leaf comparisons, unchanged
+Agent PID during postflight, all 111 retained and 118 candidate NTFS IDs/sizes/
+hashes, and zero remaining recovery tasks. The warm case restored both original
+roles to the same SID/session; the cold case had no original interactive roles
+after reboot. Maximum SCM sample gaps were 0.190 and 0.191 seconds. Full ordinary
+inventories showed zero replaced payload files. These are not the required
+2500+ legacy-file runs.
+
+3.2.138 separately passed actual automatic rollback after an exact candidate
+process crash and after candidate-only outbound blocking prevented proof.
+Both restored exact Foundation 3.2.120 and independent Core 3.2.121, fresh old
+WSS/APPLIED policy, all four private leaves, both original roles and zero
+recovery tasks. No manual recovery or service start occurred during either
+fault. The no-proof daemon SCM collector ended before recovery terminal, so
+that fine-grained pause measurement is missing and remains incomplete. The
+3.2.139 controller waits for its bounded recovery observer. Installed rollback
+of 3.2.139 itself has not yet been claimed.
+
+The two new read optimizations preserve all Native/ACL/namespace/owner checks.
+Parallel exact MSI reads retained all four full hashes and identical Native
+counts in a read-only ABBA probe, saving approximately 1.15-1.66 seconds per
+scope. Exact Foundation byte pins measured 4.778 / 3.669 / 3.707 / 4.693 seconds
+in another read-only ABBA probe; complete results and Native counts matched,
+with full byte reads reduced from 24 to 8. Installed finalization fell from
+14.06/14.81 seconds in 3.2.138 to 10.86/11.45 in 3.2.139. Independent review
+reported no findings and independently passed 140 related tests.
+
+A signed read-only SYSTEM bootstrap probe on accepted 3.2.139 measured complete
+command verification at 1.501 / 1.129 / 1.125 seconds with identical commands
+and unchanged live Agent PID. It spawned no Core and made no Native product
+changes. This steady-state result does not locate the variable startup delay
+during an actual transition. A separate MSI logging diagnostic is in progress;
+its timings are ineligible for ordinary performance acceptance. The complete
+cause of the remaining delay is still open. Historical evidence is preserved.
+
 ## Rejected candidate 3.2.123
 
 Runtime source: `5b9db8fecc8e9b7368a052a674af4504aa872b14`.

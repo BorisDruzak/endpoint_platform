@@ -42,11 +42,20 @@ callbacks, the native Windows Installer cache retain their deny-write/delete
 handles across unrelated metadata writes. Outside native callbacks, the same
 rule covers retained original MSI media in the exact package-digest archive
 directories. Other handles and values are dropped.
-Installed native state, ACL, payload, SCM and health are not
-cached. Complete MSI database semantics may be reused only under those same
-native pins; every registered-cache lookup, ACL, namespace, byte size and
-before/after identity check still runs. Foundation executable bytes retain
-their separate complete descriptor verification on every call. Reuse-budget
+Heavy authenticated phases may hash at most four explicit package-digest MSI
+inputs with two read-only workers. The phase thread acquires every native pin
+before dispatch; workers receive no owner grants or Native MSI authority.
+Results become reusable only after all workers succeed and identities validate.
+Native Installer cache paths are not prefetched.
+Installed native state, ACL, Core payload, SCM and health remain fresh.
+Complete MSI database semantics may be reused under the same native pins;
+every registered-cache lookup, ACL, namespace, byte size and before/after
+identity check still runs. Fresh post-commit `compound-finalize` may retain
+byte proofs for the eight exact Foundation executables from its authenticated
+MSI. ACL, namespace and descriptor checks still run on every access. Native
+deny-write/delete handles survive metadata-only checkpoints and are released
+on context exit or failure. Other phases, recovery and the default Foundation
+reader perform complete byte verification on every call. Reuse-budget
 exhaustion falls back to the original fresh reader.
 
 The fresh compound upgrade uses one `compound-finalize` helper only after real
