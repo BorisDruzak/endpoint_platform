@@ -33,11 +33,16 @@ The owner pipe drains ready frames and waits on pending I/O completion while
 retaining its bounded owner-thread pump and per-mutation authentication.
 
 `msi_inventory.package_read_scope` reuses only verified immutable MSI inventory
-within one authenticated helper phase. Native file handles deny write/delete;
+and MSI file digests within one authenticated helper phase. Native file handles
+deny write/delete;
 every reuse checks namespace/file identity and returns an independent object.
 Mutation checkpoints release the handles and invalidate cached values after the
 live owner check. Installed native state, ACL, payload, SCM and health are not
-cached. Reuse-budget exhaustion falls back to the original fresh reader.
+cached. Complete MSI database semantics may be reused only under those same
+native pins; every registered-cache lookup, ACL, namespace, byte size and
+before/after identity check still runs. Foundation executable bytes retain
+their separate complete descriptor verification on every call. Reuse-budget
+exhaustion falls back to the original fresh reader.
 
 `platform/windows/installer_launch_broker.py` initializes the new fixed helper
 while the original Agent still runs. Its separate launch-only pipe authenticates

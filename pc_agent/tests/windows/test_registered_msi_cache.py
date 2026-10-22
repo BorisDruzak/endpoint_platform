@@ -9,6 +9,57 @@ from pc_agent.platform.windows import msi_inventory as msi
 pytestmark=pytest.mark.skipif(os.name!='nt',reason='Windows native cache and security APIs')
 
 
+@pytest.mark.parametrize('defect', ['none', 'acl', 'registration', 'namespace', 'bytes'])
+def test_phase_byte_reuse_keeps_native_registration_and_acl_observations_fresh(tmp_path, monkeypatch, defect):
+    import win32api
+    from pc_agent.platform.windows import durable_state, installer_fence
+    windows = tmp_path / 'Windows'
+    cache = windows / 'Installer'
+    cache.mkdir(parents=True)
+    cached = cache / 'registered.msi'
+    cached.write_bytes(b'cached database')
+    original = tmp_path / 'source.msi'
+    original.write_bytes(b'original database with cabinet')
+    package = SimpleNamespace(product_code='product', package_code='package', version='3.2.135',
+                              sha256=hashlib.sha256(original.read_bytes()).hexdigest())
+    monkeypatch.setattr(win32api, 'GetWindowsDirectory', lambda: str(windows))
+    monkeypatch.setattr(msi, 'read_package', lambda *_: package)
+    reads, properties, security, namespaces = [], [], [], []
+    native = msi.NativeMsi()
+    def property_(*_):
+        properties.append(True)
+        return str(cache / 'different.exe' if len(properties) > 1 and defect == 'registration' else cached)
+    monkeypatch.setattr(native, 'property', property_)
+    def semantics(path):
+        reads.append(path)
+        return {'all-tables': 'exact semantic fingerprint'}
+    monkeypatch.setattr(native, '_read_database_semantics', semantics)
+    def protect(path):
+        security.append(path)
+        if len(properties) > 1 and defect == 'acl':
+            raise msi.ProvenanceConflict()
+    monkeypatch.setattr(msi, '_assert_registered_cache_security', protect)
+    def namespace(path):
+        namespaces.append(path)
+        if len(properties) > 1 and defect == 'namespace':
+            raise ValueError('namespace changed')
+    monkeypatch.setattr(installer_fence, 'assert_namespace_security', namespace)
+    with msi.package_read_scope(), durable_state.installer_mutation_checkpoints(lambda: None):
+        msi.verify_registered_cache(original, package, native=native)
+        if defect == 'bytes':
+            durable_state.installer_mutation_checkpoint(required=True)
+            original.write_bytes(b'changed canonical package')
+        if defect == 'none':
+            msi.verify_registered_cache(original, package, native=native)
+            assert reads == [original, cached]
+            assert security == [windows, cache, cached] * 4
+            assert namespaces == [cached] * 4
+        else:
+            with pytest.raises(msi.ProvenanceConflict):
+                msi.verify_registered_cache(original, package, native=native)
+    assert len(properties) == 2
+
+
 @pytest.mark.parametrize('defect',[None,'outside','nested','suffix','ads','ancestor-security','semantic','summary','canonical-bytes','cache-security','cache-mutation'])
 def test_registered_cache_requires_protected_pinned_exact_semantics(tmp_path,monkeypatch,defect):
     import win32api

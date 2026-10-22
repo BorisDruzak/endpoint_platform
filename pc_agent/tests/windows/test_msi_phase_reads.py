@@ -149,3 +149,93 @@ def test_optional_cache_limits_fall_back_to_fresh_validation(media):
             assert msi.read_package(file, digest)['digest'] == digest
         assert msi.read_package(files[-1], digest)['digest'] == digest
     assert len(calls) == len(files) + 1
+
+
+def test_exact_file_digest_reuse_retains_native_pins_and_invalidates(media, monkeypatch):
+    from pc_agent.platform.windows import durable_state
+    path, digest, _ = media
+    calls = []
+    def read(actual):
+        calls.append(actual)
+        return hashlib.sha256(actual.read_bytes()).hexdigest()
+    monkeypatch.setattr(msi, '_hash_file', read, raising=False)
+    with msi.package_read_scope(), durable_state.installer_mutation_checkpoints(lambda: None):
+        assert msi._file_sha256(path) == digest
+        assert msi._file_sha256(path) == digest
+        with pytest.raises(OSError):
+            path.write_bytes(b'cannot change while digest is reused')
+        with pytest.raises(OSError):
+            path.unlink()
+        assert len(calls) == 1
+        durable_state.installer_mutation_checkpoint(required=True)
+        path.write_bytes(b'new bytes after original authenticated mutation boundary')
+        changed = hashlib.sha256(path.read_bytes()).hexdigest()
+        assert msi._file_sha256(path) == changed and changed != digest
+        assert len(calls) == 2
+    assert msi._file_sha256(path) == changed
+    assert len(calls) == 3
+
+
+def test_digest_without_phase_never_reuses_unpinned_bytes(media, monkeypatch):
+    path, digest, _ = media
+    calls = []
+    def read(actual):
+        calls.append(actual)
+        return hashlib.sha256(actual.read_bytes()).hexdigest()
+    monkeypatch.setattr(msi, '_hash_file', read, raising=False)
+    assert msi._file_sha256(path) == digest
+    path.write_bytes(b'different unpinned bytes')
+    assert msi._file_sha256(path) != digest and len(calls) == 2
+
+
+def test_database_semantics_reuses_only_pinned_file_bytes_and_returns_copy(media, monkeypatch):
+    from pc_agent.platform.windows import durable_state
+    path, _, _ = media
+    native = msi.NativeMsi()
+    calls = []
+    def read(actual):
+        calls.append(actual)
+        return {'Table': hashlib.sha256(actual.read_bytes()).hexdigest()}
+    monkeypatch.setattr(native, '_read_database_semantics', read, raising=False)
+    with msi.package_read_scope(), durable_state.installer_mutation_checkpoints(lambda: None):
+        first = native.database_semantics(path)
+        first['Table'] = 'changed returned value'
+        expected = hashlib.sha256(path.read_bytes()).hexdigest()
+        assert native.database_semantics(path) == {'Table': expected}
+        assert len(calls) == 1
+        durable_state.installer_mutation_checkpoint(required=True)
+        path.write_bytes(b'new physical media')
+        assert native.database_semantics(path) != {'Table': expected}
+        assert len(calls) == 2
+    native.database_semantics(path)
+    assert len(calls) == 3
+
+
+def test_foundation_keeps_full_descriptor_checks_even_in_media_read_scope(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+    from pc_agent.platform.windows import update_transaction, durable_state
+    monkeypatch.setattr(update_transaction, '_assert_state_security', lambda *_: None)
+    rows = []
+    for name, (file, component) in msi.FOUNDATION_EXECUTABLES.items():
+        (tmp_path / name).write_bytes(b'exact foundation')
+        rows.append({'path': name, 'file': file, 'component': component, 'size': 16,
+                     'sha256': hashlib.sha256(b'exact foundation').hexdigest()})
+    expected = SimpleNamespace(foundation_files=rows)
+    calls = []
+    verify = durable_state._verify_copy_bytes
+    def read(descriptor, size, digest):
+        calls.append(descriptor)
+        return verify(descriptor, size, digest)
+    monkeypatch.setattr(durable_state, '_verify_copy_bytes', read)
+    monkeypatch.setattr(msi, '_hash_file', lambda *_: pytest.fail('Foundation bytes reused as MSI media'))
+    with msi.package_read_scope(), durable_state.installer_mutation_checkpoints(lambda: None):
+        with msi.verified_foundation_bytes(expected, tmp_path):
+            pass
+        with msi.verified_foundation_bytes(expected, tmp_path):
+            pass
+        assert len(calls) == 16
+        durable_state.installer_mutation_checkpoint(required=True)
+        (tmp_path / rows[0]['path']).write_bytes(b'changed')
+        with pytest.raises(ValueError):
+            with msi.verified_foundation_bytes(expected, tmp_path):
+                pytest.fail('changed foundation admitted')

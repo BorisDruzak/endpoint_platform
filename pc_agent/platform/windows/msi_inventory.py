@@ -27,7 +27,7 @@ _PHASE_READS = ContextVar('pinned_installer_phase_msi_reads', default=None)
 
 
 class _PackageReadScope:
-    """Reuse parsed immutable media, never native product/feature observations."""
+    """Reuse pinned immutable file evidence, never native product observations."""
     def __init__(self):
         self.stack = ExitStack()
         self.pins = {}
@@ -82,8 +82,8 @@ class _PackageReadScope:
 def package_read_scope():
     """One authenticated helper phase; retain deny-write/delete native handles.
 
-    Every first read still hashes and validates the complete MSI. Each reuse
-    checks the retained native identity and namespace. No cache survives a phase
+    Each first inventory read still hashes and validates the complete MSI.
+    Each reuse checks the retained native identity and namespace. No cache survives a phase
     or applies to mutable installed product/feature/component/SCM evidence.
     POSIX lacks this Windows sharing guarantee and always performs fresh reads.
     """
@@ -102,6 +102,21 @@ def package_read_scope():
                     scope.validate(path)
     finally:
         _PHASE_READS.reset(token)
+
+
+def _hash_file(path):
+    with Path(path).open('rb') as stream:
+        return hashlib.file_digest(stream, 'sha256').hexdigest()
+
+
+def _file_sha256(path):
+    """Reuse only bytes protected by this phase's deny-write/delete handle."""
+    scope = _PHASE_READS.get()
+    if scope is not None:
+        return scope.read('sha256', path, None, lambda: _hash_file(path))
+    return _hash_file(path)
+
+
 UPGRADE_CODE = "{D4F3045C-51CF-49D9-AF9C-3AEBF206ED1F}"
 FOUNDATION_FEATURE = "EndpointAgentFeature"
 RUNTIME_FEATURE = "EndpointAgentInitialRuntimeFeature"
@@ -349,8 +364,7 @@ def _read_package(path: Path, expected_sha256: str) -> PackageInventory:
         before = path.stat()
         if before.st_nlink != 1 or not 0 < before.st_size <= MAX_PACKAGE_BYTES:
             raise ProvenanceConflict()
-        with path.open('rb') as stream:
-            digest = hashlib.file_digest(stream, 'sha256').hexdigest()
+        digest = _file_sha256(path)
         if digest != expected_sha256:
             raise ProvenanceConflict()
         database = msilib.OpenDatabase(str(path), msilib.MSIDBOPEN_READONLY)
@@ -562,6 +576,13 @@ class NativeMsi:
         caching. Applied transforms/patches and product context need their own
         admission checks; this method supplies no replacement authority.
         """
+        scope = _PHASE_READS.get()
+        if scope is not None:
+            return scope.read('database-semantics', path, None,
+                              lambda: self._read_database_semantics(path))
+        return self._read_database_semantics(path)
+
+    def _read_database_semantics(self,path):
         database=wintypes.UINT();path=Path(path);before=path.stat()
         if not stat.S_ISREG(before.st_mode) or not 0<before.st_size<=512*1024*1024:raise ProvenanceConflict()
         if self._api('MsiOpenDatabaseW',[wintypes.LPCWSTR,ctypes.c_void_p,ctypes.POINTER(wintypes.UINT)],wintypes.UINT)(
@@ -708,11 +729,8 @@ def verify_registered_cache(original_path,package,*,native=None):
             opened=os.fstat(descriptor)
             if durable_state._copy_identity(opened)!=before:raise ProvenanceConflict()
             identities.append((path,descriptor,before,opened.st_ctime_ns));descriptors[path]=descriptor
-        try:durable_state._verify_copy_bytes(descriptors[original_path],original_path.stat().st_size,package.sha256)
-        except ValueError as error:raise ProvenanceConflict() from error
-        cache_digest=hashlib.sha256()
-        while block:=os.read(descriptors[cached],1024*1024):cache_digest.update(block)
-        registered=read_package(cached,cache_digest.hexdigest())
+        if _file_sha256(original_path) != package.sha256:raise ProvenanceConflict()
+        registered=read_package(cached,_file_sha256(cached))
         if any(getattr(registered,key)!=getattr(package,key) for key in ('product_code','package_code','version')):
             raise ProvenanceConflict()
         if native.database_semantics(original_path)!=native.database_semantics(cached):raise ProvenanceConflict()
