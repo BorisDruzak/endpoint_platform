@@ -490,8 +490,20 @@ def restore_staged_companions(paths, operation_id):
     if value['before'] and not decisions:
         result['users'] = 'session-unavailable'
     elif decisions:
-        with _verified_companion_files(paths, record):
-            already = _probe_companions(paths)
-            launched = [item in already or _restore_companion_task(paths, operation_id, item) for item in decisions]
+        from .msi_inventory import ProvenanceConflict
+        body_completed = False
+        try:
+            with _verified_companion_files(paths, record):
+                already = _probe_companions(paths)
+                launched = [item in already or _restore_companion_task(paths, operation_id, item) for item in decisions]
+                body_completed = True
+        except ProvenanceConflict:
+            if not body_completed:
+                raise
+            # A completed launch does not waive the post-use identity guard.
+            # Reacquire the complete native/byte/pin proof once, without replaying
+            # any launch. Persistent failure still propagates and keeps recovery.
+            with _verified_companion_files(paths, record):
+                pass
         result['users'] = 'launch-requested' if all(launched) else 'deferred'
     return result

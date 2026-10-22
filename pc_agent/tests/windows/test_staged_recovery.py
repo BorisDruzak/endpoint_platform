@@ -146,6 +146,53 @@ def test_terminal_cleanup_failure_does_not_undo_acceptance(recovery, staged, mon
     assert state._path(paths).read_bytes() == before
 
 
+@pytest.mark.parametrize('defect', ['post-use-once', 'post-use-always', 'entry', 'launch'])
+def test_companion_post_use_recheck_repeats_every_guard_without_relaunch(
+    recovery, staged, monkeypatch, defect,
+):
+    from contextlib import contextmanager
+    from pc_agent.platform.windows.msi_inventory import ProvenanceConflict
+    module, paths, binding, cap = recovery
+    move(staged, 'preparing', 'rolled-back')
+    before = state._path(paths).read_bytes()
+    roles = [{'role':'sensor','session_id':2,'sid':'S-1-5-21-100'},
+             {'role':'tray','session_id':2,'sid':'S-1-5-21-100'}]
+    root = module._root(paths, binding.operation_id, create=True)
+    with durable_state.installer_mutation_checkpoints(lambda: None):
+        module._write(root, 'companions.json', {'schema_version':1,
+            'binding_sha256':module._binding_hash(state.read_staged_update(paths)), 'before':roles})
+    monkeypatch.setattr(module, '_active_sessions', lambda: [{'session_id':2,'sid':'S-1-5-21-100'}])
+    monkeypatch.setattr(module, '_service_outcomes', lambda *_: {'agent':'running'})
+    monkeypatch.setattr(module, '_probe_companions', lambda *_: [])
+    guards = []; launches = []
+    @contextmanager
+    def verified(*_):
+        guards.append('entry')
+        if defect == 'entry':
+            raise ProvenanceConflict()
+        yield
+        guards.append('exit')
+        if defect == 'post-use-always' or len(guards) == 2:
+            raise ProvenanceConflict()
+    def launch(_paths, _operation, role):
+        launches.append(role)
+        if defect == 'launch':
+            raise ProvenanceConflict()
+        return True
+    monkeypatch.setattr(module, '_verified_companion_files', verified)
+    monkeypatch.setattr(module, '_restore_companion_task', launch)
+    if defect == 'post-use-once':
+        assert module.restore_staged_companions(paths, binding.operation_id)['users'] == 'launch-requested'
+        assert guards == ['entry','exit','entry','exit']
+        assert launches == roles
+    else:
+        with pytest.raises(ProvenanceConflict):
+            module.restore_staged_companions(paths, binding.operation_id)
+        assert len(launches) <= len(roles)
+        assert guards.count('entry') == (2 if defect == 'post-use-always' else 1)
+    assert state._path(paths).read_bytes() == before
+
+
 def test_system_task_canonical_xml_omits_logon_type():
     from pc_agent.platform.windows.staged_recovery import _validate_task_definition
     operation = str(uuid4()); executable = Path('C:/Program Files/Endpoint Platform/installer-cache/msi-'+'a'*64+'/EndpointAgentSetup.exe')

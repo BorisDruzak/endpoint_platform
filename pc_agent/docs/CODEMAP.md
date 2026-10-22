@@ -116,6 +116,10 @@ use the same still-active user SID/session and an interactive Scheduler token,
 never Session 0. Service results and requested user launches are distinct.
 Terminal journals and reused v2 storage positions are archived before the next
 operation; immutable v1 capture receipts remain byte-identical.
+After a completed companion-launch body, a failing post-use identity guard
+permits one complete fresh native/shared-byte/pin verification. Entry failures
+and launch failures propagate immediately; persistent post-use failure also
+propagates. Launch requests are never replayed by this verification retry.
 
 `endpoint_contracts` defers its model exports until requested. The pure
 `runtime_payload` leaf therefore loads without initializing Pydantic or its
