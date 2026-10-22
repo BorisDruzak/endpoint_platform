@@ -395,3 +395,11 @@ Agent and Browser Policy starts are dispatched before waiting for either.
 Both must still reach Running, and acceptance retains its fresh WSS, matching
 APPLIED policy, exact candidate and stable-health requirements. SCM startup
 failures still enter the ordinary staged rollback path.
+
+For a modern predecessor, the online owner also prepares its exact cached MSI
+and embedded old helper before Agent stop. Native deny-write/delete handles
+remain open until the operation finishes. The native driver still checks the
+media bytes and the immutable old helpers repeat their normal admission after
+stop. Canonical legacy and interrupted/recovery paths retain their existing
+behavior. This moves existing preparation outside the Agent connectivity gap;
+it removes no native, hash, identity or ACL verification.

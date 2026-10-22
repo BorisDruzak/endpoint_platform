@@ -2459,6 +2459,26 @@ function Get-CompoundOldMedia {
     } finally { $sourcePin.Dispose() }
 }
 
+function Open-StagedPredecessorMedia {
+    param($Manifest,[string]$StateRoot,[string]$CacheRoot)
+    $packagePin=$null;$helperPin=$null
+    try {
+        $path=Get-CompoundOldMedia $Manifest $StateRoot $CacheRoot
+        $packagePin=[IO.File]::Open($path,[IO.FileMode]::Open,[IO.FileAccess]::Read,[IO.FileShare]::Read)
+        $helper=Join-Path (Split-Path $path -Parent) 'endpoint-installer-host.exe'
+        if(Test-Path -LiteralPath $helper){Assert-CacheArtifactProtection $helper}
+        $hash=[EndpointInstallerBridge.PackageHelper]::Extract($path,$helper)
+        Assert-CacheArtifactProtection $helper
+        $helperPin=[IO.File]::Open($helper,[IO.FileMode]::Open,[IO.FileAccess]::Read,[IO.FileShare]::Read)
+        return @{PackageHash=[string]$Manifest.package_sha256;PackagePath=$path;PackagePin=$packagePin;
+            HelperPath=$helper;HelperHash=$hash;HelperPin=$helperPin}
+    } catch {
+        if($null -ne $helperPin){$helperPin.Dispose()}
+        if($null -ne $packagePin){$packagePin.Dispose()}
+        throw
+    }
+}
+
 function Start-WindowsInstaller {
     $service = Get-Service -Name $WindowsInstallerServiceName -ErrorAction Stop
     if ($service.Status -ne [ServiceProcess.ServiceControllerStatus]::Running) {
@@ -2793,6 +2813,7 @@ $oldBridge = $null
 $preparedOldBridge = $null
 $oldPackagePin = $null
 $oldHelperPin = $null
+$preloadedOldHash = $null
 $previousServiceStates = Get-ManagedAgentServiceStates
 $stoppedBySetup = @{}
 $restorePolicy = @{ LateOperation = $false }
@@ -2858,6 +2879,12 @@ try {
             -HelperHash $helperHash -StateRoot $installerStateRoot -ServiceStates $previousServiceStates -Selection $initial -CacheRoot $executionCacheRoot -PrepareRecovery {param($stagedBridge) Register-StagedRecoveryTask -Bridge $stagedBridge -SetupImage $SetupImagePath -WrapperPath $PSCommandPath -ManifestPath $ReleaseManifest -CacheRoot $executionCacheRoot -StateRoot $installerStateRoot -ServiceStates $previousServiceStates}
         $stagedOnline=$true
         $script:InstallerLaunchBroker=Start-InstallerLaunchBroker $bridge
+        if ($null -eq $initial.PSObject.Properties['foundation_kind'] -or $initial.foundation_kind -cne 'canonical-legacy') {
+            $oldMedia=Open-StagedPredecessorMedia $initial.foundation_release $installerStateRoot $executionCacheRoot
+            $oldPath=$oldMedia.PackagePath;$oldPackagePin=$oldMedia.PackagePin
+            $oldHelperPath=$oldMedia.HelperPath;$oldHelperHash=$oldMedia.HelperHash;$oldHelperPin=$oldMedia.HelperPin
+            $preloadedOldHash=$oldMedia.PackageHash
+        }
     }
     if ($intent -ne 'retire-initial-runtime') {
         Stop-ManagedAgentServices -PreviousStates $previousServiceStates -StoppedBySetup $stoppedBySetup -AfterAgentStopped {
@@ -2908,6 +2935,11 @@ try {
         if ($oldManifest.package_sha256 -cne $manifest.package_sha256) {
             if ([Version]$oldManifest.version -ge [Version]$manifest.version -or $oldManifest.product_code -ceq $manifest.product_code) { throw 'PROVENANCE_CONFLICT' }
             if ($null -eq $initial.PSObject.Properties['foundation_kind'] -or $initial.foundation_kind -cne 'canonical-legacy') {
+            if ($null -ne $oldPackagePin) {
+                if ($preloadedOldHash -cne $oldManifest.package_sha256 -or $null -eq $oldHelperPin) { throw 'PROVENANCE_CONFLICT' }
+                # Exact paths/bytes remain pinned since online preparation.
+                # Native driver and old helpers repeat their ordinary admission.
+            } else {
             $oldPath=Get-CompoundOldMedia $oldManifest $installerStateRoot $executionCacheRoot
             $oldPackagePin=[IO.File]::Open($oldPath,[IO.FileMode]::Open,[IO.FileAccess]::Read,[IO.FileShare]::Read)
             $oldHelperPath=Join-Path (Split-Path $oldPath -Parent) 'endpoint-installer-host.exe'
@@ -2915,6 +2947,7 @@ try {
             $oldHelperHash=[EndpointInstallerBridge.PackageHelper]::Extract($oldPath,$oldHelperPath)
             Assert-CacheArtifactProtection $oldHelperPath
             $oldHelperPin=[IO.File]::Open($oldHelperPath,[IO.FileMode]::Open,[IO.FileAccess]::Read,[IO.FileShare]::Read)
+            }
             $oldBridge=New-InstallerBridge -Manifest $oldManifest -HelperPath $oldHelperPath -HelperHash $oldHelperHash -StateRoot $installerStateRoot -ServiceStates $previousServiceStates -Intent 'uninstall' -Selection $initial
             $oldBridge.Policy.MarkQuiescent()
             Invoke-InstallerHelper $oldBridge 'prepare' | Out-Null
