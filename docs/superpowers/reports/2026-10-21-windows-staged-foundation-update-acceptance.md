@@ -542,3 +542,67 @@ the interruption performance bound, reboot and remaining fault matrix are
 pending. The report verifier
 withholds a complete pass when a scenario, native Foundation/Core proof,
 private preservation check or measured performance target is missing.
+
+## Additional 3.2.131 rollback evidence (2026-10-22)
+
+On the original Foundation 3.2.120 / OTA Core 3.2.121 fixture, the candidate
+Core was deliberately terminated during its real health trial. The owner
+automatically entered rollback at 04:23:03 UTC. Candidate registration
+disappeared, native Foundation 3.2.120 returned, and the journal reached
+`rolled-back` at 04:25:21.485. Setup exited 67 at 04:25:26.635. Original
+Core 3.2.121, all four private leaves, fresh original-version WSS at
+04:25:26.815 and its matching APPLIED policy acknowledgement were verified.
+This was actual native compensation, not a fixture restore.
+
+Terminal companion cleanup initially failed a strict post-use Foundation-byte
+identity check. Its cause remains unproven. The unchanged scheduled recovery
+task and signed cached Setup completed cleanup on an explicitly requested
+supported retry; that retry was manual. Do not describe this as fully automatic
+3.2.131 cleanup. Source `e94a4add68a3e92b943dba1da9a5a92320403fa2`
+adds at most three automatic retries one minute apart, with fresh owner/native
+proof and unchanged byte/identity checks.
+
+## 3.2.132 incoming-Core preparation attempt (2026-10-22)
+
+Runtime source `5d942d78d4c47b908ae8457c4ed56a881102f5f7` and build
+checkout `792470535a7ce2ed144515a4da113d6ca3762222` introduce an internal
+Core archive bound to the signed MSI inventory. Full Windows selection passed
+2318 tests with 3 skips (290.09 seconds).
+[CI 39729059884](https://github.com/BorisDruzak/endpoint_platform/actions/runs/39729059884)
+passed 4519 with 780 skips (320.45 seconds). All 174 normalized project sources,
+fixed-entrypoint closures, frozen recovery imports and signed-container helper
+binding were verified. Both artifacts had valid approved signatures and
+timestamps; the actual Setup archive matched the separate Core transport.
+
+| Artifact | SHA-256 |
+| --- | --- |
+| Signed/timestamped MSI | `f2db9e4140ec8c95e012a2c8f1e1b6d70a3f63aa1872bc04092396f10b18c71b` |
+| Signed/timestamped Setup | `22ce7d635185a65234c09e1b80b9f8885d6172f6c611ed5cbb8f6bb12ab981b2` |
+| Internal Core ZIP | `3751d85e91c033d78d8b12291ba819133ca77bcd48e4bd916890c7dc7dd506d1` |
+
+The real Setup attempt ran 05:49:28.968 to 05:51:03.999 UTC and exited 21
+during online preparation. The old Agent remained running throughout; no
+native switch occurred. Automatic recovery cancelled preparation, reached
+`rolled-back` and removed its task by 05:52:31. Native Foundation 3.2.120,
+Core 3.2.121 and all four private leaves remained unchanged.
+
+The frozen diagnostic identified the new archive admission check: it expected
+service-reader ACLs on a deliberately SYSTEM/Administrators-only installer
+cache file. Fix `1970f5df61f551b305b24608241e1e21250f66a8` selects the
+existing stricter private-cache validator. A representative native-ACL unit
+test reproduced the failure before the fix. No access was broadened.
+
+A separate full-size private fixture on the same guest then exposed differing
+PowerShell/Python manifest ordering. Every metadata field and all 722 file
+records were identical. Fix `5def4d45778972dd7a85a5c642ba7a58ad000564`
+compares complete manifests in canonical filename order, retaining every
+path/type/duplicate/contract/hash check. Its regression test failed before the
+fix; 58 relevant Windows tests subsequently passed.
+
+The corrected private fixture prepared all 722 files in 17.46 seconds,
+published by rename in 3.49 seconds and moved them back with unchanged file IDs.
+The real old Agent PID and fixture selector remained unchanged. This probe
+executed no native installer scripts: it validates archive/NTFS preparation,
+not installed MSI adoption, complete update timing or automatic native rollback.
+The immutable 3.2.132 artifacts were retained without rebuilding. Installed
+acceptance, the 120-second goal and the complete 42-case matrix remain open.

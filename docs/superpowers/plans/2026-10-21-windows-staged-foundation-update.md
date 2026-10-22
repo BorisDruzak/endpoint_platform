@@ -1,6 +1,6 @@
 # Staged Windows Foundation Update Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking. Execution method awaits the user's selection; do not delegate until that selection authorizes it.
+> **For agentic workers:** The user selected Native inline execution in this chat. Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking. Implementation remains in this chat.
 
 **Goal:** Подготавливать Windows Foundation upgrade при работающем агенте, выполнять одну retention-копию, быстро переключать версию и автоматически восстанавливать прежнюю Foundation/Core при неудачной проверке работы.
 
@@ -143,4 +143,4 @@
 
 - Spec lifecycle/reservation → Tasks 1/3; one-copy/v1 compatibility/disk → Task 2; 60/180 health and exact trial → Task 4; real Foundation rollback → Task 5; owner loss/reboot/companions/cleanup → Task 6; exact source/signing → Task 7; installed matrix/10-minute and 2-minute goals → Task 8.
 - Five Review Focus cases each have a named owning test. New shared interfaces are defined above their consumers; no new external HTTP schema or second credential-bearing network owner is planned.
-- Plan review and execution-method selection are pending. This document is an implementation plan, not a statement that any code, MSI build or native test has passed.
+- The user approved the plan and selected Native inline execution. Task 8 remains open; this plan does not replace the dedicated report's source, CI, installed and performance evidence.
