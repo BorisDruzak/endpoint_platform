@@ -157,7 +157,8 @@ def test_wrapper_protects_a_hash_addressed_cache_before_privileged_execution() -
     )
     assert (
         source.index("$packagePin = [IO.File]::Open($executionCachePath")
-        < source.index("-Phase 'inspect'")
+        # Anchor the actual bootstrap call, not a helper function definition.
+        < source.index("$initial = Invoke-InstallerHelper -Bridge $bridge -Phase 'inspect'")
         < source.index("$bridge.Policy.MarkQuiescent()")
         < install
     )
