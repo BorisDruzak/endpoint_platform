@@ -1115,7 +1115,8 @@ def test_provenance_conflict_survives_helper_wrapper_and_setup_evidence(tmp_path
     from pc_agent.platform.windows import service_launcher,installer_transaction_bridge as bridge
     from endpoint_contracts.runtime_payload import PayloadConflict
     @contextmanager
-    def owned(*_): yield object()
+    def owned(*_):
+        yield SimpleNamespace(capability={'package': {'package_sha256': 'b'*64}})
     monkeypatch.setattr(bridge,'owner_authorized_phase',owned)
     monkeypatch.setattr(service_launcher.WindowsUpdatePaths,'production',classmethod(lambda cls:cls(tmp_path/'Agent',tmp_path/'data/updates/pending_update.json')))
     def conflict(*_a,**_kw): raise PayloadConflict()
