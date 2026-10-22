@@ -38,10 +38,21 @@ and current baseline for the private 3.2.127 follow-up acceptance limits.
 
 If CUPS reports "Max clients reached" during cups-browsed discovery, inspect
 the number and owners of local socket connections before changing Agent
-timeouts. On the reference host, the default 100-client scheduler capacity was
-exhausted; a backed-up MaxClients 256 configuration passed cupsd -t and removed
-the reproduced timeouts. This is a host-specific capacity adjustment, not an
-automatic RPM setting. Restore previously active dependent services after an
+timeouts. On the reference host, cups-browsed 2.1.1 leaked local connections;
+raising MaxClients to 256 only postponed exhaustion. The reviewed local
+2.1.1-alt1.endpoint2 RPM retains the vendor build configuration and adds four
+httpClose calls: the three-call
+[upstream update_cups_queues fix](https://github.com/OpenPrinting/cups-browsed/commit/34da78b713a5d551471568f08f8c185c9f7dcac1)
+plus a close at the start of the successful cupsDoRequest branch in is_disabled,
+before inspecting the independently owned IPP response. The latter closes all
+idle/stopped/missing-printer return paths; its existing failure-path close stays
+unchanged. Native regression uses an isolated Unix-socket CUPS instance and
+synthetic queues, without sending a document. Keep the original scheduler limit
+and discovery configuration while checking descriptor stability and real query
+latency. This OS package is not installed automatically by Endpoint RPM or OTA.
+Retain the original vendor RPM for rollback and check both cleanup paths before
+replacing this local pilot package with a future vendor build.
+Restore previously active dependent services after an
 outage test: starting cups alone does not start cups-browsed again. Keep print
 ACLs, discovery scope and AD configuration unchanged.
 

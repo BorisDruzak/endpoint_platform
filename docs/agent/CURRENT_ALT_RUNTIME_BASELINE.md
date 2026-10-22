@@ -78,11 +78,23 @@ checks. Controlled CUPS loss/recovery was visible in that UI. The follow-up
 reproduced scheduler saturation during cups-browsed network queue discovery:
 the default 100 simultaneous clients caused local metadata queries to time out
 before response headers, with matching Max clients reached log entries. The
-reference host's backed-up, syntax-checked MaxClients 256 setting restored
-180 successful requests with a 4.14ms maximum during discovery. Agent timeouts,
-TLS, print ACLs and AD settings were unchanged. The previously enabled
-cups-browsed service was also restored after the earlier outage test had left
-it stopped. The Agent separately handles the normal no-printers IPP response.
+reference host's temporary MaxClients 256 setting allowed 180 successful requests
+but only postponed exhaustion. Native socket tracing identified two cleanup
+defects in cups-browsed 2.1.1: update_cups_queues early exits (upstream fix #67)
+and every successful is_disabled response. The latter leaked one connection per
+call; an extracted native regression reproduced ten leaked descriptors in ten
+calls for idle, stopped and missing queues, versus zero after the one-line fix.
+The local 2.1.1-alt1.endpoint2 RPM contains those four cleanup calls, with the
+vendor build settings retained. Original scheduler and discovery configuration
+are retained; this is a reference-host OS package correction, separate from
+Agent 3.2.127. Agent timeouts, TLS, print ACLs and AD settings were unchanged.
+The previously enabled cups-browsed service was also restored after the earlier
+outage test had left it stopped. With the corrected OS package and original
+100-client scheduler, 300 real printer/audit queries passed over five minutes
+(maximum 10.01ms); descriptors fell from 11 to 9 and stayed at 9 for the last
+minute. A held synthetic job reached staging exactly once with Print READY and
+the same Core PID. Only the own job/queue and private fixtures were removed.
+The Agent separately handles the normal no-printers IPP response.
 
 ## Gateway transport
 
