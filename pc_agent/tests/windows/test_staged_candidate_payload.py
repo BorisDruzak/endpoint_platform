@@ -57,6 +57,18 @@ def test_online_preparation_never_selects_or_publishes_candidate(candidate):
     assert not (root / '.endpoint-msi-runtime.json').exists()
 
 
+def test_archive_manifest_order_does_not_change_exact_msi_file_inventory(candidate):
+    _, _, _, expected, archive = candidate
+    with zipfile.ZipFile(archive) as bundle:
+        members = {item.filename: bundle.read(item) for item in bundle.infolist()}
+    manifest = json.loads(members['endpoint-update-manifest.json'])
+    manifest['files'] = list(reversed(manifest['files']))
+    members['endpoint-update-manifest.json'] = json.dumps(manifest).encode()
+    with zipfile.ZipFile(archive, 'w') as output:
+        for name, data in members.items(): output.writestr(name, data)
+    assert verify_payload(prepare(candidate), expected.manifest) == expected.identity
+
+
 def test_publish_moves_all_files_without_copy_and_cancel_moves_them_back(candidate, monkeypatch):
     module, paths, record, expected, _ = candidate
     source = prepare(candidate)

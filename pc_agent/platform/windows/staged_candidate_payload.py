@@ -99,7 +99,12 @@ def prepare_candidate_payload(paths, record, expected):
             version=expected.identity.version, minimum_launcher_version=expected.identity.minimum_launcher_version)
         if identity != expected.identity: _fail()
         with zipfile.ZipFile(archive) as bundle:
-            if read_json(bundle.read(BUNDLE_FILENAME), 4 * 1024 * 1024) != expected.manifest: _fail()
+            manifest = read_json(bundle.read(BUNDLE_FILENAME), 4 * 1024 * 1024)
+            # ZIP's PowerShell publisher and MSI's Python publisher order names
+            # differently. Compare every record and all metadata canonically;
+            # duplicate/path/type/content checks above remain unchanged.
+            canonical = lambda value: {**value, 'files': sorted(value['files'], key=lambda item: item['path'])}
+            if canonical(manifest) != canonical(expected.manifest): _fail()
             parent = provenance._archive_directory(fence.state_root(paths), 'candidate-payload')
             root = provenance._archive_directory(parent, record.binding.operation_id)
             _write(root, record, 'copying')
