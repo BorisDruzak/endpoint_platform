@@ -719,3 +719,44 @@ inside those real phases, and one complete post-launch verification retry
 without replaying launches. Diagnostic-enabled timings are excluded from
 performance acceptance. The 120-second goal, remaining faults and complete
 42-case matrix remain open; production/fleet publication remains out of scope.
+
+### 3.2.135 authenticated phase timings and automatic rollback
+
+Candidate 3.2.135 uses runtime source
+`89245febd19e45447660253b0129ab6905544463`, build checkout
+`1a94c0898fd6c8b80192f065ce0ed8b6300184cc`, successful CI
+`39757456806` and the full Windows gate (2341 passed, three skipped).
+Actual signed Setup/MSI helper and embedded Core bindings passed inspection.
+Missing-capability helper/launcher and missing-operation recovery calls denied.
+
+`modern121-diagnostic135-01` accepted with exit zero in 461.68 seconds.
+The protected opt-in profiler was enabled, so this is excluded from performance
+acceptance. A 100-ms observer measured Stopped at 10:02:14.015 UTC and new
+server WSS at 10:05:50.459 UTC (216.44 seconds); maximum observer sample gap
+was 0.207 seconds. APPLIED, four private leaves, all 722 candidate NTFS file
+identities and 111 retained predecessor identities passed. Both original user
+roles returned to the original SID/session and the recovery task was removed.
+
+Authenticated body timings measured prepare 13.11 seconds (hashing 5.01),
+reconcile 16.39 (hashing 4.70), finish 7.34 and compound-complete 6.47.
+The first predecessor process admission separately took 16.65 seconds before
+its phase body; the next admission took 0.017 seconds. These are measured
+costs, not a claim that all hashing is redundant or that security can be skipped.
+
+`modern121-early-crash135-01` ran without profiling. The exact new Core process
+was killed during trial. Native compensation automatically restored Foundation
+3.2.120 / Core 3.2.121; Setup returned 67 at 10:24:34.853 UTC. Fresh old-version
+WSS/APPLIED and all private leaves passed. Initial terminal companion launch
+failed closed in the warm launcher. The already registered recovery task then
+admitted the dead owner, restored both original user roles, and removed itself.
+The final 10:26:23 UTC check confirmed rolled-back, two matching original roles
+and zero recovery tasks. No manual Native recovery or companion launch ran.
+The earlier snapshot named `staged135-rollback-complete-22` was captured before
+that cleanup finished; only `staged135-rollback-verified-22` represents the final
+verified state. The failed intermediate observations remain preserved.
+
+Source follow-up moves an authenticated predecessor inspection before service
+quarantine and reuses only pinned immutable MSI digests/database semantics in
+one phase. Native registration, ACL/namespace, every mutation boundary and full
+Foundation/Core byte verification remain fresh. Installed timing for that
+follow-up, the 120-second requirement and the full 42-case matrix remain open.
