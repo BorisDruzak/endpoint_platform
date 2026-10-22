@@ -1510,8 +1510,7 @@ function Invoke-StagedHealthTrial {
         $begun=Invoke-InstallerHelper -Bridge $Bridge -Phase 'begin-staged-trial'
         if ($begun.result -cne 'staged-trial' -or $begun.operation_id -cne $Bridge.TransactionId -or
             $begun.attempt_id -cnotmatch '^[0-9a-f-]{36}$') { throw 'OWNER_AUTH_FAILED' }
-        Start-VerifiedBrowserPolicy
-        Start-ManagedEndpointAgent
+        Start-VerifiedTrialServices
         $nonce=$null;$stableSince=0
         do {
             $now=Get-StagedMonotonicSeconds
@@ -2330,7 +2329,10 @@ function Get-ManagedAgentServiceStates {
 function Stop-ManagedAgentServices {
     param([hashtable]$PreviousStates = (Get-ManagedAgentServiceStates),
         [Parameter(Mandatory)][hashtable]$StoppedBySetup, [scriptblock]$AfterAgentStopped = {})
-    foreach ($serviceName in @('EndpointAgent', 'EndpointAgentUpdater', 'EndpointBrowserPolicy')) {
+    # Browser policy has no SCM dependency on Agent; its existing policy values
+    # persist on service stop. Keep Agent online through that independent stop.
+    # The late-update gate still runs after Agent stop and before Updater stop.
+    foreach ($serviceName in @('EndpointBrowserPolicy', 'EndpointAgent', 'EndpointAgentUpdater')) {
         if ($serviceName -eq 'EndpointAgentUpdater') { & $AfterAgentStopped }
         $service = Get-Service -Name $serviceName -ErrorAction SilentlyContinue
         if ($null -eq $service) { continue }
@@ -2408,6 +2410,28 @@ function Start-VerifiedBrowserPolicy {
         $service.Refresh()
     }
     if ($service.Status -ne [ServiceProcess.ServiceControllerStatus]::Running) { throw 'RECOVERY_REQUIRED' }
+}
+
+function Start-VerifiedTrialServices {
+    # Authenticated finish and trial admission precede this call. Dispatch both
+    # fixed independent registrations before waiting for either; acceptance
+    # still requires both Running and the unchanged fresh WSS/policy proof.
+    $controllers=[Collections.Generic.List[object]]::new()
+    try {
+        foreach ($name in @('EndpointAgent','EndpointBrowserPolicy')) {
+            $controllers.Add((Get-Service -Name $name -ErrorAction Stop))
+        }
+        foreach ($service in $controllers) {
+            if ($service.Status -eq [ServiceProcess.ServiceControllerStatus]::Stopped) { $service.Start() }
+            elseif ($service.Status -notin @([ServiceProcess.ServiceControllerStatus]::Running,
+                    [ServiceProcess.ServiceControllerStatus]::StartPending)) { throw 'RECOVERY_REQUIRED' }
+        }
+        foreach ($service in $controllers) {
+            $service.WaitForStatus([ServiceProcess.ServiceControllerStatus]::Running,$ManagedServiceTimeout)
+            $service.Refresh()
+            if ($service.Status -ne [ServiceProcess.ServiceControllerStatus]::Running) { throw 'RECOVERY_REQUIRED' }
+        }
+    } finally { foreach ($service in $controllers) { $service.Dispose() } }
 }
 
 function Get-CompoundOldMedia {

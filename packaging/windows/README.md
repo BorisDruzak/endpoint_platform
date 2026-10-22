@@ -387,3 +387,11 @@ is unavailable. Setup budgets the archive cache in addition to native costing.
 Owner timing diagnostics separate process launch from whole-phase duration and
 record warm/cold selection in memory. One protected diagnostic document is
 written after the operation; these measurements grant no installer authority.
+
+Managed switching stops the independent Browser Policy service before Agent;
+its applied policy values persist. The late OTA gate remains after Agent stop
+and before Updater stop. Following authenticated finish/trial admission, both
+Agent and Browser Policy starts are dispatched before waiting for either.
+Both must still reach Running, and acceptance retains its fresh WSS, matching
+APPLIED policy, exact candidate and stable-health requirements. SCM startup
+failures still enter the ordinary staged rollback path.

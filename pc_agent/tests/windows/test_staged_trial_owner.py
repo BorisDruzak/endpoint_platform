@@ -24,6 +24,7 @@ function Get-StagedMonotonicSeconds {return $script:now}
 function Start-Sleep {param($Seconds);$script:now+=$Seconds}
 function Start-VerifiedBrowserPolicy { }
 function Start-ManagedEndpointAgent { }
+function Start-VerifiedTrialServices { }
 function Assert-StagedCandidateRunning {param($Observation,$InstallRoot)
  if($Scenario -eq 'crash' -and $script:now -ge 12){throw 'candidate stopped'}
 }

@@ -60,6 +60,10 @@ the retry limits; historical tasks without a retry block remain readable. Each
 attempt repeats physical-owner/native settlement and companion integrity checks.
 Deferred or unknown companion-launch outcomes preserve the recovery task.
 
+The owner dispatches Agent and Browser Policy starts
+before waiting for both Running; native/trial admission and stable WSS/policy
+checks remain mandatory. Browser Policy is stopped before Agent while its
+applied registry policy persists; the late OTA gate still precedes Updater stop.
 `platform/windows/staged_trial_proof.py` uses a separate protected trial request
 and Agent-writable proof. Native registration/shared bytes and the exact Core
 inventory are checked before selecting the candidate. Runtime composition keeps
