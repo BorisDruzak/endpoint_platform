@@ -80,6 +80,10 @@ $tokens=$null;$errors=$null
 $ast=[Management.Automation.Language.Parser]::ParseFile($Source,[ref]$tokens,[ref]$errors)
 $node=$ast.Find({param($n) $n -is [Management.Automation.Language.TryStatementAst] -and $null -ne $n.Finally -and $n.Finally.Extent.Text.Contains('Restore-ManagedAgentServices') -and -not $n.Finally.Extent.Text.Contains('ReleaseMutex')},$true)
 if($null -eq $node){throw 'restoration boundary missing'}
+$cleanup=$ast.Find({param($n) $n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -ceq 'Stop-InstallerLaunchBroker'},$true)
+if($null -eq $cleanup){throw 'launcher cleanup missing'}
+Invoke-Expression $cleanup.Extent.Text
+$script:InstallerLaunchBroker=$null
 $installationCompleted=$false;$nativeStarted=$false;$interruptedFence=$null;$installerStateRoot='model'
 $bridge=$null;$helperPin=$null
 $packagePin=[pscustomobject]@{};$packagePin | Add-Member ScriptMethod Dispose {}
