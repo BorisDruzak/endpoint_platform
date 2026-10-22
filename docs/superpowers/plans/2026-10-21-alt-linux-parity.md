@@ -505,3 +505,49 @@ Execution is explicitly authorized without intermediate approval stops.
 - [x] Install and accept the corrected OS package on the reference host only. Original scheduler (default MaxClients 100) and discovery configuration remained byte-identical. A five-minute discovery run completed 300 of 300 real printer/audit queries, maximum 10.01ms. cups-browsed descriptors started at 11, peaked at 15 and finished at 9; all final-minute samples stayed at 9. Worker threads fell from 148 to 4 rather than retaining leaked connections. Core kept PID 46418 with zero crash restarts. A new held synthetic print job reached the existing staging SecurityEvent ledger exactly once under policy v4; Print was READY and Policy APPLIED. Its test job was cancelled and only its own queue removed; no physical print was sent.
 - [x] Yandex acceptance also delivered actual BROWSER_UPLOAD and BROWSER_PASTE through the installed signed ADMIN extension and native host to staging, carrying only allowed metadata. After stopping the isolated test session, Console correctly reports the installed browser CLOSED with stale extension telemetry. Strict Agent 3.2.127 release verification and registration/corporate-policy byte/owner/mode comparisons passed again after CUPS maintenance.
 - [x] Cleanup stopped the private CUPS instance and test browser/page units, closed the own tunnel, removed only the own browser/runtime fixtures and cancelled the fault rollback timer after successful acceptance. Build RPMs, source RPMs and logs remain protected for reproducibility/rollback; the inactive isolated build rootfs was removed, freeing 2,374,041,600 bytes on staging. AD, print ACLs, TLS and shared staging/Helpdesk services were preserved. This closing change affects documentation only; the passing CI's runtime code is unchanged.
+
+
+## 2026-10-22 follow-up: qualified native pilot kit and separate clean installation
+
+- [x] Add an offline, deterministic kit builder/verifier around the already qualified 3.2.127-alt5 Core/User Sensor RPMs and f307bcc88d836bee0383e408d550f6501a02d094 runtime. It pins all eight input digests and native RPM identities, includes repaired/vendor rollback/source CUPS RPMs, both patches, a rebuild recipe, staging templates and Russian instructions. No trust anchor, claim, device state or credential is included. Same-version repacks, unknown inputs, retained Endpoint units/drop-ins/state, unreviewed CUPS versions and failed dependency transactions are refused without installation or enrollment.
+- [x] Review fixes reproduced the retained-systemd-state bypass before adding the gate, then passed. The guide specifies the exact staging drop-in destination, daemon-reload/start sequence, native-only enrollment, service-account fingerprint collection and ALT su-versus-sudo behavior. Patch context whitespace is preserved with a path-scoped Git attribute.
+- [x] Separate ALT Workstation K 11.4/KDE test VM: verified no Endpoint RPM/canonical state, passed native clean preflight, then installed Core, User Sensor and cups-browsed 2.1.1-alt1.endpoint2 in one real RPM transaction. Qt 6.11.2/KF6 6.30 dependencies were already present. CUPS discovery resumed normally; original CUPS, SSSD/Kerberos/Samba and corporate Yandex/Chromium configuration checksums were retained.
+- [x] Provision a new staging-only Device with an individually bound one-use claim, using the existing audited enrollment service. Initial operator attempts exposed AD DNS NXDOMAIN and a root-versus-service-account fingerprint mismatch. Undelivered/unconsumed campaigns were revoked before corrected delivery; no registered identity was purged. Service-private resolver mounts use the working internal DNS; system resolver and AD configuration remain unchanged. HTTPS origin and CA validation were retained. The native service enrolled, permanent credential/identity were verified, the one-use claim was finalized, and claim-free restart passed.
+- [x] Device-scoped policy v1 reached APPLIED; Activity/User Sensor and USB/Print sources were READY. Before and after one real reboot, all six Context collections completed and the diagnostic operation succeeded. The boot ID changed, permanent credential/identity hashes remained identical, and Core, privileged browser helper, update path, CUPS/discovery, SSSD and LightDM started automatically with zero crash restarts. Native rpm -V passed. After the operator logged into KDE, the packaged User Sensor autostart ran without manual invocation, NRestarts=0, and fresh ACTIVE Activity arrived at staging.
+- [x] Post-boot CUPS acceptance: 300/300 real printer/audit queries in five minutes, maximum 10.95ms. Discovery descriptors started at 10, peaked at 15 and finished at 9; every last-minute sample stayed at 9. Threads fell from 110 to 4. A held synthetic PRINT_JOB reached the existing SecurityEvent ledger exactly once; its own job and queue were removed without physical output. All preserved configuration checksums passed again.
+- [x] Windows packaging suite: 273 passed, 4 skipped. Native kit tests: 26 passed. Two independent final ALT builds matched byte-for-byte; extracted integrity verification, shell syntax, compileall and diff checks passed. CI [39739450549](https://github.com/BorisDruzak/endpoint_platform/actions/runs/39739450549) succeeded on implementation fc4268f2aedeb389070ffef159aa52cf66e06ab7: 4491 passed, 722 skipped, with generated-contract, compile and whitespace gates passing. The closing follow-up changes only operator documentation and this ledger, not runtime, RPM inputs or verifier behavior.
+- [ ] Ordinary distribution still requires external publisher RPM signing. Physical USB/printing remain outside this acceptance, including the user's postponed USB test. The second VM reports installed Yandex 26.8.1.1117, Browser Policy APPLIED and native host READY, but no fresh ADMIN/extension heartbeat is claimed: its existing approved extension feed is a production artifact URL and was not fetched during this production-excluded task. No stable release, production access/change, fleet rollout, shared staging/Helpdesk restart, AD mutation or automatic installer was introduced.
+- [x] The supplemental private ALT rootfs was stopped and removed after the real separate VM became available; no container installation acceptance is claimed. Native qualification logs and final kit artifacts are retained. Source was proposed in draft [PR #42](https://github.com/BorisDruzak/endpoint_platform/pull/42).
+
+### Signed distribution gate, 2026-10-23
+
+- User authorized production server deployment and main integration after checks;
+  physical USB and real-printer tests remain explicitly deferred. Publication is
+  distinct from enrolling or updating an unspecified fleet.
+- Added only the two previously absent canonical controller A records in the
+  authoritative AD-integrated zone. The separate ALT VM now resolves both through
+  its original system resolver. Removed only own temporary Core/helper resolver
+  drop-ins; AD/SSSD, corporate browser policy and resolv.conf bytes are preserved.
+- A dedicated RSA-3072 publisher key stays in the restricted operator Windows
+  keystore, outside Git and ALT workers; passphrase is DPAPI CurrentUser protected.
+  Public fingerprint: BC24B8EE43DBB05A748E11A4343B5DA748370631. Four custom RPMs
+  have native header and payload RSA/SHA256 signatures. Compared immutable RPM
+  main headers and payloads against qualified originals: all unchanged.
+- Revision 3.2.127-2 pins the signed bytes and public key and requires both native
+  signatures in an isolated RPM database. Digest-only success, missing/wrong/BAD
+  signatures and key substitution regressions pass. Deterministic native builds
+  are byte-identical. Archive and inner manifest also have detached publisher
+  signatures, verified by native GnuPG on the separate VM.
+- Signed same-NEVRA replacement on the separate VM passed native RPM test/install
+  and rpm -V. Credential, enrollment identity, controller config, CA, CUPS, AD and
+  resolver hashes are unchanged; claim remains absent and services are active.
+  It intentionally retains its staging identity. Real Yandex 26.8 reports ADMIN,
+  extension 0.1.0, native READY and fresh heartbeat through installed code, using
+  an isolated private browser profile without changing the user's GUI/profile.
+- Verification: packaging 278 passed, 4 platform skips; Console typecheck/build,
+  46 unit tests and 11 browser tests passed. Read-only code review found no
+  Critical/Important defect; native/live deployment evidence is independently
+  checked by the operator, not inferred from the review.
+- Production activation, exact-head GitHub CI and main integration are still
+  pending at this checkpoint. Static distribution adds no service API/SDK/OTA
+  contract; preserve existing TLS, network ACL and WebSocket proxy on activation.

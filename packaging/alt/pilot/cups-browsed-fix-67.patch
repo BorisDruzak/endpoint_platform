@@ -1,0 +1,37 @@
+From 34da78b713a5d551471568f08f8c185c9f7dcac1 Mon Sep 17 00:00:00 2001
+From: oglueck <odi@odi.ch>
+Date: Sat, 15 Aug 2026 12:19:59 +0200
+Subject: [PATCH] fix sock leaks in update_cups_queues (#67)
+
+---
+ daemon/cups-browsed.c | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/daemon/cups-browsed.c b/daemon/cups-browsed.c
+index e860c1d4..f64de4f4 100644
+--- a/daemon/cups-browsed.c
++++ b/daemon/cups-browsed.c
+@@ -8477,6 +8477,7 @@ update_cups_queues(gpointer unused)
+ 		  disable_printer(p->queue_name,
+ 				  "Printer disappeared or cups-browsed shutdown");
+ 		// Schedule the removal of the queue for later
++		httpClose(http);
+ 		if (in_shutdown == 0)
+ 		{
+ 		  current_time = time(NULL);
+@@ -8505,6 +8506,7 @@ update_cups_queues(gpointer unused)
+ 		  is_cups_default_printer(p->queue_name))
+ 	      {
+ 		// Schedule the removal of the queue for later
++		httpClose(http);
+ 		if (in_shutdown == 0)
+ 		{
+ 		  current_time = time(NULL);
+@@ -8547,6 +8549,7 @@ update_cups_queues(gpointer unused)
+ 		  current_time = time(NULL);
+ 		  p->timeout = current_time + TIMEOUT_RETRY;
+ 		  p->no_autosave = 0;
++		  httpClose(http);
+ 		  break;
+ 		}
+ 	      }

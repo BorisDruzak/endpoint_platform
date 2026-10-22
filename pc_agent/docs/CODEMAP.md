@@ -272,6 +272,17 @@ silently discards installed packages after record 2048.
 | Updates | `pc_agent/gateway_update_runtime.py`, `pc_agent/update_adapter.py` | immutable update selection and application |
 | Packaging | `packaging/alt/`, `packaging/windows/` | ALT RPM and Windows MSI artifacts |
 
+ALT native distribution assembly lives in `tools/build_alt_pilot_kit.py` and
+`packaging/alt/pilot/`. It pins already qualified Core/User Sensor/runtime and
+separate CUPS repair/rollback/source RPM bytes, adds a deterministic manifest,
+and supplies a read-only integrity/clean-machine/RPM dependency gate. Revision 2
+requires both native header and payload publisher signatures for all four custom
+RPMs in an isolated trust database. Archive/manifest detached signing remains in
+the external operator signer; only the pinned public key ships. Installation,
+environment CA and unique one-use enrollment remain explicit native provisioning;
+the public kit carries no device state or credential. No Gateway contract,
+immutable runtime, automatic updater or server API is changed by this packaging.
+
 ## Excluded legacy surfaces
 
 The Endpoint core intentionally contains no desktop GUI, requester/ticket

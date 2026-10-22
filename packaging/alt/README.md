@@ -7,6 +7,29 @@ immutable initial-release files, systemd units, tmpfiles policy, and logrotate
 policy only. Endpoint configuration, CA trust, enrollment claim, permanent
 credential, and enrollment identity are supplied or created separately.
 
+## Signed native distribution kit
+
+`python3 tools/build_alt_pilot_kit.py build --inputs /safe/qualified-inputs --output /safe/pilot-output`
+assembles the fixed Agent 3.2.127 Core/User Sensor RPMs, its frozen runtime/sidecar,
+the reviewed cups-browsed repair, vendor rollback/source RPMs, repair patches,
+and production/staging operator config templates. Input names, RPM identities,
+and qualification SHA-256 values are pinned; same-version repacks are rejected.
+Build it on ALT with native RPM tooling. Repeated builds produce identical archives.
+
+Revision `3.2.127-2` requires publisher-signed Core, User Sensor, repaired CUPS
+binary and source RPMs. Native verification uses a fresh RPM database containing
+only the pinned public key, and requires both header and payload signatures.
+The generated archive has separate archive and inner-manifest checksum files.
+The external publisher also signs the archive and manifest. Verify these detached
+signatures using the independently trusted publisher fingerprint before extraction;
+use its `verify-kit.py check` with the independently reviewed manifest digest.
+`--test-hostname` additionally performs a read-only clean-machine/RPM dependency
+preflight. Existing Endpoint state and unreviewed CUPS versions are refused;
+the helper never installs, enrolls, changes configuration or contacts a controller.
+Native installation and the CUPS replacement remain explicit operator actions.
+See `pilot/README.ru.md`. Unsigned revision 1 remains a staging qualification
+artifact. No private key belongs here or on an ALT build worker.
+
 ## Build on a disposable ALT worker
 
 Install the locked Linux build requirements and `rpm-build rpm-build-python3`,
