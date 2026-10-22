@@ -25,6 +25,7 @@ def inputs(tmp_path, monkeypatch):
     monkeypatch.setattr(kit, 'query_rpm', lambda path: kit.PACKAGES[path.name])
     monkeypatch.setattr(kit, 'AGENT_REVISION', 'a' * 40, raising=False)
     monkeypatch.setattr(kit, 'QUALIFIED_INPUTS', {p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in root.iterdir()}, raising=False)
+    monkeypatch.setattr(kit.subprocess, 'run', lambda cmd, **kw: subprocess.CompletedProcess(cmd, 0, 'Header V4 RSA/SHA256 Signature, key ID 48370631: OK\nV4 RSA/SHA256 Signature, key ID 48370631: OK\n', ''))
     return root
 
 
@@ -43,7 +44,7 @@ def test_build_is_deterministic_and_all_files_are_covered(tmp_path, monkeypatch)
     root = unpack(first, tmp_path / 'unpacked')
     manifest_hash = hashlib.sha256((root / 'pilot-manifest.json').read_bytes()).hexdigest()
     manifest = kit.verify(root, manifest_hash)
-    assert manifest['endpoint_origin'] == 'https://endpoint-staging.sosnadmin.local'
+    assert manifest['endpoint_origin'] == 'https://endpoint.sosnadmin.local'
     assert manifest['agent_source_revision'] == 'a' * 40
     assert set(manifest['files']) == {p.name for p in root.iterdir()} - {'pilot-manifest.json'}
 
@@ -169,3 +170,28 @@ def test_real_preflight_refuses_retained_unit_state_before_rpm_transaction(tmp_p
     with pytest.raises(ValueError,match='EXISTING_AGENT'):
         kit.machine_preflight(tmp_path/'kit','test-alt')
     assert not any('--test' in call for call in calls)
+
+
+def test_digest_only_rpm_success_is_not_a_publisher_signature(tmp_path, monkeypatch):
+    source = inputs(tmp_path, monkeypatch)
+    monkeypatch.setattr(kit.subprocess, 'run', lambda cmd, **kw: subprocess.CompletedProcess(cmd, 0, 'digests OK\n', ''))
+    with pytest.raises(ValueError, match='RPM_SIGNATURE_REQUIRED'):
+        kit.build(source, tmp_path / 'out')
+
+
+@pytest.mark.parametrize('output,status', [
+    ('Header V4 RSA/SHA256 Signature, key ID 48370631: OK\n',0),
+    ('Header V4 RSA/SHA256 Signature, key ID 11111111: OK\nV4 RSA/SHA256 Signature, key ID 11111111: OK\n',0),
+    ('Header V4 RSA/SHA256 Signature, key ID 48370631: BAD\nV4 RSA/SHA256 Signature, key ID 48370631: BAD\n',1),
+])
+def test_signature_verification_requires_both_signatures_and_expected_key(tmp_path,monkeypatch,output,status):
+    inputs(tmp_path,monkeypatch)
+    monkeypatch.setattr(kit.subprocess,'run',lambda cmd,**kw:subprocess.CompletedProcess(cmd,status,output,''))
+    with pytest.raises((ValueError,subprocess.SubprocessError)):
+        kit.verify_package_signatures(tmp_path,Path('packaging/alt/pilot/endpoint-rpm-release.asc'))
+
+
+def test_public_key_substitution_is_refused(tmp_path):
+    key=tmp_path/'publisher.asc';key.write_bytes(b'unrelated key')
+    with pytest.raises(ValueError,match='PUBLISHER_KEY_DIGEST'):
+        kit.verify_package_signatures(tmp_path,key)

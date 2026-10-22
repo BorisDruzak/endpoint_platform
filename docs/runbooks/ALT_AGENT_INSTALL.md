@@ -1,16 +1,17 @@
 # ALT Endpoint Agent installation
 
-This is an offline, operator-run package for the dedicated ALT test pilot. It
-does not download software, CA certificates, credentials, or configuration.
-Do not use it on a production host until the Wave 1 production gate is open.
+This describes operator-run installation. The signed native distribution path
+below is qualified on ALT 11/KDE; the legacy offline path retains its own gates.
+CA trust, credentials and configuration are provisioned separately.
 
 ## Current native RPM workstation path
 
-For the fixed 3.2.127 staging qualification kit, use
+For the signed 3.2.127-2 native distribution kit, use
 `packaging/alt/pilot/README.ru.md` and `tools/build_alt_pilot_kit.py`.
 It includes the separately installed CUPS repair and rollback/source RPMs,
-trusted-channel checksums and read-only preflight. It does not embed enrollment
-or trust material and does not authorize production deployment. A fresh install
+publisher RPM signatures, detached archive/manifest signatures and read-only
+preflight. Its public signing key requires independent fingerprint verification;
+environment CA and unique enrollment are supplied separately. A fresh install
 in a container is supplemental evidence, not acceptance on a separate test PC.
 
 For the current headless Core layout, follow `packaging/alt/README.md` and build

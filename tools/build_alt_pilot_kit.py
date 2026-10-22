@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build/verify the fixed ALT 11 staging pilot kit; never enroll or deploy."""
+"""Build/verify the fixed signed ALT 11 distribution kit; never enroll or deploy."""
 from __future__ import annotations
 
 import argparse
@@ -9,6 +9,8 @@ from io import BytesIO
 import json
 from pathlib import Path
 import platform
+import os
+import tempfile
 import re
 import shlex
 import stat
@@ -17,9 +19,9 @@ import tarfile
 
 VERSION = '3.2.127'
 AGENT_REVISION = 'f307bcc88d836bee0383e408d550f6501a02d094'
-KIT_NAME = 'endpoint-alt-pilot-3.2.127-1'
-ORIGIN = 'https://endpoint-staging.sosnadmin.local'
-SCHEMA = 'endpoint_alt_pilot_kit_v1'
+KIT_NAME = 'endpoint-alt-pilot-3.2.127-2'
+ORIGIN = 'https://endpoint.sosnadmin.local'
+SCHEMA = 'endpoint_alt_pilot_kit_v2'
 RUNTIME = f'endpoint-agent-linux_amd64-{VERSION}.tar.gz'
 RUNTIME_MANIFEST = f'endpoint-agent-linux_amd64-{VERSION}.manifest.json'
 PACKAGES = {
@@ -31,20 +33,23 @@ PACKAGES = {
     'cups-browsed-2.1.1-alt1.endpoint2.src.rpm': ('cups-browsed', '2.1.1', 'alt1.endpoint2', 'x86_64', '1'),
 }
 ASSETS = ('README.ru.md', 'rebuild-cups.sh', 'cups-browsed-fix-67.patch', 'cups-browsed-fix-is-disabled.patch',
-          'staging-config.example.yaml', 'staging.conf')
+          'staging-config.example.yaml', 'staging.conf', 'production-config.example.yaml', 'production.conf', 'endpoint-rpm-release.asc')
 FILES = {*PACKAGES, RUNTIME, RUNTIME_MANIFEST, *ASSETS, 'verify-kit.py'}
 INSTALL = tuple(list(PACKAGES)[:3])
 MAX_FILE = 256 * 1024 * 1024
 SYSTEM_ROOT = Path('/')
+PUBLISHER_FINGERPRINT = 'BC24B8EE43DBB05A748E11A4343B5DA748370631'
+PUBLISHER_KEY_SHA256 = '12175df39caa5a67336aeb002b5c71d3a9d3047961f5ad90cf959650044b456c'
+SIGNED_PACKAGES = (*INSTALL, 'cups-browsed-2.1.1-alt1.endpoint2.src.rpm')
 QUALIFIED_INPUTS = {
-    'endpoint-agent-3.2.127-alt5.x86_64.rpm': 'e05d7797b22223f1a9503c65810ad4d87e5e0583cf313ad6001315c63755ab04',
-    'endpoint-agent-user-sensor-3.2.127-alt5.x86_64.rpm': '08ee19b8dd5e180b0c4eede06ca17402695a290e809af79fda264bffb6580b66',
+    'endpoint-agent-3.2.127-alt5.x86_64.rpm': 'd2b45263910cd40a1440a97bbc6e9cc07cc360dbd319a97746b8c81eceb24520',
+    'endpoint-agent-user-sensor-3.2.127-alt5.x86_64.rpm': '10920c4419ba2b7a0d22df70a5b353028462fe787bfae032d43d21a1faeec6d7',
     RUNTIME: '032055853b3b3828d33c87424c1ae82be68ed3e074709c52f2631677de56890f',
     RUNTIME_MANIFEST: '9cba3ce6cf3b207c2f2b9036de73bb8d7521cb8959ac024fce0c5fe4e7e5c8bc',
-    'cups-browsed-2.1.1-alt1.endpoint2.x86_64.rpm': '9cf9036442f7e12ef450e6f3b9cf7cbd0e06cbb6772c6e1372e802ecd49bc62e',
+    'cups-browsed-2.1.1-alt1.endpoint2.x86_64.rpm': 'f07200cab984e888c791114f98fac1f11e08b8f2c25aa50ec6a3939972a6a86e',
     'cups-browsed-2.1.1-alt1.x86_64.rpm': 'a21146530c236ceae04155c879b468923808c64238ee550c942dabc985974018',
     'cups-browsed-2.1.1-alt1.src.rpm': '4276876f261f2719ff3d453551af3c462f54a2ad963f4394d9b24509309ff624',
-    'cups-browsed-2.1.1-alt1.endpoint2.src.rpm': '95d620dc714a2818c352932314f0a51f68e1f06d1018dbacd887b414a4785db3',
+    'cups-browsed-2.1.1-alt1.endpoint2.src.rpm': 'c4fc8602708132be5fc12156b693773716d4d89bb059321fd93da00a45e57612',
 }
 
 
@@ -69,6 +74,24 @@ def query_rpm(path: Path) -> tuple[str, ...]:
     return tuple(result.stdout.strip().split('\t'))
 
 
+def verify_package_signatures(root: Path, key: Path) -> None:
+    if sha(read_regular(key)) != PUBLISHER_KEY_SHA256:
+        raise ValueError('PUBLISHER_KEY_DIGEST')
+    environment = {**os.environ, 'LC_ALL': 'C'}
+    with tempfile.TemporaryDirectory(prefix='endpoint-rpm-trust-') as database:
+        for command in (['rpm', '--dbpath', database, '--initdb'],
+                        ['rpm', '--dbpath', database, '--import', str(key)]):
+            subprocess.run(command, check=True, capture_output=True, text=True, timeout=30, env=environment)
+        for name in SIGNED_PACKAGES:
+            result = subprocess.run(['rpm', '--dbpath', database, '--checksig', '--verbose', str(root / name)],
+                capture_output=True, text=True, timeout=30, env=environment)
+            suffix = re.escape(PUBLISHER_FINGERPRINT[-8:].lower())
+            header = re.search(r'Header V4 RSA/SHA256 Signature, key ID ' + suffix + r': OK', result.stdout)
+            payload = re.search(r'(?m)^\s*V4 RSA/SHA256 Signature, key ID ' + suffix + r': OK', result.stdout)
+            if result.returncode or not header or not payload:
+                raise ValueError('RPM_SIGNATURE_REQUIRED')
+
+
 def build(inputs: Path, output: Path) -> tuple[Path, Path]:
     if inputs.is_symlink() or not inputs.is_dir() or {p.name for p in inputs.iterdir()} != {*PACKAGES, RUNTIME, RUNTIME_MANIFEST}:
         raise ValueError('INPUT_SET')
@@ -90,11 +113,13 @@ def build(inputs: Path, output: Path) -> tuple[Path, Path]:
         raise ValueError('QUALIFIED_DIGEST')
     asset_root = Path(__file__).resolve().parents[1] / 'packaging' / 'alt' / 'pilot'
     payload.update({name: read_regular(asset_root / name) for name in ASSETS})
+    verify_package_signatures(inputs, asset_root / 'endpoint-rpm-release.asc')
     payload['verify-kit.py'] = read_regular(Path(__file__).resolve())
     manifest = {'schema_version': SCHEMA, 'kit_name': KIT_NAME, 'agent_version': VERSION,
         'agent_source_revision': artifact['source_revision'], 'endpoint_origin': ORIGIN,
-        'purpose': 'operator-reviewed-staging-pilot', 'install_packages': list(INSTALL),
-        'signature_status': 'unsigned-local-candidates; not a production release',
+        'purpose': 'qualified-native-production-distribution', 'install_packages': list(INSTALL),
+        'signature_status': 'publisher-rpm-signatures-verified', 'publisher_fingerprint': PUBLISHER_FINGERPRINT,
+        'signed_packages': list(SIGNED_PACKAGES),
         'files': {name: {'sha256': sha(data), 'size': len(data), 'mode': '0755' if name.endswith('.sh') else '0644'}
             for name, data in sorted(payload.items())}}
     payload['pilot-manifest.json'] = (json.dumps(manifest, sort_keys=True, indent=2) + '\n').encode()
@@ -133,7 +158,10 @@ def verify(root: Path, expected: str) -> dict:
     if (manifest.get('schema_version') != SCHEMA or manifest.get('kit_name') != KIT_NAME
         or manifest.get('agent_version') != VERSION or manifest.get('endpoint_origin') != ORIGIN
         or manifest.get('agent_source_revision') != AGENT_REVISION
-        or manifest.get('install_packages') != list(INSTALL)):
+        or manifest.get('install_packages') != list(INSTALL)
+        or manifest.get('publisher_fingerprint') != PUBLISHER_FINGERPRINT
+        or manifest.get('signed_packages') != list(SIGNED_PACKAGES)
+        or manifest.get('signature_status') != 'publisher-rpm-signatures-verified'):
         raise ValueError('MANIFEST_IDENTITY')
     if set(manifest.get('files', {})) != FILES or {p.name for p in root.iterdir()} != FILES | {'pilot-manifest.json'}:
         raise ValueError('FILE_SET')
@@ -143,6 +171,7 @@ def verify(root: Path, expected: str) -> dict:
             raise ValueError('FILE_DIGEST')
         if name in QUALIFIED_INPUTS and sha(value) != QUALIFIED_INPUTS[name]:
             raise ValueError('QUALIFIED_DIGEST')
+    verify_package_signatures(root, root / 'endpoint-rpm-release.asc')
     return manifest
 
 

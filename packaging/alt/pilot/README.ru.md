@@ -1,165 +1,142 @@
-# ALT 11/KDE: комплект для отдельного staging-пилота
+# ALT 11/KDE: подписанный комплект 3.2.127-2
 
-Версия Agent: **3.2.127-alt5**, Core и User Sensor устанавливаются вместе.
-Комплект сохраняет уже проверенные бинарные файлы. Он не публикует stable-релиз,
-не изменяет контроллер; сборщик и проверка не обращаются к production.
-Предусмотренный контроллер Agent: `https://endpoint-staging.sosnadmin.local`.
-Шаблон config и фиксированный drop-in включены в архив как
-`staging-config.example.yaml` и `staging.conf`. Шаблон требует уникального
-installation ID; секретов и CA в нём нет.
+Core и User Sensor: **3.2.127-alt5**. Исправленный CUPS:
+`cups-browsed 2.1.1-alt1.endpoint2`. В комплекте также vendor RPM для отката,
+оба source RPM, обе заплатки и рецепт пересборки. Бинарный код квалификации
+не изменён: добавлены RSA/SHA256 подписи четырёх собственных RPM. Vendor RPM
+сохраняют исходные подписи и закреплённые SHA-256. CUPS устанавливается отдельной
+транзакцией ОС, а не через runtime OTA агента.
 
-В комплекте есть исправленный `cups-browsed 2.1.1-alt1.endpoint2`, исходный
-vendor RPM для отката, оба source RPM, две проверенные заплатки и рецепт пересборки.
-Исправление CUPS — отдельный пакет ОС; оно не является частью runtime OTA Agent.
+Издатель: **Endpoint Platform RPM Release Signing 2026**.
+Полный отпечаток публичного ключа:
+`BC24 B8EE 43DB B05A 748E 11A4 343B 5DA7 4837 0631`.
+Ключ: `endpoint-rpm-release.asc`. Закрытый ключ, пароль, CA, credential, identity
+и enrollment claim в дистрибутив не входят.
 
-Это unsigned-кандидаты для операторской проверки на тестовом стенде. SHA-256
-проверяет сохранность принятых файлов, но не заменяет подпись издателя. Перед
-обычным распространением RPM передаются во внешнюю среду подписи; закрытые ключи
-не должны попадать в комплект, репозиторий или на сборочный worker.
+Основной контроллер: `https://endpoint.sosnadmin.local`. Используйте
+`production-config.example.yaml` и `production.conf`. Для отдельного стенда
+оставлены явно названные staging-шаблоны; они не являются production-настройкой.
 
-## Проверка до установки
+## Проверка до распаковки
 
-Получите архив, его внешний SHA-256 и SHA-256 `pilot-manifest.json` по доверенному
-каналу отдельно от тестового ПК. Сверьте архив **до распаковки**. На выбранном
-тестовом ALT ПК скопируйте проверенные файлы в root-owned каталог под `/root`,
-распакуйте архив и перейдите в его каталог. Не выполняйте это на production.
-Команды с `sudo` требуют настроенного sudoers. На штатном ALT членства в wheel
-недостаточно: при отсутствии sudo-доступа войдите через `su -` и выполняйте команды
-в root-сеансе без префикса `sudo`. Не меняйте sudoers ради установки комплекта.
+Сверьте полный отпечаток по доверенному каналу отдельно от скачанных файлов.
+Не доверяйте новому ключу только потому, что он лежит рядом с архивом.
+Скопируйте дистрибутив в root-owned каталог под `/root` выбранного ALT ПК.
+Команды ОС выполняйте в root-сеансе через `su -`; членство в wheel не означает
+sudo-доступа. Не меняйте sudoers ради установки.
 
 ```bash
-sha256sum --check endpoint-alt-pilot-3.2.127-1.tar.gz.sha256
-tar -xzf endpoint-alt-pilot-3.2.127-1.tar.gz
-cd endpoint-alt-pilot-3.2.127-1
-python3 verify-kit.py check --expected-manifest-sha256 <ПРОВЕРЕННЫЙ_SHA256>
-sudo python3 verify-kit.py check --expected-manifest-sha256 <ПРОВЕРЕННЫЙ_SHA256> \
-  --test-hostname <ПРОВЕРЕННОЕ_ИМЯ_ТЕСТОВОГО_ПК>
+install -d -m 0700 /root/endpoint-rpm-check
+gpg --homedir /root/endpoint-rpm-check --import endpoint-rpm-release.asc
+gpg --homedir /root/endpoint-rpm-check --fingerprint BC24B8EE43DBB05A748E11A4343B5DA748370631
+# Сначала сравните полный отпечаток с доверенным значением.
+gpg --homedir /root/endpoint-rpm-check --verify endpoint-alt-pilot-3.2.127-2.tar.gz.sig endpoint-alt-pilot-3.2.127-2.tar.gz
+sha256sum --check endpoint-alt-pilot-3.2.127-2.tar.gz.sha256
+tar -xzf endpoint-alt-pilot-3.2.127-2.tar.gz
+cd endpoint-alt-pilot-3.2.127-2
+gpg --homedir /root/endpoint-rpm-check --verify ../endpoint-alt-pilot-3.2.127-2.manifest.sig pilot-manifest.json
+python3 verify-kit.py check --expected-manifest-sha256 <ПРОВЕРЕННЫЙ_SHA256_MANIFEST>
+python3 verify-kit.py check --expected-manifest-sha256 <ПРОВЕРЕННЫЙ_SHA256_MANIFEST> --test-hostname <ПРОВЕРЕННОЕ_ИМЯ_ПК>
 ```
 
-Последняя команда только проверяет ALT 11/x86_64, отсутствие прежней регистрации,
-идентичность RPM и `rpm --test`. Она ничего не устанавливает и не запускает.
-Если есть старая установка или её состояние, остановитесь: не удаляйте их ради
-«чистой» проверки. Если не хватает зависимостей, установите их штатным ALT APT из
-доверенных репозиториев на этом тестовом ПК и повторите проверку. Для Print Sensor
-также нужен работающий локальный CUPS; User Sensor требует KDE Plasma 6 и
-Qt 6.11 (принятый RPM собран с Qt 6.11.2/KF6 6.30). Не обходите зависимости RPM.
+Helper проверяет SHA-256, создаёт временную изолированную RPM DB с одним
+закреплённым ключом и проверяет подписи header и payload собственных RPM.
+Успешных digest недостаточно. Постоянное доверие системной RPM DB не меняется.
+Нужен штатный RPM ALT. Никакие пакеты или службы этой проверкой не устанавливаются.
 
-## Явная установка и CUPS
+Для clean-install требуются ALT 11/x86_64, KDE Plasma 6, Qt 6.11 и KF6.
+Принятый RPM собран с Qt 6.11.2/KF6 6.30. Зависимости ставятся штатным ALT APT из
+доверенных репозиториев; не обходите RPM dependencies. Старую регистрацию,
+состояние или оставшиеся systemd overrides нельзя стирать ради «чистого» результата.
+Обновление существующего устройства выполняется отдельно с сохранением состояния.
 
-Запишите исходные версии RPM, активность служб и контрольные суммы конфигурации.
-Сохраните root-only копии `/etc/cups/cupsd.conf` и `cups-browsed.conf`, если они есть.
-Не меняйте ACL, AD/SSSD, фильтры обнаружения, пользовательские GPO или MaxClients.
-При наличии заданий печати дождитесь завершения; не отменяйте чужие задания.
+## Установка и CUPS
 
-Если `cups-browsed` уже работает, штатно остановите **только его**, проверьте
-отсутствие заданий через `lpstat -o` и обязательно восстановите службу при отказе
-от дальнейшей установки. Это освобождает соединения, потерянные старой версией.
-Затем явно установите три проверенных пакета одной RPM-транзакцией:
+Запишите версии пакетов, состояние служб и checksum конфигурации. Сохраните
+root-only копии `/etc/cups/cupsd.conf` и `/etc/cups/cups-browsed.conf`. Не меняйте
+ACL, AD/SSSD, discovery-фильтры, корпоративные GPO или MaxClients. При наличии
+заданий печати дождитесь завершения; чужие задания не отменяйте.
+
+После независимой проверки отпечатка импортируйте публичный ключ в системную
+RPM DB. Для нового ПК из каталога комплекта:
 
 ```bash
-sudo rpm -Uvh --test endpoint-agent-3.2.127-alt5.x86_64.rpm \
-  endpoint-agent-user-sensor-3.2.127-alt5.x86_64.rpm \
-  cups-browsed-2.1.1-alt1.endpoint2.x86_64.rpm
-sudo rpm -Uvh endpoint-agent-3.2.127-alt5.x86_64.rpm \
-  endpoint-agent-user-sensor-3.2.127-alt5.x86_64.rpm \
-  cups-browsed-2.1.1-alt1.endpoint2.x86_64.rpm
-sudo systemctl start cups.service cups-browsed.service
+rpm --import endpoint-rpm-release.asc
+rpm --checksig --verbose endpoint-agent-3.2.127-alt5.x86_64.rpm endpoint-agent-user-sensor-3.2.127-alt5.x86_64.rpm cups-browsed-2.1.1-alt1.endpoint2.x86_64.rpm
+rpm -Uvh --test endpoint-agent-3.2.127-alt5.x86_64.rpm endpoint-agent-user-sensor-3.2.127-alt5.x86_64.rpm cups-browsed-2.1.1-alt1.endpoint2.x86_64.rpm
 ```
 
-Не используйте `--nodeps`, `--replacefiles`, отключение проверки TLS или
-массовый запуск. Не заменяйте неизвестную/более новую версию CUPS этим пакетом.
-Если исправленный пакет уже установлен, исключите его из RPM-транзакции.
-Agent до защищённой настройки остаётся незарегистрированным; это ожидаемо.
-
-## Регистрация только в staging
-
-Используйте только native RPM процедуру ниже; legacy installer/finalizer для
-этого комплекта не применяется. Общая инструкция также устанавливается RPM в
-`/usr/share/doc/endpoint-agent/README.md`. CA, installation ID и одноразовый claim
-доставляются отдельно, для конкретного hardware fingerprint и нового Device.
-Fingerprint снимайте после установки именно от сервисной учётной записи,
-поскольку root может видеть другие DMI-компоненты:
+Остановите только работавший cups-browsed и проверьте отсутствие заданий через
+`lpstat -o`. При отказе от установки восстановите его прежнее состояние.
+Выполните ту же RPM-транзакцию без `--test`, затем:
 
 ```bash
-sudo runuser -u endpoint-agent -- /opt/endpoint-agent/versions/3.2.127/endpoint-agent/endpoint-agent --print-hardware-fingerprint
-getent hosts endpoint-staging.sosnadmin.local
+systemctl start cups.service cups-browsed.service
 ```
 
-До выпуска claim проверьте разрешение staging-имени из среды службы и HTTPS
-с переданной CA. DNS домена может возвращать NXDOMAIN раньше запасного DNS;
-исправление записи или согласованная настройка DNS — отдельный входной параметр
-стенда. Не меняйте AD/DNS инфраструктуру автоматически, не подменяйте HTTPS origin
-адресом IP и не отключайте проверку TLS. Пока имя недоступно, не запускайте enrollment.
+Не используйте `--nodeps` или `--replacefiles`. Не понижайте неизвестную/более
+новую версию CUPS. Если исправленный пакет уже стоит, исключите его из обычной
+транзакции. Перевод установленной той же версии unsigned в signed требует отдельно
+проверенной операции `--replacepkgs`, сохраняющей состояние; это не обход clean gate.
 
-Не копируйте credential, identity, config или claim эталонной машины. В архиве
-их нет. Укажите канонический staging origin в root-owned config и установите
-root-owned drop-in для `endpoint-agent.service` по точному пути
-`/etc/systemd/system/endpoint-agent.service.d/staging.conf`:
+## Настройка и регистрация
 
-```ini
-[Service]
-Environment=ENDPOINT_AGENT_DEPLOYMENT_ENVIRONMENT=staging
-Environment=CANARY_ENVIRONMENT=staging
-Environment=CANARY_APPROVED=true
-Environment=ENDPOINT_AGENT_ORIGIN=https://endpoint-staging.sosnadmin.local
+Используйте native RPM процедуру; legacy installer/finalizer не применяется.
+Общая инструкция RPM: `/usr/share/doc/endpoint-agent/README.md`.
+До выдачи claim проверьте штатное DNS-разрешение контроллера и HTTPS с переданной
+CA. Не заменяйте HTTPS origin адресом IP и не отключайте TLS.
+Не копируйте credential/identity/config/claim другого ПК. Fingerprint снимайте
+от сервисной учётной записи: root может видеть другие DMI-компоненты.
+
+```bash
+runuser -u endpoint-agent -- /opt/endpoint-agent/versions/3.2.127/endpoint-agent/endpoint-agent --print-hardware-fingerprint
+getent hosts endpoint.sosnadmin.local
 ```
 
-Config и CA: фиксированные пути `/etc/endpoint-agent/config.yaml` и `ca.crt`,
-root:root 0600. Claim: `/etc/credstore/endpoint-enrollment-claim`, root:root 0600;
-доставляется через stdin, без секрета в аргументах, логах или общем архиве.
-В root-сеансе из каталога комплекта, после отдельного получения проверенных
-`config.yaml` и `ca.crt`, выполните:
+Выдайте уникальные config и одноразовый claim через доверенный операторский канал.
+Production config создаётся по production-шаблону с уникальным installation ID.
+Для staging выбирайте staging-шаблоны и staging-контроллер явно; не перенаправляйте
+существующую регистрацию на production копированием конфигурации.
 
 ```bash
 install -d -o root -g root -m 0755 /etc/endpoint-agent
 install -o root -g root -m 0600 /root/pilot-private/config.yaml /etc/endpoint-agent/config.yaml
 install -o root -g root -m 0600 /root/pilot-private/ca.crt /etc/endpoint-agent/ca.crt
 install -d -o root -g root -m 0700 /etc/credstore
-# Отдельный операторский канал пишет уникальный claim в фиксированный файл
-# через stdin с владельцем root:root и режимом 0600. Не вставляйте claim в shell.
+# Операторский канал пишет claim через stdin в фиксированный root:root 0600 файл.
+# Не вставляйте claim в shell, argv, логи или общий архив.
 test -s /etc/credstore/endpoint-enrollment-claim
 install -d -o root -g root -m 0755 /etc/systemd/system/endpoint-agent.service.d
-install -o root -g root -m 0644 staging.conf /etc/systemd/system/endpoint-agent.service.d/staging.conf
+install -o root -g root -m 0644 production.conf /etc/systemd/system/endpoint-agent.service.d/production.conf
 systemctl daemon-reload
 systemctl start endpoint-agent-update.path endpoint-agent.service
 systemctl is-active endpoint-agent.service
 ```
 
-Проверьте постоянные credential/identity штатной проверкой установленной службы
-и свежую регистрацию отдельного Device в staging. Затем удалите только одноразовый
-claim и перезапустите службу; повторный запуск должен пройти без него. Не удаляйте
-claim при неудавшейся регистрации и не копируйте его для повторного Device.
+После проверки постоянных credential/identity и нового Device удалите только
+одноразовый claim по штатной процедуре и перезапустите службу. Запуск должен
+проходить без claim. При ошибке не стирайте частичное состояние: сохраните диагностику.
+После reboot проверьте тот же Device, WSS, Context/diagnostic, Policy APPLIED
+и автозапуск User Sensor после реального входа в KDE.
 
-## Приёмка и откат
+Общая Browser Policy загружает подписанное расширение с утверждённого feed
+`https://endpoint.sosnadmin.local/api/v1/browser-sensor/update.xml`.
+На отдельном стенде .191 проверены Yandex ADMIN, native READY и свежие heartbeat
+в staging. Пользовательские профили в комплект не входят. Физические USB и печать
+на реальном принтере остаются отложенными пользователем испытаниями.
 
-Подтвердите отдельный Device, свежую WSS-связь, Context/diagnostic, Policy APPLIED,
-штатный вход KDE и автозапуск User Sensor, Yandex ADMIN/native heartbeat,
-Print READY и ровно одно новое тестовое событие. После reboot проверьте сохранность
-регистрации и автоматический запуск. Физический USB и печать на реальный принтер
-фиксируются отдельно; контейнерный тест не заменяет проверку отдельного ПК.
+## Откат и пересборка CUPS
 
-Существующая общая Browser Policy использует утверждённый публичный feed
-`https://endpoint.sosnadmin.local/api/v1/browser-sensor/update.xml` для подписанного
-расширения. Это отдельный источник артефакта, а не staging Gateway. Если граница
-испытаний запрещает даже чтение production, не запускайте управляемый браузер для
-автоматической загрузки расширения и не объявляйте свежий ADMIN/native heartbeat
-проверенным. Смена этого закреплённого feed требует отдельного изменения runtime
-и повторной квалификации; данный комплект его не подменяет.
+Для возврата vendor cups-browsed остановите discovery и проверьте
+`rpm -Uvh --oldpackage --test cups-browsed-2.1.1-alt1.x86_64.rpm`. Затем выполните
+команду без `--test`, сравните конфигурацию с резервной копией и восстановите
+прежнее состояние службы. Старый пакет имеет известные утечки; откат не означает
+устранение проблемы. Если его раньше не было, не называйте установку восстановлением.
 
-Для возврата исходного `cups-browsed 2.1.1-alt1` остановите discovery, проверьте
-`rpm -Uvh --oldpackage --test cups-browsed-2.1.1-alt1.x86_64.rpm`, затем выполните
-ту же команду без `--test`, сравните конфигурацию с root-only резервной копией
-и верните прежнее состояние службы. Если пакета до пилота не было, не называйте
-его установку «восстановлением». Старый пакет имеет известные утечки, поэтому
-откат не означает исправность CUPS; при необходимости снимите устройство с пилота.
-
-Штатное удаление обоих Endpoint RPM сохраняет регистрацию. Purge состояния —
-отдельное решение, не часть этой инструкции. При частичном отказе RPM не стирайте
-identity и конфигурацию: сохраните диагностику и восстановите службу discovery.
-
-## Пересборка CUPS
-
-На отдельном ALT worker установите штатные BuildRequires source RPM. Запустите
-`bash rebuild-cups.sh` как непривилегированный пользователь из нового рабочего
-каталога. Source RPM уже содержит vendor spec и обе заплатки; флаги vendor сохранены.
-Сравнивайте исходники и поведение; новый build time может изменить бинарный SHA-256.
+Удаление Endpoint RPM сохраняет регистрацию. Purge не входит в эту процедуру.
+На отдельном ALT worker установите BuildRequires source RPM и выполните
+`bash rebuild-cups.sh` непривилегированным пользователем в новом каталоге.
+Source RPM содержит vendor spec и обе заплатки; параметры vendor сохранены.
+Результат пересборки требует отдельной квалификации и подписи. Закрытый ключ
+на worker не передаётся. Подпись меняет RPM-байты: новый подписанный набор требует
+новой ревизии комплекта и новых закреплённых digest, не перезаписи старого архива.
