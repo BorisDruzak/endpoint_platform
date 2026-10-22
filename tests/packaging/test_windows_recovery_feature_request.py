@@ -49,6 +49,7 @@ $oldManifest=@{version='3.2.81';product_code='{11111111-1111-4111-8111-111111111
 $manifest=@{version='3.2.97';product_code='{22222222-2222-4222-8222-222222222222}';package_sha256=('b'*64)}
 $initial=[pscustomobject]@{};if($Kind -ne 'missing'){$initial|Add-Member -NotePropertyName foundation_kind -NotePropertyValue $Kind}
 $installerStateRoot='unused';$executionCacheRoot='unused';$script:oldCallbacks=$false
+$oldPackagePin=$null;$oldHelperPin=$null;$preloadedOldHash=$null
 function Get-CompoundOldMedia {$script:oldCallbacks=$true;throw 'modeled missing old Binary: no fallback permitted'}
 $rejected=$false
 try{Invoke-Expression $nodes[0].Extent.Text}catch{$rejected=$true}
