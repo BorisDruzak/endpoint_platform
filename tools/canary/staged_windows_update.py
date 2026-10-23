@@ -135,12 +135,21 @@ def compare_benchmarks(cold: dict, warm: dict) -> dict:
 def verify_matrix(observations: list) -> dict:
     if not isinstance(observations, list) or len(observations) > 100:
         raise EvidenceError("matrix size is invalid")
-    results, seen = [], {}
+    results, seen, baselines = [], {}, {}
+    candidate = None
     for value in observations:
         result = evaluate_scenario(value)
         key = (value["baseline"], value["scenario"])
         if key in seen:
             raise EvidenceError("duplicate scenario")
+        identity = tuple(value[field] for field in ("candidate_version", "source_revision", "artifact_sha256"))
+        if candidate is not None and identity != candidate:
+            raise EvidenceError("matrix candidate differs")
+        candidate = identity
+        installed = tuple(value[field] for field in ("baseline_fingerprint", "foundation_before", "core_before"))
+        if value["baseline"] in baselines and baselines[value["baseline"]] != installed:
+            raise EvidenceError("matrix baseline differs")
+        baselines[value["baseline"]] = installed
         seen[key] = value
         results.append(result)
     required = {(baseline, scenario) for baseline in _BASELINES for scenario in _SCENARIOS}

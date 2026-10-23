@@ -466,6 +466,8 @@ from Setup's internal archive against the authenticated MSI inventory. Its
 operation-bound private storage journal supports an online same-volume
 publication and before-switch cancellation without copying or selecting the payload. Native MSI
 ownership, final installed checks and health/rollback gates remain authoritative.
+Protected data and companion cancellation captures precede publication of the
+`preparing` reservation, so owner loss at publication remains recoverable.
 Before switching, `check_candidate_executable` runs only the fixed
 `pc_agent.exe --print-version` CLI from the published candidate while the old
 agent remains selected. It holds every candidate-file pin, verifies the full

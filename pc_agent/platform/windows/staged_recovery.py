@@ -378,20 +378,26 @@ def _probe_companions(paths):
     return result
 
 
-def capture_staged_companions(paths, operation_id):
+def prepare_staged_companions(paths, binding):
+    """Persist cancellation evidence before publishing the reservation."""
     durable_state.installer_mutation_checkpoint(required=True)
-    record = state.read_staged_update(paths)
-    if record is None or record.binding.operation_id != operation_id or record.phase != 'preparing':
-        _fail()
-    root = _root(paths, operation_id, create=True)
+    binding_sha256 = hashlib.sha256(state._canonical(state._binding_value(binding))).hexdigest()
+    root = _root(paths, binding.operation_id, create=True)
     path = root / 'companions.json'
     if path.exists():
         value = _read(path)
-        if value['binding_sha256'] != _binding_hash(record):
+        if value['binding_sha256'] != binding_sha256:
             _fail()
         return
-    value = {'schema_version': 1, 'binding_sha256': _binding_hash(record), 'before': _probe_companions(paths)}
+    value = {'schema_version': 1, 'binding_sha256': binding_sha256, 'before': _probe_companions(paths)}
     _write(root, 'companions.json', value)
+
+
+def capture_staged_companions(paths, operation_id):
+    record = state.read_staged_update(paths)
+    if record is None or record.binding.operation_id != operation_id or record.phase != 'preparing':
+        _fail()
+    prepare_staged_companions(paths, record.binding)
 
 
 def _active_sessions():

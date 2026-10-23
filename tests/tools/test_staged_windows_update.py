@@ -76,6 +76,34 @@ def test_report_withholds_pass_on_missing_scenario():
     assert "legacy:success-cold" in report["missing"]
 
 
+@pytest.mark.parametrize("field,value", [
+    ("candidate_version", "3.2.122"),
+    ("source_revision", "e" * 40),
+    ("artifact_sha256", "f" * 64),
+])
+def test_matrix_rejects_historical_fault_from_another_candidate(field, value):
+    success, fault = observation(), observation("early-crash")
+    fault.update(terminal="rolled-back", foundation_after=fault["foundation_before"],
+                 core_after=fault["core_before"])
+    fault[field] = value
+    with pytest.raises(EvidenceError, match="candidate"):
+        verify_matrix([success, fault])
+
+
+@pytest.mark.parametrize("field,value", [
+    ("baseline_fingerprint", "e" * 64),
+    ("foundation_before", "3.2.119"),
+    ("core_before", "3.2.120"),
+])
+def test_matrix_rejects_fault_from_a_different_installed_baseline(field, value):
+    success, fault = observation(), observation("early-crash")
+    fault[field] = value
+    fault.update(terminal="rolled-back", foundation_after=fault["foundation_before"],
+                 core_after=fault["core_before"])
+    with pytest.raises(EvidenceError, match="baseline"):
+        verify_matrix([success, fault])
+
+
 def test_report_rejects_extra_private_fields():
     value = observation()
     value["device_credential"] = "never serialize this"

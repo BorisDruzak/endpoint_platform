@@ -22,7 +22,7 @@ campaign and rollout services. Runtime evidence precedes fleet assignment.
 
 - Legacy Foundation cannot load a Core requiring a newer launcher.
 - Merged ALT runtime and Windows platform fixture behavior must both survive.
-- TCP loss retries; credential, TLS and incompatible protocol errors stay terminal.
+- TCP loss retries; preserve credential/TLS rejection and existing protocol classification/recovery policy.
 - Default Setup selection and enrollment campaign allowlists must agree.
 - Offline/stale/revoked devices must not be represented as updated or online.
 

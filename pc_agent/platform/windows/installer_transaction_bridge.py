@@ -605,10 +605,12 @@ def stage_online_update(client, paths):
         expected.identity.version, expected.identity.source_revision, expected.identity.tree_sha256)
     data_request = {**request, 'session_id': client.capability['session_id'], 'recovery': False}
     with durable_state.installer_mutation_checkpoints(checkpoint):
-        begin_staged_update(paths, binding, client.capability['owner'])
-        from .staged_recovery import capture_staged_companions
-        capture_staged_companions(paths, binding.operation_id)
+        # A published reservation must already have everything required for
+        # cancellation if this owner disappears at the next instruction.
         installer_data_security.prepare(paths, data_request)
+        from .staged_recovery import prepare_staged_companions
+        prepare_staged_companions(paths, binding)
+        begin_staged_update(paths, binding, client.capability['owner'])
         before = time.perf_counter()
         provenance.prepare_installer_provenance(paths, request)
         metrics['preparation_seconds'] = time.perf_counter() - before

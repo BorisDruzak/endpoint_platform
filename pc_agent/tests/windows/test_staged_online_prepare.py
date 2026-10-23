@@ -56,6 +56,60 @@ def test_stage_completes_before_service_stop(online, monkeypatch):
     assert (installer_fence.state_root(paths) / 'provenance' / prepared.binding.operation_id / 'plan.json').is_file()
 
 
+@pytest.mark.parametrize('failure', ['data', 'companions'])
+def test_capture_failure_does_not_publish_a_staged_reservation(online, monkeypatch, failure):
+    from pc_agent.platform.windows import installer_data_security as data, staged_recovery
+    client, paths, _, _, _, _ = online
+    before = paths.current_path.read_bytes()
+    def fail(*_args, **_kwargs):
+        raise RuntimeError('capture interrupted')
+    if failure == 'data':
+        monkeypatch.setattr(data, 'prepare', fail)
+    else:
+        monkeypatch.setattr(staged_recovery, '_probe_companions', fail)
+    with pytest.raises(RuntimeError, match='capture interrupted'):
+        bridge.stage_online_update(client, paths)
+    assert staged_update_state.read_staged_update(paths) is None
+    staged_update_state.assert_staged_update_allowed(paths, purpose='ota')
+    assert paths.current_path.read_bytes() == before
+
+
+def test_owner_loss_after_reservation_keeps_real_cancellation_evidence(online, monkeypatch):
+    from pc_agent.platform.windows import installer_data_security as data, staged_recovery
+    from pc_agent.platform.windows import staged_foundation_rollback as rollback
+    client, paths, _, request, _, _ = online
+    before = paths.current_path.read_bytes()
+    original_begin = staged_update_state.begin_staged_update
+    def lose_owner(*args, **kwargs):
+        original_begin(*args, **kwargs)
+        raise RuntimeError('owner lost')
+    monkeypatch.setattr(staged_update_state, 'begin_staged_update', lose_owner)
+    with pytest.raises(RuntimeError, match='owner lost'):
+        bridge.stage_online_update(client, paths)
+    record = staged_update_state.read_staged_update(paths)
+    assert record.phase == 'preparing'
+    # Exercise real protected data capture and cancellation verification. Only
+    # native owner/MSI/Core observations are isolated from the fixture machine.
+    data_request = {**request, 'session_id': client.capability['session_id'], 'recovery': False}
+    assert data._read(paths, data_request)['phase'] == 'prepared'
+    assert (installer_fence.state_root(paths) / 'staged-recovery' /
+            record.binding.operation_id / 'companions.json').is_file()
+    monkeypatch.setattr(staged_recovery, '_validate_recovery_inputs', lambda *_: {})
+    monkeypatch.setattr(staged_recovery, '_assert_owner_dead', lambda *_: None)
+    monkeypatch.setattr(staged_recovery, '_native_settled', lambda *_: True)
+    monkeypatch.setattr(bridge, '_read_capability', lambda *_: client.capability)
+    monkeypatch.setattr(rollback, '_verify_original_core',
+                        lambda *_: None)
+    cap = {**client.capability, 'owner': {**client.capability['owner'], 'created': 2}}
+    with durable_state.installer_mutation_checkpoints(lambda: None):
+        assert staged_recovery.recover_staged_update(paths, record.binding.operation_id,
+                                                    capability=cap) == 'preparation-cancelled'
+    assert staged_update_state.read_staged_update(paths).phase == 'rolled-back'
+    staged_update_state.assert_staged_update_allowed(paths, purpose='ota')
+    assert paths.current_path.read_bytes() == before
+    assert installer_fence.read_fence(paths) is None
+
+
 @pytest.mark.parametrize('failed', [False, True])
 def test_candidate_executability_check_precedes_prepared_and_service_stop(online, monkeypatch, failed):
     from pc_agent.platform.windows import staged_candidate_payload
