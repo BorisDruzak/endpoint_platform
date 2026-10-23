@@ -179,3 +179,63 @@ def test_acl_changes_are_rejected_after_child_exit(candidate, monkeypatch):
             module.check_candidate_executable(paths, record, expected)
     finally:
         installer_fence.protect_state(leaf)
+
+
+@pytest.mark.skipif(os.name != 'nt', reason='Windows image loading updates ChangeTime')
+def test_system_change_time_during_image_load_does_not_reject_unchanged_candidate(candidate, monkeypatch):
+    from types import SimpleNamespace
+    paths, record, expected, target = published(candidate)
+    inode = (target / 'pc_agent.exe').stat().st_ino
+    original_fstat = os.fstat
+    executed = False
+
+    def fstat(descriptor):
+        value = original_fstat(descriptor)
+        if executed and value.st_ino == inode:
+            fields = {name: getattr(value, name) for name in dir(value) if name.startswith('st_')}
+            fields['st_ctime_ns'] += 1_000_000
+            return SimpleNamespace(**fields)
+        return value
+
+    def start(_command, **options):
+        nonlocal executed
+        executed = True
+        return Child(options['stdout'], (expected.identity.version + '\n').encode())
+
+    monkeypatch.setattr(os, 'fstat', fstat)
+    monkeypatch.setattr(subprocess, 'Popen', start)
+    with durable_state.installer_mutation_checkpoints(lambda: None):
+        assert module.check_candidate_executable(paths, record, expected) is True
+
+
+@pytest.mark.skipif(os.name != 'nt', reason='native security and attribute identity')
+@pytest.mark.parametrize('change', ['allowed-acl-order', 'attributes'])
+def test_valid_but_changed_execution_metadata_is_rejected(candidate, monkeypatch, change):
+    import win32api
+    import win32security
+    from pc_agent.platform.windows import installer_fence
+    paths, record, expected, target = published(candidate)
+    leaf = target / 'pc_agent.exe'
+    original_attributes = win32api.GetFileAttributes(str(leaf))
+
+    def start(_command, **options):
+        if change == 'attributes':
+            win32api.SetFileAttributes(str(leaf), original_attributes | 1)
+        else:
+            sd = win32security.GetNamedSecurityInfo(str(leaf), 1, 4)
+            original = sd.GetSecurityDescriptorDacl()
+            reordered = win32security.ACL()
+            for index in reversed(range(original.GetAceCount())):
+                ace = original.GetAce(index)
+                reordered.AddAccessAllowedAceEx(win32security.ACL_REVISION, ace[0][1], ace[1], ace[2])
+            win32security.SetNamedSecurityInfo(str(leaf), 1, 4, None, None, reordered, None)
+            installer_fence.assert_state_security(leaf)  # Still safe, but no longer identical.
+        return Child(options['stdout'], (expected.identity.version + '\n').encode())
+
+    monkeypatch.setattr(subprocess, 'Popen', start)
+    try:
+        with durable_state.installer_mutation_checkpoints(lambda: None), pytest.raises(ValueError):
+            module.check_candidate_executable(paths, record, expected)
+    finally:
+        win32api.SetFileAttributes(str(leaf), original_attributes)
+        installer_fence.protect_state(leaf)

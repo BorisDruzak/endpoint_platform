@@ -150,6 +150,21 @@ def publish_candidate_payload(paths, record, expected):
     return target
 
 
+def _execution_metadata(descriptor, details):
+    if os.name != 'nt':
+        return details.st_ctime_ns
+    import msvcrt
+    import win32security
+    flags = (win32security.OWNER_SECURITY_INFORMATION |
+             win32security.GROUP_SECURITY_INFORMATION |
+             win32security.DACL_SECURITY_INFORMATION)
+    security = win32security.GetSecurityInfo(
+        msvcrt.get_osfhandle(descriptor), win32security.SE_FILE_OBJECT, flags)
+    return (details.st_file_attributes,
+            win32security.ConvertSecurityDescriptorToStringSecurityDescriptor(
+                security, win32security.SDDL_REVISION_1, flags))
+
+
 def check_candidate_executable(paths, record, expected):
     """Check the frozen CLI online; this grants no native or trial authority."""
     root, _, target, _ = _authorize(paths, record, expected)
@@ -168,7 +183,7 @@ def check_candidate_executable(paths, record, expected):
             opened = os.fstat(descriptor)
             if durable_state._copy_identity(opened) != before:
                 _fail()
-            identities.append((path, descriptor, before, opened.st_ctime_ns))
+            identities.append((path, descriptor, before, _execution_metadata(descriptor, opened)))
         _verify(target, expected)
         with tempfile.TemporaryFile(dir=root) as output:
             if isinstance(output.name, str):
@@ -206,11 +221,14 @@ def check_candidate_executable(paths, record, expected):
         if provenance._selector(paths.current_path)[0] != record.binding.selected_before:
             _fail()
         _verify(target, expected)
-        for path, descriptor, before, changed in identities:
+        for path, descriptor, before, metadata in identities:
             after = os.fstat(descriptor)
             if (durable_state._copy_identity(path.lstat()) != before
                     or durable_state._copy_identity(after) != before
-                    or after.st_ctime_ns != changed):
+                    # Native image loading can update Windows ChangeTime for
+                    # unchanged DLLs. Bind the actual security/attributes on the
+                    # retained handle instead of using that timestamp as a proxy.
+                    or _execution_metadata(descriptor, after) != metadata):
                 _fail()
     return True
 

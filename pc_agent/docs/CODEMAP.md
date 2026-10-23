@@ -472,7 +472,9 @@ Before switching, `check_candidate_executable` runs only the fixed
 `pc_agent.exe --print-version` CLI from the published candidate while the old
 agent remains selected. It holds every candidate-file pin, verifies the full
 payload before and after execution, and requires exact bounded output and a
-live owner. This offline executability check grants no Native or trial proof.
+live owner. Windows execution metadata binds the retained handle owner, group,
+DACL and file attributes; loader-updated ChangeTime is not a content identity.
+This offline executability check grants no Native or trial proof.
 
 ALT native distribution assembly lives in `tools/build_alt_pilot_kit.py` and
 `packaging/alt/pilot/`. It pins already qualified Core/User Sensor/runtime and
