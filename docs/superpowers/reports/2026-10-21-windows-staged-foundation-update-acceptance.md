@@ -106,6 +106,49 @@ the two original user roles and zero recovery tasks passed. Postflight kept
 the live Agent PID unchanged. No manual recovery or service start occurred.
 This adds one failure case; it does not close the complete installed matrix.
 
+## Follow-up stability acceptance
+
+The user accepted the measured pause on 2026-10-23 and requested completing
+stability testing. Historical 120-second performance verdicts remain unchanged.
+A fresh ordinary modern121-to-3.2.142 upgrade is followed by a separate
+30-minute read-only soak, beginning only after full installed acceptance.
+Required evidence: unchanged service/Core PID and creation times, one continuous
+WSS session, advancing server heartbeat with age at most 90 seconds (the
+configured three-heartbeat timeout), APPLIED matching policy, both original
+user roles, no recovery tasks or active installer, and no new relevant Windows
+runtime failure events. The observer samples every 30 seconds; any observation
+gap over 60 seconds withholds acceptance. Full Native/Core and private-file
+preservation are checked again after the soak. This bounded test does not
+establish the complete 42-case matrix or fleet readiness.
+
+Result: **PASS** for signed 3.2.142 on the modern121 baseline. The fresh
+ordinary upgrade (`modern121-success-warm142-02`) completed in 300.062612
+seconds with a 134.551703-second conservative pause; its original automated
+120-second verdict remains false, with the observed pause accepted by the user.
+Full Native/Core source/package verification, private preservation, unchanged
+111 retained and 119 candidate NTFS identities/hashes/sizes, two original user
+roles and zero remaining recovery tasks passed before the soak.
+
+The independent soak lasted 1804.078972 seconds, with 61 samples and 61 distinct
+advancing server heartbeat timestamps. The maximum observer gap was 30.000703
+seconds; maximum heartbeat age was 17.833913 seconds. Service and Core PID plus
+creation times remained unchanged, as did the WSS session. Matching policy
+remained APPLIED, both original roles remained present, and no relevant runtime
+failure event, active installer or recovery task appeared.
+
+The final read-only postflight (`modern121-stability142-final-01`) again
+verified exact Native/Core 3.2.142 source and MSI identities, all four private
+leaves, both original user roles, zero recovery tasks and unchanged live PIDs.
+The original WSS session was still open with fresh heartbeat and APPLIED
+matching policy. No manual recovery or service restart occurred during the
+upgrade or soak. Evidence: `stability-30m/final-acceptance.json`, all 61 raw
+samples, artifact/observer admission binding and independent final postflight.
+Observer SHA-256:
+`3d5eb41bfad358fd2cda308058df16c16ac34471440cdce136537ac1ea568b4c`.
+This result covers the existing signed runtime source `0ab8e3e`; it does not
+include the separately committed, unpublished executable-selfcheck change.
+
+
 ## Historical controlled results: 3.2.139
 
 Task 8 remains open: the 120-second pause goal and complete 42-case installed
