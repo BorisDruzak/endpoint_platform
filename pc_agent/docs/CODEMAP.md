@@ -2,6 +2,13 @@
 
 ## Runtime boundary
 
+Gateway WSS EOF/abnormal closure (including aiohttp CLOSED/CLOSING sentinels)
+uses the existing retry lifecycle instead of ending the Windows service. A
+sentinel retains the socket's real close code, so credential and policy
+rejection remain fail-closed. Underlying TLS exceptions remain terminal;
+certificate and hostname validation are unchanged.
+
+
 `platform/windows/staged_update_state.py` separates an installer-owned
 application journal from the native MSI fence. Its immutable binding includes
 the genuine old/new package identities, original selector bytes and full core

@@ -321,10 +321,19 @@ class WebSocketGatewayTransport:
             aiohttp.WSMsgType.CLOSED,
             aiohttp.WSMsgType.CLOSING,
         }:
-            close_code = response.data if isinstance(response.data, int) else None
+            # aiohttp returns CLOSED/CLOSING sentinels without frame data after
+            # EOF. Preserve a real policy/auth close reported on the socket,
+            # but do not turn an ordinary TCP loss into a permanent service exit.
+            socket_error = getattr(socket, "exception", lambda: None)()
+            if isinstance(socket_error, ssl.SSLError):
+                raise GatewayTerminalError(type(socket_error).__name__) from socket_error
+            close_code = (
+                response.data if isinstance(response.data, int)
+                else getattr(socket, "close_code", None)
+            )
             if close_code in {4401, 4403}:
                 raise GatewayCredentialRejected("Endpoint Gateway rejected device")
-            if close_code in {1000, 1001, 1011, 1012, 1013, 4000, 4001}:
+            if close_code in {None, 0, 1000, 1001, 1005, 1006, 1011, 1012, 1013, 4000, 4001}:
                 raise GatewayTransportUnavailable("Gateway WSS connection closed")
             if close_code in {1002, 1003, 1007, 1009}:
                 raise GatewayProtocolIncompatible("Gateway WSS protocol close")
