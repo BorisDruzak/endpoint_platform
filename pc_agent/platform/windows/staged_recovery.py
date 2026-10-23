@@ -186,13 +186,38 @@ def _verify_original_state(paths, record):
     _verify_original_core(paths, record)
 
 
+class _BootEnvironment(ctypes.Structure):
+    _fields_ = [('identifier', ctypes.c_ubyte * 16), ('firmware', ctypes.c_uint32),
+                ('flags', ctypes.c_uint64)]
+
+
+def _kernel_boot(value):
+    return (isinstance(value, str) and re.fullmatch(
+        r'kernel-boot-v1:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}', value)
+        is not None and value != 'kernel-boot-v1:00000000-0000-0000-0000-000000000000')
+
+
 def _boot_identity():
-    import win32com.client
-    rows = list(win32com.client.GetObject('winmgmts:root\\cimv2').ExecQuery(
-        'SELECT LastBootUpTime FROM Win32_OperatingSystem'))
-    if len(rows) != 1 or not isinstance(rows[0].LastBootUpTime, str) or not rows[0].LastBootUpTime:
+    # LastBootUpTime is a WMI provider's wall-clock value, not boot identity:
+    # a provider refresh after clock correction can change it without reboot.
+    # Match the signed owner's SYSTEM_BOOT_ENVIRONMENT_INFORMATION ABI. No
+    # timestamp fallback may authorize a trial on unsupported/query failure.
+    value = _BootEnvironment()
+    length = ctypes.c_uint32()
+    try:
+        query = ctypes.WinDLL('ntdll').NtQuerySystemInformation
+        query.argtypes = [ctypes.c_int32, ctypes.c_void_p, ctypes.c_uint32,
+                          ctypes.POINTER(ctypes.c_uint32)]
+        query.restype = ctypes.c_int32
+        status = query(90, ctypes.byref(value), ctypes.sizeof(value), ctypes.byref(length))
+    except (AttributeError, OSError):
         _fail()
-    return rows[0].LastBootUpTime
+    if status != 0 or length.value != ctypes.sizeof(value):
+        _fail()
+    result = 'kernel-boot-v1:' + str(UUID(bytes_le=bytes(value.identifier)))
+    if not _kernel_boot(result):
+        _fail()
+    return result
 
 
 def record_reboot_required(paths, operation_id, native_exit):
@@ -221,7 +246,9 @@ def reboot_pending(paths, record):
             or value['binding_sha256'] != _binding_hash(record) or value['native_exit'] not in (3010,1641)
             or not isinstance(value['boot'], str)):
         _fail()
-    return value['boot'] == _boot_identity()
+    # Historical wall-clock markers never prove a new boot. Retain the reboot
+    # gate rather than releasing it on a timestamp/provider change.
+    return not _kernel_boot(value['boot']) or value['boot'] == _boot_identity()
 
 
 def recover_staged_update(paths, operation_id, *, capability=None):
@@ -268,7 +295,9 @@ def recover_staged_update(paths, operation_id, *, capability=None):
         return 'preparation-cancelled'
     if reboot_pending(paths, record):
         return 'reboot-required'
-    post_boot = bool(inputs.get('boot')) and inputs['boot'] != _boot_identity()
+    captured_boot = inputs.get('boot')
+    current_boot = _boot_identity() if _kernel_boot(captured_boot) else None
+    post_boot = _kernel_boot(captured_boot) and _kernel_boot(current_boot) and captured_boot != current_boot
     if record.phase in {'switching','native-settled','trial'} and not post_boot:
         return 'rollback-required'
     if record.phase == 'trial':

@@ -70,6 +70,39 @@ API references used during the correction: [security descriptor control](https:/
 [SetFileSecurity](https://mhammond.github.io/pywin32/win32security__SetFileSecurity_meth.html),
 [full native file identity](https://learn.microsoft.com/en-us/windows/win32/api/winbase/ns-winbase-file_id_info).
 
+## Candidate 147 owner-loss rejection and boot classification
+
+Candidate 147 passed exact CI 39945610705 and signed artifact/source checks.
+Its actual owner-loss case recovered through the corrected ACL preparation and
+returned healthy Native/Core 147, original companions, private data and APPLIED
+policy. It nevertheless failed acceptance: live owner loss required rollback,
+while recovery classified the host as rebooted and accepted the new version.
+No publication receipt was issued; no production workstation received 147.
+The unexpected state is preserved in snapshot `staged147-ownerloss-accept-23`.
+
+Captured WMI LastBootUpTime was `20261020125508.151071+300`, then became
+`20261021161917.633209+300` without any actual reboot event. On the dedicated VM,
+a controlled +120-second clock correction followed by a WMI service refresh
+shifted that timestamp by 119.987 seconds while the kernel boot GUID stayed
+identical. Restoring the clock/provider changed it again by milliseconds.
+Clock adjustment alone reused the cached provider value. Thus provider cache
+refresh, rather than a reboot, can change the previous admission input.
+
+The signed owner and Python recovery now query the same 32-byte
+SYSTEM_BOOT_ENVIRONMENT_INFORMATION (class 90) and require successful NTSTATUS,
+exact returned length and a nonzero boot GUID. Only two valid, different kernel
+identities permit a fresh trial. A historical timestamp cannot authorize a
+trial or release a stored reboot gate. Unsupported API/query results fail
+closed without a timestamp fallback. This private native information class
+requires actual supported-Windows qualification in each new frozen candidate.
+Definitions were checked against the [native headers](https://github.com/winsiderss/phnt/blob/master/ntexapi.h)
+and [NtQuerySystemInformation contract](https://learn.microsoft.com/en-us/windows/win32/api/winternl/nf-winternl-ntquerysysteminformation).
+
+The boot regressions first failed (7 failed, 2 passed); the focused recovery,
+trial, native rollback and compound scopes now pass 96 tests, including actual
+local PowerShell/Python kernel ABI agreement. A fresh immutable candidate and
+full installed acceptance remain required before promotion.
+
 ## Production readiness
 
 Administrative SMB access to the three previously blocked workstations was

@@ -45,6 +45,19 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Win32.SafeHandles;
 namespace EndpointInstallerBridge {
+    public static class BootIdentity {
+        [StructLayout(LayoutKind.Sequential)] struct BootEnvironment {
+            public Guid Identifier; public uint Firmware; public ulong Flags;
+        }
+        [DllImport("ntdll.dll")] static extern int NtQuerySystemInformation(int kind,ref BootEnvironment value,uint size,out uint length);
+        public static string Read() {
+            var value=new BootEnvironment();uint length;
+            uint size=(uint)Marshal.SizeOf(typeof(BootEnvironment));
+            if(size!=32 || NtQuerySystemInformation(90,ref value,size,out length)!=0 || length!=size || value.Identifier==Guid.Empty)
+                throw new InvalidOperationException("RECOVERY_REQUIRED");
+            return "kernel-boot-v1:"+value.Identifier.ToString("D");
+        }
+    }
     public static class LaunchDirectory {
         [StructLayout(LayoutKind.Sequential)] struct Attributes { public int Length; public IntPtr Descriptor; public int Inherit; }
         [DllImport("advapi32.dll",CharSet=CharSet.Unicode,SetLastError=true)] static extern bool ConvertStringSecurityDescriptorToSecurityDescriptor(string text,uint revision,out IntPtr descriptor,out uint length);
@@ -1770,7 +1783,7 @@ function Register-StagedRecoveryTask {
     $root=Join-Path $root $Bridge.TransactionId
     New-InstallerPublicStateRoot $root
     $inputs=@{schema_version=1;operation_id=$Bridge.TransactionId;owner=$Bridge.Capability.owner;
-        package_sha256=$Bridge.Capability.package.package_sha256;files=$files;service_states=$ServiceStates;task_sha256=$null;boot=[string](Get-WmiObject Win32_OperatingSystem).LastBootUpTime}
+        package_sha256=$Bridge.Capability.package.package_sha256;files=$files;service_states=$ServiceStates;task_sha256=$null;boot=[EndpointInstallerBridge.BootIdentity]::Read()}
     $leaf=Join-Path $root 'inputs.json'
     if(Test-Path -LiteralPath $leaf){throw 'PROVENANCE_CONFLICT'}
     $executable=Join-Path $directory 'EndpointAgentSetup.exe'

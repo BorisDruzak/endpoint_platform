@@ -162,7 +162,7 @@ captured bit without child ACL propagation. A live mutation grant and exact
 post-write snapshot remain mandatory; the original capture is never rebased.
 Only a confirmed new boot restarts a fresh trial; live owner loss requests rollback. Ambiguous reverse/native
 settlement retains the barrier and reports recovery required. A recorded native
-reboot result withholds trial until the actual WMI boot identity changes; a new
+reboot result withholds trial until the validated kernel boot GUID changes; a new
 boot resets the trial attempt. Terminal cleanup never reverses acceptance.
 Companion capture records only already-running fixed roles; restoration requests
 use the same still-active user SID/session and an interactive Scheduler token,

@@ -90,8 +90,8 @@ def test_recovered_trial_discards_prior_attempt(recovery, staged, monkeypatch):
     module, paths, binding, cap = recovery
     move(staged, 'preparing','prepared'); move(staged,'prepared','switching'); move(staged,'switching','native-settled')
     move(staged,'native-settled','trial',attempt_id=str(uuid4()))
-    monkeypatch.setattr(module,'_validate_recovery_inputs',lambda *_: {'boot':'previous'})
-    monkeypatch.setattr(module,'_boot_identity',lambda:'current')
+    monkeypatch.setattr(module,'_validate_recovery_inputs',lambda *_: {'boot':'kernel-boot-v1:11111111-1111-4111-8111-111111111111'})
+    monkeypatch.setattr(module,'_boot_identity',lambda:'kernel-boot-v1:22222222-2222-4222-8222-222222222222')
     with durable_state.installer_mutation_checkpoints(lambda: None):
         assert module.recover_staged_update(paths,binding.operation_id,capability=cap) == 'trial-required'
     assert state.read_staged_update(paths).phase == 'native-settled'
@@ -334,14 +334,14 @@ from pc_agent.tests.windows.test_staged_trial_proof import trial
 def test_reboot_marker_blocks_trial_until_actual_boot_changes(trial, monkeypatch):
     from pc_agent.platform.windows import staged_recovery as recovery
     proof, paths, binding, *_ = trial
-    boot = ['before']; monkeypatch.setattr(recovery,'_boot_identity',lambda:boot[0])
+    boot = ['kernel-boot-v1:11111111-1111-4111-8111-111111111111']; monkeypatch.setattr(recovery,'_boot_identity',lambda:boot[0])
     with durable_state.installer_mutation_checkpoints(lambda:None):
         recovery.record_reboot_required(paths,binding.operation_id,3010)
         record = state.read_staged_update(paths)
         state._write(paths,replace(record,phase='native-settled',attempt_id=None,sequence=record.sequence+1))
         with pytest.raises(ValueError): proof.begin_staged_trial(paths,binding.operation_id)
         assert state.read_staged_update(paths).phase == 'native-settled'
-        boot[0] = 'after'
+        boot[0] = 'kernel-boot-v1:22222222-2222-4222-8222-222222222222'
         assert proof.begin_staged_trial(paths,binding.operation_id)
 
 
