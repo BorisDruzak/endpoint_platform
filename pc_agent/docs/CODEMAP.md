@@ -152,8 +152,15 @@ A hidden cached Setup watchdog retains the original process handle; a fresh
 owner must prove its death and establish a real empty MSI transaction barrier.
 Original capabilities/data captures remain immutable, with a separate protected
 fresh-owner receipt. Known interrupted forward work uses the existing genuine
-compound/standalone recovery route before compensation. Only a confirmed new
-boot restarts a fresh trial; live owner loss requests rollback. Ambiguous reverse/native
+compound/standalone recovery route before compensation. Authenticated native
+recovery may restore a CreateFolder rollback's cleared root
+AUTO_INHERITED bit from `installer_data_security.py`'s original capture. Root
+identity, every other descriptor byte and every private leaf must still match.
+An owner-bound empty MSI Begin/End barrier must complete before recovery prepare
+is admitted. The root stays pinned against deletion; low-level SetFileSecurity restores the
+captured bit without child ACL propagation. A live mutation grant and exact
+post-write snapshot remain mandatory; the original capture is never rebased.
+Only a confirmed new boot restarts a fresh trial; live owner loss requests rollback. Ambiguous reverse/native
 settlement retains the barrier and reports recovery required. A recorded native
 reboot result withholds trial until the actual WMI boot identity changes; a new
 boot resets the trial attempt. Terminal cleanup never reverses acceptance.

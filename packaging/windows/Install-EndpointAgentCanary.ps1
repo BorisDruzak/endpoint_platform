@@ -384,6 +384,20 @@ namespace EndpointInstallerBridge {
         private SuccessorRepairPolicy repair;
         private StagedRollbackPolicy reverse;
         private bool reversePrepared,stagedRecoverySettled;
+        private bool nativeRecoverySettlementRequired;
+        private StagedSettlementProof nativeRecoveryPreparation;
+        public void RequireNativeRecoverySettlement() {
+            if(!alive || !Recovery || Operation!="install" || UninstallFinalization || recoveryLocator ||
+                nativeRecoverySettlementRequired || compound!=null || repair!=null || reverse!=null ||
+                helpers.Count!=0 || preparedComplete || msiAlive || nativeResult.HasValue) Fail();
+            nativeRecoverySettlementRequired=true;
+        }
+        public void AuthorizeNativeRecoveryPreparation(StagedSettlementProof proof) {
+            if(!alive || !nativeRecoverySettlementRequired || proof==null || !proof.ValidFor(Owner) ||
+                nativeRecoveryPreparation!=null || helpers.Count!=0 || preparedComplete || msiAlive ||
+                nativeResult.HasValue || !Recovery || Operation!="install" || UninstallFinalization) Fail();
+            nativeRecoveryPreparation=proof;
+        }
         public void AuthorizeStagedRecovery(StagedSettlementProof proof) {
             if(!alive || proof==null || !proof.ValidFor(Owner) || msiAlive || nativeResult.HasValue ||
                 compound!=null || repair!=null || reverse!=null || Recovery || UninstallFinalization) Fail();
@@ -461,6 +475,8 @@ namespace EndpointInstallerBridge {
         }
         public void RegisterHelper(Identity peer,string phase) {
             CheckPeer(peer);
+            if(phase=="prepare" && nativeRecoverySettlementRequired &&
+                (nativeRecoveryPreparation==null || !nativeRecoveryPreparation.ValidFor(Owner))) Fail();
             bool recoveryHelper=phase=="restore-staged-companions" || phase=="inspect-staged-recovery" || phase=="recover-staged-owner" || phase=="record-staged-reboot-3010" || phase=="record-staged-reboot-1641";
             if(phase=="recover-staged-owner" && !stagedRecoverySettled) Fail();
             bool reverseControl=phase=="inspect-staged-state" || phase=="prepare-foundation-rollback" || phase=="bind-foundation-rollback-roles" ||
@@ -513,6 +529,8 @@ namespace EndpointInstallerBridge {
         public bool AllHelpersComplete { get { foreach(var item in helpers.Values) if(!item.Complete) return false; return true; } }
         public Challenge Issue(Identity peer,string phase,string action,string payloadHash,string sessionId) {
             CheckPeer(peer);
+            if(phase=="prepare" && nativeRecoverySettlementRequired &&
+                (nativeRecoveryPreparation==null || !nativeRecoveryPreparation.ValidFor(Owner))) Fail();
             if(recoveryLocator && (phase!="inspect-compound" || action=="mutation")) Fail();
             if(compound!=null && (phase.StartsWith("msi-",StringComparison.Ordinal) || phase=="recover-enter" || phase=="foundation-config") &&
                 !compound.AllowsNative(this,phase)) Fail();
@@ -2200,6 +2218,7 @@ function New-InstallerBridge {
         if ($Intent -cne 'install' -or $null -ne $Fence -or $null -eq $Selection -or $RecoveryParent) { throw 'OWNER_AUTH_FAILED' }
         if ($Compound.ContainsKey('recovery')) {
             $capability.recovery=$true;$policy.Recovery=$true
+            $policy.RequireNativeRecoverySettlement()
             foreach ($name in @('EndpointAgent','EndpointAgentUpdater')) { $capability.service_states[$name]=$Selection.service_states.$name }
         }
         $capability.compound=$Compound
@@ -3029,6 +3048,12 @@ try {
         $adopted=Invoke-InstallerHelper -Bridge $bridge -Phase 'adopt-staged-switch'
         if ($adopted.result -cne 'staged-session-adopted' -or $adopted.phase -cne 'switching' -or
             $adopted.operation_id -cne $bridge.TransactionId) { throw 'OWNER_AUTH_FAILED' }
+    }
+    if ($null -ne $compoundDetails -and $bridge.Capability.recovery) {
+        # Recovery prepare may restore exact captured enrollment metadata.
+        # Product state/fence observations do not establish native settlement.
+        $proof=[EndpointInstallerBridge.NativeTransaction]::EstablishSettlement($bridge.Owner)
+        $bridge.Policy.AuthorizeNativeRecoveryPreparation($proof)
     }
     $preparation=Invoke-InstallerHelper -Bridge $bridge -Phase 'prepare'
     if ($null -ne $preparation.PSObject.Properties['legacy_archive_id']) {

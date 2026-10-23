@@ -103,7 +103,9 @@ def _prepare_recovery(client,paths,expected):
     else:
         provenance.validate_interrupted_reconciliation(paths,request,
             native_current=msi_inventory.read_native_selector(request['package_path'],expected))
-    installer_data_security.before_native(paths,_data_request(paths,cap))
+    data_request = _data_request(paths,cap)
+    installer_data_security.restore_native_rollback_inheritance(paths,data_request)
+    installer_data_security.before_native(paths,data_request)
     if cap['service_states']!=original_cap['service_states']:_fail()
     with bridge.InstallerServices(paths,include_browser=True,checkpoint=client.checkpoint) as services:
         current=services.snapshot()

@@ -243,6 +243,86 @@ def before_native(paths, request):
         raise ValueError("PROVENANCE_CONFLICT")
 
 
+def restore_native_rollback_inheritance(paths, request):
+    """Restore only a captured root bit cleared by native CreateFolder rollback.
+
+    The recovery caller has proved native settlement and owns a fresh live
+    capability. This never accepts a different ACL, identity or private leaf,
+    and never replaces the capture with a new baseline.
+    """
+    durable_state.installer_mutation_checkpoint(required=True)
+    if request.get('recovery') is not True:
+        raise ValueError('PROVENANCE_CONFLICT')
+    record = _read(paths, request)
+    expected = record['snapshot']
+    if expected['root'] is None:
+        return  # Fresh-root recovery retains before_native's separate rules.
+    current = _snapshot(paths)
+    if current == expected:
+        return
+    before, after = expected['root'], current['root']
+    if (record['phase'] not in {'native-entered', 'configured'} or after is None
+            or before['identity'] != after['identity'] or expected['leaves'] != current['leaves']):
+        raise ValueError('PROVENANCE_CONFLICT')
+    original = bytes.fromhex(before['descriptor'])
+    observed = bytes.fromhex(after['descriptor'])
+    original_control = int.from_bytes(original[2:4], 'little')
+    observed_control = int.from_bytes(observed[2:4], 'little')
+    if (len(original) < 20 or len(original) != len(observed)
+            or original_control ^ observed_control != 0x0400
+            or original_control & 0x1400 != 0x1400
+            or original[:2] + original[4:] != observed[:2] + observed[4:]):
+        raise ValueError('PROVENANCE_CONFLICT')
+    _restore_native_rollback_descriptor(paths, expected, current)
+    if _snapshot(paths) != expected:
+        raise ValueError('PROVENANCE_CONFLICT')
+
+
+def _restore_native_rollback_descriptor(paths, expected, observed):
+    import ctypes
+    from ctypes import wintypes
+    import ntsecuritycon
+    import win32con
+    import win32file
+    import win32security
+    import win32timezone  # noqa: F401 - native FILETIME conversion
+    root = _root(paths)
+    # Deny rename/deletion for the entire path-based SetFileSecurity call.
+    handle = win32file.CreateFile(str(root),
+        win32con.READ_CONTROL | win32con.WRITE_DAC | ntsecuritycon.FILE_READ_ATTRIBUTES
+        | ntsecuritycon.FILE_LIST_DIRECTORY,
+        win32con.FILE_SHARE_READ | win32con.FILE_SHARE_WRITE, None, win32con.OPEN_EXISTING,
+        win32con.FILE_FLAG_BACKUP_SEMANTICS | win32file.FILE_FLAG_OPEN_REPARSE_POINT, None)
+    try:
+        info = win32file.GetFileInformationByHandle(handle)
+        class FileIdentity(ctypes.Structure):
+            _fields_ = [('volume', ctypes.c_ulonglong), ('file_id', ctypes.c_ubyte * 16)]
+        query = ctypes.WinDLL('kernel32', use_last_error=True).GetFileInformationByHandleEx
+        query.argtypes = [wintypes.HANDLE, ctypes.c_int, wintypes.LPVOID, wintypes.DWORD]
+        query.restype = wintypes.BOOL
+        native = FileIdentity()
+        if not query(int(handle), 18, ctypes.byref(native), ctypes.sizeof(native)):
+            raise ctypes.WinError(ctypes.get_last_error())
+        identity = [native.volume, int.from_bytes(native.file_id, 'little')]
+        if (info[0] & 0x400 or not info[0] & win32con.FILE_ATTRIBUTE_DIRECTORY
+                or identity != expected['root']['identity'] or _snapshot(paths) != observed):
+            raise ValueError('PROVENANCE_CONFLICT')
+        descriptor = win32security.SECURITY_DESCRIPTOR(bytes.fromhex(expected['root']['descriptor']))
+        # The low-level request bit preserves AUTO_INHERITED on this directory.
+        # SetFileSecurity does not propagate/rewrite child ACLs, unlike
+        # SetNamedSecurityInfo/SetSecurityInfo. All stored bytes are rechecked.
+        descriptor.SetSecurityDescriptorControl(0x0100, 0x0100)
+        durable_state.installer_mutation_checkpoint(required=True)
+        flags = (win32security.OWNER_SECURITY_INFORMATION | win32security.GROUP_SECURITY_INFORMATION
+                 | win32security.DACL_SECURITY_INFORMATION)
+        actual = win32security.GetSecurityInfo(handle, win32security.SE_FILE_OBJECT, flags)
+        if bytes(actual).hex() != observed['root']['descriptor'] or _snapshot(paths) != observed:
+            raise ValueError('PROVENANCE_CONFLICT')
+        win32security.SetFileSecurity(str(root), win32security.DACL_SECURITY_INFORMATION, descriptor)
+    finally:
+        handle.Close()
+
+
 def enter_native(paths, request):
     before_native(paths, request)
     record = _read(paths, request)

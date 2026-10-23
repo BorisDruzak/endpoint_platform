@@ -68,7 +68,7 @@ def staged(inputs,tmp_path,monkeypatch):
     @contextmanager
     def verified(*_a):yield
     monkeypatch.setattr(msi_inventory,'verified_foundation_bytes',verified)
-    for name in ('prepare','before_native','verify_preserved'):
+    for name in ('prepare','restore_native_rollback_inheritance','before_native','verify_preserved'):
         monkeypatch.setattr(installer_data_security,name,lambda *_a,name=name:events.append('data-'+name))
     class Services:
         def __init__(self,*_a,**_k):pass
@@ -304,6 +304,7 @@ def test_recovery_prepare_preserves_original_proofs_and_uses_new_child_attempt(s
     bridge.execute_authorized_phase(client,paths)
     assert done==[('complete',{'result':'compound-recovery-prepared','mode':mode})]
     assert 'data-prepare' not in events and 'prepare_installer_provenance' not in events
+    assert events.index('data-restore_native_rollback_inheritance') < events.index('data-before_native')
     assert original_plan.read_bytes()==before and original_child.read_bytes()==child_before
     with _child(current):
         assert fence.read_fence(paths)['phase']=='msi-starting'

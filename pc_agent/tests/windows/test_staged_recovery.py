@@ -121,6 +121,14 @@ if(!$denied){throw 'recovery admitted without actual native settlement'}
 $p.RegisterHelper($peer,'inspect-staged-recovery')
 $denied=$false;try{$p.Issue($peer,'inspect-staged-recovery','mutation',('f'*64),$p.SessionId)|Out-Null}catch{$denied=$true}
 if(!$denied){throw 'read-only recovery granted mutation'}
+$recovery=[EndpointInstallerBridge.Policy]::new('33333333-3333-4333-8333-333333333333','44444444-4444-4444-8444-444444444444',('c'*64),'install',$owner,('b'*64),[byte[]](1..32))
+$recovery.Recovery=$true;$recovery.MarkQuiescent();$recovery.RequireNativeRecoverySettlement()
+$denied=$false;try{$recovery.RegisterHelper($peer,'prepare')}catch{$denied=$true}
+if(!$denied){throw 'native recovery preparation admitted before settlement'}
+$denied=$false;try{$recovery.AuthorizeNativeRecoveryPreparation($null)}catch{$denied=$true}
+if(!$denied){throw 'missing native settlement proof admitted'}
+$denied=$false;try{$recovery.RegisterHelper($peer,'prepare')}catch{$denied=$true}
+if(!$denied){throw 'failed settlement allowed ACL restoration'}
 'passed'
 ''',encoding='utf-8')
     result = subprocess.run(['powershell.exe','-NoProfile','-NonInteractive','-File',str(script),str(source)],
