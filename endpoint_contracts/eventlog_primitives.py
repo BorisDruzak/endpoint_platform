@@ -1,4 +1,4 @@
-"""Fixed, metadata-only Windows Event Log query contracts."""
+"""Fixed, metadata-only Windows Event Log and Linux journald query contracts."""
 
 from __future__ import annotations
 

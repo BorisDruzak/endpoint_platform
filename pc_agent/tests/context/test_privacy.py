@@ -1,40 +1,31 @@
 from __future__ import annotations
 
-from pc_agent.context_profiles.diagnostic import DIAGNOSTIC_LOG_BYTES, collect_diagnostic
+import json
+import pytest
 
+from pc_agent.context_profiles.probe import JOURNAL_COMMAND
+from pc_agent.context_profiles.diagnostic import collect_diagnostic
 from .conftest import FIXED_TIME
 
 
-def test_diagnostic_redacts_sensitive_values_before_truncation(fake_probe) -> None:
-    """A bounded diagnostic excerpt never returns a token value from local logs."""
-    result = collect_diagnostic(fake_probe, reason="operator investigation", collected_at=FIXED_TIME)
-
-    assert "super-secret" not in (result.sections.log_excerpt or "")
-    assert "<redacted>" in (result.sections.log_excerpt or "")
-    assert "redaction_applied" in result.warnings
-
-
-def test_diagnostic_redacts_bearer_credentials_before_truncation(fake_probe) -> None:
-    """Bearer credentials are fully removed even when the excerpt ends in the header."""
-    secret = "secret-token-value"
-    fake_probe.outputs[("journalctl", "-n", "100", "--no-pager", "-o", "cat")] = (
-        "x" * (DIAGNOSTIC_LOG_BYTES - 51) + f"\nAuthorization: Bearer {secret}\n"
-    )
-
-    result = collect_diagnostic(fake_probe, reason="operator investigation", collected_at=FIXED_TIME)
-
-    assert secret not in (result.sections.log_excerpt or "")
-    assert "Authorization: Bearer <redacted>" in (result.sections.log_excerpt or "")
+@pytest.mark.parametrize('secret', [
+    'token=super-secret', 'Authorization: Bearer secret-token-value',
+    'Authorization =   Bearer secret-equals',
+])
+def test_diagnostic_discards_messages_cursors_and_private_service_instances(fake_probe, secret):
+    fake_probe.outputs[JOURNAL_COMMAND] = json.dumps({
+        '__REALTIME_TIMESTAMP':'1785326400000000', 'PRIORITY':'3',
+        '_SYSTEMD_UNIT':'worker@private-user.service',
+        'MESSAGE':secret, '__CURSOR':'private-cursor', '_CMDLINE':'private-command',
+    })
+    result=collect_diagnostic(fake_probe, reason='operator investigation', collected_at=FIXED_TIME)
+    excerpt=result.sections.log_excerpt
+    assert excerpt and 'worker@.service' in excerpt and 'journal_priority_3' in excerpt
+    assert secret not in excerpt and 'private-' not in excerpt
 
 
-def test_diagnostic_redacts_equals_style_bearer_credentials_before_truncation(fake_probe) -> None:
-    """Bearer secrets are removed when logs render the header with an equals separator."""
-    secret = "secret-equals"
-    fake_probe.outputs[("journalctl", "-n", "100", "--no-pager", "-o", "cat")] = (
-        f"Authorization =   Bearer {secret}\n"
-    )
-
-    result = collect_diagnostic(fake_probe, reason="operator investigation", collected_at=FIXED_TIME)
-
-    assert secret not in (result.sections.log_excerpt or "")
-    assert "Authorization= Bearer <redacted>" in (result.sections.log_excerpt or "")
+def test_diagnostic_rejects_unstructured_log_output(fake_probe):
+    fake_probe.outputs[JOURNAL_COMMAND]='token=super-secret\nservice healthy\n'
+    result=collect_diagnostic(fake_probe,reason='metadata only',collected_at=FIXED_TIME)
+    assert result.sections.log_excerpt is None
+    assert 'command_failed' in result.warnings

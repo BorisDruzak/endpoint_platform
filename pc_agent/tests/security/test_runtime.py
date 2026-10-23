@@ -24,6 +24,38 @@ async def test_runtime_health_checks_open_spool(tmp_path) -> None:
     assert await runtime.available()
 
 
+@pytest.mark.asyncio
+async def test_temporary_spool_read_failure_keeps_the_sender_alive(tmp_path, monkeypatch):
+    import pc_agent.security.runtime as module
+    spool = SecurityEventSpool(tmp_path)
+    await spool.open()
+    original = spool.next_batch
+    recovered = asyncio.Event()
+    calls = 0
+    async def flaky(**kwargs):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise OSError('temporary spool failure')
+        recovered.set()
+        return await original(**kwargs)
+    monkeypatch.setattr(spool,'next_batch',flaky)
+    real_sleep=asyncio.sleep
+    monkeypatch.setattr(module.asyncio,'sleep',lambda _delay:real_sleep(0.001))
+    runtime=SecurityEventRuntime(spool)
+    runtime.policy_ack_sent()
+    task=asyncio.create_task(runtime.send_forever(object(),now=lambda:NOW))
+    try:
+        await asyncio.wait_for(recovered.wait(),1)
+        assert not task.done()
+    finally:
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+
+
 def test_sender_retries_same_batch_until_exact_ack(tmp_path) -> None:
     async def scenario() -> None:
         sent = asyncio.Queue()

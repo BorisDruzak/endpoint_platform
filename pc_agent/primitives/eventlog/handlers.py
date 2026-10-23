@@ -1,4 +1,4 @@
-"""Fixed Windows Event Log profiles; never collect message or raw XML."""
+"""Fixed Event Log/journald profiles; never collect messages or raw XML."""
 
 from __future__ import annotations
 
@@ -65,9 +65,11 @@ def _safe_event(raw: dict[str, object]) -> EventFactV1 | None:
         if event_id < 0 or event_id > 2**32 - 1:
             return None
         provider = re.sub(r"[\x00-\x1f\x7f]", "", str(raw.get("provider") or "")).strip()[:128] or "unknown"
+        code = raw.get("message_code")
+        code = code if isinstance(code, str) and re.fullmatch(r"journal_priority_[0-7]", code) else f"event_{event_id}"
         return EventFactV1(
             timestamp=when, severity=severity, event_id=event_id,
-            provider=provider, message_code=f"event_{event_id}",
+            provider=provider, message_code=code,
         )
     except (TypeError, ValueError, OverflowError, ValidationError):
         return None
@@ -95,13 +97,17 @@ def _select(
 
 def event_query(
     parameters: EventQueryParametersV1,
-    *, query_profile: Callable[[str], list[dict[str, object]]] = _windows_profile,
+    *, query_profile: Callable[[str], list[dict[str, object]]] | None = None,
     platform_name: str | None = None,
 ) -> EventQueryResultV1:
     now = datetime.now(UTC)
-    if (platform_name or ("windows" if os.name == "nt" else "linux")) != "windows":
+    platform = platform_name or ("windows" if os.name == "nt" else "linux")
+    if platform not in {"windows", "linux"}:
         return EventQueryResultV1(schema_version="eventlog_query_result_v1", event_count=0, status="failed", error_code="eventlog_unsupported", collected_at=now)
     try:
+        if query_profile is None:
+            from pc_agent.platform.linux.journal import query_profile as linux_profile
+            query_profile = _windows_profile if platform == "windows" else lambda profile: linux_profile(profile, severity=parameters.severity)
         events = _select(
             query_profile(parameters.profile), profile=parameters.profile,
             lookback_minutes=parameters.lookback_minutes,
@@ -114,13 +120,17 @@ def event_query(
 
 def recent_errors(
     parameters: RecentErrorsParametersV1,
-    *, query_profile: Callable[[str], list[dict[str, object]]] = _windows_profile,
+    *, query_profile: Callable[[str], list[dict[str, object]]] | None = None,
     platform_name: str | None = None,
 ) -> RecentErrorsResultV1:
     now = datetime.now(UTC)
-    if (platform_name or ("windows" if os.name == "nt" else "linux")) != "windows":
+    platform = platform_name or ("windows" if os.name == "nt" else "linux")
+    if platform not in {"windows", "linux"}:
         return RecentErrorsResultV1(schema_version="eventlog_recent_errors_result_v1", event_count=0, status="failed", error_code="eventlog_unsupported", collected_at=now)
     try:
+        if query_profile is None:
+            from pc_agent.platform.linux.journal import query_profile as linux_profile
+            query_profile = _windows_profile if platform == "windows" else linux_profile
         events = _select(
             query_profile(parameters.profile), profile=parameters.profile,
             lookback_minutes=parameters.lookback_minutes,

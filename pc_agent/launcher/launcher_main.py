@@ -350,6 +350,9 @@ def main() -> None:
         )
         ret = proc.wait()
         elapsed_sec = time.monotonic() - started_at
+        if ret == 78 and alt_update_mode_enabled():
+            _log('ALT Core refused configuration (78); returning to systemd without restart or rollback')
+            raise SystemExit(78)
         if ret == EXIT_UPDATE_PENDING:
             if alt_update_mode_enabled():
                 _log("Agent exited with update-pending (42); root worker will apply it")

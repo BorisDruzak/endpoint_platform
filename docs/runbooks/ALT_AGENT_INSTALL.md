@@ -1,8 +1,68 @@
 # ALT Endpoint Agent installation
 
-This is an offline, operator-run package for the dedicated ALT test pilot. It
-does not download software, CA certificates, credentials, or configuration.
-Do not use it on a production host until the Wave 1 production gate is open.
+This describes operator-run installation. The signed native distribution path
+below is qualified on ALT 11/KDE; the legacy offline path retains its own gates.
+CA trust, credentials and configuration are provisioned separately.
+
+## Current native RPM workstation path
+
+For the signed 3.2.127-2 native distribution kit, use
+`packaging/alt/pilot/README.ru.md` and `tools/build_alt_pilot_kit.py`.
+It includes the separately installed CUPS repair and rollback/source RPMs,
+publisher RPM signatures, detached archive/manifest signatures and read-only
+preflight. Its public signing key requires independent fingerprint verification;
+environment CA and unique enrollment are supplied separately. A fresh install
+in a container is supplemental evidence, not acceptance on a separate test PC.
+
+For the current headless Core layout, follow `packaging/alt/README.md` and build
+on ALT with `bash packaging/alt/build-rpm.sh --with-user-sensor`. Install the Core
+and optional user-sensor RPM together. The legacy offline layout documented below
+remains a separate path; do not run it against the current RPM release tree.
+
+The optional package supplies KDE autostart and the restricted browser helper.
+For a session already running during installation, execute
+`systemctl --user daemon-reload` then
+`/usr/lib/endpoint-agent/start-user-sensor --autostart` inside that graphical
+session. Subsequent KDE logins publish the private session environment and restart
+only this sensor unit. Do not import its variables into the whole user manager.
+
+Preserve existing AD/SSSD and corporate browser policy. Agent-managed deployment
+owns only its marked Endpoint extension file; conflicting foreign policy is an
+explicit failure. External-managed deployment observes policy and heartbeat
+without taking ownership. ALT Yandex 26.4 is detected by its verified installed
+binary under /usr/lib64/yandex/browser. Its managed policies live under
+/etc/opt/yandex/browser/policies/managed and it uses Chromium's system native-host
+manifest. Unrelated valid forced extensions are preserved; conflicting policies
+remain an explicit failure. Unrecognized installations remain unknown.
+CUPS/USB audit requires actual sources; temporary CUPS unavailability recovers
+without restarting Core. Physical USB acceptance is a separate operator test.
+
+RPM upgrades preserve device state. The artifact sidecar is package documentation,
+never an extra file inside an immutable runtime. Verify current.json and selected
+release hashes/modes after installation; runtime OTA must never replace RPM-owned
+units or privileged helpers. Require server terminal outcomes and a subsequent
+successful WSS command; scheduled alone is insufficient. Use the parity ledger
+and current baseline for the private 3.2.127 follow-up acceptance limits.
+
+If CUPS reports "Max clients reached" during cups-browsed discovery, inspect
+the number and owners of local socket connections before changing Agent
+timeouts. On the reference host, cups-browsed 2.1.1 leaked local connections;
+raising MaxClients to 256 only postponed exhaustion. The reviewed local
+2.1.1-alt1.endpoint2 RPM retains the vendor build configuration and adds four
+httpClose calls: the three-call
+[upstream update_cups_queues fix](https://github.com/OpenPrinting/cups-browsed/commit/34da78b713a5d551471568f08f8c185c9f7dcac1)
+plus a close at the start of the successful cupsDoRequest branch in is_disabled,
+before inspecting the independently owned IPP response. The latter closes all
+idle/stopped/missing-printer return paths; its existing failure-path close stays
+unchanged. Native regression uses an isolated Unix-socket CUPS instance and
+synthetic queues, without sending a document. Keep the original scheduler limit
+and discovery configuration while checking descriptor stability and real query
+latency. This OS package is not installed automatically by Endpoint RPM or OTA.
+Retain the original vendor RPM for rollback and check both cleanup paths before
+replacing this local pilot package with a future vendor build.
+Restore previously active dependent services after an
+outage test: starting cups alone does not start cups-browsed again. Keep print
+ACLs, discovery scope and AD configuration unchanged.
 
 ## Inputs
 

@@ -9,9 +9,9 @@ import queue
 import re
 import threading
 from collections.abc import Callable
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import Literal
-from uuid import UUID, uuid4
+from uuid import UUID
 
 from endpoint_contracts.endpoint_policy import EndpointPolicyV1
 from endpoint_contracts.security_events import (
@@ -19,6 +19,7 @@ from endpoint_contracts.security_events import (
     UsbDisconnectedEventV1,
     UsbEventMetadataV1,
 )
+from pc_agent.security.usb_projection import project_usb_event
 
 
 USB_INTERFACE_CLASS_GUID = "a5dcbf10-6530-11d2-901f-00c04fb951ed"
@@ -227,17 +228,5 @@ def project_usb_change(
         removable=True,
         serial_hash=serial_hash,
     )
-    common = dict(
-        schema_version="security_event_v1",
-        event_identifier=uuid4(),
-        severity="INFO",
-        occurred_at=occurred_at.astimezone(UTC),
-        user_login=None,
-        policy_id=policy.policy_id,
-        policy_version=policy.policy_version,
-        channel="USB",
-        safe_metadata=metadata,
-    )
-    if action == "arrived":
-        return UsbConnectedEventV1(event_type="USB_DEVICE_CONNECTED", **common)
-    return UsbDisconnectedEventV1(event_type="USB_DEVICE_DISCONNECTED", **common)
+    return project_usb_event('add' if action == 'arrived' else 'remove', metadata,
+                             policy, occurred_at=occurred_at)

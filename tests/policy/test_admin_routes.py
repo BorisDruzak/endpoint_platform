@@ -266,6 +266,40 @@ async def test_policy_device_status_requires_current_browser_capability() -> Non
         assert healthy.json()["data"]["activity_sensor"] == "ACTIVE"
         assert healthy.json()["data"]["browser_sensor"] == "ACTIVE"
         assert healthy.json()["data"]["dlp_sensor"] == "ACTIVE"
+        assert healthy.json()["data"]["error_code"] is None
+        async with sessions() as session:
+            state = await session.scalar(select(PolicyDeviceState).where(PolicyDeviceState.device_id == device_id))
+            health = await session.scalar(select(PolicySensorHealthCurrent).where(PolicySensorHealthCurrent.device_id == device_id))
+            state.status, state.error_code = "ERROR", "SENSOR_NOT_READY"
+            health.print_source_state = "UNAVAILABLE"
+            await session.commit()
+        unavailable = (await client.get(endpoint)).json()["data"]
+        assert unavailable["error_code"] == "SENSOR_NOT_READY"
+        assert unavailable["sensor_health"]["fresh"] is True
+        assert unavailable["sensor_health"]["print_source_state"] == "UNAVAILABLE"
+        assert unavailable["sensor_health"]["usb_source_state"] == "READY"
+        async with sessions() as session:
+            state = await session.scalar(select(PolicyDeviceState).where(PolicyDeviceState.device_id == device_id))
+            health = await session.scalar(select(PolicySensorHealthCurrent).where(PolicySensorHealthCurrent.device_id == device_id))
+            state.error_code = "PRIVATE_UNTRUSTED_CODE"
+            health.observed_at = now - timedelta(minutes=4)
+            await session.commit()
+        stale_health = (await client.get(endpoint)).json()["data"]
+        assert stale_health["error_code"] == "UNKNOWN"
+        assert stale_health["sensor_health"]["fresh"] is False
+        assert "PRIVATE_UNTRUSTED_CODE" not in str(stale_health)
+        async with sessions() as session:
+            state = await session.scalar(select(PolicyDeviceState).where(PolicyDeviceState.device_id == device_id))
+            health = await session.scalar(select(PolicySensorHealthCurrent).where(PolicySensorHealthCurrent.device_id == device_id))
+            state.policy_digest = "0" * 64
+            health.policy_version = 99
+            await session.commit()
+        replaced = (await client.get(endpoint)).json()["data"]
+        assert replaced["error_code"] is None and replaced["sensor_health"] is None
+        async with sessions() as session:
+            state = await session.scalar(select(PolicyDeviceState).where(PolicyDeviceState.device_id == device_id))
+            state.policy_digest, state.status, state.error_code = digest, "APPLIED", None
+            await session.commit()
         current = await app.state.gateway_connection_registry.get(device_id)
         assert current is not None
         await app.state.gateway_connection_registry.unregister(device_id, current.session_id)

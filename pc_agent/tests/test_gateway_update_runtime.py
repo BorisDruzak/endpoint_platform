@@ -325,3 +325,21 @@ async def test_startup_reports_rolled_back_release_from_launcher_marker(
         (_OPERATION_ID, "scheduled_retry"),
         (_OPERATION_ID, "rolled_back:3.1.76:launcher_rolled_back"),
     ]
+
+
+@pytest.mark.parametrize('success,version,status,code', [
+    (False,'3.1.78','failed','launcher_apply_failed'),
+    (True,'3.1.76','applied','post_restart_handshake_confirmed'),
+])
+def test_older_rollback_marker_cannot_hide_a_later_operation(success,version,status,code):
+    from pc_agent.gateway_update_runtime import _startup_outcome
+    later='33333333-3333-4333-8333-333333333333'
+    result=_startup_outcome(history=[
+        {'operation_id':_OPERATION_ID,'version':'3.1.77','success':True},
+        {'version':'3.1.77','success':False,'reason':'startup_crash_rollback'},
+        {'operation_id':later,'version':version,'success':success},
+    ],current_version='3.1.76',failed_marker={
+        'crashed_version':'3.1.77','rollback_version':'3.1.76',
+        'reason':'startup_crash_rollback',
+    })
+    assert result==(later,status,version,code)

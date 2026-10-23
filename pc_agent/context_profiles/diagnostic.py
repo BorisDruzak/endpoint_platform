@@ -1,27 +1,22 @@
-"""Manual-only bounded diagnostics with redaction before output truncation."""
+"""Manual-only bounded diagnostics with content-free journal metadata."""
 
 from __future__ import annotations
 
 import csv
 from datetime import datetime, timezone
-import re
 
 from endpoint_contracts.context import DeviceContextDiagnosticV1
-from endpoint_contracts.json_types import MAX_JSON_LIST_ITEMS
+from endpoint_contracts.json_types import MAX_JSON_LIST_ITEMS, MAX_JSON_STRING_LENGTH
 
-from .probe import JOURNAL_COMMAND, PROCESS_COMMAND
+from .probe import JOURNAL_COMMAND, PROCESS_COMMAND, MAX_PROBE_BYTES
+from pc_agent.platform.linux.journal import parse_metadata
 from .stable_keys import bounded_text
 
 
 # Context envelopes travel inside AgentResultV1, whose bounded JSON list contract
 # is the narrowest allowed representation for process entries.
 DIAGNOSTIC_PROCESS_LIMIT = MAX_JSON_LIST_ITEMS
-DIAGNOSTIC_LOG_BYTES = 8192
-_SENSITIVE_ASSIGNMENT = re.compile(
-    r"(?i)\b(password|passphrase|token|secret|api[_-]?key|cookie)\s*([:=])\s*[^\s,;]+"
-)
-_BEARER_AUTHORIZATION = re.compile(r"(?i)\bauthorization\s*([:=])\s*bearer\s+[^\s,;]+")
-_OTHER_AUTHORIZATION = re.compile(r"(?i)\bauthorization\s*([:=])(?!\s*bearer\b)[^\r\n,;]+")
+DIAGNOSTIC_LOG_BYTES = min(8192, MAX_JSON_STRING_LENGTH)
 
 
 def collect_diagnostic(
@@ -136,19 +131,19 @@ def _process_state(value: str) -> str:
 
 def _log_excerpt(probe: object, warnings: list[str]) -> str | None:
     try:
-        raw = str(probe.run(JOURNAL_COMMAND, 2.0, DIAGNOSTIC_LOG_BYTES * 2))
+        raw = str(probe.run(JOURNAL_COMMAND, 2.0, MAX_PROBE_BYTES))
+        rows = parse_metadata(raw.encode('utf-8'))
     except TimeoutError:
         warnings.append("command_timed_out")
         return None
     except (OSError, ValueError):
         warnings.append("command_failed")
         return None
-    redacted = _BEARER_AUTHORIZATION.sub(r"Authorization\1 Bearer <redacted>", raw)
-    redacted = _OTHER_AUTHORIZATION.sub(r"Authorization\1<redacted>", redacted)
-    redacted = _SENSITIVE_ASSIGNMENT.sub(r"\1\2<redacted>", redacted)
-    if redacted != raw:
-        warnings.append("redaction_applied")
-    excerpt, truncated = _truncate_utf8(redacted, DIAGNOSTIC_LOG_BYTES)
+    metadata = '\n'.join(
+        f"{row['timestamp'].isoformat()} {row['severity']} {row['provider']} {row['message_code']}"
+        for row in rows
+    )
+    excerpt, truncated = _truncate_utf8(metadata, DIAGNOSTIC_LOG_BYTES)
     if truncated:
         warnings.append("data_truncated")
     return excerpt or None

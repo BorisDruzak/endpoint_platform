@@ -44,6 +44,8 @@ from endpoint_server.policy.delivery import (
     PolicyAcknowledgementRejected,
     prepare_policy_delivery,
     record_policy_ack,
+    supports_endpoint_policy,
+    supports_endpoint_audit,
 )
 
 from .command_service import CommandService, CommandStateRejected
@@ -322,7 +324,7 @@ async def connect_agent(websocket: WebSocket) -> None:
                 if (
                     not websocket.app.state.settings.endpoint_policy_enabled
                     or "endpoint.activity.v1" not in connection.protocol_features
-                    or first.payload.platform != "windows_amd64"
+                    or not supports_endpoint_policy(first.payload)
                 ):
                     raise GatewayProtocolError(1008, "activity_disabled")
                 try:
@@ -341,7 +343,7 @@ async def connect_agent(websocket: WebSocket) -> None:
                 if (
                     not websocket.app.state.settings.endpoint_policy_enabled
                     or "endpoint.browser-status.v1" not in connection.protocol_features
-                    or first.payload.platform != "windows_amd64"
+                    or not supports_endpoint_audit(first.payload)
                 ):
                     raise GatewayProtocolError(1008, "browser_status_disabled")
                 async with websocket.app.state.session_provider() as session:
@@ -351,7 +353,7 @@ async def connect_agent(websocket: WebSocket) -> None:
                 if (
                     not websocket.app.state.settings.endpoint_policy_enabled
                     or "endpoint.sensor-health.v1" not in connection.protocol_features
-                    or first.payload.platform != "windows_amd64"
+                    or not supports_endpoint_policy(first.payload)
                 ):
                     raise GatewayProtocolError(1008, "sensor_health_disabled")
                 async with websocket.app.state.session_provider() as session:
@@ -361,7 +363,7 @@ async def connect_agent(websocket: WebSocket) -> None:
                 if (
                     not websocket.app.state.settings.endpoint_policy_enabled
                     or "endpoint.security-events.v1" not in connection.protocol_features
-                    or first.payload.platform != "windows_amd64"
+                    or not supports_endpoint_audit(first.payload)
                 ):
                     raise GatewayProtocolError(1008, "security_events_disabled")
                 await commit_and_ack_security_events(

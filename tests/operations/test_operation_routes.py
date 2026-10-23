@@ -1804,7 +1804,7 @@ async def test_actual_agent_diagnostic_is_normalized_to_safe_success(
                     "endpoint-agent S\n"
                 )
             if command == JOURNAL_COMMAND:
-                return "Authorization: Bearer log-secret token=another-secret"
+                return '{"__REALTIME_TIMESTAMP":"1785326400000000","PRIORITY":"3","_SYSTEMD_UNIT":"endpoint-agent.service","MESSAGE":"Authorization: Bearer log-secret token=another-secret"}'
             raise AssertionError(f"unexpected command: {command!r}")
 
     create_path = f"/api/v1/devices/{route_fixture.device.id}/operations"
@@ -1819,7 +1819,8 @@ async def test_actual_agent_diagnostic_is_normalized_to_safe_success(
         reason=CREATE_BODY["parameters"]["reason"],
         collected_at=completed_at,
     )
-    assert "<redacted>" in produced.sections.log_excerpt
+    assert 'endpoint-agent.service' in produced.sections.log_excerpt
+    assert 'log-secret' not in produced.sections.log_excerpt
     await _complete_operation(
         route_fixture,
         operation_id,
@@ -1835,7 +1836,7 @@ async def test_actual_agent_diagnostic_is_normalized_to_safe_success(
     assert response.status_code == 200
     result = response.json()["data"]["result"]
     assert result["reason"] == CREATE_BODY["parameters"]["reason"]
-    assert result["log_excerpt"] == "[REDACTED]"
+    assert result["log_excerpt"] == produced.sections.log_excerpt
     assert result["processes"] == [
         {"name": "[REDACTED]", "state": "running"},
         {"name": "[REDACTED]", "state": "running"},

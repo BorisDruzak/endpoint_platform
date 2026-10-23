@@ -4,6 +4,28 @@ import { DevicePolicyStatus } from './PolicyStatus'
 
 afterEach(() => { cleanup(); vi.unstubAllGlobals() })
 
+it('explains a policy readiness failure with the individual source facts', async () => {
+  const payload = status({ delivery_status: 'ERROR', error_code: 'SENSOR_NOT_READY',
+    sensor_health: { observed_at: '2026-09-25T12:00:00Z', fresh: true,
+      activity_listener_state: 'READY', security_spool_state: 'READY',
+      usb_source_state: 'READY', print_source_state: 'UNAVAILABLE' } })
+  vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, status: 200, json: async () => ({ data: payload }) })))
+  render(<DevicePolicyStatus deviceId="device-1" />)
+  expect(await screen.findByText('Один или несколько датчиков ещё не готовы')).toBeTruthy()
+  const health = screen.getByRole('heading', { name: 'Источники датчиков' }).closest('section')!
+  expect(within(health).getByText('Печать').closest('div')?.textContent).toContain('Недоступен')
+  expect(within(health).getByText('USB').closest('div')?.textContent).toContain('Готов')
+})
+
+it('labels old sensor facts as a previous report', async () => {
+  const payload = status({ sensor_health: { observed_at: '2026-09-25T12:00:00Z', fresh: false,
+    activity_listener_state: 'READY', security_spool_state: 'READY',
+    usb_source_state: 'READY', print_source_state: 'READY' } })
+  vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, status: 200, json: async () => ({ data: payload }) })))
+  render(<DevicePolicyStatus deviceId="device-1" />)
+  expect(await screen.findByText('Данные источников устарели. Показан последний отчёт.')).toBeTruthy()
+})
+
 const fact = (browser_family: 'chrome' | 'yandex', overrides: Record<string, unknown> = {}) => ({
   browser_family, browser_state: 'DETECTED', running_state: 'RUNNING', policy_owner: 'ENDPOINT',
   installation_policy_state: 'APPLIED', native_host_state: 'READY',

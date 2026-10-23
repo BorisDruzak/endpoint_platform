@@ -2,25 +2,24 @@
 
 from __future__ import annotations
 
-import json
 import logging
 import struct
 from hashlib import sha1
 from threading import Event
 from time import monotonic
-from typing import Callable, Collection, Literal, Protocol
+from typing import Callable, Collection, Protocol
 
+from pc_agent.browser_policy_protocol import (
+    BrowserPolicyRequestError, Operation, MAX_REQUEST_BYTES as _MAX_REQUEST_BYTES, decode_policy_request,
+    encode_policy_reply as _reply, encode_policy_request, decode_policy_reply,
+)
 from .browser_policy import BrowserFamily, BrowserPolicyConflict
 from .local_ipc import LocalIpcRejected, SERVICE_SID as AGENT_SERVICE_SID
 
 
 PIPE_NAME = r"\\.\pipe\EndpointPlatform.BrowserPolicy.v1"
 HELPER_SERVICE_NAME = "EndpointBrowserPolicy"
-_REQUEST_SCHEMA = "endpoint_browser_policy_request_v1"
-_REPLY_SCHEMA = "endpoint_browser_policy_reply_v1"
-_MAX_REQUEST_BYTES = 1024
 _LOG = logging.getLogger(__name__)
-Operation = Literal["apply", "relinquish"]
 
 
 def _service_sid(service_name: str) -> str:
@@ -31,10 +30,6 @@ def _service_sid(service_name: str) -> str:
 HELPER_SERVICE_SID = _service_sid(HELPER_SERVICE_NAME)
 _AGENT_PIPE_ACCESS = 0x00100003  # SYNCHRONIZE | read/write data; no pipe creation
 _AGENT_PIPE_DACL = 0x00100083  # Above plus FILE_READ_ATTRIBUTES for CreateFile
-
-
-class BrowserPolicyRequestError(ValueError):
-    """Reject a malformed or non-fixed helper request."""
 
 
 class PolicyApplicator(Protocol):
@@ -291,39 +286,6 @@ def helper_identity_allowed(
     )
 
 
-def decode_policy_request(payload: bytes) -> tuple[Operation, BrowserFamily]:
-    if not isinstance(payload, bytes) or not 1 <= len(payload) <= _MAX_REQUEST_BYTES:
-        raise BrowserPolicyRequestError("invalid browser policy request size")
-    try:
-        request = json.loads(payload.decode("utf-8"))
-    except (UnicodeError, ValueError) as error:
-        raise BrowserPolicyRequestError("invalid browser policy request") from error
-    if (
-        not isinstance(request, dict)
-        or set(request)
-        != {
-            "schema_version",
-            "operation",
-            "browser_family",
-        }
-        or request["schema_version"] != _REQUEST_SCHEMA
-    ):
-        raise BrowserPolicyRequestError("invalid browser policy request schema")
-    operation = request["operation"]
-    family = request["browser_family"]
-    if operation not in ("apply", "relinquish") or family not in ("chrome", "yandex"):
-        raise BrowserPolicyRequestError("invalid browser policy operation")
-    return operation, family
-
-
-def _reply(status: str) -> bytes:
-    return json.dumps(
-        {"schema_version": _REPLY_SCHEMA, "status": status},
-        sort_keys=True,
-        separators=(",", ":"),
-    ).encode("ascii")
-
-
 def handle_policy_frame(
     pipe_handle: object,
     payload: bytes,
@@ -359,16 +321,7 @@ def send_policy_request(operation: Operation, family: BrowserFamily) -> str:
 
     from .sensor_pipe_listener import _read_frame, _write_frame
 
-    request = json.dumps(
-        {
-            "schema_version": _REQUEST_SCHEMA,
-            "operation": operation,
-            "browser_family": family,
-        },
-        sort_keys=True,
-        separators=(",", ":"),
-    ).encode("ascii")
-    decode_policy_request(request)
+    request = encode_policy_request(operation, family)
     handle = connect_helper_client_pipe()
     try:
         stop = Event()
@@ -376,20 +329,4 @@ def send_policy_request(operation: Operation, family: BrowserFamily) -> str:
         reply = _read_frame(handle, stop, monotonic() + 5)
     finally:
         win32file.CloseHandle(handle)
-    if len(reply) > _MAX_REQUEST_BYTES:
-        raise BrowserPolicyRequestError("invalid browser policy reply size")
-    try:
-        parsed = json.loads(reply.decode("ascii"))
-    except (UnicodeError, ValueError) as error:
-        raise BrowserPolicyRequestError("invalid browser policy reply") from error
-    if not isinstance(parsed, dict) or set(parsed) != {"schema_version", "status"}:
-        raise BrowserPolicyRequestError("invalid browser policy reply schema")
-    if parsed["schema_version"] != _REPLY_SCHEMA or parsed["status"] not in {
-        "APPLIED",
-        "EXTERNALLY_MANAGED",
-        "POLICY_CONFLICT",
-        "INVALID_REQUEST",
-        "HELPER_ERROR",
-    }:
-        raise BrowserPolicyRequestError("invalid browser policy reply status")
-    return parsed["status"]
+    return decode_policy_reply(reply)

@@ -278,6 +278,27 @@ This does not replace or relabel the separately signed 3.2.120 MSI foundation.
 Endpoint Policy delivery and ACK run in `policy/runtime.py` through the same
 Gateway connection. The Windows local sensor boundary has a service-owned,
 cancellable named-pipe listener in `platform/windows/sensor_pipe_listener.py`.
+`activity_ingress.py` and `local_sensor_protocol.py` own the shared content-free
+sensor projection and local envelopes. `browser_bridge.py` owns the common
+Chromium port framing, pinned origin/extension handshake and typed ACK stream;
+`platform/{windows,linux}/browser_bridge.py` supplies only the authenticated
+local pipe or Unix socket transport. The Linux bridge is not advertised until
+its installed native-host and policy lifecycle have been accepted.
+Linux `--linux-browser-bridge` dispatches before service configuration or
+enrollment and runs as the caller's unprivileged UID. It reads only the public
+`browser_sensor/extension-id.txt` shipped in the frozen artifact and binary
+browser stdin; the existing system credential is never opened by that mode.
+Windows compatibility imports retain the existing models; only the adapter
+supplies the OS-authenticated session key.
+`platform/linux/{identity,local_ipc,sensor_listener}.py` provides the Linux
+boundary: UID/PID kernel credentials, logind graphical session, verified SSSD
+UPN, mutually authenticated bounded Unix records and OS lock/inactive override.
+The listener remains an optional adapter around the shared Activity projection.
+`platform/linux/user_sensor{,_runtime}.py` parses bounded records from the
+unprivileged native `platform/linux/kde_probe` helper and forwards only the
+common local envelope. The optional ALT user-sensor RPM stages that helper,
+its PID-only KWin script, a user unit and KDE autostart wrapper. Its private
+environment file affects only that unit; System Core never imports Qt.
 `platform/windows/activity_api.py` validates the pipe writer's OS identity and
 projects typed user/browser observations; `activity_dispatch.py` holds a
 bounded handoff for WSS reconnects. `RuntimeLifecycle` starts the listener on
@@ -324,6 +345,14 @@ while that source is registered and the protected SecurityEvent spool exists.
 Native callback delivery has been exercised synthetically on Windows; actual
 plug/unplug, queue-loss health and server compliance remain open.
 
+`platform/linux/usb_sensor.py` subscribes to kernel USB device events with
+unprivileged netlink group 1. Both sender port and SCM credentials must identify
+the kernel; bounded records exclude raw paths/serials, interfaces and synthetic
+events. Boot ID plus kernel sequence gives stable event IDs. Windows and Linux
+use `security/usb_projection.py` for the Policy gate and shared event DTOs.
+Source failure withholds readiness; runtime composition and physical hotplug
+acceptance remain pending.
+
 `platform/windows/print_sensor.py` subscribes to local spooler ADD_JOB changes
 with only printer name, user name, total pages and total bytes requested. It
 does not request the document-title field, read spool files or persist the
@@ -332,6 +361,16 @@ the worker before restoring cached policy and accepts `print_events=audit` only
 while the notification worker and protected SecurityEvent spool are available.
 Native subscription start/stop has passed on Windows; a real disposable print
 job and durable server/Console projection are still acceptance gates.
+
+`security/print_projection.py` owns the Windows/Linux safe print DTO projection.
+Linux `platform/linux/print_sensor.py` queries explicit CUPS IPP job metadata
+over the local Unix socket. It pages job IDs past retained history, skips the
+startup baseline and polls only newer IDs. CUPS job UUIDs give stable event
+identifiers and creation timestamps; failed persistence retries the same frozen
+metadata before advancing the cursor. Titles, spool files and raw printer URIs
+never enter events; user identity and rounded byte counts remain unknown.
+The native source and shared durable spool passed a disposable held-job probe;
+installed WSS/Console print acceptance remains pending.
 
 The interactive `user_sensor_runtime.py` samples each logon session and sends
 bounded frames through the same authenticated pipe. MSI stages its fixed
@@ -351,6 +390,54 @@ MSI-owned LocalSystem service. The LocalService Agent calls it through
 effective-browser-policy and browser download/heartbeat proof remain open.
 
 ## Main packages
+
+`browser_policy_protocol.py` is the closed, stdlib-only privileged helper
+request/reply contract shared by Windows and Linux. Linux `seqpacket.py` owns
+bounded per-record kernel credentials; `local_ipc.py` adds graphical-session
+authorization. `platform/linux/browser_policy.py` owns one conservative
+policy file per installed Chromium/Chrome/Yandex product and a root marker, preserves foreign GPO files, and uses
+no-replace atomic publication. `browser_policy_helper.py` authenticates only
+the dedicated Core UID before reading requests. Its fixed root service and
+RPM/native-host wiring lives in the optional user-sensor package. Its isolated
+Python root helper loads only the fixed stdlib package, while browser-bridge
+selects the protected immutable Core in credential-free native-host mode.
+Chromium and Chrome manifests pin the existing extension origin and are
+config(noreplace). ALT Yandex 26.4 uses the verified root-owned binary at
+`/usr/lib64/yandex/browser/yandex_browser`, its own managed policy directory at
+`/etc/opt/yandex/browser/policies/managed`, and Chromium's system native-host
+directory. Unrelated valid ExtensionInstallForcelist entries are preserved;
+conflicting ExtensionSettings, blocklists and externally owned Endpoint entries
+still fail closed. Relinquish is scoped to each browser family. `browser_status.py`
+shares the existing Windows projection and ACK gating; Linux supplies only
+read-only host facts. Policy and manifest presence never fabricate a heartbeat.
+Linux Core >=3.2.123 wires the same SecurityEventRuntime/spool and Browser
+Status runtime to Unix sensor IPC, kernel USB and local CUPS adapters. A failed
+optional source does not prevent the other sources starting; requested audit
+still requires actual source readiness. `_security_persistence_callback` owns
+the common bounded thread-to-loop durable handoff. Gateway Browser/DLP receive
+paths require both negotiated features and the Linux audit runtime version.
+Private 3.2.123 ALT/KDE Wayland acceptance confirmed Chromium forced installation,
+ADMIN heartbeat and upload/paste delivery in both management modes, plus CUPS
+job delivery through the same WSS spool. Physical USB acceptance is postponed;
+Chrome remains absent. The 2026-10-22 follow-up confirmed installed Yandex 26.4,
+signed ADMIN installation and a real accepted Native Messaging Hello in Wayland.
+ALT deterministic setup refusals use exit 78 through Core and launcher, matching
+the systemd no-restart contract; they do not trigger version rollback. Transient
+enrollment failures retain their existing retry status.
+
+Linux diagnostics share `platform/linux/sessions.py` (bounded logind local
+graphical sessions), `journal.py` (fixed severity/profile queries that exclude
+message content), and `cups.py` (bounded metadata-only IPP through the local
+CUPS Unix socket). `context_profiles/probe.py` uses logind and restricts manual
+journal diagnostics to metadata. Existing eventlog and service/printer handlers
+project these adapters into the same Windows/Linux DTOs. The RPM grants only
+the supplementary journal-read group; code still runs as `endpoint-agent`.
+CUPS-Get-Printers alone treats a well-formed no-queues response as an empty list;
+Get-Jobs errors remain failures. Large cups-browsed discovery can saturate the
+scheduler's default 100-client limit; that host capacity setting is separate
+from the Agent's unchanged bounded request timeout and recovery supervision.
+ALT software inventory scans up to 8192 records, fails on overflow, and no longer
+silently discards installed packages after record 2048.
 
 | Surface | Location | Responsibility |
 | --- | --- | --- |
@@ -378,9 +465,29 @@ agent remains selected. It holds every candidate-file pin, verifies the full
 payload before and after execution, and requires exact bounded output and a
 live owner. This offline executability check grants no Native or trial proof.
 
+ALT native distribution assembly lives in `tools/build_alt_pilot_kit.py` and
+`packaging/alt/pilot/`. It pins already qualified Core/User Sensor/runtime and
+separate CUPS repair/rollback/source RPM bytes, adds a deterministic manifest,
+and supplies a read-only integrity/clean-machine/RPM dependency gate. Revision 2
+requires both native header and payload publisher signatures for all four custom
+RPMs in an isolated trust database. Archive/manifest detached signing remains in
+the external operator signer; only the pinned public key ships. Installation,
+environment CA and unique one-use enrollment remain explicit native provisioning;
+the public kit carries no device state or credential. No Gateway contract,
+immutable runtime, automatic updater or server API is changed by this packaging.
+
 ## Excluded legacy surfaces
 
 The Endpoint core intentionally contains no desktop GUI, requester/ticket
 client, local Helpdesk account session, Helpdesk WebSocket agent, Protocol V3
 database/outbox, or Remote Assist runtime activation. Packaging specs and
 runtime verification enforce this boundary.
+
+Final ALT recovery boundaries: USB keeps one pending kernel change and Print
+keeps one bounded page; projection freezes each pending SecurityEvent until durable
+handoff succeeds. CUPS acquires its no-history baseline in the supervised polling
+loop. Common server Policy delivery retries SENSOR_NOT_READY after 30 seconds for
+both platforms; Browser Status resumes after the current ACK even on ERROR, while
+Activity still requires APPLIED. KDE autostart replaces its private environment
+before restarting its own unit. See the current ALT baseline and parity ledger
+for installed acceptance and remaining external gates.

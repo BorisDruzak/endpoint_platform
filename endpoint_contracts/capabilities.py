@@ -507,7 +507,6 @@ MODULE_CAPABILITY_REGISTRY: Mapping[ModuleCapabilityNameV1, ModuleCapabilityDesc
         result_model=PrinterQueueSummaryResultV1,
         parameters=(),
         risk="controlled_read",
-        platforms=("windows_amd64",),
     ),
     "software.list": _descriptor(
         capability="software.list",
@@ -598,7 +597,6 @@ MODULE_CAPABILITY_REGISTRY: Mapping[ModuleCapabilityNameV1, ModuleCapabilityDesc
             _parameter("max_events", "integer", ("input", "literal"), minimum=1, maximum=32),
         ),
         risk="controlled_read",
-        platforms=("windows_amd64",),
         execution_timeout_seconds=20,
         max_result_items=32,
     ),
@@ -618,7 +616,6 @@ MODULE_CAPABILITY_REGISTRY: Mapping[ModuleCapabilityNameV1, ModuleCapabilityDesc
             _parameter("lookback_minutes", "integer", ("input", "literal"), minimum=1, maximum=60),
         ),
         risk="controlled_read",
-        platforms=("windows_amd64",),
         execution_timeout_seconds=20,
         max_result_items=20,
     ),

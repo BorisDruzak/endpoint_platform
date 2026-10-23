@@ -4,6 +4,24 @@ from __future__ import annotations
 
 from endpoint_contracts.software_primitives import SoftwareFindParametersV1, SoftwareListParametersV1
 
+def test_alt_find_includes_packages_after_the_old_2048_record_cutoff(monkeypatch):
+    from pc_agent.primitives.software import handlers
+    from endpoint_contracts.software_primitives import SoftwareFindParametersV1
+
+    raw = b"base\t1\tALT\tx86_64\n" * 2048 + b"chromium\t152\tALT\tx86_64\n"
+    monkeypatch.setattr(handlers, "_execute_bounded_command", lambda *a, **k: raw)
+    result = handlers.software_find(SoftwareFindParametersV1(schema_version="software_find_parameters_v1", name="chromium"), query_inventory=handlers._alt_inventory)
+    assert result.status == "succeeded" and result.present
+
+
+def test_alt_inventory_rejects_overflow_instead_of_a_partial_success(monkeypatch):
+    import pytest
+    from pc_agent.primitives.software import handlers
+
+    raw = b"base\t1\tALT\tx86_64\n" * 8193
+    monkeypatch.setattr(handlers, "_execute_bounded_command", lambda *a, **k: raw)
+    with pytest.raises(ValueError):
+        handlers._alt_inventory()
 
 def test_software_list_deduplicates_and_bounds_safe_fields() -> None:
     from pc_agent.primitives.software.handlers import software_list

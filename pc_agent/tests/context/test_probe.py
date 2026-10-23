@@ -14,6 +14,18 @@ from pc_agent.context_profiles import probe as probe_module
 from pc_agent.context_profiles.probe import MAX_PROBE_BYTES, SystemProbe
 
 
+def test_native_diagnostic_journal_requests_only_metadata_and_checks_exit(monkeypatch):
+    command = probe_module.JOURNAL_COMMAND
+    assert "cat" not in command
+    assert "--output-fields=__REALTIME_TIMESTAMP,PRIORITY,_SYSTEMD_UNIT,_TRANSPORT" in command
+    monkeypatch.setattr(probe_module.shutil, "which", lambda _: "/usr/bin/journalctl")
+    def run(argv, timeout, limit, *, check_exit=False):
+        assert check_exit is True
+        return b'{"PRIORITY":"3"}\n'
+    monkeypatch.setattr(probe_module, "_execute_bounded_command", run)
+    assert SystemProbe().run(command, 2.0, 8192) == '{"PRIORITY":"3"}\n'
+
+
 def test_system_probe_converts_subprocess_timeout_to_collector_timeout(monkeypatch) -> None:
     """A process timeout becomes the timeout type all collectors handle."""
 

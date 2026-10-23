@@ -238,14 +238,8 @@ def test_core_specs_build_only_the_headless_runtime(platform: str, tmp_path: Pat
     assert captured["scripts"] == [
         str(PROJECT_ROOT / "pc_agent" / "runtime" / "main.py")
     ]
-    if platform == "windows":
-        assert captured["datas"] == [
-            (
-                str(PROJECT_ROOT / "browser_sensor" / "extension-id.txt"),
-                "browser_sensor",
-            )
-        ]
-    else:
-        assert captured["datas"] == []
+    assert captured["datas"] == [
+        (str(PROJECT_ROOT / "browser_sensor" / "extension-id.txt"), "browser_sensor")
+    ]
     assert not FORBIDDEN_SPEC_IMPORTS.intersection(captured["hiddenimports"])
     assert FORBIDDEN_SPEC_IMPORTS.issubset(captured["excludes"])

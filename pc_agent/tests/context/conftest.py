@@ -5,6 +5,8 @@ import json
 
 import pytest
 
+from pc_agent.context_profiles.probe import JOURNAL_COMMAND
+
 
 FIXED_TIME = datetime(2026, 7, 29, 12, 0, tzinfo=timezone.utc)
 
@@ -60,7 +62,7 @@ class FakeProbe:
             ("systemctl", "is-active", "sshd"): "active\n",
             ("systemctl", "is-active", "NetworkManager"): "inactive\n",
             ("ps", "-eo", "comm=,stat="): "agent S\nworker R\n",
-            ("journalctl", "-n", "100", "--no-pager", "-o", "cat"): "token=super-secret\nservice healthy\n",
+            JOURNAL_COMMAND: "token=super-secret\nservice healthy\n",
         }
 
     def read_text(self, path: str, max_bytes: int) -> str:

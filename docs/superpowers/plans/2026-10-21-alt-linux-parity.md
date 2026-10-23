@@ -1,0 +1,553 @@
+# ALT Linux Agent parity implementation plan
+
+**Goal:** A stable ALT 11 Agent using the existing Gateway, Context, Policy,
+Activity and SecurityEvent contracts, accepted on real KDE sessions.
+
+**Architecture:** Preserve the unprivileged system Core and root update worker.
+Add Linux adapters under `pc_agent/platform/linux`, a separate session sensor,
+and authenticated Unix socket ingress. Keep shared business rules and WSS.
+
+**Spec:** User-supplied ALT Linux 11 task, sections 1–16, 2026-10-21.
+Execution is explicitly authorized without intermediate approval stops.
+
+## Constraints and acceptance
+
+- No production rollout, monitoring-policy changes, mass deployment or TLS bypass.
+- Preserve AD configuration, device identity, user state and unrelated local work.
+- Content-free observations only; no titles, file contents, document names or keys.
+- Report unavailable sources honestly; unit tests do not establish live acceptance.
+- Starting main: `c22024492dbb6b12fe5760c54868d18987b668f2`, Agent 3.2.121.
+- Original checkout is dirty; use `codex/alt-linux-parity` in its managed worktree.
+
+## A — Core and RPM
+
+- [x] Inspect GitNexus baseline, source, dependencies and available hosts.
+- [x] Build current immutable Core/launcher and RPM on ALT/Python 3.12.
+- [x] Reproduce/fix runtime and package failures with focused regression tests.
+- [x] Install/register the reference pilot; verify strict HTTPS, WSS, scheduled
+  baseline/health/network and inventory reflected in Console.
+- [x] Verify installation/upgrade preserves protected identity and registration.
+
+## B — Context and diagnostics
+
+- [x] Add metadata-only bounded journald profiles to existing eventlog handlers.
+  Test privacy, invalid rows, denied access, truncation, limits and Windows parity.
+- [x] Add logind session enumeration under
+  `platform/linux/sessions.py`; use it in `context_profiles/probe.py`.
+  Test multiple sessions, domain-qualified names, lock, remote and manager rows.
+- [x] Use verified CUPS IPP for printers and queue summary; test missing daemon,
+  private fields, queued/printing/error states and bounded output.
+- [x] Run all advertised Linux diagnostic handlers on the real host; only then
+  adjust catalog platform support and generated contract artifacts.
+
+## C — Activity and Policy
+
+- [x] Implement Linux session sensor, X11 and KWin Wayland adapters; validate
+  installed KDE APIs before choosing idle/foreground integration.
+- [x] Authenticate Unix IPC using peer PID/UID and OS session; reject forged
+  identities, cross-session samples, oversized frames and unexpected messages.
+- [x] Add Linux Policy applicator, state restoration and truthful Sensor Health;
+  wire existing ActivityDispatch and WSS ACK gates in runtime/application.py.
+- [x] Package automatic session startup without adding Qt UI to System Core.
+- [x] Verify real domain user, lock/unlock, logout, Wayland and X11.
+
+## D — Browser and audit DLP
+
+- [x] Share existing browser protocol/extension and content-free projections.
+- [x] Implement Native Messaging forwarding over authenticated local IPC;
+  verify installed browser paths, ID/origin validation and frame bounds.
+- [x] Support owned and external browser deployment without modifying GPO files.
+- [x] Implement USB sysfs/udev and CUPS metadata-only audit sources with stable
+  event identities; reuse bounded SecurityEventRuntime/SQLite spool and ACKs.
+- [x] Verify browser installation, heartbeat, upload/paste, USB/print source and
+  actual receipt; document absent physical resources as unverified.
+
+## E — Reliability
+
+- [x] Test reconnect, restart, reboot, sensor isolation and cancellation.
+- [x] Test applied update, integrity rejection and crash rollback on the pilot.
+- [x] Exercise bounded queues, disk errors and recovery without identity loss.
+
+## F — Console and publication
+
+- [x] Verify shared Console device/Context/Policy/Activity/DLP views in Playwright.
+- [x] Update current ALT baseline, install runbook and pc_agent CODEMAP in place.
+- [x] Run one complete relevant release gate plus targeted Windows regressions.
+- [x] Inspect complete diff, clean checks and task-only commits; safely publish
+  verified changes to main through the repository process; no production rollout.
+
+## Initial findings / execution ledger
+
+- GitNexus index matches remote main; later requests experienced transport errors.
+- Reference host is ALT Workstation K 11.4, KDE/KWin 6.7.4, Python 3.12.13;
+  active domain-user X11 session, CUPS/SSSD running, Agent absent, ~13 GiB free.
+- Dedicated headless pilot SSH timed out. Reference operator is not in sudoers;
+  checking the available root boundary without changing AD or sudo policy.
+- Context7 is quota-limited; use upstream documentation and installed API probes.
+- Linux Policy/Activity/SecurityEvent composition is absent; eventlog rejects
+  Linux; session context uses who; queue summary is Windows-only.
+- Legacy pc_agent/AGENTS.md references missing docs and `.agents` skills; use
+  existing architecture, source/tests and current CODEMAP rather than invent them.
+- Initial Core/RPM: native PyInstaller build passed; rpmbuild initially failed
+  because rpm-build-python3 was missing. Declared the build dependency and
+  installed that package on the reference test host; RPM build and install
+  passed. Baseline package is 3.2.121-alt3, 27,827,405 bytes. No stable release
+  or production application deployment has been performed.
+- Strict configured-CA HTTPS /healthz returned 200. An audited SSH operator
+  call to existing campaign/claim services created a one-use Linux campaign,
+  limited to the reference machine's /32 and verified service-user hardware
+  fingerprint. Claim passed privately over authenticated SSH/SFTP; no token
+  was printed or placed in Git. Dedicated service credential and canonical
+  device identity are owned by endpoint-agent, mode 0600. Console confirms
+  online Agent/Launcher 3.2.121 and fresh inventory/Context; zero restarts.
+- Live source: logind sees active X11, CUPS returns nonempty inventory and zero
+  queued jobs; journal projection returns 64 bounded metadata rows. Service
+  journal access fails without systemd-journal and succeeds with that group.
+  Source tests also exposed the comma-separated loginctl property mistake and
+  a journal response bound exceeded by 200 rows; both are fixed and covered.
+- Live old RPM inventory returned false for an installed package after entry
+  2048; candidate returned true. 3569 packages are within the bounded 8192 scan.
+- Checks: local diagnostics/contracts/Windows-session regression subset
+  117 passed, 3 skipped; contract-only subset 17 passed; generated contract
+  check and compileall passed. ALT Python 3.12 run with RPM tests:
+  181 passed, 2 skipped, 2 environment failures (Git is absent in the source
+  snapshot); the two git-archive/LF checks separately passed on Windows.
+- AD probe: SSSD UID-to-SID and SID-to-name work, but reverse name remains
+  unqualified. Activity identity must not rely on that short name alone.
+- Pending: claim finalization/restart identity preservation, installed candidate
+  adapters, remaining diagnostic smoke, then Activity/IPC and later phases.
+- Claim finalization completed only after validating fixed paths, private file
+  ownership/modes, canonical identity and credential digest against the durable
+  handoff request. Agent restarted without the claim; identity/credential bytes
+  remained identical, service running with zero crash restarts.
+- Native diagnostics/RPM subset rerun excluding only the two Git-dependent
+  snapshot tests: 181 passed, 2 skipped, 2 deselected. Those two LF/archive
+  checks passed separately in the real Windows Git checkout. Latest local
+  Context/primitives/contracts subset: 115 passed, 3 skipped; generator check
+  passed. No full final release gate has yet run.
+- C foundation: common local envelope and Activity policy projection extracted
+  in 03d98c6ae889f3ee7e13cd74a8d218263b658760; Windows compatibility imports and
+  native pipe authorization retained. Targeted Windows/common tests: 34 passed.
+- SSSD original UPN is accepted only when its original SID agrees with a
+  separate UID-to-SID lookup. Live AD resolution returned a qualified identity;
+  neither the principal nor the SID is copied into tracked evidence.
+- Linux IPC uses bounded SOCK_SEQPACKET records, SO_PEERCRED, per-record
+  SCM_CREDENTIALS and logind session binding. Descriptor passing is rejected
+  and received descriptors closed. Inactive/locked OS state overrides a user's
+  unlocked sample; finite listener backlog/deadlines and exclusive socket lock.
+  Native Linux IPC/identity/sample tests: 29 passed. Runtime integration pending.
+- KDE upstream/live API investigation: X11 ScreenSaver idle is milliseconds;
+  Wayland KIdleTime polling is unsupported and returns zero. The optional
+  user-only Qt/KF6 helper uses idle/resume events on Wayland and reports unknown
+  until a real resume establishes its clock. KWin integration reads PID only.
+  Native compilation and graphical acceptance are still pending. Build-only
+  compiler/Qt development packages are being installed on the reference host;
+  apt simulation showed 45 additions, no upgrades/removals.
+- IPC foundation final focused Linux run: 20 passed, including mutual client/server
+  kernel-credential verification and descriptor-leak rejection. Local Windows
+  run: 15 passed, 5 Linux-only skips. KDE helper native build passed with
+  -Wall -Wextra -Werror; actual domain-user X11 produced idle/lock/PID facts and
+  removed its own KWin script on shutdown. User explicitly authorized ending
+  the test graphical session and rebooting for later Wayland/recovery acceptance.
+- C source composition uses the existing PolicyRuntime/cache, ActivityDispatch,
+  WSS policy ACK gate and SensorHealthRuntime. Linux feature negotiation starts
+  at 3.2.122; 3.2.121 remains unsupported. Browser/DLP are not yet advertised on
+  Linux. Requests for missing sources fail SENSOR_NOT_READY. A live Linux
+  composition regression showed stale listener readiness could ACK after stop;
+  application now checks the listener's current availability.
+- C targeted Windows/common/architecture/packaging gate: 279 passed, 1 skipped;
+  dedicated Linux composition and silent-helper cancellation checks passed.
+  User mode branches before enrollment/settings, and receives no credential.
+  Optional user-sensor RPM/build integration is in progress, not yet built or
+  installed. Agent version remains 3.2.121; no release has been published.
+- A concurrent Wayland session initially had no outputs. After ending the
+  authorized test X11 session and temporarily
+  stopping LightDM, a fresh real Wayland session has one connected, enabled
+  output. Native helper produced idle/lock/foreground facts, zero stderr and
+  cleaned its own KWin script. A disposable pointer moved by +1/-1 establishes
+  a real resume; no keys or contents are captured. Helper now suppresses idle
+  and PID when Qt has only a placeholder screen. Domain-user Wayland check
+  is starting. Restore LightDM before leaving the reference host unattended.
+- Actual domain-user Wayland then passed the same native probe with one
+  connected/enabled output, known idle after input, known lock fact,
+  foreground PID, zero stderr and script cleanup. Separate identity lookup
+  executed as the real endpoint-agent account returned a qualified identity.
+  Autostart uses only its own mode-0600 environment file in the user's runtime
+  directory, rather than changing global user-manager environment.
+- Native KWin sender spoof probe returned AccessDenied/KWIN_REQUIRED and did
+  not replace the foreground PID. ALT RPM has def_without/if_with macros but
+  lacks upstream bcond_with; corrected the optional package conditional after
+  checking the installed RPM macro table. Final two-RPM build remains pending.
+- Native ALT spec query confirms the optional build produces exactly the Core
+  and user-sensor package definitions. Final focused native composition,
+  cancellation, sample and wrapper/spec tests: 15 passed; shell syntax passed.
+  The actual domain-user KDE lock reports locked=true; standard root logind
+  unlock was then confirmed by the desktop helper reporting locked=false.
+- C installed-candidate acceptance uses private Agent 3.2.122. Neither the
+  production build registry nor GitHub reserves that Linux version. This is
+  a staging candidate, not a stable release or production rollout. Subsequent
+  functional runtime changes require another immutable artifact version.
+- Existing Endpoint staging uses its own application services and database.
+  Strict CA/hostname HTTPS health passed. Preparing the same committed
+  Endpoint application there; Helpdesk services/configuration are out of scope.
+  Staging migration is 0037; the only pending main migration is existing 0038
+  Activity Analytics. Preserve a private database backup before applying it.
+- Existing staging upgraded to dfe14d5ed851 after a verified private database
+  dump and configuration backup. Migration 0038 passed; strict HTTPS health
+  returned 200; Helpdesk PID/start time were identical before and after.
+- Native private 3.2.122-alt4 Core (28,319,959 bytes) and optional user-sensor
+  (23,041 bytes) RPMs built and installed. RPM upgrade preserved the original
+  pilot credential/identity bytes. Production pilot state/config are preserved
+  under root-only storage; staging has a separate enrollment and credential.
+  One-time staging claim finalized only after canonical identity/hash proof.
+  User autostart and hardened user service started successfully as the AD user.
+- C live WSS found remaining Windows-only receive guards for Activity and
+  Sensor Health despite negotiated Linux Policy. Reproduced with real route
+  tests (Linux policy transition cases failed activity_disabled). Receive guards
+  now use the same version/platform Policy negotiation as delivery; Browser
+  and SecurityEvents remain closed on Linux until phase D implements them.
+  Staging pilot temporarily stopped while this server fix is verified/deployed.
+- C Gateway fix passed 22 route/delivery tests, including real ASGI WebSocket
+  Activity transitions and Sensor Health persistence for Windows and Linux.
+- D foundation: extracted the existing Native Messaging stream into shared
+  browser_bridge.py and supplied a Linux Unix IPC transport. Windows pipe
+  authorization remains platform-owned. Wrong origin/extra arguments reject
+  before stdin is read; typed ACK validation and private-error suppression are
+  covered. Targeted Linux/common/Windows browser tests: 28 passed. Installation,
+  browser policy ownership and live extension handshake remain pending.
+- Installed C uncovered a user-unit namespace incompatibility: its mount
+  sandbox implicitly maps host root to UID 65534. A native user-unit probe
+  reproduced the selector ownership rejection while direct user execution
+  succeeded. Preserve the host UID namespace; retain NoNewPrivileges, AF_UNIX,
+  SUID/personality restrictions and strict root/service ownership checks.
+  Regression failed before the unit fix and passed after it. Focused session,
+  listener and packaging tests: 17 passed, 3 platform skips.
+- The installed 3.2.122 RPM is unchanged. A root-owned temporary user-unit
+  override exercises the corrected namespace until the next RPM packages it;
+  remove that acceptance override after upgrading the fixed RPM. The user
+  service then ran with zero restarts; real WSS Activity arrived on staging
+  with the verified qualified AD identity and honest UNKNOWN before input.
+- Full installed Wayland flow now confirmed through staging WSS: Policy
+  APPLIED, Sensor Health READY with fresh User Sensor receipt, qualified AD
+  identity, ACTIVE after real pointer input (idle=9), LOCKED with no foreground,
+  then IDLE after policy threshold 60 seconds (idle=94). Core and user service
+  both report zero restarts after correcting the receive/namespace defects.
+- D credential-free native entry branches before enrollment/settings, refuses
+  root and pins the public packaged extension ID. Core packaging includes only
+  that public ID asset. Focused entry/bridge/Windows protocol tests: 34 passed;
+  entry/dependency split/browser subset: 33 passed including artifact checks.
+  No Linux Browser/DLP capability is advertised by the installed C candidate.
+- D USB adapter uses unprivileged kernel netlink group 1, checked sender and
+  SCM credentials, bounded content-free fields, boot/sequence event UUIDs and
+  the shared Windows/Linux Policy/event projector. Foreign senders, duplicate,
+  truncated, oversized and malformed fields reject; synthetic events are ignored.
+  Reference service-user subscription succeeded. A real kernel input event
+  from the disposable pointer confirmed the sender/credential assumptions;
+  this is not claimed as USB hotplug evidence. Native tests: 13 passed; local
+  USB/Windows subset: 19 passed, 2 native skips. Physical USB acceptance pending.
+- D CUPS source uses explicit safe IPP fields, bounded ID pagination and a
+  startup baseline; old history is skipped without requesting document names.
+  Stable CUPS UUID/time facts and frozen pending records preserve identity on
+  spool retries. Shared print projection retains Windows notification behavior.
+  Local print/Windows/CUPS tests: 27 passed. Service-user live CUPS query returned
+  the held fixture's ID/UUID/printer URI/state/time/copies; pages were absent and
+  remain unknown. A separate native source probe observed a newly submitted
+  held fixture and persisted one PRINT_JOB through the existing SQLite spool
+  with no source failures, titles or contents. This is source/spool evidence,
+  not installed Gateway delivery. Disposable queue and its two jobs are removed;
+  no pre-existing printer definition was changed. The earlier inventory of 16
+  was a bounded projection, not a verified total; lpstat currently lists 47
+  destinations. Installed staging DLP acceptance is still pending.
+- D root-policy boundary: the existing Windows request/reply protocol is now
+  shared without changing service-SID authentication. Linux accepts only apply
+  and relinquish for fixed browser families from the actual Core UID, checking
+  both connection and record credentials. Policy files use trusted root paths,
+  durable ownership intent and rename-no-replace publication. Existing GPO,
+  unknown files, modified owned files and late corporate conflicts are preserved.
+  Native ALT root fixture/protocol/IPC checks: 27 passed. Local Windows/helper
+  regressions: 32 passed, 4 native skips. RPM service/client wiring and installed
+  Browser Sensor acceptance remain pending; no new capability is advertised.
+- D optional RPM now stages the credential-free native wrapper, pinned
+  Chromium/Chrome manifests and an isolated stdlib root Policy helper. The
+  helper has fixed write paths, a service-group-only socket and no command/path
+  inputs. Preparation preserves existing directories and creates only missing
+  root paths with public metadata permissions even under a private umask.
+  Linux Policy uses fixed operations and reports conflicts/helper failures;
+  Activity-only installations without browser ownership do not need the helper.
+  Browser status projection/ACK gating is shared with Windows. Native paths for
+  Yandex remain unverified because the browser is absent. Native ALT root IPC,
+  ownership, browser facts, wrapper and RPM macro checks: 31 passed. Local
+  targeted/common/Windows/packaging checks: 52 passed, 3 native skips. An initial
+  native packaging assertion used a stale selectively copied user unit; copying
+  the committed fixed unit resolved it. Next candidate must use a full exact
+  source archive; installed browser/WSS tests are still pending.
+- D runtime composition now routes Linux USB, CUPS and browser IPC through the
+  existing SecurityEventRuntime and protected SQLite spool. Windows/Linux share
+  the bounded durable callback. A failed optional USB source does not prevent
+  Print from persisting; requesting failed USB audit returns SENSOR_NOT_READY.
+  Browser availability is rechecked from trusted installed native-host files at
+  policy application. Core >=3.2.123 negotiates Browser/DLP separately from the
+  3.2.122 Activity-only candidate. Gateway receive guards use that same boundary.
+  Real ASGI tests first reproduced the Windows-only Browser/DLP rejection, then
+  passed persistence, ACK and idempotent replay for both platforms. Targeted
+  runtime/Windows/Gateway/policy checks: 77 passed, 1 native skip. GitNexus route
+  lookup/symbol lookup did not resolve this dynamic handler; file impact found
+  the direct main.py import (LOW). Source and route tests verify the actual
+  dynamic boundary. Installed candidate/version bump and D live tests pending.
+- D failure-path regression found Browser Status reopening after a rejected
+  Policy ACK. The server correctly rejects such reports, which would otherwise
+  interrupt WSS precisely when an optional source fails. Replacement delivery
+  now pauses all policy-gated streams; Browser Status resumes only after an
+  APPLIED ACK, while Sensor Health can report the rejected policy. Regression
+  reproduced the missing pause before the fix. Runtime/common/Windows/security
+  checks: 65 passed, 1 native skip.
+- D/E spool fault injection reproduced two Core-sensitive paths: initial spool
+  open failure aborted startup, and a transient read failure stopped its WSS
+  sender. Startup now continues with honest unavailable health/source gating;
+  the common sender retries bounded reads/initial opening without resetting or
+  deleting data. A failed durable ACK retains the batch for replay. Policy
+  readiness reads actual spool health rather than a stale startup flag.
+  Security/runtime/Windows/health checks: 72 passed, 1 native skip.
+- E configuration-loop RCA: the observed invalid_service_origin returned 75;
+  launcher treated it as a startup crash and could request rollback. ALT setup
+  refusals now return the unit's non-restarting 78, which launcher propagates
+  immediately without retry/rollback. Terminal enrollment denied/invalid
+  credentials also use 78; transient transport/persistence failures retain 75.
+  The new configuration tests failed before the fix. Native ALT launcher,
+  updater, enrollment and runtime checks: 112 passed, 3 Windows skips. Local
+  runtime/new launcher checks after terminal-status coverage: 64 passed.
+  A broad Windows invocation of Linux filesystem update tests failed on absent
+  os.fchmod (34 failures, 76 passes, 5 skips); those native filesystem checks
+  were rerun on ALT and passed rather than emulating Linux ownership on Windows.
+- Next private D candidate is 3.2.123-alt4. Read-only production UpdateBuild
+  lookup found no reserved 3.2.122/123/124 on any platform/channel; GitHub releases
+  were empty. Previously installed 3.2.122 runtime bytes are preserved. The new
+  candidate will be built from one exact committed full source archive and is
+  not authorized for production rollout or stable-channel publication yet.
+- D installed acceptance, immutable source e3fb18512af7: full exact source
+  archive passed 142 native ALT checks. Core and launcher froze successfully.
+  ALT RPM site policy rejected building as root; the already verified staged
+  artifacts were packaged by the existing unprivileged build user without
+  rebuilding runtime bytes or bypassing RPM policy. Both RPM digest checks and
+  the test transaction passed; Core has no Qt/KDE dependencies. Upgrade to
+  3.2.123-alt4 preserved credential, identity, config and CA bytes. Temporary
+  namespace override was removed; the packaged user unit works with zero
+  restarts, as do Core and the restricted root helper.
+- Staging server e3fb18512af7 prepared/activated with a fresh verified database
+  dump and config backup, no schema change beyond existing 0038. Strict HTTPS
+  health returned 200 and cohosted Helpdesk PID/start time stayed identical.
+  The old C agent reconnected; the installed D agent negotiated successfully.
+- A single-device staging policy enabled audit only. Real KDE/Chromium forced
+  installation fetched the existing signed public extension (same JS bytes),
+  connected through the RPM native host and produced 0.1.0 ADMIN heartbeats.
+  Server saw Chrome-family RUNNING, ENDPOINT-owned policy, native host READY.
+  Browser tests used Playwright CLI/CDP over a loopback SSH tunnel, an isolated
+  profile and a local fixture with no submission. A page opened before extension
+  installation required reload for content-script injection. Buffer-based file
+  input emits an untrusted change and was correctly ignored; native CDP file
+  selection of the actual synthetic ALT file emitted isTrusted=true.
+  Installed WSS persisted BROWSER_UPLOAD, BROWSER_PASTE and a newly held CUPS
+  PRINT_JOB through the common spool; browser events carried the OS-qualified
+  domain identity, without file names or clipboard/document contents. Print
+  pages were unavailable and remain unknown; no user was guessed for the job.
+- external_managed live handoff removed only the hash-verified Endpoint policy
+  and marker, preserved the separate operator test policy, and installed the
+  extension into a second fresh Chromium profile. Staging received EXTERNAL,
+  APPLIED, native-host READY and a fresh 0.1.0 ADMIN heartbeat for policy 3.
+  Reloading that fresh profile's fixture also delivered real upload and paste
+  events under policy 3, confirming the external mode's complete path.
+  All three pre-existing corporate policy files retain their contents/ownership/
+  modes. Two mtimes changed at the exact start/exit of the normal hourly
+  gpupdate service; this external refresh was not reverted or disabled.
+- USB kernel source and the shared spool report READY; physical USB plug/unplug
+  acceptance is explicitly postponed by the user. Do not repeat that request
+  or claim physical USB acceptance. Chrome/Yandex live acceptance remains
+  conditional on installing those absent browsers; Yandex paths stay UNKNOWN.
+  The own held CUPS queue, external-policy fixture, browser profiles/tunnel and
+  transient graphical session remain for phase E and require final cleanup.
+- E controlled network fault matched only the Core service UID and staging
+  HTTPS destination, with an independent 90-second cleanup timer. A real held
+  CUPS job remained queued across a Core restart; restoring connectivity drained
+  the queue. Credential and device identity bytes stayed identical. The own nft
+  table was removed and Core remains active with zero crash restarts. Server
+  deduplication confirmation is still pending.
+- E native RPM lifecycle regression reproduced an inactive update watcher after
+  package configuration: try-restart never starts a stopped path unit. Use restart
+  for the update watcher, retaining Core's configured-start guard. Regression
+  failed before the fix; native RPM checks passed 21/21 (one artifact skip, two
+  Git-dependent cases excluded from the source snapshot); Windows checkout
+  checks passed 22 with two native skips. The test-session install script had
+  explicitly stopped the watcher, exposing the same inactive-state lifecycle.
+- E OTA candidate uses a new immutable version 3.2.124, preserving the verified
+  3.2.123 runtime as the rollback baseline. Only this private staging device is
+  eligible; no production rollout or stable-channel publication is performed.
+- E server confirmed the offline print event exactly once. First real OTA
+  delivery of 3.2.124 failed safely because the RPM had installed its external
+  artifact.manifest.json inside the strictly immutable release tree. Core
+  remained online on 3.2.123 and the server recorded failed. The native test now
+  executes the real RPM payload install block and verifies the installed tree
+  through the real updater; it reproduced that same rejection. Move the external
+  sidecar to the package documentation directory; no updater validation weakened.
+  Native RPM checks: 22 passed, one artifact skip, two Git-dependent exclusions;
+  Windows checkout: 22 passed, three native skips. RPM revision becomes alt5;
+  frozen 3.2.124 runtime bytes remain unchanged from e84fdf0cf5a7.
+- E controlled migration of the old private 3.2.123 RPM compared the extra
+  root-owned sidecar byte-for-byte with its original build input, moved only
+  that sidecar to the root backup, and verified the entire selected release.
+  A fresh single-device rollout delivered the identical immutable 3.2.124
+  artifact through strict HTTPS, the real root worker and startup outcome.
+  Staging now records applied and Agent 3.2.124; Core is active, zero restarts.
+- B full service-user source smoke exposed Diagnostic Context exceeding the
+  Gateway's 4096-character JSON string bound when journald returned its mandatory
+  cursor fields. The regression reproduced a real AgentResultV1 validation
+  failure. Context now reuses the primitive's safe journal metadata projector,
+  discards extra fields and private service-instance names, and bounds its
+  compact text to the narrower Gateway limit. Malformed/unstructured rows fail
+  closed. Local Context/eventlog checks: 62 passed, three native skips. All 27
+  advertised Linux capability handlers then ran successfully as endpoint-agent
+  against the actual reference OS (source smoke; installed fixed build pending).
+- E crash fixture 3.2.125-acceptance.1 failed three startup attempts and the real
+  root worker restored 3.2.124; staging recorded rolled_back. The intentionally
+  invalid inner-digest fixture 3.2.126-acceptance.1 was rejected without changing
+  the selected runtime. It exposed a later outcome bug: an old rollback marker
+  masked the newer failed operation and kept the canary eligible. Regression
+  reproduced that ordering. Startup reporting now interprets the latest durable
+  operation before applying its matching rollback marker. Private Core/watcher
+  were stopped while the corrected source ran once as the actual service UID,
+  with systemd-protected CA and existing device credential, through the normal
+  GatewayUpdateRuntime/EndpointUpdateAdapter. It reported the actual retained
+  failure; no DB outcome or history was fabricated. Staging records failed for
+  that fixture and Core/watcher were restarted. Revalidate this sequence with
+  the next frozen candidate, then repeat final reboot/session checks.
+- Outcome-ordering verification: 22 native ALT update/runtime characterization
+  checks passed; the focused Windows-compatible Gateway subset passed 9. A
+  broad Windows invocation had one expected native os.fchmod failure; the
+  complete same update characterization ran successfully on ALT instead.
+- Final corrected private candidate advances to 3.2.125-alt5; production registry
+  has no reserved 3.2.125. Keep 3.2.124 immutable as its working rollback baseline.
+  Console's old Windows-only support note is replaced with actual negotiated
+  Activity/Policy/session requirements; all 44 Console tests passed. Existing
+  authenticated first browser tab was production, so it is now explicitly
+  navigated to staging for the requested UI acceptance; it shows the login form.
+- Final whole-branch review of c2202449..77c70828 found four Important issues
+  (no Critical): permanent USB stop on transient persistence failure, diagnostic
+  Browser Status suppressed after ERROR ACK, stale KDE display environment after
+  quick session change, and no recovery when CUPS is absent at startup. All four
+  were accepted into one fix pass; no second review is dispatched.
+- Live X11 AD session acceptance confirmed ACTIVE/IDLE/LOCKED and a qualified
+  identity after restarting the stale sensor. Before that restart, /proc showed
+  old Wayland display variables while the new autostart file held X11 settings.
+  Autostart now restarts its own unit after publishing its validated environment.
+  Its regression failed before the fix; native recovery/package subset passed
+  39, Windows-compatible recovery subset passed 35 with four native skips.
+- Full Linux/PostgreSQL gate on immutable 77c70828 ran: 4325 passed, 807 skipped,
+  37 failed. The private gate shell's umask 077 caused strict release-fixture
+  mode failures; rerun with CI's normal 022 inside the private gate directory.
+  Other failures were old raw-journal expectations, old Linux capability
+  exclusions, and the static Windows golden version. These expectations are
+  being aligned with the verified metadata contract/capabilities/version;
+  production filesystem validation is not weakened to accommodate the harness.
+- Final recovery fixes retain one pending USB record and retry persistence with
+  unavailable health during the fault. Frozen USB and Print deliveries preserve
+  their original timestamp, policy and identifier across retry; regressions
+  reproduced both a later timestamp and a changed policy before the fixes.
+  Kernel buffering remains bounded and overflow increments source failures.
+  CUPS establishes its no-history baseline inside its supervised polling loop,
+  recovering from an unavailable daemon without restarting Core.
+- Ruling: recovering a source is insufficient if its startup SENSOR_NOT_READY
+  ACK is terminal. The common server now retries only that transient error after
+  a 30-second backoff; deterministic conflicts remain quiet. This applies to
+  Windows and Linux through the existing Policy delivery/ACK contract. The
+  two-platform regression failed before the change and passed afterward.
+- Browser Status resumes after the delivered policy's ACK, including ERROR,
+  preserving failure diagnostics while Activity remains APPLIED-gated. The
+  earlier APPLIED-only ruling was incorrect: actual two-platform ASGI tests
+  prove the server accepts current-assignment ERROR diagnostics. Runtime
+  regression first failed; actual WSS persistence is now explicitly parameterized
+  for both ACK statuses and platforms. Recovery/Windows/Gateway subset: 58
+  passed, one native skip. No Critical/Important review finding is deferred;
+  the complete suite after this single fix pass is still required.
+- Final native recovery subset: 52 passed, 12 native permission-fixture skips; final CUPS shutdown-bound recheck: 21 passed. Updated diagnostic/platform release expectations: 199 passed on the operator checkout.
+
+- Final review corrections require a new immutable candidate 3.2.126-alt5; the production registry was checked read-only and has no reserved 3.2.126. Version 3.2.125 artifacts remain unchanged.
+
+- Final exact-source full Linux/PostgreSQL gate on fd9b918de6e976a085c96e38930515c61d2ee123: 4372 passed, 807 skipped, 17 warnings in 922.99 seconds. Contract artifact check and compileall completed; overall exit 0. Disposable PostgreSQL stopped by the gate trap; shared staging/Helpdesk databases were not used by tests.
+- Native root-owned Linux/IPC/browser policy/package fixture: 64 passed using a private root-owned basetemp. The first invocation used ALT's writable /tmp ancestor and correctly failed the helper's directory authority check; use the private root fixture rather than weakening that boundary. Final native updater/launcher characterization: 51 passed. Final common Windows-compatible Policy/Browser/Gateway regression: 38 passed. Console: 44 passed; production bundle build passed. npm audit retains two pre-existing high dev/build dependency findings; no forced dependency upgrade was performed.
+- Exact 3.2.126 OTA completed with server applied. A new private startup-crash fixture rolled back to 3.2.126; the following malformed-inner-digest fixture produced failed while remaining on 3.2.126. Both terminal results arrived automatically from installed code, without the earlier one-shot reporting workaround.
+- Final Core/user-sensor RPM 3.2.126-alt5 upgrade passed strict selected-release verification and preserved credential/identity bytes. The installed KDE autostart automatically rebound the user unit from X11 to Wayland, confirmed in the actual process environment. Wayland on a connected output then delivered qualified-domain ACTIVE, IDLE at the policy threshold, foreground chromium and LOCKED with null idle/foreground.
+- CUPS startup fault had no unrelated pending jobs and an independent restoration timer. Installed Core stayed on the same PID while reporting SENSOR_NOT_READY and Print UNAVAILABLE; restoring CUPS produced APPLIED and Print READY without a Core restart. A new held synthetic job was received exactly once by staging. The root-only fault proof records only hashes, UUIDs and booleans.
+- All six installed 3.2.126 Context profiles completed and its diagnostic operation succeeded. After an actual machine reboot the boot ID changed, current selector and registration bytes were identical, and Core/browser helper/update watcher/LightDM were active with zero crash restarts. Six fresh post-reboot collections and the diagnostic operation also completed successfully.
+- Normal KDE logout was separately invoked through the installed org.kde.Shutdown.logout method. The graphical session and user manager exited; LightDM was restored. This is distinct from the earlier forced test-session termination. No test graphical session is left running.
+- Cleanup removed only the own held printer/queue, browser page/profiles, synthetic external policy, public diagnostic probes and transient acceptance source/venv mount targets. The SSH CDP tunnel was closed. Three original corporate policy files retained exact contents, ownership and modes; normal external gpupdate mtimes were not restored. The sole staging pilot now uses its private agent_managed policy version 4; production identity backup remains root-only and unchanged.
+- Console acceptance remains open: both accessible in-app tabs currently display the staging login form. The user was asked to attach the authenticated tab or sign in to this staging origin; no credentials were guessed, recovered from browser storage or reset. Shared UI tests/build are green, but that does not establish a live authenticated Console result. Physical USB plug/unplug remains expressly postponed; absent Chrome/Yandex live tests are not claimed.
+
+- Staging Console access recovered by the user-authorized password reset of its sole existing administrator, using the existing Argon2id implementation, target-only session revocation and an audit event. No secret entered source, arguments, environment or files; production/AD/SSH credentials were unchanged. Browser login now succeeds.
+- Live Console showed an empty primitive list because all optional server primitive flags were disabled. Seven read-only primitive flags were enabled only on staging with a protected config backup and unchanged Helpdesk process; network probes remain disabled. The connected ALT now exposes 17 safe primitive capabilities in Console.
+- Live Console also reproduced a diagnostic gap: transient CUPS timeouts correctly reported SENSOR_NOT_READY, but the UI hid the failure and individual source states. An additive admin-only projection now shows whitelisted error codes and current-policy source facts with the shared three-minute freshness boundary; old-policy facts/codes and arbitrary Agent error strings are not exposed. UI uses existing React panels (react-best-practices), without another request or dependency. Server and UI regressions failed before the change; affected Policy/auth/Gateway checks passed 78 with one native skip, all 46 Console tests passed, and the bundle build passed. The compiled 3.2.126 Agent bytes are unchanged.
+
+- Authenticated Playwright acceptance completed on server a4ce1648dca5d846a05dc7ab75fc01d32f2ed0b2: device identity/versions, 17 enabled primitive descriptions, current Context, stale Activity after logout, analytics account/search/history/foreground intervals, Policy facts and shared DLP filtering/details. A live CUPS outage showed the specific source UNAVAILABLE and the readiness reason; restoration returned APPLIED/READY on the same Core PID. Desktop 1440px and mobile 390px were visually inspected; document width equalled the mobile viewport. After the final reload there were zero console errors/warnings and no framework overlay. During the controlled server restart an earlier request returned 502; the absent staging Browser release returned its expected handled 404. Neither is concealed as zero-error evidence for that earlier phase.
+- Analytics minute-scale segments can overlap at day-view pointer resolution; keyboard selection of the existing accessible segment control opened the correct one-minute Chromium interval. This inherited narrow-hit-area limitation is outside ALT runtime parity and is not claimed fixed. The task does not establish a new analytics architecture or fleet readiness.
+- Browser evidence is kept as local screenshots outside tracked source. The existing ALT baseline was corrected to describe all six Context profiles, platform-gated registry primitives and the explicit staging-origin guard. Main publication is authorized by the original task and remains the final action after these checks.
+
+- Publication completed as a fast-forward of origin/main to 6363c56179aa691db829e2377bc5df157ffd5f51; fetch confirmed the exact remote SHA and zero left/right divergence. The working tree was clean. GitHub provider-release-gate run [39622621018](https://github.com/BorisDruzak/endpoint_platform/actions/runs/39622621018) was queued at handoff; this is not a CI success claim. The full native gate and affected final server/UI checks above remain the completed verification evidence. This publication record is a documentation-only follow-up, without runtime changes or another full local gate.
+- Final installed-state check: Core 3.2.126 active, PID 4791, NRestarts=0; browser policy helper, update watcher and LightDM active; private policy v4 APPLIED and all four source states READY. The authenticated first browser tab is left on the pilot's Policy view. After normal logout, stale Activity and unconfirmed closed-browser observations are deliberately visible. Physical USB plug/unplug remains postponed by the user; Chrome/Yandex live acceptance remains unavailable. No stable-channel publication, production deployment or fleet-readiness claim is made.
+
+## 2026-10-22 follow-up: CI, installed Yandex and CUPS
+
+- [x] GitHub run 39622621018 completed successfully for code SHA 6363c56179aa691db829e2377bc5df157ffd5f51. Published f87bf7cf39ea15c4f01687266d6c522694b58a3c differs only in the publication ledger.
+- [x] Correct the earlier absence claim: Yandex 26.4.4.968 was installed before the first acceptance. The real ALT executable is /usr/lib64/yandex/browser/yandex_browser; the unversioned launcher is absent. The former probe hard-coded UNKNOWN for Yandex. New tests reproduced it before the fix. Product detection, policy ownership, running-state and relinquish now include the verified Yandex product. Its policy path matches vendor documentation; the real signed ADMIN extension returned accepted/OK through the existing Chromium system native manifest in an isolated Wayland session. Two original corporate files retained exact contents/owner/mode. Unrelated forced extensions coexist; malformed lists or an externally owned Endpoint entry still cause a conflict.
+- [x] Reproduce and diagnose CUPS: discovery exhausted the default 100 client slots; the scheduler reported Max clients reached while six printer and four audit probes timed out before headers. The formerly enabled cups-browsed had also been left stopped by the previous outage test and was restored. A protected original config backup and rollback timer guarded the reference-only MaxClients 256 change. cupsd -t passed; SIGHUP reconfiguration required a service transition, after which 180 fresh queries all succeeded (maximum 4.14ms). No print ACL, AD, TLS, discovery filter or Agent timeout was changed. The normal no-printers status is separately accepted only for printer enumeration, with malformed/error responses still rejected.
+- [x] Red/green regressions and focused checks: 65 native root-owned Linux/browser/IPC/Policy/CUPS tests passed; operator platform checks passed 121 with 22 native skips; generated contracts remain unchanged. A pre-existing test required isolating its policy state directory to avoid contacting the installed helper on this live host.
+- [x] Compile/install immutable Agent 3.2.127-alt5 from f307bcc88d836bee0383e408d550f6501a02d094. Real RPM upgrade, selected-release hash/mode verification and credential/identity comparison passed; two corporate Yandex files remained byte/owner/mode identical. Core/helper/update watcher/CUPS/discovery are active with zero crash restarts. Authenticated Console shows 3.2.127, policy v4 APPLIED, all sources READY, Yandex DETECTED/OPEN, applied browser policy, native host READY and active signed extension 0.1.0. Activity remains stale because this isolated browser fixture does not manufacture user-sensor observations.
+- [x] Publish corrected source: commits 29c183cf9db2e077fd26049589fec69116176439 (Yandex), f307bcc88d836bee0383e408d550f6501a02d094 (empty CUPS response) and cd1acdf653353388ae103bb0d49660e4a0d24aaa (acceptance documentation) were fast-forwarded to main. [CI 39708254401](https://github.com/BorisDruzak/endpoint_platform/actions/runs/39708254401) completed successfully on exact cd1acdf. Production rollout remains excluded.
+- Correction to the capacity result above: MaxClients 256 was an interim mitigation. Longer observation still showed connection accumulation. A native isolated default-queue fixture reproduced the upstream update_cups_queues leak: descriptors rose 6 to 13 with the vendor binary and remained at 6 across 16 samples after backporting OpenPrinting commit 34da78b713a5d551471568f08f8c185c9f7dcac1. Real discovery still saturated the original 100-client scheduler, so that backport alone was not accepted as the complete fix.
+- GDB traced the remaining unmatched connections to is_disabled, called twice by create_queue. Source verification found that successful IPP responses returned without closing the local HTTP connection. Extracted, unchanged native-function tests against a separate local CUPS instance reproduced 10 leaked descriptors per 10 calls for idle, stopped and missing queues; all three cases retained zero descriptors after adding one close before parsing the successful response. The reviewed local 2.1.1-alt1.endpoint2 RPM adds exactly four httpClose calls to the signed vendor source, with zero removed source lines and unchanged vendor build options. Native build succeeded in an isolated ALT rootfs; shared staging/Helpdesk packages and services were not changed. Main RPM SHA-256: 9cf9036442f7e12ef450e6f3b9cf7cbd0e06cbb6772c6e1372e802ecd49bc62e; source RPM: 95d620dc714a2818c352932314f0a51f68e1f06d1018dbacd887b414a4785db3.
+- [x] Install and accept the corrected OS package on the reference host only. Original scheduler (default MaxClients 100) and discovery configuration remained byte-identical. A five-minute discovery run completed 300 of 300 real printer/audit queries, maximum 10.01ms. cups-browsed descriptors started at 11, peaked at 15 and finished at 9; all final-minute samples stayed at 9. Worker threads fell from 148 to 4 rather than retaining leaked connections. Core kept PID 46418 with zero crash restarts. A new held synthetic print job reached the existing staging SecurityEvent ledger exactly once under policy v4; Print was READY and Policy APPLIED. Its test job was cancelled and only its own queue removed; no physical print was sent.
+- [x] Yandex acceptance also delivered actual BROWSER_UPLOAD and BROWSER_PASTE through the installed signed ADMIN extension and native host to staging, carrying only allowed metadata. After stopping the isolated test session, Console correctly reports the installed browser CLOSED with stale extension telemetry. Strict Agent 3.2.127 release verification and registration/corporate-policy byte/owner/mode comparisons passed again after CUPS maintenance.
+- [x] Cleanup stopped the private CUPS instance and test browser/page units, closed the own tunnel, removed only the own browser/runtime fixtures and cancelled the fault rollback timer after successful acceptance. Build RPMs, source RPMs and logs remain protected for reproducibility/rollback; the inactive isolated build rootfs was removed, freeing 2,374,041,600 bytes on staging. AD, print ACLs, TLS and shared staging/Helpdesk services were preserved. This closing change affects documentation only; the passing CI's runtime code is unchanged.
+
+
+## 2026-10-22 follow-up: qualified native pilot kit and separate clean installation
+
+- [x] Add an offline, deterministic kit builder/verifier around the already qualified 3.2.127-alt5 Core/User Sensor RPMs and f307bcc88d836bee0383e408d550f6501a02d094 runtime. It pins all eight input digests and native RPM identities, includes repaired/vendor rollback/source CUPS RPMs, both patches, a rebuild recipe, staging templates and Russian instructions. No trust anchor, claim, device state or credential is included. Same-version repacks, unknown inputs, retained Endpoint units/drop-ins/state, unreviewed CUPS versions and failed dependency transactions are refused without installation or enrollment.
+- [x] Review fixes reproduced the retained-systemd-state bypass before adding the gate, then passed. The guide specifies the exact staging drop-in destination, daemon-reload/start sequence, native-only enrollment, service-account fingerprint collection and ALT su-versus-sudo behavior. Patch context whitespace is preserved with a path-scoped Git attribute.
+- [x] Separate ALT Workstation K 11.4/KDE test VM: verified no Endpoint RPM/canonical state, passed native clean preflight, then installed Core, User Sensor and cups-browsed 2.1.1-alt1.endpoint2 in one real RPM transaction. Qt 6.11.2/KF6 6.30 dependencies were already present. CUPS discovery resumed normally; original CUPS, SSSD/Kerberos/Samba and corporate Yandex/Chromium configuration checksums were retained.
+- [x] Provision a new staging-only Device with an individually bound one-use claim, using the existing audited enrollment service. Initial operator attempts exposed AD DNS NXDOMAIN and a root-versus-service-account fingerprint mismatch. Undelivered/unconsumed campaigns were revoked before corrected delivery; no registered identity was purged. Service-private resolver mounts use the working internal DNS; system resolver and AD configuration remain unchanged. HTTPS origin and CA validation were retained. The native service enrolled, permanent credential/identity were verified, the one-use claim was finalized, and claim-free restart passed.
+- [x] Device-scoped policy v1 reached APPLIED; Activity/User Sensor and USB/Print sources were READY. Before and after one real reboot, all six Context collections completed and the diagnostic operation succeeded. The boot ID changed, permanent credential/identity hashes remained identical, and Core, privileged browser helper, update path, CUPS/discovery, SSSD and LightDM started automatically with zero crash restarts. Native rpm -V passed. After the operator logged into KDE, the packaged User Sensor autostart ran without manual invocation, NRestarts=0, and fresh ACTIVE Activity arrived at staging.
+- [x] Post-boot CUPS acceptance: 300/300 real printer/audit queries in five minutes, maximum 10.95ms. Discovery descriptors started at 10, peaked at 15 and finished at 9; every last-minute sample stayed at 9. Threads fell from 110 to 4. A held synthetic PRINT_JOB reached the existing SecurityEvent ledger exactly once; its own job and queue were removed without physical output. All preserved configuration checksums passed again.
+- [x] Windows packaging suite: 273 passed, 4 skipped. Native kit tests: 26 passed. Two independent final ALT builds matched byte-for-byte; extracted integrity verification, shell syntax, compileall and diff checks passed. CI [39739450549](https://github.com/BorisDruzak/endpoint_platform/actions/runs/39739450549) succeeded on implementation fc4268f2aedeb389070ffef159aa52cf66e06ab7: 4491 passed, 722 skipped, with generated-contract, compile and whitespace gates passing. The closing follow-up changes only operator documentation and this ledger, not runtime, RPM inputs or verifier behavior.
+- [ ] Ordinary distribution still requires external publisher RPM signing. Physical USB/printing remain outside this acceptance, including the user's postponed USB test. The second VM reports installed Yandex 26.8.1.1117, Browser Policy APPLIED and native host READY, but no fresh ADMIN/extension heartbeat is claimed: its existing approved extension feed is a production artifact URL and was not fetched during this production-excluded task. No stable release, production access/change, fleet rollout, shared staging/Helpdesk restart, AD mutation or automatic installer was introduced.
+- [x] The supplemental private ALT rootfs was stopped and removed after the real separate VM became available; no container installation acceptance is claimed. Native qualification logs and final kit artifacts are retained. Source was proposed in draft [PR #42](https://github.com/BorisDruzak/endpoint_platform/pull/42).
+
+### Signed distribution gate, 2026-10-23
+
+- User authorized production server deployment and main integration after checks;
+  physical USB and real-printer tests remain explicitly deferred. Publication is
+  distinct from enrolling or updating an unspecified fleet.
+- Added only the two previously absent canonical controller A records in the
+  authoritative AD-integrated zone. The separate ALT VM now resolves both through
+  its original system resolver. Removed only own temporary Core/helper resolver
+  drop-ins; AD/SSSD, corporate browser policy and resolv.conf bytes are preserved.
+- A dedicated RSA-3072 publisher key stays in the restricted operator Windows
+  keystore, outside Git and ALT workers; passphrase is DPAPI CurrentUser protected.
+  Public fingerprint: BC24B8EE43DBB05A748E11A4343B5DA748370631. Four custom RPMs
+  have native header and payload RSA/SHA256 signatures. Compared immutable RPM
+  main headers and payloads against qualified originals: all unchanged.
+- Revision 3.2.127-2 pins the signed bytes and public key and requires both native
+  signatures in an isolated RPM database. Digest-only success, missing/wrong/BAD
+  signatures and key substitution regressions pass. Deterministic native builds
+  are byte-identical. Archive and inner manifest also have detached publisher
+  signatures, verified by native GnuPG on the separate VM.
+- Signed same-NEVRA replacement on the separate VM passed native RPM test/install
+  and rpm -V. Credential, enrollment identity, controller config, CA, CUPS, AD and
+  resolver hashes are unchanged; claim remains absent and services are active.
+  It intentionally retains its staging identity. Real Yandex 26.8 reports ADMIN,
+  extension 0.1.0, native READY and fresh heartbeat through installed code, using
+  an isolated private browser profile without changing the user's GUI/profile.
+- Verification: packaging 278 passed, 4 platform skips; Console typecheck/build,
+  46 unit tests and 11 browser tests passed. Read-only code review found no
+  Critical/Important defect; native/live deployment evidence is independently
+  checked by the operator, not inferred from the review.
+- Production activation, exact-head GitHub CI and main integration are still
+  pending at this checkpoint. Static distribution adds no service API/SDK/OTA
+  contract; preserve existing TLS, network ACL and WebSocket proxy on activation.

@@ -265,6 +265,26 @@ def test_headless_runtime_rejects_unapproved_staging_origin_before_gateway_start
     assert settings == []
 
 
+def test_alt_configuration_refusal_uses_the_systemd_no_restart_status(monkeypatch, tmp_path):
+    monkeypatch.setattr(runtime_main, 'os', SimpleNamespace(name='posix',environ=os.environ))
+    monkeypatch.setenv('ENDPOINT_AGENT_ALT_UPDATE_MODE','1')
+    monkeypatch.setenv('ENDPOINT_AGENT_GATEWAY_READY','1')
+    monkeypatch.setenv('ENDPOINT_AGENT_ORIGIN','https://endpoint-staging.sosnadmin.local')
+    assert runtime_main.main(['--ca-file',str(tmp_path/'ca.crt')]) == 78
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('status,expected',[('denied',78),('credential_invalid',78),('temporary_failure',75),('persistence_failed',75)])
+async def test_alt_terminal_enrollment_refusal_is_distinct_from_transient_failure(monkeypatch, tmp_path, status, expected):
+    monkeypatch.setattr(runtime_main,'os',SimpleNamespace(name='posix',environ=os.environ))
+    monkeypatch.setenv('ENDPOINT_AGENT_ALT_UPDATE_MODE','1')
+    monkeypatch.setenv('ENDPOINT_AGENT_ENROLLMENT_REQUIRED','1')
+    monkeypatch.setattr(runtime_main,'systemd_runtime_paths',lambda:(Path('/run/config'),Path('/run/ca'),Path('/run/claim')))
+    async def outcome(**_kwargs): return EnrollmentOutcome(status)
+    monkeypatch.setattr(runtime_main,'run_linux_enrollment_gate',outcome)
+    assert await runtime_main._run_runtime_after_first_boot_enrollment(_settings(tmp_path)) == expected
+
+
 def test_headless_runtime_accepts_explicitly_approved_staging_origin(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

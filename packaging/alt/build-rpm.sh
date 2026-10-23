@@ -10,11 +10,12 @@ release_manifest=''
 launcher=''
 output="$project_root/output"
 prepare_only=false
+with_user_sensor=false
 
 usage() {
     cat <<'USAGE'
 Usage: build-rpm.sh [--release-archive FILE --release-manifest FILE --launcher FILE]
-                    [--output DIRECTORY] [--prepare-only]
+                    [--output DIRECTORY] [--prepare-only] [--with-user-sensor]
 
 Without explicit inputs, builds the Task 8 Linux headless release and stable
 Task 9 launcher before invoking rpmbuild. --prepare-only validates and stages
@@ -34,6 +35,7 @@ while [[ $# -gt 0 ]]; do
         --launcher) launcher=${2:-}; shift 2 ;;
         --output) output=${2:-}; shift 2 ;;
         --prepare-only) prepare_only=true; shift ;;
+        --with-user-sensor) with_user_sensor=true; shift ;;
         --help|-h) usage; exit 0 ;;
         *) die "unknown argument: $1" ;;
     esac
@@ -282,6 +284,46 @@ stage_file 0755 "$script_dir/SOURCES/check-start-prerequisites.py" "$build_root/
 stage_file 0755 "$script_dir/SOURCES/start-endpoint-agent.py" "$build_root/SOURCES/start-endpoint-agent.py"
 stage_file 0644 "$script_dir/SOURCES/endpoint-agent.tmpfiles" "$build_root/SOURCES/endpoint-agent.tmpfiles"
 stage_file 0644 "$script_dir/SOURCES/endpoint-agent.logrotate" "$build_root/SOURCES/endpoint-agent.logrotate"
+if [[ "$with_user_sensor" == true ]]; then
+    [[ "$(uname -s)" == Linux ]] || die 'KDE sensor builds require Linux'
+    "$python_command" - "$version" <<'PY' || die 'KDE/browser sensor package requires Agent 3.2.123 or newer'
+import re, sys
+version = sys.argv[1]
+if re.fullmatch(r'(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)', version) is None:
+    raise SystemExit(1)
+raise SystemExit(0 if tuple(map(int, version.split('.'))) >= (3, 2, 123) else 1)
+PY
+    command -v cmake >/dev/null 2>&1 || die 'cmake and Qt6/KF6 development packages are required'
+    cmake -S "$project_root/pc_agent/platform/linux/kde_probe" \
+        -B "$temporary/kde-build" -DCMAKE_BUILD_TYPE=Release
+    cmake --build "$temporary/kde-build" --parallel 2
+    stage_file 0755 "$temporary/kde-build/endpoint-kde-probe" "$build_root/SOURCES/endpoint-kde-probe"
+    stage_file 0644 "$project_root/pc_agent/platform/linux/kde_probe/foreground.js" "$build_root/SOURCES/foreground.js"
+    stage_file 0755 "$script_dir/SOURCES/start-user-sensor.py" "$build_root/SOURCES/start-user-sensor.py"
+    stage_file 0644 "$script_dir/SOURCES/endpoint-user-sensor.service" "$build_root/SOURCES/endpoint-user-sensor.service"
+    stage_file 0644 "$script_dir/SOURCES/endpoint-user-sensor.desktop" "$build_root/SOURCES/endpoint-user-sensor.desktop"
+    stage_file 0644 "$project_root/browser_sensor/extension-id.txt" "$build_root/SOURCES/extension-id.txt"
+    stage_file 0755 "$script_dir/SOURCES/start-browser-bridge.py" "$build_root/SOURCES/start-browser-bridge.py"
+    stage_file 0755 "$script_dir/SOURCES/browser-policy-helper.py" "$build_root/SOURCES/browser-policy-helper.py"
+    stage_file 0644 "$script_dir/SOURCES/endpoint-agent-browser-policy.service" "$build_root/SOURCES/endpoint-agent-browser-policy.service"
+    stage_file 0644 "$project_root/pc_agent/browser_policy_protocol.py" "$build_root/SOURCES/browser_policy_protocol.py"
+    for module in browser_policy seqpacket browser_policy_helper; do
+        stage_file 0644 "$project_root/pc_agent/platform/linux/$module.py" "$build_root/SOURCES/$module.py"
+    done
+    "$python_command" - "$build_root/SOURCES" <<'PY'
+import json, re, sys
+from pathlib import Path
+root = Path(sys.argv[1])
+extension = (root / 'extension-id.txt').read_text(encoding='ascii').strip()
+if re.fullmatch(r'[a-p]{32}', extension) is None:
+    raise SystemExit('invalid public extension identity')
+(root / 'browser-native-host.json').write_text(json.dumps({
+    'name':'ru.sosnadmin.endpoint.browser', 'description':'Endpoint Browser Sensor',
+    'type':'stdio', 'path':'/usr/lib/endpoint-agent/browser-bridge',
+    'allowed_origins':[f'chrome-extension://{extension}/'],
+}, sort_keys=True) + '\n', encoding='ascii')
+PY
+fi
 
 if [[ "$prepare_only" == true ]]; then
     printf 'prepared=%s\nversion=%s\nrevision=%s\n' "$build_root" "$version" "$revision"
@@ -289,7 +331,10 @@ if [[ "$prepare_only" == true ]]; then
 fi
 
 command -v rpmbuild >/dev/null 2>&1 || die 'rpmbuild is required on the ALT build worker'
+rpm_options=()
+[[ "$with_user_sensor" == false ]] || rpm_options+=(--with user_sensor)
 rpmbuild -bb \
+    "${rpm_options[@]}" \
     --define "_topdir $build_root" \
     --define "agent_version $version" \
     --define "source_revision $revision" \
@@ -298,6 +343,10 @@ mapfile -t built_rpms < <(
     find "$build_root/RPMS" -type f -name 'endpoint-agent-*.rpm' \
         ! -name 'endpoint-agent-debuginfo-*.rpm' -print
 )
-[[ ${#built_rpms[@]} -eq 1 ]] || die 'rpmbuild did not produce exactly one binary RPM'
-install -m 0644 "${built_rpms[0]}" "$output/$(basename -- "${built_rpms[0]}")"
-printf 'rpm=%s\n' "$output/$(basename -- "${built_rpms[0]}")"
+expected_rpms=1
+[[ "$with_user_sensor" == false ]] || expected_rpms=2
+[[ ${#built_rpms[@]} -eq "$expected_rpms" ]] || die 'rpmbuild produced an unexpected binary RPM set'
+for built_rpm in "${built_rpms[@]}"; do
+    install -m 0644 "$built_rpm" "$output/$(basename -- "$built_rpm")"
+    printf 'rpm=%s\n' "$output/$(basename -- "$built_rpm")"
+done

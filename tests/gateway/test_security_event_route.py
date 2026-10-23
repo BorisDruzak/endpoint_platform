@@ -7,6 +7,8 @@ from dataclasses import replace
 from datetime import UTC, datetime
 from uuid import uuid4
 
+import pytest
+
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 
@@ -86,8 +88,9 @@ def test_route_rejects_security_batch_without_feature_negotiation(
             assert error["payload"]["code"] == "security_events_disabled"
 
 
+@pytest.mark.parametrize('platform,version', [('windows_amd64','3.2.68'), ('linux_amd64','3.2.123')])
 def test_route_acks_committed_security_event_and_idempotent_replay(
-    gateway_route_harness: GatewayRouteHarness,
+    gateway_route_harness: GatewayRouteHarness, platform, version,
 ) -> None:
     provider = gateway_route_harness.provider
     device = asyncio.run(seed_device(provider))
@@ -121,9 +124,9 @@ def test_route_acks_committed_security_event_and_idempotent_replay(
     app = create_app(settings, provider)
     hello = agent_hello(device.id)
     hello.update(
-        platform="windows_amd64",
-        agent_version="3.2.68",
-        launcher_version="3.2.68",
+        platform=platform,
+        agent_version=version,
+        launcher_version=version,
         capabilities=[],
         protocol_features=["endpoint.policy.v1", "endpoint.security-events.v1"],
     )

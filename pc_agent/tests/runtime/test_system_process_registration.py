@@ -69,6 +69,5 @@ def test_new_capabilities_are_advertised_and_executable(monkeypatch: pytest.Monk
 def test_agent_hello_advertises_only_implemented_platform_capabilities() -> None:
     linux = set(compatibility_agent_hello(platform="linux_amd64").capabilities)
     windows = set(compatibility_agent_hello(platform="windows_amd64").capabilities)
-    assert "eventlog.query" not in linux
-    assert "printer.queue.summary" not in linux
+    assert {"eventlog.query", "printer.queue.summary"} <= linux
     assert {"eventlog.query", "printer.queue.summary"} <= windows

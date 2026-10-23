@@ -52,3 +52,4 @@ def test_service_and_printer_descriptors_use_fixed_policies() -> None:
         assert MODULE_CAPABILITY_REGISTRY[capability].metadata.policy == "service_catalog"
     for capability in ("printer.list", "printer.status", "printer.queue.summary"):
         assert MODULE_CAPABILITY_REGISTRY[capability].metadata.policy == "local_printers"
+        assert MODULE_CAPABILITY_REGISTRY[capability].metadata.platforms == ["linux_amd64", "windows_amd64"]

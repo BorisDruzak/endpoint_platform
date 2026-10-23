@@ -24,9 +24,12 @@ def _browser_policy(*, mode: str, required: bool = True):
     )
 
 
-def test_windows_runtime_selects_browser_policy_applicator_only_on_windows() -> None:
+def test_runtime_selects_each_native_policy_applicator() -> None:
+    from pc_agent.policy.linux_sensors import apply_linux_policy_sensors
+
     assert _policy_applicator_for("nt") is apply_windows_policy_sensors
-    assert _policy_applicator_for("posix") is None
+    assert _policy_applicator_for("posix") is apply_linux_policy_sensors
+    assert _policy_applicator_for("unknown") is None
 
 
 @pytest.mark.asyncio

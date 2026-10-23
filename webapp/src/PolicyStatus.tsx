@@ -18,10 +18,16 @@ type BrowserStatus = {
 }
 type ComplianceState = 'COMPLIANT' | 'PARTIAL' | 'NON_COMPLIANT' | 'STALE' | 'UNSUPPORTED'
 type SensorState = 'NOT_APPLICABLE' | 'ACTIVE' | 'UNKNOWN' | 'UNAVAILABLE' | 'STALE' | 'UNSUPPORTED'
+type SourceState = 'READY' | 'UNAVAILABLE' | 'UNKNOWN'
+type PolicyFailure = 'SENSOR_NOT_READY' | 'BROWSER_POLICY_HELPER_UNAVAILABLE' | 'POLICY_CONFLICT'
+  | 'BROWSER_POLICY_HELPER_FAILED' | 'CACHE_WRITE_FAILED' | 'SENSOR_APPLY_FAILED' | 'UNKNOWN'
 type PolicyStatus = {
   policy_id: string; policy_version: number; policy_version_id: string
   browser_required: boolean; deployment_mode: 'agent_managed' | 'external_managed'
   delivery_status: 'PENDING' | 'APPLIED' | 'STALE' | 'UNSUPPORTED' | 'ERROR'
+  error_code?: PolicyFailure | null
+  sensor_health?: { observed_at: string; fresh: boolean; activity_listener_state: SourceState
+    security_spool_state: SourceState; usb_source_state: SourceState; print_source_state: SourceState } | null
   acknowledged_at: string | null
   compliance: ComplianceState
   activity_sensor: SensorState
@@ -39,6 +45,16 @@ const deliveryLabels: Record<PolicyStatus['delivery_status'], string> = {
   PENDING: 'Ожидает применения', APPLIED: 'Применена', STALE: 'Устарела',
   UNSUPPORTED: 'Агент не поддерживает политику', ERROR: 'Ошибка применения',
 }
+const failureLabels: Record<PolicyFailure, string> = {
+  SENSOR_NOT_READY: 'Один или несколько датчиков ещё не готовы',
+  BROWSER_POLICY_HELPER_UNAVAILABLE: 'Служба настройки политики браузера недоступна',
+  POLICY_CONFLICT: 'Политика браузера конфликтует с существующей настройкой',
+  BROWSER_POLICY_HELPER_FAILED: 'Не удалось настроить политику браузера',
+  CACHE_WRITE_FAILED: 'Не удалось сохранить применённую политику',
+  SENSOR_APPLY_FAILED: 'Не удалось применить настройки датчиков',
+  UNKNOWN: 'Агент сообщил об ошибке применения политики',
+}
+const sourceLabels: Record<SourceState, string> = { READY: 'Готов', UNAVAILABLE: 'Недоступен', UNKNOWN: 'Нет данных' }
 const complianceLabels: Record<PolicyStatus['browser_compliance'], string> = {
   COMPLIANT: 'Соответствует', PARTIAL: 'Частично соответствует',
   NON_COMPLIANT: 'Не соответствует', STALE: 'Данные устарели', UNSUPPORTED: 'Не поддерживается агентом',
@@ -118,6 +134,7 @@ export function DevicePolicyStatus({ deviceId }: { deviceId: string }) {
     <section className="panel"><h2>Политика и датчики</h2><dl className="detail-grid">
       <div><dt>Версия политики</dt><dd>{status.policy_version}</dd></div>
       <div><dt>Применение</dt><dd>{deliveryLabels[status.delivery_status]}</dd></div>
+      {status.delivery_status === 'ERROR' && status.error_code && <div><dt>Причина</dt><dd>{failureLabels[status.error_code] ?? failureLabels.UNKNOWN}</dd></div>}
       <div><dt>Подтверждена</dt><dd>{dateText(status.acknowledged_at)}</dd></div>
       <div><dt>Обязательность Browser Sensor</dt><dd>{status.browser_required ? 'Обязателен' : 'Не требуется'}</dd></div>
       <div><dt>Управление</dt><dd>{status.deployment_mode === 'agent_managed' ? 'Endpoint Agent' : 'Внешняя политика'}</dd></div>
@@ -128,6 +145,16 @@ export function DevicePolicyStatus({ deviceId }: { deviceId: string }) {
       <div><dt>Соответствие браузеров</dt><dd>{complianceLabels[status.browser_compliance]}</dd></div>
       <div><dt>Последний отчёт</dt><dd>{dateText(status.observed_at)}</dd></div>
     </dl></section>
+    {status.sensor_health && <section className="panel"><h2>Источники датчиков</h2>
+      {!status.sensor_health.fresh && <p>Данные источников устарели. Показан последний отчёт.</p>}
+      <dl className="detail-grid">
+        <div><dt>Приём пользовательских наблюдений</dt><dd>{sourceLabels[status.sensor_health.activity_listener_state]}</dd></div>
+        <div><dt>Очередь событий</dt><dd>{sourceLabels[status.sensor_health.security_spool_state]}</dd></div>
+        <div><dt>USB</dt><dd>{sourceLabels[status.sensor_health.usb_source_state]}</dd></div>
+        <div><dt>Печать</dt><dd>{sourceLabels[status.sensor_health.print_source_state]}</dd></div>
+        <div><dt>Последний отчёт источников</dt><dd>{dateText(status.sensor_health.observed_at)}</dd></div>
+      </dl>
+    </section>}
     <div className="detail-columns">{status.browsers.map(browser => <section className="panel" key={browser.browser_family}>
       <h2>{browserLabels[browser.browser_family]}</h2>
       <dl className="detail-grid">

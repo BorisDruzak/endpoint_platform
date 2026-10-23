@@ -14,6 +14,24 @@ from pc_agent.alt_update_installer import apply_alt_update
 from pc_agent.launcher import launcher_main
 
 
+def test_alt_configuration_exit_is_not_retried_or_rolled_back(monkeypatch, tmp_path):
+    install, data = tmp_path/'install',tmp_path/'data'
+    install.mkdir(); data.mkdir()
+    (install/'current.json').write_text('{}')
+    binary=install/'versions/3.2.123/endpoint-agent/endpoint-agent'
+    monkeypatch.setenv('ENDPOINT_AGENT_ALT_UPDATE_MODE','1')
+    monkeypatch.setattr(launcher_main,'resolve_install_root',lambda **_kwargs:install)
+    monkeypatch.setattr(launcher_main,'resolve_data_root',lambda **_kwargs:data)
+    monkeypatch.setattr(launcher_main,'_load_current_state',lambda *_args:({},'3.2.123',None,binary))
+    monkeypatch.setattr(launcher_main.subprocess,'Popen',lambda *_args,**_kwargs:SimpleNamespace(wait=lambda:78))
+    monkeypatch.setattr(launcher_main.time,'sleep',lambda *_args:pytest.fail('configuration exit retried'))
+    monkeypatch.setattr(launcher_main,'write_alt_rollback_request',lambda *_args,**_kwargs:pytest.fail('configuration error requested rollback'))
+    monkeypatch.setattr(sys,'argv',['launcher.py','--no-gui'])
+    with pytest.raises(SystemExit) as caught:
+        launcher_main.main()
+    assert caught.value.code == 78
+
+
 def test_explicit_alt_mode_selects_immutable_pending_path_and_installer(
     monkeypatch, tmp_path: Path
 ) -> None:
