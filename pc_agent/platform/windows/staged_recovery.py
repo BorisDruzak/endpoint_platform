@@ -186,69 +186,91 @@ def _verify_original_state(paths, record):
     _verify_original_core(paths, record)
 
 
-class _BootEnvironment(ctypes.Structure):
-    _fields_ = [('identifier', ctypes.c_ubyte * 16), ('firmware', ctypes.c_uint32),
-                ('flags', ctypes.c_uint64)]
-
-
-def _kernel_boot(value):
-    return (isinstance(value, str) and re.fullmatch(
-        r'kernel-boot-v1:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}', value)
-        is not None and value != 'kernel-boot-v1:00000000-0000-0000-0000-000000000000')
-
-
-def _boot_identity():
-    # LastBootUpTime is a WMI provider's wall-clock value, not boot identity:
-    # a provider refresh after clock correction can change it without reboot.
-    # Match the signed owner's SYSTEM_BOOT_ENVIRONMENT_INFORMATION ABI. No
-    # timestamp fallback may authorize a trial on unsupported/query failure.
-    value = _BootEnvironment()
-    length = ctypes.c_uint32()
+def _native_attempt(paths, record):
+    from . import staged_boot_marker as marker
+    leaf = _root(paths, record.binding.operation_id) / 'reboot.json'
+    if not leaf.exists():
+        return None
+    value = _read(leaf)
+    legacy = {'schema_version','binding_sha256','native_exit','boot'}
+    fields = legacy | {'attempt_id','owner'}
+    if (not isinstance(value, dict) or type(value.get('schema_version')) is not int
+            or value.get('binding_sha256') != _binding_hash(record)):
+        _fail()
+    if value['schema_version'] == 1:
+        if (set(value) != legacy or type(value['native_exit']) is not int or value['native_exit'] not in (3010,1641)
+                or not isinstance(value['boot'],str) or not 0 < len(value['boot']) <= 128):
+            _fail()
+        return value
+    if (value['schema_version'] != 2 or set(value) != fields or not marker.valid_token(value['boot'])
+            or (value['native_exit'] is not None and (type(value['native_exit']) is not int or value['native_exit'] not in (0,3010,1641)))):
+        _fail()
     try:
-        query = ctypes.WinDLL('ntdll').NtQuerySystemInformation
-        query.argtypes = [ctypes.c_int32, ctypes.c_void_p, ctypes.c_uint32,
-                          ctypes.POINTER(ctypes.c_uint32)]
-        query.restype = ctypes.c_int32
-        status = query(90, ctypes.byref(value), ctypes.sizeof(value), ctypes.byref(length))
-    except (AttributeError, OSError):
+        valid_attempt = isinstance(value['attempt_id'],str) and str(UUID(value['attempt_id'])) == value['attempt_id']
+    except (ValueError,TypeError):
+        valid_attempt = False
+    if not valid_attempt:
         _fail()
-    if status != 0 or length.value != ctypes.sizeof(value):
-        _fail()
-    result = 'kernel-boot-v1:' + str(UUID(bytes_le=bytes(value.identifier)))
-    if not _kernel_boot(result):
-        _fail()
-    return result
+    state._owner(value['owner'])
+    return value
 
 
-def record_reboot_required(paths, operation_id, native_exit):
+def begin_native_attempt(paths, operation_id, owner):
+    from . import staged_boot_marker as marker
+    from uuid import uuid4
     durable_state.installer_mutation_checkpoint(required=True)
     record = state.read_staged_update(paths)
-    if (record is None or record.binding.operation_id != operation_id or native_exit not in (3010, 1641)
-            or record.phase not in {'switching','native-settled','trial'}):
+    if record is None or record.binding.operation_id != operation_id or record.phase not in {'switching','native-settled','trial'}:
         _fail()
-    root = _root(paths, operation_id, create=True)
-    value = {'schema_version': 1, 'binding_sha256': _binding_hash(record),
-             'native_exit': native_exit, 'boot': _boot_identity()}
-    leaf = root / 'reboot.json'
-    if leaf.exists():
-        if _read(leaf) != value: _fail()
-    else:
-        _write(root, 'reboot.json', value)
+    _validate_recovery_inputs(paths, record)
+    state._owner(owner)
+    if owner != record.owner:
+        _assert_owner_dead(record.owner)
+    prior = _native_attempt(paths, record)
+    if prior and prior['schema_version'] == 2 and prior['owner'] != owner:
+        _assert_owner_dead(prior['owner'])
+    # Publish unresolved BEFORE any new native attempt. Failed publication
+    # leaves the old authoritative record intact and launches no native work.
+    token = marker.capture(operation_id)
+    value = {'schema_version':2, 'binding_sha256':_binding_hash(record),
+             'attempt_id':str(uuid4()), 'owner':owner, 'native_exit':None, 'boot':token}
+    _write(_root(paths, operation_id), 'reboot.json', value)
+    return value['attempt_id']
+
+
+def finish_native_attempt(paths, operation_id, native_exit, owner):
+    from . import staged_boot_marker as marker
+    durable_state.installer_mutation_checkpoint(required=True)
+    record = state.read_staged_update(paths)
+    if (record is None or record.binding.operation_id != operation_id or record.phase not in {'switching','native-settled','trial'}
+            or type(native_exit) is not int or native_exit not in (0,3010,1641)):
+        _fail()
+    value = _native_attempt(paths, record)
+    if (value is None or value['schema_version'] != 2 or value['owner'] != owner
+            or value['native_exit'] not in (None,native_exit) or not marker.present(operation_id,value['boot'])):
+        _fail()
+    if native_exit == 0 and (not _native_settled(paths)
+            or provenance.verified_foundation_release(paths) != record.binding.new_release):
+        _fail()
+    _write(_root(paths, operation_id), 'reboot.json', {**value,'native_exit':native_exit})
+
+
+def record_reboot_required(paths, operation_id, native_exit, owner=None):
+    record = state.read_staged_update(paths)
+    if record is None or native_exit not in (3010,1641):
+        _fail()
+    finish_native_attempt(paths, operation_id, native_exit, owner or record.owner)
 
 
 def reboot_pending(paths, record):
-    leaf = _root(paths, record.binding.operation_id) / 'reboot.json'
-    if not leaf.exists():
+    from . import staged_boot_marker as marker
+    value = _native_attempt(paths, record)
+    if value is None:
         return False
-    value = _read(leaf)
-    if (not isinstance(value, dict) or set(value) != {'schema_version','binding_sha256','native_exit','boot'}
-            or type(value['schema_version']) is not int or value['schema_version'] != 1
-            or value['binding_sha256'] != _binding_hash(record) or value['native_exit'] not in (3010,1641)
-            or not isinstance(value['boot'], str)):
-        _fail()
-    # Historical wall-clock markers never prove a new boot. Retain the reboot
-    # gate rather than releasing it on a timestamp/provider change.
-    return not _kernel_boot(value['boot']) or value['boot'] == _boot_identity()
+    if value['schema_version'] == 1 or value['native_exit'] is None:
+        return True
+    return value['native_exit'] != 0 and marker.present(record.binding.operation_id,value['boot'])
+
 
 
 def recover_staged_update(paths, operation_id, *, capability=None):
@@ -293,11 +315,14 @@ def recover_staged_update(paths, operation_id, *, capability=None):
         cancel_prepared_candidate(paths, record)
         state.advance_staged_update(paths, operation_id, record.phase, 'rolled-back', safe_code='preparation_cancelled')
         return 'preparation-cancelled'
+    attempt = _native_attempt(paths, record)
+    if attempt and attempt['schema_version'] == 2 and attempt['native_exit'] is None:
+        return 'rollback-required'
     if reboot_pending(paths, record):
         return 'reboot-required'
+    from . import staged_boot_marker as marker
     captured_boot = inputs.get('boot')
-    current_boot = _boot_identity() if _kernel_boot(captured_boot) else None
-    post_boot = _kernel_boot(captured_boot) and _kernel_boot(current_boot) and captured_boot != current_boot
+    post_boot = marker.valid_token(captured_boot) and not marker.present(operation_id,captured_boot)
     if record.phase in {'switching','native-settled','trial'} and not post_boot:
         return 'rollback-required'
     if record.phase == 'trial':
@@ -371,10 +396,14 @@ def execute_staged_recovery_phase(client, paths):
                     _fail()
                 result = {'operation_id': record.binding.operation_id, **restore_staged_companions(paths, record.binding.operation_id)}
             elif client.phase in {'record-staged-reboot-3010','record-staged-reboot-1641'}:
-                if not owner_authorized(paths, record, cap['owner']):
-                    _fail()
-                record_reboot_required(paths, record.binding.operation_id, int(client.phase.rsplit('-', 1)[1]))
+                record_reboot_required(paths, record.binding.operation_id, int(client.phase.rsplit('-', 1)[1]), cap['owner'])
                 result = {'operation_id': record.binding.operation_id, 'result': 'reboot-required'}
+            elif client.phase == 'record-staged-native-start':
+                attempt = begin_native_attempt(paths, record.binding.operation_id, cap['owner'])
+                result = {'operation_id': record.binding.operation_id, 'result': 'native-attempt-unresolved', 'attempt_id': attempt}
+            elif client.phase == 'record-staged-native-success':
+                finish_native_attempt(paths, record.binding.operation_id, 0, cap['owner'])
+                result = {'operation_id': record.binding.operation_id, 'result': 'native-attempt-settled'}
             else:
                 _fail()
     client.request('complete', result)

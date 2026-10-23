@@ -10,7 +10,7 @@ def add_installer_arguments(parser, modes):
     parser.add_argument("--installer-launch-nonce")
     modes.add_argument("--installer-phase", choices=("inspect","inspect-compound","prepare","stage-online","seal-staged-switch","adopt-staged-switch",
             "begin-staged-trial","observe-staged-trial","accept-staged-trial",
-            "restore-staged-companions","inspect-staged-recovery","recover-staged-owner","record-staged-reboot-3010","record-staged-reboot-1641",
+            "restore-staged-companions","inspect-staged-recovery","recover-staged-owner","record-staged-native-start","record-staged-native-success","record-staged-reboot-3010","record-staged-reboot-1641",
             "inspect-staged-state","prepare-foundation-rollback","bind-foundation-rollback-roles","rollback-candidate-removed","rollback-native-committed","verify-foundation-rollback","msi-preflight","msi-enter","foundation-config","msi-complete","reconcile","finish","verify-settled",
             "compound-old-returned","compound-new-returned","compound-commit","compound-retire","compound-complete","compound-finalize",
             "compound-repair-returned","compound-repair-commit"))

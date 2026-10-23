@@ -11,6 +11,17 @@ from pc_agent.tests.windows.test_staged_update_state import staged, begin, move,
 
 
 @pytest.fixture
+def boot_markers(monkeypatch):
+    from pc_agent.platform.windows import staged_boot_marker as marker
+    tokens = {}
+    def capture(_):
+        token = 'registry-boot-v1:'+str(uuid4()); tokens[token] = True; return token
+    monkeypatch.setattr(marker,'capture',capture)
+    monkeypatch.setattr(marker,'present',lambda _,token:tokens[token])
+    return tokens,capture
+
+
+@pytest.fixture
 def recovery(staged, monkeypatch):
     from pc_agent.platform.windows import staged_recovery as recovery
     _, paths, binding, owner = staged
@@ -60,12 +71,13 @@ def test_original_capture_owner_survives_fresh_recovery_handoff(recovery, staged
 
 
 @pytest.mark.parametrize('native_exit', [3010, 1641])
-def test_3010_or_1641_does_not_accept_before_reboot(recovery, staged, monkeypatch, native_exit):
+def test_3010_or_1641_does_not_accept_before_reboot(recovery, staged, boot_markers, native_exit):
     module, paths, binding, cap = recovery
     move(staged, 'preparing', 'prepared');move(staged, 'prepared', 'switching')
-    monkeypatch.setattr(module, '_boot_identity', lambda: 'boot-one')
     with durable_state.installer_mutation_checkpoints(lambda: None):
-        module.record_reboot_required(paths, binding.operation_id, native_exit)
+        module._root(paths,binding.operation_id,create=True)
+        module.begin_native_attempt(paths,binding.operation_id,cap['owner'])
+        module.record_reboot_required(paths, binding.operation_id, native_exit, cap['owner'])
         assert module.recover_staged_update(paths, binding.operation_id, capability=cap) == 'reboot-required'
     assert state.read_staged_update(paths).phase != 'accepted'
 
@@ -86,12 +98,12 @@ def test_setup_recovery_dispatch_does_not_enter_enrollment(monkeypatch):
     assert calls == [operation]
 
 
-def test_recovered_trial_discards_prior_attempt(recovery, staged, monkeypatch):
+def test_recovered_trial_discards_prior_attempt(recovery, staged, monkeypatch, boot_markers):
     module, paths, binding, cap = recovery
     move(staged, 'preparing','prepared'); move(staged,'prepared','switching'); move(staged,'switching','native-settled')
     move(staged,'native-settled','trial',attempt_id=str(uuid4()))
-    monkeypatch.setattr(module,'_validate_recovery_inputs',lambda *_: {'boot':'kernel-boot-v1:11111111-1111-4111-8111-111111111111'})
-    monkeypatch.setattr(module,'_boot_identity',lambda:'kernel-boot-v1:22222222-2222-4222-8222-222222222222')
+    tokens,capture=boot_markers;original=capture(None);tokens[original]=False
+    monkeypatch.setattr(module,'_validate_recovery_inputs',lambda *_: {'boot':original})
     with durable_state.installer_mutation_checkpoints(lambda: None):
         assert module.recover_staged_update(paths,binding.operation_id,capability=cap) == 'trial-required'
     assert state.read_staged_update(paths).phase == 'native-settled'
@@ -331,17 +343,20 @@ if(!$denied -or [Convert]::ToBase64String([IO.File]::ReadAllBytes($to)) -cne 'AQ
 from pc_agent.tests.windows.test_staged_trial_proof import trial
 
 
-def test_reboot_marker_blocks_trial_until_actual_boot_changes(trial, monkeypatch):
+def test_reboot_marker_blocks_trial_until_actual_boot_changes(trial, monkeypatch, boot_markers):
     from pc_agent.platform.windows import staged_recovery as recovery
     proof, paths, binding, *_ = trial
-    boot = ['kernel-boot-v1:11111111-1111-4111-8111-111111111111']; monkeypatch.setattr(recovery,'_boot_identity',lambda:boot[0])
+    tokens,_=boot_markers
+    monkeypatch.setattr(recovery,'_validate_recovery_inputs',lambda *_:{})
     with durable_state.installer_mutation_checkpoints(lambda:None):
+        recovery._root(paths,binding.operation_id,create=True)
+        recovery.begin_native_attempt(paths,binding.operation_id,state.read_staged_update(paths).owner)
         recovery.record_reboot_required(paths,binding.operation_id,3010)
         record = state.read_staged_update(paths)
         state._write(paths,replace(record,phase='native-settled',attempt_id=None,sequence=record.sequence+1))
         with pytest.raises(ValueError): proof.begin_staged_trial(paths,binding.operation_id)
         assert state.read_staged_update(paths).phase == 'native-settled'
-        boot[0] = 'kernel-boot-v1:22222222-2222-4222-8222-222222222222'
+        tokens[recovery._native_attempt(paths,record)['boot']]=False
         assert proof.begin_staged_trial(paths,binding.operation_id)
 
 

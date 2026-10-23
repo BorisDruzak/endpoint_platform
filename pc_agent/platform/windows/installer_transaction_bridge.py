@@ -24,7 +24,7 @@ from .update_paths import WindowsUpdatePaths
 
 PHASES = frozenset({'inspect','inspect-compound','prepare','stage-online','seal-staged-switch','adopt-staged-switch',
     'begin-staged-trial','observe-staged-trial','accept-staged-trial','msi-preflight','msi-enter','recover-enter',
-    'restore-staged-companions','inspect-staged-recovery','recover-staged-owner','record-staged-reboot-3010','record-staged-reboot-1641',
+    'restore-staged-companions','inspect-staged-recovery','recover-staged-owner','record-staged-native-start','record-staged-native-success','record-staged-reboot-3010','record-staged-reboot-1641',
     'inspect-staged-state','prepare-foundation-rollback','bind-foundation-rollback-roles',
     'rollback-candidate-removed','rollback-native-committed','verify-foundation-rollback',
     'foundation-config','msi-complete','reconcile','finish','verify-settled',
@@ -510,7 +510,7 @@ def execute_authorized_phase(client,paths,*,feature_states=None,rollback_disable
                    and isinstance(extra,dict) and extra.get('role')=='remove')
         if staged_removal != ('1' if removal else ''):
             _failed()
-    if client.phase in {'restore-staged-companions','inspect-staged-recovery','recover-staged-owner','record-staged-reboot-3010','record-staged-reboot-1641'}:
+    if client.phase in {'restore-staged-companions','inspect-staged-recovery','recover-staged-owner','record-staged-native-start','record-staged-native-success','record-staged-reboot-3010','record-staged-reboot-1641'}:
         from .staged_recovery import execute_staged_recovery_phase
         return execute_staged_recovery_phase(client, paths)
     if 'staged_rollback' in client.capability:

@@ -45,17 +45,64 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Win32.SafeHandles;
 namespace EndpointInstallerBridge {
-    public static class BootIdentity {
-        [StructLayout(LayoutKind.Sequential)] struct BootEnvironment {
-            public Guid Identifier; public uint Firmware; public ulong Flags;
+    public static class BootMarker {
+        const string Root="SOFTWARE\\EndpointPlatformStagedBoot";
+        [StructLayout(LayoutKind.Sequential)] struct Attributes { public int Length; public IntPtr Descriptor; public int Inherit; }
+        [DllImport("advapi32.dll",CharSet=CharSet.Unicode)] static extern int RegOpenKeyEx(IntPtr parent,string name,uint options,uint access,out SafeRegistryHandle key);
+        [DllImport("advapi32.dll",CharSet=CharSet.Unicode)] static extern int RegCreateKeyEx(IntPtr parent,string name,uint reserved,string cls,uint options,uint access,ref Attributes attributes,out SafeRegistryHandle key,out uint disposition);
+        [DllImport("advapi32.dll")] static extern int RegFlushKey(IntPtr key);
+        [DllImport("advapi32.dll",CharSet=CharSet.Unicode,SetLastError=true)] static extern bool ConvertStringSecurityDescriptorToSecurityDescriptor(string text,uint revision,out IntPtr descriptor,out uint length);
+        [DllImport("kernel32.dll")] static extern IntPtr LocalFree(IntPtr value);
+        static void Fail(){throw new InvalidOperationException("RECOVERY_REQUIRED");}
+        static void Check(Microsoft.Win32.RegistryKey key) {
+            if(key.ValueCount!=0) Fail();
+            var sections=AccessControlSections.Access|AccessControlSections.Owner|AccessControlSections.Group;
+            var security=key.GetAccessControl(sections);
+            if(!security.AreAccessRulesProtected ||
+               security.GetOwner(typeof(SecurityIdentifier)).Value!="S-1-5-32-544" || security.GetGroup(typeof(SecurityIdentifier)).Value!="S-1-5-32-544") Fail();
+            var rules=security.GetAccessRules(true,true,typeof(SecurityIdentifier));var seen=new HashSet<string>();
+            if(rules.Count!=2) Fail();
+            foreach(RegistryAccessRule rule in rules) {
+                string sid=rule.IdentityReference.Value;
+                if(rule.IsInherited || rule.AccessControlType!=AccessControlType.Allow || rule.RegistryRights!=RegistryRights.FullControl ||
+                   rule.InheritanceFlags!=InheritanceFlags.ContainerInherit || rule.PropagationFlags!=PropagationFlags.None ||
+                   (sid!="S-1-5-18" && sid!="S-1-5-32-544")) Fail();
+                seen.Add(sid);
+            }
+            if(seen.Count!=2) Fail();
         }
-        [DllImport("ntdll.dll")] static extern int NtQuerySystemInformation(int kind,ref BootEnvironment value,uint size,out uint length);
-        public static string Read() {
-            var value=new BootEnvironment();uint length;
-            uint size=(uint)Marshal.SizeOf(typeof(BootEnvironment));
-            if(size!=32 || NtQuerySystemInformation(90,ref value,size,out length)!=0 || length!=size || value.Identifier==Guid.Empty)
-                throw new InvalidOperationException("RECOVERY_REQUIRED");
-            return "kernel-boot-v1:"+value.Identifier.ToString("D");
+        static Microsoft.Win32.RegistryKey Open(Microsoft.Win32.RegistryKey parent,string name,bool missing) {
+            SafeRegistryHandle handle;int code=RegOpenKeyEx(parent.Handle.DangerousGetHandle(),name,8,0x20119|0x100,out handle);
+            if(code!=0){if(handle!=null)handle.Dispose();if(missing && code==2)return null;Fail();}
+            var key=Microsoft.Win32.RegistryKey.FromHandle(handle,Microsoft.Win32.RegistryView.Registry64);
+            try{Check(key);return key;}catch{key.Dispose();throw;}
+        }
+        static Microsoft.Win32.RegistryKey Create(Microsoft.Win32.RegistryKey parent,string name,bool vol) {
+            IntPtr descriptor=IntPtr.Zero;uint length,disposition;SafeRegistryHandle handle=null;
+            if(!ConvertStringSecurityDescriptorToSecurityDescriptor("O:BAG:BAD:P(A;CI;KA;;;SY)(A;CI;KA;;;BA)",1,out descriptor,out length))Fail();
+            try {
+                var attributes=new Attributes{Length=Marshal.SizeOf(typeof(Attributes)),Descriptor=descriptor,Inherit=0};
+                int code=RegCreateKeyEx(parent.Handle.DangerousGetHandle(),name,0,null,vol?1u:0u,0xF003F|0x100,ref attributes,out handle,out disposition);
+                if(code!=0 || disposition!=1){if(handle!=null)handle.Dispose();Fail();}
+                var key=Microsoft.Win32.RegistryKey.FromHandle(handle,Microsoft.Win32.RegistryView.Registry64);
+                try{Check(key);return key;}catch{key.Dispose();throw;}
+            }finally{if(descriptor!=IntPtr.Zero)LocalFree(descriptor);}
+        }
+        public static string Capture(string operation) {
+            Guid id;if(!Guid.TryParseExact(operation,"D",out id) || id==Guid.Empty || id.ToString("D")!=operation)Fail();
+            using(var hive=Microsoft.Win32.RegistryKey.OpenBaseKey(Microsoft.Win32.RegistryHive.LocalMachine,Microsoft.Win32.RegistryView.Registry64)) {
+                var root=Open(hive,Root,true);
+                if(root==null)root=Create(hive,Root,false);
+                using(root)
+                using(var witness=Create(root,operation,false)) {
+                    // Persist the empty witness before filesystem capture/native
+                    // work. Recovery never recreates this key after owner loss.
+                    if(RegFlushKey(witness.Handle.DangerousGetHandle())!=0)Fail();
+                    string nonce=Guid.NewGuid().ToString("D");
+                    using(var marker=Create(witness,"boot-"+nonce,true)){}
+                    return "registry-boot-v1:"+nonce;
+                }
+            }
         }
     }
     public static class LaunchDirectory {
@@ -490,8 +537,8 @@ namespace EndpointInstallerBridge {
             CheckPeer(peer);
             if(phase=="prepare" && nativeRecoverySettlementRequired &&
                 (nativeRecoveryPreparation==null || !nativeRecoveryPreparation.ValidFor(Owner))) Fail();
-            bool recoveryHelper=phase=="restore-staged-companions" || phase=="inspect-staged-recovery" || phase=="recover-staged-owner" || phase=="record-staged-reboot-3010" || phase=="record-staged-reboot-1641";
-            if(phase=="recover-staged-owner" && !stagedRecoverySettled) Fail();
+            bool recoveryHelper=phase=="restore-staged-companions" || phase=="inspect-staged-recovery" || phase=="recover-staged-owner" || phase=="record-staged-native-start" || phase=="record-staged-native-success" || phase=="record-staged-reboot-3010" || phase=="record-staged-reboot-1641";
+            if((phase=="recover-staged-owner" || phase=="record-staged-native-success") && !stagedRecoverySettled) Fail();
             bool reverseControl=phase=="inspect-staged-state" || phase=="prepare-foundation-rollback" || phase=="bind-foundation-rollback-roles" ||
                 phase=="rollback-candidate-removed" || phase=="rollback-native-committed" || phase=="verify-foundation-rollback";
             if(reverseControl && (Operation!="install" || Recovery || UninstallFinalization || compound!=null || repair!=null ||
@@ -1496,7 +1543,7 @@ function Stop-InstallerLaunchBroker {
 
 function Invoke-InstallerHelper {
     param([Parameter(Mandatory)]$Bridge,[Parameter(Mandatory)][string]$Phase)
-    if ($Phase -notin @('inspect','inspect-compound','prepare','stage-online','seal-staged-switch','adopt-staged-switch','begin-staged-trial','observe-staged-trial','accept-staged-trial','inspect-staged-state','prepare-foundation-rollback','bind-foundation-rollback-roles','rollback-candidate-removed','rollback-native-committed','verify-foundation-rollback','restore-staged-companions','inspect-staged-recovery','recover-staged-owner','record-staged-reboot-3010','record-staged-reboot-1641','reconcile','finish','verify-settled','compound-old-returned','compound-new-returned','compound-commit','compound-retire','compound-complete','compound-finalize','compound-repair-returned','compound-repair-commit') -or $Bridge.SessionId -cnotmatch '^[0-9a-f-]{36}$') { throw 'OWNER_AUTH_FAILED' }
+    if ($Phase -notin @('inspect','inspect-compound','prepare','stage-online','seal-staged-switch','adopt-staged-switch','begin-staged-trial','observe-staged-trial','accept-staged-trial','inspect-staged-state','prepare-foundation-rollback','bind-foundation-rollback-roles','rollback-candidate-removed','rollback-native-committed','verify-foundation-rollback','restore-staged-companions','inspect-staged-recovery','recover-staged-owner','record-staged-native-start','record-staged-native-success','record-staged-reboot-3010','record-staged-reboot-1641','reconcile','finish','verify-settled','compound-old-returned','compound-new-returned','compound-commit','compound-retire','compound-complete','compound-finalize','compound-repair-returned','compound-repair-commit') -or $Bridge.SessionId -cnotmatch '^[0-9a-f-]{36}$') { throw 'OWNER_AUTH_FAILED' }
     $phaseTimer=[Diagnostics.Stopwatch]::StartNew()
     $phaseStarted=[DateTime]::UtcNow.ToString('o')
     $launchSeconds=$null;$warmLaunch=$false;$phaseSucceeded=$false
@@ -1783,7 +1830,7 @@ function Register-StagedRecoveryTask {
     $root=Join-Path $root $Bridge.TransactionId
     New-InstallerPublicStateRoot $root
     $inputs=@{schema_version=1;operation_id=$Bridge.TransactionId;owner=$Bridge.Capability.owner;
-        package_sha256=$Bridge.Capability.package.package_sha256;files=$files;service_states=$ServiceStates;task_sha256=$null;boot=[EndpointInstallerBridge.BootIdentity]::Read()}
+        package_sha256=$Bridge.Capability.package.package_sha256;files=$files;service_states=$ServiceStates;task_sha256=$null;boot=[EndpointInstallerBridge.BootMarker]::Capture($Bridge.TransactionId)}
     $leaf=Join-Path $root 'inputs.json'
     if(Test-Path -LiteralPath $leaf){throw 'PROVENANCE_CONFLICT'}
     $executable=Join-Path $directory 'EndpointAgentSetup.exe'
@@ -2891,6 +2938,7 @@ $helperPin = $null
 $bridge = $null
 $trialBridge = $null
 $stagedRecoveryBridge = $null
+$stagedAttemptBridge = $null
 $stagedRecoveryObserved = $null
 $oldBridge = $null
 $preparedOldBridge = $null
@@ -3087,6 +3135,13 @@ try {
     if ($null -ne $recoveryLocator) { $preparedRoot=Join-Path $preparedRoot $compoundDetails.upgrade_id }
     $prepared = Read-InstallerFence -Root $preparedRoot
     if ($null -eq $prepared -or $prepared.transaction_id -cne $bridge.TransactionId -or $prepared.package.sha256 -cne $inputHash) { throw 'RECOVERY_REQUIRED' }
+    if($stagedOnline -or $null -ne $stagedRecoveryObserved){
+        $attemptOperation=if($null -ne $stagedRecoveryObserved){$StagedOperationId}else{$bridge.TransactionId}
+        $stagedAttemptBridge=New-InstallerBridge -Manifest $manifest -HelperPath $helperPath -HelperHash $helperHash -StateRoot $installerStateRoot -ServiceStates $previousServiceStates -Intent 'install' -TransactionId $attemptOperation -Selection $initial
+        $stagedAttemptBridge.Policy.MarkQuiescent()
+        $pendingAttempt=Invoke-InstallerHelper -Bridge $stagedAttemptBridge -Phase 'record-staged-native-start'
+        if($pendingAttempt.operation_id -cne $attemptOperation -or $pendingAttempt.result -cne 'native-attempt-unresolved'){throw 'RECOVERY_REQUIRED'}
+    }
     Start-WindowsInstaller
     if ($null -ne $compoundDetails) {
         $nativeStarted=$true
@@ -3118,7 +3173,7 @@ try {
     Invoke-InstallerOwnerPump -Bridge $bridge -Process $installer -Phase 'native' -Msi | Out-Null
     $nativeExit = $installer.ExitCode
     if ($nativeExit -in @(3010,1641)) {
-        if($stagedOnline){Invoke-InstallerHelper -Bridge $bridge -Phase ('record-staged-reboot-'+$nativeExit) | Out-Null}
+        if($null -ne $stagedAttemptBridge){Invoke-InstallerHelper -Bridge $stagedAttemptBridge -Phase ('record-staged-reboot-'+$nativeExit) | Out-Null}
         exit $nativeExit
     }
     Invoke-InstallerHelper -Bridge $bridge -Phase 'reconcile' | Out-Null
@@ -3126,6 +3181,12 @@ try {
     }
     if ($null -ne (Read-InstallerFence -Root $installerStateRoot)) { throw 'RECOVERY_REQUIRED' }
     if ($intent -eq 'install' -and $null -eq $compoundDetails) { Invoke-InstallerHelper -Bridge $bridge -Phase 'verify-settled' | Out-Null }
+    if($null -ne $stagedAttemptBridge -and $nativeExit -eq 0){
+        $proof=[EndpointInstallerBridge.NativeTransaction]::EstablishSettlement($stagedAttemptBridge.Owner)
+        $stagedAttemptBridge.Policy.AuthorizeStagedRecovery($proof)
+        $settledAttempt=Invoke-InstallerHelper -Bridge $stagedAttemptBridge -Phase 'record-staged-native-success'
+        if($settledAttempt.operation_id -cne $stagedAttemptBridge.TransactionId -or $settledAttempt.result -cne 'native-attempt-settled'){throw 'RECOVERY_REQUIRED'}
+    }
     if($null -ne $stagedRecoveryBridge -and $nativeExit -eq 0){
         $proof=[EndpointInstallerBridge.NativeTransaction]::EstablishSettlement($stagedRecoveryBridge.Owner)
         $stagedRecoveryBridge.Policy.AuthorizeStagedRecovery($proof)
@@ -3175,6 +3236,11 @@ finally {
         # Restoration is best effort after an already classified failure.
         # Unavailable evidence must not erase UPDATE_IN_PROGRESS/invalid-state.
         Write-Warning 'MANAGED_SERVICE_RESTORATION_DEFERRED: EVIDENCE_OR_SERVICE_UNAVAILABLE'
+    }
+    if($null -ne $stagedAttemptBridge){
+        $stagedAttemptBridge.Policy.OwnerLost();$stagedAttemptBridge.Channel.Dispose()
+        foreach($peer in $stagedAttemptBridge.Peers){$peer.Dispose()}
+        $stagedAttemptBridge.Owner.Dispose()
     }
     if($null -ne $stagedRecoveryBridge){
         $stagedRecoveryBridge.Policy.OwnerLost();$stagedRecoveryBridge.Channel.Dispose()

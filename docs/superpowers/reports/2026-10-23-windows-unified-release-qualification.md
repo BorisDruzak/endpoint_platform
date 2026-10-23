@@ -88,20 +88,59 @@ identical. Restoring the clock/provider changed it again by milliseconds.
 Clock adjustment alone reused the cached provider value. Thus provider cache
 refresh, rather than a reboot, can change the previous admission input.
 
-The signed owner and Python recovery now query the same 32-byte
-SYSTEM_BOOT_ENVIRONMENT_INFORMATION (class 90) and require successful NTSTATUS,
-exact returned length and a nonzero boot GUID. Only two valid, different kernel
-identities permit a fresh trial. A historical timestamp cannot authorize a
-trial or release a stored reboot gate. Unsupported API/query results fail
-closed without a timestamp fallback. This private native information class
-requires actual supported-Windows qualification in each new frozen candidate.
-Definitions were checked against the [native headers](https://github.com/winsiderss/phnt/blob/master/ntexapi.h)
-and [NtQuerySystemInformation contract](https://learn.microsoft.com/en-us/windows/win32/api/winternl/nf-winternl-ntquerysysteminformation).
+## Candidate 148: rejected before native build
 
-The boot regressions first failed (7 failed, 2 passed); the focused recovery,
-trial, native rollback and compound scopes now pass 96 tests, including actual
-local PowerShell/Python kernel ABI agreement. A fresh immutable candidate and
-full installed acceptance remain required before promotion.
+The kernel-GUID replacement passed its focused tests, the full Windows/packaging
+scope (2352 passed, 5 skipped), canary (422 passed), tools (398 passed, 158 skipped)
+and exact CI 39951041720. Its Core/source manifest was frozen from 3f158cfa.
+An actual dedicated guest restart then showed the kernel boot GUID unchanged,
+while kernel startup record 1923 replaced record 1650. This invalidated the
+GUID-only assumption. The native build waiter was stopped before signing;
+no Native 148 installation, admission, catalog promotion or production rollout
+occurred. Evidence and the frozen Core remain preserved.
+
+A subsequent event-log prototype was also rejected before freezing: a delayed
+startup event could arrive after capture without another reboot. Retaining an
+older event anchor therefore did not prove a reboot after capture. Its source
+and failure evidence are retained separately; it was never a published release.
+
+## Volatile boot witness and conservative native attempt gate
+
+The replacement uses documented volatile HKLM keys under the private 64-bit
+EndpointPlatformStagedBoot namespace. The signed original owner exclusively
+creates a persistent operation witness, checks its SYSTEM/Administrators-only
+protected ACL, flushes it with RegFlushKey, and captures a fresh volatile child.
+Recovery only opens existing witnesses, with no-follow registry semantics. It
+never recreates them. Missing parents, changed ACLs, links, access failures and
+deleted handles remain errors. Only an exactly missing volatile leaf under an
+intact private witness proves full shutdown. Product cleanup never deletes
+witnesses or markers. SYSTEM and administrators remain trusted authorities.
+Fast Startup/hibernate preserving the marker cannot release a reboot gate.
+
+Before every forward native invocation, an authenticated owner durably publishes
+an unresolved attempt with a fresh marker. A publication failure prevents launch.
+Unknown attempts block trial and request compensation. Zero requires real empty
+MSI settlement and verification of the exact candidate Native release before
+atomic outcome publication. 3010/1641 retain the marker bound before launch.
+Thus an old satisfied reboot record cannot authorize a second interrupted
+attempt. Historical timestamp, kernel GUID and event identities remain
+conservative compensation/reboot-block inputs.
+
+On the actual dedicated VM, a marker survived creator-process exit and a
++120-second clock adjustment plus WMI refresh. A real guest restart removed the
+volatile leaf while preserving the private persistent witness. This standalone
+lifecycle proof is not an installed candidate acceptance result.
+
+The affected source scope passed 113 tests, including actual private HKLM keys,
+dangling REG_LINK, ACL drift, access/deleted-handle failures, pending-publication
+faults, exact candidate binding and compiled owner settlement/control-flow checks.
+Independent review passed 84 focused tests and found no Important/Critical
+findings. A new immutable candidate still requires signed artifact checks and
+fresh installed owner-loss, rollback, TCP and stability acceptance.
+
+References: [volatile key semantics](https://learn.microsoft.com/en-us/windows/win32/api/winreg/nf-winreg-regcreatekeyexw),
+[registry durability](https://learn.microsoft.com/en-us/windows/win32/api/winreg/nf-winreg-regflushkey),
+[registry open semantics](https://learn.microsoft.com/en-us/windows/win32/api/winreg/nf-winreg-regopenkeyexw).
 
 ## Production readiness
 

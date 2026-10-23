@@ -162,8 +162,16 @@ captured bit without child ACL propagation. A live mutation grant and exact
 post-write snapshot remain mandatory; the original capture is never rebased.
 Only a confirmed new boot restarts a fresh trial; live owner loss requests rollback. Ambiguous reverse/native
 settlement retains the barrier and reports recovery required. A recorded native
-reboot result withholds trial until the validated kernel boot GUID changes; a new
-boot resets the trial attempt. Terminal cleanup never reverses acceptance.
+reboot result withholds trial while its protected volatile registry marker is
+present. `staged_boot_marker.py` requires the intact, private persistent operation
+witness; only a missing volatile leaf proves full shutdown. Recovery never
+creates missing witnesses, and cleanup never deletes markers. WMI timestamps,
+kernel GUIDs, delayed events and Fast Startup cannot substitute for this proof.
+Every forward native attempt durably publishes an unresolved gate and fresh
+marker before launch. An unresolved attempt requests compensation and blocks
+trial; a successful outcome requires real native settlement and the exact new
+release. 3010/1641 retain the marker captured before that native invocation.
+A new boot resets the trial attempt. Terminal cleanup never reverses acceptance.
 Companion capture records only already-running fixed roles; restoration requests
 use the same still-active user SID/session and an interactive Scheduler token,
 never Session 0. Service results and requested user launches are distinct.
