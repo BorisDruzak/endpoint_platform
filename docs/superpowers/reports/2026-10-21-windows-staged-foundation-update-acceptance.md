@@ -6,7 +6,107 @@ The source plan is `docs/superpowers/plans/2026-10-21-windows-staged-foundation-
 Only the dedicated disposable Windows guest is in scope. Historical artifacts,
 snapshots and acceptance sequences remain unchanged.
 
-## Latest controlled results: 3.2.139
+## Latest controlled results: 3.2.142
+
+Task 8 remains open: the 120-second pause goal and complete 42-case installed
+matrix have not passed. Runtime source is
+`0ab8e3ec76943c9e26a253474555cae3264799ac`; build and verification checkout is
+`582868b33ca8957322fc4a99ab7915f052c3a0d3`.
+[Exact-source CI 39840654394](https://github.com/BorisDruzak/endpoint_platform/actions/runs/39840654394)
+succeeded: 4605 passed, 830 skipped, 17 warnings in 347.31 seconds. The Windows
+gate passed: 2439 tests, 3 skips in 335.57 seconds. Contract generation,
+compilation and whitespace checks passed.
+
+This candidate shares identical Foundation DLL/data while preserving each
+entrypoint's independent PYZ closure. The compiled schema-2 inventory checks
+all 122 Foundation rows, including valid empty metadata; executable bytes must
+remain nonempty. All 183 project source hashes, 119 Core files, eleven frozen
+entrypoint closures, timezone resources, required interpreter TLS resources,
+MSI Binary, embedded Core and Setup recovery bindings passed. TLS verification
+and the required interpreter policy resource remain intact. Candidates 3.2.140
+and 3.2.141 were rejected before any guest installation; their artifacts remain
+preserved.
+
+| Artifact | Bytes | SHA-256 |
+| --- | ---: | --- |
+| MSI | 103768064 | `5661e1423a5f7c10ded3dee1d79fe7e5d85e1750bac899d37f9b7aff7f2a3a37` |
+| Setup | 145344248 | `02467b09d32062cbf179fd82f8450fc70d270ff81c90c4ce6c630d8d4a0d2e2b` |
+| Core ZIP | 22751994 | `6c74135d44c8ead2d82951c0feba7751a8fc1ef5423ed2d59f4c76dfd2558dce` |
+
+MSI and Setup have valid timestamped signatures. Both ordinary cases use
+Foundation 3.2.120 with independent Core 3.2.121. Cold includes a real guest
+restart and fresh baseline WSS/APPLIED policy before Setup. Conservative pauses
+start at the last observed Running sample. Both rows exceed 120 seconds.
+
+| Case | Setup seconds | First new WSS pause seconds | Latest WSS pause seconds |
+| --- | ---: | ---: | ---: |
+| Cold | 298.897795 | 135.335459 | 135.335459 |
+| Warm | 318.567281 | 129.227401 | 164.549029 |
+
+Both runs passed full Native/Core verification for the exact source and MSI,
+fresh WSS/APPLIED policy, four private-leaf comparisons, unchanged Agent PID
+during postflight, unchanged NTFS IDs/sizes/hashes for all 111 retained and 119
+candidate files, and zero remaining recovery tasks. The warm run restored both
+original user roles to the same SID/session; the cold run had none after boot.
+These do not establish the required 2500+ legacy-file cases or full matrix.
+Original latest-session verdict receipts are preserved; the warm first session
+at 19:57:32.448493 UTC is reported separately from its reconnect at
+19:58:07.770121 UTC. The server records only `disconnected` for the intervening
+close, which does not establish its underlying cause.
+
+Read-only signed probes measured complete command verification at
+1.128/1.030/0.985 seconds under SYSTEM and 1.071/1.026/1.018 seconds using the
+actual service token with its service SID. Agent PID remained unchanged and
+probe tasks were removed. These probes neither launched Core nor attached a
+debugger. They preimported modules and therefore do not measure cold module
+loading or the actual transition's full startup delay. Cold Native finalization
+took 13.69 seconds; service Running preceded Core process creation by 17.25
+seconds. Those unexplained intervals remain under investigation.
+
+Actual 3.2.142 early-crash rollback passed on the modern121 baseline. Setup
+exited 67 after 388.486137 seconds; automatic compensation restored the exact
+Foundation 3.2.120 and independent Core 3.2.121 source/package identities,
+fresh old WSS/APPLIED policy, all four private leaves and both original user
+roles. Postflight kept the live Agent PID unchanged and found zero recovery
+tasks. All 111 retained NTFS identities/hashes/sizes matched. No manual recovery
+or service start occurred. This is one rollback case, not full matrix acceptance.
+
+Additional diagnostics do not change the performance verdict. A single fixed
+`--print-version` invocation on the fully verified, unselected candidate while
+the old agent remained Running took 19.429412 seconds, including 16.447827
+seconds inside process creation. The subsequent Native upgrade passed its
+functional checks but still measured a 130.640188-second conservative pause.
+This experiment is performance-ineligible; it establishes the process-creation
+boundary, not an antivirus, certificate or network root cause.
+
+The source-only candidate selfcheck retains all candidate-file deny-write/delete
+pins, full before/after hash/ACL/namespace verification, live owner checkpoints,
+exact version output and a bounded deadline. Native authentication and the
+60-second stability/180-second trial gates remain unchanged. The actual frozen
+signed 3.2.142 Core passed this source function in an isolated fixture; this is
+not a signed release of the new source. No 3.2.143 candidate has been reserved
+or built. The updated source passed the complete Windows gate: 2455 tests,
+3 skips in 336.71 seconds; contract generation, compilation and diff checks
+also passed. These source results do not establish installed performance.
+
+A separate read-only batch-pin-validation prototype measured
+1.518057/1.480758/1.403336/1.509911 seconds in ABBA order, with identical full
+Native inventory counts and 122 full byte reads in each pass. Its gain was
+below 0.2 seconds, so that prototype was preserved privately and removed from
+the implementation. The production agent PID and all trust settings remained
+unchanged during that diagnostic.
+
+Actual 3.2.142 no-proof timeout rollback also passed on the modern121 baseline.
+The candidate was not accepted without the deliberately blocked proof; after
+its unchanged 180-second trial deadline, automatic compensation restored
+Foundation 3.2.120 and Core 3.2.121. Total Setup time was 502.807391 seconds,
+exit 67. Independent full Native/Core postflight, fresh old WSS/APPLIED policy,
+private-leaf preservation, all 111 retained NTFS identities/hashes/sizes,
+the two original user roles and zero recovery tasks passed. Postflight kept
+the live Agent PID unchanged. No manual recovery or service start occurred.
+This adds one failure case; it does not close the complete installed matrix.
+
+## Historical controlled results: 3.2.139
 
 Task 8 remains open: the 120-second pause goal and complete 42-case installed
 matrix have not passed. Runtime source is
