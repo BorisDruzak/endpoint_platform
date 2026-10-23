@@ -49,9 +49,11 @@ Candidate 146 failed owner-loss recovery because native rollback cleared the
 captured data-root AUTO_INHERITED flag. The correction restores only this exact
 bit after a genuine owner-bound MSI settlement barrier and preserves strict
 identity/ACL/private-data checks. Candidate 147 then failed owner-loss classification: a WMI provider timestamp
-changed without reboot and incorrectly allowed a new trial. Kernel boot GUID
-admission now replaces that timestamp. Candidate 148 requires fresh artifact,
-CI and installed acceptance; historical cases do not satisfy those gates.
+changed without reboot and incorrectly allowed a new trial. Candidate 148's
+kernel GUID also stayed unchanged across an actual restart, so its native build
+was stopped. Protected volatile registry witnesses and a durable unresolved gate
+before every native attempt now replace those identities. Candidate 149 requires
+fresh artifact, CI and installed acceptance; historical cases cannot satisfy them.
 
 ### Task 3: Dedicated Windows installed acceptance
 
