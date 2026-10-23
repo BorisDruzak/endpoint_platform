@@ -56,6 +56,33 @@ def test_stage_completes_before_service_stop(online, monkeypatch):
     assert (installer_fence.state_root(paths) / 'provenance' / prepared.binding.operation_id / 'plan.json').is_file()
 
 
+@pytest.mark.parametrize('failed', [False, True])
+def test_candidate_executability_check_precedes_prepared_and_service_stop(online, monkeypatch, failed):
+    from pc_agent.platform.windows import staged_candidate_payload
+    client, paths, _, _, _, _ = online
+    before = paths.current_path.read_bytes()
+    calls = []
+
+    def check(actual_paths, record, expected):
+        assert actual_paths is paths and record.phase == 'preparing'
+        assert paths.current_path.read_bytes() == before
+        calls.append(expected.identity.version)
+        if failed:
+            raise ValueError('PROVENANCE_CONFLICT')
+
+    monkeypatch.setattr(staged_candidate_payload, 'check_candidate_executable', check, raising=False)
+    monkeypatch.setattr(bridge, 'InstallerServices', lambda *_a, **_k: pytest.fail('premature service stop'))
+    if failed:
+        with pytest.raises(ValueError, match='PROVENANCE_CONFLICT'):
+            bridge.stage_online_update(client, paths)
+        assert staged_update_state.read_staged_update(paths).phase == 'preparing'
+    else:
+        assert bridge.stage_online_update(client, paths).phase == 'prepared'
+    assert len(calls) == 1
+    assert paths.current_path.read_bytes() == before
+    assert installer_fence.read_fence(paths) is None
+
+
 def test_installed_tree_is_distinct_from_authored_msi_tree(online):
     client, paths, _, request, expected, _ = online
     assert request['release']['initial_runtime_tree_sha256'] != expected.identity.tree_sha256

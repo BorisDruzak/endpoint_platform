@@ -613,11 +613,13 @@ def stage_online_update(client, paths):
         provenance.prepare_installer_provenance(paths, request)
         metrics['preparation_seconds'] = time.perf_counter() - before
         provenance.validate_interrupted_reconciliation(paths, request)
-        from .staged_candidate_payload import prepare_candidate_payload, publish_candidate_payload
+        from .staged_candidate_payload import prepare_candidate_payload, publish_candidate_payload, check_candidate_executable
         from .staged_update_state import read_staged_update
         prepare_candidate_payload(paths, read_staged_update(paths), expected)
         _online_inputs(client, paths)
         publish_candidate_payload(paths, read_staged_update(paths), expected)
+        check_candidate_executable(paths, read_staged_update(paths), expected)
+        _online_inputs(client, paths)
         record = advance_staged_update(paths, binding.operation_id, 'preparing', 'prepared')
     metrics['total_seconds'] = time.perf_counter() - started
     return record

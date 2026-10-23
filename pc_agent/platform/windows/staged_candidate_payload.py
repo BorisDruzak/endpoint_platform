@@ -8,8 +8,12 @@ from __future__ import annotations
 
 import hashlib
 import os
+from contextlib import ExitStack
 from pathlib import Path
 import stat
+import subprocess
+import tempfile
+import time
 import zipfile
 
 from endpoint_contracts.runtime_payload import (
@@ -144,6 +148,71 @@ def publish_candidate_payload(paths, record, expected):
     _verify(target, expected)
     _write(root, record, 'published')
     return target
+
+
+def check_candidate_executable(paths, record, expected):
+    """Check the frozen CLI online; this grants no native or trial authority."""
+    root, _, target, _ = _authorize(paths, record, expected)
+    if not _present(root):
+        return None  # Historical standalone wrapper without a staged candidate.
+    if (_journal(root, record) != 'published'
+            or provenance._selector(paths.current_path)[0] != record.binding.selected_before):
+        _fail()
+    with ExitStack() as stack:
+        identities = []
+        # Hold every authenticated dependency, not just the executable. The
+        # child may load DLLs lazily; no payload mutation is allowed meanwhile.
+        for path in (target / item.path for item in expected.identity.files):
+            before = durable_state._copy_identity(path.lstat())
+            descriptor = stack.enter_context(durable_state._pinned_copy_source(path))
+            opened = os.fstat(descriptor)
+            if durable_state._copy_identity(opened) != before:
+                _fail()
+            identities.append((path, descriptor, before, opened.st_ctime_ns))
+        _verify(target, expected)
+        with tempfile.TemporaryFile(dir=root) as output:
+            if isinstance(output.name, str):
+                fence.protect_state(Path(output.name), secret=True)
+            durable_state.installer_mutation_checkpoint(required=True)
+            deadline = time.monotonic() + 60
+            child = subprocess.Popen(
+                [str(target / 'pc_agent.exe'), '--print-version'],
+                cwd=str(target), stdin=subprocess.DEVNULL,
+                stdout=output, stderr=subprocess.STDOUT,
+                shell=False, close_fds=True,
+                creationflags=0x08000000 if os.name == 'nt' else 0,
+            )
+            try:
+                while child.poll() is None:
+                    durable_state.installer_mutation_checkpoint(required=True)
+                    if os.fstat(output.fileno()).st_size > 4096 or time.monotonic() >= deadline:
+                        _fail()
+                    time.sleep(0.1)
+                child.wait(timeout=5)
+                durable_state.installer_mutation_checkpoint(required=True)
+                if (child.returncode != 0 or time.monotonic() >= deadline
+                        or os.fstat(output.fileno()).st_size > 4096):
+                    _fail()
+                output.seek(0)
+                if output.read(4097).strip() != expected.identity.version.encode('ascii'):
+                    _fail()
+            finally:
+                if child.poll() is None:
+                    # Popen retains the exact native process handle. Never kill
+                    # by image name, PID discovery or a different operation.
+                    child.kill()
+                    child.wait(timeout=5)
+        _authorize(paths, record, expected)
+        if provenance._selector(paths.current_path)[0] != record.binding.selected_before:
+            _fail()
+        _verify(target, expected)
+        for path, descriptor, before, changed in identities:
+            after = os.fstat(descriptor)
+            if (durable_state._copy_identity(path.lstat()) != before
+                    or durable_state._copy_identity(after) != before
+                    or after.st_ctime_ns != changed):
+                _fail()
+    return True
 
 
 def cancel_candidate_payload(paths, record, expected):
