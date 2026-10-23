@@ -30,6 +30,9 @@ _LEGACY_MSI_CONTRACTS = {
 # contracts or their captured compatibility_foundations/identity digest.
 # Only these two exact retained media may be selected by the listed foundations.
 _LEGACY_FOUNDATION_EXTENSIONS = {
+    '3.2.147': frozenset({
+        '2f7d778799f1e32645af7936dfaf3f090d6ad4df5bb883827ea8a0a5d859f72a',
+    }),
     '3.2.146': frozenset({
         '2f7d778799f1e32645af7936dfaf3f090d6ad4df5bb883827ea8a0a5d859f72a',
     }),

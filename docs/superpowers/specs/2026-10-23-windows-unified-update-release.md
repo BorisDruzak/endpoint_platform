@@ -6,8 +6,9 @@ update design and existing audited enrollment/update mechanisms. Execute inline
 in the current managed worktree; the primary checkout contains unrelated work.
 
 Combine the staged branch with current main and the transport fix from
-`61784dc6d35570404952f8c512641785e41b6904`. Allocate a fresh version (3.2.144
-is currently absent from production release records). Existing versions and
+`61784dc6d35570404952f8c512641785e41b6904`. Allocate fresh version 3.2.147 after
+the rejected 144/145/146 candidates; their immutable bytes remain preserved.
+Existing versions and
 published artifacts remain immutable. Preserve current ALT Linux functionality.
 Preserve authentication/protocol/TLS rejection semantics and all installer
 signature, ownership, ACL, namespace, health-window and automatic rollback gates.

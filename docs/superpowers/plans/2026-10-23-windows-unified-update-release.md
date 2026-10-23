@@ -28,11 +28,12 @@ campaign and rollout services. Runtime evidence precedes fleet assignment.
 
 ### Task 1: Integrate and allocate the immutable candidate
 
-- [ ] Merge origin/main; resolve CODEMAP, version and platform fixture conflicts.
-- [ ] Port 61784dc transport regression tests first; demonstrate RED before fix.
-- [ ] Apply transport fix and retain staged online executability check.
-- [ ] Allocate free 3.2.144 and update versioned packaging fixtures/contracts.
-- [ ] Run transport/runtime/platform/contract tests; commit coherent source.
+- [x] Merge origin/main; resolve CODEMAP, version and platform fixture conflicts.
+- [x] Port 61784dc transport regression tests first; demonstrate RED before fix.
+- [x] Apply transport fix and retain staged online executability check.
+- [x] Allocate free 3.2.147 and update versioned packaging fixtures/contracts;
+      preserve rejected 144/145/146 media and their failed acceptance evidence.
+- [x] Run transport/runtime/platform/contract tests; commit coherent source.
 
 ### Task 2: Freeze, verify and review
 
@@ -41,8 +42,14 @@ campaign and rollout services. Runtime evidence precedes fleet assignment.
 - [ ] Push exact-source branch CI and require its success.
 - [ ] Build and timestamp-sign MSI/Setup; validate all embedded source closures,
       compiled Foundation inventory and MSI/ZIP/Setup identities.
-- [ ] Obtain independent review of the integrated changes; resolve blockers with
+- [x] Obtain independent review of the integrated changes; resolve blockers with
       failing regression tests and fresh affected verification before main.
+
+Candidate 146 failed owner-loss recovery because native rollback cleared the
+captured data-root AUTO_INHERITED flag. The correction restores only this exact
+bit after a genuine owner-bound MSI settlement barrier and preserves strict
+identity/ACL/private-data checks. Candidate 147 requires fresh artifact, CI and
+installed acceptance; historical 146 success cases do not satisfy those gates.
 
 ### Task 3: Dedicated Windows installed acceptance
 
