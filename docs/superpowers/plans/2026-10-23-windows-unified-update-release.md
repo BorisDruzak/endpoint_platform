@@ -37,10 +37,10 @@ campaign and rollout services. Runtime evidence precedes fleet assignment.
 
 ### Task 2: Freeze, verify and review
 
-- [ ] Build Core and immutable runtime/stage/source manifest from clean source.
-- [ ] Run full Windows/packaging gate, contracts, compile and diff checks.
-- [ ] Push exact-source branch CI and require its success.
-- [ ] Build and timestamp-sign MSI/Setup; validate all embedded source closures,
+- [x] Build Core and immutable runtime/stage/source manifest from clean source.
+- [x] Run full Windows/packaging gate, contracts, compile and diff checks.
+- [x] Push exact-source branch CI and require its success.
+- [x] Build and timestamp-sign MSI/Setup; validate all embedded source closures,
       compiled Foundation inventory and MSI/ZIP/Setup identities.
 - [x] Obtain independent review of the integrated changes; resolve blockers with
       failing regression tests and fresh affected verification before main.
@@ -52,31 +52,48 @@ identity/ACL/private-data checks. Candidate 147 then failed owner-loss classific
 changed without reboot and incorrectly allowed a new trial. Candidate 148's
 kernel GUID also stayed unchanged across an actual restart, so its native build
 was stopped. Protected volatile registry witnesses and a durable unresolved gate
-before every native attempt now replace those identities. Candidate 149 requires
-fresh artifact, CI and installed acceptance; historical cases cannot satisfy them.
+before every native attempt now replace those identities. Candidate 149 subsequently passed fresh artifact, exact CI and installed acceptance;
+historical cases did not satisfy these gates.
 
 ### Task 3: Dedicated Windows installed acceptance
 
-- [ ] Admit only an idle dedicated guest; preserve restore points/private baseline.
-- [ ] Prove compatible genuine predecessor upgrades and online staging/identities.
-- [ ] Interrupt only the candidate transport; prove automatic fresh WSS recovery
+- [x] Admit only an idle dedicated guest; preserve restore points/private baseline.
+- [x] Prove compatible genuine predecessor upgrades and online staging/identities.
+- [x] Interrupt only the candidate transport; prove automatic fresh WSS recovery
       and matching policy without service/Core exit or manual restart.
-- [ ] Prove crash/absent-proof automatic rollback and final Native/Core/private state.
-- [ ] Record candidate-bound health/stability and remaining unsupported cases.
+- [x] Prove crash/absent-proof automatic rollback and final Native/Core/private state.
+- [x] Record candidate-bound health/stability and remaining unsupported cases.
 
 ### Task 4: Publish main and production defaults
 
-- [ ] Fast-forward publish verified integration to main and verify remote SHA.
-- [ ] Back up applicable production release/campaign/rollout state and check disk.
-- [ ] Register immutable signed Setup/MSI/Core artifacts using existing services.
-- [ ] Make the compatible Windows Setup default and update applicable active
+- [x] Fast-forward publish verified integration to main and verify remote SHA.
+- [x] Back up applicable production release/campaign/rollout state and check disk.
+- [x] Register immutable signed Setup/MSI/Core artifacts using existing services.
+- [x] Make the compatible Windows Setup default and update applicable active
       campaign allowlists with audit, preserving all other campaign policy.
-- [ ] Use supported rollout/Foundation reconciliation paths to target existing
+- [x] Use supported rollout/Foundation reconciliation paths to target existing
       non-retired Windows agents; retain previous verified rollback inputs.
 
 ### Task 5: Verify delivered outcomes
 
-- [ ] Verify trusted HTTPS downloads and published hashes/default selection.
-- [ ] Check fresh server-visible versions, Foundation/launcher and matching policy;
+- [x] Verify trusted HTTPS downloads and published hashes/default selection.
+- [x] Check fresh server-visible versions, Foundation/launcher and matching policy;
       distinguish applied, pending offline, failed and blocked devices.
-- [ ] Save a factual release/deployment report and return concise results.
+- [x] Save a factual release/deployment report and return concise results.
+
+## Delivered 3.2.149 and remaining external state
+
+The qualification report records seven actual Native cases, three automatic
+rollback cases, 39.161-second TCP recovery, the complete 30-minute soak and the
+subsequent installed boot-witness proof. Build `5923e` was published to main and
+149 became the canonical Windows Setup default with two active campaigns ready.
+All four connected production Windows workstations passed exact installed
+Native/Core 149, private-state preservation, fresh WSS and new matching APPLIED
+acknowledgements. Four other registered production Windows devices were offline;
+their domain assignments target 149 but installation is still unverified.
+
+The strict 120-second VM pause gate remains failed (modern 141-145 seconds,
+legacy 257-260 seconds); completion of this plan does not change that result. One real
+legacy predecessor needed an exact operator ACL preparation before its successful
+full Setup. No production workstation reboot or product verification relaxation
+was introduced. See the qualification report for actual timings and limitations.
