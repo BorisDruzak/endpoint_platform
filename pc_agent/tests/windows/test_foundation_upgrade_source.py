@@ -15,7 +15,7 @@ def test_legacy_foundation_extension_is_exact_and_keeps_historical_contracts():
         'ad4dc49703513d6dee6fd3e51ac94a09c5967112d58aed4e60a63cf6966251f5',
     }
     expected={version:frozenset(canonical) for version in ('3.2.94','3.2.95','3.2.96','3.2.97','3.2.98','3.2.99','3.2.103','3.2.106','3.2.109','3.2.112','3.2.113','3.2.114','3.2.115','3.2.116','3.2.117','3.2.118','3.2.119','3.2.120')}
-    expected.update({version:frozenset({'2f7d778799f1e32645af7936dfaf3f090d6ad4df5bb883827ea8a0a5d859f72a'}) for version in ('3.2.122','3.2.123','3.2.124','3.2.125','3.2.126','3.2.127','3.2.128','3.2.129','3.2.130','3.2.131','3.2.132','3.2.133','3.2.134','3.2.135','3.2.136','3.2.137','3.2.138','3.2.139','3.2.140','3.2.141','3.2.142')})
+    expected.update({version:frozenset({'2f7d778799f1e32645af7936dfaf3f090d6ad4df5bb883827ea8a0a5d859f72a'}) for version in ('3.2.122','3.2.123','3.2.124','3.2.125','3.2.126','3.2.127','3.2.128','3.2.129','3.2.130','3.2.131','3.2.132','3.2.133','3.2.134','3.2.135','3.2.136','3.2.137','3.2.138','3.2.139','3.2.140','3.2.141','3.2.142','3.2.144')})
     assert identity._LEGACY_FOUNDATION_EXTENSIONS == expected
     for package in canonical:
         assert identity._LEGACY_MSI_CONTRACTS[package]['approved_foundations']==('3.2.82',)
@@ -97,3 +97,8 @@ def test_foundation_without_modern_marker_uses_exact_readonly_legacy_inspection(
     monkeypatch.setattr(legacy,'inspect_foundation',inspect)
     assert provenance.verified_foundation_release(paths)==release
     assert seen==[paths] and not (root/'foundation.json').exists()
+
+
+def test_unified_windows_candidate_uses_new_immutable_version():
+    from pc_agent.version import AGENT_VERSION
+    assert AGENT_VERSION == "3.2.144"
