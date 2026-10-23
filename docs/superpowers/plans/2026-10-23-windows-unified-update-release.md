@@ -31,8 +31,8 @@ campaign and rollout services. Runtime evidence precedes fleet assignment.
 - [x] Merge origin/main; resolve CODEMAP, version and platform fixture conflicts.
 - [x] Port 61784dc transport regression tests first; demonstrate RED before fix.
 - [x] Apply transport fix and retain staged online executability check.
-- [x] Allocate free 3.2.148 and update versioned packaging fixtures/contracts;
-      preserve rejected 144/145/146/147 media and their failed acceptance evidence.
+- [x] Allocate free 3.2.149 and update versioned packaging fixtures/contracts;
+      preserve rejected 144/145/146/147/148 media and their failed acceptance evidence.
 - [x] Run transport/runtime/platform/contract tests; commit coherent source.
 
 ### Task 2: Freeze, verify and review
