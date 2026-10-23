@@ -255,22 +255,23 @@ def test_worker_runtime_closes_detached_handle_when_crt_adoption_fails(native_pr
     def fail(raw, flags):
         detached.append(raw)
         raise OSError('simulated CRT adoption failure')
-    try:
-        with monkeypatch.context() as scoped:
-            scoped.chdir(parent)
-            scoped.setattr(sys, 'frozen', True, raising=False)
-            scoped.setattr(sys, '_MEIPASS', str(root), raising=False)
-            scoped.setattr(msvcrt, 'open_osfhandle', fail)
-            with pytest.raises(OSError, match='simulated CRT'):
-                with broker.protected_worker_runtime(SimpleNamespace(assert_alive=lambda: None)):
-                    pytest.fail('failed handle adoption admitted')
-            destination = parent / '_MEI_after_failure'
-            assert root.resolve().parent == destination.resolve().parent == parent.resolve()
-            root.rename(destination)  # Fails if the detached native handle leaked.
-    finally:
+    with monkeypatch.context() as scoped:
+        scoped.chdir(parent)
+        scoped.setattr(sys, 'frozen', True, raising=False)
+        scoped.setattr(sys, '_MEIPASS', str(root), raising=False)
+        scoped.setattr(msvcrt, 'open_osfhandle', fail)
+        with pytest.raises(OSError, match='simulated CRT'):
+            with broker.protected_worker_runtime(SimpleNamespace(assert_alive=lambda: None)):
+                pytest.fail('failed handle adoption admitted')
+        assert detached
         for raw in detached:
-            try: win32api.CloseHandle(raw)
-            except pywintypes.error: pass
+            with pytest.raises(pywintypes.error):
+                win32api.GetHandleInformation(raw)
+        # Do not close the released numeric handle again. Restoring cwd can
+        # reuse it for the directory handle, which would corrupt later reads.
+        destination = parent / '_MEI_after_failure'
+        assert root.resolve().parent == destination.resolve().parent == parent.resolve()
+        root.rename(destination)
 
 
 @pytest.mark.skipif(os.name != 'nt', reason='real overlapped Windows pipe and owner handle')
