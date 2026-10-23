@@ -471,3 +471,11 @@ def test_candidate_native_callback_reuses_protected_scope_without_mutation(rever
     monkeypatch.setattr(bridge, '_execute_authorized_phase', lambda *_a, **_k: {'native': 'inspected'})
     assert rollback.execute_candidate_removal_phase(client, paths) == {'native': 'inspected'}
     assert sent == [('complete', {'native': 'inspected'})]
+
+
+def test_genuine_legacy79_is_compatible_with_unified146_only():
+    from pc_agent.platform.windows import runtime_identity
+    digest='2f7d778799f1e32645af7936dfaf3f090d6ad4df5bb883827ea8a0a5d859f72a'
+    assert runtime_identity.legacy_foundation_compatible(digest,'3.2.146')
+    assert not runtime_identity.legacy_foundation_compatible('0'*64,'3.2.146')
+    assert not runtime_identity.legacy_foundation_compatible('ad4dc49703513d6dee6fd3e51ac94a09c5967112d58aed4e60a63cf6966251f5','3.2.146')
