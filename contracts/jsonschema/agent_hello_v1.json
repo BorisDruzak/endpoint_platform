@@ -73,11 +73,12 @@
           "endpoint.browser-status.v1",
           "endpoint.sensor-health.v1",
           "endpoint.recovery-update.v2",
-          "endpoint.telemetry-results.v1"
+          "endpoint.telemetry-results.v1",
+          "endpoint.power-events.v1"
         ],
         "type": "string"
       },
-      "maxItems": 7,
+      "maxItems": 8,
       "title": "Protocol Features",
       "type": "array"
     },

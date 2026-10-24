@@ -17,8 +17,10 @@ from endpoint_contracts.gateway_ws import (
     GatewayWsEnvelopeV1,
     HeartbeatEnvelopeV1,
     SecurityEventBatchEnvelopeV1,
+    PowerEventBatchEnvelopeV1,
 )
 from endpoint_contracts.security_events import MAX_SECURITY_EVENT_BATCH_BYTES_V1
+from endpoint_contracts.power_events import MAX_POWER_EVENT_BATCH_BYTES_V1
 
 
 AgentEnvelope: TypeAlias = (
@@ -31,6 +33,7 @@ AgentEnvelope: TypeAlias = (
     | BrowserStatusReportEnvelopeV1
     | PolicySensorHealthReportEnvelopeV1
     | SecurityEventBatchEnvelopeV1
+    | PowerEventBatchEnvelopeV1
 )
 
 
@@ -75,9 +78,12 @@ def parse_agent_envelope(
             BrowserStatusReportEnvelopeV1,
             PolicySensorHealthReportEnvelopeV1,
             SecurityEventBatchEnvelopeV1,
+            PowerEventBatchEnvelopeV1,
         ),
     ):
         raise GatewayProtocolError(1008, "invalid_direction")
+    if isinstance(envelope, PowerEventBatchEnvelopeV1) and len(encoded) > MAX_POWER_EVENT_BATCH_BYTES_V1:
+        raise GatewayProtocolError(1009, 'message_too_large')
     return envelope
 
 

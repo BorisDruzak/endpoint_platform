@@ -1870,6 +1870,419 @@ paths:
         - "device-binding.redeem"
 components:
   schemas:
+    PowerEventV1:
+      additionalProperties: false
+      allOf:
+        -
+          if:
+            properties:
+              event_kind:
+                enum:
+                  - "OS_STARTED"
+                  - "OS_RESUMED"
+          then:
+            properties:
+              evidence:
+                const: "transition"
+        -
+          if:
+            properties:
+              event_kind:
+                const: "OS_UNEXPECTED_SHUTDOWN_REPORTED"
+          then:
+            properties:
+              evidence:
+                const: "reported"
+        -
+          if:
+            properties:
+              event_kind:
+                not:
+                  const: "OS_SLEEP_STARTED"
+          then:
+            properties:
+              sleep_subtype:
+                type: "null"
+      properties:
+        schema_version:
+          const: "power_event_v1"
+          title: "Schema Version"
+          type: "string"
+        event_identifier:
+          format: "uuid"
+          title: "Event Identifier"
+          type: "string"
+        event_kind:
+          enum:
+            - "OS_STARTED"
+            - "OS_SHUTDOWN_STARTED"
+            - "OS_SLEEP_STARTED"
+            - "OS_RESUMED"
+            - "OS_UNEXPECTED_SHUTDOWN_REPORTED"
+          title: "Event Kind"
+          type: "string"
+        occurred_at:
+          format: "date-time"
+          title: "Occurred At"
+          type: "string"
+          "$comment": "model-only UTC normalization: timezone-aware values are normalized to UTC."
+        observed_at:
+          format: "date-time"
+          title: "Observed At"
+          type: "string"
+          "$comment": "model-only UTC normalization: timezone-aware values are normalized to UTC."
+        boot_id:
+          maxLength: 128
+          minLength: 1
+          pattern: "^[A-Za-z0-9][A-Za-z0-9._:+/=-]*$"
+          title: "Boot Id"
+          type: "string"
+        source:
+          maxLength: 128
+          minLength: 1
+          pattern: "^[A-Za-z0-9][A-Za-z0-9._:+/=-]*$"
+          title: "Source"
+          type: "string"
+        native_record_id:
+          maxLength: 128
+          minLength: 1
+          pattern: "^[A-Za-z0-9][A-Za-z0-9._:+/=-]*$"
+          title: "Native Record Id"
+          type: "string"
+        evidence:
+          enum:
+            - "transition"
+            - "request"
+            - "reported"
+          title: "Evidence"
+          type: "string"
+        sleep_subtype:
+          anyOf:
+            -
+              enum:
+                - "sleep"
+                - "hibernate"
+                - "hybrid"
+                - "unknown"
+              type: "string"
+            -
+              type: "null"
+          default: null
+          title: "Sleep Subtype"
+      required:
+        - "schema_version"
+        - "event_identifier"
+        - "event_kind"
+        - "occurred_at"
+        - "observed_at"
+        - "boot_id"
+        - "source"
+        - "native_record_id"
+        - "evidence"
+      title: "PowerEventV1"
+      type: "object"
+    PowerSourceStatusV1:
+      additionalProperties: false
+      properties:
+        schema_version:
+          const: "power_source_status_v1"
+          title: "Schema Version"
+          type: "string"
+        source:
+          maxLength: 128
+          minLength: 1
+          pattern: "^[A-Za-z0-9][A-Za-z0-9._:+/=-]*$"
+          title: "Source"
+          type: "string"
+        availability:
+          enum:
+            - "READY"
+            - "DEGRADED"
+            - "UNAVAILABLE"
+            - "UNSUPPORTED"
+          title: "Availability"
+          type: "string"
+        reported_at:
+          format: "date-time"
+          title: "Reported At"
+          type: "string"
+          "$comment": "model-only UTC normalization: timezone-aware values are normalized to UTC."
+        coverage_started_at:
+          anyOf:
+            -
+              format: "date-time"
+              type: "string"
+              "$comment": "model-only UTC normalization: timezone-aware values are normalized to UTC."
+            -
+              type: "null"
+          default: null
+          title: "Coverage Started At"
+        loss_count:
+          default: 0
+          maximum: 9223372036854775807
+          minimum: 0
+          title: "Loss Count"
+          type: "integer"
+        reset_count:
+          default: 0
+          maximum: 9223372036854775807
+          minimum: 0
+          title: "Reset Count"
+          type: "integer"
+      required:
+        - "schema_version"
+        - "source"
+        - "availability"
+        - "reported_at"
+      title: "PowerSourceStatusV1"
+      type: "object"
+    PowerEventBatchV1:
+      additionalProperties: false
+      properties:
+        schema_version:
+          const: "power_event_batch_v1"
+          title: "Schema Version"
+          type: "string"
+        batch_id:
+          format: "uuid"
+          title: "Batch Id"
+          type: "string"
+        events:
+          items:
+            "$ref": "#/components/schemas/PowerEventBatchV1__PowerEventV1"
+          maxItems: 128
+          title: "Events"
+          type: "array"
+        source_status:
+          "$ref": "#/components/schemas/PowerEventBatchV1__PowerSourceStatusV1"
+      required:
+        - "schema_version"
+        - "batch_id"
+        - "events"
+        - "source_status"
+      title: "PowerEventBatchV1"
+      type: "object"
+    PowerEventBatchV1__PowerEventV1:
+      additionalProperties: false
+      allOf:
+        -
+          if:
+            properties:
+              event_kind:
+                enum:
+                  - "OS_STARTED"
+                  - "OS_RESUMED"
+          then:
+            properties:
+              evidence:
+                const: "transition"
+        -
+          if:
+            properties:
+              event_kind:
+                const: "OS_UNEXPECTED_SHUTDOWN_REPORTED"
+          then:
+            properties:
+              evidence:
+                const: "reported"
+        -
+          if:
+            properties:
+              event_kind:
+                not:
+                  const: "OS_SLEEP_STARTED"
+          then:
+            properties:
+              sleep_subtype:
+                type: "null"
+      properties:
+        schema_version:
+          const: "power_event_v1"
+          title: "Schema Version"
+          type: "string"
+        event_identifier:
+          format: "uuid"
+          title: "Event Identifier"
+          type: "string"
+        event_kind:
+          enum:
+            - "OS_STARTED"
+            - "OS_SHUTDOWN_STARTED"
+            - "OS_SLEEP_STARTED"
+            - "OS_RESUMED"
+            - "OS_UNEXPECTED_SHUTDOWN_REPORTED"
+          title: "Event Kind"
+          type: "string"
+        occurred_at:
+          format: "date-time"
+          title: "Occurred At"
+          type: "string"
+          "$comment": "model-only UTC normalization: timezone-aware values are normalized to UTC."
+        observed_at:
+          format: "date-time"
+          title: "Observed At"
+          type: "string"
+          "$comment": "model-only UTC normalization: timezone-aware values are normalized to UTC."
+        boot_id:
+          maxLength: 128
+          minLength: 1
+          pattern: "^[A-Za-z0-9][A-Za-z0-9._:+/=-]*$"
+          title: "Boot Id"
+          type: "string"
+        source:
+          maxLength: 128
+          minLength: 1
+          pattern: "^[A-Za-z0-9][A-Za-z0-9._:+/=-]*$"
+          title: "Source"
+          type: "string"
+        native_record_id:
+          maxLength: 128
+          minLength: 1
+          pattern: "^[A-Za-z0-9][A-Za-z0-9._:+/=-]*$"
+          title: "Native Record Id"
+          type: "string"
+        evidence:
+          enum:
+            - "transition"
+            - "request"
+            - "reported"
+          title: "Evidence"
+          type: "string"
+        sleep_subtype:
+          anyOf:
+            -
+              enum:
+                - "sleep"
+                - "hibernate"
+                - "hybrid"
+                - "unknown"
+              type: "string"
+            -
+              type: "null"
+          default: null
+          title: "Sleep Subtype"
+      required:
+        - "schema_version"
+        - "event_identifier"
+        - "event_kind"
+        - "occurred_at"
+        - "observed_at"
+        - "boot_id"
+        - "source"
+        - "native_record_id"
+        - "evidence"
+      title: "PowerEventV1"
+      type: "object"
+    PowerEventBatchV1__PowerSourceStatusV1:
+      additionalProperties: false
+      properties:
+        schema_version:
+          const: "power_source_status_v1"
+          title: "Schema Version"
+          type: "string"
+        source:
+          maxLength: 128
+          minLength: 1
+          pattern: "^[A-Za-z0-9][A-Za-z0-9._:+/=-]*$"
+          title: "Source"
+          type: "string"
+        availability:
+          enum:
+            - "READY"
+            - "DEGRADED"
+            - "UNAVAILABLE"
+            - "UNSUPPORTED"
+          title: "Availability"
+          type: "string"
+        reported_at:
+          format: "date-time"
+          title: "Reported At"
+          type: "string"
+          "$comment": "model-only UTC normalization: timezone-aware values are normalized to UTC."
+        coverage_started_at:
+          anyOf:
+            -
+              format: "date-time"
+              type: "string"
+              "$comment": "model-only UTC normalization: timezone-aware values are normalized to UTC."
+            -
+              type: "null"
+          default: null
+          title: "Coverage Started At"
+        loss_count:
+          default: 0
+          maximum: 9223372036854775807
+          minimum: 0
+          title: "Loss Count"
+          type: "integer"
+        reset_count:
+          default: 0
+          maximum: 9223372036854775807
+          minimum: 0
+          title: "Reset Count"
+          type: "integer"
+      required:
+        - "schema_version"
+        - "source"
+        - "availability"
+        - "reported_at"
+      title: "PowerSourceStatusV1"
+      type: "object"
+    PowerEventAckV1:
+      additionalProperties: false
+      properties:
+        schema_version:
+          const: "power_event_ack_v1"
+          title: "Schema Version"
+          type: "string"
+        batch_id:
+          format: "uuid"
+          title: "Batch Id"
+          type: "string"
+        persisted_at:
+          format: "date-time"
+          title: "Persisted At"
+          type: "string"
+          "$comment": "model-only UTC normalization: timezone-aware values are normalized to UTC."
+        results:
+          items:
+            "$ref": "#/components/schemas/PowerEventAckV1__PowerEventDispositionV1"
+          maxItems: 128
+          title: "Results"
+          type: "array"
+      required:
+        - "schema_version"
+        - "batch_id"
+        - "persisted_at"
+        - "results"
+      title: "PowerEventAckV1"
+      type: "object"
+    PowerEventAckV1__PowerEventDispositionV1:
+      additionalProperties: false
+      properties:
+        event_identifier:
+          format: "uuid"
+          title: "Event Identifier"
+          type: "string"
+        disposition:
+          enum:
+            - "accepted"
+            - "retry_later"
+            - "rejected"
+          title: "Disposition"
+          type: "string"
+        reason_code:
+          maxLength: 64
+          minLength: 1
+          pattern: "^[a-z][a-z0-9_]*$"
+          title: "Reason Code"
+          type: "string"
+      required:
+        - "event_identifier"
+        - "disposition"
+        - "reason_code"
+      title: "PowerEventDispositionV1"
+      type: "object"
     EndpointDeviceModulesPageV1:
       additionalProperties: false
       properties:

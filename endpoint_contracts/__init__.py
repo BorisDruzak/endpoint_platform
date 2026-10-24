@@ -60,6 +60,7 @@ def _load_models():
         ServerShutdownNoticeV1,
     )
     from .telemetry_results import TelemetryResultV1
+    from .power_events import PowerEventV1, PowerSourceStatusV1, PowerEventBatchV1, PowerEventAckV1, PowerEventDispositionV1
     from .security_events import AgentSecurityEventBatchV1, SecurityEventAckV1
     from .sensor_health import PolicySensorHealthReportV1
     from .endpoint_policy import EndpointPolicyV1
@@ -207,6 +208,11 @@ __all__ = [
     "SecurityEventAckEnvelopeV1",
     "SecurityEventAckV1",
     "TelemetryResultV1",
+    "PowerEventV1",
+    "PowerSourceStatusV1",
+    "PowerEventBatchV1",
+    "PowerEventAckV1",
+    "PowerEventDispositionV1",
     "SecurityEventBatchEnvelopeV1",
     "ServerShutdownNoticeV1",
     "TcpConnectParametersV1",

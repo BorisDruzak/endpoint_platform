@@ -46,6 +46,7 @@ from endpoint_server.policy.models import (
     PolicyVersion,
 )
 from endpoint_server.security.models import SecurityEvent
+from endpoint_server.power.models import PowerSourceState
 from endpoint_server.activity.analytics_models import ActivityCursor, ActivityDaily, ActivityInterval
 
 __all__ = [
@@ -91,6 +92,7 @@ __all__ = [
     "ServiceClient",
     "ServiceCredential",
     "SecurityEvent",
+    "PowerSourceState",
     "UpdateBuild",
     "UpdateReport",
     "UpdateRollout",

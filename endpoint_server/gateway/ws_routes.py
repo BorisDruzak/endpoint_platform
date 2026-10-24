@@ -27,10 +27,13 @@ from endpoint_contracts.gateway_ws import (
     GatewayHelloEnvelopeV1,
     HeartbeatEnvelopeV1,
     SecurityEventBatchEnvelopeV1,
+    PowerEventBatchEnvelopeV1,
 )
 from endpoint_server.network import observed_client_address
 from endpoint_contracts.capabilities import MODULE_CAPABILITY_REGISTRY
 from endpoint_contracts.telemetry_results import TELEMETRY_RESULTS_FEATURE
+from endpoint_contracts.power_events import POWER_EVENTS_FEATURE
+from endpoint_server.power.ingestion import commit_and_ack_power_events
 from endpoint_server.operations.capabilities import module_capability_is_compatible
 from endpoint_server.updates.agent_routes import DevicePrincipal, _authenticate_device
 from endpoint_server.context.connect_refresh import queue_connect_refreshes
@@ -262,8 +265,8 @@ async def connect_agent(websocket: WebSocket) -> None:
                     policy_revision=0,
                     effective_capabilities=effective_capabilities,
                     server_time=datetime.now(UTC),
-                    protocol_features=([TELEMETRY_RESULTS_FEATURE]
-                        if TELEMETRY_RESULTS_FEATURE in connection.protocol_features else []),
+                    protocol_features=[feature for feature in (TELEMETRY_RESULTS_FEATURE, POWER_EVENTS_FEATURE)
+                        if feature in connection.protocol_features],
                 ),
             ),
         )
@@ -359,6 +362,13 @@ async def connect_agent(websocket: WebSocket) -> None:
                 await ingest_optional_report(
                     connection, envelope, websocket.app.state.session_provider,
                     ingest_sensor_health, SensorHealthRejected,
+                )
+            elif isinstance(envelope, PowerEventBatchEnvelopeV1):
+                if POWER_EVENTS_FEATURE not in connection.protocol_features:
+                    raise GatewayProtocolError(1008, 'power_events_disabled')
+                await commit_and_ack_power_events(
+                    websocket.app.state.session_provider,
+                    device_id, envelope.payload, sequence=envelope.sequence, send=connection.send,
                 )
             elif isinstance(envelope, SecurityEventBatchEnvelopeV1):
                 if (

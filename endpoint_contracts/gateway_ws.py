@@ -27,6 +27,7 @@ from .security_events import AgentSecurityEventBatchV1, SecurityEventAckV1
 from .sensor_health import PolicySensorHealthReportV1
 from .telemetry import AgentHeartbeatV1
 from .telemetry_results import TelemetryResultV1
+from .power_events import PowerEventBatchV1, PowerEventAckV1
 
 
 MAX_SEQUENCE_V1 = 2**63 - 1
@@ -71,9 +72,10 @@ ProtocolFeatureV1 = Literal[
     "endpoint.browser-status.v1", "endpoint.sensor-health.v1",
     "endpoint.recovery-update.v2",
     "endpoint.telemetry-results.v1",
+    "endpoint.power-events.v1",
 ]
 ProtocolFeaturesV1 = Annotated[
-    list[ProtocolFeatureV1], Field(strict=True, max_length=7)
+    list[ProtocolFeatureV1], Field(strict=True, max_length=8)
 ]
 
 
@@ -454,6 +456,16 @@ class TelemetryResultEnvelopeV1(_GatewayWsEnvelopeBaseV1):
     payload: TelemetryResultV1
 
 
+class PowerEventBatchEnvelopeV1(_GatewayWsEnvelopeBaseV1):
+    kind: Literal['power_event_batch']
+    payload: PowerEventBatchV1
+
+
+class PowerEventAckEnvelopeV1(_GatewayWsEnvelopeBaseV1):
+    kind: Literal['power_event_ack']
+    payload: PowerEventAckV1
+
+
 class ServerShutdownNoticeEnvelopeV1(_GatewayWsEnvelopeBaseV1):
     kind: Literal["server_shutdown_notice"]
     payload: ServerShutdownNoticeV1
@@ -482,6 +494,8 @@ GatewayWsEnvelopeBodyV1 = Annotated[
     | SecurityEventBatchEnvelopeV1
     | SecurityEventAckEnvelopeV1
     | TelemetryResultEnvelopeV1
+    | PowerEventBatchEnvelopeV1
+    | PowerEventAckEnvelopeV1
     | ServerShutdownNoticeEnvelopeV1
     | ErrorEnvelopeV1,
     Field(discriminator="kind"),
@@ -500,6 +514,7 @@ GatewayInboundBodyV1 = Annotated[
     | EndpointPolicyDeliveryEnvelopeV1
     | SecurityEventAckEnvelopeV1
     | TelemetryResultEnvelopeV1
+    | PowerEventAckEnvelopeV1
     | ServerShutdownNoticeEnvelopeV1
     | ErrorEnvelopeV1,
     Field(discriminator="kind"),

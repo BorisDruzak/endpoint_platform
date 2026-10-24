@@ -2,6 +2,7 @@
 from datetime import date, datetime
 from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
+from endpoint_contracts.power_events import PowerEventV1
 
 State = Literal['ACTIVE', 'IDLE', 'LOCKED', 'DISCONNECTED', 'UNKNOWN']
 
@@ -103,6 +104,11 @@ class ConnectionGap(Model):
     ended_at: datetime
 
 
+class PowerTimelineMarker(Model):
+    device_id: str
+    event: PowerEventV1
+
+
 class Timeline(Model):
     day: date
     timezone: str
@@ -112,3 +118,5 @@ class Timeline(Model):
     connection_gaps: list[ConnectionGap]
     devices: list[DeviceInfo]
     limited_session_identity: bool = True
+    power_events: list[PowerTimelineMarker] = Field(default_factory=list)
+    power_events_truncated: bool = False

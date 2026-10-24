@@ -1,0 +1,337 @@
+openapi: "3.1.0"
+info:
+  title: "Endpoint Platform Console Power"
+  version: "v1"
+paths:
+  "/api/admin/console/devices/{device_id}/power":
+    get:
+      tags:
+        - "admin-console-power"
+      summary: "Console Device Power"
+      operationId: "console_device_power_api_admin_console_devices__device_id__power_get"
+      parameters:
+        -
+          name: "device_id"
+          in: "path"
+          required: true
+          schema:
+            type: "string"
+            format: "uuid"
+            title: "Device Id"
+        -
+          name: "limit"
+          in: "query"
+          required: false
+          schema:
+            type: "integer"
+            maximum: 100
+            minimum: 1
+            default: 50
+            title: "Limit"
+        -
+          name: "offset"
+          in: "query"
+          required: false
+          schema:
+            type: "integer"
+            maximum: 100000
+            minimum: 0
+            default: 0
+            title: "Offset"
+      responses:
+        "200":
+          description: "Successful Response"
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/ConsolePowerResponse"
+        "422":
+          description: "Validation Error"
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/HTTPValidationError"
+      security:
+        -
+          ConsoleAdminCookie: []
+components:
+  schemas:
+    ConsolePowerResponse:
+      properties:
+        summary:
+          "$ref": "#/components/schemas/PowerSummary"
+        data:
+          items:
+            "$ref": "#/components/schemas/PowerEventV1"
+          type: "array"
+          title: "Data"
+        total:
+          type: "integer"
+          title: "Total"
+        limit:
+          type: "integer"
+          title: "Limit"
+        offset:
+          type: "integer"
+          title: "Offset"
+        has_more:
+          type: "boolean"
+          title: "Has More"
+      additionalProperties: false
+      type: "object"
+      required:
+        - "summary"
+        - "data"
+        - "total"
+        - "limit"
+        - "offset"
+        - "has_more"
+      title: "ConsolePowerResponse"
+    HTTPValidationError:
+      properties:
+        detail:
+          items:
+            "$ref": "#/components/schemas/ValidationError"
+          type: "array"
+          title: "Detail"
+      type: "object"
+      title: "HTTPValidationError"
+    PowerEventV1:
+      allOf:
+        -
+          if:
+            properties:
+              event_kind:
+                enum:
+                  - "OS_STARTED"
+                  - "OS_RESUMED"
+          then:
+            properties:
+              evidence:
+                const: "transition"
+        -
+          if:
+            properties:
+              event_kind:
+                const: "OS_UNEXPECTED_SHUTDOWN_REPORTED"
+          then:
+            properties:
+              evidence:
+                const: "reported"
+        -
+          if:
+            properties:
+              event_kind:
+                not:
+                  const: "OS_SLEEP_STARTED"
+          then:
+            properties:
+              sleep_subtype:
+                type: "null"
+      properties:
+        schema_version:
+          type: "string"
+          const: "power_event_v1"
+          title: "Schema Version"
+        event_identifier:
+          type: "string"
+          format: "uuid"
+          title: "Event Identifier"
+        event_kind:
+          type: "string"
+          enum:
+            - "OS_STARTED"
+            - "OS_SHUTDOWN_STARTED"
+            - "OS_SLEEP_STARTED"
+            - "OS_RESUMED"
+            - "OS_UNEXPECTED_SHUTDOWN_REPORTED"
+          title: "Event Kind"
+        occurred_at:
+          type: "string"
+          format: "date-time"
+          title: "Occurred At"
+        observed_at:
+          type: "string"
+          format: "date-time"
+          title: "Observed At"
+        boot_id:
+          type: "string"
+          maxLength: 128
+          minLength: 1
+          pattern: "^[A-Za-z0-9][A-Za-z0-9._:+/=-]*$"
+          title: "Boot Id"
+        source:
+          type: "string"
+          maxLength: 128
+          minLength: 1
+          pattern: "^[A-Za-z0-9][A-Za-z0-9._:+/=-]*$"
+          title: "Source"
+        native_record_id:
+          type: "string"
+          maxLength: 128
+          minLength: 1
+          pattern: "^[A-Za-z0-9][A-Za-z0-9._:+/=-]*$"
+          title: "Native Record Id"
+        evidence:
+          type: "string"
+          enum:
+            - "transition"
+            - "request"
+            - "reported"
+          title: "Evidence"
+        sleep_subtype:
+          anyOf:
+            -
+              type: "string"
+              enum:
+                - "sleep"
+                - "hibernate"
+                - "hybrid"
+                - "unknown"
+            -
+              type: "null"
+          title: "Sleep Subtype"
+      additionalProperties: false
+      type: "object"
+      required:
+        - "schema_version"
+        - "event_identifier"
+        - "event_kind"
+        - "occurred_at"
+        - "observed_at"
+        - "boot_id"
+        - "source"
+        - "native_record_id"
+        - "evidence"
+      title: "PowerEventV1"
+    PowerSummary:
+      properties:
+        status:
+          type: "string"
+          enum:
+            - "online"
+            - "unknown"
+            - "sleep"
+            - "shutdown"
+          title: "Status"
+        online:
+          type: "boolean"
+          title: "Online"
+        last_seen_at:
+          anyOf:
+            -
+              type: "string"
+              format: "date-time"
+            -
+              type: "null"
+          title: "Last Seen At"
+        source_status:
+          anyOf:
+            -
+              "$ref": "#/components/schemas/PowerSourceStatusV1"
+            -
+              type: "null"
+        source_fresh:
+          type: "boolean"
+          title: "Source Fresh"
+        history_available_from:
+          type: "string"
+          format: "date-time"
+          title: "History Available From"
+        latest_event:
+          anyOf:
+            -
+              "$ref": "#/components/schemas/PowerEventV1"
+            -
+              type: "null"
+      additionalProperties: false
+      type: "object"
+      required:
+        - "status"
+        - "online"
+        - "last_seen_at"
+        - "source_status"
+        - "source_fresh"
+        - "history_available_from"
+        - "latest_event"
+      title: "PowerSummary"
+    PowerSourceStatusV1:
+      properties:
+        schema_version:
+          type: "string"
+          const: "power_source_status_v1"
+          title: "Schema Version"
+        source:
+          type: "string"
+          maxLength: 128
+          minLength: 1
+          pattern: "^[A-Za-z0-9][A-Za-z0-9._:+/=-]*$"
+          title: "Source"
+        availability:
+          type: "string"
+          enum:
+            - "READY"
+            - "DEGRADED"
+            - "UNAVAILABLE"
+            - "UNSUPPORTED"
+          title: "Availability"
+        reported_at:
+          type: "string"
+          format: "date-time"
+          title: "Reported At"
+        coverage_started_at:
+          anyOf:
+            -
+              type: "string"
+              format: "date-time"
+            -
+              type: "null"
+          title: "Coverage Started At"
+        loss_count:
+          type: "integer"
+          maximum: 9.223372036854776e+18
+          minimum: 0.0
+          title: "Loss Count"
+          default: 0
+        reset_count:
+          type: "integer"
+          maximum: 9.223372036854776e+18
+          minimum: 0.0
+          title: "Reset Count"
+          default: 0
+      additionalProperties: false
+      type: "object"
+      required:
+        - "schema_version"
+        - "source"
+        - "availability"
+        - "reported_at"
+      title: "PowerSourceStatusV1"
+    ValidationError:
+      properties:
+        loc:
+          items:
+            anyOf:
+              -
+                type: "string"
+              -
+                type: "integer"
+          type: "array"
+          title: "Location"
+        msg:
+          type: "string"
+          title: "Message"
+        type:
+          type: "string"
+          title: "Error Type"
+      type: "object"
+      required:
+        - "loc"
+        - "msg"
+        - "type"
+      title: "ValidationError"
+  securitySchemes:
+    ConsoleAdminCookie:
+      type: "apiKey"
+      in: "cookie"
+      name: "endpoint_admin_session"

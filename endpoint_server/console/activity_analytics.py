@@ -16,6 +16,7 @@ from endpoint_server.audit.request_ids import audit_request_id
 from endpoint_server.audit.service import append_audit_event
 from endpoint_server.auth.admin_sessions import AdminPrincipal, require_admin
 from endpoint_server.db.models import Device, DeviceSession
+from endpoint_server.power.projection import power_timeline_markers
 
 router = APIRouter(prefix='/api/admin/console/activity-analytics', tags=['admin-activity-analytics'])
 
@@ -163,6 +164,7 @@ async def timeline(
     user_key: Annotated[str, Query(min_length=1, max_length=300)],
     day: date,
     timezone: Annotated[str | None, Query(max_length=64)] = None,
+    include_power: bool = False,
 ):
     response.headers['Cache-Control'] = 'no-store'
     now, key = now_utc(), _safe_text(user_key)
@@ -199,6 +201,10 @@ async def timeline(
         if position < min(end, now):
             segments.append(_unknown(position, min(end, now)))
         gaps = await _connection_gaps(session, ids, start, end, now)
+        power_events, power_events_truncated = (
+            await power_timeline_markers(session, ids, start, end, now=now)
+        ) if include_power else ([], False)
         await _audit(session, request, principal, key, 'timeline')
     return Timeline(day=day, timezone=meta.timezone, started_at=start, ended_at=end, data=segments,
-        connection_gaps=gaps, devices=[devices.get(str(id), dict(id=str(id), name=str(id), online=False)) for id in sorted(ids, key=str)])
+        connection_gaps=gaps, power_events=power_events, power_events_truncated=power_events_truncated,
+        devices=[devices.get(str(id), dict(id=str(id), name=str(id), online=False)) for id in sorted(ids, key=str)])
