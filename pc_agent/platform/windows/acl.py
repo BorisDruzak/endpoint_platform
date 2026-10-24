@@ -476,6 +476,16 @@ def _validate_machine_data_leaf_acl(name, descriptor, win32security, ntsecurityc
     if not credential:
         installer_policy[updater_sid] = ntsecuritycon.FILE_GENERIC_WRITE | ntsecuritycon.DELETE
     if observed != expected and observed != installer_policy:
+        # WindowsProvisioner persists origin with protect_credential(). Preserve
+        # that exact protected, explicit policy alongside older mutable origins.
+        if name == "endpoint-origin":
+            provisioned_origin_policy = dict(expected)
+            provisioned_origin_policy[service_sid] = ntsecuritycon.FILE_GENERIC_READ
+            provisioned_origin_policy[updater_sid] = ntsecuritycon.FILE_GENERIC_WRITE
+            if (observed == provisioned_origin_policy
+                and descriptor.GetSecurityDescriptorControl()[0] & win32security.SE_DACL_PROTECTED
+                and all(dacl.GetAce(index)[0][1] == 0 for index in range(dacl.GetAceCount()))):
+                return
         raise WindowsAclError("enrollment leaf DACL is not an approved policy")
 
 

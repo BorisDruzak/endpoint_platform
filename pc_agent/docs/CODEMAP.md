@@ -76,6 +76,12 @@ capture. Numeric phase timing/grant counters contain no paths or identities.
 The owner pipe drains ready frames and waits on pending I/O completion while
 retaining its bounded owner-thread pump and per-mutation authentication.
 
+`platform/windows/acl.py` validates enrollment leaf descriptors read-only during
+installer data capture. Origin accepts the exact protected, explicit credential
+policy written by `WindowsProvisioner`, plus the existing mutable installer and
+provisioning policies. Other leaves retain their existing policies; validation
+never repairs or propagates a DACL.
+
 `msi_inventory.package_read_scope` reuses only verified immutable MSI inventory
 and MSI file digests within one authenticated helper phase. Native file handles
 deny write/delete;

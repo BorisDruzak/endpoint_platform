@@ -55,6 +55,51 @@ RIGHTS = SimpleNamespace(FILE_ALL_ACCESS=1, FILE_GENERIC_READ=2,
                          FILE_GENERIC_WRITE=4, DELETE=8)
 
 
+@pytest.mark.parametrize("updater_mask", [12, 14])
+@pytest.mark.parametrize("flags", [0, 16])
+def test_origin_keeps_existing_mutable_policies(updater_mask, flags):
+    security = Security(updater_mask=updater_mask)
+    security.entries = [((0, flags), mask, sid) for _, mask, sid in security.entries]
+    acl._validate_machine_data_leaf_acl("endpoint-origin", security.GetNamedSecurityInfo(), security, RIGHTS)
+
+
+@pytest.mark.parametrize("defect", [
+    "service_write", "service_modify", "updater_read", "updater_modify", "admin_mask",
+    "extra_sid", "duplicate", "deny", "flags", "inherited", "unprotected", "null",
+])
+def test_protected_origin_policy_rejects_noncanonical_descriptors(defect):
+    security = Security()
+    security.entries = [((0, 0), 1, "S-1-5-18"), ((0, 0), 1, "S-1-5-32-544"),
+                        ((0, 0), 2, acl.SERVICE_PRINCIPAL), ((0, 0), 4, acl.UPDATER_PRINCIPAL)]
+    if defect in {"service_write", "service_modify"}:
+        security.entries[2] = ((0, 0), 4 if defect == "service_write" else 14, acl.SERVICE_PRINCIPAL)
+    elif defect in {"updater_read", "updater_modify"}:
+        security.entries[3] = ((0, 0), 2 if defect == "updater_read" else 14, acl.UPDATER_PRINCIPAL)
+    elif defect == "admin_mask":
+        security.entries[1] = ((0, 0), 14, "S-1-5-32-544")
+    elif defect in {"extra_sid", "duplicate"}:
+        security.entries.append(((0, 0), 1, "S-1-1-0" if defect == "extra_sid" else "S-1-5-18"))
+    elif defect in {"deny", "flags", "inherited"}:
+        security.entries[0] = ((1 if defect == "deny" else 0,
+                                8 if defect == "flags" else 16 if defect == "inherited" else 0),
+                               1, "S-1-5-18")
+    elif defect == "unprotected":
+        security.control = 0
+    descriptor = security.GetNamedSecurityInfo()
+    if defect == "null":
+        descriptor.GetSecurityDescriptorDacl = lambda: None
+    with pytest.raises(acl.WindowsAclError):
+        acl._validate_machine_data_leaf_acl("endpoint-origin", descriptor, security, RIGHTS)
+
+
+def test_identity_does_not_accept_the_protected_origin_policy():
+    security = Security()
+    security.entries = [((0, 0), 1, "S-1-5-18"), ((0, 0), 1, "S-1-5-32-544"),
+                        ((0, 0), 2, acl.SERVICE_PRINCIPAL), ((0, 0), 4, acl.UPDATER_PRINCIPAL)]
+    with pytest.raises(acl.WindowsAclError):
+        acl._validate_machine_data_leaf_acl("enrollment-identity.json", security.GetNamedSecurityInfo(), security, RIGHTS)
+
+
 @pytest.mark.parametrize('target',['root','credential','identity'])
 def test_existing_data_validation_survives_removed_service_registration(installed_root,monkeypatch,target):
     security=Security()
