@@ -248,7 +248,10 @@ class WindowsPowerSource:
         status = page.status.model_copy(
             update={
                 "availability": "DEGRADED"
-                if reset or page.loss_count or not self._notifications_ready
+                if reset
+                or page.loss_count
+                or not self._notifications_ready
+                or not live_boot_id
                 else "READY"
             }
         )

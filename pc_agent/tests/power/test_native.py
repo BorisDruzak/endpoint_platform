@@ -323,3 +323,10 @@ async def test_failed_logind_signal_is_not_reported_subscribed_during_backoff(
     finally:
         task.cancel()
         await asyncio.gather(task, return_exceptions=True)
+
+
+async def test_missing_latest_windows_boot_cannot_report_full_source_readiness():
+    source = WindowsPowerSource(reader=lambda *_: ([], "{}", False, None))
+    source._notifications_ready = True
+    page = await source.read_page(None, now=NOW)
+    assert page.status.availability == "DEGRADED"
