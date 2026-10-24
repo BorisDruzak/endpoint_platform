@@ -206,6 +206,7 @@ class ConsoleDeviceHeader(BaseModel):
     launcher_version: str | None
     core_newer_than_foundation: bool
     power: PowerSummary | None = None
+    last_activity_observed_at: datetime | None = None
 
 
 class ConsoleCurrentSnapshot(BaseModel):
@@ -544,6 +545,14 @@ async def console_device_detail(
             presence['power'] = await power_summary(
                 session, device_id, online=presence['online'], last_seen_at=presence['last_seen_at'],
             )
+            if request.app.state.settings.endpoint_policy_enabled:
+                observed = await session.scalar(select(ContextCurrent.last_observed_at).where(
+                    ContextCurrent.device_id == device_id,
+                    ContextCurrent.profile == 'activity_v1',
+                ))
+                presence['last_activity_observed_at'] = (
+                    observed.replace(tzinfo=UTC) if observed is not None and observed.tzinfo is None else observed
+                )
         by_profile = {snapshot["profile"]: snapshot["sections"] for snapshot in snapshots}
         inventory = by_profile.get("inventory_v1", {})
         system = inventory.get("system", {}) if isinstance(inventory, dict) else {}

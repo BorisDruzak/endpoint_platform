@@ -1,3 +1,4 @@
+import type { PowerEvent } from './powerApi'
 export type ActivityState = 'ACTIVE' | 'IDLE' | 'LOCKED' | 'DISCONNECTED' | 'UNKNOWN'
 export type AnalyticsMetrics = {
   seconds: Record<ActivityState, number>; observed_span_seconds: number; coverage: number | null
@@ -25,6 +26,7 @@ export type TimelineSegment = {
   application_category: string | null; device_id: string | null; overlap: boolean; attributed: boolean
 }
 export type AnalyticsTimeline = {
+  power_events?: { device_id: string; event: PowerEvent }[]; power_events_truncated?: boolean
   day: string; timezone: string; started_at: string; ended_at: string; data: TimelineSegment[]
   connection_gaps: { device_id: string; started_at: string; ended_at: string }[]; devices: AnalyticsDevice[]
 }

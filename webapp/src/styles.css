@@ -133,6 +133,13 @@ td a, .back-link { color: #1b5eaa; font-weight: 650; }
 .detail-grid > div { display: grid; grid-template-columns: minmax(110px, 35%) 1fr; gap: 12px; border-top: 1px solid #edf1f5; padding-top: 8px; }
 .detail-grid dt { color: #607186; font-size: 12px; text-transform: capitalize; }
 .detail-grid dd { min-width: 0; margin: 0; overflow-wrap: anywhere; font-size: 13px; }
+.power-status small, .power-history small, .analytics-connections .change-list small { display: block; color: #607186; margin-top: 4px; }
+.power-history { margin-bottom: 18px; }
+.power-history p { font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; }
+.power-history .change-list li, .analytics-connections .change-list li { flex-wrap: wrap; }
+.power-timeline { position: relative; height: 32px; margin: 12px 10px; border-bottom: 1px solid #bac6d4; }
+.power-timeline button { position: absolute; transform: translateX(-50%); padding: 4px; color: #1b5eaa; background: #fff; border: 0; }
+.power-timeline button:focus-visible { z-index: 1; }
 .detail-grid ul { margin: 0; padding-left: 17px; }
 .state-inline { margin-top: 16px; }
 .context-actions { display: flex; align-items: flex-end; flex-wrap: wrap; gap: 12px; margin-bottom: 16px; font-size: 13px; }
