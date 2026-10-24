@@ -19,6 +19,7 @@ from pydantic import ValidationError
 from endpoint_contracts.activity import ActivityObservationV1
 from endpoint_contracts.browser_status import BrowserStatusReportV1
 from endpoint_contracts.security_events import AgentSecurityEventBatchV1
+from endpoint_contracts.power_events import POWER_EVENTS_FEATURE, PowerEventBatchV1
 from endpoint_contracts.sensor_health import PolicySensorHealthReportV1
 from endpoint_contracts.telemetry_results import TELEMETRY_RESULTS_FEATURE
 from endpoint_contracts.gateway_ws import (
@@ -35,6 +36,8 @@ from endpoint_contracts.gateway_ws import (
     HeartbeatEnvelopeV1,
     SecurityEventBatchEnvelopeV1,
     TelemetryResultEnvelopeV1,
+    PowerEventBatchEnvelopeV1,
+    PowerEventAckEnvelopeV1,
 )
 
 from .backoff import bounded_exponential_backoff
@@ -245,10 +248,21 @@ class WebSocketGatewayTransport:
             and TELEMETRY_RESULTS_FEATURE not in self._protocol_features
         ):
             raise GatewayProtocolIncompatible("telemetry results were not negotiated")
+        if isinstance(parsed, PowerEventAckEnvelopeV1) and POWER_EVENTS_FEATURE not in self._protocol_features:
+            raise GatewayProtocolIncompatible("power events were not negotiated")
         try:
             return GatewayInboundV1(root=parsed)
         except (ValidationError, ValueError) as error:
             raise GatewayProtocolIncompatible("invalid Gateway inbound message") from error
+
+    @property
+    def protocol_features(self) -> frozenset[str]:
+        return self._protocol_features
+
+    async def send_power_event_batch(self, batch: PowerEventBatchV1) -> int:
+        if POWER_EVENTS_FEATURE not in self._protocol_features:
+            raise GatewayProtocolIncompatible("power events were not negotiated")
+        return await self._send(PowerEventBatchEnvelopeV1, kind="power_event_batch", payload=batch)
 
     async def send_ack(self, ack: AgentCommandAckV1) -> None:
         await self._send(

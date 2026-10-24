@@ -20,6 +20,7 @@ from endpoint_contracts import (
 )
 from endpoint_contracts.gateway_ws import EndpointPolicyAckV1, EndpointPolicyDeliveryV1
 from endpoint_contracts.security_events import SecurityEventAckV1
+from endpoint_contracts.power_events import PowerEventAckV1
 from endpoint_contracts.telemetry_results import TelemetryResultV1
 from pc_agent.transport.base import (
     GatewayCredentialRejected,
@@ -151,6 +152,7 @@ class RuntimeDependencies:
     start_local_sensor: Callable[[object], LocalSensorService | None] = _no_local_sensor
     policy_handler: Callable[[EndpointPolicyDeliveryV1], Awaitable[EndpointPolicyAckV1]] | None = None
     security_ack_handler: Callable[[SecurityEventAckV1], Awaitable[bool]] | None = None
+    power_ack_handler: Callable[[PowerEventAckV1], Awaitable[bool]] | None = None
     telemetry_result_handler: Callable[[TelemetryResultV1], Awaitable[bool]] | None = None
     security_policy_ack_sent: Callable[[], None] | None = None
     activity_policy_ack_sent: Callable[[], None] | None = None
@@ -285,6 +287,7 @@ class RuntimeLifecycle:
                         completion_sink=completion_sink,
                         policy_handler=self._dependencies.policy_handler,
                         security_ack_handler=self._dependencies.security_ack_handler,
+                        power_ack_handler=self._dependencies.power_ack_handler,
                         telemetry_result_handler=self._dependencies.telemetry_result_handler,
                         security_policy_ack_sent=self._dependencies.security_policy_ack_sent,
                         activity_policy_ack_sent=self._dependencies.activity_policy_ack_sent,
@@ -500,6 +503,7 @@ async def _run_connected(
     completion_sink: Callable[[dict[str, object]], None] | None = None,
     policy_handler: Callable[[EndpointPolicyDeliveryV1], Awaitable[EndpointPolicyAckV1]] | None = None,
     security_ack_handler: Callable[[SecurityEventAckV1], Awaitable[bool]] | None = None,
+    power_ack_handler: Callable[[PowerEventAckV1], Awaitable[bool]] | None = None,
     telemetry_result_handler: Callable[[TelemetryResultV1], Awaitable[bool]] | None = None,
     security_policy_ack_sent: Callable[[], None] | None = None,
     activity_policy_ack_sent: Callable[[], None] | None = None,
@@ -514,6 +518,7 @@ async def _run_connected(
             activity_policy_ack_sent,
             after_policy_ack_sent,
             telemetry_result_handler,
+            power_ack_handler,
         )),
         asyncio.create_task(
             _heartbeat_loop(
@@ -561,6 +566,7 @@ async def _receive_loop(
     activity_policy_ack_sent: Callable[[], None] | None,
     after_policy_ack_sent: Callable[[EndpointPolicyAckV1], Awaitable[None]] = _noop_after_policy,
     telemetry_result_handler: Callable[[TelemetryResultV1], Awaitable[bool]] | None = None,
+    power_ack_handler: Callable[[PowerEventAckV1], Awaitable[bool]] | None = None,
 ) -> None:
     while True:
         inbound = await transport.receive()
@@ -569,6 +575,7 @@ async def _receive_loop(
             policy_handler=policy_handler,
             security_ack_handler=security_ack_handler,
             telemetry_result_handler=telemetry_result_handler,
+            power_ack_handler=power_ack_handler,
             security_policy_ack_sent=security_policy_ack_sent,
             activity_policy_ack_sent=activity_policy_ack_sent,
             after_policy_ack_sent=after_policy_ack_sent,
@@ -606,6 +613,7 @@ async def _handle_inbound(
     policy_handler: Callable[[EndpointPolicyDeliveryV1], Awaitable[EndpointPolicyAckV1]] | None = None,
     security_ack_handler: Callable[[SecurityEventAckV1], Awaitable[bool]] | None = None,
     telemetry_result_handler: Callable[[TelemetryResultV1], Awaitable[bool]] | None = None,
+    power_ack_handler: Callable[[PowerEventAckV1], Awaitable[bool]] | None = None,
     security_policy_ack_sent: Callable[[], None] | None = None,
     activity_policy_ack_sent: Callable[[], None] | None = None,
     after_policy_ack_sent: Callable[[EndpointPolicyAckV1], Awaitable[None]] = _noop_after_policy,
@@ -631,6 +639,10 @@ async def _handle_inbound(
         if security_ack_handler is None:
             raise GatewayTerminalError("SecurityEvent ACK runtime is unavailable")
         await security_ack_handler(inbound.root.payload)
+        return
+    if inbound.root.kind == "power_event_ack":
+        if power_ack_handler is not None:
+            await power_ack_handler(inbound.root.payload)
         return
     if inbound.root.kind == "telemetry_result":
         if inbound.root.payload.report_kind == "security_event_batch" and telemetry_result_handler is not None:

@@ -36,6 +36,8 @@ from pc_agent.policy.linux_sensors import apply_linux_policy_sensors
 from pc_agent.activity_dispatch import ActivityDispatch
 from pc_agent.security.runtime import SecurityEventRuntime
 from pc_agent.security.spool import SecurityEventSpool
+from pc_agent.power.runtime import PowerEventRuntime
+from pc_agent.power.spool import PowerEventSpool
 from pc_agent.sensor_health import SensorHealthFacts, SensorHealthRuntime
 from pc_agent.transport.base import GatewayTerminalError, GatewayTransport
 from pc_agent.transport.http_pull import ClassifiedGatewayTransport
@@ -221,6 +223,15 @@ def _default_dependencies(
         )
     activity_dispatch = ActivityDispatch()
     security_runtime = None
+    power_runtime = None
+    if settings is not None and os.name in {"nt", "posix"}:
+        if os.name == "nt":
+            from pc_agent.platform.windows.power_events import WindowsPowerSource
+            power_source = WindowsPowerSource()
+        else:
+            from pc_agent.platform.linux.power_events import LinuxPowerSource
+            power_source = LinuxPowerSource()
+        power_runtime = PowerEventRuntime(PowerEventSpool(settings.data_root), power_source)
     policy_features = (
         _policy_protocol_features(
             AGENT_VERSION, "windows_amd64" if os.name == "nt" else "linux_amd64",
@@ -536,6 +547,8 @@ def _default_dependencies(
                          settings, credential, _EndpointHttpPullState())),
                     activity_dispatch.send_forever(transport),
                 ]
+                if power_runtime is not None:
+                    tasks.append(power_runtime.send_forever(transport))
                 if security_runtime is not None:
                     security_runtime.begin_connection()
                     tasks.append(security_runtime.send_forever(transport))
@@ -552,6 +565,7 @@ def _default_dependencies(
                     credential,
                     _EndpointHttpPullState(),
                 ),
+                *((power_runtime.send_forever(transport),) if power_runtime is not None else ()),
             )
         return ()
 
@@ -572,6 +586,12 @@ def _default_dependencies(
         if sensor_health_runtime is not None:
             sensor_health_runtime.policy_ack_sent()
 
+    def create_service_tasks(settings, credential, hello, publish):
+        tasks = list(_create_service_tasks(settings, credential, hello, publish))
+        if power_runtime is not None:
+            tasks.extend((power_runtime.collect_forever(), power_runtime.notifications_forever()))
+        return tuple(tasks)
+
     return RuntimeDependencies(
         load_credential=_load_credential,
         create_executor=create_executor,
@@ -588,6 +608,7 @@ def _default_dependencies(
         security_ack_handler=(
             security_runtime.receive_ack if security_runtime is not None else None
         ),
+        power_ack_handler=power_runtime.receive_ack if power_runtime is not None else None,
         telemetry_result_handler=(
             security_runtime.receive_result if security_runtime is not None else None
         ),
@@ -597,7 +618,7 @@ def _default_dependencies(
             else None
         ),
         create_connected_tasks=create_connected_tasks,
-        create_service_tasks=_create_service_tasks,
+        create_service_tasks=create_service_tasks,
         recover_protocol_errors=(os.name == "nt" and settings is not None
             and settings.transport_mode == "gateway_wss"
             and not settings.migration_http_pull_fallback),
@@ -746,6 +767,7 @@ def _load_hello(settings: object) -> AgentHelloV1:
         if platform == "windows_amd64" and not settings.migration_http_pull_fallback:
             features.append("endpoint.recovery-update.v2")
         features.append("endpoint.telemetry-results.v1")
+        features.append("endpoint.power-events.v1")
         if features:
             values["protocol_features"] = features
     return compatibility_agent_hello(platform=platform).model_copy(update=values)

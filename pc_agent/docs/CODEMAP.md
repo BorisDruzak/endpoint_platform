@@ -2,6 +2,36 @@
 
 ## Runtime boundary
 
+`power/native.py` defines metadata-only native pages and deterministic UUIDs from
+source, actual OS boot identity and native record ID. `power/spool.py` owns a
+separate protected `power-events-v1.db`: page insertion, loss counters and cursor
+updates share one SQLite FULL-synchronous transaction. Its 30-day/10,000-event/
+5-MiB payload limits do not change SecurityEvent retention. Exact ordered power
+ACKs dispose accepted/rejected items; retry_later stays queued and permanent
+rejections retain only bounded quarantine metadata.
+
+`power/runtime.py` starts persistent collection/notification tasks before network
+connection and sends through a per-connection sender only after negotiating
+`endpoint.power-events.v1`. Source/queue failures update source availability and
+retry locally; transport/authentication failures still reach the ordinary
+lifecycle. A timed-out native read is retained so repeated polls do not multiply
+blocked workers. `runtime/lifecycle.py` routes power ACKs independently of policy.
+
+`platform/windows/power_events.py` recovers forward System provider/ID metadata,
+uses Kernel-Boot27 BootType for full-boot versus Fast Startup/hibernate resume,
+and registers PowrProf suspend/resume callbacks. Latest native boot identity is
+separate from historical replay. `platform/linux/power_events.py` uses trusted
+UID0/unit/PID1 metadata, forward journal cursors, kernel boot identity and public
+logind signal subscriptions through `busctl wait`. No journal privilege helper
+or main service privilege change is needed. Native log limitations remain
+visible as availability/loss/reset diagnostics; see
+`docs/architecture/agent-power-collection.md` for precise source mappings.
+
+The fixed Windows `service_launcher.py` forwards SCM shutdown as `S` then EOF;
+ordinary service stop remains EOF only. `runtime/main.py` persists the shutdown
+fact within a two-second budget before stopping the child. Older cores already
+stop on any byte/EOF, and update-pending runtime exit retains precedence.
+
 Gateway WSS EOF/abnormal closure (including aiohttp CLOSED/CLOSING sentinels)
 uses the existing retry lifecycle instead of ending the Windows service. A
 sentinel retains the socket's real close code, so credential and policy
