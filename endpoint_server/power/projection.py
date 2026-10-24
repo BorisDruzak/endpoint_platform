@@ -15,6 +15,17 @@ def utc(value: datetime) -> datetime:
     return value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
 
 
+def _power_evidence_order():
+    """Match project_power's entire max key before limiting either SQL reader."""
+    return (
+        DeviceEvent.occurred_at.desc(),
+        DeviceEvent.event_kind.in_(("OS_STARTED", "OS_RESUMED")).desc(),
+        (DeviceEvent.details["event"]["evidence"].as_string() != "transition").desc(),
+        DeviceEvent.event_identifier.desc(),
+        DeviceEvent.id.desc(),
+    )
+
+
 class PowerSummary(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
     status: Literal["online", "unknown", "sleep", "shutdown"]
@@ -120,7 +131,7 @@ async def power_summary(
                     DeviceEvent.occurred_at >= when - timedelta(days=30),
                     DeviceEvent.occurred_at <= when,
                 )
-                .order_by(DeviceEvent.occurred_at.desc(), DeviceEvent.id.desc())
+                .order_by(*_power_evidence_order())
                 .limit(128)
             )
         ).all()
@@ -156,7 +167,7 @@ async def enrich_power_summaries(
             func.row_number()
             .over(
                 partition_by=DeviceEvent.device_id,
-                order_by=(DeviceEvent.occurred_at.desc(), DeviceEvent.id.desc()),
+                order_by=_power_evidence_order(),
             )
             .label("rank"),
         )

@@ -14,12 +14,14 @@ from endpoint_contracts.power_events import (
     PowerEventBatchV1,
     PowerEventAckV1,
     PowerEventDispositionV1,
+    PowerSourceStatusV1,
 )
 from endpoint_server.context.models import DeviceEvent
 from endpoint_server.db.models import Device
 from .models import PowerSourceState
 
 POWER_RETENTION = timedelta(days=30)
+_AVAILABILITY_ORDER = ("READY", "DEGRADED", "UNAVAILABLE", "UNSUPPORTED")
 
 
 def utc(value: datetime) -> datetime:
@@ -28,6 +30,27 @@ def utc(value: datetime) -> datetime:
 
 class PowerEventRejected(ValueError):
     pass
+
+
+def _merge_source_tie(state: PowerSourceState, status: PowerSourceStatusV1) -> None:
+    """Commutative, idempotent degradation when report time cannot order snapshots."""
+    availability = max(
+        _AVAILABILITY_ORDER.index(state.availability),
+        _AVAILABILITY_ORDER.index(status.availability),
+        int(state.source != status.source),
+    )
+    state.availability = _AVAILABILITY_ORDER[availability]
+    state.source = min(state.source, status.source)
+    state.loss_count = max(state.loss_count, status.loss_count)
+    state.reset_count = max(state.reset_count, status.reset_count)
+    state.coverage_started_at = (
+        max(utc(state.coverage_started_at), utc(status.coverage_started_at))
+        if state.coverage_started_at is not None
+        and status.coverage_started_at is not None
+        else None
+    )
+    # Keep the first receipt of this reported-time bucket; exact replays do not
+    # rewrite source freshness or reset the operational receipt timestamp.
 
 
 def _native_key(event: PowerEventV1) -> str:
@@ -120,7 +143,7 @@ async def ingest_gateway_power_events(
         if state is None:
             state = PowerSourceState(device_id=device_id)
             session.add(state)
-        if state.reported_at is None or utc(status.reported_at) >= utc(
+        if state.reported_at is None or utc(status.reported_at) > utc(
             state.reported_at
         ):
             for name in (
@@ -133,6 +156,8 @@ async def ingest_gateway_power_events(
             ):
                 setattr(state, name, getattr(status, name))
             state.received_at = when
+        elif utc(status.reported_at) == utc(state.reported_at):
+            _merge_source_tie(state, status)
         await session.flush()
     results = []
     for event in batch.events:

@@ -12,7 +12,12 @@ a source status. Empty batches persist current source coverage, availability and
 loss/reset counters even with no DLP policy or native journal access. The source
 status reports READY, DEGRADED, UNAVAILABLE or UNSUPPORTED independently of events.
 Newer reported source status replaces the current row; late status cannot roll it
-back. PostgreSQL serializes ingestion by the authenticated device row.
+back. Equal reported times merge conservatively: worst availability (READY,
+DEGRADED, UNAVAILABLE, UNSUPPORTED), maximum loss/reset counters and the later
+coverage start; unknown coverage dominates known coverage. Conflicting source
+names use lexical minimum and at least DEGRADED availability. Exact replays are
+idempotent, retaining the first receipt time of the reported-time bucket.
+PostgreSQL serializes ingestion by the authenticated device row.
 
 Each event carries aware occurred/observed times, a stable UUID, bounded boot,
 source and native-record identities, evidence classification and optional sleep
@@ -55,6 +60,10 @@ earlier transitions regardless of delivery order. Missing/unsupported source
 coverage remains unknown. Historical evidence describes OS transitions, never
 proves that the hardware is physically powered off. Source freshness uses the
 existing 90-second presence horizon without changing heartbeat or presence.
+Both device and fleet readers apply the complete semantic tie order before
+bounding SQL results: event time, startup/resume, non-transition evidence, stable
+event UUID, then row UUID. The bound cannot discard the winning fact when more
+than 128 records share a timestamp.
 
 Fleet and device-detail endpoints accept optional `include_power=true` to fill
 their additive nullable `power` summary. Fleet enrichment adds two bounded
