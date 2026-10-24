@@ -166,12 +166,12 @@ async def _run_service_child(settings: RuntimeSettings) -> int:
 async def _record_service_shutdown(settings: RuntimeSettings) -> None:
     from datetime import UTC, datetime
 
-    from pc_agent.platform.windows.power_events import _read_system
+    from pc_agent.platform.windows.power_events import read_system_page
     from pc_agent.power.native import native_event, opaque_id
     from pc_agent.power.spool import PowerEventSpool
 
     now = datetime.now(UTC)
-    _rows, _state, _reset, boot_id = await asyncio.to_thread(_read_system, None, now)
+    _rows, _state, _reset, boot_id = await read_system_page(None, now)
     if boot_id is None:
         return
     spool = PowerEventSpool(settings.data_root)
@@ -244,6 +244,10 @@ def _parser() -> argparse.ArgumentParser:
 
 def main(argv: Sequence[str] | None = None) -> int:
     arguments = list(sys.argv[1:] if argv is None else argv)
+    if arguments == ["--windows-power-read"]:
+        from pc_agent.platform.windows.power_events import read_worker_main
+
+        return read_worker_main()
     if arguments and arguments[0] == '--linux-browser-bridge':
         if sys.platform != 'linux':
             return 1

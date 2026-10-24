@@ -20,7 +20,14 @@ blocked workers. `runtime/lifecycle.py` routes power ACKs independently of polic
 `platform/windows/power_events.py` recovers forward System provider/ID metadata,
 uses Kernel-Boot27 BootType for full-boot versus Fast Startup/hibernate resume,
 and registers PowrProf suspend/resume callbacks. Latest native boot identity is
-separate from historical replay. `platform/linux/power_events.py` uses trusted
+separate from historical replay. One bounded reverse Boot27 lookup recovers
+context before the first replay row even if its boot predates the30-day fact
+window. The context shares the existing atomic page/checkpoint transaction.
+Fixed subprocess reads (10-second deadline, kill-and-wait on cancellation) share
+one loop-scoped lock with SCM evidence. The frozen core dispatches the private
+stdin-only `--windows-power-read` mode; static imports keep the worker in the
+existing build closure. Native reads use no default-executor threads.
+`platform/linux/power_events.py` uses trusted
 UID0/unit/PID1 metadata, forward journal cursors, kernel boot identity and public
 logind signal subscriptions through `busctl wait`. No journal privilege helper
 or main service privilege change is needed. Native log limitations remain

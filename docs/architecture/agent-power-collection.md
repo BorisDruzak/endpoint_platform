@@ -20,7 +20,7 @@ An in-flight item already evicted by local bounds cannot block its later peers.
 ## Windows
 
 Only whitelisted System provider/event metadata is projected. XML exists only
-transiently inside the native reader; rendered messages, user fields, command
+transiently inside the fixed native reader subprocess; rendered messages, user fields, command
 lines and XML are never persisted or sent.
 
 | Native metadata | Power fact |
@@ -44,10 +44,28 @@ agent's current process. Callbacks use a separate lookup of the latest OS boot,
 never the old boot at the current replay page. EventLog6005/6006 are not used.
 Forward record-ID pagination is bounded to128 rows. Oldest/newest System record
 IDs detect clearing/rollover and report a reset with reduced coverage.
+Before projecting a page, one reverse Boot27 lookup at/before its first record
+recovers the historical boot context even when the boundary is older than the
+30-day fact window. Later boot boundaries update that context in record order.
+The context commits in the same spool transaction as its facts and cursor; the
+lookup itself creates no startup fact. Missing historical context keeps the
+source degraded, including empty pages. A retained checkpoint cannot carry an
+obsolete boot across a newer boundary excluded by the fact-age filter.
+
+The reader uses a fixed subprocess entry (module execution for Python, private
+`--windows-power-read` dispatch in the frozen core). Static imports from the core
+entrypoint include this worker in its existing PyInstaller dependency closure.
+Its only input is a bounded stdin JSON checkpoint/time pair; no paths, commands
+or privilege requests are accepted. The reply contains at most128 whitelisted
+metadata rows, a16KiB checkpoint and separate live boot identity, within1MiB.
+One shared per-loop lock serializes collector and SCM reads. A read has a10-second
+deadline; cancellation/timeout kills and waits for its process before releasing
+the lock. Native reads never enter the default executor, so a stalled optional
+read cannot hold `asyncio.run` executor finalization or updater handoff.
 
 The fixed host sends `S` then EOF for SCM shutdown and only EOF for service stop.
 New cores attempt a durable shutdown write for at most2 seconds, then follow the
-existing cancellation path. Older cores stop on any byte/EOF. A completed
+existing cancellation path, including native child termination/reaping. Older cores stop on any byte/EOF. A completed
 update-pending runtime exit still wins over a simultaneous host-pipe signal.
 
 ## ALT Linux / systemd258
@@ -92,6 +110,8 @@ fact is invented from a missing shutdown, journal gap or reboot.
 - [systemd258 message IDs](https://github.com/systemd/systemd/blob/v258/src/systemd/sd-messages.h)
 - [systemd258 busctl wait implementation](https://github.com/systemd/systemd/blob/v258/src/busctl/busctl.c)
 - [Windows EvtQuery](https://learn.microsoft.com/en-us/windows/win32/api/winevt/nf-winevt-evtquery)
+- [Windows event query XPath restrictions](https://learn.microsoft.com/en-us/windows/win32/wes/consuming-events)
+- [Python3.12 asyncio subprocess ownership](https://docs.python.org/3.12/library/asyncio-subprocess.html)
 - [pywin32 build311 event APIs](https://github.com/mhammond/pywin32/blob/b311/win32/src/win32evtlog.i)
 - [Windows suspend/resume notification API](https://learn.microsoft.com/en-us/windows/win32/api/powerbase/nf-powerbase-powerregistersuspendresumenotification)
 - [Windows Fast Startup distinction](https://learn.microsoft.com/en-us/windows-hardware/drivers/kernel/distinguishing-fast-startup-from-wake-from-hibernation)

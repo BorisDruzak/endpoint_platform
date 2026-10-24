@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import asyncio
 import json
+import sys
+import weakref
 import xml.etree.ElementTree as ET
 from datetime import UTC, datetime, timedelta
 
@@ -29,6 +31,8 @@ _POWER = "Microsoft-Windows-Kernel-Power"
 _TROUBLE = "Microsoft-Windows-Power-Troubleshooter"
 _NS = {"e": "http://schemas.microsoft.com/win/2004/08/events/event"}
 _FILTER = "(Provider[@Name='Microsoft-Windows-Kernel-General'] and (EventID=12 or EventID=13)) or (Provider[@Name='Microsoft-Windows-Kernel-Boot'] and EventID=27) or (Provider[@Name='Microsoft-Windows-Kernel-Power'] and (EventID=41 or EventID=42 or EventID=107)) or (Provider[@Name='Microsoft-Windows-Power-Troubleshooter'] and EventID=1) or (Provider[@Name='User32'] and EventID=1074)"
+_READ_LOCKS = weakref.WeakKeyDictionary()
+_MAX_REPLY = 1024 * 1024
 
 
 def parse_event_xml(encoded):
@@ -165,7 +169,9 @@ def _read_system(checkpoint, now):
     import win32evtlog
 
     state = json.loads(checkpoint) if checkpoint else {}
-    cursor = state.get("record_id", 0)
+    cursor = int(state.get("record_id", 0))
+    if cursor < 0:
+        raise ValueError("invalid native record cursor")
 
     def query_one(flags, filter="*"):
         query = win32evtlog.EvtQuery("System", flags, filter)
@@ -221,6 +227,29 @@ def _read_system(checkpoint, now):
                 handle.Close()
     finally:
         query.Close()
+    if rows or "boot_id" not in state:
+        # Resolve the boot of the earliest replay record, not today's newest
+        # boot. Its boundary may predate retention of the facts by many months.
+        boundary = (
+            rows[0]["record_id"]
+            if rows
+            else (cursor or (newest or {}).get("record_id", 0))
+        )
+        historical_boot = query_one(
+            win32evtlog.EvtQueryChannelPath | win32evtlog.EvtQueryReverseDirection,
+            "*[System[Provider[@Name='Microsoft-Windows-Kernel-Boot'] and EventID=27"
+            f" and EventRecordID<={int(boundary)}]]",
+        )
+        if historical_boot:
+            occurred = _time(historical_boot["timestamp"])
+            if int(historical_boot["data"]["BootType"]) in {
+                0,
+                1,
+                2,
+            } and occurred <= now + timedelta(minutes=5):
+                state["boot_id"] = opaque_id(
+                    f"System:boot:{historical_boot['record_id']}:{occurred.isoformat()}"
+                )
     live_boot_id = (
         opaque_id(
             f"System:boot:{live_boot['record_id']}:{_time(live_boot['timestamp']).isoformat()}"
@@ -231,17 +260,100 @@ def _read_system(checkpoint, now):
     return rows, json.dumps(state), reset, live_boot_id
 
 
+async def read_system_page(checkpoint, now):
+    """One killable reader per loop, including the independent SCM evidence path."""
+    lock = _READ_LOCKS.setdefault(asyncio.get_running_loop(), asyncio.Lock())
+    async with lock:
+        request = json.dumps(
+            {"checkpoint": checkpoint, "now": now.isoformat()}
+        ).encode()
+        if len(request) > 32768:
+            raise ValueError("native request exceeds bound")
+        command = (
+            [sys.executable, "--windows-power-read"]
+            if getattr(sys, "frozen", False)
+            else [sys.executable, "-m", "pc_agent.platform.windows.power_events"]
+        )
+        process = None
+        spawning = asyncio.create_task(
+            asyncio.create_subprocess_exec(
+                *command,
+                stdin=asyncio.subprocess.PIPE,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.DEVNULL,
+                limit=_MAX_REPLY + 1,
+            )
+        )
+        try:
+            # Shield process creation so cancellation cannot orphan a child
+            # between OS creation and receiving its Process handle.
+            process = await asyncio.shield(spawning)
+            async with asyncio.timeout(10):
+                process.stdin.write(request)
+                await process.stdin.drain()
+                process.stdin.close()
+                try:
+                    reply = await process.stdout.readexactly(_MAX_REPLY + 1)
+                except asyncio.IncompleteReadError as error:
+                    reply = error.partial
+                if len(reply) > _MAX_REPLY:
+                    raise ValueError("native reply exceeds bound")
+                if await process.wait() != 0:
+                    raise OSError("native power reader unavailable")
+            rows, state, reset, live_boot_id = json.loads(reply)
+            if len(rows) > 128 or len(state) > 16384:
+                raise ValueError("native page exceeds bound")
+            return rows, state, reset, live_boot_id
+        finally:
+            if process is None:
+                process = await spawning
+            if process.returncode is None:
+                try:
+                    # kill is TerminateProcess on Windows; no cooperative
+                    # native API or default-executor finalizer must return.
+                    process.kill()
+                except ProcessLookupError:
+                    pass
+            await process.wait()
+
+
+def read_worker_main():
+    """Private stdin-only fixed System query; no command/path/privilege inputs."""
+    try:
+        request = sys.stdin.buffer.read(32769)
+        if len(request) > 32768:
+            return 1
+        value = json.loads(request)
+        if set(value) != {"checkpoint", "now"}:
+            return 1
+        checkpoint = value["checkpoint"]
+        if checkpoint is not None and (
+            not isinstance(checkpoint, str) or len(checkpoint) > 16384
+        ):
+            return 1
+        reply = json.dumps(_read_system(checkpoint, _time(value["now"]))).encode()
+        if len(reply) > _MAX_REPLY:
+            return 1
+        sys.stdout.buffer.write(reply)
+        sys.stdout.buffer.flush()
+        return 0
+    except Exception:  # noqa: BLE001 - private optional worker, never expose native diagnostics
+        return 1
+
+
 class WindowsPowerSource:
     source = "windows.system"
 
-    def __init__(self, *, reader=_read_system):
+    def __init__(self, *, reader=None):
         self._reader = reader
         self._boot_id = None
         self._notifications_ready = False
 
     async def read_page(self, checkpoint, *, now):
-        rows, state, reset, live_boot_id = await asyncio.to_thread(
-            self._reader, checkpoint, now
+        rows, state, reset, live_boot_id = (
+            await read_system_page(checkpoint, now)
+            if self._reader is None
+            else self._reader(checkpoint, now)
         )
         page = project_windows_page(rows, state, now=now)
         self._boot_id = live_boot_id
@@ -252,6 +364,7 @@ class WindowsPowerSource:
                 or page.loss_count
                 or not self._notifications_ready
                 or not live_boot_id
+                or not json.loads(page.checkpoint).get("boot_id")
                 else "READY"
             }
         )
@@ -319,3 +432,7 @@ class WindowsPowerSource:
         finally:
             self._notifications_ready = False
             library.PowerUnregisterSuspendResumeNotification(handle)
+
+
+if __name__ == "__main__":
+    raise SystemExit(read_worker_main())

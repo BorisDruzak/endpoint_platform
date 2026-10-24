@@ -330,3 +330,192 @@ async def test_missing_latest_windows_boot_cannot_report_full_source_readiness()
     source._notifications_ready = True
     page = await source.read_page(None, now=NOW)
     assert page.status.availability == "DEGRADED"
+
+
+@pytest.mark.parametrize(
+    "checkpoint",
+    [
+        None,
+        '{"record_id":9999,"boot_id":"obsolete"}',
+        '{"record_id":5,"boot_id":"obsolete"}',
+    ],
+)
+@pytest.mark.parametrize("new_boot_present", [False, True])
+async def test_windows_retained_old_boot_context_recovers_recent_multiple_boots(
+    monkeypatch, checkpoint, new_boot_present
+):
+    """The 30-day fact window must not hide the boot of its earliest row."""
+    import re
+    import sys
+    from types import SimpleNamespace
+
+    from pc_agent.platform.windows import power_events as native
+
+    old_boot = win(27, 10, {"BootType": "0"}, "Microsoft-Windows-Kernel-Boot")
+    old_boot["timestamp"] = (NOW - timedelta(days=60)).isoformat()
+    recent = win(42, 20, provider="Microsoft-Windows-Kernel-Power")
+    recent["timestamp"] = (NOW - timedelta(days=20)).isoformat()
+    new_boot = win(27, 200, {"BootType": "0"}, "Microsoft-Windows-Kernel-Boot")
+    new_boot["timestamp"] = (NOW - timedelta(days=10)).isoformat()
+    resumed = win(107, 210, provider="Microsoft-Windows-Kernel-Power")
+    interval = [
+        {
+            **win(107, number, provider="Microsoft-Windows-Kernel-Power"),
+            "timestamp": recent["timestamp"],
+        }
+        for number in range(21, 151)
+    ]
+    pre_cursor = {
+        **win(6005, 5, provider="EventLog"),
+        "timestamp": (NOW - timedelta(days=90)).isoformat(),
+    }
+    rows = [
+        pre_cursor,
+        old_boot,
+        recent,
+        *interval,
+        *([new_boot, resumed] if new_boot_present else []),
+    ]
+    reads = []
+
+    class Handle:
+        def __init__(self, value):
+            self.value = value
+
+        def Close(self):
+            pass
+
+    def query(_channel, flags, expression):
+        selected = rows[:]
+        if (
+            "Provider[@Name='Microsoft-Windows-Kernel-Boot'] and EventID=27"
+            in expression
+            and " or " not in expression
+        ):
+            selected = [row for row in selected if row["event_id"] == 27]
+        for operator, value in re.findall(
+            r"EventRecordID\s*(<=|>=|<|>|=)\s*(\d+)", expression
+        ):
+            selected = [
+                row
+                for row in selected
+                if {
+                    "<": row["record_id"] < int(value),
+                    "<=": row["record_id"] <= int(value),
+                    ">": row["record_id"] > int(value),
+                    ">=": row["record_id"] >= int(value),
+                    "=": row["record_id"] == int(value),
+                }[operator]
+            ]
+        if "TimeCreated" in expression:
+            selected = [
+                row
+                for row in selected
+                if datetime.fromisoformat(row["timestamp"]) >= NOW - timedelta(days=30)
+            ]
+        return Handle(list(reversed(selected)) if flags & 2 else selected)
+
+    def next_rows(handle, count, timeout):
+        reads.append(count)
+        return [Handle(row) for row in handle.value[:count]]
+
+    monkeypatch.setitem(
+        sys.modules,
+        "win32evtlog",
+        SimpleNamespace(
+            EvtQueryChannelPath=4,
+            EvtQueryForwardDirection=1,
+            EvtQueryReverseDirection=2,
+            EvtQuery=query,
+            EvtNext=next_rows,
+            EvtRenderEventXml=1,
+            EvtRender=lambda handle, _mode: handle.value,
+        ),
+    )
+    monkeypatch.setattr(native, "parse_event_xml", lambda row: row)
+    source = WindowsPowerSource(reader=native._read_system)
+    source._notifications_ready = True
+    found = []
+    for _ in range(2):
+        page = await source.read_page(checkpoint, now=NOW)
+        checkpoint = page.checkpoint
+        found.extend(page.events)
+        assert page.loss_count == 0
+    expected = [str(number) for number in range(20, 151)]
+    assert [event.native_record_id for event in found] == expected + (
+        ["200", "210"] if new_boot_present else []
+    )
+    assert len({event.boot_id for event in found[:131]}) == 1
+    assert found[0].boot_id != "obsolete"
+    if new_boot_present:
+        assert found[0].boot_id != found[-1].boot_id
+        assert found[-2].boot_id == found[-1].boot_id
+    assert json.loads(page.checkpoint)["boot_id"] == found[-1].boot_id
+    assert max(reads) <= 128
+
+
+async def test_windows_missing_historical_boot_stays_degraded_on_empty_page():
+    source = WindowsPowerSource(
+        reader=lambda checkpoint, _now: ([], checkpoint or "{}", False, "newest-boot")
+    )
+    source._notifications_ready = True
+    page = await source.read_page(None, now=NOW)
+    assert page.status.availability == "DEGRADED"
+    page = await source.read_page(page.checkpoint, now=NOW)
+    assert page.status.availability == "DEGRADED"
+
+
+async def test_windows_worker_reads_complete_page_across_pipe_chunks(monkeypatch):
+    import sys
+
+    from pc_agent.platform.windows.power_events import read_system_page
+
+    spawn = asyncio.create_subprocess_exec
+
+    async def split_reply(*_command, **kwargs):
+        return await spawn(
+            sys.executable,
+            "-c",
+            """
+import json, sys
+sys.stdin.buffer.read()
+rows = [{'provider':'Microsoft-Windows-Kernel-Power', 'event_id':42,
+         'record_id':i, 'timestamp':'2026-10-24T12:00:00+00:00',
+         'data':{'EffectiveState':'4', 'WakeTime':'x'*1024}} for i in range(128)]
+sys.stdout.buffer.write(json.dumps([rows, '{}', False, 'boot']).encode())
+""",
+            **kwargs,
+        )
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", split_reply)
+    rows, _state, reset, boot = await read_system_page(None, NOW)
+    assert len(rows) == 128 and rows[-1]["record_id"] == 127
+    assert reset is False and boot == "boot"
+
+
+def test_windows_private_worker_and_frozen_dispatch_reject_extra_inputs(monkeypatch):
+    import io
+    import sys
+    from types import SimpleNamespace
+
+    from pc_agent.platform.windows import power_events as native
+    from pc_agent.runtime import main
+
+    called = []
+
+    def read(checkpoint, now):
+        called.append((checkpoint, now))
+        return [], "{}", False, "boot"
+
+    monkeypatch.setattr(native, "_read_system", read)
+    output = io.BytesIO()
+    monkeypatch.setattr(sys, "stdout", SimpleNamespace(buffer=output))
+    for request in [b'{"command":"whoami"}', b"x" * 32769]:
+        monkeypatch.setattr(sys, "stdin", SimpleNamespace(buffer=io.BytesIO(request)))
+        assert main.main(["--windows-power-read"]) == 1
+    assert not called and not output.getvalue()
+    request = json.dumps({"checkpoint": None, "now": NOW.isoformat()}).encode()
+    monkeypatch.setattr(sys, "stdin", SimpleNamespace(buffer=io.BytesIO(request)))
+    assert main.main(["--windows-power-read"]) == 0
+    assert json.loads(output.getvalue()) == [[], "{}", False, "boot"]
+    assert called == [(None, NOW)]
