@@ -519,3 +519,94 @@ def test_windows_private_worker_and_frozen_dispatch_reject_extra_inputs(monkeypa
     assert main.main(["--windows-power-read"]) == 0
     assert json.loads(output.getvalue()) == [[], "{}", False, "boot"]
     assert called == [(None, NOW)]
+
+@pytest.mark.parametrize("case", ["overlapping_generation", "legacy", "missing_anchor", "same_generation", "later_boot"])
+async def test_windows_native_cursor_revalidates_record_identity(monkeypatch, tmp_path, case):
+    """Modeled native API: reused record numbers alone cannot prove continuity."""
+    import re
+    import sys
+    from types import SimpleNamespace
+    from pc_agent.platform.windows import power_events as native
+    from pc_agent.power.spool import PowerEventSpool
+
+    boot = win(27, 10, {"BootType": "0"}, "Microsoft-Windows-Kernel-Boot")
+    previous = win(107, 100, provider="Microsoft-Windows-Kernel-Power")
+    old_rows = [{**r, "timestamp": (NOW - timedelta(days=2)).isoformat()} for r in (boot, previous)]
+    saved = project_windows_page(old_rows, None, now=NOW)
+    state = json.loads(saved.checkpoint)
+    if case == "legacy":
+        state.pop("record_anchor", None)
+    checkpoint = json.dumps(state)
+    reset_expected = case in {"overlapping_generation", "legacy", "missing_anchor"}
+    retained = [
+        win(6005, 1, provider="EventLog"), boot,
+        win(42, 20, provider="Microsoft-Windows-Kernel-Power"),
+        win(107, 30, provider="Microsoft-Windows-Kernel-Power"),
+        previous, win(6005, 200, provider="EventLog"),
+    ]
+    if case != "overlapping_generation":
+        retained[1], retained[4] = old_rows
+    if case == "missing_anchor":
+        retained = [r for r in retained if r["record_id"] != 100]
+    if case == "later_boot":
+        retained.insert(-1, win(27, 150, {"BootType": "0"}, "Microsoft-Windows-Kernel-Boot"))
+    queries, handles = [], []
+
+    class Handle:
+        def __init__(self, value):
+            self.value, self.closed = value, False
+            handles.append(self)
+
+        def Close(self):
+            self.closed = True
+
+    def query(channel, flags, expression):
+        assert channel == "System"
+        queries.append(expression)
+        rows = retained[:]
+        if "Provider[@Name='Microsoft-Windows-Kernel-Boot']" in expression and " or " not in expression:
+            rows = [r for r in rows if r["event_id"] == 27]
+        if " or " in expression:
+            rows = [r for r in rows if r["provider"].startswith("Microsoft-Windows-Kernel-")]
+        for operator, number in re.findall(r"EventRecordID\s*(<=|>|=)\s*(\d+)", expression):
+            rows = [r for r in rows if {"<=": r["record_id"] <= int(number), ">": r["record_id"] > int(number), "=": r["record_id"] == int(number)}[operator]]
+        return Handle(list(reversed(rows)) if flags & 2 else rows)
+
+    def render(handle, mode):
+        row = handle.value
+        data = "".join(f'<Data Name="{key}">{value}</Data>' for key, value in row["data"].items())
+        return f'<Event xmlns="http://schemas.microsoft.com/win/2004/08/events/event"><System><Provider Name="{row["provider"]}"/><EventID>{row["event_id"]}</EventID><EventRecordID>{row["record_id"]}</EventRecordID><TimeCreated SystemTime="{row["timestamp"]}"/></System><EventData>{data}<Data Name="private">never-persist</Data></EventData></Event>'
+
+    def next_rows(handle, count, timeout):
+        assert count <= 128 and timeout == 1000
+        return [Handle(r) for r in handle.value[:count]]
+
+    monkeypatch.setitem(sys.modules, "win32evtlog", SimpleNamespace(
+        EvtQueryChannelPath=4, EvtQueryForwardDirection=1, EvtQueryReverseDirection=2,
+        EvtQuery=query, EvtNext=next_rows, EvtRender=render, EvtRenderEventXml=1,
+    ))
+    source = WindowsPowerSource(reader=native._read_system)
+    source._notifications_ready = True
+    page = await source.read_page(checkpoint, now=NOW)
+    assert page.reset_count == int(reset_expected)
+    if reset_expected:
+        assert [e.native_record_id for e in page.events][:3] == ["10", "20", "30"]
+        assert page.status.availability == "DEGRADED"
+        if case == "overlapping_generation":
+            assert page.status.coverage_started_at == NOW
+            assert page.events[0].boot_id != saved.events[0].boot_id
+    else:
+        assert [e.native_record_id for e in page.events] == (["150"] if case == "later_boot" else [])
+        assert page.status.coverage_started_at == NOW - timedelta(days=2)
+    persisted = json.loads(page.checkpoint)
+    assert len(persisted["record_anchor"]) == 64
+    assert len(page.checkpoint) <= 16384 and "never-persist" not in page.checkpoint
+    spool = PowerEventSpool(tmp_path)
+    await spool.open()
+    await spool.commit_page(page, now=NOW)
+    reopened = PowerEventSpool(tmp_path)
+    await reopened.open()
+    assert (await reopened.source_status()).reset_count == int(reset_expected)
+    again = await source.read_page(await reopened.checkpoint(), now=NOW)
+    assert not again.events and again.reset_count == 0
+    assert all(handle.closed for handle in handles)

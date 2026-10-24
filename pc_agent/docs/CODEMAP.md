@@ -26,6 +26,10 @@ and registers PowrProf suspend/resume callbacks. Latest native boot identity is
 separate from historical replay. One bounded reverse Boot27 lookup recovers
 context before the first replay row even if its boot predates the30-day fact
 window. The context shares the existing atomic page/checkpoint transaction.
+The checkpoint also stores a bounded native record-identity digest. An exact
+record lookup validates continuity before cursor reuse; overlapping generations,
+missing records and legacy checkpoints without an anchor reset/replay retained
+coverage explicitly. A later live boot alone does not invalidate the cursor.
 Fixed subprocess reads (10-second deadline, kill-and-wait on cancellation) share
 one loop-scoped lock with SCM evidence. The frozen core dispatches the private
 stdin-only `--windows-power-read` mode; static imports keep the worker in the

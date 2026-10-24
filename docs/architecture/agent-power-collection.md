@@ -43,7 +43,14 @@ boot boundary are skipped and counted as lost rather than assigned to the
 agent's current process. Callbacks use a separate lookup of the latest OS boot,
 never the old boot at the current replay page. EventLog6005/6006 are not used.
 Forward record-ID pagination is bounded to128 rows. Oldest/newest System record
-IDs detect clearing/rollover and report a reset with reduced coverage.
+IDs detect out-of-range rollover. Before reusing a cursor, one exact-record
+lookup checks its persisted SHA-256 anchor over provider, event ID, record ID
+and native timestamp. Reused numbers in overlapping recreated log generations
+therefore cannot silently preserve old coverage. A missing/mismatched anchor,
+including a legacy checkpoint without one, resets context and coverage, reports
+a reset/degradation and replays the bounded retained 30-day window. Matching
+anchors preserve historical replay even when the live OS boot has changed.
+Only the 64-character digest is persisted, atomically with the page/cursor.
 Before projecting a page, one reverse Boot27 lookup at/before its first record
 recovers the historical boot context even when the boundary is older than the
 30-day fact window. Later boot boundaries update that context in record order.

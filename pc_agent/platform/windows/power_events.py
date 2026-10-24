@@ -60,6 +60,17 @@ def _time(value):
     return result.astimezone(UTC)
 
 
+def _record_anchor(row):
+    """Bounded digest of whitelisted native identity, never XML or messages."""
+    return opaque_id(
+        json.dumps(
+            {key: row[key] for key in ("provider", "event_id", "record_id", "timestamp")},
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+    )
+
+
 def project_windows_page(rows, checkpoint, *, now):
     if len(rows) > 128:
         raise ValueError("Windows native page exceeds bound")
@@ -71,6 +82,7 @@ def project_windows_page(rows, checkpoint, *, now):
             if record_id <= state.get("record_id", 0):
                 continue
             state["record_id"] = record_id
+            state["record_anchor"] = _record_anchor(row)
             provider, identifier, data = (
                 row["provider"],
                 int(row["event_id"]),
@@ -206,6 +218,14 @@ def _read_system(checkpoint, now):
             or (oldest and cursor < oldest["record_id"])
         )
     )
+    if cursor and not reset:
+        anchor = query_one(
+            win32evtlog.EvtQueryChannelPath | win32evtlog.EvtQueryForwardDirection,
+            f"*[System[EventRecordID={cursor}]]",
+        )
+        # Numeric ranges overlap after a recreated log catches up. Legacy
+        # checkpoints also cannot prove continuity: replay the retained window.
+        reset = not anchor or state.get("record_anchor") != _record_anchor(anchor)
     if reset:
         cursor, state = 0, {}
     since = (now - timedelta(days=30)).strftime("%Y-%m-%dT%H:%M:%S.000Z")
