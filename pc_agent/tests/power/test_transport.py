@@ -49,3 +49,49 @@ def test_wss_hello_advertises_power_within_eight_feature_bound(monkeypatch, tmp_
     assert len(hello.protocol_features) <= 8
     # Hello's compatibility http-pull boot ID must not become native evidence.
     assert not hello.boot_id or hello.boot_id == "http-pull"
+
+@pytest.mark.parametrize("maximum_identifiers", [False, True])
+async def test_near_limit_spool_batches_drain_through_real_wire_parser(tmp_path, maximum_identifiers):
+    from datetime import timedelta
+    import aiohttp
+    from endpoint_contracts.power_events import MAX_POWER_EVENT_BATCH_BYTES_V1
+    from endpoint_server.gateway.protocol import parse_agent_envelope
+    from pc_agent.power.native import native_event
+    from .test_spool import ack
+
+    class WireSocket:
+        # Exercise aiohttp's production default JSON serializer and send boundary.
+        send_json = aiohttp.ClientWebSocketResponse.send_json
+
+        async def send_str(self, data, compress=None):
+            self.raw = data
+            self.parsed = parse_agent_envelope(data, maximum_message_bytes=1048576)
+
+    spool = PowerEventSpool(tmp_path)
+    await spool.open()
+    observed = NOW + timedelta(microseconds=123456)
+    events = [native_event(
+        source=("s" * 128 if maximum_identifiers else "windows.notification"), boot_id="b" * (128 if maximum_identifiers else 64),
+        native_record_id=str(i).zfill(128 if maximum_identifiers else 64),
+        event_kind="OS_SLEEP_STARTED", sleep_subtype="unknown",
+        occurred_at=observed, observed_at=observed,
+    ) for i in range(128)]
+    await spool.commit_page(page(events), now=observed)
+    transport = WebSocketGatewayTransport(ca_file=Path("ca"), credential="a" * 43)
+    socket = WireSocket()
+    transport._socket = socket
+    transport._maximum_message_bytes = 1048576
+    transport._outgoing_sequence = 2**63 - 3
+    transport._protocol_features = frozenset({"endpoint.power-events.v1"})
+    delivered = []
+    sizes = []
+    while (await spool.stats()).queued_events:
+        batch = await spool.next_batch(now=observed)
+        assert batch.events
+        await transport.send_power_event_batch(batch)
+        sizes.append(len(socket.raw.encode("utf-8")))
+        delivered.extend(e.event_identifier for e in socket.parsed.payload.events)
+        assert await spool.acknowledge(batch, ack(batch))
+    assert len(sizes) == 2
+    assert 59000 < sizes[0] <= MAX_POWER_EVENT_BATCH_BYTES_V1
+    assert delivered == [e.event_identifier for e in events]

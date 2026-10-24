@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from typing import Protocol, runtime_checkable
 
@@ -13,6 +14,11 @@ from .protocol import (
     GatewayHelloV1,
     GatewayInboundV1,
 )
+
+
+def gateway_wire_size(body: dict) -> int:
+    """UTF-8 bytes with aiohttp send_json's default JSON serialization."""
+    return len(json.dumps(body).encode("utf-8"))
 
 
 class GatewayCredentialRejected(RuntimeError):

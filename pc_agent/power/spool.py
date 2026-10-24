@@ -14,12 +14,14 @@ import aiosqlite
 
 from endpoint_contracts.gateway_ws import PowerEventBatchEnvelopeV1
 from endpoint_contracts.power_events import (
+    MAX_POWER_EVENT_BATCH_BYTES_V1,
     PowerEventAckV1,
     PowerEventBatchV1,
     PowerEventV1,
     PowerSourceStatusV1,
 )
 from pc_agent.policy.cache import _require_safe_directory
+from pc_agent.transport.base import gateway_wire_size
 
 from .native import NativePage
 
@@ -255,7 +257,7 @@ class PowerEventSpool:
                 sequence=2**63 - 1,
                 payload=candidate,
             )
-            if len(frame.model_dump_json().encode()) > 61440:
+            if gateway_wire_size(frame.model_dump(mode="json")) > MAX_POWER_EVENT_BATCH_BYTES_V1:
                 break
             batch = candidate
         return batch

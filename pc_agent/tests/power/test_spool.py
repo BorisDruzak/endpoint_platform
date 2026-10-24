@@ -1,5 +1,6 @@
 """Power facts and native checkpoints survive offline restarts and exact ACKs."""
 
+import json
 import sqlite3
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
@@ -214,12 +215,12 @@ async def test_worst_native_ids_status_counters_and_sequence_fit_entire_frame(tm
         sequence=2**63 - 1,
         payload=batch,
     )
-    encoded = frame.model_dump_json().encode("utf-8")
+    encoded = json.dumps(frame.model_dump(mode="json")).encode("utf-8")
     assert 1 <= len(batch.events) < 128
     assert len(encoded) <= 61440
     larger = batch.model_copy(
         update={"events": [*batch.events, events[len(batch.events)]]}
     )
     larger_frame = frame.model_copy(update={"payload": larger})
-    assert len(larger_frame.model_dump_json().encode("utf-8")) > 61440
+    assert len(json.dumps(larger_frame.model_dump(mode="json")).encode("utf-8")) > 61440
     print(f"worst_native_frame: events={len(batch.events)} frame_bytes={len(encoded)}")

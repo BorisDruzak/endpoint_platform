@@ -9,6 +9,9 @@ updates share one SQLite FULL-synchronous transaction. Its 30-day/10,000-event/
 5-MiB payload limits do not change SecurityEvent retention. Exact ordered power
 ACKs dispose accepted/rejected items; retry_later stays queued and permanent
 rejections retain only bounded quarantine metadata.
+Batch sizing shares `transport/base.py:gateway_wire_size` with the WSS sender:
+the complete envelope uses aiohttp's default JSON wire spacing/UTF-8 bytes,
+including worst-case sequence width, within the dedicated 60-KiB power limit.
 
 `power/runtime.py` starts persistent collection/notification tasks before network
 connection and sends through a per-connection sender only after negotiating

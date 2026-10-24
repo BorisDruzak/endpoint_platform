@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import inspect
-import json
 import random
 import ssl
 from collections.abc import Awaitable, Callable
@@ -42,6 +41,7 @@ from endpoint_contracts.gateway_ws import (
 
 from .backoff import bounded_exponential_backoff
 from .base import (
+    gateway_wire_size,
     GatewayCredentialRejected,
     GatewayRetryableError,
     GatewayTerminalError,
@@ -380,7 +380,7 @@ class WebSocketGatewayTransport:
             payload=payload,
         )
         body = envelope.model_dump(mode="json")
-        if len(json.dumps(body).encode("utf-8")) > self._maximum_message_bytes:
+        if gateway_wire_size(body) > self._maximum_message_bytes:
             raise GatewayTerminalError(
                 "Gateway message exceeds the negotiated limit"
             )
