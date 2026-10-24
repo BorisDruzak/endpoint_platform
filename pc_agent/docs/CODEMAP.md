@@ -37,8 +37,11 @@ existing build closure. Native reads use no default-executor threads.
 `platform/linux/power_events.py` uses trusted
 UID0/unit/PID1 metadata, forward journal cursors, kernel boot identity and public
 logind signal subscriptions through `busctl wait`. No journal privilege helper
-or main service privilege change is needed. Native log limitations remain
-visible as availability/loss/reset diagnostics; see
+or main service privilege change is needed. Both PID1 shutdown.target starting
+and successful-start message IDs supply transition evidence. Projection-versioned
+checkpoints replay retained30-day history once when upgrading an older filter,
+preserving kernel boot identity; marker/facts/cursor commit atomically. Native log
+limitations remain visible as availability/loss/reset diagnostics; see
 `docs/architecture/agent-power-collection.md` for precise source mappings.
 
 The fixed Windows `service_launcher.py` forwards SCM shutdown as `S` then EOF;

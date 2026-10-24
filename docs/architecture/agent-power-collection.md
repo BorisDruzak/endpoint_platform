@@ -83,6 +83,14 @@ No root main process, helper privilege or package permission change is added.
 plain `--lines=128` would tail and lose undelivered earlier records. A checkpoint
 is verified by an exact one-row `--cursor` lookup before reuse. Missing/rolled
 cursors reset to the retained30-day window and increase the reset counter.
+Linux checkpoints carry `projection_version=2`. Older checkpoints discard their
+cursor and coverage once, preserving `current_boot`, so retained shutdown rows
+missed by the earlier message filter are replayed within the same30-day bound.
+The first recovered page reports reset/degradation; coverage starts from the
+recovered native evidence (or collection time if empty), never the old coverage
+claim. The marker, recovered facts and cursor share the existing atomic spool
+transaction. Later pages/restarts resume forward with stable native event UUIDs;
+already queued facts are deduplicated and server replay stays idempotent.
 
 Only trusted `_UID=0` rows with the expected system unit/PID are admitted:
 
@@ -92,6 +100,7 @@ Only trusted `_UID=0` rows with the expected system unit/PID are admitted:
 | 8811e6df2a8e40f58a94cea26f8ebf14 from those units | OS_RESUMED/transition |
 | 98268866d1d54a499c4e98921d93bc40 from systemd-logind.service | OS_SHUTDOWN_STARTED/request |
 | 7d4958e842da4a758f6c1cdc7b36dcc5 from PID1/init.scope, UNIT=shutdown.target | OS_SHUTDOWN_STARTED/transition |
+| 39f53479d3a045ac8e11786248231fbf from PID1/init.scope, UNIT=shutdown.target | OS_SHUTDOWN_STARTED/transition; shutdown target reached |
 | b07a249cd024414a82dd00cd181378ff from PID1/init.scope | Historical OS_STARTED at system startup completion |
 | /proc/sys/kernel/random/boot_id plus /proc/stat btime | Current OS_STARTED once per kernel boot |
 | Public logind PrepareForShutdown(true) / PrepareForSleep(true) | Immediate request evidence |
@@ -115,6 +124,9 @@ fact is invented from a missing shutdown, journal gap or reboot.
 - [systemd258 journalctl](https://www.freedesktop.org/software/systemd/man/258/journalctl.html)
 - [systemd258 logind](https://www.freedesktop.org/software/systemd/man/258/org.freedesktop.login1.html)
 - [systemd258 message IDs](https://github.com/systemd/systemd/blob/v258/src/systemd/sd-messages.h)
+- [systemd258 successful start-job metadata](https://github.com/systemd/systemd/blob/v258/src/core/job.c#L677-L683)
+- [systemd258 target completion](https://github.com/systemd/systemd/blob/v258/src/core/target.c#L183-L185)
+- [systemd258 shutdown target semantics](https://www.freedesktop.org/software/systemd/man/258/systemd.special.html#shutdown.target)
 - [systemd258 busctl wait implementation](https://github.com/systemd/systemd/blob/v258/src/busctl/busctl.c)
 - [Windows EvtQuery](https://learn.microsoft.com/en-us/windows/win32/api/winevt/nf-winevt-evtquery)
 - [Windows event query XPath restrictions](https://learn.microsoft.com/en-us/windows/win32/wes/consuming-events)

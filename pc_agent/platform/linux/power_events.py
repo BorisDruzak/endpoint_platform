@@ -20,6 +20,8 @@ SLEEP_STOP = "8811e6df2a8e40f58a94cea26f8ebf14"
 SHUTDOWN = "98268866d1d54a499c4e98921d93bc40"
 STARTUP_FINISHED = "b07a249cd024414a82dd00cd181378ff"
 UNIT_STARTING = "7d4958e842da4a758f6c1cdc7b36dcc5"
+UNIT_STARTED = "39f53479d3a045ac8e11786248231fbf"
+_PROJECTION_VERSION = 2
 _UNITS = {
     "systemd-suspend.service": "sleep",
     "systemd-hibernate.service": "hibernate",
@@ -84,7 +86,7 @@ def project_journal_page(rows, checkpoint, *, now):
         elif message == SHUTDOWN and unit == "systemd-logind.service":
             kind, evidence = "OS_SHUTDOWN_STARTED", "request"
         elif (
-            message == UNIT_STARTING
+            message in {UNIT_STARTING, UNIT_STARTED}
             and row.get("_PID") == "1"
             and unit == "init.scope"
             and row.get("UNIT") == "shutdown.target"
@@ -183,6 +185,14 @@ class LinuxPowerSource:
     async def read_page(self, checkpoint, *, now):
         state = json.loads(checkpoint) if checkpoint else {}
         reset = 0
+        if state and state.get("projection_version") != _PROJECTION_VERSION:
+            # Earlier filters missed retained UNIT_STARTED shutdown.target rows.
+            # Replay once; current_boot remains a kernel identity, not a restart.
+            state.pop("cursor", None)
+            state.pop("coverage", None)
+            reset = 1
+        # The caller commits this marker and the recovered facts atomically.
+        state["projection_version"] = _PROJECTION_VERSION
         cursor = state.get("cursor")
         if cursor:
             exact = await self._run([*self._args(1), f"--cursor={cursor}"])
@@ -201,6 +211,7 @@ class LinuxPowerSource:
                     SHUTDOWN,
                     STARTUP_FINISHED,
                     UNIT_STARTING,
+                    UNIT_STARTED,
                 ]
             ]
         )
