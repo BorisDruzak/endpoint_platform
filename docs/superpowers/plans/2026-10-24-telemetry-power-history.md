@@ -22,7 +22,7 @@
 - Do not change DLP/activity 24-hour acceptance bounds or activity calculations.
 - Use dedicated nonproduction VMs for reboot/sleep/network/service tests. No employee workstation power transitions, production deployment or recovery-slot operations.
 - Build both platform packages, test them on VMs, then run a 30-minute stability observation with 30-second samples and save raw evidence.
-- Tests use `C:/Users/admin-2/Documents/endpoint/.venv-device-binding/Scripts/python.exe`; it is Python 3.12.14. Pin actual native package build inputs through existing builders.
+- Tests ran in the isolated worktree environment `.superpowers/sdd/2026-10-24-telemetry-power-history/test-env/Scripts/python.exe` (Python 3.12.14), preserving the original checkout environment. Native package inputs use the existing locked builders; actual Linux native versions are recorded in the acceptance report.
 
 ## Review Focus
 
@@ -42,12 +42,12 @@ Use subagent-driven development for Tasks 1–4, one implementer at a time, inde
 
 **Interfaces:** Add `endpoint.telemetry-results.v1` and optional `GatewayHelloV1.protocol_features` (empty default for older peers). `TelemetryResultV1` has report kind, report UUID, original report sequence, disposition (`accepted|retry_later|rejected`), safe bounded reason code and exact event IDs for a security batch/subset. Emit `telemetry_result` only to agents advertising the feature; agent handlers consume it without terminating. Record the exact chosen model/signatures in the task report for later tasks. Legacy agents continue receiving no new frame for rejected optional samples. Existing security ACK remains commit-before-ACK; updated peers support partial valid delivery and permanent rejection without corrupting exact-ACK semantics.
 
-- [ ] Write failing integration tests showing stale/future/policy-mismatched sensor-health/activity/browser reports leave the same session usable for subsequent heartbeat and command; no partial writes. Keep disabled/unnegotiated framing fatal.
-- [ ] Add failing tests for nonfatal result correlation, mixed security batches, ACK loss/replay, permanent rejection counters and expected local collector failure while heartbeat continues. A simultaneous real transport failure must still propagate.
-- [ ] Run targeted tests and record expected RED failures before code.
-- [ ] Implement narrow per-report transaction/rejection boundaries, negotiated results, durable sender dispositions, and expected collector retry/degradation. Preserve cancellation and avoid broad runtime exception suppression.
-- [ ] Regenerate and verify canonical schemas; run affected gateway, security, runtime, transport and contract suites; inspect all failures.
-- [ ] Self-review, `git diff --check`, stage only Task 1 files and commit `fix(gateway): isolate optional telemetry failures`.
+- [x] Write failing integration tests showing stale/future/policy-mismatched sensor-health/activity/browser reports leave the same session usable for subsequent heartbeat and command; no partial writes. Keep disabled/unnegotiated framing fatal.
+- [x] Add failing tests for nonfatal result correlation, mixed security batches, ACK loss/replay, permanent rejection counters and expected local collector failure while heartbeat continues. A simultaneous real transport failure must still propagate.
+- [x] Run targeted tests and record expected RED failures before code.
+- [x] Implement narrow per-report transaction/rejection boundaries, negotiated results, durable sender dispositions, and expected collector retry/degradation. Preserve cancellation and avoid broad runtime exception suppression.
+- [x] Regenerate and verify canonical schemas; run affected gateway, security, runtime, transport and contract suites; inspect all failures.
+- [x] Self-review, `git diff --check`, stage only Task 1 files and commit `fix(gateway): isolate optional telemetry failures`.
 
 ### Task 2: Power contracts, server ingestion and evidence projection
 
@@ -57,11 +57,11 @@ Use subagent-driven development for Tasks 1–4, one implementer at a time, inde
 
 Create a current source-status row per device (separate from OS event history). Reuse `DeviceEvent(category='power', profile='power_v1')` for accepted facts; unique native source/event identity prevents duplicate boot/replay. Implement `GET /api/admin/console/devices/{device_id}/power` with current connectivity, source coverage, latest power evidence and paginated bounded history; reuse projection in optional fleet/device summary fields and activity timeline power markers. Admin auth/cache controls follow existing console routes.
 
-- [ ] Write RED tests for exact duplicate vs conflicting ID, per-event rollback/mixed batches, future/expired time, no policy requirement, unauthorized/non-negotiated frames, empty status batch and ACK-after-commit.
-- [ ] Write RED projection tests: online wins; service reconnect is no boot; cancelled request cannot label shutdown; newer known communication invalidates old sleep/shutdown hint; reversed arrival order cannot reverse state; unsupported/missing source remains unknown.
-- [ ] Implement typed bounded contracts, provider ingestion/current source state, projection and retention. Add indexed PostgreSQL migration only for the source state table and verify a single head.
-- [ ] Test PostgreSQL migration/ingestion when test DB available; run SQLite unit suites regardless, regenerate contracts, check existing response compatibility. Preserve old activity metrics.
-- [ ] Update protocol/server docs, inspect diff/check, and commit `feat(power): persist OS power evidence and source coverage`.
+- [x] Write RED tests for exact duplicate vs conflicting ID, per-event rollback/mixed batches, future/expired time, no policy requirement, unauthorized/non-negotiated frames, empty status batch and ACK-after-commit.
+- [x] Write RED projection tests: online wins; service reconnect is no boot; cancelled request cannot label shutdown; newer known communication invalidates old sleep/shutdown hint; reversed arrival order cannot reverse state; unsupported/missing source remains unknown.
+- [x] Implement typed bounded contracts, provider ingestion/current source state, projection and retention. Add indexed PostgreSQL migration only for the source state table and verify a single head.
+- [x] Test PostgreSQL migration/ingestion when test DB available; run SQLite unit suites regardless, regenerate contracts, check existing response compatibility. Preserve old activity metrics.
+- [x] Update protocol/server docs, inspect diff/check, and commit `feat(power): persist OS power evidence and source coverage`.
 
 ### Task 3: Durable agent power collection on Windows and ALT Linux
 
@@ -69,11 +69,11 @@ Create a current source-status row per device (separate from OS event history). 
 
 **Interfaces:** Consume Task 2 models. `PowerEventSpool` persists events and native cursor atomically, with independent 30-day/10,000/5-MiB limits, loss counters, exact disposition validation and quarantine for permanent rejects. `PowerEventRuntime` collects independently of network, sends/retries only after negotiated power support, records source health and consumes `PowerEventAckV1`. Native adapters produce bounded pages of structured facts and a cursor; they never mark an agent process restart as OS startup.
 
-- [ ] Read local AGENTS routing and available docs; verify pinned external/native APIs with Context7/official OS docs before API-dependent code. Use real provider+event metadata fixtures, never localized rendered-message heuristics as proof.
-- [ ] Write and run RED tests for spool crash/ACK loss/duplicate/conflict/overflow/expiry/cursor reset, offline multi-day replay, source availability, bounded reads, and failed collector without heartbeat loss.
-- [ ] Write and run RED native tests for boot, shutdown-start vs cancellable request, suspend/hibernate/resume, unclean-shutdown report, same-boot agent restart, journal rollover and clock skew. Verify actual Windows service-launcher controls before adding notifications.
-- [ ] Implement protected durable spool/runtime, bounded native collection, current source diagnostics and runtime/transport composition. Keep main agent unprivileged; if journal access needs a helper use minimal fixed metadata boundary and explicit package changes.
-- [ ] Run affected native/runtime/transport/security tests; update docs/CODEMAP; inspect/check diff, commit `feat(agent): replay native power events across reconnects`.
+- [x] Read local AGENTS routing and available docs; verify pinned external/native APIs with Context7/official OS docs before API-dependent code. Use real provider+event metadata fixtures, never localized rendered-message heuristics as proof.
+- [x] Write and run RED tests for spool crash/ACK loss/duplicate/conflict/overflow/expiry/cursor reset, offline multi-day replay, source availability, bounded reads, and failed collector without heartbeat loss.
+- [x] Write and run RED native tests for boot, shutdown-start vs cancellable request, suspend/hibernate/resume, unclean-shutdown report, same-boot agent restart, journal rollover and clock skew. Verify actual Windows service-launcher controls before adding notifications.
+- [x] Implement protected durable spool/runtime, bounded native collection, current source diagnostics and runtime/transport composition. Keep main agent unprivileged; if journal access needs a helper use minimal fixed metadata boundary and explicit package changes.
+- [x] Run affected native/runtime/transport/security tests; update docs/CODEMAP; inspect/check diff, commit `feat(agent): replay native power events across reconnects`.
 
 ### Task 4: Console power labels and timeline
 
@@ -81,10 +81,10 @@ Create a current source-status row per device (separate from OS event history). 
 
 **Interfaces:** Consume Task 2 power API/projections; retain `online` behavior. Show independent last connection, last activity and last power evidence. Use approved Russian text: `Нет связи — причина неизвестна`, `Последнее событие: переход в сон`, `Последнее событие: завершение работы ОС`. Unknown/unsupported coverage stays explicit; power history is separate from employee active/idle metrics.
 
-- [ ] Write RED UI tests for fresh online + old shutdown, unknown offline, sleep/shutdown evidence, unavailable source, delayed history and history pagination. Verify timelines preserve unknown activity gaps.
-- [ ] Implement in the existing console layout with accessible labels; avoid a redesign.
-- [ ] Run frontend tests/typecheck/build and affected server console tests. Inspect rendered pages via existing Playwright MCP with a local fixture-backed test provider.
-- [ ] Inspect/check diff and commit `feat(console): distinguish power evidence from lost connectivity`.
+- [x] Write RED UI tests for fresh online + old shutdown, unknown offline, sleep/shutdown evidence, unavailable source, delayed history and history pagination. Verify timelines preserve unknown activity gaps.
+- [x] Implement in the existing console layout with accessible labels; avoid a redesign.
+- [x] Run frontend tests/typecheck/build and affected server console tests. Inspect rendered pages via existing Playwright MCP with a local fixture-backed test provider.
+- [x] Inspect/check diff and commit `feat(console): distinguish power evidence from lost connectivity`.
 
 ### Task 5: Builds, VM transition acceptance and stability gate
 
@@ -92,9 +92,9 @@ Create a current source-status row per device (separate from OS event history). 
 
 **Interfaces:** Use existing canonical Windows/ALT builders and signing workflows. Keep packages as test candidates, not published fleet updates; don't change production selectors. Use an isolated test provider reachable over verified TLS to exercise the changed server without production rollout. The current Linux SSH alias may be stale; QGA/network inventory can establish the dedicated VM's current address before testing. Document actual package version/source hash/digests.
 
-- [ ] Run relevant suites, contract drift checks, full project pytest command, frontend test/typecheck/build and required packaging checks. Report pre-existing/platform skips and any failures by name; never silently ignore.
-- [ ] Build Linux and Windows candidates with existing locked Python3.12 toolchains; validate package metadata, signatures where existing test workflow requires them and archive hashes.
-- [ ] Install on dedicated Linux and Windows test VMs, preserving existing identity unless an isolated test instance/provider needs distinct identity. Test policy-independent events, service-only restart, OS reboot/shutdown/start, sleep/resume/hibernate when VM supports it, network interruption with no false power fact, offline replay and rejected telemetry while commands/heartbeat still work. Capture native events + server rows + session IDs, not just logs asserting success.
-- [ ] After transition tests run a 30-minute stability gate: every 30 seconds capture boot ID, service/core PID/restarts, heartbeat age/session ID, queue counts/rejections, power source state and CPU/RAM. Expect no spontaneous reconnect/service crash, bounded memory/queues and delivered events. Save raw JSONL and summarize gaps/limitations.
-- [ ] Dispatch independent whole-branch review, address important findings with RED→GREEN verification, rerun affected checks. Update report with exact evidence and known unsupported VM transitions.
-- [ ] Inspect full diff, `git diff --check`, exact staging and no secrets/artifacts; commit verification report. Keep worktree available for review; report commit SHAs/messages/files, tests, build paths and VM/stability outcomes. No merge, shared-branch push or production rollout is included without additional user instruction.
+- [x] Run relevant suites, contract drift checks, full project pytest command, frontend test/typecheck/build and required packaging checks. Report pre-existing/platform skips and any failures by name; never silently ignore.
+- [x] Build Linux and Windows candidates with existing locked Python3.12 toolchains; validate package metadata, signatures where existing test workflow requires them and archive hashes.
+- [x] Install on dedicated Linux and Windows test VMs, preserving existing identity unless an isolated test instance/provider needs distinct identity. Test policy-independent events, service-only restart, OS reboot/shutdown/start, sleep/resume/hibernate when VM supports it, network interruption with no false power fact, offline replay and rejected telemetry while commands/heartbeat still work. Capture native events + server rows + session IDs, not just logs asserting success.
+- [x] After transition tests run a 30-minute stability gate: every 30 seconds capture boot ID, service/core PID/restarts, heartbeat age/session ID, queue counts/rejections, power source state and CPU/RAM. Expect no spontaneous reconnect/service crash, bounded memory/queues and delivered events. Save raw JSONL and summarize gaps/limitations.
+- [x] Dispatch independent whole-branch review, address important findings with RED→GREEN verification, rerun affected checks. Update report with exact evidence and known unsupported VM transitions.
+- [x] Inspect full diff, `git diff --check`, exact staging and no secrets/artifacts; commit verification report. Keep worktree available for review; report commit SHAs/messages/files, tests, build paths and VM/stability outcomes. No merge, shared-branch push or production rollout is included without additional user instruction.
