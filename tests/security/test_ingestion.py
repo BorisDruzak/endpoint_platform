@@ -210,6 +210,49 @@ async def test_ack_is_sent_after_event_is_visible_in_committed_transaction(
 
 
 @pytest.mark.asyncio
+async def test_negotiated_mixed_batch_commits_valid_siblings_before_subset_dispositions(provisioned):
+    factory, device_id = provisioned
+    valid = _batch().events[0]
+    poison = _batch(policy_id=uuid4()).events[0]
+    batch = AgentSecurityEventBatchV1(schema_version="agent_security_event_batch_v1", batch_id=uuid4(), events=[valid, poison])
+    sent = []
+
+    async def send(envelope):
+        async with factory() as observer:
+            rows = (await observer.scalars(select(SecurityEvent))).all()
+            assert [row.event_identifier for row in rows] == [valid.event_identifier]
+        sent.append(envelope)
+
+    for _ in range(2):  # A lost response replays without duplicating the valid row.
+        await commit_and_ack_security_events(factory, device_id, batch, sequence=19, send=send,
+                                             received_at=NOW, telemetry_results=True)
+    assert [(frame.payload.disposition, frame.payload.event_identifiers) for frame in sent] == [
+        ("accepted", [valid.event_identifier]), ("rejected", [poison.event_identifier]),
+    ] * 2
+    assert all(frame.kind == "telemetry_result" and frame.payload.report_sequence == 19
+               and frame.payload.report_id == batch.batch_id for frame in sent)
+
+
+@pytest.mark.asyncio
+async def test_failed_outer_commit_rolls_back_valid_siblings_and_sends_nothing(provisioned, monkeypatch):
+    from sqlalchemy.ext.asyncio import AsyncSession
+    factory, device_id = provisioned
+    batch = _batch()
+    frames = []
+    async def fail_commit(self):
+        raise OSError("database commit unavailable")
+    monkeypatch.setattr(AsyncSession, "commit", fail_commit)
+    async def send(frame):
+        frames.append(frame)
+    with pytest.raises(OSError):
+        await commit_and_ack_security_events(factory, device_id, batch, sequence=7, send=send,
+                                             received_at=NOW, telemetry_results=True)
+    assert frames == []
+    async with factory() as session:
+        assert (await session.scalars(select(SecurityEvent))).all() == []
+
+
+@pytest.mark.asyncio
 async def test_offline_event_from_prior_applied_policy_survives_rotation(provisioned) -> None:
     factory, device_id = provisioned
     first_applied = NOW - timedelta(minutes=30)

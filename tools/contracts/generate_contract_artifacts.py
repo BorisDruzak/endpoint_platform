@@ -70,6 +70,7 @@ from endpoint_contracts import (  # noqa: E402
     ServiceStatusResultV1,
     SecurityEventAckV1,
 )
+from endpoint_contracts.telemetry_results import TelemetryResultV1
 from endpoint_contracts.base import ContractModelV1  # noqa: E402
 from endpoint_contracts.device_modules import EndpointDeviceModulesPageV1  # noqa: E402
 from endpoint_server.modules.device_catalog_routes import router as device_modules_router  # noqa: E402
@@ -194,6 +195,7 @@ GATEWAY_WS_MODELS: dict[str, type[BaseModel]] = {
     "endpoint_policy_ack_v1.json": EndpointPolicyAckV1,
     "agent_security_event_batch_v1.json": AgentSecurityEventBatchV1,
     "security_event_ack_v1.json": SecurityEventAckV1,
+    "telemetry_result_v1.json": TelemetryResultV1,
 }
 
 FIXTURES: dict[str, dict[str, Any]] = {

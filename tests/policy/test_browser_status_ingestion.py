@@ -81,6 +81,35 @@ def _browser_report() -> BrowserStatusReportV1:
 
 
 @pytest.mark.asyncio
+async def test_gateway_report_boundary_rolls_back_first_family_when_second_conflicts(browser_sessions):
+    from functools import partial
+    from types import SimpleNamespace
+    from endpoint_contracts.gateway_ws import BrowserStatusReportEnvelopeV1
+    from endpoint_server.gateway.telemetry import ingest_optional_report
+    sessions, device_id = browser_sessions
+    first = _browser_report()
+    async with sessions() as session:
+        await ingest_browser_status(session, device_id, first, received_at=NOW)
+        chrome = await session.scalar(select(BrowserStatusCurrent).where(BrowserStatusCurrent.browser_family == "chrome"))
+        chrome.observed_at = NOW - timedelta(minutes=1)
+        await session.commit()
+    report = first.model_copy(update={"observation_id": uuid4()})
+    frames = []
+    async def send(frame):
+        frames.append(frame)
+    connection = SimpleNamespace(device_id=device_id, protocol_features={"endpoint.telemetry-results.v1"}, send=send)
+    await ingest_optional_report(connection, BrowserStatusReportEnvelopeV1(
+        schema_version="gateway_ws_envelope_v1", kind="browser_status_report", sequence=7, payload=report,
+    ), sessions, partial(ingest_browser_status, received_at=NOW), BrowserStatusRejected)
+    assert frames[0].payload.disposition == "rejected"
+    async with sessions() as session:
+        rows = (await session.scalars(select(BrowserStatusCurrent))).all()
+        assert {row.observation_id for row in rows} == {first.observation_id}
+        chrome = next(row for row in rows if row.browser_family == "chrome")
+        assert chrome.observed_at.replace(tzinfo=UTC) == NOW - timedelta(minutes=1)
+
+
+@pytest.mark.asyncio
 async def test_report_persists_families_and_preserves_last_heartbeat(browser_sessions) -> None:
     sessions, device_id = browser_sessions
     first = _browser_report()

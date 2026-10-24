@@ -17,6 +17,7 @@ from endpoint_contracts.security_events import (
     SecurityEventAckV1,
     SecurityEventV1,
 )
+from endpoint_contracts.telemetry_results import TelemetryResultV1
 from pc_agent.policy.cache import _require_safe_directory
 
 
@@ -39,6 +40,7 @@ class SecurityEventSpoolStats:
     queued_payload_bytes: int
     dropped_overflow: int
     dropped_expired: int
+    rejected_permanent: int = 0
 
 
 class SecurityEventSpool:
@@ -90,6 +92,12 @@ class SecurityEventSpool:
                 await connection.execute(
                     "INSERT OR IGNORE INTO security_event_spool_stats(singleton) VALUES (1)"
                 )
+                async with connection.execute("PRAGMA table_info(security_event_spool_stats)") as cursor:
+                    columns = {row[1] for row in await cursor.fetchall()}
+                if "rejected_permanent" not in columns:
+                    await connection.execute(
+                        "ALTER TABLE security_event_spool_stats ADD COLUMN rejected_permanent INTEGER NOT NULL DEFAULT 0"
+                    )
                 await connection.commit()
             except BaseException:
                 await connection.rollback()
@@ -222,11 +230,47 @@ class SecurityEventSpool:
             ) as cursor:
                 count, size = await cursor.fetchone()
             async with connection.execute(
-                "SELECT dropped_overflow, dropped_expired "
+                "SELECT dropped_overflow, dropped_expired, rejected_permanent "
                 "FROM security_event_spool_stats WHERE singleton = 1"
             ) as cursor:
-                overflow, expired = await cursor.fetchone()
-        return SecurityEventSpoolStats(count, size, overflow, expired)
+                overflow, expired, rejected = await cursor.fetchone()
+        return SecurityEventSpoolStats(count, size, overflow, expired, rejected)
+
+    async def apply_result(self, batch: AgentSecurityEventBatchV1, result: TelemetryResultV1) -> bool:
+        """Atomically remove only the exact pending subset, counting permanent loss."""
+        self._require_open()
+        identifiers = result.event_identifiers
+        selected = set(identifiers)
+        if (
+            result.report_kind != "security_event_batch"
+            or result.report_id != batch.batch_id
+            or not identifiers
+            or [event.event_identifier for event in batch.events if event.event_identifier in selected] != identifiers
+        ):
+            return False
+        if result.disposition == "retry_later":
+            return True
+        async with aiosqlite.connect(self.path) as connection:
+            await connection.execute("PRAGMA secure_delete=ON")
+            await connection.execute("BEGIN IMMEDIATE")
+            try:
+                placeholders = ",".join("?" for _ in identifiers)
+                parameters = tuple(str(identifier) for identifier in identifiers)
+                async with connection.execute(
+                    f"SELECT event_identifier FROM security_event_spool WHERE event_identifier IN ({placeholders})", parameters,
+                ) as cursor:
+                    present = {row[0] for row in await cursor.fetchall()}
+                if present != set(parameters):
+                    await connection.rollback()
+                    return False
+                await connection.execute(f"DELETE FROM security_event_spool WHERE event_identifier IN ({placeholders})", parameters)
+                if result.disposition == "rejected":
+                    await self._increment(connection, "rejected_permanent", len(identifiers))
+                await connection.commit()
+                return True
+            except BaseException:
+                await connection.rollback()
+                raise
 
     async def _expire(self, connection: aiosqlite.Connection, now: datetime) -> None:
         cutoff = (now - MAX_SPOOL_AGE).isoformat()

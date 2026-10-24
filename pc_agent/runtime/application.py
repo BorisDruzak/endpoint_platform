@@ -588,6 +588,9 @@ def _default_dependencies(
         security_ack_handler=(
             security_runtime.receive_ack if security_runtime is not None else None
         ),
+        telemetry_result_handler=(
+            security_runtime.receive_result if security_runtime is not None else None
+        ),
         security_policy_ack_sent=(
             on_policy_ack_sent
             if security_runtime is not None or browser_status_enabled or sensor_health_enabled
@@ -742,6 +745,7 @@ def _load_hello(settings: object) -> AgentHelloV1:
         )
         if platform == "windows_amd64" and not settings.migration_http_pull_fallback:
             features.append("endpoint.recovery-update.v2")
+        features.append("endpoint.telemetry-results.v1")
         if features:
             values["protocol_features"] = features
     return compatibility_agent_hello(platform=platform).model_copy(update=values)

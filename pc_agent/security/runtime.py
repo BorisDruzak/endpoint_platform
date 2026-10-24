@@ -4,17 +4,20 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import sqlite3
 from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Protocol
+from uuid import UUID
 
 from endpoint_contracts.security_events import (
     AgentSecurityEventBatchV1,
     SecurityEventAckV1,
     SecurityEventV1,
 )
+from endpoint_contracts.telemetry_results import TelemetryResultV1
 
-from .spool import SecurityEventSpool
+from .spool import SecurityEventSpool, SecurityEventSpoolError
 
 _LOG = logging.getLogger(__name__)
 
@@ -22,7 +25,7 @@ _LOG = logging.getLogger(__name__)
 class SecurityEventTransport(Protocol):
     async def send_security_event_batch(
         self, batch: AgentSecurityEventBatchV1
-    ) -> None: ...
+    ) -> int: ...
 
 
 class SecurityEventRuntime:
@@ -43,6 +46,8 @@ class SecurityEventRuntime:
         self._policy_ready = asyncio.Event()
         self._lock = asyncio.Lock()
         self._inflight: AgentSecurityEventBatchV1 | None = None
+        self._inflight_sequences: set[int] = set()
+        self._remaining: set[UUID] = set()
         self.acknowledged = asyncio.Event()
         self._opened = False
         self._spool_unavailable = False
@@ -57,7 +62,7 @@ class SecurityEventRuntime:
             return False
         try:
             await self._spool.stats()
-        except Exception:
+        except (OSError, sqlite3.Error, SecurityEventSpoolError):
             return False
         return True
 
@@ -81,7 +86,7 @@ class SecurityEventRuntime:
                 return False
             try:
                 accepted = await self._spool.acknowledge(batch, ack)
-            except Exception:
+            except (OSError, sqlite3.Error, SecurityEventSpoolError):
                 self._spool_unavailable = True
                 _LOG.warning('SecurityEvent spool acknowledgement unavailable')
                 return False
@@ -90,6 +95,33 @@ class SecurityEventRuntime:
             self._spool_unavailable = False
             self._acked.set()
             self.acknowledged.set()
+            return True
+
+    async def receive_result(self, result: TelemetryResultV1) -> bool:
+        async with self._lock:
+            batch = self._inflight
+            if (
+                batch is None
+                or result.report_kind != "security_event_batch"
+                or result.report_id != batch.batch_id
+                or result.report_sequence not in self._inflight_sequences
+                or not set(result.event_identifiers) <= self._remaining
+            ):
+                return False
+            try:
+                accepted = await self._spool.apply_result(batch, result)
+            except (OSError, sqlite3.Error, SecurityEventSpoolError):
+                self._spool_unavailable = True
+                _LOG.warning("SecurityEvent spool disposition unavailable")
+                return False
+            if not accepted:
+                return False
+            self._spool_unavailable = False
+            if result.disposition != "retry_later":
+                self._remaining.difference_update(result.event_identifiers)
+                if not self._remaining:
+                    self._acked.set()
+                    self.acknowledged.set()
             return True
 
     async def send_forever(
@@ -105,7 +137,7 @@ class SecurityEventRuntime:
                     if not self._opened:
                         await self.open()
                     batch = await self._spool.next_batch(now=now())
-                except Exception:
+                except (OSError, sqlite3.Error, SecurityEventSpoolError, ValueError):
                     if not self._spool_unavailable:
                         _LOG.warning('SecurityEvent spool delivery unavailable')
                     self._spool_unavailable = True
@@ -121,9 +153,19 @@ class SecurityEventRuntime:
                     continue
                 async with self._lock:
                     self._inflight = batch
+                    self._inflight_sequences.clear()
+                    self._remaining = {event.event_identifier for event in batch.events}
                     self._acked.clear()
                 while not self._acked.is_set():
-                    await transport.send_security_event_batch(batch)
+                    # The receive loop must wait until the send's sequence is
+                    # registered, even when a response races socket draining.
+                    async with self._lock:
+                        sequence = await transport.send_security_event_batch(batch)
+                        if isinstance(sequence, int):
+                            # Bound correlation memory over a prolonged outage.
+                            self._inflight_sequences.add(sequence)
+                            if len(self._inflight_sequences) > 128:
+                                self._inflight_sequences.remove(min(self._inflight_sequences))
                     try:
                         await asyncio.wait_for(
                             self._acked.wait(), self._ack_timeout_seconds
@@ -135,4 +177,6 @@ class SecurityEventRuntime:
         finally:
             async with self._lock:
                 self._inflight = None
+                self._inflight_sequences.clear()
+                self._remaining.clear()
                 self._acked.clear()

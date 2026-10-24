@@ -7,13 +7,14 @@ from collections.abc import Awaitable, Callable
 from uuid import UUID, uuid4
 
 from pydantic import ValidationError
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from endpoint_contracts.endpoint_policy import EndpointPolicyV1
-from endpoint_contracts.gateway_ws import SecurityEventAckEnvelopeV1
+from endpoint_contracts.gateway_ws import SecurityEventAckEnvelopeV1, TelemetryResultEnvelopeV1
+from endpoint_contracts.telemetry_results import TelemetryResultV1
 from endpoint_contracts.security_events import (
     AgentSecurityEventBatchV1,
     SecurityEventAckV1,
@@ -163,10 +164,43 @@ async def commit_and_ack_security_events(
     batch: AgentSecurityEventBatchV1,
     *,
     sequence: int,
-    send: Callable[[SecurityEventAckEnvelopeV1], Awaitable[None]],
+    send: Callable[[SecurityEventAckEnvelopeV1 | TelemetryResultEnvelopeV1], Awaitable[None]],
     received_at: datetime | None = None,
+    telemetry_results: bool = False,
 ) -> None:
     """Never emit a success ACK before the whole database transaction commits."""
+    if telemetry_results:
+        dispositions: dict[str, list[UUID]] = {"accepted": [], "rejected": []}
+        async with session_provider() as session:
+            if session.get_bind().dialect.name == "sqlite":
+                # sqlite3 legacy transaction control does not BEGIN for a
+                # SAVEPOINT; RELEASE would otherwise commit each sibling.
+                await session.execute(text("BEGIN"))
+            # A poison sibling rolls back its savepoint only. All valid rows
+            # commit together before emitting either success or rejection.
+            for event in batch.events:
+                try:
+                    async with session.begin_nested():
+                        single = AgentSecurityEventBatchV1(
+                            schema_version="agent_security_event_batch_v1",
+                            batch_id=batch.batch_id, events=[event],
+                        )
+                        await ingest_gateway_security_events(session, device_id, single, received_at=received_at)
+                except SecurityEventRejected:
+                    dispositions["rejected"].append(event.event_identifier)
+                else:
+                    dispositions["accepted"].append(event.event_identifier)
+            await session.commit()
+        for disposition, identifiers in dispositions.items():
+            if identifiers:
+                await send(TelemetryResultEnvelopeV1(
+                    schema_version="gateway_ws_envelope_v1", kind="telemetry_result", sequence=sequence,
+                    payload=TelemetryResultV1(schema_version="telemetry_result_v1", report_kind="security_event_batch",
+                        report_id=batch.batch_id, report_sequence=sequence, disposition=disposition,
+                        reason_code="persisted" if disposition == "accepted" else "domain_rejected",
+                        event_identifiers=identifiers),
+                ))
+        return
     async with session_provider() as session:
         acknowledgement = await ingest_gateway_security_events(
             session, device_id, batch, received_at=received_at

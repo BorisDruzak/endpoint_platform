@@ -332,6 +332,18 @@ ACK send leaves Activity queued. Health/status reporting keeps its independent
 ACK gate so policy errors can still be reported. No Gateway frame or server
 contract changes are required.
 
+The negotiated `endpoint.telemetry-results.v1` channel is defined in
+`endpoint_contracts/telemetry_results.py` and handled by `runtime/lifecycle.py`.
+`runtime/application.py` advertises it on WSS and routes security dispositions
+through `RuntimeDependencies.telemetry_result_handler` to
+`SecurityEventRuntime.receive_result`. `transport/websocket.py` rejects
+unnegotiated results and returns the transmitted sequence from
+`send_security_event_batch`. The sender matches batch ID, sequence and ordered
+pending subsets before deleting spool rows; permanent rejections persist in
+`SecurityEventSpoolStats.rejected_permanent`. Legacy complete-batch ACK matching
+is unchanged. See `docs/architecture/optional-telemetry-results.md` for provider-
+first compatibility, transaction boundaries and local collector failure rules.
+
 `security/spool.py` keeps typed SecurityEvents in a protected SQLite file under
 the Agent data root. It discards the oldest event on the 1000-event or 5-MiB
 serialized-payload bound, expires events after 24 hours, and persists separate

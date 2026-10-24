@@ -26,6 +26,7 @@ from .endpoint_policy import EndpointPolicyV1, policy_digest
 from .security_events import AgentSecurityEventBatchV1, SecurityEventAckV1
 from .sensor_health import PolicySensorHealthReportV1
 from .telemetry import AgentHeartbeatV1
+from .telemetry_results import TelemetryResultV1
 
 
 MAX_SEQUENCE_V1 = 2**63 - 1
@@ -69,9 +70,10 @@ ProtocolFeatureV1 = Literal[
     "endpoint.policy.v1", "endpoint.activity.v1", "endpoint.security-events.v1",
     "endpoint.browser-status.v1", "endpoint.sensor-health.v1",
     "endpoint.recovery-update.v2",
+    "endpoint.telemetry-results.v1",
 ]
 ProtocolFeaturesV1 = Annotated[
-    list[ProtocolFeatureV1], Field(strict=True, max_length=6)
+    list[ProtocolFeatureV1], Field(strict=True, max_length=7)
 ]
 
 
@@ -118,6 +120,13 @@ class GatewayHelloV1(ContractModelV1):
     policy_revision: PolicyRevisionV1
     effective_capabilities: CapabilityListV1
     server_time: AwareDatetime
+    # Legacy peers forbid unknown fields, including an empty feature list.
+    protocol_features: ProtocolFeaturesV1 = Field(default_factory=list, exclude_if=lambda value: not value)
+
+    @field_validator("protocol_features")
+    @classmethod
+    def validate_protocol_features(cls, features: list[str]) -> list[str]:
+        return _validate_unique_capabilities(features)
 
     @field_validator("effective_capabilities")
     @classmethod
@@ -440,6 +449,11 @@ class SecurityEventAckEnvelopeV1(_GatewayWsEnvelopeBaseV1):
     payload: SecurityEventAckV1
 
 
+class TelemetryResultEnvelopeV1(_GatewayWsEnvelopeBaseV1):
+    kind: Literal["telemetry_result"]
+    payload: TelemetryResultV1
+
+
 class ServerShutdownNoticeEnvelopeV1(_GatewayWsEnvelopeBaseV1):
     kind: Literal["server_shutdown_notice"]
     payload: ServerShutdownNoticeV1
@@ -467,6 +481,7 @@ GatewayWsEnvelopeBodyV1 = Annotated[
     | PolicySensorHealthReportEnvelopeV1
     | SecurityEventBatchEnvelopeV1
     | SecurityEventAckEnvelopeV1
+    | TelemetryResultEnvelopeV1
     | ServerShutdownNoticeEnvelopeV1
     | ErrorEnvelopeV1,
     Field(discriminator="kind"),
@@ -484,6 +499,7 @@ GatewayInboundBodyV1 = Annotated[
     | PolicyUpdateEnvelopeV1
     | EndpointPolicyDeliveryEnvelopeV1
     | SecurityEventAckEnvelopeV1
+    | TelemetryResultEnvelopeV1
     | ServerShutdownNoticeEnvelopeV1
     | ErrorEnvelopeV1,
     Field(discriminator="kind"),

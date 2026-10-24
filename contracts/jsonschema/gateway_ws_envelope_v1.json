@@ -365,11 +365,12 @@
               "endpoint.security-events.v1",
               "endpoint.browser-status.v1",
               "endpoint.sensor-health.v1",
-              "endpoint.recovery-update.v2"
+              "endpoint.recovery-update.v2",
+              "endpoint.telemetry-results.v1"
             ],
             "type": "string"
           },
-          "maxItems": 6,
+          "maxItems": 7,
           "title": "Protocol Features",
           "type": "array"
         },
@@ -2962,6 +2963,23 @@
           "title": "Policy Revision",
           "type": "integer"
         },
+        "protocol_features": {
+          "items": {
+            "enum": [
+              "endpoint.policy.v1",
+              "endpoint.activity.v1",
+              "endpoint.security-events.v1",
+              "endpoint.browser-status.v1",
+              "endpoint.sensor-health.v1",
+              "endpoint.recovery-update.v2",
+              "endpoint.telemetry-results.v1"
+            ],
+            "type": "string"
+          },
+          "maxItems": 7,
+          "title": "Protocol Features",
+          "type": "array"
+        },
         "schema_version": {
           "const": "gateway_hello_v1",
           "title": "Schema Version",
@@ -3588,6 +3606,133 @@
       "title": "ServerShutdownNoticeV1",
       "type": "object"
     },
+    "TelemetryResultEnvelopeV1": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "telemetry_result",
+          "title": "Kind",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/TelemetryResultV1"
+        },
+        "schema_version": {
+          "const": "gateway_ws_envelope_v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "sequence": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Sequence",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "schema_version",
+        "sequence",
+        "kind",
+        "payload"
+      ],
+      "title": "TelemetryResultEnvelopeV1",
+      "type": "object"
+    },
+    "TelemetryResultV1": {
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "else": {
+            "properties": {
+              "event_identifiers": {
+                "maxItems": 0
+              }
+            }
+          },
+          "if": {
+            "properties": {
+              "report_kind": {
+                "const": "security_event_batch"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "event_identifiers": {
+                "minItems": 1
+              }
+            },
+            "required": [
+              "event_identifiers"
+            ]
+          }
+        }
+      ],
+      "properties": {
+        "disposition": {
+          "enum": [
+            "accepted",
+            "retry_later",
+            "rejected"
+          ],
+          "title": "Disposition",
+          "type": "string"
+        },
+        "event_identifiers": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "maxItems": 50,
+          "title": "Event Identifiers",
+          "type": "array",
+          "uniqueItems": true
+        },
+        "reason_code": {
+          "maxLength": 64,
+          "minLength": 1,
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Reason Code",
+          "type": "string"
+        },
+        "report_id": {
+          "format": "uuid",
+          "title": "Report Id",
+          "type": "string"
+        },
+        "report_kind": {
+          "enum": [
+            "activity_observation",
+            "browser_status_report",
+            "policy_sensor_health_report",
+            "security_event_batch"
+          ],
+          "title": "Report Kind",
+          "type": "string"
+        },
+        "report_sequence": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Report Sequence",
+          "type": "integer"
+        },
+        "schema_version": {
+          "const": "telemetry_result_v1",
+          "title": "Schema Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema_version",
+        "report_kind",
+        "report_id",
+        "report_sequence",
+        "disposition",
+        "reason_code"
+      ],
+      "title": "TelemetryResultV1",
+      "type": "object"
+    },
     "UsbConnectedEventV1": {
       "additionalProperties": false,
       "properties": {
@@ -3837,7 +3982,8 @@
       "result_ack": "#/$defs/ResultAckEnvelopeV1",
       "security_event_ack": "#/$defs/SecurityEventAckEnvelopeV1",
       "security_event_batch": "#/$defs/SecurityEventBatchEnvelopeV1",
-      "server_shutdown_notice": "#/$defs/ServerShutdownNoticeEnvelopeV1"
+      "server_shutdown_notice": "#/$defs/ServerShutdownNoticeEnvelopeV1",
+      "telemetry_result": "#/$defs/TelemetryResultEnvelopeV1"
     },
     "propertyName": "kind"
   },
@@ -3889,6 +4035,9 @@
     },
     {
       "$ref": "#/$defs/SecurityEventAckEnvelopeV1"
+    },
+    {
+      "$ref": "#/$defs/TelemetryResultEnvelopeV1"
     },
     {
       "$ref": "#/$defs/ServerShutdownNoticeEnvelopeV1"

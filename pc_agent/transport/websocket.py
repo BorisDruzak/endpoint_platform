@@ -20,6 +20,7 @@ from endpoint_contracts.activity import ActivityObservationV1
 from endpoint_contracts.browser_status import BrowserStatusReportV1
 from endpoint_contracts.security_events import AgentSecurityEventBatchV1
 from endpoint_contracts.sensor_health import PolicySensorHealthReportV1
+from endpoint_contracts.telemetry_results import TELEMETRY_RESULTS_FEATURE
 from endpoint_contracts.gateway_ws import (
     ActivityObservationEnvelopeV1,
     BrowserStatusReportEnvelopeV1,
@@ -33,6 +34,7 @@ from endpoint_contracts.gateway_ws import (
     GatewayWsEnvelopeV1,
     HeartbeatEnvelopeV1,
     SecurityEventBatchEnvelopeV1,
+    TelemetryResultEnvelopeV1,
 )
 
 from .backoff import bounded_exponential_backoff
@@ -141,6 +143,7 @@ class WebSocketGatewayTransport:
         self._socket = None
         self._maximum_message_bytes = INITIAL_MAXIMUM_MESSAGE_BYTES
         self._outgoing_sequence = 0
+        self._protocol_features: frozenset[str] = frozenset()
 
     async def connect(self, hello: AgentHelloV1) -> GatewayHelloV1:
         for attempt in range(self._reconnect_policy.maximum_attempts):
@@ -225,6 +228,7 @@ class WebSocketGatewayTransport:
                 raise GatewayProtocolIncompatible("expected Gateway hello")
             self._maximum_message_bytes = parsed.payload.maximum_message_bytes
             self._outgoing_sequence = 0
+            self._protocol_features = frozenset(parsed.payload.protocol_features) & frozenset(hello.protocol_features)
             if self._on_connected is not None:
                 outcome = self._on_connected(parsed.payload)
                 if inspect.isawaitable(outcome):
@@ -236,6 +240,11 @@ class WebSocketGatewayTransport:
 
     async def receive(self) -> GatewayInboundV1:
         parsed = await self._receive_envelope()
+        if (
+            isinstance(parsed, TelemetryResultEnvelopeV1)
+            and TELEMETRY_RESULTS_FEATURE not in self._protocol_features
+        ):
+            raise GatewayProtocolIncompatible("telemetry results were not negotiated")
         try:
             return GatewayInboundV1(root=parsed)
         except (ValidationError, ValueError) as error:
@@ -292,8 +301,8 @@ class WebSocketGatewayTransport:
 
     async def send_security_event_batch(
         self, batch: AgentSecurityEventBatchV1
-    ) -> None:
-        await self._send(
+    ) -> int:
+        return await self._send(
             SecurityEventBatchEnvelopeV1,
             kind="security_event_batch",
             payload=batch,
@@ -348,7 +357,7 @@ class WebSocketGatewayTransport:
         except (ValidationError, ValueError) as error:
             raise GatewayProtocolIncompatible("invalid Gateway message") from error
 
-    async def _send(self, envelope_type, *, kind: str, payload: object) -> None:
+    async def _send(self, envelope_type, *, kind: str, payload: object) -> int:
         socket = self._require_socket()
         envelope = envelope_type(
             schema_version="gateway_ws_envelope_v1",
@@ -362,6 +371,7 @@ class WebSocketGatewayTransport:
                 "Gateway message exceeds the negotiated limit"
             )
         self._outgoing_sequence += 1
+        sent_sequence = self._outgoing_sequence
         try:
             await socket.send_json(body)
         except (
@@ -377,6 +387,8 @@ class WebSocketGatewayTransport:
             raise GatewayTransportUnavailable(type(error).__name__) from error
         except OSError as error:
             raise GatewayTerminalError(type(error).__name__) from error
+
+        return sent_sequence
 
     def _require_socket(self):
         if self._socket is None:
