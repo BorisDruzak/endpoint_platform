@@ -13,6 +13,20 @@ from pc_agent.runtime import application
 from pc_agent.tests.policy.test_runtime import _delivery
 
 
+@pytest.fixture(autouse=True)
+def isolated_browser_policy_state(tmp_path, monkeypatch):
+    from pc_agent.policy import linux_sensors
+
+    state_root = tmp_path / 'browser-policy-state'
+    state_root.mkdir(mode=0o700)
+    monkeypatch.setattr(linux_sensors, 'STATE_ROOT', state_root)
+
+    def unexpected_policy_request(*_args):
+        pytest.fail('composition tests must not contact the real browser policy helper')
+
+    monkeypatch.setattr(linux_sensors, 'send_policy_request', unexpected_policy_request)
+
+
 def test_linux_dlp_features_are_separate_from_the_activity_candidate():
     old = application._policy_protocol_features('3.2.122','linux_amd64','gateway_wss',False)
     new = application._policy_protocol_features('3.2.123','linux_amd64','gateway_wss',False)
