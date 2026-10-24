@@ -1,6 +1,7 @@
 """SCM shutdown and ordinary service stop remain distinguishable and compatible."""
 
 import asyncio
+import ctypes
 import io
 import subprocess
 import sys
@@ -8,10 +9,19 @@ import sys
 import pytest
 
 from pc_agent.platform.windows.service_launcher import ChildProcessCoordinator
+from pc_agent.platform.windows.update_paths import WindowsUpdatePaths
 from pc_agent.runtime import main
 
 
-def test_service_host_shutdown_sends_fixed_byte_then_eof_and_stop_only_eof():
+def test_service_host_shutdown_sends_fixed_byte_then_eof_and_stop_only_eof(
+    tmp_path, monkeypatch
+):
+    # Signal serialization must not resolve native Windows machine folders.
+    monkeypatch.delattr(ctypes, "WinDLL", raising=False)
+    paths = WindowsUpdatePaths(
+        tmp_path / "install", tmp_path / "data" / "updates" / "pending_update.json"
+    )
+
     class Pipe(io.BytesIO):
         def close(self):
             self.saved = self.getvalue()
@@ -23,7 +33,7 @@ def test_service_host_shutdown_sends_fixed_byte_then_eof_and_stop_only_eof():
     for shutdown, expected in [(True, b"S"), (False, b"")]:
         process = Process()
         process.stdin = Pipe()
-        child = ChildProcessCoordinator()
+        child = ChildProcessCoordinator(paths=paths)
         child._process = process
         child.stop(shutdown=shutdown)
         assert process.stdin.saved == expected and process.stdin.closed
