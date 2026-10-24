@@ -105,11 +105,25 @@ class SecurityEventRuntime:
                 or result.report_kind != "security_event_batch"
                 or result.report_id != batch.batch_id
                 or result.report_sequence not in self._inflight_sequences
-                or not set(result.event_identifiers) <= self._remaining
             ):
                 return False
+            identifiers = result.event_identifiers
+            selected = set(identifiers)
+            if (
+                not identifiers
+                or [event.event_identifier for event in batch.events
+                    if event.event_identifier in selected] != identifiers
+            ):
+                return False
+            # Retry dispositions can regroup already disposed IDs (for example
+            # after the provider's 24-hour bound passes). Validate the original
+            # ordered batch first, then apply only its still-pending intersection.
+            pending = [identifier for identifier in identifiers if identifier in self._remaining]
+            if not pending:
+                return False
+            remaining_result = result.model_copy(update={"event_identifiers": pending})
             try:
-                accepted = await self._spool.apply_result(batch, result)
+                accepted = await self._spool.apply_result(batch, remaining_result)
             except (OSError, sqlite3.Error, SecurityEventSpoolError):
                 self._spool_unavailable = True
                 _LOG.warning("SecurityEvent spool disposition unavailable")
@@ -118,7 +132,7 @@ class SecurityEventRuntime:
                 return False
             self._spool_unavailable = False
             if result.disposition != "retry_later":
-                self._remaining.difference_update(result.event_identifiers)
+                self._remaining.difference_update(pending)
                 if not self._remaining:
                     self._acked.set()
                     self.acknowledged.set()

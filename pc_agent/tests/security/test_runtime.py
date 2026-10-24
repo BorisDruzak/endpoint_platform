@@ -51,8 +51,15 @@ async def test_subset_result_requires_pending_batch_sequence_and_exact_pending_i
         assert not await runtime.receive_result(result)  # no double counting
         assert (await spool.stats()).rejected_permanent == 1
         assert (await spool.stats()).queued_events == 1
+        # Validate original order/membership before filtering disposed IDs.
+        for identifiers in (
+            [events[1].event_identifier, events[0].event_identifier],
+            [_event().event_identifier, events[0].event_identifier],
+            [events[0].event_identifier, events[1].event_identifier, events[1].event_identifier],
+        ):
+            assert not await runtime.receive_result(result.model_copy(update={"event_identifiers": identifiers}))
         assert await runtime.receive_result(result.model_copy(update={"disposition": "accepted", "reason_code": "persisted",
-            "event_identifiers": [events[0].event_identifier]}))
+            "event_identifiers": [event.event_identifier for event in events]}))
         assert (await spool.stats()).queued_events == 0
         reopened = SecurityEventSpool(tmp_path)
         await reopened.open()

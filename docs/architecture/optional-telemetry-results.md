@@ -35,8 +35,12 @@ after commit. Updated peers use subset results instead of weakening that ACK.
 
 The security sender registers each transmitted sequence while holding the same
 lock used by disposition handling. It accepts only a matching pending batch ID,
-a recently transmitted sequence (bounded to 128), and an exact still-pending
-subset in original order. A retry-later disposition keeps rows queued. Accepted
+a recently transmitted sequence (bounded to 128), and an exact subset of the
+original batch in original order. It then applies only the ordered intersection
+with still-pending IDs. Provider regrouping on retry (including expiration past
+24 hours after a partial local write failure) can include already disposed IDs;
+those IDs are ignored without deleting or counting them again. Results with no
+remaining IDs are no-ops. A retry-later disposition keeps rows queued. Accepted
 or rejected rows are deleted atomically from the protected spool; permanent
 rejections increment durable `SecurityEventSpoolStats.rejected_permanent`.
 Duplicate, conflicting, stale or foreign dispositions cannot delete other rows

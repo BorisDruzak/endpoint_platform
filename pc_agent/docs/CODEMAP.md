@@ -389,7 +389,9 @@ through `RuntimeDependencies.telemetry_result_handler` to
 `SecurityEventRuntime.receive_result`. `transport/websocket.py` rejects
 unnegotiated results and returns the transmitted sequence from
 `send_security_event_batch`. The sender matches batch ID, sequence and ordered
-pending subsets before deleting spool rows; permanent rejections persist in
+subsets of the original batch before applying their still-pending intersection.
+Provider regrouping on retry can include already disposed IDs without pinning
+later rows or counting their rejection twice; permanent rejections persist in
 `SecurityEventSpoolStats.rejected_permanent`. Legacy complete-batch ACK matching
 is unchanged. See `docs/architecture/optional-telemetry-results.md` for provider-
 first compatibility, transaction boundaries and local collector failure rules.

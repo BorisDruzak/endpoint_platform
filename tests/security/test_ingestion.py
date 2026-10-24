@@ -318,3 +318,104 @@ async def test_offline_event_from_prior_applied_policy_survives_rotation(provisi
                 _batch(occurred_at=NOW + timedelta(minutes=2)),
                 received_at=NOW + timedelta(minutes=3),
             )
+
+@pytest.mark.asyncio
+async def test_security_retry_regroups_disposed_ids_after_expiry_and_local_failure(
+    provisioned, tmp_path, monkeypatch,
+):
+    """Real provider commit/results and live sender must advance past partial IO failure."""
+    import asyncio
+    import sqlite3
+    from pc_agent.security.runtime import SecurityEventRuntime
+    from pc_agent.security.spool import SecurityEventSpool
+
+    factory, device_id = provisioned
+    first_time = NOW + timedelta(hours=23, minutes=59, seconds=50)
+    clock = [first_time]
+    accepted = _batch().events[0]
+    rejected = _batch(policy_id=uuid4()).events[0]
+    spool = SecurityEventSpool(tmp_path)
+    await spool.open()
+    runtime = SecurityEventRuntime(spool, ack_timeout_seconds=0.02)
+    for event in (accepted, rejected):
+        assert await runtime.record(event, now=clock[0])
+    sent = asyncio.Queue()
+
+    class Transport:
+        sequence = 0
+
+        async def send_security_event_batch(self, batch):
+            self.sequence += 1
+            await sent.put((self.sequence, batch))
+            return self.sequence
+
+    original_apply = spool.apply_result
+    fail_once = True
+
+    async def local_write(batch, result):
+        nonlocal fail_once
+        if result.disposition == "rejected" and fail_once:
+            fail_once = False
+            raise sqlite3.OperationalError("temporary local write failure")
+        return await original_apply(batch, result)
+
+    monkeypatch.setattr(spool, "apply_result", local_write)
+    runtime.policy_ack_sent()
+    task = asyncio.create_task(runtime.send_forever(Transport(), now=lambda: clock[0]))
+    results, applied = [], []
+
+    async def deliver(envelope):
+        # Provider results must follow the durable outer commit, even on retry.
+        async with factory() as observer:
+            rows = (await observer.scalars(select(SecurityEvent))).all()
+            assert accepted.event_identifier in {row.event_identifier for row in rows}
+        results.append(envelope.payload)
+        applied.append(await runtime.receive_result(envelope.payload))
+
+    try:
+        sequence, batch = await asyncio.wait_for(sent.get(), 1)
+        await commit_and_ack_security_events(
+            factory, device_id, batch, sequence=sequence, send=deliver,
+            received_at=clock[0], telemetry_results=True,
+        )
+        assert [r.disposition for r in results] == ["accepted", "rejected"]
+        assert applied == [True, False]
+        assert runtime._remaining == {rejected.event_identifier}
+        assert not runtime.acknowledged.is_set() and not task.done()
+        # Queue a later event before expiry; it must not be stranded by this batch.
+        following = _batch(occurred_at=first_time).events[0]
+        assert await runtime.record(following, now=clock[0])
+        clock[0] += timedelta(seconds=30)
+        sequence, retry = await asyncio.wait_for(sent.get(), 1)
+        assert retry == batch
+        results.clear()
+        applied.clear()
+        await commit_and_ack_security_events(
+            factory, device_id, retry, sequence=sequence, send=deliver,
+            received_at=clock[0], telemetry_results=True,
+        )
+        assert len(results) == 1 and results[0].disposition == "rejected"
+        assert results[0].event_identifiers == [accepted.event_identifier, rejected.event_identifier]
+        assert applied == [True]
+        assert runtime.acknowledged.is_set()
+        assert (await spool.stats()).rejected_permanent == 1
+        assert (await spool.stats()).queued_events == 1
+        while True:
+            sequence, next_batch = await asyncio.wait_for(sent.get(), 1)
+            if next_batch.batch_id != batch.batch_id:
+                break
+        assert [e.event_identifier for e in next_batch.events] == [following.event_identifier]
+        await commit_and_ack_security_events(
+            factory, device_id, next_batch, sequence=sequence, send=deliver,
+            received_at=clock[0], telemetry_results=True,
+        )
+        assert (await spool.stats()).queued_events == 0
+        reopened = SecurityEventSpool(tmp_path)
+        await reopened.open()
+        assert (await reopened.stats()).rejected_permanent == 1
+        async with factory() as observer:
+            persisted = set(await observer.scalars(select(SecurityEvent.event_identifier)))
+            assert persisted == {accepted.event_identifier, following.event_identifier}
+    finally:
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
