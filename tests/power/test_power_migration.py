@@ -1,8 +1,12 @@
 import io
 from pathlib import Path
+
+import pytest
 from alembic import command
 from alembic.config import Config
 from alembic.script import ScriptDirectory
+
+pytestmark = pytest.mark.usefixtures("preserve_migration_loggers")
 
 
 def test_power_source_postgresql_sql_and_single_head():
