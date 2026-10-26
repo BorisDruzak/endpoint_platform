@@ -395,3 +395,52 @@ expires after 7 days and must not become a permanent employee identity. No
 automatic renewal, expiry extension, deletion or group assignment is provided.
 Application-side identity linking still requires exact canonical AD GUID and
 the appropriate roles/MFA checks; account creation grants no application role.
+
+### Pilot token claims and stock basic scope
+
+Each confidential BFF client has its own direct `oidc-audience-mapper` with
+`included.client.audience` equal to that exact client ID. Access-token and
+introspection inclusion are enabled; ID-token and userinfo inclusion are false.
+Strict audience checks remain enabled. Keycloak26.8.1 may materialize the false
+userinfo default on mapper-list reads while omitting it on client-detail reads;
+the repair helper recognizes only that exact false default and preserves the
+original receipt when resuming an interrupted additive mapper operation.
+
+Explicitly imported clients must include default scopes `basic`, `profile`,
+`email`, and `acr`. The stock `basic` scope provides the access/introspection
+`sub` mapper and the `AUTH_TIME` session-note mapper. Omitting it produced an
+active introspection response without `sub`; both BFF validation contracts
+correctly rejected that response. The bounded `--add-basic-client-scope` mode
+checks the existing scope's exact stock mapper definition and absence of role
+mappings, then plans only associations to the three fixed clients. Only adding
+`--apply` permits bodyless audited `PUT` calls to their exact
+`default-client-scopes/{scopeId}` endpoints. Existing scopes, optional scopes,
+client secrets, direct mappers, MFA settings, redirects and flags are checked
+before/after. Its root-private nonsecret receipt is never overwritten.
+
+The complete provider contract was compared before this correction:
+
+| Claim or check | Source and pilot evidence |
+| --- | --- |
+| ID signature, issuer, audience, expiry, subject, nonce, access-token hash | Authlib validates the signed RS256 ID token; each client's audience remains its own ID. |
+| `ad_object_guid` | Direct LDAP-backed mapper, canonical pilot AD GUID in ID/access/introspection. |
+| Exact privileged `acr` | Existing `acr` scope and required OTP/LoA2 flow; signed `urn:sosnadmin:loa:2`. |
+| `sid` | Keycloak core session claim, required by Endpoint and checked when present by Helpdesk. |
+| Introspection `active`, `iss`, `client_id`, future numeric `exp` | Core introspection response; exact authority comparisons remain enabled. |
+| Introspection `sub` matching signed ID subject | Stock `basic` scope; missing before its reviewed association. |
+| Access/introspection own-client audience | Separate direct mapper per client; all six wrong-client combinations reject. |
+| Refresh continuity and rotation | Same issuer/subject/GUID/session/ACR, online refresh with `revokeRefreshToken=true` and zero reuse. |
+
+After the reviewed audience and basic-scope changes, fresh private browser PKCE
+exchanges against the real HTTPS provider passed for all three clients. The
+actual Endpoint `OIDCProvider` performed code exchange, strict introspection and
+rotating refresh for each; employee and Helpdesk clients reused SSO without
+another password prompt. All six wrong-client introspections returned inactive.
+The Helpdesk client was exercised through Endpoint's provider implementation;
+Helpdesk BFF routes and application session revocation require their separate
+acceptance. Active application SSO flags remained false. Earlier failure reports
+are preserved outside Git alongside the current boolean-only evidence.
+
+Pinned implementation references:
+[stock basic scope](https://github.com/keycloak/keycloak/blob/26.8.1/services/src/main/java/org/keycloak/protocol/oidc/OIDCLoginProtocolFactory.java),
+[additive audited scope binding](https://github.com/keycloak/keycloak/blob/26.8.1/services/src/main/java/org/keycloak/services/resources/admin/ClientResource.java).

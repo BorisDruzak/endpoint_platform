@@ -260,3 +260,178 @@ def test_helpdesk_only_normalization_restore_preserves_other_fields_and_receipt(
     assert receipt.read_bytes() == before_receipt
     assert all(api["/admin/realms/sosnadmin/clients/id-" + name]["enabled"] is False for name in runtime.CLIENTS)
     assert helpdesk["secret"] == "DUMMY_MEMORY_ONLY_CLIENT_SECRET"
+
+
+def enabled_audience_api(runtime):
+    api = client_enable_api(runtime)
+    for client_id in runtime.CLIENTS:
+        listed = api[runtime.PREFIX + "/clients?clientId=" + client_id][0]
+        detail = api[runtime.PREFIX + "/clients/id-" + client_id]
+        listed["enabled"] = detail["enabled"] = True
+        api[runtime.PREFIX + "/clients/id-" + client_id + "/protocol-mappers/models"] = json.loads(json.dumps(detail["protocolMappers"]))
+    return api
+
+
+def test_own_audience_addition_is_planned_additive_and_idempotent(tmp_path):
+    runtime = module()
+    api = enabled_audience_api(runtime)
+    class AudienceClient(FakeClient):
+        def request(self, method, path, **kwargs):
+            if method == "POST" and path.endswith("/protocol-mappers/models"):
+                body = kwargs["payload"]
+                client_id = path.split("/clients/id-", 1)[1].split("/", 1)[0]
+                assert body == runtime.self_audience_mapper(client_id)
+                assert "secret" not in json.dumps(body)
+                self.calls.append((method, path, body, None))
+                created = dict(body, id="generated-audience-" + client_id)
+                created["config"] = dict(created["config"], **{"userinfo.token.claim": "false"})
+                api[path].append(created)
+                api[path.removesuffix("/protocol-mappers/models")]["protocolMappers"].append(created)
+                return None
+            return super().request(method, path, **kwargs)
+    client = AudienceClient(api)
+    env = {"SSO_LDAP_BIND_DN": runtime.BIND_DN, "SSO_LDAP_BIND_PASSWORD": "TEST_BIND_PASSWORD_ONLY"}
+    receipt = tmp_path / "audience-before.json"
+    result = runtime.add_self_audiences(client, env, GUID, receipt_path=receipt)
+    assert result["status"] == "SelfAudienceMapperPlan"
+    assert result["missing_mappers"] == 3
+    assert not receipt.exists()
+    result = runtime.add_self_audiences(client, env, GUID, apply=True, receipt_path=receipt)
+    assert result["status"] == "SelfAudienceMappersVerified"
+    assert result["created_mappers"] == 3
+    assert len([x for x in client.calls if x[0] == "POST" and x[1].endswith("/protocol-mappers/models")]) == 3
+    assert all(api[runtime.PREFIX + "/clients/id-" + name]["secret"] == "DUMMY_MEMORY_ONLY_CLIENT_SECRET" for name in runtime.CLIENTS)
+    before = receipt.read_bytes()
+    count = len(client.calls)
+    result = runtime.add_self_audiences(client, env, GUID, apply=True, receipt_path=receipt)
+    assert result["created_mappers"] == 0
+    assert not any(x[0] == "POST" and x[1].endswith("/protocol-mappers/models") for x in client.calls[count:])
+    assert receipt.read_bytes() == before
+
+
+def test_own_audience_rejects_conflicting_or_cross_client_mapping_before_write(tmp_path):
+    runtime = module()
+    api = enabled_audience_api(runtime)
+    wrong = runtime.self_audience_mapper("endpoint-admin")
+    api[runtime.PREFIX + "/clients/id-helpdesk-web/protocol-mappers/models"].append(wrong)
+    client = FakeClient(api)
+    with pytest.raises(runtime.AcceptanceError):
+        runtime.add_self_audiences(client, {"SSO_LDAP_BIND_DN": runtime.BIND_DN,
+            "SSO_LDAP_BIND_PASSWORD": "TEST_BIND_PASSWORD_ONLY"}, GUID, apply=True,
+            receipt_path=tmp_path / "refused.json")
+    assert not (tmp_path / "refused.json").exists()
+    assert not any(x[0] == "POST" and x[1].endswith("/protocol-mappers/models") for x in client.calls)
+
+
+def test_audience_resume_preserves_exact_legacy_receipt_and_default_false_shape(tmp_path):
+    runtime = module()
+    api = enabled_audience_api(runtime)
+    name = "helpdesk-web"
+    mapper_path = runtime.PREFIX + "/clients/id-" + name + "/protocol-mappers/models"
+    first = dict(runtime.self_audience_mapper(name), id="existing-first-audience")
+    api[mapper_path].append(json.loads(json.dumps(first)))
+    detail_mapper = json.loads(json.dumps(first))
+    del detail_mapper["config"]["userinfo.token.claim"]
+    api[runtime.PREFIX + "/clients/id-" + name]["protocolMappers"].append(detail_mapper)
+    receipt_path = tmp_path / "legacy-receipt.json"
+    receipt = {"pilot_ad_guid": GUID, "clients": [
+        {"id": "id-" + name, "clientId": name, "mapper": runtime.self_audience_mapper(name)} for name in runtime.CLIENTS]}
+    for entry in receipt["clients"]:
+        del entry["mapper"]["config"]["userinfo.token.claim"]
+    receipt_path.write_text(json.dumps(receipt))
+    original = receipt_path.read_bytes()
+    class ResumeClient(FakeClient):
+        def request(self, method, path, **kwargs):
+            if method == "POST" and path.endswith("/protocol-mappers/models"):
+                assert "id-helpdesk-web/" not in path
+                self.calls.append((method, path, kwargs["payload"], None))
+                created = dict(kwargs["payload"], id="new-" + str(len(self.calls)))
+                api[path].append(created)
+                api[path.removesuffix("/protocol-mappers/models")]["protocolMappers"].append(created)
+                return None
+            return super().request(method, path, **kwargs)
+    client = ResumeClient(api)
+    env = {"SSO_LDAP_BIND_DN": runtime.BIND_DN, "SSO_LDAP_BIND_PASSWORD": "TEST_BIND_PASSWORD_ONLY"}
+    result = runtime.add_self_audiences(client, env, GUID, apply=True, receipt_path=receipt_path)
+    assert result["created_mappers"] == 2
+    assert receipt_path.read_bytes() == original
+
+
+def test_audience_normalization_accepts_only_absent_false_userinfo_default():
+    runtime = module()
+    expected = runtime.self_audience_mapper("helpdesk-web")
+    legacy = json.loads(json.dumps(expected))
+    del legacy["config"]["userinfo.token.claim"]
+    assert runtime.canonical_mapper(legacy) == expected
+    guid = {"name": "ad-object-guid", "protocol": "openid-connect", "config": {}}
+    for key, value in (("userinfo.token.claim", "true"), ("included.custom.audience", "other-client")):
+        conflicting = json.loads(json.dumps(expected))
+        conflicting["config"][key] = value
+        with pytest.raises(runtime.AcceptanceError):
+            runtime.checked_audience_mappers([guid, conflicting], "helpdesk-web")
+
+
+def basic_scope_api(runtime):
+    api = enabled_audience_api(runtime)
+    basic = {"id": "basic-id", "name": "basic", "protocol": "openid-connect",
+             "attributes": {"include.in.token.scope": "false", "display.on.consent.screen": "false"},
+             "protocolMappers": runtime.basic_scope_mappers()}
+    api[runtime.PREFIX + "/client-scopes"] = [basic]
+    api[runtime.PREFIX + "/client-scopes/basic-id/scope-mappings"] = {}
+    for name in runtime.CLIENTS:
+        path = runtime.PREFIX + "/clients/id-" + name
+        detail = api[path]
+        detail["protocolMappers"].append(runtime.self_audience_mapper(name))
+        detail["defaultClientScopes"] = ["profile", "email", "acr"]
+        detail["optionalClientScopes"] = []
+        api[path + "/default-client-scopes"] = [{"id": "scope-" + x, "name": x}
+                                                for x in detail["defaultClientScopes"]]
+    return api
+
+
+def test_basic_binding_uses_bodyless_additive_api_preserves_secrets_and_is_idempotent(tmp_path):
+    runtime = module()
+    api = basic_scope_api(runtime)
+    class Binder(FakeClient):
+        def request(self, method, path, **kwargs):
+            if method == "PUT":
+                assert path.endswith("/default-client-scopes/basic-id")
+                assert kwargs == {}  # No client representation or secret submitted.
+                self.calls.append((method, path, None, None))
+                base = path.removesuffix("/default-client-scopes/basic-id")
+                api[base]["defaultClientScopes"].append("basic")
+                api[base + "/default-client-scopes"].append({"id": "basic-id", "name": "basic"})
+                return None
+            return super().request(method, path, **kwargs)
+    client = Binder(api)
+    env = {"SSO_LDAP_BIND_DN": runtime.BIND_DN, "SSO_LDAP_BIND_PASSWORD": "TEST_BIND_PASSWORD_ONLY"}
+    receipt = tmp_path / "basic.json"
+    assert runtime.add_basic_scope(client, env, GUID, receipt_path=receipt)["missing_bindings"] == 3
+    assert not receipt.exists()
+    assert runtime.add_basic_scope(client, env, GUID, apply=True, receipt_path=receipt)["added_bindings"] == 3
+    saved = receipt.read_bytes()
+    assert runtime.add_basic_scope(client, env, GUID, apply=True, receipt_path=receipt)["added_bindings"] == 0
+    assert len([x for x in client.calls if x[0] == "PUT"]) == 3
+    assert receipt.read_bytes() == saved
+    assert all(api[runtime.PREFIX + "/clients/id-" + n]["secret"] == "DUMMY_MEMORY_ONLY_CLIENT_SECRET"
+               for n in runtime.CLIENTS)
+
+
+@pytest.mark.parametrize("drift", ["mapper", "roles", "foreign-scope", "receipt"])
+def test_basic_binding_rejects_nonbuiltin_scope_and_client_drift_before_write(tmp_path, drift):
+    runtime = module()
+    api = basic_scope_api(runtime)
+    receipt = tmp_path / "basic.json"
+    if drift == "mapper":
+        api[runtime.PREFIX + "/client-scopes"][0]["protocolMappers"][0]["config"]["claim.value"] = "forged-subject"
+    elif drift == "roles":
+        api[runtime.PREFIX + "/client-scopes/basic-id/scope-mappings"] = {"realmMappings": [{"name": "admin"}]}
+    elif drift == "foreign-scope":
+        api[runtime.PREFIX + "/clients/id-helpdesk-web"]["defaultClientScopes"].append("roles")
+    else:
+        receipt.write_text('{"clients": []}')
+    client = FakeClient(api)
+    with pytest.raises(runtime.AcceptanceError):
+        runtime.add_basic_scope(client, {"SSO_LDAP_BIND_DN": runtime.BIND_DN,
+            "SSO_LDAP_BIND_PASSWORD": "TEST_BIND_PASSWORD_ONLY"}, GUID, apply=True, receipt_path=receipt)
+    assert not any(x[0] == "PUT" for x in client.calls)

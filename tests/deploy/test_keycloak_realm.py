@@ -49,6 +49,7 @@ def test_clients_are_independent_confidential_pkce_and_no_password_grant():
     realm = load_module().build_realm(pilot(), "OU=Pilot,DC=sosnadmin,DC=local")
     assert {c["clientId"] for c in realm["clients"]} == set(pilot())
     for client in realm["clients"]:
+        assert set(client["defaultClientScopes"]) == {"basic", "profile", "email", "acr"}
         assert client["redirectUris"] == [pilot()[client["clientId"]]]
         assert client["publicClient"] is False
         assert client["directAccessGrantsEnabled"] is False
@@ -124,3 +125,14 @@ def test_exact_pilot_uses_object_scope_to_avoid_keycloak_subtree_base_exclusion(
         return scope != 2 or dn != result_dn
     assert retained(int(config["searchScope"][0]), dn)
     assert not retained(2, dn)
+
+
+def test_each_confidential_client_has_only_its_own_access_and_introspection_audience():
+    realm = load_module().build_realm(pilot(), "OU=Pilot,DC=sosnadmin,DC=local")
+    for client in realm["clients"]:
+        audience = next(m for m in client["protocolMappers"] if m["name"] == "self-introspection-audience")
+        assert audience["protocol"] == "openid-connect"
+        assert audience["protocolMapper"] == "oidc-audience-mapper"
+        assert audience["config"] == {"included.client.audience": client["clientId"],
+            "access.token.claim": "true", "id.token.claim": "false", "introspection.token.claim": "true",
+            "userinfo.token.claim": "false"}
