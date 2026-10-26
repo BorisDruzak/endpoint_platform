@@ -52,6 +52,23 @@ def test_distribution_is_pinned_and_runtime_is_isolated():
     assert "ProtectSystem=strict" in unit
 
 
+def test_optimized_build_explicitly_matches_build_time_configuration():
+    config = dict(
+        line.split("=", 1)
+        for line in Path("deploy/keycloak/keycloak.conf").read_text(encoding="utf-8").splitlines()
+        if line and not line.startswith("#")
+    )
+    install = Path("tools/keycloak/install.sh").read_text(encoding="utf-8")
+    build = next(line.strip() for line in install.splitlines() if "/kc.sh build " in line)
+    arguments = dict(
+        argument[2:].split("=", 1)
+        for argument in shlex.split(build)
+        if argument.startswith("--") and "=" in argument
+    )
+    for name in ("db", "health-enabled", "metrics-enabled", "cache"):
+        assert arguments[name] == config[name]
+
+
 def test_proxy_does_not_publish_admin_or_health_and_replaces_headers():
     config = Path("deploy/keycloak/keycloak.nginx.conf").read_text(encoding="utf-8")
     assert "location /admin/ { deny all; }" in config

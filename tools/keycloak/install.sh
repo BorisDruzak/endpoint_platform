@@ -101,7 +101,7 @@ unset db_password
 # Build only non-secret options, keep the immutable optimized distribution root owned.
 (
     umask 022
-    /opt/keycloak/current/bin/kc.sh build --db=postgres --health-enabled=true --cache=local >/dev/null
+    /opt/keycloak/current/bin/kc.sh build --db=postgres --health-enabled=true --metrics-enabled=false --cache=local >/dev/null
 )
 chown -R keycloak:keycloak /var/lib/keycloak
 # The actual service identity must traverse/read/execute the optimized public
