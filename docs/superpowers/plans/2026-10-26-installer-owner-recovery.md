@@ -21,16 +21,20 @@ already enabled; diagnostic writes after a fresh-root failure.
 
 ## Task 1: Correct ownership transfer and diagnostics
 
-- [ ] Add failing native NTFS privilege/owner regressions and failure/retry log tests.
-- [ ] Implement scoped effective-token privilege and isolated Installer diagnostics.
-- [ ] Run affected Windows, selector, provenance, Setup and packaging tests.
-- [ ] Update CODEMAP/runbook, review the diff and commit the correction.
+- [x] Add failing native NTFS privilege/owner regressions and failure/retry log tests.
+- [x] Implement scoped effective-token privilege and isolated Installer diagnostics.
+- [x] Run affected Windows, selector, provenance, Setup and packaging tests.
+- [x] Update CODEMAP/runbook, review the diff and commit the correction.
 
 ## Task 2: Build and accept on the original machine
 
-- [ ] Produce source-bound signed candidate MSI/Setup with existing build tooling.
-- [ ] Capture original machine state and preserve all diagnostic evidence.
-- [ ] Recover exact interrupted 149 without bypassing original authority checks.
+- [x] Produce source-bound signed candidate MSI/Setup with existing build tooling.
+- [x] Capture original machine state and preserve all diagnostic evidence.
+- [x] Recover exact interrupted 149 without bypassing original authority checks.
 - [ ] Install corrected candidate; verify versions, services, result and enrollment/WSS.
-- [ ] Repeat Setup and verify the successful rerun, or report the exact remaining gate.
-- [ ] Record exact commands, artifact hashes and observed outcomes; independent review.
+- [x] Repeat Setup and verify the successful rerun, or report the exact remaining gate.
+- [x] Record exact commands, artifact hashes and observed outcomes; independent review.
+
+Native 150 installation and repeat maintenance passed; enrollment/WSS remains
+blocked by NO_MATCHING_CAMPAIGN. A separate user decision is pending for the
+temporary one-device 150 registration campaign. See the acceptance report.
