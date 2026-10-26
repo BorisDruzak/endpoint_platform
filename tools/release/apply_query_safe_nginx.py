@@ -124,6 +124,15 @@ def apply_site(source,expected_sha256,site,*,apply=False,nginx_root=Path('/etc/n
     check(nginx_root/'nginx.conf')
     if not enabled.is_symlink() or enabled.resolve(strict=True)!=target:
         raise ConfigurationError('Existing enabled site must point to its exact physical target')
+    archive=backup_root/'query-safe-nginx'/site
+    existing=archive
+    # Plan must reject foreign backup ownership before it creates even an empty
+    # directory. The same physical checks run again on every created ancestor.
+    while not existing.exists():
+        if existing.is_symlink() or existing.parent==existing:
+            raise ConfigurationError('Unexpected backup parent')
+        existing=existing.parent
+    check(existing,directory=True)
     before=target.read_bytes()
     old_sha=hashlib.sha256(before).hexdigest()
     if non_logging_lines(before,site)!=non_logging_lines(payload,site):
@@ -156,8 +165,14 @@ def apply_site(source,expected_sha256,site,*,apply=False,nginx_root=Path('/etc/n
         check(target)
         if target.read_bytes()!=before:
             raise ConfigurationError('Target changed during validation')
-        archive=backup_root/site/'nginx'
-        archive.mkdir(parents=True,mode=0o700,exist_ok=True)
+        # Existing /var/backups/<service> can belong to PostgreSQL's independent
+        # backup procedure. Never enter or change that ownership boundary.
+        backup_root.mkdir(parents=True,mode=0o700,exist_ok=True)
+        check(backup_root,directory=True)
+        namespace=backup_root/'query-safe-nginx'
+        namespace.mkdir(mode=0o700,exist_ok=True)
+        check(namespace,directory=True)
+        archive.mkdir(mode=0o700,exist_ok=True)
         check(archive,directory=True)
         backup=archive/(old_sha+'.conf')
         if backup.exists():

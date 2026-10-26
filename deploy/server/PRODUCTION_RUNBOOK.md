@@ -403,7 +403,7 @@ root-owned `sites-available/endpoint-platform` and its exact enabled symlink.
 It locks configuration changes, validates an isolated complete nginx candidate,
 rejects concurrent edits and unexpected non-logging differences (including
 removed includes or custom callback proxy/access behavior), backs up the old bytes under
-`/var/backups/endpoint-platform/nginx/<old-sha256>.conf`, atomically installs,
+`/var/backups/query-safe-nginx/endpoint-platform/<old-sha256>.conf`, atomically installs,
 runs `nginx -t` and reloads nginx only when changed. Failure restores and
 validates/reloads the original. No app restart, environment flag, TLS, DB or
 unrelated site is modified. An unchanged asset causes no reload.
@@ -414,6 +414,13 @@ already used on `.19`. First-time installation copies the reviewed
 site is installed, following `ALT_DISTRIBUTION.md`; no empty placeholder is
 invented. Existing download locations, network ACLs and TLS paths must remain
 identical before the config-only helper accepts a repair.
+
+The config backup namespace is independently root-owned; it must not enter,
+chown or widen `/var/backups/endpoint-platform`, which can be a PostgreSQL-owned
+database backup directory. The helper rejects unexpected ownership instead of
+changing it. Existing earlier config receipts remain at their recorded paths.
+The default plan validates the nearest existing backup ancestor before creating
+any directory, so an incompatible ownership layout is rejected during planning.
 
 The helper also accepts the independent `helpdesk` profile using that
 repository's reviewed asset and separate backup/log paths; it never merges

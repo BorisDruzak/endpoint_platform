@@ -88,6 +88,7 @@ def test_apply_backups_exact_old_bytes_and_second_apply_is_idempotent(installati
     assert result['status']=='Applied' and target.read_bytes()==source.read_bytes()
     backups=list(kwargs['backup_root'].rglob('*.conf'))
     assert len(backups)==1 and backups[0].read_bytes()==old
+    assert backups[0].parent==kwargs['backup_root']/'query-safe-nginx'/'endpoint-platform'
     assert commands.count(['systemctl','reload','nginx'])==1
     result=MODULE.apply_site(source,digest,'endpoint-platform',apply=True,**kwargs)
     assert result['status']=='Unchanged'
@@ -106,6 +107,38 @@ def test_failed_reload_restores_old_bytes_and_reloads_original(installation):
         MODULE.apply_site(source,digest,'endpoint-platform',apply=True,**kwargs)
     assert target.read_bytes()==old
     assert commands.count(['systemctl','reload','nginx'])==2
+
+
+def test_nginx_backup_never_enters_existing_database_backup_namespace(installation):
+    source,target,old,digest,commands,kwargs=installation
+    database=kwargs['backup_root']/'endpoint-platform'
+    database.mkdir(parents=True)
+    marker=database/'database-owned-marker'
+    marker.write_bytes(b'private DB backup fixture')
+    def guarded(path,**options):
+        if path==database or database in path.parents:
+            raise MODULE.ConfigurationError('Existing database backup namespace is not owned by nginx repair')
+    kwargs['check']=guarded
+    result=MODULE.apply_site(source,digest,'endpoint-platform',apply=True,**kwargs)
+    assert result['status']=='Applied'
+    assert marker.read_bytes()==b'private DB backup fixture'
+    assert list(database.iterdir())==[marker]
+
+
+def test_plan_checks_nearest_existing_backup_parent_without_creating_directories(installation):
+    source,target,old,digest,commands,kwargs=installation
+    namespace=kwargs['backup_root']/'query-safe-nginx'
+    namespace.mkdir(parents=True)
+    checked=[]
+    def reject_foreign_parent(path,**options):
+        checked.append(path)
+        if path==namespace:
+            raise MODULE.ConfigurationError('Unexpected backup ownership')
+    kwargs['check']=reject_foreign_parent
+    with pytest.raises(MODULE.ConfigurationError,match='Unexpected backup ownership'):
+        MODULE.apply_site(source,digest,'endpoint-platform',**kwargs)
+    assert namespace in checked and not list(namespace.iterdir())
+    assert not commands and target.read_bytes()==old
 
 
 def test_invalid_candidate_never_replaces_or_reloads_live_site(installation):
