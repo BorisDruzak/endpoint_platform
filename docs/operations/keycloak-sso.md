@@ -62,8 +62,11 @@ The CA bundle must validate both the SSO leaf and the DC leaf. The optional
 `--prepare-without-directory` flag permits preparation while LDAPS is broken;
 this does not enable application clients or establish SSO readiness.
 
-The live first-install gate found `pg_conftool` writes PostgreSQL string values
-literally. The installer now supplies quoted loopback addresses. If first
+The live first-install gate found `pg_conftool` misclassifies a dotted IPv4
+literal as numeric; adding quotes to its argument instead escapes those quotes
+into the hostname. The installer now removes that inferred value, installs an
+explicit quoted loopback include in this cluster's `conf.d`, and requires the
+real PostgreSQL server parser to return exactly `127.0.0.1` before starting. If first
 installation stopped at cluster startup, `--resume-before-database` verifies
 the exact distribution, CA/TLS inputs, Unix identity, dedicated port and absence
 of application configuration/service before continuing. It refuses an existing

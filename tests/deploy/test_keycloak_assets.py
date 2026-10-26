@@ -65,7 +65,10 @@ def test_proxy_does_not_publish_admin_or_health_and_replaces_headers():
 def test_install_and_backup_keep_secret_and_database_boundaries():
     install = Path("tools/keycloak/install.sh").read_text(encoding="utf-8")
     assert "--auth-host=scram-sha-256" in install
-    assert 'pg_conftool 16 keycloak set listen_addresses "\'127.0.0.1\'"' in install
+    assert "pg_conftool 16 keycloak remove listen_addresses" in install
+    assert "listen_addresses = '127.0.0.1'" in install
+    assert "-C listen_addresses" in install
+    assert "/keycloak/conf.d/10-keycloak-loopback.conf" in install
     assert '--resume-before-database' in install
     assert 'pg_conftool -s 16 keycloak show port' in install
     assert "Unexpected existing application role" in install

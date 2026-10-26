@@ -80,8 +80,12 @@ install -o root -g root -m 0644 "$tls_cert" /etc/keycloak/tls/fullchain.pem
 install -o root -g root -m 0600 "$tls_key" /etc/keycloak/tls/key.pem
 pg_createcluster 16 keycloak --port 5544 --start-conf=auto -- --auth-local=peer --auth-host=scram-sha-256
 fi
-# pg_conftool writes values literally: PostgreSQL string parameters need quotes.
-pg_conftool 16 keycloak set listen_addresses "'127.0.0.1'"
+# pg_conftool infers numeric values and misclassifies a dotted IPv4 literal;
+# quoting its argument instead would escape the quotes into the hostname.
+# Use a PostgreSQL-owned, explicitly quoted include and the real server parser.
+pg_conftool 16 keycloak remove listen_addresses
+printf "listen_addresses = '127.0.0.1'\n" | install -o root -g postgres -m 0640 /dev/stdin /etc/postgresql/16/keycloak/conf.d/10-keycloak-loopback.conf
+[[ $(runuser -u postgres -- /usr/lib/postgresql/16/bin/postgres -D /var/lib/postgresql/16/keycloak -c config_file=/etc/postgresql/16/keycloak/postgresql.conf -C listen_addresses) == 127.0.0.1 ]] || die 'PostgreSQL loopback configuration failed real parser validation'
 pg_ctlcluster 16 keycloak start
 [[ $(runuser -u postgres -- psql -X -At -p 5544 postgres -c "SELECT count(*) FROM pg_roles WHERE rolname='keycloak'") == 0 ]] || die 'Unexpected existing application role; do not rotate its credentials'
 db_password=$(openssl rand -hex 32)
