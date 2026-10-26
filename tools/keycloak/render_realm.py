@@ -126,7 +126,11 @@ def build_realm(redirects: dict[str, str], users_dn: str, *, enable_clients=Fals
         "searchScope": "0" if users_dn == EXACT_PILOT_DN else "2",
         "usernameLDAPAttribute": "sAMAccountName", "rdnLDAPAttribute": "cn",
         "uuidLDAPAttribute": "objectGUID", "userObjectClasses": "person, organizationalPerson, user",
-        "customUserSearchFilter": "(&(objectCategory=person)(!(userAccountControl:1.2.840.113556.1.4.803:=2)))",
+        # Imported-user UUID validation uses this same filter. Disabled accounts
+        # must stay visible, or Keycloak can delete their local subject and OTP.
+        # LDAP/MSAD account-state authentication rejects disabled logins.
+        "customUserSearchFilter": "(objectCategory=person)",
+        "removeInvalidUsersEnabled": "false",
         "pagination": "true", "batchSizeForSync": "100",
         "fullSyncPeriod": "-1", "changedSyncPeriod": "-1",
         "connectionTimeout": "5000", "readTimeout": "5000",
@@ -140,7 +144,7 @@ def build_realm(redirects: dict[str, str], users_dn: str, *, enable_clients=Fals
                        "read.only": ["true"], "always.read.value.from.ldap": ["true"],
                        "is.mandatory.in.ldap": ["true" if user_attr == "username" else "false"]}})
     attribute_mappers.append({"name": "msad-account-state", "providerId": "msad-user-account-control-mapper",
-        "config": {}})
+        "config": {"always.read.enabled.value.from.ldap": ["true"]}})
     realm = {
         "realm": "sosnadmin", "enabled": True, "sslRequired": "all",
         "registrationAllowed": False, "registrationEmailAsUsername": False,

@@ -40,7 +40,10 @@ def fixture_api(module):
         prefix + "/components?type=org.keycloak.storage.UserStorageProvider&name=sosnadmin-ad-readonly": [{
             "id": "ldap-id", "providerId": "ldap", "providerType": "org.keycloak.storage.UserStorageProvider", "config": {
                 "editMode": ["READ_ONLY"], "connectionUrl": ["ldaps://AD-MAIN.sosnadmin.local:636"],
-                "uuidLDAPAttribute": ["objectGUID"], "usersDn": [module.PILOT_DN], "syncRegistrations": ["false"], "searchScope": ["0"]}}],
+                "uuidLDAPAttribute": ["objectGUID"], "usersDn": [module.PILOT_DN], "syncRegistrations": ["false"], "searchScope": ["0"],
+                "cachePolicy": ["NO_CACHE"], "customUserSearchFilter": ["(objectCategory=person)"], "removeInvalidUsersEnabled": ["false"]}}],
+        prefix + "/components?parent=ldap-id&type=org.keycloak.storage.ldap.mappers.LDAPStorageMapper": [
+            {"providerId": "msad-user-account-control-mapper", "config": {"always.read.enabled.value.from.ldap": ["true"]}}],
         prefix + "/users?username=ssopilot-20261027&exact=true&max=2&briefRepresentation=false": [{
             "id": "pilot-id", "username": "ssopilot-20261027", "enabled": True,
             "federationLink": "ldap-id", "attributes": {"LDAP_ID": [GUID]}}],
@@ -435,3 +438,148 @@ def test_basic_binding_rejects_nonbuiltin_scope_and_client_drift_before_write(tm
         runtime.add_basic_scope(client, {"SSO_LDAP_BIND_DN": runtime.BIND_DN,
             "SSO_LDAP_BIND_PASSWORD": "TEST_BIND_PASSWORD_ONLY"}, GUID, apply=True, receipt_path=receipt)
     assert not any(x[0] == "PUT" for x in client.calls)
+
+
+def retention_api(runtime):
+    component = {"id": "HqtFYF0QRMy-SARJtaSFzw", "name": "sosnadmin-ad-readonly",
+                 "parentId": "b3e36dfe-afda-48ea-a83a-bd2b28d924e5", "providerId": "ldap",
+                 "providerType": "org.keycloak.storage.UserStorageProvider", "config": {
+                     "editMode": ["READ_ONLY"], "uuidLDAPAttribute": ["objectGUID"],
+                     "usersDn": [runtime.PILOT_DN], "searchScope": ["0"], "importEnabled": ["true"],
+                     "cachePolicy": ["NO_CACHE"],
+                     "syncRegistrations": ["false"], "connectionUrl": ["ldaps://AD-MAIN.sosnadmin.local:636"],
+                     "customUserSearchFilter": ["(&(objectCategory=person)(!(userAccountControl:1.2.840.113556.1.4.803:=2)))"],
+                     "bindCredential": ["DUMMY_UNCHANGED_BIND_SECRET"]}}
+    path = runtime.PREFIX + "/components/" + component["id"]
+    collection = runtime.PREFIX + "/components?type=org.keycloak.storage.UserStorageProvider&name=sosnadmin-ad-readonly"
+    mapper_path = runtime.PREFIX + "/components?parent=" + component["id"] + "&type=org.keycloak.storage.ldap.mappers.LDAPStorageMapper"
+    msad = {"id": "4f3115bd-d23b-4fa1-b5c1-30c3a49bfc03", "parentId": component["id"], "name": "msad-account-state",
+            "providerType": "org.keycloak.storage.ldap.mappers.LDAPStorageMapper",
+            "providerId": "msad-user-account-control-mapper", "config": {}}
+    return {runtime.PREFIX: {"id": component["parentId"], "realm": "sosnadmin"},
+            collection: [component], path: component,
+            runtime.PREFIX + "/components/" + msad["id"]: msad,
+            mapper_path: [msad]}, path, collection, mapper_path
+
+
+def test_retention_repair_has_no_user_queries_preserves_bind_and_mappers_and_is_idempotent(tmp_path):
+    runtime = module()
+    api, path, collection, mapper_path = retention_api(runtime)
+    class Retainer(FakeClient):
+        def request(self, method, url, **kwargs):
+            assert "/users" not in url and "testLDAPConnection" not in url
+            if method == "PUT":
+                payload = kwargs["payload"]
+                assert payload in ({"providerType": "org.keycloak.storage.UserStorageProvider", "providerId": "ldap",
+                                    "config": {"customUserSearchFilter": ["(objectCategory=person)"], "removeInvalidUsersEnabled": ["false"]}},
+                                   {"providerType": "org.keycloak.storage.ldap.mappers.LDAPStorageMapper", "providerId": "msad-user-account-control-mapper",
+                                    "config": {"always.read.enabled.value.from.ldap": ["true"]}})
+                self.calls.append((method, url, payload, None))
+                api[url]["config"].update(json.loads(json.dumps(payload["config"])))
+                return None
+            return super().request(method, url, **kwargs)
+    client = Retainer(api)
+    receipt = tmp_path / "retention.json"
+    assert runtime.preserve_ldap_identities(client, receipt_path=receipt)["status"] == "LdapIdentityRetentionPlan"
+    assert not receipt.exists()
+    before_mappers = json.loads(json.dumps(api[mapper_path]))
+    result = runtime.preserve_ldap_identities(client, apply=True, receipt_path=receipt)
+    assert result["status"] == "LdapIdentityRetentionVerified"
+    assert api[path]["config"]["bindCredential"] == ["DUMMY_UNCHANGED_BIND_SECRET"]
+    before_mappers[0]["config"]["always.read.enabled.value.from.ldap"] = ["true"]
+    assert api[mapper_path] == before_mappers
+    assert "DUMMY_UNCHANGED_BIND_SECRET" not in receipt.read_text()
+    saved = receipt.read_bytes()
+    assert runtime.preserve_ldap_identities(client, apply=True, receipt_path=receipt)["changed"] is False
+    assert len([x for x in client.calls if x[0] == "PUT"]) == 2
+    assert receipt.read_bytes() == saved
+
+
+@pytest.mark.parametrize("drift", ["identity", "dn", "scope", "cache", "filter", "mixed", "mapper", "mapper-identity", "receipt"])
+def test_retention_repair_refuses_other_scope_or_configuration_before_write(tmp_path, drift):
+    runtime = module()
+    api, path, collection, mapper_path = retention_api(runtime)
+    receipt = tmp_path / "retention.json"
+    if drift == "identity": api[path]["id"] = "different-component"
+    elif drift == "dn": api[path]["config"]["usersDn"] = ["OU=TEST,DC=sosnadmin,DC=local"]
+    elif drift == "scope": api[path]["config"]["searchScope"] = ["2"]
+    elif drift == "cache": api[path]["config"]["cachePolicy"] = ["DEFAULT"]
+    elif drift == "filter": api[path]["config"]["customUserSearchFilter"] = ["(objectClass=*)"]
+    elif drift == "mixed": api[path]["config"]["removeInvalidUsersEnabled"] = ["false"]
+    elif drift == "mapper": api[mapper_path] = []
+    elif drift == "mapper-identity": api[mapper_path][0]["id"] = "other-msad"
+    else: receipt.write_text("original receipt")
+    client = FakeClient(api)
+    with pytest.raises(runtime.AcceptanceError):
+        runtime.preserve_ldap_identities(client, apply=True, receipt_path=receipt)
+    assert not any(x[0] == "PUT" for x in client.calls)
+
+
+def test_retention_partial_failure_preserves_receipt_and_refuses_automatic_resume(tmp_path):
+    runtime = module()
+    api, provider_path, collection, mapper_path = retention_api(runtime)
+    class Partial(FakeClient):
+        def request(self, method, path, **kwargs):
+            assert "/users" not in path
+            if method == "PUT":
+                self.calls.append((method, path, kwargs["payload"], None))
+                if path == provider_path: raise runtime.AcceptanceError("LocalAdminHTTP500")
+                api[path]["config"].update(kwargs["payload"]["config"])
+                return None
+            return super().request(method, path, **kwargs)
+    client = Partial(api)
+    receipt = tmp_path / "retention-before.json"
+    with pytest.raises(runtime.AcceptanceError, match="RetentionProviderWriteFailedAfterMsadUpdate"):
+        runtime.preserve_ldap_identities(client, apply=True, receipt_path=receipt)
+    assert receipt.exists()
+    saved = receipt.read_bytes()
+    calls = len(client.calls)
+    with pytest.raises(runtime.AcceptanceError, match="RetentionMixedProviderAndMsadState"):
+        runtime.preserve_ldap_identities(client, apply=True, receipt_path=receipt)
+    assert not any(x[0] == "PUT" for x in client.calls[calls:])
+    assert receipt.read_bytes() == saved
+
+
+def test_retention_rechecks_detail_snapshot_before_first_write(tmp_path):
+    runtime = module()
+    api, path, collection, mapper_path = retention_api(runtime)
+    class Drifting(FakeClient):
+        reads = 0
+        def request(self, method, url, **kwargs):
+            result = super().request(method, url, **kwargs)
+            if method == "GET" and url == path:
+                self.reads += 1
+                if self.reads == 2:
+                    result = json.loads(json.dumps(result))
+                    result["config"]["searchScope"] = ["2"]
+            return result
+    client = Drifting(api)
+    with pytest.raises(runtime.AcceptanceError, match="RetentionProviderChangedConcurrently"):
+        runtime.preserve_ldap_identities(client, apply=True, receipt_path=tmp_path / "unused")
+    assert not any(x[0] == "PUT" for x in client.calls)
+
+
+def test_retention_http_permit_is_exact_one_shot_and_rejects_extra_config():
+    runtime = module()
+    class Response:
+        def __enter__(self): return self
+        def __exit__(self, *args): pass
+        def read(self, amount): return b""
+    class Opener:
+        calls = 0
+        def open(self, request, **kwargs):
+            self.calls += 1
+            return Response()
+    client = runtime.LocalAdminClient()
+    client.token = "TEST_TOKEN_ONLY"
+    client.opener = Opener()
+    path = runtime.PREFIX + "/components/" + runtime.LDAP_COMPONENT_ID
+    client.retention_write_path = path
+    wrong = runtime.retention_update_payload()
+    wrong["config"]["bindCredential"] = ["TEST_UNEXPECTED_SECRET"]
+    with pytest.raises(runtime.AcceptanceError, match="MutationProhibited"):
+        client.request("PUT", path, payload=wrong)
+    client.request("PUT", path, payload=runtime.retention_update_payload())
+    with pytest.raises(runtime.AcceptanceError, match="MutationProhibited"):
+        client.request("PUT", path, payload=runtime.retention_update_payload())
+    assert client.opener.calls == 1

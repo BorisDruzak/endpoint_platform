@@ -2,7 +2,9 @@
 
 Only local loopback HTTP is used for the root operator's Admin REST requests.
 GET of the fixed synthetic username may import that single LDAP identity.
-No client enablement, AD change, bulk sync, password reset or role assignment.
+Explicit separate modes permit only their reviewed component/client changes;
+there is no AD change, bulk sync, password reset or role assignment. Identity
+retention repair deliberately makes no user lookup or credential request.
 The separate --repair-exact-pilot-scope mode plans a one-field provider update;
 only adding --apply permits that update, with unchanged exact user DN/secrets.
 Official pinned source for LDAP diagnostic POST and JSON shape:
@@ -41,6 +43,11 @@ CLIENT_CALLBACKS = {
 }
 MFA_ACR = "urn:sosnadmin:loa:2"
 STORAGE_PROVIDER_TYPE = "org.keycloak.storage.UserStorageProvider"
+LDAP_COMPONENT_ID = "HqtFYF0QRMy-SARJtaSFzw"
+LDAP_MSAD_COMPONENT_ID = "4f3115bd-d23b-4fa1-b5c1-30c3a49bfc03"
+LDAP_MAPPER_TYPE = "org.keycloak.storage.ldap.mappers.LDAPStorageMapper"
+LDAP_REALM_ID = "b3e36dfe-afda-48ea-a83a-bd2b28d924e5"
+LEGACY_PERSON_FILTER = "(&(objectCategory=person)(!(userAccountControl:1.2.840.113556.1.4.803:=2)))"
 
 
 def self_audience_mapper(client_id):
@@ -58,6 +65,14 @@ def scope_update_payload():
     # StripSecretsUtils even though config-key merging itself supports partials.
     return {"providerType": STORAGE_PROVIDER_TYPE, "providerId": "ldap",
             "config": {"searchScope": ["0"]}}
+
+
+def retention_update_payload(*, msad=False):
+    if msad:
+        return {"providerType": LDAP_MAPPER_TYPE, "providerId": "msad-user-account-control-mapper",
+                "config": {"always.read.enabled.value.from.ldap": ["true"]}}
+    return {"providerType": STORAGE_PROVIDER_TYPE, "providerId": "ldap", "config": {
+        "customUserSearchFilter": ["(objectCategory=person)"], "removeInvalidUsersEnabled": ["false"]}}
 
 
 class AcceptanceError(Exception):
@@ -84,6 +99,7 @@ class LocalAdminClient:
         self.client_enable_payloads = {}
         self.audience_mapper_payloads = {}
         self.basic_scope_write_paths = set()
+        self.retention_write_path = None
         self.request_budget = request_budget
 
     def request(self, method, path, *, payload=None, form=None, authenticated=True):
@@ -94,7 +110,11 @@ class LocalAdminClient:
         mapper_write = (method == "POST" and path in self.audience_mapper_payloads and
                         payload == self.audience_mapper_payloads[path] and form is None)
         basic_write = (method == "PUT" and path in self.basic_scope_write_paths and payload is None and form is None)
-        require(method == "GET" or (method == "POST" and path in {TOKEN_PATH, LDAP_TEST_PATH}) or scope_write or enable_write or mapper_write or basic_write, "MutationProhibited")
+        retention_msad = path == PREFIX + "/components/" + LDAP_MSAD_COMPONENT_ID
+        retention_path_allowed = retention_msad or path == PREFIX + "/components/" + LDAP_COMPONENT_ID
+        retention_write = (method == "PUT" and path == self.retention_write_path and retention_path_allowed and
+                           payload == retention_update_payload(msad=retention_msad) and form is None)
+        require(method == "GET" or (method == "POST" and path in {TOKEN_PATH, LDAP_TEST_PATH}) or scope_write or enable_write or mapper_write or basic_write or retention_write, "MutationProhibited")
         if scope_write:
             self.scope_write_path = None  # Permit exactly one reviewed field update.
         if enable_write:
@@ -103,6 +123,8 @@ class LocalAdminClient:
             del self.audience_mapper_payloads[path]
         if basic_write:
             self.basic_scope_write_paths.remove(path)
+        if retention_write:
+            self.retention_write_path = None
         require(path == TOKEN_PATH or path.startswith(PREFIX + "/") or path == PREFIX, "PathProhibited")
         require(not path.startswith("//") and ".." not in path and "\r" not in path and "\n" not in path, "PathProhibited")
         self.requests += 1
@@ -154,8 +176,14 @@ def inspect_pilot(client, environment, expected_guid, *, expected_clients_enable
     config = component.get("config", {})
     for name, expected in {"editMode": "READ_ONLY", "uuidLDAPAttribute": "objectGUID",
                            "usersDn": PILOT_DN, "syncRegistrations": "false", "searchScope": "0",
+                           "cachePolicy": "NO_CACHE", "customUserSearchFilter": "(objectCategory=person)",
+                           "removeInvalidUsersEnabled": "false",
                            "connectionUrl": "ldaps://AD-MAIN.sosnadmin.local:636"}.items():
         require(config.get(name) == [expected], "UnexpectedLdapConfiguration")
+    state_mappers = client.request("GET", PREFIX + "/components?parent=" + urllib.parse.quote(component["id"], safe="") + "&type=" + LDAP_MAPPER_TYPE)
+    state_mappers = [x for x in state_mappers if x.get("providerId") == "msad-user-account-control-mapper"]
+    require(len(state_mappers) == 1 and state_mappers[0].get("config", {}).get("always.read.enabled.value.from.ldap") == ["true"],
+            "FreshAdEnabledStateRequired")
     for action in ("testConnection", "testAuthentication"):
         client.request("POST", LDAP_TEST_PATH, payload={
             "action": action, "connectionUrl": "ldaps://AD-MAIN.sosnadmin.local:636",
@@ -587,6 +615,125 @@ def add_basic_scope(client, environment, expected_guid, *, apply=False,
             "client_secrets_mappers_flags_roles_unchanged": True}
 
 
+def preserve_ldap_identities(client, *, apply=False,
+                             receipt_path=ENV_FILE.parent / "ldap-identity-retention-before.json"):
+    """Repair provider retention and its exact MSAD state mapper, no user queries.
+
+    Pinned26.8.1 LDAPStorageProvider.loadLDAPUserByUuid reuses the custom search
+    filter. UserStorageManager.validateFederatedUser deletes an invalid imported
+    identity when removeInvalidUsersEnabled defaults true. Disabled AD objects
+    must remain visible; LDAP/MSAD authentication still denies disabled logins.
+    This function never changes LDAP users, scopes, bind material or other mapper
+    fields. The MSAD enabled flag is read fresh under existing NO_CACHE policy.
+    """
+    realm = client.request("GET", PREFIX)
+    require(realm.get("id") == LDAP_REALM_ID and realm.get("realm") == "sosnadmin", "RetentionRealmIdentityMismatch")
+    collection_path = PREFIX + "/components?type=" + STORAGE_PROVIDER_TYPE + "&name=sosnadmin-ad-readonly"
+    path = PREFIX + "/components/" + LDAP_COMPONENT_ID
+    msad_path = PREFIX + "/components/" + LDAP_MSAD_COMPONENT_ID
+    mapper_path = PREFIX + "/components?parent=" + LDAP_COMPONENT_ID + "&type=org.keycloak.storage.ldap.mappers.LDAPStorageMapper"
+    components = client.request("GET", collection_path)
+    require(isinstance(components, list) and len(components) == 1, "RetentionProviderAmbiguous")
+    detail = client.request("GET", path)
+    metadata = {"id": LDAP_COMPONENT_ID, "parentId": LDAP_REALM_ID, "providerType": STORAGE_PROVIDER_TYPE,
+                "providerId": "ldap", "name": "sosnadmin-ad-readonly"}
+    for representation in (components[0], detail):
+        require(all(representation.get(key) == value for key, value in metadata.items()), "RetentionProviderIdentityMismatch")
+    require(components[0].get("config") == detail.get("config"), "RetentionProviderReadPathsDisagree")
+    config = detail.get("config", {})
+    for key, value in {"editMode": "READ_ONLY", "uuidLDAPAttribute": "objectGUID", "usersDn": PILOT_DN,
+                       "searchScope": "0", "importEnabled": "true", "syncRegistrations": "false", "cachePolicy": "NO_CACHE",
+                       "connectionUrl": "ldaps://AD-MAIN.sosnadmin.local:636"}.items():
+        require(config.get(key) == [value], "RetentionScopeOrSecurityMismatch")
+    old_state = (config.get("customUserSearchFilter") == [LEGACY_PERSON_FILTER] and
+                 config.get("removeInvalidUsersEnabled") in (None, ["true"]))
+    new_state = (config.get("customUserSearchFilter") == ["(objectCategory=person)"] and
+                 config.get("removeInvalidUsersEnabled") == ["false"])
+    require(old_state or new_state, "RetentionUnexpectedOrMixedConfiguration")
+    mappers = client.request("GET", mapper_path)
+    require(isinstance(mappers, list) and
+            len([x for x in mappers if x.get("providerId") == "msad-user-account-control-mapper"]) == 1,
+            "RetentionMsadStateMapperRequired")
+    msad = [x for x in mappers if x.get("providerId") == "msad-user-account-control-mapper"][0]
+    msad_metadata = {"id": LDAP_MSAD_COMPONENT_ID, "parentId": LDAP_COMPONENT_ID, "providerType": LDAP_MAPPER_TYPE,
+                     "providerId": "msad-user-account-control-mapper", "name": "msad-account-state"}
+    require(all(msad.get(k) == v for k, v in msad_metadata.items()), "RetentionMsadIdentityMismatch")
+    msad_detail = client.request("GET", msad_path)
+    require(all(msad_detail.get(k) == v for k, v in msad_metadata.items()) and
+            msad_detail.get("config") == msad.get("config"), "RetentionMsadReadPathsDisagree")
+    msad_old = msad_detail.get("config") in ({}, {"always.read.enabled.value.from.ldap": ["false"]})
+    msad_new = msad_detail.get("config") == {"always.read.enabled.value.from.ldap": ["true"]}
+    require((old_state and msad_old) or (new_state and msad_new), "RetentionMixedProviderAndMsadState")
+    baseline = copy.deepcopy(detail)
+    msad_baseline = copy.deepcopy(msad_detail)
+    mappers = copy.deepcopy(mappers)
+    require(client.request("GET", path) == baseline, "RetentionProviderChangedConcurrently")
+    require(client.request("GET", msad_path) == msad_baseline, "RetentionMsadChangedConcurrently")
+    if not apply:
+        return {"status": "LdapIdentityRetentionPlan", "component_id": LDAP_COMPONENT_ID,
+                "changed_fields": [] if new_state else ["customUserSearchFilter", "removeInvalidUsersEnabled"],
+                "msad_enabled_read_changed": not msad_new,
+                "user_queries": 0, "credential_operations": 0, "exact_user_scope_unchanged": True}
+    if new_state:
+        return {"status": "LdapIdentityRetentionVerified", "changed": False, "user_queries": 0}
+    require(not receipt_path.exists() and not receipt_path.is_symlink(), "RetentionReceiptAlreadyExists")
+    # Nonsecret inverse metadata only; bind material and user/credential records
+    # are deliberately absent. An existing receipt prevents an unreviewed retry.
+    receipt = dict(metadata, old_filter=config["customUserSearchFilter"],
+                   old_remove_invalid=config.get("removeInvalidUsersEnabled"),
+                   users_dn=PILOT_DN, search_scope="0", updated_config=retention_update_payload()["config"],
+                   msad_component_id=LDAP_MSAD_COMPONENT_ID, old_msad_config=msad_baseline["config"],
+                   updated_msad_config=retention_update_payload(msad=True)["config"])
+    descriptor = os.open(receipt_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+        json.dump(receipt, stream)
+        stream.write("\n")
+        stream.flush()
+        os.fsync(stream.fileno())
+    # Recheck both cache/detail and persisted collection paths before one PUT.
+    require(client.request("GET", path) == baseline, "RetentionProviderChangedBeforeWrite")
+    listed = client.request("GET", collection_path)
+    require(len(listed) == 1 and all(listed[0].get(k) == v for k, v in metadata.items()) and
+            listed[0].get("config") == baseline["config"], "RetentionProviderReadPathsChanged")
+    require(client.request("GET", mapper_path) == mappers, "RetentionMappersChangedBeforeWrite")
+    require(client.request("GET", msad_path) == msad_baseline, "RetentionMsadChangedBeforeWrite")
+    # Enable fresh account-state evaluation first. If the following provider
+    # write fails, stop with the original receipt; no automatic partial resume.
+    client.retention_write_path = msad_path
+    try:
+        client.request("PUT", msad_path, payload=retention_update_payload(msad=True))
+    except AcceptanceError as error:
+        raise AcceptanceError(f"RetentionMsadWriteFailed:{error}") from None
+    expected_msad = copy.deepcopy(msad_baseline)
+    expected_msad["config"].update(retention_update_payload(msad=True)["config"])
+    require(client.request("GET", msad_path) == expected_msad, "RetentionUnexpectedMsadChangeAfterWrite")
+    expected_mappers = copy.deepcopy(mappers)
+    for mapper in expected_mappers:
+        if mapper.get("id") == LDAP_MSAD_COMPONENT_ID:
+            mapper["config"].update(retention_update_payload(msad=True)["config"])
+    require(client.request("GET", mapper_path) == expected_mappers, "RetentionOtherMapperChangedAfterMsadWrite")
+    require(client.request("GET", path) == baseline, "RetentionProviderChangedAfterMsadWrite")
+    listed = client.request("GET", collection_path)
+    require(len(listed) == 1 and all(listed[0].get(k) == v for k, v in metadata.items()) and
+            listed[0].get("config") == baseline["config"], "RetentionProviderCollectionChangedAfterMsadWrite")
+    client.retention_write_path = path
+    try:
+        client.request("PUT", path, payload=retention_update_payload())
+    except AcceptanceError as error:
+        raise AcceptanceError(f"RetentionProviderWriteFailedAfterMsadUpdate:{error}") from None
+    expected = copy.deepcopy(baseline)
+    expected["config"].update(retention_update_payload()["config"])
+    require(client.request("GET", path) == expected, "RetentionUnexpectedProviderChangeAfterWrite")
+    listed = client.request("GET", collection_path)
+    require(len(listed) == 1 and all(listed[0].get(k) == v for k, v in metadata.items()) and
+            listed[0].get("config") == expected["config"], "RetentionProviderPostReadPathsDisagree")
+    require(client.request("GET", mapper_path) == expected_mappers, "RetentionMapperChangeAfterWrite")
+    require(client.request("GET", msad_path) == expected_msad, "RetentionMsadChangeAfterProviderWrite")
+    return {"status": "LdapIdentityRetentionVerified", "changed": True, "user_queries": 0,
+            "bind_secret_scope_other_mapper_fields_unchanged": True, "fresh_ad_enabled_state": True,
+            "credential_operations": 0}
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--run", action="store_true", help="Perform reviewed checks; may import only the fixed synthetic pilot")
@@ -595,10 +742,11 @@ def main():
     parser.add_argument("--restore-helpdesk-enable-normalization", action="store_true", help="Plan only the known first-client partial enable reversal; add --apply to restore")
     parser.add_argument("--add-self-audience-mappers", action="store_true", help="Plan exact own-client access/introspection audiences; add --apply for additive mapper creation")
     parser.add_argument("--add-basic-client-scope", action="store_true", help="Plan existing stock basic scope association to fixed3clients; add --apply for bodyless additive PUT")
-    parser.add_argument("--apply", action="store_true", help="Apply the reviewed exact-scope repair only")
+    parser.add_argument("--preserve-ldap-identities", action="store_true", help="Plan exact provider retention plus MSAD enabled-state read; no user queries; add --apply for fixed changes")
+    parser.add_argument("--apply", action="store_true", help="Apply only the explicitly selected reviewed operation")
     parser.add_argument("--expected-ad-guid", help="Non-secret canonical AD objectGUID of the fixed synthetic pilot")
     args = parser.parse_args()
-    modes = (args.run, args.repair_exact_pilot_scope, args.enable_pilot_clients, args.restore_helpdesk_enable_normalization, args.add_self_audience_mappers, args.add_basic_client_scope)
+    modes = (args.run, args.repair_exact_pilot_scope, args.enable_pilot_clients, args.restore_helpdesk_enable_normalization, args.add_self_audience_mappers, args.add_basic_client_scope, args.preserve_ldap_identities)
     require(not args.apply or any(modes[1:]), "ApplyRequiresExplicitRepairOrEnableMode")
     require(sum(modes) <= 1, "SelectOneOperation")
     if not any(modes):
@@ -613,7 +761,7 @@ def main():
     addresses = subprocess.run(["hostname", "-I"], check=True, capture_output=True, text=True).stdout.split()
     require("192.168.100.19" in addresses, "WrongDeploymentHost")
     environment = read_private_environment()
-    client = LocalAdminClient(request_budget=48 if args.add_self_audience_mappers or args.add_basic_client_scope else 32 if args.enable_pilot_clients else 16)
+    client = LocalAdminClient(request_budget=48 if args.add_self_audience_mappers or args.add_basic_client_scope else 32 if args.enable_pilot_clients or args.preserve_ldap_identities else 16)
     client.login(environment["SSO_BOOTSTRAP_PASSWORD"])
     if args.repair_exact_pilot_scope:
         result = repair_exact_pilot_scope(client, apply=args.apply)
@@ -625,6 +773,8 @@ def main():
         result = add_self_audiences(client, environment, args.expected_ad_guid, apply=args.apply)
     elif args.add_basic_client_scope:
         result = add_basic_scope(client, environment, args.expected_ad_guid, apply=args.apply)
+    elif args.preserve_ldap_identities:
+        result = preserve_ldap_identities(client, apply=args.apply)
     else:
         result = inspect_pilot(client, environment, args.expected_ad_guid)
     print(json.dumps(result))

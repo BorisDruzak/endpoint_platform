@@ -37,6 +37,24 @@ def test_generated_realm_has_no_secrets_and_federation_is_secure_readonly():
     assert "users" not in realm
 
 
+def test_disabled_account_does_not_disappear_from_imported_identity_validation():
+    # Keycloak26.8.1 validates imported users by LDAP UUID using this same search
+    # filter. Excluding disabled UAC values looks like deletion and can cascade
+    # local subject/OTP removal. Account-state denial belongs to MSAD/bind auth.
+    module = load_module()
+    realm = module.build_realm(pilot(), module.EXACT_PILOT_DN)
+    ldap = realm["components"]["org.keycloak.storage.UserStorageProvider"][0]
+    assert ldap["config"]["customUserSearchFilter"] == ["(objectCategory=person)"]
+    assert ldap["config"]["removeInvalidUsersEnabled"] == ["false"]
+    assert ldap["config"]["usersDn"] == [module.EXACT_PILOT_DN]
+    assert ldap["config"]["searchScope"] == ["0"]
+    assert ldap["config"]["editMode"] == ["READ_ONLY"]
+    assert ldap["config"]["cachePolicy"] == ["NO_CACHE"]
+    state_mapper = next(x for x in ldap["subComponents"]["org.keycloak.storage.ldap.mappers.LDAPStorageMapper"]
+                        if x["providerId"] == "msad-user-account-control-mapper")
+    assert state_mapper["config"]["always.read.enabled.value.from.ldap"] == ["true"]
+
+
 @pytest.mark.parametrize("bad", ["http://endpoint.sosnadmin.local/cb", "https://endpoint.sosnadmin.local/*", "https://evil.example/cb", "https://user:pw@endpoint.sosnadmin.local/cb", "https://endpoint.sosnadmin.local/cb?x=1"])
 def test_redirects_reject_insecure_wildcard_foreign_and_credential_urls(bad):
     redirects = pilot()

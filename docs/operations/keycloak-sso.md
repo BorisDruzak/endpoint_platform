@@ -444,3 +444,43 @@ are preserved outside Git alongside the current boolean-only evidence.
 Pinned implementation references:
 [stock basic scope](https://github.com/keycloak/keycloak/blob/26.8.1/services/src/main/java/org/keycloak/protocol/oidc/OIDCLoginProtocolFactory.java),
 [additive audited scope binding](https://github.com/keycloak/keycloak/blob/26.8.1/services/src/main/java/org/keycloak/services/resources/admin/ClientResource.java).
+
+### Preserve the imported identity when an AD account is disabled
+
+The provider filter must remain `(objectCategory=person)` within the approved
+exact user DN and OBJECT search scope for this pilot. Do not exclude disabled
+AD accounts in this filter: Keycloak also uses it to validate an imported user
+by LDAP UUID. A disabled object that disappears from that query can be treated
+as deleted. With Keycloak26.8.1's default invalid-user removal, even an Admin
+REST user lookup can remove the local subject and its OTP credentials; restoring
+AD enabled state then imports a different local subject. This failure was
+observed in the synthetic pilot and confirmed against backup metadata.
+
+Require `removeInvalidUsersEnabled=false`, existing `cachePolicy=NO_CACHE`, and
+`always.read.enabled.value.from.ldap=true` on the existing
+`msad-user-account-control-mapper`. These retain local identity/OTP while reading
+AD enabled state fresh. READ_ONLY federation remains mandatory. Password-bind
+denial alone does not demonstrate rejection of an existing SSO cookie; the
+cookie/new-authorization path requires its own acceptance.
+
+The bounded `--preserve-ldap-identities` mode makes no user or credential
+queries. Its default plan pins the existing realm, provider and MSAD mapper IDs,
+checks both component read paths and NO_CACHE, then describes only the two
+provider fields and the one existing mapper flag. Explicit `--apply` is a
+separate reviewed gate. It records a root-private nonsecret receipt, changes the
+MSAD flag first and provider retention fields second through audited component
+updates, and verifies all other configuration is unchanged. Any partial failure
+stops; the receipt is preserved and automatic mixed-state retry is prohibited.
+
+Before any disable/restore acceptance, record the original subject hash,
+federation link, canonical AD GUID and credential type/count metadata. Confirm
+the same metadata after restoration. If a subject or OTP has already disappeared,
+preserve forensic state and use a separately reviewed database recovery plan;
+do not delete/reimport users, reset credentials or enroll another OTP to force
+an acceptance result. The earlier three-client and Keycloak logout results do
+not establish AD disable/restore durability or application BFF acceptance.
+
+Pinned behavior:
+[LDAP imported-user validation](https://github.com/keycloak/keycloak/blob/26.8.1/federation/ldap/src/main/java/org/keycloak/storage/ldap/LDAPStorageProvider.java),
+[invalid imported-user removal](https://github.com/keycloak/keycloak/blob/26.8.1/model/storage-private/src/main/java/org/keycloak/storage/UserStorageManager.java),
+[MSAD enabled-state evaluation](https://github.com/keycloak/keycloak/blob/26.8.1/federation/ldap/src/main/java/org/keycloak/storage/ldap/mappers/msad/MSADUserAccountControlStorageMapper.java).
