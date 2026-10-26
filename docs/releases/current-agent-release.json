@@ -96,7 +96,20 @@
       "identity/configuration/credential/CA preservation",
       "fresh policy APPLIED and authenticated TLS connection",
       "180-second quiet observation; stable processes and zero new power-event loss"
-    ]
+    ],
+    "compatible_ota_update": {
+      "schema_version": "update_build_manifest_v1",
+      "build_identifier": "agent-linux-unified32156-6ed41cd-canary",
+      "version": "3.2.156",
+      "platform": "linux_amd64",
+      "channel": "canary",
+      "artifact_url": "https://endpoint.sosnadmin.local/agent/v1/updates/artifacts/agent-linux-unified32156-6ed41cd-canary",
+      "artifact_name": "endpoint-agent-linux_amd64-3.2.156.tar.gz",
+      "archive_type": "tar.gz",
+      "sha256": "c2fb732693884e7779a95cf9fbbc931d5fd7253435ecb7483c5e722162981370",
+      "size": 21681357,
+      "release_notes": "Published156 immutable bytes delivered through the existing ALT launcher-supported canary channel."
+    }
   },
   "provider": {
     "commit": "3e3528fbb07aa6abcece61a31adc8b7762048069",
@@ -175,15 +188,47 @@
         "service_pid_stable_between_observations": true
       },
       "scope": "original affected PC; native fixture tests are distinct from actual product evidence; no historical rollback success or fleet rollout claim"
+    },
+    "linux_production_ota": {
+      "verified_utc": "2026-10-26T20:31:15.058770+00:00",
+      "source_version": "3.2.127",
+      "selected_runtime_version": "3.2.156",
+      "source_revision": "6ed41cd01d494e46111a452c2ae3a844f723175b",
+      "agent_report": "applied / post_restart_handshake_confirmed",
+      "all_runtime_file_hashes_verified": 98,
+      "private_files_hash_owner_mode_preserved": 4,
+      "core_and_user_sensor_executables_from_selected_156": true,
+      "native_rpm_metadata_version": "3.2.127-alt5",
+      "one_authenticated_session_heartbeat_advance_seconds": 420.049316,
+      "core_service_restarts": 0,
+      "policy_status": "APPLIED",
+      "activity_usb_print_security_spool": "READY",
+      "power_source": "READY",
+      "power_loss_count": 0,
+      "pending_update_absent": true,
+      "cups_and_sssd_original_processes_preserved": true,
+      "initial_stable_channel_attempt": "native rejection preserved and truthfully reported failed; excluded from success gate",
+      "scope": "One production ALT host; OTA updates selected runtime, not native RPM package metadata. Offline and older-launcher devices remain unverified.",
+      "subsequent_bulk_assignment": {
+        "offline_device_records": 5,
+        "status": "assigned; installation unverified",
+        "historical_source_versions_checked": [
+          "3.1.93",
+          "3.2.21",
+          "3.2.40",
+          "3.2.121"
+        ],
+        "compatibility_check": "Exact-version historical parsers accept the immutable156 manifest; Gateway channel and packaged native update helper/path verified in source. This does not establish per-host native helper state."
+      }
     }
   },
   "limits": [
     "Windows Core-only update requires Foundation 3.2.156; use the full signed Setup to upgrade an older Foundation.",
-    "No fleet update targets were created by this publication.",
     "The Windows matrix used a staging-configured signed wrapper with production-identical MSI/Core/PowerShell bytes; the original affected PC additionally verified the published production Setup.",
     "Windows 149 historical rollback matrix and unsupported physical sleep/hibernate states were not newly qualified.",
     "Linux qualification covers native RPM upgrade/rollback; no new OTA crash-rollback or GUI/hardware acceptance is claimed.",
-    "Incomplete WorkTime, Yandex/Opera and legacy deployment changes are outside this release."
+    "Incomplete WorkTime, Yandex/Opera and legacy deployment changes are outside this release.",
+    "Subsequent fleet operation created a successful Linux canary on the compatible canary-channel alias; this is not proof of fleet-wide installation."
   ],
   "operator_evidence_directory": "C:\\endpoint-platform-wix-build\\unified-3.2.156",
   "update_rule": "For every subsequent agent release, update AGENTS.md version and artifact paths, this record including source/digests/URLs/limits, runtime version, Windows source binding and Linux kit metadata after actual published-download verification. Preserve immutable historical packages."
