@@ -62,6 +62,16 @@ The CA bundle must validate both the SSO leaf and the DC leaf. The optional
 `--prepare-without-directory` flag permits preparation while LDAPS is broken;
 this does not enable application clients or establish SSO readiness.
 
+The first live importer also exposed archive extraction under `umask 077`:
+root could build the optimized distribution but the `keycloak` user could not
+traverse its release directory. Fresh installation now preserves the pinned
+archive modes, builds public artifacts under umask022 and executes `kc.sh
+--version` as the actual service user before reporting completion. The optional
+`repair_distribution_permissions.sh <pinned-archive> [--apply]` first validates
+the stopped physical26.8.1 tree, stock public config and fixed data symlink.
+It repairs public read/traversal only and never follows the data symlink or
+changes external secrets/database state. Run its metadata plan before applying.
+
 The live first-install gate found `pg_conftool` misclassifies a dotted IPv4
 literal as numeric; adding quotes to its argument instead escapes those quotes
 into the hostname. The installer now removes that inferred value, installs an

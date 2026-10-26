@@ -66,7 +66,7 @@ install -d -m 0755 /opt/keycloak
 install -d -o keycloak -g keycloak -m 0700 /var/lib/keycloak
 install -d -o root -g keycloak -m 0750 /etc/keycloak /etc/keycloak/trust
 install -d -o root -g root -m 0700 /etc/keycloak/tls
-tar -xzf "$archive" -C /opt/keycloak --no-same-owner
+tar -xzf "$archive" -C /opt/keycloak --no-same-owner --same-permissions
 [[ -f /opt/keycloak/keycloak-$version/bin/kc.sh ]] || die 'Unexpected archive layout'
 chown -R root:root "/opt/keycloak/keycloak-$version"
 [[ ! -L /opt/keycloak/keycloak-$version/data ]] || die 'Unexpected archive data link'
@@ -99,8 +99,14 @@ install -o root -g keycloak -m 0640 "$asset_dir/keycloak.conf" /etc/keycloak/key
 printf 'db-password=%s\n' "$db_password" >>/etc/keycloak/keycloak.conf
 unset db_password
 # Build only non-secret options, keep the immutable optimized distribution root owned.
-/opt/keycloak/current/bin/kc.sh build --db=postgres --health-enabled=true --cache=local >/dev/null
+(
+    umask 022
+    /opt/keycloak/current/bin/kc.sh build --db=postgres --health-enabled=true --cache=local >/dev/null
+)
 chown -R keycloak:keycloak /var/lib/keycloak
+# The actual service identity must traverse/read/execute the optimized public
+# distribution; a successful root build cannot establish this contract.
+runuser -u keycloak -- /opt/keycloak/current/bin/kc.sh --version >/dev/null
 install -m 0644 "$asset_dir/keycloak.service" /etc/systemd/system/keycloak.service
 install -m 0644 "$asset_dir/keycloak.nginx.conf" /etc/nginx/sites-available/keycloak
 install -m 0644 "$asset_dir/keycloak-backup.service" /etc/systemd/system/keycloak-backup.service
