@@ -63,16 +63,33 @@ def _catalogue(root):
         return (info.st_dev,info.st_ino,info.st_mode,info.st_nlink,attributes,
             getattr(info,'st_size',None),getattr(info,'st_mtime_ns',None),getattr(info,'st_ctime_ns',None))
     for ancestor in root.parents:identity(ancestor,'directory')
-    identities={root:('directory',identity(root,'directory'))};rows=[]
+    identities={root:('directory',identity(root,'directory'))};rows=[];children={}
     def inaccessible(error):raise ValueError('historical catalogue enumeration unavailable') from error
     for base,dirs,files in os.walk(root,followlinks=False,onerror=inaccessible):
         base=Path(base)
         require(base in identities and identity(base,'directory')==identities[base][1],
             'historical catalogue directory changed')
+        children[base]=set(dirs)|set(files)
         for name,kind in [(n,'directory') for n in dirs]+[(n,'file') for n in files]:
             path=base/name;identities[path]=(kind,identity(path,kind))
             rows.append((path.relative_to(root).as_posix(),kind))
             require(len(rows)<=10000,'bounded historical catalogue')
+    # Directory timestamps can remain unchanged after additions on Windows.
+    # Compare names without following children, then retain every identity check.
+    enumerated=0
+    for directory,names in children.items():
+        require(identity(directory,'directory')==identities[directory][1],
+            'historical catalogue directory changed')
+        observed=set()
+        try:
+            with os.scandir(directory) as entries:
+                for entry in entries:
+                    enumerated+=1
+                    require(enumerated<=10000,'bounded historical catalogue')
+                    observed.add(entry.name)
+        except OSError as error:
+            inaccessible(error)
+        require(observed==names,'historical catalogue membership changed')
     for path,(kind,original) in identities.items():
         require(identity(path,kind)==original,'historical catalogue entry changed')
     return tuple(sorted(rows))

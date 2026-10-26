@@ -211,13 +211,56 @@ def test_catalogue_refuses_regular_file_replacement_during_enumeration(tmp_path,
     with pytest.raises(ValueError,match='catalogue.*changed'):m._catalogue(tmp_path)
 
 
-def test_catalogue_refuses_addition_after_directory_enumeration(tmp_path,monkeypatch):
+@pytest.mark.parametrize('location',['root','nested'])
+@pytest.mark.parametrize('kind',['file','directory'])
+def test_catalogue_refuses_addition_after_directory_enumeration(tmp_path,monkeypatch,location,kind):
     m=importlib.import_module('tools.canary.task13_continuation.recovery_readiness_v2')
+    directory=tmp_path if location=='root' else tmp_path/'nested'
+    directory.mkdir(exist_ok=True)
+    original=Path.stat;unchanged=directory.stat(follow_symlinks=False)
+    # Windows can keep identical directory metadata across a child addition.
+    monkeypatch.setattr(Path,'stat',lambda path,**kwargs: unchanged if path==directory else original(path,**kwargs))
     def added(*args,**kwargs):
-        yield str(tmp_path),[],[]
-        (tmp_path/'late.json').write_bytes(b'addition')
+        if location=='nested':yield str(tmp_path),['nested'],[]
+        yield str(directory),[],[]
+        child=directory/'late'
+        if kind=='file':child.write_bytes(b'addition')
+        else:child.mkdir()
     monkeypatch.setattr(m.os,'walk',added)
     with pytest.raises(ValueError,match='catalogue.*changed'):m._catalogue(tmp_path)
+
+
+def test_catalogue_refuses_unavailable_final_membership_enumeration(tmp_path,monkeypatch):
+    m=importlib.import_module('tools.canary.task13_continuation.recovery_readiness_v2')
+    monkeypatch.setattr(m.os,'walk',lambda *a,**kw:iter([(str(tmp_path),[],[])]))
+    def inaccessible(*args,**kwargs):raise PermissionError('owned denied final enumeration')
+    monkeypatch.setattr(m.os,'scandir',inaccessible)
+    with pytest.raises(ValueError,match='enumeration unavailable'):m._catalogue(tmp_path)
+
+
+@pytest.mark.parametrize('change',['removed','directory'])
+def test_catalogue_refuses_removed_or_retyped_child_with_unchanged_directory_metadata(tmp_path,monkeypatch,change):
+    m=importlib.import_module('tools.canary.task13_continuation.recovery_readiness_v2')
+    child=tmp_path/'old.json';child.write_bytes(b'old')
+    original=Path.stat;unchanged=tmp_path.stat(follow_symlinks=False)
+    monkeypatch.setattr(Path,'stat',lambda path,**kwargs: unchanged if path==tmp_path else original(path,**kwargs))
+    def changed(*args,**kwargs):
+        yield str(tmp_path),[],['old.json']
+        child.unlink()
+        if change=='directory':child.mkdir()
+    monkeypatch.setattr(m.os,'walk',changed)
+    with pytest.raises(ValueError,match='historical catalogue'):m._catalogue(tmp_path)
+
+
+def test_catalogue_bounds_final_membership_enumeration(tmp_path,monkeypatch):
+    from contextlib import contextmanager
+    m=importlib.import_module('tools.canary.task13_continuation.recovery_readiness_v2')
+    monkeypatch.setattr(m.os,'walk',lambda *a,**kw:iter([(str(tmp_path),[],[])]))
+    @contextmanager
+    def expanded(*args,**kwargs):
+        yield (SimpleNamespace(name=f'late-{index}') for index in range(10001))
+    monkeypatch.setattr(m.os,'scandir',expanded)
+    with pytest.raises(ValueError,match='bounded historical catalogue'):m._catalogue(tmp_path)
 
 
 @pytest.mark.parametrize('kind',['root','directory','file'])
