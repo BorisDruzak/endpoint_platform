@@ -1357,6 +1357,33 @@ function Assert-InstallerPumpDeadline {
     if ($Elapsed -gt [TimeSpan]::FromMinutes($minutes)) { throw 'RECOVERY_REQUIRED' }
 }
 
+function Complete-StagedTrialHelperFailure {
+    param([Parameter(Mandatory)]$Bridge,[Parameter(Mandatory)]$Process,
+        [Parameter(Mandatory)]$Launched,[Parameter(Mandatory)][string]$Phase,[switch]$Msi)
+    # This is post-decision cleanup, never additional time to accept a trial.
+    # Only the exact retained read-only observation worker may be terminated.
+    if ($Msi -or $Phase -notin @('begin-staged-trial','observe-staged-trial','accept-staged-trial')) { return $false }
+    try {
+        $retainedHandle=$Process.Handle
+        if ($Process.Id -ne $Launched.Identity.Pid -or
+            $Process.StartTime.ToUniversalTime().ToFileTimeUtc() -ne $Launched.Identity.Created -or
+            $Launched.Identity.Hash -cne $Bridge.HelperHash -or $Launched.ImagePath -ine $Bridge.HelperPath -or
+            -not $Bridge.Owner.Alive -or $Launched.Identity.Sid -cne $Bridge.Owner.Identity.Sid -or
+            $Launched.Identity.Elevated -ne $Bridge.Owner.Identity.Elevated) { return $false }
+        if ($Process.WaitForExit(1000)) { return $true }
+        # Begin/accept can mutate durable state. An unsettled mutator must go
+        # to authenticated recovery rather than race a second rollback owner.
+        if ($Phase -cne 'observe-staged-trial') { return $false }
+        $Process.Refresh()
+        if ($Process.HasExited) { return $true }
+        if (-not $Launched.Alive -or $Process.Id -ne $Launched.Identity.Pid -or
+            $Process.StartTime.ToUniversalTime().ToFileTimeUtc() -ne $Launched.Identity.Created -or
+            $Launched.Identity.Hash -cne $Bridge.HelperHash -or $Launched.ImagePath -ine $Bridge.HelperPath) { return $false }
+        $Process.Kill()
+        return $Process.WaitForExit(5000)
+    } catch { return $false }
+}
+
 function Invoke-InstallerOwnerPump {
     param([Parameter(Mandatory)]$Bridge, [Parameter(Mandatory)]$Process,
         [Parameter(Mandatory)][string]$Phase, [switch]$Msi)
@@ -1405,6 +1432,10 @@ function Invoke-InstallerOwnerPump {
         return $conversation.Result
     } catch {
         $Bridge.Policy.OwnerLost()
+        if ($Phase -in @('begin-staged-trial','observe-staged-trial','accept-staged-trial') -and
+            -not (Complete-StagedTrialHelperFailure -Bridge $Bridge -Process $Process -Launched $launched -Phase $Phase -Msi:$Msi)) {
+            $Bridge.StagedHelperUnsettled=$true
+        }
         throw
     } finally {
         $launched.Dispose()
@@ -1631,7 +1662,12 @@ function Invoke-StagedHealthTrial {
             } else { $nonce=$null;$stableSince=0 }
             Start-Sleep -Seconds 3
         } while ($true)
-    } catch { return 'rollback' }
+    } catch {
+        if ($Bridge.ContainsKey('StagedHelperUnsettled') -and $Bridge.StagedHelperUnsettled) { throw 'RECOVERY_REQUIRED' }
+        return 'rollback'
+    } finally {
+        $Bridge.Remove('StagedDeadline')
+    }
 }
 
 function Get-StagedRollbackMedia {
