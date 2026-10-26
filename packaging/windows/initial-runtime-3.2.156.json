@@ -1,0 +1,902 @@
+{
+  "schema_version": 5,
+  "version": "3.2.156",
+  "agent_version": "3.2.156",
+  "component_guid": "EF2552EF-2324-5CE3-9D4F-307C2567B0C0",
+  "source_revision": "6ed41cd01d494e46111a452c2ae3a844f723175b",
+  "source_files": [
+    {
+      "path": "browser_sensor/extension-id.txt",
+      "sha256": "75150f8105b2921f8ff8f88ef9dd8ceaeb599cb5afd20ba0de758975cf85e72c"
+    },
+    {
+      "path": "endpoint_contracts/__init__.py",
+      "sha256": "bc5f72bd966ba3084396a3ea2f17110c96fb650245fcdb6aee9d50f981bbd2f0"
+    },
+    {
+      "path": "endpoint_contracts/activity.py",
+      "sha256": "9c4289ac5da58a737e01bf022110e4bfc7b126a618912cff7d2ccb39f795e9f0"
+    },
+    {
+      "path": "endpoint_contracts/base.py",
+      "sha256": "cb28e640c007818d8b93e26b6fcb4b13884421e797d202a7975a7f09dc47c769"
+    },
+    {
+      "path": "endpoint_contracts/browser_status.py",
+      "sha256": "0263bf1098a0a187931bfc294130d8aa5cccb2d0cbe6d3ce3c40cdac28a0c2b5"
+    },
+    {
+      "path": "endpoint_contracts/capabilities.py",
+      "sha256": "e44fbdf68681be1a8b773e05b55072c4120cef63383a0199d6afd25e5cc234da"
+    },
+    {
+      "path": "endpoint_contracts/commands.py",
+      "sha256": "3b27b54bc117907b7320ce3ba58420f851b3cda77206fd7cb2f9795e5f5a46fe"
+    },
+    {
+      "path": "endpoint_contracts/context.py",
+      "sha256": "6899cac6d50adc1a796ad5b9b4bd8177d5c983567838c1fd30def4b8963410dc"
+    },
+    {
+      "path": "endpoint_contracts/device_binding.py",
+      "sha256": "1f756049131d4deed046f2189e285025794d4c12a81ab1fd98679610302d58eb"
+    },
+    {
+      "path": "endpoint_contracts/endpoint_policy.py",
+      "sha256": "9cf6a3d3a52652a3f92fc2236574596a639e451a5b45375ae9c734462ac3765d"
+    },
+    {
+      "path": "endpoint_contracts/enrollment.py",
+      "sha256": "cc1fb7c81971e4c5a1958f3e3509dc6da100c8bfe848c92b390e64df14c7a002"
+    },
+    {
+      "path": "endpoint_contracts/eventlog_primitives.py",
+      "sha256": "e662f5f0d9b0e49bbde1d728616c3b17dab424657870051874d471613ef0ce39"
+    },
+    {
+      "path": "endpoint_contracts/filesystem_primitives.py",
+      "sha256": "dc017daecfd2efcbc5375cf3d8a774f380699ebd2b361fbfa3b19f80339a9b2e"
+    },
+    {
+      "path": "endpoint_contracts/gateway_ws.py",
+      "sha256": "197148996802537d90f1ef9b2c613d0317a6a5780656bd5f795c7fa89eebfb98"
+    },
+    {
+      "path": "endpoint_contracts/identity.py",
+      "sha256": "921b65d478a586e4fa1b838f94bb9ef288b81dcbb3bdd8df9dc6d468d6f08a5c"
+    },
+    {
+      "path": "endpoint_contracts/json_types.py",
+      "sha256": "a3661a5e85c95311abad814691ddb8b7ee0b5c617629f15801096ef161b84ab1"
+    },
+    {
+      "path": "endpoint_contracts/modules.py",
+      "sha256": "d9efc0a4054187bcd85fb844a359271f67643c1d0236cca7f9adda7c9f2f89ab"
+    },
+    {
+      "path": "endpoint_contracts/network_primitives.py",
+      "sha256": "41ac4f5790b074b93e31b5adfdae4218654de4a74920394ed6f5a93a7554f865"
+    },
+    {
+      "path": "endpoint_contracts/operations.py",
+      "sha256": "d271032dcd2eef656b1239b19643d531e61ab01e79c151bfb2585d8a920b5327"
+    },
+    {
+      "path": "endpoint_contracts/power_events.py",
+      "sha256": "68f7615fa7cbec401c18756d7f5b55d5ce2f264056699b371c56eb5e72e1a8cf"
+    },
+    {
+      "path": "endpoint_contracts/read_only_primitives.py",
+      "sha256": "c3c61c303f9a8d676c1de3422c0c1aa596bbf3ce94f1174ad6c4f6bf69ba1fe6"
+    },
+    {
+      "path": "endpoint_contracts/runtime_payload.py",
+      "sha256": "355046932762b7621506eaac659ffa4ca57cb841e4693ed4ee996b4e9e39a124"
+    },
+    {
+      "path": "endpoint_contracts/security_events.py",
+      "sha256": "32e6415a6e79276bb0844605d5027cec79658f3fa48b8b078971320445879544"
+    },
+    {
+      "path": "endpoint_contracts/sensor_health.py",
+      "sha256": "8cbe4e1d312f53903013c6ca587949b965fd77ae72b35f0ae7cb3213f131b76d"
+    },
+    {
+      "path": "endpoint_contracts/service_printer_primitives.py",
+      "sha256": "65c038738f0c56fd5a82292737a6c0d9e2cde06868b1f76b64b16c6c4d95328c"
+    },
+    {
+      "path": "endpoint_contracts/software_primitives.py",
+      "sha256": "39b3b3099f69ca833fa256f168031a2e614d40ba0805482922632fd954695cce"
+    },
+    {
+      "path": "endpoint_contracts/system_process_primitives.py",
+      "sha256": "4075d2edca69d6bd29165aac1a4e0cc7d228c191068db2ab19ffb0175c1f1749"
+    },
+    {
+      "path": "endpoint_contracts/telemetry.py",
+      "sha256": "5a1151971aec50b3acb7313a46158fb6b4137d3274420c1a7e23a8914f1522fc"
+    },
+    {
+      "path": "endpoint_contracts/telemetry_results.py",
+      "sha256": "99d67a01e07a0b3b2cfb8a3129b5950cd0f037f630263f2a81ec634806e1447f"
+    },
+    {
+      "path": "endpoint_contracts/update_safety.py",
+      "sha256": "b15ea74d5bb200e109c7a316a1548cfff98af2267df0bb199b1a3cd817f38004"
+    },
+    {
+      "path": "endpoint_contracts/updates.py",
+      "sha256": "fc90809b4880c7e360d32984a5cba16bd1857d623783021542dcbe3a7ad44eff"
+    },
+    {
+      "path": "packaging/windows/build-msi.ps1",
+      "sha256": "84219963b771dbbe52512e6ff6a1628541a77a6918d52faf0e0eb03478a15fa6"
+    },
+    {
+      "path": "packaging/windows/wix/Package.wxs",
+      "sha256": "c70b03f67ab02af15b38d5e338d53f1ed7cc710c38918dbfcdd0639f4ada42d2"
+    },
+    {
+      "path": "pc_agent/__init__.py",
+      "sha256": "ba3816eb83dcfde4bee7f90234301e0defe0a850e30aa8d3362a76c7c20b9441"
+    },
+    {
+      "path": "pc_agent/activity_dispatch.py",
+      "sha256": "76a5a089f6e1d614f188c3dc2e47bbd071c280648070490f61d5c05518089445"
+    },
+    {
+      "path": "pc_agent/activity_ingress.py",
+      "sha256": "23d36a876b972df3442fa7fc5818aeaafef632126d7ab2afb1b2853415d5f8be"
+    },
+    {
+      "path": "pc_agent/browser_bridge.py",
+      "sha256": "a89d9849ecfa97ed6892a0f78fca7ad483153d8e517b86934ef161d9862f28a3"
+    },
+    {
+      "path": "pc_agent/browser_identity.py",
+      "sha256": "c42c8e9c005a726593226898e7e5d9b4c891d78824e6455858e739eef5a12353"
+    },
+    {
+      "path": "pc_agent/browser_policy_protocol.py",
+      "sha256": "c601c2f1986665217e3b96f542bb9a4c75848481e454ac8aa2b10a0e642e71dd"
+    },
+    {
+      "path": "pc_agent/browser_protocol.py",
+      "sha256": "e9be9186963dc221edf146223a12ef7f784872043a88816a6acfdcdf042d5a79"
+    },
+    {
+      "path": "pc_agent/browser_status.py",
+      "sha256": "57568a7f3d9890bbe99e19a4deb826f592c21c842b3e65d35791ab22480475f5"
+    },
+    {
+      "path": "pc_agent/context_profiles/__init__.py",
+      "sha256": "a5cf09ffbb264608558560d1622f5989273129cfa3b4da58bd016bc2c8092ec1"
+    },
+    {
+      "path": "pc_agent/context_profiles/baseline.py",
+      "sha256": "4e6d5bfdf3bdce8c08f4a117a224f3ccaf448ba07437c0f6a5f5fa88af4c856a"
+    },
+    {
+      "path": "pc_agent/context_profiles/command_execution.py",
+      "sha256": "7766b6bc90cd4affcb894f17741d7bcf972b7f3436c595a82832965eca66e469"
+    },
+    {
+      "path": "pc_agent/context_profiles/diagnostic.py",
+      "sha256": "58bc70a1b46d3bb1ae8db2ef66f5bd3a8d6a6c2382a228e667456658f04306d3"
+    },
+    {
+      "path": "pc_agent/context_profiles/health.py",
+      "sha256": "0c0dade961619bbc3be711e8dc12d8bf8e124280933817599e378df97f6bdd90"
+    },
+    {
+      "path": "pc_agent/context_profiles/inventory.py",
+      "sha256": "b23e452dff8b087a14677e8467ba406263187bb77d2f12790c19eb1482ac0a44"
+    },
+    {
+      "path": "pc_agent/context_profiles/network.py",
+      "sha256": "ffc039e1eeaed2f4fcbd82c1e3c72b0f95378caec89ad4c7b439222de5fb5403"
+    },
+    {
+      "path": "pc_agent/context_profiles/probe.py",
+      "sha256": "169ac7fc6616c776de494b3acfe9948bbb31de8f2e042ffa75df7794274b9fe5"
+    },
+    {
+      "path": "pc_agent/context_profiles/registry.py",
+      "sha256": "d9b982fe6fd80c9186d0eae5728595bae17fa3d76410987a9c9eff9bd8d7fd3f"
+    },
+    {
+      "path": "pc_agent/context_profiles/session.py",
+      "sha256": "c023a12d1937a9b42560c1a36fde9a76066b6a0a4baa5503450a5659b0643a0e"
+    },
+    {
+      "path": "pc_agent/context_profiles/stable_keys.py",
+      "sha256": "ce1b7eb38bc53d761328653edfd062d13aef65061a8023e6b300ef81ef99bbbc"
+    },
+    {
+      "path": "pc_agent/core/device_fingerprint.py",
+      "sha256": "c1beb5d711d4aba4f0ee0ceb9a478617216a450986a96034c2ddb0b2baade9e1"
+    },
+    {
+      "path": "pc_agent/core/machine_identity.py",
+      "sha256": "18a18592dee4e2771a094bf62ccf401965d0f41ea7a9e3d40e62fc1b41f568e3"
+    },
+    {
+      "path": "pc_agent/core/runtime_paths.py",
+      "sha256": "7924d2d461cbd1c42beb47245b6a934d80c5366d9a5a13af76af0483b64ff0bb"
+    },
+    {
+      "path": "pc_agent/device_credential.py",
+      "sha256": "fd29200d7b90746d29f7d7ddd120b8023f895cc9686bfd941f66297b3e19dac9"
+    },
+    {
+      "path": "pc_agent/endpoint_gateway.py",
+      "sha256": "de673c689d95180cc87dba0258ad6e2b3e68a384eeb18b3ddae8cf4470b16939"
+    },
+    {
+      "path": "pc_agent/enrollment_bootstrap.py",
+      "sha256": "75d32bf75cf1a448623997f7009c761bb086614565dc29a33a0648912675b5fd"
+    },
+    {
+      "path": "pc_agent/enrollment_identity.py",
+      "sha256": "decb87aed51670eda997737c375f8f6dd41a9398a995f0bf7316e171c82f0357"
+    },
+    {
+      "path": "pc_agent/gateway_update_runtime.py",
+      "sha256": "9167a3f4b1d38d83fd5ac10581a38770a2f5ac9aa26565ae9079d62406f9463a"
+    },
+    {
+      "path": "pc_agent/linux_enrollment_runtime.py",
+      "sha256": "55bf19fef9554c0ee8c4a0abc6989667c64d7bfee9d591b2166cf0d71bb4bb31"
+    },
+    {
+      "path": "pc_agent/local_sensor_protocol.py",
+      "sha256": "710211751f7732f05dfeb3c9f6a89dfd6a63916ec8226f015cc859fb3ddc7313"
+    },
+    {
+      "path": "pc_agent/platform/linux/__init__.py",
+      "sha256": "be97c11924b50f09cd07bc26c2c656e32614ccbad79aac5403752aca6ba40195"
+    },
+    {
+      "path": "pc_agent/platform/linux/browser_bridge.py",
+      "sha256": "af355e98553393af703e53f1eddf0de879ea5deee8b74d3e1ad7616ff791e7b1"
+    },
+    {
+      "path": "pc_agent/platform/linux/browser_bridge_entry.py",
+      "sha256": "2b8b4b5d01070f01badb62dfa7284db5801a129eff9632bb540087fb537041c6"
+    },
+    {
+      "path": "pc_agent/platform/linux/browser_policy.py",
+      "sha256": "c6aea0fc93f2eb1775187e50138715d49583f26e45ddad26ec55157288e7e26d"
+    },
+    {
+      "path": "pc_agent/platform/linux/browser_policy_client.py",
+      "sha256": "c893737523b0b36073ada896bb1f3a30fac026c1774521f253a86180f2e0763a"
+    },
+    {
+      "path": "pc_agent/platform/linux/browser_policy_helper.py",
+      "sha256": "e74340e197b1a10a184f1e9adefce5e797b3d25dc62556eb38f7e8649d4dd719"
+    },
+    {
+      "path": "pc_agent/platform/linux/browser_status.py",
+      "sha256": "32ee37725ea9a7739ca712e7e962085b3b1b5aaf87c00cd6504dead2135f153c"
+    },
+    {
+      "path": "pc_agent/platform/linux/cups.py",
+      "sha256": "01695e4d38b46b79fdf5c87da806aba10254dd3fa108b65c3bff47df34f55b22"
+    },
+    {
+      "path": "pc_agent/platform/linux/identity.py",
+      "sha256": "ff90afc31083a1185831731b55b99566be403059c16831cb9979a49a7e523a0d"
+    },
+    {
+      "path": "pc_agent/platform/linux/journal.py",
+      "sha256": "05f6176b215937df245e411b6fe01967888e0058eeadab8a845a3c45e7517b44"
+    },
+    {
+      "path": "pc_agent/platform/linux/local_ipc.py",
+      "sha256": "fbdeb66bd1a4d48e3716ec057d6b588b680999d539cea590edcb4d5a90008cf7"
+    },
+    {
+      "path": "pc_agent/platform/linux/power_events.py",
+      "sha256": "f47e39c64ccb0901e4d75db2f3b3f66bae7b9fd2c78d54ada9523e54511066ce"
+    },
+    {
+      "path": "pc_agent/platform/linux/print_sensor.py",
+      "sha256": "8206279bf5d1d77c04ea2e9ba0606dce719afa3247fc5682e47b7f053c917050"
+    },
+    {
+      "path": "pc_agent/platform/linux/sensor_listener.py",
+      "sha256": "1a66563ace752059ef3a60ece61600ed5919071cc85a77802847dc51dd00a90e"
+    },
+    {
+      "path": "pc_agent/platform/linux/seqpacket.py",
+      "sha256": "f82922e1597174225c013bde30c18d170a3fb6a6c5c1a7f5f7fc598eb13e836a"
+    },
+    {
+      "path": "pc_agent/platform/linux/sessions.py",
+      "sha256": "77d377297172cb96d52087e1934d0b93f898ea2763796fa587ff05c50e986867"
+    },
+    {
+      "path": "pc_agent/platform/linux/usb_sensor.py",
+      "sha256": "853cc37db4961a6438d210d0f1dc41c86951c760f587b4ed340e63f533aa6328"
+    },
+    {
+      "path": "pc_agent/platform/linux/user_sensor.py",
+      "sha256": "712a3ca333a05dbfcf942dbfc7a5cb6ee3708287180643318a03b62a38eb8e57"
+    },
+    {
+      "path": "pc_agent/platform/linux/user_sensor_runtime.py",
+      "sha256": "928341f4dc629491e366a946095a5ffcee57e7ef9e5cc56b507153af9c57a5d4"
+    },
+    {
+      "path": "pc_agent/platform/windows/__init__.py",
+      "sha256": "24825b72b080433a917950c41ed4d4a7d0d3d6d712c47b033e527984e681d64a"
+    },
+    {
+      "path": "pc_agent/platform/windows/acl.py",
+      "sha256": "51832f82bf4bd220dab756e314038c2bb0f1883785b54ec521c01c340f880213"
+    },
+    {
+      "path": "pc_agent/platform/windows/activity_api.py",
+      "sha256": "980aaf416913d0cc3ba54321c5aae5ada8ea8234e5327c9f11f08ed8dba08640"
+    },
+    {
+      "path": "pc_agent/platform/windows/binding_dialog.py",
+      "sha256": "b274ea051293eb17459ee3eb49ee1a7b6fda713af16c004e681608ba8a421943"
+    },
+    {
+      "path": "pc_agent/platform/windows/browser_bridge.py",
+      "sha256": "a692a915ef2d586e3a142a83384347641c80afb242c1b2eaccbdc778a756d57b"
+    },
+    {
+      "path": "pc_agent/platform/windows/browser_bridge_entry.py",
+      "sha256": "56c13f41a45bfc6b3e9794a479c232ac38f99aa5b766eca03c7961d0a6f1e116"
+    },
+    {
+      "path": "pc_agent/platform/windows/browser_policy.py",
+      "sha256": "f8e65530acea3a19d96373c2562a48772de22a580b40f8b9fab99623abd0e4ec"
+    },
+    {
+      "path": "pc_agent/platform/windows/browser_policy_helper.py",
+      "sha256": "d7fd68541d37204b1fa677c311116e60c1c095a5589939c8b7d006d22ac0ca10"
+    },
+    {
+      "path": "pc_agent/platform/windows/browser_policy_service_entry.py",
+      "sha256": "c98d1b867becd5372306bc0c2af317d1cd39cf792e0ba1809175438ec5b24171"
+    },
+    {
+      "path": "pc_agent/platform/windows/browser_status.py",
+      "sha256": "226754ffeda0e366a091d81debf55a8b3dd31a6463e23f8f8c675ef2ceed3725"
+    },
+    {
+      "path": "pc_agent/platform/windows/canary_status.py",
+      "sha256": "4db3f9382fa6fdcc7010ad2113a938ff4cdbe5da277d24ff5c0d9f8ed9749980"
+    },
+    {
+      "path": "pc_agent/platform/windows/companion_processes.py",
+      "sha256": "f7a65b52312662b97fd68bf428de85c42cfde04edebd413ed6ebc61c7fdbc3d9"
+    },
+    {
+      "path": "pc_agent/platform/windows/completion_proof.py",
+      "sha256": "7db600c673be6d69afb39196c4c53438a35eab599fb517531bf2505c54557415"
+    },
+    {
+      "path": "pc_agent/platform/windows/compound_installer.py",
+      "sha256": "18f21b6c9ec985221d382995c5cb42b55f685789a078a3784b88db0d76e4e428"
+    },
+    {
+      "path": "pc_agent/platform/windows/compound_upgrade_plan.py",
+      "sha256": "ec53c9ab02d890d963c6472287b57df2cb281ee67130e1833d89cd6d061cd177"
+    },
+    {
+      "path": "pc_agent/platform/windows/device_binding.py",
+      "sha256": "7cf2cc3d844abf2999a734f4f84b7e26caf71fabc2787d8df5f67a097e29849a"
+    },
+    {
+      "path": "pc_agent/platform/windows/disk_readiness.py",
+      "sha256": "e49354cf721374460103ac0d40b413e384f56b92ffcac400d6c8c841795179ba"
+    },
+    {
+      "path": "pc_agent/platform/windows/durable_state.py",
+      "sha256": "d9355a9eb6e879dc2efbda0cd8c43fcc06ff13257fb6164bf3796d9460bfda3d"
+    },
+    {
+      "path": "pc_agent/platform/windows/fleet_preflight.py",
+      "sha256": "0fb7a7fa63aaef47deb7aac38c05a002e0c7cbd2250c0d283f90a9e02b6179c5"
+    },
+    {
+      "path": "pc_agent/platform/windows/foundation_layout.py",
+      "sha256": "98a8b9f135738a851a4f76646016fe2eac8ea72f1735f17c34f3efed2597784b"
+    },
+    {
+      "path": "pc_agent/platform/windows/identity.py",
+      "sha256": "3b285a1caecf4b63e041c3a2bfe12980b758d21e39e7c3d86ee7e625aa9113b8"
+    },
+    {
+      "path": "pc_agent/platform/windows/installation_provenance.py",
+      "sha256": "fb8b683a395842c459b9b9dc9be0131d9a6079ad4e86d5a2d93365b69281b9b3"
+    },
+    {
+      "path": "pc_agent/platform/windows/installer_data_security.py",
+      "sha256": "6b7e810957defafd0a80182cc7102ccffa650b805654ed5f9362f4dab76b2278"
+    },
+    {
+      "path": "pc_agent/platform/windows/installer_fence.py",
+      "sha256": "f099fbf063824daff9ee08a1efdb09865a1bd997b68f2c70d1deb6f30e8bcebc"
+    },
+    {
+      "path": "pc_agent/platform/windows/installer_host_entry.py",
+      "sha256": "f6f1462eb634ac94f191175446a666abae834c8cf609ca04bb9a31660cb8a9dd"
+    },
+    {
+      "path": "pc_agent/platform/windows/installer_transaction_bridge.py",
+      "sha256": "246146296792ba7e0a9064ef75824ba02e169f5f278f6bbb2309bc830493f273"
+    },
+    {
+      "path": "pc_agent/platform/windows/legacy_foundation_upgrade.py",
+      "sha256": "2e3285be129d879930d856cc2bb86e751b7bac341cf71fe956e54ab336a691dd"
+    },
+    {
+      "path": "pc_agent/platform/windows/local_ipc.py",
+      "sha256": "8669d347da633fc2102f9a999fa7bbc1d4e92107e35e7c233045182cafa35f9f"
+    },
+    {
+      "path": "pc_agent/platform/windows/local_sensor_protocol.py",
+      "sha256": "ca74e8583ad69956a45e528560264b0c10f92184ad2c6b79f93f0e03e63779a2"
+    },
+    {
+      "path": "pc_agent/platform/windows/msi_disk_costing.py",
+      "sha256": "14936c28c140ff3a7ecd09f617a6ec10f83295f7d2ebe743b7427f4425f3c243"
+    },
+    {
+      "path": "pc_agent/platform/windows/msi_inventory.py",
+      "sha256": "b0e447f3337dca50e0d1da7bea4cf28661a021074e762508ff2792c4e75ac0fa"
+    },
+    {
+      "path": "pc_agent/platform/windows/network.py",
+      "sha256": "aa4c841a12565d88f33b70f07a1814586dc46617b9b738630a31a90a43b0744e"
+    },
+    {
+      "path": "pc_agent/platform/windows/online_update_runtime.py",
+      "sha256": "6be6a7012b78a1c776054e740ccd12ba98867ce31b67d5b7a704f12d4295204a"
+    },
+    {
+      "path": "pc_agent/platform/windows/power_events.py",
+      "sha256": "c7c32cb9029f733e4d05a6ecc53b27c75cf7fb89c83b8ea8c7c8687a83a9ae96"
+    },
+    {
+      "path": "pc_agent/platform/windows/print_sensor.py",
+      "sha256": "d48295c2ff9314305c806dcdfd4a96a6b439c7d5f54540965a18632c43efbb9e"
+    },
+    {
+      "path": "pc_agent/platform/windows/provision.py",
+      "sha256": "d4cea81a9161d859caef9e3b4c916869ba9910ab78fd8b1b9de52eac511508e2"
+    },
+    {
+      "path": "pc_agent/platform/windows/provision_entry.py",
+      "sha256": "c1cb476734b67f9e94f2b021e39352606f198ac8172f9b9f03fd0eb67359eabc"
+    },
+    {
+      "path": "pc_agent/platform/windows/retained_storage.py",
+      "sha256": "15ffc9e7d272388580481e144ce4d2619815db7e6a9c32a9f6d36c548323297b"
+    },
+    {
+      "path": "pc_agent/platform/windows/runtime_identity.py",
+      "sha256": "45f3c14b43a540fc73adfd93035648d591073ecc43bb8e77cc8a7366d5af5c98"
+    },
+    {
+      "path": "pc_agent/platform/windows/selector_migration.py",
+      "sha256": "897a5cae933e0fb25e1521306a7757161089ca48b74d67bb23c1e0d517e626c1"
+    },
+    {
+      "path": "pc_agent/platform/windows/sensor_pipe_listener.py",
+      "sha256": "9e9fbfe54d77a3dc15239e67aaf2a1011944b2a4d5b8c6ca94ca486c179bfda6"
+    },
+    {
+      "path": "pc_agent/platform/windows/service.py",
+      "sha256": "534222999e9ebda8f5e94ca45310894e25a121007c1280925b926e5835c2d818"
+    },
+    {
+      "path": "pc_agent/platform/windows/service_control.py",
+      "sha256": "cb43e2cdef8eb5f0d1ca1ef3c0e0365e6d83d9935731d0223dc107dc16ec22a9"
+    },
+    {
+      "path": "pc_agent/platform/windows/service_launcher.py",
+      "sha256": "67832fcb9eee1ff9ec845ed0bd5b8dbf96fcd50607760575c5b3f2ed1a94e51c"
+    },
+    {
+      "path": "pc_agent/platform/windows/setup_entry.py",
+      "sha256": "907bf20905b561943ae08eb4fda3ec122a2163312d8e91a4f87a6a3a43655df5"
+    },
+    {
+      "path": "pc_agent/platform/windows/software.py",
+      "sha256": "3fe619e04ef39e558c07600803ee1b8744f9e832ee7db3f21a531a68700a457a"
+    },
+    {
+      "path": "pc_agent/platform/windows/staged_boot_marker.py",
+      "sha256": "b98bded7061e4519a0e938e6544005cc7472ab893f9d76d1ce0a99ff554fd4ac"
+    },
+    {
+      "path": "pc_agent/platform/windows/staged_candidate_payload.py",
+      "sha256": "db1b5566e4b5e7a842bde50df5e69a7c896183e8a0c63ec6ec5606222a412c63"
+    },
+    {
+      "path": "pc_agent/platform/windows/staged_foundation_rollback.py",
+      "sha256": "e268e41a9d3dfa28808de0b6f64b264c2b92c271f443b10497bb6085c67841b7"
+    },
+    {
+      "path": "pc_agent/platform/windows/staged_recovery.py",
+      "sha256": "b2ed256f57da68108c9458d6d84aa3eeeae25b45c4a3b095f6704bcc6a680d37"
+    },
+    {
+      "path": "pc_agent/platform/windows/staged_trial_gate.py",
+      "sha256": "eccb470d80e28057f97c8bf41d0e1d02200fbd1725a22f353c137d1f4108a5ee"
+    },
+    {
+      "path": "pc_agent/platform/windows/staged_trial_proof.py",
+      "sha256": "f460bad0ca67fdb3d54afb757a3a945d0a87c5e3ce0d6507533b115823473d7c"
+    },
+    {
+      "path": "pc_agent/platform/windows/staged_update_state.py",
+      "sha256": "ff6b39840c61afd50d1ea491e5125ae610444ba1ab2eeed1ef3d618d9517ecdc"
+    },
+    {
+      "path": "pc_agent/platform/windows/startup_confirmation.py",
+      "sha256": "99fbb425e590adb4c011c6af80c247a109b0995756edaaa9dda312e74e69ab8e"
+    },
+    {
+      "path": "pc_agent/platform/windows/storage.py",
+      "sha256": "0f7374b9992283a1092c91b5eea517c7c29882a9f74f4216e71c69b9a1ed0e79"
+    },
+    {
+      "path": "pc_agent/platform/windows/tray.py",
+      "sha256": "e71ae28256547c077fb7955ebc8ed1bf1b4f2ab4300dbb3b2117efdc246134be"
+    },
+    {
+      "path": "pc_agent/platform/windows/tray_status.py",
+      "sha256": "3f9cb83bd1f2b0dd90c2801510abf28214b861d6ce9408bb4c68d5bdca6511b4"
+    },
+    {
+      "path": "pc_agent/platform/windows/update_paths.py",
+      "sha256": "7f135da04e84f6a6e7ea7fa44b8bc7d3e85f0517752ddb1abd8cf709515ef959"
+    },
+    {
+      "path": "pc_agent/platform/windows/update_supervisor.py",
+      "sha256": "2999af3ec28031264ce0cc8d659824fb16d414d6147e9413f4fc8b5cac768815"
+    },
+    {
+      "path": "pc_agent/platform/windows/update_transaction.py",
+      "sha256": "d8f3a61dfe43081005f43830a4a218b897e84a79e68bd1820b64fe1eb7e676cf"
+    },
+    {
+      "path": "pc_agent/platform/windows/updater_entry.py",
+      "sha256": "1103263ec753e00381bb17537bc24b90104530bc7ec2e694ece89da772fd6cc5"
+    },
+    {
+      "path": "pc_agent/platform/windows/updater_service.py",
+      "sha256": "a007262eda0f8b725839b763b41710bdd562085d4dd042417bf7e12cf1a2d236"
+    },
+    {
+      "path": "pc_agent/platform/windows/usb_sensor.py",
+      "sha256": "29964892e85c4aa269b569df6fceff129b272798984b98f4c08105dfa839d167"
+    },
+    {
+      "path": "pc_agent/platform/windows/user_sensor.py",
+      "sha256": "f0b961290fdc87287b6d1f9cd2f1d57a0f4d73e248ff4aeff88ce159f4d59176"
+    },
+    {
+      "path": "pc_agent/platform/windows/user_sensor_entry.py",
+      "sha256": "7e09432d9a31cbe3a68cb405ccb0fbe877b97b46ce1725ef125fe15d09c6557f"
+    },
+    {
+      "path": "pc_agent/platform/windows/user_sensor_runtime.py",
+      "sha256": "0dd34edbe5907f6ebef621ae584f247590be934a0f003a510f48b47679929d81"
+    },
+    {
+      "path": "pc_agent/policy/__init__.py",
+      "sha256": "ab3d98bc879125c2ec9bff3ef5489e3f710be1e6274de90f80be92a7983351b1"
+    },
+    {
+      "path": "pc_agent/policy/cache.py",
+      "sha256": "5481306887ff40682c8d11a8ae69b124e9cf4b82b61ece457af69c2a6b80697c"
+    },
+    {
+      "path": "pc_agent/policy/linux_sensors.py",
+      "sha256": "edd4ce672e68cd1fca24347806dfd2763865f2f7d5a69799faa1f4790feb777e"
+    },
+    {
+      "path": "pc_agent/policy/runtime.py",
+      "sha256": "d0961b033137f3c505be1750c07080fe5e162680c3e2b94bd5e8820f2c512324"
+    },
+    {
+      "path": "pc_agent/policy/windows_sensors.py",
+      "sha256": "186404033f979dae960c75607a4bd03e7609a6ffa1a84a5523552dadc383972e"
+    },
+    {
+      "path": "pc_agent/power/__init__.py",
+      "sha256": "47d8fcdc2c2751d3c207a865e6dce2b1cf87c4efce48be7e4d14a832b4219c9f"
+    },
+    {
+      "path": "pc_agent/power/native.py",
+      "sha256": "6598b88c7e748a31c40521be9e99b7fbd42df1ee8d9222fe55bf1bc5d39d88ed"
+    },
+    {
+      "path": "pc_agent/power/runtime.py",
+      "sha256": "249383ae6d0406e83458141baf447bc79b83b3091d2c534d8b38e6c241d45041"
+    },
+    {
+      "path": "pc_agent/power/spool.py",
+      "sha256": "a310a47b2916abd19305d1817e76374930a2cf9f586fa031bad22305e26cfc77"
+    },
+    {
+      "path": "pc_agent/primitives/__init__.py",
+      "sha256": "5711491ab10fcf4cc61775c77815bb66b012c456da448364cc942252d4c086f9"
+    },
+    {
+      "path": "pc_agent/primitives/eventlog/__init__.py",
+      "sha256": "3ab6531b4b31a321feac1ba41cd54d57946ce6d4ccd648b8ad579bc6a4274dee"
+    },
+    {
+      "path": "pc_agent/primitives/eventlog/handlers.py",
+      "sha256": "ceb373a820a2ba4feaef93e4d50eb82a33dfad687c6638588b81c1fac8cde0b1"
+    },
+    {
+      "path": "pc_agent/primitives/filesystem/__init__.py",
+      "sha256": "cee67a29dc83d95a1a31d0f372e6d0b05fed95324f0487d0083b3f443e140fbc"
+    },
+    {
+      "path": "pc_agent/primitives/filesystem/handlers.py",
+      "sha256": "1b296b36dbdce91744f35247f2aab9be5c521e493a42dfd02180908fe49c27e3"
+    },
+    {
+      "path": "pc_agent/primitives/network/__init__.py",
+      "sha256": "3321aa118e24742b2bb3307713f45d4b4da9aaed10c4d5c47036e193485a5db7"
+    },
+    {
+      "path": "pc_agent/primitives/network/command_execution.py",
+      "sha256": "2e436b2f710a50e2edde5ff40e89ccf0b0f4d7df2f728e178f82999ec40132e9"
+    },
+    {
+      "path": "pc_agent/primitives/network/handlers.py",
+      "sha256": "30c449d1865597eba544e1967921178d46f3b2613945f8cd8abfa6fb1d5dc366"
+    },
+    {
+      "path": "pc_agent/primitives/network/policy.py",
+      "sha256": "abde191baead2f6e386d0b684adcc957b3fd9568de83c0b1818288b05a49dc08"
+    },
+    {
+      "path": "pc_agent/primitives/read_only/__init__.py",
+      "sha256": "6a021a4c79805118a090b58fb53657411a2135ca63690e2fd11aa0bfdcd7ee20"
+    },
+    {
+      "path": "pc_agent/primitives/read_only/command_execution.py",
+      "sha256": "38b9ed556d864c83eb645ddb42efa8969aea54bc728fcbc2d131babf25793411"
+    },
+    {
+      "path": "pc_agent/primitives/read_only/handlers.py",
+      "sha256": "890c806e6c7a3f6955e48f07ade86ca3968d14d7e39bc1d86d72e8709788963a"
+    },
+    {
+      "path": "pc_agent/primitives/service_printer/__init__.py",
+      "sha256": "23bc34029a232349b4ea8b17d926ca46da420d36ec583d452c27e632c62c5fa7"
+    },
+    {
+      "path": "pc_agent/primitives/service_printer/handlers.py",
+      "sha256": "e7210d1f35b650754b93e12685edcdd1f822518e91fe8c2cdcb00f17a9fba9fa"
+    },
+    {
+      "path": "pc_agent/primitives/software/__init__.py",
+      "sha256": "1444403a573a98b34f0cc80b98646e6d4ceb914130c66e6f983f1803f31a3f93"
+    },
+    {
+      "path": "pc_agent/primitives/software/handlers.py",
+      "sha256": "0e10bca4253692ac9409cd1704822b220138e9b1d2a53dadb2c2cc942fda00e6"
+    },
+    {
+      "path": "pc_agent/primitives/system_process/__init__.py",
+      "sha256": "35e9e6c052e35211d1d114816f12aff1848a4856ec1bb22b3c4abe2c6039c6a6"
+    },
+    {
+      "path": "pc_agent/primitives/system_process/handlers.py",
+      "sha256": "6264ad05dbe5c108665ac52461d54acb2452bafb5f161021eab0a84f428ac707"
+    },
+    {
+      "path": "pc_agent/pyinstaller_endpoint_core_linux.spec",
+      "sha256": "1793622c2d8ae4bea73f0e7f8efbe5e407847cf34b98b44319fb2009d2e681a6"
+    },
+    {
+      "path": "pc_agent/pyinstaller_endpoint_core_windows.spec",
+      "sha256": "126aeb196f0b4688ff2d0b28e98690979104e7738d737648ec12bf49bc7e84bc"
+    },
+    {
+      "path": "pc_agent/pyinstaller_launcher_linux.spec",
+      "sha256": "1a5d4b0035469f006585984ee7f0dc186bfbd6f476af3fd387ac44685959a0cb"
+    },
+    {
+      "path": "pc_agent/pyinstaller_launcher_win.spec",
+      "sha256": "71f315db5318107eb8a52dc70cc8c5697b2e928e713b27df3b863972750f4913"
+    },
+    {
+      "path": "pc_agent/pyinstaller_windows_browser_bridge.spec",
+      "sha256": "f4e8298cd2015fdd690acfccb86ee81fb4765bf5249ee519cbe2a7ea71b838f1"
+    },
+    {
+      "path": "pc_agent/pyinstaller_windows_browser_policy_service.spec",
+      "sha256": "7a1dcd86a4ce0d35d52edeca3a8c74d1ecbbd86a94c0d25151a621d4459d2cb0"
+    },
+    {
+      "path": "pc_agent/pyinstaller_windows_installer_host.spec",
+      "sha256": "89ab42e2cabefeb49db1181b150f1e8fdd0c67d4d04817dbab1381bca6dc66ac"
+    },
+    {
+      "path": "pc_agent/pyinstaller_windows_provision.spec",
+      "sha256": "701b05d1782b64961bc9a131f8ef10406f671203972614f80dec46b812548c9e"
+    },
+    {
+      "path": "pc_agent/pyinstaller_windows_service_launcher.spec",
+      "sha256": "8121bcdaee9c76ef465dba6659902f80cfcc8c64ac3dfb27dd1a119a7d5f1381"
+    },
+    {
+      "path": "pc_agent/pyinstaller_windows_setup.spec",
+      "sha256": "aa7a79cb39b2117ea9b5af337e3da3ca13e30ab92af4888c6f85d566ca900fd4"
+    },
+    {
+      "path": "pc_agent/pyinstaller_windows_tray.spec",
+      "sha256": "f6771434e23e488c500d961cf47d3d83aecf8a5479b6675c9d7ce52d4013cf28"
+    },
+    {
+      "path": "pc_agent/pyinstaller_windows_updater.spec",
+      "sha256": "11c69c40714f437838af0400e937c43b2834ea94fc3ba4e89332016daeec79a0"
+    },
+    {
+      "path": "pc_agent/pyinstaller_windows_user_sensor.spec",
+      "sha256": "5f51acc938eb3ac4d70713bdce1c19f8628fa6260a442102efd9bb914bd76b6a"
+    },
+    {
+      "path": "pc_agent/runtime/__init__.py",
+      "sha256": "2e039766659d3a1dbad85155c3337c49cd3210d06ed2f4ce60a1bae4553baa8a"
+    },
+    {
+      "path": "pc_agent/runtime/application.py",
+      "sha256": "44cfa6434d464987da9a566b2ed3d8ff6b9d2f2de6fc646aee816c2fa2116191"
+    },
+    {
+      "path": "pc_agent/runtime/command_executor.py",
+      "sha256": "bc16086ff7e3a242bd1991c659cf7148f3c8ab4f0685c3b1dc5884e55a2115ed"
+    },
+    {
+      "path": "pc_agent/runtime/lifecycle.py",
+      "sha256": "798653ea6143610d1e8efe450d913a786ab0cb7c81dc0ac7cffea8d97c4fe94e"
+    },
+    {
+      "path": "pc_agent/runtime/local_state.py",
+      "sha256": "d51a562abb6b625ff187b059a4c3aee4a21c37adc5a55681a319c068bcb4ddbd"
+    },
+    {
+      "path": "pc_agent/runtime/main.py",
+      "sha256": "68d33be47bbd5a23031d9a0d72690fa07cc523904f048bd2e60b42e92bfcb0a8"
+    },
+    {
+      "path": "pc_agent/runtime/status.py",
+      "sha256": "f9666f0847f3179884ae8e2e942357ce767e378c290833333c0d5cbf08657166"
+    },
+    {
+      "path": "pc_agent/runtime/verification.py",
+      "sha256": "b2baf8fc9d37599d882fd1c91aadf18b6f4e45c076c858ccfd9b14d085065176"
+    },
+    {
+      "path": "pc_agent/runtime_hook_tzdata_zip.py",
+      "sha256": "345d482853741444eb3ceaf8c2d3cbcc08b51f23dfac0476856ed3839b935a9e"
+    },
+    {
+      "path": "pc_agent/security/__init__.py",
+      "sha256": "24d4a4525d6afc4fb845c5ef0c740ebf410ff68f87a8d27fade16d3a8b1c5427"
+    },
+    {
+      "path": "pc_agent/security/print_projection.py",
+      "sha256": "925affebb8c1152d1c0820231fba883a0fb862f522d972a4ef0f6d274230e973"
+    },
+    {
+      "path": "pc_agent/security/runtime.py",
+      "sha256": "5db92056457c0055e8193bb9686026c4c606d80b5f55c888b6f89e0b715b0aff"
+    },
+    {
+      "path": "pc_agent/security/spool.py",
+      "sha256": "0645e279aae1e672f76546381ff7c5937128564b69e60847b61449b8de22a08f"
+    },
+    {
+      "path": "pc_agent/security/usb_projection.py",
+      "sha256": "bba4bc8be85087a7cae36a573d2a8cbf954ef69f762940b6eb2811c9c6f5fac8"
+    },
+    {
+      "path": "pc_agent/sensor_health.py",
+      "sha256": "7b5afa069c0f8eca84a1d7e168062966c8ec2f4731f45d3812f2a0f7f5fa6f7a"
+    },
+    {
+      "path": "pc_agent/transport/__init__.py",
+      "sha256": "0c4166e15693e039181f442ec268abbca2052fed6f87ef6f9d809be2ecbd687b"
+    },
+    {
+      "path": "pc_agent/transport/backoff.py",
+      "sha256": "79ad86f7e8e1e684a377dbda618cc0159bde677b4c605b8410a9b617af08a14e"
+    },
+    {
+      "path": "pc_agent/transport/base.py",
+      "sha256": "16fd1929762f1786f03fd769c05fc03216a2a587dd03bc7ab5906e99d03e76a9"
+    },
+    {
+      "path": "pc_agent/transport/http_pull.py",
+      "sha256": "6406031748ce999568fe84e058de7cee684c8cd122e46ca50ceacabea9915adf"
+    },
+    {
+      "path": "pc_agent/transport/protocol.py",
+      "sha256": "9b48f33d6f75c29df2112123fac63fd7f54da90fe15f6ce1af1dfd9a68815572"
+    },
+    {
+      "path": "pc_agent/transport/websocket.py",
+      "sha256": "6e5d2f45a703bcfa23cf2c84154fcfae9fd37c634ac2ce95eb175aa01ce567dc"
+    },
+    {
+      "path": "pc_agent/update_adapter.py",
+      "sha256": "822a4cae4f16b57e977a59698a471b21893a88244d702ef944162c364e7bb5f4"
+    },
+    {
+      "path": "pc_agent/update_eligibility.py",
+      "sha256": "1e2a7ca408924050efccc80867b96fe54c435423eca0801ee9e5a6b08163a7f4"
+    },
+    {
+      "path": "pc_agent/update_schedule.py",
+      "sha256": "2830c26dabee25c69e20ad3055e18f7d8da48006bcbe2c8a27f1093e9eec5654"
+    },
+    {
+      "path": "pc_agent/version.py",
+      "sha256": "d10adcd2cf24c9eab3ec8a6f430388b29380a3ad5961dd78ad7efb781f5d24ae"
+    },
+    {
+      "path": "pyproject.toml",
+      "sha256": "0a0821c345451ab2b1ef6c862f8077658c1467900e3594d9a6d3415bc4189819"
+    },
+    {
+      "path": "requirements/agent-core.txt",
+      "sha256": "e6912c66f6502265525a80d2786ee103aac090462bdba2252fb4e8e881147aa3"
+    },
+    {
+      "path": "requirements/build-windows.txt",
+      "sha256": "55e7ec411e6c0f776aaea3ebb0f55d03445e6833d5a080d7995aeafe19ad802e"
+    },
+    {
+      "path": "tools/canary/foundation_payload.py",
+      "sha256": "ede06ebeb29c70efa43678e091aa46fb1deab5d1cf4e23374e8908daf2924daf"
+    },
+    {
+      "path": "tools/canary/privileged_bootstrap_contract.py",
+      "sha256": "321531ae326e1483bb45badb7dd9af52c5644c3104f59e2f7f7f8bbd458776ef"
+    },
+    {
+      "path": "tools/canary/ssl_payload.py",
+      "sha256": "2e80c8326cf21bae64b953e73b902057d9fe239da2fe2406a2968747ce451d32"
+    },
+    {
+      "path": "tools/canary/tzdata_payload.py",
+      "sha256": "5232d7c0225754774c457cd5e7f89d0217e4db6c6c14134959cd12974f01a0b5"
+    },
+    {
+      "path": "tools/canary/verify_msi_payload.py",
+      "sha256": "d5b41f5aac14221ba1dcc97b9dd101ff1b55eff0bf377ef23f9df260d89669a8"
+    }
+  ],
+  "artifact": {
+    "file_count": 118,
+    "tree_sha256": "5b699ccc3ded371a7024a854c1c5a202b63df0f739bd08613b6fefdd0007b029"
+  },
+  "toolchain": {
+    "implementation": "CPython",
+    "platform": "win-amd64",
+    "pyinstaller_version": "6.22.3",
+    "python_version": "3.12.14",
+    "source_date_epoch": 1793033729,
+    "python_hash_seed": "0",
+    "pyinstaller_hooks_contrib_version": "2026.8"
+  }
+}
