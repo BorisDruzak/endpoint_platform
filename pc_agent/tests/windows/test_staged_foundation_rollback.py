@@ -11,7 +11,7 @@ from pc_agent.tests.windows.test_staged_update_state import staged, begin, move,
 from pc_agent.tests.windows.test_retained_storage import retained, promote
 
 
-@pytest.mark.parametrize('role,missing_capture', [('remove', False), ('remove', True), (None, False), ('control', False)])
+@pytest.mark.parametrize('role,missing_capture', [('remove', False), ('remove', True), (None, False), (None, True), ('control', False)])
 def test_removal_native_entry_uses_prepared_authority_after_product_unpublication(tmp_path, monkeypatch, role, missing_capture):
     from pc_agent.platform.windows import installer_transaction_bridge as bridge
     from pc_agent.platform.windows import installation_provenance as provenance, msi_inventory, companion_processes
@@ -39,7 +39,7 @@ def test_removal_native_entry_uses_prepared_authority_after_product_unpublicatio
     monkeypatch.setattr(companion_processes, 'stop_tray_companions', lambda *_: None)
     client = SimpleNamespace(capability=cap, phase='msi-enter', checkpoint=lambda: None,
                              request=lambda *args: calls.append(args[0]))
-    if role == 'remove' and not missing_capture:
+    if role in {None, 'remove'} and not missing_capture:
         assert bridge._execute_authorized_phase(client, paths) == {}
         assert calls == ['prepared-authority', 'native-entered', 'complete']
     else:

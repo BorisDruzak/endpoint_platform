@@ -28,9 +28,9 @@
 
 ### Task 1: Integrate and verify source
 
-- [ ] Merge pinned power8bb0c4c into installer1dc7b0f; resolve only shared version/docs/manifest metadata, retain both ACL fixes.
-- [ ] Set version155 and matching fixture. Run Windows ownership/Setup/power/transport tests and provider/contract tests; generated contract check and diff check.
-- [ ] Independent whole-integration source review; address material findings with regression evidence. Commit coherent runtime source.
+- [x] Merge pinned power8bb0c4c into installer1dc7b0f; resolve shared version/docs/manifest metadata, retain both ACL fixes.
+- [x] Set version155 and matching fixture. Integration gate:3968 passed,163 skipped,1 current-manifest test deferred until binding; contracts/diff check and UI56/typecheck/build passed.
+- [x] Independent integration review found no material merge defect; follow-up confirmed ordinary uninstall defect and supplied a minimal authenticated-authority correction. RED1 failure/4 passed -> GREEN186 passed across rollback/provenance/bridge tests.
 
 ### Task 2: Freeze and qualify both native packages
 
@@ -55,3 +55,4 @@
 - Ruling: use the existing managed, clean isolated installer worktree and new codex/unified-agent-release-155 branch; original and WorkTime WIP stay untouched.
 - Ruling: no WorkTime migration merge is needed because WorkTime is outside this agent release; only the reviewed power0039 migration enters this provider.
 - Ruling: Context7 quota is exhausted. Integration reuses previously reviewed APIs without dependency changes; verify behavior with source/tests and use official documentation if new external-API behavior becomes necessary.
+- Ruling: fix ordinary authenticated uninstall before freezing155. Its deferred msi-enter callback must use exact prepared maintenance authority after MSI unpublication; initial full inspection, invalid-role/capture rejection and final native absence verification remain required. Historical149 immutable bytes are unchanged.

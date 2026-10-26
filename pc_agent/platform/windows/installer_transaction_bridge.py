@@ -855,9 +855,11 @@ def _execute_authorized_phase(client,paths,*,feature_states=None,rollback_disabl
                         provenance.validate_maintenance_recovery(paths,request,capability['operation'])
                         if capability['operation']=='retire-initial-runtime': _matching_inspection(paths,expected,capability,retirement=True)
                 elif (capability['operation']=='uninstall'
-                      and capability.get('staged_rollback',{}).get('role')=='remove'):
+                      and ('staged_rollback' not in capability
+                           or capability['staged_rollback'].get('role')=='remove')):
                     # The authenticated removal callback runs after MSI's
-                    # immediate unpublication. Its captured exact authority,
+                    # immediate unpublication for ordinary and staged removal.
+                    # Its captured exact authority,
                     # not a still-installed registration, spans that boundary.
                     provenance.validate_maintenance_recovery(paths,request,'uninstall')
                 else:
