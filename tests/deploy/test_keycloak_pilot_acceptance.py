@@ -38,7 +38,7 @@ def fixture_api(module):
         prefix: {"registrationAllowed": False, "resetPasswordAllowed": False,
                  "browserFlow": "sso-browser", "attributes": {"acr.loa.map": json.dumps({module.MFA_ACR: 2})}},
         prefix + "/components?type=org.keycloak.storage.UserStorageProvider&name=sosnadmin-ad-readonly": [{
-            "id": "ldap-id", "providerId": "ldap", "config": {
+            "id": "ldap-id", "providerId": "ldap", "providerType": "org.keycloak.storage.UserStorageProvider", "config": {
                 "editMode": ["READ_ONLY"], "connectionUrl": ["ldaps://AD-MAIN.sosnadmin.local:636"],
                 "uuidLDAPAttribute": ["objectGUID"], "usersDn": [module.PILOT_DN], "syncRegistrations": ["false"], "searchScope": ["0"]}}],
         prefix + "/users?username=ssopilot-20261027&exact=true&max=2&briefRepresentation=false": [{
@@ -118,7 +118,11 @@ def test_scope_repair_updates_only_scope_after_review_and_preserves_secrets(tmp_
         def request(self, method, path, **kwargs):
             if method == "PUT":
                 self.calls.append((method, path, kwargs["payload"], None))
-                assert kwargs["payload"] == {"config": {"searchScope": ["0"]}}
+                # Keycloak's audit StripSecretsUtils requires both metadata
+                # fields even though the model config updater can merge keys.
+                assert kwargs["payload"] == {
+                    "providerType": "org.keycloak.storage.UserStorageProvider",
+                    "providerId": "ldap", "config": {"searchScope": ["0"]}}
                 api[path]["config"]["searchScope"] = ["0"]
                 return None
             return super().request(method, path, **kwargs)

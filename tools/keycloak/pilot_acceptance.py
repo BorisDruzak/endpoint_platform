@@ -35,6 +35,15 @@ BIND_DN = "CN=svc-keycloak-ldap,CN=Users,DC=sosnadmin,DC=local"
 PILOT_DN = "CN=ssopilot-20261027,OU=TEST,DC=sosnadmin,DC=local"
 CLIENTS = ("helpdesk-web", "endpoint-admin", "worktime-employee")
 MFA_ACR = "urn:sosnadmin:loa:2"
+STORAGE_PROVIDER_TYPE = "org.keycloak.storage.UserStorageProvider"
+
+
+def scope_update_payload():
+    # Audit serialization resolves provider properties from this representation,
+    # not from the existing model. Omitting either identifier causes HTTP500 in
+    # StripSecretsUtils even though config-key merging itself supports partials.
+    return {"providerType": STORAGE_PROVIDER_TYPE, "providerId": "ldap",
+            "config": {"searchScope": ["0"]}}
 
 
 class AcceptanceError(Exception):
@@ -60,7 +69,7 @@ class LocalAdminClient:
 
     def request(self, method, path, *, payload=None, form=None, authenticated=True):
         scope_write = (method == "PUT" and path == self.scope_write_path and
-                       payload == {"config": {"searchScope": ["0"]}} and form is None)
+                       payload == scope_update_payload() and form is None)
         require(method == "GET" or (method == "POST" and path in {TOKEN_PATH, LDAP_TEST_PATH}) or scope_write, "MutationProhibited")
         if scope_write:
             self.scope_write_path = None  # Permit exactly one reviewed field update.
@@ -159,17 +168,19 @@ def inspect_pilot(client, environment, expected_guid):
 
 
 def repair_exact_pilot_scope(client, *, apply=False,
-                             backup_path=ENV_FILE.parent / "ldap-scope-before.json"):
+                             backup_path=ENV_FILE.parent / "ldap-scope-before-audit-v2.json"):
     """Change only this exact pilot's scope2 to scope0 with disabled clients.
 
     ComponentResource.updateComponent / RepresentationToModel.updateComponent
     at26.8.1 merge supplied config keys and preserve omitted secret fields.
-    Therefore the PUT deliberately contains only searchScope, no credential.
+    The PUT changes only searchScope and includes unchanged providerType/Id for
+    StripSecretsUtils audit serialization. It contains no credential fields.
     """
     components = client.request("GET", PREFIX + "/components?type=org.keycloak.storage.UserStorageProvider&name=sosnadmin-ad-readonly")
     require(isinstance(components, list) and len(components) == 1, "AmbiguousLdapProvider")
     component = components[0]
-    require(component.get("providerId") == "ldap" and bool(component.get("id")), "UnexpectedStorageProvider")
+    require(component.get("providerId") == "ldap" and component.get("providerType") == STORAGE_PROVIDER_TYPE and
+            bool(component.get("id")), "UnexpectedStorageProvider")
     config = component.get("config", {})
     for name, expected in {"searchScope": "2", "usersDn": PILOT_DN, "editMode": "READ_ONLY",
                            "uuidLDAPAttribute": "objectGUID", "syncRegistrations": "false",
@@ -198,7 +209,7 @@ def repair_exact_pilot_scope(client, *, apply=False,
         stream.flush()
         os.fsync(stream.fileno())
     client.scope_write_path = path
-    client.request("PUT", path, payload={"config": {"searchScope": ["0"]}})
+    client.request("PUT", path, payload=scope_update_payload())
     expected_component = copy.deepcopy(baseline)
     expected_component["config"]["searchScope"] = ["0"]
     require(client.request("GET", path) == expected_component, "UnexpectedProviderChangeAfterScopeRepair")
