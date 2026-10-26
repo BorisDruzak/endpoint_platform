@@ -40,7 +40,7 @@ def fixture_api(module):
         prefix + "/components?type=org.keycloak.storage.UserStorageProvider&name=sosnadmin-ad-readonly": [{
             "id": "ldap-id", "providerId": "ldap", "config": {
                 "editMode": ["READ_ONLY"], "connectionUrl": ["ldaps://AD-MAIN.sosnadmin.local:636"],
-                "uuidLDAPAttribute": ["objectGUID"], "usersDn": [module.PILOT_DN], "syncRegistrations": ["false"]}}],
+                "uuidLDAPAttribute": ["objectGUID"], "usersDn": [module.PILOT_DN], "syncRegistrations": ["false"], "searchScope": ["0"]}}],
         prefix + "/users?username=ssopilot-20261027&exact=true&max=2&briefRepresentation=false": [{
             "id": "pilot-id", "username": "ssopilot-20261027", "enabled": True,
             "federationLink": "ldap-id", "attributes": {"LDAP_ID": [GUID]}}],
@@ -104,3 +104,50 @@ def test_http_surface_rejects_writes_and_nonlocal_paths_before_io():
                          ("POST", "/admin/realms/sosnadmin/logout-all")):
         with pytest.raises(runtime.AcceptanceError):
             client.request(method, path)
+
+
+def test_scope_repair_updates_only_scope_after_review_and_preserves_secrets(tmp_path):
+    runtime = module()
+    component_path = "/admin/realms/sosnadmin/components/ldap-id"
+    api = fixture_api(runtime)
+    component = api["/admin/realms/sosnadmin/components?type=org.keycloak.storage.UserStorageProvider&name=sosnadmin-ad-readonly"][0]
+    component["config"]["searchScope"] = ["2"]
+    component["config"]["bindCredential"] = ["**********"]
+    api[component_path] = component
+    class RepairClient(FakeClient):
+        def request(self, method, path, **kwargs):
+            if method == "PUT":
+                self.calls.append((method, path, kwargs["payload"], None))
+                assert kwargs["payload"] == {"config": {"searchScope": ["0"]}}
+                api[path]["config"]["searchScope"] = ["0"]
+                return None
+            return super().request(method, path, **kwargs)
+    client = RepairClient(api)
+    backup = tmp_path / "scope-before.json"
+    plan = runtime.repair_exact_pilot_scope(client, apply=False, backup_path=backup)
+    assert plan["status"] == "ExactPilotScopeRepairPlan"
+    assert not backup.exists()
+    result = runtime.repair_exact_pilot_scope(client, apply=True, backup_path=backup)
+    assert result["status"] == "ExactPilotScopeRepaired"
+    assert json.loads(backup.read_text())["old_search_scope"] == "2"
+    assert api[component_path]["config"]["bindCredential"] == ["**********"]
+    assert len([call for call in client.calls if call[0] == "PUT"]) == 1
+    assert "Credential" not in backup.read_text()
+
+
+def test_scope_repair_refuses_scope_or_pilot_dn_drift_and_enabled_client(tmp_path):
+    runtime = module()
+    for mutation in ("scope", "dn", "client"):
+        api = fixture_api(runtime)
+        component = api["/admin/realms/sosnadmin/components?type=org.keycloak.storage.UserStorageProvider&name=sosnadmin-ad-readonly"][0]
+        component["config"]["searchScope"] = ["2"]
+        if mutation == "scope":
+            component["config"]["searchScope"] = ["1"]
+        elif mutation == "dn":
+            component["config"]["usersDn"] = ["OU=TEST,DC=sosnadmin,DC=local"]
+        else:
+            api["/admin/realms/sosnadmin/clients?clientId=helpdesk-web"][0]["enabled"] = True
+        backup = tmp_path / (mutation + ".json")
+        with pytest.raises(runtime.AcceptanceError):
+            runtime.repair_exact_pilot_scope(FakeClient(api), apply=True, backup_path=backup)
+        assert not backup.exists()

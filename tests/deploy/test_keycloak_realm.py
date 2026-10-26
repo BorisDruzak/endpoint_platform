@@ -109,3 +109,18 @@ def test_export_shape_validation_reaches_nested_ldap_mappers():
     mapper["parentId"] = "api-only"
     with pytest.raises(ValueError):
         module.validate_component_exports(realm["components"])
+
+
+def test_exact_pilot_uses_object_scope_to_avoid_keycloak_subtree_base_exclusion():
+    module = load_module()
+    dn = "CN=ssopilot-20261027,OU=TEST,DC=sosnadmin,DC=local"
+    realm = module.build_realm(pilot(), dn)
+    config = realm["components"]["org.keycloak.storage.UserStorageProvider"][0]["config"]
+    assert config["usersDn"] == [dn]
+    assert config["searchScope"] == ["0"]
+    # Keycloak 26.8.1 LDAPIdentityStore.java lines266-269 omits the base entry
+    # from SUBTREE(2), while OBJECT(0) includes that same sole matching entry.
+    def retained(scope, result_dn):
+        return scope != 2 or dn != result_dn
+    assert retained(int(config["searchScope"][0]), dn)
+    assert not retained(2, dn)

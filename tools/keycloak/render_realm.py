@@ -17,6 +17,7 @@ CLIENTS = {
     "worktime-employee": "SSO_WORKTIME_CLIENT_SECRET",
 }
 MFA_ACR = "urn:sosnadmin:loa:2"
+EXACT_PILOT_DN = "CN=ssopilot-20261027,OU=TEST,DC=sosnadmin,DC=local"
 COMPONENT_EXPORT_FIELDS = frozenset({"id", "name", "providerId", "subType", "subComponents", "config"})
 
 
@@ -109,7 +110,10 @@ def build_realm(redirects: dict[str, str], users_dn: str, *, enable_clients=Fals
         "connectionUrl": "ldaps://AD-MAIN.sosnadmin.local:636", "startTls": "false",
         "useTruststoreSpi": "always", "connectionPooling": "false",
         "bindDn": "${SSO_LDAP_BIND_DN}", "bindCredential": "${SSO_LDAP_BIND_PASSWORD}",
-        "authType": "simple", "usersDn": users_dn, "searchScope": "2",
+        # 26.8.1 LDAPIdentityStore excludes the base entry for SUBTREE(2).
+        # The fixed single-user pilot must use OBJECT(0) without widening its DN.
+        "authType": "simple", "usersDn": users_dn,
+        "searchScope": "0" if users_dn == EXACT_PILOT_DN else "2",
         "usernameLDAPAttribute": "sAMAccountName", "rdnLDAPAttribute": "cn",
         "uuidLDAPAttribute": "objectGUID", "userObjectClasses": "person, organizationalPerson, user",
         "customUserSearchFilter": "(&(objectCategory=person)(!(userAccountControl:1.2.840.113556.1.4.803:=2)))",

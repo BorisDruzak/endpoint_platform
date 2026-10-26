@@ -3,6 +3,8 @@
 Only local loopback HTTP is used for the root operator's Admin REST requests.
 GET of the fixed synthetic username may import that single LDAP identity.
 No client enablement, AD change, bulk sync, password reset or role assignment.
+The separate --repair-exact-pilot-scope mode plans a one-field provider update;
+only adding --apply permits that update, with unchanged exact user DN/secrets.
 Official pinned source for LDAP diagnostic POST and JSON shape:
 https://github.com/keycloak/keycloak/blob/26.8.1/federation/ldap/src/main/java/org/keycloak/services/resources/admin/TestLdapConnectionResource.java
 https://github.com/keycloak/keycloak/blob/26.8.1/core/src/main/java/org/keycloak/representations/idm/TestLdapConnectionRepresentation.java
@@ -11,6 +13,7 @@ Other GET contracts: https://www.keycloak.org/docs-api/26.8.1/rest-api/index.htm
 from __future__ import annotations
 
 import argparse
+import copy
 import json
 import os
 from pathlib import Path
@@ -53,9 +56,14 @@ class LocalAdminClient:
         self.opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirects())
         self.token = None
         self.requests = 0
+        self.scope_write_path = None
 
     def request(self, method, path, *, payload=None, form=None, authenticated=True):
-        require(method == "GET" or (method == "POST" and path in {TOKEN_PATH, LDAP_TEST_PATH}), "MutationProhibited")
+        scope_write = (method == "PUT" and path == self.scope_write_path and
+                       payload == {"config": {"searchScope": ["0"]}} and form is None)
+        require(method == "GET" or (method == "POST" and path in {TOKEN_PATH, LDAP_TEST_PATH}) or scope_write, "MutationProhibited")
+        if scope_write:
+            self.scope_write_path = None  # Permit exactly one reviewed field update.
         require(path == TOKEN_PATH or path.startswith(PREFIX + "/") or path == PREFIX, "PathProhibited")
         require(not path.startswith("//") and ".." not in path and "\r" not in path and "\n" not in path, "PathProhibited")
         self.requests += 1
@@ -106,7 +114,7 @@ def inspect_pilot(client, environment, expected_guid):
     require(component.get("providerId") == "ldap", "UnexpectedStorageProvider")
     config = component.get("config", {})
     for name, expected in {"editMode": "READ_ONLY", "uuidLDAPAttribute": "objectGUID",
-                           "usersDn": PILOT_DN, "syncRegistrations": "false",
+                           "usersDn": PILOT_DN, "syncRegistrations": "false", "searchScope": "0",
                            "connectionUrl": "ldaps://AD-MAIN.sosnadmin.local:636"}.items():
         require(config.get(name) == [expected], "UnexpectedLdapConfiguration")
     for action in ("testConnection", "testAuthentication"):
@@ -150,6 +158,55 @@ def inspect_pilot(client, environment, expected_guid):
             "browser_mfa_and_token_flow_tested": False}
 
 
+def repair_exact_pilot_scope(client, *, apply=False,
+                             backup_path=ENV_FILE.parent / "ldap-scope-before.json"):
+    """Change only this exact pilot's scope2 to scope0 with disabled clients.
+
+    ComponentResource.updateComponent / RepresentationToModel.updateComponent
+    at26.8.1 merge supplied config keys and preserve omitted secret fields.
+    Therefore the PUT deliberately contains only searchScope, no credential.
+    """
+    components = client.request("GET", PREFIX + "/components?type=org.keycloak.storage.UserStorageProvider&name=sosnadmin-ad-readonly")
+    require(isinstance(components, list) and len(components) == 1, "AmbiguousLdapProvider")
+    component = components[0]
+    require(component.get("providerId") == "ldap" and bool(component.get("id")), "UnexpectedStorageProvider")
+    config = component.get("config", {})
+    for name, expected in {"searchScope": "2", "usersDn": PILOT_DN, "editMode": "READ_ONLY",
+                           "uuidLDAPAttribute": "objectGUID", "syncRegistrations": "false",
+                           "connectionUrl": "ldaps://AD-MAIN.sosnadmin.local:636"}.items():
+        require(config.get(name) == [expected], "ScopeRepairPreconditionFailed")
+    for client_id in CLIENTS:
+        applications = client.request("GET", PREFIX + "/clients?clientId=" + client_id)
+        require(isinstance(applications, list) and len(applications) == 1 and
+                applications[0].get("clientId") == client_id and applications[0].get("enabled") is False,
+                "ScopeRepairRequiresDisabledClients")
+    if not apply:
+        return {"status": "ExactPilotScopeRepairPlan", "old_search_scope": "2",
+                "new_search_scope": "0", "user_dn_unchanged": True,
+                "secret_update_fields": 0, "clients_disabled": True}
+    path = PREFIX + "/components/" + urllib.parse.quote(component["id"], safe="")
+    baseline = copy.deepcopy(component)
+    require(client.request("GET", path) == baseline, "ProviderChangedConcurrently")
+    # This backup intentionally contains no secret or full configuration values.
+    # It is enough to review/revert this one non-secret field, root0600 only.
+    metadata = {"component_id": component["id"], "users_dn": PILOT_DN,
+                "old_search_scope": "2", "new_search_scope": "0"}
+    descriptor = os.open(backup_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+        json.dump(metadata, stream)
+        stream.write("\n")
+        stream.flush()
+        os.fsync(stream.fileno())
+    client.scope_write_path = path
+    client.request("PUT", path, payload={"config": {"searchScope": ["0"]}})
+    expected_component = copy.deepcopy(baseline)
+    expected_component["config"]["searchScope"] = ["0"]
+    require(client.request("GET", path) == expected_component, "UnexpectedProviderChangeAfterScopeRepair")
+    return {"status": "ExactPilotScopeRepaired", "user_dn_unchanged": True,
+            "secret_update_fields": 0, "other_configuration_unchanged": True,
+            "clients_disabled": True}
+
+
 def read_private_environment():
     metadata = ENV_FILE.lstat()
     require(stat.S_ISREG(metadata.st_mode) and metadata.st_uid == 0 and
@@ -168,22 +225,28 @@ def read_private_environment():
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--run", action="store_true", help="Perform reviewed checks; may import only the fixed synthetic pilot")
+    parser.add_argument("--repair-exact-pilot-scope", action="store_true", help="Plan only the fixed pilot's scope2-to0 correction; no directory widening")
+    parser.add_argument("--apply", action="store_true", help="Apply the reviewed exact-scope repair only")
     parser.add_argument("--expected-ad-guid", help="Non-secret canonical AD objectGUID of the fixed synthetic pilot")
     args = parser.parse_args()
-    if not args.run:
+    require(not args.apply or args.repair_exact_pilot_scope, "ApplyOnlyValidForScopeRepair")
+    require(not (args.run and args.repair_exact_pilot_scope), "SelectInventoryOrScopeRepair")
+    if not args.run and not args.repair_exact_pilot_scope:
         print(json.dumps({"status": "PlanOnly", "target": BASE, "pilot": "ssopilot-20261027",
                           "possible_single_pilot_import": True, "client_or_ad_changes": False}))
         return
     require(sys.platform == "linux" and os.geteuid() == 0, "RunRequiresApprovedLinuxRoot")
-    require(bool(args.expected_ad_guid), "ExpectedAdGuidRequired")
-    # Validate before any HTTP or credential-file read.
-    require(str(uuid.UUID(args.expected_ad_guid)) == args.expected_ad_guid, "ExpectedGuidMustBeCanonical")
+    if args.run:
+        require(bool(args.expected_ad_guid), "ExpectedAdGuidRequired")
+        # Validate before any HTTP or credential-file read.
+        require(str(uuid.UUID(args.expected_ad_guid)) == args.expected_ad_guid, "ExpectedGuidMustBeCanonical")
     addresses = subprocess.run(["hostname", "-I"], check=True, capture_output=True, text=True).stdout.split()
     require("192.168.100.19" in addresses, "WrongDeploymentHost")
     environment = read_private_environment()
     client = LocalAdminClient()
     client.login(environment["SSO_BOOTSTRAP_PASSWORD"])
-    result = inspect_pilot(client, environment, args.expected_ad_guid)
+    result = (repair_exact_pilot_scope(client, apply=args.apply) if args.repair_exact_pilot_scope else
+              inspect_pilot(client, environment, args.expected_ad_guid))
     print(json.dumps(result))
 
 
