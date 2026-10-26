@@ -48,7 +48,7 @@
 ### Task 4: Canonical rules and final evidence
 
 - [x] Update AGENTS.md and one canonical release record with156/source/platform paths/digests; require updating that record and pointers on every subsequent release.
-- [ ] Record tests, artifacts, deployment, acceptance and remaining limits; preserve precise commit/receipt identity. Verify clean task-only Git state and publish normal history without force.
+- [x] Record tests, artifacts, deployment, acceptance and remaining limits; preserve precise commit/receipt identity. Verify clean task-only Git state and publish normal history without force.
 
 ## Execution ledger
 
@@ -56,7 +56,7 @@
 - Ruling: no WorkTime migration merge is needed because WorkTime is outside this agent release; only the reviewed power0039 migration enters this provider.
 - Ruling: Context7 quota is exhausted. Integration reuses previously reviewed APIs without dependency changes; verify behavior with source/tests and use official documentation if new external-API behavior becomes necessary.
 - Ruling: fix ordinary authenticated uninstall before freezing155. Its deferred msi-enter callback must use exact prepared maintenance authority after MSI unpublication; initial full inspection, invalid-role/capture rejection and final native absence verification remain required. Historical149 immutable bytes are unchanged.
-- Ruling:155 remains an immutable test candidate and is NOT the published/default agent. Actual unassigned-device acceptance failed: no effective policy means no APPLIED delivery, so the180-second trial correctly rejected it. The original PC remains in protected failed-recovery state; do not relabel that trial as passed.
+- Ruling:155 remains an immutable test candidate and is NOT the published/default agent. Actual unassigned-device acceptance failed: no effective policy means no APPLIED delivery, so the180-second trial correctly rejected it. The original PC entered protected failed-recovery state; later recovery below does not relabel that trial as passed.
 - Ruling: continue the same authorized release as156. Add negotiated authenticated policy-readiness evidence, never assign monitoring rules or infer non-applicability from silence. Retain60-second stable connection,45-second heartbeat freshness and180-second deadline; any subsequent policy delivery revokes the no-policy evidence before application.
 - Ruling: use a protected OS gate, independent of filesystem publication, to revoke stale positive proof before any handshake/policy/disconnect transition. A failed write must not leave previously accepting proof usable. Hold the gate through actual acceptance; missing/foreign/abandoned objects fail closed.
 - Ruling: repair the180-second warm-launch boundary by settling the exact authenticated diagnostic worker before rollback. Never force-kill a native MSI or mutating helper. Unsettled mutation keeps recovery quarantine instead of attempting concurrent rollback.
@@ -68,13 +68,21 @@
 - [x] Complete TDD for explicit policy applicability, durable OS-backed revocation, and authenticated worker settlement; review combined patch and regenerate contracts.
 - [x] Allocate156 immutable source/binding, rebuild/sign both platforms and kit, run native full gates and current CI.155 source/artifacts remain untouched.
 - [x] Requalify Windows assigned and unassigned cases, clean no-proof compensation, Linux native upgrade/rollback/reconnect, and compatible provider before publication.
-- [ ] Resolve the original PC with supported, separately witnessed recovery; preserve protected state if prerequisites are absent. Never claim completion while its agent is quarantined.
+- [x] Resolve the original PC with supported, separately witnessed recovery; preserve protected state if prerequisites are absent. Never claim completion while its agent is quarantined.
 - [x] Publish only the successfully qualified shared release; update AGENTS.md and canonical version/path record after verified publication.
 
 ## Published156 evidence
 
 - Common runtime6ed41cd01d494e46111a452c2ae3a844f723175b; Windows binding/provider3e3528fbb07aa6abcece61a31adc8b7762048069; signed Linux kit metadata d007064792caa5f3b94d911c73b13214913a230c.
-- Final Windows suite5601 passed/419 skipped; native Linux4888 passed/1132 skipped plus71 follow-up tests; exacta90e1d8 PostgreSQL CI5109 passed/911 skipped. Generated contracts and full source diff check passed.
+- Final Windows suite5601 passed/419 skipped; native Linux4888 passed/1132 skipped plus71 follow-up tests; exact4425321 PostgreSQL CI5109 passed/911 skipped (run40373395703); deployed provider Python files223 match that main revision. Generated contracts and full source diff check passed.
 - Native Windows154->156 assigned, repeat, ordinary uninstall/reinstall, real reboot/replay, original no-proof67 clean rollback, and actual unassigned154->156 accepted73s passed. The fixture's exact original policy was restored and freshly applied. Native Linux155->156->155->156 and180-second quiet observation passed.
 - Published Setup156 and both stable update builds; created no fleet targets. Actual Console download matched signed Setup SHA92c17fddab6d1c4a32b322bb5a39855bc876c688f743684129fc4cfc412e4665. All8 public Linux files matched native-qualified digests over verified HTTPS; GET/HEAD200, listing/POST403, missing404. Temporary read-only QA identity retired with revoked sessions.
-- Canonical source of version/paths/limits: docs/releases/current-agent-release.json and AGENTS.md. Original PC155 failed-recovery restoration remains a separate active item; no historical rollback result has been rewritten.
+- Canonical source of version/paths/limits: docs/releases/current-agent-release.json and AGENTS.md. Original PC recovery completed through genuine native uninstall and separately witnessed negative archival; no historical rollback result has been rewritten.
+
+## Original affected PC: completed production156 acceptance
+
+- A signed, separately reviewed operator restored only the two exact captured public155 authority leaves after genuine complete native155 verification. The original selected155 bytes, displaced150 archive, private inputs and failed staged record were preserved. Native empty-MSI Begin/End returned0; the exact task Enabled bit was restored.
+- The cached original155 wrapper then completed an ordinary authenticated uninstall. Both150/155 products,248 components per package, two features, nine registry entries, three services and Agent binary root were verified absent; four private input hashes and SDDL remained unchanged. Fresh final capability and completed receipt were bound to the real child owner; no mutating process was force-killed.
+- A separate signed negative finalizer repeated native absence/private/retention evidence, durably copied and moved the exact original failed record with its native file identity and ACL intact, and retired only its exact recovery task. The new outcome is abort-after-native-uninstall; original historical rollback stays UNKNOWN. Qualified operator fixture suites152/19/30 are distinct from these actual host observations.
+- Published production Setup156 SHA92c17fddab6d1c4a32b322bb5a39855bc876c688f743684129fc4cfc412e4665 returned10, REPAIRED / SERVICE_RUNNING. Read-only preflight reports ALREADY_CURRENT, complete verified Foundation156/MSIab6cde32 and verified MSI-origin Core156/source6ed41cd, no provenance conflict or active/degraded update. Four private hashes and their exact captured SDDL are unchanged; no recovery tasks remain.
+- Production sees agent/launcher156 with one authenticated session created19:36:06Z and advancing heartbeat through19:39:36Z (210seconds). The LocalService process stayed stable across observations. Evidence: C:/endpoint-platform-wix-build/unified-3.2.156/qualification/original-pc-recovery-summary.json and its native/preflight/session receipts. No original-PC physical sleep/reboot, historical rollback success, or fleet-wide acceptance is inferred.

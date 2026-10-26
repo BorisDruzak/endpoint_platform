@@ -2,11 +2,11 @@
   "schema_version": 1,
   "version": "3.2.156",
   "status": "published",
-  "verified_utc": "2026-10-26T17:54:05.142669+00:00",
+  "verified_utc": "2026-10-26T19:39:41.550861+00:00",
   "runtime_source_commit": "6ed41cd01d494e46111a452c2ae3a844f723175b",
   "windows_packaging_commit": "3e3528fbb07aa6abcece61a31adc8b7762048069",
   "linux_kit_metadata_commit": "d007064792caa5f3b94d911c73b13214913a230c",
-  "verified_code_and_tests_commit": "a90e1d83377f1fa417d3896a15a69288c53562a4",
+  "verified_code_and_tests_commit": "4425321ca687b4788d51818a1234eea5fb95fa7d",
   "canonical_rules": "AGENTS.md#canonical-agent-release",
   "windows": {
     "setup": {
@@ -46,7 +46,8 @@
       "ordinary authenticated uninstall and reinstall",
       "real reboot and offline power replay",
       "original no-proof installer returns 67 and restores verified 154",
-      "154 to 156 with no assigned policy and explicit authenticated not_required; accepted in 73 seconds"
+      "154 to 156 with no assigned policy and explicit authenticated not_required; accepted in 73 seconds",
+      "Original affected PC: genuine155 uninstall and preserved negative recovery history, then production156 Setup REPAIRED with verified native MSI/Core, unchanged identity/ACL and one advancing WSS session."
     ]
   },
   "linux": {
@@ -102,7 +103,8 @@
     "release_directory": "/opt/endpoint-platform/releases/endpoint-platform-3e3528fbb07a",
     "migration": "0039_power_source_state",
     "compatible_provider_deployed_before_clients": true,
-    "api_worker_https_health": "verified"
+    "api_worker_https_health": "verified",
+    "all_provider_python_files_match_main": 223
   },
   "verification": {
     "windows_full_suite": {
@@ -122,7 +124,8 @@
     "github_postgresql_full_suite": {
       "passed": 5109,
       "skipped": 911,
-      "run_url": "https://github.com/BorisDruzak/endpoint_platform/actions/runs/40366193881"
+      "run_url": "https://github.com/BorisDruzak/endpoint_platform/actions/runs/40373395703",
+      "source_commit": "4425321ca687b4788d51818a1234eea5fb95fa7d"
     },
     "contracts": "generated artifacts check passed",
     "windows_source_bindings": {
@@ -137,12 +140,47 @@
       "linux_missing_file": 404,
       "tls_ca_and_hostname": "verified"
     },
-    "console_qa_identity": "disabled and sessions revoked after verification"
+    "console_qa_identity": "disabled and sessions revoked after verification",
+    "original_affected_pc": {
+      "status": "verified",
+      "verified_utc": "2026-10-26T19:39:41.550861+00:00",
+      "original_failed_trial_result": "preserved; historical native rollback UNKNOWN",
+      "recovery": [
+        "two captured canonical authority leaves restored after full native155 verification",
+        "genuine ordinary155 uninstall; both old/new products, components and three services verified absent",
+        "original failed record archived with native file identity and ACL preserved; exact old recovery task retired; separate abort-after-native-uninstall outcome"
+      ],
+      "installation": {
+        "setup_sha256": "92c17fddab6d1c4a32b322bb5a39855bc876c688f743684129fc4cfc412e4665",
+        "setup_exit_code": 10,
+        "setup_status": "REPAIRED",
+        "service_result": "SERVICE_RUNNING",
+        "version": "3.2.156",
+        "source_revision": "6ed41cd01d494e46111a452c2ae3a844f723175b",
+        "native_msi_sha256": "ab6cde32554798a18b446c8e33ce6f0926eba6a85439bc7224a08a88b25a1073",
+        "foundation_feature_state": "complete",
+        "native_foundation_verified": true,
+        "core_verified": true,
+        "provenance_conflict": false,
+        "active_or_degraded_update": false,
+        "private_files_preserved": 4,
+        "private_hashes_and_sddl_unchanged": true,
+        "recovery_tasks_remaining": 0
+      },
+      "runtime": {
+        "agent_service_account": "LocalService",
+        "one_session_since_installation": true,
+        "session_heartbeat_advance_seconds": 210.04,
+        "recent_authenticated_heartbeat_utc": "2026-10-26T19:39:36.652314+00:00",
+        "service_pid_stable_between_observations": true
+      },
+      "scope": "original affected PC; native fixture tests are distinct from actual product evidence; no historical rollback success or fleet rollout claim"
+    }
   },
   "limits": [
     "Windows Core-only update requires Foundation 3.2.156; use the full signed Setup to upgrade an older Foundation.",
     "No fleet update targets were created by this publication.",
-    "Windows native acceptance used a staging-configured signed wrapper with byte-identical production MSI/Core/PowerShell payload.",
+    "The Windows matrix used a staging-configured signed wrapper with production-identical MSI/Core/PowerShell bytes; the original affected PC additionally verified the published production Setup.",
     "Windows 149 historical rollback matrix and unsupported physical sleep/hibernate states were not newly qualified.",
     "Linux qualification covers native RPM upgrade/rollback; no new OTA crash-rollback or GUI/hardware acceptance is claimed.",
     "Incomplete WorkTime, Yandex/Opera and legacy deployment changes are outside this release."
