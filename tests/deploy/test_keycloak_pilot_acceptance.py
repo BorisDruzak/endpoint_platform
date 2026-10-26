@@ -163,7 +163,7 @@ def client_enable_api(runtime):
         listed = api["/admin/realms/sosnadmin/clients?clientId=" + client_id][0]
         listed["id"] = "id-" + client_id
         detail = json.loads(json.dumps(listed))
-        detail.update(protocol="openid-connect", redirectUris=[callback],
+        detail.update(protocol="openid-connect", redirectUris=[callback], webOrigins=[],
                       standardFlowEnabled=True, implicitFlowEnabled=False,
                       clientAuthenticatorType="client-secret")
         level = "1" if client_id == "worktime-employee" else "2"
@@ -184,11 +184,15 @@ def test_enabling_fixed_clients_is_explicit_and_preserves_detail_secrets(tmp_pat
         def request(self, method, path, **kwargs):
             if method == "PUT":
                 body = kwargs["payload"]
-                assert set(body) == {"id", "clientId", "protocol", "enabled"}
+                assert set(body) == {"id", "clientId", "protocol", "enabled", "webOrigins"}
                 assert body["enabled"] is True
+                assert body["webOrigins"] == []
                 assert path == "/admin/realms/sosnadmin/clients/" + body["id"]
                 self.calls.append((method, path, body, None))
                 api[path]["enabled"] = True
+                # Actual26.8.1 derives origin from redirectUris if webOrigins
+                # was omitted. An explicit empty list preserves the BFF setup.
+                api[path]["webOrigins"] = body.get("webOrigins", [api[path]["redirectUris"][0].rsplit("/api/", 1)[0]])
                 return None
             return super().request(method, path, **kwargs)
     client = Enabler(api)
@@ -215,3 +219,44 @@ def test_client_enable_refuses_wrong_callback_before_any_write(tmp_path):
         runtime.enable_pilot_clients(client, {"SSO_LDAP_BIND_DN": runtime.BIND_DN,
             "SSO_LDAP_BIND_PASSWORD": "TEST_BIND_PASSWORD_ONLY"}, GUID, apply=True, backup_path=tmp_path / "before.json")
     assert not any(call[0] == "PUT" for call in client.calls)
+
+
+def test_helpdesk_only_normalization_restore_preserves_other_fields_and_receipt(tmp_path):
+    runtime = module()
+    api = client_enable_api(runtime)
+    for client_id in runtime.CLIENTS:
+        api["/admin/realms/sosnadmin/clients/id-" + client_id]["webOrigins"] = []
+    helpdesk = api["/admin/realms/sosnadmin/clients/id-helpdesk-web"]
+    helpdesk["enabled"] = True
+    helpdesk["webOrigins"] = ["https://helpdesk.sosnadmin.local"]
+    receipt = tmp_path / "original.json"
+    original = {"pilot_ad_guid": GUID, "clients": [{"id": "id-" + name, "clientId": name,
+                "enabled": False, "redirectUris": [runtime.CLIENT_CALLBACKS[name]]} for name in runtime.CLIENTS]}
+    receipt.write_text(json.dumps(original))
+    before_receipt = receipt.read_bytes()
+    class Restorer(FakeClient):
+        def request(self, method, path, **kwargs):
+            if method == "PUT":
+                assert path.endswith("/id-helpdesk-web")
+                assert kwargs["payload"] == {"id": "id-helpdesk-web", "clientId": "helpdesk-web",
+                    "protocol": "openid-connect", "enabled": False, "webOrigins": []}
+                self.calls.append((method, path, kwargs["payload"], None))
+                helpdesk["enabled"] = False
+                helpdesk["webOrigins"] = []
+                return None
+            if "?clientId=" in path:
+                name = path.rsplit("=", 1)[1]
+                self.calls.append((method, path, None, None))
+                return [api["/admin/realms/sosnadmin/clients/id-" + name]]
+            return super().request(method, path, **kwargs)
+    client = Restorer(api)
+    backup = tmp_path / "recovery.json"
+    plan = runtime.restore_helpdesk_normalization(client, GUID, receipt_path=receipt, backup_path=backup)
+    assert plan["status"] == "HelpdeskNormalizationRestorePlan"
+    assert not backup.exists()
+    result = runtime.restore_helpdesk_normalization(client, GUID, apply=True, receipt_path=receipt, backup_path=backup)
+    assert result["status"] == "HelpdeskNormalizationRestoredAllClientsDisabled"
+    assert len([call for call in client.calls if call[0] == "PUT"]) == 1
+    assert receipt.read_bytes() == before_receipt
+    assert all(api["/admin/realms/sosnadmin/clients/id-" + name]["enabled"] is False for name in runtime.CLIENTS)
+    assert helpdesk["secret"] == "DUMMY_MEMORY_ONLY_CLIENT_SECRET"

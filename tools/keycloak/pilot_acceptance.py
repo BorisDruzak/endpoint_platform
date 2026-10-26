@@ -246,7 +246,7 @@ def read_private_environment():
 
 
 def enable_pilot_clients(client, environment, expected_guid, *, apply=False,
-                         backup_path=ENV_FILE.parent / "client-enable-before.json"):
+                         backup_path=ENV_FILE.parent / "client-enable-before-v2.json"):
     # Revalidate secure LDAP, exact single-user scope/GUID and required MFA;
     # this operation does not enable any application feature flag or role.
     inspect_pilot(client, environment, expected_guid)
@@ -261,7 +261,7 @@ def enable_pilot_clients(client, environment, expected_guid, *, apply=False,
                 detail.get("enabled") is False, "ClientListDetailIdentityMismatch")
         require(detail.get("protocol") == "openid-connect" and detail.get("clientAuthenticatorType") == "client-secret" and
                 detail.get("redirectUris") == [CLIENT_CALLBACKS[client_id]] and detail.get("standardFlowEnabled") is True and
-                detail.get("implicitFlowEnabled") is False, "UnexpectedClientProtocolOrCallback")
+                detail.get("implicitFlowEnabled") is False and detail.get("webOrigins") == [], "UnexpectedClientProtocolOrCallback")
         required_level = "1" if client_id == "worktime-employee" else "2"
         require(detail.get("attributes", {}).get("minimum.acr.value") == required_level and
                 detail["attributes"].get("default.acr.values") == "urn:sosnadmin:loa:" + required_level,
@@ -284,7 +284,10 @@ def enable_pilot_clients(client, environment, expected_guid, *, apply=False,
     completed = 0
     for client_id, path, baseline in prepared:
         require(client.request("GET", path) == baseline, "ClientDetailChangedBeforeEnable")
-        payload = {"id": baseline["id"], "clientId": client_id, "protocol": "openid-connect", "enabled": True}
+        #26.8.1 derives webOrigins from redirectUris when this field is omitted
+        # and current origins are empty. Keep the BFF's explicit empty origins.
+        payload = {"id": baseline["id"], "clientId": client_id, "protocol": "openid-connect",
+                   "enabled": True, "webOrigins": []}
         client.client_enable_payloads = {path: payload}
         try:
             client.request("PUT", path, payload=payload)
@@ -292,11 +295,66 @@ def enable_pilot_clients(client, environment, expected_guid, *, apply=False,
             expected["enabled"] = True
             require(client.request("GET", path) == expected, "UnexpectedClientChangeAfterEnable")
             completed += 1
-        except AcceptanceError:
-            raise AcceptanceError(f"ClientEnableStoppedAfter{completed}Of3") from None
+        except AcceptanceError as error:
+            raise AcceptanceError(f"ClientEnableVerificationStoppedAfter{completed}Of3:{error}") from None
     return {"status": "PilotClientsEnabledApplicationsUnchanged", "clients": list(CLIENTS),
             "application_flags_enabled": False, "roles_or_ad_changed": False,
             "browser_oidc_acceptance_still_required": True}
+
+
+def restore_helpdesk_normalization(client, expected_guid, *, apply=False,
+                                   receipt_path=ENV_FILE.parent / "client-enable-before.json",
+                                   backup_path=ENV_FILE.parent / "helpdesk-normalization-before.json"):
+    """Restore only the known first-client partial enable/derived-origin state.
+
+    The original receipt is read, never overwritten. No credentials/config
+    reconstruction occurs: the payload explicitly restores two non-secret
+    fields and the postcondition compares the complete current detail baseline.
+    """
+    require(not receipt_path.is_symlink() and receipt_path.is_file(), "OriginalEnableReceiptRequired")
+    receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    require(receipt.get("pilot_ad_guid") == expected_guid, "OriginalEnableReceiptGuidMismatch")
+    entries = receipt.get("clients", [])
+    require(len(entries) == 3 and {entry.get("clientId") for entry in entries} == set(CLIENTS), "OriginalEnableReceiptClientsMismatch")
+    helpdesk_detail = None
+    helpdesk_path = None
+    for client_id in CLIENTS:
+        old = next(entry for entry in entries if entry.get("clientId") == client_id)
+        require(old.get("enabled") is False and old.get("redirectUris") == [CLIENT_CALLBACKS[client_id]], "OriginalEnableReceiptStateMismatch")
+        listed = client.request("GET", PREFIX + "/clients?clientId=" + client_id)
+        require(len(listed) == 1 and listed[0].get("id") == old.get("id") and listed[0].get("clientId") == client_id, "RestoreClientIdentityMismatch")
+        path = PREFIX + "/clients/" + urllib.parse.quote(old["id"], safe="")
+        detail = client.request("GET", path)
+        require(detail.get("id") == old["id"] and detail.get("clientId") == client_id and
+                detail.get("redirectUris") == old["redirectUris"] and detail.get("protocol") == "openid-connect" and
+                detail.get("publicClient") is False and detail.get("directAccessGrantsEnabled") is False and
+                detail.get("serviceAccountsEnabled") is False, "RestoreClientConfigurationMismatch")
+        require(client.request("GET", path) == detail, "RestoreClientChangedConcurrently")
+        if client_id == "helpdesk-web":
+            require(detail.get("enabled") is True and detail.get("webOrigins") == ["https://helpdesk.sosnadmin.local"], "NotTheKnownHelpdeskNormalizationState")
+            helpdesk_detail, helpdesk_path = copy.deepcopy(detail), path
+        else:
+            require(detail.get("enabled") is False and detail.get("webOrigins") == [], "OtherPilotClientChanged")
+    if not apply:
+        return {"status": "HelpdeskNormalizationRestorePlan", "only_client": "helpdesk-web",
+                "restore_enabled": False, "restore_web_origins_empty": True, "original_receipt_preserved": True}
+    require(client.request("GET", helpdesk_path) == helpdesk_detail, "HelpdeskChangedBeforeRestore")
+    descriptor = os.open(backup_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+        json.dump({"id": helpdesk_detail["id"], "clientId": "helpdesk-web", "enabled": True,
+                   "webOrigins": ["https://helpdesk.sosnadmin.local"]}, stream)
+        stream.write("\n")
+        stream.flush()
+        os.fsync(stream.fileno())
+    payload = {"id": helpdesk_detail["id"], "clientId": "helpdesk-web", "protocol": "openid-connect",
+               "enabled": False, "webOrigins": []}
+    client.client_enable_payloads = {helpdesk_path: payload}
+    client.request("PUT", helpdesk_path, payload=payload)
+    expected = copy.deepcopy(helpdesk_detail)
+    expected.update(enabled=False, webOrigins=[])
+    require(client.request("GET", helpdesk_path) == expected, "UnexpectedClientChangeAfterNormalizationRestore")
+    return {"status": "HelpdeskNormalizationRestoredAllClientsDisabled", "original_receipt_preserved": True,
+            "secrets_or_application_config_changed": False}
 
 
 def main():
@@ -304,17 +362,18 @@ def main():
     parser.add_argument("--run", action="store_true", help="Perform reviewed checks; may import only the fixed synthetic pilot")
     parser.add_argument("--repair-exact-pilot-scope", action="store_true", help="Plan only the fixed pilot's scope2-to0 correction; no directory widening")
     parser.add_argument("--enable-pilot-clients", action="store_true", help="Plan fixed3clients only after full pilot inventory; add --apply to enable")
+    parser.add_argument("--restore-helpdesk-enable-normalization", action="store_true", help="Plan only the known first-client partial enable reversal; add --apply to restore")
     parser.add_argument("--apply", action="store_true", help="Apply the reviewed exact-scope repair only")
     parser.add_argument("--expected-ad-guid", help="Non-secret canonical AD objectGUID of the fixed synthetic pilot")
     args = parser.parse_args()
-    require(not args.apply or args.repair_exact_pilot_scope or args.enable_pilot_clients, "ApplyRequiresExplicitRepairOrEnableMode")
-    require(sum((args.run, args.repair_exact_pilot_scope, args.enable_pilot_clients)) <= 1, "SelectOneOperation")
-    if not args.run and not args.repair_exact_pilot_scope and not args.enable_pilot_clients:
+    require(not args.apply or args.repair_exact_pilot_scope or args.enable_pilot_clients or args.restore_helpdesk_enable_normalization, "ApplyRequiresExplicitRepairOrEnableMode")
+    require(sum((args.run, args.repair_exact_pilot_scope, args.enable_pilot_clients, args.restore_helpdesk_enable_normalization)) <= 1, "SelectOneOperation")
+    if not any((args.run, args.repair_exact_pilot_scope, args.enable_pilot_clients, args.restore_helpdesk_enable_normalization)):
         print(json.dumps({"status": "PlanOnly", "target": BASE, "pilot": "ssopilot-20261027",
                           "possible_single_pilot_import": True, "client_or_ad_changes": False}))
         return
     require(sys.platform == "linux" and os.geteuid() == 0, "RunRequiresApprovedLinuxRoot")
-    if args.run or args.enable_pilot_clients:
+    if args.run or args.enable_pilot_clients or args.restore_helpdesk_enable_normalization:
         require(bool(args.expected_ad_guid), "ExpectedAdGuidRequired")
         # Validate before any HTTP or credential-file read.
         require(str(uuid.UUID(args.expected_ad_guid)) == args.expected_ad_guid, "ExpectedGuidMustBeCanonical")
@@ -327,6 +386,8 @@ def main():
         result = repair_exact_pilot_scope(client, apply=args.apply)
     elif args.enable_pilot_clients:
         result = enable_pilot_clients(client, environment, args.expected_ad_guid, apply=args.apply)
+    elif args.restore_helpdesk_enable_normalization:
+        result = restore_helpdesk_normalization(client, args.expected_ad_guid, apply=args.apply)
     else:
         result = inspect_pilot(client, environment, args.expected_ad_guid)
     print(json.dumps(result))

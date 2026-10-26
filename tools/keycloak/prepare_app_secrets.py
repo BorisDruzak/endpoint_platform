@@ -117,6 +117,7 @@ def prepare_delivery(root: Path, *, endpoint_owner=None, apply=True):
         "OIDC_TOKEN_ENCRYPTION_KEY": helpdesk_key, "OIDC_PRIVILEGED_ACR": "urn:sosnadmin:loa:2",
         "OIDC_AD_GUID_CLAIM": "ad_object_guid", "OIDC_CA_FILE": "/etc/helpdesk/sso-ca.crt",
         "IDENTITY_RESOLVE_SERVICE_TOKEN": identity_credential,
+        "WORKTIME_PORTAL_URL": "https://endpoint.sosnadmin.local/employee",
     }
     candidates = {
         endpoint_env.with_name(endpoint_env.name + SUFFIX): candidate_environment(endpoint_original.decode("utf-8"), endpoint_updates).encode("utf-8"),

@@ -40,6 +40,7 @@ def test_delivery_prepares_disabled_candidates_and_preserves_active_configuratio
     assert "ENDPOINT_WORKTIME_ENABLED=false" in endpoint_candidate
     assert "OIDC_ENABLED=false" in helpdesk_candidate
     assert "OIDC_CLIENT_ID=helpdesk-web" in helpdesk_candidate
+    assert "WORKTIME_PORTAL_URL=https://endpoint.sosnadmin.local/employee" in helpdesk_candidate
     assert "OIDC_EMPLOYEE_CLIENT_ID=worktime-employee" in endpoint_candidate
     endpoint_key = (tmp_path / "etc/endpoint-platform/secrets/oidc-token-encryption-key").read_bytes().strip()
     helpdesk_key = next(line.split("=", 1)[1] for line in helpdesk_candidate.splitlines() if line.startswith("OIDC_TOKEN_ENCRYPTION_KEY="))
