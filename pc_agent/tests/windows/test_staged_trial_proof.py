@@ -1,17 +1,53 @@
 """A native success is provisional until a fresh connected runtime proves health."""
 from types import SimpleNamespace
 import json
+from contextlib import contextmanager
+import threading
 from uuid import uuid4
 
 import pytest
 from dataclasses import replace
 
 from pc_agent.platform.windows import durable_state, installer_fence
+from pc_agent.platform.windows.staged_trial_gate import live_candidate as retained_candidate
 from pc_agent.tests.windows.test_staged_update_state import staged, begin, move, native_protected_root
 
 
 @pytest.fixture
-def trial(staged, monkeypatch):
+def fake_gates(monkeypatch):
+    """Explicit OS-boundary double; production has no file/POSIX fallback."""
+    from pc_agent.platform.windows import staged_trial_gate as gate
+    objects = {}
+    class FakeGate:
+        def __init__(self, shared): self.shared = shared
+        @contextmanager
+        def locked(self, **_):
+            with self.shared.lock:
+                self.shared.depth += 1
+                try: yield self
+                finally: self.shared.depth -= 1
+        def reset(self): self.shared.ready = False
+        def publish(self): self.shared.ready = True
+        def ready(self): return self.shared.ready
+        def close(self): pass
+    def create(request, owner):
+        objects[gate._names(request)] = SimpleNamespace(lock=threading.RLock(), depth=0, ready=False)
+    def opened(request):
+        try: return FakeGate(objects[gate._names(request)])
+        except KeyError: raise FileNotFoundError('missing fake gate') from None
+    @contextmanager
+    def candidate(paths, binding, pid, created):
+        assert created == 123
+        yield SimpleNamespace(assert_alive=lambda: None)
+    monkeypatch.setattr(gate, 'create_trial_gate', create)
+    monkeypatch.setattr(gate, 'open_gate', opened)
+    monkeypatch.setattr(gate, 'process_created', lambda: 123)
+    monkeypatch.setattr(gate, 'live_candidate', candidate)
+    return objects
+
+
+@pytest.fixture
+def trial(staged, monkeypatch, fake_gates):
     from pc_agent.platform.windows import staged_trial_proof as proof
     from pc_agent.platform.windows import installation_provenance as provenance
     state, paths, binding, owner = staged
@@ -36,6 +72,66 @@ def decide(trial, elapsed, stable):
     clock[0] = int((100 + elapsed) * 1e9)
     return proof.staged_trial_decision(paths, binding.operation_id, attempt,
         elapsed_seconds=elapsed, stable_seconds=stable)
+
+
+@pytest.mark.parametrize('negotiated,readiness,expected', [
+    (True, 'not_required', 'accept'),
+    (True, 'required', 'waiting'),
+    (True, None, 'waiting'),
+    (False, 'not_required', 'waiting'),
+])
+def test_trial_requires_explicit_negotiated_policy_readiness(trial, negotiated, readiness, expected):
+    _, _, _, _, writer, _ = trial
+    hello = SimpleNamespace(protocol_features=['endpoint.policy-readiness.v1'] if negotiated else [],
+                            policy_readiness=readiness)
+    assert writer.record_handshake(hello)
+    assert decide(trial, 59, 59) == 'waiting'
+    assert writer.record_heartbeat()
+    assert decide(trial, 60, 60) == expected
+
+
+def test_policy_delivery_revokes_not_required_before_an_applied_ack(trial):
+    _, _, _, _, writer, _ = trial
+    assert writer.record_handshake(SimpleNamespace(protocol_features=['endpoint.policy-readiness.v1'],
+                                                  policy_readiness='not_required'))
+    assert decide(trial, 60, 60) == 'waiting'
+    assert writer.record_heartbeat()
+    assert decide(trial, 60, 60) == 'accept'
+    assert writer.record_policy_delivery()
+    assert decide(trial, 60, 60) == 'waiting'
+    assert writer.record_policy_ack(SimpleNamespace(status='ERROR'))
+    assert decide(trial, 60, 60) == 'waiting'
+    assert writer.record_policy_ack(SimpleNamespace(status='APPLIED'))
+    assert decide(trial, 60, 60) == 'accept'
+
+
+def test_reconnect_to_legacy_provider_drops_not_required_proof(trial):
+    _, _, _, _, writer, _ = trial
+    assert writer.record_handshake(SimpleNamespace(protocol_features=['endpoint.policy-readiness.v1'],
+                                                  policy_readiness='not_required'))
+    assert decide(trial, 60, 60) == 'waiting'
+    assert writer.record_heartbeat()
+    assert decide(trial, 60, 60) == 'accept'
+    assert writer.record_disconnected()
+    assert writer.record_handshake()
+    assert writer.record_heartbeat()
+    assert decide(trial, 120, 60) == 'waiting'
+
+
+def test_policy_arrival_hook_runs_before_failed_policy_application():
+    import asyncio
+    from pc_agent.runtime.lifecycle import _handle_inbound
+    calls = []
+    async def received(): calls.append('received')
+    async def apply(_):
+        calls.append('apply')
+        raise RuntimeError('owned policy application failure')
+    async def send(_): calls.append('ack')
+    inbound = SimpleNamespace(root=SimpleNamespace(kind='endpoint_policy_delivery', payload=object()))
+    with pytest.raises(RuntimeError, match='owned policy application failure'):
+        asyncio.run(_handle_inbound(SimpleNamespace(send_policy_ack=send), object(), inbound,
+                                    policy_handler=apply, after_policy_delivery=received))
+    assert calls == ['received', 'apply']
 
 
 def test_fresh_trial_retires_previous_proof_before_waiting_for_handshake(trial):
@@ -165,6 +261,173 @@ def test_writer_failure_is_nonfatal(trial, monkeypatch):
     monkeypatch.setattr(proof, '_write_proof', denied)
     assert writer.record_handshake() is False
     assert writer.record_heartbeat() is False
+
+
+@pytest.mark.parametrize('transition', ['policy_delivery', 'disconnected', 'required_handshake'])
+def test_failed_revocation_cannot_accept_previous_durable_proof(trial, monkeypatch, transition):
+    proof, paths, _, _, writer, _ = trial
+    assert writer.record_handshake(SimpleNamespace(protocol_features=['endpoint.policy-readiness.v1'],
+                                                  policy_readiness='not_required'))
+    assert decide(trial, 58, 58) == 'waiting'
+    assert writer.record_heartbeat()
+    previous = (paths.updates_root / 'staged-trial-proof.json').read_bytes()
+    assert decide(trial, 59, 59) == 'waiting'
+    def denied(*_, **__): raise PermissionError('publication denied')
+    monkeypatch.setattr(proof, '_write_proof', denied)
+    if transition == 'policy_delivery': assert not writer.record_policy_delivery()
+    elif transition == 'disconnected': assert not writer.record_disconnected()
+    else: assert not writer.record_handshake(SimpleNamespace(protocol_features=[], policy_readiness=None))
+    assert (paths.updates_root / 'staged-trial-proof.json').read_bytes() == previous
+    assert decide(trial, 60, 60) != 'accept'
+
+
+@pytest.mark.parametrize('transition', ['policy_delivery', 'disconnected', 'required_handshake'])
+def test_gate_revocation_precedes_even_request_read_failure(trial, monkeypatch, transition):
+    proof, _, _, _, writer, _ = trial
+    writer.record_handshake(SimpleNamespace(protocol_features=['endpoint.policy-readiness.v1'],
+                                           policy_readiness='not_required'))
+    decide(trial, 58, 58)
+    writer.record_heartbeat()
+    request = proof._request
+    def denied(*_):
+        assert writer.gate.shared.depth == 1
+        assert not writer.gate.ready()
+        raise PermissionError('request denied')
+    monkeypatch.setattr(proof, '_request', denied)
+    if transition == 'policy_delivery': assert not writer.record_policy_delivery()
+    elif transition == 'disconnected': assert not writer.record_disconnected()
+    else: assert not writer.record_handshake()
+    monkeypatch.setattr(proof, '_request', request)
+    assert decide(trial, 60, 60) != 'accept'
+
+
+def _ready(trial):
+    writer = trial[4]
+    assert writer.record_handshake()
+    decide(trial, 60, 60)
+    assert writer.record_heartbeat()
+    assert writer.record_policy_ack(SimpleNamespace(status='APPLIED'))
+    assert decide(trial, 60, 60) == 'accept'
+
+
+def test_valid_file_without_os_gate_cannot_authorize(trial, fake_gates):
+    _ready(trial)
+    fake_gates.clear()
+    assert decide(trial, 60, 60) == 'waiting'
+
+
+def test_busy_publication_withholds_snapshot_without_premature_rollback(trial, monkeypatch):
+    proof, paths, _, _, _, _ = trial
+    _ready(trial)
+    opened = proof.gate.open_gate
+    @contextmanager
+    def busy():
+        raise proof.gate.GateBusy('publication still holds mutex')
+        yield
+    def contended(request):
+        boundary = opened(request)
+        boundary.locked = busy
+        return boundary
+    monkeypatch.setattr(proof.gate, 'open_gate', contended)
+    assert proof.read_staged_trial_proof(paths) is None
+    assert decide(trial, 60, 60) == 'waiting'
+    assert decide(trial, 180, 60) == 'rollback'
+    monkeypatch.setattr(proof.gate, 'open_gate', opened)
+    assert decide(trial, 61, 61) == 'accept'
+
+
+def test_stale_pid_or_untrusted_candidate_cannot_authorize(trial, monkeypatch):
+    proof, _, _, _, _, _ = trial
+    _ready(trial)
+    @contextmanager
+    def rejected(*_):
+        raise proof.gate.GateUnavailable('candidate process has died or changed')
+        yield
+    monkeypatch.setattr(proof.gate, 'live_candidate', rejected)
+    assert decide(trial, 60, 60) == 'rollback'
+
+
+def test_old_file_shape_without_process_creation_cannot_authorize(trial):
+    _, paths, _, _, _, _ = trial
+    _ready(trial)
+    leaf = paths.updates_root / 'staged-trial-proof.json'
+    value = json.loads(leaf.read_bytes())
+    del value['process_created']
+    leaf.write_text(json.dumps(value))
+    assert decide(trial, 60, 60) == 'rollback'
+
+
+def test_accept_rechecks_gate_and_holds_lock_through_state_advance(trial, monkeypatch):
+    proof, paths, binding, attempt, writer, _ = trial
+    _ready(trial)
+    advance = proof.state.advance_staged_update
+    calls = []
+    def checked(*args, **kwargs):
+        assert writer.gate.shared.depth == 1
+        assert writer.gate.ready()
+        calls.append('accepted under gate')
+        return advance(*args, **kwargs)
+    monkeypatch.setattr(proof.state, 'advance_staged_update', checked)
+    writer.record_policy_delivery()
+    with durable_state.installer_mutation_checkpoints(lambda: None):
+        with pytest.raises(ValueError):
+            proof.accept_staged_trial(paths, binding.operation_id, attempt, elapsed_seconds=60, stable_seconds=60)
+        assert not calls
+        writer.record_policy_ack(SimpleNamespace(status='APPLIED'))
+        proof.accept_staged_trial(paths, binding.operation_id, attempt, elapsed_seconds=60, stable_seconds=60)
+    assert calls == ['accepted under gate']
+
+
+def test_runtime_lifetime_cannot_publish_under_a_later_attempt(trial):
+    from pc_agent.platform.windows import staged_update_state as state
+    proof, paths, binding, first, writer, _ = trial
+    assert writer.record_handshake()
+    with durable_state.installer_mutation_checkpoints(lambda: None):
+        record = state.read_staged_update(paths)
+        state._write(paths, replace(record, phase='native-settled', attempt_id=None))
+        second = proof.begin_staged_trial(paths, binding.operation_id)
+    assert first != second
+    assert not writer.record_handshake()
+    assert not (paths.updates_root / 'staged-trial-proof.json').exists()
+
+
+def test_candidate_exit_after_accepted_write_cannot_retract_receipt(trial, monkeypatch):
+    proof, paths, binding, attempt, writer, _ = trial
+    candidate = SimpleNamespace(value={'created': 123, 'hash': 'a' * 64}, closed=False,
+        image_path=paths.versions_root / binding.candidate_version / 'pc_agent.exe')
+    def alive():
+        if candidate.closed: raise proof.gate.GateUnavailable('candidate exited after commit')
+    candidate.assert_alive = alive
+    candidate.close = lambda: None
+    from pc_agent.platform.windows import installation_provenance as provenance
+    core = SimpleNamespace(version=binding.candidate_version, source_revision=binding.candidate_source_revision,
+        tree_sha256=binding.candidate_tree_sha256, files=(SimpleNamespace(path='pc_agent.exe', sha256='a' * 64),))
+    monkeypatch.setattr(proof.gate, '_CandidateProcess', lambda _: candidate)
+    monkeypatch.setattr(proof.gate, 'live_candidate', retained_candidate)
+    monkeypatch.setattr(provenance, '_inspect_core_value', lambda *_: SimpleNamespace(identity=core))
+    _ready(trial)
+    advance = proof.state.advance_staged_update
+    def accepted_then_exit(*args, **kwargs):
+        result = advance(*args, **kwargs)
+        assert result.phase == 'accepted'
+        candidate.closed = True
+        return result
+    monkeypatch.setattr(proof.state, 'advance_staged_update', accepted_then_exit)
+    with durable_state.installer_mutation_checkpoints(lambda: None):
+        receipt = proof.accept_staged_trial(paths, binding.operation_id, attempt, elapsed_seconds=60, stable_seconds=60)
+    assert receipt.phase == 'accepted'
+    assert proof.state.read_staged_update(paths).phase == 'accepted'
+
+
+def test_failed_accept_commit_still_raises_and_retains_trial(trial, monkeypatch):
+    proof, paths, binding, attempt, _, _ = trial
+    _ready(trial)
+    def denied(*_, **__): raise PermissionError('journal commit denied')
+    monkeypatch.setattr(proof.state, 'advance_staged_update', denied)
+    with durable_state.installer_mutation_checkpoints(lambda: None):
+        with pytest.raises(PermissionError, match='journal commit denied'):
+            proof.accept_staged_trial(paths, binding.operation_id, attempt, elapsed_seconds=60, stable_seconds=60)
+    assert proof.state.read_staged_update(paths).phase == 'trial'
 
 
 def test_accepted_is_durable_before_cleanup(trial, monkeypatch):

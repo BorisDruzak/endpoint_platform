@@ -25,6 +25,22 @@
       "title": "Maximum Message Bytes",
       "type": "integer"
     },
+    "policy_readiness": {
+      "anyOf": [
+        {
+          "enum": [
+            "required",
+            "not_required"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Policy Readiness"
+    },
     "policy_revision": {
       "maximum": 9223372036854775807,
       "minimum": 0,
@@ -41,11 +57,12 @@
           "endpoint.sensor-health.v1",
           "endpoint.recovery-update.v2",
           "endpoint.telemetry-results.v1",
-          "endpoint.power-events.v1"
+          "endpoint.power-events.v1",
+          "endpoint.policy-readiness.v1"
         ],
         "type": "string"
       },
-      "maxItems": 8,
+      "maxItems": 9,
       "title": "Protocol Features",
       "type": "array"
     },

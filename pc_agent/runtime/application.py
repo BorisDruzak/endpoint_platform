@@ -158,8 +158,14 @@ def _default_dependencies(
 
     async def after_handshake(actual_settings):
         await _startup_proof_hook(actual_settings)
+
+    async def after_gateway_hello(hello):
         if staged_writer is not None:
-            staged_writer.record_handshake()
+            staged_writer.record_handshake(hello)
+
+    async def after_policy_delivery():
+        if staged_writer is not None:
+            staged_writer.record_policy_delivery()
 
     async def after_heartbeat():
         if staged_writer is not None:
@@ -598,6 +604,8 @@ def _default_dependencies(
         create_transport=create_transport,
         load_hello=_load_hello,
         after_server_handshake=after_handshake,
+        after_gateway_hello=after_gateway_hello,
+        after_policy_delivery=after_policy_delivery,
         after_heartbeat_sent=after_heartbeat,
         after_policy_ack_sent=after_policy_ack,
         after_server_disconnected=after_disconnected,
@@ -768,6 +776,7 @@ def _load_hello(settings: object) -> AgentHelloV1:
             features.append("endpoint.recovery-update.v2")
         features.append("endpoint.telemetry-results.v1")
         features.append("endpoint.power-events.v1")
+        features.append("endpoint.policy-readiness.v1")
         if features:
             values["protocol_features"] = features
     return compatibility_agent_hello(platform=platform).model_copy(update=values)

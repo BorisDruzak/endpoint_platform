@@ -145,6 +145,8 @@ class RuntimeDependencies:
     sleep: Callable[[float], Awaitable[None]] = asyncio.sleep
     heartbeat_sleep: Callable[[float], Awaitable[None]] = asyncio.sleep
     after_server_handshake: Callable[[object], Awaitable[None]] = _noop_after_handshake
+    after_gateway_hello: Callable[[GatewayHelloV1], Awaitable[None]] = _noop_after_handshake
+    after_policy_delivery: Callable[[], Awaitable[None]] = _noop_after_event
     after_heartbeat_sent: Callable[[], Awaitable[None]] = _noop_after_event
     after_policy_ack_sent: Callable[[EndpointPolicyAckV1], Awaitable[None]] = _noop_after_policy
     after_server_disconnected: Callable[[], Awaitable[None]] = _noop_after_event
@@ -273,6 +275,7 @@ class RuntimeLifecycle:
                         endpoint_state="connected",
                         update_state=self._update_state,
                     )
+                    await self._dependencies.after_gateway_hello(gateway_hello)
                     await self._dependencies.after_server_handshake(self._settings)
                     connected_tasks = self._dependencies.create_connected_tasks(
                         self._settings, credential, transport
@@ -293,6 +296,8 @@ class RuntimeLifecycle:
                         activity_policy_ack_sent=self._dependencies.activity_policy_ack_sent,
                         after_heartbeat_sent=self._dependencies.after_heartbeat_sent,
                         after_policy_ack_sent=self._dependencies.after_policy_ack_sent,
+                        after_policy_delivery=self._dependencies.after_policy_delivery,
+                        after_server_disconnected=self._dependencies.after_server_disconnected,
                     ), service_tasks)
                     raise GatewayTerminalError(
                         "Gateway connected loops stopped unexpectedly"
@@ -509,6 +514,8 @@ async def _run_connected(
     activity_policy_ack_sent: Callable[[], None] | None = None,
     after_heartbeat_sent: Callable[[], Awaitable[None]] = _noop_after_event,
     after_policy_ack_sent: Callable[[EndpointPolicyAckV1], Awaitable[None]] = _noop_after_policy,
+    after_policy_delivery: Callable[[], Awaitable[None]] = _noop_after_event,
+    after_server_disconnected: Callable[[], Awaitable[None]] = _noop_after_event,
 ) -> None:
     """Run receive and heartbeat loops for the lifetime of one connection."""
     tasks = {
@@ -517,6 +524,7 @@ async def _run_connected(
             security_ack_handler, security_policy_ack_sent,
             activity_policy_ack_sent,
             after_policy_ack_sent,
+            after_policy_delivery,
             telemetry_result_handler,
             power_ack_handler,
         )),
@@ -547,6 +555,9 @@ async def _run_connected(
                 raise error
         raise asyncio.CancelledError()
     finally:
+        # Revoke this connection before a cancelled telemetry task can stall its
+        # cleanup. Later heartbeat/policy callbacks cannot revive a closed proof.
+        await _cleanup(after_server_disconnected)
         for task in tasks:
             task.cancel()
         for task in tasks:
@@ -565,6 +576,7 @@ async def _receive_loop(
     security_policy_ack_sent: Callable[[], None] | None,
     activity_policy_ack_sent: Callable[[], None] | None,
     after_policy_ack_sent: Callable[[EndpointPolicyAckV1], Awaitable[None]] = _noop_after_policy,
+    after_policy_delivery: Callable[[], Awaitable[None]] = _noop_after_event,
     telemetry_result_handler: Callable[[TelemetryResultV1], Awaitable[bool]] | None = None,
     power_ack_handler: Callable[[PowerEventAckV1], Awaitable[bool]] | None = None,
 ) -> None:
@@ -579,6 +591,7 @@ async def _receive_loop(
             security_policy_ack_sent=security_policy_ack_sent,
             activity_policy_ack_sent=activity_policy_ack_sent,
             after_policy_ack_sent=after_policy_ack_sent,
+            after_policy_delivery=after_policy_delivery,
         )
 
 
@@ -617,6 +630,7 @@ async def _handle_inbound(
     security_policy_ack_sent: Callable[[], None] | None = None,
     activity_policy_ack_sent: Callable[[], None] | None = None,
     after_policy_ack_sent: Callable[[EndpointPolicyAckV1], Awaitable[None]] = _noop_after_policy,
+    after_policy_delivery: Callable[[], Awaitable[None]] = _noop_after_event,
 ) -> None:
     """Handle the bounded server-to-agent messages owned by the common runtime."""
     if inbound.root.kind == "result_ack":
@@ -627,6 +641,7 @@ async def _handle_inbound(
         send_ack = getattr(transport, "send_policy_ack", None)
         if policy_handler is None or not callable(send_ack):
             raise GatewayTerminalError("Endpoint Policy runtime is unavailable")
+        await after_policy_delivery()
         ack = await policy_handler(inbound.root.payload)
         await send_ack(ack)
         await after_policy_ack_sent(ack)

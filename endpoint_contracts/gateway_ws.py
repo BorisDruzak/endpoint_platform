@@ -33,6 +33,7 @@ from .power_events import PowerEventBatchV1, PowerEventAckV1
 MAX_SEQUENCE_V1 = 2**63 - 1
 MAX_CAPABILITIES_V1 = 64
 MAX_GATEWAY_MESSAGE_BYTES_V1 = 1024 * 1024
+POLICY_READINESS_FEATURE = "endpoint.policy-readiness.v1"
 
 BoundedVersionV1 = Annotated[
     str,
@@ -73,9 +74,10 @@ ProtocolFeatureV1 = Literal[
     "endpoint.recovery-update.v2",
     "endpoint.telemetry-results.v1",
     "endpoint.power-events.v1",
+    "endpoint.policy-readiness.v1",
 ]
 ProtocolFeaturesV1 = Annotated[
-    list[ProtocolFeatureV1], Field(strict=True, max_length=8)
+    list[ProtocolFeatureV1], Field(strict=True, max_length=9)
 ]
 
 
@@ -124,6 +126,9 @@ class GatewayHelloV1(ContractModelV1):
     server_time: AwareDatetime
     # Legacy peers forbid unknown fields, including an empty feature list.
     protocol_features: ProtocolFeaturesV1 = Field(default_factory=list, exclude_if=lambda value: not value)
+    policy_readiness: Literal["required", "not_required"] | None = Field(
+        default=None, exclude_if=lambda value: value is None,
+    )
 
     @field_validator("protocol_features")
     @classmethod

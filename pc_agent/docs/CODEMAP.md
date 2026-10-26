@@ -193,7 +193,19 @@ new handshake clears prior observations. The owner also checks the running
 candidate process, resets its monotonic 60-second window on nonce changes, and
 enforces a 180-second total deadline. Acceptance is durably journaled before
 cleanup can unblock OTA. Existing OTA startup proof remains separate. A missing
-fresh policy ACK withholds acceptance; silence is never a no-assignment proof.
+fresh policy ACK withholds acceptance unless the authenticated Gateway explicitly
+negotiates `endpoint.policy-readiness.v1` and reports `not_required` for this
+device. Legacy peers still require APPLIED; policy delivery revokes the exemption
+before application and ACK. Disconnect revocation precedes connected-task cleanup.
+`platform/windows/staged_trial_gate.py` serializes publication and acceptance with
+protected Windows kernel objects. The currently authenticated elevated owner
+retains zero-access handles; LocalService with the fixed Agent service SID may
+publish. Every observation resets readiness before disk access, and acceptance
+retains the same mutex and exact live candidate identity through durable commit.
+Abandonment, invalid security and revocation failure withhold acceptance.
+At the unchanged trial deadline, Setup drains its retained helper before
+rollback. Only a verified read-only observer may be terminated; an unsettled
+mutating helper retains recovery-required state.
 
 `platform/windows/staged_foundation_rollback.py` binds compensation to the
 original unaccepted operation, preserved data capture and exact old/new media.

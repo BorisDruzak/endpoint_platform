@@ -689,7 +689,7 @@ def execute_staged_trial_phase(client, paths):
         _failed()
     with durable_state.installer_mutation_checkpoints(client.checkpoint):
         if client.phase == 'begin-staged-trial':
-            attempt = proof.begin_staged_trial(paths, record.binding.operation_id)
+            attempt = proof.begin_staged_trial(paths, record.binding.operation_id, owner=client.capability['owner'])
             result = {'result': 'staged-trial', 'operation_id': record.binding.operation_id, 'attempt_id': attempt}
         elif client.phase in {'observe-staged-trial', 'accept-staged-trial'}:
             request, _ = proof._request(paths)

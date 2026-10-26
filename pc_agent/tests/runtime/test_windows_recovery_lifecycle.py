@@ -11,7 +11,7 @@ from pc_agent.runtime import application
 from pc_agent.runtime.lifecycle import RuntimeLifecycle
 from pc_agent.runtime.status import RuntimeStatus
 from pc_agent.transport.websocket import GatewayTransportUnavailable
-from pc_agent.tests.runtime.test_headless_lifecycle import _Executor, _settings
+from pc_agent.tests.runtime.test_headless_lifecycle import _Executor, _settings, _Transport, _dependencies
 
 pytestmark = pytest.mark.usefixtures("protected_update_state_root")
 
@@ -30,7 +30,10 @@ async def test_composed_staged_writer_is_retained_across_connections(tmp_path, m
     events = []
     class Writer:
         def __init__(self, _): events.append('create')
-        def record_handshake(self): events.append('handshake')
+        def record_handshake(self, hello):
+            assert hello.policy_readiness == 'not_required'
+            events.append('handshake')
+        def record_policy_delivery(self): events.append('delivery')
         def record_heartbeat(self): events.append('heartbeat')
         def record_policy_ack(self, _): events.append('policy')
         def record_disconnected(self): events.append('disconnected')
@@ -40,12 +43,16 @@ async def test_composed_staged_writer_is_retained_across_connections(tmp_path, m
     monkeypatch.setattr(application, 'os', SimpleNamespace(name='nt'))
     settings = replace(_settings(tmp_path), transport_mode='gateway_wss')
     deps = application._default_dependencies(settings)
+    hello = SimpleNamespace(policy_readiness='not_required')
+    await deps.after_gateway_hello(hello)
     await deps.after_server_handshake(settings)
     await deps.after_heartbeat_sent()
+    await deps.after_policy_delivery()
     await deps.after_policy_ack_sent(object())
     await deps.after_server_disconnected()
+    await deps.after_gateway_hello(hello)
     await deps.after_server_handshake(settings)
-    assert events == ['create', 'ota', 'handshake', 'heartbeat', 'policy', 'disconnected', 'ota', 'handshake']
+    assert events == ['create', 'handshake', 'ota', 'heartbeat', 'delivery', 'policy', 'disconnected', 'handshake', 'ota']
 
 
 def _skip_initial_sleep(sleep):
@@ -58,6 +65,42 @@ def _skip_initial_sleep(sleep):
             return
         await sleep(delay)
     return scheduled_sleep
+
+
+@pytest.mark.asyncio
+async def test_disconnect_revokes_trial_before_waiting_for_slow_connected_cleanup(tmp_path):
+    from pc_agent.runtime.lifecycle import RetryableTransportError
+    started, cleanup_started, release_cleanup = asyncio.Event(), asyncio.Event(), asyncio.Event()
+    ready = [True]
+    events = []
+    async def connected_task():
+        started.set()
+        try:
+            await asyncio.Event().wait()
+        finally:
+            cleanup_started.set()
+            await release_cleanup.wait()
+    class FailingTransport(_Transport):
+        async def receive(self):
+            await started.wait()
+            raise RetryableTransportError('owned disconnect')
+    async def disconnected(): ready[0] = False
+    async def stop_after_backoff(_): raise asyncio.CancelledError()
+    deps = replace(_dependencies(events, []),
+        create_transport=lambda *_: FailingTransport(events),
+        create_connected_tasks=lambda *_: [connected_task()],
+        after_server_disconnected=disconnected, sleep=stop_after_backoff)
+    task = asyncio.create_task(application.RuntimeApplication(_settings(tmp_path), deps).run())
+    try:
+        await asyncio.wait_for(cleanup_started.wait(), 5)
+        assert ready[0] is False
+        assert not task.done()
+    finally:
+        release_cleanup.set()
+        try:
+            await asyncio.wait_for(task, 5)
+        except asyncio.CancelledError:
+            pass
 
 
 @pytest.mark.asyncio

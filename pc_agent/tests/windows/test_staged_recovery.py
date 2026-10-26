@@ -340,7 +340,7 @@ if(!$denied -or [Convert]::ToBase64String([IO.File]::ReadAllBytes($to)) -cne 'AQ
     assert result.stdout.strip() == 'passed'
 
 
-from pc_agent.tests.windows.test_staged_trial_proof import trial
+from pc_agent.tests.windows.test_staged_trial_proof import trial, fake_gates
 
 
 def test_reboot_marker_blocks_trial_until_actual_boot_changes(trial, monkeypatch, boot_markers):

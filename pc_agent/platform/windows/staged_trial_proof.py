@@ -7,11 +7,13 @@ import math
 import os
 import sys
 import time
+from contextlib import contextmanager, ExitStack
 from uuid import uuid4, UUID
 
 from . import durable_state, installer_fence, staged_update_state as state
 from .update_transaction import _read_state
 from .acl import PyWin32AclAdapter
+from . import staged_trial_gate as gate
 
 _LIMIT = 8192
 _REQUEST = 'staged-trial-request.json'
@@ -40,7 +42,7 @@ def _request(paths):
     return value, record
 
 
-def begin_staged_trial(paths, operation_id: str) -> str:
+def begin_staged_trial(paths, operation_id: str, *, owner=None) -> str:
     """Verify settled native bytes and select only the exact signed candidate."""
     from . import installation_provenance as provenance
     from .compound_upgrade_plan import has_active_upgrade
@@ -104,6 +106,7 @@ def begin_staged_trial(paths, operation_id: str) -> str:
     durable_state.write_json_atomic(root / _REQUEST, request, trusted_root=root, max_bytes=_LIMIT,
                                     protect=installer_fence.protect_state)
     state.advance_staged_update(paths, operation_id, 'native-settled', 'trial', attempt_id=attempt)
+    gate.create_trial_gate(request, owner)
     return attempt
 
 
@@ -125,58 +128,105 @@ class StagedTrialProofWriter:
     def __init__(self, paths):
         self.paths = paths
         self.proof = None
-
-    def _record(self, action, ack=None):
+        self.gate = None
+        self.request_sha256 = None
         try:
-            request, record = _request(self.paths)
-            if not _running_candidate(self.paths, record.binding):
-                return False
-            now = time.monotonic_ns()
-            if now < request['created_ns']:
-                return False
-            if action == 'handshake':
-                self.proof = {'operation_id': request['operation_id'], 'attempt_id': request['attempt_id'],
-                    'request_sha256': _digest(request), 'connection_nonce': str(uuid4()), 'pid': os.getpid(),
-                    'handshake_ns': now, 'heartbeat_ns': None, 'policy_ack': False, 'connected': True,
-                    'sequence': 0, 'last_event_ns': now}
-            elif (self.proof is None or self.proof['request_sha256'] != _digest(request)
-                    or now < self.proof['last_event_ns']):
-                return False
-            elif action == 'disconnected':
-                self.proof['connected'] = False
-            elif not self.proof['connected']:
-                return False
-            elif action == 'heartbeat':
-                self.proof['heartbeat_ns'] = now
-            elif action == 'policy':
-                self.proof['policy_ack'] = ack.status == 'APPLIED'
-            self.proof['sequence'] += 1
-            self.proof['last_event_ns'] = now
-            _write_proof(self.paths, self.proof)
-            return True
+            request, record = _request(paths)
+            if _running_candidate(paths, record.binding):
+                self.gate = gate.open_gate(request)
+                self.request_sha256 = _digest(request)
         except Exception:
-            # A failed publication causes withheld acceptance, never WSS failure.
+            pass  # A non-trial runtime has no publication authority.
+
+    def close(self):
+        if self.gate is not None:
+            self.gate.close()
+            self.gate = None
+
+    def __del__(self):
+        self.close()
+
+    def _record(self, action, ack=None, gateway_hello=None):
+        if self.gate is None:
+            return False
+        try:
+            # A timeout must not let the runtime continue an obligation while
+            # the previous Ready bit survives. Owners wait with a finite bound;
+            # the service waits until reset is serialized or abandonment fails
+            # the gate closed. No await is performed inside this boundary.
+            with self.gate.locked(timeout_ms=0xFFFFFFFF):
+                # Revoke independently of disk and BEFORE rereading a request,
+                # changing an obligation, or attempting another publication.
+                self.gate.reset()
+                try:
+                    result = self._record_locked(action, ack, gateway_hello)
+                except Exception:
+                    self.proof = None
+                    return False
+                if (result and self.proof['connected'] and self.proof['heartbeat_ns'] is not None
+                        and (self.proof['policy_ack'] or self.proof['policy_not_required'])):
+                    self.gate.publish()
+                return result
+        except Exception:
             self.proof = None
             return False
 
-    def record_handshake(self): return self._record('handshake')
+    def _record_locked(self, action, ack=None, gateway_hello=None):
+        request, record = _request(self.paths)
+        if _digest(request) != self.request_sha256 or not _running_candidate(self.paths, record.binding):
+            return False
+        now = time.monotonic_ns()
+        if now < request['created_ns']:
+            return False
+        if action == 'handshake':
+            self.proof = {'operation_id': request['operation_id'], 'attempt_id': request['attempt_id'],
+                'request_sha256': _digest(request), 'connection_nonce': str(uuid4()), 'pid': os.getpid(),
+                'process_created': gate.process_created(),
+                'handshake_ns': now, 'heartbeat_ns': None, 'policy_ack': False, 'connected': True,
+                'policy_not_required': (gateway_hello is not None
+                    and 'endpoint.policy-readiness.v1' in getattr(gateway_hello, 'protocol_features', ())
+                    and getattr(gateway_hello, 'policy_readiness', None) == 'not_required'),
+                'sequence': 0, 'last_event_ns': now}
+        elif (self.proof is None or self.proof['request_sha256'] != _digest(request)
+                or now < self.proof['last_event_ns']):
+            return False
+        elif action == 'disconnected':
+            self.proof['connected'] = False
+        elif not self.proof['connected']:
+            return False
+        elif action == 'heartbeat':
+            self.proof['heartbeat_ns'] = now
+        elif action == 'policy_delivery':
+            self.proof['policy_not_required'] = False
+            self.proof['policy_ack'] = False
+        elif action == 'policy':
+            self.proof['policy_ack'] = ack.status == 'APPLIED'
+        self.proof['sequence'] += 1
+        self.proof['last_event_ns'] = now
+        _write_proof(self.paths, self.proof)
+        return True
+
+    def record_handshake(self, gateway_hello=None): return self._record('handshake', gateway_hello=gateway_hello)
+    def record_policy_delivery(self): return self._record('policy_delivery')
     def record_heartbeat(self): return self._record('heartbeat')
     def record_policy_ack(self, ack): return self._record('policy', ack)
     def record_disconnected(self): return self._record('disconnected')
 
 
-def read_staged_trial_proof(paths):
-    request, _ = _request(paths)
+def _read_proof(paths, request):
     value = _read_state(paths.updates_root / _PROOF, _LIMIT)
     if value is None:
         return None
     fields = {'operation_id', 'attempt_id', 'request_sha256', 'connection_nonce', 'pid', 'handshake_ns',
               'heartbeat_ns', 'policy_ack', 'connected', 'sequence', 'last_event_ns'}
-    if (not isinstance(value, dict) or set(value) != fields
+    if (not isinstance(value, dict) or not fields <= set(value)
+            or set(value) - fields - {'policy_not_required', 'process_created'}
             or value['operation_id'] != request['operation_id'] or value['attempt_id'] != request['attempt_id']
             or value['request_sha256'] != _digest(request) or not _uuid(value['connection_nonce'])
             or any(type(value[key]) is not int or value[key] <= 0 for key in ('pid', 'sequence', 'handshake_ns', 'last_event_ns'))
             or type(value['policy_ack']) is not bool or type(value['connected']) is not bool
+            or ('policy_not_required' in value and type(value['policy_not_required']) is not bool)
+            or ('process_created' in value and (type(value['process_created']) is not int or value['process_created'] <= 0))
             or not request['created_ns'] <= value['handshake_ns'] <= value['last_event_ns'] <= time.monotonic_ns()
             or (value['heartbeat_ns'] is not None and (type(value['heartbeat_ns']) is not int
                 or not value['handshake_ns'] <= value['heartbeat_ns'] <= value['last_event_ns']))):
@@ -184,32 +234,72 @@ def read_staged_trial_proof(paths):
     return value
 
 
+@contextmanager
+def _snapshot(paths):
+    request, record = _request(paths)
+    try:
+        boundary = gate.open_gate(request)
+    except FileNotFoundError:
+        yield request, None, False, None
+        return
+    try:
+        with ExitStack() as stack:
+            try:
+                stack.enter_context(boundary.locked())
+            except gate.GateBusy:
+                yield request, None, False, None
+                return
+            current, current_record = _request(paths)
+            if current != request or current_record.binding != record.binding:
+                raise ValueError('UPDATE_STATE_INVALID')
+            value = _read_proof(paths, request)
+            ready = boundary.ready()
+            if ready:
+                if value is None or 'process_created' not in value:
+                    raise ValueError('UPDATE_STATE_INVALID')
+                with gate.live_candidate(paths, record.binding, value['pid'], value['process_created']) as candidate:
+                    yield request, value, True, candidate
+            else:
+                yield request, value, False, None
+    finally:
+        boundary.close()
+
+
+def read_staged_trial_proof(paths):
+    with _snapshot(paths) as (_, value, _ready, _candidate):
+        return value
+
+
+def _decision(request, proof, ready, operation_id, attempt_id, elapsed_seconds, stable_seconds):
+    if (any(type(value) not in (int, float) or not math.isfinite(value) or value < 0
+            for value in (elapsed_seconds, stable_seconds)) or stable_seconds > elapsed_seconds
+            or request['operation_id'] != operation_id or request['attempt_id'] != attempt_id
+            or elapsed_seconds >= 180):
+        return 'rollback'
+    if (not ready or proof is None or not proof['connected'] or proof['heartbeat_ns'] is None
+            or not (proof['policy_ack'] or proof.get('policy_not_required', False))):
+        return 'waiting'
+    now = time.monotonic_ns()
+    if (stable_seconds >= 60 and (now - proof['handshake_ns']) / 1e9 >= 60
+            and 0 <= (now - proof['heartbeat_ns']) / 1e9 <= 45):
+        return 'accept'
+    return 'waiting'
+
+
 def staged_trial_decision(paths, operation_id, attempt_id, *, elapsed_seconds, stable_seconds):
     try:
-        if (any(type(value) not in (int, float) or not math.isfinite(value) or value < 0
-                for value in (elapsed_seconds, stable_seconds)) or stable_seconds > elapsed_seconds):
-            return 'rollback'
-        request, _ = _request(paths)
-        if request['operation_id'] != operation_id or request['attempt_id'] != attempt_id:
-            return 'rollback'
-        if elapsed_seconds >= 180:
-            return 'rollback'
-        proof = read_staged_trial_proof(paths)
-        now = time.monotonic_ns()
-        if proof is None or not proof['connected'] or proof['heartbeat_ns'] is None or not proof['policy_ack']:
-            return 'waiting'
-        observed_stable = (now - proof['handshake_ns']) / 1e9
-        if (stable_seconds >= 60 and observed_stable >= 60
-                and 0 <= (now - proof['heartbeat_ns']) / 1e9 <= 45):
-            return 'accept'
-        return 'waiting'
+        with _snapshot(paths) as (request, proof, ready, _candidate):
+            return _decision(request, proof, ready, operation_id, attempt_id, elapsed_seconds, stable_seconds)
     except Exception:
         return 'rollback'
 
 
 def accept_staged_trial(paths, operation_id, attempt_id, *, elapsed_seconds, stable_seconds):
     durable_state.installer_mutation_checkpoint(required=True)
-    if staged_trial_decision(paths, operation_id, attempt_id,
-            elapsed_seconds=elapsed_seconds, stable_seconds=stable_seconds) != 'accept':
-        raise ValueError('UPDATE_STATE_INVALID')
-    return state.advance_staged_update(paths, operation_id, 'trial', 'accepted')
+    # Observe is only a snapshot. Re-open, revalidate and retain the same mutex
+    # through the durable transition so a concurrent revocation cannot race it.
+    with _snapshot(paths) as (request, proof, ready, candidate):
+        if _decision(request, proof, ready, operation_id, attempt_id, elapsed_seconds, stable_seconds) != 'accept':
+            raise ValueError('UPDATE_STATE_INVALID')
+        candidate.assert_alive()
+        return state.advance_staged_update(paths, operation_id, 'trial', 'accepted')

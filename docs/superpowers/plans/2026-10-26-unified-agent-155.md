@@ -56,3 +56,17 @@
 - Ruling: no WorkTime migration merge is needed because WorkTime is outside this agent release; only the reviewed power0039 migration enters this provider.
 - Ruling: Context7 quota is exhausted. Integration reuses previously reviewed APIs without dependency changes; verify behavior with source/tests and use official documentation if new external-API behavior becomes necessary.
 - Ruling: fix ordinary authenticated uninstall before freezing155. Its deferred msi-enter callback must use exact prepared maintenance authority after MSI unpublication; initial full inspection, invalid-role/capture rejection and final native absence verification remain required. Historical149 immutable bytes are unchanged.
+- Ruling:155 remains an immutable test candidate and is NOT the published/default agent. Actual unassigned-device acceptance failed: no effective policy means no APPLIED delivery, so the180-second trial correctly rejected it. The original PC remains in protected failed-recovery state; do not relabel that trial as passed.
+- Ruling: continue the same authorized release as156. Add negotiated authenticated policy-readiness evidence, never assign monitoring rules or infer non-applicability from silence. Retain60-second stable connection,45-second heartbeat freshness and180-second deadline; any subsequent policy delivery revokes the no-policy evidence before application.
+- Ruling: use a protected OS gate, independent of filesystem publication, to revoke stale positive proof before any handshake/policy/disconnect transition. A failed write must not leave previously accepting proof usable. Hold the gate through actual acceptance; missing/foreign/abandoned objects fail closed.
+- Ruling: repair the180-second warm-launch boundary by settling the exact authenticated diagnostic worker before rollback. Never force-kill a native MSI or mutating helper. Unsettled mutation keeps recovery quarantine instead of attempting concurrent rollback.
+- Ruling:155 native Linux qualification and Windows positive install/repeat/uninstall/repair/reboot replay passed, but clean rollback did not. Keep all artifacts/evidence. Do not count eventual fresh-owner recovery as original-call clean rollback.
+- Ruling: a proposed negative-abort operator tool is unshipped WIP outside the build tree. Its fake-adapter tests are not native authority. It must not execute without complete native uninstall evidence, disposable-fixture qualification, source review and explicit fixed-plan approval; no guard or trial proof has been manually changed.
+
+## Continuation:156 release gates
+
+- [ ] Complete TDD for explicit policy applicability, durable OS-backed revocation, and authenticated worker settlement; review combined patch and regenerate contracts.
+- [ ] Allocate156 immutable source/binding, rebuild/sign both platforms and kit, run native full gates and current CI.155 source/artifacts remain untouched.
+- [ ] Requalify Windows assigned and unassigned cases, clean no-proof compensation, Linux native upgrade/rollback/reconnect, and compatible provider before publication.
+- [ ] Resolve the original PC with supported, separately witnessed recovery; preserve protected state if prerequisites are absent. Never claim completion while its agent is quarantined.
+- [ ] Publish only the successfully qualified shared release; update AGENTS.md and canonical version/path record after verified publication.

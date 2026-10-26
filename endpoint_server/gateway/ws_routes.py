@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from functools import partial
 from ipaddress import IPv4Address, IPv6Address, ip_address
-from typing import Mapping
+from typing import Literal, Mapping
 
 from fastapi import APIRouter, HTTPException, WebSocket
 from starlette.websockets import WebSocketDisconnect
@@ -28,6 +28,7 @@ from endpoint_contracts.gateway_ws import (
     HeartbeatEnvelopeV1,
     SecurityEventBatchEnvelopeV1,
     PowerEventBatchEnvelopeV1,
+    POLICY_READINESS_FEATURE,
 )
 from endpoint_server.network import observed_client_address
 from endpoint_contracts.capabilities import MODULE_CAPABILITY_REGISTRY
@@ -52,6 +53,7 @@ from endpoint_server.policy.delivery import (
     supports_endpoint_policy,
     supports_endpoint_audit,
 )
+from endpoint_server.policy.service import resolve_effective_policy
 
 from .telemetry import ingest_optional_report
 
@@ -252,6 +254,16 @@ async def connect_agent(websocket: WebSocket) -> None:
                 frozenset(effective_capabilities),
             )
             await session.commit()
+        policy_readiness: Literal["required", "not_required"] | None = None
+        if POLICY_READINESS_FEATURE in connection.protocol_features:
+            if not websocket.app.state.settings.endpoint_policy_enabled:
+                policy_readiness = "not_required"
+            else:
+                async with websocket.app.state.session_provider() as session:
+                    effective_policy = await resolve_effective_policy(session, device_id)
+                policy_readiness = (
+                    "not_required" if effective_policy is None else "required"
+                )
         await connection.send(
             GatewayHelloEnvelopeV1(
                 schema_version="gateway_ws_envelope_v1",
@@ -265,8 +277,13 @@ async def connect_agent(websocket: WebSocket) -> None:
                     policy_revision=0,
                     effective_capabilities=effective_capabilities,
                     server_time=datetime.now(UTC),
-                    protocol_features=[feature for feature in (TELEMETRY_RESULTS_FEATURE, POWER_EVENTS_FEATURE)
-                        if feature in connection.protocol_features],
+                    protocol_features=[
+                        feature for feature in (
+                            TELEMETRY_RESULTS_FEATURE, POWER_EVENTS_FEATURE,
+                            POLICY_READINESS_FEATURE,
+                        ) if feature in connection.protocol_features
+                    ],
+                    policy_readiness=policy_readiness,
                 ),
             ),
         )
