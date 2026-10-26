@@ -49,6 +49,7 @@ Requires: systemd
 Summary: Unprivileged KDE session sensor for Endpoint Platform
 Group: System/Monitoring
 Requires: endpoint-agent = %{version}-%{release}
+Requires: libnotify
 
 %description user-sensor
 Optional per-user KDE Plasma 6 idle/foreground adapter. Uses the existing local

@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 from endpoint_contracts.activity import ActivityObservationV1
 from endpoint_contracts.endpoint_policy import EndpointPolicyV1
 from endpoint_contracts.security_events import SecurityEventV1
+from endpoint_contracts.worktime_companion import CompanionReplyV1
 from pc_agent.browser_protocol import BrowserBridgeAckV1
 from pc_agent.activity_ingress import (
     ActivityIngress as SharedActivityIngress, BrowserHeartbeatFact, _ack,
@@ -65,7 +66,8 @@ def handle_local_sensor_payload(
     on_observation: Callable[[ActivityObservationV1], None],
     on_security_event: Callable[[SecurityEventV1], bool] | None = None,
     received_at: datetime | None = None,
-) -> BrowserBridgeAckV1:
+    companion_handler=None,
+) -> BrowserBridgeAckV1 | CompanionReplyV1:
     """Authorize the writer of an already-framed request before projection."""
     try:
         identity = authorize_pipe_client(pipe_handle)
@@ -73,6 +75,10 @@ def handle_local_sensor_payload(
         reply = _ack("IDENTITY_MISMATCH")
     else:
         try:
+            from pc_agent.worktime_companion import handle_request
+            companion = handle_request(payload, user_login=resolve_user_login(identity), handler=companion_handler)
+            if companion is not None:
+                return companion
             current_policy = policy_provider()
             reply, observation = ingress.ingest(
                 payload, identity=identity, user_login=resolve_user_login(identity),
@@ -93,6 +99,7 @@ def create_activity_pipe_listener(
     on_observation: Callable[[ActivityObservationV1], None],
     on_security_event: Callable[[SecurityEventV1], bool] | None = None,
     pipe_name: str = PIPE_NAME,
+    companion_handler=None,
 ) -> LocalSensorPipeListener:
     """Bind the bounded pipe to OS-authorized, policy-gated activity projection."""
     def on_frame(pipe_handle: object, payload: bytes) -> bytes:
@@ -100,6 +107,7 @@ def create_activity_pipe_listener(
             pipe_handle, payload, ingress=ingress, policy_provider=policy_provider,
             on_observation=on_observation,
             on_security_event=on_security_event,
+            companion_handler=companion_handler,
         )
         return reply.model_dump_json().encode("utf-8")
 

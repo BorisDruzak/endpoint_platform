@@ -179,7 +179,7 @@ class LinuxSensorListener:
 
 
 def create_activity_listener(*, ingress, policy_provider, on_observation,
-                             on_security_event=None, socket_path=Path(SOCKET_PATH)):
+                             on_security_event=None, socket_path=Path(SOCKET_PATH), companion_handler=None):
     def handler(connection):
         credentials = struct.unpack('iII', connection.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED, 12))
         payload = read_frame(connection, expected_peer=credentials)
@@ -188,6 +188,13 @@ def create_activity_listener(*, ingress, policy_provider, on_observation,
         peer, current_credentials = authenticate_connection(connection)
         if current_credentials != credentials:
             raise LocalIpcRejected('IDENTITY_MISMATCH')
+        from pc_agent.worktime_companion import handle_request
+        companion = handle_request(payload,
+            user_login=peer.user_login if peer.session.active and not peer.session.locked else None,
+            handler=companion_handler)
+        if companion is not None:
+            write_frame(connection, companion.model_dump_json().encode('utf-8'))
+            return
         reply = project_payload(payload, peer=peer, ingress=ingress,
                                 policy_provider=policy_provider, on_observation=on_observation,
                                 on_security_event=on_security_event)

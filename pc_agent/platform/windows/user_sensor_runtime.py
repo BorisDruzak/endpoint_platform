@@ -48,11 +48,21 @@ def send_user_sample(sample: UserSessionSampleV1) -> BrowserBridgeAckV1:
         close_pipe(handle)
 
 
+def _companion_exchange(payload):
+    handle = connect_client_pipe()
+    try:
+        write_pipe_frame(handle, payload)
+        return read_pipe_frame(handle)
+    finally:
+        close_pipe(handle)
+
+
 def run_user_sensor(
     probe: SessionProbe,
     *,
     send: Callable[[UserSessionSampleV1], object] = send_user_sample,
     wait: Callable[[float], bool],
+    companion=None,
 ) -> None:
     """Keep sampling after transient pipe/service failures until logoff or stop."""
     try:
@@ -65,6 +75,8 @@ def run_user_sensor(
         sample = sample_user_session(probe)
         try:
             send(sample)
+            if companion is not None and sample.desktop_state == 'UNLOCKED':
+                companion.tick()
         except (OSError, LocalIpcRejected, ValidationError, win32_error):
             pass
         if wait(SAMPLE_INTERVAL_SECONDS):
@@ -96,7 +108,10 @@ def main() -> int:
         return 0
     handle, close = mutex
     try:
-        run_user_sensor(WindowsSessionProbe(), wait=Event().wait)
+        from pc_agent.platform.worktime_user import UserCompanion
+        from .worktime_notification import notify
+        run_user_sensor(WindowsSessionProbe(), wait=Event().wait,
+            companion=UserCompanion(_companion_exchange, notify))
     except KeyboardInterrupt:
         return 0
     finally:
