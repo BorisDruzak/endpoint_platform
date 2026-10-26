@@ -14,6 +14,8 @@ import pytest
 from pc_agent import alt_update_installer
 from pc_agent.alt_update_installer import apply_alt_update
 
+pytestmark = pytest.mark.skipif(os.name != "posix", reason="ALT native POSIX ownership and file modes")
+
 
 _OPERATION_ID = "caa31a48-bf2f-4f1c-8b77-d1be77e12b4e"
 

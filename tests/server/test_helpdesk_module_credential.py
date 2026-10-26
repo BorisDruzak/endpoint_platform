@@ -73,6 +73,7 @@ def test_helpdesk_module_credential_has_only_module_authoring_and_read_scopes() 
     )
 
 
+@pytest.mark.skipif(os.name != "posix", reason="Linux provisioning CLI requires POSIX private files")
 def test_write_private_token_file_creates_a_new_owner_only_file(tmp_path: Path) -> None:
     """Bearer material must never be printed or overwrite an existing file."""
     destination = tmp_path / "helpdesk-module-service-token"
@@ -88,6 +89,7 @@ def test_write_private_token_file_creates_a_new_owner_only_file(tmp_path: Path) 
 
 
 @pytest.mark.asyncio
+@pytest.mark.skipif(os.name != "posix", reason="Linux provisioning CLI requires POSIX private files")
 async def test_provisioning_creates_the_fixed_client_and_commits_only_after_private_write(
     tmp_path: Path,
 ) -> None:

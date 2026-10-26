@@ -32,7 +32,7 @@ async def test_power_frames_require_negotiation_and_canonical_envelope(tmp_path)
     assert socket.sent[0]["payload"] == batch.model_dump(mode="json")
 
 
-def test_wss_hello_advertises_power_within_eight_feature_bound(monkeypatch, tmp_path):
+def test_wss_hello_advertises_power_within_negotiated_feature_bound(monkeypatch, tmp_path):
     from pc_agent.runtime.application import RuntimeSettings
 
     monkeypatch.setattr(application, "read_enrollment_device_id", lambda _path: uuid4())
@@ -46,7 +46,8 @@ def test_wss_hello_advertises_power_within_eight_feature_bound(monkeypatch, tmp_
         )
     )
     assert "endpoint.power-events.v1" in hello.protocol_features
-    assert len(hello.protocol_features) <= 8
+    assert "endpoint.policy-readiness.v1" in hello.protocol_features
+    assert len(hello.protocol_features) <= 9
     # Hello's compatibility http-pull boot ID must not become native evidence.
     assert not hello.boot_id or hello.boot_id == "http-pull"
 

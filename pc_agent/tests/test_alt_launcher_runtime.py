@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -45,6 +46,7 @@ def test_explicit_alt_mode_selects_immutable_pending_path_and_installer(
     assert installer is apply_alt_update
 
 
+@pytest.mark.skipif(os.name != "posix", reason="ALT root rollback requires POSIX private files")
 def test_bad_headless_crash_requests_root_rollback_without_writing_selector(
     monkeypatch, tmp_path: Path
 ) -> None:

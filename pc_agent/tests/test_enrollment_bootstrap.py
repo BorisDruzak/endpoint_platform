@@ -20,6 +20,8 @@ from pc_agent.enrollment_bootstrap import (
     bootstrap_enrollment,
 )
 
+pytestmark = pytest.mark.skipif(os.name != "posix", reason="Linux systemd bootstrap and private POSIX files")
+
 
 _CLAIM = "ic_0123456789abcdef0123456789abcdef.abcdefghijklmnopqrstuvwxyzABCDEFG"
 _TOKEN = "A" * 43
