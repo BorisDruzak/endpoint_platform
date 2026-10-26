@@ -17,9 +17,9 @@ import stat
 import subprocess
 import tarfile
 
-VERSION = '3.2.155'
-AGENT_REVISION = '725739f19757d13942658fc07b8489b799b9f520'
-KIT_NAME = 'endpoint-alt-pilot-3.2.155-1'
+VERSION = '3.2.156'
+AGENT_REVISION = '6ed41cd01d494e46111a452c2ae3a844f723175b'
+KIT_NAME = 'endpoint-alt-pilot-3.2.156-1'
 ORIGIN = 'https://endpoint.sosnadmin.local'
 SCHEMA = 'endpoint_alt_pilot_kit_v2'
 RUNTIME = f'endpoint-agent-linux_amd64-{VERSION}.tar.gz'
@@ -42,10 +42,10 @@ PUBLISHER_FINGERPRINT = 'BC24B8EE43DBB05A748E11A4343B5DA748370631'
 PUBLISHER_KEY_SHA256 = '12175df39caa5a67336aeb002b5c71d3a9d3047961f5ad90cf959650044b456c'
 SIGNED_PACKAGES = (*INSTALL, 'cups-browsed-2.1.1-alt1.endpoint2.src.rpm')
 QUALIFIED_INPUTS = {
-    'endpoint-agent-3.2.155-alt5.x86_64.rpm': '6b0d5dd0949ab0f719664936267c2c47b2a2c8dda740986f7b1b31666daef0e5',
-    'endpoint-agent-user-sensor-3.2.155-alt5.x86_64.rpm': '4f40d9dfb65c671866686efc67d49001baef408e03d3334bd60b2928b5273254',
-    RUNTIME: '6a2c8adc9c88a5d12b5008740768135527bf9104ffdd3e997e59ff153ce5a746',
-    RUNTIME_MANIFEST: 'a03c40f81c09047a1f0bd65d29c8ad6f723da52c9a87e6e4492d6a32aadba753',
+    'endpoint-agent-3.2.156-alt5.x86_64.rpm': '0287f55321b7f69ce5f3036c866ff416af376c907a087052afb0f833cade0e9b',
+    'endpoint-agent-user-sensor-3.2.156-alt5.x86_64.rpm': '5688d7270c647fe87b2ce3ff37150c867d08dccc358b320e65e8fb58ef126daa',
+    RUNTIME: 'c2fb732693884e7779a95cf9fbbc931d5fd7253435ecb7483c5e722162981370',
+    RUNTIME_MANIFEST: '94f1b5242963a5b5ead2f41ac4c9a1b567ae490c42f89bb9c67e50d927529694',
     'cups-browsed-2.1.1-alt1.endpoint2.x86_64.rpm': 'f07200cab984e888c791114f98fac1f11e08b8f2c25aa50ec6a3939972a6a86e',
     'cups-browsed-2.1.1-alt1.x86_64.rpm': 'a21146530c236ceae04155c879b468923808c64238ee550c942dabc985974018',
     'cups-browsed-2.1.1-alt1.src.rpm': '4276876f261f2719ff3d453551af3c462f54a2ad963f4394d9b24509309ff624',
