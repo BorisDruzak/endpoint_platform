@@ -34,6 +34,11 @@ ENV_FILE = Path("/run/keycloak-provision-20261027/provision.env")
 BIND_DN = "CN=svc-keycloak-ldap,CN=Users,DC=sosnadmin,DC=local"
 PILOT_DN = "CN=ssopilot-20261027,OU=TEST,DC=sosnadmin,DC=local"
 CLIENTS = ("helpdesk-web", "endpoint-admin", "worktime-employee")
+CLIENT_CALLBACKS = {
+    "helpdesk-web": "https://helpdesk.sosnadmin.local/api/web/session/oidc/callback",
+    "endpoint-admin": "https://endpoint.sosnadmin.local/auth/admin/callback",
+    "worktime-employee": "https://endpoint.sosnadmin.local/auth/employee/callback",
+}
 MFA_ACR = "urn:sosnadmin:loa:2"
 STORAGE_PROVIDER_TYPE = "org.keycloak.storage.UserStorageProvider"
 
@@ -61,22 +66,29 @@ class NoRedirects(urllib.request.HTTPRedirectHandler):
 
 
 class LocalAdminClient:
-    def __init__(self):
+    def __init__(self, *, request_budget=16):
+        require(1 <= request_budget <= 32, "InvalidRequestBudget")
         self.opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirects())
         self.token = None
         self.requests = 0
         self.scope_write_path = None
+        self.client_enable_payloads = {}
+        self.request_budget = request_budget
 
     def request(self, method, path, *, payload=None, form=None, authenticated=True):
         scope_write = (method == "PUT" and path == self.scope_write_path and
                        payload == scope_update_payload() and form is None)
-        require(method == "GET" or (method == "POST" and path in {TOKEN_PATH, LDAP_TEST_PATH}) or scope_write, "MutationProhibited")
+        enable_write = (method == "PUT" and path in self.client_enable_payloads and
+                        payload == self.client_enable_payloads[path] and form is None)
+        require(method == "GET" or (method == "POST" and path in {TOKEN_PATH, LDAP_TEST_PATH}) or scope_write or enable_write, "MutationProhibited")
         if scope_write:
             self.scope_write_path = None  # Permit exactly one reviewed field update.
+        if enable_write:
+            del self.client_enable_payloads[path]
         require(path == TOKEN_PATH or path.startswith(PREFIX + "/") or path == PREFIX, "PathProhibited")
         require(not path.startswith("//") and ".." not in path and "\r" not in path and "\n" not in path, "PathProhibited")
         self.requests += 1
-        require(self.requests <= 16, "RequestBudgetExceeded")
+        require(self.requests <= self.request_budget, "RequestBudgetExceeded")
         headers = {"Accept": "application/json"}
         data = None
         if payload is not None:
@@ -233,31 +245,90 @@ def read_private_environment():
     return environment
 
 
+def enable_pilot_clients(client, environment, expected_guid, *, apply=False,
+                         backup_path=ENV_FILE.parent / "client-enable-before.json"):
+    # Revalidate secure LDAP, exact single-user scope/GUID and required MFA;
+    # this operation does not enable any application feature flag or role.
+    inspect_pilot(client, environment, expected_guid)
+    prepared = []
+    for client_id in CLIENTS:
+        listed = client.request("GET", PREFIX + "/clients?clientId=" + client_id)
+        require(len(listed) == 1 and listed[0].get("clientId") == client_id and
+                listed[0].get("enabled") is False and bool(listed[0].get("id")), "AmbiguousOrEnabledPilotClient")
+        path = PREFIX + "/clients/" + urllib.parse.quote(listed[0]["id"], safe="")
+        detail = client.request("GET", path)
+        require(detail.get("id") == listed[0]["id"] and detail.get("clientId") == client_id and
+                detail.get("enabled") is False, "ClientListDetailIdentityMismatch")
+        require(detail.get("protocol") == "openid-connect" and detail.get("clientAuthenticatorType") == "client-secret" and
+                detail.get("redirectUris") == [CLIENT_CALLBACKS[client_id]] and detail.get("standardFlowEnabled") is True and
+                detail.get("implicitFlowEnabled") is False, "UnexpectedClientProtocolOrCallback")
+        required_level = "1" if client_id == "worktime-employee" else "2"
+        require(detail.get("attributes", {}).get("minimum.acr.value") == required_level and
+                detail["attributes"].get("default.acr.values") == "urn:sosnadmin:loa:" + required_level,
+                "UnexpectedClientMinimumMfaLevel")
+        require(client.request("GET", path) == detail, "ClientDetailChangedConcurrently")
+        prepared.append((client_id, path, copy.deepcopy(detail)))
+    if not apply:
+        return {"status": "PilotClientEnablePlan", "clients": list(CLIENTS),
+                "pilot_guid_matches": True, "exact_callbacks_validated": True,
+                "mfa_configuration_validated": True, "applications_changed": False}
+    descriptor = os.open(backup_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+        # Non-secret rollback metadata, never full client representations.
+        json.dump({"pilot_ad_guid": expected_guid, "clients": [
+            {"id": detail["id"], "clientId": client_id, "enabled": False,
+             "redirectUris": detail["redirectUris"]} for client_id, _, detail in prepared]}, stream)
+        stream.write("\n")
+        stream.flush()
+        os.fsync(stream.fileno())
+    completed = 0
+    for client_id, path, baseline in prepared:
+        require(client.request("GET", path) == baseline, "ClientDetailChangedBeforeEnable")
+        payload = {"id": baseline["id"], "clientId": client_id, "protocol": "openid-connect", "enabled": True}
+        client.client_enable_payloads = {path: payload}
+        try:
+            client.request("PUT", path, payload=payload)
+            expected = copy.deepcopy(baseline)
+            expected["enabled"] = True
+            require(client.request("GET", path) == expected, "UnexpectedClientChangeAfterEnable")
+            completed += 1
+        except AcceptanceError:
+            raise AcceptanceError(f"ClientEnableStoppedAfter{completed}Of3") from None
+    return {"status": "PilotClientsEnabledApplicationsUnchanged", "clients": list(CLIENTS),
+            "application_flags_enabled": False, "roles_or_ad_changed": False,
+            "browser_oidc_acceptance_still_required": True}
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--run", action="store_true", help="Perform reviewed checks; may import only the fixed synthetic pilot")
     parser.add_argument("--repair-exact-pilot-scope", action="store_true", help="Plan only the fixed pilot's scope2-to0 correction; no directory widening")
+    parser.add_argument("--enable-pilot-clients", action="store_true", help="Plan fixed3clients only after full pilot inventory; add --apply to enable")
     parser.add_argument("--apply", action="store_true", help="Apply the reviewed exact-scope repair only")
     parser.add_argument("--expected-ad-guid", help="Non-secret canonical AD objectGUID of the fixed synthetic pilot")
     args = parser.parse_args()
-    require(not args.apply or args.repair_exact_pilot_scope, "ApplyOnlyValidForScopeRepair")
-    require(not (args.run and args.repair_exact_pilot_scope), "SelectInventoryOrScopeRepair")
-    if not args.run and not args.repair_exact_pilot_scope:
+    require(not args.apply or args.repair_exact_pilot_scope or args.enable_pilot_clients, "ApplyRequiresExplicitRepairOrEnableMode")
+    require(sum((args.run, args.repair_exact_pilot_scope, args.enable_pilot_clients)) <= 1, "SelectOneOperation")
+    if not args.run and not args.repair_exact_pilot_scope and not args.enable_pilot_clients:
         print(json.dumps({"status": "PlanOnly", "target": BASE, "pilot": "ssopilot-20261027",
                           "possible_single_pilot_import": True, "client_or_ad_changes": False}))
         return
     require(sys.platform == "linux" and os.geteuid() == 0, "RunRequiresApprovedLinuxRoot")
-    if args.run:
+    if args.run or args.enable_pilot_clients:
         require(bool(args.expected_ad_guid), "ExpectedAdGuidRequired")
         # Validate before any HTTP or credential-file read.
         require(str(uuid.UUID(args.expected_ad_guid)) == args.expected_ad_guid, "ExpectedGuidMustBeCanonical")
     addresses = subprocess.run(["hostname", "-I"], check=True, capture_output=True, text=True).stdout.split()
     require("192.168.100.19" in addresses, "WrongDeploymentHost")
     environment = read_private_environment()
-    client = LocalAdminClient()
+    client = LocalAdminClient(request_budget=32 if args.enable_pilot_clients else 16)
     client.login(environment["SSO_BOOTSTRAP_PASSWORD"])
-    result = (repair_exact_pilot_scope(client, apply=args.apply) if args.repair_exact_pilot_scope else
-              inspect_pilot(client, environment, args.expected_ad_guid))
+    if args.repair_exact_pilot_scope:
+        result = repair_exact_pilot_scope(client, apply=args.apply)
+    elif args.enable_pilot_clients:
+        result = enable_pilot_clients(client, environment, args.expected_ad_guid, apply=args.apply)
+    else:
+        result = inspect_pilot(client, environment, args.expected_ad_guid)
     print(json.dumps(result))
 
 

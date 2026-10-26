@@ -155,3 +155,63 @@ def test_scope_repair_refuses_scope_or_pilot_dn_drift_and_enabled_client(tmp_pat
         with pytest.raises(runtime.AcceptanceError):
             runtime.repair_exact_pilot_scope(FakeClient(api), apply=True, backup_path=backup)
         assert not backup.exists()
+
+
+def client_enable_api(runtime):
+    api = fixture_api(runtime)
+    for client_id, callback in runtime.CLIENT_CALLBACKS.items():
+        listed = api["/admin/realms/sosnadmin/clients?clientId=" + client_id][0]
+        listed["id"] = "id-" + client_id
+        detail = json.loads(json.dumps(listed))
+        detail.update(protocol="openid-connect", redirectUris=[callback],
+                      standardFlowEnabled=True, implicitFlowEnabled=False,
+                      clientAuthenticatorType="client-secret")
+        level = "1" if client_id == "worktime-employee" else "2"
+        detail["attributes"].update({"minimum.acr.value": level,
+                                    "default.acr.values": "urn:sosnadmin:loa:" + level})
+        # Detail-only fields model the actual API shape instead of reusing
+        # the collection object, and must not be sent back in enable payloads.
+        detail["access"] = {"view": True}
+        detail["secret"] = "DUMMY_MEMORY_ONLY_CLIENT_SECRET"
+        api["/admin/realms/sosnadmin/clients/id-" + client_id] = detail
+    return api
+
+
+def test_enabling_fixed_clients_is_explicit_and_preserves_detail_secrets(tmp_path):
+    runtime = module()
+    api = client_enable_api(runtime)
+    class Enabler(FakeClient):
+        def request(self, method, path, **kwargs):
+            if method == "PUT":
+                body = kwargs["payload"]
+                assert set(body) == {"id", "clientId", "protocol", "enabled"}
+                assert body["enabled"] is True
+                assert path == "/admin/realms/sosnadmin/clients/" + body["id"]
+                self.calls.append((method, path, body, None))
+                api[path]["enabled"] = True
+                return None
+            return super().request(method, path, **kwargs)
+    client = Enabler(api)
+    environment = {"SSO_LDAP_BIND_DN": runtime.BIND_DN, "SSO_LDAP_BIND_PASSWORD": "TEST_BIND_PASSWORD_ONLY"}
+    backup = tmp_path / "client-enable-before.json"
+    result = runtime.enable_pilot_clients(client, environment, GUID, apply=False, backup_path=backup)
+    assert result["status"] == "PilotClientEnablePlan"
+    assert not backup.exists()
+    assert not any(call[0] == "PUT" for call in client.calls)
+    client.calls.clear()
+    result = runtime.enable_pilot_clients(client, environment, GUID, apply=True, backup_path=backup)
+    assert result["status"] == "PilotClientsEnabledApplicationsUnchanged"
+    assert len([call for call in client.calls if call[0] == "PUT"]) == 3
+    assert "secret" not in backup.read_text().lower()
+    assert all(api["/admin/realms/sosnadmin/clients/id-" + client_id]["secret"] == "DUMMY_MEMORY_ONLY_CLIENT_SECRET" for client_id in runtime.CLIENTS)
+
+
+def test_client_enable_refuses_wrong_callback_before_any_write(tmp_path):
+    runtime = module()
+    api = client_enable_api(runtime)
+    api["/admin/realms/sosnadmin/clients/id-helpdesk-web"]["redirectUris"] = ["https://helpdesk.sosnadmin.local/*"]
+    client = FakeClient(api)
+    with pytest.raises(runtime.AcceptanceError):
+        runtime.enable_pilot_clients(client, {"SSO_LDAP_BIND_DN": runtime.BIND_DN,
+            "SSO_LDAP_BIND_PASSWORD": "TEST_BIND_PASSWORD_ONLY"}, GUID, apply=True, backup_path=tmp_path / "before.json")
+    assert not any(call[0] == "PUT" for call in client.calls)
