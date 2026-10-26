@@ -1,0 +1,126 @@
+import hashlib
+import importlib.util
+from pathlib import Path
+import re
+
+import pytest
+
+ROOT=Path(__file__).resolve().parents[2]
+SPEC=importlib.util.spec_from_file_location('query_safe_nginx',ROOT/'tools/release/apply_query_safe_nginx.py')
+MODULE=importlib.util.module_from_spec(SPEC)
+SPEC.loader.exec_module(MODULE)
+ASSET=ROOT/'deploy/server/endpoint-platform.nginx.conf'
+
+
+def test_endpoint_nginx_retains_safe_access_and_limits_error_suppression_to_callbacks():
+    text=ASSET.read_text(encoding='utf-8')
+    MODULE.validate_asset(ASSET.read_bytes(),'endpoint-platform')
+    for callback in ('/auth/admin/callback','/auth/employee/callback'):
+        location=re.search(r'location = '+callback+r'\s*\{(.*?)\}',text,re.S).group(1)
+        assert 'error_log /dev/null crit;' in location
+        assert 'proxy_pass http://127.0.0.1:8000;' in location
+        assert 'proxy_set_header X-Forwarded-For $remote_addr;' in location
+    assert text.count('error_log /dev/null crit;')==2
+    assert 'return 308 https://endpoint.sosnadmin.local$request_uri;' in text
+
+
+def test_wrong_site_or_sensitive_format_variables_are_rejected():
+    with pytest.raises(MODULE.ConfigurationError):
+        MODULE.validate_asset(ASSET.read_bytes(),'helpdesk')
+    for unsafe in (b'$request',b'$request_uri',b'$args',b'$http_referer'):
+        with pytest.raises(MODULE.ConfigurationError):
+            MODULE.validate_asset(ASSET.read_bytes().replace(b'$uri',unsafe),'endpoint-platform')
+
+
+@pytest.fixture
+def installation(tmp_path):
+    nginx=tmp_path/'nginx'
+    available=nginx/'sites-available'; available.mkdir(parents=True)
+    enabled=nginx/'sites-enabled'; enabled.mkdir()
+    target=available/'endpoint-platform'
+    old=b'# existing reviewed configuration\n'
+    target.write_bytes(old)
+    try:
+        (enabled/'endpoint-platform').symlink_to(target)
+    except OSError:
+        pytest.skip('Native symlink creation unavailable')
+    (nginx/'nginx.conf').write_text('events {}\nhttp {\n include '+str(enabled)+'/*;\n}\n')
+    source=tmp_path/'reviewed.conf'; source.write_bytes(ASSET.read_bytes())
+    commands=[]
+    def execute(command):
+        commands.append(command)
+        if command[:3]==['nginx','-t','-c']:
+            staged=Path(command[3]).read_text()
+            assert str(enabled/'endpoint-platform') not in staged
+            assert '.candidate-' in staged
+    kwargs=dict(nginx_root=nginx,backup_root=tmp_path/'backups',execute=execute,
+        check=lambda *_a,**_k:None)
+    digest=hashlib.sha256(source.read_bytes()).hexdigest()
+    return source,target,old,digest,commands,kwargs
+
+
+def test_plan_validates_isolated_candidate_and_never_reloads_or_changes_live_site(installation):
+    source,target,old,digest,commands,kwargs=installation
+    result=MODULE.apply_site(source,digest,'endpoint-platform',**kwargs)
+    assert result['status']=='PlanValidated' and target.read_bytes()==old
+    assert not any(command[0]=='systemctl' for command in commands)
+    assert not list(target.parent.glob('.*candidate-*'))
+    assert not list(kwargs['nginx_root'].glob('.query-safe-*'))
+
+
+def test_apply_backups_exact_old_bytes_and_second_apply_is_idempotent(installation):
+    source,target,old,digest,commands,kwargs=installation
+    result=MODULE.apply_site(source,digest,'endpoint-platform',apply=True,**kwargs)
+    assert result['status']=='Applied' and target.read_bytes()==source.read_bytes()
+    backups=list(kwargs['backup_root'].rglob('*.conf'))
+    assert len(backups)==1 and backups[0].read_bytes()==old
+    assert commands.count(['systemctl','reload','nginx'])==1
+    result=MODULE.apply_site(source,digest,'endpoint-platform',apply=True,**kwargs)
+    assert result['status']=='Unchanged'
+    assert commands.count(['systemctl','reload','nginx'])==1
+
+
+def test_failed_reload_restores_old_bytes_and_reloads_original(installation):
+    source,target,old,digest,commands,kwargs=installation
+    original=kwargs['execute']
+    def fail_once(command):
+        original(command)
+        if command==['systemctl','reload','nginx'] and commands.count(command)==1:
+            raise MODULE.ConfigurationError('simulated reload failure')
+    kwargs['execute']=fail_once
+    with pytest.raises(MODULE.ConfigurationError,match='original config restored and reloaded'):
+        MODULE.apply_site(source,digest,'endpoint-platform',apply=True,**kwargs)
+    assert target.read_bytes()==old
+    assert commands.count(['systemctl','reload','nginx'])==2
+
+
+def test_invalid_candidate_never_replaces_or_reloads_live_site(installation):
+    source,target,old,digest,commands,kwargs=installation
+    original=kwargs['execute']
+    def reject_candidate(command):
+        original(command)
+        if command[:3]==['nginx','-t','-c']:
+            raise MODULE.ConfigurationError('simulated candidate syntax failure')
+    kwargs['execute']=reject_candidate
+    with pytest.raises(MODULE.ConfigurationError,match='candidate syntax failure'):
+        MODULE.apply_site(source,digest,'endpoint-platform',apply=True,**kwargs)
+    assert target.read_bytes()==old
+    assert not any(command[0]=='systemctl' for command in commands)
+    assert not list(target.parent.glob('.*candidate-*'))
+
+
+def test_concurrent_target_edit_is_preserved_and_wrong_source_hash_never_runs_command(installation):
+    source,target,old,digest,commands,kwargs=installation
+    with pytest.raises(MODULE.ConfigurationError,match='checksum mismatch'):
+        MODULE.apply_site(source,'0'*64,'endpoint-platform',apply=True,**kwargs)
+    assert not commands
+    original=kwargs['execute']
+    def edit_during_validation(command):
+        original(command)
+        if command[:3]==['nginx','-t','-c']:
+            target.write_bytes(b'# concurrent administrator edit\n')
+    kwargs['execute']=edit_during_validation
+    with pytest.raises(MODULE.ConfigurationError,match='Target changed'):
+        MODULE.apply_site(source,digest,'endpoint-platform',apply=True,**kwargs)
+    assert target.read_bytes()==b'# concurrent administrator edit\n'
+    assert not any(command[0]=='systemctl' for command in commands)

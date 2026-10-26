@@ -377,3 +377,46 @@ new target to resolve uncertainty. Exact replay may succeed after the original
 attestation window expires. Source/contract/PostgreSQL test success establishes
 API behavior only; it is separate from provider deployment, native recovery,
 first targeting and fleet acceptance.
+# Callback-safe access logging
+
+The site asset defines `endpoint_platform_path_only` in nginx's HTTP context.
+Both HTTP and HTTPS servers write `/var/log/nginx/endpoint-platform.access.log`
+with method, `$uri`, status, bytes and timing, excluding query strings and
+Referer. Exact `/auth/admin/callback` and `/auth/employee/callback` locations
+discard nginx's unformatted upstream errors because those include raw URLs.
+Other nginx error diagnostics and application authentication audits remain.
+The API unit keeps `--no-access-log`; nginx supplies safe HTTP access metrics.
+
+For the existing `.19` installation, copy the reviewed config-only helper and
+the reviewed site asset to a private operator staging directory. Record both
+source revisions and file hashes. Run the default plan before explicit apply:
+
+```bash
+sudo python3 apply_query_safe_nginx.py --site endpoint-platform \
+  --source endpoint-platform.nginx.conf --source-sha256 REVIEWED_ASSET_SHA256
+sudo python3 apply_query_safe_nginx.py --site endpoint-platform \
+  --source endpoint-platform.nginx.conf --source-sha256 REVIEWED_ASSET_SHA256 --apply
+```
+
+`tools/release/apply_query_safe_nginx.py` requires the existing physical,
+root-owned `sites-available/endpoint-platform` and its exact enabled symlink.
+It locks configuration changes, validates an isolated complete nginx candidate,
+rejects concurrent edits, backs up the old bytes under
+`/var/backups/endpoint-platform/nginx/<old-sha256>.conf`, atomically installs,
+runs `nginx -t` and reloads nginx only when changed. Failure restores and
+validates/reloads the original. No app restart, environment flag, TLS, DB or
+unrelated site is modified. An unchanged asset causes no reload.
+
+The helper also accepts the independent `helpdesk` profile using that
+repository's reviewed asset and separate backup/log paths; it never merges
+the services. It supports only the approved existing `.19` layout. A staging
+host with different site names, paths or proxy ports requires its own reviewed
+profile; do not replace it with the production asset.
+
+Before apply, run `tools/release/verify_query_safe_nginx.py --site endpoint-platform
+--asset endpoint-platform.nginx.conf` where nginx is installed. This starts an
+independent temporary loopback process with a deliberately failing upstream;
+it verifies 502 callback path/status/metrics and zero synthetic code/state/
+Referer sentinel occurrences. It never reads private historical logs or touches
+the live nginx service. Keep existing private log retention/access controls;
+this procedure does not print, copy or delete historical credential-bearing logs.
