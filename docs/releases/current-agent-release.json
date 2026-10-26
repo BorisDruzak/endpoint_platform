@@ -1,0 +1,152 @@
+{
+  "schema_version": 1,
+  "version": "3.2.156",
+  "status": "published",
+  "verified_utc": "2026-10-26T17:54:05.142669+00:00",
+  "runtime_source_commit": "6ed41cd01d494e46111a452c2ae3a844f723175b",
+  "windows_packaging_commit": "3e3528fbb07aa6abcece61a31adc8b7762048069",
+  "linux_kit_metadata_commit": "d007064792caa5f3b94d911c73b13214913a230c",
+  "verified_code_and_tests_commit": "a90e1d83377f1fa417d3896a15a69288c53562a4",
+  "canonical_rules": "AGENTS.md#canonical-agent-release",
+  "windows": {
+    "setup": {
+      "filename": "EndpointAgentSetup-3.2.156-x64.exe",
+      "sha256": "92c17fddab6d1c4a32b322bb5a39855bc876c688f743684129fc4cfc412e4665",
+      "size": 145896304,
+      "authenticode": "Valid with timestamp",
+      "operator_path": "C:\\endpoint-platform-wix-build\\staged-3.2.156-6ed41cd\\native-setup-build\\releases\\EndpointAgentSetup-3.2.156-x64.exe",
+      "server_path": "/var/lib/endpoint-platform/artifacts/EndpointAgentSetup-3.2.156-x64.exe",
+      "console_url": "https://endpoint.sosnadmin.local/admin/enrollment",
+      "download_url": "https://endpoint.sosnadmin.local/api/admin/console/installer/releases/f1f81b7a-7f99-4050-86b6-4fe65fd95365/download"
+    },
+    "msi": {
+      "filename": "EndpointAgent-3.2.156-x64.msi",
+      "sha256": "ab6cde32554798a18b446c8e33ce6f0926eba6a85439bc7224a08a88b25a1073",
+      "authenticode": "Valid with timestamp"
+    },
+    "runtime_source_binding": "packaging/windows/initial-runtime-3.2.156.json",
+    "installed_core_tree_sha256": "18782bc34c6a58e327df32dead7a8abe0d4cb12bfc7fd46694709e8688e0bca8",
+    "update": {
+      "schema_version": "update_build_manifest_v1",
+      "build_identifier": "agent-windows-unified32156-6ed41cd",
+      "version": "3.2.156",
+      "platform": "windows_amd64",
+      "channel": "stable",
+      "artifact_url": "https://endpoint.sosnadmin.local/agent/v1/updates/artifacts/agent-windows-unified32156-6ed41cd",
+      "artifact_name": "endpoint-agent-windows_amd64-3.2.156.zip",
+      "archive_type": "zip",
+      "sha256": "21ca92ede7b18ef35076d10b4c7d2b9dee2507ca0d7e17fb8fc8604e178bcf25",
+      "size": 22866442,
+      "release_notes": "Unified agent with power history, resilient telemetry and installation recovery.",
+      "minimum_launcher_version": "3.2.156"
+    },
+    "qualified_native_paths": [
+      "154 to 156 with assigned policy",
+      "repeat without file or process mutation",
+      "ordinary authenticated uninstall and reinstall",
+      "real reboot and offline power replay",
+      "original no-proof installer returns 67 and restores verified 154",
+      "154 to 156 with no assigned policy and explicit authenticated not_required; accepted in 73 seconds"
+    ]
+  },
+  "linux": {
+    "distribution": "ALT 11 x86_64",
+    "core_rpm": {
+      "filename": "endpoint-agent-3.2.156-alt5.x86_64.rpm",
+      "sha256": "0287f55321b7f69ce5f3036c866ff416af376c907a087052afb0f833cade0e9b"
+    },
+    "user_sensor_rpm": {
+      "filename": "endpoint-agent-user-sensor-3.2.156-alt5.x86_64.rpm",
+      "sha256": "5688d7270c647fe87b2ce3ff37150c867d08dccc358b320e65e8fb58ef126daa"
+    },
+    "kit": {
+      "name": "endpoint-alt-pilot-3.2.156-1",
+      "operator_directory": "C:\\endpoint-platform-wix-build\\unified-3.2.156\\linux-kit",
+      "server_directory": "/srv/endpoint-platform-distribution/alt/endpoint-alt-pilot-3.2.156-1",
+      "download_url": "https://endpoint.sosnadmin.local/downloads/alt/endpoint-alt-pilot-3.2.156-1/endpoint-alt-pilot-3.2.156-1.tar.gz",
+      "manifest_url": "https://endpoint.sosnadmin.local/downloads/alt/endpoint-alt-pilot-3.2.156-1/endpoint-alt-pilot-3.2.156-1.manifest.json",
+      "public_file_sha256": {
+        "endpoint-alt-pilot-3.2.156-1.manifest.json": "c74f20dbb15d92808e5b11da582cf1ae73c1760cfdd71c7686298a069f71a004",
+        "README.ru.md": "01afa7bec0ab05dd5598ef32f239fea2e4e5baa0c89168117541e01cb271e467",
+        "endpoint-rpm-release.asc": "12175df39caa5a67336aeb002b5c71d3a9d3047961f5ad90cf959650044b456c",
+        "endpoint-alt-pilot-3.2.156-1.tar.gz.sig": "a071acb082481f9d59409f264aa3a0e8e579f7338890293961caff51bb11ef68",
+        "endpoint-alt-pilot-3.2.156-1.tar.gz": "071720bbda4c1fc81152a1fd4fa004c02b096f9ecf162bac996b2c0dd746f2c9",
+        "endpoint-alt-pilot-3.2.156-1.manifest.sig": "48d469638c3b8500e0de08ee8aaf37b2a2c5ce77d9d375f3403f495aea3c8362",
+        "endpoint-alt-pilot-3.2.156-1.tar.gz.sha256": "037660af3e1d80d5789aa918e147c1b56f444ce1d127013be735f0a2d0c149d0",
+        "endpoint-alt-pilot-3.2.156-1.manifest.sha256": "8e81de60068189db8d2ec6cb75441c4a550719903d74653b20e2ef71e37465b5"
+      },
+      "publisher_openpgp_fingerprint": "BC24B8EE43DBB05A748E11A4343B5DA748370631"
+    },
+    "update": {
+      "schema_version": "update_build_manifest_v1",
+      "build_identifier": "agent-linux-unified32156-6ed41cd",
+      "version": "3.2.156",
+      "platform": "linux_amd64",
+      "channel": "stable",
+      "artifact_url": "https://endpoint.sosnadmin.local/agent/v1/updates/artifacts/agent-linux-unified32156-6ed41cd",
+      "artifact_name": "endpoint-agent-linux_amd64-3.2.156.tar.gz",
+      "archive_type": "tar.gz",
+      "sha256": "c2fb732693884e7779a95cf9fbbc931d5fd7253435ecb7483c5e722162981370",
+      "size": 21681357,
+      "release_notes": "Unified agent with power history, resilient telemetry and installation recovery."
+    },
+    "qualified_native_paths": [
+      "155 to 156 to 155 to 156 using signed RPMs",
+      "identity/configuration/credential/CA preservation",
+      "fresh policy APPLIED and authenticated TLS connection",
+      "180-second quiet observation; stable processes and zero new power-event loss"
+    ]
+  },
+  "provider": {
+    "commit": "3e3528fbb07aa6abcece61a31adc8b7762048069",
+    "release_directory": "/opt/endpoint-platform/releases/endpoint-platform-3e3528fbb07a",
+    "migration": "0039_power_source_state",
+    "compatible_provider_deployed_before_clients": true,
+    "api_worker_https_health": "verified"
+  },
+  "verification": {
+    "windows_full_suite": {
+      "command": "python -m pytest tests pc_agent/tests -q -o faulthandler_timeout=120",
+      "passed": 5601,
+      "skipped": 419
+    },
+    "linux_native_full_suite": {
+      "passed": 4888,
+      "skipped": 1132,
+      "source_commit": "3e3528fbb07aa6abcece61a31adc8b7762048069"
+    },
+    "linux_followup_at_test_commit": {
+      "passed": 71,
+      "skipped": 0
+    },
+    "github_postgresql_full_suite": {
+      "passed": 5109,
+      "skipped": 911,
+      "run_url": "https://github.com/BorisDruzak/endpoint_platform/actions/runs/40366193881"
+    },
+    "contracts": "generated artifacts check passed",
+    "windows_source_bindings": {
+      "source_files": 220,
+      "frozen_entrypoint_closures": 11,
+      "readiness_bytecode_matches_reviewed_source": true
+    },
+    "public_downloads": {
+      "windows_actual_console_click_sha256_and_signature": "verified",
+      "linux_eight_get_head_digests": "verified",
+      "linux_listing_post": 403,
+      "linux_missing_file": 404,
+      "tls_ca_and_hostname": "verified"
+    },
+    "console_qa_identity": "disabled and sessions revoked after verification"
+  },
+  "limits": [
+    "Windows Core-only update requires Foundation 3.2.156; use the full signed Setup to upgrade an older Foundation.",
+    "No fleet update targets were created by this publication.",
+    "Windows native acceptance used a staging-configured signed wrapper with byte-identical production MSI/Core/PowerShell payload.",
+    "Windows 149 historical rollback matrix and unsupported physical sleep/hibernate states were not newly qualified.",
+    "Linux qualification covers native RPM upgrade/rollback; no new OTA crash-rollback or GUI/hardware acceptance is claimed.",
+    "Incomplete WorkTime, Yandex/Opera and legacy deployment changes are outside this release."
+  ],
+  "operator_evidence_directory": "C:\\endpoint-platform-wix-build\\unified-3.2.156",
+  "update_rule": "For every subsequent agent release, update AGENTS.md version and artifact paths, this record including source/digests/URLs/limits, runtime version, Windows source binding and Linux kit metadata after actual published-download verification. Preserve immutable historical packages."
+}

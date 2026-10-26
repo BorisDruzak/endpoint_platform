@@ -1,5 +1,12 @@
 # Endpoint Agent Windows MSI
 
+The current published release is **3.2.156**. Its exact packages, source revisions,
+download links and qualification limits are recorded in
+[`docs/releases/current-agent-release.json`](../../docs/releases/current-agent-release.json).
+Use `initial-runtime-3.2.156.json` for this release; older immutable bindings below
+remain historical build inputs. The Core update requires Foundation 3.2.156;
+upgrade an older Foundation with the full signed Setup first.
+
 This directory builds one machine-wide x64 MSI for the headless Endpoint
 Agent. It uses the neutral core, non-GUI launcher, and fixed Windows service
 host PyInstaller specifications; the legacy Helpdesk/GUI agent specifications

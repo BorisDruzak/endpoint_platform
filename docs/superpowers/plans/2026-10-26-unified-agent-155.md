@@ -1,4 +1,4 @@
-# Unified Windows and Linux Agent 3.2.155 Implementation Plan
+# Unified Windows and Linux Agent Release Plan (155 to 156)
 
 > **For agentic workers:** Use superpowers:executing-plans for integration; independent release preparation and final review may run in parallel.
 
@@ -24,7 +24,7 @@
 - Source-bound frozen helpers and Core must contain both lineages, including Setup log isolation.
 - Provider migration and nonfatal telemetry negotiation must remain compatible with existing149/150 agents.
 - Old149 rollback helper cannot be repaired by replacing immutable old bytes; blocked paths require explicit release restrictions.
-- Public UI/download and ALT installation/update artifacts must agree on155/source/digests; rules must point to verified files.
+- Public UI/download and ALT installation/update artifacts must agree on156/source/digests; rules must point to verified files.
 
 ### Task 1: Integrate and verify source
 
@@ -34,20 +34,20 @@
 
 ### Task 2: Freeze and qualify both native packages
 
-- [ ] Build canonical Windows Core, source pin, MSI and Setup; verify exact source closures, digests and timestamped signatures.
-- [ ] Build Linux native bundle/RPM/user sensor and signed operator kit from the same runtime source; verify source pin and signatures.
-- [ ] Run platform regression gates on Windows/Linux; native fresh install, repeat install, upgrade/rollback and reconnect/power replay acceptance on dedicated test machines. Preserve failures and fix confirmed defects before rebuilding with a fresh identity if necessary.
+- [x] Build canonical Windows Core, source pin, MSI and Setup; verify exact source closures, digests and timestamped signatures.
+- [x] Build Linux native bundle/RPM/user sensor and signed operator kit from the same runtime source; verify source pin and signatures.
+- [x] Run platform regression gates on Windows/Linux; native fresh install, repeat install, upgrade/rollback and reconnect/power replay acceptance on dedicated test machines. Preserve failures and fix confirmed defects before rebuilding with a fresh identity if necessary.
 
 ### Task 3: Deploy provider and publish
 
-- [ ] Back up production database/config/release pointers; validate capacity, provider migration0038->0039 and matching Console bundle.
-- [ ] Deploy verified provider, run health/contract/old-client compatibility checks; keep rollback inputs.
-- [ ] Publish signed Windows Setup/update catalog and Linux kit/update entries; verify real UI download bytes, signatures and registered digests.
-- [ ] Apply only qualified update paths, verify advancing WSS heartbeats/version/source evidence; report remaining fleet limitations explicitly.
+- [x] Back up production database/config/release pointers; validate capacity, provider migration0038->0039 and matching Console bundle.
+- [x] Deploy verified provider, run health/contract/old-client compatibility checks; keep rollback inputs.
+- [x] Publish signed Windows Setup/update catalog and Linux kit/update entries; verify real UI download bytes, signatures and registered digests.
+- [x] Apply only qualified update paths, verify advancing WSS heartbeats/version/source evidence; report remaining fleet limitations explicitly.
 
 ### Task 4: Canonical rules and final evidence
 
-- [ ] Update AGENTS.md and one canonical release record with155/source/platform paths/digests; require updating that record and pointers on every subsequent release.
+- [x] Update AGENTS.md and one canonical release record with156/source/platform paths/digests; require updating that record and pointers on every subsequent release.
 - [ ] Record tests, artifacts, deployment, acceptance and remaining limits; preserve precise commit/receipt identity. Verify clean task-only Git state and publish normal history without force.
 
 ## Execution ledger
@@ -65,8 +65,16 @@
 
 ## Continuation:156 release gates
 
-- [ ] Complete TDD for explicit policy applicability, durable OS-backed revocation, and authenticated worker settlement; review combined patch and regenerate contracts.
-- [ ] Allocate156 immutable source/binding, rebuild/sign both platforms and kit, run native full gates and current CI.155 source/artifacts remain untouched.
-- [ ] Requalify Windows assigned and unassigned cases, clean no-proof compensation, Linux native upgrade/rollback/reconnect, and compatible provider before publication.
+- [x] Complete TDD for explicit policy applicability, durable OS-backed revocation, and authenticated worker settlement; review combined patch and regenerate contracts.
+- [x] Allocate156 immutable source/binding, rebuild/sign both platforms and kit, run native full gates and current CI.155 source/artifacts remain untouched.
+- [x] Requalify Windows assigned and unassigned cases, clean no-proof compensation, Linux native upgrade/rollback/reconnect, and compatible provider before publication.
 - [ ] Resolve the original PC with supported, separately witnessed recovery; preserve protected state if prerequisites are absent. Never claim completion while its agent is quarantined.
-- [ ] Publish only the successfully qualified shared release; update AGENTS.md and canonical version/path record after verified publication.
+- [x] Publish only the successfully qualified shared release; update AGENTS.md and canonical version/path record after verified publication.
+
+## Published156 evidence
+
+- Common runtime6ed41cd01d494e46111a452c2ae3a844f723175b; Windows binding/provider3e3528fbb07aa6abcece61a31adc8b7762048069; signed Linux kit metadata d007064792caa5f3b94d911c73b13214913a230c.
+- Final Windows suite5601 passed/419 skipped; native Linux4888 passed/1132 skipped plus71 follow-up tests; exacta90e1d8 PostgreSQL CI5109 passed/911 skipped. Generated contracts and full source diff check passed.
+- Native Windows154->156 assigned, repeat, ordinary uninstall/reinstall, real reboot/replay, original no-proof67 clean rollback, and actual unassigned154->156 accepted73s passed. The fixture's exact original policy was restored and freshly applied. Native Linux155->156->155->156 and180-second quiet observation passed.
+- Published Setup156 and both stable update builds; created no fleet targets. Actual Console download matched signed Setup SHA92c17fddab6d1c4a32b322bb5a39855bc876c688f743684129fc4cfc412e4665. All8 public Linux files matched native-qualified digests over verified HTTPS; GET/HEAD200, listing/POST403, missing404. Temporary read-only QA identity retired with revoked sessions.
+- Canonical source of version/paths/limits: docs/releases/current-agent-release.json and AGENTS.md. Original PC155 failed-recovery restoration remains a separate active item; no historical rollback result has been rewritten.

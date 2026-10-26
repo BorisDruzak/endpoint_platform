@@ -5,6 +5,13 @@
 - The approved local Helpdesk server-code source is `C:\Users\admin-2\CodexProjects\pc_client\server`. Use it solely to check and analyze Helpdesk code from this workspace. Changes there are prohibited: do not edit, commit, push, or create worktrees in that directory.
 - The shallow, sparse, read-only snapshot at `C:\Users\admin-2\Documents\endpoint-helpdesk-agent-source`, from branch `codex/helpdesk-process-model` at commit `8be364000089d70bac3ccf9aaef4f84397ca21a7`, remains an approved limited agent-contract reference. It intentionally contains only `pc_agent/`, `shared/tool_contracts.py`, `shared/builtin_tool_descriptors.py`, `shared/redaction.py`, `pytest.ini`, `requirements-ci.txt`, and the agent capability document. Do not expand it without a demonstrated runtime or test dependency.
 
+# Canonical agent release
+
+- The main published agent version is **3.2.156** for Windows and ALT Linux. Read [`docs/releases/current-agent-release.json`](docs/releases/current-agent-release.json) for the exact runtime source, signed artifact digests, download links, qualification and compatibility limits.
+- The signed Windows installer is `C:\endpoint-platform-wix-build\staged-3.2.156-6ed41cd\native-setup-build\releases\EndpointAgentSetup-3.2.156-x64.exe`. Its source binding is `packaging/windows/initial-runtime-3.2.156.json`; the product download is the installer shown at `https://endpoint.sosnadmin.local/admin/enrollment`. Windows Foundations older than 3.2.156 require the full signed Setup before the 3.2.156 Core-only update.
+- The signed Linux kit is `C:\endpoint-platform-wix-build\unified-3.2.156\linux-kit\endpoint-alt-pilot-3.2.156-1.tar.gz`. Its server directory is `/srv/endpoint-platform-distribution/alt/endpoint-alt-pilot-3.2.156-1/`; its verified public URL is recorded in the canonical release record.
+- Every subsequent agent release must update **this section's version and paths** and **the canonical release record**, together with the runtime version, Windows source binding and Linux kit metadata. Verify actual published download bytes and signatures before declaring the new version primary. Preserve historical immutable packages and distinguish native installation qualification from OTA/fleet rollout acceptance.
+
 # Production host
 
 - `osn_admin@192.168.100.19` (SSH host alias: `endpoint-platform-server`) is the production machine for the Endpoint Platform service.
