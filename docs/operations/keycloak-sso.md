@@ -278,3 +278,110 @@ Identity: [administration guide](https://www.keycloak.org/docs/latest/server_adm
 AD certificate: [Microsoft LDAPS certificate requirements and renewal](https://learn.microsoft.com/en-us/troubleshoot/windows-server/active-directory/enable-ldap-over-ssl-3rd-certification-authority).
 Context7 documentation lookup was attempted by the parent and unavailable due
 to quota, so current official provider documentation/source was used.
+
+## Scoped pilot account and runtime preparation, 2026-10-27
+
+The parent subsequently obtained approved CA access, issued and installed a
+non-exportable RSA3072 AD-MAIN certificate, and verified exact-host LDAPS with TLS 1.3
+with the trusted CA. The user added the SSO DNS record. The separate Keycloak
+installation, PostgreSQL cluster on port 5544, root-controlled config and systemd unit
+now exist; Keycloak was left stopped. These updates supersede the initial
+inventory blockers above; they do not establish a successful SSO login.
+
+`tools/keycloak/prepare_ad_pilot.ps1` is read-only unless explicitly invoked
+with `-Apply`. Default-plan execution on AD-MAIN confirmed both exact proposed
+accounts absent and the existing TEST OU available, returning only these
+metadata records with `WouldCreate` status:
+
+| Name | Exact container | Account expiration |
+| --- | --- | --- |
+| `svc-keycloak-ldap` | `CN=Users,DC=sosnadmin,DC=local` | 30 days after creation |
+| `ssopilot-20261027` | `OU=TEST,DC=sosnadmin,DC=local` | 7 days after creation |
+
+After parent review, run the same script locally on AD-MAIN under the approved
+elevated SSH operator. `-Apply` creates only those two fixed accounts, without
+groups, extra directory rights, OU/GPO changes or modification of existing
+users. The domain must be exactly `sosnadmin.local`. Each new password uses
+40 CSPRNG-selected ASCII characters with all AD complexity classes. The test
+account has a synthetic non-personal display name and no forced password
+change. Its AD password is the same credential used across all SSO clients;
+no corresponding local Keycloak password is created.
+
+The existing `C:\ProgramData\SsoSetup` directory is restricted to SYSTEM and
+Administrators before credential writes. Per-account PSCredentials are DPAPI
+serialized into `<name>.credential.xml` with exclusive creation before any AD
+creation command. This is the same Windows DPAPI protection used by
+`Export-Clixml`; the creating Windows operator on AD-MAIN must perform later
+`Import-Clixml` decryption. No password is returned by this script. Output
+contains only account name, DN, GUID and status. Existing names are refused
+unless description, exact DN/principal, bounded enabled state, lack of extra
+groups and saved decryptable credential match this task. A rerun never resets
+passwords or extends expiry. If AD creation fails, inspect metadata and keep
+the saved credential; do not delete it and generate another password blindly.
+
+```powershell
+# On AD-MAIN; no writes:
+& C:\ProgramData\SsoSetup\prepare_ad_pilot.ps1
+# Only after parent review of the above exact scope:
+& C:\ProgramData\SsoSetup\prepare_ad_pilot.ps1 -Apply
+```
+
+`tools/keycloak/prepare_runtime.py` also defaults to a metadata-only plan.
+Its `--apply` is Linux root-only, checks the actual `.19` address and stopped
+Keycloak, and exclusively creates `/run/keycloak-provision-20261027`. It accepts
+only the fixed bind identity and password as bounded JSON on stdin. It
+generates distinct Helpdesk, Endpoint, Worktime and temporary bootstrap secrets
+on `.19`; none enter local repository files or command arguments. The realm
+JSON contains placeholders and **three disabled clients**. Directory lookup is
+restricted to the synthetic pilot's exact user DN, rather than the entire
+TEST OU. Callbacks are the three exact contracts recorded above, with
+Helpdesk host `helpdesk.sosnadmin.local`; confirm that production hostname
+before applying. The helper creates no AD object and does not run an import,
+bootstrap command or start Keycloak.
+
+The root-only `provision.env` is 0600. The non-secret realm JSON is root:keycloak
+0640 and its containing directory is 0750 so the one-shot importer can read it.
+If files already exist, the helper refuses to replace or rotate them. Because
+these files are under `/run`, deliver independent client secrets into their
+approved application secret stores and complete import before a reboot; do
+not rely on `/run` as durable secret backup.
+
+For approved secret transfer, construct this small bridge program in memory
+locally, encode it as UTF16LE Base64 for PowerShell `EncodedCommand`, and pipe
+the SSH stdout directly into the reviewed `.19` helper. The program emits
+only the bind credential JSON into that private pipe; never invoke it without
+the consuming SSH command. Do not use Tee-Object, transcripts, terminal echoes
+or an intermediate local file. The DPAPI file stays on AD-MAIN.
+
+```powershell
+$bridge = @'
+$ErrorActionPreference='Stop'
+$ProgressPreference='SilentlyContinue'
+$credential = Import-Clixml -LiteralPath 'C:\ProgramData\SsoSetup\svc-keycloak-ldap.credential.xml'
+if ($credential.UserName -cne 'svc-keycloak-ldap@sosnadmin.local') { throw 'Wrong bind principal' }
+@{bind_dn='CN=svc-keycloak-ldap,CN=Users,DC=sosnadmin,DC=local';bind_password=$credential.GetNetworkCredential().Password} | ConvertTo-Json -Compress
+'@
+$encodedBridge = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($bridge))
+# Replace only the reviewed asset path below, never interpolate secret values.
+ssh -o BatchMode=yes admin-2@192.168.100.11 powershell.exe -NoProfile -OutputFormat Text -EncodedCommand $encodedBridge |
+  ssh -o BatchMode=yes endpoint-platform-server 'sudo -n python3 /root/REVIEWED_ASSET_DIRECTORY/tools/keycloak/prepare_runtime.py --apply'
+```
+
+After reviewing prepared metadata, use the existing one-shot import/bootstrap
+procedure with these new paths:
+`EnvironmentFile=/run/keycloak-provision-20261027/provision.env` and
+`--file=/run/keycloak-provision-20261027/sosnadmin-realm.json`. Keep Keycloak
+stopped until that explicit import/bootstrap gate. Never pass secrets as CLI
+arguments. Remove the root-only provisioning environment only after secure
+application delivery and tested import; preserve the AD DPAPI credential for
+the explicitly bounded pilot. The temporary master-realm bootstrap identity
+must be removed after establishing the permanent MFA administrator.
+
+The service account expires after 30 days; schedule an operational owner review
+before that deadline. Rotation requires a separate reviewed procedure that
+updates AD, saved DPAPI credential and Keycloak LDAP bind consistently; this
+helper intentionally cannot rotate an existing account. The synthetic pilot
+expires after 7 days and must not become a permanent employee identity. No
+automatic renewal, expiry extension, deletion or group assignment is provided.
+Application-side identity linking still requires exact canonical AD GUID and
+the appropriate roles/MFA checks; account creation grants no application role.
