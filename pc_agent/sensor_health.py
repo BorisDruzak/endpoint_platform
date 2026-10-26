@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -14,6 +15,7 @@ from endpoint_contracts.sensor_health import (
     PolicySensorHealthReportV1, SensorSourceStateV1,
 )
 
+_LOG = logging.getLogger(__name__)
 
 @dataclass(frozen=True, slots=True)
 class SensorHealthFacts:
@@ -71,7 +73,11 @@ class SensorHealthRuntime:
             or (policy.policy_id, policy.policy_version) != self._acknowledged_ref
         ):
             return False
-        facts = await self._fact_provider(policy)
+        try:
+            facts = await self._fact_provider(policy)
+        except (OSError, ValueError):
+            _LOG.warning("sensor health collection unavailable")
+            return False
         current = self._policy_provider()
         if (
             current is None
@@ -79,16 +85,20 @@ class SensorHealthRuntime:
             or (current.policy_id, current.policy_version) != self._acknowledged_ref
         ):
             return False
-        report = PolicySensorHealthReportV1(
-            schema_version="policy_sensor_health_report_v1",
-            observation_id=uuid4(), policy_id=policy.policy_id,
-            policy_version=policy.policy_version, observed_at=observed_at,
-            activity_listener_state=facts.activity_listener_state,
-            user_sensor_last_seen_at=facts.user_sensor_last_seen_at,
-            security_spool_state=facts.security_spool_state,
-            usb_source_state=facts.usb_source_state,
-            print_source_state=facts.print_source_state,
-        )
+        try:
+            report = PolicySensorHealthReportV1(
+                schema_version="policy_sensor_health_report_v1",
+                observation_id=uuid4(), policy_id=policy.policy_id,
+                policy_version=policy.policy_version, observed_at=observed_at,
+                activity_listener_state=facts.activity_listener_state,
+                user_sensor_last_seen_at=facts.user_sensor_last_seen_at,
+                security_spool_state=facts.security_spool_state,
+                usb_source_state=facts.usb_source_state,
+                print_source_state=facts.print_source_state,
+            )
+        except ValueError:
+            _LOG.warning("sensor health projection unavailable")
+            return False
         await transport.send_sensor_health_report(report)
         return True
 

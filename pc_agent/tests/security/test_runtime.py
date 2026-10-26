@@ -17,6 +17,110 @@ from .test_spool import NOW, _event
 
 
 @pytest.mark.asyncio
+async def test_subset_result_requires_pending_batch_sequence_and_exact_pending_ids(tmp_path):
+    from endpoint_contracts.telemetry_results import TelemetryResultV1
+    spool = SecurityEventSpool(tmp_path)
+    await spool.open()
+    runtime = SecurityEventRuntime(spool)
+    events = [_event(), _event()]
+    for event in events:
+        await runtime.record(event, now=NOW)
+    sent = asyncio.Queue()
+    class Transport:
+        async def send_security_event_batch(self, batch):
+            await sent.put(batch)
+            return 23
+    runtime.policy_ack_sent()
+    task = asyncio.create_task(runtime.send_forever(Transport(), now=lambda: NOW))
+    try:
+        batch = await asyncio.wait_for(sent.get(), 1)
+        await asyncio.sleep(0)
+        result = TelemetryResultV1(schema_version="telemetry_result_v1", report_kind="security_event_batch",
+            report_id=batch.batch_id, report_sequence=23, disposition="rejected", reason_code="outside_policy",
+            event_identifiers=[events[1].event_identifier])
+        assert not await runtime.receive_result(result.model_copy(update={"report_sequence": 24}))
+        assert not await runtime.receive_result(result.model_copy(update={"event_identifiers": [_event().event_identifier]}))
+        assert not await runtime.receive_result(result.model_copy(update={"report_id": _event().event_identifier}))
+        assert not await runtime.receive_result(result.model_copy(update={"event_identifiers": [
+            events[1].event_identifier, events[0].event_identifier,
+        ]}))
+        assert await runtime.receive_result(result.model_copy(update={"disposition": "retry_later"}))
+        assert (await spool.stats()).queued_events == 2
+        assert (await spool.stats()).rejected_permanent == 0
+        assert await runtime.receive_result(result)
+        assert not await runtime.receive_result(result)  # no double counting
+        assert (await spool.stats()).rejected_permanent == 1
+        assert (await spool.stats()).queued_events == 1
+        # Validate original order/membership before filtering disposed IDs.
+        for identifiers in (
+            [events[1].event_identifier, events[0].event_identifier],
+            [_event().event_identifier, events[0].event_identifier],
+            [events[0].event_identifier, events[1].event_identifier, events[1].event_identifier],
+        ):
+            assert not await runtime.receive_result(result.model_copy(update={"event_identifiers": identifiers}))
+        assert await runtime.receive_result(result.model_copy(update={"disposition": "accepted", "reason_code": "persisted",
+            "event_identifiers": [event.event_identifier for event in events]}))
+        assert (await spool.stats()).queued_events == 0
+        reopened = SecurityEventSpool(tmp_path)
+        await reopened.open()
+        assert (await reopened.stats()).rejected_permanent == 1
+    finally:
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+
+@pytest.mark.asyncio
+async def test_inbound_telemetry_disposition_is_nonfatal_and_routes_to_security_runtime():
+    from types import SimpleNamespace
+    from endpoint_contracts.telemetry_results import TelemetryResultV1
+    result = TelemetryResultV1(schema_version="telemetry_result_v1", report_kind="security_event_batch",
+        report_id=_event().event_identifier, report_sequence=7, disposition="retry_later",
+        reason_code="policy_pending", event_identifiers=[_event().event_identifier])
+    received = []
+    async def handler(value):
+        received.append(value)
+        return True
+    await _handle_inbound(object(), object(), SimpleNamespace(root=SimpleNamespace(kind="telemetry_result", payload=result)),
+                          telemetry_result_handler=handler)
+    assert received == [result]
+
+
+@pytest.mark.asyncio
+async def test_immediate_result_waits_for_send_sequence_registration(tmp_path):
+    from endpoint_contracts.telemetry_results import TelemetryResultV1
+    spool = SecurityEventSpool(tmp_path)
+    await spool.open()
+    runtime = SecurityEventRuntime(spool)
+    event = _event()
+    await runtime.record(event, now=NOW)
+    sent, release = asyncio.Queue(), asyncio.Event()
+    class Transport:
+        async def send_security_event_batch(self, batch):
+            await sent.put(batch)
+            await release.wait()
+            return 11
+    runtime.policy_ack_sent()
+    task = asyncio.create_task(runtime.send_forever(Transport(), now=lambda: NOW))
+    response = None
+    try:
+        batch = await asyncio.wait_for(sent.get(), 1)
+        result = TelemetryResultV1(schema_version="telemetry_result_v1", report_kind="security_event_batch",
+            report_id=batch.batch_id, report_sequence=11, disposition="accepted", reason_code="persisted",
+            event_identifiers=[event.event_identifier])
+        response = asyncio.create_task(runtime.receive_result(result))
+        await asyncio.sleep(0)
+        assert not response.done()
+        release.set()
+        assert await asyncio.wait_for(response, 1)
+        assert (await spool.stats()).queued_events == 0
+    finally:
+        release.set()
+        task.cancel()
+        await asyncio.gather(task, *([response] if response else []), return_exceptions=True)
+
+
+@pytest.mark.asyncio
 async def test_runtime_health_checks_open_spool(tmp_path) -> None:
     runtime = SecurityEventRuntime(SecurityEventSpool(tmp_path))
     assert not await runtime.available()

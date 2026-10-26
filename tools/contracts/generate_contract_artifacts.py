@@ -70,6 +70,10 @@ from endpoint_contracts import (  # noqa: E402
     ServiceStatusResultV1,
     SecurityEventAckV1,
 )
+from endpoint_contracts.telemetry_results import TelemetryResultV1
+from endpoint_contracts.power_events import PowerEventV1, PowerSourceStatusV1, PowerEventBatchV1, PowerEventAckV1
+from endpoint_server.power.routes import router as power_console_router
+from endpoint_server.auth.admin_sessions import ADMIN_SESSION_COOKIE
 from endpoint_contracts.base import ContractModelV1  # noqa: E402
 from endpoint_contracts.device_modules import EndpointDeviceModulesPageV1  # noqa: E402
 from endpoint_server.modules.device_catalog_routes import router as device_modules_router  # noqa: E402
@@ -132,6 +136,10 @@ _PUBLIC_BROWSER_RELEASE_PATHS = (
 
 
 PUBLIC_MODELS: dict[str, type[ContractModelV1]] = {
+    'power-event-v1.json': PowerEventV1,
+    'power-source-status-v1.json': PowerSourceStatusV1,
+    'power-event-batch-v1.json': PowerEventBatchV1,
+    'power-event-ack-v1.json': PowerEventAckV1,
     "endpoint-device-modules-v1.json": EndpointDeviceModulesPageV1,
     "device-binding-error-v1.json": DeviceBindingErrorV1,
     "device-binding-create-v1.json": DeviceBindingCreateV1,
@@ -194,6 +202,7 @@ GATEWAY_WS_MODELS: dict[str, type[BaseModel]] = {
     "endpoint_policy_ack_v1.json": EndpointPolicyAckV1,
     "agent_security_event_batch_v1.json": AgentSecurityEventBatchV1,
     "security_event_ack_v1.json": SecurityEventAckV1,
+    "telemetry_result_v1.json": TelemetryResultV1,
 }
 
 FIXTURES: dict[str, dict[str, Any]] = {
@@ -742,15 +751,16 @@ def _service_operation_openapi() -> dict[str, object]:
     }
 
 
-def _admin_cancellation_openapi() -> dict[str, object]:
-    """Publish exactly two admin paths and their reachable runtime schema closure."""
+def _admin_cancellation_openapi(*, power: bool = False) -> dict[str, object]:
+    """Publish separate update and console artifacts with reachable schema closure."""
     application = FastAPI()
-    application.include_router(updates_admin_router)
+    application.include_router(power_console_router if power else updates_admin_router)
     generated = application.openapi()
-    paths = {path: generated["paths"][path] for path in (
+    selected_paths=('/api/admin/console/devices/{device_id}/power',) if power else (
         "/api/admin/updates/rollouts/{rollout_id}/cancellation-context",
         "/api/admin/updates/rollouts/{rollout_id}/cancel",
-    )}
+    )
+    paths = {path: generated['paths'][path] for path in selected_paths}
 
     def references(value):
         if isinstance(value, dict):
@@ -769,8 +779,15 @@ def _admin_cancellation_openapi() -> dict[str, object]:
         required.remove(name)
         schemas[name] = generated["components"]["schemas"][name]
         required.update(set(references(schemas[name])) - schemas.keys())
+    if power:
+        for methods in paths.values():
+            for operation in methods.values():
+                operation['security']=[{'ConsoleAdminCookie':[]}]
+        return {'openapi':generated['openapi'],'info':{'title':'Endpoint Platform Console Power','version':'v1'},
+            'paths':paths,'components':{'schemas':schemas,'securitySchemes':{
+                'ConsoleAdminCookie':{'type':'apiKey','in':'cookie','name':ADMIN_SESSION_COOKIE}}}}
     return {"openapi": generated["openapi"],
-        "info": {"title": "Endpoint Platform Update Administration", "version": "v1"},
+        "info": {"title": "Endpoint Platform Console Power" if power else "Endpoint Platform Update Administration", "version": "v1"},
         "paths": paths, "components": {"schemas": schemas, "securitySchemes": {
             "UpdateAdminCookie": generated["components"]["securitySchemes"]["UpdateAdminCookie"]}}}
 
@@ -963,6 +980,9 @@ def render_artifacts(output_root: Path) -> dict[Path, str]:
     )
     rendered[Path("contracts/openapi/endpoint-platform-admin-v1.yaml")] = _yaml_document(
         _admin_cancellation_openapi()
+    )
+    rendered[Path('contracts/openapi/endpoint-platform-console-power-v1.yaml')] = _yaml_document(
+        _admin_cancellation_openapi(power=True)
     )
 
     for filename, fixture in FIXTURES.items():

@@ -28,6 +28,7 @@ from endpoint_server.auth.csrf import csrf_token_for_session
 from endpoint_server.audit.request_ids import audit_request_id
 from endpoint_server.audit.service import append_audit_event
 from endpoint_server.console.fleet import CONTEXT_TTL, dashboard_fleet, device_presence, list_fleet
+from endpoint_server.power.projection import PowerSummary, power_summary, enrich_power_summaries
 from endpoint_server.context.diff import compare_snapshots
 from endpoint_server.context.models import ContextCollection, ContextCurrent, ContextSnapshot, DeviceEvent
 from endpoint_server.context.policy import CONTEXT_RETENTION_POLICIES
@@ -177,6 +178,7 @@ class ConsoleFleetDevice(BaseModel):
     context_collected_at: datetime | None
     context_fresh: bool
     update_status: str | None
+    power: PowerSummary | None = None
 
 
 class ConsoleFleetPageResponse(BaseModel):
@@ -203,6 +205,8 @@ class ConsoleDeviceHeader(BaseModel):
     agent_version: str | None
     launcher_version: str | None
     core_newer_than_foundation: bool
+    power: PowerSummary | None = None
+    last_activity_observed_at: datetime | None = None
 
 
 class ConsoleCurrentSnapshot(BaseModel):
@@ -480,6 +484,7 @@ async def console_devices(
     offset: Annotated[int, Query(ge=0, le=100_000)] = 0,
     search: Annotated[str | None, Query(max_length=128)] = None,
     online: bool | None = None,
+    include_power: bool = False,
     platform: Annotated[str | None, Query(pattern="^(windows|linux)$")] = None,
     agent_version: Annotated[str | None, Query(max_length=128)] = None,
     core_outdated: SemanticVersionV1 | None = None,
@@ -496,6 +501,8 @@ async def console_devices(
             core_outdated=core_outdated, foundation_outdated=foundation_outdated,
             core_newer_than_foundation=core_newer_than_foundation, foundation_unknown=foundation_unknown,
         )
+        if include_power:
+            await enrich_power_summaries(session, result['data'])
     return ConsoleFleetPageResponse.model_validate(result)
 
 
@@ -504,6 +511,7 @@ async def console_device_detail(
     request: Request,
     device_id: UUID,
     _: Annotated[AdminPrincipal, Depends(require_admin)],
+    include_power: bool = False,
 ) -> ConsoleDeviceDetailResponse:
     async with request.app.state.session_provider() as session:
         device = await session.scalar(select(Device).where(Device.id == device_id, Device.retired_at.is_(None)))
@@ -533,6 +541,18 @@ async def console_device_detail(
                 collected = collected.replace(tzinfo=UTC)
             snapshot["fresh"] = isinstance(collected, datetime) and now - CONTEXT_TTL <= collected <= now
         presence = await device_presence(session, device_id)
+        if include_power:
+            presence['power'] = await power_summary(
+                session, device_id, online=presence['online'], last_seen_at=presence['last_seen_at'],
+            )
+            if request.app.state.settings.endpoint_policy_enabled:
+                observed = await session.scalar(select(ContextCurrent.last_observed_at).where(
+                    ContextCurrent.device_id == device_id,
+                    ContextCurrent.profile == 'activity_v1',
+                ))
+                presence['last_activity_observed_at'] = (
+                    observed.replace(tzinfo=UTC) if observed is not None and observed.tzinfo is None else observed
+                )
         by_profile = {snapshot["profile"]: snapshot["sections"] for snapshot in snapshots}
         inventory = by_profile.get("inventory_v1", {})
         system = inventory.get("system", {}) if isinstance(inventory, dict) else {}

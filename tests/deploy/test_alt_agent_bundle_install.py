@@ -462,6 +462,79 @@ def test_linux_harness_rejects_missing_adjacent_asset_before_running_scenarios(
 
 
 @pytest.mark.skipif(sys.platform != "linux", reason="requires Linux shell semantics")
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "directory-child-churn",
+        "directory-mode",
+        "directory-owner",
+        "directory-replacement",
+        "file-edit",
+        "file-mode",
+        "file-replacement",
+        "file-removal",
+    ],
+)
+def test_linux_harness_snapshot_distinguishes_live_directory_churn_from_mutation(
+    tmp_path: Path, mutation: str
+) -> None:
+    """Agent child-file churn must not hide changes to protected identity or leaves."""
+    if mutation == "directory-owner" and os.geteuid() != 0:
+        pytest.skip("changing the isolated fixture owner requires root")
+    directory = tmp_path / "live-data"
+    directory.mkdir()
+    leaf = tmp_path / "fixed-service"
+    leaf.write_text("service-before", encoding="utf-8")
+    snapshot = _shell_function(
+        _text(LINUX_HARNESS), "snapshot_live_paths", "assert_live_paths_unchanged"
+    )
+    paths_start = snapshot.index("paths = (")
+    paths_end = snapshot.index("\ndigest =", paths_start)
+    snapshot = (
+        snapshot[:paths_start]
+        + f"paths = ({str(directory)!r}, {str(leaf)!r})"
+        + snapshot[paths_end:]
+    )
+    runner = tmp_path / "snapshot.sh"
+    runner.write_text(
+        "#!/usr/bin/env bash\nset -euo pipefail\n" + snapshot + "\nsnapshot_live_paths\n",
+        encoding="utf-8",
+    )
+    environment = _bash_environment_with_python3(tmp_path)
+
+    def fingerprint() -> str:
+        result = subprocess.run(
+            ["bash", runner.as_posix()], capture_output=True, text=True, check=True,
+            env=environment,
+        )
+        return result.stdout
+
+    before = fingerprint()
+    if mutation == "directory-child-churn":
+        child = directory / "runtime-state"
+        child.write_text("updated", encoding="utf-8")
+        child.unlink()
+    elif mutation == "directory-mode":
+        directory.chmod(0o700 if directory.stat().st_mode & 0o077 else 0o755)
+    elif mutation == "directory-owner":
+        os.chown(directory, 42420, 42420)
+    elif mutation == "directory-replacement":
+        directory.rename(tmp_path / "old-data")
+        directory.mkdir()
+    elif mutation == "file-edit":
+        leaf.write_text("service-after!", encoding="utf-8")
+    elif mutation == "file-mode":
+        leaf.chmod(0o700)
+    elif mutation == "file-replacement":
+        leaf.rename(tmp_path / "old-service")
+        leaf.write_text("service-before", encoding="utf-8")
+    else:
+        leaf.unlink()
+
+    assert (fingerprint() == before) is (mutation == "directory-child-churn")
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="requires Linux shell semantics")
 def test_linux_harness_executes_without_host_path_mutation() -> None:
     """Run the real isolated harness only where its shell/filesystem semantics exist."""
     if __import__("os").geteuid() != 0:

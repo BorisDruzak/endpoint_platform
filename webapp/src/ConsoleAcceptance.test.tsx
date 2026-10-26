@@ -120,7 +120,7 @@ describe('Русский интерфейс Console', () => {
   })
   it('показывает поля инвентаризации и других профилей понятными подписями', async () => {
     vi.stubGlobal('fetch', vi.fn(async (url: string) => jsonResponse(
-      url.includes('/context/history?') ? { data: [], has_more: false } : {
+      url.includes('/power?') ? { data: [], total: 0, offset: 0, limit: 20, has_more: false } : url.includes('/context/history?') ? { data: [], has_more: false } : {
         device: { id: 'device-1', display_name: 'Рабочая станция', device_identifier: 'PC-01', online: true, last_seen_at: null, agent_version: '3.2.63', hostname: 'PC-01', os_name: 'Windows 11', os_version: '11', current_user: 'operator' },
         capabilities: [{ capability: 'system.resource_snapshot', display_name_ru: 'Состояние ресурсов системы', category: 'system' }],
         snapshots: [
@@ -163,7 +163,7 @@ describe('Русский интерфейс Console', () => {
 
   it('показывает текущую активность устройства из отдельной безопасной проекции', async () => {
     vi.stubGlobal('fetch', vi.fn(async (url: string) => {
-      if (url.endsWith('/devices/device-1')) return jsonResponse({
+      if (url.split('?')[0].endsWith('/devices/device-1')) return jsonResponse({
         device: { id: 'device-1', display_name: 'Рабочая станция', device_identifier: 'PC-01',
           online: true, last_seen_at: null, agent_version: '3.2.70', hostname: 'PC-01',
           os_name: 'Windows 11', os_version: '11', current_user: 'operator' },
@@ -198,7 +198,7 @@ describe('Русский интерфейс Console', () => {
 
   it('открывает долговечные события и обновления устройства по страницам', async () => {
     vi.stubGlobal('fetch', vi.fn(async (url: string) => {
-      if (url.endsWith('/devices/device-1')) return jsonResponse({
+      if (url.split('?')[0].endsWith('/devices/device-1')) return jsonResponse({
         device: { id: 'device-1', display_name: 'Рабочая станция', device_identifier: 'PC-01',
           online: true, last_seen_at: null, agent_version: '3.2.63', hostname: 'PC-01',
           os_name: 'Windows 11', os_version: '11', current_user: 'operator' }, snapshots: [],

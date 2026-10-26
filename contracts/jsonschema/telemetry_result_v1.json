@@ -1,0 +1,95 @@
+{
+  "additionalProperties": false,
+  "allOf": [
+    {
+      "else": {
+        "properties": {
+          "event_identifiers": {
+            "maxItems": 0
+          }
+        }
+      },
+      "if": {
+        "properties": {
+          "report_kind": {
+            "const": "security_event_batch"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "event_identifiers": {
+            "minItems": 1
+          }
+        },
+        "required": [
+          "event_identifiers"
+        ]
+      }
+    }
+  ],
+  "properties": {
+    "disposition": {
+      "enum": [
+        "accepted",
+        "retry_later",
+        "rejected"
+      ],
+      "title": "Disposition",
+      "type": "string"
+    },
+    "event_identifiers": {
+      "items": {
+        "format": "uuid",
+        "type": "string"
+      },
+      "maxItems": 50,
+      "title": "Event Identifiers",
+      "type": "array",
+      "uniqueItems": true
+    },
+    "reason_code": {
+      "maxLength": 64,
+      "minLength": 1,
+      "pattern": "^[a-z][a-z0-9_]*$",
+      "title": "Reason Code",
+      "type": "string"
+    },
+    "report_id": {
+      "format": "uuid",
+      "title": "Report Id",
+      "type": "string"
+    },
+    "report_kind": {
+      "enum": [
+        "activity_observation",
+        "browser_status_report",
+        "policy_sensor_health_report",
+        "security_event_batch"
+      ],
+      "title": "Report Kind",
+      "type": "string"
+    },
+    "report_sequence": {
+      "maximum": 9223372036854775807,
+      "minimum": 0,
+      "title": "Report Sequence",
+      "type": "integer"
+    },
+    "schema_version": {
+      "const": "telemetry_result_v1",
+      "title": "Schema Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema_version",
+    "report_kind",
+    "report_id",
+    "report_sequence",
+    "disposition",
+    "reason_code"
+  ],
+  "title": "TelemetryResultV1",
+  "type": "object"
+}

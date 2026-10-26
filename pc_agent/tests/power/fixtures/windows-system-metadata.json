@@ -1,0 +1,130 @@
+[
+  {
+    "event_id": 12,
+    "provider": "Microsoft-Windows-Kernel-General",
+    "record_id": 36161421,
+    "timestamp": "2026-10-22T21:09:00.9356833Z",
+    "data": {
+      "StartTime": "2026-10-22T21:09:00.5000000Z",
+      "BootMode": "0"
+    }
+  },
+  {
+    "event_id": 13,
+    "provider": "Microsoft-Windows-Kernel-General",
+    "record_id": 36161420,
+    "timestamp": "2026-10-22T21:08:34.6887516Z",
+    "data": {
+      "StopTime": "2026-10-22T21:08:34.6887507Z"
+    }
+  },
+  {
+    "event_id": 12,
+    "provider": "Microsoft-Windows-Kernel-General",
+    "record_id": 36159282,
+    "timestamp": "2026-10-21T04:35:39.9383939Z",
+    "data": {
+      "StartTime": "2026-10-21T04:35:39.5000000Z",
+      "BootMode": "0"
+    }
+  },
+  {
+    "event_id": 13,
+    "provider": "Microsoft-Windows-Kernel-General",
+    "record_id": 36159281,
+    "timestamp": "2026-10-21T04:35:18.2746759Z",
+    "data": {
+      "StopTime": "2026-10-21T04:35:18.2746752Z"
+    }
+  },
+  {
+    "event_id": 12,
+    "provider": "Microsoft-Windows-Kernel-General",
+    "record_id": 36159110,
+    "timestamp": "2026-10-21T04:34:07.9377791Z",
+    "data": {
+      "StartTime": "2026-10-21T04:34:07.5000000Z",
+      "BootMode": "0"
+    }
+  },
+  {
+    "event_id": 41,
+    "provider": "Microsoft-Windows-Kernel-Power",
+    "record_id": 36158471,
+    "timestamp": "2026-10-19T06:50:53.6467010Z",
+    "data": {}
+  },
+  {
+    "event_id": 41,
+    "provider": "Microsoft-Windows-Kernel-Power",
+    "record_id": 36157841,
+    "timestamp": "2026-10-15T05:25:56.5769085Z",
+    "data": {}
+  },
+  {
+    "event_id": 41,
+    "provider": "Microsoft-Windows-Kernel-Power",
+    "record_id": 36157435,
+    "timestamp": "2026-10-12T11:56:23.1959455Z",
+    "data": {}
+  },
+  {
+    "event_id": 41,
+    "provider": "Microsoft-Windows-Kernel-Power",
+    "record_id": 36157217,
+    "timestamp": "2026-10-11T22:12:42.7102832Z",
+    "data": {}
+  },
+  {
+    "event_id": 41,
+    "provider": "Microsoft-Windows-Kernel-Power",
+    "record_id": 36155500,
+    "timestamp": "2026-09-29T06:50:31.6634256Z",
+    "data": {}
+  },
+  {
+    "event_id": 27,
+    "provider": "Microsoft-Windows-Kernel-Boot",
+    "record_id": 36161429,
+    "timestamp": "2026-10-22T21:09:00.9365156Z",
+    "data": {
+      "BootType": "0"
+    }
+  },
+  {
+    "event_id": 27,
+    "provider": "Microsoft-Windows-Kernel-Boot",
+    "record_id": 36159290,
+    "timestamp": "2026-10-21T04:35:39.9392215Z",
+    "data": {
+      "BootType": "0"
+    }
+  },
+  {
+    "event_id": 27,
+    "provider": "Microsoft-Windows-Kernel-Boot",
+    "record_id": 36159118,
+    "timestamp": "2026-10-21T04:34:07.9386168Z",
+    "data": {
+      "BootType": "0"
+    }
+  },
+  {
+    "event_id": 27,
+    "provider": "Microsoft-Windows-Kernel-Boot",
+    "record_id": 36158449,
+    "timestamp": "2026-10-19T06:50:51.2229760Z",
+    "data": {
+      "BootType": "0"
+    }
+  },
+  {
+    "event_id": 27,
+    "provider": "Microsoft-Windows-Kernel-Boot",
+    "record_id": 36157823,
+    "timestamp": "2026-10-15T05:25:53.9346511Z",
+    "data": {
+      "BootType": "0"
+    }
+  }
+]

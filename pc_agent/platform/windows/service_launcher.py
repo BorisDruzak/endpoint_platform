@@ -139,11 +139,19 @@ class ChildProcessCoordinator:
             trigger_pending_updater()
         return exit_code
 
-    def stop(self) -> None:
+    def stop(self, *, shutdown: bool = False) -> None:
         with self._lock:
             self._stop_requested = True
             pipe = self._process.stdin if self._process is not None else None
         if pipe is not None and not pipe.closed:
+            if shutdown:
+                try:
+                    # Old cores already stop on any byte/EOF. New cores can
+                    # persist SCM's OS shutdown separately from service stop.
+                    pipe.write(b"S")
+                    pipe.flush()
+                except (BrokenPipeError, OSError):
+                    pass
             pipe.close()
 
 
@@ -175,7 +183,7 @@ def run_agent_service() -> int:
 
         def SvcShutdown(self) -> None:
             self.ReportServiceStatus(win32service.SERVICE_STOP_PENDING)
-            self._child.stop()
+            self._child.stop(shutdown=True)
 
     servicemanager.Initialize()
     servicemanager.PrepareToHostSingle(EndpointAgentService)

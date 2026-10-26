@@ -18,7 +18,11 @@ function setup(data = [employee]) {
   const fetch = vi.fn(async (path: string) => ({ ok: true, status: 200, json: async () => path.includes('/timeline?')
     ? { day: '2026-10-20', timezone: meta.timezone, started_at: '2026-10-19T19:00:00Z', ended_at: '2026-10-20T19:00:00Z',
       data: [{ started_at: '2026-10-20T08:00:00Z', ended_at: '2026-10-20T08:01:00Z', state: 'ACTIVE', seconds: 60,
-        process_name: 'winword.exe', device_id: 'pc1', application_category: 'office', overlap: false, attributed: true }], connection_gaps: [], devices: employee.devices }
+        process_name: 'winword.exe', device_id: 'pc1', application_category: 'office', overlap: false, attributed: true },
+      { started_at: '2026-10-20T08:01:00Z', ended_at: '2026-10-20T08:02:00Z', state: 'UNKNOWN', seconds: 60,
+        process_name: null, device_id: null, application_category: null, overlap: false, attributed: false }],
+      power_events: [{ device_id: 'pc1', event: { event_identifier: 'power-1', event_kind: 'OS_SLEEP_STARTED', evidence: 'transition', source: 'synthetic', occurred_at: '2026-10-20T08:01:00Z', observed_at: '2026-10-20T08:05:00Z' } }],
+      power_events_truncated: true, connection_gaps: [{ device_id: 'pc1', started_at: '2026-10-20T08:01:00Z', ended_at: '2026-10-20T08:02:00Z' }], devices: employee.devices }
     : path.includes('/user?') ? { data: employee, daily: [{ day: '2026-10-19', metrics, timeline_available: true }, { day: '2026-10-20', metrics, timeline_available: true }], meta }
       : { data, total: data.length, offset: 0, limit: 50, summary: { fresh: 1, active: 1, idle: 0, locked_disconnected: 0, unknown: 0, unknown_devices: 0 }, meta },
   }))
@@ -55,6 +59,22 @@ it('explains absent telemetry and does not display invented zero work time', asy
     metrics: null, reason: 'Activity Sensor не передал данные' }] as unknown as typeof employee[])
   expect(await screen.findByText('Activity Sensor не передал данные')).toBeTruthy()
   expect(screen.queryByRole('button', { name: 'DOMAIN\\Alice' })).toBeNull()
+})
+
+it('opts into separate power markers and preserves UNKNOWN gaps and activity totals', async () => {
+  const fetch = setup()
+  fireEvent.click(await screen.findByRole('button', { name: 'DOMAIN\\Alice' }))
+  expect(await screen.findByRole('heading', { name: 'События питания ОС' })).toBeTruthy()
+  expect(screen.getByText('Переход в сон')).toBeTruthy()
+  fireEvent.click(screen.getByRole('button', { name: /^UNKNOWN/ }))
+  expect(screen.getAllByText('Нет достоверных данных')).toHaveLength(2)
+  expect(screen.getByText(/Время не приписано сотруднику/)).toBeTruthy()
+  fireEvent.click(screen.getByRole('button', { name: /Событие питания: Переход в сон/ }))
+  expect(screen.getByRole('region', { name: 'Выбранное событие питания' }).textContent).toContain('synthetic')
+  expect(screen.getByText(/Время не приписано сотруднику/)).toBeTruthy()
+  expect(screen.getByRole('heading', { name: 'Нет соединения WSS с устройством' })).toBeTruthy()
+  expect(screen.getByText(/Показана часть событий питания/)).toBeTruthy()
+  expect(fetch.mock.calls.some(([url]) => url.includes('/timeline?') && url.includes('include_power=true'))).toBe(true)
 })
 
 it('shows request errors with a working retry and empty results', async () => {

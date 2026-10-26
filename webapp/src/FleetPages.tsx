@@ -5,13 +5,15 @@ import { UpdateTimeline } from './UpdatesPage'
 import { DeviceModules } from './ModulesPage'
 import { DevicePolicyStatus } from './PolicyStatus'
 import { DeviceActivityStatus } from './ActivityStatus'
+import { DevicePowerHistory, PowerStatus, connectionLabel, powerEventLabels } from './PowerStatus'
+import type { PowerSummary } from './powerApi'
 
 type Device = AgentVersions & {
   id: string; device_identifier: string; display_name: string; online: boolean
   last_seen_at: string | null; hostname: string | null
   platform: string | null; os_name: string | null; os_version: string | null
   cpu_model: string | null; ram_bytes: number | null; current_user: string | null
-  context_collected_at: string | null; context_fresh: boolean; update_status: string | null
+  power?: PowerSummary | null; context_collected_at: string | null; context_fresh: boolean; update_status: string | null
 }
 type Page = { data: Device[]; total: number; limit: number; offset: number }
 type DashboardData = {
@@ -21,7 +23,7 @@ type DashboardData = {
   attention: { kind: string; device_id: string; label: string }[]
 }
 type Snapshot = { id: string; profile: string; collected_at: string; last_observed_at: string | null; fresh: boolean; semantic_hash: string | null; warnings: string[]; sections: Record<string, unknown> }
-type Detail = { device: AgentVersions & { id: string; display_name: string; device_identifier: string; online: boolean; last_seen_at: string | null; hostname: string | null; os_name: string | null; os_version: string | null; current_user: string | null }; snapshots: Snapshot[]; capabilities: { capability: string; display_name_ru: string; category: string }[] }
+type Detail = { device: AgentVersions & { last_activity_observed_at?: string | null; power?: PowerSummary | null; id: string; display_name: string; device_identifier: string; online: boolean; last_seen_at: string | null; hostname: string | null; os_name: string | null; os_version: string | null; current_user: string | null }; snapshots: Snapshot[]; capabilities: { capability: string; display_name_ru: string; category: string }[] }
 type Change = { event_id: string; event_kind: string; profile: string; occurred_at: string; summary_code: string; safe_details: Record<string, unknown> }
 type ChangePage = { data: Change[]; limit: number; offset: number; has_more: boolean }
 type DeviceUpdate = UpdateObservability & { rollout_id: string; version: string; mode: string; status: string }
@@ -39,11 +41,18 @@ const valueLabels: Record<string, Record<string, string>> = {
 const valueText = (key: string, value: unknown): string => value == null || value === '' ? '—' : typeof value === 'boolean' ? (value ? 'Да' : 'Нет') : valueLabels[key]?.[String(value)] ?? String(value)
 const updateLabels: Record<string, string> = { assigned: 'Назначено', requested: 'Запрошено', scheduled: 'Запланировано', applied: 'Установлено', failed: 'Ошибка', rolled_back: 'Откат', cancelled: 'Отменено' }
 const changeLabels: Record<string, string> = {
+  ...powerEventLabels,
   RAM_CHANGED: 'Оперативная память', STORAGE_CHANGED: 'Накопители', HOSTNAME_CHANGED: 'Имя компьютера',
   OS_CHANGED: 'Операционная система', HARDWARE_CHANGED: 'Оборудование', NETWORK_ADAPTER_CHANGED: 'Сетевые адаптеры',
   PLATFORM_CHANGED: 'Платформа', NETWORK_CHANGED: 'Сеть', SOFTWARE_CHANGED: 'Программы', AGENT_CHANGED: 'Агент',
   SESSION_STARTED: 'Пользователь вошёл в систему', SESSION_ENDED: 'Пользователь вышел из системы',
   SESSION_USER_CHANGED: 'Сменился пользователь',
+}
+function changeLabel(item: Change) {
+  const label = changeLabels[item.event_kind] ?? 'Изменение'
+  const event = item.safe_details.event as { evidence?: string } | undefined
+  return item.profile === 'power_v1' && event?.evidence === 'request'
+    ? `Запрос: ${label[0].toLocaleLowerCase('ru-RU') + label.slice(1)}` : label
 }
 const profileLabels: Record<string, string> = {
   baseline_v1: 'Базовый профиль', health_v1: 'Состояние', network_v1: 'Сеть',
@@ -110,12 +119,14 @@ export function DevicesPage() {
   const [page, setPage] = useState<Page | null>(null)
   const [error, setError] = useState('')
   const [revision, setRevision] = useState(0)
-  const query = params.toString()
+  const query = new URLSearchParams(params)
+  query.set('include_power', 'true')
+  const deviceQuery = query.toString()
   useEffect(() => {
     let active = true
-    request<Page>(`/api/admin/console/devices?${query}`).then(value => { if (active) { setPage(value); setError('') } }).catch(reason => { if (active) setError(reason.message) })
+    request<Page>(`/api/admin/console/devices?${deviceQuery}`).then(value => { if (active) { setPage(value); setError('') } }).catch(reason => { if (active) setError(reason.message) })
     return () => { active = false }
-  }, [query, revision])
+  }, [deviceQuery, revision])
   function setFilter(key: string, value: string) {
     const next = new URLSearchParams(params)
     if (value) next.set(key, value); else next.delete(key)
@@ -137,7 +148,7 @@ export function DevicesPage() {
       <label>Контекст<select value={params.get('context') ?? ''} onChange={event => setFilter('context', event.target.value)}><option value="">Любой</option><option value="fresh">Актуален</option><option value="stale">Устарел</option></select></label>
       <label>Обновление<select value={params.get('update') ?? ''} onChange={event => setFilter('update', event.target.value)}><option value="">Любое</option><option value="none">Нет</option><option value="active">В процессе</option><option value="failed">Ошибка</option></select></label>
     </div>
-    {error ? <LoadError message={error} retry={() => setRevision(value => value + 1)} /> : !page ? <p aria-live="polite">Загрузка устройств…</p> : <section className="panel table-panel"><div className="table-top"><h2>Устройства</h2><span>{page.total.toLocaleString('ru-RU')} всего</span></div>{page.data.length ? <div className="table-scroll"><table><thead><tr><th>Состояние</th><th>Устройство</th><th>Пользователь</th><th>ОС</th><th>Core Agent</th><th>Foundation / Launcher</th><th>CPU / RAM</th><th>Последняя связь</th><th>Контекст</th><th>Обновление</th><th></th></tr></thead><tbody>{page.data.map(device => <tr key={device.id}><td><span className={`status ${device.online ? 'online' : 'offline'}`}>{device.online ? 'В сети' : 'Не в сети'}</span></td><td><strong>{device.display_name}</strong><small>{device.hostname ?? device.device_identifier}</small></td><td>{device.current_user ?? '—'}</td><td>{device.os_name ?? device.platform ?? '—'}<small>{device.os_version ?? ''}</small></td><td>{device.agent_version ?? 'Неизвестна'}{device.core_newer_than_foundation && <small>Core новее Foundation · информационно</small>}</td><td>{device.launcher_version ?? 'Неизвестна'}</td><td>{device.cpu_model ?? '—'}<small>{sizeText(device.ram_bytes)}</small></td><td>{dateText(device.last_seen_at)}</td><td><span className={`status ${device.context_fresh ? 'online' : 'warning'}`}>{device.context_fresh ? 'Актуален' : 'Устарел'}</span><small>{dateText(device.context_collected_at)}</small></td><td>{device.update_status ? updateLabels[device.update_status] ?? device.update_status : 'Нет'}</td><td><Link to={`/admin/devices/${device.id}`}>Открыть</Link></td></tr>)}</tbody></table></div> : <p className="empty-text">Устройства по заданным условиям не найдены.</p>}<div className="pagination"><button disabled={page.offset === 0} onClick={() => move(Math.max(0, page.offset - page.limit))}>Назад</button><span>{page.total ? `${page.offset + 1}–${Math.min(page.offset + page.limit, page.total)}` : '0'} из {page.total}</span><button disabled={page.offset + page.limit >= page.total} onClick={() => move(page.offset + page.limit)}>Далее</button></div></section>}
+    {error ? <LoadError message={error} retry={() => setRevision(value => value + 1)} /> : !page ? <p aria-live="polite">Загрузка устройств…</p> : <section className="panel table-panel"><div className="table-top"><h2>Устройства</h2><span>{page.total.toLocaleString('ru-RU')} всего</span></div>{page.data.length ? <div className="table-scroll"><table><thead><tr><th>Состояние</th><th>Устройство</th><th>Пользователь</th><th>ОС</th><th>Core Agent</th><th>Foundation / Launcher</th><th>CPU / RAM</th><th>Последняя связь</th><th>События питания</th><th>Контекст</th><th>Обновление</th><th></th></tr></thead><tbody>{page.data.map(device => <tr key={device.id}><td><span className={`status ${device.online ? 'online' : 'offline'}`}>{connectionLabel(device.online)}</span></td><td><strong>{device.display_name}</strong><small>{device.hostname ?? device.device_identifier}</small></td><td>{device.current_user ?? '—'}</td><td>{device.os_name ?? device.platform ?? '—'}<small>{device.os_version ?? ''}</small></td><td>{device.agent_version ?? 'Неизвестна'}{device.core_newer_than_foundation && <small>Core новее Foundation · информационно</small>}</td><td>{device.launcher_version ?? 'Неизвестна'}</td><td>{device.cpu_model ?? '—'}<small>{sizeText(device.ram_bytes)}</small></td><td>{dateText(device.last_seen_at)}</td><td><PowerStatus value={device.power} /></td><td><span className={`status ${device.context_fresh ? 'online' : 'warning'}`}>{device.context_fresh ? 'Актуален' : 'Устарел'}</span><small>{dateText(device.context_collected_at)}</small></td><td>{device.update_status ? updateLabels[device.update_status] ?? device.update_status : 'Нет'}</td><td><Link to={`/admin/devices/${device.id}`}>Открыть</Link></td></tr>)}</tbody></table></div> : <p className="empty-text">Устройства по заданным условиям не найдены.</p>}<div className="pagination"><button disabled={page.offset === 0} onClick={() => move(Math.max(0, page.offset - page.limit))}>Назад</button><span>{page.total ? `${page.offset + 1}–${Math.min(page.offset + page.limit, page.total)}` : '0'} из {page.total}</span><button disabled={page.offset + page.limit >= page.total} onClick={() => move(page.offset + page.limit)}>Далее</button></div></section>}
   </>
 }
 
@@ -166,7 +177,7 @@ export function DeviceDetailPage() {
   useEffect(() => { setChangeOffset(0); setHistoryOffset(0); setUpdateOffset(0); setDetail(null); setUpdates(null) }, [deviceId])
   useEffect(() => {
     let active = true
-    request<Detail>(`/api/admin/console/devices/${deviceId}`)
+    request<Detail>(`/api/admin/console/devices/${deviceId}?include_power=true`)
       .then(value => { if (active) setDetail(value) })
       .catch(reason => { if (active) setError(reason.message) })
     return () => { active = false }
@@ -225,14 +236,15 @@ export function DeviceDetailPage() {
   const session = detail.snapshots.find(item => item.profile === 'session_v1')
   return <>
     <Link className="back-link" to="/admin/devices">← Все устройства</Link>
-    <div className="page-heading"><div><p className="eyebrow">УСТРОЙСТВО</p><h1>{detail.device.display_name}</h1><p className="muted">{detail.device.hostname ?? detail.device.device_identifier} · {detail.device.online ? 'В сети' : 'Не в сети'} · Пользователь: {detail.device.current_user ?? '—'} · {detail.device.os_name ?? 'ОС неизвестна'} {detail.device.os_version ?? ''} · Агент · Core Agent {detail.device.agent_version ?? 'Неизвестна'} · Foundation / Launcher {detail.device.launcher_version ?? 'Неизвестна'}{detail.device.core_newer_than_foundation && ' · Core новее Foundation · информационно'} · Последняя связь: {dateText(detail.device.last_seen_at)}</p></div><button onClick={() => setRevision(value => value + 1)}>Обновить</button></div>
+    <div className="page-heading"><div><p className="eyebrow">УСТРОЙСТВО</p><h1>{detail.device.display_name}</h1><p className="muted">{detail.device.hostname ?? detail.device.device_identifier} · {connectionLabel(detail.device.online)} · Пользователь: {detail.device.current_user ?? '—'} · {detail.device.os_name ?? 'ОС неизвестна'} {detail.device.os_version ?? ''} · Агент · Core Agent {detail.device.agent_version ?? 'Неизвестна'} · Foundation / Launcher {detail.device.launcher_version ?? 'Неизвестна'}{detail.device.core_newer_than_foundation && ' · Core новее Foundation · информационно'} · Последняя связь: {dateText(detail.device.last_seen_at)}</p></div><button onClick={() => setRevision(value => value + 1)}>Обновить</button></div>
     <nav className="tabs" aria-label="Разделы устройства">{[['overview', 'Обзор'], ['activity', 'Активность'], ['policy', 'Политика и DLP'], ['context', 'Контекст'], ['changes', 'Изменения'], ['operations', 'Операции'], ['updates', 'Обновления'], ['modules', 'Модули'], ['audit', 'Аудит']].map(([key, label]) => <button key={key} className={tab === key ? 'selected' : ''} onClick={() => setTab(key)}>{label}</button>)}</nav>
     {tab === 'activity' && deviceId && <DeviceActivityStatus key={`${deviceId}-${revision}`} deviceId={deviceId} />}
     {tab === 'policy' && deviceId && <DevicePolicyStatus key={`${deviceId}-${revision}`} deviceId={deviceId} />}
     {tab === 'modules' && deviceId && <DeviceModules deviceId={deviceId} />}
+    {tab === 'overview' && deviceId && <DevicePowerHistory key={`${deviceId}-${revision}`} deviceId={deviceId} online={detail.device.online} lastSeenAt={detail.device.last_seen_at} activityObservedAt={detail.device.last_activity_observed_at} summary={detail.device.power} />}
     {tab === 'overview' && <div className="detail-columns">{inventory ? Object.entries(inventory.sections).map(([name, value]) => <section className="panel" key={name}><h2>{{system:'Система',hardware:'Оборудование',memory:'Память',storage:'Накопители',interfaces:'Сеть'}[name] ?? name}</h2><SectionRows data={typeof value === 'object' && !Array.isArray(value) && value ? value as Record<string, unknown> : { [name]: value }} /></section>) : <section className="panel"><p>Инвентаризационный Context ещё не получен.</p></section>}{session && <section className="panel"><h2>Сеанс</h2><SectionRows data={session.sections} /></section>}<section className="panel"><h2>Поддерживаемые возможности</h2>{detail.capabilities?.length ? <ul>{detail.capabilities.map(item => <li key={item.capability}>{item.display_name_ru} <code>{item.capability}</code></li>)}</ul> : <p className="muted">Нет доступных возможностей для подключённого агента.</p>}</section></div>}
     {tab === 'context' && <><div className="panel context-actions"><label>Профиль <select value={refreshProfile} onChange={event => { setRefreshProfile(event.target.value); setHistoryOffset(0); setHistory([]) }}>{Object.entries(profileLabels).map(([profile, label]) => <option value={profile} key={profile}>{label}</option>)}</select></label><button onClick={refreshContext}>Обновить данные</button>{collection && <span>Сбор: {collectionLabels[collection.status] ?? collection.status}</span>}{refreshError && <span className="error" role="alert">{refreshError}</span>}</div><div className="detail-columns">{Object.entries(profileLabels).map(([profile, label]) => { const snapshot = detail.snapshots.find(item => item.profile === profile); return <section className="panel" key={profile}><h2>{label}</h2>{snapshot ? <><p className="muted">Состояние: Готово · Изменено: {dateText(snapshot.collected_at)}</p><p className="muted">Последнее наблюдение: {dateText(snapshot.last_observed_at)}</p><p className="muted">Свежесть: {snapshot.fresh ? 'Актуален' : 'Устарел'}</p><p className="muted">Снимок: {snapshot.id}</p>{snapshot.warnings.length > 0 && <p className="error">Предупреждения: {snapshot.warnings.join(', ')}</p>}<SectionRows data={snapshot.sections} /></> : <p className="muted">Данные не собраны.</p>}</section> })}</div><section className="panel"><h2>{refreshProfile === 'baseline_v1' || refreshProfile === 'inventory_v1' ? 'Сохранённые снимки' : 'История за 24 часа'} · {profileLabels[refreshProfile]}</h2>{history.length ? <ul className="change-list">{history.map(item => <li key={item.id}>{dateText(item.collected_at)} · {item.id}</li>)}</ul> : <p className="muted">Наблюдений за период нет.</p>}<div className="pagination"><button disabled={historyOffset === 0} onClick={() => setHistoryOffset(Math.max(0, historyOffset - 20))}>Назад</button><span>Страница {Math.floor(historyOffset / 20) + 1}</span><button disabled={!historyHasMore} onClick={() => setHistoryOffset(historyOffset + 20)}>Далее</button></div></section></>}
-    {tab === 'changes' && <section className="panel"><h2>Изменения</h2>{!changesLoaded ? <p aria-live="polite">Загрузка изменений…</p> : changes.length ? <ul className="change-list">{changes.map(item => <li key={item.event_id}><div><strong>{changeLabels[item.event_kind] ?? 'Изменение'}</strong><small>{item.summary_code}</small></div><span>{dateText(item.occurred_at)} · {profileLabels[item.profile] ?? item.profile}</span></li>)}</ul> : <p className="muted">На этой странице изменений нет.</p>}<div className="pagination"><button disabled={changeOffset === 0 || !changesLoaded} onClick={() => setChangeOffset(Math.max(0, changeOffset - 20))}>Назад</button><span>Страница {Math.floor(changeOffset / 20) + 1}</span><button disabled={!changesHasMore || !changesLoaded} onClick={() => setChangeOffset(changeOffset + 20)}>Далее</button></div></section>}
+    {tab === 'changes' && <section className="panel"><h2>Изменения</h2>{!changesLoaded ? <p aria-live="polite">Загрузка изменений…</p> : changes.length ? <ul className="change-list">{changes.map(item => <li key={item.event_id}><div><strong>{changeLabel(item)}</strong><small>{item.summary_code}</small></div><span>{dateText(item.occurred_at)} · {item.profile === 'power_v1' ? 'Питание ОС' : profileLabels[item.profile] ?? item.profile}</span></li>)}</ul> : <p className="muted">На этой странице изменений нет.</p>}<div className="pagination"><button disabled={changeOffset === 0 || !changesLoaded} onClick={() => setChangeOffset(Math.max(0, changeOffset - 20))}>Назад</button><span>Страница {Math.floor(changeOffset / 20) + 1}</span><button disabled={!changesHasMore || !changesLoaded} onClick={() => setChangeOffset(changeOffset + 20)}>Далее</button></div></section>}
     {tab === 'updates' && <section className="panel"><h2>История обновлений</h2>{updates === null ? <p>Загрузка…</p> : updates.data.length ? <ul className="change-list">{updates.data.map(item => <li key={item.rollout_id}><div><strong><Link to={`/admin/updates?open=${item.rollout_id}`}>{item.version}</Link></strong><p>{updateLabels[item.status] ?? item.status}{item.safe_reason ? ` · ${item.safe_reason}` : ''}</p></div><UpdateTimeline target={item} /></li>)}</ul> : <p className="muted">Обновлений пока нет.</p>}<Link to="/admin/updates">Все развёртывания</Link><div className="pagination"><button disabled={updateOffset === 0 || updates === null} onClick={() => setUpdateOffset(Math.max(0, updateOffset - 50))}>Назад</button><span>{updates ? Math.min(updateOffset + 50, updates.total) : 0} из {updates?.total ?? 0}</span><button disabled={updates === null || updateOffset + 50 >= updates.total} onClick={() => setUpdateOffset(updateOffset + 50)}>Далее</button></div></section>}
     {tab === 'operations' && <section className="panel"><h2>Операции устройства</h2><Link to={`/admin/operations?device_id=${deviceId}`}>Открыть журнал операций устройства</Link></section>}
     {tab === 'audit' && <section className="panel"><h2>Аудит устройства</h2><Link to={`/admin/audit?object_kind=device&object_id=${deviceId}`}>Открыть события устройства</Link></section>}

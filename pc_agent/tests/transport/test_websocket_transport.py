@@ -69,12 +69,32 @@ async def test_security_event_batch_uses_canonical_gateway_envelope() -> None:
         events=[_event()],
     )
 
-    await transport.send_security_event_batch(batch)
+    assert await transport.send_security_event_batch(batch) == 1
 
     assert socket.sent == [{
         "schema_version": "gateway_ws_envelope_v1", "sequence": 1,
         "kind": "security_event_batch", "payload": batch.model_dump(mode="json"),
     }]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("negotiated", [False, True])
+async def test_telemetry_result_requires_feature_negotiation(negotiated):
+    from pc_agent.transport.websocket import WebSocketGatewayTransport
+    from pc_agent.transport.base import GatewayProtocolIncompatible
+    from uuid import uuid4
+    frame = {"schema_version": "gateway_ws_envelope_v1", "sequence": 2, "kind": "telemetry_result",
+             "payload": {"schema_version": "telemetry_result_v1", "report_kind": "activity_observation",
+                         "report_id": str(uuid4()), "report_sequence": 2, "disposition": "rejected", "reason_code": "domain_rejected"}}
+    socket = _HandshakeSocket(frame)
+    transport = WebSocketGatewayTransport(ca_file=Path("endpoint-ca.pem"), credential=_TOKEN)
+    transport._socket = socket
+    if negotiated:
+        transport._protocol_features = frozenset({"endpoint.telemetry-results.v1"})
+        assert (await transport.receive()).root.kind == "telemetry_result"
+    else:
+        with pytest.raises(GatewayProtocolIncompatible, match="not negotiated"):
+            await transport.receive()
 
 
 def test_websocket_transport_is_public_gateway_transport() -> None:

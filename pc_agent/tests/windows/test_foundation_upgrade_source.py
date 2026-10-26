@@ -1,5 +1,7 @@
 """The wrapper's predecessor is read from verified foundation authority."""
 import json
+from pathlib import Path
+import re
 from types import SimpleNamespace
 
 import pytest
@@ -101,4 +103,11 @@ def test_foundation_without_modern_marker_uses_exact_readonly_legacy_inspection(
 
 def test_unified_windows_candidate_uses_new_immutable_version():
     from pc_agent.version import AGENT_VERSION
-    assert AGENT_VERSION == "3.2.150"
+    packaging = Path(__file__).resolve().parents[3] / 'packaging' / 'windows'
+    current = json.loads((packaging / f'initial-runtime-{AGENT_VERSION}.json').read_text(encoding='utf-8'))
+    approved = json.loads((packaging / 'initial-runtime-3.2.149.json').read_text(encoding='utf-8'))
+
+    assert current['version'] == current['agent_version'] == AGENT_VERSION
+    assert tuple(map(int, AGENT_VERSION.split('.'))) > (3, 2, 149)
+    assert current['component_guid'] != approved['component_guid']
+    assert re.fullmatch(r'[0-9a-fA-F]{40}', current['source_revision'])

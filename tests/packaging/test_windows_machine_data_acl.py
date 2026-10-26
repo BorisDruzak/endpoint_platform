@@ -69,12 +69,30 @@ def test_existing_root_and_inherited_leaf_descriptors_are_preserved(tmp_path, mo
     identity.rename(root / "enrollment-identity.json")
     credential = root / "device-credential"
     identity = root / "enrollment-identity.json"
-    objects = (root, identity, credential)
+    origin = root / "endpoint-origin"
+    origin.write_bytes(b"https://endpoint.example.test\n")
+    objects = (root, identity, credential, origin)
     acl.PyWin32AclAdapter().protect_credential(credential)
+    # The provisioner protects origin with this same restrictive policy.
+    acl.PyWin32AclAdapter().protect_credential(origin)
     monkeypatch.setattr(data, "_root", lambda _paths: root)
+    before = descriptors()
     snapshot = data._snapshot(None)
     assert snapshot["leaves"]["device-credential"] is not None
-    for leaf in (credential, identity):
+    assert snapshot["leaves"]["endpoint-origin"]["descriptor"] == before[3].hex()
+    # Keep the real prepare/snapshot path; isolate its transaction publication.
+    transaction = tmp_path / "transaction"
+    monkeypatch.setattr(data, "_prepare_transaction_root", lambda *_args: transaction)
+    monkeypatch.setattr(data, "_transaction_root", lambda *_args: transaction)
+    records = []
+    monkeypatch.setattr(data, "_write", lambda _paths, _request, record: records.append(record))
+    request = {"transaction_id": "14c403b1-5de6-4fe9-b60a-8dad22349924",
+               "session_id": "405d7d76-a86b-45db-bcaa-57a6574f61b5", "release": {"package_sha256": "a" * 64}}
+    data.prepare(None, request)
+    assert records[0]["snapshot"] == snapshot
+    assert records[0]["phase"] == "prepared"
+    assert descriptors() == before
+    for leaf in (credential, identity, origin):
         approved = security.GetNamedSecurityInfo(str(leaf), security.SE_FILE_OBJECT, information)
         for invalid_sddl in ("O:BAG:BAD:NO_ACCESS_CONTROL", "O:BAG:BAD:P(A;;FA;;;WD)", "O:BAG:BAD:P(A;;FR;;;WD)"):
             invalid = security.ConvertStringSecurityDescriptorToSecurityDescriptor(invalid_sddl, 1)

@@ -9,6 +9,53 @@ falls back from an impersonation token to a more privileged process token.
 Setup flow logs live beside `Installer/install-result.json`, outside Agent data,
 so diagnostics do not invalidate authenticated fresh-install recovery.
 
+`power/native.py` defines metadata-only native pages and deterministic UUIDs from
+source, actual OS boot identity and native record ID. `power/spool.py` owns a
+separate protected `power-events-v1.db`: page insertion, loss counters and cursor
+updates share one SQLite FULL-synchronous transaction. Its 30-day/10,000-event/
+5-MiB payload limits do not change SecurityEvent retention. Exact ordered power
+ACKs dispose accepted/rejected items; retry_later stays queued and permanent
+rejections retain only bounded quarantine metadata.
+Batch sizing shares `transport/base.py:gateway_wire_size` with the WSS sender:
+the complete envelope uses aiohttp's default JSON wire spacing/UTF-8 bytes,
+including worst-case sequence width, within the dedicated 60-KiB power limit.
+
+`power/runtime.py` starts persistent collection/notification tasks before network
+connection and sends through a per-connection sender only after negotiating
+`endpoint.power-events.v1`. Source/queue failures update source availability and
+retry locally; transport/authentication failures still reach the ordinary
+lifecycle. A timed-out native read is retained so repeated polls do not multiply
+blocked workers. `runtime/lifecycle.py` routes power ACKs independently of policy.
+
+`platform/windows/power_events.py` recovers forward System provider/ID metadata,
+uses Kernel-Boot27 BootType for full-boot versus Fast Startup/hibernate resume,
+and registers PowrProf suspend/resume callbacks. Latest native boot identity is
+separate from historical replay. One bounded reverse Boot27 lookup recovers
+context before the first replay row even if its boot predates the30-day fact
+window. The context shares the existing atomic page/checkpoint transaction.
+The checkpoint also stores a bounded native record-identity digest. An exact
+record lookup validates continuity before cursor reuse; overlapping generations,
+missing records and legacy checkpoints without an anchor reset/replay retained
+coverage explicitly. A later live boot alone does not invalidate the cursor.
+Fixed subprocess reads (10-second deadline, kill-and-wait on cancellation) share
+one loop-scoped lock with SCM evidence. The frozen core dispatches the private
+stdin-only `--windows-power-read` mode; static imports keep the worker in the
+existing build closure. Native reads use no default-executor threads.
+`platform/linux/power_events.py` uses trusted
+UID0/unit/PID1 metadata, forward journal cursors, kernel boot identity and public
+logind signal subscriptions through `busctl wait`. No journal privilege helper
+or main service privilege change is needed. Both PID1 shutdown.target starting
+and successful-start message IDs supply transition evidence. Projection-versioned
+checkpoints replay retained30-day history once when upgrading an older filter,
+preserving kernel boot identity; marker/facts/cursor commit atomically. Native log
+limitations remain visible as availability/loss/reset diagnostics; see
+`docs/architecture/agent-power-collection.md` for precise source mappings.
+
+The fixed Windows `service_launcher.py` forwards SCM shutdown as `S` then EOF;
+ordinary service stop remains EOF only. `runtime/main.py` persists the shutdown
+fact within a two-second budget before stopping the child. Older cores already
+stop on any byte/EOF, and update-pending runtime exit retains precedence.
+
 Gateway WSS EOF/abnormal closure (including aiohttp CLOSED/CLOSING sentinels)
 uses the existing retry lifecycle instead of ending the Windows service. A
 sentinel retains the socket's real close code, so credential and policy
@@ -45,6 +92,12 @@ original capture binding remain immutable. Native prepare reuses the validated
 capture. Numeric phase timing/grant counters contain no paths or identities.
 The owner pipe drains ready frames and waits on pending I/O completion while
 retaining its bounded owner-thread pump and per-mutation authentication.
+
+`platform/windows/acl.py` validates enrollment leaf descriptors read-only during
+installer data capture. Origin accepts the exact protected, explicit credential
+policy written by `WindowsProvisioner`, plus the existing mutable installer and
+provisioning policies. Other leaves retain their existing policies; validation
+never repairs or propagates a DACL.
 
 `msi_inventory.package_read_scope` reuses only verified immutable MSI inventory
 and MSI file digests within one authenticated helper phase. Native file handles
@@ -338,6 +391,20 @@ connection and before applying a replacement policy; an `ERROR` ACK or failed
 ACK send leaves Activity queued. Health/status reporting keeps its independent
 ACK gate so policy errors can still be reported. No Gateway frame or server
 contract changes are required.
+
+The negotiated `endpoint.telemetry-results.v1` channel is defined in
+`endpoint_contracts/telemetry_results.py` and handled by `runtime/lifecycle.py`.
+`runtime/application.py` advertises it on WSS and routes security dispositions
+through `RuntimeDependencies.telemetry_result_handler` to
+`SecurityEventRuntime.receive_result`. `transport/websocket.py` rejects
+unnegotiated results and returns the transmitted sequence from
+`send_security_event_batch`. The sender matches batch ID, sequence and ordered
+subsets of the original batch before applying their still-pending intersection.
+Provider regrouping on retry can include already disposed IDs without pinning
+later rows or counting their rejection twice; permanent rejections persist in
+`SecurityEventSpoolStats.rejected_permanent`. Legacy complete-batch ACK matching
+is unchanged. See `docs/architecture/optional-telemetry-results.md` for provider-
+first compatibility, transaction boundaries and local collector failure rules.
 
 `security/spool.py` keeps typed SecurityEvents in a protected SQLite file under
 the Agent data root. It discards the oldest event on the 1000-event or 5-MiB

@@ -44,6 +44,7 @@ snapshot_live_paths() {
     python3 - <<'PY'
 import hashlib
 import os
+import stat
 
 paths = (
     "/opt/.endpoint-agent-stage",
@@ -60,8 +61,13 @@ digest = hashlib.sha256()
 for path in paths:
     try:
         state = os.lstat(path)
-        value = (state.st_dev, state.st_ino, state.st_mode, state.st_uid, state.st_gid,
-                 state.st_size, state.st_mtime_ns, state.st_ctime_ns)
+        value = (state.st_dev, state.st_ino, state.st_mode, state.st_uid, state.st_gid)
+        # A running agent can create/replace child state files during a case.
+        # Directory size and times describe that activity, not installer access.
+        # Keep identity/security checks for directories and all fields for leaves;
+        # the independent rewritten-path guard still rejects live destinations.
+        if not stat.S_ISDIR(state.st_mode):
+            value += (state.st_size, state.st_mtime_ns, state.st_ctime_ns)
     except FileNotFoundError:
         value = None
     digest.update(repr((path, value)).encode("utf-8"))

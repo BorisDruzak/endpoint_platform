@@ -1,0 +1,88 @@
+# Native OS power evidence
+
+The policy-independent `endpoint.power-events.v1` WebSocket feature is negotiated
+in both hellos. The provider acknowledges only advertised features; it never sends
+`power_event_ack` to an unnegotiated agent. Empty Gateway feature lists remain
+omitted for older agents. Upgrade providers before agents advertising new enum
+values. Authentication, direction, framing and the 60 KiB power-frame ceiling
+retain their existing fatal protocol boundary.
+
+`PowerEventBatchV1` carries a UUID batch ID, 0–128 uniquely identified events and
+a source status. Empty batches persist current source coverage, availability and
+loss/reset counters even with no DLP policy or native journal access. The source
+status reports READY, DEGRADED, UNAVAILABLE or UNSUPPORTED independently of events.
+Newer reported source status replaces the current row; late status cannot roll it
+back. Equal reported times merge conservatively: worst availability (READY,
+DEGRADED, UNAVAILABLE, UNSUPPORTED), maximum loss/reset counters and the later
+coverage start; unknown coverage dominates known coverage. Conflicting source
+names use lexical minimum and at least DEGRADED availability. Exact replays are
+idempotent, retaining the first receipt time of the reported-time bucket.
+PostgreSQL serializes ingestion by the authenticated device row.
+
+Each event carries aware occurred/observed times, a stable UUID, bounded boot,
+source and native-record identities, evidence classification and optional sleep
+subtype. Use deterministic event IDs when re-reading native records. Re-observing
+the same ID/native fact with a later observed time is idempotent. Conflicting
+content, reusing an ID for another record, or assigning another ID to the same
+native identity is permanently rejected. Native identities are unique per device
+through the existing `DeviceEvent.source_key` constraint; source keys hash the
+source/boot/record tuple. No raw OS payload, message/XML or command line is stored.
+
+Accepted history reuses `DeviceEvent(category=power, profile=power_v1)` and its
+2 KiB details bound. Details contain the validated event and separate received
+time. Events older than 30 days or more than five minutes in the future receive
+bounded permanent reasons (`event_expired`, `event_future`, `event_conflict`,
+`event_metadata_too_large`). Each sibling runs within a savepoint. One outer
+commit precedes the exact, ordered per-event ACK dispositions; commit/transport
+failure never produces success. Database failures propagate without a permanent
+disposition so the agent can replay. SQLite explicitly begins before savepoints.
+The ACK vocabulary also supports `retry_later`; this provider currently emits
+accepted/rejected or no ACK on a database failure.
+
+Migration `0039_power_source_state` adds only the current source table, unique
+device ownership, counters and a reported-time index. History retention runs as
+an independent bounded worker job using occurred time, without changing DLP,
+context or employee activity retention/calculation rules.
+
+`GET /api/admin/console/devices/{device_id}/power` requires the ordinary admin
+session and returns `Cache-Control: no-store`. Its response contains `summary`,
+`data`, `total`, `limit`, `offset`, `has_more`; pages are 1–100 events, offset
+0–100000, newest event time first with UUID tie-breaking. History is limited to
+the 30-day window even before the cleanup job runs. The summary contains online,
+last_seen_at, source_status, source_fresh, history_available_from, latest_event
+and status (`online|unknown|sleep|shutdown`). `history_available_from` is the
+retention/source boundary, not a claim of complete OS journal coverage: consult
+source availability, coverage_started_at and loss/reset counters together.
+
+Fresh online presence wins. Newer communication invalidates an old sleep/shutdown
+hint. Requests never establish a shutdown, and startup/resume evidence outranks
+earlier transitions regardless of delivery order. Missing/unsupported source
+coverage remains unknown. Historical evidence describes OS transitions, never
+proves that the hardware is physically powered off. Source freshness uses the
+existing 90-second presence horizon without changing heartbeat or presence.
+Both device and fleet readers apply the complete semantic tie order before
+bounding SQL results: event time, startup/resume, non-transition evidence, stable
+event UUID, then row UUID. The bound cannot discard the winning fact when more
+than 128 records share a timestamp.
+
+Fleet and device-detail endpoints accept optional `include_power=true` to fill
+their additive nullable `power` summary. Fleet enrichment adds two bounded
+queries per page. Activity timeline accepts the same flag and returns bounded
+`power_events` markers (`device_id`, `event`) and `power_events_truncated` after
+2000 markers. Existing activity segments and unknown connection gaps are unchanged.
+Device event lists naturally include persisted power facts.
+
+Console device detail also exposes nullable `last_activity_observed_at` under
+`include_power=true` when the activity policy subsystem is enabled. It reads
+only the existing `activity_v1` observation timestamp; missing observations and
+policy-gated sources remain null, with no fallback to report time. This is the
+last sensor sample, not evidence of a human action. Connection time, that sample,
+and last OS power evidence are presented independently. Power history pagination
+does not replace the current summary with an older page. Timeline markers have
+keyboard controls and preserve activity selections and UNKNOWN intervals.
+
+Canonical schemas are generated by `tools/contracts/generate_contract_artifacts.py`.
+The console power OpenAPI is separately published in
+`contracts/openapi/endpoint-platform-console-power-v1.yaml`; external SDK v1
+HTTP paths and generated GitNexus relationships are unchanged. The shared public
+artifact contains the new protocol schemas because it publishes gateway models.

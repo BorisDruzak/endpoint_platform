@@ -1,3 +1,5 @@
+import { powerEventLabel } from './PowerStatus'
+import type { PowerEvent } from './powerApi'
 import { useEffect, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router'
 import { ApiError, request } from './api'
@@ -27,6 +29,7 @@ function Metrics({ value }: { value: AnalyticsMetrics | null }) {
 
 function Timeline({ value }: { value: AnalyticsTimeline }) {
   const [selected, setSelected] = useState<TimelineSegment | null>(null)
+  const [selectedPower, setSelectedPower] = useState<{ device_id: string; event: PowerEvent } | null>(null)
   const start = Date.parse(value.started_at), length = Date.parse(value.ended_at) - start
   const position = (from: string, to: string) => ({ left: `${(Date.parse(from) - start) / length * 100}%`, width: `${(Date.parse(to) - Date.parse(from)) / length * 100}%` })
   const device = (id: string | null) => value.devices.find(d => d.id === id)?.name ?? 'Без привязки к устройству'
@@ -49,6 +52,25 @@ function Timeline({ value }: { value: AnalyticsTimeline }) {
       {selected.overlap && <p>Есть пересечение устройств; выбран один интервал без двойного учёта.</p>}
     </div>}
     <p className="muted">Нажмите сегмент или выберите его с клавиатуры для подробностей. Светлый остаток шкалы — ещё не наступившее время.</p>
+    <div className="analytics-connections"><h3>События питания ОС</h3>
+      <p className="muted">Отдельные факты ОС; не меняют ACTIVE, IDLE или UNKNOWN и не доказывают физическое отключение питания.</p>
+      {!!value.power_events?.length && <div className="power-timeline" aria-label="Метки событий питания">
+        {value.power_events.map(marker => <button key={`${marker.device_id}:${marker.event.event_identifier}`}
+          style={{ left: `${Math.max(0, Math.min(100, (Date.parse(marker.event.occurred_at) - start) / length * 100))}%` }}
+          aria-label={`Событие питания: ${powerEventLabel(marker.event)} · ${device(marker.device_id)} · ${stamp(marker.event.occurred_at, value.timezone)}`}
+          title={`${powerEventLabel(marker.event)} · ${stamp(marker.event.occurred_at, value.timezone)}`}
+          onClick={() => setSelectedPower(marker)}>◆</button>)}
+      </div>}
+      {selectedPower && <section className="analytics-selection" aria-label="Выбранное событие питания" aria-live="polite">
+        <strong>{powerEventLabel(selectedPower.event)}</strong> · {device(selectedPower.device_id)} · {selectedPower.event.source}
+        <p>{stamp(selectedPower.event.occurred_at, value.timezone)} · Обнаружено: {stamp(selectedPower.event.observed_at, value.timezone)}</p>
+      </section>}
+      {value.power_events?.length ? <details><summary>История событий питания ({value.power_events.length})</summary><ul className="change-list">{value.power_events.map(({ device_id, event }) => <li key={`${device_id}:${event.event_identifier}`}>
+        <div><strong>{powerEventLabel(event)}</strong><small>{device(device_id)} · {event.source}</small></div>
+        <span>{stamp(event.occurred_at, value.timezone)}<small>Обнаружено: {stamp(event.observed_at, value.timezone)}</small></span>
+      </li>)}</ul></details> : <p className="muted">Событий питания за день нет. Покрытие источника может быть неполным.</p>}
+      {value.power_events_truncated && <p className="muted">Показана часть событий питания. Полная доступная история — в карточке устройства.</p>}
+    </div>
     {!!value.connection_gaps.length && <div className="analytics-connections"><h3>Нет соединения WSS с устройством</h3>
       {value.connection_gaps.map((gap, index) => <p key={index}>{device(gap.device_id)} · {stamp(gap.started_at, value.timezone)} — {stamp(gap.ended_at, value.timezone)}</p>)}
       <p className="muted">Подтверждено историей Gateway. Это состояние транспорта устройства, оно не доказывает отсутствие сотрудника.</p>
@@ -112,7 +134,7 @@ export function ActivityAnalyticsPage() {
     if (!selected || !day || !meta || day < meta.detail_available_from || day < meta.since || day > meta.until) return
     let active = true
     const controller = new AbortController()
-    request<AnalyticsTimeline>(`${prefix}/timeline?user_key=${encodeURIComponent(selected)}&day=${day}&timezone=${encodeURIComponent(meta.timezone)}`, { signal: controller.signal })
+    request<AnalyticsTimeline>(`${prefix}/timeline?user_key=${encodeURIComponent(selected)}&day=${day}&timezone=${encodeURIComponent(meta.timezone)}&include_power=true`, { signal: controller.signal })
       .then(value => { if (active) setTimeline(value) })
       .catch(reason => { if (active) setTimelineError(reason instanceof ApiError && reason.status === 410
         ? 'Подробные интервалы удалены по retention. Дневные итоги сохранены.' : 'Не удалось загрузить временную шкалу.') })

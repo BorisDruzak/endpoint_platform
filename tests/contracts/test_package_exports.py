@@ -9,7 +9,7 @@ import endpoint_contracts
 def test_package_model_exports_are_the_original_defining_objects():
     modules = [importlib.import_module('endpoint_contracts.' + name) for name in (
         'commands', 'activity', 'context', 'enrollment', 'gateway_ws',
-        'security_events', 'sensor_health', 'endpoint_policy', 'identity',
+        'security_events', 'power_events', 'sensor_health', 'endpoint_policy', 'identity',
         'network_primitives', 'read_only_primitives', 'capabilities', 'modules',
         'operations', 'telemetry', 'updates',
     )]

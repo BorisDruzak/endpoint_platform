@@ -7,6 +7,7 @@ import logging
 import os
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from functools import partial
 from ipaddress import IPv4Address, IPv6Address, ip_address
 from typing import Mapping
 
@@ -26,13 +27,17 @@ from endpoint_contracts.gateway_ws import (
     GatewayHelloEnvelopeV1,
     HeartbeatEnvelopeV1,
     SecurityEventBatchEnvelopeV1,
+    PowerEventBatchEnvelopeV1,
 )
 from endpoint_server.network import observed_client_address
 from endpoint_contracts.capabilities import MODULE_CAPABILITY_REGISTRY
+from endpoint_contracts.telemetry_results import TELEMETRY_RESULTS_FEATURE
+from endpoint_contracts.power_events import POWER_EVENTS_FEATURE
+from endpoint_server.power.ingestion import commit_and_ack_power_events
 from endpoint_server.operations.capabilities import module_capability_is_compatible
 from endpoint_server.updates.agent_routes import DevicePrincipal, _authenticate_device
 from endpoint_server.context.connect_refresh import queue_connect_refreshes
-from endpoint_server.activity.ingestion import ActivityPolicyRejected, ingest_gateway_activity
+from endpoint_server.activity.ingestion import ingest_gateway_activity
 from endpoint_server.policy.browser_status import BrowserStatusRejected, ingest_browser_status
 from endpoint_server.policy.sensor_health import SensorHealthRejected, ingest_sensor_health
 from endpoint_server.security.ingestion import (
@@ -47,6 +52,8 @@ from endpoint_server.policy.delivery import (
     supports_endpoint_policy,
     supports_endpoint_audit,
 )
+
+from .telemetry import ingest_optional_report
 
 from .command_service import CommandService, CommandStateRejected
 from .connection_registry import (
@@ -258,6 +265,8 @@ async def connect_agent(websocket: WebSocket) -> None:
                     policy_revision=0,
                     effective_capabilities=effective_capabilities,
                     server_time=datetime.now(UTC),
+                    protocol_features=[feature for feature in (TELEMETRY_RESULTS_FEATURE, POWER_EVENTS_FEATURE)
+                        if feature in connection.protocol_features],
                 ),
             ),
         )
@@ -327,18 +336,11 @@ async def connect_agent(websocket: WebSocket) -> None:
                     or not supports_endpoint_policy(first.payload)
                 ):
                     raise GatewayProtocolError(1008, "activity_disabled")
-                try:
-                    async with websocket.app.state.session_provider() as session:
-                        await ingest_gateway_activity(
-                            session, device_id, envelope.payload,
-                            analytics_policy=websocket.app.state.settings.activity_analytics,
-                        )
-                        await session.commit()
-                except ActivityPolicyRejected as error:
-                    # Old observations can arrive before a changed policy is
-                    # delivered/acknowledged. Keep WSS available for that ACK;
-                    # the rejected sample must never reach Context or analytics.
-                    logger.debug("Gateway Activity discarded: %s", error)
+                await ingest_optional_report(
+                    connection, envelope, websocket.app.state.session_provider,
+                    partial(ingest_gateway_activity, analytics_policy=websocket.app.state.settings.activity_analytics),
+                    ContextValidationError,
+                )
             elif isinstance(envelope, BrowserStatusReportEnvelopeV1):
                 if (
                     not websocket.app.state.settings.endpoint_policy_enabled
@@ -346,9 +348,10 @@ async def connect_agent(websocket: WebSocket) -> None:
                     or not supports_endpoint_audit(first.payload)
                 ):
                     raise GatewayProtocolError(1008, "browser_status_disabled")
-                async with websocket.app.state.session_provider() as session:
-                    await ingest_browser_status(session, device_id, envelope.payload)
-                    await session.commit()
+                await ingest_optional_report(
+                    connection, envelope, websocket.app.state.session_provider,
+                    ingest_browser_status, BrowserStatusRejected,
+                )
             elif isinstance(envelope, PolicySensorHealthReportEnvelopeV1):
                 if (
                     not websocket.app.state.settings.endpoint_policy_enabled
@@ -356,9 +359,17 @@ async def connect_agent(websocket: WebSocket) -> None:
                     or not supports_endpoint_policy(first.payload)
                 ):
                     raise GatewayProtocolError(1008, "sensor_health_disabled")
-                async with websocket.app.state.session_provider() as session:
-                    await ingest_sensor_health(session, device_id, envelope.payload)
-                    await session.commit()
+                await ingest_optional_report(
+                    connection, envelope, websocket.app.state.session_provider,
+                    ingest_sensor_health, SensorHealthRejected,
+                )
+            elif isinstance(envelope, PowerEventBatchEnvelopeV1):
+                if POWER_EVENTS_FEATURE not in connection.protocol_features:
+                    raise GatewayProtocolError(1008, 'power_events_disabled')
+                await commit_and_ack_power_events(
+                    websocket.app.state.session_provider,
+                    device_id, envelope.payload, sequence=envelope.sequence, send=connection.send,
+                )
             elif isinstance(envelope, SecurityEventBatchEnvelopeV1):
                 if (
                     not websocket.app.state.settings.endpoint_policy_enabled
@@ -366,13 +377,16 @@ async def connect_agent(websocket: WebSocket) -> None:
                     or not supports_endpoint_audit(first.payload)
                 ):
                     raise GatewayProtocolError(1008, "security_events_disabled")
-                await commit_and_ack_security_events(
-                    websocket.app.state.session_provider,
-                    device_id,
-                    envelope.payload,
-                    sequence=envelope.sequence,
-                    send=connection.send,
-                )
+                try:
+                    await commit_and_ack_security_events(
+                        websocket.app.state.session_provider,
+                        device_id, envelope.payload, sequence=envelope.sequence,
+                        send=connection.send,
+                        telemetry_results=TELEMETRY_RESULTS_FEATURE in connection.protocol_features,
+                    )
+                except SecurityEventRejected:
+                    # Legacy batches remain atomic and receive no new frame.
+                    pass
             else:
                 raise GatewayProtocolError(1008, "unexpected_message")
             await command_service.deliver_next(

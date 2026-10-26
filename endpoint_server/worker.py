@@ -15,6 +15,7 @@ from endpoint_server.enrollment.delivery import cleanup_expired_retry_envelopes
 from endpoint_server.operations.service import expire_operations
 from endpoint_server.operations.evidence import cleanup_module_step_results, cleanup_operation_results
 from endpoint_server.security.retention import retain_security_events
+from endpoint_server.power.retention import retain_power_events
 from endpoint_server.activity.analytics_store import rebuild_daily, retain_analytics
 
 
@@ -84,6 +85,7 @@ async def run_worker(
                 await _run_transactional_job(provider, cleanup_operation_results)
                 await _run_transactional_job(provider, cleanup_module_step_results)
                 await _run_transactional_job(provider, retain_security_events)
+                await _run_transactional_job(provider, retain_power_events)
                 await _run_transactional_job(provider, lambda session: retain_analytics(
                     session, policy=settings.activity_analytics,
                 ))

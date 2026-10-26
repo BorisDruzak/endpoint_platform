@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import logging
 import os
 import re
 import select
@@ -145,12 +146,40 @@ async def _run_service_child(settings: RuntimeSettings) -> int:
     if runtime in done:
         control.cancel()
         return await runtime
+    if await control == b"S":
+        try:
+            async with asyncio.timeout(2):
+                await _record_service_shutdown(settings)
+        except Exception:  # noqa: BLE001 - optional evidence must not replace SCM stop
+            # Power recording cannot replace SCM stop or update semantics.
+            logging.getLogger(__name__).warning("SCM power evidence persistence unavailable")
+    if runtime.done():
+        return await runtime
     runtime.cancel()
     try:
         await runtime
     except asyncio.CancelledError:
         pass
     return 0
+
+
+async def _record_service_shutdown(settings: RuntimeSettings) -> None:
+    from datetime import UTC, datetime
+
+    from pc_agent.platform.windows.power_events import read_system_page
+    from pc_agent.power.native import native_event, opaque_id
+    from pc_agent.power.spool import PowerEventSpool
+
+    now = datetime.now(UTC)
+    _rows, _state, _reset, boot_id = await read_system_page(None, now)
+    if boot_id is None:
+        return
+    spool = PowerEventSpool(settings.data_root)
+    await spool.open()
+    await spool.record(native_event(source="windows.scm", boot_id=boot_id,
+        native_record_id=opaque_id(f"shutdown:{now.isoformat()}"),
+        event_kind="OS_SHUTDOWN_STARTED", evidence="transition", occurred_at=now,
+        observed_at=now), now=now)
 
 
 def _launcher_version(value: str) -> str:
@@ -215,6 +244,10 @@ def _parser() -> argparse.ArgumentParser:
 
 def main(argv: Sequence[str] | None = None) -> int:
     arguments = list(sys.argv[1:] if argv is None else argv)
+    if arguments == ["--windows-power-read"]:
+        from pc_agent.platform.windows.power_events import read_worker_main
+
+        return read_worker_main()
     if arguments and arguments[0] == '--linux-browser-bridge':
         if sys.platform != 'linux':
             return 1

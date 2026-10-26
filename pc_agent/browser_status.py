@@ -93,7 +93,7 @@ class BrowserStatusRuntime:
                 report = build_browser_status_report(
                     policy, hosts, heartbeats, observed_at=observed_at,
                 )
-            except Exception:
+            except (OSError, ValueError, KeyError):
                 _LOG.warning("browser status collection unavailable")
                 await sleep(self._interval_seconds)
                 continue

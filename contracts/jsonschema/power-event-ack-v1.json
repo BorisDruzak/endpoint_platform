@@ -1,0 +1,72 @@
+{
+  "$defs": {
+    "PowerEventDispositionV1": {
+      "additionalProperties": false,
+      "properties": {
+        "disposition": {
+          "enum": [
+            "accepted",
+            "retry_later",
+            "rejected"
+          ],
+          "title": "Disposition",
+          "type": "string"
+        },
+        "event_identifier": {
+          "format": "uuid",
+          "title": "Event Identifier",
+          "type": "string"
+        },
+        "reason_code": {
+          "maxLength": 64,
+          "minLength": 1,
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Reason Code",
+          "type": "string"
+        }
+      },
+      "required": [
+        "event_identifier",
+        "disposition",
+        "reason_code"
+      ],
+      "title": "PowerEventDispositionV1",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "batch_id": {
+      "format": "uuid",
+      "title": "Batch Id",
+      "type": "string"
+    },
+    "persisted_at": {
+      "$comment": "model-only UTC normalization: timezone-aware values are normalized to UTC.",
+      "format": "date-time",
+      "title": "Persisted At",
+      "type": "string"
+    },
+    "results": {
+      "items": {
+        "$ref": "#/$defs/PowerEventDispositionV1"
+      },
+      "maxItems": 128,
+      "title": "Results",
+      "type": "array"
+    },
+    "schema_version": {
+      "const": "power_event_ack_v1",
+      "title": "Schema Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema_version",
+    "batch_id",
+    "persisted_at",
+    "results"
+  ],
+  "title": "PowerEventAckV1",
+  "type": "object"
+}
