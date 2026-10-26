@@ -9,6 +9,7 @@ import { ModulesPage } from './ModulesPage'
 import { AuditPage } from './AuditPage'
 import { SecurityPage } from './SecurityPage'
 import { ActivityAnalyticsPage } from './ActivityAnalyticsPage'
+import { EmployeeLogin, EmployeePortal } from './EmployeePortal'
 
 const navigation = [
   { to: '/admin', label: 'Главная', end: true },
@@ -98,7 +99,7 @@ function Console() {
       <aside className="sidebar">
         <div className="brand">Endpoint Platform</div>
         <nav aria-label="Основная навигация">
-          {navigation.map(item => <NavLink key={item.to} to={item.to} end={item.end} className={({ isActive }) => isActive ? 'nav-link active' : 'nav-link'}>{item.label}</NavLink>)}
+          {navigation.filter(item => item.to !== '/admin/security' || session.scopes.includes('dlp:read')).map(item => <NavLink key={item.to} to={item.to} end={item.end} className={({ isActive }) => isActive ? 'nav-link active' : 'nav-link'}>{item.label}</NavLink>)}
         </nav>
       </aside>
       <div className="content-shell">
@@ -115,7 +116,7 @@ function Console() {
             <Route path="/admin/updates/*" element={<UpdatesPage canWrite={session.scopes.includes('updates:write')} />} />
             <Route path="/admin/operations/*" element={<OperationsPage />} />
             <Route path="/admin/modules/*" element={<ModulesPage />} />
-            <Route path="/admin/security/*" element={<SecurityPage />} />
+            <Route path="/admin/security/*" element={session.scopes.includes('dlp:read') ? <SecurityPage /> : <PendingPage title="Доступ к DLP ограничен" />} />
             <Route path="/admin/activity-analytics" element={<ActivityAnalyticsPage />} />
             <Route path="/admin/audit/*" element={<AuditPage />} />
             <Route path="*" element={<PendingPage title="Страница не найдена" />} />
@@ -127,5 +128,5 @@ function Console() {
 }
 
 export function App() {
-  return <Routes><Route path="/admin/login" element={<LoginPage />} /><Route path="*" element={<Console />} /></Routes>
+  return <Routes><Route path="/employee/login" element={<EmployeeLogin />} /><Route path="/employee/*" element={<EmployeePortal />} /><Route path="/dlp/*" element={<EmployeePortal dlp />} /><Route path="/admin/login" element={<LoginPage />} /><Route path="*" element={<Console />} /></Routes>
 }

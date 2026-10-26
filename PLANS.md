@@ -1,5 +1,43 @@
 # Endpoint Platform Plan
 
+## SSO + WorkTime staged implementation (2026-10-27)
+
+Latest checkpoint (supersedes initial progress below): auth/WorkTime/DLP/UI and
+typed companion implemented, independently reviewed and corrected. PostgreSQL76
+passed; final UI68 unit/14 browser; focused native ABI/companion/queue32 passed.
+Initial broad backend2863 passed/38 failed/338 skipped:35 tzdata environment
+mismatches fixed with pinned2026.3,2 obsolete head assertions now0042,1 optional
+bridge startup failure fixed without weakening WSS fixtures. Focused121 passed,
+8 skipped; full rerun in progress. Final review found no P0/P1; explanation queue
+pagination and shared Helpdesk-service budget P2 corrections have regression
+coverage. Keycloak26.8.1 now imported/bootstrap active with ownPG5544, LDAPS
+hostname/CA verification and HTTPS discovery200, clients disabled pending pilot.
+ALT210 accessible as osn-admin, current3.2.127; Windows currentCore149. No157
+artifact/build/install or live application SSO acceptance claimed. Freeze clean
+source, qualify/sign157 Windows and native ALT packages, reviewed independent
+app deployment and bounded synthetic-AD pilot remain required.
+
+Goal: implement user-supplied SSO + Helpdesk + Endpoint + DLP + WorkTime spec,
+with independent subagent reviews and focused feature tests at each A–F gate.
+Source base78d24e9 main, branch codex/sso-worktime-20261027. Preserve original
+dirty checkout; user explicitly authorizes Endpoint changes/deploy, separate
+agent update and Linux/local-domain-PC validation. No fleet rollout, mass AD or
+GPO change, forced migration or organization-wide personnel monitoring.
+Shared design/plan live in Helpdesk docs/superpowers/{specs,plans}/2026-10-27-
+sso-worktime*. Confirmed identity authority is Helpdesk RegistryPerson; exact
+OIDC issuer/sub + ADGUID, no automatic username/email merging. Separate realms,
+opaque server sessions, MFA and scoped local grants. Device/WSS credentials
+unchanged; personnel events independent of Activity and its shorter retention.
+Current State: A auth/identity worker, C WorkTime worker, D UI worker and
+Keycloak infra worker active. Root adds separate DLP routes/grants.
+Verification: DLP technical-admin implicit read regression RED(200) then
+GREEN403explicit dlp:read,1testpassed. Initial architecture reviews completed.
+Next: review/test each deliverable, real DB migration/concurrency, integrate
+server/frontend, typed companion delivery then signed build and installed pilot.
+Handoff: AD-MAIN has no Keycloak/DNS and unusable LDAPS TLS/no machine cert;
+user authorizes separate .19 deployment. No remote mutation yet; no completed
+stage or installed SSO/WorkTime acceptance claimed.
+
 ## Capability Platform v2 (2026-09-24)
 
 The source baseline is `31b3bdbbdcb07d2bb23beb9a6412e1ef2250fefd`

@@ -77,6 +77,7 @@ async def run_worker(
                 ))
                 if not isinstance(completed, int) or completed < 16:
                     break
+            await _run_worktime_maintenance(provider, enabled=settings.worktime_enabled)
             if elapsed - last_payload_cleanup >= cleanup_interval_seconds:
                 # At 100 rows per minute this can drain 144,000 rows per day,
                 # above the expected collection volume for 120 devices.
@@ -100,6 +101,15 @@ async def run_worker(
     finally:
         if owns_provider:
             await provider.close()
+
+
+async def _run_worktime_maintenance(provider: SessionProvider, *, enabled: bool) -> None:
+    """Keep explanation generation and personnel retention independently atomic."""
+    if not enabled:
+        return
+    from endpoint_server.worktime.service import generate_due_requests, retain_worktime
+    await _run_transactional_job(provider, generate_due_requests)
+    await _run_transactional_job(provider, retain_worktime)
 
 
 if __name__ == "__main__":

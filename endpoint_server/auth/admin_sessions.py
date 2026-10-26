@@ -94,12 +94,31 @@ def _is_opaque_session_token(value: str) -> bool:
     return len(decoded) == SESSION_TOKEN_BYTES
 
 
+async def local_password_policy(session,user,settings,*,record=None):
+    """Migrated identities need OIDC, or a newly issued bounded emergency session."""
+    oidc=getattr(settings,'oidc',None)
+    migrated=getattr(user,'sso_migrated_at',None) is not None
+    if not migrated and oidc is not None and oidc.enabled:
+        from endpoint_server.db.models.identity import ConfirmedIdentity
+        migrated=await session.scalar(select(ConfirmedIdentity.id).where(ConfirmedIdentity.admin_user_id==user.id)) is not None
+    if not migrated and (record is None or record.auth_method!='breakglass'):
+        return True,False
+    now=datetime.now(UTC)
+    until=getattr(oidc,'breakglass_until',None)
+    allowed=(user.username in getattr(oidc,'breakglass_usernames',()) and until is not None and until.tzinfo is not None and now<until)
+    if record is not None:
+        allowed=allowed and record.auth_method=='breakglass' and record.expires_at<=until
+    return bool(allowed),bool(allowed)
+
+
 async def _load_admin_principal(
     session: AsyncSession,
     session_token: str,
     session_secret: bytes,
     *,
     now: datetime | None = None,
+    request: Request | None = None,
+    commit_revalidation: bool = True,
 ) -> AdminPrincipal | None:
     if not _is_opaque_session_token(session_token):
         return None
@@ -108,13 +127,27 @@ async def _load_admin_principal(
             AdminSession.session_digest == session_digest(session_token, session_secret)
         )
     )
-    if record is None or not session_is_active(record, now=now):
+    if record is None or record.revoked_at is not None or record.expires_at.tzinfo is None or (record.auth_method!='oidc' and not session_is_active(record,now=now)):
         return None
     user = await session.scalar(
         select(AdminUser).where(AdminUser.id == record.admin_user_id)
     )
     if user is None or user.disabled_at is not None:
         return None
+    if record.auth_method == 'oidc':
+        if request is None:
+            return None
+        from endpoint_server.db.models.identity import ConfirmedIdentity, UpstreamSession
+        from endpoint_server.auth.oidc import revalidate_upstream
+        upstream = await session.scalar(select(UpstreamSession).where(UpstreamSession.admin_session_id == record.id))
+        identity = await session.scalar(select(ConfirmedIdentity).where(ConfirmedIdentity.id == upstream.identity_id)) if upstream else None
+        if identity is None or identity.admin_user_id != user.id:
+            return None
+        await revalidate_upstream(request,session,identity,upstream,'admin',commit=commit_revalidation)
+    else:
+        allowed,_=await local_password_policy(session,user,request.app.state.settings if request else None,record=record)
+        if not allowed:
+            return None
     return AdminPrincipal(user=user, session=record)
 
 
@@ -128,6 +161,7 @@ async def require_admin(request: Request) -> AdminPrincipal:
             session,
             session_token,
             request.app.state.settings.session_secret,
+            request=request,
         )
     if principal is None:
         raise _unauthorized()
@@ -137,6 +171,22 @@ async def require_admin(request: Request) -> AdminPrincipal:
         request.app.state.settings.session_secret,
     )
     return principal
+
+
+async def require_local_logout(request:Request)->AdminPrincipal:
+    """Logout revokes local authority even when upstream/identity is unavailable."""
+    raw=request.cookies.get(ADMIN_SESSION_COOKIE,'')
+    if not _is_opaque_session_token(raw):
+        raise _unauthorized()
+    enforce_csrf(request,raw,request.app.state.settings.session_secret)
+    async with request.app.state.session_provider() as session:
+        record=await session.scalar(select(AdminSession).where(AdminSession.session_digest==session_digest(raw,request.app.state.settings.session_secret)))
+        if record is None:
+            raise _unauthorized()
+        user=await session.scalar(select(AdminUser).where(AdminUser.id==record.admin_user_id))
+        if user is None:
+            raise _unauthorized()
+    return AdminPrincipal(user,record)
 
 
 async def require_admin_update_scope(
@@ -166,7 +216,7 @@ async def require_admin_update_scope(
 async def load_update_admin_in_transaction(request: Request, session: AsyncSession) -> AdminPrincipal:
     """Load real cookie authority inside the cancellation supervisor's fresh session."""
     token = request.cookies.get(ADMIN_SESSION_COOKIE, "")
-    principal = await _load_admin_principal(session, token, request.app.state.settings.session_secret)
+    principal = await _load_admin_principal(session, token, request.app.state.settings.session_secret, request=request, commit_revalidation=False)
     if principal is None:
         raise _unauthorized()
     enforce_csrf(request, token, request.app.state.settings.session_secret)
@@ -191,6 +241,10 @@ async def revalidate_update_admin_in_transaction(
             or not hmac.compare_digest(record.session_digest, session_digest(token, secret))):
         raise _unauthorized()
     enforce_csrf(request, token, secret)
+    if record.auth_method == 'oidc':
+        reloaded = await _load_admin_principal(session,token,secret,request=request,commit_revalidation=False)
+        if reloaded is None:
+            raise _unauthorized()
     await require_admin_update_scope(request, principal=AdminPrincipal(user=user, session=record))
     operation_budget.check()
 
@@ -290,17 +344,26 @@ async def login_admin(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid username or password",
             )
+        allowed,emergency=await local_password_policy(session,user,request.app.state.settings)
+        if not allowed:
+            raise _unauthorized()
+        lifetime=DEFAULT_SESSION_LIFETIME
+        if emergency:
+            lifetime=min(timedelta(hours=1),request.app.state.settings.oidc.breakglass_until-datetime.now(UTC))
         issued = issue_admin_session(
             user.id,
             request.app.state.settings.session_secret,
+            lifetime=lifetime,
         )
+        if emergency:
+            issued.record.auth_method='breakglass'
         session.add(issued.record)
         try:
             await append_audit_event(
                 session,
                 actor_kind="admin",
                 actor_identifier=str(user.id),
-                action="admin_session.created",
+                action="admin_breakglass_session.created" if emergency else "admin_session.created",
                 object_kind="admin_session",
                 object_identifier=str(issued.record.id),
                 request_id=audit_request_id(request),
@@ -324,12 +387,17 @@ async def login_admin(
 async def logout_admin(
     request: Request,
     response: Response,
-    principal: AdminPrincipal = Depends(require_admin),
+    principal: AdminPrincipal = Depends(require_local_logout),
 ) -> None:
     """Persistently revoke the current administrator session."""
     async with request.app.state.session_provider() as session:
         managed_record = await session.merge(principal.session)
         revoke_admin_session(managed_record)
+        if managed_record.auth_method=='oidc':
+            from endpoint_server.db.models.identity import UpstreamSession
+            upstream=await session.scalar(select(UpstreamSession).where(UpstreamSession.admin_session_id==managed_record.id).with_for_update())
+            if upstream is not None:
+                upstream.revoked_at=datetime.now(UTC)
         try:
             await append_audit_event(
                 session,

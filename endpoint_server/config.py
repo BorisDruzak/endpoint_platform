@@ -14,6 +14,7 @@ from typing import Mapping, TypeAlias
 from urllib.parse import urlsplit
 from uuid import UUID
 from endpoint_server.activity.analytics_policy import AnalyticsPolicy
+from endpoint_server.auth.oidc_config import OIDCSettings
 
 
 Network: TypeAlias = ipaddress.IPv4Network | ipaddress.IPv6Network
@@ -193,6 +194,8 @@ class Settings:
     endpoint_dlp_audit_enabled: bool = False
     gateway_minimum_agent_versions: tuple[tuple[str, str], ...] = ()
     activity_analytics: AnalyticsPolicy = AnalyticsPolicy()
+    oidc: OIDCSettings = OIDCSettings()
+    worktime_enabled: bool = False
 
     @classmethod
     def from_environment(cls, environment: Mapping[str, str] | None = None) -> Settings:
@@ -332,4 +335,6 @@ class Settings:
                 values.get("GATEWAY_MINIMUM_AGENT_VERSIONS", "")
             ),
             activity_analytics=AnalyticsPolicy.from_environment(values),
+            oidc=OIDCSettings.from_environment(values),
+            worktime_enabled=_parse_optional_boolean('ENDPOINT_WORKTIME_ENABLED',values.get('ENDPOINT_WORKTIME_ENABLED','')),
         )

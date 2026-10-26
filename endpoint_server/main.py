@@ -13,6 +13,13 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.base import RequestResponseEndpoint
 
 from endpoint_server.auth.admin_sessions import router as admin_auth_router
+from endpoint_server.auth.oidc import OIDCProvider, router as oidc_router
+from endpoint_server.auth.employee_sessions import router as employee_auth_router
+from endpoint_server.auth.identity_admin import router as identity_admin_router
+from endpoint_server.console.employee import router as employee_shell_router
+from endpoint_server.worktime.router import router as worktime_router
+from endpoint_server.worktime.companion import router as worktime_companion_router
+from endpoint_server.identity.helpdesk_client import HelpdeskIdentityClient
 from endpoint_server.browser_sensor.public_routes import router as browser_sensor_public_router
 from endpoint_server.browser_sensor.admin_routes import router as browser_sensor_admin_router
 from endpoint_server.auth.validation import redacting_validation_exception_handler
@@ -38,6 +45,7 @@ from endpoint_server.power.routes import router as console_power_router
 from endpoint_server.console.activity_analytics import router as activity_analytics_router
 from endpoint_server.policy.admin_routes import router as policy_admin_router
 from endpoint_server.security.admin_routes import router as security_admin_router
+from endpoint_server.security.dlp_routes import router as dlp_router
 from endpoint_server.enrollment.provisioning_routes import (
     router as provisioning_router,
 )
@@ -95,6 +103,18 @@ def create_app(
     assert_single_gateway_worker()
     app = FastAPI(title="Endpoint Platform", version="0.0.0", lifespan=_lifespan)
     app.state.settings = settings
+    app.state.oidc_provider = OIDCProvider(settings.oidc)
+    app.state.helpdesk_identity_client = (
+        HelpdeskIdentityClient(settings.oidc.helpdesk_base_url,settings.oidc.helpdesk_credential,ca_file=settings.oidc.ca_file)
+        if settings.oidc.enabled else None
+    )
+    app.include_router(oidc_router)
+    app.include_router(employee_auth_router)
+    app.include_router(identity_admin_router)
+    app.include_router(employee_shell_router)
+    app.include_router(worktime_router)
+    if settings.worktime_enabled:
+        app.include_router(worktime_companion_router)
     app.state.session_provider = session_provider or create_session_provider(
         settings.database_url
     )
@@ -146,6 +166,10 @@ def create_app(
             )
 
         response = await call_next(request)
+        if request.url.path.startswith(('/auth/','/api/employee/','/api/dlp/','/api/admin/identities/')):
+            response.headers['Cache-Control'] = 'no-store'
+            response.headers['Referrer-Policy'] = 'no-referrer'
+            response.headers['X-Content-Type-Options'] = 'nosniff'
         if request.url.path.startswith("/admin/assets/") and response.status_code == 200:
             response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
             response.headers["X-Content-Type-Options"] = "nosniff"
@@ -192,6 +216,7 @@ def create_app(
     if settings.endpoint_policy_enabled:
         app.include_router(policy_admin_router)
         app.include_router(security_admin_router)
+        app.include_router(dlp_router)
         app.include_router(console_activity_router)
     app.include_router(console_router)
     return app
