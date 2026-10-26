@@ -65,7 +65,10 @@ def test_proxy_does_not_publish_admin_or_health_and_replaces_headers():
 def test_install_and_backup_keep_secret_and_database_boundaries():
     install = Path("tools/keycloak/install.sh").read_text(encoding="utf-8")
     assert "--auth-host=scram-sha-256" in install
-    assert "pg_conftool 16 keycloak set listen_addresses 127.0.0.1" in install
+    assert 'pg_conftool 16 keycloak set listen_addresses "\'127.0.0.1\'"' in install
+    assert '--resume-before-database' in install
+    assert 'pg_conftool -s 16 keycloak show port' in install
+    assert "Unexpected existing application role" in install
     assert "--verify" not in install  # No permissive custom TLS flags.
     assert "-verify_hostname AD-MAIN.sosnadmin.local" in install
     assert "-verify_return_error" in install

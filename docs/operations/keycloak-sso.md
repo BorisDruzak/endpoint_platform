@@ -62,6 +62,15 @@ The CA bundle must validate both the SSO leaf and the DC leaf. The optional
 `--prepare-without-directory` flag permits preparation while LDAPS is broken;
 this does not enable application clients or establish SSO readiness.
 
+The live first-install gate found `pg_conftool` writes PostgreSQL string values
+literally. The installer now supplies quoted loopback addresses. If first
+installation stopped at cluster startup, `--resume-before-database` verifies
+the exact distribution, CA/TLS inputs, Unix identity, dedicated port and absence
+of application configuration/service before continuing. It refuses an existing
+application role instead of changing its password. This mode is solely for that
+interrupted pre-database phase, never an upgrade or a way to overwrite an active
+SSO installation. Keep the main PostgreSQL cluster untouched.
+
 Only after reviewing assets and approving the exact DNS record, provision
 `sso.sosnadmin.local A 192.168.100.19` on the AD DNS server. No scripts here
 change DNS, GPOs, existing users or groups. Do not replace another record.
