@@ -101,4 +101,4 @@ def test_foundation_without_modern_marker_uses_exact_readonly_legacy_inspection(
 
 def test_unified_windows_candidate_uses_new_immutable_version():
     from pc_agent.version import AGENT_VERSION
-    assert AGENT_VERSION == "3.2.149"
+    assert AGENT_VERSION == "3.2.150"

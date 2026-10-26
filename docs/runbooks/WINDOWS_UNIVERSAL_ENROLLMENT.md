@@ -96,8 +96,8 @@ update timestamp. `detail` is a bounded category such as `MSI_UNAVAILABLE`,
 `MSI_EXIT_1603`, `PREFLIGHT_INVALID`, `CLAIM_FAILED`,
 `PROVISIONING_UNEXPECTED`, or `SERVICE_NOT_RUNNING`; it never contains claims,
 credentials, paths, response bodies, or raw exception text. The protected
-agent log remains available to administrators at
-`C:\ProgramData\Endpoint Platform\Agent\install.log` for correlated internal
+installer log remains available at
+`C:\ProgramData\Endpoint Platform\Installer\install.log` for correlated internal
 diagnostics.
 
 The result directory has an explicit Windows DACL: SYSTEM and Administrators

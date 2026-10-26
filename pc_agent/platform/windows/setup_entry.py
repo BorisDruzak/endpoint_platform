@@ -9,6 +9,7 @@ import json
 import os
 import re
 import socket
+import stat
 import subprocess
 import sys
 import time
@@ -770,17 +771,51 @@ def _write_install_log(
         f"{datetime.now(UTC).isoformat()} step={step} status={status} "
         f"code={code} detail={safe_detail}\n"
     )
-    # MSI owns creation/protection of Agent data. Before it runs, the public
-    # Installer result is sufficient; a plain mkdir would inherit Users write
-    # grants and make the wrapper's update-state ACL gate reject a clean install.
+    # The separately protected Installer directory is prepared with the public
+    # result. Diagnostics must never populate an authenticated fresh Agent root.
     if not path.parent.is_dir():
         return
-    with path.open("a", encoding="utf-8", newline="\n") as target:
-        target.write(line)
+    payload = line.encode("utf-8")
+    if os.name == "nt":
+        import ntsecuritycon
+        import win32con
+        import win32file
+        import win32security
 
-
-def _log_path(data_root: Path) -> Path:
-    return data_root / "install.log"
+        try:
+            handle = win32file.CreateFile(str(path),
+                ntsecuritycon.FILE_APPEND_DATA | ntsecuritycon.READ_CONTROL | ntsecuritycon.WRITE_DAC,
+                win32con.FILE_SHARE_READ, None, win32con.OPEN_ALWAYS,
+                win32file.FILE_FLAG_OPEN_REPARSE_POINT, None)
+            try:
+                details = win32file.GetFileInformationByHandle(handle)
+                if details[0] & (0x400 | win32con.FILE_ATTRIBUTE_DIRECTORY) or details[7] != 1:
+                    raise OSError("installer log is not a regular single-link file")
+                descriptor = win32security.GetSecurityInfo(handle, win32security.SE_FILE_OBJECT,
+                    win32security.OWNER_SECURITY_INFORMATION)
+                if win32security.ConvertSidToStringSid(descriptor.GetSecurityDescriptorOwner()) not in {
+                    "S-1-5-18", "S-1-5-32-544"
+                }:
+                    raise OSError("installer log owner is untrusted")
+                policy = win32security.ConvertStringSecurityDescriptorToSecurityDescriptor(
+                    "D:P(A;;FA;;;SY)(A;;FA;;;BA)(A;;FR;;;BU)", 1)
+                win32security.SetSecurityInfo(handle, win32security.SE_FILE_OBJECT,
+                    win32security.DACL_SECURITY_INFORMATION | win32security.PROTECTED_DACL_SECURITY_INFORMATION,
+                    None, None, policy.GetSecurityDescriptorDacl(), None)
+                win32file.WriteFile(handle, payload)
+            finally:
+                handle.Close()
+        except Exception as error:
+            raise OSError("installer log append failed") from error
+    else:
+        descriptor = os.open(path, os.O_WRONLY | os.O_APPEND | os.O_CREAT | os.O_NOFOLLOW, 0o600)
+        try:
+            details = os.fstat(descriptor)
+            if not stat.S_ISREG(details.st_mode) or details.st_nlink != 1:
+                raise OSError("installer log is not a regular single-link file")
+            os.write(descriptor, payload)
+        finally:
+            os.close(descriptor)
 
 
 def _result_path() -> Path:
@@ -844,8 +879,9 @@ def _finish(
         # A result-write failure must not hide the actual installer process result.
         pass
     try:
+        diagnostics_root = _prepare_diagnostics_root()
         _write_install_log(
-            _log_path(data_root),
+            diagnostics_root / "install.log",
             step="SETUP",
             status=status,
             code=code,

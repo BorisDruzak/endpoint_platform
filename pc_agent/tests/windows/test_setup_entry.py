@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import hashlib
+import os
 import runpy
 from pathlib import Path
 from types import SimpleNamespace
@@ -113,6 +114,7 @@ def test_setup_file_entry_executes_package_helpers(tmp_path, monkeypatch, operat
 def literal_msi_costing_boundary(monkeypatch, tmp_path):
     (tmp_path / "data").mkdir(exist_ok=True)
     (tmp_path / "agent-data").mkdir(exist_ok=True)
+    monkeypatch.setattr(setup_entry, "_diagnostics_root", lambda: tmp_path / "diagnostics")
     # Setup unit fixtures model state schemas, not machine directory ACLs.
     # Native directory/leaf security is covered by test_update_transaction.
     from pc_agent.platform.windows import update_transaction
@@ -315,7 +317,7 @@ def test_setup_entry_records_started_before_installing_embedded_msi(
     monkeypatch.setattr(setup_entry, "_data_root", lambda: data_root)
 
     def assert_started_before_msi(_: Path) -> None:
-        contents = (data_root / "install.log").read_text(encoding="utf-8")
+        contents = (tmp_path / "diagnostics" / "install.log").read_text(encoding="utf-8")
         assert "status=STARTED" in contents
 
     monkeypatch.setattr(setup_entry, "_install_embedded_msi", assert_started_before_msi)
@@ -785,7 +787,7 @@ def test_setup_entry_logs_safe_provisioner_failure_detail(
 
     assert setup_entry.main(["--quiet"]) == setup_entry.EXIT_PROVISIONING_FAILED
     assert "detail=PROVISIONER_WINDOWSACLERROR" in (
-        data_root / "install.log"
+        tmp_path / "diagnostics" / "install.log"
     ).read_text(encoding="utf-8")
 
 
@@ -867,6 +869,57 @@ def test_setup_status_before_msi_does_not_create_unowned_agent_data(tmp_path, mo
 
     assert not data_root.exists()
     assert results == [{"status": "STARTED", "code": 0, "stage": "MSI", "detail": "STARTED"}]
+
+
+def test_failed_fresh_setup_and_retry_do_not_contaminate_agent_data(tmp_path, monkeypatch):
+    data_root = tmp_path / "fresh-agent"
+    data_root.mkdir()
+    diagnostics = tmp_path / "installer-diagnostics"
+    monkeypatch.setattr(setup_entry, "_diagnostics_root", lambda: diagnostics)
+    for status, code in [("INSTALL_FAILED", 21), ("STARTED", 0)]:
+        assert setup_entry._finish(data_root, status=status, code=code,
+                                   stage="MSI", detail="MSI_EVIDENCE_FAILED") == code
+        assert list(data_root.iterdir()) == []
+    contents = (diagnostics / "install.log").read_text(encoding="utf-8")
+    assert "status=INSTALL_FAILED" in contents
+    assert "status=STARTED" in contents
+
+
+def test_rejected_diagnostics_directory_never_receives_a_log(tmp_path, monkeypatch):
+    diagnostics = tmp_path / "untrusted-diagnostics"
+    diagnostics.mkdir()
+    monkeypatch.setattr(setup_entry, "_diagnostics_root", lambda: diagnostics)
+    monkeypatch.setattr(setup_entry, "_prepare_diagnostics_root",
+                        lambda: (_ for _ in ()).throw(OSError("untrusted directory")))
+    assert setup_entry._finish(tmp_path, status="INSTALL_FAILED", code=21) == 21
+    assert list(diagnostics.iterdir()) == []
+
+
+def test_diagnostics_log_rejects_hardlinked_leaf(tmp_path, monkeypatch):
+    import os
+    diagnostics = tmp_path / "diagnostics"
+    diagnostics.mkdir()
+    outside = tmp_path / "unrelated-file"
+    outside.write_bytes(b"unchanged")
+    os.link(outside, diagnostics / "install.log")
+    monkeypatch.setattr(setup_entry, "_diagnostics_root", lambda: diagnostics)
+    assert setup_entry._finish(tmp_path, status="INSTALL_FAILED", code=21) == 21
+    assert outside.read_bytes() == b"unchanged"
+
+
+@pytest.mark.skipif(os.name != 'nt', reason="native NTFS junction")
+def test_rejected_diagnostics_junction_does_not_redirect_log(tmp_path, monkeypatch):
+    import _winapi
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    diagnostics = tmp_path / "diagnostics-junction"
+    _winapi.CreateJunction(str(outside), str(diagnostics))
+    monkeypatch.setattr(setup_entry, "_diagnostics_root", lambda: diagnostics)
+    try:
+        assert setup_entry._finish(tmp_path, status="INSTALL_FAILED", code=21) == 21
+        assert list(outside.iterdir()) == []
+    finally:
+        diagnostics.rmdir()
 
 
 def test_valid_rerun_stops_before_msi_or_enrollment(

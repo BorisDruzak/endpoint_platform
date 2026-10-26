@@ -194,7 +194,12 @@ documented denial, claim, provisioning, service, or repair outcome.
 
 On success or failure, Setup writes the machine-readable, non-secret result to
 `C:\ProgramData\Endpoint Platform\Installer\install-result.json` and appends
-the redacted installer flow to `C:\ProgramData\Endpoint Platform\Agent\install.log`.
+the redacted installer flow to `C:\ProgramData\Endpoint Platform\Installer\install.log`.
+Setup diagnostics stay outside the protected Agent data tree, including on an
+interrupted fresh installation. This preserves the authenticated empty-root
+recovery check. Older Setup versions can leave `Agent\install.log`; preserve
+that evidence separately before operator-assisted recovery, without removing
+enrollment data or clearing the installer transaction.
 For example, a Windows Installer or provenance failure records
 `status=INSTALL_FAILED`, `stage=MSI`, and the bounded `MSI_EVIDENCE_FAILED`
 detail. During a major upgrade,

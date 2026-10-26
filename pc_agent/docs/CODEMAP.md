@@ -2,6 +2,13 @@
 
 ## Runtime boundary
 
+`platform/windows/acl.preserve_state_file_permissions` preserves selector owner
+and DACL using an already-held restore privilege on the effective thread/process
+token. It restores the prior privilege attributes even on failure and never
+falls back from an impersonation token to a more privileged process token.
+Setup flow logs live beside `Installer/install-result.json`, outside Agent data,
+so diagnostics do not invalidate authenticated fresh-install recovery.
+
 Gateway WSS EOF/abnormal closure (including aiohttp CLOSED/CLOSING sentinels)
 uses the existing retry lifecycle instead of ending the Windows service. A
 sentinel retains the socket's real close code, so credential and policy

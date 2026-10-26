@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import stat
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
@@ -27,6 +28,38 @@ EXPECTED_PRINCIPALS = (
 
 class WindowsAclError(RuntimeError):
     """The protected Windows DACL could not be applied or inspected."""
+
+
+@contextmanager
+def _selector_owner_privilege(security):
+    """Borrow an already-held restore privilege from the effective token only."""
+    import win32api
+
+    access = security.TOKEN_QUERY | security.TOKEN_ADJUST_PRIVILEGES
+    try:
+        token = security.OpenThreadToken(win32api.GetCurrentThread(), access, True)
+    except Exception as error:
+        if getattr(error, "winerror", None) != 1008:  # ERROR_NO_TOKEN
+            raise
+        token = security.OpenProcessToken(win32api.GetCurrentProcess(), access)
+    try:
+        restore = security.LookupPrivilegeValue(None, "SeRestorePrivilege")
+        attributes = dict(security.GetTokenInformation(token, security.TokenPrivileges)).get(restore)
+        previous = []
+        if attributes is not None and not attributes & security.SE_PRIVILEGE_ENABLED:
+            previous = security.AdjustTokenPrivileges(
+                token, False, [(restore, attributes | security.SE_PRIVILEGE_ENABLED)])
+            if win32api.GetLastError() == 1300:  # ERROR_NOT_ALL_ASSIGNED
+                raise WindowsAclError("selector owner privilege is unavailable")
+        try:
+            # An effective token without this privilege still undergoes normal
+            # Windows owner checks; never fall back to the process token.
+            yield
+        finally:
+            if previous:
+                security.AdjustTokenPrivileges(token, False, previous)
+    finally:
+        token.Close()
 
 
 def preserve_state_file_permissions(source: Path, temporary: Path) -> None:
@@ -55,8 +88,9 @@ def preserve_state_file_permissions(source: Path, temporary: Path) -> None:
         protected = descriptor.GetSecurityDescriptorControl()[0] & win32security.SE_DACL_PROTECTED
         information |= (win32security.PROTECTED_DACL_SECURITY_INFORMATION if protected
                         else win32security.UNPROTECTED_DACL_SECURITY_INFORMATION)
-        win32security.SetNamedSecurityInfo(str(temporary), win32security.SE_FILE_OBJECT,
-            information, owner, None, dacl, None)
+        with _selector_owner_privilege(win32security):
+            win32security.SetNamedSecurityInfo(str(temporary), win32security.SE_FILE_OBJECT,
+                information, owner, None, dacl, None)
     except WindowsAclError:
         raise
     except Exception as error:
