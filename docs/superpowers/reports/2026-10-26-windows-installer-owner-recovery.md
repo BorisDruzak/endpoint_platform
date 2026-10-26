@@ -93,17 +93,41 @@ product state 5; Foundation and initial-runtime features both LOCAL (3); matchin
 zero native installer failure events since the first 150 test. Both attempts
 returned code 30 solely at ENROLLMENT/NO_MATCHING_CAMPAIGN.
 
-EndpointAgent is configured Automatic but remains stopped without enrollment
-credentials. Updater is Manual/stopped; Browser Policy is Automatic/running.
-The agent is not operationally connected yet. All four private files remain
-absent, as before testing. The old 149 Agent/install.log remains retained; 150
+Before campaign authorization, EndpointAgent was Automatic/stopped without
+enrollment credentials; Updater was Manual/stopped and Browser Policy was
+Automatic/running. No operational connection was claimed at that checkpoint.
+All four private files were still absent. The old 149 Agent/install.log was retained; 150
 appended its new diagnostic flow only to Installer/install.log.
 
-## Remaining acceptance boundary
+## Completed enrollment after explicit user authorization
 
-Existing enrollment campaigns do not allow release 150. Separate user approval
-was requested for a temporary campaign limited to the original source IP /32,
-one enrollment and 24 hours. No server campaign policy has been changed while
-that question is pending. Gateway WSS/full operational acceptance cannot be
-claimed until registration succeeds. This candidate has not been published as
-the fleet default, pushed to main, or assigned through GPO.
+The user subsequently approved a temporary campaign for this workstation only.
+Canonical campaign issuance plus an immutable audit event created one AUTO
+campaign for `192.168.101.29/32`, release `3.2.150` only, max uses 1, expiry
+2026-10-27 14:08:45 UTC (19:08:45 Asia/Yekaterinburg). Existing campaigns were not
+modified; the raw campaign bearer was neither returned to the operator nor saved.
+
+The identical signed Setup was run again with the parent's restore privilege
+disabled. At 2026-10-26 14:10:17 UTC it returned **0 / COMPLETED / SERVICE_RUNNING**.
+The server independently confirmed the request completed under the new campaign,
+one device credential, and one consumed use out of one. Core and launcher both
+report 3.2.150. The agent opened WSS from the authorized address; its same session
+remained open and heartbeat advanced from 14:10:43 to 14:12:13 UTC. At 14:12:37 UTC
+the observed heartbeat age was 24.243 seconds. This is a short acceptance check,
+not a long-duration soak.
+
+A final normal Setup rerun returned **10 / ALREADY_INSTALLED / SERVICE_RUNNING**
+at 14:11:50 UTC. It was checked with before/after private-file hashes and
+ACLs held only in memory. All four private files and descriptors remained
+unchanged; Agent service PID 3928 and Core PID 4932 also remained unchanged.
+The final rerun result and postflight are retained in the private operator receipt.
+Final local postflight confirms Agent Automatic/running, Browser Policy
+Automatic/running, Updater Manual/stopped, all four protected enrollment files,
+the exact 150 selector, and no active native fence. Independent final server
+verification confirms the same open WSS session with a 20.750-second heartbeat
+age and exactly one active device credential.
+
+The temporary campaign is exhausted (1/1) and cannot authorize another enrollment.
+Its original expiry remains unchanged. This candidate has not been published as
+the fleet default, pushed to main, or assigned through GPO. The separate ordinary
+uninstall callback limitation described above remains outside this correction.

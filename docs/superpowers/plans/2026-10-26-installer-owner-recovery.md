@@ -31,10 +31,12 @@ already enabled; diagnostic writes after a fresh-root failure.
 - [x] Produce source-bound signed candidate MSI/Setup with existing build tooling.
 - [x] Capture original machine state and preserve all diagnostic evidence.
 - [x] Recover exact interrupted 149 without bypassing original authority checks.
-- [ ] Install corrected candidate; verify versions, services, result and enrollment/WSS.
+- [x] Install corrected candidate; verify versions, services, result and enrollment/WSS.
 - [x] Repeat Setup and verify the successful rerun, or report the exact remaining gate.
 - [x] Record exact commands, artifact hashes and observed outcomes; independent review.
 
-Native 150 installation and repeat maintenance passed; enrollment/WSS remains
-blocked by NO_MATCHING_CAMPAIGN. A separate user decision is pending for the
-temporary one-device 150 registration campaign. See the acceptance report.
+Native 150 installation and repeat maintenance passed. After explicit user
+authorization, one temporary /32, max-one-use, 24-hour campaign enabled completed
+registration. Setup returned 0; the normal valid rerun returned 10 with unchanged
+private files, ACLs and Agent/Core processes. Fresh WSS and 150/150 versions are
+verified. The campaign is exhausted (1/1); see the acceptance report.
