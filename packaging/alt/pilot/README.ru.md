@@ -1,8 +1,8 @@
-# ALT 11/KDE: подписанный комплект 3.2.156-1
+# ALT 11/KDE: подписанный комплект 3.2.157-1
 
-Core и User Sensor: **3.2.156-alt5**. Исправленный CUPS:
+Core и User Sensor: **3.2.157-alt5**. Исправленный CUPS:
 `cups-browsed 2.1.1-alt1.endpoint2`. В комплекте также vendor RPM для отката,
-оба source RPM, обе заплатки и рецепт пересборки. Core и User Sensor собраны из общей Windows/Linux версии 3.2.156;
+оба source RPM, обе заплатки и рецепт пересборки. Core и User Sensor собраны из общей Windows/Linux версии 3.2.157;
 CUPS сохранён из ранее квалифицированного комплекта. Собственные RPM имеют
 RSA/SHA256 подписи header и payload. Vendor RPM
 сохраняют исходные подписи и закреплённые SHA-256. CUPS устанавливается отдельной
@@ -31,11 +31,11 @@ install -d -m 0700 /root/endpoint-rpm-check
 gpg --homedir /root/endpoint-rpm-check --import endpoint-rpm-release.asc
 gpg --homedir /root/endpoint-rpm-check --fingerprint BC24B8EE43DBB05A748E11A4343B5DA748370631
 # Сначала сравните полный отпечаток с доверенным значением.
-gpg --homedir /root/endpoint-rpm-check --verify endpoint-alt-pilot-3.2.156-1.tar.gz.sig endpoint-alt-pilot-3.2.156-1.tar.gz
-sha256sum --check endpoint-alt-pilot-3.2.156-1.tar.gz.sha256
-tar -xzf endpoint-alt-pilot-3.2.156-1.tar.gz
-cd endpoint-alt-pilot-3.2.156-1
-gpg --homedir /root/endpoint-rpm-check --verify ../endpoint-alt-pilot-3.2.156-1.manifest.sig pilot-manifest.json
+gpg --homedir /root/endpoint-rpm-check --verify endpoint-alt-pilot-3.2.157-1.tar.gz.sig endpoint-alt-pilot-3.2.157-1.tar.gz
+sha256sum --check endpoint-alt-pilot-3.2.157-1.tar.gz.sha256
+tar -xzf endpoint-alt-pilot-3.2.157-1.tar.gz
+cd endpoint-alt-pilot-3.2.157-1
+gpg --homedir /root/endpoint-rpm-check --verify ../endpoint-alt-pilot-3.2.157-1.manifest.sig pilot-manifest.json
 python3 verify-kit.py check --expected-manifest-sha256 <ПРОВЕРЕННЫЙ_SHA256_MANIFEST>
 python3 verify-kit.py check --expected-manifest-sha256 <ПРОВЕРЕННЫЙ_SHA256_MANIFEST> --test-hostname <ПРОВЕРЕННОЕ_ИМЯ_ПК>
 ```
@@ -63,8 +63,8 @@ RPM DB. Для нового ПК из каталога комплекта:
 
 ```bash
 rpm --import endpoint-rpm-release.asc
-rpm --checksig --verbose endpoint-agent-3.2.156-alt5.x86_64.rpm endpoint-agent-user-sensor-3.2.156-alt5.x86_64.rpm cups-browsed-2.1.1-alt1.endpoint2.x86_64.rpm
-rpm -Uvh --test endpoint-agent-3.2.156-alt5.x86_64.rpm endpoint-agent-user-sensor-3.2.156-alt5.x86_64.rpm cups-browsed-2.1.1-alt1.endpoint2.x86_64.rpm
+rpm --checksig --verbose endpoint-agent-3.2.157-alt5.x86_64.rpm endpoint-agent-user-sensor-3.2.157-alt5.x86_64.rpm cups-browsed-2.1.1-alt1.endpoint2.x86_64.rpm
+rpm -Uvh --test endpoint-agent-3.2.157-alt5.x86_64.rpm endpoint-agent-user-sensor-3.2.157-alt5.x86_64.rpm cups-browsed-2.1.1-alt1.endpoint2.x86_64.rpm
 ```
 
 Остановите только работавший cups-browsed и проверьте отсутствие заданий через
@@ -90,7 +90,7 @@ CA. Не заменяйте HTTPS origin адресом IP и не отключ�
 от сервисной учётной записи: root может видеть другие DMI-компоненты.
 
 ```bash
-runuser -u endpoint-agent -- /opt/endpoint-agent/versions/3.2.156/endpoint-agent/endpoint-agent --print-hardware-fingerprint
+runuser -u endpoint-agent -- /opt/endpoint-agent/versions/3.2.157/endpoint-agent/endpoint-agent --print-hardware-fingerprint
 getent hosts endpoint.sosnadmin.local
 ```
 
