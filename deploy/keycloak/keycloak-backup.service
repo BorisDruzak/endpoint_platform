@@ -1,0 +1,11 @@
+[Unit]
+Description=Back up dedicated Keycloak database and configuration
+After=postgresql@16-keycloak.service
+
+[Service]
+Type=oneshot
+UMask=0077
+ExecStart=/usr/local/sbin/keycloak-backup
+PrivateTmp=true
+ProtectHome=true
+NoNewPrivileges=true

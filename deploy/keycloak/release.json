@@ -1,0 +1,8 @@
+{
+  "version": "26.8.1",
+  "url": "https://github.com/keycloak/keycloak/releases/download/26.8.1/keycloak-26.8.1.tar.gz",
+  "sha256": "4e2740b181faa2ea623a1c2ecf00855935311e546046e2f857615a47ed24cbe8",
+  "verified_metadata": "https://api.github.com/repos/keycloak/keycloak/releases/tags/26.8.1",
+  "checked_at": "2026-10-27",
+  "java_major": 21
+}

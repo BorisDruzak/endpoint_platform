@@ -1,0 +1,23 @@
+; REVIEW INPUT ONLY: run certreq -new on AD-MAIN only after parent approval.
+; Domain-controller private key is generated on AD and never exported.
+[Version]
+Signature="$Windows NT$"
+[NewRequest]
+Subject = "CN=AD-MAIN.sosnadmin.local"
+KeySpec = 1
+KeyLength = 3072
+Exportable = FALSE
+MachineKeySet = TRUE
+SMIME = FALSE
+PrivateKeyArchive = FALSE
+UserProtected = FALSE
+UseExistingKeySet = FALSE
+ProviderName = "Microsoft RSA SChannel Cryptographic Provider"
+ProviderType = 12
+RequestType = PKCS10
+KeyUsage = 0xa0
+HashAlgorithm = sha256
+[Extensions]
+2.5.29.17 = "{text}"
+_continue_ = "dns=AD-MAIN.sosnadmin.local&"
+2.5.29.37 = "{text}1.3.6.1.5.5.7.3.1"
