@@ -21,6 +21,7 @@ def test_endpoint_nginx_retains_safe_access_and_limits_error_suppression_to_call
         assert 'proxy_pass http://127.0.0.1:8000;' in location
         assert 'proxy_set_header X-Forwarded-For $remote_addr;' in location
     assert text.count('error_log /dev/null crit;')==2
+    assert text.count('include /etc/nginx/snippets/endpoint-alt-distribution.conf;')==1
     assert 'return 308 https://endpoint.sosnadmin.local$request_uri;' in text
 
 
@@ -32,13 +33,26 @@ def test_wrong_site_or_sensitive_format_variables_are_rejected():
             MODULE.validate_asset(ASSET.read_bytes().replace(b'$uri',unsafe),'endpoint-platform')
 
 
+def test_first_install_uses_real_distribution_snippet_before_site_asset():
+    runbook=(ROOT/'deploy/server/PRODUCTION_RUNBOOK.md').read_text(encoding='utf-8')
+    assert 'deploy/server/endpoint-alt-distribution.nginx.conf endpoint-platform-server:/tmp/' in runbook
+    snippet='/tmp/endpoint-alt-distribution.nginx.conf /etc/nginx/snippets/endpoint-alt-distribution.conf'
+    site='/tmp/endpoint-platform.nginx.conf /etc/nginx/sites-available/endpoint-platform'
+    assert runbook.index(snippet)<runbook.index(site)
+    assert 'location /downloads/alt/' in (ROOT/'deploy/server/endpoint-alt-distribution.nginx.conf').read_text()
+
+
 @pytest.fixture
 def installation(tmp_path):
     nginx=tmp_path/'nginx'
     available=nginx/'sites-available'; available.mkdir(parents=True)
     enabled=nginx/'sites-enabled'; enabled.mkdir()
     target=available/'endpoint-platform'
-    old=b'# existing reviewed configuration\n'
+    old_text=ASSET.read_text(encoding='utf-8')
+    old_text=re.sub(r'log_format endpoint_platform_path_only escape=json\s+.*?;','',old_text,flags=re.S)
+    old_text=re.sub(r'^[ \t]*access_log[^\n]+\n','',old_text,flags=re.M)
+    old_text=re.sub(r'location = /auth/(?:admin|employee)/callback\s*\{.*?\}','',old_text,flags=re.S)
+    old=old_text.encode()
     target.write_bytes(old)
     try:
         (enabled/'endpoint-platform').symlink_to(target)
@@ -124,3 +138,27 @@ def test_concurrent_target_edit_is_preserved_and_wrong_source_hash_never_runs_co
         MODULE.apply_site(source,digest,'endpoint-platform',apply=True,**kwargs)
     assert target.read_bytes()==b'# concurrent administrator edit\n'
     assert not any(command[0]=='systemctl' for command in commands)
+
+
+@pytest.mark.parametrize('drift',[
+    lambda value:value.replace(b'deny all;',b'deny all;\n    include /etc/nginx/snippets/unrelated-live.conf;',1),
+    lambda value:value.replace(b'127.0.0.1:8000',b'127.0.0.1:9000'),
+])
+def test_unexpected_nonlogging_drift_is_preserved_before_any_command(installation,drift):
+    source,target,old,digest,commands,kwargs=installation
+    changed=drift(old)
+    assert changed!=old
+    target.write_bytes(changed)
+    with pytest.raises(MODULE.ConfigurationError,match='Non-logging site configuration differs'):
+        MODULE.apply_site(source,digest,'endpoint-platform',apply=True,**kwargs)
+    assert target.read_bytes()==changed and not commands
+
+
+def test_custom_callback_behavior_cannot_be_silently_replaced(installation):
+    source,target,old,digest,commands,kwargs=installation
+    target.write_bytes(source.read_bytes().replace(b'error_log /dev/null crit;',
+        b'error_log /dev/null crit;\n        proxy_set_header X-Custom-Access required;',1))
+    changed=target.read_bytes()
+    with pytest.raises(MODULE.ConfigurationError,match='Unexpected callback behavior'):
+        MODULE.apply_site(source,digest,'endpoint-platform',apply=True,**kwargs)
+    assert target.read_bytes()==changed and not commands

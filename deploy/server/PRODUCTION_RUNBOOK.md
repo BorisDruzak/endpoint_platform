@@ -135,8 +135,8 @@ configuration symlink for validation only; Nginx remains stopped until the
 loopback API health check passes:
 
 ```powershell
-scp deploy/server/endpoint-platform.service deploy/server/endpoint-platform-worker.service deploy/server/endpoint-platform-migrate.service deploy/server/endpoint-platform.nginx.conf endpoint-platform-server:/tmp/
-ssh endpoint-platform-server "sudo install -o root -g root -m 0644 /tmp/endpoint-platform.service /etc/systemd/system/endpoint-platform.service; sudo install -o root -g root -m 0644 /tmp/endpoint-platform-worker.service /etc/systemd/system/endpoint-platform-worker.service; sudo install -o root -g root -m 0644 /tmp/endpoint-platform-migrate.service /etc/systemd/system/endpoint-platform-migrate.service; sudo install -o root -g root -m 0644 /tmp/endpoint-platform.nginx.conf /etc/nginx/sites-available/endpoint-platform; sudo ln -sfn /etc/nginx/sites-available/endpoint-platform /etc/nginx/sites-enabled/endpoint-platform; sudo rm -f /tmp/endpoint-platform.service /tmp/endpoint-platform-worker.service /tmp/endpoint-platform-migrate.service /tmp/endpoint-platform.nginx.conf; sudo systemctl daemon-reload"
+scp deploy/server/endpoint-platform.service deploy/server/endpoint-platform-worker.service deploy/server/endpoint-platform-migrate.service deploy/server/endpoint-platform.nginx.conf deploy/server/endpoint-alt-distribution.nginx.conf endpoint-platform-server:/tmp/
+ssh endpoint-platform-server "sudo install -o root -g root -m 0644 /tmp/endpoint-platform.service /etc/systemd/system/endpoint-platform.service; sudo install -o root -g root -m 0644 /tmp/endpoint-platform-worker.service /etc/systemd/system/endpoint-platform-worker.service; sudo install -o root -g root -m 0644 /tmp/endpoint-platform-migrate.service /etc/systemd/system/endpoint-platform-migrate.service; sudo install -d -o root -g root -m 0755 /etc/nginx/snippets; sudo install -o root -g root -m 0644 /tmp/endpoint-alt-distribution.nginx.conf /etc/nginx/snippets/endpoint-alt-distribution.conf; sudo install -o root -g root -m 0644 /tmp/endpoint-platform.nginx.conf /etc/nginx/sites-available/endpoint-platform; sudo ln -sfn /etc/nginx/sites-available/endpoint-platform /etc/nginx/sites-enabled/endpoint-platform; sudo rm -f /tmp/endpoint-platform.service /tmp/endpoint-platform-worker.service /tmp/endpoint-platform-migrate.service /tmp/endpoint-platform.nginx.conf /tmp/endpoint-alt-distribution.nginx.conf; sudo systemctl daemon-reload"
 ```
 
 Validate the configured application before any public listener is enabled:
@@ -401,11 +401,19 @@ sudo python3 apply_query_safe_nginx.py --site endpoint-platform \
 `tools/release/apply_query_safe_nginx.py` requires the existing physical,
 root-owned `sites-available/endpoint-platform` and its exact enabled symlink.
 It locks configuration changes, validates an isolated complete nginx candidate,
-rejects concurrent edits, backs up the old bytes under
+rejects concurrent edits and unexpected non-logging differences (including
+removed includes or custom callback proxy/access behavior), backs up the old bytes under
 `/var/backups/endpoint-platform/nginx/<old-sha256>.conf`, atomically installs,
 runs `nginx -t` and reloads nginx only when changed. Failure restores and
 validates/reloads the original. No app restart, environment flag, TLS, DB or
 unrelated site is modified. An unchanged asset causes no reload.
+
+The canonical HTTPS asset retains the real ALT distribution snippet include
+already used on `.19`. First-time installation copies the reviewed
+`endpoint-alt-distribution.nginx.conf` to that exact snippet path before the
+site is installed, following `ALT_DISTRIBUTION.md`; no empty placeholder is
+invented. Existing download locations, network ACLs and TLS paths must remain
+identical before the config-only helper accepts a repair.
 
 The helper also accepts the independent `helpdesk` profile using that
 repository's reviewed asset and separate backup/log paths; it never merges

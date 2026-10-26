@@ -58,6 +58,34 @@ def validate_asset(payload, site):
             raise ConfigurationError('Expected exact callback error-log protection')
 
 
+def non_logging_lines(payload,site):
+    """Recognize only this repair's logging additions; retain every other line.
+
+    A newly protected exact callback must copy the existing generic proxy body.
+    Custom callback access/proxy behavior is not a logging-only repair.
+    """
+    text=payload.decode('utf-8')
+    format_name=PROFILES[site][1]
+    def lines(value):
+        return [line.strip() for line in value.splitlines() if line.strip() and not line.strip().startswith('#')]
+    generic=re.search(r'location\s+/\s*\{([^{}]*)\}',text,re.S)
+    if generic is None:
+        raise ConfigurationError('Expected existing generic application proxy')
+    callbacks=('/api/web/session/oidc/callback',) if site=='helpdesk' else ('/auth/admin/callback','/auth/employee/callback')
+    for callback in callbacks:
+        pattern=r'location\s*=\s*'+re.escape(callback)+r'\s*\{([^{}]*)\}'
+        def remove(match):
+            body=re.sub(r'error_log\s+/dev/null\s+crit;','',match.group(1))
+            if lines(body)!=lines(generic.group(1)):
+                raise ConfigurationError('Unexpected callback behavior; explicit review required')
+            return ''
+        text=re.sub(pattern,remove,text,flags=re.S)
+    text=re.sub(r'log_format\s+'+re.escape(format_name)+r'\s+escape=json\s+.*?;','',text,flags=re.S)
+    text=re.sub(r'(?m)^[ \t]*access_log[ \t]+/var/log/nginx/'+re.escape(site)+
+        r'\.access\.log[ \t]+'+re.escape(format_name)+r';[ \t]*$','',text)
+    return lines(text)
+
+
 def atomic_write(path,payload,mode=0o644):
     temporary=path.with_name('.'+path.name+'.'+uuid.uuid4().hex)
     try:
@@ -98,9 +126,11 @@ def apply_site(source,expected_sha256,site,*,apply=False,nginx_root=Path('/etc/n
         raise ConfigurationError('Existing enabled site must point to its exact physical target')
     before=target.read_bytes()
     old_sha=hashlib.sha256(before).hexdigest()
+    if non_logging_lines(before,site)!=non_logging_lines(payload,site):
+        raise ConfigurationError('Non-logging site configuration differs; explicit review required')
     execute(['nginx','-t'])
     if before==payload:
-        return {'status':'Unchanged','site':site,'sha256':expected_sha256}
+        return {'status':'Unchanged','site':site,'sha256':expected_sha256,'non_logging_directives_unchanged':True}
     candidate=target.with_name('.'+site+'.candidate-'+uuid.uuid4().hex)
     staged=nginx_root/('.query-safe-'+site+'-'+uuid.uuid4().hex+'.conf')
     try:
@@ -120,7 +150,8 @@ def apply_site(source,expected_sha256,site,*,apply=False,nginx_root=Path('/etc/n
         atomic_write(staged,re.sub(include,lambda _:replacement,main).encode())
         execute(['nginx','-t','-c',str(staged)])
         if not apply:
-            return {'status':'PlanValidated','site':site,'before_sha256':old_sha,'sha256':expected_sha256}
+            return {'status':'PlanValidated','site':site,'before_sha256':old_sha,'sha256':expected_sha256,
+                'non_logging_directives_unchanged':True}
         # Refuse to overwrite a concurrent administrator's edit after validation.
         check(target)
         if target.read_bytes()!=before:
@@ -147,7 +178,8 @@ def apply_site(source,expected_sha256,site,*,apply=False,nginx_root=Path('/etc/n
             except Exception:
                 raise ConfigurationError('Original config restored; reload requires operator review') from None
             raise ConfigurationError('Apply failed; original config restored and reloaded') from None
-        return {'status':'Applied','site':site,'before_sha256':old_sha,'sha256':expected_sha256}
+        return {'status':'Applied','site':site,'before_sha256':old_sha,'sha256':expected_sha256,
+            'non_logging_directives_unchanged':True}
     finally:
         candidate.unlink(missing_ok=True)
         staged.unlink(missing_ok=True)
