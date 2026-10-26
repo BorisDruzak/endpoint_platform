@@ -55,3 +55,58 @@ def test_runtime_never_overwrites_or_rotates_existing_secret_inputs(tmp_path):
             "bind_password": "x" * 40,
         })
     assert list(target.iterdir()) == []
+
+
+def old_prepared_realm():
+    runtime = module()
+    realm = runtime._renderer().build_realm(runtime.CALLBACKS, runtime.PILOT_DN)
+    def add_api_field(collection):
+        for provider_type, components in collection.items():
+            for component in components:
+                component["providerType"] = provider_type
+                add_api_field(component.get("subComponents", {}))
+    add_api_field(realm["components"])
+    return realm
+
+
+def test_existing_prepared_realm_repair_removes_only_six_api_fields_and_keeps_secrets(tmp_path):
+    runtime = module()
+    path = tmp_path / "sosnadmin-realm.json"
+    original = json.dumps(old_prepared_realm(), indent=2)
+    path.write_text(original, encoding="utf-8")
+    environment = tmp_path / "provision.env"
+    environment.write_text("DUMMY=unchanged-test-only\n", encoding="utf-8")
+    result = runtime.repair_prepared_realm(path, apply=False)
+    assert result["removed_fields"] == 6
+    assert path.read_text(encoding="utf-8") == original
+    assert not path.with_suffix(".before-export-shape.json").exists()
+    result = runtime.repair_prepared_realm(path, apply=True)
+    assert result["removed_fields"] == 6
+    assert json.loads(path.read_text(encoding="utf-8")) == runtime._renderer().build_realm(runtime.CALLBACKS, runtime.PILOT_DN)
+    assert path.with_suffix(".before-export-shape.json").read_text(encoding="utf-8") == original
+    assert environment.read_text(encoding="utf-8") == "DUMMY=unchanged-test-only\n"
+    with pytest.raises(FileExistsError):
+        runtime.repair_prepared_realm(path, apply=True)
+
+
+def test_prepared_realm_repair_refuses_enabled_or_changed_clients(tmp_path):
+    runtime = module()
+    path = tmp_path / "sosnadmin-realm.json"
+    realm = old_prepared_realm()
+    realm["clients"][0]["enabled"] = True
+    original = json.dumps(realm)
+    path.write_text(original, encoding="utf-8")
+    with pytest.raises(ValueError):
+        runtime.repair_prepared_realm(path, apply=True)
+    assert path.read_text(encoding="utf-8") == original
+
+
+def test_prepared_realm_repair_refuses_unknown_component_fields_without_backup(tmp_path):
+    runtime = module()
+    path = tmp_path / "sosnadmin-realm.json"
+    realm = old_prepared_realm()
+    realm["components"]["org.keycloak.storage.UserStorageProvider"][0]["parentId"] = "api-only"
+    path.write_text(json.dumps(realm), encoding="utf-8")
+    with pytest.raises(ValueError):
+        runtime.repair_prepared_realm(path, apply=True)
+    assert not path.with_suffix(".before-export-shape.json").exists()

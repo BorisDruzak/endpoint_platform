@@ -74,3 +74,38 @@ def test_missing_client_or_unscoped_directory_is_rejected():
         module.build_realm({}, "OU=Pilot,DC=sosnadmin,DC=local")
     with pytest.raises(ValueError):
         module.build_realm(pilot(), "DC=sosnadmin,DC=local")
+
+
+def test_all_nested_components_match_keycloak_2681_export_representation():
+    module = load_module()
+    realm = module.build_realm(pilot(), "OU=Pilot,DC=sosnadmin,DC=local")
+    module.validate_component_exports(realm["components"])
+    ldap = realm["components"]["org.keycloak.storage.UserStorageProvider"][0]
+    assert "providerType" not in ldap
+    for mapper in ldap["subComponents"]["org.keycloak.storage.ldap.mappers.LDAPStorageMapper"]:
+        assert "providerType" not in mapper
+
+
+@pytest.mark.parametrize("mutation", [
+    lambda component: component.update(providerType="api-only"),
+    lambda component: component.update(parentId="api-only"),
+    lambda component: component.update(config={"enabled": True}),
+    lambda component: component.update(subComponents={"type": {}}),
+])
+def test_export_component_validator_rejects_unknown_api_fields_and_wrong_shapes(mutation):
+    module = load_module()
+    realm = module.build_realm(pilot(), "OU=Pilot,DC=sosnadmin,DC=local")
+    ldap = realm["components"]["org.keycloak.storage.UserStorageProvider"][0]
+    mutation(ldap)
+    with pytest.raises(ValueError):
+        module.validate_component_exports(realm["components"])
+
+
+def test_export_shape_validation_reaches_nested_ldap_mappers():
+    module = load_module()
+    realm = module.build_realm(pilot(), "OU=Pilot,DC=sosnadmin,DC=local")
+    ldap = realm["components"]["org.keycloak.storage.UserStorageProvider"][0]
+    mapper = ldap["subComponents"]["org.keycloak.storage.ldap.mappers.LDAPStorageMapper"][0]
+    mapper["parentId"] = "api-only"
+    with pytest.raises(ValueError):
+        module.validate_component_exports(realm["components"])

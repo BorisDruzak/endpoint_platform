@@ -16,6 +16,7 @@ import re
 import secrets
 import subprocess
 import sys
+import tempfile
 
 
 TARGET = Path("/run/keycloak-provision-20261027")
@@ -70,11 +71,81 @@ def prepare_files(target: Path, incoming: dict) -> dict[str, Path]:
     return {"environment": environment, "realm": realm_file}
 
 
+def repair_prepared_realm(path: Path, *, apply=False):
+    """Remove only known API-only component fields from the original pilot JSON.
+
+    No secret environment is read. Exact comparison with the disabled pilot
+    renderer rejects unrelated/sensitive edits before any backup or replacement.
+    """
+    if path.is_symlink() or not path.is_file():
+        raise ValueError("Expected the physical prepared pilot realm file")
+    backup = path.with_suffix(".before-export-shape.json")
+    if backup.exists() or backup.is_symlink():
+        raise FileExistsError("Prepared realm backup already exists; no overwrite")
+    original = path.read_bytes()
+    realm = json.loads(original.decode("utf-8"))
+    removed = 0
+    def strip_api_fields(collection):
+        nonlocal removed
+        if not isinstance(collection, dict):
+            raise ValueError("Expected exported component map")
+        for provider_type, components in collection.items():
+            if not isinstance(components, list):
+                raise ValueError("Expected exported component list")
+            for component in components:
+                if not isinstance(component, dict):
+                    raise ValueError("Expected exported component object")
+                if "providerType" in component:
+                    if component["providerType"] != provider_type:
+                        raise ValueError("API component type disagrees with export map")
+                    del component["providerType"]
+                    removed += 1
+                strip_api_fields(component.get("subComponents", {}))
+    strip_api_fields(realm.get("components"))
+    renderer = _renderer()
+    renderer.validate_component_exports(realm["components"])
+    if removed == 0 or realm != renderer.build_realm(CALLBACKS, PILOT_DN):
+        raise ValueError("Only the original disabled placeholder pilot realm can be repaired")
+    if not apply:
+        return {"status": "RepairPlanOnly", "removed_fields": removed}
+    metadata = path.stat()
+    descriptor = os.open(backup, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o640)
+    with os.fdopen(descriptor, "wb") as stream:
+        if os.name == "posix":
+            os.fchown(stream.fileno(), metadata.st_uid, metadata.st_gid)
+            os.fchmod(stream.fileno(), 0o640)
+        stream.write(original)
+        stream.flush()
+        os.fsync(stream.fileno())
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", newline="\n",
+                                         prefix=".realm-export-shape-", dir=path.parent,
+                                         delete=False) as stream:
+            temporary = Path(stream.name)
+            if os.name == "posix":
+                os.fchown(stream.fileno(), metadata.st_uid, metadata.st_gid)
+                os.fchmod(stream.fileno(), 0o640)
+            json.dump(realm, stream, ensure_ascii=False, indent=2)
+            stream.write("\n")
+            stream.flush()
+            os.fsync(stream.fileno())
+        if path.read_bytes() != original:
+            raise ValueError("Prepared realm changed concurrently; refusing replacement")
+        os.replace(temporary, path)
+    finally:
+        if temporary is not None and temporary.exists():
+            temporary.unlink()
+    return {"status": "PreparedRealmExportShapeRepaired", "removed_fields": removed}
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--apply", action="store_true")
+    parser.add_argument("--repair-prepared-realm", action="store_true",
+                        help="Plan/repair only the existing disabled realm JSON; never rotate secrets")
     args = parser.parse_args()
-    if not args.apply:
+    if not args.apply and not args.repair_prepared_realm:
         print(json.dumps({"status": "PlanOnly", "directory": str(TARGET),
                           "bind_dn": BIND_DN, "pilot_dn": PILOT_DN,
                           "clients": list(CALLBACKS), "clients_enabled": False,
@@ -89,6 +160,19 @@ def main():
         raise SystemExit("Wrong deployment host")
     if subprocess.run(["systemctl", "is-active", "--quiet", "keycloak"]).returncode != 3:
         raise SystemExit("Keycloak must be installed and stopped before preparing initial import")
+    if args.repair_prepared_realm:
+        path = TARGET / "sosnadmin-realm.json"
+        if TARGET.is_symlink() or not TARGET.is_dir():
+            raise SystemExit("Expected the original physical pilot preparation directory")
+        metadata = path.stat(follow_symlinks=False)
+        if metadata.st_uid != 0 or metadata.st_gid != group.gr_gid or metadata.st_mode & 0o777 != 0o640:
+            raise SystemExit("Prepared realm must remain root:keycloak 0640")
+        try:
+            result = repair_prepared_realm(path, apply=args.apply)
+        except (ValueError, UnicodeError, OSError):
+            raise SystemExit("Prepared realm repair refused; inspect only private file metadata") from None
+        print(json.dumps(result))
+        return
     if TARGET.exists() or TARGET.is_symlink():
         raise SystemExit("Pilot input directory exists; no input will be replaced")
     # Bounded input; malformed/oversize payloads receive generic errors without

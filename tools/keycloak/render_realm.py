@@ -17,6 +17,38 @@ CLIENTS = {
     "worktime-employee": "SSO_WORKTIME_CLIENT_SECRET",
 }
 MFA_ACR = "urn:sosnadmin:loa:2"
+COMPONENT_EXPORT_FIELDS = frozenset({"id", "name", "providerId", "subType", "subComponents", "config"})
+
+
+def validate_component_exports(collection):
+    """Validate the pinned 26.8.1 ComponentExportRepresentation recursively.
+
+    providerType belongs to the containing map key, unlike the Admin REST
+    ComponentRepresentation. Official source: core/src/main/java/org/keycloak/
+    representations/idm/ComponentExportRepresentation.java at tag26.8.1.
+    """
+    if not isinstance(collection, dict):
+        raise ValueError("Exported components must be a provider-type map")
+    for provider_type, components in collection.items():
+        if not isinstance(provider_type, str) or not provider_type or not isinstance(components, list):
+            raise ValueError("Each exported provider type must contain a component list")
+        for component in components:
+            if not isinstance(component, dict) or set(component) - COMPONENT_EXPORT_FIELDS:
+                raise ValueError("Unsupported field in exported component")
+            for field in ("name", "providerId"):
+                if not isinstance(component.get(field), str) or not component[field]:
+                    raise ValueError("Exported component requires name and providerId")
+            for field in ("id", "subType"):
+                if field in component and not isinstance(component[field], str):
+                    raise ValueError("Optional exported identifiers must be strings")
+            config = component.get("config", {})
+            if not isinstance(config, dict) or any(
+                not isinstance(key, str) or not isinstance(values, list) or
+                any(not isinstance(value, str) for value in values)
+                for key, values in config.items()
+            ):
+                raise ValueError("Exported configuration must map strings to string lists")
+            validate_component_exports(component.get("subComponents", {}))
 
 
 def execution(authenticator, requirement="REQUIRED", **extra):
@@ -90,13 +122,12 @@ def build_realm(redirects: dict[str, str], users_dn: str, *, enable_clients=Fals
     for user_attr, ldap_attr in (("username", "sAMAccountName"), ("firstName", "givenName"),
                                 ("lastName", "sn"), ("email", "mail")):
         attribute_mappers.append({"name": user_attr, "providerId": "user-attribute-ldap-mapper",
-            "providerType": "org.keycloak.storage.ldap.mappers.LDAPStorageMapper",
             "config": {"user.model.attribute": [user_attr], "ldap.attribute": [ldap_attr],
                        "read.only": ["true"], "always.read.value.from.ldap": ["true"],
                        "is.mandatory.in.ldap": ["true" if user_attr == "username" else "false"]}})
     attribute_mappers.append({"name": "msad-account-state", "providerId": "msad-user-account-control-mapper",
-        "providerType": "org.keycloak.storage.ldap.mappers.LDAPStorageMapper", "config": {}})
-    return {
+        "config": {}})
+    realm = {
         "realm": "sosnadmin", "enabled": True, "sslRequired": "all",
         "registrationAllowed": False, "registrationEmailAsUsername": False,
         "resetPasswordAllowed": False, "editUsernameAllowed": False,
@@ -114,7 +145,6 @@ def build_realm(redirects: dict[str, str], users_dn: str, *, enable_clients=Fals
         "clients": clients,
         "components": {"org.keycloak.storage.UserStorageProvider": [{
             "name": "sosnadmin-ad-readonly", "providerId": "ldap",
-            "providerType": "org.keycloak.storage.UserStorageProvider",
             "config": {k: [v] for k, v in ldap_config.items()},
             "subComponents": {"org.keycloak.storage.ldap.mappers.LDAPStorageMapper": attribute_mappers},
         }]},
@@ -133,6 +163,8 @@ def build_realm(redirects: dict[str, str], users_dn: str, *, enable_clients=Fals
             {"alias": "sso-loa-2", "config": {"loa-condition-level": "2", "loa-max-age": "300"}},
         ],
     }
+    validate_component_exports(realm["components"])
+    return realm
 
 
 def main():
