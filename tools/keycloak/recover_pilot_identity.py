@@ -307,7 +307,7 @@ def candidate_configuration(source, candidate, *, browser_tls=False):
     del values["proxy-trusted-addresses"]
     require(type(browser_tls) is bool, "InvalidBrowserTlsProfile")
     if browser_tls:
-        private = "/var/lib/keycloak-recovery-v9/" + candidate
+        private = "/var/lib/keycloak-recovery-v10/" + candidate
         values.update({"hostname": "https://sso.sosnadmin.local:18449", "https-port": "8449",
                        "https-certificate-file": private + "/tls/fullchain.pem",
                        "https-certificate-key-file": private + "/tls/key.pem",
@@ -318,7 +318,7 @@ def candidate_configuration(source, candidate, *, browser_tls=False):
 def runtime_recipe(candidate, *, browser_tls=False):
     """No shared mutable live tree or inherited KC/JAVA/secret environment."""
     _names(candidate)
-    private = "/var/lib/keycloak-recovery-v9/" + candidate
+    private = "/var/lib/keycloak-recovery-v10/" + candidate
     distribution = private + "/keycloak-26.8.1"
     result = {"directory": private, "distribution": distribution,
             "cache": "local", "http": "127.0.0.1:8089", "management": "127.0.0.1:9009",
@@ -432,7 +432,7 @@ def _stop_owned_build_group(process, prefix, forbidden, start):
 
 
 def _run_owned_private_group(argv, *, input_bytes, output, timeout, cwd, environment, prefix, forbidden, process_receipt=None):
-    require(re.fullmatch(r'/var/lib/keycloak-recovery-v9/keycloak_recovery_20261027_[0-9a-f]{8}', prefix),
+    require(re.fullmatch(r'/var/lib/keycloak-recovery-v10/keycloak_recovery_20261027_[0-9a-f]{8}', prefix),
             'PrivateBuildPrefixInvalid')
     process = subprocess.Popen(argv, stdin=subprocess.PIPE if input_bytes is not None else subprocess.DEVNULL,
                                stdout=output, stderr=subprocess.DEVNULL, cwd=cwd, env=environment,
@@ -509,6 +509,31 @@ class _CandidateNoRedirects(urllib.request.HTTPRedirectHandler):
         raise RecoveryRefused("CandidateRedirectProhibited")
 
 
+def is_canonical_session_id(value):
+    """Only canonical legacy UUID or Keycloak 26.8.1's 18-byte Base64URL SID.
+
+    This is a SESSION identifier contract, not a realm/subject/objectGUID rule.
+    Never normalize the caller's value: later token/SQL/transport equality uses
+    the exact original string. Source: SecretGenerator.SECURE_ID_GENERATOR at
+    Keycloak commit 24ed1dadf3f246a555adb6d3d4a99e9b3003fb3b (26.8.1),
+    lines 23-24 and 47-54.
+    """
+    if type(value) is not str:
+        return False
+    if re.fullmatch(r'[A-Za-z0-9_-]{24}', value):
+        try:
+            decoded = base64.b64decode(value, altchars=b'-_', validate=True)
+            return len(decoded) == 18 and base64.urlsafe_b64encode(decoded).decode('ascii') == value
+        except (ValueError, UnicodeError):
+            return False
+    if not re.fullmatch(r'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}', value):
+        return False
+    try:
+        return str(uuid.UUID(value)) == value
+    except (ValueError, TypeError, AttributeError):
+        return False
+
+
 def candidate_token_shape_metadata(token, *, now):
     """Unverified-claim diagnostic only; fixed booleans, never an auth decision.
 
@@ -536,7 +561,7 @@ def candidate_token_shape_metadata(token, *, now):
         result['remaining_lifetime_at_least_45_seconds'] = bool(result['exp_after_iat'] and
             type(now) is int and expires - now >= 45)
         sid = claims.get('sid')
-        result['canonical_sid'] = type(sid) is str and str(uuid.UUID(sid)) == sid
+        result['canonical_sid'] = is_canonical_session_id(sid)
     except (ValueError, TypeError, KeyError, UnicodeError, AttributeError, RecursionError):
         pass
     return result
@@ -564,8 +589,8 @@ class CandidateSessionClient:
             require(type(expires) is int and expires > issued and
                     claims.get('iss') == 'https://sso.sosnadmin.local:18449/realms/master' and
                     claims.get('azp') == 'admin-cli', 'CandidateTokenProvenanceInvalid')
-            session_id = str(uuid.UUID(claims['sid']))
-            require(session_id == claims['sid'], 'CandidateTokenSidInvalid')
+            session_id = claims.get('sid')
+            require(is_canonical_session_id(session_id), 'CandidateTokenSidInvalid')
         except RecoveryRefused:
             raise
         except (ValueError, TypeError, KeyError, UnicodeError):
@@ -607,8 +632,10 @@ class CandidateSessionClient:
                   type(self.not_before_payloads[realm]) is int and self.not_before_payloads[realm] == self.admin_iat and
                   isinstance(payload, dict) and set(payload) == {'notBefore'} and
                   type(payload['notBefore']) is int and payload['notBefore'] == self.admin_iat and self.admin_iat > 0)
+        session_path = (re.fullmatch(r'/admin/realms/(?:master|sosnadmin)/sessions/([^/?]+)\?isOffline=true', path)
+                        if method == 'DELETE' and type(path) is str else None)
         delete = (method == "DELETE" and payload is None and path in self.session_delete_paths and
-                  re.fullmatch(r"/admin/realms/(master|sosnadmin)/sessions/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\?isOffline=true", path))
+                  session_path is not None and is_canonical_session_id(session_path.group(1)))
         logout = (method == "POST" and payload is None and path in self.logout_paths and
                   path in {"/admin/realms/master/logout-all", "/admin/realms/sosnadmin/logout-all"})
         require(read or before or delete or logout, "CandidateMutationProhibited")
@@ -715,7 +742,7 @@ def validate_archive_members(members):
 
 def private_build_recipe(candidate):
     _names(candidate)
-    private = '/var/lib/keycloak-recovery-v9/' + candidate
+    private = '/var/lib/keycloak-recovery-v10/' + candidate
     return {'archive_sha256': DISTRIBUTION_ARCHIVE_SHA256, 'network_namespace': True,
             'cwd': private + '/build-home',
             'argv': ['unshare', '--net', '--', 'env', '-i', 'PATH=/usr/bin:/bin', 'LANG=C.UTF-8',
@@ -946,7 +973,7 @@ def _create_qualification_journal(evidence_root, candidate):
 def _private_candidate_processes(candidate):
     _names(candidate)
     prefixes = [('/var/lib/' + name + '/' + candidate).encode()
-                for name in ('keycloak-recovery', 'keycloak-recovery-v4', 'keycloak-recovery-v5', 'keycloak-recovery-v6', 'keycloak-recovery-v7', 'keycloak-recovery-v8', 'keycloak-recovery-v9')]
+                for name in ('keycloak-recovery', 'keycloak-recovery-v4', 'keycloak-recovery-v5', 'keycloak-recovery-v6', 'keycloak-recovery-v7', 'keycloak-recovery-v8', 'keycloak-recovery-v9', 'keycloak-recovery-v10')]
     found = []
     for entry in Path('/proc').iterdir():
         if not entry.name.isdigit() or int(entry.name) == os.getpid():
@@ -1322,11 +1349,8 @@ def purge_sessions(client, inventory):
         require(isinstance(item, dict) and set(item) == {"realm", "id"} and
                 item["realm"] in {"master", "sosnadmin"} and isinstance(item["id"], str),
                 "OfflineSessionIdentityInvalid")
-        try:
-            canonical = str(uuid.UUID(item["id"]))
-        except (ValueError, AttributeError):
-            raise RecoveryRefused("OfflineSessionIdentityInvalid") from None
-        require(canonical == item["id"] and (item["realm"], canonical) not in seen,
+        canonical = item['id']
+        require(is_canonical_session_id(canonical) and (item["realm"], canonical) not in seen,
                 "OfflineSessionIdentityInvalid")
         seen.add((item["realm"], canonical))
     # Transport must enforce one-shot exact payloads against this fixed plan.
@@ -1433,10 +1457,7 @@ def collect_outbound_safety(database, *, runner=_run_private):
 
 
 def session_inventory_sql(fresh_sid):
-    try:
-        require(isinstance(fresh_sid, str) and str(uuid.UUID(fresh_sid)) == fresh_sid, 'FreshMasterSidInvalid')
-    except (ValueError, AttributeError):
-        raise RecoveryRefused('FreshMasterSidInvalid') from None
+    require(is_canonical_session_id(fresh_sid), 'FreshMasterSidInvalid')
     return """BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY;
 SET LOCAL statement_timeout='10s';
 SELECT jsonb_build_object(
@@ -1646,7 +1667,7 @@ def _safe_error_metadata(error):
             'refusal_code': refusal}
 
 
-EXECUTOR_ROOT = Path('/root/keycloak-identity-recovery-20261027-executor-v9')
+EXECUTOR_ROOT = Path('/root/keycloak-identity-recovery-20261027-executor-v10')
 PILOT_HELPER_SHA256 = '7df5688f2c4de83cec4047c1788e56a8ccf1b84bd7297102545bea7bfa0a1cd8'
 
 

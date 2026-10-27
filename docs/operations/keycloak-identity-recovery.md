@@ -43,7 +43,7 @@ Its old `UnclassifiedRefusal` does not identify the actual failing guard.
 Independent reconciliation confirmed the owned JVM stopped and private ports
 free; public services and the original subject/OTP stayed unchanged.
 
-Both candidates are now modified forensic databases: OID20856 changed seven
+Both candidates are modified forensic databases: OID20856 changed seven
 tables and OID22159 changed eight. Preserve both full101 snapshots, their
 immutable Stage1 evidence, all executors/work trees and every journal. Neither
 candidate is pristine or eligible for another qualification attempt. Preparation
@@ -51,12 +51,23 @@ metadata was independently accepted; purge/revocation, semantic review and
 promotion remain incomplete. Do not rerun the historical v8 command against
 OID22159.
 
-The next source profile uses `/root/keycloak-identity-recovery-20261027-executor-v9`
-and `/var/lib/keycloak-recovery-v9`. It is source-only until its complete closure
+The later independently verified fresh candidate `keycloak_recovery_20261027_82e14168`
+(OID23462) also became modified forensic evidence after one master-only v9 probe.
+It stopped at `TokenConstructor` / `CandidateTokenMalformed`; the unverified
+token-shape witness reported `canonical_sid=false` and `signature_verified=false`.
+The realm GET, SID inventory and purge were not reached. Independent reconciliation
+confirmed owned cleanup and preservation of all three candidates and original
+UUID/OTP. OID23462 and its consumed v9 attempt must never be reused as pristine.
+Pinned Keycloak26.8.1 source supports exact 24-character Base64URL session IDs;
+the UUID-only tool assumption is a contract defect. The discarded token's actual
+SID value is not reconstructed from source or stopped-database aggregate counts.
+
+The next source profile uses `/root/keycloak-identity-recovery-20261027-executor-v10`
+and `/var/lib/keycloak-recovery-v10`. It is source-only until its complete closure
 and a new uniquely prepared candidate are independently reviewed. Installation
 must create the executor exclusively (root0700), write exact verified recovery
 and pinned helper buffers (root0600), and verify the physical ancestor chain and
-hashes. Existing v1-v8 executors and work roots are never overwritten, resumed or
+hashes. Existing v1-v9 executors and work roots are never overwritten, resumed or
 repaired. Canonical process checks compare prepared/current systemd metadata
 exactly and separately bind unchanged `/proc` creation ticks, unique Java
 ancestry/UID/executable and protected process groups. Creation time and systemd
@@ -72,8 +83,8 @@ A successful probe would not prove revocation or promotion readiness. See
 [keycloak-recovery-purge-diagnostics.md](keycloak-recovery-purge-diagnostics.md).
 
 Any future candidate has its own physical data/home/temp directories and local
-cache under the new v9 root. The previous `/var/lib/keycloak-recovery` directory,
-retained v4-v8 trees and all prior journals remain unchanged. Matching candidate
+cache under the new v10 root. The previous `/var/lib/keycloak-recovery` directory,
+retained v4-v9 trees and all prior journals remain unchanged. Matching candidate
 processes in any historical root refuse a new attempt; retained inactive files
 are not repaired or resumed.
 All three group-traversable directories (common root, candidate and TLS) use one

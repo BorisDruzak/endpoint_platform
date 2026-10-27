@@ -42,18 +42,18 @@ def test_default_plan_cannot_execute_and_holds_for_unproven_recovery():
     assert "keycloak_identity_audit_sso20261027" not in plan["candidate_database"]
 
 
-def test_fresh_candidate_probe_uses_v9_without_resuming_failed_v8():
+def test_fresh_candidate_probe_uses_v10_without_resuming_consumed_v9():
     m = module()
     candidate = 'keycloak_recovery_20261027_2190f3d5'
-    private = '/var/lib/keycloak-recovery-v9/' + candidate
+    private = '/var/lib/keycloak-recovery-v10/' + candidate
     assert m.runtime_recipe(candidate, browser_tls=True)['directory'] == private
     assert m.private_build_recipe(candidate)['cwd'] == private + '/build-home'
-    assert m.EXECUTOR_ROOT == Path('/root/keycloak-identity-recovery-20261027-executor-v9')
+    assert m.EXECUTOR_ROOT == Path('/root/keycloak-identity-recovery-20261027-executor-v10')
     assert '/var/lib/keycloak-recovery-v8/' not in json.dumps(m.runtime_recipe(candidate, browser_tls=True))
 
 
 @pytest.mark.parametrize('workroot', ['keycloak-recovery', 'keycloak-recovery-v4',
-    'keycloak-recovery-v5', 'keycloak-recovery-v6', 'keycloak-recovery-v7', 'keycloak-recovery-v8', 'keycloak-recovery-v9'])
+    'keycloak-recovery-v5', 'keycloak-recovery-v6', 'keycloak-recovery-v7', 'keycloak-recovery-v8', 'keycloak-recovery-v9', 'keycloak-recovery-v10'])
 def test_process_scan_preserves_all_historical_work_namespaces(workroot, monkeypatch):
     from types import SimpleNamespace
     m = module(); candidate = 'keycloak_recovery_20261027_2190f3d5'
@@ -102,7 +102,7 @@ def test_v7_stage1_metadata_new_name_oid_and_three_service_fields_remain_compati
     monkeypatch.setattr(m.os, 'getpgid', lambda pid: 312382, raising=False)
     runtime = m.PrivateCandidateRuntime(candidate, runner=lambda argv, **kwargs: commands.append(argv))
     assert runtime.candidate_oid == 22159 and runtime.evidence_root == root
-    assert runtime.private == Path('/var/lib/keycloak-recovery-v9') / candidate
+    assert runtime.private == Path('/var/lib/keycloak-recovery-v10') / candidate
     assert runtime.receipts is None and runtime.process is None
     assert runtime.canonical_service_metadata == service
     assert reads == ['context.json', 'prepare-result.json', 'candidate-restored.json', 'identity-before.json']
@@ -323,11 +323,11 @@ def test_isolated_launch_recipe_has_separate_tree_environment_ports_and_no_secre
     assert command[:5] == ["runuser", "-u", "keycloak", "--", "env"]
     assert "-i" in command
     assert command[-2:] == ["start", "--optimized"]
-    assert command[-3].startswith("--config-file=/var/lib/keycloak-recovery-v9/")
-    assert command[-4].startswith("/var/lib/keycloak-recovery-v9/")
+    assert command[-3].startswith("--config-file=/var/lib/keycloak-recovery-v10/")
+    assert command[-4].startswith("/var/lib/keycloak-recovery-v10/")
     assert not any("/opt/keycloak" in arg for arg in command)
     assert any("JAVA_OPTS_KC_HEAP=-Xms128m -Xmx768m" == arg for arg in command)
-    assert any('-Duser.home=/var/lib/keycloak-recovery-v9/keycloak_recovery_20261027_abcdef12/work' in arg for arg in command)
+    assert any('-Duser.home=/var/lib/keycloak-recovery-v10/keycloak_recovery_20261027_abcdef12/work' in arg for arg in command)
     assert recipe["http"] == "127.0.0.1:8089" and recipe["management"] == "127.0.0.1:9009"
     assert recipe["shared_mutable_paths"] == [] and recipe["cache"] == "local"
 
@@ -359,8 +359,8 @@ def test_browser_tls_profile_is_fixed_private_and_never_uses_a_validation_bypass
     values = dict(line.split("=", 1) for line in result.splitlines() if line)
     assert values["hostname"] == "https://sso.sosnadmin.local:18449"
     assert values["https-port"] == "8449" and values["http-management-scheme"] == "http"
-    assert values["https-certificate-key-file"] == "/var/lib/keycloak-recovery-v9/" + candidate + "/tls/key.pem"
-    assert values["https-certificate-file"] == "/var/lib/keycloak-recovery-v9/" + candidate + "/tls/fullchain.pem"
+    assert values["https-certificate-key-file"] == "/var/lib/keycloak-recovery-v10/" + candidate + "/tls/key.pem"
+    assert values["https-certificate-file"] == "/var/lib/keycloak-recovery-v10/" + candidate + "/tls/fullchain.pem"
     assert values["http-host"] == "127.0.0.1"
     recipe = m.runtime_recipe(candidate, browser_tls=True)
     assert recipe["https"] == "127.0.0.1:8449"
@@ -553,10 +553,10 @@ def test_actual_restore_adapter_refuses_existing_database_without_write_or_clean
     assert len(calls) == 1
 
 
-def session_client_fixture():
+def session_client_fixture(sid='00000000-0000-0000-0000-000000000099'):
     import base64
     payload = base64.urlsafe_b64encode(json.dumps({"iat": 100,"exp":400,
-        "sid":"00000000-0000-0000-0000-000000000099",
+        "sid":sid,
         "iss":"https://sso.sosnadmin.local:18449/realms/master","azp":"admin-cli"}).encode()).decode().rstrip("=")
     proof = {"candidate_database": "keycloak_recovery_20261027_abcdef12", "pid": 1234,
              "canonical_pid": 9876, "uid_matches_keycloak": True,
@@ -586,6 +586,90 @@ def test_candidate_session_transport_pins_receiver_and_consumes_exact_write_once
                                    ("PUT", "/admin/realms/master", {"notBefore": 100, "enabled": False})]:
         with pytest.raises(m.RecoveryRefused): client.request(method, path, payload=payload)
     assert len(calls) == 1
+
+
+def test_keycloak_26_session_sid_passes_real_token_get_and_exact_inventory_proof():
+    import base64
+    m=module();sid=base64.urlsafe_b64encode(bytes(range(18))).decode()
+    token,proof=session_client_fixture(sid);requests=[];queries=[]
+    client=m.CandidateSessionClient(token,runtime_verifier=lambda:proof,
+        transport=lambda request:requests.append(request) or [{'realm':'master'},{'realm':'sosnadmin'}])
+    assert client.session_id==sid and m.candidate_token_shape_metadata(token,now=100)['canonical_sid'] is True
+    client.request('GET','/admin/realms')
+    assert len(requests)==1 and requests[0].full_url=='http://127.0.0.1:8089/admin/realms'
+    def runner(argv,*,input_bytes,maximum_output):
+        queries.append(input_bytes.decode())
+        return json.dumps({'fresh_master_session_count':1,'unexpected_offline_flags':0}).encode()
+    m.collect_session_inventory('keycloak_recovery_20261027_abcdef12',sid,runner=runner)
+    assert len(queries)==1 and queries[0].count(sid)==2
+    assert "s.user_session_id='"+sid+"'" in queries[0] and "user_session_id<>'"+sid+"'" in queries[0]
+    with pytest.raises(m.RecoveryRefused,match='FreshMasterSessionOrFlagNotVerified'):
+        m.collect_session_inventory('keycloak_recovery_20261027_abcdef12',sid,
+            runner=lambda *args,**kwargs:b'{"fresh_master_session_count":0,"unexpected_offline_flags":0}')
+
+
+def test_keycloak_26_offline_sid_uses_exact_one_shot_delete_and_master_last():
+    import base64
+    m=module();sid=base64.urlsafe_b64encode(bytes(range(18))).decode()
+    token,proof=session_client_fixture(sid);requests=[]
+    def transport(request):requests.append(request);return {'notBefore':100}
+    client=m.CandidateSessionClient(token,runtime_verifier=lambda:proof,transport=transport)
+    result=m.purge_sessions(client,{'realms':['master','sosnadmin'],'maximum_restored_token_iat':50,
+        'realm_not_before':{'master':0,'sosnadmin':0},'offline_sessions':[{'realm':'master','id':sid}]})
+    path='/admin/realms/master/sessions/'+sid+'?isOffline=true'
+    assert result['offline_deleted']==1
+    assert [r.get_method() for r in requests].count('DELETE')==1
+    assert next(r for r in requests if r.get_method()=='DELETE').full_url=='http://127.0.0.1:8089'+path
+    assert requests[-1].get_method()=='POST' and requests[-1].full_url.endswith('/master/logout-all')
+    with pytest.raises(m.RecoveryRefused):client.request('DELETE',path)
+
+
+def test_session_sid_validator_has_exact_upstream_bytes_roundtrip_and_legacy_uuid():
+    import base64
+    m=module()
+    assert m.is_canonical_session_id('00000000-0000-0000-0000-000000000099') is True
+    for size in range(65):
+        raw=bytes((index*31+size)%256 for index in range(size))
+        encoded=base64.urlsafe_b64encode(raw).decode().rstrip('=')
+        assert m.is_canonical_session_id(encoded) is (size==18)
+        if size==18:
+            assert base64.urlsafe_b64decode(encoded)==raw
+    for offset in range(256):
+        value=base64.urlsafe_b64encode(bytes((i+offset)%256 for i in range(18))).decode()
+        assert m.is_canonical_session_id(value) is True
+
+
+def test_token_sid_must_be_present_string_even_when_all_other_claims_are_valid():
+    import base64
+    m=module();token,proof=session_client_fixture()
+    claims=json.loads(base64.urlsafe_b64decode(token.split('.')[1]+'=='))
+    claims.pop('sid')
+    payload=base64.urlsafe_b64encode(json.dumps(claims).encode()).decode().rstrip('=')
+    with pytest.raises(m.RecoveryRefused,match='CandidateTokenSidInvalid'):
+        m.CandidateSessionClient('header.'+payload+'.signature',runtime_verifier=lambda:proof)
+
+
+@pytest.mark.parametrize('sid',[None,False,100,[],{},b'bytes','', 'a'*23,'a'*25,'a'*24+'=',
+    '00000000000000000000000000000099','FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFFFFFF',
+    'a'*23+"'",'a'*23+'"','a'*23+'/', 'a'*23+'\\','a'*23+'.','a'*23+'%',
+    'a'*23+'+','a'*23+' ','a'*23+'\r','a'*23+'\n','a'*23+'\x00','a'*23+'а',
+    '../users/admin','%2f'*8],ids=['none','bool','int','list','dict','bytes','empty','short','long','padding',
+    'uuid-compact','uuid-upper','quote','double-quote','slash','backslash','dot','percent','plus',
+    'space','cr','lf','nul','unicode','traversal','url-escape'])
+def test_unsafe_session_sids_refuse_before_sql_or_http(sid):
+    m=module();_,proof=session_client_fixture()
+    assert m.is_canonical_session_id(sid) is False
+    if type(sid) is not bytes:  # Bytes cannot occur as a decoded JSON claim.
+        token,_=session_client_fixture(sid)
+        with pytest.raises(m.RecoveryRefused):m.CandidateSessionClient(token,runtime_verifier=lambda:proof)
+    with pytest.raises(m.RecoveryRefused):m.session_inventory_sql(sid)
+    good_token,_=session_client_fixture();requests=[]
+    client=m.CandidateSessionClient(good_token,runtime_verifier=lambda:proof,
+        transport=lambda request:requests.append(request))
+    bad_path='/admin/realms/master/sessions/'+str(sid)+'?isOffline=true'
+    client.session_delete_paths={bad_path}
+    with pytest.raises(m.RecoveryRefused):client.request('DELETE',bad_path)
+    assert requests==[]
 
 
 def test_candidate_session_transport_rechecks_live_pid_before_every_request():
@@ -667,7 +751,7 @@ def test_actual_runtime_stop_guard_rejects_signal_for_uncertain_process(failure,
     runtime.process = SimpleNamespace(pid=40, poll=lambda:None)
     runtime.process_start = 123
     runtime.canonical_pid = 40 if failure == "canonical-pid" else 90
-    runtime.private = Path('/var/lib/keycloak-recovery-v9/keycloak_recovery_20261027_abcdef12')
+    runtime.private = Path('/var/lib/keycloak-recovery-v10/keycloak_recovery_20261027_abcdef12')
     runtime.keycloak = SimpleNamespace(pw_uid=1000)
     runtime.output = None
     monkeypatch.setattr(m, '_pid_start', lambda pid:999 if failure == 'pid-reuse' else 123)
@@ -741,7 +825,7 @@ def test_private_build_has_no_network_shared_home_or_inherited_environment():
     assert recipe['argv'][:5]==['unshare','--net','--','env','-i']
     assert recipe['argv'][-5:]==['build','--db=postgres','--health-enabled=true','--metrics-enabled=false','--cache=local']
     assert all('/opt/keycloak' not in arg for arg in recipe['argv'])
-    assert any(arg.startswith('HOME=/var/lib/keycloak-recovery-v9/') for arg in recipe['argv'])
+    assert any(arg.startswith('HOME=/var/lib/keycloak-recovery-v10/') for arg in recipe['argv'])
     assert any(arg.startswith('JAVA_OPTS_KC_HEAP=-Xms128m -Xmx1024m') for arg in recipe['argv'])
 
 
@@ -839,7 +923,7 @@ def test_private_build_cleanup_owns_group_even_when_shell_has_exited(scenario,mo
     def signal_group(group,number):signals.append((group,number));state['members']=False
     monkeypatch.setattr(m.os,'killpg',signal_group,raising=False)
     invoke=lambda:m._run_owned_private_group(['private-build'],input_bytes=None,output=io.BytesIO(),timeout=1,
-        cwd=None,environment={},prefix='/var/lib/keycloak-recovery-v9/keycloak_recovery_20261027_abcdef12',forbidden={90,91})
+        cwd=None,environment={},prefix='/var/lib/keycloak-recovery-v10/keycloak_recovery_20261027_abcdef12',forbidden={90,91})
     if scenario=='timeout':
         with pytest.raises(m.subprocess.TimeoutExpired):invoke()
     else:invoke()
@@ -1203,7 +1287,7 @@ def test_actual_owned_build_cleanup_failure_preserves_original_timeout_metadata(
     monkeypatch.setattr(m,'_stop_owned_build_group',lambda *args:(_ for _ in ()).throw(ValueError('raw-cleanup-secret')))
     with pytest.raises(m.RecoveryRefused) as caught:
         m._run_owned_private_group(['build'],input_bytes=None,output=io.BytesIO(),timeout=1,cwd=None,environment={},
-            prefix='/var/lib/keycloak-recovery-v9/keycloak_recovery_20261027_abcdef12',forbidden={90})
+            prefix='/var/lib/keycloak-recovery-v10/keycloak_recovery_20261027_abcdef12',forbidden={90})
     assert caught.value.primary_metadata=={'exception_class':'TimeoutExpired','refusal_code':None}
     assert caught.value.cleanup_metadata=={'exception_class':'ValueError','refusal_code':None}
     assert caught.value.args==('PrivateBuildCleanupHold',)

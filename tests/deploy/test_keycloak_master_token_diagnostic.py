@@ -143,6 +143,17 @@ def test_inventory_reducer_keeps_exact_cutoff_guards_without_values():
         m.reduce_inventory(b,value,client)
 
 
+def test_probe_offline_inventory_uses_same_exact_keycloak_sid_contract():
+    m=module();b=backend();sid=base64.urlsafe_b64encode(bytes(range(18))).decode()
+    value={'realms':['master','sosnadmin'],'fresh_master_session_count':1,'unexpected_offline_flags':0,
+        'maximum_restored_token_iat':50,'realm_not_before':{'master':0,'sosnadmin':0},
+        'offline_sessions':[{'realm':'master','id':sid}]}
+    assert all(m.reduce_inventory(b,value,SimpleNamespace(admin_iat=100)).values())
+    value['offline_sessions'].append({'realm':'master','id':sid})
+    with pytest.raises(b.RecoveryRefused,match='OfflineSessionIdentityInvalid'):
+        m.reduce_inventory(b,value,SimpleNamespace(admin_iat=100))
+
+
 def test_master_login_capability_consumed_before_uncertain_http_result(monkeypatch):
     m = module(); b = backend(); pilot = load('tools/keycloak/pilot_acceptance.py','probe_pilot_helper')
     pilot.BASE = 'http://127.0.0.1:8089'
@@ -252,13 +263,32 @@ def test_exact_nested_prepare_preservation_is_read_without_new_baseline(monkeypa
     actual=copy.deepcopy(ops.failed_baselines)
     ops._verify_failed(actual)
     assert ops._verify_preserved_files() is True
-    for name in b.TABLE_MANIFEST:
-        changed=copy.deepcopy(actual)
-        changed[next(iter(m.FORENSIC_DATABASES))]['tables'][name].append('d'*64)
-        with pytest.raises(m.ProbeRefused,match='ProbePreservationInvalid'):ops._verify_failed(changed)
+    for database in actual:
+        for name in b.TABLE_MANIFEST:
+            changed=copy.deepcopy(actual)
+            changed[database]['tables'][name].append('d'*64)
+            with pytest.raises(m.ProbeRefused,match='ProbePreservationInvalid'):ops._verify_failed(changed)
     source=Path(auth['preserved_artifacts']['sealed_run7_source']['path'])
     files[source]=b'changed-sealed-source'
     with pytest.raises(m.ProbeRefused):ops._verify_preserved_files()
+
+
+def test_forensic_collection_reconciles_all_three_consumed_databases_once():
+    m=module();calls=[]
+    def collect(name):calls.append(name);return {'synthetic':True}
+    ops=m.NativeProbe('keycloak_recovery_20261027_abcdef12',SimpleNamespace(collect_inventory=collect),None)
+    actual=ops._capture_failed()
+    expected={'keycloak_recovery_20261027_55f72537','keycloak_recovery_20261027_2190f3d5',
+              'keycloak_recovery_20261027_82e14168'}
+    assert set(actual)==expected and set(calls)==expected and len(calls)==3
+
+
+@pytest.mark.parametrize('oid',[16385,19553,20856,22159,23462])
+def test_explicit_candidate_cannot_reuse_canonical_audit_or_consumed_forensics(oid):
+    m=module();b=backend();auth,files,original=nested_preservation_fixture(m,b)
+    auth['candidate_oid']=oid
+    with pytest.raises(m.ProbeRefused,match='ProbeAuthorizationInvalid'):
+        m.NativeProbe(auth['candidate_database'],b,None)._validate_authorization(auth)
 
 
 def test_nested_preservation_cannot_be_relabelled_to_an_arbitrary_file(monkeypatch):

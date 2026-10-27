@@ -1,7 +1,7 @@
 """Inert-by-default, one-login private master-token diagnostic; never recovery.
 
 Native execution requires explicit --run-once --candidate, reviewed root-private
-source/authorization seals and an unused v9 runtime. No prepare/restore, browser,
+source/authorization seals and an unused v10 runtime. No prepare/restore, browser,
 LDAP/identity API, retention/scope change, purge or promotion operation exists.
 """
 from __future__ import annotations
@@ -18,16 +18,16 @@ import stat
 import sys
 import time
 import types
-import uuid
 
-EXECUTOR_ROOT = Path('/root/keycloak-identity-recovery-20261027-executor-v9')
-BACKEND_SHA256 = '8d04dba899ac065918430c544ae45c3b59d7970945d834a1358119c9cd38207d'
+EXECUTOR_ROOT = Path('/root/keycloak-identity-recovery-20261027-executor-v10')
+BACKEND_SHA256 = '5b46db376f6d83af5c94deed439459be055885fd034bcfadee307f8f4ade44f3'
 HELPER_SHA256 = '7df5688f2c4de83cec4047c1788e56a8ccf1b84bd7297102545bea7bfa0a1cd8'
 ORIGINAL_ROOT = Path('/var/backups/keycloak-recovery/keycloak_recovery_20261027_55f72537')
 BOOTSTRAP_ENV = Path('/run/keycloak-provision-20261027/provision.env')
-PREPARE_ROOT = Path('/root/keycloak-fresh-prepare-after-run7-v1')
+PREPARE_ROOT = Path('/root/keycloak-fresh-prepare-after-master-probe1-v1')
 FORENSIC_DATABASES = {'keycloak_recovery_20261027_55f72537':20856,
-                      'keycloak_recovery_20261027_2190f3d5':22159}
+                      'keycloak_recovery_20261027_2190f3d5':22159,
+                      'keycloak_recovery_20261027_82e14168':23462}
 TOKEN_SHAPE_FIELDS = frozenset({'bounded_compact_token','claims_object','iat_positive_integer',
     'exp_after_iat','expected_master_issuer','expected_admin_cli','canonical_sid',
     'remaining_lifetime_at_least_45_seconds','signature_verified'})
@@ -38,7 +38,7 @@ INVENTORY_FIELDS = frozenset({'fresh_session_verified','flags_verified','realms_
     'strict_cutoff_order_verified','revocation_not_lowered','offline_inventory_bounded'})
 PROBE_CODES = frozenset({'ProbeArgumentsInvalid','ProbeExplicitCandidateRequired','ProbeUnexpectedFailure',
     'ProbeSourceSealInvalid','ProbeSourcePinMismatch','ProbeExecutorPathInvalid','ProbeNativeHostRequired',
-    'ProbeAuthorizationInvalid','ProbePreservationInvalid','ProbeCandidateNotPristine','ProbeV9ProfileRequired',
+    'ProbeAuthorizationInvalid','ProbePreservationInvalid','ProbeCandidateNotPristine','ProbeV10ProfileRequired',
     'ProbeBootstrapMissing','ProbeBootstrapMalformed','ProbeBootstrapDuplicate','ProbeInputBoundExceeded',
     'ProbePrivateFileInvalid','ProbePrivateFileUnavailable','ProbeLoginAlreadyConsumed','ProbeLoginScopeInvalid',
     'ProbeAttemptAlreadyConsumed',
@@ -205,11 +205,8 @@ def reduce_inventory(backend,value,client):
         backend.require(type(item) is dict and set(item) == {'realm','id'} and
                         item['realm'] in {'master','sosnadmin'} and type(item['id']) is str,
                         'OfflineSessionIdentityInvalid')
-        try:
-            canonical = str(uuid.UUID(item['id']))
-        except (ValueError,TypeError,AttributeError):
-            raise backend.RecoveryRefused('OfflineSessionIdentityInvalid') from None
-        backend.require(canonical == item['id'] and (item['realm'],canonical) not in seen,
+        canonical = item['id']
+        backend.require(backend.is_canonical_session_id(canonical) and (item['realm'],canonical) not in seen,
                         'OfflineSessionIdentityInvalid')
         seen.add((item['realm'],canonical))
     return dict.fromkeys(INVENTORY_FIELDS,True)
@@ -308,14 +305,14 @@ class NativeProbe:
                 authorization['schema'] == 'keycloak_master_token_probe_authorization_v1' and
                 authorization['candidate_database'] == self.candidate and
                 type(authorization['candidate_oid']) is int and authorization['candidate_oid'] > 0 and
-                authorization['candidate_oid'] not in {16385,19553,20856,22159} and
+                authorization['candidate_oid'] not in {16385,19553,20856,22159,23462} and
                 type(authorization['preserved_artifacts']) is dict and
                 set(authorization['preserved_artifacts']) == names,'ProbeAuthorizationInvalid')
 
     def _consume_once(self):
         # Fixed root-private O_EXCL fence, under the shared recovery lock, before
         # any runtime constructor, journal, copy/build/start or login. A failed
-        # prestart attempt consumes this invocation even if v9 was never created.
+        # prestart attempt consumes this invocation even if v10 was never created.
         path = EXECUTOR_ROOT/'master-token-probe-consumed.json'
         require(not path.exists() and not path.is_symlink(),'ProbeAttemptAlreadyConsumed')
         self.backend._write_private(path,{'schema':'keycloak_master_token_probe_consumed_v1',
@@ -403,7 +400,7 @@ class NativeProbe:
         b = self.backend
         b._names(self.candidate)
         require(b.runtime_recipe(self.candidate,browser_tls=True)['directory'] ==
-                '/var/lib/keycloak-recovery-v9/'+self.candidate,'ProbeV9ProfileRequired')
+                '/var/lib/keycloak-recovery-v10/'+self.candidate,'ProbeV10ProfileRequired')
         authorization_path = EXECUTOR_ROOT/'master-token-probe-authorization.json'
         authorization_data = _read_private(authorization_path,16384)
         authorization = _json(authorization_data)
