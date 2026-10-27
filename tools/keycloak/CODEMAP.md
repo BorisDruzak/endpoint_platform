@@ -1,5 +1,11 @@
 # Keycloak operator tools
 
+- `master_token_diagnostic.py`: inert-by-default, one-login private diagnostic
+  with a fixed consumed-attempt fence, one realm GET and one SID inventory.
+  It reuses the unchanged runtime/token guards and preserves both failed
+  databases before/after owned cleanup; it cannot purge, repair or promote.
+  Its source closure, protected input schema and limits are documented in
+  `docs/operations/keycloak-master-token-diagnostic.md`.
 - `recover_pilot_identity.py`: plan, exclusive verified full-DB restore, read-only
   identity/101-table evidence and explicit private qualification RPC. It owns
   private process lifecycle/session-revocation proof and ends at unreviewed drift
