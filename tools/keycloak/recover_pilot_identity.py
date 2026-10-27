@@ -509,6 +509,39 @@ class _CandidateNoRedirects(urllib.request.HTTPRedirectHandler):
         raise RecoveryRefused("CandidateRedirectProhibited")
 
 
+def candidate_token_shape_metadata(token, *, now):
+    """Unverified-claim diagnostic only; fixed booleans, never an auth decision.
+
+    Keep all constructor/API/database guards independent of this witness. No
+    token, SID, claim value, timestamp, payload or fingerprint is returned.
+    """
+    result = dict.fromkeys(('bounded_compact_token', 'claims_object', 'iat_positive_integer',
+        'exp_after_iat', 'expected_master_issuer', 'expected_admin_cli', 'canonical_sid',
+        'remaining_lifetime_at_least_45_seconds', 'signature_verified'), False)
+    result['bounded_compact_token'] = bool(type(token) is str and len(token) <= 16384 and
+        re.fullmatch(r'[A-Za-z0-9_\-]+\.[A-Za-z0-9_\-]+\.[A-Za-z0-9_\-]+', token))
+    if not result['bounded_compact_token']:
+        return result
+    try:
+        payload = token.split('.')[1]
+        claims = json.loads(base64.urlsafe_b64decode(payload + '=' * (-len(payload) % 4)))
+        if type(claims) is not dict:
+            return result
+        result['claims_object'] = True
+        issued, expires = claims.get('iat'), claims.get('exp')
+        result['iat_positive_integer'] = type(issued) is int and issued > 0
+        result['exp_after_iat'] = result['iat_positive_integer'] and type(expires) is int and expires > issued
+        result['expected_master_issuer'] = claims.get('iss') == 'https://sso.sosnadmin.local:18449/realms/master'
+        result['expected_admin_cli'] = claims.get('azp') == 'admin-cli'
+        result['remaining_lifetime_at_least_45_seconds'] = bool(result['exp_after_iat'] and
+            type(now) is int and expires - now >= 45)
+        sid = claims.get('sid')
+        result['canonical_sid'] = type(sid) is str and str(uuid.UUID(sid)) == sid
+    except (ValueError, TypeError, KeyError, UnicodeError, AttributeError, RecursionError):
+        pass
+    return result
+
+
 class CandidateSessionClient:
     """Exact one-shot session API scope, fresh PID/DB/socket proof each request.
 
@@ -533,6 +566,8 @@ class CandidateSessionClient:
                     claims.get('azp') == 'admin-cli', 'CandidateTokenProvenanceInvalid')
             session_id = str(uuid.UUID(claims['sid']))
             require(session_id == claims['sid'], 'CandidateTokenSidInvalid')
+        except RecoveryRefused:
+            raise
         except (ValueError, TypeError, KeyError, UnicodeError):
             raise RecoveryRefused("CandidateTokenMalformed") from None
         self.token, self._admin_iat = token, issued
@@ -556,7 +591,11 @@ class CandidateSessionClient:
                 require(len(body) <= 2 * 1024 * 1024, "CandidateResponseBoundExceeded")
                 return json.loads(body) if body else None
         except urllib.error.HTTPError as error:
-            raise RecoveryRefused("CandidateHTTP" + str(error.code)) from None
+            code = ('CandidateHTTP' + str(error.code) if type(error.code) is int and
+                    100 <= error.code <= 599 else 'CandidateHTTPUnclassified')
+            raise RecoveryRefused(code) from None
+        except RecoveryRefused:
+            raise
         except (urllib.error.URLError, TimeoutError, ValueError, UnicodeError):
             raise RecoveryRefused("CandidateRequestFailed") from None
 
@@ -1577,7 +1616,21 @@ SAFE_REFUSAL_CODES = frozenset({
     'SequenceSetDrift', 'SequenceStateInvalid', 'SnapshotMalformed',
     'SnapshotVersionMismatch', 'TableNameInvalid', 'TableSetDrift',
     'UnexpectedRestoredRealms', 'UnexpectedSchemaExecutable',
-})
+    # Closed fixed purge/token/session diagnostics; never forward raw exception data.
+    'BrowserPositiveRequiredBeforePurge', 'CandidateMutationProhibited',
+    'CandidateRedirectProhibited', 'CandidateRequestBudgetExceeded', 'CandidateRequestFailed',
+    'CandidateResponseBoundExceeded', 'CandidateTokenIatInvalid', 'CandidateTokenMalformed',
+    'CandidateTokenProvenanceInvalid', 'CandidateTokenSidInvalid', 'CandidateHTTPUnclassified',
+    'ExistingRealmRevocationWouldBeLowered', 'FreshAdminMustPostdateRestoredTokens',
+    'FreshMasterSessionOrFlagNotVerified', 'FreshMasterSidInvalid', 'FreshMasterTokenNotVerified',
+    'MasterTokenRejectionUnclassified', 'OfflineSessionBoundExceeded', 'OfflineSessionIdentityInvalid',
+    'PoststopSessionProofInvalid', 'PurgeBindingMismatch', 'RealmNotBeforeNotVerified',
+    'RealmRevocationCutoffNotPreserved', 'RuntimeVerifierRequired', 'SessionInventoryMalformed',
+}) | frozenset('CandidateHTTP' + str(status) for status in range(100, 600))
+
+SAFE_PURGE_SUBPHASES = frozenset({'PermitPurge', 'FreshMasterLogin', 'TokenShapeReceipt',
+    'SessionClientConstruction', 'TokenLifetime', 'RealmApi', 'SessionInventory',
+    'SessionProvenanceReceipt', 'SessionApis', 'TokenRevocation', 'TokenRevocationReceipt'})
 
 
 def _safe_error_metadata(error):
@@ -1662,6 +1715,10 @@ class QualificationOperations:
             if self.failure_context is None:
                 self.failure_context = dict(phase=operation, **(error.primary_metadata
                     if type(error) is RecoveryCleanupFailure else _safe_error_metadata(error)))
+                if operation == 'purge_restored_sessions_master_last':
+                    subphase = getattr(self, 'purge_subphase', None)
+                    self.failure_context['purge_subphase'] = (subphase if type(subphase) is str and
+                        subphase in SAFE_PURGE_SUBPHASES else 'UnclassifiedPurgeSubphase')
             if type(error) is RecoveryCleanupFailure:
                 self.cleanup_phase, self.cleanup_failure = 'CleanupUnconfirmed', dict(error.cleanup_metadata)
             raise
@@ -1772,26 +1829,38 @@ class QualificationOperations:
         return {'same_context_browser_cookie_valid_before': True}
 
     def purge(self):
+        self.purge_subphase = 'PermitPurge'
         require(self.browser.phase == 'positive', 'BrowserPositiveRequiredBeforePurge')
         reply = self._rpc('purge_held', 'permit_purge', binding_sha256=self.browser.binding_sha256)
         _exact_keys(reply, ('op', 'binding_sha256'))
         require(reply['binding_sha256'] == self.browser.binding_sha256, 'PurgeBindingMismatch')
         time.sleep(1.1)  # The final admin token strictly postdates every prior test/session iat.
+        self.purge_subphase = 'FreshMasterLogin'
         client = self._client()
+        self.purge_subphase = 'TokenShapeReceipt'
+        _write_private(self.receipts / 'purge-token-shape.json',
+                       candidate_token_shape_metadata(client.token, now=int(time.time())))
+        self.purge_subphase = 'SessionClientConstruction'
         self.master = CandidateSessionClient(client.token, runtime_verifier=self.runtime.proof)
+        self.purge_subphase = 'TokenLifetime'
         require(self.master.expires_at - int(time.time()) >= 45, 'FreshMasterTokenLifetimeTooShort')
+        self.purge_subphase = 'RealmApi'
         realms = self.master.request('GET', '/admin/realms')
         require(isinstance(realms, list) and sorted(item.get('realm') for item in realms) == ['master', 'sosnadmin'],
                 'FreshMasterTokenNotVerified')
         started = time.monotonic()
+        self.purge_subphase = 'SessionInventory'
         inventory = collect_session_inventory(self.runtime.candidate, self.master.session_id)
+        self.purge_subphase = 'SessionProvenanceReceipt'
         _write_private(self.receipts / 'session-provenance-before.json', {
             'fresh_master_sid_sha256': hashlib.sha256(self.master.session_id.encode()).hexdigest(),
             'fresh_master_iat': self.master.admin_iat, 'fresh_master_expires_at': self.master.expires_at,
             'maximum_other_token_iat': inventory['maximum_restored_token_iat'],
             'offline_session_count': len(inventory['offline_sessions']),
             'token_valid_before_http': 200, 'realm_not_before': inventory['realm_not_before']})
+        self.purge_subphase = 'SessionApis'
         self.purge_result = purge_sessions(self.master, inventory)
+        self.purge_subphase = 'TokenRevocation'
         rejected = False
         try:
             self.master.request('GET', '/admin/realms')
@@ -1802,6 +1871,7 @@ class QualificationOperations:
                 'MasterTokenRevocationOrLifetimeNotProven')
         self.token_proof = {'valid_before_http': 200, 'revoked_after_http': 401,
                             'same_token_cryptographically_unexpired': True, 'elapsed_below_30_seconds': True}
+        self.purge_subphase = 'TokenRevocationReceipt'
         _write_private(self.receipts / 'master-token-revocation.json', self.token_proof)
         self.master.token = ''
         return self.token_proof

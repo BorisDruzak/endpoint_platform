@@ -1210,7 +1210,7 @@ def test_actual_owned_build_cleanup_failure_preserves_original_timeout_metadata(
     assert 'raw-' not in json.dumps([caught.value.primary_metadata,caught.value.cleanup_metadata])
 
 
-def reachable_startup_refusal_codes():
+def reachable_startup_refusal_codes(roots=None):
     """Static committed-code reachability plus explicit dynamic runner boundary."""
     import ast
     tree=ast.parse((ROOT/'tools/keycloak/recover_pilot_identity.py').read_text())
@@ -1221,7 +1221,7 @@ def reachable_startup_refusal_codes():
             classes[node.name]=node
             for method in node.body:
                 if isinstance(method,ast.FunctionDef):functions[node.name+'.'+method.name]=(method,node.name)
-    pending=['PrivateCandidateRuntime._start_owned','PrivateCandidateRuntime.proof','PrivateCandidateRuntime.stop',
+    pending=list(roots) if roots is not None else ['PrivateCandidateRuntime._start_owned','PrivateCandidateRuntime.proof','PrivateCandidateRuntime.stop',
              'PrivateCandidateRuntime.verify_canonical_reference','PrivateCandidateRuntime.verify_pristine_attempt',
              'validate_runtime_proof','_pid_start','_run_private']
     visited=set();codes=set()
@@ -1253,6 +1253,114 @@ def test_every_fixed_reachable_startup_refusal_preserves_exact_safe_diagnostic()
     assert codes<=m.SAFE_REFUSAL_CODES, 'Missing fixed safe diagnostic codes: '+','.join(sorted(codes-m.SAFE_REFUSAL_CODES))
     for code in sorted(codes):
         assert m._safe_error_metadata(m.RecoveryRefused(code))=={'exception_class':'RecoveryRefused','refusal_code':code}
+
+
+def test_every_fixed_purge_token_session_refusal_preserves_exact_safe_diagnostic():
+    m=module()
+    codes,visited=reachable_startup_refusal_codes([
+        'QualificationOperations.purge','CandidateSessionClient.__init__',
+        'CandidateSessionClient._send','CandidateSessionClient.request',
+        '_CandidateNoRedirects.redirect_request','collect_session_inventory',
+        'purge_sessions','validate_poststop_sessions'])
+    assert {'session_inventory_sql','collect_session_inventory','purge_sessions'} <= visited
+    assert codes <= m.SAFE_REFUSAL_CODES, 'Missing fixed safe diagnostic codes: '+','.join(sorted(codes-m.SAFE_REFUSAL_CODES))
+    for code in sorted(codes):
+        assert m._safe_error_metadata(m.RecoveryRefused(code))['refusal_code']==code
+
+
+@pytest.mark.parametrize(('field','value','code'), [
+    ('iat',0,'CandidateTokenIatInvalid'),
+    ('iss','https://secret.invalid/private-token','CandidateTokenProvenanceInvalid'),
+    ('azp','secret-other-client','CandidateTokenProvenanceInvalid'),
+    ('sid','00000000000000000000000000000099','CandidateTokenSidInvalid'),
+])
+def test_candidate_token_guard_keeps_original_refusal_without_claim_export(field,value,code):
+    import base64
+    m=module();token,proof=session_client_fixture()
+    claims=json.loads(base64.urlsafe_b64decode(token.split('.')[1]+'=='))
+    claims[field]=value
+    payload=base64.urlsafe_b64encode(json.dumps(claims).encode()).decode().rstrip('=')
+    with pytest.raises(m.RecoveryRefused) as caught:
+        m.CandidateSessionClient('header.'+payload+'.signature',runtime_verifier=lambda:proof)
+    assert caught.value.args==(code,)
+    assert m._safe_error_metadata(caught.value)['refusal_code']==code
+
+
+@pytest.mark.parametrize(('status','code'), [(401,'CandidateHTTP401'),(403,'CandidateHTTP403'),
+    (500,'CandidateHTTP500'),(999,'CandidateHTTPUnclassified'),('401-secret','CandidateHTTPUnclassified'),
+    (True,'CandidateHTTPUnclassified')])
+def test_candidate_http_failures_export_only_bounded_status_codes(status,code):
+    import urllib.error
+    from types import SimpleNamespace
+    m=module();token,proof=session_client_fixture()
+    client=m.CandidateSessionClient(token,runtime_verifier=lambda:proof)
+    def refuse(*args,**kwargs):
+        raise urllib.error.HTTPError('https://secret.invalid/raw-token',status,'secret-response',{},None)
+    client.opener=SimpleNamespace(open=refuse)
+    with pytest.raises(m.RecoveryRefused) as caught:
+        client.request('GET','/admin/realms')
+    assert caught.value.args==(code,)
+    assert m._safe_error_metadata(caught.value)['refusal_code']==code
+    assert 'secret' not in json.dumps(m._safe_error_metadata(caught.value))
+
+
+def test_candidate_response_bound_failure_does_not_become_request_failed():
+    from types import SimpleNamespace
+    m=module();token,proof=session_client_fixture()
+    client=m.CandidateSessionClient(token,runtime_verifier=lambda:proof)
+    class Response:
+        def __enter__(self):return self
+        def __exit__(self,*args):return False
+        def read(self,maximum):return b'x'*maximum
+    client.opener=SimpleNamespace(open=lambda *args,**kwargs:Response())
+    with pytest.raises(m.RecoveryRefused) as caught:client.request('GET','/admin/realms')
+    assert caught.value.args==('CandidateResponseBoundExceeded',)
+
+
+def test_token_shape_diagnostic_is_boolean_only_and_cannot_authorize_token():
+    import base64
+    m=module();token,proof=session_client_fixture()
+    claims=json.loads(base64.urlsafe_b64decode(token.split('.')[1]+'=='))
+    claims.update(iss='https://private-secret.invalid/token',extra='opaque-secret-marker')
+    payload=base64.urlsafe_b64encode(json.dumps(claims).encode()).decode().rstrip('=')
+    untrusted='header.'+payload+'.signature'
+    result=m.candidate_token_shape_metadata(untrusted,now=360)
+    assert result=={'bounded_compact_token':True,'claims_object':True,'iat_positive_integer':True,
+        'exp_after_iat':True,'expected_master_issuer':False,'expected_admin_cli':True,
+        'canonical_sid':True,'remaining_lifetime_at_least_45_seconds':False,'signature_verified':False}
+    assert all(type(x) is bool for x in result.values())
+    assert all(secret not in json.dumps(result) for secret in [token,payload,claims['sid'],'private-secret','opaque-secret-marker'])
+    with pytest.raises(m.RecoveryRefused,match='CandidateTokenProvenanceInvalid'):
+        m.CandidateSessionClient(untrusted,runtime_verifier=lambda:proof)
+
+
+@pytest.mark.parametrize('token',[None,[], 'x'*16385, 'header.bm90LWpzb24.signature', 'header.W10.signature'],
+    ids=['none','array','oversize','malformed-json','claims-array'])
+def test_malformed_token_shape_diagnostic_never_raises_or_exports_input(token):
+    m=module();result=m.candidate_token_shape_metadata(token,now=100)
+    assert all(type(x) is bool for x in result.values())
+    assert result['claims_object'] is False and result['signature_verified'] is False
+
+
+def test_purge_writes_redacted_shape_before_constructor_and_preserves_subphase(monkeypatch,tmp_path):
+    from types import SimpleNamespace
+    m=module();token,proof=session_client_fixture();writes=[]
+    ops=m.QualificationOperations.__new__(m.QualificationOperations)
+    ops.phase='constructed';ops.failure_context=None;ops.cleanup_phase='NotAttempted';ops.cleanup_failure=None
+    ops.runtime=SimpleNamespace(proof=lambda:proof,stop=lambda:None)
+    ops.browser=SimpleNamespace(phase='positive',binding_sha256='b'*64)
+    ops.receipts=tmp_path
+    ops._rpc=lambda *args,**kwargs:{'op':'permit_purge','binding_sha256':'b'*64}
+    ops._client=lambda:SimpleNamespace(token='untrusted-secret-marker')
+    monkeypatch.setattr(m.time,'sleep',lambda seconds:None)
+    monkeypatch.setattr(m,'_write_private',lambda path,value:writes.append((path,value)))
+    with pytest.raises(m.RecoveryRefused,match='CandidateTokenMalformed'):
+        ops.perform('purge_restored_sessions_master_last')
+    assert len(writes)==1 and writes[0][0]==tmp_path/'purge-token-shape.json'
+    assert all(type(x) is bool for x in writes[0][1].values())
+    assert ops.failure_context=={'phase':'purge_restored_sessions_master_last','exception_class':'RecoveryRefused',
+        'refusal_code':'CandidateTokenMalformed','purge_subphase':'SessionClientConstruction'}
+    assert 'untrusted-secret-marker' not in json.dumps([writes[0][1],ops.failure_context])
 
 
 @pytest.mark.parametrize('endpoint',['127.0.0.1:8089','[::ffff:127.0.0.1]:8089','[::ffff:7f00:1]:8089',
