@@ -5,7 +5,9 @@
   private process lifecycle/session-revocation proof and ends at unreviewed drift
   HOLD; it has no public promotion command. Stage1 evidence stays immutable;
   each pristine candidate qualification has a separate exclusive attempt journal
-  and the v7 work root uses FD-validated exact directory permissions under umask077.
+  and the v8 work root uses FD-validated exact directory permissions under umask077.
+  The fresh2190f3d5/OID22159 Stage1 metadata remains compatible without rewriting;
+  failed20856/v7 and every older work namespace/journal remain forensic history.
   Startup/proof fixed refusal diagnostics have explicit AST reachability coverage.
   The same strict exact-IP parser handles listener and JDBC mapped-loopback forms;
   accepted proof endpoints retain canonical IPv4 text and all ownership guards.

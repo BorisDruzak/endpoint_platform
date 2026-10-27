@@ -33,8 +33,20 @@ switch command. Production application SSO activation is a separate gate.
 
 ## Private execution closure
 
+The failed v7 attempt modified its candidate
+`keycloak_recovery_20261027_55f72537` (OID20856). Preserve that entire database,
+its work tree and every journal as forensic history; never reuse it as pristine.
+One independently reviewed fresh prepare and metadata finish restored
+`keycloak_recovery_20261027_2190f3d5` (OID22159), with all101 original row
+multisets/schema/ACL/sequences and original subject/OTP exact. Its Stage1 evidence
+stays under `/var/backups/keycloak-recovery/keycloak_recovery_20261027_2190f3d5`.
+The v7-source `prepare-result.json` remains unchanged: its exact three
+`services.keycloak` fields and context/baseline/identity OID binding are compatible
+with v8. Preparation is accepted; this fresh candidate has not been privately
+qualified or approved for public promotion.
+
 After independent source review, install the exact reviewed buffers exclusively
-under `/root/keycloak-identity-recovery-20261027-executor-v7` (root, mode 0700), with
+under `/root/keycloak-identity-recovery-20261027-executor-v8` (root, mode 0700), with
 `recover_pilot_identity.py` and the pinned `pilot_acceptance.py` root, mode 0600. Verify
 the complete physical ancestor chain and hashes before execution; never execute
 root source from an ordinary-user/PostgreSQL-writable staging directory. Preserve
@@ -48,16 +60,16 @@ and systemd exec time are different events and have no tolerance comparison.
 The server command has no secrets in argv:
 
 ```sh
-/usr/bin/python3 -I -u /root/keycloak-identity-recovery-20261027-executor-v7/recover_pilot_identity.py \
-  --qualify-private-candidate keycloak_recovery_20261027_55f72537 \
-  --pilot-helper /root/keycloak-identity-recovery-20261027-executor-v7/pilot_acceptance.py \
+/usr/bin/python3 -I -u /root/keycloak-identity-recovery-20261027-executor-v8/recover_pilot_identity.py \
+  --qualify-private-candidate keycloak_recovery_20261027_2190f3d5 \
+  --pilot-helper /root/keycloak-identity-recovery-20261027-executor-v8/pilot_acceptance.py \
   --pilot-helper-sha256 7df5688f2c4de83cec4047c1788e56a8ccf1b84bd7297102545bea7bfa0a1cd8
 ```
 
 The candidate has its own physical data/home/temp directories and local cache
-under the new `/var/lib/keycloak-recovery-v7` root. The previous
-`/var/lib/keycloak-recovery` directory, retained v4/v5/v6 trees and all prior journals
-remain unchanged. Existing private processes in any of these roots refuse a
+under the new `/var/lib/keycloak-recovery-v8` root. The previous
+`/var/lib/keycloak-recovery` directory, retained v4/v5/v6/v7 trees and all prior journals
+remain unchanged. Matching candidate processes in any of these roots refuse a
 new attempt; retained inactive files are not repaired or resumed.
 All three group-traversable directories (common root, candidate and TLS) use one
 exclusive creation primitive: create 0700 relative to a protected parent FD,
@@ -80,8 +92,10 @@ Its distribution is freshly extracted from the retained official archive at
 The optimized build runs only in this private tree, in a network namespace with
 an empty environment and a 1024 MiB heap. Runtime heap is 768 MiB with explicit
 private Java home/temp properties. Live `/opt/keycloak` is not copied or built.
-The candidate-specific v7 build recipe SHA256 is
-`76e3dfadb52c0b4a4041fc5e3d6fd19abc4e831508d7f88f9f91a7b765912a4a`.
+The candidate-specific v8 build recipe SHA256 for `2190f3d5` is
+`d7f14b6e2481692ef26ab3b7b58cc976e506186fa4020b6c7e9eb3934998b2e5`.
+The parent bridge/transport must independently pin this actual candidate/OID,
+recipe and new executor source before any separately approved qualification.
 All outgoing provider/client/listener configuration is checked before session
 APIs; only the fixed read-only LDAPS pilot scope is permitted.
 

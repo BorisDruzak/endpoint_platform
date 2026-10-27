@@ -42,6 +42,73 @@ def test_default_plan_cannot_execute_and_holds_for_unproven_recovery():
     assert "keycloak_identity_audit_sso20261027" not in plan["candidate_database"]
 
 
+def test_fresh_candidate_qualification_uses_v8_without_resuming_failed_v7():
+    m = module()
+    candidate = 'keycloak_recovery_20261027_2190f3d5'
+    private = '/var/lib/keycloak-recovery-v8/' + candidate
+    assert m.runtime_recipe(candidate, browser_tls=True)['directory'] == private
+    assert m.private_build_recipe(candidate)['cwd'] == private + '/build-home'
+    assert m.EXECUTOR_ROOT == Path('/root/keycloak-identity-recovery-20261027-executor-v8')
+    assert '/var/lib/keycloak-recovery-v7/' not in json.dumps(m.runtime_recipe(candidate, browser_tls=True))
+
+
+@pytest.mark.parametrize('workroot', ['keycloak-recovery', 'keycloak-recovery-v4',
+    'keycloak-recovery-v5', 'keycloak-recovery-v6', 'keycloak-recovery-v7', 'keycloak-recovery-v8'])
+def test_process_scan_preserves_all_historical_work_namespaces(workroot, monkeypatch):
+    from types import SimpleNamespace
+    m = module(); candidate = 'keycloak_recovery_20261027_2190f3d5'
+    class Entry:
+        name = '123'
+        def __truediv__(self, name):
+            assert name == 'cmdline'
+            return SimpleNamespace(read_bytes=lambda: ('java\0/var/lib/' + workroot + '/' + candidate + '/kc.sh').encode())
+    monkeypatch.setattr(m, 'Path', lambda path: SimpleNamespace(iterdir=lambda: [Entry()]))
+    monkeypatch.setattr(m.os, 'getpid', lambda: 99999)
+    assert m._private_candidate_processes(candidate) == [123]
+
+
+def test_v7_stage1_metadata_new_name_oid_and_three_service_fields_remain_compatible(monkeypatch):
+    import sys
+    from types import SimpleNamespace
+    m = module(); candidate = 'keycloak_recovery_20261027_2190f3d5'
+    root = Path('/var/backups/keycloak-recovery') / candidate
+    baseline = snapshot(); baseline['database'] = candidate; baseline['database_oid'] = 22159
+    service = {'MainPID': '312382', 'ExecMainStartTimestampMonotonic': '656005833129', 'ActiveState': 'active'}
+    identity = {'user_id_sha256': m.ORIGINAL_SUBJECT_SHA256, 'created_timestamp': 1793048930752,
+        'federation_link_sha256': m.FEDERATION_SHA256, 'ldap_guid': m.PILOT_GUID, 'ldap_id_count': 1,
+        'realm_user_count': 1, 'enabled': True, 'candidate_oid': 22159,
+        'credentials': [{'type': 'otp', 'created_date': 1793051223562, 'row_sha256': digest('original')}]}
+    prepare = {'source_sha256': '6f212dfadcf4f26992623856cf6e82b6f616ed6c62d8dc0a45a35e1aecab60be',
+               'candidate_database': candidate, 'candidate_oid': 22159, 'services': {'keycloak': service}}
+    documents = {'context.json': {'candidate_database': candidate, 'candidate_oid': 22159,
+        'backup_dump_sha256': m.DUMP_SHA256, 'current_config_sha256': digest('unchanged')},
+        'prepare-result.json': prepare, 'candidate-restored.json': baseline, 'identity-before.json': identity}
+    original_documents = copy.deepcopy(documents); reads = []; commands = []
+    def read(path):
+        assert path.parent == root
+        reads.append(path.name)
+        return json.dumps(documents[path.name]).encode()
+    def capture(metadata, uid, *, runner):
+        assert metadata == service and set(metadata) == {'MainPID', 'ExecMainStartTimestampMonotonic', 'ActiveState'}
+        assert uid == 999
+        return 312382, 65600582, {'pid': 312467, 'start_ticks': 65600589,
+            'exe': '/usr/lib/jvm/java-21-openjdk-amd64/bin/java'}
+    monkeypatch.setitem(sys.modules, 'pwd', SimpleNamespace(getpwnam=lambda name: SimpleNamespace(pw_uid=999, pw_gid=988)))
+    monkeypatch.setattr(m, '_private_bytes', read)
+    monkeypatch.setattr(m, 'collect_inventory', lambda name, **kwargs: copy.deepcopy(baseline))
+    monkeypatch.setattr(m, 'collect_identity', lambda name, **kwargs: copy.deepcopy(identity))
+    monkeypatch.setattr(m, 'collect_outbound_safety', lambda name, **kwargs: {'safe': True})
+    monkeypatch.setattr(m, '_capture_canonical_reference', capture)
+    monkeypatch.setattr(m.os, 'getpgid', lambda pid: 312382, raising=False)
+    runtime = m.PrivateCandidateRuntime(candidate, runner=lambda argv, **kwargs: commands.append(argv))
+    assert runtime.candidate_oid == 22159 and runtime.evidence_root == root
+    assert runtime.private == Path('/var/lib/keycloak-recovery-v8') / candidate
+    assert runtime.receipts is None and runtime.process is None
+    assert runtime.canonical_service_metadata == service
+    assert reads == ['context.json', 'prepare-result.json', 'candidate-restored.json', 'identity-before.json']
+    assert commands == [['true']] and documents == original_documents
+
+
 def test_full_multiset_comparison_requires_exact_reviewed_changes_not_table_exemptions():
     m = module()
     old = snapshot()
@@ -256,11 +323,11 @@ def test_isolated_launch_recipe_has_separate_tree_environment_ports_and_no_secre
     assert command[:5] == ["runuser", "-u", "keycloak", "--", "env"]
     assert "-i" in command
     assert command[-2:] == ["start", "--optimized"]
-    assert command[-3].startswith("--config-file=/var/lib/keycloak-recovery-v7/")
-    assert command[-4].startswith("/var/lib/keycloak-recovery-v7/")
+    assert command[-3].startswith("--config-file=/var/lib/keycloak-recovery-v8/")
+    assert command[-4].startswith("/var/lib/keycloak-recovery-v8/")
     assert not any("/opt/keycloak" in arg for arg in command)
     assert any("JAVA_OPTS_KC_HEAP=-Xms128m -Xmx768m" == arg for arg in command)
-    assert any('-Duser.home=/var/lib/keycloak-recovery-v7/keycloak_recovery_20261027_abcdef12/work' in arg for arg in command)
+    assert any('-Duser.home=/var/lib/keycloak-recovery-v8/keycloak_recovery_20261027_abcdef12/work' in arg for arg in command)
     assert recipe["http"] == "127.0.0.1:8089" and recipe["management"] == "127.0.0.1:9009"
     assert recipe["shared_mutable_paths"] == [] and recipe["cache"] == "local"
 
@@ -292,8 +359,8 @@ def test_browser_tls_profile_is_fixed_private_and_never_uses_a_validation_bypass
     values = dict(line.split("=", 1) for line in result.splitlines() if line)
     assert values["hostname"] == "https://sso.sosnadmin.local:18449"
     assert values["https-port"] == "8449" and values["http-management-scheme"] == "http"
-    assert values["https-certificate-key-file"] == "/var/lib/keycloak-recovery-v7/" + candidate + "/tls/key.pem"
-    assert values["https-certificate-file"] == "/var/lib/keycloak-recovery-v7/" + candidate + "/tls/fullchain.pem"
+    assert values["https-certificate-key-file"] == "/var/lib/keycloak-recovery-v8/" + candidate + "/tls/key.pem"
+    assert values["https-certificate-file"] == "/var/lib/keycloak-recovery-v8/" + candidate + "/tls/fullchain.pem"
     assert values["http-host"] == "127.0.0.1"
     recipe = m.runtime_recipe(candidate, browser_tls=True)
     assert recipe["https"] == "127.0.0.1:8449"
@@ -600,7 +667,7 @@ def test_actual_runtime_stop_guard_rejects_signal_for_uncertain_process(failure,
     runtime.process = SimpleNamespace(pid=40, poll=lambda:None)
     runtime.process_start = 123
     runtime.canonical_pid = 40 if failure == "canonical-pid" else 90
-    runtime.private = Path('/var/lib/keycloak-recovery-v7/keycloak_recovery_20261027_abcdef12')
+    runtime.private = Path('/var/lib/keycloak-recovery-v8/keycloak_recovery_20261027_abcdef12')
     runtime.keycloak = SimpleNamespace(pw_uid=1000)
     runtime.output = None
     monkeypatch.setattr(m, '_pid_start', lambda pid:999 if failure == 'pid-reuse' else 123)
@@ -674,7 +741,7 @@ def test_private_build_has_no_network_shared_home_or_inherited_environment():
     assert recipe['argv'][:5]==['unshare','--net','--','env','-i']
     assert recipe['argv'][-5:]==['build','--db=postgres','--health-enabled=true','--metrics-enabled=false','--cache=local']
     assert all('/opt/keycloak' not in arg for arg in recipe['argv'])
-    assert any(arg.startswith('HOME=/var/lib/keycloak-recovery-v7/') for arg in recipe['argv'])
+    assert any(arg.startswith('HOME=/var/lib/keycloak-recovery-v8/') for arg in recipe['argv'])
     assert any(arg.startswith('JAVA_OPTS_KC_HEAP=-Xms128m -Xmx1024m') for arg in recipe['argv'])
 
 
@@ -772,7 +839,7 @@ def test_private_build_cleanup_owns_group_even_when_shell_has_exited(scenario,mo
     def signal_group(group,number):signals.append((group,number));state['members']=False
     monkeypatch.setattr(m.os,'killpg',signal_group,raising=False)
     invoke=lambda:m._run_owned_private_group(['private-build'],input_bytes=None,output=io.BytesIO(),timeout=1,
-        cwd=None,environment={},prefix='/var/lib/keycloak-recovery-v7/keycloak_recovery_20261027_abcdef12',forbidden={90,91})
+        cwd=None,environment={},prefix='/var/lib/keycloak-recovery-v8/keycloak_recovery_20261027_abcdef12',forbidden={90,91})
     if scenario=='timeout':
         with pytest.raises(m.subprocess.TimeoutExpired):invoke()
     else:invoke()
@@ -1136,7 +1203,7 @@ def test_actual_owned_build_cleanup_failure_preserves_original_timeout_metadata(
     monkeypatch.setattr(m,'_stop_owned_build_group',lambda *args:(_ for _ in ()).throw(ValueError('raw-cleanup-secret')))
     with pytest.raises(m.RecoveryRefused) as caught:
         m._run_owned_private_group(['build'],input_bytes=None,output=io.BytesIO(),timeout=1,cwd=None,environment={},
-            prefix='/var/lib/keycloak-recovery-v7/keycloak_recovery_20261027_abcdef12',forbidden={90})
+            prefix='/var/lib/keycloak-recovery-v8/keycloak_recovery_20261027_abcdef12',forbidden={90})
     assert caught.value.primary_metadata=={'exception_class':'TimeoutExpired','refusal_code':None}
     assert caught.value.cleanup_metadata=={'exception_class':'ValueError','refusal_code':None}
     assert caught.value.args==('PrivateBuildCleanupHold',)
