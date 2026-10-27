@@ -664,6 +664,7 @@ def test_runtime_wss_selection_constructs_only_secure_primary_initially(
 def test_windows_wss_runtime_does_not_start_the_linux_update_poller(tmp_path: Path, monkeypatch) -> None:
     """The ALT selector reader must not terminate a connected Windows service."""
     from pc_agent.runtime import application
+    from pc_agent.worktime_companion import CoreCompanionBridge
     from types import SimpleNamespace
     monkeypatch.setattr(application, "os", SimpleNamespace(name="nt"))
 
@@ -681,8 +682,10 @@ def test_windows_wss_runtime_does_not_start_the_linux_update_poller(tmp_path: Pa
         )
     )
     try:
-        assert [task.cr_code.co_name for task in tasks] == [
-            "_serve_windows_device_binding", "send_forever",
+        assert [task.cr_code for task in tasks] == [
+            CoreCompanionBridge.serve.__code__,
+            application._serve_windows_device_binding.__code__,
+            application.ActivityDispatch.send_forever.__code__,
         ]
     finally:
         for task in tasks:

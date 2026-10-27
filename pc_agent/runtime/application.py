@@ -180,6 +180,8 @@ def _default_dependencies(
             staged_writer.record_disconnected()
 
     transport_state = _EndpointHttpPullState()
+    from pc_agent.worktime_companion import CoreCompanionBridge
+    worktime_companion = CoreCompanionBridge()
     policy_runtime = None
     usb_notifications = None
     print_notifications = None
@@ -343,6 +345,7 @@ def _default_dependencies(
                 ingress=ingress, policy_provider=lambda: policy_runtime.current_policy,
                 on_observation=activity_dispatch.enqueue,
                 on_security_event=on_security_event,
+                companion_handler=worktime_companion.handle,
             )
             try:
                 listener.start()
@@ -451,6 +454,7 @@ def _default_dependencies(
             policy_provider=lambda: policy_runtime.current_policy,
             on_observation=activity_dispatch.enqueue,
             on_security_event=on_security_event,
+            companion_handler=worktime_companion.handle,
         )
         listener.start()
         activity_ingress = ingress
@@ -548,6 +552,7 @@ def _default_dependencies(
             if os.name == "nt" or 'endpoint.policy.v1' in policy_features:
                 activity_dispatch.begin_connection()
                 tasks = [
+                    worktime_companion.serve(settings, credential),
                     (_serve_windows_device_binding(settings, credential)
                      if os.name == 'nt' else _periodic_https_update_checks(
                          settings, credential, _EndpointHttpPullState())),

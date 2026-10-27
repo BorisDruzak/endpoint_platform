@@ -499,6 +499,28 @@ effective-browser-policy and browser download/heartbeat proof remain open.
 
 ## Main packages
 
+WorkTime notices reuse the authenticated sensor listener and existing per-user
+sensor process. `worktime_companion.py` parses a closed poll/action capability
+without modifying legacy Activity/Browser envelopes. `runtime/application.py`
+starts the Core-only TLS/device-credential bridge during a WSS connection;
+Windows derives the account from the impersonated pipe token and Linux from
+fresh kernel credentials plus logind. Unknown accounts and locked/inactive Linux
+sessions receive no notice. The bridge accepts only same-origin HTTPS employee
+URLs with a day and request UUID; it never accepts a person selector or executable.
+`platform/worktime_user.py` keeps a bounded per-user UUID receipt and invokes the
+native UI on a separate worker so sampling continues. Windows uses an interactive
+TaskDialog with reason/later actions and refuses Session 0. ALT uses libnotify's
+DBus action interface in the existing KDE session (the optional user-sensor RPM
+requires libnotify). A reason action must obtain a newly authorized Core/server
+reply before the user process opens the browser. No browser token or device
+credential is sent to either user process. The companion HTTP service is
+optional: the server on this branch does not implement its WorkTime routes.
+Missing routes and request failures return an empty companion reply; startup
+failures retry without terminating the WSS connection. Server-side scheduling,
+person verification and real-user notification acceptance require separate
+qualification. See `docs/releases/current-agent-release.json` for the deployed
+provider source and the current release's verified scope and limits.
+
 `browser_policy_protocol.py` is the closed, stdlib-only privileged helper
 request/reply contract shared by Windows and Linux. Linux `seqpacket.py` owns
 bounded per-record kernel credentials; `local_ipc.py` adds graphical-session

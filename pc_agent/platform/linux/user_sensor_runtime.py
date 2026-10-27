@@ -61,6 +61,9 @@ async def _next_record(probe, stop: asyncio.Event):
 
 async def run_user_sensor(*, stop: asyncio.Event, probe_path: Path = PROBE_PATH) -> None:
     """Keep Core loss and optional KDE helper failure isolated from the session."""
+    from pc_agent.platform.worktime_user import UserCompanion
+    from .worktime_notification import notify
+    companion = UserCompanion(exchange, notify)
     while not stop.is_set():
         probe = None
         try:
@@ -76,6 +79,8 @@ async def run_user_sensor(*, stop: asyncio.Event, probe_path: Path = PROBE_PATH)
                 sample = await asyncio.to_thread(sample_record, record, session=session)
                 with suppress(OSError, ValueError):
                     await asyncio.to_thread(send_user_sample, sample)
+                    if sample.desktop_state == 'UNLOCKED':
+                        companion.tick()
                 # The helper samples every 5 seconds; send at that same fixed
                 # rate without accumulating historical user observations.
         except (OSError, ValueError, TimeoutError):
