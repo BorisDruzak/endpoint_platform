@@ -256,11 +256,11 @@ def test_isolated_launch_recipe_has_separate_tree_environment_ports_and_no_secre
     assert command[:5] == ["runuser", "-u", "keycloak", "--", "env"]
     assert "-i" in command
     assert command[-2:] == ["start", "--optimized"]
-    assert command[-3].startswith("--config-file=/var/lib/keycloak-recovery/")
-    assert command[-4].startswith("/var/lib/keycloak-recovery/")
+    assert command[-3].startswith("--config-file=/var/lib/keycloak-recovery-v4/")
+    assert command[-4].startswith("/var/lib/keycloak-recovery-v4/")
     assert not any("/opt/keycloak" in arg for arg in command)
     assert any("JAVA_OPTS_KC_HEAP=-Xms128m -Xmx768m" == arg for arg in command)
-    assert any('-Duser.home=/var/lib/keycloak-recovery/keycloak_recovery_20261027_abcdef12/work' in arg for arg in command)
+    assert any('-Duser.home=/var/lib/keycloak-recovery-v4/keycloak_recovery_20261027_abcdef12/work' in arg for arg in command)
     assert recipe["http"] == "127.0.0.1:8089" and recipe["management"] == "127.0.0.1:9009"
     assert recipe["shared_mutable_paths"] == [] and recipe["cache"] == "local"
 
@@ -292,8 +292,8 @@ def test_browser_tls_profile_is_fixed_private_and_never_uses_a_validation_bypass
     values = dict(line.split("=", 1) for line in result.splitlines() if line)
     assert values["hostname"] == "https://sso.sosnadmin.local:18449"
     assert values["https-port"] == "8449" and values["http-management-scheme"] == "http"
-    assert values["https-certificate-key-file"] == "/var/lib/keycloak-recovery/" + candidate + "/tls/key.pem"
-    assert values["https-certificate-file"] == "/var/lib/keycloak-recovery/" + candidate + "/tls/fullchain.pem"
+    assert values["https-certificate-key-file"] == "/var/lib/keycloak-recovery-v4/" + candidate + "/tls/key.pem"
+    assert values["https-certificate-file"] == "/var/lib/keycloak-recovery-v4/" + candidate + "/tls/fullchain.pem"
     assert values["http-host"] == "127.0.0.1"
     recipe = m.runtime_recipe(candidate, browser_tls=True)
     assert recipe["https"] == "127.0.0.1:8449"
@@ -600,7 +600,7 @@ def test_actual_runtime_stop_guard_rejects_signal_for_uncertain_process(failure,
     runtime.process = SimpleNamespace(pid=40, poll=lambda:None)
     runtime.process_start = 123
     runtime.canonical_pid = 40 if failure == "canonical-pid" else 90
-    runtime.private = Path('/var/lib/keycloak-recovery/keycloak_recovery_20261027_abcdef12')
+    runtime.private = Path('/var/lib/keycloak-recovery-v4/keycloak_recovery_20261027_abcdef12')
     runtime.keycloak = SimpleNamespace(pw_uid=1000)
     runtime.output = None
     monkeypatch.setattr(m, '_pid_start', lambda pid:999 if failure == 'pid-reuse' else 123)
@@ -674,7 +674,7 @@ def test_private_build_has_no_network_shared_home_or_inherited_environment():
     assert recipe['argv'][:5]==['unshare','--net','--','env','-i']
     assert recipe['argv'][-5:]==['build','--db=postgres','--health-enabled=true','--metrics-enabled=false','--cache=local']
     assert all('/opt/keycloak' not in arg for arg in recipe['argv'])
-    assert any(arg.startswith('HOME=/var/lib/keycloak-recovery/') for arg in recipe['argv'])
+    assert any(arg.startswith('HOME=/var/lib/keycloak-recovery-v4/') for arg in recipe['argv'])
     assert any(arg.startswith('JAVA_OPTS_KC_HEAP=-Xms128m -Xmx1024m') for arg in recipe['argv'])
 
 
@@ -772,7 +772,7 @@ def test_private_build_cleanup_owns_group_even_when_shell_has_exited(scenario,mo
     def signal_group(group,number):signals.append((group,number));state['members']=False
     monkeypatch.setattr(m.os,'killpg',signal_group,raising=False)
     invoke=lambda:m._run_owned_private_group(['private-build'],input_bytes=None,output=io.BytesIO(),timeout=1,
-        cwd=None,environment={},prefix='/var/lib/keycloak-recovery/keycloak_recovery_20261027_abcdef12',forbidden={90,91})
+        cwd=None,environment={},prefix='/var/lib/keycloak-recovery-v4/keycloak_recovery_20261027_abcdef12',forbidden={90,91})
     if scenario=='timeout':
         with pytest.raises(m.subprocess.TimeoutExpired):invoke()
     else:invoke()
@@ -933,3 +933,211 @@ def test_sensitive_rpc_never_resets_deadline_after_challenge(phase,monkeypatch,c
     with pytest.raises(m.RecoveryRefused,match='PrivateRpcReplyTimeout'):ops._rpc('browser_start','browser_start_result')
     lines=capsys.readouterr().out.splitlines()
     assert len(lines)==(1 if phase=='proof-recomputation' else 2)
+
+
+@pytest.mark.parametrize('site',['common','private','tls'])
+def test_owned_directory_sets_exact_group_mode_despite_umask077(site,monkeypatch):
+    import stat
+    from types import SimpleNamespace
+    m=module();state={'mode':0o700,'gid':0};calls=[]
+    path=Path('/protected')/site
+    def metadata(child=True):return SimpleNamespace(st_mode=stat.S_IFDIR|(state['mode'] if child else 0o700),
+        st_uid=0,st_gid=state['gid'] if child else 0,st_dev=1,st_ino=2 if child else 1)
+    monkeypatch.setattr(m,'_physical_root_path',lambda *args,**kwargs:None)
+    monkeypatch.setattr(m.os,'O_DIRECTORY',0x10000,raising=False);monkeypatch.setattr(m.os,'O_NOFOLLOW',0x20000,raising=False)
+    monkeypatch.setattr(m.os,'open',lambda path,flags,**kwargs:11 if 'dir_fd' in kwargs else 10)
+    monkeypatch.setattr(m.os,'fstat',lambda fd:metadata(fd==11))
+    monkeypatch.setattr(m.os,'stat',lambda *args,**kwargs:metadata())
+    def mkdir(name,mode,**kwargs):calls.append(('mkdir',name,mode));state['mode']=mode&~0o077
+    monkeypatch.setattr(m.os,'mkdir',mkdir)
+    def chown(fd,uid,gid):calls.append(('chown',fd,uid,gid));state['gid']=gid
+    def chmod(fd,mode):calls.append(('chmod',fd,mode));state['mode']=mode
+    monkeypatch.setattr(m.os,'fchown',chown,raising=False);monkeypatch.setattr(m.os,'fchmod',chmod,raising=False)
+    monkeypatch.setattr(m.os,'close',lambda fd:None)
+    assert m._create_owned_directory(path,group=988,mode=0o750)==path
+    assert calls==[('mkdir',site,0o700),('chown',11,0,988),('chmod',11,0o750)]
+    assert state=={'mode':0o750,'gid':988}
+
+
+def test_owned_directory_refuses_preexisting_without_chown_or_chmod(monkeypatch):
+    from types import SimpleNamespace
+    import stat
+    m=module();calls=[]
+    monkeypatch.setattr(m,'_physical_root_path',lambda *args,**kwargs:None)
+    monkeypatch.setattr(m.os,'O_DIRECTORY',0x10000,raising=False);monkeypatch.setattr(m.os,'O_NOFOLLOW',0x20000,raising=False)
+    monkeypatch.setattr(m.os,'open',lambda *args,**kwargs:10)
+    monkeypatch.setattr(m.os,'fstat',lambda fd:SimpleNamespace(st_mode=stat.S_IFDIR|0o700,st_uid=0))
+    monkeypatch.setattr(m.os,'mkdir',lambda *args,**kwargs:(_ for _ in ()).throw(FileExistsError()))
+    monkeypatch.setattr(m.os,'fchown',lambda *args:calls.append('chown'),raising=False)
+    monkeypatch.setattr(m.os,'fchmod',lambda *args:calls.append('chmod'),raising=False)
+    monkeypatch.setattr(m.os,'close',lambda fd:None)
+    with pytest.raises(m.RecoveryRefused):m._create_owned_directory(Path('/protected/existing'),group=988,mode=0o750)
+    assert calls==[]
+
+
+@pytest.mark.skipif(__import__('sys').platform!='linux' or not hasattr(__import__('os'),'geteuid') or __import__('os').geteuid()!=0,
+                    reason='Actual POSIX root-owned fd/umask proof requires separately authorized Linux execution')
+def test_actual_posix_umask077_preserves_exact_three_directory_modes():
+    import os,stat,tempfile
+    m=module()
+    with tempfile.TemporaryDirectory(prefix='keycloak-dir-mode-test-',dir='/root') as directory:
+        old=os.umask(0o077)
+        try:
+            for site in ('common','private','tls'):
+                path=Path(directory)/site;m._create_owned_directory(path,group=os.getegid(),mode=0o750)
+                meta=path.stat();assert stat.S_IMODE(meta.st_mode)==0o750 and meta.st_uid==0 and meta.st_gid==os.getegid()
+                path.rmdir()
+        finally:os.umask(old)
+
+
+def test_group_directory_policy_uses_one_exclusive_primitive_for_all_three_sites():
+    import ast
+    m=module();tree=ast.parse((ROOT/'tools/keycloak/recover_pilot_identity.py').read_text())
+    klass=next(n for n in tree.body if isinstance(n,ast.ClassDef) and n.name=='PrivateCandidateRuntime')
+    method=next(n for n in klass.body if isinstance(n,ast.FunctionDef) and n.name=='copy_and_configure')
+    targets=[ast.unparse(n.args[0]) for n in ast.walk(method) if isinstance(n,ast.Call) and
+             isinstance(n.func,ast.Name) and n.func.id=='_create_owned_directory']
+    assert sorted(targets)==['common','self.private','tls']
+
+
+def test_attempt_journal_is_exclusive_sibling_of_immutable_stage1(monkeypatch):
+    m=module();calls=[];candidate='keycloak_recovery_20261027_abcdef12'
+    evidence=Path('/var/backups/keycloak-recovery')/candidate
+    monkeypatch.setattr(m,'_physical_root_path',lambda *args,**kwargs:None)
+    monkeypatch.setattr(m.secrets,'token_hex',lambda size:'a'*16)
+    monkeypatch.setattr(m,'_create_owned_directory',lambda path,**kwargs:calls.append((path,kwargs)) or path,raising=False)
+    result=m._create_qualification_journal(evidence,candidate)
+    assert result==evidence.parent/(candidate+'-qualification-'+'a'*16)
+    assert calls==[(result,{'group':0,'mode':0o700})] and result!=evidence
+
+
+def test_primary_failure_is_retained_when_cleanup_changes_phase(monkeypatch):
+    from types import SimpleNamespace
+    m=module();ops=m.QualificationOperations.__new__(m.QualificationOperations)
+    ops.phase='constructed';ops.failure_context=None;ops.cleanup_phase='NotAttempted';ops.cleanup_failure=None
+    ops.verify=lambda:True
+    ops.start=lambda:(_ for _ in ()).throw(m.RecoveryRefused('OwnedDirectoryCreationRefused'))
+    ops.runtime=SimpleNamespace(stop=lambda:True,proof=lambda:True)
+    for name in ('retention','identity','scopes','outbound','positive','purge','negative','poststop','final_inventory'):
+        setattr(ops,name,lambda:True)
+    with pytest.raises(m.RecoveryRefused):m.qualify_candidate(ops)
+    assert ops.phase=='start_private_candidate_runtime'
+    assert ops.failure_context=={'phase':'start_private_candidate_runtime','exception_class':'RecoveryRefused',
+                                 'refusal_code':'OwnedDirectoryCreationRefused'}
+    assert ops.cleanup_phase=='OwnedCandidateStopConfirmed'
+
+
+def test_failure_diagnostics_never_emit_arbitrary_exception_args_or_refusal_strings():
+    m=module();sentinel='secret-token-and-raw-response-must-not-escape'
+    carrier=m.RecoveryCleanupFailure('PrivateBuildCleanupHold',ValueError(sentinel),ValueError(sentinel))
+    carrier.args=(sentinel,)
+    for error in [m.RecoveryRefused(sentinel),ValueError(sentinel),type('UnknownSecretError',(Exception,),{})(sentinel),carrier]:
+        result=m._safe_error_metadata(error)
+        assert sentinel not in json.dumps(result) and result['exception_class'] in {'RecoveryRefused','ValueError','UnexpectedError'}
+        assert result['refusal_code'] in {None,'UnclassifiedRefusal'}
+
+
+@pytest.mark.parametrize('change',['none','private','previous-private','common','process','row','oid','otp'])
+def test_new_attempt_requires_pristine_database_otp_work_paths_and_no_private_process(change,monkeypatch):
+    from types import SimpleNamespace
+    m=module();runtime=m.PrivateCandidateRuntime.__new__(m.PrivateCandidateRuntime)
+    absent=lambda name:SimpleNamespace(exists=lambda:change==name,is_symlink=lambda:False)
+    runtime.private=absent('private');runtime.private.parent=absent('common');runtime.previous_private=absent('previous-private')
+    runtime.candidate='keycloak_recovery_20261027_abcdef12';runtime.baseline=snapshot();runtime.candidate_oid=12345
+    runtime.identity={'user_id_sha256':m.ORIGINAL_SUBJECT_SHA256,'created_timestamp':1793048930752,
+        'federation_link_sha256':m.FEDERATION_SHA256,'ldap_guid':m.PILOT_GUID,'ldap_id_count':1,
+        'realm_user_count':1,'enabled':True,'credentials':[{'type':'otp','created_date':1793051223562,'row_sha256':digest('original')}]}
+    runtime.runner=lambda *args,**kwargs:None;runtime.verify_canonical_reference=lambda:None
+    fresh=copy.deepcopy(runtime.baseline);identity=copy.deepcopy(runtime.identity)
+    if change=='row':fresh['tables']['server_config']=[digest('unreviewed')]
+    if change=='oid':fresh['database_oid']=12346
+    if change=='otp':identity['credentials'][0]['row_sha256']=digest('different')
+    monkeypatch.setattr(m,'_private_candidate_processes',lambda candidate:[99] if change=='process' else [])
+    monkeypatch.setattr(m,'collect_inventory',lambda *args,**kwargs:fresh)
+    monkeypatch.setattr(m,'collect_identity',lambda *args,**kwargs:identity)
+    if change=='none':assert runtime.verify_pristine_attempt() is None
+    else:
+        with pytest.raises(m.RecoveryRefused):runtime.verify_pristine_attempt()
+
+
+def test_capacity_verifier_reads_immutable_stage1_context_not_attempt_journal(monkeypatch):
+    from types import SimpleNamespace
+    m=module();ops=m.QualificationOperations.__new__(m.QualificationOperations)
+    root=Path('/var/backups/keycloak-recovery/keycloak_recovery_20261027_abcdef12')
+    ops.runtime=SimpleNamespace(evidence_root=root,runner=lambda *args,**kwargs:b'12345')
+    ops.receipts=root.parent/(root.name+'-qualification-'+'a'*16)
+    class ContextReadReached(Exception):pass
+    def read(path):assert path==root/'context.json';raise ContextReadReached
+    monkeypatch.setattr(m,'_private_bytes',read)
+    with pytest.raises(ContextReadReached):ops.verify()
+
+
+@pytest.mark.parametrize('mismatch',['foreign-owner','symlink','before-inode','after-inode'])
+def test_owned_directory_refuses_unexpected_inode_or_owner(mismatch,monkeypatch):
+    import stat
+    from types import SimpleNamespace
+    m=module();calls=[];named_reads=[]
+    def child(ino=2):return SimpleNamespace(st_mode=(stat.S_IFLNK if mismatch=='symlink' else stat.S_IFDIR)|0o700,
+        st_uid=999 if mismatch=='foreign-owner' else 0,st_gid=0,st_dev=1,st_ino=ino)
+    monkeypatch.setattr(m,'_physical_root_path',lambda *args,**kwargs:None)
+    monkeypatch.setattr(m.os,'O_DIRECTORY',0x10000,raising=False);monkeypatch.setattr(m.os,'O_NOFOLLOW',0x20000,raising=False)
+    monkeypatch.setattr(m.os,'open',lambda path,flags,**kwargs:11 if 'dir_fd' in kwargs else 10)
+    monkeypatch.setattr(m.os,'fstat',lambda fd:child() if fd==11 else SimpleNamespace(st_mode=stat.S_IFDIR|0o700,st_uid=0))
+    def named(*args,**kwargs):
+        named_reads.append(1)
+        return child(3 if mismatch=='before-inode' or mismatch=='after-inode' and len(named_reads)>1 else 2)
+    monkeypatch.setattr(m.os,'stat',named);monkeypatch.setattr(m.os,'mkdir',lambda *args,**kwargs:None)
+    monkeypatch.setattr(m.os,'fchown',lambda *args:calls.append('chown'),raising=False)
+    monkeypatch.setattr(m.os,'fchmod',lambda *args:calls.append('chmod'),raising=False)
+    monkeypatch.setattr(m.os,'close',lambda fd:None)
+    with pytest.raises(m.RecoveryRefused):m._create_owned_directory(Path('/protected/new'),group=0,mode=0o700)
+    assert calls==(['chown','chmod'] if mismatch=='after-inode' else [])
+
+
+def test_cleanup_failure_preserves_primary_operation_and_excludes_raw_cleanup_args():
+    from types import SimpleNamespace
+    m=module();ops=m.QualificationOperations.__new__(m.QualificationOperations)
+    ops.phase='constructed';ops.failure_context=None;ops.cleanup_phase='NotAttempted';ops.cleanup_failure=None
+    ops.verify=lambda:True;ops.start=lambda:(_ for _ in ()).throw(m.RecoveryRefused('PrivateCommandFailed'))
+    ops.runtime=SimpleNamespace(stop=lambda:(_ for _ in ()).throw(ValueError('never-emit-cleanup-raw-secret')),proof=lambda:True)
+    for name in ('retention','identity','scopes','outbound','positive','purge','negative','poststop','final_inventory'):
+        setattr(ops,name,lambda:True)
+    with pytest.raises(ValueError):m.qualify_candidate(ops)
+    assert ops.failure_context=={'phase':'start_private_candidate_runtime','exception_class':'RecoveryRefused',
+                                 'refusal_code':'PrivateCommandFailed'}
+    assert ops.cleanup_phase=='CleanupUnconfirmed' and ops.cleanup_failure=={'exception_class':'ValueError','refusal_code':None}
+    assert 'never-emit' not in json.dumps([ops.failure_context,ops.cleanup_failure])
+
+
+def test_actual_runtime_start_cleanup_failure_preserves_readiness_primary():
+    m=module();runtime=m.PrivateCandidateRuntime.__new__(m.PrivateCandidateRuntime)
+    runtime._start_owned=lambda:(_ for _ in ()).throw(m.RecoveryRefused('PrivateRuntimeReadinessTimeout'))
+    runtime.stop=lambda:(_ for _ in ()).throw(ValueError('raw-cleanup-secret'))
+    ops=m.QualificationOperations.__new__(m.QualificationOperations)
+    ops.phase='constructed';ops.failure_context=None;ops.cleanup_phase='NotAttempted';ops.cleanup_failure=None
+    ops.verify=lambda:True;ops.start=runtime.start;ops.runtime=runtime;runtime.proof=lambda:True
+    for name in ('retention','identity','scopes','outbound','positive','purge','negative','poststop','final_inventory'):
+        setattr(ops,name,lambda:True)
+    with pytest.raises(Exception):m.qualify_candidate(ops)
+    assert ops.failure_context=={'phase':'start_private_candidate_runtime','exception_class':'RecoveryRefused',
+                                 'refusal_code':'PrivateRuntimeReadinessTimeout'}
+    assert ops.cleanup_phase=='CleanupUnconfirmed' and ops.cleanup_failure=={'exception_class':'ValueError','refusal_code':None}
+    assert 'raw-cleanup-secret' not in json.dumps([ops.failure_context,ops.cleanup_failure])
+
+
+def test_actual_owned_build_cleanup_failure_preserves_original_timeout_metadata(monkeypatch):
+    import io
+    from types import SimpleNamespace
+    m=module()
+    process=SimpleNamespace(pid=40,poll=lambda:None,
+        communicate=lambda **kwargs:(_ for _ in ()).throw(m.subprocess.TimeoutExpired('raw-argv-secret',1)))
+    monkeypatch.setattr(m.subprocess,'Popen',lambda *args,**kwargs:process)
+    monkeypatch.setattr(m,'_pid_start',lambda pid:123)
+    monkeypatch.setattr(m,'_stop_owned_build_group',lambda *args:(_ for _ in ()).throw(ValueError('raw-cleanup-secret')))
+    with pytest.raises(m.RecoveryRefused) as caught:
+        m._run_owned_private_group(['build'],input_bytes=None,output=io.BytesIO(),timeout=1,cwd=None,environment={},
+            prefix='/var/lib/keycloak-recovery-v4/keycloak_recovery_20261027_abcdef12',forbidden={90})
+    assert caught.value.primary_metadata=={'exception_class':'TimeoutExpired','refusal_code':None}
+    assert caught.value.cleanup_metadata=={'exception_class':'ValueError','refusal_code':None}
+    assert caught.value.args==('PrivateBuildCleanupHold',)
+    assert 'raw-' not in json.dumps([caught.value.primary_metadata,caught.value.cleanup_metadata])

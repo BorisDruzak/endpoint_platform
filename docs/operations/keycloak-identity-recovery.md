@@ -34,7 +34,7 @@ switch command. Production application SSO activation is a separate gate.
 ## Private execution closure
 
 After independent source review, install the exact reviewed buffers exclusively
-under `/root/keycloak-identity-recovery-20261027-executor-v3` (root, mode 0700), with
+under `/root/keycloak-identity-recovery-20261027-executor-v4` (root, mode 0700), with
 `recover_pilot_identity.py` and the pinned `pilot_acceptance.py` root, mode 0600. Verify
 the complete physical ancestor chain and hashes before execution; never execute
 root source from an ordinary-user/PostgreSQL-writable staging directory. Preserve
@@ -48,19 +48,38 @@ and systemd exec time are different events and have no tolerance comparison.
 The server command has no secrets in argv:
 
 ```sh
-/usr/bin/python3 -I -u /root/keycloak-identity-recovery-20261027-executor-v3/recover_pilot_identity.py \
+/usr/bin/python3 -I -u /root/keycloak-identity-recovery-20261027-executor-v4/recover_pilot_identity.py \
   --qualify-private-candidate keycloak_recovery_20261027_55f72537 \
-  --pilot-helper /root/keycloak-identity-recovery-20261027-executor-v3/pilot_acceptance.py \
+  --pilot-helper /root/keycloak-identity-recovery-20261027-executor-v4/pilot_acceptance.py \
   --pilot-helper-sha256 7df5688f2c4de83cec4047c1788e56a8ccf1b84bd7297102545bea7bfa0a1cd8
 ```
 
-The candidate has its own physical data/home/temp directories and local cache.
+The candidate has its own physical data/home/temp directories and local cache
+under the new `/var/lib/keycloak-recovery-v4` root. The previous
+`/var/lib/keycloak-recovery` directory and all prior journals remain unchanged.
+All three group-traversable directories (common root, candidate and TLS) use one
+exclusive creation primitive: create 0700 relative to a protected parent FD,
+open without following links, validate root ownership/inode, then set group and
+exact 0750 through that FD and validate again. Existing paths are refused;
+there is no repair/chmod of prior history. Process umask stays 077.
+
+Immutable Stage1 evidence remains at
+`/var/backups/keycloak-recovery/<candidate>`. Before creating an attempt, the
+helper requires its complete 101-table baseline/OID and original OTP unchanged,
+old/new candidate work paths absent, the new common root absent and no matching
+private process. Every qualification writes only to a fresh exclusive sibling
+`/var/backups/keycloak-recovery/<candidate>-qualification-<16hex>`, mode 0700.
+Context/restore/identity reads always use Stage1 evidence, never the new output
+journal. Existing `qualification-begin.json`/failure files are not reset.
+
 Its distribution is freshly extracted from the retained official archive at
 `/root/keycloak-input/keycloak-26.8.1.tar.gz`, pinned SHA256
 `4e2740b181faa2ea623a1c2ecf00855935311e546046e2f857615a47ed24cbe8`.
 The optimized build runs only in this private tree, in a network namespace with
 an empty environment and a 1024 MiB heap. Runtime heap is 768 MiB with explicit
 private Java home/temp properties. Live `/opt/keycloak` is not copied or built.
+The candidate-specific v4 build recipe SHA256 is
+`12006ef1dfa486c7934be688f556929e9ca8b2341edc3e414904954362f0d2f3`.
 All outgoing provider/client/listener configuration is checked before session
 APIs; only the fixed read-only LDAPS pilot scope is permitted.
 
@@ -113,6 +132,10 @@ signaled. Unknown remote exit/cleanup is **HOLD**, never proof of termination or
 permission for a blind retry. Reconcile the private process/DB/OID and journal
 first. Keep original/current/candidate databases and all sanitized receipts;
 there is no automatic drop or overwrite of a failed candidate.
+Failure evidence retains the triggering operation before cleanup and records
+cleanup phase separately. Only fixed exception-class names and explicitly
+whitelisted refusal codes may enter that journal; arbitrary exception arguments,
+HTTP bodies or strings are excluded. A failed cleanup still requires HOLD.
 
 This document describes the reviewed workflow boundary, not a claim that live
 private qualification or public promotion has completed.

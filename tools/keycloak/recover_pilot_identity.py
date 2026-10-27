@@ -100,6 +100,17 @@ class RecoveryRefused(ValueError):
     """Fixed diagnostics only: never include source data or DB stderr."""
 
 
+class RecoveryCleanupFailure(RecoveryRefused):
+    """Carry only sanitized primary/cleanup metadata across nested cleanup."""
+    def __init__(self, code, primary, cleanup):
+        if code not in {'PrivateBuildCleanupHold', 'PrivateRuntimeCleanupHold'}:
+            raise RecoveryRefused('CleanupFailureCodeInvalid')
+        super().__init__(code)
+        self.primary_metadata = dict(primary.primary_metadata) if type(primary) is RecoveryCleanupFailure \
+                                else _safe_error_metadata(primary)
+        self.cleanup_metadata = _safe_error_metadata(cleanup)
+
+
 def require(condition, code):
     if not condition:
         raise RecoveryRefused(code)
@@ -290,7 +301,7 @@ def candidate_configuration(source, candidate, *, browser_tls=False):
     del values["proxy-trusted-addresses"]
     require(type(browser_tls) is bool, "InvalidBrowserTlsProfile")
     if browser_tls:
-        private = "/var/lib/keycloak-recovery/" + candidate
+        private = "/var/lib/keycloak-recovery-v4/" + candidate
         values.update({"hostname": "https://sso.sosnadmin.local:18449", "https-port": "8449",
                        "https-certificate-file": private + "/tls/fullchain.pem",
                        "https-certificate-key-file": private + "/tls/key.pem",
@@ -301,7 +312,7 @@ def candidate_configuration(source, candidate, *, browser_tls=False):
 def runtime_recipe(candidate, *, browser_tls=False):
     """No shared mutable live tree or inherited KC/JAVA/secret environment."""
     _names(candidate)
-    private = "/var/lib/keycloak-recovery/" + candidate
+    private = "/var/lib/keycloak-recovery-v4/" + candidate
     distribution = private + "/keycloak-26.8.1"
     result = {"directory": private, "distribution": distribution,
             "cache": "local", "http": "127.0.0.1:8089", "management": "127.0.0.1:9009",
@@ -415,12 +426,13 @@ def _stop_owned_build_group(process, prefix, forbidden, start):
 
 
 def _run_owned_private_group(argv, *, input_bytes, output, timeout, cwd, environment, prefix, forbidden, process_receipt=None):
-    require(re.fullmatch(r'/var/lib/keycloak-recovery/keycloak_recovery_20261027_[0-9a-f]{8}', prefix),
+    require(re.fullmatch(r'/var/lib/keycloak-recovery-v4/keycloak_recovery_20261027_[0-9a-f]{8}', prefix),
             'PrivateBuildPrefixInvalid')
     process = subprocess.Popen(argv, stdin=subprocess.PIPE if input_bytes is not None else subprocess.DEVNULL,
                                stdout=output, stderr=subprocess.DEVNULL, cwd=cwd, env=environment,
                                start_new_session=True)
     start = None
+    primary_error = None
     try:
         if process.poll() is None:
             start = _pid_start(process.pid)
@@ -430,11 +442,16 @@ def _run_owned_private_group(argv, *, input_bytes, output, timeout, cwd, environ
                 'argv_sha256': hashlib.sha256(json.dumps(argv, separators=(',', ':')).encode()).hexdigest()})
         process.communicate(input=input_bytes, timeout=timeout)
         return process
+    except BaseException as error:
+        primary_error = error
+        raise
     finally:
         try:
             _stop_owned_build_group(process, prefix, forbidden, start)
-        except BaseException:
-            raise RecoveryRefused('PrivateBuildCleanupHold') from None
+        except BaseException as cleanup_error:
+            raise RecoveryCleanupFailure('PrivateBuildCleanupHold',
+                                         primary_error if primary_error is not None else cleanup_error,
+                                         cleanup_error) from None
 
 
 def _run_private(argv, *, input_bytes=None, maximum_output=32 * 1024 * 1024, timeout=45, cwd=None,
@@ -653,7 +670,7 @@ def validate_archive_members(members):
 
 def private_build_recipe(candidate):
     _names(candidate)
-    private = '/var/lib/keycloak-recovery/' + candidate
+    private = '/var/lib/keycloak-recovery-v4/' + candidate
     return {'archive_sha256': DISTRIBUTION_ARCHIVE_SHA256, 'network_namespace': True,
             'cwd': private + '/build-home',
             'argv': ['unshare', '--net', '--', 'env', '-i', 'PATH=/usr/bin:/bin', 'LANG=C.UTF-8',
@@ -764,6 +781,72 @@ def _write_group_binary(path, data, group):
         raise RecoveryRefused("PrivateRuntimeInputWriteFailed") from None
 
 
+def _create_owned_directory(path, *, group, mode):
+    """Exclusive root-owned inode; exact access is independent of umask077.
+
+    Never chmod/chown an existing path. Parent/child descriptors do not follow
+    links and the new child inode is checked before and after permission writes.
+    """
+    require(type(group) is int and group >= 0 and type(mode) is int and mode in {0o700, 0o750},
+            'OwnedDirectoryParametersInvalid')
+    _physical_root_path(path.parent)
+    parent_fd, child_fd = None, None
+    try:
+        flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+        parent_fd = os.open(path.parent, flags)
+        parent = os.fstat(parent_fd)
+        require(stat.S_ISDIR(parent.st_mode) and parent.st_uid == 0 and not parent.st_mode & 0o022,
+                'OwnedDirectoryParentInvalid')
+        os.mkdir(path.name, 0o700, dir_fd=parent_fd)
+        child_fd = os.open(path.name, flags, dir_fd=parent_fd)
+        before = os.fstat(child_fd)
+        named = os.stat(path.name, dir_fd=parent_fd, follow_symlinks=False)
+        require(stat.S_ISDIR(before.st_mode) and before.st_uid == 0 and
+                stat.S_IMODE(before.st_mode) == 0o700 and
+                (before.st_dev, before.st_ino) == (named.st_dev, named.st_ino), 'OwnedDirectoryInodeInvalid')
+        os.fchown(child_fd, 0, group)
+        os.fchmod(child_fd, mode)
+        after = os.fstat(child_fd)
+        named = os.stat(path.name, dir_fd=parent_fd, follow_symlinks=False)
+        require(stat.S_ISDIR(after.st_mode) and after.st_uid == 0 and after.st_gid == group and
+                stat.S_IMODE(after.st_mode) == mode and
+                (before.st_dev, before.st_ino) == (after.st_dev, after.st_ino) == (named.st_dev, named.st_ino),
+                'OwnedDirectoryMetadataInvalid')
+        return path
+    except OSError:
+        raise RecoveryRefused('OwnedDirectoryCreationRefused') from None
+    finally:
+        if child_fd is not None:
+            os.close(child_fd)
+        if parent_fd is not None:
+            os.close(parent_fd)
+
+
+def _create_qualification_journal(evidence_root, candidate):
+    _names(candidate)
+    require(evidence_root == Path('/var/backups/keycloak-recovery') / candidate, 'OriginalEvidenceRootRequired')
+    _physical_root_path(evidence_root, mode=0o700)
+    nonce = secrets.token_hex(8)
+    require(re.fullmatch(r'[0-9a-f]{16}', nonce), 'AttemptNonceInvalid')
+    return _create_owned_directory(evidence_root.parent / (candidate + '-qualification-' + nonce), group=0, mode=0o700)
+
+
+def _private_candidate_processes(candidate):
+    _names(candidate)
+    prefixes = [('/var/lib/' + name + '/' + candidate).encode()
+                for name in ('keycloak-recovery', 'keycloak-recovery-v4')]
+    found = []
+    for entry in Path('/proc').iterdir():
+        if not entry.name.isdigit() or int(entry.name) == os.getpid():
+            continue
+        try:
+            if any(prefix in (entry / 'cmdline').read_bytes() for prefix in prefixes):
+                found.append(int(entry.name))
+        except (FileNotFoundError, ProcessLookupError):
+            continue
+    return found
+
+
 class PrivateCandidateRuntime:
     """Concrete private JVM lifecycle; never manages canonical service/DB names.
 
@@ -777,16 +860,18 @@ class PrivateCandidateRuntime:
         self.runner(['true'], maximum_output=0)
         _names(candidate)
         self.candidate = candidate
-        self.receipts = Path('/var/backups/keycloak-recovery') / candidate
-        context = json.loads(_private_bytes(self.receipts / 'context.json').decode())
-        prepare = json.loads(_private_bytes(self.receipts / 'prepare-result.json').decode())
-        self.baseline = json.loads(_private_bytes(self.receipts / 'candidate-restored.json').decode())
-        self.identity = json.loads(_private_bytes(self.receipts / 'identity-before.json').decode())
+        self.evidence_root = Path('/var/backups/keycloak-recovery') / candidate
+        self.receipts = None  # Assigned only to an exclusive qualification attempt.
+        context = json.loads(_private_bytes(self.evidence_root / 'context.json').decode())
+        prepare = json.loads(_private_bytes(self.evidence_root / 'prepare-result.json').decode())
+        self.baseline = json.loads(_private_bytes(self.evidence_root / 'candidate-restored.json').decode())
+        self.identity = json.loads(_private_bytes(self.evidence_root / 'identity-before.json').decode())
         require(context.get('candidate_database') == candidate and context.get('backup_dump_sha256') == DUMP_SHA256 and
                 context.get('candidate_oid') == self.baseline.get('database_oid') == self.identity.get('candidate_oid'),
                 'CandidateContextMismatch')
         self.candidate_oid = context['candidate_oid']
         fresh = collect_inventory(candidate, runner=runner)
+        require(fresh['database_oid'] == self.candidate_oid, 'CandidateOidChanged')
         validate_reviewed_drift(self.baseline, fresh, [])
         validate_identity(self.identity, collect_identity(candidate, runner=runner))
         self.outbound = collect_outbound_safety(candidate, runner=runner)
@@ -799,6 +884,7 @@ class PrivateCandidateRuntime:
         self.forbidden_group_ids = {os.getpgid(self.canonical_pid), os.getpgid(self.canonical_java_pid)}
         self.recipe = runtime_recipe(candidate, browser_tls=True)
         self.private = Path(self.recipe['directory'])
+        self.previous_private = Path('/var/lib/keycloak-recovery') / candidate
         self.distribution = Path(self.recipe['distribution'])
         self.process = None
         self.output = None
@@ -809,6 +895,18 @@ class PrivateCandidateRuntime:
         self.java_pid = None
         self.java_start_ticks = None
         self.tls_verified = False
+
+    def verify_pristine_attempt(self):
+        require(not self.private.exists() and not self.private.is_symlink() and
+                not self.private.parent.exists() and not self.private.parent.is_symlink() and
+                not self.previous_private.exists() and not self.previous_private.is_symlink(),
+                'NewPrivateWorkRootRequired')
+        require(not _private_candidate_processes(self.candidate), 'ExistingPrivateCandidateProcessHold')
+        fresh = collect_inventory(self.candidate, runner=self.runner)
+        require(fresh['database_oid'] == self.candidate_oid, 'CandidateOidChanged')
+        validate_reviewed_drift(self.baseline, fresh, [])
+        validate_identity(self.identity, collect_identity(self.candidate, runner=self.runner))
+        self.verify_canonical_reference()
 
     def verify_canonical_reference(self):
         pid, start, java = _capture_canonical_reference(
@@ -827,14 +925,8 @@ class PrivateCandidateRuntime:
         archive_bytes = _private_bytes(DISTRIBUTION_ARCHIVE, mode=archive_mode,
                                        expected_sha256=DISTRIBUTION_ARCHIVE_SHA256, maximum=512 * 1024**2)
         common = self.private.parent
-        _physical_root_path(common.parent)
-        if not common.exists() and not common.is_symlink():
-            common.mkdir(mode=0o750)
-            os.chown(common, 0, self.keycloak.pw_gid)
-        _physical_root_path(common, mode=0o750)
-        require(common.stat().st_gid == self.keycloak.pw_gid, 'PrivateRuntimeGroupMismatch')
-        self.private.mkdir(mode=0o750, exist_ok=False)
-        os.chown(self.private, 0, self.keycloak.pw_gid)
+        _create_owned_directory(common, group=self.keycloak.pw_gid, mode=0o750)
+        _create_owned_directory(self.private, group=self.keycloak.pw_gid, mode=0o750)
         with tarfile.open(fileobj=io.BytesIO(archive_bytes), mode='r:gz') as archive:
             members = archive.getmembers()
             archive_members = validate_archive_members(members)
@@ -892,8 +984,7 @@ class PrivateCandidateRuntime:
         self.config_sha256 = hashlib.sha256(derived).hexdigest()
         _write_group_binary(self.private / 'candidate.conf', derived, self.keycloak.pw_gid)
         tls = self.private / 'tls'
-        tls.mkdir(mode=0o750)
-        os.chown(tls, 0, self.keycloak.pw_gid)
+        _create_owned_directory(tls, group=self.keycloak.pw_gid, mode=0o750)
         certificate = Path('/etc/keycloak/tls/fullchain.pem')
         key = Path('/etc/keycloak/tls/key.pem')
         cert_data = _private_bytes(certificate, mode=0o644, maximum=1024 * 1024)
@@ -921,8 +1012,11 @@ class PrivateCandidateRuntime:
     def start(self):
         try:
             return self._start_owned()
-        except BaseException:
-            self.stop()
+        except BaseException as primary_error:
+            try:
+                self.stop()
+            except BaseException as cleanup_error:
+                raise RecoveryCleanupFailure('PrivateRuntimeCleanupHold', primary_error, cleanup_error) from None
             raise
 
     def _start_owned(self):
@@ -1348,7 +1442,37 @@ class ServerBrowserProofGate:
         self.phase = 'closed'
 
 
-EXECUTOR_ROOT = Path('/root/keycloak-identity-recovery-20261027-executor-v3')
+SAFE_REFUSAL_CODES = frozenset({
+    'OwnedDirectoryParametersInvalid', 'OwnedDirectoryParentInvalid', 'OwnedDirectoryInodeInvalid',
+    'OwnedDirectoryMetadataInvalid', 'OwnedDirectoryCreationRefused', 'PrivatePathModeMismatch',
+    'PhysicalRootPathRequired', 'PrivatePathUnavailable', 'PrivateCommandFailed', 'PrivateBuildCleanupHold',
+    'PrivateRuntimeCleanupHold',
+    'NewPrivateWorkRootRequired', 'ExistingPrivateCandidateProcessHold', 'UnreviewedDatabaseDrift', 'CandidateOidChanged',
+    'OriginalPilotIdentityMismatch', 'OriginalOtpBytesOrMetadataChanged', 'PrivateRuntimePortOccupied',
+    'PrivateRuntimeExitedBeforeReady', 'PrivateRuntimeReadinessTimeout', 'PrivateRuntimeFailedToStop',
+    'CandidateTlsCertificateKeyMismatch', 'PrivateRuntimeJdbcDatabaseMismatch', 'PrivateRuntimeConfigurationChanged',
+    'QualificationInterrupted', 'PrivateRpcReplyMissing', 'PrivateRpcReplyTimeout', 'PrivateRpcReplyBoundExceeded',
+    'PrivateRpcReplyMalformed', 'PrivateRpcReplyOutOfOrder', 'PrivateRpcShapeInvalid', 'PrivateRpcDuplicateLine',
+    'PrivateRpcDuplicateKey', 'PrivateRpcChallengeInvalidOrReplayed', 'PrivateRpcEventAlreadyConsumed',
+    'PrivateRpcOperationInvalid', 'FreshMasterTokenLifetimeTooShort', 'MasterTokenRevocationOrLifetimeNotProven',
+    'PersistentSessionsRemainHold', 'CanonicalProcessIdentityChanged', 'CanonicalProcessChangedSincePrepare',
+})
+
+
+def _safe_error_metadata(error):
+    safe_classes = {RecoveryRefused, KeyboardInterrupt, OSError, FileNotFoundError, FileExistsError,
+                    PermissionError, TimeoutError, ValueError, TypeError, AttributeError, BrokenPipeError,
+                    subprocess.TimeoutExpired}
+    refusal = None
+    if type(error) in {RecoveryRefused, RecoveryCleanupFailure}:
+        refusal = error.args[0] if len(error.args) == 1 and type(error.args[0]) is str and \
+                  error.args[0] in SAFE_REFUSAL_CODES else 'UnclassifiedRefusal'
+    return {'exception_class': 'RecoveryRefused' if type(error) is RecoveryCleanupFailure else
+            type(error).__name__ if type(error) in safe_classes else 'UnexpectedError',
+            'refusal_code': refusal}
+
+
+EXECUTOR_ROOT = Path('/root/keycloak-identity-recovery-20261027-executor-v4')
 PILOT_HELPER_SHA256 = '7df5688f2c4de83cec4047c1788e56a8ccf1b84bd7297102545bea7bfa0a1cd8'
 
 
@@ -1363,7 +1487,8 @@ class QualificationOperations:
         helper_source = _private_bytes(helper, expected_sha256=PILOT_HELPER_SHA256, maximum=1024 * 1024)
         self.runtime = PrivateCandidateRuntime(candidate)
         self.canonical_start = _pid_start(self.runtime.canonical_pid)
-        self.receipts, self.phase = self.runtime.receipts, 'constructed'
+        self.phase, self.failure_context = 'constructed', None
+        self.cleanup_phase, self.cleanup_failure = 'NotAttempted', None
         self.source_sha256 = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
         spec = importlib.util.spec_from_file_location('reviewed_private_keycloak_pilot', helper)
         self.pilot = importlib.util.module_from_spec(spec)
@@ -1376,9 +1501,13 @@ class QualificationOperations:
         environment.clear()
         self.browser, self.master, self.token_proof, self.purge_result = None, None, None, None
         self.rpc_challenge_nonces, self.rpc_challenged_events = set(), set()
+        self.runtime.verify_pristine_attempt()
+        self.receipts = _create_qualification_journal(self.runtime.evidence_root, candidate)
+        self.runtime.receipts = self.receipts
         _write_private(self.receipts / 'qualification-begin.json', {
             'source_sha256': self.source_sha256, 'candidate_database': candidate,
             'candidate_oid': self.runtime.candidate_oid, 'original_current_drift_reviewed': False,
+            'original_evidence_root': str(self.runtime.evidence_root),
             'canonical_writes_performed': False, 'switch_ready': False})
 
     def perform(self, operation):
@@ -1396,8 +1525,25 @@ class QualificationOperations:
                    'verify_persisted_sessions_zero': self.poststop,
                    'collect_final_candidate_inventory': self.final_inventory}
         require(operation in methods, 'PrivateQualificationOperationProhibited')
+        if operation == 'stop_owned_candidate_pid':
+            self.cleanup_phase = 'StoppingOwnedCandidate'
+            try:
+                result = methods[operation]()
+            except BaseException as error:
+                self.cleanup_phase, self.cleanup_failure = 'CleanupUnconfirmed', _safe_error_metadata(error)
+                raise
+            self.cleanup_phase = 'OwnedCandidateStopConfirmed'
+            return result
         self.phase = operation
-        return methods[operation]()
+        try:
+            return methods[operation]()
+        except BaseException as error:
+            if self.failure_context is None:
+                self.failure_context = dict(phase=operation, **(error.primary_metadata
+                    if type(error) is RecoveryCleanupFailure else _safe_error_metadata(error)))
+            if type(error) is RecoveryCleanupFailure:
+                self.cleanup_phase, self.cleanup_failure = 'CleanupUnconfirmed', dict(error.cleanup_metadata)
+            raise
 
     def _client(self):
         runtime, pilot = self.runtime, self.pilot
@@ -1444,7 +1590,7 @@ class QualificationOperations:
         # No public-vs-original data approval is fabricated here. This operation
         # stays private and ends HOLD with both original/final drifts UNREVIEWED.
         current = self.runtime.runner(_psql_argv('postgres'), input_bytes=b"SELECT oid::bigint FROM pg_database WHERE datname='keycloak';", maximum_output=1024)
-        context = json.loads(_private_bytes(self.receipts / 'context.json').decode())
+        context = json.loads(_private_bytes(self.runtime.evidence_root / 'context.json').decode())
         require(int(current.strip()) == context['current_oid'], 'CanonicalDatabaseChanged')
         memory = int(next(line.split()[1] for line in Path('/proc/meminfo').read_text().splitlines()
                           if line.startswith('MemAvailable:'))) * 1024
@@ -1608,18 +1754,24 @@ def run_private_qualification(candidate, helper, helper_sha256):
         print(json.dumps({'op': 'qualification_complete', 'result': operations.result}, separators=(',', ':')), flush=True)
         return 0
     except BaseException as error:
-        failure = 'PRIVATE_CANDIDATE_CLEANUP_HOLD' if (isinstance(error, RecoveryRefused) and
+        failure = 'PRIVATE_CANDIDATE_CLEANUP_HOLD' if (isinstance(error, RecoveryCleanupFailure) or isinstance(error, RecoveryRefused) and
                   str(error) == 'PrivateBuildCleanupHold') else 'PRIVATE_QUALIFICATION_ABORTED' if (isinstance(error, KeyboardInterrupt) or
                     isinstance(error, RecoveryRefused) and str(error) in
                     {'QualificationInterrupted', 'PrivateRpcReplyMissing', 'PrivateRpcReplyTimeout'}) else 'PRIVATE_QUALIFICATION_FAILED'
         if operations is not None:
+            primary = operations.failure_context or dict(phase=operations.phase, **_safe_error_metadata(error))
             try:
                 operations.runtime.stop()
-            except BaseException:
+                operations.cleanup_phase = 'OwnedCandidateStopConfirmed'
+            except BaseException as cleanup_error:
+                failure = 'PRIVATE_CANDIDATE_CLEANUP_HOLD'
+                operations.cleanup_phase, operations.cleanup_failure = 'CleanupUnconfirmed', _safe_error_metadata(cleanup_error)
+            if operations.cleanup_failure is not None:
                 failure = 'PRIVATE_CANDIDATE_CLEANUP_HOLD'
             try:
                 _write_private(operations.receipts / 'qualification-failure.json', {
-                    'status': 'FailedHold', 'error_code': failure, 'phase': operations.phase,
+                    'status': 'FailedHold', 'error_code': failure, **primary,
+                    'cleanup_phase': operations.cleanup_phase, 'cleanup_failure': operations.cleanup_failure,
                     'canonical_writes_performed': False, 'switch_ready': False})
             except BaseException:
                 pass
