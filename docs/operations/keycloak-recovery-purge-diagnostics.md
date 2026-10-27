@@ -103,9 +103,15 @@ does not turn the session ID into a UUID. This correction changes no scope,
 mapper, lightweight profile, helper login form or token policy. Issuer, client,
 IAT/EXP, 45-second minimum, authenticated realm GET, session/cutoff/revocation,
 PID/socket/configuration and cleanup guards remain mandatory. The corrected v10
-profile is source-only until independent review and a separate native gate.
+native one-login diagnostic later passed the SID inventory and owned cleanup;
+independent read-only reconciliation confirmed its narrow result. Its consumed
+candidate OID24765 is now the fourth modified forensic database and cannot be
+reused. This does not attribute Run7's failure or establish browser/purge/revocation
+qualification. The next v11 source profile retains the same SID and qualification
+logic for full `--qualify-private-candidate` after its separate review/native
+gate. No further standalone diagnostic is selected.
 
-## One-login diagnostic boundary; not an executable procedure
+## Historical one-login diagnostic boundary; not an executable procedure
 
 First review the exact code/tests and freeze their source closure. No source
 installation, namespace change, SQL/API execution, JVM or new attempt is
@@ -126,7 +132,7 @@ may be exported. The source adapter and protected input contracts are documented
 in [the master-token diagnostic](keycloak-master-token-diagnostic.md); this text
 does not authorize native execution.
 
-If the constructor fails, use the fixed code plus shape booleans to isolate the
+If a diagnostic constructor fails, use the fixed code plus shape booleans to isolate the
 claim boundary. If the GET fails, use its bounded HTTP class. If inventory fails,
 keep the exact DB/session proof HOLD; a separately reviewed bounded observation
 may investigate visibility without retrying the login or weakening SID identity.

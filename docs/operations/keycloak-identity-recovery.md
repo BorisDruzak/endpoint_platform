@@ -62,29 +62,43 @@ Pinned Keycloak26.8.1 source supports exact 24-character Base64URL session IDs;
 the UUID-only tool assumption is a contract defect. The discarded token's actual
 SID value is not reconstructed from source or stopped-database aggregate counts.
 
-The next source profile uses `/root/keycloak-identity-recovery-20261027-executor-v10`
-and `/var/lib/keycloak-recovery-v10`. It is source-only until its complete closure
+The corrected-SID v10 master-only diagnostic subsequently passed on fresh
+`keycloak_recovery_20261027_7175deb5` (OID24765): one master login, the authenticated
+realm GET, all six SID-inventory booleans and all eight cleanup booleans passed.
+Independent read-only reconciliation confirmed the stopped owned runtime and
+preserved canonical/original state. Its safe receipt is
+`C:/Temp/endpoint-sso-browser-20261027/recovery-plan/master-token-probe-v2/independent-readonly-reconciliation/independent-result.json`,
+SHA256 `39d0543e934d3a71c18ff65c66ed6bd4f707124704f06c70f69a09bb84b7da55`.
+This establishes the narrow native SID contract; it does not establish full
+browser/purge/revocation qualification or semantic acceptance. OID24765 and the
+entire consumed v10 tree are now modified forensic evidence. Preserve all four
+old candidate databases (20856, 22159, 23462, 24765), their full101 snapshots,
+sealed sources and journals; none may be reused as pristine.
+
+The next source profile uses `/root/keycloak-identity-recovery-20261027-executor-v11`
+and `/var/lib/keycloak-recovery-v11`. It is source-only until its complete closure
 and a new uniquely prepared candidate are independently reviewed. Installation
 must create the executor exclusively (root0700), write exact verified recovery
 and pinned helper buffers (root0600), and verify the physical ancestor chain and
-hashes. Existing v1-v9 executors and work roots are never overwritten, resumed or
+hashes. Existing v1-v10 executors and work roots are never overwritten, resumed or
 repaired. Canonical process checks compare prepared/current systemd metadata
 exactly and separately bind unchanged `/proc` creation ticks, unique Java
 ancestry/UID/executable and protected process groups. Creation time and systemd
 exec time are different events and have no tolerance comparison.
 
-Before another full qualification, the proposed bounded master-token diagnostic
-must receive a separate source/runtime review. It performs one master login,
-the boolean-only token witness, unchanged constructor and 45-second lifetime
-checks, one realm-list GET and one SID-bound read-only inventory, followed by
-owned cleanup. It has no browser, AD, user-identity API or purge path. Necessary
-internal read-only original-identity/OTP comparisons remain runtime preconditions.
-A successful probe would not prove revocation or promotion readiness. See
+The next selected native action, after separate review, is full
+`--qualify-private-candidate` on one new
+uniquely restored candidate, with the existing browser RPC, purge/revocation
+proofs and final 17-field result. No further standalone master diagnostic is
+selected. Its optional tool remains source-coherent with v11 and four-database
+preservation but is not a prerequisite to repeat. The successful v10 diagnostic
+did not execute browser, AD, user-identity APIs or purge. Necessary internal
+read-only original-identity/OTP comparisons remain runtime preconditions. See
 [keycloak-recovery-purge-diagnostics.md](keycloak-recovery-purge-diagnostics.md).
 
 Any future candidate has its own physical data/home/temp directories and local
-cache under the new v10 root. The previous `/var/lib/keycloak-recovery` directory,
-retained v4-v9 trees and all prior journals remain unchanged. Matching candidate
+cache under the new v11 root. The previous `/var/lib/keycloak-recovery` directory,
+retained v4-v10 trees and all prior journals remain unchanged. Matching candidate
 processes in any historical root refuse a new attempt; retained inactive files
 are not repaired or resumed.
 All three group-traversable directories (common root, candidate and TLS) use one

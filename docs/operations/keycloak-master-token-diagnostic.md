@@ -1,10 +1,16 @@
 # One-login private master-token diagnostic
 
-Status: source and synthetic tests only. No native installation, restore, SQL,
+Status: v11 source and synthetic tests only. No native installation, restore, SQL,
 API call, JVM, login or probe has been executed by this change. Run7's exact
 failed guard remains unknown. This diagnostic cannot qualify or promote a
 candidate, purge sessions, change AD, repair scopes/providers, use a browser,
 look up an identity through IdP/LDAP/admin-user APIs, or alter a token policy.
+The corrected-SID v10 diagnostic passed its narrow native SID inventory and
+cleanup checks, followed by independent read-only reconciliation. Its OID24765
+candidate and consumed v10 work tree are forensic evidence. The next selected
+action is full `--qualify-private-candidate` with a new candidate and reviewed
+v11 closure; no further standalone diagnostic is selected. This optional tool
+remains source-coherent and inert by default.
 
 ## Concrete adapter and boundaries
 
@@ -12,9 +18,9 @@ look up an identity through IdP/LDAP/admin-user APIs, or alter a token policy.
 Its complete native adapter requires explicit `--run-once --candidate`, Linux
 root on the existing approved `.19` host, an exact protected executor location,
 source closure and authorization bindings. It never chooses/restores a database.
-The parent separately owns fresh preparation. The source profile uses a fresh v10
-namespace; consumed v9 remains preserved. Existing modified OIDs 20856, 22159 and
-23462 remain forensic databases.
+The parent separately owns fresh preparation. The source profile uses a fresh v11
+namespace; consumed v9 and v10 remain preserved. Existing modified OIDs 20856, 22159,
+23462 and 24765 remain forensic databases.
 
 The adapter reuses the unchanged `PrivateCandidateRuntime` constructor,
 `verify_pristine_attempt`, archive-backed `copy_and_configure`, owned-group
@@ -31,11 +37,11 @@ Within the shared recovery lock, the native sequence is:
    the fixed `master-token-probe-consumed.json` fence inside the reviewed executor
    root. This happens before the runtime constructor or any probe journal, copy,
    build, start or login. A failed prestart invocation remains consumed even when
-   the v10 common root was never created; a second invocation cannot start/login.
+   the v11 common root was never created; a second invocation cannot start/login.
    Never remove/reset this fence to retry. Validate the sealed original/failed evidence, explicit new candidate name/OID,
    unused common work root and original full-101/schema/ACL/sequence equivalence.
    Create a separate exclusive root-private `-master-token-probe-<nonce>` journal.
-   Capture the new candidate and all three old forensic databases before startup.
+   Capture the new candidate and all four old forensic databases before startup.
 2. Prepare/start the one isolated runtime using the existing owned lifecycle.
 3. Select only `SSO_BOOTSTRAP_PASSWORD` from the approved root-private provision
    file. Other secret values are not decoded or stored in an environment dict.
@@ -58,8 +64,8 @@ Within the shared recovery lock, the native sequence is:
 7. On every normal/failing/cancelled exit, clear token/password references and
    stop the owned group; confirm canonical process identity, absent private
    listeners, the unchanged candidate OID and zero candidate DB connections.
-   Capture the candidate after-state and all three old full-101 forensic after-states
-   privately. Compare all three old databases and every preserved source/evidence file
+   Capture the candidate after-state and all four old full-101 forensic after-states
+   privately. Compare all four old databases and every preserved source/evidence file
    to their sealed baselines. Failure of any check remains cleanup HOLD.
 
 The shared lock is held through cleanup and all reconciliation. SIGINT, SIGTERM
@@ -73,11 +79,11 @@ events without observation. No blind rerun or removal of a consumed root follows
 ## Exact source pins and protected native inputs
 
 All source files must be root-owned 0600 beneath the physical root-owned 0700
-`/root/keycloak-identity-recovery-20261027-executor-v10` directory. Verified exact
+`/root/keycloak-identity-recovery-20261027-executor-v11` directory. Verified exact
 source buffers are compiled directly, with no import reread or bytecode cache.
 
 - Recovery backend SHA256:
-  `5b46db376f6d83af5c94deed439459be055885fd034bcfadee307f8f4ade44f3`.
+  `9c36f02001235c9871e9e7715f12985da871d56bc8f638b38a18547e2d148010`.
 - Pilot helper SHA256:
   `7df5688f2c4de83cec4047c1788e56a8ccf1b84bd7297102545bea7bfa0a1cd8`.
 - The probe's final reviewed hash belongs in the protected source closure below.
@@ -89,7 +95,7 @@ source buffers are compiled directly, with no import reread or bytecode cache.
 {
   "schema": "keycloak_master_token_source_closure_v1",
   "probe_sha256": "<final independently reviewed probe hash>",
-  "backend_sha256": "5b46db376f6d83af5c94deed439459be055885fd034bcfadee307f8f4ade44f3",
+  "backend_sha256": "9c36f02001235c9871e9e7715f12985da871d56bc8f638b38a18547e2d148010",
   "helper_sha256": "7df5688f2c4de83cec4047c1788e56a8ccf1b84bd7297102545bea7bfa0a1cd8"
 }
 ```
@@ -98,7 +104,7 @@ source buffers are compiled directly, with no import reread or bytecode cache.
 user approval workflow. Its exact fields are `schema` (literal
 `keycloak_master_token_probe_authorization_v1`), `candidate_database`,
 `candidate_oid`, and `preserved_artifacts`. The explicit candidate must match it;
-canonical/audit/20856/22159/23462 OIDs are rejected. `preserved_artifacts` contains
+canonical/audit/20856/22159/23462/24765 OIDs are rejected. `preserved_artifacts` contains
 exactly these six entries, each an object with only `path` and `sha256`:
 
 | Entry | Exact source/provenance |
@@ -106,20 +112,21 @@ exactly these six entries, each an object with only `path` and `sha256`:
 | `original_snapshot` | Immutable original Stage1 `candidate-restored.json` under `/var/backups/keycloak-recovery/keycloak_recovery_20261027_55f72537` |
 | `original_context` | `context.json` in that same original root, pinned dump and original OID 20856 |
 | `original_identity` | `identity-before.json` in that same original root |
-| `prepare_preservation_before` | `/root/keycloak-fresh-prepare-after-master-probe1-v1/attempt/preservation-before.json` |
-| `prepare_preservation_after` | `/root/keycloak-fresh-prepare-after-master-probe1-v1/attempt/preservation-after.json` |
+| `prepare_preservation_before` | `/root/keycloak-fresh-prepare-after-master-probe2-v1/attempt/preservation-before.json` |
+| `prepare_preservation_after` | `/root/keycloak-fresh-prepare-after-master-probe2-v1/attempt/preservation-after.json` |
 | `sealed_run7_source` | Existing reviewed root-private sealed v8 source, beneath its executor root or retained recovery evidence root |
 
 The preparation preservation files are read directly, without extraction or a
 new baseline. Their schema must be `failed_candidate_forensic_preservation_v1`,
 `not_original_restore_baseline=true`, and `capture.failed_databases` must contain
 exactly `keycloak_recovery_20261027_55f72537`/OID20856,
-`keycloak_recovery_20261027_2190f3d5`/OID22159 and
-`keycloak_recovery_20261027_82e14168`/OID23462. Each row has only `snapshot` and
+`keycloak_recovery_20261027_2190f3d5`/OID22159,
+`keycloak_recovery_20261027_82e14168`/OID23462 and
+`keycloak_recovery_20261027_7175deb5`/OID24765. Each row has only `snapshot` and
 `identity`, with the matching OID. The before file additionally binds
 `actual_generated_candidate_name` to the explicit candidate. The before/after
 failed maps must be exactly equal; their modified full-101 datasets cannot be
-relabelled as the immutable original. Fresh read-only full inventories of all three
+relabelled as the immutable original. Fresh read-only full inventories of all four
 old databases are compared before and after the probe, under the same lock.
 All tables, row multiplicities, schema/ACLs and sequences participate.
 
@@ -148,7 +155,7 @@ history; preserve its after-state and never reuse it as a pristine baseline.
 The consumed v9 probe stopped at token construction with a false canonical-SID
 witness. A separately collected read-only aggregate of its stopped database
 found 18 master-bootstrap sessions with 24-character URL-safe IDs and zero UUID
-IDs; this does not establish the former token's exact SID binding. The v10
+IDs; this does not establish the former token's exact SID binding. The corrected
 source accepts only an exact lowercase canonical legacy UUID or exactly 24
 Base64URL characters that decode to 18 bytes and reproduce the identical string
 on encoding. The `sid` claim must still exist and be a string. No normalization
@@ -157,7 +164,7 @@ occurs, and exact SID-to-database count-one matching remains mandatory. See the
 for the upstream generation chain. No scope, lightweight-token, issuer, TTL,
 signature-proof, session/cutoff, revocation or process/socket rule changes.
 
-Before native use: independently review/freeze this exact module, tests, backend,
+If this optional tool is ever separately selected: independently review/freeze this exact module, tests, backend,
 helper and two root-input schemas; review fresh preparation and its forensic
 seals; then separately authorize one installation/invocation of the explicit
 candidate. No native action is authorized by this document. A future invocation

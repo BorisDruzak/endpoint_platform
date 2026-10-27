@@ -2,17 +2,20 @@
 
 - `master_token_diagnostic.py`: inert-by-default, one-login private diagnostic
   with a fixed consumed-attempt fence, one realm GET and one SID inventory.
-  It reuses the unchanged runtime guards and preserves all three failed
+  It reuses the unchanged runtime guards and preserves all four consumed
   databases before/after owned cleanup; it cannot purge, repair or promote.
   Its source closure, protected input schema and limits are documented in
   `docs/operations/keycloak-master-token-diagnostic.md`.
+  The v10 native diagnostic passed its narrow SID/cleanup checks; the optional
+  v11 tool is retained for consistency and is not selected for another probe.
 - `recover_pilot_identity.py`: plan, exclusive verified full-DB restore, read-only
   identity/101-table evidence and explicit private qualification RPC. It owns
   private process lifecycle/session-revocation proof and ends at unreviewed drift
   HOLD; it has no public promotion command. Stage1 evidence stays immutable;
   each pristine candidate qualification has a separate exclusive attempt journal
-  and the source-only v10 work root uses FD-validated exact directory permissions
-  under umask077. Failed20856/v7, failed22159/v8 and probe23462/v9 are modified forensic
+  and the source-only v11 work root uses FD-validated exact directory permissions
+  under umask077. Failed20856/v7, failed22159/v8, probe23462/v9 and
+  probe24765/v10 are modified forensic
   databases; immutable Stage1 metadata and all historical namespaces stay retained.
   Run7 passed browser callbacks but failed before session provenance; its exact
   cause remains unknown. Token-shape booleans and closed purge subphases preserve
@@ -21,7 +24,8 @@
   24-character/18-byte Base64URL session contract used by token shape/constructor,
   fresh-session SQL, offline inventory and one-shot DELETE path validation.
   Realm, subject and objectGUID UUID rules remain separate. The consumed v9
-  profile and its evidence stay retained; v10 is a source-only fresh profile.
+  and v10 profiles and their evidence stay retained; v11 is a source-only fresh
+  profile for full `--qualify-private-candidate`, not another standalone probe.
   Startup/proof fixed refusal diagnostics have explicit AST reachability coverage.
   The same strict exact-IP parser handles listener and JDBC mapped-loopback forms;
   accepted proof endpoints retain canonical IPv4 text and all ownership guards.

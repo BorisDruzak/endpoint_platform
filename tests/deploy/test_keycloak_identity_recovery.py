@@ -42,18 +42,18 @@ def test_default_plan_cannot_execute_and_holds_for_unproven_recovery():
     assert "keycloak_identity_audit_sso20261027" not in plan["candidate_database"]
 
 
-def test_fresh_candidate_probe_uses_v10_without_resuming_consumed_v9():
+def test_fresh_qualification_uses_v11_without_resuming_consumed_v10():
     m = module()
     candidate = 'keycloak_recovery_20261027_2190f3d5'
-    private = '/var/lib/keycloak-recovery-v10/' + candidate
+    private = '/var/lib/keycloak-recovery-v11/' + candidate
     assert m.runtime_recipe(candidate, browser_tls=True)['directory'] == private
     assert m.private_build_recipe(candidate)['cwd'] == private + '/build-home'
-    assert m.EXECUTOR_ROOT == Path('/root/keycloak-identity-recovery-20261027-executor-v10')
-    assert '/var/lib/keycloak-recovery-v8/' not in json.dumps(m.runtime_recipe(candidate, browser_tls=True))
+    assert m.EXECUTOR_ROOT == Path('/root/keycloak-identity-recovery-20261027-executor-v11')
+    assert '/var/lib/keycloak-recovery-v10/' not in json.dumps(m.runtime_recipe(candidate, browser_tls=True))
 
 
 @pytest.mark.parametrize('workroot', ['keycloak-recovery', 'keycloak-recovery-v4',
-    'keycloak-recovery-v5', 'keycloak-recovery-v6', 'keycloak-recovery-v7', 'keycloak-recovery-v8', 'keycloak-recovery-v9', 'keycloak-recovery-v10'])
+    'keycloak-recovery-v5', 'keycloak-recovery-v6', 'keycloak-recovery-v7', 'keycloak-recovery-v8', 'keycloak-recovery-v9', 'keycloak-recovery-v10', 'keycloak-recovery-v11'])
 def test_process_scan_preserves_all_historical_work_namespaces(workroot, monkeypatch):
     from types import SimpleNamespace
     m = module(); candidate = 'keycloak_recovery_20261027_2190f3d5'
@@ -102,7 +102,7 @@ def test_v7_stage1_metadata_new_name_oid_and_three_service_fields_remain_compati
     monkeypatch.setattr(m.os, 'getpgid', lambda pid: 312382, raising=False)
     runtime = m.PrivateCandidateRuntime(candidate, runner=lambda argv, **kwargs: commands.append(argv))
     assert runtime.candidate_oid == 22159 and runtime.evidence_root == root
-    assert runtime.private == Path('/var/lib/keycloak-recovery-v10') / candidate
+    assert runtime.private == Path('/var/lib/keycloak-recovery-v11') / candidate
     assert runtime.receipts is None and runtime.process is None
     assert runtime.canonical_service_metadata == service
     assert reads == ['context.json', 'prepare-result.json', 'candidate-restored.json', 'identity-before.json']
@@ -323,11 +323,11 @@ def test_isolated_launch_recipe_has_separate_tree_environment_ports_and_no_secre
     assert command[:5] == ["runuser", "-u", "keycloak", "--", "env"]
     assert "-i" in command
     assert command[-2:] == ["start", "--optimized"]
-    assert command[-3].startswith("--config-file=/var/lib/keycloak-recovery-v10/")
-    assert command[-4].startswith("/var/lib/keycloak-recovery-v10/")
+    assert command[-3].startswith("--config-file=/var/lib/keycloak-recovery-v11/")
+    assert command[-4].startswith("/var/lib/keycloak-recovery-v11/")
     assert not any("/opt/keycloak" in arg for arg in command)
     assert any("JAVA_OPTS_KC_HEAP=-Xms128m -Xmx768m" == arg for arg in command)
-    assert any('-Duser.home=/var/lib/keycloak-recovery-v10/keycloak_recovery_20261027_abcdef12/work' in arg for arg in command)
+    assert any('-Duser.home=/var/lib/keycloak-recovery-v11/keycloak_recovery_20261027_abcdef12/work' in arg for arg in command)
     assert recipe["http"] == "127.0.0.1:8089" and recipe["management"] == "127.0.0.1:9009"
     assert recipe["shared_mutable_paths"] == [] and recipe["cache"] == "local"
 
@@ -359,8 +359,8 @@ def test_browser_tls_profile_is_fixed_private_and_never_uses_a_validation_bypass
     values = dict(line.split("=", 1) for line in result.splitlines() if line)
     assert values["hostname"] == "https://sso.sosnadmin.local:18449"
     assert values["https-port"] == "8449" and values["http-management-scheme"] == "http"
-    assert values["https-certificate-key-file"] == "/var/lib/keycloak-recovery-v10/" + candidate + "/tls/key.pem"
-    assert values["https-certificate-file"] == "/var/lib/keycloak-recovery-v10/" + candidate + "/tls/fullchain.pem"
+    assert values["https-certificate-key-file"] == "/var/lib/keycloak-recovery-v11/" + candidate + "/tls/key.pem"
+    assert values["https-certificate-file"] == "/var/lib/keycloak-recovery-v11/" + candidate + "/tls/fullchain.pem"
     assert values["http-host"] == "127.0.0.1"
     recipe = m.runtime_recipe(candidate, browser_tls=True)
     assert recipe["https"] == "127.0.0.1:8449"
@@ -751,7 +751,7 @@ def test_actual_runtime_stop_guard_rejects_signal_for_uncertain_process(failure,
     runtime.process = SimpleNamespace(pid=40, poll=lambda:None)
     runtime.process_start = 123
     runtime.canonical_pid = 40 if failure == "canonical-pid" else 90
-    runtime.private = Path('/var/lib/keycloak-recovery-v10/keycloak_recovery_20261027_abcdef12')
+    runtime.private = Path('/var/lib/keycloak-recovery-v11/keycloak_recovery_20261027_abcdef12')
     runtime.keycloak = SimpleNamespace(pw_uid=1000)
     runtime.output = None
     monkeypatch.setattr(m, '_pid_start', lambda pid:999 if failure == 'pid-reuse' else 123)
@@ -825,7 +825,7 @@ def test_private_build_has_no_network_shared_home_or_inherited_environment():
     assert recipe['argv'][:5]==['unshare','--net','--','env','-i']
     assert recipe['argv'][-5:]==['build','--db=postgres','--health-enabled=true','--metrics-enabled=false','--cache=local']
     assert all('/opt/keycloak' not in arg for arg in recipe['argv'])
-    assert any(arg.startswith('HOME=/var/lib/keycloak-recovery-v10/') for arg in recipe['argv'])
+    assert any(arg.startswith('HOME=/var/lib/keycloak-recovery-v11/') for arg in recipe['argv'])
     assert any(arg.startswith('JAVA_OPTS_KC_HEAP=-Xms128m -Xmx1024m') for arg in recipe['argv'])
 
 
@@ -923,7 +923,7 @@ def test_private_build_cleanup_owns_group_even_when_shell_has_exited(scenario,mo
     def signal_group(group,number):signals.append((group,number));state['members']=False
     monkeypatch.setattr(m.os,'killpg',signal_group,raising=False)
     invoke=lambda:m._run_owned_private_group(['private-build'],input_bytes=None,output=io.BytesIO(),timeout=1,
-        cwd=None,environment={},prefix='/var/lib/keycloak-recovery-v10/keycloak_recovery_20261027_abcdef12',forbidden={90,91})
+        cwd=None,environment={},prefix='/var/lib/keycloak-recovery-v11/keycloak_recovery_20261027_abcdef12',forbidden={90,91})
     if scenario=='timeout':
         with pytest.raises(m.subprocess.TimeoutExpired):invoke()
     else:invoke()
@@ -1287,7 +1287,7 @@ def test_actual_owned_build_cleanup_failure_preserves_original_timeout_metadata(
     monkeypatch.setattr(m,'_stop_owned_build_group',lambda *args:(_ for _ in ()).throw(ValueError('raw-cleanup-secret')))
     with pytest.raises(m.RecoveryRefused) as caught:
         m._run_owned_private_group(['build'],input_bytes=None,output=io.BytesIO(),timeout=1,cwd=None,environment={},
-            prefix='/var/lib/keycloak-recovery-v10/keycloak_recovery_20261027_abcdef12',forbidden={90})
+            prefix='/var/lib/keycloak-recovery-v11/keycloak_recovery_20261027_abcdef12',forbidden={90})
     assert caught.value.primary_metadata=={'exception_class':'TimeoutExpired','refusal_code':None}
     assert caught.value.cleanup_metadata=={'exception_class':'ValueError','refusal_code':None}
     assert caught.value.args==('PrivateBuildCleanupHold',)

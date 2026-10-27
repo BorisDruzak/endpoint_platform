@@ -273,17 +273,17 @@ def test_exact_nested_prepare_preservation_is_read_without_new_baseline(monkeypa
     with pytest.raises(m.ProbeRefused):ops._verify_preserved_files()
 
 
-def test_forensic_collection_reconciles_all_three_consumed_databases_once():
+def test_forensic_collection_reconciles_all_four_consumed_databases_once():
     m=module();calls=[]
     def collect(name):calls.append(name);return {'synthetic':True}
     ops=m.NativeProbe('keycloak_recovery_20261027_abcdef12',SimpleNamespace(collect_inventory=collect),None)
     actual=ops._capture_failed()
     expected={'keycloak_recovery_20261027_55f72537','keycloak_recovery_20261027_2190f3d5',
-              'keycloak_recovery_20261027_82e14168'}
-    assert set(actual)==expected and set(calls)==expected and len(calls)==3
+              'keycloak_recovery_20261027_82e14168','keycloak_recovery_20261027_7175deb5'}
+    assert set(actual)==expected and set(calls)==expected and len(calls)==4
 
 
-@pytest.mark.parametrize('oid',[16385,19553,20856,22159,23462])
+@pytest.mark.parametrize('oid',[16385,19553,20856,22159,23462,24765])
 def test_explicit_candidate_cannot_reuse_canonical_audit_or_consumed_forensics(oid):
     m=module();b=backend();auth,files,original=nested_preservation_fixture(m,b)
     auth['candidate_oid']=oid
