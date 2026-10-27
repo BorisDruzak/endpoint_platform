@@ -1,23 +1,34 @@
 from pathlib import Path
+import shutil
 import subprocess
+import sys
+
+import pytest
 
 
 SCRIPT = Path("tools/keycloak/prepare_ad_pilot.ps1").resolve()
+WINDOWS_POWERSHELL = shutil.which("powershell.exe")
+requires_windows_powershell = pytest.mark.skipif(
+    sys.platform != "win32", reason="requires Windows PowerShell 5.1",
+)
 
 
 def powershell(code):
+    assert WINDOWS_POWERSHELL is not None, "Windows PowerShell 5.1 must be installed"
     result = subprocess.run(
-        ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", code],
+        [WINDOWS_POWERSHELL, "-NoProfile", "-NonInteractive", "-Command", code],
         capture_output=True, text=True,
     )
     assert result.returncode == 0, result.stdout + result.stderr
     return result.stdout
 
 
+@requires_windows_powershell
 def test_ad_pilot_script_parses_in_windows_powershell_51():
     powershell(f"$tokens=$null; $errors=$null; [void][System.Management.Automation.Language.Parser]::ParseFile('{SCRIPT}',[ref]$tokens,[ref]$errors); if($errors.Count){{throw $errors[0]}}")
 
 
+@requires_windows_powershell
 def test_default_plan_has_no_ad_or_filesystem_mutations():
     output = powershell(r"""
 $ErrorActionPreference='Stop'
@@ -38,6 +49,7 @@ function Export-Clixml { throw 'UNAUTHORIZED CREDENTIAL WRITE' }
     assert "Password" not in output
 
 
+@requires_windows_powershell
 def test_wrong_domain_is_refused_before_any_mutation():
     powershell(r"""
 $ErrorActionPreference='Stop'
@@ -58,6 +70,7 @@ def test_only_new_user_command_exists_in_ad_write_surface():
     assert "CN=Users,DC=sosnadmin,DC=local" in text
 
 
+@requires_windows_powershell
 def test_missing_existing_ou_is_refused_before_mutations():
     powershell(r"""
 $ErrorActionPreference='Stop'
@@ -69,6 +82,7 @@ $refused=$false
 """ + f"try {{ & '{SCRIPT}' -Apply }} catch {{ if($_.Exception.Message -match 'MISSING_APPROVED_OU'){{$refused=$true}} else {{throw}} }}; if(-not $refused){{throw 'Missing OU was accepted'}}")
 
 
+@requires_windows_powershell
 def test_foreign_existing_name_or_missing_credential_is_not_adopted():
     powershell(r"""
 $ErrorActionPreference='Stop'
