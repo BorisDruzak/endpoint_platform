@@ -34,13 +34,13 @@ switch command. Production application SSO activation is a separate gate.
 ## Private execution closure
 
 After independent source review, install the exact reviewed buffers exclusively
-under `/root/keycloak-identity-recovery-20261027-executor-v2` (root, mode 0700), with
+under `/root/keycloak-identity-recovery-20261027-executor-v3` (root, mode 0700), with
 `recover_pilot_identity.py` and the pinned `pilot_acceptance.py` root, mode 0600. Verify
 the complete physical ancestor chain and hashes before execution; never execute
 root source from an ordinary-user/PostgreSQL-writable staging directory. Preserve
 all prior source snapshots, forensic backups and failed-run receipts.
-The original executor directory is retained after its read-only preflight
-refusal; never overwrite it. Canonical process checks compare prepared/current
+Prior executor directories and their preflight receipts are retained; never
+overwrite them. Canonical process checks compare prepared/current
 systemd metadata exactly and separately bind unchanged `/proc` creation ticks,
 unique Java ancestry/UID/executable and protected process groups. Creation time
 and systemd exec time are different events and have no tolerance comparison.
@@ -48,9 +48,9 @@ and systemd exec time are different events and have no tolerance comparison.
 The server command has no secrets in argv:
 
 ```sh
-/usr/bin/python3 -I -u /root/keycloak-identity-recovery-20261027-executor-v2/recover_pilot_identity.py \
+/usr/bin/python3 -I -u /root/keycloak-identity-recovery-20261027-executor-v3/recover_pilot_identity.py \
   --qualify-private-candidate keycloak_recovery_20261027_55f72537 \
-  --pilot-helper /root/keycloak-identity-recovery-20261027-executor-v2/pilot_acceptance.py \
+  --pilot-helper /root/keycloak-identity-recovery-20261027-executor-v3/pilot_acceptance.py \
   --pilot-helper-sha256 7df5688f2c4de83cec4047c1788e56a8ccf1b84bd7297102545bea7bfa0a1cd8
 ```
 
@@ -84,8 +84,21 @@ The bounded server JSON-line RPC is `browser_start`, `browser_positive`,
 `qualification_complete` result. All four authentication-sensitive events carry
 the exact 35-field runtime proof: actual PID/group/start identity, private sockets,
 JDBC database/OID/ports, archive/build/configuration closure, TLS checks and a UTC
-timestamp collected after slow checks. Both sides reject stale or changed proof;
-the server rechecks the actual binding on every reply. Passwords, tokens,
+timestamp collected after slow checks. These initial proofs are audit context.
+For each of the four sensitive events, the parent sends exactly one
+`runtime_proof_challenge` with that `event_op` and a fresh 64-hex nonce. Only
+after receiving it does the server recompute the actual 35-field proof and
+return `runtime_proof_response` echoing the exact event and nonce. Replays,
+duplicates, wrong events, malformed/oversized lines and deadline failures abort.
+The existing normal event reply follows; the server also rechecks actual runtime
+binding on every normal reply. The whole server RPC has one 180 s deadline.
+
+The parent starts a 15 s monotonic budget **before writing the challenge** and
+keeps that same budget through collection, round trip, TLS/AD/Node checks and
+the next sensitive action. Receipt never resets it. Freshness follows from the
+causal nonce exchange; Windows/Linux UTC timestamps are not compared. The
+positive UTC field is audit-only, with no epoch relabeling, clock calibration,
+rate/offset assumption or OS clock change. Passwords, tokens,
 authorization URLs/codes/state, cookie values, raw errors and DOM/traces are
 never RPC output or evidence. Safe cookie hashes bind the same browser context.
 

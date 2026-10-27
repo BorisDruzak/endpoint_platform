@@ -835,3 +835,101 @@ def test_canonical_runtime_recheck_preserves_exact_captured_identities(change,mo
     if change=='none':assert runtime.verify_canonical_reference() is None
     else:
         with pytest.raises(m.RecoveryRefused):runtime.verify_canonical_reference()
+
+
+def rpc_operations_fixture(m):
+    from types import SimpleNamespace
+    operations=m.QualificationOperations.__new__(m.QualificationOperations)
+    trace=[]
+    def proof():trace.append('proof');return {'proof_generation':trace.count('proof')}
+    operations.runtime=SimpleNamespace(proof=proof)
+    operations.rpc_challenge_nonces=set();operations.rpc_challenged_events=set()
+    return operations,trace
+
+
+@pytest.mark.parametrize('event,reply',[('browser_start','browser_start_result'),('browser_positive','browser_positive_result'),
+                                      ('purge_held','permit_purge'),('browser_negative','browser_negative_result')])
+def test_sensitive_rpc_recomputes_proof_only_after_exact_challenge(event,reply,monkeypatch,capsys):
+    m=module();ops,trace=rpc_operations_fixture(m)
+    challenge={'op':'runtime_proof_challenge','event_op':event,'nonce':'a'*64}
+    replies=iter([challenge,{'op':reply}])
+    def read(deadline):trace.append('read');return next(replies)
+    monkeypatch.setattr(m,'_read_rpc_json',read,raising=False)
+    result=ops._rpc(event,reply)
+    lines=[json.loads(line) for line in capsys.readouterr().out.splitlines()]
+    assert [line['op'] for line in lines]==[event,'runtime_proof_response']
+    assert lines[0]['runtime_proof']['proof_generation']==1
+    assert lines[1]=={'op':'runtime_proof_response','event_op':event,'nonce':'a'*64,
+                      'runtime_proof':{'proof_generation':2}}
+    assert trace==['proof','read','proof','read','proof'] and result['op']==reply
+    assert ops.rpc_challenge_nonces=={'a'*64}
+
+
+@pytest.mark.parametrize('bad',['wrong-event','wrong-op','short-nonce','uppercase-nonce','extra-key','replayed-nonce','duplicate-challenge'])
+def test_sensitive_rpc_refuses_invalid_or_replayed_challenges(bad,monkeypatch,capsys):
+    m=module();ops,trace=rpc_operations_fixture(m)
+    challenge={'op':'runtime_proof_challenge','event_op':'browser_negative','nonce':'a'*64}
+    if bad=='wrong-event':challenge['event_op']='browser_positive'
+    elif bad=='wrong-op':challenge['op']='browser_negative_result'
+    elif bad=='short-nonce':challenge['nonce']='a'*63
+    elif bad=='uppercase-nonce':challenge['nonce']='A'*64
+    elif bad=='extra-key':challenge['token']='forbidden'
+    elif bad=='replayed-nonce':ops.rpc_challenge_nonces.add('a'*64)
+    replies=iter([challenge,dict(challenge)])
+    monkeypatch.setattr(m,'_read_rpc_json',lambda deadline:next(replies),raising=False)
+    with pytest.raises(m.RecoveryRefused):ops._rpc('browser_negative','browser_negative_result')
+    lines=[json.loads(line) for line in capsys.readouterr().out.splitlines()]
+    assert len(lines)==(2 if bad=='duplicate-challenge' else 1)
+
+
+def test_sensitive_rpc_consumes_event_before_uncertain_challenge_outcome(monkeypatch,capsys):
+    m=module();ops,trace=rpc_operations_fixture(m)
+    monkeypatch.setattr(m,'_read_rpc_json',lambda deadline:{'op':'runtime_proof_challenge','event_op':'purge_held','nonce':'b'*64},raising=False)
+    with pytest.raises(m.RecoveryRefused):ops._rpc('purge_held','permit_purge')
+    before=capsys.readouterr().out
+    with pytest.raises(m.RecoveryRefused):ops._rpc('purge_held','permit_purge')
+    assert capsys.readouterr().out=='' and before
+
+
+@pytest.mark.parametrize('failure',['expired-before-read','partial-line-deadline','oversized','duplicate-line','duplicate-key'])
+def test_rpc_reader_bounds_partial_lines_deadlines_and_duplicate_messages(failure,monkeypatch):
+    from types import SimpleNamespace
+    m=module();monkeypatch.setattr(m.sys,'stdin',SimpleNamespace(fileno=lambda:42))
+    chunks={'partial-line-deadline':[b'{'], 'oversized':[b'x'*65537],
+            'duplicate-line':[b'{}\n{}\n'],'duplicate-key':[b'{"op":"a","op":"b"}\n']}.get(failure,[])
+    moments=iter([0,0,2]) if failure=='partial-line-deadline' else None
+    monkeypatch.setattr(m.time,'monotonic',lambda:next(moments,2) if moments is not None else 2 if failure=='expired-before-read' else 0)
+    monkeypatch.setattr(m.select,'select',lambda *args:([42],[],[]))
+    monkeypatch.setattr(m.os,'read',lambda fd,count:chunks.pop(0))
+    with pytest.raises(m.RecoveryRefused):m._read_rpc_json(1)
+
+
+def test_rpc_reader_accepts_one_fragmented_strict_json_line(monkeypatch):
+    from types import SimpleNamespace
+    m=module();chunks=iter([b'{"op":',b'"expected"}',b'\n'])
+    monkeypatch.setattr(m.sys,'stdin',SimpleNamespace(fileno=lambda:42))
+    monkeypatch.setattr(m.time,'monotonic',lambda:0)
+    monkeypatch.setattr(m.select,'select',lambda *args:([42],[],[]))
+    monkeypatch.setattr(m.os,'read',lambda *args:next(chunks))
+    assert m._read_rpc_json(1)=={'op':'expected'}
+
+
+@pytest.mark.parametrize('phase',['proof-recomputation','normal-reply'])
+def test_sensitive_rpc_never_resets_deadline_after_challenge(phase,monkeypatch,capsys):
+    from types import SimpleNamespace
+    m=module();ops,trace=rpc_operations_fixture(m);clock=[0]
+    def proof():
+        trace.append('proof')
+        if phase=='proof-recomputation' and trace.count('proof')==2:clock[0]=181
+        return {'generation':trace.count('proof')}
+    ops.runtime=SimpleNamespace(proof=proof)
+    def read(deadline):
+        assert deadline==180
+        if trace.count('proof')==1:return {'op':'runtime_proof_challenge','event_op':'browser_start','nonce':'a'*64}
+        clock[0]=181
+        return {'op':'browser_start_result'}
+    monkeypatch.setattr(m.time,'monotonic',lambda:clock[0])
+    monkeypatch.setattr(m,'_read_rpc_json',read)
+    with pytest.raises(m.RecoveryRefused,match='PrivateRpcReplyTimeout'):ops._rpc('browser_start','browser_start_result')
+    lines=capsys.readouterr().out.splitlines()
+    assert len(lines)==(1 if phase=='proof-recomputation' else 2)

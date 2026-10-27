@@ -1266,6 +1266,33 @@ def _exact_keys(value, names):
     require(type(value) is dict and set(value) == set(names), 'PrivateRpcShapeInvalid')
 
 
+def _read_rpc_json(deadline):
+    """One bounded line; partial input cannot escape the monotonic deadline."""
+    data = bytearray()
+    descriptor = sys.stdin.fileno()
+    while True:
+        remaining = deadline - time.monotonic()
+        require(remaining > 0 and select.select([descriptor], [], [], remaining)[0], 'PrivateRpcReplyTimeout')
+        chunk = os.read(descriptor, min(4096, 65537 - len(data)))
+        require(chunk, 'PrivateRpcReplyMissing')
+        data.extend(chunk)
+        require(len(data) <= 65536, 'PrivateRpcReplyBoundExceeded')
+        require(time.monotonic() <= deadline, 'PrivateRpcReplyTimeout')
+        if b'\n' in data:
+            require(data.endswith(b'\n') and data.count(b'\n') == 1, 'PrivateRpcDuplicateLine')
+            break
+    def unique_keys(pairs):
+        value = dict(pairs)
+        require(len(value) == len(pairs), 'PrivateRpcDuplicateKey')
+        return value
+    try:
+        result = json.loads(data, object_pairs_hook=unique_keys)
+    except (ValueError, UnicodeError):
+        raise RecoveryRefused('PrivateRpcReplyMalformed') from None
+    require(type(result) is dict, 'PrivateRpcShapeInvalid')
+    return result
+
+
 class ServerBrowserProofGate:
     def __init__(self, binding):
         self.binding_sha256 = hashlib.sha256(json.dumps(binding, separators=(',', ':')).encode('ascii')).hexdigest()
@@ -1321,7 +1348,7 @@ class ServerBrowserProofGate:
         self.phase = 'closed'
 
 
-EXECUTOR_ROOT = Path('/root/keycloak-identity-recovery-20261027-executor-v2')
+EXECUTOR_ROOT = Path('/root/keycloak-identity-recovery-20261027-executor-v3')
 PILOT_HELPER_SHA256 = '7df5688f2c4de83cec4047c1788e56a8ccf1b84bd7297102545bea7bfa0a1cd8'
 
 
@@ -1348,6 +1375,7 @@ class QualificationOperations:
                             ('SSO_BOOTSTRAP_PASSWORD', 'SSO_LDAP_BIND_DN', 'SSO_LDAP_BIND_PASSWORD')}
         environment.clear()
         self.browser, self.master, self.token_proof, self.purge_result = None, None, None, None
+        self.rpc_challenge_nonces, self.rpc_challenged_events = set(), set()
         _write_private(self.receipts / 'qualification-begin.json', {
             'source_sha256': self.source_sha256, 'candidate_database': candidate,
             'candidate_oid': self.runtime.candidate_oid, 'original_current_drift_reviewed': False,
@@ -1382,19 +1410,34 @@ class QualificationOperations:
         return client
 
     def _rpc(self, operation, expected_reply, **fields):
+        sensitive = {'browser_start': 'browser_start_result', 'browser_positive': 'browser_positive_result',
+                     'purge_held': 'permit_purge', 'browser_negative': 'browser_negative_result'}
+        require((operation in sensitive and sensitive[operation] == expected_reply) or
+                (operation, expected_reply) == ('browser_close', 'browser_close_result'), 'PrivateRpcOperationInvalid')
+        deadline = time.monotonic() + 180
         request = dict(op=operation, **fields)
-        if operation in {'browser_start', 'browser_positive', 'purge_held', 'browser_negative'}:
+        if operation in sensitive:
+            require(operation not in self.rpc_challenged_events, 'PrivateRpcEventAlreadyConsumed')
+            self.rpc_challenged_events.add(operation)
             request['runtime_proof'] = self.runtime.proof()
         print(json.dumps(request, separators=(',', ':')), flush=True)
-        require(select.select([sys.stdin], [], [], 180)[0], 'PrivateRpcReplyTimeout')
-        line = sys.stdin.buffer.readline(65537)
-        require(line and len(line) <= 65536 and line.endswith(b'\n'), 'PrivateRpcReplyMissing')
-        try:
-            result = json.loads(line)
-        except (ValueError, UnicodeError):
-            raise RecoveryRefused('PrivateRpcReplyMalformed') from None
-        require(type(result) is dict and result.get('op') == expected_reply, 'PrivateRpcReplyOutOfOrder')
+        if operation in sensitive:
+            challenge = _read_rpc_json(deadline)
+            _exact_keys(challenge, ('op', 'event_op', 'nonce'))
+            nonce = challenge['nonce']
+            require(challenge['op'] == 'runtime_proof_challenge' and challenge['event_op'] == operation and
+                    type(nonce) is str and re.fullmatch(r'[0-9a-f]{64}', nonce) and
+                    nonce not in self.rpc_challenge_nonces, 'PrivateRpcChallengeInvalidOrReplayed')
+            # Consume before collection/output: uncertain outcomes cannot retry.
+            self.rpc_challenge_nonces.add(nonce)
+            fresh = self.runtime.proof()  # Causally AFTER the parent's nonce.
+            require(time.monotonic() <= deadline, 'PrivateRpcReplyTimeout')
+            print(json.dumps({'op': 'runtime_proof_response', 'event_op': operation,
+                              'nonce': nonce, 'runtime_proof': fresh}, separators=(',', ':')), flush=True)
+        result = _read_rpc_json(deadline)
+        require(result.get('op') == expected_reply, 'PrivateRpcReplyOutOfOrder')
         self.runtime.proof()  # Actual OS/JDBC/TLS binding revalidated on EVERY return.
+        require(time.monotonic() <= deadline, 'PrivateRpcReplyTimeout')
         return result
 
     def verify(self):
