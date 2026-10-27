@@ -34,7 +34,7 @@ switch command. Production application SSO activation is a separate gate.
 ## Private execution closure
 
 After independent source review, install the exact reviewed buffers exclusively
-under `/root/keycloak-identity-recovery-20261027-executor-v6` (root, mode 0700), with
+under `/root/keycloak-identity-recovery-20261027-executor-v7` (root, mode 0700), with
 `recover_pilot_identity.py` and the pinned `pilot_acceptance.py` root, mode 0600. Verify
 the complete physical ancestor chain and hashes before execution; never execute
 root source from an ordinary-user/PostgreSQL-writable staging directory. Preserve
@@ -48,15 +48,15 @@ and systemd exec time are different events and have no tolerance comparison.
 The server command has no secrets in argv:
 
 ```sh
-/usr/bin/python3 -I -u /root/keycloak-identity-recovery-20261027-executor-v6/recover_pilot_identity.py \
+/usr/bin/python3 -I -u /root/keycloak-identity-recovery-20261027-executor-v7/recover_pilot_identity.py \
   --qualify-private-candidate keycloak_recovery_20261027_55f72537 \
-  --pilot-helper /root/keycloak-identity-recovery-20261027-executor-v6/pilot_acceptance.py \
+  --pilot-helper /root/keycloak-identity-recovery-20261027-executor-v7/pilot_acceptance.py \
   --pilot-helper-sha256 7df5688f2c4de83cec4047c1788e56a8ccf1b84bd7297102545bea7bfa0a1cd8
 ```
 
 The candidate has its own physical data/home/temp directories and local cache
-under the new `/var/lib/keycloak-recovery-v6` root. The previous
-`/var/lib/keycloak-recovery` directory, retained v4/v5 trees and all prior journals
+under the new `/var/lib/keycloak-recovery-v7` root. The previous
+`/var/lib/keycloak-recovery` directory, retained v4/v5/v6 trees and all prior journals
 remain unchanged. Existing private processes in any of these roots refuse a
 new attempt; retained inactive files are not repaired or resumed.
 All three group-traversable directories (common root, candidate and TLS) use one
@@ -80,8 +80,8 @@ Its distribution is freshly extracted from the retained official archive at
 The optimized build runs only in this private tree, in a network namespace with
 an empty environment and a 1024 MiB heap. Runtime heap is 768 MiB with explicit
 private Java home/temp properties. Live `/opt/keycloak` is not copied or built.
-The candidate-specific v6 build recipe SHA256 is
-`62b4541c4052fdfc90a60e5087bbb20a40e8fa1fc55868b61a3955995f107fa1`.
+The candidate-specific v7 build recipe SHA256 is
+`76e3dfadb52c0b4a4041fc5e3d6fd19abc4e831508d7f88f9f91a7b765912a4a`.
 All outgoing provider/client/listener configuration is checked before session
 APIs; only the fixed read-only LDAPS pilot scope is permitted.
 
@@ -105,6 +105,38 @@ canonical service; stopped prior candidate sockets were not reconstructed, so
 their exact formatting is not retrospectively asserted. A source-pinned pure
 parser check against existing canonical sockets is a separate native preflight,
 with no bind, JVM launch or configuration change.
+
+The private runtime alone selects Narayana's supported `MBeanProcessId` using
+`-Dcom.arjuna.ats.internal.arjuna.utils.processImplementation=com.arjuna.ats.internal.arjuna.utils.MBeanProcessId`.
+The pinned chain is Keycloak 26.8.1 → Quarkus 3.40.1 → Narayana 7.3.4.Final.
+Its [property](https://github.com/jbosstm/narayana/blob/7.3.4.Final/ArjunaCore/arjuna/classes/com/arjuna/ats/arjuna/common/CoreEnvironmentBean.java)
+selects the [local RuntimeMXBean process-ID implementation](https://github.com/jbosstm/narayana/blob/7.3.4.Final/ArjunaCore/arjuna/classes/com/arjuna/ats/internal/arjuna/utils/MBeanProcessId.java).
+Before this runtime profile can be qualified, an independently reviewed native
+library-only probe must verify class selection, actual numeric PID compatibility
+and absence of added sockets on the pinned Java/JARs, in its own network namespace.
+That gate does not start Keycloak or access a database/configuration/secrets.
+The flag is absent from canonical production configuration and private build
+options. It changes process-ID selection only: transactions and the exact3TCP/
+zeroUDP guards remain enabled. No stopped candidate's previous socket is
+retrospectively attributed to this mechanism.
+
+The isolated library-only v3 gate passed on the pinned archive/JARs and Java.
+Final safe receipt:
+`C:/Temp/endpoint-sso-browser-20261027/recovery-plan/narayana-native-pid-probe/native-v3-final-safe-receipt.json`,
+SHA256 `b92554f29e20ac5bdb346315cc3a85051a1d0865dfa260896782345b08995154`.
+It binds the accepted transport receipt SHA256
+`2dacde912b02efda44a70649fc7338604809373b7b19c70684f1f2f01010be57`
+and reviewed source freeze
+`7b9b2679ce00ebba23d00fd82ca0f3869d83d576af4a9ea1bda59c7ef4b810d4`.
+Two fresh JVMs in a private network namespace with only loopback, sharing the
+host PID namespace, proved: default `SocketProcessId` added one owned loopback
+TCP listener from a zero-socket baseline, with UDP remaining zero; `MBeanProcessId`
+matched its OS PID and kept both TCP/UDP counts zero. All owned probe PIDs/groups
+were absent afterward, canonical services were unchanged and older failed-probe
+evidence was preserved. This qualifies the library mechanism only. Private
+Keycloak/cookie/token/identity qualification, semantic drift review and public
+promotion remain separate gates; previous candidate socket attribution remains
+unestablished.
 
 ## Memory-only RPC and cleanup
 
@@ -152,6 +184,13 @@ Failure evidence retains the triggering operation before cleanup and records
 cleanup phase separately. Only fixed exception-class names and explicitly
 whitelisted refusal codes may enter that journal; arbitrary exception arguments,
 HTTP bodies or strings are excluded. A failed cleanup still requires HOLD.
+Network refusals collect both owned TCP and UDP snapshots before asserting either
+condition, then keep distinct fixed refusal codes. An exclusive root-0600
+`private-runtime-network-refusal.json` records only source SHA, PID/start identity,
+TCP/UDP counts, at most 64 numeric ports per list, a truncation boolean and fixed
+endpoint-class counts. No raw addresses, process arguments or log lines are saved.
+Passing proofs never write this refusal receipt. A failed receipt write refuses
+the proof and stops the owned runtime; it does not waive the socket policy.
 Static AST coverage requires every fixed refusal reachable through startup,
 runtime proof, canonical/process helpers and the trusted runner to retain its
 exact safe diagnostic, including `ProcessIdentityUnavailable`. This changes

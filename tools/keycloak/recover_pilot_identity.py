@@ -47,6 +47,11 @@ FEDERATION_SHA256 = "5f90e84c415788da43c1b74a356f70d4a7b0979cbe798a35c97c9a1db89
 PILOT_GUID = "ee51f8b3-a7a8-4a69-808f-45adc6b35139"
 REALM_ID = "b3e36dfe-afda-48ea-a83a-bd2b28d924e5"
 SYSTEM_PATH = "/usr/sbin:/usr/bin:/sbin:/bin"
+# Narayana7.3.4.Final CoreEnvironmentBean @FullPropertyName; native library-only
+# proof is required before this private profile may be qualified.
+# https://github.com/jbosstm/narayana/blob/7.3.4.Final/ArjunaCore/arjuna/classes/com/arjuna/ats/arjuna/common/CoreEnvironmentBean.java
+PRIVATE_PROCESS_ID_PROPERTY = ('-Dcom.arjuna.ats.internal.arjuna.utils.processImplementation='
+                               'com.arjuna.ats.internal.arjuna.utils.MBeanProcessId')
 DISTRIBUTION_ARCHIVE = Path('/root/keycloak-input/keycloak-26.8.1.tar.gz')
 DISTRIBUTION_ARCHIVE_SHA256 = '4e2740b181faa2ea623a1c2ecf00855935311e546046e2f857615a47ed24cbe8'
 # Read-only information_schema inventory of this exact26.8.1/PG16 deployment.
@@ -302,7 +307,7 @@ def candidate_configuration(source, candidate, *, browser_tls=False):
     del values["proxy-trusted-addresses"]
     require(type(browser_tls) is bool, "InvalidBrowserTlsProfile")
     if browser_tls:
-        private = "/var/lib/keycloak-recovery-v6/" + candidate
+        private = "/var/lib/keycloak-recovery-v7/" + candidate
         values.update({"hostname": "https://sso.sosnadmin.local:18449", "https-port": "8449",
                        "https-certificate-file": private + "/tls/fullchain.pem",
                        "https-certificate-key-file": private + "/tls/key.pem",
@@ -313,7 +318,7 @@ def candidate_configuration(source, candidate, *, browser_tls=False):
 def runtime_recipe(candidate, *, browser_tls=False):
     """No shared mutable live tree or inherited KC/JAVA/secret environment."""
     _names(candidate)
-    private = "/var/lib/keycloak-recovery-v6/" + candidate
+    private = "/var/lib/keycloak-recovery-v7/" + candidate
     distribution = private + "/keycloak-26.8.1"
     result = {"directory": private, "distribution": distribution,
             "cache": "local", "http": "127.0.0.1:8089", "management": "127.0.0.1:9009",
@@ -321,7 +326,7 @@ def runtime_recipe(candidate, *, browser_tls=False):
             "argv": ["runuser", "-u", "keycloak", "--", "env", "-i",
                      "PATH=/usr/bin:/bin", "LANG=C.UTF-8", "HOME=" + private,
                      "TMPDIR=" + private + "/tmp", "JAVA_OPTS_KC_HEAP=-Xms128m -Xmx768m",
-                     "JAVA_OPTS_APPEND=-Djava.io.tmpdir=" + private + "/tmp -Duser.home=" + private + "/work",
+                     "JAVA_OPTS_APPEND=-Djava.io.tmpdir=" + private + "/tmp -Duser.home=" + private + "/work " + PRIVATE_PROCESS_ID_PROPERTY,
                      distribution + "/bin/kc.sh", "--config-file=" + private + "/candidate.conf",
                      "start", "--optimized"]}
     require(type(browser_tls) is bool, "InvalidBrowserTlsProfile")
@@ -427,7 +432,7 @@ def _stop_owned_build_group(process, prefix, forbidden, start):
 
 
 def _run_owned_private_group(argv, *, input_bytes, output, timeout, cwd, environment, prefix, forbidden, process_receipt=None):
-    require(re.fullmatch(r'/var/lib/keycloak-recovery-v6/keycloak_recovery_20261027_[0-9a-f]{8}', prefix),
+    require(re.fullmatch(r'/var/lib/keycloak-recovery-v7/keycloak_recovery_20261027_[0-9a-f]{8}', prefix),
             'PrivateBuildPrefixInvalid')
     process = subprocess.Popen(argv, stdin=subprocess.PIPE if input_bytes is not None else subprocess.DEVNULL,
                                stdout=output, stderr=subprocess.DEVNULL, cwd=cwd, env=environment,
@@ -671,7 +676,7 @@ def validate_archive_members(members):
 
 def private_build_recipe(candidate):
     _names(candidate)
-    private = '/var/lib/keycloak-recovery-v6/' + candidate
+    private = '/var/lib/keycloak-recovery-v7/' + candidate
     return {'archive_sha256': DISTRIBUTION_ARCHIVE_SHA256, 'network_namespace': True,
             'cwd': private + '/build-home',
             'argv': ['unshare', '--net', '--', 'env', '-i', 'PATH=/usr/bin:/bin', 'LANG=C.UTF-8',
@@ -713,6 +718,48 @@ def _exact_loopback_port(endpoint, expected_port=None):
             return None
         port = int(plain[1])
     return port if 1 <= port <= 65535 and (expected_port is None or port == expected_port) else None
+
+
+def _socket_summary(lines):
+    """Refusal evidence only: bounded numbers/fixed classes, never raw endpoints.
+
+    These classifications grant no socket permission; the exact3TCP/zeroUDP
+    policy is enforced separately and unchanged.
+    """
+    classes = dict.fromkeys(('ipv4_exact_loopback', 'ipv4_mapped_exact_loopback',
+                             'other_loopback', 'wildcard', 'non_loopback', 'unparseable'), 0)
+    ports = set()
+    for line in lines:
+        fields = line.split()
+        endpoint = fields[3] if len(fields) >= 5 else ''
+        host, separator, tail = endpoint.rpartition(':')
+        if separator and re.fullmatch(r'[1-9][0-9]{0,4}', tail) and int(tail) <= 65535:
+            ports.add(int(tail))
+        label = 'unparseable'
+        try:
+            if host == '*':
+                label = 'wildcard'
+            else:
+                if host.startswith('[') and host.endswith(']') and re.fullmatch(r'[0-9A-Fa-f:.]+', host[1:-1]):
+                    address = ipaddress.IPv6Address(host[1:-1])
+                else:
+                    address = ipaddress.IPv4Address(host)
+                mapped = address.ipv4_mapped if isinstance(address, ipaddress.IPv6Address) else None
+                if mapped == ipaddress.IPv4Address('127.0.0.1'):
+                    label = 'ipv4_mapped_exact_loopback'
+                elif address == ipaddress.IPv4Address('127.0.0.1'):
+                    label = 'ipv4_exact_loopback'
+                elif address.is_unspecified or mapped is not None and mapped.is_unspecified:
+                    label = 'wildcard'
+                elif address.is_loopback or mapped is not None and mapped.is_loopback:
+                    label = 'other_loopback'
+                else:
+                    label = 'non_loopback'
+        except ValueError:
+            pass
+        classes[label] += 1
+    return {'count': len(lines), 'ports': sorted(ports)[:64], 'endpoint_classes': classes,
+            'ports_truncated': len(ports) > 64}
 
 
 def canonical_java_from_metadata(main_pid, uid, approved_exe, records):
@@ -860,7 +907,7 @@ def _create_qualification_journal(evidence_root, candidate):
 def _private_candidate_processes(candidate):
     _names(candidate)
     prefixes = [('/var/lib/' + name + '/' + candidate).encode()
-                for name in ('keycloak-recovery', 'keycloak-recovery-v4', 'keycloak-recovery-v5', 'keycloak-recovery-v6')]
+                for name in ('keycloak-recovery', 'keycloak-recovery-v4', 'keycloak-recovery-v5', 'keycloak-recovery-v6', 'keycloak-recovery-v7')]
     found = []
     for entry in Path('/proc').iterdir():
         if not entry.name.isdigit() or int(entry.name) == os.getpid():
@@ -1146,9 +1193,21 @@ class PrivateCandidateRuntime:
             require(java_pid == self.java_pid and _pid_start(java_pid) == self.java_start_ticks,
                     'PrivateRuntimeJavaPidChanged')
         java_marker = 'pid=' + str(java_pid) + ','
-        require(len([line for line in lines if java_marker in line]) == 3 and
-                java_marker not in self.runner(['ss', '-Hlunp'], maximum_output=1024 * 1024).decode(),
-                'PrivateRuntimeUnexpectedClusterSocket')
+        tcp_lines = [line for line in lines if java_marker in line]
+        udp_snapshot = self.runner(['ss', '-Hlunp'], maximum_output=1024 * 1024).decode().splitlines()
+        udp_lines = [line for line in udp_snapshot if java_marker in line]
+        if len(tcp_lines) != 3 or udp_lines:
+            tcp, udp = _socket_summary(tcp_lines), _socket_summary(udp_lines)
+            _write_private(self.receipts / 'private-runtime-network-refusal.json', {
+                'schema': 'keycloak_private_socket_refusal_v1',
+                'source_sha256': hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
+                'pid': java_pid, 'start_ticks': _pid_start(java_pid),
+                'tcp_listener_count': tcp['count'], 'udp_listener_count': udp['count'],
+                'tcp_ports': tcp['ports'], 'udp_ports': udp['ports'],
+                'tcp_endpoint_classes': tcp['endpoint_classes'], 'udp_endpoint_classes': udp['endpoint_classes'],
+                'port_lists_truncated': tcp['ports_truncated'] or udp['ports_truncated']})
+        require(len(tcp_lines) == 3, 'PrivateRuntimeUnexpectedTcpListener')
+        require(not udp_lines, 'PrivateRuntimeUnexpectedUdpSocket')
         connections = self.runner(['ss', '-Hntp'], maximum_output=1024 * 1024).decode().splitlines()
         java_pg_ports = set()
         for line in connections:
@@ -1512,6 +1571,7 @@ SAFE_REFUSAL_CODES = frozenset({
     'PrivateRuntimeOutboundMetadataChanged', 'PrivateRuntimeProcessMissing', 'PrivateRuntimeProxyExposurePossible',
     'PrivateRuntimeSocketOwnerAmbiguous', 'PrivateRuntimeSocketPidMismatch', 'PrivateRuntimeTlsProofMissing',
     'PrivateRuntimeUnexpectedClusterSocket', 'ProcessIdentityUnavailable', 'RowDigestInvalid',
+    'PrivateRuntimeUnexpectedTcpListener', 'PrivateRuntimeUnexpectedUdpSocket',
     'RuntimeIsolationProofIncomplete', 'RuntimePidMismatch', 'RuntimeProofMissing',
     'RuntimeSocketIsolationMismatch', 'SchemaDigestInvalid', 'SchemaOrPermissionsDrift',
     'SequenceSetDrift', 'SequenceStateInvalid', 'SnapshotMalformed',
@@ -1533,7 +1593,7 @@ def _safe_error_metadata(error):
             'refusal_code': refusal}
 
 
-EXECUTOR_ROOT = Path('/root/keycloak-identity-recovery-20261027-executor-v6')
+EXECUTOR_ROOT = Path('/root/keycloak-identity-recovery-20261027-executor-v7')
 PILOT_HELPER_SHA256 = '7df5688f2c4de83cec4047c1788e56a8ccf1b84bd7297102545bea7bfa0a1cd8'
 
 
