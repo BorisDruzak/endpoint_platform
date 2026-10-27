@@ -1,6 +1,7 @@
 param(
     [Parameter(Mandatory = $true)]
-    [string] $OutputPath
+    [string] $OutputPath,
+    [string] $PythonExecutable = 'python'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -15,6 +16,12 @@ $releaseCommit = (git rev-parse --short=12 HEAD).Trim()
 if ($LASTEXITCODE -ne 0 -or $releaseCommit -notmatch '^[0-9a-f]{12}$') {
     throw 'Cannot resolve the release commit.'
 }
+$releaseEpoch = (git show -s --format=%ct HEAD).Trim()
+if ($LASTEXITCODE -ne 0 -or $releaseEpoch -notmatch '^\d+$') {
+    throw 'Cannot resolve the committed release timestamp.'
+}
+& $PythonExecutable -c "import sys; sys.exit(0 if sys.version_info[:2] == (3, 12) else 1)"
+if ($LASTEXITCODE -ne 0) { throw 'Server archive requires Python 3.12.' }
 
 Push-Location -LiteralPath (Join-Path $repositoryRoot 'webapp')
 try {
@@ -52,8 +59,12 @@ try {
     }
 
     $archive = [System.IO.Path]::GetFullPath($OutputPath)
-    tar -czf $archive -C $stageResolved "endpoint-platform-$releaseCommit"
-    if ($LASTEXITCODE -ne 0) { throw 'Final release archive failed.' }
+    $nativeTar = Join-Path $stageResolved 'native-server.tar'
+    tar -cf $nativeTar -C $stageResolved "endpoint-platform-$releaseCommit"
+    if ($LASTEXITCODE -ne 0) { throw 'Native server archive failed.' }
+    & $PythonExecutable (Join-Path $PSScriptRoot 'normalize_server_archive.py') `
+        --input $nativeTar --output $archive --root "endpoint-platform-$releaseCommit" --mtime $releaseEpoch
+    if ($LASTEXITCODE -ne 0) { throw 'Safe server archive normalization failed.' }
     Write-Output $archive
 }
 finally {

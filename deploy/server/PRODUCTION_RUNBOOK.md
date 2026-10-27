@@ -32,9 +32,19 @@ until the production preflight in the next section succeeds:
 ```powershell
 $releaseCommit = git rev-parse --short=12 HEAD
 $releaseArchive = Join-Path $env:TEMP "endpoint-platform-$releaseCommit.tar.gz"
-& tools/release/build_console_server_archive.ps1 -OutputPath $releaseArchive
+& tools/release/build_console_server_archive.ps1 -OutputPath $releaseArchive -PythonExecutable python
 tar -tzf $releaseArchive | Select-String 'webapp/dist/(index.html|assets/)'
 ```
+
+Use the repository-supported Python3.12 interpreter (or pass its absolute path
+as `-PythonExecutable`). The Windows native tar stages the source; the server-only
+`tools/release/normalize_server_archive.py` writer then preserves every regular
+payload byte and emits directories0755/files0644, uid/gid0 and root names.
+It uses the committed timestamp, sorted members and deterministic gzip metadata,
+rejects links/traversal/duplicate or foreign roots, and refuses an existing output.
+These rules do not modify Agent/native packages or older qualified server archives.
+Record the final archive SHA256, full member inventory and individual file digests
+before upload. Never replace an earlier qualified archive to correct its headers.
 
 ## 2. Re-check production conditions
 
@@ -117,18 +127,53 @@ Remove-Item -LiteralPath $releaseArchive
 ```bash
 release_commit="$(sudo cat /etc/endpoint-platform/release-commit)"
 release_dir="/opt/endpoint-platform/releases/endpoint-platform-${release_commit}"
-sudo tar -xzf "/tmp/endpoint-platform-${release_commit}.tar.gz" -C /opt/endpoint-platform/releases
-sudo rm -f "/tmp/endpoint-platform-${release_commit}.tar.gz"
+# Apply the protected extraction/closure gate below before creating any venv.
+# The uploaded archive and reviewed inventory are retained as evidence.
+sudo test -d "${release_dir}"
 sudo python3.12 -m venv "${release_dir}/venv"
 sudo "${release_dir}/venv/bin/pip" install --upgrade pip
 sudo "${release_dir}/venv/bin/pip" install -r "${release_dir}/requirements-server.txt"
-sudo chown -R root:root "${release_dir}"
 previous_release="$(sudo readlink -f /opt/endpoint-platform/current 2>/dev/null || true)"
 if [ -n "${previous_release}" ]; then
   printf '%s\n' "${previous_release}" | sudo install -o root -g root -m 0644 /dev/stdin /etc/endpoint-platform/previous-release
 fi
 sudo ln -sfn "${release_dir}" /opt/endpoint-platform/current
 ```
+
+The extraction/closure gate is mandatory for both initial installation and an
+upgrade. Run it before the venv command above; retain exclusive release control
+until the actual source and metadata have been verified. Use a NEW root0700
+operator directory under physical `/root` and exclusively create its root0700
+`unpack` child. Reject existing namespaces, symlinked ancestors, unexpected
+owners/modes/ACLs or an existing destination; do not adopt or recursively chown
+an existing tree. Verify the uploaded SHA256/size and reviewed member inventory.
+
+In that protected directory run root `umask 022`, then explicitly invoke GNU tar:
+
+```bash
+sudo sh -c 'umask 022; exec /usr/bin/tar --no-same-owner --no-same-permissions -xzf "$1" -C "$2"' \
+  sh /root/NEW-REVIEWED-RELEASE/archive.tar.gz /root/NEW-REVIEWED-RELEASE/unpack
+```
+
+Before ANY venv creation, pip command, import or selector change, compare the
+complete physical tree to the reviewed archive inventory: exact paths/counts,
+every regular file's size/SHA256 and bytes, directories0755/files0644, uid/gid0,
+no symlinks, special files, group/other writes, special bits or POSIX named/default
+ACL grants. Check every existing ancestor's physical ownership and permissions;
+the enclosing private operator/unpack directories must remain0700 throughout.
+Do not infer a safe result from `--no-same-owner`, root ownership, successful tar
+exit or a later recursive chown. Root tar otherwise preserves archived permissions.
+An old qualified archive with0666/0777 headers requires its own reviewed inventory
+and explicit safe extraction/verification; its original bytes stay immutable.
+
+Only after this full closure passes, require that private source and release
+parent share a filesystem and that the final version directory is absent. Move
+the verified root using `mv -T --no-clobber` to its fixed release destination.
+Record the prepared root's device/inode beforehand; require source absence and
+the identical destination device/inode afterward, then repeat the full closure.
+A skipped move, copy fallback or uncertain outcome is a stop, never adoption or
+blind retry. Only then run the existing venv/Settings/migration procedure. Keep
+the archive, member/digest manifest and both metadata checks with the release.
 
 Install the non-secret assets from the operator worktree. Enable the Nginx
 configuration symlink for validation only; Nginx remains stopped until the
@@ -276,8 +321,9 @@ df -h /
 ```
 
 Require at least 10 GiB free and verify the workstation and uploaded archive
-SHA-256 values match. Extract the archive to its immutable release directory,
-create its Python 3.12 venv, and install `requirements-server.txt` before
+SHA-256 values match. Apply section4's protected extraction/full closure gate
+to the immutable release directory BEFORE creating its Python3.12 venv or
+installing `requirements-server.txt`, and finish dependency/Settings validation before
 switching `current`. Do not copy credentials, CA files, or local build caches
 into the release directory. The archive contains the Console bundle, Setup
 release importer, Browser Sensor source and Browser Sensor release importer;
