@@ -718,6 +718,38 @@ def _canonical_java_reference(main_pid, uid):
     return canonical_java_from_metadata(main_pid, uid, approved, scoped)
 
 
+def _capture_canonical_reference(prepared, uid, *, runner):
+    """Compare systemd exec events exactly, then bind separate proc identities.
+
+    /proc start ticks describe process creation, while systemd's timestamp
+    describes exec start. Comparing their difference against a tick tolerance
+    cannot establish identity. Neither clock/event is converted here.
+    """
+    fields = {'MainPID', 'ExecMainStartTimestampMonotonic', 'ActiveState'}
+    require(type(prepared) is dict and set(prepared) == fields and
+            prepared.get('ActiveState') == 'active' and all(
+                type(prepared.get(key)) is str and prepared[key].isdigit() and int(prepared[key]) > 0
+                for key in ('MainPID', 'ExecMainStartTimestampMonotonic')), 'PreparedCanonicalServiceInvalid')
+    def verify_service():
+        output = runner(['systemctl', 'show', 'keycloak',
+                         '--property=MainPID,ExecMainStartTimestampMonotonic,ActiveState'], maximum_output=65536)
+        try:
+            rows = [line.split('=', 1) for line in output.decode().splitlines()]
+            require(len(rows) == len(fields) and all(len(row) == 2 for row in rows),
+                    'CanonicalServiceMetadataInvalid')
+            require(dict(rows) == prepared, 'CanonicalProcessChangedSincePrepare')
+        except UnicodeError:
+            raise RecoveryRefused('CanonicalServiceMetadataInvalid') from None
+    verify_service()
+    main_pid = int(prepared['MainPID'])
+    main_start = _pid_start(main_pid)
+    reference = _canonical_java_reference(main_pid, uid)
+    verify_service()
+    require(_pid_start(main_pid) == main_start and
+            _pid_start(reference['pid']) == reference['start_ticks'], 'CanonicalProcessChangedDuringProbe')
+    return main_pid, main_start, reference
+
+
 def _write_group_binary(path, data, group):
     _physical_root_path(path.parent)
     try:
@@ -758,15 +790,10 @@ class PrivateCandidateRuntime:
         validate_reviewed_drift(self.baseline, fresh, [])
         validate_identity(self.identity, collect_identity(candidate, runner=runner))
         self.outbound = collect_outbound_safety(candidate, runner=runner)
-        self.canonical_pid = int(prepare['services']['keycloak']['MainPID'])
-        expected_start = int(prepare['services']['keycloak']['ExecMainStartTimestampMonotonic'])
-        tick_usec = 1000000 / os.sysconf('SC_CLK_TCK')
-        self.canonical_main_start_ticks = _pid_start(self.canonical_pid)
-        require(abs(self.canonical_main_start_ticks * tick_usec - expected_start) <= tick_usec,
-                'CanonicalProcessChangedSincePrepare')
         self.keycloak = pwd.getpwnam('keycloak')
-        reference = _canonical_java_reference(self.canonical_pid, self.keycloak.pw_uid)
-        require(_pid_start(self.canonical_pid) == self.canonical_main_start_ticks, 'CanonicalMainPidChangedDuringProbe')
+        self.canonical_service_metadata = dict(prepare['services']['keycloak'])
+        self.canonical_pid, self.canonical_main_start_ticks, reference = _capture_canonical_reference(
+            self.canonical_service_metadata, self.keycloak.pw_uid, runner=runner)
         self.canonical_java_pid, self.canonical_exe = reference['pid'], reference['exe']
         self.canonical_java_start_ticks = reference['start_ticks']
         self.forbidden_group_ids = {os.getpgid(self.canonical_pid), os.getpgid(self.canonical_java_pid)}
@@ -782,6 +809,15 @@ class PrivateCandidateRuntime:
         self.java_pid = None
         self.java_start_ticks = None
         self.tls_verified = False
+
+    def verify_canonical_reference(self):
+        pid, start, java = _capture_canonical_reference(
+            self.canonical_service_metadata, self.keycloak.pw_uid, runner=self.runner)
+        require(pid == self.canonical_pid and start == self.canonical_main_start_ticks and
+                java['pid'] == self.canonical_java_pid and java['start_ticks'] == self.canonical_java_start_ticks and
+                java['exe'] == self.canonical_exe and
+                {os.getpgid(pid), os.getpgid(java['pid'])} == self.forbidden_group_ids,
+                'CanonicalProcessIdentityChanged')
 
     def copy_and_configure(self):
         # Independent public release anchor, never trust arbitrary live-tree
@@ -890,6 +926,7 @@ class PrivateCandidateRuntime:
             raise
 
     def _start_owned(self):
+        self.verify_canonical_reference()
         require(self.process is None and self.expected_tree is not None and self.config_sha256 is not None,
                 'PrivateRuntimeNotPrepared')
         for port in (8089, 9009, 8449):
@@ -1284,7 +1321,7 @@ class ServerBrowserProofGate:
         self.phase = 'closed'
 
 
-EXECUTOR_ROOT = Path('/root/keycloak-identity-recovery-20261027-executor')
+EXECUTOR_ROOT = Path('/root/keycloak-identity-recovery-20261027-executor-v2')
 PILOT_HELPER_SHA256 = '7df5688f2c4de83cec4047c1788e56a8ccf1b84bd7297102545bea7bfa0a1cd8'
 
 
@@ -1487,10 +1524,8 @@ class QualificationOperations:
         _write_private(self.receipts / 'candidate-final.json', final)
         _write_private(self.receipts / 'unreviewed-final-drift.json', drift)
         self.verify()
+        self.runtime.verify_canonical_reference()
         require(_pid_start(self.runtime.canonical_pid) == self.canonical_start, 'CanonicalServiceProcessChanged')
-        require(_pid_start(self.runtime.canonical_java_pid) == self.runtime.canonical_java_start_ticks and
-                {os.getpgid(self.runtime.canonical_pid), os.getpgid(self.runtime.canonical_java_pid)} ==
-                self.runtime.forbidden_group_ids, 'CanonicalJavaProcessChanged')
         self.result = {'schema': 'keycloak_private_qualification_result_v1', 'status': 'QualifiedUnreviewedDriftHold',
             'candidate_database': self.runtime.candidate, 'candidate_oid': self.runtime.candidate_oid,
             'source_sha256': self.source_sha256, 'private_receipt_directory': str(self.receipts),

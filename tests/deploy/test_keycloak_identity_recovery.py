@@ -777,3 +777,61 @@ def test_private_build_cleanup_owns_group_even_when_shell_has_exited(scenario,mo
         with pytest.raises(m.subprocess.TimeoutExpired):invoke()
     else:invoke()
     assert signals==[(40,m.signal.SIGTERM)] and not state['members']
+
+
+def test_canonical_capture_compares_identical_systemd_events_without_proc_clock_tolerance(monkeypatch):
+    m=module()
+    prepared={'MainPID':'312382','ExecMainStartTimestampMonotonic':'656005833129','ActiveState':'active'}
+    java={'pid':312467,'ppid':312382,'uid':999,'start_ticks':65600589,
+          'exe':'/usr/lib/jvm/java-21-openjdk-amd64/bin/java'}
+    calls=[]
+    def runner(argv,**kwargs):
+        calls.append(argv)
+        return ''.join(key+'='+value+'\n' for key,value in prepared.items()).encode()
+    monkeypatch.setattr(m,'_pid_start',lambda pid:65600582 if pid==312382 else 65600589)
+    monkeypatch.setattr(m,'_canonical_java_reference',lambda pid,uid:java)
+    # Actual native case: proc creation precedes systemd exec-start by13.129ms.
+    assert abs(65600582*10000-int(prepared['ExecMainStartTimestampMonotonic']))==13129
+    main_pid,start_ticks,actual_java=m._capture_canonical_reference(prepared,999,runner=runner)
+    assert (main_pid,start_ticks,actual_java)==(312382,65600582,java)
+    assert len(calls)==2 and all(call[:3]==['systemctl','show','keycloak'] for call in calls)
+
+
+@pytest.mark.parametrize('change',['first-pid','first-timestamp','first-active','second-pid','second-timestamp','second-active','main-tick','java-tick'])
+def test_canonical_capture_refuses_metadata_or_proc_identity_change(change,monkeypatch):
+    m=module()
+    prepared={'MainPID':'312382','ExecMainStartTimestampMonotonic':'656005833129','ActiveState':'active'}
+    java={'pid':312467,'ppid':312382,'uid':999,'start_ticks':65600589,
+          'exe':'/usr/lib/jvm/java-21-openjdk-amd64/bin/java'}
+    reads=[];tick_reads=[]
+    def runner(argv,**kwargs):
+        data=dict(prepared);reads.append(1)
+        if (change.startswith('first') and len(reads)==1) or (change.startswith('second') and len(reads)==2):
+            if change.endswith('pid'):data['MainPID']='312383'
+            elif change.endswith('active'):data['ActiveState']='inactive'
+            else:data['ExecMainStartTimestampMonotonic']='656005833130'
+        return ''.join(key+'='+value+'\n' for key,value in data.items()).encode()
+    def ticks(pid):
+        tick_reads.append(pid)
+        if pid==312467:return 65600590 if change=='java-tick' else 65600589
+        return 65600583 if change=='main-tick' and len(tick_reads)>1 else 65600582
+    monkeypatch.setattr(m,'_pid_start',ticks)
+    monkeypatch.setattr(m,'_canonical_java_reference',lambda pid,uid:java)
+    with pytest.raises(m.RecoveryRefused):m._capture_canonical_reference(prepared,999,runner=runner)
+
+
+@pytest.mark.parametrize('change',['none','main-start','java-start','group'])
+def test_canonical_runtime_recheck_preserves_exact_captured_identities(change,monkeypatch):
+    from types import SimpleNamespace
+    m=module();runtime=m.PrivateCandidateRuntime.__new__(m.PrivateCandidateRuntime)
+    runtime.canonical_pid=10;runtime.canonical_main_start_ticks=100
+    runtime.canonical_java_pid=11;runtime.canonical_java_start_ticks=101
+    runtime.canonical_exe='/usr/lib/jvm/java-21-openjdk-amd64/bin/java'
+    runtime.forbidden_group_ids={10};runtime.canonical_service_metadata={}
+    runtime.keycloak=SimpleNamespace(pw_uid=999);runtime.runner=lambda *args,**kwargs:None
+    java={'pid':11,'start_ticks':102 if change=='java-start' else 101,'exe':runtime.canonical_exe}
+    monkeypatch.setattr(m,'_capture_canonical_reference',lambda *args,**kwargs:(10,101 if change=='main-start' else 100,java))
+    monkeypatch.setattr(m.os,'getpgid',lambda pid:99 if change=='group' else 10,raising=False)
+    if change=='none':assert runtime.verify_canonical_reference() is None
+    else:
+        with pytest.raises(m.RecoveryRefused):runtime.verify_canonical_reference()
