@@ -33,44 +33,49 @@ switch command. Production application SSO activation is a separate gate.
 
 ## Private execution closure
 
-The failed v7 attempt modified its candidate
-`keycloak_recovery_20261027_55f72537` (OID20856). Preserve that entire database,
-its work tree and every journal as forensic history; never reuse it as pristine.
-One independently reviewed fresh prepare and metadata finish restored
-`keycloak_recovery_20261027_2190f3d5` (OID22159), with all101 original row
-multisets/schema/ACL/sequences and original subject/OTP exact. Its Stage1 evidence
-stays under `/var/backups/keycloak-recovery/keycloak_recovery_20261027_2190f3d5`.
-The v7-source `prepare-result.json` remains unchanged: its exact three
-`services.keycloak` fields and context/baseline/identity OID binding are compatible
-with v8. Preparation is accepted; this fresh candidate has not been privately
-qualified or approved for public promotion.
+The failed v7 attempt modified `keycloak_recovery_20261027_55f72537`
+(OID20856). The next independently reviewed fresh prepare restored
+`keycloak_recovery_20261027_2190f3d5` (OID22159) with all101 original row
+multisets/schema/ACL/sequences and original subject/OTP exact. Run7 then accepted
+real initial and SSO browser callbacks but failed at
+`purge_restored_sessions_master_last`, before `session-provenance-before.json`.
+Its old `UnclassifiedRefusal` does not identify the actual failing guard.
+Independent reconciliation confirmed the owned JVM stopped and private ports
+free; public services and the original subject/OTP stayed unchanged.
 
-After independent source review, install the exact reviewed buffers exclusively
-under `/root/keycloak-identity-recovery-20261027-executor-v8` (root, mode 0700), with
-`recover_pilot_identity.py` and the pinned `pilot_acceptance.py` root, mode 0600. Verify
-the complete physical ancestor chain and hashes before execution; never execute
-root source from an ordinary-user/PostgreSQL-writable staging directory. Preserve
-all prior source snapshots, forensic backups and failed-run receipts.
-Prior executor directories and their preflight receipts are retained; never
-overwrite them. Canonical process checks compare prepared/current
-systemd metadata exactly and separately bind unchanged `/proc` creation ticks,
-unique Java ancestry/UID/executable and protected process groups. Creation time
-and systemd exec time are different events and have no tolerance comparison.
+Both candidates are now modified forensic databases: OID20856 changed seven
+tables and OID22159 changed eight. Preserve both full101 snapshots, their
+immutable Stage1 evidence, all executors/work trees and every journal. Neither
+candidate is pristine or eligible for another qualification attempt. Preparation
+metadata was independently accepted; purge/revocation, semantic review and
+promotion remain incomplete. Do not rerun the historical v8 command against
+OID22159.
 
-The server command has no secrets in argv:
+The next source profile uses `/root/keycloak-identity-recovery-20261027-executor-v9`
+and `/var/lib/keycloak-recovery-v9`. It is source-only until its complete closure
+and a new uniquely prepared candidate are independently reviewed. Installation
+must create the executor exclusively (root0700), write exact verified recovery
+and pinned helper buffers (root0600), and verify the physical ancestor chain and
+hashes. Existing v1-v8 executors and work roots are never overwritten, resumed or
+repaired. Canonical process checks compare prepared/current systemd metadata
+exactly and separately bind unchanged `/proc` creation ticks, unique Java
+ancestry/UID/executable and protected process groups. Creation time and systemd
+exec time are different events and have no tolerance comparison.
 
-```sh
-/usr/bin/python3 -I -u /root/keycloak-identity-recovery-20261027-executor-v8/recover_pilot_identity.py \
-  --qualify-private-candidate keycloak_recovery_20261027_2190f3d5 \
-  --pilot-helper /root/keycloak-identity-recovery-20261027-executor-v8/pilot_acceptance.py \
-  --pilot-helper-sha256 7df5688f2c4de83cec4047c1788e56a8ccf1b84bd7297102545bea7bfa0a1cd8
-```
+Before another full qualification, the proposed bounded master-token diagnostic
+must receive a separate source/runtime review. It performs one master login,
+the boolean-only token witness, unchanged constructor and 45-second lifetime
+checks, one realm-list GET and one SID-bound read-only inventory, followed by
+owned cleanup. It has no browser, AD, user-identity API or purge path. Necessary
+internal read-only original-identity/OTP comparisons remain runtime preconditions.
+A successful probe would not prove revocation or promotion readiness. See
+[keycloak-recovery-purge-diagnostics.md](keycloak-recovery-purge-diagnostics.md).
 
-The candidate has its own physical data/home/temp directories and local cache
-under the new `/var/lib/keycloak-recovery-v8` root. The previous
-`/var/lib/keycloak-recovery` directory, retained v4/v5/v6/v7 trees and all prior journals
-remain unchanged. Matching candidate processes in any of these roots refuse a
-new attempt; retained inactive files are not repaired or resumed.
+Any future candidate has its own physical data/home/temp directories and local
+cache under the new v9 root. The previous `/var/lib/keycloak-recovery` directory,
+retained v4-v8 trees and all prior journals remain unchanged. Matching candidate
+processes in any historical root refuse a new attempt; retained inactive files
+are not repaired or resumed.
 All three group-traversable directories (common root, candidate and TLS) use one
 exclusive creation primitive: create 0700 relative to a protected parent FD,
 open without following links, validate root ownership/inode, then set group and
@@ -92,10 +97,11 @@ Its distribution is freshly extracted from the retained official archive at
 The optimized build runs only in this private tree, in a network namespace with
 an empty environment and a 1024 MiB heap. Runtime heap is 768 MiB with explicit
 private Java home/temp properties. Live `/opt/keycloak` is not copied or built.
-The candidate-specific v8 build recipe SHA256 for `2190f3d5` is
+The historical candidate-specific v8 build recipe SHA256 for `2190f3d5` was
 `d7f14b6e2481692ef26ab3b7b58cc976e506186fa4020b6c7e9eb3934998b2e5`.
-The parent bridge/transport must independently pin this actual candidate/OID,
-recipe and new executor source before any separately approved qualification.
+That historical recipe is consumed evidence, not a reusable runtime approval.
+Any future probe or qualification must independently pin its new candidate/OID,
+recipe and exact executor source before execution.
 All outgoing provider/client/listener configuration is checked before session
 APIs; only the fixed read-only LDAPS pilot scope is permitted.
 
