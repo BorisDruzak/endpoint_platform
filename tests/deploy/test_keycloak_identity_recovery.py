@@ -108,6 +108,7 @@ def test_identity_gate_requires_original_exact_otp_and_provider_guid_and_no_othe
         "created_timestamp": 1793048930752,
         "federation_link_sha256": m.FEDERATION_SHA256,
         "ldap_guid": m.PILOT_GUID,
+        "ldap_id_count": 1,
         "credentials": [{"type": "otp", "created_date": 1793051223562,
                          "row_sha256": digest("otp-exact-original-row")}],
         "realm_user_count": 1, "enabled": True,
@@ -115,6 +116,7 @@ def test_identity_gate_requires_original_exact_otp_and_provider_guid_and_no_othe
     m.validate_identity(evidence, evidence)
     for key, value in [("user_id_sha256", m.REIMPORTED_SUBJECT_SHA256),
                        ("ldap_guid", "00000000-0000-0000-0000-000000000000"),
+                       ("ldap_id_count", 2),
                        ("realm_user_count", 2), ("credentials", [])]:
         bad = copy.deepcopy(evidence)
         bad[key] = value
@@ -163,7 +165,7 @@ def test_malformed_credential_evidence_fails_with_fixed_diagnostic(credentials):
     evidence = {"user_id_sha256": m.ORIGINAL_SUBJECT_SHA256,
                 "created_timestamp": 1793048930752,
                 "federation_link_sha256": m.FEDERATION_SHA256,
-                "ldap_guid": m.PILOT_GUID, "realm_user_count": 1,
+                "ldap_guid": m.PILOT_GUID, "ldap_id_count": 1, "realm_user_count": 1,
                 "enabled": True, "credentials": credentials}
     with pytest.raises(m.RecoveryRefused) as caught:
         m.validate_identity(evidence, evidence)
@@ -182,11 +184,13 @@ def test_purge_outbound_effects_require_all_realm_absence_proof():
     m = module()
     safe = {"admin_url_count": 0, "backchannel_url_count": 0,
             "event_listeners": ["jboss-logging"], "identity_provider_count": 0,
-            "smtp_entry_count": 0, "custom_provider_artifact_count": 0}
+            "smtp_entry_count": 0, "custom_provider_artifact_count": 0,
+            "storage_provider_count":1,"ldap_configuration_safe":True}
     m.validate_outbound_safety(safe)
     for key in safe:
         bad = copy.deepcopy(safe)
-        bad[key] = ["custom-http-webhook"] if key == "event_listeners" else 1
+        bad[key] = (["custom-http-webhook"] if key == "event_listeners" else
+                    2 if key=='storage_provider_count' else False if key=='ldap_configuration_safe' else 1)
         with pytest.raises(m.RecoveryRefused):
             m.validate_outbound_safety(bad)
 
@@ -256,6 +260,7 @@ def test_isolated_launch_recipe_has_separate_tree_environment_ports_and_no_secre
     assert command[-4].startswith("/var/lib/keycloak-recovery/")
     assert not any("/opt/keycloak" in arg for arg in command)
     assert any("JAVA_OPTS_KC_HEAP=-Xms128m -Xmx768m" == arg for arg in command)
+    assert any('-Duser.home=/var/lib/keycloak-recovery/keycloak_recovery_20261027_abcdef12/work' in arg for arg in command)
     assert recipe["http"] == "127.0.0.1:8089" and recipe["management"] == "127.0.0.1:9009"
     assert recipe["shared_mutable_paths"] == [] and recipe["cache"] == "local"
 
@@ -277,6 +282,23 @@ def test_candidate_api_rejects_unproven_pid_database_or_external_socket_before_t
         bad[key] = value
         with pytest.raises(m.RecoveryRefused):
             m.validate_runtime_proof(bad)
+
+
+def test_browser_tls_profile_is_fixed_private_and_never_uses_a_validation_bypass():
+    m = module()
+    source = (ROOT / "deploy/keycloak/keycloak.conf").read_text(encoding="utf-8") + "\ndb-password=sentinel-secret-not-argv\n"
+    candidate = "keycloak_recovery_20261027_abcdef12"
+    result = m.candidate_configuration(source, candidate, browser_tls=True)
+    values = dict(line.split("=", 1) for line in result.splitlines() if line)
+    assert values["hostname"] == "https://sso.sosnadmin.local:18449"
+    assert values["https-port"] == "8449" and values["http-management-scheme"] == "http"
+    assert values["https-certificate-key-file"] == "/var/lib/keycloak-recovery/" + candidate + "/tls/key.pem"
+    assert values["https-certificate-file"] == "/var/lib/keycloak-recovery/" + candidate + "/tls/fullchain.pem"
+    assert values["http-host"] == "127.0.0.1"
+    recipe = m.runtime_recipe(candidate, browser_tls=True)
+    assert recipe["https"] == "127.0.0.1:8449"
+    assert recipe["browser_origin"] == "https://sso.sosnadmin.local:18449"
+    assert recipe["browser_network_permission"] == "ExactCandidateOriginAndInterceptedCallbacksOnly"
 
 
 def test_qualification_orchestrator_repairs_retention_before_any_pilot_lookup_and_stops_owned_runtime():
@@ -358,16 +380,32 @@ def test_session_purge_is_bounded_offline_first_and_master_last_without_user_que
             return {"notBefore": 100}
     client = Client()
     inventory = {"realms": ["master", "sosnadmin"], "maximum_restored_token_iat": 50,
+                 "realm_not_before":{"master":0,"sosnadmin":0},
                  "offline_sessions": [{"realm": "master", "id": "00000000-0000-0000-0000-000000000001"},
                                       {"realm": "sosnadmin", "id": "00000000-0000-0000-0000-000000000002"}]}
     result = m.purge_sessions(client, inventory)
     assert result["offline_deleted"] == 2 and result["master_logout_last"] is True
     assert client.calls[0][0] == "DELETE"
     assert client.calls[-1] == ("POST", "/admin/realms/master/logout-all", None)
+    nonmaster = "/admin/realms/sosnadmin"
+    # logout-all itself raises NB to currentTime; never PUT a lower cutoff after.
+    assert client.calls.index(("PUT", nonmaster, {"notBefore": 100})) < client.calls.index(("POST", nonmaster + "/logout-all", None))
     assert all("/users" not in path for _, path, _ in client.calls)
     master_start = next(i for i, (_, path, _) in enumerate(client.calls) if path.startswith("/admin/realms/master"))
     assert all(not path.startswith("/admin/realms/sosnadmin") for _, path, _ in client.calls[master_start:])
     assert client.not_before_payloads == {"master": 100, "sosnadmin": 100}
+
+
+def test_identity_sql_emits_only_expected_metadata_and_server_side_otp_digest():
+    m = module()
+    sql = m.identity_sql()
+    assert sql.startswith("BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY;")
+    assert "ssopilot-20261027" in sql and m.REALM_ID in sql
+    assert "to_jsonb(credential_row)::text" in sql
+    assert "sha256" in sql and "credentials" in sql
+    assert "secret_data" not in sql and "credential_data" not in sql
+    assert "LDAP_ID" in sql and m.PILOT_GUID in sql
+    assert "'ldap_id_count'" in sql
 
 
 @pytest.mark.parametrize("unsafe", ["newer-token", "unknown-realm", "path-injection", "too-many"])
@@ -376,7 +414,8 @@ def test_session_purge_refuses_unsafe_inventory_before_any_api_write(unsafe):
     class Client:
         admin_iat = 100
         def request(self, *args, **kwargs): raise AssertionError("No API call permitted")
-    inventory = {"realms": ["master", "sosnadmin"], "maximum_restored_token_iat": 50, "offline_sessions": []}
+    inventory = {"realms": ["master", "sosnadmin"], "maximum_restored_token_iat": 50, "offline_sessions": [],
+                 "realm_not_before":{"master":0,"sosnadmin":0}}
     if unsafe == "newer-token": inventory["maximum_restored_token_iat"] = 100
     elif unsafe == "unknown-realm": inventory["realms"].append("unexpected")
     elif unsafe == "path-injection": inventory["offline_sessions"] = [{"realm": "master", "id": "../users/admin"}]
@@ -445,3 +484,296 @@ def test_actual_restore_adapter_refuses_existing_database_without_write_or_clean
     with pytest.raises(m.RecoveryRefused, match="CandidateDatabaseAlreadyExists"):
         ops.restore()
     assert len(calls) == 1
+
+
+def session_client_fixture():
+    import base64
+    payload = base64.urlsafe_b64encode(json.dumps({"iat": 100,"exp":400,
+        "sid":"00000000-0000-0000-0000-000000000099",
+        "iss":"https://sso.sosnadmin.local:18449/realms/master","azp":"admin-cli"}).encode()).decode().rstrip("=")
+    proof = {"candidate_database": "keycloak_recovery_20261027_abcdef12", "pid": 1234,
+             "canonical_pid": 9876, "uid_matches_keycloak": True,
+             "http_listener": "127.0.0.1:8089", "management_listener": "127.0.0.1:9009",
+             "socket_pids": [1234], "configuration_sha256_matches": True,
+             "private_distribution_sha256_matches": True, "private_data_tmp_logs": True,
+             "jdbc_session_database_matches": True, "no_jgroups_sockets": True, "no_proxy_routes": True}
+    return "header." + payload + ".signature", proof
+
+
+def test_candidate_session_transport_pins_receiver_and_consumes_exact_write_once():
+    m = module()
+    token, proof = session_client_fixture()
+    calls, checks = [], []
+    def verifier(): checks.append(1); return proof
+    def transport(request): calls.append(request); return {"notBefore": 100}
+    client = m.CandidateSessionClient(token, runtime_verifier=verifier, transport=transport)
+    client.not_before_payloads = {"sosnadmin": 100}
+    client.request("PUT", "/admin/realms/sosnadmin", payload={"notBefore": 100})
+    assert len(calls) == 1 and len(checks) >= 2
+    assert calls[0].full_url == "http://127.0.0.1:8089/admin/realms/sosnadmin"
+    assert calls[0].get_header("Authorization") == "Bearer " + token
+    assert json.loads(calls[0].data) == {"notBefore": 100}
+    for method, path, payload in [("PUT", "/admin/realms/sosnadmin", {"notBefore": 100}),
+                                   ("GET", "/admin/realms/sosnadmin/users", None),
+                                   ("POST", "/admin/realms/master/logout-all", None),
+                                   ("PUT", "/admin/realms/master", {"notBefore": 100, "enabled": False})]:
+        with pytest.raises(m.RecoveryRefused): client.request(method, path, payload=payload)
+    assert len(calls) == 1
+
+
+def test_candidate_session_transport_rechecks_live_pid_before_every_request():
+    m = module()
+    token, proof = session_client_fixture()
+    calls = []
+    client = m.CandidateSessionClient(token, runtime_verifier=lambda: proof,
+                                      transport=lambda request: calls.append(request))
+    proof["socket_pids"] = [9876]
+    with pytest.raises(m.RecoveryRefused):
+        client.request("GET", "/admin/realms/master")
+    assert calls == []
+
+
+def test_candidate_session_transport_cannot_expand_writes_by_guard_set_poisoning():
+    m = module()
+    token, proof = session_client_fixture()
+    calls = []
+    client = m.CandidateSessionClient(token, runtime_verifier=lambda: proof,
+                                      transport=lambda request: calls.append(request))
+    dangerous = "/admin/realms/sosnadmin/users/00000000-0000-0000-0000-000000000001"
+    client.session_delete_paths = {dangerous}
+    client.logout_paths = {dangerous}
+    for method in ["DELETE", "POST"]:
+        with pytest.raises(m.RecoveryRefused): client.request(method, dangerous)
+    assert calls == []
+
+
+@pytest.mark.parametrize("cutoff", [0, -1, 101, True, 100.0])
+def test_candidate_session_transport_not_before_is_immutable_token_iat(cutoff):
+    m = module()
+    token, proof = session_client_fixture()
+    calls = []
+    client = m.CandidateSessionClient(token, runtime_verifier=lambda: proof,
+                                      transport=lambda request: calls.append(request))
+    client.not_before_payloads = {"master": cutoff}
+    with pytest.raises(m.RecoveryRefused): client.request("PUT", "/admin/realms/master", payload={"notBefore": cutoff})
+    assert calls == []
+
+
+def test_distribution_closure_rejects_live_data_escape_and_custom_plugins():
+    m = module()
+    manifest = {"bin/kc.sh": {"kind": "file", "sha256": digest("script"), "mode": 0o755, "uid": 0},
+                "lib/runtime.jar": {"kind": "file", "sha256": digest("jar"), "mode": 0o644, "uid": 0},
+                "data": {"kind": "symlink", "target": "/var/lib/keycloak", "uid": 0}}
+    assert m.validate_distribution_manifest(manifest, live_source=True)["binary_files"] == 2
+    for change in ("symlink", "plugin", "writable", "foreign"):
+        bad = copy.deepcopy(manifest)
+        if change == "symlink": bad["lib/escape"] = {"kind": "symlink", "target": "/etc", "uid": 0}
+        elif change == "plugin": bad["providers/webhook.jar"] = {"kind": "file", "sha256": digest("custom"), "mode": 0o644, "uid": 0}
+        elif change == "writable": bad["bin/kc.sh"]["mode"] = 0o777
+        else: bad["lib/runtime.jar"]["uid"] = 1000
+        with pytest.raises(m.RecoveryRefused): m.validate_distribution_manifest(bad, live_source=True)
+    with pytest.raises(m.RecoveryRefused): m.validate_distribution_manifest(manifest, live_source=False)
+    missing_data = copy.deepcopy(manifest)
+    del missing_data["data"]
+    with pytest.raises(m.RecoveryRefused): m.validate_distribution_manifest(missing_data, live_source=True)
+
+
+def test_private_runtime_stop_never_targets_canonical_pid_or_uses_service_manager():
+    m = module()
+    runtime = m.PrivateCandidateRuntime.__new__(m.PrivateCandidateRuntime)
+    runtime.process = None
+    assert runtime.stop() == {"owned_candidate_stopped": True, "never_started": True}
+    source = (ROOT / "tools/keycloak/recover_pilot_identity.py").read_text(encoding="utf-8")
+    import ast
+    tree = ast.parse(source)
+    runtime_class = next(node for node in tree.body if isinstance(node, ast.ClassDef) and node.name == "PrivateCandidateRuntime")
+    assert "systemctl" not in ast.unparse(runtime_class)
+    assert "pkill" not in ast.unparse(runtime_class)
+    assert "pg_terminate_backend" not in ast.unparse(runtime_class)
+
+
+@pytest.mark.parametrize("failure", ["canonical-pid", "pid-reuse", "foreign-pgid-member"])
+def test_actual_runtime_stop_guard_rejects_signal_for_uncertain_process(failure, monkeypatch):
+    from types import SimpleNamespace
+    m = module()
+    runtime = m.PrivateCandidateRuntime.__new__(m.PrivateCandidateRuntime)
+    runtime.process = SimpleNamespace(pid=40, poll=lambda:None)
+    runtime.process_start = 123
+    runtime.canonical_pid = 40 if failure == "canonical-pid" else 90
+    runtime.private = Path('/var/lib/keycloak-recovery/keycloak_recovery_20261027_abcdef12')
+    runtime.keycloak = SimpleNamespace(pw_uid=1000)
+    runtime.output = None
+    monkeypatch.setattr(m, '_pid_start', lambda pid:999 if failure == 'pid-reuse' else 123)
+    class Node:
+        name='55'
+        def stat(self): return SimpleNamespace(st_uid=1000)
+        def __truediv__(self, name): return self
+        def read_text(self): return '55 (unrelated) S ' + '1 ' * 30
+        def read_bytes(self): return b'/usr/bin/unrelated'
+    monkeypatch.setattr(m, 'Path', lambda value:SimpleNamespace(iterdir=lambda:[Node()]))
+    monkeypatch.setattr(m.os, 'getpgid', lambda pid:40, raising=False)
+    signals=[]
+    monkeypatch.setattr(m.os, 'killpg', lambda *args:signals.append(args), raising=False)
+    with pytest.raises(m.RecoveryRefused): runtime.stop()
+    assert signals == []
+
+
+def test_actual_runtime_partial_start_failure_cleans_only_owned_runtime(monkeypatch):
+    m = module()
+    runtime = m.PrivateCandidateRuntime.__new__(m.PrivateCandidateRuntime)
+    calls=[]
+    def partial(): calls.append('own-process-started'); raise m.RecoveryRefused('InjectedReadinessFailure')
+    monkeypatch.setattr(runtime,'_start_owned',partial,raising=False)
+    monkeypatch.setattr(runtime,'stop',lambda:calls.append('own-stop'))
+    with pytest.raises(m.RecoveryRefused,match='InjectedReadinessFailure'): runtime.start()
+    assert calls == ['own-process-started','own-stop']
+
+
+def test_outbound_metadata_sql_is_all_realms_and_never_emits_url_values():
+    m = module()
+    sql = m.outbound_safety_sql()
+    assert sql.startswith("BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY;")
+    assert "management_url" in sql and "backchannel" in sql
+    assert "realm_events_listeners" in sql and "realm_smtp_config" in sql
+    assert "identity_provider" in sql and "max_diff_lifespan" not in sql
+    assert "'admin_url_count'" in sql and "'backchannel_url_count'" in sql
+
+
+def test_fresh_private_distribution_is_anchored_to_independent_release_archive():
+    m = module()
+    release = json.loads((ROOT/'deploy/keycloak/release.json').read_text())
+    assert m.DISTRIBUTION_ARCHIVE_SHA256 == release['sha256']
+    assert m.DISTRIBUTION_ARCHIVE == Path('/root/keycloak-input/keycloak-26.8.1.tar.gz')
+    import ast
+    tree = ast.parse((ROOT/'tools/keycloak/recover_pilot_identity.py').read_text())
+    klass = next(node for node in tree.body if isinstance(node,ast.ClassDef) and node.name=='PrivateCandidateRuntime')
+    preparation = next(node for node in klass.body if isinstance(node,ast.FunctionDef) and node.name=='copy_and_configure')
+    text = ast.unparse(preparation)
+    assert 'DISTRIBUTION_ARCHIVE_SHA256' in text and 'extractall' in text
+    assert 'copytree' not in text and '/opt/keycloak' not in text
+
+
+def test_private_archive_rejects_paths_links_devices_and_decompression_bombs():
+    import tarfile
+    m = module()
+    good=tarfile.TarInfo('keycloak-26.8.1/bin/kc.sh');good.size=10
+    assert m.validate_archive_members([good])['files']==1
+    for name,kind,size in [('keycloak-26.8.1/../../escape',tarfile.REGTYPE,1),
+                           ('/absolute',tarfile.REGTYPE,1),('wrong-version/bin/kc.sh',tarfile.REGTYPE,1),
+                           ('keycloak-26.8.1/data',tarfile.SYMTYPE,1),
+                           ('keycloak-26.8.1/hard',tarfile.LNKTYPE,1),
+                           ('keycloak-26.8.1/device',tarfile.CHRTYPE,1),
+                           ('keycloak-26.8.1/bomb',tarfile.REGTYPE,2*1024**3)]:
+        entry=tarfile.TarInfo(name);entry.type=kind;entry.size=size
+        with pytest.raises(m.RecoveryRefused):m.validate_archive_members([entry])
+
+
+def test_private_build_has_no_network_shared_home_or_inherited_environment():
+    m = module()
+    recipe=m.private_build_recipe('keycloak_recovery_20261027_abcdef12')
+    assert recipe['argv'][:5]==['unshare','--net','--','env','-i']
+    assert recipe['argv'][-5:]==['build','--db=postgres','--health-enabled=true','--metrics-enabled=false','--cache=local']
+    assert all('/opt/keycloak' not in arg for arg in recipe['argv'])
+    assert any(arg.startswith('HOME=/var/lib/keycloak-recovery/') for arg in recipe['argv'])
+    assert any(arg.startswith('JAVA_OPTS_KC_HEAP=-Xms128m -Xmx1024m') for arg in recipe['argv'])
+
+
+def test_session_provenance_excludes_only_fresh_master_sid_and_emits_no_tokens():
+    m = module()
+    sid='00000000-0000-0000-0000-000000000099'
+    sql=m.session_inventory_sql(sid)
+    assert sql.startswith('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY;')
+    assert "offline_flag='1'" in sql and "user_session_id<>'"+sid+"'" in sql
+    assert 'fresh_master_session_count' in sql and 'maximum_restored_token_iat' in sql
+    assert 'last_session_refresh' in sql and 'created_on' in sql
+    assert 'data' not in sql.replace('database','')
+    with pytest.raises(m.RecoveryRefused):m.session_inventory_sql("../users/arbitrary")
+
+
+def test_poststop_proof_rejects_any_persistent_auth_or_online_offline_session():
+    m = module()
+    good={'offline_user_session':0,'offline_client_session':0,'auth_session':0,'root_auth_session':0,
+          'realm_not_before':{'master':100,'sosnadmin':101}}
+    m.validate_poststop_sessions(good,100)
+    for table in ['offline_user_session','offline_client_session','auth_session','root_auth_session']:
+        bad=dict(good,**{table:1})
+        with pytest.raises(m.RecoveryRefused):m.validate_poststop_sessions(bad,100)
+    with pytest.raises(m.RecoveryRefused):m.validate_poststop_sessions(dict(good,realm_not_before={'master':99,'sosnadmin':100}),100)
+
+
+def test_server_browser_provenance_gate_requires_same_context_and_cookie_without_otp():
+    m=module(); binding={'candidate_database':'keycloak_recovery_20261027_abcdef12','candidate_oid':20856,
+        'pid':1234,'config_sha256':digest('conf'),'source_sha256':digest('source')}
+    gate=m.ServerBrowserProofGate(binding)
+    ready={'stage':'browser_ready','context_id':'00000000-0000-0000-0000-000000000001',
+           'binding_sha256':gate.binding_sha256,'all_callbacks_intercepted':True,'strict_tls':True,
+           'http_default_deny':True,'websocket_default_deny':True}
+    gate.started(ready)
+    def proof(first,before,after):return {'stage':'callback','context_id':ready['context_id'],
+        'code_present':True,'state_matches':True,'callback_matches':True,'error_present':False,
+        'password_prompts':int(first),'otp_prompts':0,'cookie_fingerprint_sha256':after,
+        'identity_cookie_present':True,'cookies_secure':True,'cookie_count':2,
+        'cookie_before_sha256':before,'blocked_egress':0}
+    initial=proof(True,digest('empty'),digest('initial'));sso=proof(False,digest('initial'),digest('sso'))
+    bad=copy.deepcopy(sso);bad['cookie_before_sha256']=digest('other')
+    with pytest.raises(m.RecoveryRefused):gate.positive(initial,bad)
+    gate.positive(initial,sso)
+    negative={'stage':'password_required','context_id':ready['context_id'],'cookie_before_sha256':digest('sso'),
+        'password_prompts':0,'otp_prompts':0,'callback_absent':True,'blocked_egress':0}
+    bad=dict(negative,otp_prompts=1)
+    with pytest.raises(m.RecoveryRefused):gate.negative(bad)
+    gate.negative(negative)
+    gate.closed({'stage':'closed'})
+    assert gate.phase=='closed'
+
+
+def test_canonical_java_reference_follows_wrapper_ancestry_not_systemd_main_exe():
+    m=module();exe='/usr/lib/jvm/java-21-openjdk-amd64/bin/java'
+    records=[{'pid':10,'ppid':1,'uid':988,'exe':'/usr/bin/dash','start_ticks':100},
+             {'pid':11,'ppid':10,'uid':988,'exe':exe,'start_ticks':101}]
+    assert m.canonical_java_from_metadata(10,988,exe,records)==records[1]
+    for failure in ['zero','multiple','foreign-uid','non-descendant']:
+        bad=copy.deepcopy(records)
+        if failure=='zero':bad.pop()
+        elif failure=='multiple':bad.append(dict(records[1],pid=12))
+        elif failure=='foreign-uid':bad[1]['uid']=999
+        else:bad[1]['ppid']=999
+        with pytest.raises(m.RecoveryRefused):m.canonical_java_from_metadata(10,988,exe,bad)
+
+
+def test_owned_stop_forbids_canonical_java_pid_and_both_canonical_groups(monkeypatch):
+    from types import SimpleNamespace
+    m=module();runtime=m.PrivateCandidateRuntime.__new__(m.PrivateCandidateRuntime)
+    runtime.process=SimpleNamespace(pid=40,poll=lambda:None);runtime.process_start=123
+    runtime.canonical_pid=90;runtime.canonical_java_pid=91;runtime.forbidden_group_ids={40,91}
+    monkeypatch.setattr(m,'_pid_start',lambda pid:123)
+    signals=[];monkeypatch.setattr(m.os,'killpg',lambda *args:signals.append(args),raising=False)
+    with pytest.raises(m.RecoveryRefused):runtime.stop()
+    assert signals==[]
+
+
+@pytest.mark.parametrize('scenario',['timeout','wrapper-exited-child-alive'])
+def test_private_build_cleanup_owns_group_even_when_shell_has_exited(scenario,monkeypatch):
+    import io
+    m=module();state={'alive':True,'members':True};signals=[]
+    class Process:
+        pid=40;returncode=None
+        def poll(self):return None if state['alive'] else self.returncode
+        def communicate(self,input=None,timeout=None):
+            if scenario=='timeout':raise m.subprocess.TimeoutExpired('private-build',timeout)
+            state['alive']=False;self.returncode=1
+        def wait(self,timeout=None):state['alive']=False;self.returncode=-15;return self.returncode
+    process=Process()
+    monkeypatch.setattr(m.subprocess,'Popen',lambda *args,**kwargs:process)
+    monkeypatch.setattr(m,'_pid_start',lambda pid:123)
+    monkeypatch.setattr(m,'_owned_build_members',lambda group,prefix:[41] if state['members'] else [],raising=False)
+    monkeypatch.setattr(m.os,'getpgrp',lambda:99,raising=False)
+    monkeypatch.setattr(m.os,'getpgid',lambda pid:40,raising=False)
+    def signal_group(group,number):signals.append((group,number));state['members']=False
+    monkeypatch.setattr(m.os,'killpg',signal_group,raising=False)
+    invoke=lambda:m._run_owned_private_group(['private-build'],input_bytes=None,output=io.BytesIO(),timeout=1,
+        cwd=None,environment={},prefix='/var/lib/keycloak-recovery/keycloak_recovery_20261027_abcdef12',forbidden={90,91})
+    if scenario=='timeout':
+        with pytest.raises(m.subprocess.TimeoutExpired):invoke()
+    else:invoke()
+    assert signals==[(40,m.signal.SIGTERM)] and not state['members']

@@ -1,8 +1,9 @@
-"""Plan identity recovery; explicit prepare restores ONLY an exclusive candidate.
+"""Plan, restore and privately qualify the fixed synthetic pilot identity.
 
 Full-database recovery is required to preserve the original Keycloak UUID and
-OTP bytes. Never write user/credential rows or reenrol OTP. There is no live
-switch/JVM/API command until the isolated harness and evidence are reviewed.
+OTP bytes. Never write user/credential rows or reenrol OTP. Explicit private
+qualification is reviewed separately and cannot promote a candidate: there is
+no canonical database/service switch command.
 
 Pinned primary references (Context7 quota unavailable):
 https://www.postgresql.org/docs/16/sql-alterdatabase.html
@@ -13,17 +14,26 @@ https://github.com/keycloak/keycloak/blob/26.8.1/services/src/main/java/org/keyc
 from __future__ import annotations
 
 import argparse
+import base64
 from collections import Counter
 import hashlib
+import io
+import importlib.util
 import json
 import os
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import re
 import secrets
+import select
+import signal
 import stat
 import subprocess
 import sys
 import tempfile
+import tarfile
+import time
+import urllib.error
+import urllib.request
 import uuid
 
 
@@ -36,6 +46,8 @@ FEDERATION_SHA256 = "5f90e84c415788da43c1b74a356f70d4a7b0979cbe798a35c97c9a1db89
 PILOT_GUID = "ee51f8b3-a7a8-4a69-808f-45adc6b35139"
 REALM_ID = "b3e36dfe-afda-48ea-a83a-bd2b28d924e5"
 SYSTEM_PATH = "/usr/sbin:/usr/bin:/sbin:/bin"
+DISTRIBUTION_ARCHIVE = Path('/root/keycloak-input/keycloak-26.8.1.tar.gz')
+DISTRIBUTION_ARCHIVE_SHA256 = '4e2740b181faa2ea623a1c2ecf00855935311e546046e2f857615a47ed24cbe8'
 # Read-only information_schema inventory of this exact26.8.1/PG16 deployment.
 # Cardinality alone cannot prove coverage; a replaced credential table must fail.
 TABLE_MANIFEST = tuple("""
@@ -160,17 +172,24 @@ def validate_reviewed_drift(before, after, reviewed_changes):
     require(compare_snapshots(before, after) == reviewed_changes, "UnreviewedDatabaseDrift")
 
 
-def validate_outbound_safety(evidence):
+def validate_outbound_metadata(evidence):
     """Loopback/cache isolation alone does not prevent backchannel HTTP effects.
 
     Full restored ALL-realm inventory plus pinned distribution/provider closure
     must establish absence before logout/session DELETE APIs; no blanket bypass.
     """
     require(isinstance(evidence, dict), "OutboundEvidenceMissing")
-    for key in ("admin_url_count", "backchannel_url_count", "identity_provider_count",
-                "smtp_entry_count", "custom_provider_artifact_count"):
+    for key in ("admin_url_count", "backchannel_url_count", "identity_provider_count", "smtp_entry_count"):
         require(type(evidence.get(key)) is int and evidence[key] == 0, "CandidateOutboundEffectPossible")
     require(evidence.get("event_listeners") == ["jboss-logging"], "CandidateCustomListenerPossible")
+    require(type(evidence.get('storage_provider_count')) is int and evidence['storage_provider_count'] == 1 and
+            evidence.get('ldap_configuration_safe') is True, 'CandidateLdapScopeOrScheduledSyncUnsafe')
+
+
+def validate_outbound_safety(evidence):
+    validate_outbound_metadata(evidence)
+    require(type(evidence.get('custom_provider_artifact_count')) is int and
+            evidence['custom_provider_artifact_count'] == 0, 'CustomProviderClosureRequired')
 
 
 def inventory_sql():
@@ -234,7 +253,7 @@ SELECT jsonb_build_object(
  'tables',""" + " || ".join(chunks) + ");\nCOMMIT;\n"
 
 
-def candidate_configuration(source, candidate):
+def candidate_configuration(source, candidate, *, browser_tls=False):
     """Derive private config only from exact reviewed production fields.
 
     Secret-bearing returned bytes must go root:keycloak0640 in the private
@@ -269,23 +288,35 @@ def candidate_configuration(source, candidate):
                    "log": "console", "http-access-log-enabled": "false"})
     del values["proxy-headers"]
     del values["proxy-trusted-addresses"]
+    require(type(browser_tls) is bool, "InvalidBrowserTlsProfile")
+    if browser_tls:
+        private = "/var/lib/keycloak-recovery/" + candidate
+        values.update({"hostname": "https://sso.sosnadmin.local:18449", "https-port": "8449",
+                       "https-certificate-file": private + "/tls/fullchain.pem",
+                       "https-certificate-key-file": private + "/tls/key.pem",
+                       "http-management-scheme": "http"})
     return "".join(key + "=" + value + "\n" for key, value in values.items())
 
 
-def runtime_recipe(candidate):
+def runtime_recipe(candidate, *, browser_tls=False):
     """No shared mutable live tree or inherited KC/JAVA/secret environment."""
     _names(candidate)
     private = "/var/lib/keycloak-recovery/" + candidate
     distribution = private + "/keycloak-26.8.1"
-    return {"directory": private, "distribution": distribution,
+    result = {"directory": private, "distribution": distribution,
             "cache": "local", "http": "127.0.0.1:8089", "management": "127.0.0.1:9009",
             "shared_mutable_paths": [],
             "argv": ["runuser", "-u", "keycloak", "--", "env", "-i",
                      "PATH=/usr/bin:/bin", "LANG=C.UTF-8", "HOME=" + private,
                      "TMPDIR=" + private + "/tmp", "JAVA_OPTS_KC_HEAP=-Xms128m -Xmx768m",
-                     "JAVA_OPTS_APPEND=-Djava.io.tmpdir=" + private + "/tmp",
+                     "JAVA_OPTS_APPEND=-Djava.io.tmpdir=" + private + "/tmp -Duser.home=" + private + "/work",
                      distribution + "/bin/kc.sh", "--config-file=" + private + "/candidate.conf",
                      "start", "--optimized"]}
+    require(type(browser_tls) is bool, "InvalidBrowserTlsProfile")
+    if browser_tls:
+        result.update(https="127.0.0.1:8449", browser_origin="https://sso.sosnadmin.local:18449",
+                      browser_network_permission="ExactCandidateOriginAndInterceptedCallbacksOnly")
+    return result
 
 
 def validate_runtime_proof(proof):
@@ -321,6 +352,7 @@ def qualify_candidate(operations):
             "verify_original_pilot_and_otp",
             "apply_reviewed_audience_and_basic_scope_repairs",
             "verify_all_realm_no_outbound_effects",
+            "prove_browser_cookie_before_purge",
             "purge_restored_sessions_master_last",
             "verify_stale_cookie_and_token_rejected",
         ):
@@ -338,7 +370,75 @@ def qualify_candidate(operations):
             "operations": list(results), "live_service_changed": False}
 
 
-def _run_private(argv, *, input_bytes=None, maximum_output=32 * 1024 * 1024, timeout=45):
+def _owned_build_members(group, prefix):
+    members = []
+    for entry in Path('/proc').iterdir():
+        if not entry.name.isdigit():
+            continue
+        try:
+            pid = int(entry.name)
+            if os.getpgid(pid) != group:
+                continue
+            if (entry / 'stat').read_text().rpartition(')')[2].split()[0] == 'Z':
+                continue
+            require(entry.stat().st_uid == 0 and prefix.encode() in (entry / 'cmdline').read_bytes(),
+                    'PrivateBuildCleanupHold')
+            members.append(pid)
+        except (FileNotFoundError, ProcessLookupError):
+            continue
+    return members
+
+
+def _stop_owned_build_group(process, prefix, forbidden, start):
+    require(process.pid not in set(forbidden) | {os.getpgrp()}, 'PrivateBuildCleanupHold')
+    members = _owned_build_members(process.pid, prefix)
+    if not members:
+        process.wait(timeout=5)
+        return
+    if process.poll() is None:
+        try:
+            require(start is not None and _pid_start(process.pid) == start and os.getpgid(process.pid) == process.pid,
+                    'PrivateBuildCleanupHold')
+        except (ProcessLookupError, FileNotFoundError):
+            pass
+    os.killpg(process.pid, signal.SIGTERM)
+    deadline = time.monotonic() + 5
+    while time.monotonic() < deadline and _owned_build_members(process.pid, prefix):
+        time.sleep(0.1)
+    if _owned_build_members(process.pid, prefix):
+        os.killpg(process.pid, signal.SIGKILL)
+    process.wait(timeout=5)
+    deadline = time.monotonic() + 2
+    while time.monotonic() < deadline and _owned_build_members(process.pid, prefix):
+        time.sleep(0.1)
+    require(not _owned_build_members(process.pid, prefix), 'PrivateBuildCleanupHold')
+
+
+def _run_owned_private_group(argv, *, input_bytes, output, timeout, cwd, environment, prefix, forbidden, process_receipt=None):
+    require(re.fullmatch(r'/var/lib/keycloak-recovery/keycloak_recovery_20261027_[0-9a-f]{8}', prefix),
+            'PrivateBuildPrefixInvalid')
+    process = subprocess.Popen(argv, stdin=subprocess.PIPE if input_bytes is not None else subprocess.DEVNULL,
+                               stdout=output, stderr=subprocess.DEVNULL, cwd=cwd, env=environment,
+                               start_new_session=True)
+    start = None
+    try:
+        if process.poll() is None:
+            start = _pid_start(process.pid)
+        if process_receipt is not None:
+            _write_private(process_receipt, {'pid': process.pid, 'pgid': process.pid, 'start_ticks': start,
+                'private_prefix': prefix, 'forbidden_groups': sorted(forbidden),
+                'argv_sha256': hashlib.sha256(json.dumps(argv, separators=(',', ':')).encode()).hexdigest()})
+        process.communicate(input=input_bytes, timeout=timeout)
+        return process
+    finally:
+        try:
+            _stop_owned_build_group(process, prefix, forbidden, start)
+        except BaseException:
+            raise RecoveryRefused('PrivateBuildCleanupHold') from None
+
+
+def _run_private(argv, *, input_bytes=None, maximum_output=32 * 1024 * 1024, timeout=45, cwd=None,
+                 owned_group_prefix=None, forbidden_group_ids=(), process_receipt=None):
     """No shell, inherited credentials, child stderr or unbounded stdout in memory."""
     require(sys.platform == "linux" and os.geteuid() == 0, "ApprovedLinuxRootRequired")
     try:
@@ -346,8 +446,14 @@ def _run_private(argv, *, input_bytes=None, maximum_output=32 * 1024 * 1024, tim
                               timeout=5, env={"PATH": SYSTEM_PATH})
         require(b"192.168.100.19" in host.stdout.split(), "ApprovedHostRequired")
         with tempfile.TemporaryFile() as output:
-            result = subprocess.run(argv, input=input_bytes, stdout=output, stderr=subprocess.DEVNULL,
-                                    timeout=timeout, check=False, env={"PATH": SYSTEM_PATH, "LANG": "C.UTF-8"})
+            environment = {"PATH": SYSTEM_PATH, "LANG": "C.UTF-8"}
+            if owned_group_prefix is not None:
+                result = _run_owned_private_group(argv, input_bytes=input_bytes, output=output, timeout=timeout,
+                    cwd=cwd, environment=environment, prefix=owned_group_prefix, forbidden=forbidden_group_ids,
+                    process_receipt=process_receipt)
+            else:
+                result = subprocess.run(argv, input=input_bytes, stdout=output, stderr=subprocess.DEVNULL,
+                                        timeout=timeout, check=False, cwd=cwd, env=environment)
             require(result.returncode == 0, "PrivateCommandFailed")
             require(output.tell() <= maximum_output, "PrivateCommandOutputBoundExceeded")
             output.seek(0)
@@ -375,6 +481,562 @@ def collect_inventory(database, *, runner=_run_private):
     return snapshot
 
 
+class _CandidateNoRedirects(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        raise RecoveryRefused("CandidateRedirectProhibited")
+
+
+class CandidateSessionClient:
+    """Exact one-shot session API scope, fresh PID/DB/socket proof each request.
+
+    No password/user/client/credential methods. Caller supplies a fresh master
+    token from the separately reviewed pilot helper after candidate isolation.
+    This transport is used only by the explicit private qualification command.
+    """
+    def __init__(self, token, *, runtime_verifier, transport=None):
+        require(callable(runtime_verifier), "RuntimeVerifierRequired")
+        validate_runtime_proof(runtime_verifier())
+        require(isinstance(token, str) and len(token) <= 16384 and
+                re.fullmatch(r"[A-Za-z0-9_\-]+\.[A-Za-z0-9_\-]+\.[A-Za-z0-9_\-]+", token),
+                "CandidateTokenMalformed")
+        try:
+            payload = token.split(".")[1]
+            claims = json.loads(base64.urlsafe_b64decode(payload + "=" * (-len(payload) % 4)))
+            issued = claims["iat"]
+            require(type(issued) is int and issued > 0, "CandidateTokenIatInvalid")
+            expires = claims['exp']
+            require(type(expires) is int and expires > issued and
+                    claims.get('iss') == 'https://sso.sosnadmin.local:18449/realms/master' and
+                    claims.get('azp') == 'admin-cli', 'CandidateTokenProvenanceInvalid')
+            session_id = str(uuid.UUID(claims['sid']))
+            require(session_id == claims['sid'], 'CandidateTokenSidInvalid')
+        except (ValueError, TypeError, KeyError, UnicodeError):
+            raise RecoveryRefused("CandidateTokenMalformed") from None
+        self.token, self._admin_iat = token, issued
+        self.expires_at, self.session_id = expires, session_id
+        self.runtime_verifier = runtime_verifier
+        self.not_before_payloads = {}
+        self.session_delete_paths = set()
+        self.logout_paths = set()
+        self.requests = 0
+        self.opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), _CandidateNoRedirects())
+        self.transport = transport or self._send
+
+    @property
+    def admin_iat(self):
+        return self._admin_iat
+
+    def _send(self, request):
+        try:
+            with self.opener.open(request, timeout=10) as response:
+                body = response.read(2 * 1024 * 1024 + 1)
+                require(len(body) <= 2 * 1024 * 1024, "CandidateResponseBoundExceeded")
+                return json.loads(body) if body else None
+        except urllib.error.HTTPError as error:
+            raise RecoveryRefused("CandidateHTTP" + str(error.code)) from None
+        except (urllib.error.URLError, TimeoutError, ValueError, UnicodeError):
+            raise RecoveryRefused("CandidateRequestFailed") from None
+
+    def request(self, method, path, *, payload=None):
+        read = method == "GET" and payload is None and path in {
+            "/admin/realms", "/admin/realms/master", "/admin/realms/sosnadmin"}
+        realm = next((name for name in ("master", "sosnadmin") if path == "/admin/realms/" + name), None)
+        before = (method == "PUT" and realm in self.not_before_payloads and
+                  type(self.not_before_payloads[realm]) is int and self.not_before_payloads[realm] == self.admin_iat and
+                  isinstance(payload, dict) and set(payload) == {'notBefore'} and
+                  type(payload['notBefore']) is int and payload['notBefore'] == self.admin_iat and self.admin_iat > 0)
+        delete = (method == "DELETE" and payload is None and path in self.session_delete_paths and
+                  re.fullmatch(r"/admin/realms/(master|sosnadmin)/sessions/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\?isOffline=true", path))
+        logout = (method == "POST" and payload is None and path in self.logout_paths and
+                  path in {"/admin/realms/master/logout-all", "/admin/realms/sosnadmin/logout-all"})
+        require(read or before or delete or logout, "CandidateMutationProhibited")
+        validate_runtime_proof(self.runtime_verifier())
+        self.requests += 1
+        require(self.requests <= 128, "CandidateRequestBudgetExceeded")
+        # Consume BEFORE network: uncertain outcomes cannot be blindly replayed.
+        if before:
+            del self.not_before_payloads[realm]
+        if delete:
+            self.session_delete_paths.remove(path)
+        if logout:
+            self.logout_paths.remove(path)
+        headers = {"Accept": "application/json", "Authorization": "Bearer " + self.token}
+        data = None
+        if payload is not None:
+            headers["Content-Type"] = "application/json"
+            data = json.dumps(payload).encode()
+        request = urllib.request.Request("http://127.0.0.1:8089" + path, method=method, data=data, headers=headers)
+        return self.transport(request)
+
+
+def validate_distribution_manifest(manifest, *, live_source):
+    require(isinstance(manifest, dict) and 1 <= len(manifest) <= 10000, "DistributionManifestInvalid")
+    if live_source:
+        require(manifest.get('data', {}).get('kind') == 'symlink' and
+                manifest['data'].get('target') == '/var/lib/keycloak', 'LiveDataLinkContractMismatch')
+    files = {}
+    for relative, entry in manifest.items():
+        require(isinstance(relative, str) and relative and not relative.startswith('/') and
+                all(piece not in {'', '.', '..'} for piece in relative.split('/')) and isinstance(entry, dict),
+                "DistributionPathInvalid")
+        require(entry.get("uid") == 0, "DistributionForeignOwner")
+        if entry.get("kind") == "symlink":
+            require(live_source is True and relative == "data" and entry.get("target") == "/var/lib/keycloak",
+                    "DistributionLinkEscape")
+            continue
+        require(entry.get("kind") in {"file", "directory"} and type(entry.get("mode")) is int and
+                not entry["mode"] & 0o022, "DistributionWritableOrSpecial")
+        if entry["kind"] == "file":
+            require(is_hash(entry.get("sha256")), "DistributionFileDigestInvalid")
+            require(not relative.startswith("providers/") or relative == "providers/README.md",
+                    "CustomOutboundProviderProhibited")
+            files[relative] = {"sha256": entry["sha256"], "mode": entry["mode"]}
+    require("bin/kc.sh" in files, "DistributionLauncherMissing")
+    digest = hashlib.sha256(json.dumps(files, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
+    return {"sha256": digest, "binary_files": len(files), "custom_provider_artifact_count": 0}
+
+
+def distribution_inventory(root, *, live_source):
+    _physical_root_path(root)
+    if live_source:
+        # Fail BEFORE walking any unexpectedly physical live data directory.
+        data_metadata = (root / 'data').lstat()
+        require(stat.S_ISLNK(data_metadata.st_mode) and data_metadata.st_uid == 0 and
+                os.readlink(root / 'data') == '/var/lib/keycloak', 'LiveDataLinkContractMismatch')
+    manifest = {}
+    for directory, dirs, files in os.walk(root, followlinks=False):
+        dirs.sort()
+        files.sort()
+        for name in dirs + files:
+            path = Path(directory) / name
+            relative = path.relative_to(root).as_posix()
+            metadata = path.lstat()
+            if relative == "data" and not live_source:
+                # Physical private data is verified separately and never read
+                # into the immutable distribution closure.
+                require(stat.S_ISDIR(metadata.st_mode) and not stat.S_ISLNK(metadata.st_mode),
+                        "PrivateDataMustBePhysical")
+                dirs.remove("data")
+                continue
+            entry = {"uid": metadata.st_uid, "mode": stat.S_IMODE(metadata.st_mode)}
+            if stat.S_ISLNK(metadata.st_mode):
+                entry.update(kind="symlink", target=os.readlink(path))
+                if name in dirs:
+                    dirs.remove(name)
+            elif stat.S_ISDIR(metadata.st_mode):
+                entry["kind"] = "directory"
+            elif stat.S_ISREG(metadata.st_mode):
+                require(metadata.st_size <= 256 * 1024 * 1024, "DistributionFileBoundExceeded")
+                entry.update(kind="file", sha256=hashlib.sha256(path.read_bytes()).hexdigest())
+            else:
+                raise RecoveryRefused("DistributionSpecialFile")
+            manifest[relative] = entry
+            require(len(manifest) <= 10000, "DistributionInventoryBoundExceeded")
+    return validate_distribution_manifest(manifest, live_source=live_source)
+
+
+def validate_archive_members(members):
+    require(isinstance(members, list) and 1 <= len(members) <= 20000, 'DistributionArchiveBoundExceeded')
+    names, total, files = set(), 0, 0
+    for member in members:
+        path = PurePosixPath(member.name)
+        require(not path.is_absolute() and path.parts and path.parts[0] == 'keycloak-26.8.1' and
+                '..' not in path.parts and '\\' not in member.name and path.as_posix() not in names and
+                (member.isfile() or member.isdir()) and type(member.size) is int and
+                0 <= member.size <= 256 * 1024**2, 'UnsafeDistributionArchiveMember')
+        names.add(path.as_posix())
+        total += member.size
+        files += int(member.isfile())
+    require(total <= 1024**3 and files > 0, 'DistributionArchiveBoundExceeded')
+    return {'files': files, 'uncompressed_bytes': total}
+
+
+def private_build_recipe(candidate):
+    _names(candidate)
+    private = '/var/lib/keycloak-recovery/' + candidate
+    return {'archive_sha256': DISTRIBUTION_ARCHIVE_SHA256, 'network_namespace': True,
+            'cwd': private + '/build-home',
+            'argv': ['unshare', '--net', '--', 'env', '-i', 'PATH=/usr/bin:/bin', 'LANG=C.UTF-8',
+                     'HOME=' + private + '/build-home', 'TMPDIR=' + private + '/build-tmp',
+                     'JAVA_OPTS_KC_HEAP=-Xms128m -Xmx1024m',
+                     'JAVA_OPTS_APPEND=-Djava.io.tmpdir=' + private + '/build-tmp -Duser.home=' + private + '/build-home',
+                     private + '/keycloak-26.8.1/bin/kc.sh', 'build', '--db=postgres', '--health-enabled=true',
+                     '--metrics-enabled=false', '--cache=local']}
+
+
+def _pid_start(pid):
+    try:
+        fields = Path('/proc/' + str(pid) + '/stat').read_text().rpartition(')')[2].split()
+        return int(fields[19])
+    except (OSError, ValueError, IndexError):
+        raise RecoveryRefused("ProcessIdentityUnavailable") from None
+
+
+def canonical_java_from_metadata(main_pid, uid, approved_exe, records):
+    require(isinstance(records, list) and 1 <= len(records) <= 10000, 'CanonicalProcessMetadataInvalid')
+    by_pid = {item['pid']: item for item in records}
+    require(len(by_pid) == len(records) and main_pid in by_pid and by_pid[main_pid]['uid'] == uid,
+            'CanonicalMainProcessMismatch')
+    descendants = {main_pid}
+    while True:
+        expanded = descendants | {item['pid'] for item in records if item['ppid'] in descendants}
+        if expanded == descendants:
+            break
+        descendants = expanded
+    java = [item for item in records if item['pid'] in descendants and item.get('exe') == approved_exe]
+    require(len(java) == 1 and java[0]['uid'] == uid and type(java[0]['start_ticks']) is int and
+            java[0]['start_ticks'] > 0, 'CanonicalJavaDescendantNotUnique')
+    return java[0]
+
+
+def _canonical_java_reference(main_pid, uid):
+    records = []
+    for entry in Path('/proc').iterdir():
+        if not entry.name.isdigit():
+            continue
+        try:
+            fields = (entry / 'stat').read_text().rpartition(')')[2].split()
+            records.append({'pid': int(entry.name), 'ppid': int(fields[1]),
+                            'uid': entry.stat().st_uid, 'start_ticks': int(fields[19])})
+        except (OSError, ValueError, IndexError):
+            continue
+    descendants = {main_pid}
+    while True:
+        expanded = descendants | {item['pid'] for item in records if item['ppid'] in descendants}
+        if expanded == descendants:
+            break
+        descendants = expanded
+    scoped = [item for item in records if item['pid'] in descendants]
+    for item in scoped:
+        try:
+            item['exe'] = os.readlink('/proc/' + str(item['pid']) + '/exe')
+        except OSError:
+            item['exe'] = None
+    approved = str(Path('/usr/bin/java').resolve())
+    require(approved == '/usr/lib/jvm/java-21-openjdk-amd64/bin/java', 'ApprovedJava21Required')
+    _physical_root_path(Path(approved))
+    return canonical_java_from_metadata(main_pid, uid, approved, scoped)
+
+
+def _write_group_binary(path, data, group):
+    _physical_root_path(path.parent)
+    try:
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o640)
+        with os.fdopen(fd, 'wb') as stream:
+            os.fchown(stream.fileno(), 0, group)
+            os.fchmod(stream.fileno(), 0o640)
+            stream.write(data)
+            stream.flush()
+            os.fsync(stream.fileno())
+    except OSError:
+        raise RecoveryRefused("PrivateRuntimeInputWriteFailed") from None
+
+
+class PrivateCandidateRuntime:
+    """Concrete private JVM lifecycle; never manages canonical service/DB names.
+
+    All mutable paths/cache/ports are separate. The private qualification command
+    uses this lifecycle only after independent review; no live tree is copied,
+    no data link is followed and no database can be promoted by this class.
+    """
+    def __init__(self, candidate, *, runner=_run_private):
+        import pwd
+        self.runner = runner
+        self.runner(['true'], maximum_output=0)
+        _names(candidate)
+        self.candidate = candidate
+        self.receipts = Path('/var/backups/keycloak-recovery') / candidate
+        context = json.loads(_private_bytes(self.receipts / 'context.json').decode())
+        prepare = json.loads(_private_bytes(self.receipts / 'prepare-result.json').decode())
+        self.baseline = json.loads(_private_bytes(self.receipts / 'candidate-restored.json').decode())
+        self.identity = json.loads(_private_bytes(self.receipts / 'identity-before.json').decode())
+        require(context.get('candidate_database') == candidate and context.get('backup_dump_sha256') == DUMP_SHA256 and
+                context.get('candidate_oid') == self.baseline.get('database_oid') == self.identity.get('candidate_oid'),
+                'CandidateContextMismatch')
+        self.candidate_oid = context['candidate_oid']
+        fresh = collect_inventory(candidate, runner=runner)
+        validate_reviewed_drift(self.baseline, fresh, [])
+        validate_identity(self.identity, collect_identity(candidate, runner=runner))
+        self.outbound = collect_outbound_safety(candidate, runner=runner)
+        self.canonical_pid = int(prepare['services']['keycloak']['MainPID'])
+        expected_start = int(prepare['services']['keycloak']['ExecMainStartTimestampMonotonic'])
+        tick_usec = 1000000 / os.sysconf('SC_CLK_TCK')
+        self.canonical_main_start_ticks = _pid_start(self.canonical_pid)
+        require(abs(self.canonical_main_start_ticks * tick_usec - expected_start) <= tick_usec,
+                'CanonicalProcessChangedSincePrepare')
+        self.keycloak = pwd.getpwnam('keycloak')
+        reference = _canonical_java_reference(self.canonical_pid, self.keycloak.pw_uid)
+        require(_pid_start(self.canonical_pid) == self.canonical_main_start_ticks, 'CanonicalMainPidChangedDuringProbe')
+        self.canonical_java_pid, self.canonical_exe = reference['pid'], reference['exe']
+        self.canonical_java_start_ticks = reference['start_ticks']
+        self.forbidden_group_ids = {os.getpgid(self.canonical_pid), os.getpgid(self.canonical_java_pid)}
+        self.recipe = runtime_recipe(candidate, browser_tls=True)
+        self.private = Path(self.recipe['directory'])
+        self.distribution = Path(self.recipe['distribution'])
+        self.process = None
+        self.output = None
+        self.process_start = None
+        self.expected_tree = None
+        self.config_sha256 = None
+        self.live_config_sha256 = context['current_config_sha256']
+        self.java_pid = None
+        self.java_start_ticks = None
+        self.tls_verified = False
+
+    def copy_and_configure(self):
+        # Independent public release anchor, never trust arbitrary live-tree
+        # hashes as provenance. No download or live /opt reads/builds.
+        archive_mode = stat.S_IMODE(DISTRIBUTION_ARCHIVE.lstat().st_mode)
+        require(archive_mode in {0o600, 0o644}, 'DistributionArchiveModeInvalid')
+        archive_bytes = _private_bytes(DISTRIBUTION_ARCHIVE, mode=archive_mode,
+                                       expected_sha256=DISTRIBUTION_ARCHIVE_SHA256, maximum=512 * 1024**2)
+        common = self.private.parent
+        _physical_root_path(common.parent)
+        if not common.exists() and not common.is_symlink():
+            common.mkdir(mode=0o750)
+            os.chown(common, 0, self.keycloak.pw_gid)
+        _physical_root_path(common, mode=0o750)
+        require(common.stat().st_gid == self.keycloak.pw_gid, 'PrivateRuntimeGroupMismatch')
+        self.private.mkdir(mode=0o750, exist_ok=False)
+        os.chown(self.private, 0, self.keycloak.pw_gid)
+        with tarfile.open(fileobj=io.BytesIO(archive_bytes), mode='r:gz') as archive:
+            members = archive.getmembers()
+            archive_members = validate_archive_members(members)
+            archive.extractall(self.private, members=members, filter='data')
+        del archive_bytes
+        # Same reviewed a+rX permission intent as initial stopped-distribution
+        # repair. Never follow links; archive validator rejects all link types.
+        for path in [self.distribution, *self.distribution.rglob('*')]:
+            metadata = path.lstat()
+            require(stat.S_ISREG(metadata.st_mode) or stat.S_ISDIR(metadata.st_mode), 'ExtractedDistributionSpecialFile')
+            os.chown(path, 0, 0)
+            original = stat.S_IMODE(metadata.st_mode) & 0o777 & ~0o022
+            os.chmod(path, original | 0o444 | (0o111 if path.is_dir() or original & 0o111 else 0))
+        self.data = self.distribution / 'data'
+        self.work = self.private / 'work'
+        self.tmp = self.private / 'tmp'
+        for path in (self.data, self.work, self.tmp):
+            if not path.exists():
+                path.mkdir(mode=0o700)
+            require(path.is_dir() and not path.is_symlink(), 'PrivateMutableDirectoryMismatch')
+            os.chown(path, self.keycloak.pw_uid, self.keycloak.pw_gid)
+            os.chmod(path, 0o700)
+        for name in ('build-home', 'build-tmp'):
+            (self.private / name).mkdir(mode=0o700)
+        require(str(Path('/usr/bin/java').resolve()) == self.canonical_exe, 'PinnedJavaExecutableChanged')
+        self.build_recipe = private_build_recipe(self.candidate)
+        self.build_recipe_sha256 = hashlib.sha256(json.dumps(self.build_recipe, sort_keys=True,
+                                                           separators=(',', ':')).encode()).hexdigest()
+        self.runner(self.build_recipe['argv'], cwd=self.build_recipe['cwd'], maximum_output=1024 * 1024, timeout=180,
+                    owned_group_prefix=str(self.private), forbidden_group_ids=self.forbidden_group_ids,
+                    process_receipt=self.receipts / 'private-build-process.json')
+        # Root's private umask may be077: generated optimized JARs still need
+        # service-user read access, confined by the private parent750 boundary.
+        for directory, dirs, files in os.walk(self.distribution, followlinks=False):
+            if Path(directory) == self.distribution:
+                dirs[:] = [name for name in dirs if name != 'data']
+            for name in dirs + files:
+                path = Path(directory) / name
+                metadata = path.lstat()
+                require(metadata.st_uid == 0 and (stat.S_ISREG(metadata.st_mode) or stat.S_ISDIR(metadata.st_mode)),
+                        'PrivateBuiltDistributionOwnershipInvalid')
+                original = stat.S_IMODE(metadata.st_mode) & 0o777 & ~0o022
+                os.chmod(path, original | 0o444 | (0o111 if path.is_dir() or original & 0o111 else 0))
+        for path in [self.data, *self.data.rglob('*')]:
+            metadata = path.lstat()
+            require(stat.S_ISREG(metadata.st_mode) or stat.S_ISDIR(metadata.st_mode), 'PrivateDataSpecialFile')
+            os.chown(path, self.keycloak.pw_uid, self.keycloak.pw_gid)
+            os.chmod(path, 0o700 if stat.S_ISDIR(metadata.st_mode) else 0o600)
+        self.expected_tree = distribution_inventory(self.distribution, live_source=False)
+        validate_outbound_safety(dict(self.outbound,
+                                     custom_provider_artifact_count=self.expected_tree['custom_provider_artifact_count']))
+        source_conf = _private_bytes(Path('/etc/keycloak/keycloak.conf'), mode=0o640, maximum=65536)
+        require(hashlib.sha256(source_conf).hexdigest() == self.live_config_sha256, 'LiveConfigChangedSincePrepare')
+        derived = candidate_configuration(source_conf.decode(), self.candidate, browser_tls=True).encode()
+        self.config_sha256 = hashlib.sha256(derived).hexdigest()
+        _write_group_binary(self.private / 'candidate.conf', derived, self.keycloak.pw_gid)
+        tls = self.private / 'tls'
+        tls.mkdir(mode=0o750)
+        os.chown(tls, 0, self.keycloak.pw_gid)
+        certificate = Path('/etc/keycloak/tls/fullchain.pem')
+        key = Path('/etc/keycloak/tls/key.pem')
+        cert_data = _private_bytes(certificate, mode=0o644, maximum=1024 * 1024)
+        key_data = _private_bytes(key, mode=0o600, maximum=65536)
+        self.runner(['openssl', 'verify', '-purpose', 'sslserver', '-verify_hostname', 'sso.sosnadmin.local',
+                     '-CAfile', '/etc/keycloak/trust/ad-ca.pem', str(certificate)], maximum_output=65536)
+        cert_public = self.runner(['openssl', 'x509', '-in', str(certificate), '-pubkey', '-noout'], maximum_output=65536)
+        key_public = self.runner(['openssl', 'pkey', '-in', str(key), '-pubout'], maximum_output=65536)
+        require(cert_public == key_public, 'CandidateTlsCertificateKeyMismatch')
+        _write_group_binary(tls / 'fullchain.pem', cert_data, self.keycloak.pw_gid)
+        _write_group_binary(tls / 'key.pem', key_data, self.keycloak.pw_gid)
+        _write_private(self.receipts / 'private-runtime-closure.json', {
+            'candidate_database': self.candidate, 'candidate_oid': self.candidate_oid,
+            'distribution': self.expected_tree, 'private_root': str(self.private),
+            'archive_sha256': DISTRIBUTION_ARCHIVE_SHA256, 'archive_members': archive_members,
+            'build_recipe_sha256': self.build_recipe_sha256, 'build_recipe': self.build_recipe,
+            'all_realm_outbound_metadata': self.outbound,
+            'config_sha256': self.config_sha256, 'certificate_sha256': hashlib.sha256(cert_data).hexdigest(),
+            'canonical_main_pid': self.canonical_pid, 'canonical_main_start_ticks': self.canonical_main_start_ticks,
+            'canonical_java_pid': self.canonical_java_pid, 'canonical_java_start_ticks': self.canonical_java_start_ticks,
+            'forbidden_group_ids': sorted(self.forbidden_group_ids),
+            'original_config_unchanged': True, 'shared_live_data_link_copied': False,
+            'jvm_started': False, 'canonical_service_changed': False})
+
+    def start(self):
+        try:
+            return self._start_owned()
+        except BaseException:
+            self.stop()
+            raise
+
+    def _start_owned(self):
+        require(self.process is None and self.expected_tree is not None and self.config_sha256 is not None,
+                'PrivateRuntimeNotPrepared')
+        for port in (8089, 9009, 8449):
+            require(not self.runner(['ss', '-Hltn', 'sport', '=', ':' + str(port)], maximum_output=65536).strip(),
+                    'PrivateRuntimePortOccupied')
+        self.output = open(self.receipts / 'candidate-console.log', 'xb')
+        os.chmod(self.receipts / 'candidate-console.log', 0o600)
+        argv = list(self.recipe['argv'])
+        argv[argv.index('HOME=' + str(self.private))] = 'HOME=' + str(self.work)
+        self.process = subprocess.Popen(argv, cwd=self.work, stdout=self.output, stderr=self.output,
+                                        start_new_session=True, env={'PATH': SYSTEM_PATH, 'LANG': 'C.UTF-8'})
+        self.process_start = _pid_start(self.process.pid)
+        deadline = time.monotonic() + 120
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), _CandidateNoRedirects())
+        while time.monotonic() < deadline:
+            require(self.process.poll() is None, 'PrivateRuntimeExitedBeforeReady')
+            try:
+                with opener.open('http://127.0.0.1:9009/health/ready', timeout=2) as response:
+                    if response.status == 200 and json.loads(response.read(65536)).get('status') == 'UP':
+                        break
+            except (urllib.error.URLError, TimeoutError, ValueError, UnicodeError):
+                pass
+            time.sleep(1)
+        else:
+            raise RecoveryRefused('PrivateRuntimeReadinessTimeout')
+        # Verify existing CA and hostname against the actual candidate endpoint,
+        # without disabling chain/hostname verification or using a new CA.
+        self.runner(['openssl', 's_client', '-connect', '127.0.0.1:8449', '-servername', 'sso.sosnadmin.local',
+                     '-verify_hostname', 'sso.sosnadmin.local', '-verify_return_error',
+                     '-CAfile', '/etc/keycloak/trust/ad-ca.pem', '-brief'], input_bytes=b'', maximum_output=65536)
+        self.tls_verified = True
+        return self.proof()
+
+    def _owned_group(self):
+        protected_pids = {self.canonical_pid, getattr(self, 'canonical_java_pid', None)}
+        protected_groups = getattr(self, 'forbidden_group_ids', {self.canonical_pid})
+        require(self.process.pid not in protected_pids | protected_groups, 'CanonicalPidSignalProhibited')
+        members = []
+        for entry in Path('/proc').iterdir():
+            if not entry.name.isdigit():
+                continue
+            pid = int(entry.name)
+            try:
+                if os.getpgid(pid) != self.process.pid:
+                    continue
+                metadata = entry.stat()
+                if (entry / 'stat').read_text().rpartition(')')[2].split()[0] == 'Z':
+                    continue  # A dead zombie cannot own sockets or execute code.
+                command = (entry / 'cmdline').read_bytes()
+                require(metadata.st_uid in {0, self.keycloak.pw_uid} and
+                        str(self.private).encode() in command and pid not in protected_pids,
+                        'PrivateProcessGroupUnexpectedMember')
+                members.append(pid)
+            except (FileNotFoundError, ProcessLookupError):
+                continue
+        return members
+
+    def stop(self):
+        if self.process is None:
+            return {'owned_candidate_stopped': True, 'never_started': True}
+        if self.process.poll() is None:
+            require(_pid_start(self.process.pid) == self.process_start, 'PrivateProcessPidReused')
+        members = self._owned_group()
+        if members:
+            os.killpg(self.process.pid, signal.SIGTERM)
+            deadline = time.monotonic() + 30
+            while time.monotonic() < deadline and self._owned_group():
+                time.sleep(0.2)
+            if self._owned_group():
+                os.killpg(self.process.pid, signal.SIGKILL)
+            self.process.wait(timeout=10)
+            require(not self._owned_group(), 'PrivateRuntimeFailedToStop')
+        if self.output is not None:
+            self.output.close()
+        return {'owned_candidate_stopped': True, 'canonical_pid_signaled': False}
+
+    def proof(self):
+        require(self.process is not None and self.process.poll() is None and
+                _pid_start(self.process.pid) == self.process_start, 'PrivateRuntimeProcessMissing')
+        lines = self.runner(['ss', '-Hltnp'], maximum_output=1024 * 1024).decode().splitlines()
+        listeners, pids = {}, set()
+        for port in (8089, 9009, 8449):
+            matching = [line for line in lines if len(line.split()) >= 5 and line.split()[3].endswith(':' + str(port))]
+            require(len(matching) == 1 and matching[0].split()[3] == '127.0.0.1:' + str(port),
+                    'PrivateRuntimeListenerNotLoopback')
+            found = re.findall(r'pid=(\d+)', matching[0])
+            require(len(set(found)) == 1, 'PrivateRuntimeSocketOwnerAmbiguous')
+            pids.update(int(pid) for pid in found)
+            listeners[port] = matching[0].split()[3]
+        require(len(pids) == 1, 'PrivateRuntimeSocketPidMismatch')
+        java_pid = next(iter(pids))
+        require(java_pid in self._owned_group() and java_pid != self.canonical_pid and
+                Path('/proc/' + str(java_pid)).stat().st_uid == self.keycloak.pw_uid and
+                os.readlink('/proc/' + str(java_pid) + '/exe') == self.canonical_exe,
+                'PrivateRuntimeJavaIdentityMismatch')
+        if self.java_pid is not None:
+            require(java_pid == self.java_pid and _pid_start(java_pid) == self.java_start_ticks,
+                    'PrivateRuntimeJavaPidChanged')
+        java_marker = 'pid=' + str(java_pid) + ','
+        require(len([line for line in lines if java_marker in line]) == 3 and
+                java_marker not in self.runner(['ss', '-Hlunp'], maximum_output=1024 * 1024).decode(),
+                'PrivateRuntimeUnexpectedClusterSocket')
+        connections = self.runner(['ss', '-Hntp'], maximum_output=1024 * 1024).decode().splitlines()
+        java_pg_ports = {int(line.split()[3].rsplit(':', 1)[1]) for line in connections
+                         if java_marker in line and len(line.split()) >= 5 and line.split()[4] == '127.0.0.1:5544'}
+        sql = "SELECT jsonb_build_object('oid',(SELECT oid::bigint FROM pg_database WHERE datname='" + self.candidate + "'),'owner',(SELECT pg_get_userbyid(datdba) FROM pg_database WHERE datname='" + self.candidate + "'),'ports',(SELECT COALESCE(jsonb_agg(client_port),'[]'::jsonb) FROM pg_stat_activity WHERE datname='" + self.candidate + "' AND usename='keycloak' AND client_addr='127.0.0.1'));"
+        database = json.loads(self.runner(_psql_argv('postgres'), input_bytes=sql.encode(), maximum_output=65536))
+        database_ports = database.get('ports') if isinstance(database, dict) else None
+        require(database_ports and set(database_ports) == java_pg_ports and database.get('oid') == self.candidate_oid and
+                database.get('owner') == 'keycloak', 'PrivateRuntimeJdbcDatabaseMismatch')
+        for path in (self.data, self.work, self.tmp):
+            metadata = path.lstat()
+            require(stat.S_ISDIR(metadata.st_mode) and metadata.st_uid == self.keycloak.pw_uid and
+                    stat.S_IMODE(metadata.st_mode) == 0o700, 'PrivateMutableDirectoryMismatch')
+        _physical_root_path(self.private / 'candidate.conf', mode=0o640)
+        _physical_root_path(self.receipts / 'candidate-console.log', mode=0o600)
+        require(hashlib.sha256((self.private / 'candidate.conf').read_bytes()).hexdigest() == self.config_sha256,
+                'PrivateRuntimeConfigurationChanged')
+        require(distribution_inventory(self.distribution, live_source=False) == self.expected_tree,
+                'PrivateRuntimeDistributionChanged')
+        require(collect_outbound_safety(self.candidate, runner=self.runner) == self.outbound,
+                'PrivateRuntimeOutboundMetadataChanged')
+        nginx = self.runner(['nginx', '-T'], maximum_output=4 * 1024 * 1024)
+        require(not re.search(rb'[:\s](8089|9009|8449)\b|proxy_pass\s+[^;]*\$', nginx),
+                'PrivateRuntimeProxyExposurePossible')
+        require(self.tls_verified is True, 'PrivateRuntimeTlsProofMissing')
+        self.java_pid, self.java_start_ticks = java_pid, _pid_start(java_pid)
+        proof = {'schema': 'keycloak_private_runtime_proof_v1',
+                 'candidate_database': self.candidate, 'candidate_oid': self.candidate_oid,
+                 'pid': java_pid, 'canonical_pid': self.canonical_pid, 'uid_matches_keycloak': True,
+                 'pgid': os.getpgid(java_pid), 'start_ticks': self.java_start_ticks, 'uid': self.keycloak.pw_uid,
+                 'http_listener': listeners[8089], 'management_listener': listeners[9009],
+                 'https_listener': listeners[8449], 'socket_pids': [java_pid],
+                 'jdbc_database': self.candidate, 'jdbc_database_oid': database['oid'],
+                 'jdbc_database_owner': database['owner'], 'jdbc_port': 5544, 'jdbc_client_ports': sorted(java_pg_ports),
+                 'source_sha256': hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
+                 'config_sha256': self.config_sha256, 'archive_sha256': DISTRIBUTION_ARCHIVE_SHA256,
+                 'build_recipe_sha256': self.build_recipe_sha256, 'distribution_sha256': self.expected_tree['sha256'],
+                 'configuration_sha256_matches': True, 'private_distribution_sha256_matches': True,
+                 'private_data_tmp_logs': True, 'jdbc_session_database_matches': True,
+                 'no_jgroups_sockets': True, 'no_proxy_routes': True, 'browser_tls_guarded': True,
+                 'tls_chain_verified': True, 'tls_hostname_verified': True, 'archive_anchor_verified': True,
+                 'no_live_data_link': True, 'observed_utc_ms': int(time.time() * 1000)}
+        validate_runtime_proof(proof)
+        return proof
+
+
 def purge_sessions(client, inventory):
     """Bounded canonical Admin APIs; never user/OTP SQL or user lookups.
 
@@ -388,6 +1050,10 @@ def purge_sessions(client, inventory):
     old_max = inventory.get("maximum_restored_token_iat")
     require(type(cutoff) is int and type(old_max) is int and 0 <= old_max < cutoff,
             "FreshAdminMustPostdateRestoredTokens")
+    before = inventory.get('realm_not_before')
+    require(isinstance(before, dict) and set(before) == {'master', 'sosnadmin'} and
+            all(type(value) is int and 0 <= value <= cutoff for value in before.values()),
+            'ExistingRealmRevocationWouldBeLowered')
     sessions = inventory.get("offline_sessions")
     require(isinstance(sessions, list) and len(sessions) <= 100, "OfflineSessionBoundExceeded")
     seen = set()
@@ -412,16 +1078,483 @@ def purge_sessions(client, inventory):
         prefix = "/admin/realms/" + realm
         for item in sorted((item for item in sessions if item["realm"] == realm), key=lambda item: item["id"]):
             client.request("DELETE", prefix + "/sessions/" + item["id"] + "?isOffline=true")
-        if realm != "master":
-            client.request("POST", prefix + "/logout-all")
         client.request("PUT", prefix, payload={"notBefore": cutoff})
         current = client.request("GET", prefix)
         require(isinstance(current, dict) and current.get("notBefore") == cutoff, "RealmNotBeforeNotVerified")
-        if realm == "master":
-            client.request("POST", prefix + "/logout-all")
+        # ResourceAdminManager.logoutAll raises NB to currentTime as well. Keep
+        # it last for EACH realm so this explicit cutoff can never lower that.
+        client.request("POST", prefix + "/logout-all")
     return {"status": "CandidateSessionApisCompletedEvidenceRequired",
             "offline_deleted": len(sessions), "master_logout_last": True,
-            "not_before": cutoff, "persisted_zero_not_yet_proven": True}
+            "requested_not_before": cutoff, "persisted_zero_not_yet_proven": True}
+
+
+def identity_sql():
+    """Synthetic pilot metadata; hash OTP full row on server, never emit secrets."""
+    return """BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY;
+SET LOCAL statement_timeout='10s';
+WITH pilot AS (
+ SELECT * FROM user_entity WHERE realm_id='""" + REALM_ID + """'
+ AND username='ssopilot-20261027'
+)
+SELECT jsonb_build_object(
+ 'realm_user_count',(SELECT count(*) FROM user_entity WHERE realm_id='""" + REALM_ID + """'),
+ 'pilot_count',(SELECT count(*) FROM pilot),
+ 'user_id_sha256',(SELECT encode(sha256(convert_to(id,'UTF8')),'hex') FROM pilot),
+ 'created_timestamp',(SELECT created_timestamp FROM pilot),
+ 'enabled',(SELECT enabled FROM pilot),
+ 'federation_link_sha256',(SELECT encode(sha256(convert_to(federation_link,'UTF8')),'hex') FROM pilot),
+ 'ldap_id_count',(SELECT count(*) FROM user_attribute a JOIN pilot p ON p.id=a.user_id WHERE a.name='LDAP_ID'),
+ 'ldap_guid',CASE WHEN (SELECT count(*) FROM user_attribute a JOIN pilot p ON p.id=a.user_id
+   WHERE a.name='LDAP_ID')=1 AND (SELECT count(*) FROM user_attribute a JOIN pilot p ON p.id=a.user_id
+   WHERE a.name='LDAP_ID' AND lower(a.value)='""" + PILOT_GUID + """')=1
+   THEN '""" + PILOT_GUID + """' ELSE NULL END,
+ 'credentials',(SELECT COALESCE(jsonb_agg(jsonb_build_object('type',type,'created_date',created_date,
+   'row_sha256',encode(sha256(convert_to(to_jsonb(credential_row)::text,'UTF8')),'hex')) ORDER BY id),'[]'::jsonb)
+   FROM credential AS credential_row WHERE user_id=(SELECT id FROM pilot))
+);
+COMMIT;
+"""
+
+
+def collect_identity(database, *, runner=_run_private):
+    _names(database)
+    response = runner(_psql_argv(database), input_bytes=identity_sql().encode(), maximum_output=65536)
+    try:
+        result = json.loads(response)
+    except (ValueError, TypeError, UnicodeError):
+        raise RecoveryRefused("IdentityResponseMalformed") from None
+    require(isinstance(result, dict) and result.get("pilot_count") == 1, "OriginalPilotCountMismatch")
+    validate_identity(result, result)
+    return result
+
+
+def outbound_safety_sql():
+    return """BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY;
+SET LOCAL statement_timeout='10s';
+SELECT jsonb_build_object(
+ 'realms',(SELECT jsonb_agg(name ORDER BY name) FROM realm),
+ 'admin_url_count',(SELECT count(*) FROM client WHERE nullif(trim(management_url),'') IS NOT NULL),
+ 'backchannel_url_count',(SELECT count(*) FROM client_attributes WHERE lower(name) LIKE '%backchannel%'
+   AND lower(name) LIKE '%url%' AND nullif(trim(value),'') IS NOT NULL),
+ 'event_listeners',(SELECT jsonb_agg(DISTINCT value ORDER BY value) FROM realm_events_listeners),
+ 'identity_provider_count',(SELECT count(*) FROM identity_provider),
+ 'smtp_entry_count',(SELECT count(*) FROM realm_smtp_config),
+ 'storage_provider_count',(SELECT count(*) FROM component WHERE provider_type='org.keycloak.storage.UserStorageProvider'),
+ 'ldap_configuration_safe',EXISTS(SELECT 1 FROM component WHERE id='HqtFYF0QRMy-SARJtaSFzw'
+   AND parent_id='b3e36dfe-afda-48ea-a83a-bd2b28d924e5' AND provider_id='ldap'
+   AND provider_type='org.keycloak.storage.UserStorageProvider') AND NOT EXISTS(
+   SELECT 1 FROM (VALUES ('connectionUrl','ldaps://AD-MAIN.sosnadmin.local:636'),
+     ('usersDn','CN=ssopilot-20261027,OU=TEST,DC=sosnadmin,DC=local'),('searchScope','0'),
+     ('editMode','READ_ONLY'),('cachePolicy','NO_CACHE'),('syncRegistrations','false'),
+     ('fullSyncPeriod','-1'),('changedSyncPeriod','-1'),('useTruststoreSpi','always'),('connectionPooling','false'))
+   AS expected(name,value) WHERE (SELECT count(*) FROM component_config c
+     WHERE c.component_id='HqtFYF0QRMy-SARJtaSFzw' AND c.name=expected.name)<>1
+   OR NOT EXISTS(SELECT 1 FROM component_config c WHERE c.component_id='HqtFYF0QRMy-SARJtaSFzw'
+     AND c.name=expected.name AND c.value=expected.value))
+);
+COMMIT;
+"""
+
+
+def collect_outbound_safety(database, *, runner=_run_private):
+    _names(database)
+    response = runner(_psql_argv(database), input_bytes=outbound_safety_sql().encode(), maximum_output=65536)
+    try:
+        result = json.loads(response)
+    except (ValueError, TypeError, UnicodeError):
+        raise RecoveryRefused('OutboundResponseMalformed') from None
+    require(isinstance(result, dict) and result.get('realms') == ['master', 'sosnadmin'], 'UnexpectedRestoredRealms')
+    # This proves SQL metadata only. Binary provider absence remains a separate
+    # required check from distribution_inventory, never manufactured here.
+    validate_outbound_metadata(result)
+    return result
+
+
+def session_inventory_sql(fresh_sid):
+    try:
+        require(isinstance(fresh_sid, str) and str(uuid.UUID(fresh_sid)) == fresh_sid, 'FreshMasterSidInvalid')
+    except (ValueError, AttributeError):
+        raise RecoveryRefused('FreshMasterSidInvalid') from None
+    return """BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY;
+SET LOCAL statement_timeout='10s';
+SELECT jsonb_build_object(
+ 'realms',(SELECT jsonb_agg(name ORDER BY name) FROM realm),
+ 'fresh_master_session_count',(SELECT count(*) FROM offline_user_session s JOIN realm r ON r.id=s.realm_id
+   JOIN user_entity u ON u.id=s.user_id WHERE s.user_session_id='""" + fresh_sid + """'
+   AND s.offline_flag='0' AND r.name='master' AND u.username='sso-bootstrap'),
+ 'unexpected_offline_flags',(SELECT count(*) FROM offline_user_session WHERE offline_flag NOT IN ('0','1')),
+ 'maximum_restored_token_iat',(SELECT COALESCE(max(GREATEST(created_on,last_session_refresh)),0)
+   FROM offline_user_session WHERE user_session_id<>'""" + fresh_sid + """'),
+ 'offline_sessions',(SELECT COALESCE(jsonb_agg(jsonb_build_object('realm',r.name,'id',s.user_session_id)
+   ORDER BY r.name,s.user_session_id),'[]'::jsonb) FROM offline_user_session s JOIN realm r ON r.id=s.realm_id WHERE s.offline_flag='1'),
+ 'realm_not_before',(SELECT jsonb_object_agg(name,not_before) FROM realm)
+);
+COMMIT;
+"""
+
+
+def collect_session_inventory(database, fresh_sid, *, runner=_run_private):
+    _names(database)
+    response = runner(_psql_argv(database), input_bytes=session_inventory_sql(fresh_sid).encode(), maximum_output=65536)
+    try:
+        result = json.loads(response)
+    except (ValueError, TypeError, UnicodeError):
+        raise RecoveryRefused('SessionInventoryMalformed') from None
+    require(isinstance(result, dict) and result.get('fresh_master_session_count') == 1 and
+            result.get('unexpected_offline_flags') == 0, 'FreshMasterSessionOrFlagNotVerified')
+    return result
+
+
+def poststop_sessions_sql():
+    return """BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY;
+SELECT jsonb_build_object('offline_user_session',(SELECT count(*) FROM offline_user_session),
+ 'offline_client_session',(SELECT count(*) FROM offline_client_session),
+ 'auth_session',(SELECT count(*) FROM auth_session),'root_auth_session',(SELECT count(*) FROM root_auth_session),
+ 'realm_not_before',(SELECT jsonb_object_agg(name,not_before) FROM realm));
+COMMIT;
+"""
+
+
+def validate_poststop_sessions(result, cutoff):
+    require(isinstance(result, dict) and type(cutoff) is int and cutoff > 0, 'PoststopSessionProofInvalid')
+    for name in ('offline_user_session', 'offline_client_session', 'auth_session', 'root_auth_session'):
+        require(type(result.get(name)) is int and result[name] == 0, 'PersistentSessionsRemainHold')
+    realms = result.get('realm_not_before')
+    require(isinstance(realms, dict) and set(realms) == {'master', 'sosnadmin'} and
+            all(type(value) is int and value >= cutoff for value in realms.values()), 'RealmRevocationCutoffNotPreserved')
+
+
+def _exact_keys(value, names):
+    require(type(value) is dict and set(value) == set(names), 'PrivateRpcShapeInvalid')
+
+
+class ServerBrowserProofGate:
+    def __init__(self, binding):
+        self.binding_sha256 = hashlib.sha256(json.dumps(binding, separators=(',', ':')).encode('ascii')).hexdigest()
+        self.context_id, self.cookie_sha256, self.phase = None, None, 'new'
+
+    def started(self, proof):
+        _exact_keys(proof, ('stage', 'context_id', 'binding_sha256', 'all_callbacks_intercepted',
+                            'strict_tls', 'http_default_deny', 'websocket_default_deny'))
+        require(self.phase == 'new' and proof['stage'] == 'browser_ready' and
+                proof['binding_sha256'] == self.binding_sha256, 'BrowserReadyBindingMismatch')
+        try:
+            require(str(uuid.UUID(proof['context_id'])) == proof['context_id'], 'BrowserContextInvalid')
+        except (ValueError, TypeError, AttributeError):
+            raise RecoveryRefused('BrowserContextInvalid') from None
+        require(all(proof[key] is True for key in ('all_callbacks_intercepted', 'strict_tls',
+                                                  'http_default_deny', 'websocket_default_deny')), 'BrowserPolicyNotProven')
+        self.context_id, self.phase = proof['context_id'], 'started'
+
+    def _callback(self, proof, first):
+        _exact_keys(proof, ('stage', 'context_id', 'code_present', 'state_matches', 'callback_matches', 'error_present',
+                            'password_prompts', 'otp_prompts', 'cookie_fingerprint_sha256', 'identity_cookie_present',
+                            'cookies_secure', 'cookie_count', 'cookie_before_sha256', 'blocked_egress'))
+        require(proof['stage'] == 'callback' and proof['context_id'] == self.context_id and
+                all(proof[key] is True for key in ('code_present', 'state_matches', 'callback_matches',
+                                                  'identity_cookie_present', 'cookies_secure')) and
+                proof['error_present'] is False, 'BrowserCallbackNotProven')
+        require(type(proof['password_prompts']) is int and proof['password_prompts'] == int(first) and
+                type(proof['otp_prompts']) is int and proof['otp_prompts'] == 0 and
+                type(proof['blocked_egress']) is int and proof['blocked_egress'] == 0 and
+                type(proof['cookie_count']) is int and 1 <= proof['cookie_count'] <= 64 and
+                is_hash(proof['cookie_fingerprint_sha256']) and is_hash(proof['cookie_before_sha256']),
+                'BrowserCredentialOrCookieProvenanceInvalid')
+
+    def positive(self, initial, sso):
+        require(self.phase == 'started', 'BrowserPositiveOutOfOrder')
+        self._callback(initial, True)
+        self._callback(sso, False)
+        require(sso['cookie_before_sha256'] == initial['cookie_fingerprint_sha256'], 'BrowserPositiveCookieChanged')
+        self.cookie_sha256, self.phase = sso['cookie_fingerprint_sha256'], 'positive'
+
+    def negative(self, proof):
+        require(self.phase == 'positive', 'BrowserNegativeOutOfOrder')
+        _exact_keys(proof, ('stage', 'context_id', 'cookie_before_sha256', 'password_prompts',
+                            'otp_prompts', 'callback_absent', 'blocked_egress'))
+        require(proof['stage'] == 'password_required' and proof['context_id'] == self.context_id and
+                proof['cookie_before_sha256'] == self.cookie_sha256 and proof['callback_absent'] is True and
+                all(type(proof[key]) is int and proof[key] == 0 for key in ('password_prompts', 'otp_prompts', 'blocked_egress')),
+                'StaleBrowserCookieNotRejected')
+        self.phase = 'negative'
+
+    def closed(self, proof):
+        require(self.phase == 'negative' and type(proof) is dict and proof == {'stage': 'closed'}, 'BrowserCloseNotProven')
+        self.phase = 'closed'
+
+
+EXECUTOR_ROOT = Path('/root/keycloak-identity-recovery-20261027-executor')
+PILOT_HELPER_SHA256 = '7df5688f2c4de83cec4047c1788e56a8ccf1b84bd7297102545bea7bfa0a1cd8'
+
+
+class QualificationOperations:
+    """One private qualification; zero promotion capability, exact memory RPC."""
+    def __init__(self, candidate, helper, helper_sha256):
+        require(Path(__file__) == EXECUTOR_ROOT / 'recover_pilot_identity.py' and
+                helper == EXECUTOR_ROOT / 'pilot_acceptance.py' and helper_sha256 == PILOT_HELPER_SHA256,
+                'ReviewedExecutorPathRequired')
+        _physical_root_path(EXECUTOR_ROOT, mode=0o700)
+        _private_bytes(Path(__file__), mode=0o600, maximum=1024 * 1024)
+        helper_source = _private_bytes(helper, expected_sha256=PILOT_HELPER_SHA256, maximum=1024 * 1024)
+        self.runtime = PrivateCandidateRuntime(candidate)
+        self.canonical_start = _pid_start(self.runtime.canonical_pid)
+        self.receipts, self.phase = self.runtime.receipts, 'constructed'
+        self.source_sha256 = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
+        spec = importlib.util.spec_from_file_location('reviewed_private_keycloak_pilot', helper)
+        self.pilot = importlib.util.module_from_spec(spec)
+        # Compile exact verified bytes, avoiding any path reread/import race.
+        exec(compile(helper_source, str(helper), 'exec'), self.pilot.__dict__)
+        self.pilot.BASE = 'http://127.0.0.1:8089'
+        environment = self.pilot.read_private_environment()
+        self.environment = {name: environment[name] for name in
+                            ('SSO_BOOTSTRAP_PASSWORD', 'SSO_LDAP_BIND_DN', 'SSO_LDAP_BIND_PASSWORD')}
+        environment.clear()
+        self.browser, self.master, self.token_proof, self.purge_result = None, None, None, None
+        _write_private(self.receipts / 'qualification-begin.json', {
+            'source_sha256': self.source_sha256, 'candidate_database': candidate,
+            'candidate_oid': self.runtime.candidate_oid, 'original_current_drift_reviewed': False,
+            'canonical_writes_performed': False, 'switch_ready': False})
+
+    def perform(self, operation):
+        methods = {'verify_reviewed_restored_candidate_and_capacity': self.verify,
+                   'start_private_candidate_runtime': self.start,
+                   'verify_pid_sockets_database_and_config': self.runtime.proof,
+                   'apply_reviewed_retention_without_user_lookup': self.retention,
+                   'verify_original_pilot_and_otp': self.identity,
+                   'apply_reviewed_audience_and_basic_scope_repairs': self.scopes,
+                   'verify_all_realm_no_outbound_effects': self.outbound,
+                   'prove_browser_cookie_before_purge': self.positive,
+                   'purge_restored_sessions_master_last': self.purge,
+                   'verify_stale_cookie_and_token_rejected': self.negative,
+                   'stop_owned_candidate_pid': self.runtime.stop,
+                   'verify_persisted_sessions_zero': self.poststop,
+                   'collect_final_candidate_inventory': self.final_inventory}
+        require(operation in methods, 'PrivateQualificationOperationProhibited')
+        self.phase = operation
+        return methods[operation]()
+
+    def _client(self):
+        runtime, pilot = self.runtime, self.pilot
+        class ProofBoundClient(pilot.LocalAdminClient):
+            def request(self, *args, **kwargs):
+                runtime.proof()
+                return super().request(*args, **kwargs)
+        client = ProofBoundClient(request_budget=48)
+        client.login(self.environment['SSO_BOOTSTRAP_PASSWORD'])
+        return client
+
+    def _rpc(self, operation, expected_reply, **fields):
+        request = dict(op=operation, **fields)
+        if operation in {'browser_start', 'browser_positive', 'purge_held', 'browser_negative'}:
+            request['runtime_proof'] = self.runtime.proof()
+        print(json.dumps(request, separators=(',', ':')), flush=True)
+        require(select.select([sys.stdin], [], [], 180)[0], 'PrivateRpcReplyTimeout')
+        line = sys.stdin.buffer.readline(65537)
+        require(line and len(line) <= 65536 and line.endswith(b'\n'), 'PrivateRpcReplyMissing')
+        try:
+            result = json.loads(line)
+        except (ValueError, UnicodeError):
+            raise RecoveryRefused('PrivateRpcReplyMalformed') from None
+        require(type(result) is dict and result.get('op') == expected_reply, 'PrivateRpcReplyOutOfOrder')
+        self.runtime.proof()  # Actual OS/JDBC/TLS binding revalidated on EVERY return.
+        return result
+
+    def verify(self):
+        # No public-vs-original data approval is fabricated here. This operation
+        # stays private and ends HOLD with both original/final drifts UNREVIEWED.
+        current = self.runtime.runner(_psql_argv('postgres'), input_bytes=b"SELECT oid::bigint FROM pg_database WHERE datname='keycloak';", maximum_output=1024)
+        context = json.loads(_private_bytes(self.receipts / 'context.json').decode())
+        require(int(current.strip()) == context['current_oid'], 'CanonicalDatabaseChanged')
+        memory = int(next(line.split()[1] for line in Path('/proc/meminfo').read_text().splitlines()
+                          if line.startswith('MemAvailable:'))) * 1024
+        volumes = [os.statvfs('/var/lib'), os.statvfs('/var/lib/postgresql/16/keycloak')]
+        database_bytes = self.runtime.runner(_psql_argv('postgres'), input_bytes=(
+            "SELECT pg_database_size('keycloak')+pg_database_size('" + self.runtime.candidate + "');").encode(), maximum_output=1024)
+        validate_capacity({'free_bytes': min(v.f_bavail * v.f_frsize for v in volumes),
+                           'available_memory_bytes': memory, 'current_database_bytes': int(database_bytes.strip()),
+                           'distribution_bytes': 1024**3, 'dump_bytes': (Path(BACKUP) / 'keycloak.dump').stat().st_size})
+        return {'private_only': True, 'original_current_drift_reviewed': False}
+
+    def start(self):
+        self.runtime.copy_and_configure()
+        proof = self.runtime.start()
+        _write_private(self.receipts / 'private-runtime-started.json', proof)
+        return {'private_runtime_started': True}
+
+    def retention(self):
+        result = self.pilot.preserve_ldap_identities(self._client(), apply=True,
+            receipt_path=self.receipts / 'candidate-retention-before.json')
+        require(result.get('status') == 'LdapIdentityRetentionVerified', 'RetentionNotVerified')
+        return result
+
+    def identity(self):
+        result = collect_identity(self.runtime.candidate)
+        validate_identity(self.runtime.identity, result)
+        _write_private(self.receipts / 'identity-after-retention.json', result)
+        return {'original_identity_and_otp_unchanged': True}
+
+    def scopes(self):
+        audience = self.pilot.add_self_audiences(self._client(), self.environment, PILOT_GUID, apply=True,
+            receipt_path=self.receipts / 'candidate-audience-before.json')
+        basic = self.pilot.add_basic_scope(self._client(), self.environment, PILOT_GUID, apply=True,
+            receipt_path=self.receipts / 'candidate-basic-before.json')
+        require(audience.get('status') == 'SelfAudienceMappersVerified' and basic.get('status') == 'BasicClientScopesVerified',
+                'CandidateScopeParityNotVerified')
+        validate_identity(self.runtime.identity, collect_identity(self.runtime.candidate))
+        return {'audience_basic_parity_verified': True}
+
+    def outbound(self):
+        metadata = collect_outbound_safety(self.runtime.candidate)
+        require(metadata == self.runtime.outbound, 'CandidateOutboundMetadataChanged')
+        validate_outbound_safety(dict(metadata, custom_provider_artifact_count=
+                                     self.runtime.expected_tree['custom_provider_artifact_count']))
+        return {'all_realm_outbound_metadata_and_binary_closure_verified': True}
+
+    def positive(self):
+        proof = self.runtime.proof()
+        binding = {key: proof[key] for key in ('candidate_database', 'candidate_oid', 'pid', 'config_sha256', 'source_sha256')}
+        self.browser = ServerBrowserProofGate(binding)
+        reply = self._rpc('browser_start', 'browser_start_result', binding=binding)
+        _exact_keys(reply, ('op', 'proof'))
+        self.browser.started(reply['proof'])
+        reply = self._rpc('browser_positive', 'browser_positive_result')
+        _exact_keys(reply, ('op', 'initial', 'sso'))
+        self.browser.positive(reply['initial'], reply['sso'])
+        _write_private(self.receipts / 'browser-positive.json', {'initial': reply['initial'], 'sso': reply['sso']})
+        return {'same_context_browser_cookie_valid_before': True}
+
+    def purge(self):
+        require(self.browser.phase == 'positive', 'BrowserPositiveRequiredBeforePurge')
+        reply = self._rpc('purge_held', 'permit_purge', binding_sha256=self.browser.binding_sha256)
+        _exact_keys(reply, ('op', 'binding_sha256'))
+        require(reply['binding_sha256'] == self.browser.binding_sha256, 'PurgeBindingMismatch')
+        time.sleep(1.1)  # The final admin token strictly postdates every prior test/session iat.
+        client = self._client()
+        self.master = CandidateSessionClient(client.token, runtime_verifier=self.runtime.proof)
+        require(self.master.expires_at - int(time.time()) >= 45, 'FreshMasterTokenLifetimeTooShort')
+        realms = self.master.request('GET', '/admin/realms')
+        require(isinstance(realms, list) and sorted(item.get('realm') for item in realms) == ['master', 'sosnadmin'],
+                'FreshMasterTokenNotVerified')
+        started = time.monotonic()
+        inventory = collect_session_inventory(self.runtime.candidate, self.master.session_id)
+        _write_private(self.receipts / 'session-provenance-before.json', {
+            'fresh_master_sid_sha256': hashlib.sha256(self.master.session_id.encode()).hexdigest(),
+            'fresh_master_iat': self.master.admin_iat, 'fresh_master_expires_at': self.master.expires_at,
+            'maximum_other_token_iat': inventory['maximum_restored_token_iat'],
+            'offline_session_count': len(inventory['offline_sessions']),
+            'token_valid_before_http': 200, 'realm_not_before': inventory['realm_not_before']})
+        self.purge_result = purge_sessions(self.master, inventory)
+        rejected = False
+        try:
+            self.master.request('GET', '/admin/realms')
+        except RecoveryRefused as error:
+            require(str(error) == 'CandidateHTTP401', 'MasterTokenRejectionUnclassified')
+            rejected = True
+        require(rejected and time.monotonic() - started <= 30 and int(time.time()) < self.master.expires_at - 5,
+                'MasterTokenRevocationOrLifetimeNotProven')
+        self.token_proof = {'valid_before_http': 200, 'revoked_after_http': 401,
+                            'same_token_cryptographically_unexpired': True, 'elapsed_below_30_seconds': True}
+        _write_private(self.receipts / 'master-token-revocation.json', self.token_proof)
+        self.master.token = ''
+        return self.token_proof
+
+    def negative(self):
+        require(self.token_proof is not None, 'MasterTokenProofRequired')
+        reply = self._rpc('browser_negative', 'browser_negative_result', context_id=self.browser.context_id,
+                          expected_cookie_fingerprint_sha256=self.browser.cookie_sha256)
+        _exact_keys(reply, ('op', 'proof'))
+        self.browser.negative(reply['proof'])
+        _write_private(self.receipts / 'browser-negative.json', reply['proof'])
+        reply = self._rpc('browser_close', 'browser_close_result')
+        _exact_keys(reply, ('op', 'proof'))
+        self.browser.closed(reply['proof'])
+        return {'same_context_stale_cookie_requires_password': True}
+
+    def poststop(self):
+        require(self.browser.phase == 'closed' and self.token_proof is not None, 'PrivateNegativeProofIncomplete')
+        response = self.runtime.runner(_psql_argv(self.runtime.candidate), input_bytes=poststop_sessions_sql().encode(), maximum_output=65536)
+        result = json.loads(response)
+        validate_poststop_sessions(result, self.master.admin_iat)
+        validate_identity(self.runtime.identity, collect_identity(self.runtime.candidate))
+        _write_private(self.receipts / 'poststop-sessions.json', result)
+        return {'persistent_sessions_zero': True, 'original_identity_and_otp_unchanged': True}
+
+    def final_inventory(self):
+        final = collect_inventory(self.runtime.candidate)
+        drift = compare_snapshots(self.runtime.baseline, final)
+        require(final['database_oid'] == self.runtime.candidate_oid, 'FinalCandidateOidChanged')
+        _write_private(self.receipts / 'candidate-final.json', final)
+        _write_private(self.receipts / 'unreviewed-final-drift.json', drift)
+        self.verify()
+        require(_pid_start(self.runtime.canonical_pid) == self.canonical_start, 'CanonicalServiceProcessChanged')
+        require(_pid_start(self.runtime.canonical_java_pid) == self.runtime.canonical_java_start_ticks and
+                {os.getpgid(self.runtime.canonical_pid), os.getpgid(self.runtime.canonical_java_pid)} ==
+                self.runtime.forbidden_group_ids, 'CanonicalJavaProcessChanged')
+        self.result = {'schema': 'keycloak_private_qualification_result_v1', 'status': 'QualifiedUnreviewedDriftHold',
+            'candidate_database': self.runtime.candidate, 'candidate_oid': self.runtime.candidate_oid,
+            'source_sha256': self.source_sha256, 'private_receipt_directory': str(self.receipts),
+            'original_identity_and_otp_unchanged': True, 'browser_cookie_valid_before_stale_after': True,
+            'master_token_valid_before_revoked_unexpired': True, 'persistent_sessions_zero': True,
+            'owned_candidate_stopped': True, 'canonical_oid_unchanged': True, 'canonical_service_process_unchanged': True,
+            'canonical_writes_performed': False, 'original_current_drift_reviewed': False,
+            'final_drift_reviewed': False, 'switch_ready': False}
+        _write_private(self.receipts / 'private-qualification-result.json', self.result)
+        return {'private_qualification_complete': True, 'switch_ready': False}
+
+
+def run_private_qualification(candidate, helper, helper_sha256):
+    """Bounded source-only CLI until review/approval; no public switch path."""
+    operations, lock_fd, failure = None, None, None
+    handlers = {}
+    def interrupted(signum, frame):
+        # Repeated cancellation must not interrupt owned-group cleanup and
+        # accidentally turn uncertain termination into a confirmed failure.
+        for number in handlers:
+            signal.signal(number, signal.SIG_IGN)
+        raise RecoveryRefused('QualificationInterrupted')
+    try:
+        _run_private(['true'], maximum_output=0)
+        import fcntl
+        lock_fd = os.open('/run/keycloak-identity-recovery.lock', os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
+        metadata = os.fstat(lock_fd)
+        require(stat.S_ISREG(metadata.st_mode) and metadata.st_uid == 0 and metadata.st_nlink == 1 and
+                stat.S_IMODE(metadata.st_mode) == 0o600, 'RecoveryLockMetadataInvalid')
+        fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        for name in ('SIGTERM', 'SIGHUP', 'SIGINT'):
+            number = getattr(signal, name)
+            handlers[number] = signal.signal(number, interrupted)
+        os.umask(0o077)
+        operations = QualificationOperations(candidate, helper, helper_sha256)
+        qualify_candidate(operations)
+        print(json.dumps({'op': 'qualification_complete', 'result': operations.result}, separators=(',', ':')), flush=True)
+        return 0
+    except BaseException as error:
+        failure = 'PRIVATE_CANDIDATE_CLEANUP_HOLD' if (isinstance(error, RecoveryRefused) and
+                  str(error) == 'PrivateBuildCleanupHold') else 'PRIVATE_QUALIFICATION_ABORTED' if (isinstance(error, KeyboardInterrupt) or
+                    isinstance(error, RecoveryRefused) and str(error) in
+                    {'QualificationInterrupted', 'PrivateRpcReplyMissing', 'PrivateRpcReplyTimeout'}) else 'PRIVATE_QUALIFICATION_FAILED'
+        if operations is not None:
+            try:
+                operations.runtime.stop()
+            except BaseException:
+                failure = 'PRIVATE_CANDIDATE_CLEANUP_HOLD'
+            try:
+                _write_private(operations.receipts / 'qualification-failure.json', {
+                    'status': 'FailedHold', 'error_code': failure, 'phase': operations.phase,
+                    'canonical_writes_performed': False, 'switch_ready': False})
+            except BaseException:
+                pass
+        try:
+            print(json.dumps({'op': 'qualification_failed', 'error_code': failure}), flush=True)
+        except (OSError, ValueError):
+            pass
+        return 1
+    finally:
+        for number, handler in handlers.items():
+            signal.signal(number, handler)
+        if lock_fd is not None:
+            os.close(lock_fd)
 
 
 def validate_capacity(evidence):
@@ -641,7 +1774,7 @@ def validate_identity(backup, candidate):
     expected = {"user_id_sha256": ORIGINAL_SUBJECT_SHA256,
                 "created_timestamp": 1793048930752,
                 "federation_link_sha256": FEDERATION_SHA256,
-                "ldap_guid": PILOT_GUID, "realm_user_count": 1, "enabled": True}
+                "ldap_guid": PILOT_GUID, "ldap_id_count": 1, "realm_user_count": 1, "enabled": True}
     for evidence in (backup, candidate):
         require(all(evidence.get(key) == value for key, value in expected.items()),
                 "OriginalPilotIdentityMismatch")
@@ -762,10 +1895,17 @@ def main():
     parser.add_argument("--compare", nargs=3, type=Path, metavar=("BEFORE", "AFTER", "REVIEWED_DIFF"))
     parser.add_argument("--prepare-candidate", action="store_true",
                         help="After independent review only: forensic backup and fresh exclusive restore; stop before JVM/API/live service")
+    parser.add_argument('--qualify-private-candidate')
+    parser.add_argument('--pilot-helper', type=Path)
+    parser.add_argument('--pilot-helper-sha256')
     args = parser.parse_args()
     try:
-        require(not (args.compare and args.prepare_candidate), "ConflictingOperationModes")
-        if args.prepare_candidate:
+        require(sum(bool(mode) for mode in (args.compare, args.prepare_candidate, args.qualify_private_candidate)) <= 1,
+                "ConflictingOperationModes")
+        if args.qualify_private_candidate:
+            require(args.pilot_helper is not None and args.pilot_helper_sha256 is not None, 'PilotHelperClosureRequired')
+            raise SystemExit(run_private_qualification(args.qualify_private_candidate, args.pilot_helper, args.pilot_helper_sha256))
+        elif args.prepare_candidate:
             operations = PrepareOperations()
             try:
                 result = prepare_candidate(operations)
