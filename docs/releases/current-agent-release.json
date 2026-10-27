@@ -302,7 +302,7 @@
       "offline_linux_assigned": 5,
       "offline_windows_deferred": 4,
       "two_online_legacy_156_admission_conflicts": "preserved; not claimed installed",
-      "parallel_newer_pilot": "Separate SSO/WorkTime task is preparing157/158 on its limited pilot; never downgrade a newer verified installation.",
+      "parallel_newer_pilot": "Separate SSO/WorkTime 158 pilot, source 9423d9c: local Windows native 158 READY; ALT .210 native packages 158 with selected Core 156. At the 2026-10-26T22:25:25.072566+00:00 snapshot, Linux 158 canary and kit were published with zero 158 rollouts/targets; Setup 158 unregistered and default 156 preserved. Exact-source automatic compensation and both active enrollment campaign allowlists remain unqualified for 158. Actual notifications, 20-minute observation and real-user SSO acceptance remain pending. See docs/superpowers/reports/2026-10-27-agent-3.2.158-pilot.md; never downgrade a newer verified installation.",
       "all_transient_administrative_services_absent": true
     }
   },
