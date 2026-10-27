@@ -256,11 +256,11 @@ def test_isolated_launch_recipe_has_separate_tree_environment_ports_and_no_secre
     assert command[:5] == ["runuser", "-u", "keycloak", "--", "env"]
     assert "-i" in command
     assert command[-2:] == ["start", "--optimized"]
-    assert command[-3].startswith("--config-file=/var/lib/keycloak-recovery-v4/")
-    assert command[-4].startswith("/var/lib/keycloak-recovery-v4/")
+    assert command[-3].startswith("--config-file=/var/lib/keycloak-recovery-v5/")
+    assert command[-4].startswith("/var/lib/keycloak-recovery-v5/")
     assert not any("/opt/keycloak" in arg for arg in command)
     assert any("JAVA_OPTS_KC_HEAP=-Xms128m -Xmx768m" == arg for arg in command)
-    assert any('-Duser.home=/var/lib/keycloak-recovery-v4/keycloak_recovery_20261027_abcdef12/work' in arg for arg in command)
+    assert any('-Duser.home=/var/lib/keycloak-recovery-v5/keycloak_recovery_20261027_abcdef12/work' in arg for arg in command)
     assert recipe["http"] == "127.0.0.1:8089" and recipe["management"] == "127.0.0.1:9009"
     assert recipe["shared_mutable_paths"] == [] and recipe["cache"] == "local"
 
@@ -292,8 +292,8 @@ def test_browser_tls_profile_is_fixed_private_and_never_uses_a_validation_bypass
     values = dict(line.split("=", 1) for line in result.splitlines() if line)
     assert values["hostname"] == "https://sso.sosnadmin.local:18449"
     assert values["https-port"] == "8449" and values["http-management-scheme"] == "http"
-    assert values["https-certificate-key-file"] == "/var/lib/keycloak-recovery-v4/" + candidate + "/tls/key.pem"
-    assert values["https-certificate-file"] == "/var/lib/keycloak-recovery-v4/" + candidate + "/tls/fullchain.pem"
+    assert values["https-certificate-key-file"] == "/var/lib/keycloak-recovery-v5/" + candidate + "/tls/key.pem"
+    assert values["https-certificate-file"] == "/var/lib/keycloak-recovery-v5/" + candidate + "/tls/fullchain.pem"
     assert values["http-host"] == "127.0.0.1"
     recipe = m.runtime_recipe(candidate, browser_tls=True)
     assert recipe["https"] == "127.0.0.1:8449"
@@ -600,7 +600,7 @@ def test_actual_runtime_stop_guard_rejects_signal_for_uncertain_process(failure,
     runtime.process = SimpleNamespace(pid=40, poll=lambda:None)
     runtime.process_start = 123
     runtime.canonical_pid = 40 if failure == "canonical-pid" else 90
-    runtime.private = Path('/var/lib/keycloak-recovery-v4/keycloak_recovery_20261027_abcdef12')
+    runtime.private = Path('/var/lib/keycloak-recovery-v5/keycloak_recovery_20261027_abcdef12')
     runtime.keycloak = SimpleNamespace(pw_uid=1000)
     runtime.output = None
     monkeypatch.setattr(m, '_pid_start', lambda pid:999 if failure == 'pid-reuse' else 123)
@@ -674,7 +674,7 @@ def test_private_build_has_no_network_shared_home_or_inherited_environment():
     assert recipe['argv'][:5]==['unshare','--net','--','env','-i']
     assert recipe['argv'][-5:]==['build','--db=postgres','--health-enabled=true','--metrics-enabled=false','--cache=local']
     assert all('/opt/keycloak' not in arg for arg in recipe['argv'])
-    assert any(arg.startswith('HOME=/var/lib/keycloak-recovery-v4/') for arg in recipe['argv'])
+    assert any(arg.startswith('HOME=/var/lib/keycloak-recovery-v5/') for arg in recipe['argv'])
     assert any(arg.startswith('JAVA_OPTS_KC_HEAP=-Xms128m -Xmx1024m') for arg in recipe['argv'])
 
 
@@ -772,7 +772,7 @@ def test_private_build_cleanup_owns_group_even_when_shell_has_exited(scenario,mo
     def signal_group(group,number):signals.append((group,number));state['members']=False
     monkeypatch.setattr(m.os,'killpg',signal_group,raising=False)
     invoke=lambda:m._run_owned_private_group(['private-build'],input_bytes=None,output=io.BytesIO(),timeout=1,
-        cwd=None,environment={},prefix='/var/lib/keycloak-recovery-v4/keycloak_recovery_20261027_abcdef12',forbidden={90,91})
+        cwd=None,environment={},prefix='/var/lib/keycloak-recovery-v5/keycloak_recovery_20261027_abcdef12',forbidden={90,91})
     if scenario=='timeout':
         with pytest.raises(m.subprocess.TimeoutExpired):invoke()
     else:invoke()
@@ -1136,8 +1136,53 @@ def test_actual_owned_build_cleanup_failure_preserves_original_timeout_metadata(
     monkeypatch.setattr(m,'_stop_owned_build_group',lambda *args:(_ for _ in ()).throw(ValueError('raw-cleanup-secret')))
     with pytest.raises(m.RecoveryRefused) as caught:
         m._run_owned_private_group(['build'],input_bytes=None,output=io.BytesIO(),timeout=1,cwd=None,environment={},
-            prefix='/var/lib/keycloak-recovery-v4/keycloak_recovery_20261027_abcdef12',forbidden={90})
+            prefix='/var/lib/keycloak-recovery-v5/keycloak_recovery_20261027_abcdef12',forbidden={90})
     assert caught.value.primary_metadata=={'exception_class':'TimeoutExpired','refusal_code':None}
     assert caught.value.cleanup_metadata=={'exception_class':'ValueError','refusal_code':None}
     assert caught.value.args==('PrivateBuildCleanupHold',)
     assert 'raw-' not in json.dumps([caught.value.primary_metadata,caught.value.cleanup_metadata])
+
+
+def reachable_startup_refusal_codes():
+    """Static committed-code reachability plus explicit dynamic runner boundary."""
+    import ast
+    tree=ast.parse((ROOT/'tools/keycloak/recover_pilot_identity.py').read_text())
+    functions={};classes={}
+    for node in tree.body:
+        if isinstance(node,(ast.FunctionDef,ast.AsyncFunctionDef)):functions[node.name]=(node,None)
+        elif isinstance(node,ast.ClassDef):
+            classes[node.name]=node
+            for method in node.body:
+                if isinstance(method,ast.FunctionDef):functions[node.name+'.'+method.name]=(method,node.name)
+    pending=['PrivateCandidateRuntime._start_owned','PrivateCandidateRuntime.proof','PrivateCandidateRuntime.stop',
+             'PrivateCandidateRuntime.verify_canonical_reference','PrivateCandidateRuntime.verify_pristine_attempt',
+             'validate_runtime_proof','_pid_start','_run_private']
+    visited=set();codes=set()
+    while pending:
+        key=pending.pop()
+        if key in visited:continue
+        visited.add(key);node,owner=functions[key]
+        for call in (x for x in ast.walk(node) if isinstance(x,ast.Call)):
+            if isinstance(call.func,ast.Name):
+                name=call.func.id
+                index=1 if name=='require' else 0 if name in {'RecoveryRefused','RecoveryCleanupFailure'} else None
+                if index is not None and len(call.args)>index and isinstance(call.args[index],ast.Constant) and type(call.args[index].value) is str:
+                    codes.add(call.args[index].value)
+                if name in functions:pending.append(name)
+                elif name in classes and name+'.__init__' in functions:pending.append(name+'.__init__')
+            elif isinstance(call.func,ast.Attribute) and owner is not None and isinstance(call.func.value,ast.Name) and call.func.value.id=='self':
+                target=owner+'.'+call.func.attr
+                if target in functions:pending.append(target)
+    return codes,visited
+
+
+def test_every_fixed_reachable_startup_refusal_preserves_exact_safe_diagnostic():
+    import re
+    m=module();codes,visited=reachable_startup_refusal_codes()
+    assert {'PrivateCandidateRuntime.proof','_capture_canonical_reference','_canonical_java_reference',
+            '_pid_start','_owned_build_members','distribution_inventory','validate_outbound_metadata'}<=visited
+    assert 'ProcessIdentityUnavailable' in codes
+    assert all(re.fullmatch('[A-Z][A-Za-z0-9]{1,99}',code) for code in codes)
+    assert codes<=m.SAFE_REFUSAL_CODES, 'Missing fixed safe diagnostic codes: '+','.join(sorted(codes-m.SAFE_REFUSAL_CODES))
+    for code in sorted(codes):
+        assert m._safe_error_metadata(m.RecoveryRefused(code))=={'exception_class':'RecoveryRefused','refusal_code':code}

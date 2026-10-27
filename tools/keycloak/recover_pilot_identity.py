@@ -301,7 +301,7 @@ def candidate_configuration(source, candidate, *, browser_tls=False):
     del values["proxy-trusted-addresses"]
     require(type(browser_tls) is bool, "InvalidBrowserTlsProfile")
     if browser_tls:
-        private = "/var/lib/keycloak-recovery-v4/" + candidate
+        private = "/var/lib/keycloak-recovery-v5/" + candidate
         values.update({"hostname": "https://sso.sosnadmin.local:18449", "https-port": "8449",
                        "https-certificate-file": private + "/tls/fullchain.pem",
                        "https-certificate-key-file": private + "/tls/key.pem",
@@ -312,7 +312,7 @@ def candidate_configuration(source, candidate, *, browser_tls=False):
 def runtime_recipe(candidate, *, browser_tls=False):
     """No shared mutable live tree or inherited KC/JAVA/secret environment."""
     _names(candidate)
-    private = "/var/lib/keycloak-recovery-v4/" + candidate
+    private = "/var/lib/keycloak-recovery-v5/" + candidate
     distribution = private + "/keycloak-26.8.1"
     result = {"directory": private, "distribution": distribution,
             "cache": "local", "http": "127.0.0.1:8089", "management": "127.0.0.1:9009",
@@ -426,7 +426,7 @@ def _stop_owned_build_group(process, prefix, forbidden, start):
 
 
 def _run_owned_private_group(argv, *, input_bytes, output, timeout, cwd, environment, prefix, forbidden, process_receipt=None):
-    require(re.fullmatch(r'/var/lib/keycloak-recovery-v4/keycloak_recovery_20261027_[0-9a-f]{8}', prefix),
+    require(re.fullmatch(r'/var/lib/keycloak-recovery-v5/keycloak_recovery_20261027_[0-9a-f]{8}', prefix),
             'PrivateBuildPrefixInvalid')
     process = subprocess.Popen(argv, stdin=subprocess.PIPE if input_bytes is not None else subprocess.DEVNULL,
                                stdout=output, stderr=subprocess.DEVNULL, cwd=cwd, env=environment,
@@ -670,7 +670,7 @@ def validate_archive_members(members):
 
 def private_build_recipe(candidate):
     _names(candidate)
-    private = '/var/lib/keycloak-recovery-v4/' + candidate
+    private = '/var/lib/keycloak-recovery-v5/' + candidate
     return {'archive_sha256': DISTRIBUTION_ARCHIVE_SHA256, 'network_namespace': True,
             'cwd': private + '/build-home',
             'argv': ['unshare', '--net', '--', 'env', '-i', 'PATH=/usr/bin:/bin', 'LANG=C.UTF-8',
@@ -834,7 +834,7 @@ def _create_qualification_journal(evidence_root, candidate):
 def _private_candidate_processes(candidate):
     _names(candidate)
     prefixes = [('/var/lib/' + name + '/' + candidate).encode()
-                for name in ('keycloak-recovery', 'keycloak-recovery-v4')]
+                for name in ('keycloak-recovery', 'keycloak-recovery-v4', 'keycloak-recovery-v5')]
     found = []
     for entry in Path('/proc').iterdir():
         if not entry.name.isdigit() or int(entry.name) == os.getpid():
@@ -1456,6 +1456,34 @@ SAFE_REFUSAL_CODES = frozenset({
     'PrivateRpcDuplicateKey', 'PrivateRpcChallengeInvalidOrReplayed', 'PrivateRpcEventAlreadyConsumed',
     'PrivateRpcOperationInvalid', 'FreshMasterTokenLifetimeTooShort', 'MasterTokenRevocationOrLifetimeNotProven',
     'PersistentSessionsRemainHold', 'CanonicalProcessIdentityChanged', 'CanonicalProcessChangedSincePrepare',
+    # Fixed literal diagnostics reachable across startup/proof and its trusted runner.
+    'AbsolutePhysicalPathRequired', 'ActualTableManifestMismatch', 'ApprovedHostRequired',
+    'ApprovedJava21Required', 'ApprovedLinuxRootRequired', 'CandidateCustomListenerPossible',
+    'CandidateLdapScopeOrScheduledSyncUnsafe', 'CandidateOutboundEffectPossible', 'CanonicalJavaDescendantNotUnique',
+    'CanonicalMainProcessMismatch', 'CanonicalPidSignalProhibited', 'CanonicalProcessChangedDuringProbe',
+    'CanonicalProcessMetadataInvalid', 'CanonicalServiceMetadataInvalid', 'CleanupFailureCodeInvalid',
+    'Complete101TableInventoryRequired', 'CustomOutboundProviderProhibited', 'DatabaseOidMissing',
+    'DatabaseOwnerMismatch', 'DedicatedClusterRequired', 'DistributionFileBoundExceeded',
+    'DistributionFileDigestInvalid', 'DistributionForeignOwner', 'DistributionInventoryBoundExceeded',
+    'DistributionLauncherMissing', 'DistributionLinkEscape', 'DistributionManifestInvalid',
+    'DistributionPathInvalid', 'DistributionSpecialFile', 'DistributionWritableOrSpecial',
+    'ExactReviewedDriftRequired', 'ExclusiveCandidateNameRequired', 'IdentityEvidenceMalformed',
+    'IdentityResponseMalformed', 'InventoryBoundExceeded', 'InventoryDatabaseMismatch',
+    'InventoryResponseMalformed', 'LiveDataLinkContractMismatch', 'OriginalOtpEvidenceMissing',
+    'OriginalPilotCountMismatch', 'OutboundEvidenceMissing', 'OutboundResponseMalformed',
+    'PinnedTableManifestMismatch', 'Postgres16Required', 'PreparedCanonicalServiceInvalid',
+    'PrivateBuildPrefixInvalid', 'PrivateCommandOutputBoundExceeded', 'PrivateDataMustBePhysical',
+    'PrivateMutableDirectoryMismatch', 'PrivateProcessGroupUnexpectedMember', 'PrivateProcessPidReused',
+    'PrivateReceiptWriteFailed', 'PrivateRuntimeDistributionChanged', 'PrivateRuntimeJavaIdentityMismatch',
+    'PrivateRuntimeJavaPidChanged', 'PrivateRuntimeListenerNotLoopback', 'PrivateRuntimeNotPrepared',
+    'PrivateRuntimeOutboundMetadataChanged', 'PrivateRuntimeProcessMissing', 'PrivateRuntimeProxyExposurePossible',
+    'PrivateRuntimeSocketOwnerAmbiguous', 'PrivateRuntimeSocketPidMismatch', 'PrivateRuntimeTlsProofMissing',
+    'PrivateRuntimeUnexpectedClusterSocket', 'ProcessIdentityUnavailable', 'RowDigestInvalid',
+    'RuntimeIsolationProofIncomplete', 'RuntimePidMismatch', 'RuntimeProofMissing',
+    'RuntimeSocketIsolationMismatch', 'SchemaDigestInvalid', 'SchemaOrPermissionsDrift',
+    'SequenceSetDrift', 'SequenceStateInvalid', 'SnapshotMalformed',
+    'SnapshotVersionMismatch', 'TableNameInvalid', 'TableSetDrift',
+    'UnexpectedRestoredRealms', 'UnexpectedSchemaExecutable',
 })
 
 
@@ -1472,7 +1500,7 @@ def _safe_error_metadata(error):
             'refusal_code': refusal}
 
 
-EXECUTOR_ROOT = Path('/root/keycloak-identity-recovery-20261027-executor-v4')
+EXECUTOR_ROOT = Path('/root/keycloak-identity-recovery-20261027-executor-v5')
 PILOT_HELPER_SHA256 = '7df5688f2c4de83cec4047c1788e56a8ccf1b84bd7297102545bea7bfa0a1cd8'
 
 

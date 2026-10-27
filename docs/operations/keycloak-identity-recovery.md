@@ -34,7 +34,7 @@ switch command. Production application SSO activation is a separate gate.
 ## Private execution closure
 
 After independent source review, install the exact reviewed buffers exclusively
-under `/root/keycloak-identity-recovery-20261027-executor-v4` (root, mode 0700), with
+under `/root/keycloak-identity-recovery-20261027-executor-v5` (root, mode 0700), with
 `recover_pilot_identity.py` and the pinned `pilot_acceptance.py` root, mode 0600. Verify
 the complete physical ancestor chain and hashes before execution; never execute
 root source from an ordinary-user/PostgreSQL-writable staging directory. Preserve
@@ -48,15 +48,17 @@ and systemd exec time are different events and have no tolerance comparison.
 The server command has no secrets in argv:
 
 ```sh
-/usr/bin/python3 -I -u /root/keycloak-identity-recovery-20261027-executor-v4/recover_pilot_identity.py \
+/usr/bin/python3 -I -u /root/keycloak-identity-recovery-20261027-executor-v5/recover_pilot_identity.py \
   --qualify-private-candidate keycloak_recovery_20261027_55f72537 \
-  --pilot-helper /root/keycloak-identity-recovery-20261027-executor-v4/pilot_acceptance.py \
+  --pilot-helper /root/keycloak-identity-recovery-20261027-executor-v5/pilot_acceptance.py \
   --pilot-helper-sha256 7df5688f2c4de83cec4047c1788e56a8ccf1b84bd7297102545bea7bfa0a1cd8
 ```
 
 The candidate has its own physical data/home/temp directories and local cache
-under the new `/var/lib/keycloak-recovery-v4` root. The previous
-`/var/lib/keycloak-recovery` directory and all prior journals remain unchanged.
+under the new `/var/lib/keycloak-recovery-v5` root. The previous
+`/var/lib/keycloak-recovery` directory, retained v4 tree and all prior journals
+remain unchanged. Existing private processes in any of these roots refuse a
+new attempt; retained inactive v4 files are not repaired or resumed.
 All three group-traversable directories (common root, candidate and TLS) use one
 exclusive creation primitive: create 0700 relative to a protected parent FD,
 open without following links, validate root ownership/inode, then set group and
@@ -78,8 +80,8 @@ Its distribution is freshly extracted from the retained official archive at
 The optimized build runs only in this private tree, in a network namespace with
 an empty environment and a 1024 MiB heap. Runtime heap is 768 MiB with explicit
 private Java home/temp properties. Live `/opt/keycloak` is not copied or built.
-The candidate-specific v4 build recipe SHA256 is
-`12006ef1dfa486c7934be688f556929e9ca8b2341edc3e414904954362f0d2f3`.
+The candidate-specific v5 build recipe SHA256 is
+`d6d4a6b64ed958e887e8fb84706d030c6ec76fadd19ba63234e806d7671a8082`.
 All outgoing provider/client/listener configuration is checked before session
 APIs; only the fixed read-only LDAPS pilot scope is permitted.
 
@@ -136,6 +138,12 @@ Failure evidence retains the triggering operation before cleanup and records
 cleanup phase separately. Only fixed exception-class names and explicitly
 whitelisted refusal codes may enter that journal; arbitrary exception arguments,
 HTTP bodies or strings are excluded. A failed cleanup still requires HOLD.
+Static AST coverage requires every fixed refusal reachable through startup,
+runtime proof, canonical/process helpers and the trusted runner to retain its
+exact safe diagnostic, including `ProcessIdentityUnavailable`. This changes
+diagnostic coverage only; runtime guards are not relaxed. The prior run's
+`UnclassifiedRefusal` remains unknown and is not retroactively diagnosed from
+checks performed after its private process stopped.
 
 This document describes the reviewed workflow boundary, not a claim that live
 private qualification or public promotion has completed.
