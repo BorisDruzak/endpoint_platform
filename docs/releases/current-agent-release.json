@@ -4,7 +4,7 @@
   "status": "qualified existing-device rollout",
   "runtime_source_commit": "9423d9c27ea6b2d6c544c1bcdc1edb7cc9d15421",
   "windows_packaging_commit": "f9bf89187f33a47b01a0b555558f5cce3614b488",
-  "verification_code_commit": "668e7bc30898ef24bdbe0a22ccb92a6ed8be366d",
+  "verification_code_commit": "2ca38733e99b8412f694285446a4371929902e66",
   "canonical_rules": "AGENTS.md#canonical-agent-release",
   "previous_release_record": "docs/releases/agent-3.2.156.json",
   "windows": {
@@ -152,11 +152,20 @@
       "failures": 0,
       "artifact_source_and_xml_verified": true
     },
-    "selective_main_integration_ci": "pending exact integration commit; runtime225 source entries match the signed9423 build."
+    "selective_main_integration_ci": {
+      "source": "2ca38733e99b8412f694285446a4371929902e66",
+      "run": "https://github.com/BorisDruzak/endpoint_platform/actions/runs/40464299306",
+      "passed": 5134,
+      "skipped": 913,
+      "failures": 0,
+      "artifact_source_and_xml_verified": true,
+      "broader_sso_server_changes_included": false
+    }
   },
   "provider": {
     "last_observed_runtime_source": "62fb4c83efbea9e4acc19c779db034a80087d2f9",
-    "note": "Separately authorized SSO pilot provider; this agent rollout does not deploy the server or merge its broad SSO/WorkTime branch."
+    "note": "Separately authorized SSO pilot provider; this agent rollout does not deploy the server or merge its broad SSO/WorkTime branch.",
+    "deployment_guard": "This agent integration does not reconcile the separately deployed SSO provider/database migrations. Do not infer that this main server snapshot can replace that provider."
   },
   "delivery_repair_156": {
     "causes": [
@@ -177,5 +186,21 @@
     "Legacy81 source and incompatible protected histories remain unqualified.",
     "Offline assignments, stale heartbeat and duplicate historical VM identities are not installation acceptance.",
     "Real-user SSO, WorkTime notifications and broad server feature acceptance are separate from native/runtime upgrade acceptance."
-  ]
+  ],
+  "fleet_rollout": {
+    "production_windows158_independently_verified": 6,
+    "windows158_native_profile": "Source156 / exact6ed-ab6 / previous149 / absent compiled-default origin",
+    "per_device_authenticated_wss_window_at_least_seconds": 180,
+    "root_live_native_source_private4_and_server_verification": true,
+    "maximum_simultaneous_native_installs": 2,
+    "bulk_native_retries": 0,
+    "bridge156_previous_failures_fixed_and_three_devices_verified": true,
+    "linux158_existing_singleton_current_state_verified": true,
+    "unreachable_linux_records": 4,
+    "historical_linux_address_now_has_other_protected_device_identity": 1,
+    "legacy_windows63_core79_reconnected_but_not_qualified_by156_or158_cohort_drivers": 1,
+    "legacy_windows81_preflight_conflict": 1,
+    "original_protected_origin_previous_none_profile": "Explicitly authorized original-PC qualification in preparation; current156 not yet158 acceptance."
+  },
+  "linux_kit_metadata_commit": "2ca38733e99b8412f694285446a4371929902e66"
 }
